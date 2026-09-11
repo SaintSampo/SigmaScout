@@ -49,10 +49,6 @@ import {
   armRegister,
   BASELINE_ARM_ID,
   buildArtifact,
-  carryoverFixArm,
-  CARRYOVER_FIX_ARM_ID,
-  CARRYOVER_FIX_MIN250_ARM_ID,
-  CARRYOVER_FIX_MIN500_ARM_ID,
   contrastFor,
   deviationRegister,
   emptyAblationCensus,
@@ -61,18 +57,13 @@ import {
   meanDiff,
   pairedAccuracyDiffs,
   pairedBrierDiffs,
-  ratioForState,
   rescaledWinProbability,
   SCHEMA_VERSION,
-  selectThreshold,
   THRESHOLD_CANDIDATES,
   THRESHOLD_DEFAULT,
+  THRESHOLD_SELECTION_OUTCOME,
   verdictFor,
-  type CarryoverFixState,
-  type ContrastMetric,
-  type ContrastRow,
   type ScorableRow,
-  type Scope,
 } from "./measureEpaDeviations.js";
 
 describe("rescaledWinProbability", () => {
@@ -274,9 +265,8 @@ describe("deviationRegister / buildArtifact — nothing is silently omitted", ()
       contrasts: [],
       census: emptyAblationCensus(),
       carryScale: [],
-      deferredRescales: 0,
-      rescaledTeams: 0,
-      thresholdSelection: null,
+      neverSeenTeams: 0,
+      carriedTeams: 0,
     });
     expect(artifact.schemaVersion).toBe(SCHEMA_VERSION);
     expect(artifact.notes.additive).toBe(false);
@@ -300,222 +290,92 @@ describe("deviationRegister / buildArtifact — nothing is silently omitted", ()
     expect(leaky?.unshippableReason).toBeTruthy();
   });
 
-  it("names the carryover arm's approximation rather than claiming Statbotics parity", () => {
+  it("still names the carryover approximation rather than claiming Statbotics parity, now that it SHIPS", () => {
+    // Shipping the fix did not make it parity. The rescale is an ESTIMATE of
+    // the incoming season's scale from that season's own folded scores, and a
+    // team seen before enough of them exist forfeits it — so the label must
+    // survive the arm that used to carry it.
     const carry = deviationRegister().find((d) => d.id === "carryover-scale-anchor")!;
     expect(carry.approximation).toBe("closest-walk-forward-legal");
-    expect(ARM_IDS).toContain(CARRYOVER_FIX_ARM_ID);
+    expect(carry.status).toBe("closed");
+    expect(carry.armIds).toEqual([]);
   });
 });
 
 // ───────────────────────── threshold refinement (quick task 260911-3kc) ─────
-
-describe("carryoverFixArm(id, minObs) — the threshold is THREADED, never defaulted", () => {
-  // Each of these is a state the arm would be in mid-season, differing ONLY in
-  // how many of the new season's own alliance scores have been folded. If
-  // `minObs` were dropped anywhere between the arm's constructor and
-  // `cleanSeasonMean`'s fourth parameter, every arm would silently behave like
-  // the incumbent at 100 and the threshold comparison would measure three
-  // copies of one arm while reporting them as three thresholds.
-  const SEED_MEAN = 290;
-  const REAL_MEAN = 60;
-
-  function stateWithRealFolds(minObs: number, realCount: number): CarryoverFixState {
-    const arm = carryoverFixArm("arm-under-test", minObs);
-    const base = arm.initState(["frc1"]);
-    const count = EPA_SCORE_SD_SEED_COUNT + realCount;
-    const mean = (SEED_MEAN * EPA_SCORE_SD_SEED_COUNT + REAL_MEAN * realCount) / count;
-    return {
-      ...base,
-      seedMean: SEED_MEAN,
-      inner: { ...base.inner, allianceScoreStats: { count, mean, m2: 0 } },
-    };
-  }
-
-  it("defers at 400 real folds and reads the ratio at 600 when built at minObs = 500", () => {
-    expect(ratioForState(stateWithRealFolds(500, 400)).deferred).toBe(true);
-    const readable = ratioForState(stateWithRealFolds(500, 600));
-    expect(readable.deferred).toBe(false);
-    expect(readable.ratio).toBeCloseTo(REAL_MEAN / SEED_MEAN, 9);
-  });
-
-  it("reads the ratio at BOTH 400 and 600 when built at minObs = 100", () => {
-    expect(ratioForState(stateWithRealFolds(100, 400)).deferred).toBe(false);
-    expect(ratioForState(stateWithRealFolds(100, 600)).deferred).toBe(false);
-  });
-
-  it("keeps the zero-argument call site on the incumbent threshold", () => {
-    const arm = carryoverFixArm();
-    expect(arm.id).toBe(CARRYOVER_FIX_ARM_ID);
-    expect(arm.initState([]).minObs).toBe(EPA_CARRY_RESCALE_MIN_OBS);
-  });
-});
+//
+// The blocks that exercised `carryoverFixArm`, `ratioForState` and
+// `selectThreshold` are GONE, because those functions are gone: the carryover
+// fix ships inside `epa@8.0.0+baseline`, so an arm that wrapped the shipped
+// module would apply the rescale twice. What survives here is everything that
+// is still live — the contrast's reference-arm field, and the frozen record of
+// how the shipped threshold was chosen.
 
 describe("contrastFor — a contrast names the arm it was actually measured AGAINST", () => {
-  // A challenger measured against the INCUMBENT but labelled `baselineArmId:
-  // "epa"` would be read as a vs-baseline effect and would invert the
-  // selection decision: a challenger that is slightly better than plain EPA but
-  // WORSE than the incumbent fix would look like a reason to adopt it.
+  // A challenger measured against an INCUMBENT but labelled `baselineArmId:
+  // "epa"` would be read as a vs-baseline effect and would invert a selection
+  // decision: an arm can be better than plain EPA and worse than the variant
+  // already shipping. The carryover challengers that made this concrete are
+  // gone; the field stays in the schema, so its contract stays tested.
   const units = [
     { eventKey: "2019week0", matchKey: "2019week0_qm1", diff: -0.02 },
     { eventKey: "2019week0", matchKey: "2019week0_qm2", diff: -0.01 },
     { eventKey: "2019ncwak", matchKey: "2019ncwak_qm1", diff: -0.03 },
     { eventKey: "2019ncwak", matchKey: "2019ncwak_qm2", diff: 0.01 },
   ];
+  const CHALLENGER = "some-challenger-arm";
+  const REFERENCE = "some-reference-arm";
 
   it("defaults to the baseline arm", () => {
-    const row = contrastFor(CARRYOVER_FIX_MIN250_ARM_ID, "pooled", null, "brier", units);
-    expect(row?.baselineArmId).toBe(BASELINE_ARM_ID);
+    expect(contrastFor(CHALLENGER, "pooled", null, "brier", units)?.baselineArmId).toBe(BASELINE_ARM_ID);
   });
 
   it("records an explicit reference arm when one is supplied", () => {
-    const row = contrastFor(
-      CARRYOVER_FIX_MIN250_ARM_ID,
-      "pooled",
-      null,
-      "brier",
-      units,
-      CARRYOVER_FIX_ARM_ID
-    );
-    expect(row?.baselineArmId).toBe(CARRYOVER_FIX_ARM_ID);
-    expect(row?.armId).toBe(CARRYOVER_FIX_MIN250_ARM_ID);
+    const row = contrastFor(CHALLENGER, "pooled", null, "brier", units, REFERENCE);
+    expect(row?.baselineArmId).toBe(REFERENCE);
+    expect(row?.armId).toBe(CHALLENGER);
   });
 
   it("records the reference arm on the identical-diffs short circuit too", () => {
     const zeros = units.map((u) => ({ ...u, diff: 0 }));
-    const row = contrastFor(CARRYOVER_FIX_MIN500_ARM_ID, "onset", null, "brier", zeros, CARRYOVER_FIX_ARM_ID);
+    const row = contrastFor(CHALLENGER, "onset", null, "brier", zeros, REFERENCE);
     expect(row?.verdict).toBe("identical");
-    expect(row?.baselineArmId).toBe(CARRYOVER_FIX_ARM_ID);
+    expect(row?.baselineArmId).toBe(REFERENCE);
   });
 });
 
-describe("selectThreshold — the pre-declared rule, executed by a function rather than by eye", () => {
-  function contrast(
-    armId: string,
-    scope: Scope,
-    metric: ContrastMetric,
-    pointEstimate: number,
-    lower: number,
-    upper: number
-  ): ContrastRow {
-    return {
-      armId,
-      baselineArmId: CARRYOVER_FIX_ARM_ID,
-      scope,
-      season: null,
-      metric,
-      pointEstimate,
-      standardError: 0.001,
-      percentile: { lower, upper },
-      eventCount: 100,
-      matchCount: 5000,
-      verdict: verdictFor(metric, lower, upper, pointEstimate),
-      note: null,
-    };
-  }
-
-  const CHALLENGERS = [
-    { armId: CARRYOVER_FIX_MIN250_ARM_ID, minObs: 250 },
-    { armId: CARRYOVER_FIX_MIN500_ARM_ID, minObs: 500 },
-  ];
-  const INCUMBENT = { armId: CARRYOVER_FIX_ARM_ID, minObs: EPA_CARRY_RESCALE_MIN_OBS };
-
-  /** A challenger that is neutral on both guards — the guards must not be what decides. */
-  function neutralGuards(armId: string): ContrastRow[] {
-    return [
-      contrast(armId, "pooled", "winnerAccuracy", 0.0001, -0.0009, 0.0011),
-      contrast(armId, "pooled", "brier", -0.00001, -0.0002, 0.0002),
-    ];
-  }
-
-  it("keeps the incumbent when every challenger's primary interval spans zero", () => {
-    const rows = [
-      ...neutralGuards(CARRYOVER_FIX_MIN250_ARM_ID),
-      ...neutralGuards(CARRYOVER_FIX_MIN500_ARM_ID),
-      contrast(CARRYOVER_FIX_MIN250_ARM_ID, "onset", "brier", -0.0004, -0.002, 0.0012),
-      contrast(CARRYOVER_FIX_MIN500_ARM_ID, "onset", "brier", -0.0009, -0.0031, 0.0009),
-    ];
-    const decision = selectThreshold(rows, CHALLENGERS, INCUMBENT);
-    expect(decision.selected).toBe(EPA_CARRY_RESCALE_MIN_OBS);
-    expect(decision.selectedArmId).toBe(CARRYOVER_FIX_ARM_ID);
-    expect(decision.reason).toMatch(/no challenger/i);
-  });
-
-  it("takes the SMALLER threshold when both challengers pass all three clauses", () => {
-    const rows = [
-      ...neutralGuards(CARRYOVER_FIX_MIN250_ARM_ID),
-      ...neutralGuards(CARRYOVER_FIX_MIN500_ARM_ID),
-      contrast(CARRYOVER_FIX_MIN250_ARM_ID, "onset", "brier", -0.004, -0.006, -0.002),
-      contrast(CARRYOVER_FIX_MIN500_ARM_ID, "onset", "brier", -0.008, -0.01, -0.006),
-    ];
-    const decision = selectThreshold(rows, CHALLENGERS, INCUMBENT);
-    expect(decision.selected).toBe(250);
-    expect(decision.selectedArmId).toBe(CARRYOVER_FIX_MIN250_ARM_ID);
-    expect(decision.reason).toMatch(/tie-break/i);
-  });
-
-  it("rejects a challenger whose pooled-season ACCURACY is definitively worse (guard 1)", () => {
-    const rows = [
-      contrast(CARRYOVER_FIX_MIN250_ARM_ID, "pooled", "winnerAccuracy", -0.003, -0.005, -0.001),
-      contrast(CARRYOVER_FIX_MIN250_ARM_ID, "pooled", "brier", -0.00001, -0.0002, 0.0002),
-      contrast(CARRYOVER_FIX_MIN250_ARM_ID, "onset", "brier", -0.004, -0.006, -0.002),
-      ...neutralGuards(CARRYOVER_FIX_MIN500_ARM_ID),
-      contrast(CARRYOVER_FIX_MIN500_ARM_ID, "onset", "brier", -0.0004, -0.002, 0.0012),
-    ];
-    const decision = selectThreshold(rows, CHALLENGERS, INCUMBENT);
-    expect(decision.selected).toBe(EPA_CARRY_RESCALE_MIN_OBS);
-    const rejected = decision.evaluations.find((e) => e.armId === CARRYOVER_FIX_MIN250_ARM_ID)!;
-    expect(rejected.passed).toBe(false);
-    expect(rejected.clause).toMatch(/guard 1/i);
-  });
-
-  it("rejects a challenger whose pooled-season BRIER is definitively worse (guard 2)", () => {
-    const rows = [
-      contrast(CARRYOVER_FIX_MIN500_ARM_ID, "pooled", "winnerAccuracy", 0.0001, -0.0009, 0.0011),
-      contrast(CARRYOVER_FIX_MIN500_ARM_ID, "pooled", "brier", 0.003, 0.001, 0.005),
-      contrast(CARRYOVER_FIX_MIN500_ARM_ID, "onset", "brier", -0.008, -0.01, -0.006),
-      ...neutralGuards(CARRYOVER_FIX_MIN250_ARM_ID),
-      contrast(CARRYOVER_FIX_MIN250_ARM_ID, "onset", "brier", -0.0004, -0.002, 0.0012),
-    ];
-    const decision = selectThreshold(rows, CHALLENGERS, INCUMBENT);
-    expect(decision.selected).toBe(EPA_CARRY_RESCALE_MIN_OBS);
-    const rejected = decision.evaluations.find((e) => e.armId === CARRYOVER_FIX_MIN500_ARM_ID)!;
-    expect(rejected.passed).toBe(false);
-    expect(rejected.clause).toMatch(/guard 2/i);
-  });
-
-  it("refuses to decide on a MISSING primary contrast rather than silently defaulting", () => {
-    // An absent contrast is not evidence of no effect. Treating it as a quiet
-    // "did not pass" would let a broken measurement look like a clean
-    // keep-the-incumbent outcome, which is the one wrong answer that looks
-    // exactly like the right one.
-    const rows = [...neutralGuards(CARRYOVER_FIX_MIN250_ARM_ID), ...neutralGuards(CARRYOVER_FIX_MIN500_ARM_ID)];
-    expect(() => selectThreshold(rows, CHALLENGERS, INCUMBENT)).toThrow(/primary contrast/i);
-  });
-
-  it("reads only contrasts measured against the INCUMBENT, never vs-baseline ones", () => {
-    const vsBaseline = contrast(CARRYOVER_FIX_MIN250_ARM_ID, "onset", "brier", -0.04, -0.06, -0.02);
-    const rows = [
-      ...neutralGuards(CARRYOVER_FIX_MIN250_ARM_ID),
-      ...neutralGuards(CARRYOVER_FIX_MIN500_ARM_ID),
-      { ...vsBaseline, baselineArmId: BASELINE_ARM_ID },
-      contrast(CARRYOVER_FIX_MIN250_ARM_ID, "onset", "brier", -0.0004, -0.002, 0.0012),
-      contrast(CARRYOVER_FIX_MIN500_ARM_ID, "onset", "brier", -0.0009, -0.0031, 0.0009),
-    ];
-    const decision = selectThreshold(rows, CHALLENGERS, INCUMBENT);
-    expect(decision.selected).toBe(EPA_CARRY_RESCALE_MIN_OBS);
-  });
-});
-
-describe("the candidate set and the selection rule are literal data in the artifact", () => {
-  it("declares exactly three candidates, with the incumbent among them", () => {
+describe("the threshold decision survives as literal data after its arms were deleted", () => {
+  it("declares exactly three candidates, strictly ascending, with the shipped value among them", () => {
     expect(THRESHOLD_CANDIDATES).toHaveLength(3);
-    expect(THRESHOLD_CANDIDATES).toContain(EPA_CARRY_RESCALE_MIN_OBS);
-    // Strictly ascending — the tie-break says "smaller", which is only
-    // meaningful against an ordered set.
+    expect(THRESHOLD_CANDIDATES).toContain(THRESHOLD_SELECTION_OUTCOME.selected);
+    // The tie-break says "smaller", which is only meaningful against an order.
     expect([...THRESHOLD_CANDIDATES]).toEqual([...THRESHOLD_CANDIDATES].sort((a, b) => a - b));
+    // The INCUMBENT at measurement time was the smallest candidate. It is NOT
+    // the shipped constant any more, and conflating the two would rewrite what
+    // the challengers were measured against.
+    expect(THRESHOLD_DEFAULT).toBe(THRESHOLD_CANDIDATES[0]);
   });
 
-  it("serializes the rule, the tie-break and the default into the artifact", () => {
+  it("keeps the frozen record in step with the constant the model actually runs at", () => {
+    // These two moving apart is the failure this pins: a decision record that
+    // describes a threshold nothing uses reads exactly like a decision record
+    // that describes the shipped one.
+    expect(EPA_CARRY_RESCALE_MIN_OBS).toBe(THRESHOLD_SELECTION_OUTCOME.selected);
+  });
+
+  it("records every challenger it evaluated, passing or not, with the clause that decided it", () => {
+    expect(THRESHOLD_SELECTION_OUTCOME.evaluations).toHaveLength(2);
+    for (const evaluation of THRESHOLD_SELECTION_OUTCOME.evaluations) {
+      expect(evaluation.clause).toBeTruthy();
+      expect(Number.isFinite(evaluation.onsetBrier)).toBe(true);
+      expect(THRESHOLD_CANDIDATES).toContain(evaluation.minObs);
+    }
+    // The winner is the SMALLEST passing threshold — the recorded tie-break.
+    const passing = THRESHOLD_SELECTION_OUTCOME.evaluations.filter((e) => e.passed).map((e) => e.minObs);
+    expect(Math.min(...passing)).toBe(THRESHOLD_SELECTION_OUTCOME.selected);
+  });
+
+  it("serializes the rule, the tie-break, the default and the shipped constant into the artifact", () => {
     const artifact = buildArtifact({
       seasons: [2022, 2023],
       corpusPath: "data/corpus.sqlite",
@@ -524,41 +384,41 @@ describe("the candidate set and the selection rule are literal data in the artif
       contrasts: [],
       census: emptyAblationCensus(),
       carryScale: [],
-      deferredRescales: 0,
-      rescaledTeams: 0,
-      thresholdSelection: null,
+      neverSeenTeams: 0,
+      carriedTeams: 0,
     });
     const block = artifact.notes.thresholdSelection;
     expect(block.candidates).toHaveLength(3);
-    // The INCUMBENT at measurement time, which is the smallest candidate — NOT
-    // `EPA_CARRY_RESCALE_MIN_OBS`. Those were the same number when this ran and
-    // are not now, because the run's own outcome moved the shipped constant to
-    // 250. Asserting the shipped constant here would let the record of what the
-    // challengers were measured against drift with the answer they produced.
     expect(block.default).toBe(THRESHOLD_DEFAULT);
-    expect(block.default).toBe(THRESHOLD_CANDIDATES[0]);
     expect(block.rule).toBeTruthy();
     expect(block.tieBreak).toMatch(/smaller/i);
-    // `selected` is null until the run has actually produced one: a pre-filled
-    // selection would be a decision made before the measurement existed.
-    expect(block.selected).toBeNull();
+    expect(block.selected).toBe(THRESHOLD_SELECTION_OUTCOME.selected);
+    expect(block.shippedConstant).toBe(EPA_CARRY_RESCALE_MIN_OBS);
+    expect(block.reason).toMatch(/not independently confirmed/i);
   });
 
-  it("carries all three carryover arms, each naming the same deviation", () => {
-    expect(ARM_IDS).toContain(CARRYOVER_FIX_MIN250_ARM_ID);
-    expect(ARM_IDS).toContain(CARRYOVER_FIX_MIN500_ARM_ID);
-    const arms = armRegister();
-    for (const id of [CARRYOVER_FIX_ARM_ID, CARRYOVER_FIX_MIN250_ARM_ID, CARRYOVER_FIX_MIN500_ARM_ID]) {
-      expect(arms.find((a) => a.id === id)!.deviations).toEqual(["carryover-scale-anchor"]);
-    }
-    expect(deviationRegister().find((d) => d.id === "carryover-scale-anchor")!.armIds).toEqual([
-      CARRYOVER_FIX_ARM_ID,
-      CARRYOVER_FIX_MIN250_ARM_ID,
-      CARRYOVER_FIX_MIN500_ARM_ID,
-    ]);
+  it("carries NO carryover arm, and says so by absence", () => {
+    // The load-bearing assertion of this whole closeout: an arm that wrapped
+    // the shipped module would now apply the rescale twice, so its return would
+    // be measured as "the fix" while being a double-apply.
+    for (const armId of ARM_IDS) expect(armId).not.toMatch(/carryover/);
+    for (const arm of armRegister()) expect(arm.id).not.toMatch(/carryover/);
   });
 
-  it("bumps the schema version, because a consumer must now read baselineArmId", () => {
+  it("closes the deviation while KEEPING its measurement", () => {
+    const carry = deviationRegister().find((d) => d.id === "carryover-scale-anchor")!;
+    expect(carry.status).toBe("closed");
+    expect(carry.armIds).toEqual([]);
+    expect(carry.priorMeasurement).not.toBeNull();
+    expect(carry.priorMeasurement!.thresholdSelection).toEqual(THRESHOLD_SELECTION_OUTCOME);
+    // The regression is recorded, not quietly dropped along with the arm.
+    const labels = carry.priorMeasurement!.values.map((v) => v.label).join(" | ");
+    expect(labels).toMatch(/WORSE/);
+    // It is still an APPROXIMATION of Statbotics, not parity.
+    expect(carry.approximation).toBe("closest-walk-forward-legal");
+  });
+
+  it("keeps the schema version, because a consumer must read baselineArmId", () => {
     expect(SCHEMA_VERSION).toBe(2);
   });
 });

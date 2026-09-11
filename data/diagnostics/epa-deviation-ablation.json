@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-11T07:17:52.714Z",
+  "generatedAt": "2026-09-11T07:52:26.330Z",
   "generator": "scripts/measureEpaDeviations.ts (pnpm measure:epa-deviations)",
   "corpusPath": "data/corpus.sqlite",
   "seasons": [
@@ -24,21 +24,115 @@
   "deviations": [
     {
       "id": "carryover-scale-anchor",
-      "title": "Season-boundary carry converts into the OUTGOING season's point units",
+      "title": "Season-boundary carry converted into the OUTGOING season's point units",
       "class": "rating-mechanics",
-      "status": "measured",
+      "status": "closed",
       "shippable": true,
       "predictionAffecting": true,
-      "docSection": "§8 (added by quick task 260910-x09)",
-      "summary": "carryover.ts's epaCarryover derives one {mean, sd} pair from the OUTGOING season's teamTotals and uses it for BOTH normalizedFromPoints and normalizedToSeasonUnits, so every team enters a new season carrying last season's point units. 02-CONTEXT.md D-16 and 02-RESEARCH.md record Statbotics' init.py converting into the NEW season's units — this is a port defect against the project's own recorded reference.",
+      "docSection": "§8 (docs/models/epa-divergences.md)",
+      "summary": "carryover.ts's epaCarryover derived one {mean, sd} pair from the OUTGOING season's teamTotals and used it for BOTH normalizedFromPoints and normalizedToSeasonUnits, so every team entered a new season carrying last season's point units. 02-CONTEXT.md D-16 and 02-RESEARCH.md record Statbotics' init.py converting into the NEW season's units — a port defect against the project's own recorded reference. ADOPTED as the shipped default at epa@8.0.0+baseline: epaCarryover is unchanged and the correction is composed on top, lazily, per team, on first sight (packages/core/algorithms/epaCarryScale.ts).",
       "reason": null,
       "approximation": "closest-walk-forward-legal",
-      "armIds": [
-        "epa-carryover-fix",
-        "epa-carryover-fix-min250",
-        "epa-carryover-fix-min500"
-      ],
-      "priorMeasurement": null
+      "armIds": [],
+      "priorMeasurement": {
+        "provenance": "prior-measurement",
+        "source": "quick task 260910-x09 (the fix as an arm) and quick task 260911-3kc (the shipped threshold), nine seasons 2016-2019 + 2022-2026, 147,221 scored matches, 1,653 event blocks, paired and event-blocked against the then-shipped epa@7.0.0+baseline",
+        "season": null,
+        "population": "pooled across nine seasons; the published scorer (aggregateScores), ties counted in Brier",
+        "metric": "accuracy-and-brier",
+        "values": [
+          {
+            "label": "pooled winner accuracy delta vs un-fixed EPA",
+            "value": 0.01059
+          },
+          {
+            "label": "pooled winner accuracy 95% lower",
+            "value": 0.00846
+          },
+          {
+            "label": "pooled winner accuracy 95% upper",
+            "value": 0.01285
+          },
+          {
+            "label": "pooled Brier delta vs un-fixed EPA",
+            "value": -0.00521
+          },
+          {
+            "label": "pooled Brier 95% lower",
+            "value": -0.00638
+          },
+          {
+            "label": "pooled Brier 95% upper",
+            "value": -0.00412
+          },
+          {
+            "label": "2019 winner accuracy delta (the whole effect)",
+            "value": 0.07943
+          },
+          {
+            "label": "2019 Brier delta",
+            "value": -0.04234
+          },
+          {
+            "label": "2018 Brier delta — WORSE, interval excludes zero",
+            "value": 0.00052
+          },
+          {
+            "label": "2018 Brier 95% lower",
+            "value": 0.0003
+          },
+          {
+            "label": "2018 Brier 95% upper",
+            "value": 0.00075
+          },
+          {
+            "label": "pooled ONSET Brier delta — WORSE at the boundary itself",
+            "value": 0.00184
+          },
+          {
+            "label": "pooled ONSET Brier 95% lower",
+            "value": 0.00005
+          },
+          {
+            "label": "pooled ONSET Brier 95% upper",
+            "value": 0.00365
+          }
+        ],
+        "note": "THE POOLED GAIN IS 2019 AVERAGED ACROSS NINE SEASONS, not a broad improvement. 2018 -> 2019 is the one boundary where the point scale collapses ~5x (291.84 -> 55.41), and it is the one season that moves; every other season sits inside ±0.5pp. That concentration is the pre-registered mechanism test PASSING — a uniform effect would have REFUTED the mechanism. Stated with its costs: 2018's Brier is definitively worse, and the ONSET window (the first 500 scorable matches after each boundary) is definitively worse too, because a live per-season scale estimate is noisy before it has observed much. The fix pays that back many times over across the season it affects.",
+        "thresholdSelection": {
+          "selected": 250,
+          "selectedArmId": "epa-carryover-fix-min250",
+          "reason": "TIE-BREAK — 2 challengers passed, taking the SMALLER threshold. epa-carryover-fix-min250: PRIMARY met (pooled onset Brier BETTER vs epa-carryover-fix) and neither guard fired. NOT INDEPENDENTLY CONFIRMED: the margin over the plain minObs=100 fix was selected on the same nine seasons it was measured on.",
+          "evaluations": [
+            {
+              "armId": "epa-carryover-fix-min250",
+              "minObs": 250,
+              "passed": true,
+              "clause": "PRIMARY met (pooled onset Brier BETTER vs epa-carryover-fix) and neither guard fired",
+              "onsetBrier": -0.00203,
+              "onsetBrierInterval": {
+                "lower": -0.00339,
+                "upper": -0.00068
+              },
+              "seasonAccuracyVerdict": "indistinguishable",
+              "seasonBrierVerdict": "better"
+            },
+            {
+              "armId": "epa-carryover-fix-min500",
+              "minObs": 500,
+              "passed": true,
+              "clause": "PRIMARY met (pooled onset Brier BETTER vs epa-carryover-fix) and neither guard fired",
+              "onsetBrier": -0.00179,
+              "onsetBrierInterval": {
+                "lower": -0.0035,
+                "upper": -0.00007
+              },
+              "seasonAccuracyVerdict": "indistinguishable",
+              "seasonBrierVerdict": "indistinguishable"
+            }
+          ]
+        }
+      }
     },
     {
       "id": "winprob-scale",
@@ -192,39 +286,6 @@
       "approximation": null
     },
     {
-      "id": "epa-carryover-fix",
-      "label": "lazy per-team rescale into the NEW season's point units on first sight (INCUMBENT, minObs = 100)",
-      "deviations": [
-        "carryover-scale-anchor"
-      ],
-      "isBaseline": false,
-      "shippable": true,
-      "unshippableReason": null,
-      "approximation": "closest-walk-forward-legal"
-    },
-    {
-      "id": "epa-carryover-fix-min250",
-      "label": "the same lazy rescale, deferred until minObs = 250 of the new season's own alliance scores",
-      "deviations": [
-        "carryover-scale-anchor"
-      ],
-      "isBaseline": false,
-      "shippable": true,
-      "unshippableReason": null,
-      "approximation": "closest-walk-forward-legal"
-    },
-    {
-      "id": "epa-carryover-fix-min500",
-      "label": "the same lazy rescale, deferred until minObs = 500 of the new season's own alliance scores",
-      "deviations": [
-        "carryover-scale-anchor"
-      ],
-      "isBaseline": false,
-      "shippable": true,
-      "unshippableReason": null,
-      "approximation": "closest-walk-forward-legal"
-    },
-    {
       "id": "epa-winprob-season-sd",
       "label": "win-probability denominator = this season's own final alliance-score SD",
       "deviations": [
@@ -250,42 +311,6 @@
   "rows": [
     {
       "armId": "epa",
-      "scope": "season",
-      "season": 2016,
-      "winnerAccuracy": 0.7195330739299611,
-      "brier": 0.18569068854543982,
-      "scoredCount": 12994,
-      "tieCount": 144,
-      "noCallCount": 3,
-      "candidateCount": 15572,
-      "eventCount": 136
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2016,
-      "winnerAccuracy": 0.7195330739299611,
-      "brier": 0.18569068854543982,
-      "scoredCount": 12994,
-      "tieCount": 144,
-      "noCallCount": 3,
-      "candidateCount": 15572,
-      "eventCount": 136
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "scope": "season",
-      "season": 2016,
-      "winnerAccuracy": 0.7195330739299611,
-      "brier": 0.18569068854543982,
-      "scoredCount": 12994,
-      "tieCount": 144,
-      "noCallCount": 3,
-      "candidateCount": 15572,
-      "eventCount": 136
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
       "scope": "season",
       "season": 2016,
       "winnerAccuracy": 0.7195330739299611,
@@ -324,44 +349,8 @@
       "armId": "epa",
       "scope": "season",
       "season": 2017,
-      "winnerAccuracy": 0.6679909945702556,
-      "brier": 0.20430291522502217,
-      "scoredCount": 15363,
-      "tieCount": 261,
-      "noCallCount": 0,
-      "candidateCount": 18331,
-      "eventCount": 165
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2017,
-      "winnerAccuracy": 0.6719639782810224,
-      "brier": 0.20449695118905387,
-      "scoredCount": 15363,
-      "tieCount": 261,
-      "noCallCount": 0,
-      "candidateCount": 18331,
-      "eventCount": 165
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "scope": "season",
-      "season": 2017,
       "winnerAccuracy": 0.6718315454906635,
       "brier": 0.20454944071888248,
-      "scoredCount": 15363,
-      "tieCount": 261,
-      "noCallCount": 0,
-      "candidateCount": 18331,
-      "eventCount": 165
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "season",
-      "season": 2017,
-      "winnerAccuracy": 0.671765329095484,
-      "brier": 0.20460682590223234,
       "scoredCount": 15363,
       "tieCount": 261,
       "noCallCount": 0,
@@ -372,8 +361,8 @@
       "armId": "epa-winprob-season-sd",
       "scope": "season",
       "season": 2017,
-      "winnerAccuracy": 0.6679909945702556,
-      "brier": 0.2048121547278655,
+      "winnerAccuracy": 0.6718315454906635,
+      "brier": 0.2050947321084596,
       "scoredCount": 15363,
       "tieCount": 261,
       "noCallCount": 0,
@@ -384,8 +373,8 @@
       "armId": "epa-winprob-fixed-sd",
       "scope": "season",
       "season": 2017,
-      "winnerAccuracy": 0.6679909945702556,
-      "brier": 0.2330584296093018,
+      "winnerAccuracy": 0.6718315454906635,
+      "brier": 0.23362433871258018,
       "scoredCount": 15363,
       "tieCount": 261,
       "noCallCount": 0,
@@ -393,11 +382,11 @@
       "eventCount": 165
     },
     {
-      "armId": "epa-carryover-fix",
+      "armId": "epa-winprob-season-sd",
       "scope": "onset",
       "season": 2017,
-      "winnerAccuracy": 0.6328600405679513,
-      "brier": 0.2137916013930582,
+      "winnerAccuracy": 0.6450304259634888,
+      "brier": 0.2165592531034564,
       "scoredCount": 500,
       "tieCount": 7,
       "noCallCount": 0,
@@ -405,7 +394,19 @@
       "eventCount": 11
     },
     {
-      "armId": "epa-carryover-fix-min250",
+      "armId": "epa-winprob-fixed-sd",
+      "scope": "onset",
+      "season": 2017,
+      "winnerAccuracy": 0.6450304259634888,
+      "brier": 0.22493068560614965,
+      "scoredCount": 500,
+      "tieCount": 7,
+      "noCallCount": 0,
+      "candidateCount": 500,
+      "eventCount": 11
+    },
+    {
+      "armId": "epa",
       "scope": "onset",
       "season": 2017,
       "winnerAccuracy": 0.6450304259634888,
@@ -417,79 +418,7 @@
       "eventCount": 11
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "onset",
-      "season": 2017,
-      "winnerAccuracy": 0.6450304259634888,
-      "brier": 0.215605322432334,
-      "scoredCount": 500,
-      "tieCount": 7,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 11
-    },
-    {
-      "armId": "epa-winprob-season-sd",
-      "scope": "onset",
-      "season": 2017,
-      "winnerAccuracy": 0.6430020283975659,
-      "brier": 0.21812578062348226,
-      "scoredCount": 500,
-      "tieCount": 7,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 11
-    },
-    {
-      "armId": "epa-winprob-fixed-sd",
-      "scope": "onset",
-      "season": 2017,
-      "winnerAccuracy": 0.6430020283975659,
-      "brier": 0.22688610708028506,
-      "scoredCount": 500,
-      "tieCount": 7,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 11
-    },
-    {
       "armId": "epa",
-      "scope": "onset",
-      "season": 2017,
-      "winnerAccuracy": 0.6430020283975659,
-      "brier": 0.21586518557710055,
-      "scoredCount": 500,
-      "tieCount": 7,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 11
-    },
-    {
-      "armId": "epa",
-      "scope": "season",
-      "season": 2018,
-      "winnerAccuracy": 0.7332898404602337,
-      "brier": 0.17966878117219762,
-      "scoredCount": 16889,
-      "tieCount": 28,
-      "noCallCount": 0,
-      "candidateCount": 20524,
-      "eventCount": 179
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2018,
-      "winnerAccuracy": 0.7315105865607022,
-      "brier": 0.18018569140614935,
-      "scoredCount": 16889,
-      "tieCount": 28,
-      "noCallCount": 0,
-      "candidateCount": 20524,
-      "eventCount": 179
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
       "scope": "season",
       "season": 2018,
       "winnerAccuracy": 0.7315105865607022,
@@ -501,23 +430,11 @@
       "eventCount": 179
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "season",
-      "season": 2018,
-      "winnerAccuracy": 0.7315105865607022,
-      "brier": 0.18018508442645234,
-      "scoredCount": 16889,
-      "tieCount": 28,
-      "noCallCount": 0,
-      "candidateCount": 20524,
-      "eventCount": 179
-    },
-    {
       "armId": "epa-winprob-season-sd",
       "scope": "season",
       "season": 2018,
-      "winnerAccuracy": 0.7332898404602337,
-      "brier": 0.17967256920471938,
+      "winnerAccuracy": 0.7315105865607022,
+      "brier": 0.18018919224642488,
       "scoredCount": 16889,
       "tieCount": 28,
       "noCallCount": 0,
@@ -528,8 +445,8 @@
       "armId": "epa-winprob-fixed-sd",
       "scope": "season",
       "season": 2018,
-      "winnerAccuracy": 0.7332898404602337,
-      "brier": 0.20559039732823683,
+      "winnerAccuracy": 0.7315105865607022,
+      "brier": 0.20689902877507843,
       "scoredCount": 16889,
       "tieCount": 28,
       "noCallCount": 0,
@@ -537,11 +454,11 @@
       "eventCount": 179
     },
     {
-      "armId": "epa-carryover-fix",
+      "armId": "epa-winprob-season-sd",
       "scope": "onset",
       "season": 2018,
       "winnerAccuracy": 0.6513026052104208,
-      "brier": 0.21357706592676354,
+      "brier": 0.21351102000708636,
       "scoredCount": 500,
       "tieCount": 1,
       "noCallCount": 0,
@@ -549,7 +466,19 @@
       "eventCount": 13
     },
     {
-      "armId": "epa-carryover-fix-min250",
+      "armId": "epa-winprob-fixed-sd",
+      "scope": "onset",
+      "season": 2018,
+      "winnerAccuracy": 0.6513026052104208,
+      "brier": 0.247804228124649,
+      "scoredCount": 500,
+      "tieCount": 1,
+      "noCallCount": 0,
+      "candidateCount": 500,
+      "eventCount": 13
+    },
+    {
+      "armId": "epa",
       "scope": "onset",
       "season": 2018,
       "winnerAccuracy": 0.6513026052104208,
@@ -561,79 +490,7 @@
       "eventCount": 13
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "onset",
-      "season": 2018,
-      "winnerAccuracy": 0.6513026052104208,
-      "brier": 0.21363071928976443,
-      "scoredCount": 500,
-      "tieCount": 1,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 13
-    },
-    {
-      "armId": "epa-winprob-season-sd",
-      "scope": "onset",
-      "season": 2018,
-      "winnerAccuracy": 0.657314629258517,
-      "brier": 0.21398861871417932,
-      "scoredCount": 500,
-      "tieCount": 1,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 13
-    },
-    {
-      "armId": "epa-winprob-fixed-sd",
-      "scope": "onset",
-      "season": 2018,
-      "winnerAccuracy": 0.657314629258517,
-      "brier": 0.24856125160926484,
-      "scoredCount": 500,
-      "tieCount": 1,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 13
-    },
-    {
       "armId": "epa",
-      "scope": "onset",
-      "season": 2018,
-      "winnerAccuracy": 0.657314629258517,
-      "brier": 0.2142185318998484,
-      "scoredCount": 500,
-      "tieCount": 1,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 13
-    },
-    {
-      "armId": "epa",
-      "scope": "season",
-      "season": 2019,
-      "winnerAccuracy": 0.644134963768116,
-      "brier": 0.23084101597754764,
-      "scoredCount": 17972,
-      "tieCount": 308,
-      "noCallCount": 0,
-      "candidateCount": 21627,
-      "eventCount": 194
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2019,
-      "winnerAccuracy": 0.7235620471014492,
-      "brier": 0.18850329678174094,
-      "scoredCount": 17972,
-      "tieCount": 308,
-      "noCallCount": 0,
-      "candidateCount": 21627,
-      "eventCount": 194
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
       "scope": "season",
       "season": 2019,
       "winnerAccuracy": 0.721297554347826,
@@ -645,23 +502,11 @@
       "eventCount": 194
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "season",
-      "season": 2019,
-      "winnerAccuracy": 0.7216938405797102,
-      "brier": 0.18823049642110867,
-      "scoredCount": 17972,
-      "tieCount": 308,
-      "noCallCount": 0,
-      "candidateCount": 21627,
-      "eventCount": 194
-    },
-    {
       "armId": "epa-winprob-season-sd",
       "scope": "season",
       "season": 2019,
-      "winnerAccuracy": 0.644134963768116,
-      "brier": 0.23700898779375484,
+      "winnerAccuracy": 0.721297554347826,
+      "brier": 0.1845746872257118,
       "scoredCount": 17972,
       "tieCount": 308,
       "noCallCount": 0,
@@ -672,8 +517,8 @@
       "armId": "epa-winprob-fixed-sd",
       "scope": "season",
       "season": 2019,
-      "winnerAccuracy": 0.644134963768116,
-      "brier": 0.23034152234547892,
+      "winnerAccuracy": 0.721297554347826,
+      "brier": 0.18922536841798634,
       "scoredCount": 17972,
       "tieCount": 308,
       "noCallCount": 0,
@@ -681,11 +526,11 @@
       "eventCount": 194
     },
     {
-      "armId": "epa-carryover-fix",
+      "armId": "epa-winprob-season-sd",
       "scope": "onset",
       "season": 2019,
-      "winnerAccuracy": 0.6882591093117408,
-      "brier": 0.22946168223708935,
+      "winnerAccuracy": 0.6659919028340081,
+      "brier": 0.24656817716650958,
       "scoredCount": 500,
       "tieCount": 6,
       "noCallCount": 0,
@@ -693,7 +538,19 @@
       "eventCount": 12
     },
     {
-      "armId": "epa-carryover-fix-min250",
+      "armId": "epa-winprob-fixed-sd",
+      "scope": "onset",
+      "season": 2019,
+      "winnerAccuracy": 0.6659919028340081,
+      "brier": 0.23807083046467803,
+      "scoredCount": 500,
+      "tieCount": 6,
+      "noCallCount": 0,
+      "candidateCount": 500,
+      "eventCount": 12
+    },
+    {
+      "armId": "epa",
       "scope": "onset",
       "season": 2019,
       "winnerAccuracy": 0.6659919028340081,
@@ -705,79 +562,7 @@
       "eventCount": 12
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "onset",
-      "season": 2019,
-      "winnerAccuracy": 0.6781376518218624,
-      "brier": 0.2218121631677169,
-      "scoredCount": 500,
-      "tieCount": 6,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
-      "armId": "epa-winprob-season-sd",
-      "scope": "onset",
-      "season": 2019,
-      "winnerAccuracy": 0.680161943319838,
-      "brier": 0.2382845704312306,
-      "scoredCount": 500,
-      "tieCount": 6,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
-      "armId": "epa-winprob-fixed-sd",
-      "scope": "onset",
-      "season": 2019,
-      "winnerAccuracy": 0.680161943319838,
-      "brier": 0.2305504190791295,
-      "scoredCount": 500,
-      "tieCount": 6,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
       "armId": "epa",
-      "scope": "onset",
-      "season": 2019,
-      "winnerAccuracy": 0.680161943319838,
-      "brier": 0.22113535808329524,
-      "scoredCount": 500,
-      "tieCount": 6,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
-      "armId": "epa",
-      "scope": "season",
-      "season": 2022,
-      "winnerAccuracy": 0.7697372981215777,
-      "brier": 0.15838687111698768,
-      "scoredCount": 14603,
-      "tieCount": 176,
-      "noCallCount": 0,
-      "candidateCount": 18012,
-      "eventCount": 184
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2022,
-      "winnerAccuracy": 0.774866569626395,
-      "brier": 0.15748648398596046,
-      "scoredCount": 14603,
-      "tieCount": 176,
-      "noCallCount": 0,
-      "candidateCount": 18012,
-      "eventCount": 184
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
       "scope": "season",
       "season": 2022,
       "winnerAccuracy": 0.775698343383933,
@@ -789,23 +574,11 @@
       "eventCount": 184
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "season",
-      "season": 2022,
-      "winnerAccuracy": 0.7753517709849588,
-      "brier": 0.15702901262772115,
-      "scoredCount": 14603,
-      "tieCount": 176,
-      "noCallCount": 0,
-      "candidateCount": 18012,
-      "eventCount": 184
-    },
-    {
       "armId": "epa-winprob-season-sd",
       "scope": "season",
       "season": 2022,
-      "winnerAccuracy": 0.7697372981215777,
-      "brier": 0.16520339970279477,
+      "winnerAccuracy": 0.775698343383933,
+      "brier": 0.16439530756284565,
       "scoredCount": 14603,
       "tieCount": 176,
       "noCallCount": 0,
@@ -816,8 +589,8 @@
       "armId": "epa-winprob-fixed-sd",
       "scope": "season",
       "season": 2022,
-      "winnerAccuracy": 0.7697372981215777,
-      "brier": 0.15991431676802834,
+      "winnerAccuracy": 0.775698343383933,
+      "brier": 0.15873713154638802,
       "scoredCount": 14603,
       "tieCount": 176,
       "noCallCount": 0,
@@ -825,11 +598,11 @@
       "eventCount": 184
     },
     {
-      "armId": "epa-carryover-fix",
+      "armId": "epa-winprob-season-sd",
       "scope": "onset",
       "season": 2022,
-      "winnerAccuracy": 0.7064777327935222,
-      "brier": 0.19032081936803444,
+      "winnerAccuracy": 0.7530364372469636,
+      "brier": 0.18897290715338877,
       "scoredCount": 500,
       "tieCount": 6,
       "noCallCount": 0,
@@ -837,7 +610,19 @@
       "eventCount": 12
     },
     {
-      "armId": "epa-carryover-fix-min250",
+      "armId": "epa-winprob-fixed-sd",
+      "scope": "onset",
+      "season": 2022,
+      "winnerAccuracy": 0.7530364372469636,
+      "brier": 0.18297283261002376,
+      "scoredCount": 500,
+      "tieCount": 6,
+      "noCallCount": 0,
+      "candidateCount": 500,
+      "eventCount": 12
+    },
+    {
+      "armId": "epa",
       "scope": "onset",
       "season": 2022,
       "winnerAccuracy": 0.7530364372469636,
@@ -849,79 +634,7 @@
       "eventCount": 12
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "onset",
-      "season": 2022,
-      "winnerAccuracy": 0.7489878542510121,
-      "brier": 0.17984938798184813,
-      "scoredCount": 500,
-      "tieCount": 6,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
-      "armId": "epa-winprob-season-sd",
-      "scope": "onset",
-      "season": 2022,
-      "winnerAccuracy": 0.728744939271255,
-      "brier": 0.1921618753302786,
-      "scoredCount": 500,
-      "tieCount": 6,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
-      "armId": "epa-winprob-fixed-sd",
-      "scope": "onset",
-      "season": 2022,
-      "winnerAccuracy": 0.728744939271255,
-      "brier": 0.18713219664688882,
-      "scoredCount": 500,
-      "tieCount": 6,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
       "armId": "epa",
-      "scope": "onset",
-      "season": 2022,
-      "winnerAccuracy": 0.728744939271255,
-      "brier": 0.18311586473599223,
-      "scoredCount": 500,
-      "tieCount": 6,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
-      "armId": "epa",
-      "scope": "season",
-      "season": 2023,
-      "winnerAccuracy": 0.7601585728444004,
-      "brier": 0.16360124460430517,
-      "scoredCount": 16290,
-      "tieCount": 146,
-      "noCallCount": 0,
-      "candidateCount": 20194,
-      "eventCount": 185
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2023,
-      "winnerAccuracy": 0.7592913776015857,
-      "brier": 0.16386727215030872,
-      "scoredCount": 16290,
-      "tieCount": 146,
-      "noCallCount": 0,
-      "candidateCount": 20194,
-      "eventCount": 185
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
       "scope": "season",
       "season": 2023,
       "winnerAccuracy": 0.7594772051536175,
@@ -933,23 +646,11 @@
       "eventCount": 185
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "season",
-      "season": 2023,
-      "winnerAccuracy": 0.7593533201189296,
-      "brier": 0.16387673991646817,
-      "scoredCount": 16290,
-      "tieCount": 146,
-      "noCallCount": 0,
-      "candidateCount": 20194,
-      "eventCount": 185
-    },
-    {
       "armId": "epa-winprob-season-sd",
       "scope": "season",
       "season": 2023,
-      "winnerAccuracy": 0.7601585728444004,
-      "brier": 0.16904142917894555,
+      "winnerAccuracy": 0.7594772051536175,
+      "brier": 0.16922522109971372,
       "scoredCount": 16290,
       "tieCount": 146,
       "noCallCount": 0,
@@ -960,8 +661,8 @@
       "armId": "epa-winprob-fixed-sd",
       "scope": "season",
       "season": 2023,
-      "winnerAccuracy": 0.7601585728444004,
-      "brier": 0.16039344131551855,
+      "winnerAccuracy": 0.7594772051536175,
+      "brier": 0.16075561978507774,
       "scoredCount": 16290,
       "tieCount": 146,
       "noCallCount": 0,
@@ -969,11 +670,11 @@
       "eventCount": 185
     },
     {
-      "armId": "epa-carryover-fix",
+      "armId": "epa-winprob-season-sd",
       "scope": "onset",
       "season": 2023,
-      "winnerAccuracy": 0.6921529175050302,
-      "brier": 0.19326137972787558,
+      "winnerAccuracy": 0.6961770623742455,
+      "brier": 0.19907632362969271,
       "scoredCount": 500,
       "tieCount": 3,
       "noCallCount": 0,
@@ -981,7 +682,19 @@
       "eventCount": 18
     },
     {
-      "armId": "epa-carryover-fix-min250",
+      "armId": "epa-winprob-fixed-sd",
+      "scope": "onset",
+      "season": 2023,
+      "winnerAccuracy": 0.6961770623742455,
+      "brier": 0.19235645170670332,
+      "scoredCount": 500,
+      "tieCount": 3,
+      "noCallCount": 0,
+      "candidateCount": 500,
+      "eventCount": 18
+    },
+    {
+      "armId": "epa",
       "scope": "onset",
       "season": 2023,
       "winnerAccuracy": 0.6961770623742455,
@@ -993,79 +706,7 @@
       "eventCount": 18
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "onset",
-      "season": 2023,
-      "winnerAccuracy": 0.6921529175050302,
-      "brier": 0.1925163032650797,
-      "scoredCount": 500,
-      "tieCount": 3,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 18
-    },
-    {
-      "armId": "epa-winprob-season-sd",
-      "scope": "onset",
-      "season": 2023,
-      "winnerAccuracy": 0.6861167002012073,
-      "brier": 0.2001765208250876,
-      "scoredCount": 500,
-      "tieCount": 3,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 18
-    },
-    {
-      "armId": "epa-winprob-fixed-sd",
-      "scope": "onset",
-      "season": 2023,
-      "winnerAccuracy": 0.6861167002012073,
-      "brier": 0.19271650725579956,
-      "scoredCount": 500,
-      "tieCount": 3,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 18
-    },
-    {
       "armId": "epa",
-      "scope": "onset",
-      "season": 2023,
-      "winnerAccuracy": 0.6861167002012073,
-      "brier": 0.19425508569936872,
-      "scoredCount": 500,
-      "tieCount": 3,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 18
-    },
-    {
-      "armId": "epa",
-      "scope": "season",
-      "season": 2024,
-      "winnerAccuracy": 0.7512526843235504,
-      "brier": 0.16887563096014385,
-      "scoredCount": 16958,
-      "tieCount": 194,
-      "noCallCount": 0,
-      "candidateCount": 22099,
-      "eventCount": 192
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2024,
-      "winnerAccuracy": 0.7548317823908375,
-      "brier": 0.169526956670358,
-      "scoredCount": 16958,
-      "tieCount": 194,
-      "noCallCount": 0,
-      "candidateCount": 22099,
-      "eventCount": 192
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
       "scope": "season",
       "season": 2024,
       "winnerAccuracy": 0.7546528274874732,
@@ -1077,23 +718,11 @@
       "eventCount": 192
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "season",
-      "season": 2024,
-      "winnerAccuracy": 0.7558458601765689,
-      "brier": 0.16926851322285344,
-      "scoredCount": 16958,
-      "tieCount": 194,
-      "noCallCount": 0,
-      "candidateCount": 22099,
-      "eventCount": 192
-    },
-    {
       "armId": "epa-winprob-season-sd",
       "scope": "season",
       "season": 2024,
-      "winnerAccuracy": 0.7512526843235504,
-      "brier": 0.1734919293212885,
+      "winnerAccuracy": 0.7546528274874732,
+      "brier": 0.17442601983909017,
       "scoredCount": 16958,
       "tieCount": 194,
       "noCallCount": 0,
@@ -1104,8 +733,8 @@
       "armId": "epa-winprob-fixed-sd",
       "scope": "season",
       "season": 2024,
-      "winnerAccuracy": 0.7512526843235504,
-      "brier": 0.17170271544273602,
+      "winnerAccuracy": 0.7546528274874732,
+      "brier": 0.17255727289433614,
       "scoredCount": 16958,
       "tieCount": 194,
       "noCallCount": 0,
@@ -1113,11 +742,11 @@
       "eventCount": 192
     },
     {
-      "armId": "epa-carryover-fix",
+      "armId": "epa-winprob-season-sd",
       "scope": "onset",
       "season": 2024,
-      "winnerAccuracy": 0.6904276985743381,
-      "brier": 0.20724829040448275,
+      "winnerAccuracy": 0.6883910386965377,
+      "brier": 0.2074282219718789,
       "scoredCount": 500,
       "tieCount": 9,
       "noCallCount": 0,
@@ -1125,7 +754,19 @@
       "eventCount": 16
     },
     {
-      "armId": "epa-carryover-fix-min250",
+      "armId": "epa-winprob-fixed-sd",
+      "scope": "onset",
+      "season": 2024,
+      "winnerAccuracy": 0.6883910386965377,
+      "brier": 0.2061715489966592,
+      "scoredCount": 500,
+      "tieCount": 9,
+      "noCallCount": 0,
+      "candidateCount": 500,
+      "eventCount": 16
+    },
+    {
+      "armId": "epa",
       "scope": "onset",
       "season": 2024,
       "winnerAccuracy": 0.6883910386965377,
@@ -1137,79 +778,7 @@
       "eventCount": 16
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "onset",
-      "season": 2024,
-      "winnerAccuracy": 0.6843177189409368,
-      "brier": 0.2046694372447452,
-      "scoredCount": 500,
-      "tieCount": 9,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 16
-    },
-    {
-      "armId": "epa-winprob-season-sd",
-      "scope": "onset",
-      "season": 2024,
-      "winnerAccuracy": 0.6843177189409368,
-      "brier": 0.19922485245467533,
-      "scoredCount": 500,
-      "tieCount": 9,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 16
-    },
-    {
-      "armId": "epa-winprob-fixed-sd",
-      "scope": "onset",
-      "season": 2024,
-      "winnerAccuracy": 0.6843177189409368,
-      "brier": 0.1979111441382341,
-      "scoredCount": 500,
-      "tieCount": 9,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 16
-    },
-    {
       "armId": "epa",
-      "scope": "onset",
-      "season": 2024,
-      "winnerAccuracy": 0.6843177189409368,
-      "brier": 0.19846377302421173,
-      "scoredCount": 500,
-      "tieCount": 9,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 16
-    },
-    {
-      "armId": "epa",
-      "scope": "season",
-      "season": 2025,
-      "winnerAccuracy": 0.777300474790866,
-      "brier": 0.15963798790619038,
-      "scoredCount": 17815,
-      "tieCount": 123,
-      "noCallCount": 0,
-      "candidateCount": 23809,
-      "eventCount": 204
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2025,
-      "winnerAccuracy": 0.7780352701786118,
-      "brier": 0.1587863612528201,
-      "scoredCount": 17815,
-      "tieCount": 123,
-      "noCallCount": 0,
-      "candidateCount": 23809,
-      "eventCount": 204
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
       "scope": "season",
       "season": 2025,
       "winnerAccuracy": 0.7781483156228804,
@@ -1221,23 +790,11 @@
       "eventCount": 204
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "season",
-      "season": 2025,
-      "winnerAccuracy": 0.7775265656794031,
-      "brier": 0.15902328501731033,
-      "scoredCount": 17815,
-      "tieCount": 123,
-      "noCallCount": 0,
-      "candidateCount": 23809,
-      "eventCount": 204
-    },
-    {
       "armId": "epa-winprob-season-sd",
       "scope": "season",
       "season": 2025,
-      "winnerAccuracy": 0.777300474790866,
-      "brier": 0.16814212939397086,
+      "winnerAccuracy": 0.7781483156228804,
+      "brier": 0.16737768816706636,
       "scoredCount": 17815,
       "tieCount": 123,
       "noCallCount": 0,
@@ -1248,8 +805,8 @@
       "armId": "epa-winprob-fixed-sd",
       "scope": "season",
       "season": 2025,
-      "winnerAccuracy": 0.777300474790866,
-      "brier": 0.15248609899096277,
+      "winnerAccuracy": 0.7781483156228804,
+      "brier": 0.15164998146070796,
       "scoredCount": 17815,
       "tieCount": 123,
       "noCallCount": 0,
@@ -1257,11 +814,11 @@
       "eventCount": 204
     },
     {
-      "armId": "epa-carryover-fix",
+      "armId": "epa-winprob-season-sd",
       "scope": "onset",
       "season": 2025,
       "winnerAccuracy": 0.7237903225806451,
-      "brier": 0.18885394817803625,
+      "brier": 0.1977279681699029,
       "scoredCount": 500,
       "tieCount": 4,
       "noCallCount": 0,
@@ -1269,7 +826,19 @@
       "eventCount": 12
     },
     {
-      "armId": "epa-carryover-fix-min250",
+      "armId": "epa-winprob-fixed-sd",
+      "scope": "onset",
+      "season": 2025,
+      "winnerAccuracy": 0.7237903225806451,
+      "brier": 0.18550364324862328,
+      "scoredCount": 500,
+      "tieCount": 4,
+      "noCallCount": 0,
+      "candidateCount": 500,
+      "eventCount": 12
+    },
+    {
+      "armId": "epa",
       "scope": "onset",
       "season": 2025,
       "winnerAccuracy": 0.7237903225806451,
@@ -1281,79 +850,7 @@
       "eventCount": 12
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "onset",
-      "season": 2025,
-      "winnerAccuracy": 0.7237903225806451,
-      "brier": 0.19276296604979296,
-      "scoredCount": 500,
-      "tieCount": 4,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
-      "armId": "epa-winprob-season-sd",
-      "scope": "onset",
-      "season": 2025,
-      "winnerAccuracy": 0.7217741935483871,
-      "brier": 0.2018042425763957,
-      "scoredCount": 500,
-      "tieCount": 4,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
-      "armId": "epa-winprob-fixed-sd",
-      "scope": "onset",
-      "season": 2025,
-      "winnerAccuracy": 0.7217741935483871,
-      "brier": 0.1885416664993651,
-      "scoredCount": 500,
-      "tieCount": 4,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
       "armId": "epa",
-      "scope": "onset",
-      "season": 2025,
-      "winnerAccuracy": 0.7217741935483871,
-      "brier": 0.19348699266179287,
-      "scoredCount": 500,
-      "tieCount": 4,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
-      "armId": "epa",
-      "scope": "season",
-      "season": 2026,
-      "winnerAccuracy": 0.7942816531817188,
-      "brier": 0.1536821283669655,
-      "scoredCount": 18337,
-      "tieCount": 45,
-      "noCallCount": 1,
-      "candidateCount": 20408,
-      "eventCount": 214
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2026,
-      "winnerAccuracy": 0.7930789416138202,
-      "brier": 0.15341140414205087,
-      "scoredCount": 18337,
-      "tieCount": 45,
-      "noCallCount": 1,
-      "candidateCount": 20408,
-      "eventCount": 214
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
       "scope": "season",
       "season": 2026,
       "winnerAccuracy": 0.792914935490925,
@@ -1365,23 +862,11 @@
       "eventCount": 214
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "season",
-      "season": 2026,
-      "winnerAccuracy": 0.7928055980756615,
-      "brier": 0.1534826829908026,
-      "scoredCount": 18337,
-      "tieCount": 45,
-      "noCallCount": 1,
-      "candidateCount": 20408,
-      "eventCount": 214
-    },
-    {
       "armId": "epa-winprob-season-sd",
       "scope": "season",
       "season": 2026,
-      "winnerAccuracy": 0.7942816531817188,
-      "brier": 0.16575928315685898,
+      "winnerAccuracy": 0.792914935490925,
+      "brier": 0.16548059991896116,
       "scoredCount": 18337,
       "tieCount": 45,
       "noCallCount": 1,
@@ -1392,8 +877,8 @@
       "armId": "epa-winprob-fixed-sd",
       "scope": "season",
       "season": 2026,
-      "winnerAccuracy": 0.7942816531817188,
-      "brier": 0.15168543306910318,
+      "winnerAccuracy": 0.792914935490925,
+      "brier": 0.15218536436536637,
       "scoredCount": 18337,
       "tieCount": 45,
       "noCallCount": 1,
@@ -1401,11 +886,11 @@
       "eventCount": 214
     },
     {
-      "armId": "epa-carryover-fix",
+      "armId": "epa-winprob-season-sd",
       "scope": "onset",
       "season": 2026,
-      "winnerAccuracy": 0.7122736418511066,
-      "brier": 0.18722078962995517,
+      "winnerAccuracy": 0.710261569416499,
+      "brier": 0.20315362334567388,
       "scoredCount": 500,
       "tieCount": 3,
       "noCallCount": 0,
@@ -1413,7 +898,19 @@
       "eventCount": 12
     },
     {
-      "armId": "epa-carryover-fix-min250",
+      "armId": "epa-winprob-fixed-sd",
+      "scope": "onset",
+      "season": 2026,
+      "winnerAccuracy": 0.710261569416499,
+      "brier": 0.18449291741024612,
+      "scoredCount": 500,
+      "tieCount": 3,
+      "noCallCount": 0,
+      "candidateCount": 500,
+      "eventCount": 12
+    },
+    {
+      "armId": "epa",
       "scope": "onset",
       "season": 2026,
       "winnerAccuracy": 0.710261569416499,
@@ -1425,79 +922,7 @@
       "eventCount": 12
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "onset",
-      "season": 2026,
-      "winnerAccuracy": 0.7082494969818913,
-      "brier": 0.18859888053490204,
-      "scoredCount": 500,
-      "tieCount": 3,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
-      "armId": "epa-winprob-season-sd",
-      "scope": "onset",
-      "season": 2026,
-      "winnerAccuracy": 0.704225352112676,
-      "brier": 0.2041899259839451,
-      "scoredCount": 500,
-      "tieCount": 3,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
-      "armId": "epa-winprob-fixed-sd",
-      "scope": "onset",
-      "season": 2026,
-      "winnerAccuracy": 0.704225352112676,
-      "brier": 0.18328977143256778,
-      "scoredCount": 500,
-      "tieCount": 3,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
       "armId": "epa",
-      "scope": "onset",
-      "season": 2026,
-      "winnerAccuracy": 0.704225352112676,
-      "brier": 0.18847867253586476,
-      "scoredCount": 500,
-      "tieCount": 3,
-      "noCallCount": 0,
-      "candidateCount": 500,
-      "eventCount": 12
-    },
-    {
-      "armId": "epa",
-      "scope": "pooled",
-      "season": null,
-      "winnerAccuracy": 0.7361518834535927,
-      "brier": 0.1782250624821796,
-      "scoredCount": 147221,
-      "tieCount": 1425,
-      "noCallCount": 4,
-      "candidateCount": 180576,
-      "eventCount": 1653
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "scope": "pooled",
-      "season": null,
-      "winnerAccuracy": 0.746742023100771,
-      "brier": 0.1730146101687928,
-      "scoredCount": 147221,
-      "tieCount": 1425,
-      "noCallCount": 4,
-      "candidateCount": 180576,
-      "eventCount": 1653
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
       "scope": "pooled",
       "season": null,
       "winnerAccuracy": 0.7465293972399791,
@@ -1509,23 +934,11 @@
       "eventCount": 1653
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "pooled",
-      "season": null,
-      "winnerAccuracy": 0.7465705506323904,
-      "brier": 0.1729561532547329,
-      "scoredCount": 147221,
-      "tieCount": 1425,
-      "noCallCount": 4,
-      "candidateCount": 180576,
-      "eventCount": 1653
-    },
-    {
       "armId": "epa-winprob-season-sd",
       "scope": "pooled",
       "season": null,
-      "winnerAccuracy": 0.7361518834535927,
-      "brier": 0.1836802070826929,
+      "winnerAccuracy": 0.7465293972399791,
+      "brier": 0.17728860673980898,
       "scoredCount": 147221,
       "tieCount": 1425,
       "noCallCount": 4,
@@ -1536,8 +949,8 @@
       "armId": "epa-winprob-fixed-sd",
       "scope": "pooled",
       "season": null,
-      "winnerAccuracy": 0.7361518834535927,
-      "brier": 0.1830033876147153,
+      "winnerAccuracy": 0.7465293972399791,
+      "brier": 0.17817614736226822,
       "scoredCount": 147221,
       "tieCount": 1425,
       "noCallCount": 4,
@@ -1546,30 +959,6 @@
     },
     {
       "armId": "epa",
-      "scope": "onset",
-      "season": null,
-      "winnerAccuracy": 0.6882100479676849,
-      "brier": 0.20112743302718422,
-      "scoredCount": 4000,
-      "tieCount": 39,
-      "noCallCount": 0,
-      "candidateCount": 4000,
-      "eventCount": 106
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": null,
-      "winnerAccuracy": 0.6872002019691997,
-      "brier": 0.2029669471081617,
-      "scoredCount": 4000,
-      "tieCount": 39,
-      "noCallCount": 0,
-      "candidateCount": 4000,
-      "eventCount": 106
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
       "scope": "onset",
       "season": null,
       "winnerAccuracy": 0.6917445089623833,
@@ -1581,23 +970,11 @@
       "eventCount": 106
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "scope": "onset",
-      "season": null,
-      "winnerAccuracy": 0.6914920474627619,
-      "brier": 0.2011806474957733,
-      "scoredCount": 4000,
-      "tieCount": 39,
-      "noCallCount": 0,
-      "candidateCount": 4000,
-      "eventCount": 106
-    },
-    {
       "armId": "epa-winprob-season-sd",
       "scope": "onset",
       "season": null,
-      "winnerAccuracy": 0.6882100479676849,
-      "brier": 0.2084945483674091,
+      "winnerAccuracy": 0.6917445089623833,
+      "brier": 0.20912468681844884,
       "scoredCount": 4000,
       "tieCount": 39,
       "noCallCount": 0,
@@ -1608,8 +985,8 @@
       "armId": "epa-winprob-fixed-sd",
       "scope": "onset",
       "season": null,
-      "winnerAccuracy": 0.6882100479676849,
-      "brier": 0.20694863296769148,
+      "winnerAccuracy": 0.6917445089623833,
+      "brier": 0.20778789227096592,
       "scoredCount": 4000,
       "tieCount": 39,
       "noCallCount": 0,
@@ -1618,108 +995,6 @@
     }
   ],
   "contrasts": [
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2016,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0,
-      "standardError": 0,
-      "percentile": {
-        "lower": 0,
-        "upper": 0
-      },
-      "eventCount": 136,
-      "matchCount": 12850,
-      "verdict": "identical",
-      "note": "every paired difference is exactly 0 — no resampling performed, there is no uncertainty to resample"
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2016,
-      "metric": "brier",
-      "pointEstimate": 0,
-      "standardError": 0,
-      "percentile": {
-        "lower": 0,
-        "upper": 0
-      },
-      "eventCount": 136,
-      "matchCount": 12994,
-      "verdict": "identical",
-      "note": "every paired difference is exactly 0 — no resampling performed, there is no uncertainty to resample"
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2016,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0,
-      "standardError": 0,
-      "percentile": {
-        "lower": 0,
-        "upper": 0
-      },
-      "eventCount": 136,
-      "matchCount": 12850,
-      "verdict": "identical",
-      "note": "every paired difference is exactly 0 — no resampling performed, there is no uncertainty to resample"
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2016,
-      "metric": "brier",
-      "pointEstimate": 0,
-      "standardError": 0,
-      "percentile": {
-        "lower": 0,
-        "upper": 0
-      },
-      "eventCount": 136,
-      "matchCount": 12994,
-      "verdict": "identical",
-      "note": "every paired difference is exactly 0 — no resampling performed, there is no uncertainty to resample"
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2016,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0,
-      "standardError": 0,
-      "percentile": {
-        "lower": 0,
-        "upper": 0
-      },
-      "eventCount": 136,
-      "matchCount": 12850,
-      "verdict": "identical",
-      "note": "every paired difference is exactly 0 — no resampling performed, there is no uncertainty to resample"
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2016,
-      "metric": "brier",
-      "pointEstimate": 0,
-      "standardError": 0,
-      "percentile": {
-        "lower": 0,
-        "upper": 0
-      },
-      "eventCount": 136,
-      "matchCount": 12994,
-      "verdict": "identical",
-      "note": "every paired difference is exactly 0 — no resampling performed, there is no uncertainty to resample"
-    },
     {
       "armId": "epa-winprob-season-sd",
       "baselineArmId": "epa",
@@ -1789,278 +1064,6 @@
       "note": null
     },
     {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2016,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0,
-      "standardError": 0,
-      "percentile": {
-        "lower": 0,
-        "upper": 0
-      },
-      "eventCount": 136,
-      "matchCount": 12850,
-      "verdict": "identical",
-      "note": "every paired difference is exactly 0 — no resampling performed, there is no uncertainty to resample"
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2016,
-      "metric": "brier",
-      "pointEstimate": 0,
-      "standardError": 0,
-      "percentile": {
-        "lower": 0,
-        "upper": 0
-      },
-      "eventCount": 136,
-      "matchCount": 12994,
-      "verdict": "identical",
-      "note": "every paired difference is exactly 0 — no resampling performed, there is no uncertainty to resample"
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2016,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0,
-      "standardError": 0,
-      "percentile": {
-        "lower": 0,
-        "upper": 0
-      },
-      "eventCount": 136,
-      "matchCount": 12850,
-      "verdict": "identical",
-      "note": "every paired difference is exactly 0 — no resampling performed, there is no uncertainty to resample"
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2016,
-      "metric": "brier",
-      "pointEstimate": 0,
-      "standardError": 0,
-      "percentile": {
-        "lower": 0,
-        "upper": 0
-      },
-      "eventCount": 136,
-      "matchCount": 12994,
-      "verdict": "identical",
-      "note": "every paired difference is exactly 0 — no resampling performed, there is no uncertainty to resample"
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2017,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.003972983710766786,
-      "standardError": 0.002058743307603025,
-      "percentile": {
-        "lower": 0.00006716345041826175,
-        "upper": 0.008029911746367895
-      },
-      "eventCount": 165,
-      "matchCount": 15102,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2017,
-      "metric": "brier",
-      "pointEstimate": 0.00019403596403139603,
-      "standardError": 0.00042974107701001076,
-      "percentile": {
-        "lower": -0.0006430872425763253,
-        "upper": 0.0010188864427736852
-      },
-      "eventCount": 165,
-      "matchCount": 15363,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2017,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.010141987829614604,
-      "standardError": 0.008568847322976008,
-      "percentile": {
-        "lower": -0.026056396008800817,
-        "upper": 0.007160440134885572
-      },
-      "eventCount": 11,
-      "matchCount": 493,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2017,
-      "metric": "brier",
-      "pointEstimate": -0.0020735841840425033,
-      "standardError": 0.0017103730635728792,
-      "percentile": {
-        "lower": -0.005510202654579843,
-        "upper": 0.0011593110209452242
-      },
-      "eventCount": 11,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2017,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.003840550920407893,
-      "standardError": 0.002091513401776861,
-      "percentile": {
-        "lower": -0.00019801362153050952,
-        "upper": 0.007992752622151591
-      },
-      "eventCount": 165,
-      "matchCount": 15102,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2017,
-      "metric": "brier",
-      "pointEstimate": 0.00024652549386100725,
-      "standardError": 0.0004265545671519945,
-      "percentile": {
-        "lower": -0.0005865792931347251,
-        "upper": 0.001069542703857698
-      },
-      "eventCount": 165,
-      "matchCount": 15363,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2017,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.002028397565922921,
-      "standardError": 0.006422352626025432,
-      "percentile": {
-        "lower": -0.01002004008016032,
-        "upper": 0.015779092702169626
-      },
-      "eventCount": 11,
-      "matchCount": 493,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2017,
-      "metric": "brier",
-      "pointEstimate": -0.0018368262756424329,
-      "standardError": 0.0011486556150004602,
-      "percentile": {
-        "lower": -0.004475510422806878,
-        "upper": 0.00007204360128883495
-      },
-      "eventCount": 11,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2017,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.0037743345252284465,
-      "standardError": 0.002068297092214436,
-      "percentile": {
-        "lower": -0.0002597448030632295,
-        "upper": 0.007865928267781548
-      },
-      "eventCount": 165,
-      "matchCount": 15102,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2017,
-      "metric": "brier",
-      "pointEstimate": 0.00030391067721160294,
-      "standardError": 0.00042287904466647573,
-      "percentile": {
-        "lower": -0.000513502080651979,
-        "upper": 0.0011260310173002942
-      },
-      "eventCount": 165,
-      "matchCount": 15363,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2017,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.002028397565922921,
-      "standardError": 0.0021265755575752957,
-      "percentile": {
-        "lower": 0,
-        "upper": 0.007042253521126761
-      },
-      "eventCount": 11,
-      "matchCount": 493,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2017,
-      "metric": "brier",
-      "pointEstimate": -0.0002598631447666987,
-      "standardError": 0.00027280841331974625,
-      "percentile": {
-        "lower": -0.000902302585995482,
-        "upper": 0
-      },
-      "eventCount": 11,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
       "armId": "epa-winprob-season-sd",
       "baselineArmId": "epa",
       "scope": "season",
@@ -2083,11 +1086,11 @@
       "scope": "season",
       "season": 2017,
       "metric": "brier",
-      "pointEstimate": 0.0005092395028432545,
-      "standardError": 0.0001491805459038631,
+      "pointEstimate": 0.000545291389576401,
+      "standardError": 0.00014618172776854798,
       "percentile": {
-        "lower": 0.00021086482518933286,
-        "upper": 0.0007956682371135656
+        "lower": 0.0002585028814866065,
+        "upper": 0.0008264725157814844
       },
       "eventCount": 165,
       "matchCount": 15363,
@@ -2117,11 +1120,11 @@
       "scope": "onset",
       "season": 2017,
       "metric": "brier",
-      "pointEstimate": 0.0022605950463820052,
-      "standardError": 0.0014904382225860114,
+      "pointEstimate": 0.00253089380199844,
+      "standardError": 0.0015015678066611666,
       "percentile": {
-        "lower": -0.0008237504499713984,
-        "upper": 0.005072579207788851
+        "lower": -0.0005581689824855546,
+        "upper": 0.005392805146166213
       },
       "eventCount": 11,
       "matchCount": 500,
@@ -2151,11 +1154,11 @@
       "scope": "season",
       "season": 2017,
       "metric": "brier",
-      "pointEstimate": 0.02875551438427929,
-      "standardError": 0.0012571099033194565,
+      "pointEstimate": 0.029074897993696835,
+      "standardError": 0.0012224892867330921,
       "percentile": {
-        "lower": 0.026363132195420955,
-        "upper": 0.03122297920673208
+        "lower": 0.02672905456381218,
+        "upper": 0.03154331191161343
       },
       "eventCount": 165,
       "matchCount": 15363,
@@ -2185,11 +1188,11 @@
       "scope": "onset",
       "season": 2017,
       "metric": "brier",
-      "pointEstimate": 0.011020921503184409,
-      "standardError": 0.004945542208433498,
+      "pointEstimate": 0.010902326304691531,
+      "standardError": 0.005103473354815103,
       "percentile": {
-        "lower": 0.0004697720653462829,
-        "upper": 0.019691144743755426
+        "lower": 0.00005680131688049319,
+        "upper": 0.019741306604439575
       },
       "eventCount": 11,
       "matchCount": 500,
@@ -2197,346 +1200,6 @@
       "note": null
     },
     {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2017,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.00013243279035889287,
-      "standardError": 0.0004539200234958629,
-      "percentile": {
-        "lower": -0.001015231647707103,
-        "upper": 0.0007473095761240932
-      },
-      "eventCount": 165,
-      "matchCount": 15102,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2017,
-      "metric": "brier",
-      "pointEstimate": 0.00005248952982960959,
-      "standardError": 0.00006259646856007153,
-      "percentile": {
-        "lower": -0.00005994946358553819,
-        "upper": 0.00017619895978430932
-      },
-      "eventCount": 165,
-      "matchCount": 15363,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2017,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.012170385395537525,
-      "standardError": 0.009578880539026263,
-      "percentile": {
-        "lower": -0.005671615557620085,
-        "upper": 0.03218902694401784
-      },
-      "eventCount": 11,
-      "matchCount": 493,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2017,
-      "metric": "brier",
-      "pointEstimate": 0.0002367579084000709,
-      "standardError": 0.0017008457576600225,
-      "percentile": {
-        "lower": -0.0030588775256310515,
-        "upper": 0.0036352280021863526
-      },
-      "eventCount": 11,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2017,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.0001986491855383393,
-      "standardError": 0.0004391989486539636,
-      "percentile": {
-        "lower": -0.0010782493015059622,
-        "upper": 0.0006547545008952848
-      },
-      "eventCount": 165,
-      "matchCount": 15102,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2017,
-      "metric": "brier",
-      "pointEstimate": 0.00010987471318020707,
-      "standardError": 0.00006779613343726835,
-      "percentile": {
-        "lower": -0.000005887497988286202,
-        "upper": 0.00026059082057078276
-      },
-      "eventCount": 165,
-      "matchCount": 15363,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2017,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.012170385395537525,
-      "standardError": 0.008096010336419426,
-      "percentile": {
-        "lower": -0.004024961125781055,
-        "upper": 0.027373741740539154
-      },
-      "eventCount": 11,
-      "matchCount": 493,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2017,
-      "metric": "brier",
-      "pointEstimate": 0.0018137210392758054,
-      "standardError": 0.0016953239559839104,
-      "percentile": {
-        "lower": -0.001409570599630956,
-        "upper": 0.005189406615788345
-      },
-      "eventCount": 11,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2018,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.0017792538995314632,
-      "standardError": 0.0009358879850751901,
-      "percentile": {
-        "lower": -0.0036191847150947266,
-        "upper": 0.00006216090279821527
-      },
-      "eventCount": 179,
-      "matchCount": 16861,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2018,
-      "metric": "brier",
-      "pointEstimate": 0.0005169102339527736,
-      "standardError": 0.00011565420882392423,
-      "percentile": {
-        "lower": 0.0003000802125778047,
-        "upper": 0.0007537211671993679
-      },
-      "eventCount": 179,
-      "matchCount": 16889,
-      "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2018,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.006012024048096192,
-      "standardError": 0.0052317469555781685,
-      "percentile": {
-        "lower": -0.01590910302261498,
-        "upper": 0.004194207426991941
-      },
-      "eventCount": 13,
-      "matchCount": 499,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2018,
-      "metric": "brier",
-      "pointEstimate": -0.0006414659730845973,
-      "standardError": 0.0003394727378619801,
-      "percentile": {
-        "lower": -0.0013481327782346982,
-        "upper": -0.00004428526982059242
-      },
-      "eventCount": 13,
-      "matchCount": 500,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2018,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.0017792538995314632,
-      "standardError": 0.0009452280197770543,
-      "percentile": {
-        "lower": -0.003634628065414021,
-        "upper": 0.00011752231670901774
-      },
-      "eventCount": 179,
-      "matchCount": 16861,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2018,
-      "metric": "brier",
-      "pointEstimate": 0.0005172347474076365,
-      "standardError": 0.00011547842704329856,
-      "percentile": {
-        "lower": 0.00029963335604492287,
-        "upper": 0.0007565489944109874
-      },
-      "eventCount": 179,
-      "matchCount": 16889,
-      "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2018,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.006012024048096192,
-      "standardError": 0.0051306960267339455,
-      "percentile": {
-        "lower": -0.015628852317554242,
-        "upper": 0.004108056880130795
-      },
-      "eventCount": 13,
-      "matchCount": 499,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2018,
-      "metric": "brier",
-      "pointEstimate": -0.0004909114341948494,
-      "standardError": 0.0003316573512126741,
-      "percentile": {
-        "lower": -0.0011894878612183314,
-        "upper": 0.00008147563958230308
-      },
-      "eventCount": 13,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2018,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.0017792538995314632,
-      "standardError": 0.0009408009124702525,
-      "percentile": {
-        "lower": -0.003619603468612833,
-        "upper": 0.00011654607185972697
-      },
-      "eventCount": 179,
-      "matchCount": 16861,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2018,
-      "metric": "brier",
-      "pointEstimate": 0.0005163032542549042,
-      "standardError": 0.00011565410042100181,
-      "percentile": {
-        "lower": 0.0002968441931750221,
-        "upper": 0.000753241815946372
-      },
-      "eventCount": 179,
-      "matchCount": 16889,
-      "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2018,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.006012024048096192,
-      "standardError": 0.00450969885444829,
-      "percentile": {
-        "lower": -0.015384615384615385,
-        "upper": 0.0019842255987882226
-      },
-      "eventCount": 13,
-      "matchCount": 499,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2018,
-      "metric": "brier",
-      "pointEstimate": -0.0005878126100839548,
-      "standardError": 0.0002977124306920152,
-      "percentile": {
-        "lower": -0.001216410023872377,
-        "upper": -0.00007575948179474327
-      },
-      "eventCount": 13,
-      "matchCount": 500,
-      "verdict": "better",
-      "note": null
-    },
-    {
       "armId": "epa-winprob-season-sd",
       "baselineArmId": "epa",
       "scope": "season",
@@ -2559,11 +1222,11 @@
       "scope": "season",
       "season": 2018,
       "metric": "brier",
-      "pointEstimate": 0.000003788032521701274,
-      "standardError": 0.000017254082676402214,
+      "pointEstimate": 0.0000031763268194498075,
+      "standardError": 0.000017231879015154388,
       "percentile": {
-        "lower": -0.000029751341146244344,
-        "upper": 0.00003756646022495569
+        "lower": -0.000030525381378856965,
+        "upper": 0.000036454098311771295
       },
       "eventCount": 179,
       "matchCount": 16889,
@@ -2593,11 +1256,11 @@
       "scope": "onset",
       "season": 2018,
       "metric": "brier",
-      "pointEstimate": -0.00022991318566944468,
-      "standardError": 0.0005168187685523179,
+      "pointEstimate": -0.0002166004585675102,
+      "standardError": 0.000519432258647857,
       "percentile": {
-        "lower": -0.0013356575732453614,
-        "upper": 0.0006745338426300659
+        "lower": -0.0013249844888077243,
+        "upper": 0.0006924421922010854
       },
       "eventCount": 13,
       "matchCount": 500,
@@ -2627,11 +1290,11 @@
       "scope": "season",
       "season": 2018,
       "metric": "brier",
-      "pointEstimate": 0.025921616156040616,
-      "standardError": 0.001342105992067236,
+      "pointEstimate": 0.02671301285547378,
+      "standardError": 0.0013102991305841676,
       "percentile": {
-        "lower": 0.02315993282082283,
-        "upper": 0.02847190848452957
+        "lower": 0.024051106557950622,
+        "upper": 0.029205993565815273
       },
       "eventCount": 179,
       "matchCount": 16889,
@@ -2661,11 +1324,11 @@
       "scope": "onset",
       "season": 2018,
       "metric": "brier",
-      "pointEstimate": 0.0343427197094164,
-      "standardError": 0.007886829504564121,
+      "pointEstimate": 0.0340766076589951,
+      "standardError": 0.007847627047081536,
       "percentile": {
-        "lower": 0.019124995359944327,
-        "upper": 0.049322369092478696
+        "lower": 0.018881283066294514,
+        "upper": 0.048738841042121374
       },
       "eventCount": 13,
       "matchCount": 500,
@@ -2673,346 +1336,6 @@
       "note": null
     },
     {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2018,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0,
-      "standardError": 0.00011773826994052481,
-      "percentile": {
-        "lower": -0.00023724792408066428,
-        "upper": 0.0002378262679112908
-      },
-      "eventCount": 179,
-      "matchCount": 16861,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2018,
-      "metric": "brier",
-      "pointEstimate": 3.245134548604445e-7,
-      "standardError": 0.000005274446527986816,
-      "percentile": {
-        "lower": -0.000009506433523847079,
-        "upper": 0.000010812334781194517
-      },
-      "eventCount": 179,
-      "matchCount": 16889,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2018,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0,
-      "standardError": 0.002735581082490723,
-      "percentile": {
-        "lower": -0.005301059443039246,
-        "upper": 0.0057036936447582825
-      },
-      "eventCount": 13,
-      "matchCount": 499,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2018,
-      "metric": "brier",
-      "pointEstimate": 0.00015055453888974872,
-      "standardError": 0.00012578443104368473,
-      "percentile": {
-        "lower": -0.00008981374362359585,
-        "upper": 0.0003983340840549628
-      },
-      "eventCount": 13,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2018,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0,
-      "standardError": 0.00014612982434158997,
-      "percentile": {
-        "lower": -0.00029500483133007306,
-        "upper": 0.00029539043481831696
-      },
-      "eventCount": 179,
-      "matchCount": 16861,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2018,
-      "metric": "brier",
-      "pointEstimate": -6.069796978757989e-7,
-      "standardError": 0.0000053518862129708615,
-      "percentile": {
-        "lower": -0.000010883511244948246,
-        "upper": 0.000010018666127772958
-      },
-      "eventCount": 179,
-      "matchCount": 16889,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2018,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0,
-      "standardError": 0.003969168322969024,
-      "percentile": {
-        "lower": -0.008000400801603207,
-        "upper": 0.007634686671257558
-      },
-      "eventCount": 13,
-      "matchCount": 499,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2018,
-      "metric": "brier",
-      "pointEstimate": 0.000053653363000642955,
-      "standardError": 0.00011495387316359278,
-      "percentile": {
-        "lower": -0.00015672675755223694,
-        "upper": 0.00029106259782384286
-      },
-      "eventCount": 13,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2019,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.07942708333333333,
-      "standardError": 0.006226629371941928,
-      "percentile": {
-        "lower": 0.06775077432172548,
-        "upper": 0.09115069692357147
-      },
-      "eventCount": 194,
-      "matchCount": 17664,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2019,
-      "metric": "brier",
-      "pointEstimate": -0.04233771919580566,
-      "standardError": 0.00366955113611642,
-      "percentile": {
-        "lower": -0.04945916250470867,
-        "upper": -0.035446322541539246
-      },
-      "eventCount": 194,
-      "matchCount": 17972,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2019,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.008097165991902834,
-      "standardError": 0.01360722832968937,
-      "percentile": {
-        "lower": -0.019275586786137503,
-        "upper": 0.03312275703873612
-      },
-      "eventCount": 12,
-      "matchCount": 494,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2019,
-      "metric": "brier",
-      "pointEstimate": 0.00832632415379432,
-      "standardError": 0.004212748204423057,
-      "percentile": {
-        "lower": 0.0012663486345209601,
-        "upper": 0.017412658933532183
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2019,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.07716259057971014,
-      "standardError": 0.006328832406962791,
-      "percentile": {
-        "lower": 0.06509851384018027,
-        "upper": 0.08922950445165627
-      },
-      "eventCount": 194,
-      "matchCount": 17664,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2019,
-      "metric": "brier",
-      "pointEstimate": -0.042523968417375255,
-      "standardError": 0.0036696832078983387,
-      "percentile": {
-        "lower": -0.049611597579207765,
-        "upper": -0.035622156199175796
-      },
-      "eventCount": 194,
-      "matchCount": 17972,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2019,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.01417004048582996,
-      "standardError": 0.016228104726700072,
-      "percentile": {
-        "lower": -0.05085015653675916,
-        "upper": 0.007274059274059266
-      },
-      "eventCount": 12,
-      "matchCount": 494,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2019,
-      "metric": "brier",
-      "pointEstimate": 0.0034444309643959763,
-      "standardError": 0.0027229650203167265,
-      "percentile": {
-        "lower": 0.00008146243397033065,
-        "upper": 0.009792055790486174
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2019,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.07755887681159421,
-      "standardError": 0.006292455479912267,
-      "percentile": {
-        "lower": 0.06544383654780145,
-        "upper": 0.0897079121858153
-      },
-      "eventCount": 194,
-      "matchCount": 17664,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2019,
-      "metric": "brier",
-      "pointEstimate": -0.04261051955643753,
-      "standardError": 0.0036687212030347897,
-      "percentile": {
-        "lower": -0.04962368087247408,
-        "upper": -0.03563144971077956
-      },
-      "eventCount": 194,
-      "matchCount": 17972,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2019,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.0020242914979757085,
-      "standardError": 0.003576225962697817,
-      "percentile": {
-        "lower": -0.009412319644839066,
-        "upper": 0.004445440956651713
-      },
-      "eventCount": 12,
-      "matchCount": 494,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2019,
-      "metric": "brier",
-      "pointEstimate": 0.0006768050844216169,
-      "standardError": 0.0007495375891696187,
-      "percentile": {
-        "lower": -0.0001946511458145852,
-        "upper": 0.00273101237010748
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
       "armId": "epa-winprob-season-sd",
       "baselineArmId": "epa",
       "scope": "season",
@@ -3035,15 +1358,15 @@
       "scope": "season",
       "season": 2019,
       "metric": "brier",
-      "pointEstimate": 0.006167971816206122,
-      "standardError": 0.0005839180611867919,
+      "pointEstimate": -0.0037423603344616534,
+      "standardError": 0.0004990777157172563,
       "percentile": {
-        "lower": 0.005015052915265385,
-        "upper": 0.007308731400096077
+        "lower": -0.00475850055269155,
+        "upper": -0.0028010708066709073
       },
       "eventCount": 194,
       "matchCount": 17972,
-      "verdict": "worse",
+      "verdict": "better",
       "note": null
     },
     {
@@ -3069,15 +1392,15 @@
       "scope": "onset",
       "season": 2019,
       "metric": "brier",
-      "pointEstimate": 0.01714921234793556,
-      "standardError": 0.011115321234562773,
+      "pointEstimate": 0.021988388118818508,
+      "standardError": 0.00990742619718005,
       "percentile": {
-        "lower": -0.004220841040214485,
-        "upper": 0.0395582077786964
+        "lower": 0.0021518071036722383,
+        "upper": 0.039899630385308374
       },
       "eventCount": 12,
       "matchCount": 500,
-      "verdict": "indistinguishable",
+      "verdict": "worse",
       "note": null
     },
     {
@@ -3103,15 +1426,15 @@
       "scope": "season",
       "season": 2019,
       "metric": "brier",
-      "pointEstimate": -0.0004994936320676164,
-      "standardError": 0.0004914171485655604,
+      "pointEstimate": 0.000908320857813871,
+      "standardError": 0.00042165646465382634,
       "percentile": {
-        "lower": -0.0014896651558488957,
-        "upper": 0.00048685711490824914
+        "lower": 0.00003071866007722949,
+        "upper": 0.0017021692324036815
       },
       "eventCount": 194,
       "matchCount": 17972,
-      "verdict": "indistinguishable",
+      "verdict": "worse",
       "note": null
     },
     {
@@ -3137,351 +1460,11 @@
       "scope": "onset",
       "season": 2019,
       "metric": "brier",
-      "pointEstimate": 0.00941506099583459,
-      "standardError": 0.009477169250061042,
+      "pointEstimate": 0.013491041416986994,
+      "standardError": 0.008560154103385691,
       "percentile": {
-        "lower": -0.008552890840291935,
-        "upper": 0.02852064411377329
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2019,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.0022644927536231885,
-      "standardError": 0.0011960215905313534,
-      "percentile": {
-        "lower": -0.004721304560048647,
-        "upper": -0.00005672431286069081
-      },
-      "eventCount": 194,
-      "matchCount": 17664,
-      "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2019,
-      "metric": "brier",
-      "pointEstimate": -0.00018624922156935665,
-      "standardError": 0.00020760984737328207,
-      "percentile": {
-        "lower": -0.0006050464500458564,
-        "upper": 0.00022395130470660967
-      },
-      "eventCount": 194,
-      "matchCount": 17972,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2019,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.022267206477732792,
-      "standardError": 0.01644287703648807,
-      "percentile": {
-        "lower": -0.0536757999543969,
-        "upper": 0.010755610098176703
-      },
-      "eventCount": 12,
-      "matchCount": 494,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2019,
-      "metric": "brier",
-      "pointEstimate": -0.004881893189398344,
-      "standardError": 0.002490052961648941,
-      "percentile": {
-        "lower": -0.009994872565413147,
-        "upper": 0.000002715442536616651
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2019,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.0018682065217391305,
-      "standardError": 0.0010054911365022041,
-      "percentile": {
-        "lower": -0.003908800459025437,
-        "upper": 0
-      },
-      "eventCount": 194,
-      "matchCount": 17664,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2019,
-      "metric": "brier",
-      "pointEstimate": -0.0002728003606317297,
-      "standardError": 0.000238582527146926,
-      "percentile": {
-        "lower": -0.0007505313323000394,
-        "upper": 0.00018750351676816705
-      },
-      "eventCount": 194,
-      "matchCount": 17972,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2019,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.010121457489878543,
-      "standardError": 0.013802621608463038,
-      "percentile": {
-        "lower": -0.03817192861132537,
-        "upper": 0.015625
-      },
-      "eventCount": 12,
-      "matchCount": 494,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2019,
-      "metric": "brier",
-      "pointEstimate": -0.007649519069372697,
-      "standardError": 0.004179274379724447,
-      "percentile": {
-        "lower": -0.016432790588262386,
-        "upper": -0.00030666681355974684
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2022,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.005129271504817357,
-      "standardError": 0.0019088082828322144,
-      "percentile": {
-        "lower": 0.0012554857427468865,
-        "upper": 0.008912494750635283
-      },
-      "eventCount": 184,
-      "matchCount": 14427,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2022,
-      "metric": "brier",
-      "pointEstimate": -0.0009003871310261342,
-      "standardError": 0.00033159347465228317,
-      "percentile": {
-        "lower": -0.001521279866478725,
-        "upper": -0.00023108220366596581
-      },
-      "eventCount": 184,
-      "matchCount": 14603,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2022,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.022267206477732792,
-      "standardError": 0.016657107427671878,
-      "percentile": {
-        "lower": -0.05128336755646817,
-        "upper": 0.012174224352198362
-      },
-      "eventCount": 12,
-      "matchCount": 494,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2022,
-      "metric": "brier",
-      "pointEstimate": 0.007204954632041961,
-      "standardError": 0.002491686615975938,
-      "percentile": {
-        "lower": 0.002375658970690621,
-        "upper": 0.012021645018551965
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2022,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.005961045262355306,
-      "standardError": 0.0019257726173460457,
-      "percentile": {
-        "lower": 0.0021118033539451477,
-        "upper": 0.009671931453043932
-      },
-      "eventCount": 184,
-      "matchCount": 14427,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2022,
-      "metric": "brier",
-      "pointEstimate": -0.0014314009310709389,
-      "standardError": 0.0003096583331307486,
-      "percentile": {
-        "lower": -0.002040947475931615,
-        "upper": -0.0008309144503100387
-      },
-      "eventCount": 184,
-      "matchCount": 14603,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2022,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.024291497975708502,
-      "standardError": 0.017676098038982173,
-      "percentile": {
-        "lower": -0.007593678475713531,
-        "upper": 0.05979690295646245
-      },
-      "eventCount": 12,
-      "matchCount": 494,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2022,
-      "metric": "brier",
-      "pointEstimate": -0.005083131042453924,
-      "standardError": 0.0019142596391073408,
-      "percentile": {
-        "lower": -0.009006065621159085,
-        "upper": -0.00153815454683508
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2022,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.0056144728633811605,
-      "standardError": 0.0019093496851816361,
-      "percentile": {
-        "lower": 0.0017812646409023256,
-        "upper": 0.009392318810541016
-      },
-      "eventCount": 184,
-      "matchCount": 14427,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2022,
-      "metric": "brier",
-      "pointEstimate": -0.001357858489267552,
-      "standardError": 0.0003108238555182465,
-      "percentile": {
-        "lower": -0.001960413410272141,
-        "upper": -0.0007334447160266441
-      },
-      "eventCount": 184,
-      "matchCount": 14603,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2022,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.020242914979757085,
-      "standardError": 0.017807427116753732,
-      "percentile": {
-        "lower": -0.010271136505669137,
-        "upper": 0.05737826651517611
-      },
-      "eventCount": 12,
-      "matchCount": 494,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2022,
-      "metric": "brier",
-      "pointEstimate": -0.0032664767541443246,
-      "standardError": 0.0022859426845544795,
-      "percentile": {
-        "lower": -0.00794403569999274,
-        "upper": 0.001108436614317525
+        "lower": -0.0033541230581848984,
+        "upper": 0.029369999973334456
       },
       "eventCount": 12,
       "matchCount": 500,
@@ -3511,11 +1494,11 @@
       "scope": "season",
       "season": 2022,
       "metric": "brier",
-      "pointEstimate": 0.006816528585807839,
-      "standardError": 0.00030242922909338586,
+      "pointEstimate": 0.007439837376928109,
+      "standardError": 0.0003160937799574073,
       "percentile": {
-        "lower": 0.006244187158151455,
-        "upper": 0.007401074306816663
+        "lower": 0.006826184080186218,
+        "upper": 0.008053469651751594
       },
       "eventCount": 184,
       "matchCount": 14603,
@@ -3545,11 +1528,11 @@
       "scope": "onset",
       "season": 2022,
       "metric": "brier",
-      "pointEstimate": 0.00904601059428636,
-      "standardError": 0.0016085345446215048,
+      "pointEstimate": 0.010940173459850308,
+      "standardError": 0.00145183685284529,
       "percentile": {
-        "lower": 0.006115008767592602,
-        "upper": 0.012339445263609623
+        "lower": 0.008191465317049344,
+        "upper": 0.013833116315479186
       },
       "eventCount": 12,
       "matchCount": 500,
@@ -3579,11 +1562,11 @@
       "scope": "season",
       "season": 2022,
       "metric": "brier",
-      "pointEstimate": 0.0015274456510411371,
-      "standardError": 0.0001831281213571659,
+      "pointEstimate": 0.0017816613604717585,
+      "standardError": 0.0001982909213503439,
       "percentile": {
-        "lower": 0.0011795062957714027,
-        "upper": 0.001889513635483663
+        "lower": 0.0013945577946812859,
+        "upper": 0.0021619945581851895
       },
       "eventCount": 184,
       "matchCount": 14603,
@@ -3613,355 +1596,15 @@
       "scope": "onset",
       "season": 2022,
       "metric": "brier",
-      "pointEstimate": 0.004016331910896442,
-      "standardError": 0.0008408805524543341,
+      "pointEstimate": 0.004940098916485087,
+      "standardError": 0.0007798499311772684,
       "percentile": {
-        "lower": 0.0025145637803673584,
-        "upper": 0.005761463980347731
+        "lower": 0.0034793997118576637,
+        "upper": 0.006498139997786612
       },
       "eventCount": 12,
       "matchCount": 500,
       "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2022,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.0008317737575379496,
-      "standardError": 0.0006408986962603602,
-      "percentile": {
-        "lower": -0.000406809310241393,
-        "upper": 0.002043347868668583
-      },
-      "eventCount": 184,
-      "matchCount": 14427,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2022,
-      "metric": "brier",
-      "pointEstimate": -0.0005310138000448083,
-      "standardError": 0.00018221157583882098,
-      "percentile": {
-        "lower": -0.000913193775548715,
-        "upper": -0.00020801774013264198
-      },
-      "eventCount": 184,
-      "matchCount": 14603,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2022,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.0465587044534413,
-      "standardError": 0.007568727417830829,
-      "percentile": {
-        "lower": 0.03022674418604651,
-        "upper": 0.05990035808215187
-      },
-      "eventCount": 12,
-      "matchCount": 494,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2022,
-      "metric": "brier",
-      "pointEstimate": -0.012288085674495894,
-      "standardError": 0.002525231921353317,
-      "percentile": {
-        "lower": -0.016888519152434892,
-        "upper": -0.006926365493917897
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2022,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.00048520135856380397,
-      "standardError": 0.0005951114964482384,
-      "percentile": {
-        "lower": -0.0006801876675367442,
-        "upper": 0.0016202716087301188
-      },
-      "eventCount": 184,
-      "matchCount": 14427,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2022,
-      "metric": "brier",
-      "pointEstimate": -0.0004574713582414217,
-      "standardError": 0.0001498561205756567,
-      "percentile": {
-        "lower": -0.0007799902039941374,
-        "upper": -0.00018982393433159998
-      },
-      "eventCount": 184,
-      "matchCount": 14603,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2022,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.04251012145748988,
-      "standardError": 0.006305838954289135,
-      "percentile": {
-        "lower": 0.029905890456864134,
-        "upper": 0.05410467952445564
-      },
-      "eventCount": 12,
-      "matchCount": 494,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2022,
-      "metric": "brier",
-      "pointEstimate": -0.010471431386186284,
-      "standardError": 0.0023020670090175615,
-      "percentile": {
-        "lower": -0.0146637579708448,
-        "upper": -0.0056563674098189035
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2023,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.000867195242814668,
-      "standardError": 0.0012836838810269336,
-      "percentile": {
-        "lower": -0.0034161709103233276,
-        "upper": 0.0016028668454072747
-      },
-      "eventCount": 185,
-      "matchCount": 16144,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2023,
-      "metric": "brier",
-      "pointEstimate": 0.000266027546002684,
-      "standardError": 0.0002187900648513712,
-      "percentile": {
-        "lower": -0.00017917345306660732,
-        "upper": 0.0006808305320765358
-      },
-      "eventCount": 185,
-      "matchCount": 16290,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2023,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.006036217303822937,
-      "standardError": 0.009319953449292236,
-      "percentile": {
-        "lower": -0.010103586889301176,
-        "upper": 0.026533027412148278
-      },
-      "eventCount": 18,
-      "matchCount": 497,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2023,
-      "metric": "brier",
-      "pointEstimate": -0.000993705971493009,
-      "standardError": 0.002088128257875197,
-      "percentile": {
-        "lower": -0.005533289916068815,
-        "upper": 0.0025326062498083404
-      },
-      "eventCount": 18,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2023,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.0006813676907829534,
-      "standardError": 0.0013484964512138222,
-      "percentile": {
-        "lower": -0.003387404814240575,
-        "upper": 0.001915692035385738
-      },
-      "eventCount": 185,
-      "matchCount": 16144,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2023,
-      "metric": "brier",
-      "pointEstimate": 0.00026995104368845204,
-      "standardError": 0.00021845369368597356,
-      "percentile": {
-        "lower": -0.0001773618255692458,
-        "upper": 0.000684896285188224
-      },
-      "eventCount": 185,
-      "matchCount": 16290,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2023,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.01006036217303823,
-      "standardError": 0.012778984749145544,
-      "percentile": {
-        "lower": -0.010639720104676299,
-        "upper": 0.03864801024901913
-      },
-      "eventCount": 18,
-      "matchCount": 497,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2023,
-      "metric": "brier",
-      "pointEstimate": -0.0007373592213941083,
-      "standardError": 0.0021069079898266823,
-      "percentile": {
-        "lower": -0.005352399855194139,
-        "upper": 0.0028778937402749744
-      },
-      "eventCount": 18,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2023,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.0008052527254707631,
-      "standardError": 0.0013441815076195669,
-      "percentile": {
-        "lower": -0.0034786848373183285,
-        "upper": 0.001729475804677733
-      },
-      "eventCount": 185,
-      "matchCount": 16144,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2023,
-      "metric": "brier",
-      "pointEstimate": 0.000275495312162164,
-      "standardError": 0.00021331571729380871,
-      "percentile": {
-        "lower": -0.00016499844872477055,
-        "upper": 0.0006918636858741164
-      },
-      "eventCount": 185,
-      "matchCount": 16290,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2023,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.006036217303822937,
-      "standardError": 0.012392272441779149,
-      "percentile": {
-        "lower": -0.013596417613351942,
-        "upper": 0.03448674046348648
-      },
-      "eventCount": 18,
-      "matchCount": 497,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2023,
-      "metric": "brier",
-      "pointEstimate": -0.0017387824342892182,
-      "standardError": 0.001701383828044,
-      "percentile": {
-        "lower": -0.005517658840746768,
-        "upper": 0.0009445316338919299
-      },
-      "eventCount": 18,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
       "note": null
     },
     {
@@ -3987,11 +1630,11 @@
       "scope": "season",
       "season": 2023,
       "metric": "brier",
-      "pointEstimate": 0.0054401845746393255,
-      "standardError": 0.0002543245396320702,
+      "pointEstimate": 0.005354025451719946,
+      "standardError": 0.0002548074463281223,
       "percentile": {
-        "lower": 0.004935012206659093,
-        "upper": 0.005931210208774374
+        "lower": 0.004843397363287141,
+        "upper": 0.005847639232202436
       },
       "eventCount": 185,
       "matchCount": 16290,
@@ -4021,11 +1664,11 @@
       "scope": "onset",
       "season": 2023,
       "metric": "brier",
-      "pointEstimate": 0.0059214351257189,
-      "standardError": 0.001630747646858537,
+      "pointEstimate": 0.00555859715171803,
+      "standardError": 0.0016682170342230272,
       "percentile": {
-        "lower": 0.0027591637111459527,
-        "upper": 0.009033436119798424
+        "lower": 0.002476416085500449,
+        "upper": 0.008926500134077983
       },
       "eventCount": 18,
       "matchCount": 500,
@@ -4055,11 +1698,11 @@
       "scope": "season",
       "season": 2023,
       "metric": "brier",
-      "pointEstimate": -0.0032078032887881453,
-      "standardError": 0.00023009136024237725,
+      "pointEstimate": -0.003115575862916764,
+      "standardError": 0.00022989091852497506,
       "percentile": {
-        "lower": -0.0036512562128183717,
-        "upper": -0.0027404259252660256
+        "lower": -0.0035606929790213977,
+        "upper": -0.002642246823226794
       },
       "eventCount": 185,
       "matchCount": 16290,
@@ -4089,79 +1732,11 @@
       "scope": "onset",
       "season": 2023,
       "metric": "brier",
-      "pointEstimate": -0.0015385784435690297,
-      "standardError": 0.0006013647146188598,
+      "pointEstimate": -0.0011612747712712924,
+      "standardError": 0.000616229133518539,
       "percentile": {
-        "lower": -0.0026693326203423187,
-        "upper": -0.0002771376200096401
-      },
-      "eventCount": 18,
-      "matchCount": 500,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2023,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.00018582755203171457,
-      "standardError": 0.00026395564686757574,
-      "percentile": {
-        "lower": -0.0002544238152179821,
-        "upper": 0.0007703294812945918
-      },
-      "eventCount": 185,
-      "matchCount": 16144,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2023,
-      "metric": "brier",
-      "pointEstimate": 0.000003923497685769867,
-      "standardError": 0.000011984475266667548,
-      "percentile": {
-        "lower": -0.000018431017688179846,
-        "upper": 0.00002940025589949687
-      },
-      "eventCount": 185,
-      "matchCount": 16290,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2023,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.004024144869215292,
-      "standardError": 0.005364329995987878,
-      "percentile": {
-        "lower": -0.0036429872495446266,
-        "upper": 0.0165749129376031
-      },
-      "eventCount": 18,
-      "matchCount": 497,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2023,
-      "metric": "brier",
-      "pointEstimate": 0.00025634675009890374,
-      "standardError": 0.00022599051482901289,
-      "percentile": {
-        "lower": -0.00016513743130122606,
-        "upper": 0.0007075171538192414
+        "lower": -0.002409237047417494,
+        "upper": 0.000018584455267650558
       },
       "eventCount": 18,
       "matchCount": 500,
@@ -4169,278 +1744,6 @@
       "note": null
     },
     {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2023,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.00006194251734390486,
-      "standardError": 0.0003510769186153327,
-      "percentile": {
-        "lower": -0.0005804397910996797,
-        "upper": 0.000761246901300675
-      },
-      "eventCount": 185,
-      "matchCount": 16144,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2023,
-      "metric": "brier",
-      "pointEstimate": 0.000009467766159484045,
-      "standardError": 0.000041725057156299073,
-      "percentile": {
-        "lower": -0.00007074934045210894,
-        "upper": 0.0000959916579012867
-      },
-      "eventCount": 185,
-      "matchCount": 16290,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2023,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0,
-      "standardError": 0.005997458289036742,
-      "percentile": {
-        "lower": -0.009324553950722176,
-        "upper": 0.01365226585398089
-      },
-      "eventCount": 18,
-      "matchCount": 497,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2023,
-      "metric": "brier",
-      "pointEstimate": -0.0007450764627962078,
-      "standardError": 0.0007953108938229,
-      "percentile": {
-        "lower": -0.002315633106779223,
-        "upper": 0.0007804114190871629
-      },
-      "eventCount": 18,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2024,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.0035790980672870437,
-      "standardError": 0.0022213667169583527,
-      "percentile": {
-        "lower": -0.000720116670004997,
-        "upper": 0.007968662771876087
-      },
-      "eventCount": 192,
-      "matchCount": 16764,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2024,
-      "metric": "brier",
-      "pointEstimate": 0.0006513257102125927,
-      "standardError": 0.0006373734615872768,
-      "percentile": {
-        "lower": -0.0005925612557222995,
-        "upper": 0.0018855980869859237
-      },
-      "eventCount": 192,
-      "matchCount": 16958,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2024,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.006109979633401222,
-      "standardError": 0.012875565328335043,
-      "percentile": {
-        "lower": -0.018606201550387596,
-        "upper": 0.0324692003202277
-      },
-      "eventCount": 16,
-      "matchCount": 491,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2024,
-      "metric": "brier",
-      "pointEstimate": 0.008784517380271202,
-      "standardError": 0.0032326904492217274,
-      "percentile": {
-        "lower": 0.0034628916856518843,
-        "upper": 0.015892135448805307
-      },
-      "eventCount": 16,
-      "matchCount": 500,
-      "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2024,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.0034001431639226914,
-      "standardError": 0.002193568276416008,
-      "percentile": {
-        "lower": -0.0008867738373363593,
-        "upper": 0.007615705314503121
-      },
-      "eventCount": 192,
-      "matchCount": 16764,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2024,
-      "metric": "brier",
-      "pointEstimate": 0.0006368293205059794,
-      "standardError": 0.0006372167649308601,
-      "percentile": {
-        "lower": -0.0006008086972017182,
-        "upper": 0.00187880401119013
-      },
-      "eventCount": 192,
-      "matchCount": 16958,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2024,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.004073319755600814,
-      "standardError": 0.012801241098564148,
-      "percentile": {
-        "lower": -0.01919478074708401,
-        "upper": 0.030905780993182943
-      },
-      "eventCount": 16,
-      "matchCount": 491,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2024,
-      "metric": "brier",
-      "pointEstimate": 0.008280531956151757,
-      "standardError": 0.0033395396465401954,
-      "percentile": {
-        "lower": 0.0028757065547929746,
-        "upper": 0.015750844039257673
-      },
-      "eventCount": 16,
-      "matchCount": 500,
-      "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2024,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.004593175853018373,
-      "standardError": 0.0021994310510416682,
-      "percentile": {
-        "lower": 0.0003592125867701284,
-        "upper": 0.008920236066102129
-      },
-      "eventCount": 192,
-      "matchCount": 16764,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2024,
-      "metric": "brier",
-      "pointEstimate": 0.00039288226270853466,
-      "standardError": 0.0006252567672900672,
-      "percentile": {
-        "lower": -0.0008302271555667591,
-        "upper": 0.0016149679774614457
-      },
-      "eventCount": 192,
-      "matchCount": 16958,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2024,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0,
-      "standardError": 0.009620080418617184,
-      "percentile": {
-        "lower": -0.019705243712730098,
-        "upper": 0.018269960602884272
-      },
-      "eventCount": 16,
-      "matchCount": 491,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2024,
-      "metric": "brier",
-      "pointEstimate": 0.006205664220533615,
-      "standardError": 0.002893147037861347,
-      "percentile": {
-        "lower": 0.0017667071833459337,
-        "upper": 0.012627492695112355
-      },
-      "eventCount": 16,
-      "matchCount": 500,
-      "verdict": "worse",
-      "note": null
-    },
-    {
       "armId": "epa-winprob-season-sd",
       "baselineArmId": "epa",
       "scope": "season",
@@ -4463,11 +1766,11 @@
       "scope": "season",
       "season": 2024,
       "metric": "brier",
-      "pointEstimate": 0.0046162983611445114,
-      "standardError": 0.00023234697520389304,
+      "pointEstimate": 0.004913559558439399,
+      "standardError": 0.00021643856399035014,
       "percentile": {
-        "lower": 0.004152158506523937,
-        "upper": 0.00507075354017411
+        "lower": 0.004496310304912912,
+        "upper": 0.005349263942473742
       },
       "eventCount": 192,
       "matchCount": 16958,
@@ -4497,11 +1800,11 @@
       "scope": "onset",
       "season": 2024,
       "metric": "brier",
-      "pointEstimate": 0.0007610794304638288,
-      "standardError": 0.001178360287396943,
+      "pointEstimate": 0.0006839169915155525,
+      "standardError": 0.0011514647799206173,
       "percentile": {
-        "lower": -0.0012039171739473325,
-        "upper": 0.0033862391902631165
+        "lower": -0.0012437916676667038,
+        "upper": 0.003265468079287242
       },
       "eventCount": 16,
       "matchCount": 500,
@@ -4531,11 +1834,11 @@
       "scope": "season",
       "season": 2024,
       "metric": "brier",
-      "pointEstimate": 0.002827084482591562,
-      "standardError": 0.00017673406556589782,
+      "pointEstimate": 0.0030448126136868215,
+      "standardError": 0.00016781846222159775,
       "percentile": {
-        "lower": 0.0024881540405773377,
-        "upper": 0.003173200171390406
+        "lower": 0.002712833324005434,
+        "upper": 0.003376887807249254
       },
       "eventCount": 192,
       "matchCount": 16958,
@@ -4565,11 +1868,11 @@
       "scope": "onset",
       "season": 2024,
       "metric": "brier",
-      "pointEstimate": -0.0005526288859776311,
-      "standardError": 0.0012684942682617973,
+      "pointEstimate": -0.0005727559837040311,
+      "standardError": 0.001249035476084693,
       "percentile": {
-        "lower": -0.0026655133408047442,
-        "upper": 0.0022203839612602223
+        "lower": -0.0026530868231367712,
+        "upper": 0.002189849492325944
       },
       "eventCount": 16,
       "matchCount": 500,
@@ -4577,346 +1880,6 @@
       "note": null
     },
     {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2024,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.00017895490336435218,
-      "standardError": 0.00017996747154572673,
-      "percentile": {
-        "lower": -0.0005468141242580328,
-        "upper": 0.00012189659650110079
-      },
-      "eventCount": 192,
-      "matchCount": 16764,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2024,
-      "metric": "brier",
-      "pointEstimate": -0.00001449638970662276,
-      "standardError": 0.000014496304345076386,
-      "percentile": {
-        "lower": -0.00004720617348031338,
-        "upper": 0.000004680450554141029
-      },
-      "eventCount": 192,
-      "matchCount": 16958,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2024,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.002036659877800407,
-      "standardError": 0.004166283652761491,
-      "percentile": {
-        "lower": -0.010332730716253444,
-        "upper": 0.005634734684097016
-      },
-      "eventCount": 16,
-      "matchCount": 491,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2024,
-      "metric": "brier",
-      "pointEstimate": -0.0005039854241194569,
-      "standardError": 0.0003958654057799084,
-      "percentile": {
-        "lower": -0.0013332390184656077,
-        "upper": -0.000004152115000859093
-      },
-      "eventCount": 16,
-      "matchCount": 500,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2024,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.0010140777857313291,
-      "standardError": 0.0007445886591797428,
-      "percentile": {
-        "lower": -0.000370201900425071,
-        "upper": 0.002528152028218401
-      },
-      "eventCount": 192,
-      "matchCount": 16764,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2024,
-      "metric": "brier",
-      "pointEstimate": -0.00025844344750406643,
-      "standardError": 0.00010741753675803566,
-      "percentile": {
-        "lower": -0.0004858326132505081,
-        "upper": -0.00007474129059487834
-      },
-      "eventCount": 192,
-      "matchCount": 16958,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2024,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.006109979633401222,
-      "standardError": 0.010719189041424217,
-      "percentile": {
-        "lower": -0.027191957963012377,
-        "upper": 0.014496288441145262
-      },
-      "eventCount": 16,
-      "matchCount": 491,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2024,
-      "metric": "brier",
-      "pointEstimate": -0.002578853159737606,
-      "standardError": 0.0021913745095756896,
-      "percentile": {
-        "lower": -0.007117604772717077,
-        "upper": 0.0012251584686519372
-      },
-      "eventCount": 16,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2025,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.0007347953877458738,
-      "standardError": 0.0012244163699257683,
-      "percentile": {
-        "lower": -0.0017165789440624199,
-        "upper": 0.003100123897568468
-      },
-      "eventCount": 204,
-      "matchCount": 17692,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2025,
-      "metric": "brier",
-      "pointEstimate": -0.0008516266533703098,
-      "standardError": 0.00021500033824598135,
-      "percentile": {
-        "lower": -0.0012839184228668455,
-        "upper": -0.00043535561962677194
-      },
-      "eventCount": 204,
-      "matchCount": 17815,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2025,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.0020161290322580645,
-      "standardError": 0.006266990295639309,
-      "percentile": {
-        "lower": -0.009195041918636614,
-        "upper": 0.014962593516209476
-      },
-      "eventCount": 12,
-      "matchCount": 496,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2025,
-      "metric": "brier",
-      "pointEstimate": -0.004633044483756706,
-      "standardError": 0.0016644116798765383,
-      "percentile": {
-        "lower": -0.0082428459433004,
-        "upper": -0.0017998615121683783
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2025,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.0008478408320144698,
-      "standardError": 0.0012264505773609577,
-      "percentile": {
-        "lower": -0.0016115679573674325,
-        "upper": 0.0032651013873880546
-      },
-      "eventCount": 204,
-      "matchCount": 17692,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2025,
-      "metric": "brier",
-      "pointEstimate": -0.0008299913595451687,
-      "standardError": 0.0002150365803580399,
-      "percentile": {
-        "lower": -0.001259196666916533,
-        "upper": -0.0004132009460537374
-      },
-      "eventCount": 204,
-      "matchCount": 17815,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2025,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.0020161290322580645,
-      "standardError": 0.006266990295639309,
-      "percentile": {
-        "lower": -0.009195041918636614,
-        "upper": 0.014962593516209476
-      },
-      "eventCount": 12,
-      "matchCount": 496,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2025,
-      "metric": "brier",
-      "pointEstimate": -0.004066315655030415,
-      "standardError": 0.0017771681258417441,
-      "percentile": {
-        "lower": -0.008110409719102483,
-        "upper": -0.001158558554232612
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2025,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.00022609088853719196,
-      "standardError": 0.001181899095346405,
-      "percentile": {
-        "lower": -0.002165918015103747,
-        "upper": 0.0025390743761412836
-      },
-      "eventCount": 204,
-      "matchCount": 17692,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2025,
-      "metric": "brier",
-      "pointEstimate": -0.000614702888879643,
-      "standardError": 0.00020835081494545454,
-      "percentile": {
-        "lower": -0.0010354186853407023,
-        "upper": -0.00020249271030130394
-      },
-      "eventCount": 204,
-      "matchCount": 17815,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2025,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.0020161290322580645,
-      "standardError": 0.0035738603783977726,
-      "percentile": {
-        "lower": -0.004505014063837593,
-        "upper": 0.009479801399232674
-      },
-      "eventCount": 12,
-      "matchCount": 496,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2025,
-      "metric": "brier",
-      "pointEstimate": -0.0007240266119997663,
-      "standardError": 0.0007555761828842464,
-      "percentile": {
-        "lower": -0.002386708239560633,
-        "upper": 0.0006229568655317138
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
       "armId": "epa-winprob-season-sd",
       "baselineArmId": "epa",
       "scope": "season",
@@ -4939,11 +1902,11 @@
       "scope": "season",
       "season": 2025,
       "metric": "brier",
-      "pointEstimate": 0.00850414148778093,
-      "standardError": 0.0003161456844078582,
+      "pointEstimate": 0.00856969162042113,
+      "standardError": 0.00032097500496052834,
       "percentile": {
-        "lower": 0.007885347074165586,
-        "upper": 0.009127460764069579
+        "lower": 0.007946086895674328,
+        "upper": 0.00920454398981983
       },
       "eventCount": 204,
       "matchCount": 17815,
@@ -4973,11 +1936,11 @@
       "scope": "onset",
       "season": 2025,
       "metric": "brier",
-      "pointEstimate": 0.00831724991460255,
-      "standardError": 0.0019743068566301135,
+      "pointEstimate": 0.008307291163140511,
+      "standardError": 0.0020092933414290488,
       "percentile": {
-        "lower": 0.004423218729034003,
-        "upper": 0.012138265901361214
+        "lower": 0.0043226640983602665,
+        "upper": 0.012123663785324134
       },
       "eventCount": 12,
       "matchCount": 500,
@@ -5007,11 +1970,11 @@
       "scope": "season",
       "season": 2025,
       "metric": "brier",
-      "pointEstimate": -0.007151888915228174,
-      "standardError": 0.0004643612667397852,
+      "pointEstimate": -0.007158015085935901,
+      "standardError": 0.0004670879308685662,
       "percentile": {
-        "lower": -0.008037044491209702,
-        "upper": -0.006246931538097769
+        "lower": -0.008059014239136152,
+        "upper": -0.006254092541868097
       },
       "eventCount": 204,
       "matchCount": 17815,
@@ -5041,351 +2004,11 @@
       "scope": "onset",
       "season": 2025,
       "metric": "brier",
-      "pointEstimate": -0.0049453261624278246,
-      "standardError": 0.002900856896880269,
+      "pointEstimate": -0.003917033758139248,
+      "standardError": 0.0027427163542974946,
       "percentile": {
-        "lower": -0.010458472958023431,
-        "upper": 0.0006657837028592387
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2025,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.00011304544426859598,
-      "standardError": 0.00007841407326024043,
-      "percentile": {
-        "lower": 0,
-        "upper": 0.00028611896023034107
-      },
-      "eventCount": 204,
-      "matchCount": 17692,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2025,
-      "metric": "brier",
-      "pointEstimate": 0.000021635293825134073,
-      "standardError": 0.000015463408822180543,
-      "percentile": {
-        "lower": 0.000002229670942190733,
-        "upper": 0.00005538793403071484
-      },
-      "eventCount": 204,
-      "matchCount": 17815,
-      "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2025,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0,
-      "standardError": 0,
-      "percentile": {
-        "lower": 0,
-        "upper": 0
-      },
-      "eventCount": 12,
-      "matchCount": 496,
-      "verdict": "identical",
-      "note": "every paired difference is exactly 0 — no resampling performed, there is no uncertainty to resample"
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2025,
-      "metric": "brier",
-      "pointEstimate": 0.0005667288287262956,
-      "standardError": 0.00045908249099124005,
-      "percentile": {
-        "lower": -0.000012284700906627076,
-        "upper": 0.0014944250732615517
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2025,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.0005087044992086819,
-      "standardError": 0.00044388790115364716,
-      "percentile": {
-        "lower": -0.0014390892920221722,
-        "upper": 0.0002834780810153667
-      },
-      "eventCount": 204,
-      "matchCount": 17692,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2025,
-      "metric": "brier",
-      "pointEstimate": 0.00023692376449065532,
-      "standardError": 0.00006862452315763268,
-      "percentile": {
-        "lower": 0.00011720048637877569,
-        "upper": 0.00038887416995838156
-      },
-      "eventCount": 204,
-      "matchCount": 17815,
-      "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2025,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0,
-      "standardError": 0.005143675616812521,
-      "percentile": {
-        "lower": -0.01047313716393841,
-        "upper": 0.009346671108695265
-      },
-      "eventCount": 12,
-      "matchCount": 496,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2025,
-      "metric": "brier",
-      "pointEstimate": 0.0039090178717569425,
-      "standardError": 0.0013801047921266163,
-      "percentile": {
-        "lower": 0.0015568648685219649,
-        "upper": 0.006854179391212884
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2026,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.0012027115678985348,
-      "standardError": 0.0009395628478886259,
-      "percentile": {
-        "lower": -0.0029979380181044085,
-        "upper": 0.0006529732937932442
-      },
-      "eventCount": 214,
-      "matchCount": 18292,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2026,
-      "metric": "brier",
-      "pointEstimate": -0.000270724224913935,
-      "standardError": 0.0001083440953549397,
-      "percentile": {
-        "lower": -0.00047994139652623774,
-        "upper": -0.00005882765251162992
-      },
-      "eventCount": 214,
-      "matchCount": 18337,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2026,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.008048289738430584,
-      "standardError": 0.004430748494269095,
-      "percentile": {
-        "lower": 0,
-        "upper": 0.016280018431181216
-      },
-      "eventCount": 12,
-      "matchCount": 497,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2026,
-      "metric": "brier",
-      "pointEstimate": -0.0012578829059093138,
-      "standardError": 0.00041588911932261257,
-      "percentile": {
-        "lower": -0.002106167100813053,
-        "upper": -0.0004962069246462272
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2026,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.0013667176907937897,
-      "standardError": 0.0009367899855636463,
-      "percentile": {
-        "lower": -0.0031611117850443822,
-        "upper": 0.0004365285276180913
-      },
-      "eventCount": 214,
-      "matchCount": 18292,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2026,
-      "metric": "brier",
-      "pointEstimate": -0.0002619509691865241,
-      "standardError": 0.000108771473056525,
-      "percentile": {
-        "lower": -0.0004743469584675921,
-        "upper": -0.000048905641737335696
-      },
-      "eventCount": 214,
-      "matchCount": 18337,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2026,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.006036217303822937,
-      "standardError": 0.005106177625293665,
-      "percentile": {
-        "lower": -0.0041928721174004195,
-        "upper": 0.01566215716324049
-      },
-      "eventCount": 12,
-      "matchCount": 497,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2026,
-      "metric": "brier",
-      "pointEstimate": -0.001072588156303595,
-      "standardError": 0.0004987312953097158,
-      "percentile": {
-        "lower": -0.002088153322793921,
-        "upper": -0.0001489902022608866
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2026,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.0014760551060572927,
-      "standardError": 0.000931426094701859,
-      "percentile": {
-        "lower": -0.003275170420677682,
-        "upper": 0.00032735253120263683
-      },
-      "eventCount": 214,
-      "matchCount": 18292,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "season",
-      "season": 2026,
-      "metric": "brier",
-      "pointEstimate": -0.00019944537616235119,
-      "standardError": 0.00010732532939645081,
-      "percentile": {
-        "lower": -0.0004058243804707345,
-        "upper": 0.000007524110314129039
-      },
-      "eventCount": 214,
-      "matchCount": 18337,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2026,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.004024144869215292,
-      "standardError": 0.006312125687400736,
-      "percentile": {
-        "lower": -0.009228547341653192,
-        "upper": 0.015506904069767425
-      },
-      "eventCount": 12,
-      "matchCount": 497,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": 2026,
-      "metric": "brier",
-      "pointEstimate": 0.0001202079990374576,
-      "standardError": 0.00009269167331720101,
-      "percentile": {
-        "lower": -0.00009712243359132312,
-        "upper": 0.00026433456776841726
+        "lower": -0.009135983971894603,
+        "upper": 0.0014513628932930124
       },
       "eventCount": 12,
       "matchCount": 500,
@@ -5415,11 +2038,11 @@
       "scope": "season",
       "season": 2026,
       "metric": "brier",
-      "pointEstimate": 0.012077154789894294,
-      "standardError": 0.0004558008441370904,
+      "pointEstimate": 0.012060422521182688,
+      "standardError": 0.0004558650231245829,
       "percentile": {
-        "lower": 0.011208775026476155,
-        "upper": 0.012982299108020786
+        "lower": 0.011175868857504684,
+        "upper": 0.012967798292988275
       },
       "eventCount": 214,
       "matchCount": 18337,
@@ -5449,11 +2072,11 @@
       "scope": "onset",
       "season": 2026,
       "metric": "brier",
-      "pointEstimate": 0.01571125344808034,
-      "standardError": 0.0014436255550348243,
+      "pointEstimate": 0.015747538966113007,
+      "standardError": 0.0014912720687855802,
       "percentile": {
-        "lower": 0.012858762033777477,
-        "upper": 0.018563908020721324
+        "lower": 0.012792973987628475,
+        "upper": 0.018616196709406715
       },
       "eventCount": 12,
       "matchCount": 500,
@@ -5483,11 +2106,11 @@
       "scope": "season",
       "season": 2026,
       "metric": "brier",
-      "pointEstimate": -0.0019966952978613985,
-      "standardError": 0.001668731410096075,
+      "pointEstimate": -0.0012348130324122532,
+      "standardError": 0.0016527014505850115,
       "percentile": {
-        "lower": -0.00521851662152954,
-        "upper": 0.0012372356125214042
+        "lower": -0.004392712380430282,
+        "upper": 0.0019699077635193423
       },
       "eventCount": 214,
       "matchCount": 18337,
@@ -5517,11 +2140,11 @@
       "scope": "onset",
       "season": 2026,
       "metric": "brier",
-      "pointEstimate": -0.005188901103296732,
-      "standardError": 0.006390644407375985,
+      "pointEstimate": -0.002913166969314868,
+      "standardError": 0.006527237313932193,
       "percentile": {
-        "lower": -0.01823312729121372,
-        "upper": 0.006600630028417021
+        "lower": -0.01614969971423694,
+        "upper": 0.00924502220145677
       },
       "eventCount": 12,
       "matchCount": 500,
@@ -5529,346 +2152,6 @@
       "note": null
     },
     {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2026,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.00016400612289525475,
-      "standardError": 0.00016135881830131463,
-      "percentile": {
-        "lower": -0.0004962341437135614,
-        "upper": 0.0001589608555780915
-      },
-      "eventCount": 214,
-      "matchCount": 18292,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2026,
-      "metric": "brier",
-      "pointEstimate": 0.000008773255727409498,
-      "standardError": 0.00000795229329627932,
-      "percentile": {
-        "lower": -0.000004358939510971945,
-        "upper": 0.000026193076578345263
-      },
-      "eventCount": 214,
-      "matchCount": 18337,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2026,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.002012072434607646,
-      "standardError": 0.001914205191575933,
-      "percentile": {
-        "lower": -0.006369426751592357,
-        "upper": 0
-      },
-      "eventCount": 12,
-      "matchCount": 497,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2026,
-      "metric": "brier",
-      "pointEstimate": 0.00018529474960571882,
-      "standardError": 0.00016851291404278002,
-      "percentile": {
-        "lower": -0.00008339192727913348,
-        "upper": 0.0005571495176189802
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2026,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.0002733435381587579,
-      "standardError": 0.00020958902739138011,
-      "percentile": {
-        "lower": -0.0007013966126297328,
-        "upper": 0.00010972432087524049
-      },
-      "eventCount": 214,
-      "matchCount": 18292,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "season",
-      "season": 2026,
-      "metric": "brier",
-      "pointEstimate": 0.00007127884875158454,
-      "standardError": 0.000020641627843592082,
-      "percentile": {
-        "lower": 0.00003350530586196196,
-        "upper": 0.00011326820674631419
-      },
-      "eventCount": 214,
-      "matchCount": 18337,
-      "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2026,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.004024144869215292,
-      "standardError": 0.003828410383151866,
-      "percentile": {
-        "lower": -0.012738853503184714,
-        "upper": 0
-      },
-      "eventCount": 12,
-      "matchCount": 497,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": 2026,
-      "metric": "brier",
-      "pointEstimate": 0.001378090904946771,
-      "standardError": 0.00040504316137395874,
-      "percentile": {
-        "lower": 0.0006452948060280665,
-        "upper": 0.002209769919880632
-      },
-      "eventCount": 12,
-      "matchCount": 500,
-      "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "pooled",
-      "season": null,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.010590139647178249,
-      "standardError": 0.0011001014344735934,
-      "percentile": {
-        "lower": 0.008457424274971061,
-        "upper": 0.012845088470730027
-      },
-      "eventCount": 1653,
-      "matchCount": 145796,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "pooled",
-      "season": null,
-      "metric": "brier",
-      "pointEstimate": -0.005210452313383428,
-      "standardError": 0.0005757351381811947,
-      "percentile": {
-        "lower": -0.00637940251989921,
-        "upper": -0.004120818387409597
-      },
-      "eventCount": 1653,
-      "matchCount": 147221,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": null,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.001009845998485231,
-      "standardError": 0.0036856620969621424,
-      "percentile": {
-        "lower": -0.00828033151574685,
-        "upper": 0.006196385970336924
-      },
-      "eventCount": 106,
-      "matchCount": 3961,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": null,
-      "metric": "brier",
-      "pointEstimate": 0.0018395140809776744,
-      "standardError": 0.000933312842508565,
-      "percentile": {
-        "lower": 0.00004950676864796014,
-        "upper": 0.0036522742140638765
-      },
-      "eventCount": 106,
-      "matchCount": 4000,
-      "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "pooled",
-      "season": null,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.010377513786386457,
-      "standardError": 0.0011063133106076332,
-      "percentile": {
-        "lower": 0.008225388533821536,
-        "upper": 0.012654291088700916
-      },
-      "eventCount": 1653,
-      "matchCount": 145796,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "pooled",
-      "season": null,
-      "metric": "brier",
-      "pointEstimate": -0.005277870658776889,
-      "standardError": 0.0005759149099515807,
-      "percentile": {
-        "lower": -0.0064395155037924945,
-        "upper": -0.004183808622801623
-      },
-      "eventCount": 1653,
-      "matchCount": 147221,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": null,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.0035344609946983086,
-      "standardError": 0.004024826462151386,
-      "percentile": {
-        "lower": -0.0046615036375896365,
-        "upper": 0.011670358187395015
-      },
-      "eventCount": 106,
-      "matchCount": 3961,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": null,
-      "metric": "brier",
-      "pointEstimate": -0.00019527110805894887,
-      "standardError": 0.0007368292302332606,
-      "percentile": {
-        "lower": -0.0016245662024864569,
-        "upper": 0.0012810842966674083
-      },
-      "eventCount": 106,
-      "matchCount": 4000,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "pooled",
-      "season": null,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.010418667178797773,
-      "standardError": 0.0010982917407924217,
-      "percentile": {
-        "lower": 0.00832104623822052,
-        "upper": 0.0126710543318301
-      },
-      "eventCount": 1653,
-      "matchCount": 145796,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "pooled",
-      "season": null,
-      "metric": "brier",
-      "pointEstimate": -0.005268909227446595,
-      "standardError": 0.0005750331410809391,
-      "percentile": {
-        "lower": -0.006422564000564143,
-        "upper": -0.004195091451495939
-      },
-      "eventCount": 1653,
-      "matchCount": 147221,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": null,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.003281999495077001,
-      "standardError": 0.0032204664074075248,
-      "percentile": {
-        "lower": -0.002544659018805642,
-        "upper": 0.009732436017506587
-      },
-      "eventCount": 106,
-      "matchCount": 3961,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa",
-      "scope": "onset",
-      "season": null,
-      "metric": "brier",
-      "pointEstimate": 0.000053214468588590594,
-      "standardError": 0.0005306427996475499,
-      "percentile": {
-        "lower": -0.0009884777892041703,
-        "upper": 0.0010965522893204409
-      },
-      "eventCount": 106,
-      "matchCount": 4000,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
       "armId": "epa-winprob-season-sd",
       "baselineArmId": "epa",
       "scope": "pooled",
@@ -5891,11 +2174,11 @@
       "scope": "pooled",
       "season": null,
       "metric": "brier",
-      "pointEstimate": 0.005455144600514168,
-      "standardError": 0.0001430091964568859,
+      "pointEstimate": 0.004341414916407847,
+      "standardError": 0.00015494918411763518,
       "percentile": {
-        "lower": 0.005179776153770559,
-        "upper": 0.0057338206971282515
+        "lower": 0.004049524655603354,
+        "upper": 0.004647516540957779
       },
       "eventCount": 1653,
       "matchCount": 147221,
@@ -5925,11 +2208,11 @@
       "scope": "onset",
       "season": null,
       "metric": "brier",
-      "pointEstimate": 0.007367115340225004,
-      "standardError": 0.001611192093404164,
+      "pointEstimate": 0.008192524899323345,
+      "standardError": 0.001536437326094686,
       "percentile": {
-        "lower": 0.004371812749006009,
-        "upper": 0.010621436008960282
+        "lower": 0.0053029270019906444,
+        "upper": 0.011226653759645544
       },
       "eventCount": 106,
       "matchCount": 4000,
@@ -5959,11 +2242,11 @@
       "scope": "pooled",
       "season": null,
       "metric": "brier",
-      "pointEstimate": 0.0047783251325383275,
-      "standardError": 0.0004404109833192873,
+      "pointEstimate": 0.005228955538866891,
+      "standardError": 0.00043831451953370136,
       "percentile": {
-        "lower": 0.003896974329316334,
-        "upper": 0.005639837093890087
+        "lower": 0.00439199747292289,
+        "upper": 0.006082162068389575
       },
       "eventCount": 1653,
       "matchCount": 147221,
@@ -5993,441 +2276,89 @@
       "scope": "onset",
       "season": null,
       "metric": "brier",
-      "pointEstimate": 0.00582119994050759,
-      "standardError": 0.002303183433330357,
+      "pointEstimate": 0.006855730351841158,
+      "standardError": 0.0022620226654690035,
       "percentile": {
-        "lower": 0.00125671485358153,
-        "upper": 0.010288846583631927
+        "lower": 0.002303736296337718,
+        "upper": 0.01128662138920566
       },
       "eventCount": 106,
       "matchCount": 4000,
       "verdict": "worse",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "pooled",
-      "season": null,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.00021262586079179126,
-      "standardError": 0.00016904918129778587,
-      "percentile": {
-        "lower": -0.0005454613989232783,
-        "upper": 0.0001104562823199709
-      },
-      "eventCount": 1653,
-      "matchCount": 145796,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "pooled",
-      "season": null,
-      "metric": "brier",
-      "pointEstimate": -0.00006741834539340623,
-      "standardError": 0.00003191039452751997,
-      "percentile": {
-        "lower": -0.00013195161696383074,
-        "upper": -0.000006762457266271895
-      },
-      "eventCount": 1653,
-      "matchCount": 147221,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": null,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.0045443069931835394,
-      "standardError": 0.0033227204319917075,
-      "percentile": {
-        "lower": -0.002198812929418098,
-        "upper": 0.011026816860946576
-      },
-      "eventCount": 106,
-      "matchCount": 3961,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": null,
-      "metric": "brier",
-      "pointEstimate": -0.0020347851890366126,
-      "standardError": 0.0006901319499273956,
-      "percentile": {
-        "lower": -0.0033909828220938572,
-        "upper": -0.0006847543130025118
-      },
-      "eventCount": 106,
-      "matchCount": 4000,
-      "verdict": "better",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "pooled",
-      "season": null,
-      "metric": "winnerAccuracy",
-      "pointEstimate": -0.00017147246838047683,
-      "standardError": 0.0001836008070520649,
-      "percentile": {
-        "lower": -0.0005350825545366885,
-        "upper": 0.00018418747605760722
-      },
-      "eventCount": 1653,
-      "matchCount": 145796,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "pooled",
-      "season": null,
-      "metric": "brier",
-      "pointEstimate": -0.000058456914063074374,
-      "standardError": 0.00003750573773372307,
-      "percentile": {
-        "lower": -0.00013553812963068,
-        "upper": 0.000012018686337057389
-      },
-      "eventCount": 1653,
-      "matchCount": 147221,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": null,
-      "metric": "winnerAccuracy",
-      "pointEstimate": 0.004291845493562232,
-      "standardError": 0.0032256774141518002,
-      "percentile": {
-        "lower": -0.0020251132136432956,
-        "upper": 0.010655131788676104
-      },
-      "eventCount": 106,
-      "matchCount": 3961,
-      "verdict": "indistinguishable",
-      "note": null
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "baselineArmId": "epa-carryover-fix",
-      "scope": "onset",
-      "season": null,
-      "metric": "brier",
-      "pointEstimate": -0.0017862996123890747,
-      "standardError": 0.0008920180240861237,
-      "percentile": {
-        "lower": -0.0034958439319964347,
-        "upper": -0.00006872214570801442
-      },
-      "eventCount": 106,
-      "matchCount": 4000,
-      "verdict": "better",
       "note": null
     }
   ],
   "carryScale": [
     {
-      "armId": "epa-carryover-fix",
       "season": 2017,
       "fromSeason": 2016,
       "seedMean": 85.55312664609836,
       "cleanSeasonMean": 236.0584108960874,
       "ratio": 2.7592026165516277,
       "carriedTeams": 3189,
-      "rescaledTeams": 2675,
-      "deferredRescales": 243,
       "neverSeen": 271
     },
     {
-      "armId": "epa-carryover-fix-min250",
-      "season": 2017,
-      "fromSeason": 2016,
-      "seedMean": 85.55312664609836,
-      "cleanSeasonMean": 236.0584108960874,
-      "ratio": 2.7592026165516277,
-      "carriedTeams": 3189,
-      "rescaledTeams": 2539,
-      "deferredRescales": 379,
-      "neverSeen": 271
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "season": 2017,
-      "fromSeason": 2016,
-      "seedMean": 85.55312664609836,
-      "cleanSeasonMean": 236.0584108960874,
-      "ratio": 2.7592026165516277,
-      "carriedTeams": 3189,
-      "rescaledTeams": 2498,
-      "deferredRescales": 420,
-      "neverSeen": 271
-    },
-    {
-      "armId": "epa-carryover-fix",
       "season": 2018,
       "fromSeason": 2017,
       "seedMean": 235.20746648027065,
       "cleanSeasonMean": 292.1825096911048,
       "ratio": 1.2422331402290465,
       "carriedTeams": 3662,
-      "rescaledTeams": 3052,
-      "deferredRescales": 114,
       "neverSeen": 496
     },
     {
-      "armId": "epa-carryover-fix-min250",
-      "season": 2018,
-      "fromSeason": 2017,
-      "seedMean": 235.20746648027065,
-      "cleanSeasonMean": 292.1825096911048,
-      "ratio": 1.2422331402290465,
-      "carriedTeams": 3662,
-      "rescaledTeams": 2888,
-      "deferredRescales": 278,
-      "neverSeen": 496
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "season": 2018,
-      "fromSeason": 2017,
-      "seedMean": 235.20746648027065,
-      "cleanSeasonMean": 292.1825096911048,
-      "ratio": 1.2422331402290465,
-      "carriedTeams": 3662,
-      "rescaledTeams": 2690,
-      "deferredRescales": 476,
-      "neverSeen": 496
-    },
-    {
-      "armId": "epa-carryover-fix",
       "season": 2019,
       "fromSeason": 2018,
       "seedMean": 291.8446334469319,
       "cleanSeasonMean": 55.411214953271376,
       "ratio": 0.18986545785960865,
       "carriedTeams": 4129,
-      "rescaledTeams": 3239,
-      "deferredRescales": 121,
       "neverSeen": 771
     },
     {
-      "armId": "epa-carryover-fix-min250",
-      "season": 2019,
-      "fromSeason": 2018,
-      "seedMean": 291.8446334469319,
-      "cleanSeasonMean": 55.411214953271376,
-      "ratio": 0.18986545785960865,
-      "carriedTeams": 4129,
-      "rescaledTeams": 3063,
-      "deferredRescales": 297,
-      "neverSeen": 771
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "season": 2019,
-      "fromSeason": 2018,
-      "seedMean": 291.8446334469319,
-      "cleanSeasonMean": 55.411214953271376,
-      "ratio": 0.18986545785960865,
-      "carriedTeams": 4129,
-      "rescaledTeams": 3059,
-      "deferredRescales": 301,
-      "neverSeen": 771
-    },
-    {
-      "armId": "epa-carryover-fix",
       "season": 2022,
       "fromSeason": 2019,
       "seedMean": 55.33204708103254,
       "cleanSeasonMean": 58.60022874358388,
       "ratio": 1.0590648970164642,
       "carriedTeams": 4563,
-      "rescaledTeams": 2561,
-      "deferredRescales": 105,
       "neverSeen": 1899
     },
     {
-      "armId": "epa-carryover-fix-min250",
-      "season": 2022,
-      "fromSeason": 2019,
-      "seedMean": 55.33204708103254,
-      "cleanSeasonMean": 58.60022874358388,
-      "ratio": 1.0590648970164642,
-      "carriedTeams": 4563,
-      "rescaledTeams": 2373,
-      "deferredRescales": 293,
-      "neverSeen": 1899
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "season": 2022,
-      "fromSeason": 2019,
-      "seedMean": 55.33204708103254,
-      "cleanSeasonMean": 58.60022874358388,
-      "ratio": 1.0590648970164642,
-      "carriedTeams": 4563,
-      "rescaledTeams": 2348,
-      "deferredRescales": 318,
-      "neverSeen": 1899
-    },
-    {
-      "armId": "epa-carryover-fix",
       "season": 2023,
       "fromSeason": 2022,
       "seedMean": 56.74024485576127,
       "cleanSeasonMean": 95.36602086438167,
       "ratio": 1.6807474325641447,
       "carriedTeams": 4972,
-      "rescaledTeams": 3004,
-      "deferredRescales": 53,
       "neverSeen": 1917
     },
     {
-      "armId": "epa-carryover-fix-min250",
-      "season": 2023,
-      "fromSeason": 2022,
-      "seedMean": 56.74024485576127,
-      "cleanSeasonMean": 95.36602086438167,
-      "ratio": 1.6807474325641447,
-      "carriedTeams": 4972,
-      "rescaledTeams": 2976,
-      "deferredRescales": 81,
-      "neverSeen": 1917
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "season": 2023,
-      "fromSeason": 2022,
-      "seedMean": 56.74024485576127,
-      "cleanSeasonMean": 95.36602086438167,
-      "ratio": 1.6807474325641447,
-      "carriedTeams": 4972,
-      "rescaledTeams": 2857,
-      "deferredRescales": 200,
-      "neverSeen": 1917
-    },
-    {
-      "armId": "epa-carryover-fix",
       "season": 2024,
       "fromSeason": 2023,
       "seedMean": 93.48746751368815,
       "cleanSeasonMean": 57.355757878485434,
       "ratio": 0.6135127991362862,
       "carriedTeams": 5232,
-      "rescaledTeams": 3097,
-      "deferredRescales": 60,
       "neverSeen": 2077
     },
     {
-      "armId": "epa-carryover-fix-min250",
-      "season": 2024,
-      "fromSeason": 2023,
-      "seedMean": 93.48746751368815,
-      "cleanSeasonMean": 57.355757878485434,
-      "ratio": 0.6135127991362862,
-      "carriedTeams": 5232,
-      "rescaledTeams": 3069,
-      "deferredRescales": 88,
-      "neverSeen": 2077
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "season": 2024,
-      "fromSeason": 2023,
-      "seedMean": 93.48746751368815,
-      "cleanSeasonMean": 57.355757878485434,
-      "ratio": 0.6135127991362862,
-      "carriedTeams": 5232,
-      "rescaledTeams": 2824,
-      "deferredRescales": 333,
-      "neverSeen": 2077
-    },
-    {
-      "armId": "epa-carryover-fix",
       "season": 2025,
       "fromSeason": 2024,
       "seedMean": 56.63249760590369,
       "cleanSeasonMean": 108.05946699328469,
       "ratio": 1.9080823124781268,
       "carriedTeams": 5569,
-      "rescaledTeams": 3270,
-      "deferredRescales": 59,
       "neverSeen": 2242
     },
     {
-      "armId": "epa-carryover-fix-min250",
-      "season": 2025,
-      "fromSeason": 2024,
-      "seedMean": 56.63249760590369,
-      "cleanSeasonMean": 108.05946699328469,
-      "ratio": 1.9080823124781268,
-      "carriedTeams": 5569,
-      "rescaledTeams": 3239,
-      "deferredRescales": 90,
-      "neverSeen": 2242
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "season": 2025,
-      "fromSeason": 2024,
-      "seedMean": 56.63249760590369,
-      "cleanSeasonMean": 108.05946699328469,
-      "ratio": 1.9080823124781268,
-      "carriedTeams": 5569,
-      "rescaledTeams": 3016,
-      "deferredRescales": 313,
-      "neverSeen": 2242
-    },
-    {
-      "armId": "epa-carryover-fix",
       "season": 2026,
       "fromSeason": 2025,
       "seedMean": 105.08929319549264,
       "cleanSeasonMean": 198.99127218934905,
       "ratio": 1.8935446812757128,
       "carriedTeams": 5942,
-      "rescaledTeams": 3371,
-      "deferredRescales": 54,
-      "neverSeen": 2519
-    },
-    {
-      "armId": "epa-carryover-fix-min250",
-      "season": 2026,
-      "fromSeason": 2025,
-      "seedMean": 105.08929319549264,
-      "cleanSeasonMean": 198.99127218934905,
-      "ratio": 1.8935446812757128,
-      "carriedTeams": 5942,
-      "rescaledTeams": 3282,
-      "deferredRescales": 143,
-      "neverSeen": 2519
-    },
-    {
-      "armId": "epa-carryover-fix-min500",
-      "season": 2026,
-      "fromSeason": 2025,
-      "seedMean": 105.08929319549264,
-      "cleanSeasonMean": 198.99127218934905,
-      "ratio": 1.8935446812757128,
-      "carriedTeams": 5942,
-      "rescaledTeams": 3050,
-      "deferredRescales": 375,
       "neverSeen": 2519
     }
   ],
@@ -6435,8 +2366,8 @@
     "additive": false,
     "combinationsMeasured": [],
     "combinatorialCost": "All-subsets of k deviations is 2^k arms. 4 measurable deviations would be 16 arms and roughly 4x this run's wall clock; 6 would be 64 arms and an overnight job. Stage 1 deliberately measures size-0 and size-1 arms only.",
-    "deferredRescales": 5194,
-    "rescaledTeams": 70040,
+    "neverSeenTeams": 12192,
+    "carriedTeams": 37258,
     "thresholdSelection": {
       "candidates": [
         100,
@@ -6448,17 +2379,18 @@
       "default": 100,
       "selected": 250,
       "selectedArmId": "epa-carryover-fix-min250",
-      "reason": "TIE-BREAK — 2 challengers passed, taking the SMALLER threshold. epa-carryover-fix-min250: PRIMARY met (pooled onset Brier BETTER vs epa-carryover-fix) and neither guard fired.",
+      "reason": "TIE-BREAK — 2 challengers passed, taking the SMALLER threshold. epa-carryover-fix-min250: PRIMARY met (pooled onset Brier BETTER vs epa-carryover-fix) and neither guard fired. NOT INDEPENDENTLY CONFIRMED: the margin over the plain minObs=100 fix was selected on the same nine seasons it was measured on.",
+      "shippedConstant": 250,
       "evaluations": [
         {
           "armId": "epa-carryover-fix-min250",
           "minObs": 250,
           "passed": true,
           "clause": "PRIMARY met (pooled onset Brier BETTER vs epa-carryover-fix) and neither guard fired",
-          "onsetBrier": -0.0020347851890366126,
+          "onsetBrier": -0.00203,
           "onsetBrierInterval": {
-            "lower": -0.0033909828220938572,
-            "upper": -0.0006847543130025118
+            "lower": -0.00339,
+            "upper": -0.00068
           },
           "seasonAccuracyVerdict": "indistinguishable",
           "seasonBrierVerdict": "better"
@@ -6468,10 +2400,10 @@
           "minObs": 500,
           "passed": true,
           "clause": "PRIMARY met (pooled onset Brier BETTER vs epa-carryover-fix) and neither guard fired",
-          "onsetBrier": -0.0017862996123890747,
+          "onsetBrier": -0.00179,
           "onsetBrierInterval": {
-            "lower": -0.0034958439319964347,
-            "upper": -0.00006872214570801442
+            "lower": -0.0035,
+            "upper": -0.00007
           },
           "seasonAccuracyVerdict": "indistinguishable",
           "seasonBrierVerdict": "indistinguishable"
@@ -6491,9 +2423,9 @@
     }
   },
   "census": {
-    "offseason": 194892,
-    "surrogateAffected": 3618,
-    "coldStart": 1620,
+    "offseason": 97446,
+    "surrogateAffected": 1809,
+    "coldStart": 810,
     "missingResult": 0,
     "invalidProbability": 0
   }

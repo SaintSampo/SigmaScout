@@ -4,9 +4,11 @@ D-13 (`.planning/phases/02-prediction-models-epa-sigma1/02-CONTEXT.md`): "Faithf
 
 Statbotics' source, verified verbatim against `github.com/avgupta456/statbotics` during this phase's research (`.planning/phases/02-prediction-models-epa-sigma1/02-RESEARCH.md`, fetched 2026-08-13): `backend/src/models/epa/{math,main,init,constants,breakdown}.py`, `backend/src/breakdown.py`.
 
-**See `docs/models/epa-vs-statbotics.md` (quick task 260904-4aa, re-measured 260904-5px) for the measurement these divergences predict.** Every deliberate divergence listed below is a reason SigmaScout's EPA does not land at an OLS slope of exactly 1.0 against Statbotics' own per-team `epa.total_points`. §1 (elimination-match handling) is now CLOSED (see below) — the remaining ones are §3 (no per-season post-processing), the independently-derived component maps, and Pitfall EPA-1's expanding-window win-probability scale, plus the offseason-population effect (§7, NARROWED as of `epa@6.0.0+baseline`). That document is the committed, re-runnable per-team comparison (SC-2).
+**See `docs/models/epa-vs-statbotics.md` (quick task 260904-4aa, re-measured 260904-5px) for the measurement these divergences predict.** Every deliberate divergence listed below is a reason SigmaScout's EPA does not land at an OLS slope of exactly 1.0 against Statbotics' own per-team `epa.total_points`. §1 (elimination-match handling) is now CLOSED (see below) — the remaining ones are §3 (no per-season post-processing), the independently-derived component maps, and Pitfall EPA-1's expanding-window win-probability scale, plus the offseason-population effect (§7, NARROWED as of `epa@6.0.0+baseline`) and the season-boundary carry scale anchor (§8, NARROWED as of `epa@8.0.0+baseline`). That document is the committed, re-runnable per-team comparison (SC-2).
 
-**Version status of the quoted figures. SHIPPING MODEL IS NOW `epa@7.0.0+baseline` (quick task 260910-5ym, 2026-09-10), and the agreement figures in the paragraph below have NOT been re-measured under it.** 7.0.0 changed two things that move per-team ratings: 2024's component map is grouped at phase granularity (§6), and the win-probability denominator is re-seeded per season instead of pooled across all of them (§4). The second cannot move a per-team total at all — it only scales `pRedWin` — but the first changes 2024's EWMA dynamics, so 2024's agreement row genuinely needs re-running. `scripts/epaVsStatbotics.ts --check` is the gate, and until it is re-run against `data/baselines/epa-vs-statbotics-2026-09.json` the 6.0.0 status below is history rather than a live claim.
+**Version status of the quoted figures. SHIPPING MODEL IS NOW `epa@8.0.0+baseline` (quick task 260911-3kc, 2026-09-11): the season-boundary carry scale anchor is corrected, so a carried rating enters a new season in THAT season's point units (§8 below). Every "beats EPA" and every Statbotics-agreement figure in this document, in `epa-vs-statbotics.md`, and in `data/baselines/epa-vs-statbotics-2026-09.json` was measured against an EARLIER EPA and is stale until re-run; `scripts/epaVsStatbotics.ts --check` will now fail, and that failure is correct rather than a regression. A REPUBLISH IS OWED — published EPA ratings change — and had not been run when 8.0.0 landed.**
+
+**Previous status, retained because the paragraph below is still written against it. SHIPPING MODEL WAS `epa@7.0.0+baseline` (quick task 260910-5ym, 2026-09-10), and the agreement figures in the paragraph below had NOT been re-measured under it.** 7.0.0 changed two things that move per-team ratings: 2024's component map is grouped at phase granularity (§6), and the win-probability denominator is re-seeded per season instead of pooled across all of them (§4). The second cannot move a per-team total at all — it only scales `pRedWin` — but the first changes 2024's EWMA dynamics, so 2024's agreement row genuinely needs re-running. `scripts/epaVsStatbotics.ts --check` is the gate, and until it is re-run against `data/baselines/epa-vs-statbotics-2026-09.json` the 6.0.0 status below is history rather than a live claim.
 
 Re-measured under `epa@6.0.0+baseline` on 2026-09-08 (quick task 260908-615, §7): the offseason-inclusive min-matches-arm slope range is now **0.82-0.96**, with Pearson 0.91-0.98. `scripts/epaVsStatbotics.ts --check` PASSED, so `data/baselines/epa-vs-statbotics-2026-09.json` is unchanged and its bands still gate the shipped model. Full per-season before/after table: `epa-vs-statbotics.md` §"Carry-instant change (`epa@6.0.0+baseline`)".
 
@@ -122,8 +124,75 @@ Unlike §§1-6, this is not a rating-mechanics divergence at all: it is a differ
 
 **Display-layer note (same quick task, separate concern).** The team page header and the Teams list now show W-L-T, `matchCount` and `eventCount` over official play only, matching what Statbotics' comparable surfaces count. This changes no rating and no prediction; offseason matches remain fully visible in each team's match table, event sections and metric-history chart.
 
+
+## 8. Season-boundary carry scale anchor — NARROWED as of `epa@8.0.0+baseline`
+
+**What the divergence was.** `carryover.ts`'s `epaCarryover` derived one `{mean, sd}` pair from the OUTGOING season's per-team point totals and used that same pair for BOTH directions of the normalized-to-points conversion. Every team therefore entered a new season still expressed in **last season's point units**. When FRC's scoring scale moves between games — and it moves a lot — that is not a small error: 2018 alliances averaged 291.84 points and 2019 alliances averaged 55.41, so every rating carried into 2019 was inflated by roughly 5.3x on the first day of the season.
+
+**This contradicted the project's own recorded reference, so it was a port defect rather than a design choice.** `.planning/phases/02-prediction-models-epa-sigma1/02-CONTEXT.md` D-16 and `02-RESEARCH.md` transcribe Statbotics' `init.py` verbatim as converting the carry into the **NEW** season's point units. `carryover.ts`'s header described the outgoing-season anchor as a discretionary placeholder a later phase might replace; it was neither discretionary nor a placeholder, it was a mistranscription of a reference this repo already held. It would have been worth fixing at neutral accuracy.
+
+**This NARROWS an existing divergence rather than adding one** — the same framing §7 uses. It does not close it. See "What remains divergent" below.
+
+### What changed (quick task 260910-x09 measured it, 260911-3kc landed it)
+
+`epaCarryover` is **unchanged**. It still converts both directions with the outgoing season's distribution, which keeps its own round trip self-consistent. The correction is composed **on top**, lazily, per team, on **first sight** in the new season, by `epa.carrySeason`/`predict`/`update` reading `packages/core/algorithms/epaCarryScale.ts`:
+
+- `carrySeason` captures the outgoing alliance-score mean into `EpaState.carrySeedMean` before delegating, and marks every carried team pending.
+- On a team's first appearance, `cleanSeasonMean` unwinds the `EPA_SCORE_SD_SEED_COUNT` prior-season pseudo-observations out of the accumulator to recover the incoming season's own mean, and `carryRescaleRatio` divides it by the seed mean.
+- `predict` applies that factor transiently (temp components, predict, discard); `update` applies it permanently and then runs the ordinary update. Both read the same pre-update accumulator, so they agree by construction.
+
+### The measured effect
+
+Nine seasons (2016-2019, 2022-2026), 147,221 scored matches, 1,653 event blocks, paired and event-blocked against `epa@7.0.0+baseline`, scored with the published scorer (ties counted in Brier).
+
+| scope | winner accuracy | Brier |
+|---|---|---|
+| pooled, as shipped (`minObs = 250`) | **+0.01038** [+0.00823, +0.01265] | **-0.00528** [-0.00644, -0.00418] |
+| pooled, plain fix (`minObs = 100`) | +0.01059 [+0.00846, +0.01285] | -0.00521 [-0.00638, -0.00412] |
+| **2019 season** (as shipped) | **+0.07716** [+0.06510, +0.08923] | **-0.04252** [-0.04961, -0.03562] |
+
+**The pooled figure is 2019 averaged across nine seasons, not a broad gain.** 2018 -> 2019 is the one boundary in the corpus where the point scale collapses ~5x, and 2019 is the one season that moves; every other season sits inside ±0.6pp on accuracy. That concentration was **pre-registered as the mechanism test**: a uniform effect across every boundary would have REFUTED the mechanism even with a good-looking pooled number. It concentrated exactly where the scale moved, so the test passed. Describe the result that way rather than as a general accuracy improvement.
+
+### Where it is WORSE
+
+Stated plainly, because a change that is only ever described by its wins is not a measurement.
+
+- **2018 Brier: +0.00052, 95% [+0.00030, +0.00076] — WORSE, interval excludes zero.** The only definitive per-season regression anywhere in the run. Tiny, but real, and it does not go away at any of the three thresholds tested.
+- **The ONSET window — the first 500 scorable matches after each boundary, pooled — was the plain fix's honest weak spot.** At `minObs = 100` it measured **+0.00184 Brier [+0.00005, +0.00365], WORSE**: the live per-season scale estimate is noisy before the season has shown much, so an early conversion trades a confidently-wrong scale for a correct-but-uncertain one. It paid that back many times over across the season, but it was not free at the instant of the boundary.
+- **Raising the threshold removed that onset cost.** At the shipped `minObs = 250` the pooled onset Brier against un-fixed EPA is **-0.00020 [-0.00162, +0.00128], INDISTINGUISHABLE** — the regression is gone rather than merely smaller. That was the explicit question the threshold refinement was run to answer, and this is its answer.
+
+### How the shipped threshold was chosen, and what is NOT confirmed about it
+
+`EPA_CARRY_RESCALE_MIN_OBS = 250`. The candidate set `{100, 250, 500}` and the selection rule were written down, printed and serialized into `data/diagnostics/epa-deviation-ablation.json` **before the corpus was opened**: primary = pooled onset Brier measured against the incumbent 100 arm with a 95% interval excluding zero; guards = reject on a definitively worse pooled-season accuracy or Brier; tie-break = take the smaller threshold; default = keep 100 if nothing clears the bar. Both challengers passed, so 250 won on the tie-break (onset Brier -0.00203 [-0.00339, -0.00068] against the incumbent, season accuracy indistinguishable, season Brier -0.00007 [-0.00013, -0.00001]).
+
+**That margin over the plain `minObs = 100` fix was selected on THE SAME NINE SEASONS it was measured on, with no held-out confirmation.** The carryover fix itself is independently evidenced against un-fixed EPA; the extra 150 observations of deferral are not. Quote the threshold with that caveat attached.
+
+### What remains divergent — this is narrowed, NOT closed
+
+**Statbotics runs offline and simply KNOWS the incoming season's scale before it converts anything. A walk-forward replay cannot.** At the instant a boundary is crossed, the incoming season has been observed zero times. So the incoming scale is ESTIMATED from that season's own folded alliance scores, and only once at least 250 of them exist. A team first seen before that threshold is materialized at ratio 1 and **forfeits its rescale permanently** — its components have already absorbed this season's observations by the time the ratio becomes readable, and rescaling that blend later would be worse than not rescaling at all.
+
+Measured census across the eight non-cold-start boundaries, read off the shipped state:
+
+| | team-boundaries |
+|---|---|
+| carried across a boundary | 37,258 |
+| rescaled on first sight | 23,429 |
+| **rescale deferred (forfeited)** | **1,649** |
+| **never seen again in the season they were carried into** | **12,192** |
+
+(At `minObs = 100` the deferral count was 809; the shipped 250 roughly doubles it, which is the trade the onset improvement was bought with. The three rows do not sum exactly to the carried total — a 12-team residual across nine seasons — because a carried team that appears in a match while holding no component record leaves the pending set without landing in either bucket.)
+
+The `neverSeen` row is the larger number and is not a defect of this fix: those teams did not play in the season they were carried into, so no prediction was ever made from their carried rating. They are reported because a reader comparing "carried" against "rescaled" would otherwise read the gap as a failure rate.
+
+The label the artifact and the code both carry for this is `approximation: "closest-walk-forward-legal"`. It is never described as parity with Statbotics.
+
+### One thing this did NOT change
+
+`teamMetrics` is untouched. A team that has been carried but has not yet played in the new season still publishes its carried rating in the OUTGOING season's units, exactly as the measured arm did. Correcting the display would be an unmeasured change to a published number, so it was left alone rather than folded in silently.
+
 ---
 
 *Phase: 02-prediction-models-epa-sigma1 (plan 02-06)*
 *Statbotics source citations verified 2026-08-13 (`.planning/phases/02-prediction-models-epa-sigma1/02-RESEARCH.md`).*
 *§7 added and the header's version status updated by quick task 260908-615, 2026-09-08; Statbotics' offseason absence re-verified live the same day.*
+*§8 added and the header's version status updated by quick task 260911-3kc, 2026-09-11 (measurement: quick task 260910-x09; landed as `epa@8.0.0+baseline`).*

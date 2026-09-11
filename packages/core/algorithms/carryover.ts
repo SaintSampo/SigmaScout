@@ -12,23 +12,36 @@
  * switch/scale sigmoid, the per-year clamps) — `epa.ts`'s file header
  * documents the same exclusion for the rest of the algorithm.
  *
- * Discretionary modelling choice (Claude's Discretion per RESEARCH.md —
- * "how the total-only fallback distributes residual" is explicitly called
- * out there as discretionary; sourcing the season point-unit scale for a
- * carry is the same class of decision, unaddressed by D-16's reference
- * shape): `normalizedToSeasonUnits` needs a `seasonScoreMean`/
+ * SCALE ANCHOR — RESOLVED as of `epa@8.0.0+baseline` (quick task 260911-3kc,
+ * 2026-09-11). `normalizedToSeasonUnits` needs a `seasonScoreMean`/
  * `seasonScoreSd` to convert a normalized rating into point units, but at
  * the moment a boundary is carried, `toSeason` has not been observed yet —
  * there is no live point-unit scale for it, the same gap `epa.ts`'s
  * `EPA_INIT_COMPONENT_TOTAL` comment already names for pure intra-season
- * cold start. `epaCarryover` below resolves it the same way: use the
- * OUTGOING season's own per-team point-total distribution (mean/sd across
- * every team with a rating in `fromSeason`) as the best-available proxy
- * for the scale, in both directions of the normalized<->points conversion.
- * This keeps the round trip self-consistent (a team's `fromSeason` points
- * convert to normalized and back using the same mean/sd), and is a
- * documented placeholder Phase 3 may replace with a better anchor once
- * tune-season data exists to calibrate against.
+ * cold start.
+ *
+ * `epaCarryover` below still converts BOTH directions with the OUTGOING
+ * season's own per-team point-total distribution (mean/sd across every team
+ * with a rating in `fromSeason`), and that is deliberate rather than
+ * unfinished: it keeps this function's round trip self-consistent, since a
+ * team's `fromSeason` points convert to normalized and back using the same
+ * mean/sd. What used to be MISSING — the conversion into the INCOMING
+ * season's units that D-16's own verbatim reading of Statbotics' `init.py`
+ * specifies — is now composed ON TOP of this function rather than inside it:
+ * lazily, per team, on first sight in the new season. Follow the path:
+ * `epa.carrySeason` captures `EpaState.carrySeedMean` BEFORE calling
+ * `epaCarryover` and marks every carried team pending; `epa.predict` and
+ * `epa.update` then read `epaCarryScale.ts`'s `cleanSeasonMean` +
+ * `carryRescaleRatio` and apply the factor through `materializePendingTeams`.
+ *
+ * THE WALK-FORWARD CONSTRAINT, stated plainly rather than glossed:
+ * **Statbotics runs offline and simply KNOWS the incoming season's scale. We
+ * do not.** We ESTIMATE it from that season's own folded alliance scores,
+ * and only once at least `EPA_CARRY_RESCALE_MIN_OBS` of them exist; a team
+ * first seen before that threshold forfeits its rescale permanently. This is
+ * the closest walk-forward-legal approximation of Statbotics' conversion and
+ * is NEVER identical to it. Measured effect, including the two places it is
+ * WORSE: `docs/models/epa-divergences.md` §8.
  *
  * Module ownership note: `EPA_NORM_MEAN`/`EPA_NORM_SD`/`EPA_INIT_PENALTY`/
  * `EPA_MEAN_REVERSION` are defined HERE (not in `epa.ts`, where plan 02-01

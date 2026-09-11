@@ -22,11 +22,18 @@
  * is why the artifact this writes is designed as a contract, not a log.
  *
  * ---------------------------------------------------------------------------
- * THIS SCRIPT CHANGES NO SHIPPED DEFAULT AND NO MODEL PARAMETER
+ * RUNNING THIS SCRIPT CHANGES NO SHIPPED DEFAULT AND NO MODEL PARAMETER
  * ---------------------------------------------------------------------------
  *
- * Nothing under `packages/` is edited by the task that produced this file. Each
- * arm is an `AlgorithmModule` WRAPPER built here, in `scripts/`, by spreading
+ * THIS WAS TRUE OF THE TASK THAT CREATED THIS FILE (quick task 260910-x09) AND
+ * IS NO LONGER THE WHOLE STORY: quick task 260911-3kc ADOPTED one of the arms
+ * into `packages/core/algorithms/epa.ts` as `epa@8.0.0+baseline` and then
+ * DELETED the arm (see "The carryover arms are GONE" below). What remains true,
+ * and is the invariant that matters, is that RUNNING this script still changes
+ * no shipped default and no model parameter: every surviving arm is a wrapper
+ * and the baseline is the shipped module by reference.
+ *
+ * Each arm is an `AlgorithmModule` WRAPPER built here, in `scripts/`, by spreading
  * the shipped `epa` module object and overriding named functions. The shipped
  * module is itself one of the arms, used BY REFERENCE, and is the baseline every
  * contrast is measured against. Running the site pipeline is byte-identical
@@ -42,56 +49,48 @@
  * NEVER be run with `--env-file`.
  *
  * ---------------------------------------------------------------------------
- * THE ARMS — ALL FOUR RIDE ONE SHARED STREAM PER SEASON
+ * THE ARMS — ALL OF THEM RIDE ONE SHARED STREAM PER SEASON
  * ---------------------------------------------------------------------------
  *
  * `WalkForwardSimulator.runAll` keys state by `algorithm.id` and drives every
  * supplied module over one chronological stream, handing each the identical
- * leak-proof match object. Four arms on one pass per season means any difference
+ * leak-proof match object. Every arm on one pass per season means any difference
  * between arms is provably the ARM and not the data.
  *
  *   epa                      none                    baseline, shipped, by reference
- *   epa-carryover-fix        carryover-scale-anchor  lazy per-team rescale on first sight
  *   epa-winprob-season-sd    winprob-scale           season-final SD — OUTCOME LEAKAGE, never shippable
  *   epa-winprob-fixed-sd     winprob-scale           EPA_FALLBACK_SCORE_SD denominator
  *
- * ### Arm `epa-carryover-fix` — THE DEFECT
+ * ### The carryover arms are GONE — `carryover-scale-anchor` is CLOSED
  *
- * `carryover.ts`'s `epaCarryover` derives one `{mean, sd}` pair from
- * `input.teamTotals` — the OUTGOING season — and then uses that SAME pair for
- * BOTH directions of the conversion: `normalizedFromPoints` (points -> z) and
- * `normalizedToSeasonUnits` (z -> points). Every team therefore enters a new
- * season carrying LAST season's point units. `02-CONTEXT.md` D-16 and
- * `02-RESEARCH.md` record Statbotics' `init.py` verbatim as converting into the
- * NEW season's point units, so this is a port defect against the project's own
- * recorded reference, not merely an undocumented placeholder.
+ * `carryover.ts`'s `epaCarryover` derived one `{mean, sd}` pair from
+ * `input.teamTotals` — the OUTGOING season — and used that SAME pair for BOTH
+ * directions of the conversion, so every team entered a new season carrying
+ * LAST season's point units. `02-CONTEXT.md` D-16 and `02-RESEARCH.md` record
+ * Statbotics' `init.py` verbatim as converting into the NEW season's units, so
+ * this was a port defect against the project's own recorded reference.
  *
- * The arm fixes it the only way a walk-forward replay legally can: LAZILY, per
- * team, on first sight in the new season, once the new season has shown enough
- * of its own scale to be worth reading.
+ * IT SHIPS. Quick task 260911-3kc landed it as `epa@8.0.0+baseline`: the
+ * correction is composed on top of `epaCarryover`, lazily, per team, on first
+ * sight in the new season, by `epa.carrySeason`/`predict`/`update` reading
+ * `packages/core/algorithms/epaCarryScale.ts`. THE BASELINE ARM ABOVE NOW *IS*
+ * THE FIX.
  *
- *   - `carrySeason` captures `seedMean` (the outgoing accumulator's mean)
- *     BEFORE delegating, then marks every carried team pending.
- *   - The new season's own scale is recovered by UNWINDING the seed the shipped
- *     `carrySeason` leaves behind: `reseedFromPrior(stats,
- *     EPA_SCORE_SD_SEED_COUNT)` means the accumulator after a boundary is
- *     exactly `EPA_SCORE_SD_SEED_COUNT` pseudo-observations at `seedMean` plus
- *     the new season's own real folds. `cleanSeasonMean` below removes the
- *     former. This reads only exported values and never re-implements which
- *     alliance scores EPA chooses to fold.
- *   - `ratio = cleanSeasonMean / seedMean`, applied to every component of a
- *     pending team on first sight. Below `EPA_CARRY_RESCALE_MIN_OBS` real
- *     alliance scores the ratio is not yet readable, so the team is materialized
- *     at `ratio = 1` and a DEFERRAL is counted — the honest cost of being
- *     walk-forward-legal, reported in the artifact rather than hidden.
- *   - `predict` materializes TRANSIENTLY (temp state, delegate, discard);
- *     `update` materializes PERMANENTLY then delegates. Both read the
- *     pre-update accumulator, so the two agree by construction.
+ * The three arms (`epa-carryover-fix` and its `-min250`/`-min500` threshold
+ * challengers) are DELETED, and their absence is load-bearing rather than
+ * tidy-up: every one of them WRAPPED the shipped module, so a wrapper over
+ * 8.0.0 would apply the rescale a SECOND time and this harness would report a
+ * double-apply as "the fix". Do not reintroduce one. The measurement they
+ * produced — the pooled deltas, the 2019 concentration, the 2018 Brier
+ * regression, the onset cost, and the threshold selection — is preserved as
+ * data in `deviationRegister()`'s `carryover-scale-anchor` entry and in
+ * `THRESHOLD_SELECTION_OUTCOME`.
  *
- * APPROXIMATION LABEL, stated in the artifact and in every printed line:
- * `closest-walk-forward-legal`. Statbotics runs offline and simply KNOWS the
- * season scale; that is not walk-forward reachable. This arm is never described
- * as identical to Statbotics.
+ * WHAT REMAINS DIVERGENT, so "closed" is not read as "identical": the rescale
+ * ESTIMATES the incoming season's scale from that season's own folded alliance
+ * scores and only once `EPA_CARRY_RESCALE_MIN_OBS` of them exist. A team first
+ * seen before that forfeits its rescale permanently. Statbotics runs offline
+ * and simply knows the scale. `approximation: "closest-walk-forward-legal"`.
  *
  * ### Arms `epa-winprob-*`
  *
@@ -220,21 +219,21 @@ export const COMMITTED_ARTIFACT_PATH = "data/diagnostics/epa-deviation-ablation.
 export const SCHEMA_VERSION = 2;
 
 export const BASELINE_ARM_ID = "epa";
-export const CARRYOVER_FIX_ARM_ID = "epa-carryover-fix";
-export const CARRYOVER_FIX_MIN250_ARM_ID = "epa-carryover-fix-min250";
-export const CARRYOVER_FIX_MIN500_ARM_ID = "epa-carryover-fix-min500";
 export const WINPROB_SEASON_SD_ARM_ID = "epa-winprob-season-sd";
 export const WINPROB_FIXED_SD_ARM_ID = "epa-winprob-fixed-sd";
 
-/** Print/emit order. Baseline first, so every table reads as "against this". */
-export const ARM_IDS = [
-  BASELINE_ARM_ID,
-  CARRYOVER_FIX_ARM_ID,
-  CARRYOVER_FIX_MIN250_ARM_ID,
-  CARRYOVER_FIX_MIN500_ARM_ID,
-  WINPROB_SEASON_SD_ARM_ID,
-  WINPROB_FIXED_SD_ARM_ID,
-] as const;
+/**
+ * Print/emit order. Baseline first, so every table reads as "against this".
+ *
+ * THE CARRYOVER ARMS ARE GONE, AND THEIR ABSENCE IS LOAD-BEARING (quick task
+ * 260911-3kc). They WRAPPED the shipped `epa` module; `epa@8.0.0+baseline` now
+ * contains the fix itself, so a surviving wrapper would apply the rescale a
+ * SECOND time and this harness would measure a double-apply while reporting it
+ * as the fix. The measurement they produced is preserved as data in
+ * `deviationRegister()`'s `carryover-scale-anchor` entry — the arm is deleted,
+ * the evidence is not.
+ */
+export const ARM_IDS = [BASELINE_ARM_ID, WINPROB_SEASON_SD_ARM_ID, WINPROB_FIXED_SD_ARM_ID] as const;
 
 export const THRESHOLD_CANDIDATES = [100, 250, 500] as const;
 
@@ -475,12 +474,6 @@ export function verdictFor(metric: ContrastMetric, lower: number, upper: number,
 
 // ──────────────────────── the threshold decision ─────────────────────────────
 
-/** One candidate threshold and the arm that measured it. */
-export interface ThresholdArm {
-  readonly armId: string;
-  readonly minObs: number;
-}
-
 /** One challenger's trip through the three pre-declared clauses, kept whether it passed or not. */
 export interface ThresholdEvaluation {
   readonly armId: string;
@@ -494,118 +487,56 @@ export interface ThresholdEvaluation {
   readonly seasonBrierVerdict: Verdict;
 }
 
-export interface ThresholdSelection {
+/**
+ * THE DECISION, FROZEN AS DATA (quick task 260911-3kc).
+ *
+ * These numbers were produced by running `selectThreshold` — a pure function
+ * over the challenger-vs-incumbent contrasts — against the nine-season run of
+ * 2026-09-11, BEFORE the fix shipped. Both that function and the arms it read
+ * are now deleted: the shipped `epa` module contains the fix, so an arm that
+ * wrapped it would apply the rescale twice and a re-run could not reproduce
+ * this decision even in principle.
+ *
+ * It is preserved HERE, verbatim, because the alternative is deleting the
+ * record of how a shipped constant was chosen along with the code that chose
+ * it. The rule and the candidate set above were written down before any of
+ * these numbers existed; this is what they produced.
+ */
+export const THRESHOLD_SELECTION_OUTCOME: {
   readonly selected: number;
   readonly selectedArmId: string;
   readonly reason: string;
   readonly evaluations: readonly ThresholdEvaluation[];
-}
-
-/**
- * Executes `THRESHOLD_SELECTION_RULE` over the contrast rows. A FUNCTION, not an
- * eyeball over a log: a rule applied by reading a table is a rule that can be
- * applied differently once the numbers are visible, which is the precise shape
- * of the thing this task is forbidden from doing.
- *
- * Reads ONLY contrasts whose `baselineArmId` is the incumbent. A vs-baseline row
- * for the same arm answers a different question (is this better than plain EPA?)
- * and using it would adopt a challenger that is worse than the fix we already
- * have.
- *
- * THROWS on a missing primary contrast rather than treating absence as failure.
- * A broken or empty measurement would otherwise produce a clean-looking
- * "keep the incumbent" outcome — the one wrong answer indistinguishable from the
- * right one.
- */
-export function selectThreshold(
-  contrasts: readonly ContrastRow[],
-  challengers: readonly ThresholdArm[],
-  incumbent: ThresholdArm
-): ThresholdSelection {
-  const find = (armId: string, scope: Scope, metric: ContrastMetric): ContrastRow | undefined =>
-    contrasts.find(
-      (c) =>
-        c.armId === armId &&
-        c.baselineArmId === incumbent.armId &&
-        c.scope === scope &&
-        c.season === null &&
-        c.metric === metric
-    );
-
-  const evaluations: ThresholdEvaluation[] = [];
-  for (const challenger of challengers) {
-    const onset = find(challenger.armId, "onset", "brier");
-    if (onset === undefined) {
-      throw new Error(
-        `measure:epa-deviations: no pooled-onset Brier primary contrast for ${challenger.armId} measured against ` +
-          `${incumbent.armId}. Refusing to decide a threshold on an absent measurement — an absent contrast is not ` +
-          `evidence of no effect, and defaulting quietly here would look exactly like a clean keep-the-incumbent ` +
-          `outcome.`
-      );
-    }
-    const seasonAcc = find(challenger.armId, "pooled", "winnerAccuracy");
-    const seasonBrier = find(challenger.armId, "pooled", "brier");
-    if (seasonAcc === undefined || seasonBrier === undefined) {
-      throw new Error(
-        `measure:epa-deviations: no pooled-season guard contrasts for ${challenger.armId} measured against ` +
-          `${incumbent.armId}. A challenger cannot clear guards that were never computed.`
-      );
-    }
-    finiteOrThrow(onset.pointEstimate, `${challenger.armId} pooled-onset Brier point estimate`);
-
-    let passed: boolean;
-    let clause: string;
-    if (onset.verdict !== "better") {
-      passed = false;
-      clause = `PRIMARY not met — pooled onset Brier vs ${incumbent.armId} is ${onset.verdict.toUpperCase()}`;
-    } else if (seasonAcc.verdict === "worse") {
-      passed = false;
-      clause = `GUARD 1 fired — pooled season winner accuracy vs ${incumbent.armId} is WORSE with an interval excluding zero`;
-    } else if (seasonBrier.verdict === "worse") {
-      passed = false;
-      clause = `GUARD 2 fired — pooled season Brier vs ${incumbent.armId} is WORSE with an interval excluding zero`;
-    } else {
-      passed = true;
-      clause = `PRIMARY met (pooled onset Brier BETTER vs ${incumbent.armId}) and neither guard fired`;
-    }
-
-    evaluations.push({
-      armId: challenger.armId,
-      minObs: challenger.minObs,
-      passed,
-      clause,
-      onsetBrier: onset.pointEstimate,
-      onsetBrierInterval: onset.percentile,
-      seasonAccuracyVerdict: seasonAcc.verdict,
-      seasonBrierVerdict: seasonBrier.verdict,
-    });
-  }
-
-  const passing = evaluations.filter((e) => e.passed).sort((a, b) => a.minObs - b.minObs);
-  if (passing.length === 0) {
-    return {
-      selected: incumbent.minObs,
-      selectedArmId: incumbent.armId,
-      reason:
-        `DEFAULT — no challenger cleared all three clauses, so the shipped default stays the INCUMBENT at ` +
-        `minObs = ${incumbent.minObs}. This is the OUTCOME, not a failure: an unnecessary knob is a permanent cost ` +
-        `and the plain fix is already proven. ` +
-        evaluations.map((e) => `${e.armId}: ${e.clause}`).join("; "),
-      evaluations,
-    };
-  }
-  const winner = passing[0]!;
-  const tieNote =
-    passing.length > 1
-      ? `TIE-BREAK — ${passing.length} challengers passed, taking the SMALLER threshold. `
-      : `TIE-BREAK not needed — exactly one challenger passed. `;
-  return {
-    selected: winner.minObs,
-    selectedArmId: winner.armId,
-    reason: `${tieNote}${winner.armId}: ${winner.clause}.`,
-    evaluations,
-  };
-}
+} = {
+  selected: 250,
+  selectedArmId: "epa-carryover-fix-min250",
+  reason:
+    "TIE-BREAK — 2 challengers passed, taking the SMALLER threshold. epa-carryover-fix-min250: PRIMARY met " +
+    "(pooled onset Brier BETTER vs epa-carryover-fix) and neither guard fired. NOT INDEPENDENTLY CONFIRMED: the " +
+    "margin over the plain minObs=100 fix was selected on the same nine seasons it was measured on.",
+  evaluations: [
+    {
+      armId: "epa-carryover-fix-min250",
+      minObs: 250,
+      passed: true,
+      clause: "PRIMARY met (pooled onset Brier BETTER vs epa-carryover-fix) and neither guard fired",
+      onsetBrier: -0.00203,
+      onsetBrierInterval: { lower: -0.00339, upper: -0.00068 },
+      seasonAccuracyVerdict: "indistinguishable",
+      seasonBrierVerdict: "better",
+    },
+    {
+      armId: "epa-carryover-fix-min500",
+      minObs: 500,
+      passed: true,
+      clause: "PRIMARY met (pooled onset Brier BETTER vs epa-carryover-fix) and neither guard fired",
+      onsetBrier: -0.00179,
+      onsetBrierInterval: { lower: -0.0035, upper: -0.00007 },
+      seasonAccuracyVerdict: "indistinguishable",
+      seasonBrierVerdict: "indistinguishable",
+    },
+  ],
+};
 
 // ────────────────────── the deviation register (stage 4's contract) ──────────
 
@@ -619,11 +550,15 @@ export type DeviationStatus =
 export interface PriorMeasurement {
   readonly provenance: "prior-measurement";
   readonly source: string;
-  readonly season: number;
+  /** `null` where the measurement is POOLED across seasons rather than scoped to one. */
+  readonly season: number | null;
   readonly population: string;
-  readonly metric: ContrastMetric;
+  /** `"accuracy-and-brier"` where the record carries BOTH metrics rather than one. */
+  readonly metric: ContrastMetric | "accuracy-and-brier";
   readonly values: readonly { readonly label: string; readonly value: number }[];
   readonly note: string;
+  /** Set only on `carryover-scale-anchor`: how the shipped deferral threshold was chosen. */
+  readonly thresholdSelection?: typeof THRESHOLD_SELECTION_OUTCOME;
 }
 
 export interface DeviationEntry {
@@ -655,21 +590,64 @@ export function deviationRegister(): DeviationEntry[] {
   return [
     {
       id: "carryover-scale-anchor",
-      title: "Season-boundary carry converts into the OUTGOING season's point units",
+      title: "Season-boundary carry converted into the OUTGOING season's point units",
       class: "rating-mechanics",
-      status: "measured",
+      // CLOSED at epa@8.0.0+baseline (quick task 260911-3kc, 2026-09-11). There
+      // is no live divergence left to toggle, so this is no longer an arm — and
+      // it MUST NOT become one again: the arms wrapped the shipped module, so a
+      // wrapper over 8.0.0 would apply the rescale twice.
+      status: "closed",
       shippable: true,
       predictionAffecting: true,
-      docSection: "§8 (added by quick task 260910-x09)",
+      docSection: "§8 (docs/models/epa-divergences.md)",
       summary:
-        "carryover.ts's epaCarryover derives one {mean, sd} pair from the OUTGOING season's teamTotals and uses it " +
-        "for BOTH normalizedFromPoints and normalizedToSeasonUnits, so every team enters a new season carrying last " +
-        "season's point units. 02-CONTEXT.md D-16 and 02-RESEARCH.md record Statbotics' init.py converting into the " +
-        "NEW season's units — this is a port defect against the project's own recorded reference.",
+        "carryover.ts's epaCarryover derived one {mean, sd} pair from the OUTGOING season's teamTotals and used it " +
+        "for BOTH normalizedFromPoints and normalizedToSeasonUnits, so every team entered a new season carrying " +
+        "last season's point units. 02-CONTEXT.md D-16 and 02-RESEARCH.md record Statbotics' init.py converting " +
+        "into the NEW season's units — a port defect against the project's own recorded reference. ADOPTED as the " +
+        "shipped default at epa@8.0.0+baseline: epaCarryover is unchanged and the correction is composed on top, " +
+        "lazily, per team, on first sight (packages/core/algorithms/epaCarryScale.ts).",
       reason: null,
+      // NARROWED, not eliminated. The rescale is still an ESTIMATE of the
+      // incoming season's scale from its own folded scores, and a team first
+      // seen before EPA_CARRY_RESCALE_MIN_OBS of them exist forfeits it.
       approximation: "closest-walk-forward-legal",
-      armIds: [CARRYOVER_FIX_ARM_ID, CARRYOVER_FIX_MIN250_ARM_ID, CARRYOVER_FIX_MIN500_ARM_ID],
-      priorMeasurement: null,
+      armIds: [],
+      priorMeasurement: {
+        provenance: "prior-measurement",
+        source:
+          "quick task 260910-x09 (the fix as an arm) and quick task 260911-3kc (the shipped threshold), " +
+          "nine seasons 2016-2019 + 2022-2026, 147,221 scored matches, 1,653 event blocks, paired and " +
+          "event-blocked against the then-shipped epa@7.0.0+baseline",
+        season: null,
+        population: "pooled across nine seasons; the published scorer (aggregateScores), ties counted in Brier",
+        metric: "accuracy-and-brier",
+        values: [
+          { label: "pooled winner accuracy delta vs un-fixed EPA", value: 0.01059 },
+          { label: "pooled winner accuracy 95% lower", value: 0.00846 },
+          { label: "pooled winner accuracy 95% upper", value: 0.01285 },
+          { label: "pooled Brier delta vs un-fixed EPA", value: -0.00521 },
+          { label: "pooled Brier 95% lower", value: -0.00638 },
+          { label: "pooled Brier 95% upper", value: -0.00412 },
+          { label: "2019 winner accuracy delta (the whole effect)", value: 0.07943 },
+          { label: "2019 Brier delta", value: -0.04234 },
+          { label: "2018 Brier delta — WORSE, interval excludes zero", value: 0.00052 },
+          { label: "2018 Brier 95% lower", value: 0.0003 },
+          { label: "2018 Brier 95% upper", value: 0.00075 },
+          { label: "pooled ONSET Brier delta — WORSE at the boundary itself", value: 0.00184 },
+          { label: "pooled ONSET Brier 95% lower", value: 0.00005 },
+          { label: "pooled ONSET Brier 95% upper", value: 0.00365 },
+        ],
+        note:
+          "THE POOLED GAIN IS 2019 AVERAGED ACROSS NINE SEASONS, not a broad improvement. 2018 -> 2019 is the one " +
+          "boundary where the point scale collapses ~5x (291.84 -> 55.41), and it is the one season that moves; " +
+          "every other season sits inside ±0.5pp. That concentration is the pre-registered mechanism test PASSING " +
+          "— a uniform effect would have REFUTED the mechanism. Stated with its costs: 2018's Brier is " +
+          "definitively worse, and the ONSET window (the first 500 scorable matches after each boundary) is " +
+          "definitively worse too, because a live per-season scale estimate is noisy before it has observed much. " +
+          "The fix pays that back many times over across the season it affects.",
+        thresholdSelection: THRESHOLD_SELECTION_OUTCOME,
+      },
     },
     {
       id: "winprob-scale",
@@ -877,33 +855,6 @@ export function armRegister(): ArmEntry[] {
       approximation: null,
     },
     {
-      id: CARRYOVER_FIX_ARM_ID,
-      label: `lazy per-team rescale into the NEW season's point units on first sight (INCUMBENT, minObs = ${THRESHOLD_CANDIDATES[0]})`,
-      deviations: ["carryover-scale-anchor"],
-      isBaseline: false,
-      shippable: true,
-      unshippableReason: null,
-      approximation: "closest-walk-forward-legal",
-    },
-    {
-      id: CARRYOVER_FIX_MIN250_ARM_ID,
-      label: `the same lazy rescale, deferred until minObs = ${THRESHOLD_CANDIDATES[1]} of the new season's own alliance scores`,
-      deviations: ["carryover-scale-anchor"],
-      isBaseline: false,
-      shippable: true,
-      unshippableReason: null,
-      approximation: "closest-walk-forward-legal",
-    },
-    {
-      id: CARRYOVER_FIX_MIN500_ARM_ID,
-      label: `the same lazy rescale, deferred until minObs = ${THRESHOLD_CANDIDATES[2]} of the new season's own alliance scores`,
-      deviations: ["carryover-scale-anchor"],
-      isBaseline: false,
-      shippable: true,
-      unshippableReason: null,
-      approximation: "closest-walk-forward-legal",
-    },
-    {
       id: WINPROB_SEASON_SD_ARM_ID,
       label: "win-probability denominator = this season's own final alliance-score SD",
       deviations: ["winprob-scale"],
@@ -966,13 +917,6 @@ export interface ContrastRow {
 }
 
 export interface CarryScaleRow {
-  /**
-   * WHICH carryover arm this census belongs to. Schema 2 emits one row per
-   * (arm, boundary): the deferral census is the one figure that differs between
-   * the three thresholds by construction, so collapsing them into a single row
-   * would hide exactly what the thresholds were introduced to trade off.
-   */
-  readonly armId: string;
   readonly season: number;
   readonly fromSeason: number;
   /** The outgoing season's alliance-score mean — the units every carried rating is expressed in. */
@@ -982,9 +926,17 @@ export interface CarryScaleRow {
   /** `cleanSeasonMean / seedMean` at season end. THIS is the magnitude of the defect for this boundary. */
   readonly ratio: number | null;
   readonly carriedTeams: number;
-  readonly rescaledTeams: number;
-  readonly deferredRescales: number;
-  /** Carried teams never seen again in the incoming season — carried, never materialized, never scored. */
+  /**
+   * Carried teams never seen again in the incoming season — carried, never
+   * materialized, never scored. Read off the SHIPPED state's own
+   * `carryPending` at season end.
+   *
+   * NOT REPORTED HERE, deliberately: a rescaled-vs-deferred split. The arms
+   * that produced those counters are gone, and `EpaState` keeps no diagnostic
+   * counters — adding them would put measurement bookkeeping into every
+   * published row. The split as it was measured lives in the deviation
+   * register's `priorMeasurement`.
+   */
   readonly neverSeen: number;
 }
 
@@ -1010,23 +962,27 @@ export interface AblationArtifact {
     readonly additive: false;
     readonly combinationsMeasured: readonly string[][];
     readonly combinatorialCost: string;
-    readonly deferredRescales: number;
-    readonly rescaledTeams: number;
+    /** Carried teams never seen again in the season they were carried into, summed over boundaries. */
+    readonly neverSeenTeams: number;
+    /** Teams carried across a boundary, summed over boundaries. */
+    readonly carriedTeams: number;
     /**
      * The threshold decision as LITERAL DATA: the candidate set, the rule and
-     * the tie-break are constants that existed before the corpus was opened,
-     * and `selected` is `null` until a run has actually produced one. A reader
-     * can therefore check that the rule was not reverse-engineered from its
-     * answer.
+     * the tie-break are constants that existed before the corpus was ever
+     * opened, and `selected`/`reason`/`evaluations` are the FROZEN record of
+     * what they produced (`THRESHOLD_SELECTION_OUTCOME`). This run does not
+     * re-decide — the arms that could have are deleted — so a reader can check
+     * that the rule was not reverse-engineered from its answer.
      */
     readonly thresholdSelection: {
       readonly candidates: readonly number[];
       readonly rule: string;
       readonly tieBreak: string;
       readonly default: number;
-      readonly selected: number | null;
-      readonly selectedArmId: string | null;
-      readonly reason: string | null;
+      readonly selected: number;
+      readonly selectedArmId: string;
+      readonly reason: string;
+      readonly shippedConstant: number;
       readonly evaluations: readonly ThresholdEvaluation[];
     };
     readonly signConventions: Record<ContrastMetric, string>;
@@ -1043,10 +999,8 @@ export interface BuildArtifactInput {
   readonly contrasts: readonly ContrastRow[];
   readonly census: AblationCensus;
   readonly carryScale: readonly CarryScaleRow[];
-  readonly deferredRescales: number;
-  readonly rescaledTeams: number;
-  /** `null` before a run has decided — never a pre-filled guess. */
-  readonly thresholdSelection: ThresholdSelection | null;
+  readonly neverSeenTeams: number;
+  readonly carriedTeams: number;
 }
 
 /**
@@ -1089,17 +1043,20 @@ export function buildArtifact(input: BuildArtifactInput): AblationArtifact {
         "All-subsets of k deviations is 2^k arms. 4 measurable deviations would be 16 arms and roughly 4x this " +
         "run's wall clock; 6 would be 64 arms and an overnight job. Stage 1 deliberately measures size-0 and " +
         "size-1 arms only.",
-      deferredRescales: input.deferredRescales,
-      rescaledTeams: input.rescaledTeams,
+      neverSeenTeams: input.neverSeenTeams,
+      carriedTeams: input.carriedTeams,
       thresholdSelection: {
         candidates: [...THRESHOLD_CANDIDATES],
         rule: THRESHOLD_SELECTION_RULE,
         tieBreak: THRESHOLD_TIE_BREAK,
         default: THRESHOLD_DEFAULT,
-        selected: input.thresholdSelection?.selected ?? null,
-        selectedArmId: input.thresholdSelection?.selectedArmId ?? null,
-        reason: input.thresholdSelection?.reason ?? null,
-        evaluations: input.thresholdSelection?.evaluations ?? [],
+        selected: THRESHOLD_SELECTION_OUTCOME.selected,
+        selectedArmId: THRESHOLD_SELECTION_OUTCOME.selectedArmId,
+        reason: THRESHOLD_SELECTION_OUTCOME.reason,
+        // The number the model ACTUALLY runs at, emitted beside the recorded
+        // decision so a consumer can see them agree rather than assume it.
+        shippedConstant: EPA_CARRY_RESCALE_MIN_OBS,
+        evaluations: THRESHOLD_SELECTION_OUTCOME.evaluations,
       },
       signConventions: {
         brier: "NEGATIVE pointEstimate means the arm is BETTER (lower Brier is better)",
@@ -1119,148 +1076,15 @@ export function buildArtifact(input: BuildArtifactInput): AblationArtifact {
 
 // ───────────────────────────── the arms ─────────────────────────────
 
-/**
- * The `epa-carryover-fix` wrapper's state. `inner` is a genuine `EpaState`
- * handed to the shipped functions untouched; everything else is bookkeeping that
- * never reaches `epa.ts`.
- */
-export interface CarryoverFixState {
-  readonly inner: EpaState;
-  /** Teams carried across the most recent boundary that have not yet been materialized. */
-  readonly pending: ReadonlySet<string>;
-  /** The OUTGOING season's alliance-score mean — the units `inner`'s carried components are in. */
-  readonly seedMean: number;
-  readonly rescaledTeams: number;
-  readonly deferredRescales: number;
-  /**
-   * THIS arm's deferral threshold, carried ON the state rather than captured in
-   * a closure, so a test can prove the constructor's argument actually reaches
-   * `cleanSeasonMean` instead of three arms silently sharing one default.
-   */
-  readonly minObs: number;
-}
-
-const EMPTY_PENDING: ReadonlySet<string> = new Set<string>();
-
-export function ratioForState(state: CarryoverFixState): { ratio: number; deferred: boolean } {
-  return carryRescaleRatio(
-    cleanSeasonMean(state.inner.allianceScoreStats, state.seedMean, EPA_SCORE_SD_SEED_COUNT, state.minObs),
-    state.seedMean
-  );
-}
-
-/** Both alliances' rating-eligible teams, using the SAME remap/surrogate filter `epa.ts` itself applies. */
-function eligibleTeamsOf(match: UpcomingMatch): string[] {
-  return [
-    ...ratingEligibleTeams(match.redTeams, match.redSurrogates),
-    ...ratingEligibleTeams(match.blueTeams, match.blueSurrogates),
-  ];
-}
-
-/**
- * The carryover-fix arm: the shipped module with `predict`/`update`/`carrySeason`
- * wrapped, and NOTHING under `packages/` edited.
- */
-export function carryoverFixArm(
-  id: string = CARRYOVER_FIX_ARM_ID,
-  minObs: number = EPA_CARRY_RESCALE_MIN_OBS
-): AlgorithmModule<CarryoverFixState> {
-  const carrySeasonInner = epa.carrySeason;
-  if (carrySeasonInner === undefined) {
-    throw new Error("measure:epa-deviations: the shipped epa module has no carrySeason — this arm cannot exist");
-  }
-  if (!Number.isFinite(minObs) || minObs <= 0) {
-    throw new Error(
-      `measure:epa-deviations: carryoverFixArm minObs must be a positive finite number, got ${minObs} — a ` +
-        `degenerate threshold would silently rescale off a one-event season mean and report it as the fix`
-    );
-  }
-  return {
-    id,
-    // Derived from the shipped version rather than hardcoded, so this arm's
-    // identity tracks the model it wraps instead of silently standing for an
-    // older one. `{codeVersion}+{paramSetName}` shape preserved (D-13). The
-    // default id keeps its schema-1 suffix byte-for-byte.
-    version: `${epa.version.split("+")[0]}+${id === CARRYOVER_FIX_ARM_ID ? "carryover-fix-arm" : id}`,
-    initState(teams: string[]): CarryoverFixState {
-      return {
-        inner: epa.initState(teams),
-        pending: EMPTY_PENDING,
-        seedMean: Number.NaN,
-        rescaledTeams: 0,
-        deferredRescales: 0,
-        minObs,
-      };
-    },
-    predict(state, match) {
-      // TRANSIENT materialization: build a temp inner state for this match's
-      // teams, delegate, discard. Reads the same pre-update accumulator
-      // `update` will read, so predict and update agree by construction.
-      if (state.pending.size === 0) return epa.predict(state.inner, match);
-      const { ratio } = ratioForState(state);
-      const { teamComponents, touched } = materializePendingTeams(
-        state.inner.teamComponents,
-        eligibleTeamsOf(match),
-        state.pending,
-        ratio
-      );
-      if (touched.length === 0) return epa.predict(state.inner, match);
-      return epa.predict({ ...state.inner, teamComponents }, match);
-    },
-    update(state, result) {
-      if (state.pending.size === 0) {
-        return { ...state, inner: epa.update(state.inner, result) };
-      }
-      const { ratio, deferred } = ratioForState(state);
-      const teams = eligibleTeamsOf(result);
-      const { teamComponents, touched } = materializePendingTeams(
-        state.inner.teamComponents,
-        teams,
-        state.pending,
-        ratio
-      );
-      // Every team in this match leaves `pending`, whether or not its rescale
-      // could be read: a team whose rescale was DEFERRED has already been moved
-      // by this match's EWMA update, and rescaling a blend of last season's
-      // units and this season's observation later would be worse than not
-      // rescaling it at all. That is the cost the deferral counter reports.
-      const pending = new Set(state.pending);
-      for (const team of teams) pending.delete(team);
-      return {
-        inner: epa.update(touched.length === 0 ? state.inner : { ...state.inner, teamComponents }, result),
-        pending,
-        seedMean: state.seedMean,
-        rescaledTeams: state.rescaledTeams + (deferred ? 0 : touched.length),
-        deferredRescales: state.deferredRescales + (deferred ? touched.length : 0),
-        minObs: state.minObs,
-      };
-    },
-    teamMetrics(state, teams) {
-      return epa.teamMetrics(state.inner, teams);
-    },
-    carrySeason(state: CarryoverFixState, boundary: SeasonBoundary): CarryoverFixState {
-      if (boundary.isColdStart) return state;
-      // Captured BEFORE delegating: `reseedFromPrior` preserves this mean into
-      // the new accumulator, and it is the unit every carried component is
-      // expressed in.
-      const seedMean = state.inner.allianceScoreStats.mean;
-      const inner = carrySeasonInner(state.inner, boundary);
-      // Exactly the carry-worthy teams: the shipped carrySeason builds a FRESH
-      // map containing only carryResult.teamPointTotals.
-      return {
-        inner,
-        pending: new Set(inner.teamComponents.keys()),
-        seedMean,
-        rescaledTeams: state.rescaledTeams,
-        deferredRescales: state.deferredRescales,
-        minObs: state.minObs,
-      };
-    },
-    // Load-bearing: an arm that carried at season-final instead would be
-    // measuring two changes at once.
-    carryFrom: epa.carryFrom,
-  };
-}
+// `carryoverFixArm`, `CarryoverFixState`, `ratioForState` and
+// `eligibleTeamsOf` USED to live here (quick task 260910-x09, extended by
+// 260911-3kc). They are DELETED, and the deletion is the point: every one of
+// them wrapped the shipped `epa` module, and `epa@8.0.0+baseline` now contains
+// the rescale itself. A surviving wrapper would apply it a SECOND time and this
+// harness would report a double-apply as "the fix". The pure helpers they used
+// ship in `packages/core/algorithms/epaCarryScale.ts`; the measurement they
+// produced is preserved in `deviationRegister()`'s `carryover-scale-anchor`
+// entry and in `THRESHOLD_SELECTION_OUTCOME`.
 
 /**
  * A win-probability arm: the shipped module with `predict` alone wrapped. The
@@ -1467,7 +1291,7 @@ async function main(): Promise<void> {
   console.log(``);
   console.log(`READ-ONLY, and MEASUREMENT-ONLY. Nothing under packages/ is edited by this script's task, nothing is`);
   console.log(`tuned, fitted, swept or selected against any season, and BPR's sealed holdout is untouched because BPR`);
-  console.log(`is not replayed at all. The carryover FIX ships nowhere — it exists only as the ${CARRYOVER_FIX_ARM_ID} arm.`);
+  console.log(`is not replayed at all. The carryover fix is no longer an arm — it SHIPS, inside the baseline above.`);
   console.log(``);
   console.log(`SIGN CONVENTIONS: for brier a NEGATIVE point estimate means the arm is BETTER; for winnerAccuracy a`);
   console.log(`POSITIVE one does. Every interval below is an EVENT-BLOCKED bootstrap with its eventCount printed`);
@@ -1482,12 +1306,15 @@ async function main(): Promise<void> {
   console.log(`shrinks) and be near-nil where it does not. A uniform effect across every boundary would REFUTE the`);
   console.log(`mechanism even if the pooled number looked good. The per-boundary scale table below is the test.`);
   console.log(``);
-  console.log(`PRE-DECLARED THRESHOLD SELECTION — printed HERE, before the corpus is opened, so the rule provably`);
-  console.log(`predates every number it will be applied to. Serialized into the artifact as notes.thresholdSelection.`);
-  console.log(`   candidate set (THE WHOLE SEARCH — no fourth value, no scan): ${THRESHOLD_CANDIDATES.join(", ")}`);
-  console.log(`   incumbent / default:  minObs = ${THRESHOLD_DEFAULT} (${CARRYOVER_FIX_ARM_ID}), the plain fix quick task 260910-x09 proved`);
+  console.log(`THE CARRYOVER DEVIATION IS CLOSED (quick task 260911-3kc). Its three arms are gone, and their absence`);
+  console.log(`is load-bearing: they WRAPPED the shipped module, so a wrapper over epa@8.0.0 would apply the rescale a`);
+  console.log(`SECOND time and this harness would report a double-apply as the fix. The measurement is preserved as`);
+  console.log(`data in the artifact's deviation register, not deleted with the arm.`);
+  console.log(`   deferral threshold SHIPPED at minObs = ${THRESHOLD_SELECTION_OUTCOME.selected}, chosen from the pre-declared candidate set ${THRESHOLD_CANDIDATES.join(", ")}`);
+  console.log(`   by a rule fixed before any of its numbers existed (incumbent/default was ${THRESHOLD_DEFAULT}):`);
   console.log(`   rule:      ${THRESHOLD_SELECTION_RULE}`);
   console.log(`   tie-break: ${THRESHOLD_TIE_BREAK}`);
+  console.log(`   outcome:   ${THRESHOLD_SELECTION_OUTCOME.reason}`);
   console.log(``);
 
   const db = openCorpusReadOnly(CORPUS_PATH);
@@ -1509,16 +1336,6 @@ async function main(): Promise<void> {
       pooledOnset.set(armId, []);
     }
 
-    // The incumbent and its two pre-declared challengers. Built ONCE, outside
-    // the season loop, exactly as the incumbent already was — an arm rebuilt
-    // per season would be a different object each time and `runAll` keys state
-    // by id, so this is identity hygiene rather than an optimisation.
-    const carryArms: { readonly arm: AlgorithmModule<CarryoverFixState>; readonly minObs: number }[] = [
-      { arm: carryoverFixArm(CARRYOVER_FIX_ARM_ID, THRESHOLD_CANDIDATES[0]), minObs: THRESHOLD_CANDIDATES[0] },
-      { arm: carryoverFixArm(CARRYOVER_FIX_MIN250_ARM_ID, THRESHOLD_CANDIDATES[1]), minObs: THRESHOLD_CANDIDATES[1] },
-      { arm: carryoverFixArm(CARRYOVER_FIX_MIN500_ARM_ID, THRESHOLD_CANDIDATES[2]), minObs: THRESHOLD_CANDIDATES[2] },
-    ];
-    const CARRY_ARM_IDS = carryArms.map((a) => a.arm.id);
     let liveStates = new Map<string, unknown>();
     let replayedRecords = 0;
 
@@ -1546,7 +1363,6 @@ async function main(): Promise<void> {
 
       const algorithms: AlgorithmModule<any>[] = [
         epa,
-        ...carryArms.map((a) => a.arm),
         winProbabilityArm(WINPROB_SEASON_SD_ARM_ID, seasonSd),
         winProbabilityArm(WINPROB_FIXED_SD_ARM_ID, EPA_FALLBACK_SCORE_SD),
       ];
@@ -1559,7 +1375,11 @@ async function main(): Promise<void> {
       // one cannot measure it at all.
       const boundary = seasonBoundaryFor(seasons, seasonIndex);
       let initialStates: ReadonlyMap<string, unknown> | undefined;
-      const carryStatesAtBoundary = new Map<string, CarryoverFixState>();
+      // The SHIPPED module's state immediately after the boundary. `epa@8.0.0`
+      // carries `carrySeedMean`/`carryPending` itself, so the per-boundary scale
+      // diagnostic below reads the real shipped state rather than an arm's
+      // bookkeeping — the arms are gone, the diagnostic is not.
+      let epaStateAtBoundary: EpaState | undefined;
       if (!boundary.isColdStart) {
         const carried = new Map<string, unknown>();
         for (const algorithm of algorithms) {
@@ -1567,9 +1387,7 @@ async function main(): Promise<void> {
           if (algorithm.carrySeason && priorState !== undefined) {
             const next = algorithm.carrySeason(priorState, boundary);
             carried.set(algorithm.id, next);
-            if (CARRY_ARM_IDS.includes(algorithm.id)) {
-              carryStatesAtBoundary.set(algorithm.id, next as CarryoverFixState);
-            }
+            if (algorithm.id === BASELINE_ARM_ID) epaStateAtBoundary = next as EpaState;
           }
         }
         initialStates = carried;
@@ -1699,58 +1517,25 @@ async function main(): Promise<void> {
         );
       }
 
-      // ── challenger-vs-INCUMBENT contrasts, IN ADDITION to the vs-baseline ──
-      // The vs-baseline rows above answer "is this better than plain EPA?".
-      // These answer "is this better than the fix we already have?" — the only
-      // question the pre-declared rule is allowed to read. Both are emitted;
-      // `baselineArmId` is what tells them apart.
-      const incumbentRows = perArm.get(CARRYOVER_FIX_ARM_ID)!.scorable;
-      for (const armId of [CARRYOVER_FIX_MIN250_ARM_ID, CARRYOVER_FIX_MIN500_ARM_ID]) {
-        const armRows = perArm.get(armId)!.scorable;
-        for (const metric of ["winnerAccuracy", "brier"] as const) {
-          const units =
-            metric === "brier" ? pairedBrierDiffs(armRows, incumbentRows) : pairedAccuracyDiffs(armRows, incumbentRows);
-          const contrast = contrastFor(armId, "season", season, metric, units, CARRYOVER_FIX_ARM_ID);
-          if (contrast !== null) contrasts.push(contrast);
-        }
-        if (!boundary.isColdStart) {
-          const armOnset = armRows.slice(0, ONSET_MATCH_COUNT);
-          const incumbentOnset = incumbentRows.slice(0, ONSET_MATCH_COUNT);
-          for (const metric of ["winnerAccuracy", "brier"] as const) {
-            const units =
-              metric === "brier"
-                ? pairedBrierDiffs(armOnset, incumbentOnset)
-                : pairedAccuracyDiffs(armOnset, incumbentOnset);
-            const contrast = contrastFor(armId, "onset", season, metric, units, CARRYOVER_FIX_ARM_ID);
-            if (contrast !== null) contrasts.push(contrast);
-          }
-        }
-      }
-
-      // ── what the carryover defect's scale ratio actually was, this boundary ─
-      for (const { arm, minObs } of carryArms) {
-        const atBoundary = carryStatesAtBoundary.get(arm.id);
-        const finalCarryState = records.finalStates.get(arm.id) as CarryoverFixState | undefined;
-        if (boundary.isColdStart || atBoundary === undefined || finalCarryState === undefined) continue;
-        const seedMean = atBoundary.seedMean;
+      // ── the boundary's scale ratio, read off the SHIPPED module's own state ─
+      const finalEpaState = records.finalStates.get(BASELINE_ARM_ID) as EpaState | undefined;
+      if (!boundary.isColdStart && epaStateAtBoundary !== undefined && finalEpaState !== undefined) {
+        const seedMean = epaStateAtBoundary.carrySeedMean;
         const clean = cleanSeasonMean(
-          finalCarryState.inner.allianceScoreStats,
+          finalEpaState.allianceScoreStats,
           seedMean,
           EPA_SCORE_SD_SEED_COUNT,
-          minObs
+          EPA_CARRY_RESCALE_MIN_OBS
         );
         const { ratio, deferred } = carryRescaleRatio(clean, seedMean);
         carryScale.push({
-          armId: arm.id,
           season,
           fromSeason: boundary.fromSeason,
           seedMean,
           cleanSeasonMean: clean,
           ratio: deferred ? null : ratio,
-          carriedTeams: atBoundary.pending.size,
-          rescaledTeams: finalCarryState.rescaledTeams - atBoundary.rescaledTeams,
-          deferredRescales: finalCarryState.deferredRescales - atBoundary.deferredRescales,
-          neverSeen: finalCarryState.pending.size,
+          carriedTeams: epaStateAtBoundary.carryPending.size,
+          neverSeen: finalEpaState.carryPending.size,
         });
       }
 
@@ -1805,30 +1590,6 @@ async function main(): Promise<void> {
       }
     }
 
-    // ── pooled challenger-vs-INCUMBENT: the rows the rule actually reads ────
-    const pooledIncumbent = pooledScorable.get(CARRYOVER_FIX_ARM_ID)!;
-    const pooledOnsetIncumbent = pooledOnset.get(CARRYOVER_FIX_ARM_ID)!;
-    for (const armId of [CARRYOVER_FIX_MIN250_ARM_ID, CARRYOVER_FIX_MIN500_ARM_ID]) {
-      const armRows = pooledScorable.get(armId)!;
-      for (const metric of ["winnerAccuracy", "brier"] as const) {
-        const units =
-          metric === "brier" ? pairedBrierDiffs(armRows, pooledIncumbent) : pairedAccuracyDiffs(armRows, pooledIncumbent);
-        const contrast = contrastFor(armId, "pooled", null, metric, units, CARRYOVER_FIX_ARM_ID);
-        if (contrast !== null) contrasts.push(contrast);
-      }
-      const armOnset = pooledOnset.get(armId)!;
-      if (armOnset.length > 0) {
-        for (const metric of ["winnerAccuracy", "brier"] as const) {
-          const units =
-            metric === "brier"
-              ? pairedBrierDiffs(armOnset, pooledOnsetIncumbent)
-              : pairedAccuracyDiffs(armOnset, pooledOnsetIncumbent);
-          const contrast = contrastFor(armId, "onset", null, metric, units, CARRYOVER_FIX_ARM_ID);
-          if (contrast !== null) contrasts.push(contrast);
-        }
-      }
-    }
-
     console.log(`═══════════════════════════════════════════════════════════════════════════════`);
     console.log(`POOLED ACROSS ${seasons.length} SEASONS`);
     console.log(`═══════════════════════════════════════════════════════════════════════════════`);
@@ -1851,16 +1612,16 @@ async function main(): Promise<void> {
     console.log(`── PER-BOUNDARY SCALE RATIO — the magnitude of the carryover defect, boundary by boundary ──`);
     console.log(`   ratio = (incoming season's own alliance-score mean) / (outgoing season's). A ratio far from 1.00`);
     console.log(`   is a boundary where every carried rating is expressed in the WRONG units by exactly that factor.`);
-    console.log(`   One row per (arm, boundary): the deferral census is the ONE figure the three thresholds trade off.`);
+    console.log(`   Read off the SHIPPED epa@8.0.0 state's own carrySeedMean/carryPending — this is what production does.`);
     console.log(
-      `   arm                          season   from     seedMean   seasonMean     ratio    carried   rescaled   deferred   neverSeen`
+      `   season   from     seedMean   seasonMean     ratio    carried   neverSeen`
     );
     for (const row of carryScale) {
       console.log(
-        `   ${row.armId.padEnd(26)}  ${String(row.season).padStart(6)}  ${String(row.fromSeason).padStart(5)}  ` +
-          `${row.seedMean.toFixed(2).padStart(11)}  ${(row.cleanSeasonMean ?? Number.NaN).toFixed(2).padStart(11)}  ` +
+        `   ${String(row.season).padStart(6)}  ${String(row.fromSeason).padStart(5)}  ` +
+          `${finiteOrThrow(row.seedMean, `${row.season} seedMean`).toFixed(2).padStart(11)}  ` +
+          `${(row.cleanSeasonMean === null ? "n/a" : row.cleanSeasonMean.toFixed(2)).padStart(11)}  ` +
           `${(row.ratio === null ? "n/a" : row.ratio.toFixed(4)).padStart(8)}  ${String(row.carriedTeams).padStart(9)}  ` +
-          `${String(row.rescaledTeams).padStart(9)}  ${String(row.deferredRescales).padStart(9)}  ` +
           `${String(row.neverSeen).padStart(10)}`
       );
     }
@@ -1875,38 +1636,22 @@ async function main(): Promise<void> {
     }
     console.log(``);
 
-    // ── pre-registered verdicts, written so WORSE is as reachable as BETTER ──
+    // ── the carryover verdict, now a REPRODUCTION statement, not a contrast ──
     console.log(`══ VERDICTS — pre-registered ══`);
-    const carryPooledBrier = contrasts.find(
-      (c) => c.armId === CARRYOVER_FIX_ARM_ID && c.scope === "pooled" && c.metric === "brier"
-    );
-    const carryPooledAcc = contrasts.find(
-      (c) => c.armId === CARRYOVER_FIX_ARM_ID && c.scope === "pooled" && c.metric === "winnerAccuracy"
-    );
-    const carryOnsetBrier = contrasts.find(
-      (c) => c.armId === CARRYOVER_FIX_ARM_ID && c.scope === "onset" && c.season === null && c.metric === "brier"
-    );
-    const carryOnsetAcc = contrasts.find(
-      (c) => c.armId === CARRYOVER_FIX_ARM_ID && c.scope === "onset" && c.season === null && c.metric === "winnerAccuracy"
+    console.log(
+      `   carryover scale anchor: CLOSED. The ${BASELINE_ARM_ID} baseline above IS the fix (epa@8.0.0+baseline), so there`
     );
     console.log(
-      `   carryover fix, POOLED:  accuracy ${carryPooledAcc?.verdict.toUpperCase() ?? "UNMEASURABLE"}, ` +
-        `brier ${carryPooledBrier?.verdict.toUpperCase() ?? "UNMEASURABLE"}`
+      `   is no contrast to report — the rows above ARE the fixed model's rows. What they must equal is the winning`
     );
     console.log(
-      `   carryover fix, ONSET:   accuracy ${carryOnsetAcc?.verdict.toUpperCase() ?? "UNMEASURABLE"}, ` +
-        `brier ${carryOnsetBrier?.verdict.toUpperCase() ?? "UNMEASURABLE"}`
+      `   arm's rows from the PRE-LANDING run, to 6 decimal places; that reproduction gate is quick task 260911-3kc's`
     );
+    console.log(`   task 3 and is checked against the pre-landing artifact, not here.`);
     console.log(
-      `   Rule A, this project's shipping bar, asks for BOTH accuracy AND Brier to improve. A result where only one`
+      `   The fix remains an APPROXIMATION (closest-walk-forward-legal), never identical to Statbotics: Statbotics`
     );
-    console.log(
-      `   moves, or where either interval spans zero, is NOT a recommendation to ship — it is a measurement saying so.`
-    );
-    console.log(
-      `   The fix is an APPROXIMATION (closest-walk-forward-legal), never identical to Statbotics: Statbotics runs`
-    );
-    console.log(`   offline and simply knows the season scale, which no walk-forward replay can.`);
+    console.log(`   runs offline and simply knows the season scale, which no walk-forward replay can.`);
     console.log(``);
     console.log(`   win-probability invariant: HELD in every season (the run would have thrown otherwise).`);
     console.log(``);
@@ -1928,18 +1673,15 @@ async function main(): Promise<void> {
     }
     console.log(``);
 
-    // ── THRESHOLD SELECTION — the pre-declared rule, executed ───────────────
-    const thresholdSelection = selectThreshold(
-      contrasts,
-      [
-        { armId: CARRYOVER_FIX_MIN250_ARM_ID, minObs: THRESHOLD_CANDIDATES[1] },
-        { armId: CARRYOVER_FIX_MIN500_ARM_ID, minObs: THRESHOLD_CANDIDATES[2] },
-      ],
-      { armId: CARRYOVER_FIX_ARM_ID, minObs: THRESHOLD_CANDIDATES[0] }
-    );
-    console.log(`══ THRESHOLD SELECTION ══`);
-    console.log(`   candidate set: ${THRESHOLD_CANDIDATES.join(", ")}   (declared before the corpus was opened)`);
-    for (const evaluation of thresholdSelection.evaluations) {
+    // ── THRESHOLD SELECTION — the record, not a re-decision ────────────────
+    // The arms that produced these numbers are gone (see ARM_IDS). What is
+    // printed is the frozen record of how the SHIPPED threshold was chosen, so
+    // a reader of this run's log still sees the rule, the candidates and the
+    // clause rather than a bare constant.
+    console.log(`══ THRESHOLD SELECTION — FROZEN RECORD (this run did not re-decide) ══`);
+    console.log(`   candidate set: ${THRESHOLD_CANDIDATES.join(", ")}   (declared before the corpus was ever opened)`);
+    console.log(`   incumbent / default at the time: minObs = ${THRESHOLD_DEFAULT}`);
+    for (const evaluation of THRESHOLD_SELECTION_OUTCOME.evaluations) {
       console.log(
         `   ${evaluation.armId.padEnd(26)} minObs ${String(evaluation.minObs).padStart(4)}  ` +
           `onset brier ${signed(evaluation.onsetBrier)} vs incumbent ` +
@@ -1950,14 +1692,10 @@ async function main(): Promise<void> {
       console.log(`      clause: ${evaluation.clause}`);
     }
     console.log(
-      `   OUTCOME: minObs = ${thresholdSelection.selected} (${thresholdSelection.selectedArmId})`
+      `   SHIPPED: minObs = ${finiteOrThrow(THRESHOLD_SELECTION_OUTCOME.selected, "shipped threshold")} (${THRESHOLD_SELECTION_OUTCOME.selectedArmId})`
     );
-    console.log(`   ${thresholdSelection.reason}`);
-    if (thresholdSelection.selected === THRESHOLD_DEFAULT) {
-      console.log(
-        `   NO THRESHOLD BEAT THE PLAIN FIX. That is the OUTCOME, not a failure — the incumbent ships unchanged.`
-      );
-    } else {
+    console.log(`   ${THRESHOLD_SELECTION_OUTCOME.reason}`);
+    if (THRESHOLD_SELECTION_OUTCOME.selected !== THRESHOLD_DEFAULT) {
       console.log(
         `   A CHALLENGER WAS ADOPTED. Its marginal gain over the plain fix was selected on THE SAME NINE SEASONS it`
       );
@@ -1966,29 +1704,31 @@ async function main(): Promise<void> {
       );
       console.log(`   plain fix itself is. Say so wherever this threshold is quoted.`);
     }
-    console.log(``);
-
-    // ── NAMED SECONDARIES — reported, and DELIBERATELY OUTSIDE the rule ─────
-    // 2019 is the season carrying essentially the whole carryover effect, so
-    // these are the figures a reader will reach for. They are printed for
-    // honesty and excluded from the decision on purpose: a rule that reads the
-    // season it was designed around is a rule fitted to that season.
-    console.log(`── NAMED SECONDARIES (reported, NOT read by the selection rule) ──`);
-    for (const armId of [BASELINE_ARM_ID, ...CARRY_ARM_IDS]) {
-      const onset2019 = rows.find((r) => r.armId === armId && r.scope === "onset" && r.season === 2019);
-      const season2019 = rows.find((r) => r.armId === armId && r.scope === "season" && r.season === 2019);
-      console.log(
-        `   ${armId.padEnd(26)} 2019 onset BRIER ${formatMetric(onset2019?.brier ?? null).padStart(9)}   ` +
-          `2019 season ACC ${formatMetric(season2019?.winnerAccuracy ?? null).padStart(9)}`
+    if (EPA_CARRY_RESCALE_MIN_OBS !== THRESHOLD_SELECTION_OUTCOME.selected) {
+      throw new Error(
+        `measure:epa-deviations: the SHIPPED EPA_CARRY_RESCALE_MIN_OBS is ${EPA_CARRY_RESCALE_MIN_OBS} but the frozen ` +
+          `selection record says ${THRESHOLD_SELECTION_OUTCOME.selected}. One of them moved without the other. ` +
+          `Refusing to print a decision record that does not describe the shipped constant.`
       );
     }
-    console.log(
-      `   Per-boundary deferral census for all three thresholds is the PER-BOUNDARY SCALE RATIO table above.`
-    );
     console.log(``);
 
-    const totalDeferred = carryScale.reduce((sum, r) => sum + r.deferredRescales, 0);
-    const totalRescaled = carryScale.reduce((sum, r) => sum + r.rescaledTeams, 0);
+    // ── NAMED SECONDARIES — 2019 is where the carryover effect lives ────────
+    console.log(`── NAMED SECONDARIES ──`);
+    {
+      const onset2019 = rows.find((r) => r.armId === BASELINE_ARM_ID && r.scope === "onset" && r.season === 2019);
+      const season2019 = rows.find((r) => r.armId === BASELINE_ARM_ID && r.scope === "season" && r.season === 2019);
+      console.log(
+        `   ${BASELINE_ARM_ID.padEnd(26)} 2019 onset BRIER ${formatMetric(onset2019?.brier ?? null).padStart(9)}   ` +
+          `2019 season ACC ${formatMetric(season2019?.winnerAccuracy ?? null).padStart(9)}`
+      );
+      console.log(
+        `   These are the FIXED model's 2019 figures. The un-fixed comparison is in the deviation register's`
+      );
+      console.log(`   priorMeasurement, because the arm that produced it no longer exists.`);
+    }
+    console.log(``);
+
     const artifact = buildArtifact({
       seasons,
       corpusPath: CORPUS_PATH,
@@ -1997,9 +1737,8 @@ async function main(): Promise<void> {
       contrasts,
       census,
       carryScale,
-      deferredRescales: totalDeferred,
-      rescaledTeams: totalRescaled,
-      thresholdSelection,
+      neverSeenTeams: carryScale.reduce((sum, r) => sum + r.neverSeen, 0),
+      carriedTeams: carryScale.reduce((sum, r) => sum + r.carriedTeams, 0),
     });
     const serialized = `${JSON.stringify(artifact, null, 2)}\n`;
     for (const path of [ARTIFACT_PATH, COMMITTED_ARTIFACT_PATH]) {
