@@ -95,9 +95,18 @@
  * ### Arms `epa-winprob-*`
  *
  * Both override `predict` only: delegate to the shipped `predict`, then
- * recompute `pRedWin = 1 / (1 + exp(-(redScore - blueScore) / scale))` with a
- * different `scale = sd / (-EPA_K * ln 10)`, and re-derive `winner` on the same
+ * recompute `pRedWin = 1 / (1 + exp(-(margin) / scale))` with a different
+ * `scale = sd / (-EPA_K * ln 10)`, and re-derive `winner` on the same
  * `pRedWin >= 0.5` convention `epa.predict` uses.
+ *
+ * `margin` is the difference of the two NO-FOUL totals, reconstructed from the
+ * UNSCALED component records (`noFoulTotalOf`) — NOT `redScore - blueScore`.
+ * Those were the same two numbers until `epa@10.0.0+baseline` (quick task
+ * 260911-l2k) moved the foul term to a `(1 + foulRate)` scalar applied to the
+ * published scores AFTER the win probability. See `noFoulTotalOf`'s own
+ * comment for why reading the published scores broke the pre-registered
+ * winner-accuracy invariant below, and why the fix is a bitwise-exact
+ * reconstruction rather than a loosened guard.
  *
  * PRE-REGISTERED INVARIANT: a scale on the logistic cannot change
  * `sign(margin)`, so both arms' winner accuracy MUST equal baseline's to full
@@ -170,7 +179,7 @@ import {
   type EpaState,
 } from "../packages/core/algorithms/epa.js";
 import { populationMeanSd } from "../packages/core/algorithms/carryover.js";
-import type { SeasonComponentMap } from "../packages/core/algorithms/breakdown/index.js";
+import { FOULS_COMMITTED_COMPONENT, type SeasonComponentMap } from "../packages/core/algorithms/breakdown/index.js";
 // MOVED, not copied (quick task 260911-3kc): these five now SHIP inside
 // `epa.ts`, so this harness imports them rather than keeping a second copy. Two
 // copies of a scale conversion drifting apart is the exact failure
@@ -1128,6 +1137,26 @@ export function buildArtifact(input: BuildArtifactInput): AblationArtifact {
 // entry and in `THRESHOLD_SELECTION_OUTCOME`.
 
 /**
+ * One alliance's NO-FOUL total, reconstructed from the UNSCALED component
+ * record `epa.predict` returns (quick task 260911-l2k).
+ *
+ * Deliberately character-for-character `epa.ts:predictCore`'s own
+ * `redOffensiveTotal` reduce — same skip, same `Object.entries` order (the
+ * record is emitted in sorted key order precisely so a sum over it is
+ * order-stable). Floating-point addition is not associative, so "equivalent"
+ * would not be good enough here: this must reproduce the shipped margin
+ * BITWISE, or this file's pre-registered winner-accuracy invariant fails on
+ * near-ties for a reason that has nothing to do with any arm.
+ */
+function noFoulTotalOf(components: Readonly<Record<string, { mean: number }>> | undefined): number {
+  if (!components) return 0;
+  return Object.entries(components).reduce(
+    (sum, [name, c]) => (name === FOULS_COMMITTED_COMPONENT ? sum : sum + c.mean),
+    0
+  );
+}
+
+/**
  * A win-probability arm: the shipped module with `predict` alone wrapped. The
  * spread carries `initState`/`update`/`teamMetrics`/`carrySeason`/`carryFrom`
  * through unchanged, so state evolution is BYTE-IDENTICAL to the baseline's and
@@ -1140,7 +1169,33 @@ export function winProbabilityArm(id: string, scoreSd: number): AlgorithmModule<
     version: `${epa.version.split("+")[0]}+${id}`,
     predict(state: EpaState, match: UpcomingMatch) {
       const base = epa.predict(state, match);
-      const { pRedWin, winner } = rescaledWinProbability(base.redScore, base.blueScore, scoreSd);
+      // THE MARGIN COMES FROM THE NO-FOUL TOTALS, NOT THE PUBLISHED SCORES
+      // (quick task 260911-l2k). Until `epa@10.0.0+baseline` these were the
+      // same two numbers, and this arm read `base.redScore`/`base.blueScore`
+      // directly. They are no longer the same: `predictCore` now takes its
+      // margin from the two NO-FOUL totals and publishes
+      // `noFoulTotal * (1 + foulRate)`.
+      //
+      // Reading the published scores here broke this file's own PRE-REGISTERED
+      // INVARIANT — that a scale on the logistic cannot change `sign(margin)`,
+      // so a `winprob-*` arm must report winner accuracy IDENTICAL to the
+      // baseline's in every season. The invariant is still mathematically
+      // true; the arm had simply stopped computing the baseline's margin.
+      // `a * k - b * k` is not bitwise `(a - b) * k` in floating point, so on a
+      // near-tie the two can disagree in sign — which is exactly what the guard
+      // caught in 2016, on one match out of ~12,855.
+      //
+      // Fixed by reconstructing the margin the shipped module actually used
+      // rather than by relaxing the guard. `redComponents`/`blueComponents` are
+      // returned UNSCALED and in SORTED key order, and this reduce is
+      // character-for-character `predictCore`'s own `redOffensiveTotal`
+      // computation, so the reconstruction is BITWISE exact rather than merely
+      // close — which is what restores the invariant instead of loosening it.
+      const { pRedWin, winner } = rescaledWinProbability(
+        noFoulTotalOf(base.redComponents),
+        noFoulTotalOf(base.blueComponents),
+        scoreSd
+      );
       if (!isValidPRedWin(pRedWin)) {
         throw new Error(
           `measure:epa-deviations: arm ${id} produced an invalid pRedWin ${pRedWin} for ${match.matchKey}`
