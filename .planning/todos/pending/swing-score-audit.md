@@ -66,7 +66,12 @@ coefficient-of-variation and rating-decile alternatives it rejected.
 
 ## 3. Findings
 
-### F1 — There is no skill measurement for the estimator that actually ships. *(the headline)*
+### F1 — ~~There is no skill measurement for the estimator that actually ships.~~ **CLOSED 2026-09-10 — and the answer is worse than expected.**
+
+> **RESOLVED by quick task 260910-sz9.** `scripts/measureSwingSkill.ts` (`pnpm measure:swing-skill`)
+> is the harness this finding said did not exist. Measured 2024-2026, official play only, all three
+> published algorithms, 297,854 team-match observations from 53,309 matches. Full results in
+> §3.1 below. The gap is closed; what it revealed is now the open problem.
 
 The only number anyone quotes is **a ceiling, not an achievement**: `r ≈ 0.59`, the best
 correlation *any* estimator of this shape could reach against a team's next-match deviation, swept
@@ -83,6 +88,111 @@ harness that could.** There is `measureRpCalibration.ts`, `epaVsStatbotics.ts`,
 This is exactly the failure the project's own log names as its original sin: a published number,
 on two surfaces, with no evaluation harness. Every other finding below is hard to act on *because*
 of this one — there is no baseline to beat.
+
+## 3.1 MEASURED RESULTS (2026-09-10, `pnpm measure:swing-skill --seasons 2024-2026`)
+
+297,854 team-match observations, 53,309 matches, official play only, walk-forward through the same
+`SwingFactorAccumulator` the publisher and the live Worker run.
+
+**Read n with care:** even-split hands all three teammates the identical deviation (F2), so one match
+contributes up to 6 rows sharing 2 values. Intervals from a naive n are roughly √3 too tight.
+
+### Skill — well below the ceiling
+
+Correlation between a team's Swing as of matches 1..N−1 and its actual |centred deviation| at match N.
+Pooled figures are standardized within season; raw pooling inflates them badly (see the caveat below).
+
+| algorithm | 2024 | 2025 | 2026 | pooled |
+|---|---|---|---|---|
+| **opr** | 0.583 / **0.135** | 0.228 / **0.134** | 0.220 / **0.236** | 0.339 / **0.193** |
+| **epa** | 0.102 / **0.066** | 0.114 / **0.066** | 0.231 / **0.204** | 0.151 / **0.115** |
+| **bpr** | 0.079 / **0.067** | 0.073 / **0.056** | 0.264 / **0.230** | 0.141 / **0.118** |
+
+*Pearson / **Spearman**. Trust the Spearman figure.* OPR 2024 shows Pearson 0.583 against Spearman
+0.135 — a 4x divergence that is pure outlier leverage from OPR's unstable early-season solves. Where
+the two disagree that much, the rank statistic is the honest one.
+
+**Against the `r ≈ 0.59` ceiling, the shipped estimator achieves roughly 0.06–0.24.** It is capturing
+a real but small fraction of the available per-team signal. 2026 is consistently the strongest season
+for all three algorithms — about 3x the 2024/2025 figures for EPA and BPR — and nobody knows why yet.
+
+**Pairing control:** a deterministic mismatched-pairing control (each swing re-paired with a different
+row's outcome at a fixed stride) reads **|r| ≤ 0.027** in every block, well below every headline. The
+pairing is sound.
+
+### Calibration — the no-shrinkage signature is textbook
+
+BPR pooled, by swing decile:
+
+| decile | n | mean swing | RMS centred dev | ratio | coverage | BIAS |
+|---|---|---|---|---|---|---|
+| 1 | 29,785 | 5.93 | 7.43 | **0.798** | 70.3% | +2.48 |
+| 5 | 29,786 | 14.51 | 9.21 | 1.575 | 90.6% | +2.10 |
+| 10 | 29,786 | 64.46 | 33.21 | **1.941** | 94.1% | −4.12 |
+
+The ratio column climbs monotonically from 0.80 to 1.94 — **low-swing teams are systematically
+under-estimated and high-swing teams over-estimated**, which is exactly the regression-to-the-mean
+signature of an estimator with no shrinkage. R2 is aimed precisely at this.
+
+The **BIAS** column (mean signed raw deviation per decile) is a finding about the *algorithms*, not
+about Swing: BPR runs +2.48 at the low end and −4.12 at the high end, EPA climbs monotonically
++1.19 → +4.97. The model's systematic miss is a function of swing level, differently per algorithm.
+This is why the obvious "swing should not correlate with signed deviation" control is invalid here,
+and it relates to the band-calibration todo's Finding C.
+
+### Coverage — the per-team band is roughly 1.8x too wide
+
+| algorithm | P(\|centred dev\| ≤ swing) | scale that would deliver 68.3% |
+|---|---|---|
+| opr | 89.91% | **0.889** |
+| epa | 90.96% | **1.026** |
+| bpr | 88.54% | **1.101** |
+
+Against the shipped `SWING_FACTOR_SCALE = 1.92`. A "one standard deviation" label implies 68.3% and
+delivers 88–91%. **This is a different quantity from the alliance match-band coverage** the constant's
+own header quotes (1.68 / 1.71 / 1.13) — that is alliance-level against actual alliance score, this is
+per-team against centred deviation. Do not conflate them. F6 stands, with numbers.
+
+### The bar it has to clear — and mostly does not
+
+Gaussian NLL of the centred deviation, median (the mean is unusable — see the tail below):
+
+| algorithm | population-constant baseline | SHIPPED | median skill vs baseline |
+|---|---|---|---|
+| opr | 4.6712 | 4.0263 | **+0.6449 — BEATS a constant** |
+| epa | 3.5836 | 3.5984 | **−0.0148 — does not beat** |
+| bpr | 3.5973 | 3.6030 | **−0.0057 — does not beat** |
+
+**For the two algorithms that matter most, a per-team Swing Factor barely matches one number
+computed for the whole population.** OPR is the exception, and only because OPR's own ratings are
+noisy enough that per-team spread genuinely varies more.
+
+A per-team hindsight reference (each team's full-season RMS, using the future) was included as a
+third point and **loses to the walk-forward baseline for EPA and BPR** — it is a reference, not an
+upper bound, because the baseline's sigma adapts across the season while the reference is one constant
+per team. That inversion is itself informative: **more of the remaining signal lives in season-phase
+variation than in per-team variation.**
+
+### The tail is catastrophic, and it is the clearest fixable defect
+
+| algorithm | rows with swing < 1 point | share of total mean NLL |
+|---|---|---|
+| opr | 287 (0.096%) | **92.2%** |
+| epa | 202 (0.068%) | **100.0%** |
+| bpr | 599 (0.201%) | **99.2%** |
+
+Two near-identical deviations produce a near-zero Swing Factor, the site publishes it as a confident
+`±0.4`, and the next match misses by 40 points. Under a log score those few hundred rows swamp
+300,000 others. These are real published values on real team pages, not a scoring artifact —
+`swingFactorFromDeviations` returns exactly 0 by design for identical deviations, and the design note
+calls that "correct rather than a degenerate case" because the constant is the model's problem. That
+reasoning holds for the *centring* but not for what gets *published as a band*.
+
+**Shrinkage toward the rating-local prior (R2) removes this entire failure mode**, because a
+two-observation team would be pulled toward its neighbours' typical swing instead of asserting near
+perfect consistency.
+
+---
 
 ### F2 — Even-split gives all three teammates literally identical evidence.
 
@@ -149,7 +259,22 @@ screen says why.
 
 ## 4. Can it be made better — ranked
 
-### R1. Build the skill harness before changing anything. *(prerequisite)*
+### R1. ~~Build the skill harness before changing anything.~~ **DONE 2026-09-10 (quick task 260910-sz9).**
+
+`scripts/measureSwingSkill.ts`, `pnpm measure:swing-skill`. Results in §3.1. What it changes about the
+rest of this list:
+
+- **R2 is now the clear priority, with three independent measurements pointing at it** — the monotone
+  0.80→1.94 ratio climb, the 0.06–0.35% near-zero tail carrying 83–100% of the NLL, and the estimator
+  failing to beat a population constant for EPA and BPR.
+- **R5 moved up.** The measured scale for 68.3% per-team coverage is 0.889 / 1.026 / 1.101 against a
+  shipped 1.92 — the band is ~1.8x too wide, and the harness that makes per-algorithm constants
+  maintainable now exists.
+- **A new question the audit did not anticipate:** 2026 scores ~3x the skill of 2024/2025 for EPA and
+  BPR, and the per-team hindsight reference loses to a time-varying population baseline. Both say
+  season-phase effects are larger than assumed. Worth understanding before R3's expensive solve.
+
+### R1b. Original R1 text, for the record
 
 `scripts/measureSwingSkill.ts`, walk-forward over the corpus, reporting per algorithm and season:
 
