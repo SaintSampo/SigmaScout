@@ -48,7 +48,9 @@ import { rp2016 } from "./2016.js";
 import { rp2017 } from "./2017.js";
 import { rp2019 } from "./2019.js";
 import { rp2022 } from "./2022.js";
+import { rp2025 } from "./2025.js";
 import { rp2026 } from "./2026.js";
+import { buildGoldenCases } from "../../../scripts/rpLayerInertnessGolden.js";
 import { RP_REGISTERED_SEASONS, RP_RULE_MODULES, type MarginalFamily, type RpRuleModule } from "./rules.js";
 import type { AllianceRpMoments } from "./moments.js";
 
@@ -870,5 +872,174 @@ describe("analyticRpPmf — Task 2 (D-07's remaining six mechanism classes)", ()
     expect(result.pmf[0]).toBeCloseTo(0.5, 6);
     expect(result.pmf[1]).toBeCloseTo(0.5, 6);
     expect(result.pmf[2]).toBe(0); // structurally unreachable — completeRocket can never fire
+  });
+});
+
+describe("09-05 Task 4 (D-05, Open Question 3): the eight-combination matrix and the vestigial-band proof", () => {
+  /** Deterministic, comfortably overdispersed fixture (variance = 3 * mean, so NB fits do not fall back) for the matrix sweep — distinct per side. */
+  function buildMatrixMoments(ruleModule: RpRuleModule, side: "red" | "blue"): AllianceRpMoments {
+    const variableNames = ruleModule.thresholdVariables.map((v) => v.name);
+    const offset = side === "red" ? 0 : 5;
+    const meanVector = variableNames.map((_, i) => 20 + i * 7 + offset);
+    const varianceBlock = variableNames.map((_, i) => variableNames.map((_, j) => (i === j ? (20 + i * 7 + offset) * 3 : 0)));
+    return {
+      variableNames,
+      meanVector,
+      varianceBlock,
+      scoreMean: side === "red" ? 110 : 100,
+      scoreVariance: side === "red" ? 55 : 50,
+      scoreCrossCovariance: variableNames.map(() => 0),
+    };
+  }
+
+  const MATRIX_SEASONS: { readonly label: string; readonly ruleModule: RpRuleModule }[] = [
+    { label: "2026 (nested thresholds on one variable)", ruleModule: rp2026 },
+    { label: "2016 (count-of-indicators, linear combination, an lte clause)", ruleModule: rp2016 },
+    { label: "2025 (count-of-k across four levels, an untracked gate)", ruleModule: rp2025 },
+  ];
+
+  for (const winSource of ["score-draw", "p-red-win"] as const) {
+    for (const tieModel of ["continuous-equality", "discrete-margin"] as const) {
+      for (const marginal of ["gaussian", "negative-binomial"] as const) {
+        const config: RpLayerConfig = { winSource, tieModel, marginal };
+        for (const { label, ruleModule } of MATRIX_SEASONS) {
+          it(`combination {winSource: "${winSource}", tieModel: "${tieModel}", marginal: "${marginal}"} — ${label}: constructible, well-formed pmf`, () => {
+            const red = buildMatrixMoments(ruleModule, "red");
+            const blue = buildMatrixMoments(ruleModule, "blue");
+            const result = analyticRpPmf({ red, blue, ruleModule, eventType: 0, compLevel: "qm", config, pRedWin: 0.6 });
+            expect(result.redPmf).toHaveLength(ruleModule.maxRp + 1);
+            expect(result.bluePmf).toHaveLength(ruleModule.maxRp + 1);
+            for (const pmf of [result.redPmf, result.bluePmf]) {
+              let sum = 0;
+              for (const p of pmf) {
+                expect(Number.isFinite(p)).toBe(true);
+                expect(p).toBeGreaterThanOrEqual(0);
+                expect(p).not.toBeNaN();
+                sum += p;
+              }
+              expect(Math.abs(sum - 1)).toBeLessThan(1e-9);
+            }
+          });
+        }
+      }
+    }
+  }
+
+  it("the same well-formedness holds for the cold-team degenerate case (alliance mean 13.586547164699777, variance 4.5) and for every-threshold-variance-zero, across all eight combinations, on 2026", () => {
+    const coldMoments: AllianceRpMoments = {
+      variableNames: rp2026.thresholdVariables.map((v) => v.name),
+      meanVector: rp2026.thresholdVariables.map(() => 13.586547164699777),
+      varianceBlock: rp2026.thresholdVariables.map((_, i) => rp2026.thresholdVariables.map((_, j) => (i === j ? 4.5 : 0))),
+      scoreMean: 105,
+      scoreVariance: 45,
+      scoreCrossCovariance: rp2026.thresholdVariables.map(() => 0),
+    };
+    const zeroVarianceMoments: AllianceRpMoments = {
+      variableNames: rp2026.thresholdVariables.map((v) => v.name),
+      meanVector: rp2026.thresholdVariables.map(() => 500),
+      varianceBlock: rp2026.thresholdVariables.map((_, i) => rp2026.thresholdVariables.map(() => 0)),
+      scoreMean: 105,
+      scoreVariance: 45,
+      scoreCrossCovariance: rp2026.thresholdVariables.map(() => 0),
+    };
+    for (const moments of [coldMoments, zeroVarianceMoments]) {
+      for (const winSource of ["score-draw", "p-red-win"] as const) {
+        for (const tieModel of ["continuous-equality", "discrete-margin"] as const) {
+          for (const marginal of ["gaussian", "negative-binomial"] as const) {
+            const result = analyticRpPmf({
+              red: moments,
+              blue: moments,
+              ruleModule: rp2026,
+              eventType: 0,
+              compLevel: "qm",
+              config: { winSource, tieModel, marginal },
+              pRedWin: 0.55,
+            });
+            const sum = result.redPmf.reduce((a, b) => a + b, 0);
+            expect(Math.abs(sum - 1)).toBeLessThan(1e-9);
+            for (const p of result.redPmf) expect(Number.isFinite(p)).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  it("exactly one combination reproduces the committed golden (rpLayerInertness.json); each of the three single-change combinations differs from it in at least one case — proof the switches are WIRED, not just declared", () => {
+    const goldenPath = new URL("./rpLayerInertness.json", import.meta.url);
+    const golden = JSON.parse(readFileSync(goldenPath, "utf8")) as { cases: readonly { redPmf: readonly number[] }[] };
+
+    const legacyReplay = buildGoldenCases(RP_LAYER_CONFIG_DEFAULT);
+    expect(legacyReplay.length).toBe(golden.cases.length);
+    for (let i = 0; i < golden.cases.length; i++) {
+      expect(legacyReplay[i]!.redPmf).toEqual(golden.cases[i]!.redPmf);
+    }
+
+    const winSourceOnly: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, winSource: "p-red-win" };
+    const tieModelOnly: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, tieModel: "discrete-margin" };
+    const marginalOnly: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, marginal: "negative-binomial" };
+
+    for (const [name, config] of [
+      ["winSource", winSourceOnly],
+      ["tieModel", tieModelOnly],
+      ["marginal", marginalOnly],
+    ] as const) {
+      const replay = buildGoldenCases(config);
+      let differingCaseIndex = -1;
+      for (let i = 0; i < replay.length; i++) {
+        if (JSON.stringify(replay[i]!.redPmf) !== JSON.stringify(golden.cases[i]!.redPmf)) {
+          differingCaseIndex = i;
+          break;
+        }
+      }
+      expect(
+        differingCaseIndex,
+        `${name}-only combination produced IDENTICAL pmfs to the golden across all ${replay.length} cases — the switch is declared but not wired`
+      ).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("Open Question 3, answered: under winSource: \"p-red-win\" with the LEGACY tie model, varying red/blue scoreVariance across [1, 100, 10000] (holding everything else fixed) produces IDENTICAL pmfs — the band feeds NOTHING once the win half reads pRedWin directly and scoreCrossCovariance is exactly zero", () => {
+    const config: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, winSource: "p-red-win" };
+    const results = [1, 100, 10000].map((variance) => {
+      const swept = moments2026(230, 16900, 50, 100, 100, variance);
+      const other = moments2026(230, 16900, 50, 100, 90, variance);
+      return analyticRpPmf({ red: swept, blue: other, ruleModule: rp2026, eventType: 0, compLevel: "qm", config, pRedWin: 0.62 });
+    });
+    expect(results[0]!.redPmf).toEqual(results[1]!.redPmf);
+    expect(results[1]!.redPmf).toEqual(results[2]!.redPmf);
+    expect(results[0]!.bluePmf).toEqual(results[1]!.bluePmf);
+    expect(results[1]!.bluePmf).toEqual(results[2]!.bluePmf);
+  });
+
+  it("under tieModel: \"discrete-margin\" the SAME scoreVariance sweep changes the pmf — but ONLY through the outcome half: the bonus-only half is identical across the sweep, located precisely rather than asserted vaguely", () => {
+    const config: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, winSource: "p-red-win", tieModel: "discrete-margin" };
+    const results = [1, 100, 10000].map((variance) => {
+      const swept = moments2026(230, 16900, 50, 100, 100, variance);
+      const other = moments2026(230, 16900, 50, 100, 90, variance);
+      return analyticRpPmf({ red: swept, blue: other, ruleModule: rp2026, eventType: 0, compLevel: "qm", config, pRedWin: 0.62 });
+    });
+    // The TOTAL pmf moves (the tie window's width depends on scoreVariance).
+    expect(results[0]!.redPmf).not.toEqual(results[1]!.redPmf);
+    // The bonus-only half is identical across the sweep — score variance
+    // never reaches the bonus half at all, in either tie model.
+    expect(results[0]!.redBonusPmf).toEqual(results[1]!.redBonusPmf);
+    expect(results[1]!.redBonusPmf).toEqual(results[2]!.redBonusPmf);
+  });
+
+  it("varying scoreMean under winSource: \"p-red-win\" with the legacy tie model also leaves the pmf identical — the score means reach the outcome half only through the margin, which this combination no longer reads", () => {
+    const config: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, winSource: "p-red-win" };
+    const results = [80, 100, 130].map((scoreMean) => {
+      const swept = moments2026(230, 16900, 50, 100, scoreMean, 50);
+      return analyticRpPmf({ red: swept, blue: SYMMETRIC_2026, ruleModule: rp2026, eventType: 0, compLevel: "qm", config, pRedWin: 0.62 });
+    });
+    expect(results[0]!.redPmf).toEqual(results[1]!.redPmf);
+    expect(results[1]!.redPmf).toEqual(results[2]!.redPmf);
+  });
+
+  it("momentsFor's diagonal/zero premise, verified by reading the source (not assumed): empiricalMoments.ts line 184 builds varianceBlock diagonal, line 192 sets scoreCrossCovariance all-zero", () => {
+    const source = readFileSync(new URL("./empiricalMoments.ts", import.meta.url), "utf8");
+    const lines = source.split("\n");
+    expect(lines[183]).toContain("i === j ? (variances[i] as number) : 0");
+    expect(lines[191]).toContain("scoreCrossCovariance: names.map(() => 0)");
   });
 });

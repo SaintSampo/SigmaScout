@@ -120,3 +120,22 @@ describe("SigmaScoutLayer.rpMarginalResolutionTally — 09-05 Task 3 (D-01): the
     });
   }
 });
+
+describe("the production default is where it was — 09-05 Task 4 tripwire (D-05)", () => {
+  it("RP_LAYER_CONFIG_DEFAULT deep-equals an object literal pinned here with all three LEGACY member strings spelled out — fails loudly, naming the claim, if any later plan (before 09-06's checkpoint) flips the default by accident", () => {
+    expect(RP_LAYER_CONFIG_DEFAULT).toEqual({
+      winSource: "score-draw",
+      tieModel: "continuous-equality",
+      marginal: "gaussian",
+    });
+  });
+
+  it("a fresh SigmaScoutLayer constructed with no explicit config resolves to the SAME legacy default — the constructor's own default parameter, not a second copy", () => {
+    const layer = new SigmaScoutLayer(RP_RULE_MODULES[2026], "opr");
+    expect(layer.rpLayerConfig).toEqual({
+      winSource: "score-draw",
+      tieModel: "continuous-equality",
+      marginal: "gaussian",
+    });
+  });
+});
