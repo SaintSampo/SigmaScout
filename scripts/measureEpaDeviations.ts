@@ -195,10 +195,23 @@ export const ARTIFACT_PATH = "reports/epa-deviation-ablation.json";
 /** The committed copy of the identical bytes — see the file header. */
 export const COMMITTED_ARTIFACT_PATH = "data/diagnostics/epa-deviation-ablation.json";
 
-export const SCHEMA_VERSION = 1;
+/**
+ * SCHEMA VERSION 2 (quick task 260911-3kc): a `ContrastRow`'s `baselineArmId`
+ * is now MEANINGFUL DATA and a consumer MUST READ IT rather than assume `"epa"`.
+ *
+ * Schema 1 emitted every contrast against the shipped baseline, so the field was
+ * a constant and could safely be ignored. Schema 2 also emits challenger arms
+ * measured against the INCUMBENT carryover fix, which is a completely different
+ * comparison: a challenger can be better than plain EPA and simultaneously worse
+ * than the incumbent fix. A reader that assumed the field would read the second
+ * kind of row as the first and adopt an arm the measurement rejects.
+ */
+export const SCHEMA_VERSION = 2;
 
 export const BASELINE_ARM_ID = "epa";
 export const CARRYOVER_FIX_ARM_ID = "epa-carryover-fix";
+export const CARRYOVER_FIX_MIN250_ARM_ID = "epa-carryover-fix-min250";
+export const CARRYOVER_FIX_MIN500_ARM_ID = "epa-carryover-fix-min500";
 export const WINPROB_SEASON_SD_ARM_ID = "epa-winprob-season-sd";
 export const WINPROB_FIXED_SD_ARM_ID = "epa-winprob-fixed-sd";
 
@@ -206,6 +219,8 @@ export const WINPROB_FIXED_SD_ARM_ID = "epa-winprob-fixed-sd";
 export const ARM_IDS = [
   BASELINE_ARM_ID,
   CARRYOVER_FIX_ARM_ID,
+  CARRYOVER_FIX_MIN250_ARM_ID,
+  CARRYOVER_FIX_MIN500_ARM_ID,
   WINPROB_SEASON_SD_ARM_ID,
   WINPROB_FIXED_SD_ARM_ID,
 ] as const;
@@ -227,6 +242,45 @@ export const ARM_IDS = [
  * uses for the SD seed it unwinds.
  */
 export const EPA_CARRY_RESCALE_MIN_OBS = 100;
+
+/**
+ * THE ENTIRE THRESHOLD SEARCH, PRE-DECLARED. Three values, no sweep.
+ *
+ * `100` is the INCUMBENT — the plain fix quick task 260910-x09 already measured
+ * end to end (pooled +0.01059 ACC, -0.00521 Brier, both intervals excluding
+ * zero). `250` and `500` are the only two challengers that will ever be
+ * measured, bracketing "roughly one event's qualification round" to "roughly
+ * five events".
+ *
+ * A FOURTH VALUE, OR A SCAN OVER A RANGE, IS FORBIDDEN. Nine seasons of scoring
+ * include 2019, and 2019 carries essentially the entire measured effect; a sweep
+ * scored on that population is selection against one season wearing the clothes
+ * of a nine-season result. Three pre-declared points and a pre-declared rule are
+ * a decision. A curve over the same data is a fit.
+ */
+export const THRESHOLD_CANDIDATES = [100, 250, 500] as const;
+
+/** The incumbent, and the shipped default whenever no challenger clears the bar. */
+export const THRESHOLD_DEFAULT = EPA_CARRY_RESCALE_MIN_OBS;
+
+/**
+ * The selection rule, WRITTEN DOWN BEFORE ANY THRESHOLD NUMBER EXISTS. Printed
+ * in `main()`'s preamble before the corpus is even opened, and serialized into
+ * the artifact as literal data, so the rule cannot be reverse-engineered from
+ * the answer it produced.
+ */
+export const THRESHOLD_SELECTION_RULE =
+  "PRIMARY: pooled ONSET Brier, each challenger measured against the INCUMBENT arm (NOT against the shipped " +
+  "baseline), paired and event-blocked. A challenger PASSES only if it is BETTER with a 95% interval EXCLUDING " +
+  "zero. GUARD 1: pooled SEASON winner accuracy vs the incumbent — REJECT if WORSE with an interval excluding " +
+  "zero. GUARD 2: pooled SEASON Brier vs the incumbent — REJECT if WORSE with an interval excluding zero. A " +
+  "challenger must clear the primary and both guards.";
+
+/** The tie-break, equally pre-declared: the plain fix wins anything it does not lose. */
+export const THRESHOLD_TIE_BREAK =
+  "If BOTH challengers pass, take the SMALLER threshold. If NO challenger passes all three clauses, the shipped " +
+  "default is the INCUMBENT at minObs = 100 — reported as the OUTCOME, not as a failure. An unnecessary knob is a " +
+  "permanent cost and the plain fix is already proven.";
 
 /**
  * The onset window: the first N SCORABLE matches of each season that follows a
@@ -524,6 +578,140 @@ export function verdictFor(metric: ContrastMetric, lower: number, upper: number,
   return armIsBetter ? "better" : "worse";
 }
 
+// ──────────────────────── the threshold decision ─────────────────────────────
+
+/** One candidate threshold and the arm that measured it. */
+export interface ThresholdArm {
+  readonly armId: string;
+  readonly minObs: number;
+}
+
+/** One challenger's trip through the three pre-declared clauses, kept whether it passed or not. */
+export interface ThresholdEvaluation {
+  readonly armId: string;
+  readonly minObs: number;
+  readonly passed: boolean;
+  /** The clause that decided this challenger, named so the artifact records WHY, not just WHAT. */
+  readonly clause: string;
+  readonly onsetBrier: number;
+  readonly onsetBrierInterval: { readonly lower: number; readonly upper: number };
+  readonly seasonAccuracyVerdict: Verdict;
+  readonly seasonBrierVerdict: Verdict;
+}
+
+export interface ThresholdSelection {
+  readonly selected: number;
+  readonly selectedArmId: string;
+  readonly reason: string;
+  readonly evaluations: readonly ThresholdEvaluation[];
+}
+
+/**
+ * Executes `THRESHOLD_SELECTION_RULE` over the contrast rows. A FUNCTION, not an
+ * eyeball over a log: a rule applied by reading a table is a rule that can be
+ * applied differently once the numbers are visible, which is the precise shape
+ * of the thing this task is forbidden from doing.
+ *
+ * Reads ONLY contrasts whose `baselineArmId` is the incumbent. A vs-baseline row
+ * for the same arm answers a different question (is this better than plain EPA?)
+ * and using it would adopt a challenger that is worse than the fix we already
+ * have.
+ *
+ * THROWS on a missing primary contrast rather than treating absence as failure.
+ * A broken or empty measurement would otherwise produce a clean-looking
+ * "keep the incumbent" outcome — the one wrong answer indistinguishable from the
+ * right one.
+ */
+export function selectThreshold(
+  contrasts: readonly ContrastRow[],
+  challengers: readonly ThresholdArm[],
+  incumbent: ThresholdArm
+): ThresholdSelection {
+  const find = (armId: string, scope: Scope, metric: ContrastMetric): ContrastRow | undefined =>
+    contrasts.find(
+      (c) =>
+        c.armId === armId &&
+        c.baselineArmId === incumbent.armId &&
+        c.scope === scope &&
+        c.season === null &&
+        c.metric === metric
+    );
+
+  const evaluations: ThresholdEvaluation[] = [];
+  for (const challenger of challengers) {
+    const onset = find(challenger.armId, "onset", "brier");
+    if (onset === undefined) {
+      throw new Error(
+        `measure:epa-deviations: no pooled-onset Brier primary contrast for ${challenger.armId} measured against ` +
+          `${incumbent.armId}. Refusing to decide a threshold on an absent measurement — an absent contrast is not ` +
+          `evidence of no effect, and defaulting quietly here would look exactly like a clean keep-the-incumbent ` +
+          `outcome.`
+      );
+    }
+    const seasonAcc = find(challenger.armId, "pooled", "winnerAccuracy");
+    const seasonBrier = find(challenger.armId, "pooled", "brier");
+    if (seasonAcc === undefined || seasonBrier === undefined) {
+      throw new Error(
+        `measure:epa-deviations: no pooled-season guard contrasts for ${challenger.armId} measured against ` +
+          `${incumbent.armId}. A challenger cannot clear guards that were never computed.`
+      );
+    }
+    finiteOrThrow(onset.pointEstimate, `${challenger.armId} pooled-onset Brier point estimate`);
+
+    let passed: boolean;
+    let clause: string;
+    if (onset.verdict !== "better") {
+      passed = false;
+      clause = `PRIMARY not met — pooled onset Brier vs ${incumbent.armId} is ${onset.verdict.toUpperCase()}`;
+    } else if (seasonAcc.verdict === "worse") {
+      passed = false;
+      clause = `GUARD 1 fired — pooled season winner accuracy vs ${incumbent.armId} is WORSE with an interval excluding zero`;
+    } else if (seasonBrier.verdict === "worse") {
+      passed = false;
+      clause = `GUARD 2 fired — pooled season Brier vs ${incumbent.armId} is WORSE with an interval excluding zero`;
+    } else {
+      passed = true;
+      clause = `PRIMARY met (pooled onset Brier BETTER vs ${incumbent.armId}) and neither guard fired`;
+    }
+
+    evaluations.push({
+      armId: challenger.armId,
+      minObs: challenger.minObs,
+      passed,
+      clause,
+      onsetBrier: onset.pointEstimate,
+      onsetBrierInterval: onset.percentile,
+      seasonAccuracyVerdict: seasonAcc.verdict,
+      seasonBrierVerdict: seasonBrier.verdict,
+    });
+  }
+
+  const passing = evaluations.filter((e) => e.passed).sort((a, b) => a.minObs - b.minObs);
+  if (passing.length === 0) {
+    return {
+      selected: incumbent.minObs,
+      selectedArmId: incumbent.armId,
+      reason:
+        `DEFAULT — no challenger cleared all three clauses, so the shipped default stays the INCUMBENT at ` +
+        `minObs = ${incumbent.minObs}. This is the OUTCOME, not a failure: an unnecessary knob is a permanent cost ` +
+        `and the plain fix is already proven. ` +
+        evaluations.map((e) => `${e.armId}: ${e.clause}`).join("; "),
+      evaluations,
+    };
+  }
+  const winner = passing[0]!;
+  const tieNote =
+    passing.length > 1
+      ? `TIE-BREAK — ${passing.length} challengers passed, taking the SMALLER threshold. `
+      : `TIE-BREAK not needed — exactly one challenger passed. `;
+  return {
+    selected: winner.minObs,
+    selectedArmId: winner.armId,
+    reason: `${tieNote}${winner.armId}: ${winner.clause}.`,
+    evaluations,
+  };
+}
+
 // ────────────────────── the deviation register (stage 4's contract) ──────────
 
 export type DeviationStatus =
@@ -585,7 +773,7 @@ export function deviationRegister(): DeviationEntry[] {
         "NEW season's units — this is a port defect against the project's own recorded reference.",
       reason: null,
       approximation: "closest-walk-forward-legal",
-      armIds: [CARRYOVER_FIX_ARM_ID],
+      armIds: [CARRYOVER_FIX_ARM_ID, CARRYOVER_FIX_MIN250_ARM_ID, CARRYOVER_FIX_MIN500_ARM_ID],
       priorMeasurement: null,
     },
     {
@@ -795,7 +983,25 @@ export function armRegister(): ArmEntry[] {
     },
     {
       id: CARRYOVER_FIX_ARM_ID,
-      label: "lazy per-team rescale into the NEW season's point units on first sight",
+      label: `lazy per-team rescale into the NEW season's point units on first sight (INCUMBENT, minObs = ${THRESHOLD_CANDIDATES[0]})`,
+      deviations: ["carryover-scale-anchor"],
+      isBaseline: false,
+      shippable: true,
+      unshippableReason: null,
+      approximation: "closest-walk-forward-legal",
+    },
+    {
+      id: CARRYOVER_FIX_MIN250_ARM_ID,
+      label: `the same lazy rescale, deferred until minObs = ${THRESHOLD_CANDIDATES[1]} of the new season's own alliance scores`,
+      deviations: ["carryover-scale-anchor"],
+      isBaseline: false,
+      shippable: true,
+      unshippableReason: null,
+      approximation: "closest-walk-forward-legal",
+    },
+    {
+      id: CARRYOVER_FIX_MIN500_ARM_ID,
+      label: `the same lazy rescale, deferred until minObs = ${THRESHOLD_CANDIDATES[2]} of the new season's own alliance scores`,
       deviations: ["carryover-scale-anchor"],
       isBaseline: false,
       shippable: true,
@@ -844,6 +1050,12 @@ export interface MetricRow {
 
 export interface ContrastRow {
   readonly armId: string;
+  /**
+   * The arm this contrast was ACTUALLY measured against. MUST BE READ, never
+   * assumed (schema 2): challenger rows are measured against the incumbent
+   * carryover fix, not against the shipped baseline, and an arm can be better
+   * than one while worse than the other.
+   */
   readonly baselineArmId: string;
   readonly scope: Scope;
   readonly season: number | null;
@@ -859,6 +1071,13 @@ export interface ContrastRow {
 }
 
 export interface CarryScaleRow {
+  /**
+   * WHICH carryover arm this census belongs to. Schema 2 emits one row per
+   * (arm, boundary): the deferral census is the one figure that differs between
+   * the three thresholds by construction, so collapsing them into a single row
+   * would hide exactly what the thresholds were introduced to trade off.
+   */
+  readonly armId: string;
   readonly season: number;
   readonly fromSeason: number;
   /** The outgoing season's alliance-score mean — the units every carried rating is expressed in. */
@@ -898,6 +1117,23 @@ export interface AblationArtifact {
     readonly combinatorialCost: string;
     readonly deferredRescales: number;
     readonly rescaledTeams: number;
+    /**
+     * The threshold decision as LITERAL DATA: the candidate set, the rule and
+     * the tie-break are constants that existed before the corpus was opened,
+     * and `selected` is `null` until a run has actually produced one. A reader
+     * can therefore check that the rule was not reverse-engineered from its
+     * answer.
+     */
+    readonly thresholdSelection: {
+      readonly candidates: readonly number[];
+      readonly rule: string;
+      readonly tieBreak: string;
+      readonly default: number;
+      readonly selected: number | null;
+      readonly selectedArmId: string | null;
+      readonly reason: string | null;
+      readonly evaluations: readonly ThresholdEvaluation[];
+    };
     readonly signConventions: Record<ContrastMetric, string>;
     readonly statusVocabulary: Record<DeviationStatus, string>;
   };
@@ -914,6 +1150,8 @@ export interface BuildArtifactInput {
   readonly carryScale: readonly CarryScaleRow[];
   readonly deferredRescales: number;
   readonly rescaledTeams: number;
+  /** `null` before a run has decided — never a pre-filled guess. */
+  readonly thresholdSelection: ThresholdSelection | null;
 }
 
 /**
@@ -958,6 +1196,16 @@ export function buildArtifact(input: BuildArtifactInput): AblationArtifact {
         "size-1 arms only.",
       deferredRescales: input.deferredRescales,
       rescaledTeams: input.rescaledTeams,
+      thresholdSelection: {
+        candidates: [...THRESHOLD_CANDIDATES],
+        rule: THRESHOLD_SELECTION_RULE,
+        tieBreak: THRESHOLD_TIE_BREAK,
+        default: THRESHOLD_DEFAULT,
+        selected: input.thresholdSelection?.selected ?? null,
+        selectedArmId: input.thresholdSelection?.selectedArmId ?? null,
+        reason: input.thresholdSelection?.reason ?? null,
+        evaluations: input.thresholdSelection?.evaluations ?? [],
+      },
       signConventions: {
         brier: "NEGATIVE pointEstimate means the arm is BETTER (lower Brier is better)",
         winnerAccuracy: "POSITIVE pointEstimate means the arm is BETTER (higher accuracy is better)",
@@ -989,12 +1237,21 @@ export interface CarryoverFixState {
   readonly seedMean: number;
   readonly rescaledTeams: number;
   readonly deferredRescales: number;
+  /**
+   * THIS arm's deferral threshold, carried ON the state rather than captured in
+   * a closure, so a test can prove the constructor's argument actually reaches
+   * `cleanSeasonMean` instead of three arms silently sharing one default.
+   */
+  readonly minObs: number;
 }
 
 const EMPTY_PENDING: ReadonlySet<string> = new Set<string>();
 
-function ratioForState(state: CarryoverFixState): { ratio: number; deferred: boolean } {
-  return carryRescaleRatio(cleanSeasonMean(state.inner.allianceScoreStats, state.seedMean), state.seedMean);
+export function ratioForState(state: CarryoverFixState): { ratio: number; deferred: boolean } {
+  return carryRescaleRatio(
+    cleanSeasonMean(state.inner.allianceScoreStats, state.seedMean, EPA_SCORE_SD_SEED_COUNT, state.minObs),
+    state.seedMean
+  );
 }
 
 /** Both alliances' rating-eligible teams, using the SAME remap/surrogate filter `epa.ts` itself applies. */
@@ -1009,17 +1266,27 @@ function eligibleTeamsOf(match: UpcomingMatch): string[] {
  * The carryover-fix arm: the shipped module with `predict`/`update`/`carrySeason`
  * wrapped, and NOTHING under `packages/` edited.
  */
-export function carryoverFixArm(): AlgorithmModule<CarryoverFixState> {
+export function carryoverFixArm(
+  id: string = CARRYOVER_FIX_ARM_ID,
+  minObs: number = EPA_CARRY_RESCALE_MIN_OBS
+): AlgorithmModule<CarryoverFixState> {
   const carrySeasonInner = epa.carrySeason;
   if (carrySeasonInner === undefined) {
     throw new Error("measure:epa-deviations: the shipped epa module has no carrySeason — this arm cannot exist");
   }
+  if (!Number.isFinite(minObs) || minObs <= 0) {
+    throw new Error(
+      `measure:epa-deviations: carryoverFixArm minObs must be a positive finite number, got ${minObs} — a ` +
+        `degenerate threshold would silently rescale off a one-event season mean and report it as the fix`
+    );
+  }
   return {
-    id: CARRYOVER_FIX_ARM_ID,
+    id,
     // Derived from the shipped version rather than hardcoded, so this arm's
     // identity tracks the model it wraps instead of silently standing for an
-    // older one. `{codeVersion}+{paramSetName}` shape preserved (D-13).
-    version: `${epa.version.split("+")[0]}+carryover-fix-arm`,
+    // older one. `{codeVersion}+{paramSetName}` shape preserved (D-13). The
+    // default id keeps its schema-1 suffix byte-for-byte.
+    version: `${epa.version.split("+")[0]}+${id === CARRYOVER_FIX_ARM_ID ? "carryover-fix-arm" : id}`,
     initState(teams: string[]): CarryoverFixState {
       return {
         inner: epa.initState(teams),
@@ -1027,6 +1294,7 @@ export function carryoverFixArm(): AlgorithmModule<CarryoverFixState> {
         seedMean: Number.NaN,
         rescaledTeams: 0,
         deferredRescales: 0,
+        minObs,
       };
     },
     predict(state, match) {
@@ -1069,6 +1337,7 @@ export function carryoverFixArm(): AlgorithmModule<CarryoverFixState> {
         seedMean: state.seedMean,
         rescaledTeams: state.rescaledTeams + (deferred ? 0 : touched.length),
         deferredRescales: state.deferredRescales + (deferred ? touched.length : 0),
+        minObs: state.minObs,
       };
     },
     teamMetrics(state, teams) {
@@ -1089,6 +1358,7 @@ export function carryoverFixArm(): AlgorithmModule<CarryoverFixState> {
         seedMean,
         rescaledTeams: state.rescaledTeams,
         deferredRescales: state.deferredRescales,
+        minObs: state.minObs,
       };
     },
     // Load-bearing: an arm that carried at season-final instead would be
@@ -1170,19 +1440,20 @@ function signed(value: number, digits = 5): string {
  *     a single-block bootstrap reports an SE of exactly 0 — a false claim of
  *     certainty. Caught and reported rather than allowed to kill a long run.
  */
-function contrastFor(
+export function contrastFor(
   armId: string,
   scope: Scope,
   season: number | null,
   metric: ContrastMetric,
-  units: readonly PairedDiffUnit[]
+  units: readonly PairedDiffUnit[],
+  referenceArmId: string = BASELINE_ARM_ID
 ): ContrastRow | null {
   if (units.length === 0) return null;
   const distinctEvents = new Set(units.map((u) => u.eventKey)).size;
   if (units.every((u) => u.diff === 0)) {
     return {
       armId,
-      baselineArmId: BASELINE_ARM_ID,
+      baselineArmId: referenceArmId,
       scope,
       season,
       metric,
@@ -1201,7 +1472,7 @@ function contrastFor(
   } catch (err) {
     return {
       armId,
-      baselineArmId: BASELINE_ARM_ID,
+      baselineArmId: referenceArmId,
       scope,
       season,
       metric,
@@ -1216,7 +1487,7 @@ function contrastFor(
   }
   return {
     armId,
-    baselineArmId: BASELINE_ARM_ID,
+    baselineArmId: referenceArmId,
     scope,
     season,
     metric,
@@ -1277,8 +1548,8 @@ function printContrast(row: ContrastRow): void {
     : `95% [unmeasurable]`;
   const se = Number.isFinite(row.standardError) ? row.standardError.toFixed(5) : "—";
   console.log(
-    `   ${row.armId.padEnd(24)} ${String(row.season ?? "pooled").padStart(6)} ${row.scope.padEnd(7)} ` +
-      `${row.metric.padEnd(14)} ${signed(row.pointEstimate)}  SE ${se}  ${interval}  ` +
+    `   ${row.armId.padEnd(26)} vs ${row.baselineArmId.padEnd(18)} ${String(row.season ?? "pooled").padStart(6)} ` +
+      `${row.scope.padEnd(7)} ${row.metric.padEnd(14)} ${signed(row.pointEstimate)}  SE ${se}  ${interval}  ` +
       `eventCount ${row.eventCount}  n ${row.matchCount}  -> ${row.verdict.toUpperCase()}  (${better})`
   );
   if (row.note !== null) console.log(`      note: ${row.note}`);
@@ -1316,6 +1587,13 @@ async function main(): Promise<void> {
   console.log(`shrinks) and be near-nil where it does not. A uniform effect across every boundary would REFUTE the`);
   console.log(`mechanism even if the pooled number looked good. The per-boundary scale table below is the test.`);
   console.log(``);
+  console.log(`PRE-DECLARED THRESHOLD SELECTION — printed HERE, before the corpus is opened, so the rule provably`);
+  console.log(`predates every number it will be applied to. Serialized into the artifact as notes.thresholdSelection.`);
+  console.log(`   candidate set (THE WHOLE SEARCH — no fourth value, no scan): ${THRESHOLD_CANDIDATES.join(", ")}`);
+  console.log(`   incumbent / default:  minObs = ${THRESHOLD_DEFAULT} (${CARRYOVER_FIX_ARM_ID}), the plain fix quick task 260910-x09 proved`);
+  console.log(`   rule:      ${THRESHOLD_SELECTION_RULE}`);
+  console.log(`   tie-break: ${THRESHOLD_TIE_BREAK}`);
+  console.log(``);
 
   const db = openCorpusReadOnly(CORPUS_PATH);
   try {
@@ -1336,7 +1614,16 @@ async function main(): Promise<void> {
       pooledOnset.set(armId, []);
     }
 
-    const carryArm = carryoverFixArm();
+    // The incumbent and its two pre-declared challengers. Built ONCE, outside
+    // the season loop, exactly as the incumbent already was — an arm rebuilt
+    // per season would be a different object each time and `runAll` keys state
+    // by id, so this is identity hygiene rather than an optimisation.
+    const carryArms: { readonly arm: AlgorithmModule<CarryoverFixState>; readonly minObs: number }[] = [
+      { arm: carryoverFixArm(CARRYOVER_FIX_ARM_ID, THRESHOLD_CANDIDATES[0]), minObs: THRESHOLD_CANDIDATES[0] },
+      { arm: carryoverFixArm(CARRYOVER_FIX_MIN250_ARM_ID, THRESHOLD_CANDIDATES[1]), minObs: THRESHOLD_CANDIDATES[1] },
+      { arm: carryoverFixArm(CARRYOVER_FIX_MIN500_ARM_ID, THRESHOLD_CANDIDATES[2]), minObs: THRESHOLD_CANDIDATES[2] },
+    ];
+    const CARRY_ARM_IDS = carryArms.map((a) => a.arm.id);
     let liveStates = new Map<string, unknown>();
     let replayedRecords = 0;
 
@@ -1364,7 +1651,7 @@ async function main(): Promise<void> {
 
       const algorithms: AlgorithmModule<any>[] = [
         epa,
-        carryArm,
+        ...carryArms.map((a) => a.arm),
         winProbabilityArm(WINPROB_SEASON_SD_ARM_ID, seasonSd),
         winProbabilityArm(WINPROB_FIXED_SD_ARM_ID, EPA_FALLBACK_SCORE_SD),
       ];
@@ -1377,8 +1664,7 @@ async function main(): Promise<void> {
       // one cannot measure it at all.
       const boundary = seasonBoundaryFor(seasons, seasonIndex);
       let initialStates: ReadonlyMap<string, unknown> | undefined;
-      let carriedTeamsThisSeason = 0;
-      let carryStateAtBoundary: CarryoverFixState | undefined;
+      const carryStatesAtBoundary = new Map<string, CarryoverFixState>();
       if (!boundary.isColdStart) {
         const carried = new Map<string, unknown>();
         for (const algorithm of algorithms) {
@@ -1386,9 +1672,8 @@ async function main(): Promise<void> {
           if (algorithm.carrySeason && priorState !== undefined) {
             const next = algorithm.carrySeason(priorState, boundary);
             carried.set(algorithm.id, next);
-            if (algorithm.id === CARRYOVER_FIX_ARM_ID) {
-              carryStateAtBoundary = next as CarryoverFixState;
-              carriedTeamsThisSeason = carryStateAtBoundary.pending.size;
+            if (CARRY_ARM_IDS.includes(algorithm.id)) {
+              carryStatesAtBoundary.set(algorithm.id, next as CarryoverFixState);
             }
           }
         }
@@ -1519,21 +1804,57 @@ async function main(): Promise<void> {
         );
       }
 
+      // ── challenger-vs-INCUMBENT contrasts, IN ADDITION to the vs-baseline ──
+      // The vs-baseline rows above answer "is this better than plain EPA?".
+      // These answer "is this better than the fix we already have?" — the only
+      // question the pre-declared rule is allowed to read. Both are emitted;
+      // `baselineArmId` is what tells them apart.
+      const incumbentRows = perArm.get(CARRYOVER_FIX_ARM_ID)!.scorable;
+      for (const armId of [CARRYOVER_FIX_MIN250_ARM_ID, CARRYOVER_FIX_MIN500_ARM_ID]) {
+        const armRows = perArm.get(armId)!.scorable;
+        for (const metric of ["winnerAccuracy", "brier"] as const) {
+          const units =
+            metric === "brier" ? pairedBrierDiffs(armRows, incumbentRows) : pairedAccuracyDiffs(armRows, incumbentRows);
+          const contrast = contrastFor(armId, "season", season, metric, units, CARRYOVER_FIX_ARM_ID);
+          if (contrast !== null) contrasts.push(contrast);
+        }
+        if (!boundary.isColdStart) {
+          const armOnset = armRows.slice(0, ONSET_MATCH_COUNT);
+          const incumbentOnset = incumbentRows.slice(0, ONSET_MATCH_COUNT);
+          for (const metric of ["winnerAccuracy", "brier"] as const) {
+            const units =
+              metric === "brier"
+                ? pairedBrierDiffs(armOnset, incumbentOnset)
+                : pairedAccuracyDiffs(armOnset, incumbentOnset);
+            const contrast = contrastFor(armId, "onset", season, metric, units, CARRYOVER_FIX_ARM_ID);
+            if (contrast !== null) contrasts.push(contrast);
+          }
+        }
+      }
+
       // ── what the carryover defect's scale ratio actually was, this boundary ─
-      const finalCarryState = records.finalStates.get(CARRYOVER_FIX_ARM_ID) as CarryoverFixState | undefined;
-      if (!boundary.isColdStart && carryStateAtBoundary !== undefined && finalCarryState !== undefined) {
-        const seedMean = carryStateAtBoundary.seedMean;
-        const clean = cleanSeasonMean(finalCarryState.inner.allianceScoreStats, seedMean);
+      for (const { arm, minObs } of carryArms) {
+        const atBoundary = carryStatesAtBoundary.get(arm.id);
+        const finalCarryState = records.finalStates.get(arm.id) as CarryoverFixState | undefined;
+        if (boundary.isColdStart || atBoundary === undefined || finalCarryState === undefined) continue;
+        const seedMean = atBoundary.seedMean;
+        const clean = cleanSeasonMean(
+          finalCarryState.inner.allianceScoreStats,
+          seedMean,
+          EPA_SCORE_SD_SEED_COUNT,
+          minObs
+        );
         const { ratio, deferred } = carryRescaleRatio(clean, seedMean);
         carryScale.push({
+          armId: arm.id,
           season,
           fromSeason: boundary.fromSeason,
           seedMean,
           cleanSeasonMean: clean,
           ratio: deferred ? null : ratio,
-          carriedTeams: carriedTeamsThisSeason,
-          rescaledTeams: finalCarryState.rescaledTeams - carryStateAtBoundary.rescaledTeams,
-          deferredRescales: finalCarryState.deferredRescales - carryStateAtBoundary.deferredRescales,
+          carriedTeams: atBoundary.pending.size,
+          rescaledTeams: finalCarryState.rescaledTeams - atBoundary.rescaledTeams,
+          deferredRescales: finalCarryState.deferredRescales - atBoundary.deferredRescales,
           neverSeen: finalCarryState.pending.size,
         });
       }
@@ -1589,6 +1910,30 @@ async function main(): Promise<void> {
       }
     }
 
+    // ── pooled challenger-vs-INCUMBENT: the rows the rule actually reads ────
+    const pooledIncumbent = pooledScorable.get(CARRYOVER_FIX_ARM_ID)!;
+    const pooledOnsetIncumbent = pooledOnset.get(CARRYOVER_FIX_ARM_ID)!;
+    for (const armId of [CARRYOVER_FIX_MIN250_ARM_ID, CARRYOVER_FIX_MIN500_ARM_ID]) {
+      const armRows = pooledScorable.get(armId)!;
+      for (const metric of ["winnerAccuracy", "brier"] as const) {
+        const units =
+          metric === "brier" ? pairedBrierDiffs(armRows, pooledIncumbent) : pairedAccuracyDiffs(armRows, pooledIncumbent);
+        const contrast = contrastFor(armId, "pooled", null, metric, units, CARRYOVER_FIX_ARM_ID);
+        if (contrast !== null) contrasts.push(contrast);
+      }
+      const armOnset = pooledOnset.get(armId)!;
+      if (armOnset.length > 0) {
+        for (const metric of ["winnerAccuracy", "brier"] as const) {
+          const units =
+            metric === "brier"
+              ? pairedBrierDiffs(armOnset, pooledOnsetIncumbent)
+              : pairedAccuracyDiffs(armOnset, pooledOnsetIncumbent);
+          const contrast = contrastFor(armId, "onset", null, metric, units, CARRYOVER_FIX_ARM_ID);
+          if (contrast !== null) contrasts.push(contrast);
+        }
+      }
+    }
+
     console.log(`═══════════════════════════════════════════════════════════════════════════════`);
     console.log(`POOLED ACROSS ${seasons.length} SEASONS`);
     console.log(`═══════════════════════════════════════════════════════════════════════════════`);
@@ -1611,12 +1956,13 @@ async function main(): Promise<void> {
     console.log(`── PER-BOUNDARY SCALE RATIO — the magnitude of the carryover defect, boundary by boundary ──`);
     console.log(`   ratio = (incoming season's own alliance-score mean) / (outgoing season's). A ratio far from 1.00`);
     console.log(`   is a boundary where every carried rating is expressed in the WRONG units by exactly that factor.`);
+    console.log(`   One row per (arm, boundary): the deferral census is the ONE figure the three thresholds trade off.`);
     console.log(
-      `   season   from     seedMean   seasonMean     ratio    carried   rescaled   deferred   neverSeen`
+      `   arm                          season   from     seedMean   seasonMean     ratio    carried   rescaled   deferred   neverSeen`
     );
     for (const row of carryScale) {
       console.log(
-        `   ${String(row.season).padStart(6)}  ${String(row.fromSeason).padStart(5)}  ` +
+        `   ${row.armId.padEnd(26)}  ${String(row.season).padStart(6)}  ${String(row.fromSeason).padStart(5)}  ` +
           `${row.seedMean.toFixed(2).padStart(11)}  ${(row.cleanSeasonMean ?? Number.NaN).toFixed(2).padStart(11)}  ` +
           `${(row.ratio === null ? "n/a" : row.ratio.toFixed(4)).padStart(8)}  ${String(row.carriedTeams).padStart(9)}  ` +
           `${String(row.rescaledTeams).padStart(9)}  ${String(row.deferredRescales).padStart(9)}  ` +
@@ -1625,7 +1971,7 @@ async function main(): Promise<void> {
     }
     console.log(``);
 
-    console.log(`── PAIRED CONTRASTS vs ${BASELINE_ARM_ID} (event-blocked bootstrap) ──`);
+    console.log(`── PAIRED CONTRASTS (event-blocked bootstrap). EVERY ROW NAMES ITS OWN REFERENCE ARM — read it. ──`);
     for (const scope of ["pooled", "onset", "season"] as const) {
       const scoped = contrasts.filter((c) => c.scope === scope);
       if (scoped.length === 0) continue;
@@ -1687,6 +2033,65 @@ async function main(): Promise<void> {
     }
     console.log(``);
 
+    // ── THRESHOLD SELECTION — the pre-declared rule, executed ───────────────
+    const thresholdSelection = selectThreshold(
+      contrasts,
+      [
+        { armId: CARRYOVER_FIX_MIN250_ARM_ID, minObs: THRESHOLD_CANDIDATES[1] },
+        { armId: CARRYOVER_FIX_MIN500_ARM_ID, minObs: THRESHOLD_CANDIDATES[2] },
+      ],
+      { armId: CARRYOVER_FIX_ARM_ID, minObs: THRESHOLD_CANDIDATES[0] }
+    );
+    console.log(`══ THRESHOLD SELECTION ══`);
+    console.log(`   candidate set: ${THRESHOLD_CANDIDATES.join(", ")}   (declared before the corpus was opened)`);
+    for (const evaluation of thresholdSelection.evaluations) {
+      console.log(
+        `   ${evaluation.armId.padEnd(26)} minObs ${String(evaluation.minObs).padStart(4)}  ` +
+          `onset brier ${signed(evaluation.onsetBrier)} vs incumbent ` +
+          `95% [${signed(evaluation.onsetBrierInterval.lower)}, ${signed(evaluation.onsetBrierInterval.upper)}]  ` +
+          `season ACC ${evaluation.seasonAccuracyVerdict.toUpperCase()}  season BRIER ${evaluation.seasonBrierVerdict.toUpperCase()}  ` +
+          `-> ${evaluation.passed ? "PASSES" : "REJECTED"}`
+      );
+      console.log(`      clause: ${evaluation.clause}`);
+    }
+    console.log(
+      `   OUTCOME: minObs = ${thresholdSelection.selected} (${thresholdSelection.selectedArmId})`
+    );
+    console.log(`   ${thresholdSelection.reason}`);
+    if (thresholdSelection.selected === THRESHOLD_DEFAULT) {
+      console.log(
+        `   NO THRESHOLD BEAT THE PLAIN FIX. That is the OUTCOME, not a failure — the incumbent ships unchanged.`
+      );
+    } else {
+      console.log(
+        `   A CHALLENGER WAS ADOPTED. Its marginal gain over the plain fix was selected on THE SAME NINE SEASONS it`
+      );
+      console.log(
+        `   was measured on, with no held-out confirmation, so that margin is NOT independently validated — only the`
+      );
+      console.log(`   plain fix itself is. Say so wherever this threshold is quoted.`);
+    }
+    console.log(``);
+
+    // ── NAMED SECONDARIES — reported, and DELIBERATELY OUTSIDE the rule ─────
+    // 2019 is the season carrying essentially the whole carryover effect, so
+    // these are the figures a reader will reach for. They are printed for
+    // honesty and excluded from the decision on purpose: a rule that reads the
+    // season it was designed around is a rule fitted to that season.
+    console.log(`── NAMED SECONDARIES (reported, NOT read by the selection rule) ──`);
+    for (const armId of [BASELINE_ARM_ID, ...CARRY_ARM_IDS]) {
+      const onset2019 = rows.find((r) => r.armId === armId && r.scope === "onset" && r.season === 2019);
+      const season2019 = rows.find((r) => r.armId === armId && r.scope === "season" && r.season === 2019);
+      console.log(
+        `   ${armId.padEnd(26)} 2019 onset BRIER ${formatMetric(onset2019?.brier ?? null).padStart(9)}   ` +
+          `2019 season ACC ${formatMetric(season2019?.winnerAccuracy ?? null).padStart(9)}`
+      );
+    }
+    console.log(
+      `   Per-boundary deferral census for all three thresholds is the PER-BOUNDARY SCALE RATIO table above.`
+    );
+    console.log(``);
+
     const totalDeferred = carryScale.reduce((sum, r) => sum + r.deferredRescales, 0);
     const totalRescaled = carryScale.reduce((sum, r) => sum + r.rescaledTeams, 0);
     const artifact = buildArtifact({
@@ -1699,6 +2104,7 @@ async function main(): Promise<void> {
       carryScale,
       deferredRescales: totalDeferred,
       rescaledTeams: totalRescaled,
+      thresholdSelection,
     });
     const serialized = `${JSON.stringify(artifact, null, 2)}\n`;
     for (const path of [ARTIFACT_PATH, COMMITTED_ARTIFACT_PATH]) {

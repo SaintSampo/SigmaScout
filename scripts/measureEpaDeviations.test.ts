@@ -374,6 +374,7 @@ describe("deviationRegister / buildArtifact — nothing is silently omitted", ()
       carryScale: [],
       deferredRescales: 0,
       rescaledTeams: 0,
+      thresholdSelection: null,
     });
     expect(artifact.schemaVersion).toBe(SCHEMA_VERSION);
     expect(artifact.notes.additive).toBe(false);
