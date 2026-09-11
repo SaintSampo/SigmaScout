@@ -56,6 +56,33 @@
  *     id-level check at all, since a live id is exactly what this mode expects. Omitting the flag
  *     always runs the original id-level-refusal path, so no existing invocation's behavior changes.
  *
+ * **Presim-sidecar mode (`--include-presim`).** Added by plan 09-10 Task 2 to close the one orphan
+ * class this tool was structurally BLIND to, rather than as a new capability. Every key above is
+ * built through `artifactKey`, and the pre-schedule rank-simulation sidecar is deliberately NOT a
+ * `PageKind` — `packages/harness/pageArtifacts.ts` gives it its own `preScheduleKey` (PD-01, so
+ * that the Worker's exhaustive `SCHEMA_BY_PAGE`-keyed writer structurally cannot clobber an
+ * artifact it must never regenerate). The consequence was invisible until it was looked for: the
+ * 2026-09-10 delete passes removed every orphaned `vpr` PAGE object and could not address a single
+ * orphaned `vpr` SIDECAR, because no key this file could build ever started `v1/presim/`.
+ * `docs/publish-budget.md`'s own closing line is that gap in writing — "Sim tab still serves the
+ * 641 presim sidecars frozen at 2f1a8885."
+ *
+ *   - `enumeratePresimKeys` builds `v1/presim/{eventKey}/{retiredId}@{version}.json` by calling
+ *     `preScheduleKey` — the publisher's own function, never a hand-spelled string, for the reason
+ *     that function's doc comment gives: it is the ONE spelling of this key, shared by the writer
+ *     and the browser's reader, and a second spelling would be a silent permanent 404. A delete
+ *     tool that spelled the key itself would be a third.
+ *   - `PRESIM_KEY_COUNT_BOUNDS` is the presim path's own band, NOT a widening of
+ *     `RETIRED_KEY_COUNT_BOUNDS` — see that constant's doc for why the page band would reject
+ *     every presim enumeration outright, and for the real corpus counts it was sized from.
+ *   - EVERY existing guard applies unchanged and none is bypassed: the id-level
+ *     `RefusedLiveAlgorithmIdError` (uniform across both enumeration paths, asserted by test —
+ *     09-10 publishes sidecars under `opr`/`epa`/`bpr`, and this tool must be structurally unable
+ *     to delete them), `assertKeySegment` over every enumerated key, the `--execute` intent gate,
+ *     and the census/read-back reporting. The mode adds no bulk or prefix delete capability.
+ *   - The two key sets are never enumerated on one run. They have incompatible count bands, and a
+ *     run governed by two bands is a run governed by neither.
+ *
  * `07-SECURITY.md` Observation 1: `runProbe` now applies the same `RefusedLiveAlgorithmIdError`
  * check `enumerateRetiredKeys` applies, closing the gap where `--probe --retired-id <live-id>`
  * could PUT-then-DELETE under a live algorithm id (blast radius was nil in practice — the fixed
@@ -86,7 +113,7 @@ import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { openCorpusReadOnly, selectTeamKeysForYear, selectScheduledMatches, type Corpus } from "../packages/corpus/db.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
-import { artifactKey } from "../packages/harness/pageArtifacts.js";
+import { artifactKey, preScheduleKey } from "../packages/harness/pageArtifacts.js";
 import { deleteObject, putObject } from "../packages/harness/r2Client.js";
 import { ALGORITHMS_MANIFEST_KEY, DEFAULT_ARTIFACT_ORIGIN, fetchArtifactFresh } from "./verifySubsetPublish.js";
 
@@ -121,6 +148,45 @@ const PROBE_EVENT_KEY = "__07-19-delete-probe__";
  * and that edge is untouched.
  */
 export const RETIRED_KEY_COUNT_BOUNDS = { min: 15_000, max: 30_000 } as const;
+
+/**
+ * The presim path's OWN band (plan 09-10 Task 2). Deliberately separate from
+ * `RETIRED_KEY_COUNT_BOUNDS` rather than a widening of it: that band's
+ * min of 15,000 is sized for one algorithm's full PAGE-key set (two index
+ * keys, one per event, one per team-season), and a presim enumeration is one
+ * key per (event, version) pair and nothing else. Reusing the page band would
+ * reject every presim enumeration outright, making the mode structurally
+ * unrunnable. Mixing the two key sets on one run is refused for the same
+ * reason — two incompatible count bands cannot both govern one number.
+ *
+ * SIZED FROM A REAL MEASUREMENT, 2026-09-11, against `data/corpus.sqlite`
+ * (`SELECT COUNT(*) FROM events WHERE year = ?`, summed):
+ *
+ *     2026 alone   318 events
+ *     2022-2026  1,589 events
+ *     2016-2026  2,825 events
+ *
+ * So the realistic single-version pass — 2026, which is the only season presim
+ * has ever covered (`DEFAULT_PRESCHEDULE_FROM_SEASON` is 2026) — enumerates
+ * 318 keys, and the widest conceivable one (all ten seasons × three retired
+ * versions) enumerates 8,475. The band is set generously around that whole
+ * range because its job is catching a corpus that did not open or a
+ * `--seasons` range that parsed wrong, not fine-tuning a threshold: those
+ * failures produce counts far BELOW min (0, or a handful), which is the edge
+ * that actually matters.
+ *
+ * THE ENUMERATION IS A SUPERSET AND THE TWO NUMBERS MUST NOT BE RECONCILED.
+ * Roughly 641 presim objects were observed live at generation `2f1a8885`
+ * while a different generation measured 216, and this plan's own 2026 dry run
+ * built 213 sidecars against 318 enumerable events — because
+ * `buildPreScheduleSidecarForEvent` skips events that are not RP-eligible,
+ * have a roster under six, or have no pricing state. The tool cannot know
+ * which events actually got a sidecar and does not need to:
+ * `deleteObject`'s DELETE is idempotent by S3 contract, so an over-enumerated
+ * key costs one cheap request and a 404 counts as success. Under-enumeration,
+ * by contrast, silently leaves orphans behind.
+ */
+export const PRESIM_KEY_COUNT_BOUNDS = { min: 100, max: 20_000 } as const;
 
 export class RefusedLiveAlgorithmIdError extends Error {
   constructor(retiredId: string, liveIds: readonly string[]) {
@@ -332,6 +398,73 @@ export function enumerateRetiredKeys(db: Corpus, options: EnumerateRetiredKeysOp
   }
 
   const keys = buildRetirementKeySuperset(db, retiredId, versions, seasons);
+
+  for (const key of keys) {
+    assertKeySegment(key, retiredId);
+  }
+
+  if (keys.length < bounds.min || keys.length > bounds.max) {
+    throw new EnumerationOutOfBoundsError(keys.length, bounds);
+  }
+
+  return keys;
+}
+
+// ---------------------------------------------------------------------------
+// enumeratePresimKeys — presim-sidecar mode (--include-presim)
+// ---------------------------------------------------------------------------
+
+export interface EnumeratePresimKeysOptions {
+  readonly retiredId: string;
+  readonly versions: readonly string[];
+  readonly seasons: readonly number[];
+  /** Test-only override of `PRESIM_KEY_COUNT_BOUNDS` — same rule as `EnumerateRetiredKeysOptions.bounds`: the real CLI never sets this, and every production invocation is checked against the real exported constant. */
+  readonly bounds?: { readonly min: number; readonly max: number };
+}
+
+/**
+ * The pre-schedule sidecar counterpart to `enumerateRetiredKeys`, in the same
+ * order and under the same guards (plan 09-10 Task 2): refuse a live id, build
+ * the superset, assert every key carries the retired segment, then check the
+ * total against the bounds — `PRESIM_KEY_COUNT_BOUNDS` here rather than
+ * `RETIRED_KEY_COUNT_BOUNDS`, for the reason that constant's own doc gives.
+ *
+ * Every key is built by calling the publisher's own `preScheduleKey`, never by
+ * hand, exactly as the page-key path calls `artifactKey`. That is not style:
+ * `preScheduleKey`'s doc comment states it is the ONE spelling of this key,
+ * imported by both `packages/harness/publish.ts` (the writer) and
+ * `apps/web/src/lib/api/preSchedule.ts` (the reader), because two spellings
+ * would be a silent permanent 404. A delete tool that spelled the key itself
+ * would be a third spelling, and a delete pass that silently matches nothing
+ * reports success.
+ *
+ * Offseason events are INCLUDED, matching `buildRetirementKeySuperset`:
+ * `--include-offseason` was live for every run that wrote these objects, and
+ * over-enumeration is cheap and safe here while under-enumeration silently
+ * leaves orphans.
+ */
+export function enumeratePresimKeys(db: Corpus, options: EnumeratePresimKeysOptions): string[] {
+  const { retiredId, versions, seasons } = options;
+  const bounds = options.bounds ?? PRESIM_KEY_COUNT_BOUNDS;
+
+  // The SAME id-level refusal the page-key path runs, applied before any
+  // enumeration begins — uniform across both paths exactly as `07-SECURITY.md`
+  // Observation 1 made `runProbe`'s uniform. Plan 09-10 is about to PUBLISH
+  // presim sidecars under `opr`/`epa`/`bpr`; this tool must be structurally
+  // unable to delete them.
+  if ((PUBLISHED_ALGORITHM_IDS as readonly string[]).includes(retiredId)) {
+    throw new RefusedLiveAlgorithmIdError(retiredId, PUBLISHED_ALGORITHM_IDS);
+  }
+
+  const keys: string[] = [];
+  for (const season of seasons) {
+    const eventKeysThisSeason = selectEventKeysForSeason(db, season);
+    for (const version of versions) {
+      for (const eventKey of eventKeysThisSeason) {
+        keys.push(preScheduleKey({ eventKey, algorithmId: retiredId, version }));
+      }
+    }
+  }
 
   for (const key of keys) {
     assertKeySegment(key, retiredId);
@@ -600,6 +733,18 @@ export interface CliOptions {
    * running the original id-level-refusal path unchanged.
    */
   readonly supersedesLive: boolean;
+
+  /**
+   * Switches into presim-sidecar mode (`enumeratePresimKeys`, never `enumerateRetiredKeys`): the
+   * enumerated key set becomes the `v1/presim/**` sidecar set instead of the page-key set. The two
+   * are never mixed on one run — they have incompatible count bands
+   * (`PRESIM_KEY_COUNT_BOUNDS` vs `RETIRED_KEY_COUNT_BOUNDS`), and one number cannot be governed by
+   * both. Every other guard applies unchanged and none is bypassed: the id-level
+   * `RefusedLiveAlgorithmIdError`, `assertKeySegment` over every key, the `--execute` intent gate
+   * (the default still deletes nothing), and the census reporting. Defaults to `false`, so no
+   * existing invocation's behaviour changes.
+   */
+  readonly includePresim: boolean;
 }
 
 /**
@@ -632,6 +777,7 @@ export function parseCliOptions(argv: readonly string[]): CliOptions {
       concurrency: { type: "string" },
       bucket: { type: "string" },
       "supersedes-live": { type: "boolean" },
+      "include-presim": { type: "boolean" },
     },
   });
 
@@ -655,6 +801,7 @@ export function parseCliOptions(argv: readonly string[]): CliOptions {
     concurrency: values.concurrency !== undefined ? Number.parseInt(values.concurrency, 10) : 16,
     bucket: values.bucket ?? DEFAULT_BUCKET,
     supersedesLive: values["supersedes-live"] === true,
+    includePresim: values["include-presim"] === true,
   };
 }
 
@@ -686,17 +833,26 @@ async function runDeletePass(options: {
   bucket: string;
   origin: string;
   supersedesLive: boolean;
+  includePresim: boolean;
 }): Promise<void> {
   const seasons = parseSeasonsRange(options.seasonsSpec);
   const db = openCorpusReadOnly(CORPUS_PATH);
   let keys: string[];
   try {
-    keys = options.supersedesLive
-      ? await enumerateSupersededVersionKeys(db, { retiredId: options.retiredId, versions: options.versions, seasons, origin: options.origin })
-      : enumerateRetiredKeys(db, { retiredId: options.retiredId, versions: options.versions, seasons });
+    // Three mutually exclusive enumeration modes, never mixed on one run.
+    // `--include-presim` is checked FIRST so it cannot be silently combined
+    // with `--supersedes-live`: the presim path's band and key shape are its
+    // own, and a run governed by two count bands is a run governed by neither.
+    keys = options.includePresim
+      ? enumeratePresimKeys(db, { retiredId: options.retiredId, versions: options.versions, seasons })
+      : options.supersedesLive
+        ? await enumerateSupersededVersionKeys(db, { retiredId: options.retiredId, versions: options.versions, seasons, origin: options.origin })
+        : enumerateRetiredKeys(db, { retiredId: options.retiredId, versions: options.versions, seasons });
   } finally {
     db.close();
   }
+
+  const activeBounds = options.includePresim ? PRESIM_KEY_COUNT_BOUNDS : RETIRED_KEY_COUNT_BOUNDS;
 
   const tallyByKind = new Map<string, number>();
   for (const key of keys) {
@@ -704,7 +860,10 @@ async function runDeletePass(options: {
     tallyByKind.set(kind, (tallyByKind.get(kind) ?? 0) + 1);
   }
   console.log(
-    `deleteRetiredAlgorithmObjects: enumerated ${keys.length} keys (band [${RETIRED_KEY_COUNT_BOUNDS.min}, ${RETIRED_KEY_COUNT_BOUNDS.max}])`
+    // The band NAMED in the log must be the band actually ENFORCED, or the
+    // printed line becomes evidence for a check that never ran.
+    `deleteRetiredAlgorithmObjects: enumerated ${keys.length} ${options.includePresim ? "presim sidecar" : "page"} keys ` +
+      `(band [${activeBounds.min}, ${activeBounds.max}])`
   );
   for (const [kind, count] of tallyByKind) console.log(`  ${kind}: ${count}`);
 
@@ -723,7 +882,13 @@ async function runDeletePass(options: {
     console.log(`deleteRetiredAlgorithmObjects: census result — ${present} present (200), ${absent} absent (404/other) of ${rows.length} sampled`);
 
     mkdirSync("reports/publish", { recursive: true });
-    const outPath = options.dryRun ? "reports/publish/07-19-census-before.json" : "reports/publish/07-19-census-manual.json";
+    // A presim pass writes its OWN census files. Sharing the page-key
+    // filenames would let a pre-census overwrite the record of the page-key
+    // pass it is supposed to be evidence ALONGSIDE — and the census is the
+    // only evidence this tool produces, because its exit code cannot testify
+    // to its effect (idempotent DELETE, 404 counts as success).
+    const prefix = options.includePresim ? "09-10-presim" : "07-19";
+    const outPath = options.dryRun ? `reports/publish/${prefix}-census-before.json` : `reports/publish/${prefix}-census-manual.json`;
     writeFileSync(
       outPath,
       JSON.stringify({ enumeratedTotal: keys.length, tallyByKind: Object.fromEntries(tallyByKind), sampled: rows.length, present, absent, rows }, null, 2)
@@ -735,7 +900,12 @@ async function runDeletePass(options: {
     return;
   }
 
-  await deleteKeys(options.bucket, keys, options.concurrency, "reports/publish/07-19-delete.log");
+  await deleteKeys(
+    options.bucket,
+    keys,
+    options.concurrency,
+    options.includePresim ? "reports/publish/09-10-presim-delete.log" : "reports/publish/07-19-delete.log"
+  );
 }
 
 async function main(): Promise<void> {
@@ -758,6 +928,7 @@ async function main(): Promise<void> {
     bucket: options.bucket,
     origin: DEFAULT_ARTIFACT_ORIGIN,
     supersedesLive: options.supersedesLive,
+    includePresim: options.includePresim,
   });
 }
 

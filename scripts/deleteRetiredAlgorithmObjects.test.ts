@@ -19,12 +19,14 @@ import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms
 import {
   assertKeySegment,
   assertVersionNotCurrentlyLive,
+  enumeratePresimKeys,
   enumerateRetiredKeys,
   enumerateSupersededVersionKeys,
   EnumerationOutOfBoundsError,
   KeySegmentMismatchError,
   LiveManifestFetchError,
   parseCliOptions,
+  PRESIM_KEY_COUNT_BOUNDS,
   RefusedLiveAlgorithmIdError,
   RefusedLiveVersionError,
   RETIRED_KEY_COUNT_BOUNDS,
@@ -42,6 +44,16 @@ function manifestResponse(algorithms: readonly { id: string; version: string }[]
 
 const RETIRED_ID = "sigma1";
 const VERSION = "2.0.0+tuned-2026-08";
+
+/**
+ * The version the orphaned presim sidecars in R2 are actually keyed to, per
+ * `docs/simulation-architecture.md`'s live spot check:
+ * `v1/presim/2026mrcmp/vpr@10.0.0+rolling-2026-09d.json` -> 200, 265,617 B,
+ * generation `7a2e4e5b`. Used by the presim cases (Tests 9-13) rather than
+ * `RETIRED_ID`/`VERSION`, because `vpr` is the id those objects carry and the
+ * point of the presim mode is to reach exactly them.
+ */
+const RETIRED_VPR_VERSION = "10.0.0+rolling-2026-09d";
 
 function seasonEvent(overrides: Partial<CorpusEvent> = {}): CorpusEvent {
   return {
@@ -532,6 +544,179 @@ describe("deleteRetiredAlgorithmObjects", () => {
         }
         expect(thrown, `expected runProbe("${liveId}") to throw before any PUT`).toBeInstanceOf(RefusedLiveAlgorithmIdError);
       }
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Tests 9-13 — the presim sidecar enumeration (plan 09-10 Task 2).
+  //
+  // The one orphan class this tool was structurally BLIND to. Every key it
+  // builds goes through `artifactKey`, and the pre-schedule sidecar is
+  // deliberately not a `PageKind` — it has its own `preScheduleKey`. That is
+  // why the 2026-09-10 delete passes removed every orphaned `vpr` PAGE object
+  // while `docs/publish-budget.md`'s own closing line still reads "Sim tab
+  // still serves the 641 presim sidecars frozen at 2f1a8885."
+  //
+  // These five cases are Tests 4-7 re-aimed at the presim path, so the new
+  // mode inherits its coverage rather than being trusted on the strength of
+  // sharing a file with the guards.
+  // ---------------------------------------------------------------------
+  describe("Test 9 — presim enumeration: every key carries the retired segment and names no live algorithm", () => {
+    it("returns v1/presim/{eventKey}/{retiredId}@{version}.json for every event, all through preScheduleKey", () => {
+      upsertEvent(db, seasonEvent({ eventKey: "2026reg", isOffseason: false }));
+      upsertMatch(db, seasonMatch({ matchKey: "2026reg_qm1", eventKey: "2026reg" }));
+      upsertEvent(db, seasonEvent({ eventKey: "2026off", isOffseason: true }));
+      upsertMatch(db, seasonMatch({ matchKey: "2026off_qm1", eventKey: "2026off" }));
+
+      const keys = enumeratePresimKeys(db, {
+        retiredId: "vpr",
+        versions: [RETIRED_VPR_VERSION],
+        seasons: [2026],
+        bounds: { min: 0, max: Number.MAX_SAFE_INTEGER },
+      });
+
+      // One key per (event, version) pair — offseason INCLUDED, because
+      // `--include-offseason` was live for the runs that wrote these objects.
+      expect(keys).toHaveLength(2);
+      for (const key of keys) {
+        expect(key).toMatch(/^v1\/presim\/[^/]+\/vpr@.+\.json$/);
+        assertKeySegment(key, "vpr"); // must not throw
+      }
+      expect(keys.some((k) => k.includes("/2026off/"))).toBe(true);
+    });
+
+    it("no enumerated key's algorithm segment is a PUBLISHED_ALGORITHM_IDS member — asserted against the imported array, never a hand-typed list", () => {
+      upsertEvent(db, seasonEvent());
+      upsertMatch(db, seasonMatch());
+
+      const keys = enumeratePresimKeys(db, {
+        retiredId: "vpr",
+        versions: [RETIRED_VPR_VERSION],
+        seasons: [2026],
+        bounds: { min: 0, max: Number.MAX_SAFE_INTEGER },
+      });
+
+      expect(keys.length).toBeGreaterThan(0);
+      for (const key of keys) {
+        const segment = /^v1\/presim\/[^/]+\/([^@]+)@/.exec(key)?.[1];
+        expect(segment, `could not parse an algorithm segment out of "${key}"`).toBeDefined();
+        expect(
+          (PUBLISHED_ALGORITHM_IDS as readonly string[]).includes(segment!),
+          `enumerated presim key "${key}" names live algorithm "${segment}" — this tool must never be able to build a key for something the site is serving`
+        ).toBe(false);
+      }
+    });
+  });
+
+  describe("Test 10 — presim enumeration: the live-id refusal is uniform across BOTH enumeration paths", () => {
+    it("throws RefusedLiveAlgorithmIdError for every member of PUBLISHED_ALGORITHM_IDS, exactly as enumerateRetiredKeys does", () => {
+      upsertEvent(db, seasonEvent());
+      upsertMatch(db, seasonMatch());
+
+      for (const liveId of PUBLISHED_ALGORITHM_IDS) {
+        let thrown: unknown;
+        try {
+          enumeratePresimKeys(db, {
+            retiredId: liveId,
+            versions: ["3.0.0"],
+            seasons: [2026],
+            bounds: { min: 0, max: Number.MAX_SAFE_INTEGER },
+          });
+        } catch (err) {
+          thrown = err;
+        }
+        expect(
+          thrown,
+          `expected enumeratePresimKeys("${liveId}") to refuse — 09-10 is about to PUBLISH sidecars under exactly these ids, and this tool must not be able to delete them`
+        ).toBeInstanceOf(RefusedLiveAlgorithmIdError);
+      }
+    });
+  });
+
+  describe("Test 11 — presim enumeration: PRESIM_KEY_COUNT_BOUNDS aborts in both directions", () => {
+    it("raises EnumerationOutOfBoundsError below the minimum against the REAL exported band (a one-event corpus is nowhere near it)", () => {
+      upsertEvent(db, seasonEvent());
+      upsertMatch(db, seasonMatch());
+
+      let thrown: unknown;
+      try {
+        enumeratePresimKeys(db, { retiredId: "vpr", versions: [RETIRED_VPR_VERSION], seasons: [2026] });
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(EnumerationOutOfBoundsError);
+      const message = (thrown as Error).message;
+      expect(message).toContain(String(PRESIM_KEY_COUNT_BOUNDS.min));
+      expect(message).toContain(String(PRESIM_KEY_COUNT_BOUNDS.max));
+    });
+
+    it("raises EnumerationOutOfBoundsError above a (test-supplied) maximum, reporting the observed count", () => {
+      upsertEvent(db, seasonEvent({ eventKey: "2026a" }));
+      upsertMatch(db, seasonMatch({ matchKey: "2026a_qm1", eventKey: "2026a" }));
+      upsertEvent(db, seasonEvent({ eventKey: "2026b" }));
+      upsertMatch(db, seasonMatch({ matchKey: "2026b_qm1", eventKey: "2026b" }));
+      upsertEvent(db, seasonEvent({ eventKey: "2026c" }));
+      upsertMatch(db, seasonMatch({ matchKey: "2026c_qm1", eventKey: "2026c" }));
+
+      let thrown: unknown;
+      try {
+        enumeratePresimKeys(db, {
+          retiredId: "vpr",
+          versions: [RETIRED_VPR_VERSION],
+          seasons: [2026],
+          bounds: { min: 0, max: 2 },
+        });
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(EnumerationOutOfBoundsError);
+      expect((thrown as Error).message).toContain("enumerated 3 keys");
+    });
+
+    it("PRESIM_KEY_COUNT_BOUNDS is its OWN band, not RETIRED_KEY_COUNT_BOUNDS — the page-key band would reject every presim enumeration outright", () => {
+      // 2026 alone is 318 corpus events; RETIRED_KEY_COUNT_BOUNDS.min is
+      // 15,000, sized for one algorithm's full PAGE-key set. Reusing it here
+      // would make the presim mode structurally unrunnable.
+      expect(PRESIM_KEY_COUNT_BOUNDS.min).toBeLessThan(RETIRED_KEY_COUNT_BOUNDS.min);
+      expect(PRESIM_KEY_COUNT_BOUNDS.min).toBeGreaterThan(0);
+      expect(PRESIM_KEY_COUNT_BOUNDS.max).toBeGreaterThan(PRESIM_KEY_COUNT_BOUNDS.min);
+    });
+  });
+
+  describe("Test 12 — presim enumeration: versions multiply the key set", () => {
+    it("two --version values produce exactly twice the single-version key count, one presim key per (event, version) pair", () => {
+      upsertEvent(db, seasonEvent({ eventKey: "2026a" }));
+      upsertMatch(db, seasonMatch({ matchKey: "2026a_qm1", eventKey: "2026a" }));
+      upsertEvent(db, seasonEvent({ eventKey: "2026b" }));
+      upsertMatch(db, seasonMatch({ matchKey: "2026b_qm1", eventKey: "2026b" }));
+
+      const loose = { min: 0, max: Number.MAX_SAFE_INTEGER };
+      const oneVersion = enumeratePresimKeys(db, { retiredId: "vpr", versions: [RETIRED_VPR_VERSION], seasons: [2026], bounds: loose });
+      const twoVersions = enumeratePresimKeys(db, {
+        retiredId: "vpr",
+        versions: [RETIRED_VPR_VERSION, "9.0.0+rolling-2026-09c"],
+        seasons: [2026],
+        bounds: loose,
+      });
+
+      expect(twoVersions).toHaveLength(oneVersion.length * 2);
+      // The orphans may span more than one retired version — 641 objects
+      // observed live against a 216-object measurement for one generation is
+      // exactly that signal.
+      for (const key of oneVersion) expect(twoVersions).toContain(key);
+      expect(twoVersions.some((k) => k.endsWith("vpr@9.0.0+rolling-2026-09c.json"))).toBe(true);
+    });
+  });
+
+  describe("Test 13 — --include-presim reaches parseCliOptions", () => {
+    it("parses to includePresim=true when passed, and false when omitted, with every other guard's default unchanged", () => {
+      const withFlag = parseCliOptions(["--retired-id", "vpr", "--version", RETIRED_VPR_VERSION, "--include-presim"]);
+      expect(withFlag.includePresim).toBe(true);
+      // The --execute intent gate is NOT bypassed by the new mode.
+      expect(withFlag.execute).toBe(false);
+
+      const without = parseCliOptions(["--retired-id", "vpr", "--version", RETIRED_VPR_VERSION]);
+      expect(without.includePresim).toBe(false);
     });
   });
 });
