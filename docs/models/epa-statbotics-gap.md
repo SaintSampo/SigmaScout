@@ -187,7 +187,7 @@ per-alliance in-place mutation — are carried BY REFERENCE and are deliberately
 | 2019 | 18 named | **1 own**: `no_foul_points` | 5: `sandstormBonus`, `hatchPanel`, `cargo`, `habClimb`, `foulsCommitted` | collapse to one rated no-foul total (1a); the eight per-location piece counts are 1b only | GAP |
 | 2022 | 14 named + 4 pad | **1 own**: `no_foul_points` | 5: `autoTaxi`, `autoCargo`, `teleopCargo`, `endgame`, `foulsCommitted` | collapse to one rated no-foul total (1a); the lower/upper cargo splits are 1b only | GAP |
 | 2023 | 18 named | **7 own**, with `min(9, links)` and `min(30, endgame_charge_station_points)` | 8 | the 9-piece cascade, the cube/cone regrade and two caps — a component sum cannot express it | GAP |
-| 2024 | 18 named | **1 own**: `no_foul_points` | 5: `auto`, `teleop`, `endgame`, `adjust`, `foulsCommitted` | collapse to one rated no-foul total — **BUILT AND MEASURED as an arm by quick task 260911-pon; see the tracer result below** — while the ten `comp_*` entries stay 1b only | GAP |
+| 2024 | 18 named | **1 own**: `no_foul_points` | 5: `auto`, `teleop`, `endgame`, `adjust`, `foulsCommitted` | collapse to one rated no-foul total — **BUILT AND MEASURED as an arm by quick task 260911-pon: 0.757158 accuracy / 0.168543 Brier against the shipped map's 0.757516 / 0.168389 on 16,764 matches, a LOSS on both. See the tracer result below** — while the ten `comp_*` entries stay 1b only | GAP |
 | 2025 | 18 named | **1 own**: `no_foul_points` via the `else` fallback — but index 0 has already been moved by an OPPONENT-COUPLED processor-algae correction (ref. 18, observation 2) | 6: `autoMobility`, `autoCoral`, `teleopCoral`, `algae`, `endGameBarge`, `foulsCommitted` | collapse to one rated no-foul total, then the coupled correction (mechanism 3); the coral-level counts and the processor/net split are 1b only | GAP |
 | 2026 | 15 named + 3 pad | **1 own**: `no_foul_points` via the `else` fallback | 10: `autoTower`, `endGameTower`, `hubAuto`, `hubTransition`, `hubShift1`..`hubShift4`, `hubEndgame`, `foulsCommitted` | collapse to one rated no-foul total (1a). For 1b SigmaScout is FINER: it rates shifts 1-4 separately where Statbotics pairs them into `first_shift_fuel`/`second_shift_fuel` | GAP |
 
@@ -250,6 +250,52 @@ Accordingly `SEASON_COMPONENT_MAPS` in `packages/core/algorithms/breakdown/index
 `scripts/measureEpaDeviations.ts` is unchanged, and `epa.version` is unchanged. The faithful map
 lives at `scripts/statboticsComponentMaps.ts`, outside `packages/`, so it cannot be mistaken for a
 shipped default.
+
+### The 2024 tracer result — measured 2026-09-11, reported as found
+
+The arm was built (`scripts/statboticsComponentMaps.ts`, proven by
+`scripts/statboticsComponentMaps.test.ts`) and driven through `componentMapArm` over a
+2016->2023 replay off one shared carry, scoring 2024 twice. Both runs are on disk at
+`experiments/260911-pon/` and the second reproduced the first exactly at higher precision.
+
+| arm | rated components in 2024 | scored | correct | winner accuracy | Brier |
+|---|---|---|---|---|---|
+| BASELINE — the shipped phase-group map | 5 (`auto`, `teleop`, `endgame`, `adjust`, `foulsCommitted`) | 16,764 | 12,699 | **0.757516** | **0.168389** |
+| FAITHFUL — Statbotics' 2024 score read | 2 (`noFoulPoints`, `foulsCommitted`) | 16,764 | 12,693 | **0.757158** | **0.168543** |
+
+**Delta, faithful minus baseline: winner accuracy −0.000358 (−0.036 percentage points, 6 matches
+out of 16,764); Brier +0.000154.** Accuracy is higher-is-better and Brier is lower-is-better, so
+**both moved the wrong way: this is a LOSS on both metrics.** It is reported exactly as measured. No
+tuning, sweeping, grid search or variant selection was performed anywhere in the work that produced
+it, and no attempt was made to find a flattering alternative — adopting Statbotics' entry set is a
+FIDELITY move and a loss here is the expected shape of the locked trade, not a regression to debug.
+
+**This is the cost of sub-gap 1a, for 2024 alone.** Sub-gap 1b is untouched: the seventeen rated
+entries that 2024's score never reads still have no channel in SigmaScout. 2024's cell in the
+verdict matrix therefore stays `GAP`, and nothing shipped changed —
+`SEASON_COMPONENT_MAPS`, `breakdown/2024.ts`, `ARM_IDS` and `epa.version` are all unchanged.
+
+**Population and scorer, stated because they are not the published ones.** 2024 matches at OFFICIAL
+(non-offseason) events, with a decided winner and no surrogate on either alliance. The winner call
+is `prediction.winner` (`pRedWin >= 0.5` resolves red, the shipped tie convention). The Brier is
+this driver's own mean squared error of `pRedWin` against the 0/1 outcome, and **it EXCLUDES actual
+ties, which a published Brier does not.** The two arms above are comparable to each other and to
+nothing else; differencing either against a published Brier would invent a regression of roughly
+0.003 that is a scorer artifact.
+
+**How this compares to reference section 10, and why the two are NOT the same experiment.**
+Section 10 measured 0.7403 for a single no-foul total against 0.7520 for the shipped phase groups —
+about 1.2 percentage points, the figure decision 1 above says to carry forward. This run measures
+0.036 percentage points for the same comparison, on the same 16,764-match population. **That is a
+factor of roughly thirty, and it is not explained here.** Three differences are known and none is
+quantified: this run sits on top of `epa@10.0.0+baseline` whereas section 10's predates both
+`9.0.0` (the frozen week-1 SD) and `10.0.0` (the foul scalar moved after the win probability);
+the shipped baseline it is differenced against is itself a different model in consequence; and the
+two used different scratch scorers. **Nothing above should be read as "the cost went away."** A
+six-match difference on one season is far too small to distinguish from noise in either direction —
+which is itself the honest reading of this run, and it is a smaller claim than the 1.2-point figure,
+not a larger one. Re-measuring section 10's arm on today's model would settle it and was NOT done
+here; it is left as a named open question rather than resolved by assertion.
 
 ### The eight non-tracer seasons are DEFERRED, keyed to this document's own stages
 
