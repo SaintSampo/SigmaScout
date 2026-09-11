@@ -122,7 +122,8 @@ import {
   type TeamMetricsWithPercentile,
 } from "./percentiles.js";
 import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS } from "./manifests.js";
-import { emitSeedSql, serializeState, withSwingBeliefs, type StateStamp } from "./stateSnapshot.js";
+import { emitSeedSql, serializeState, withRpBeliefs, withSwingBeliefs, type StateStamp } from "./stateSnapshot.js";
+import type { RpTeamBeliefs } from "../core/rankingPoints/empiricalMoments.js";
 import type { HarnessPredictionInput, ScoreSlice } from "./score.js";
 import { aggregateScoresForRun } from "./selectionProvenance.js";
 import type { MetricHistoryRow } from "./metricHistory.js";
@@ -2429,6 +2430,8 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
   // same seed, keyed by algorithm id. Populated from the same final season
   // `finalSeasonStates` is.
   let finalSeasonSwing = new Map<string, ReadonlyMap<string, SwingBelief>>();
+  /** Shape 15 (plan 09-08): the per-team RP beliefs that ride the SAME seed, from the SAME population, keyed by algorithm id. */
+  let finalSeasonRp = new Map<string, ReadonlyMap<string, RpTeamBeliefs>>();
 
   for (const [seasonIdx, season] of seasonsSorted.entries()) {
     const stream = buildSeasonStream(db, season, { includeOffseason });
@@ -3332,6 +3335,13 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     finalSeasonSwing = new Map(
       options.algorithms.map((algorithm) => [algorithm.id, layers.get(algorithm.id)!.swingBeliefs()])
     );
+    // Shape 15 (plan 09-08): the RP beliefs, built here and from the same
+    // `layers` map for the identical reason the Swing line above gives — same
+    // offseason-inclusive population, because the Worker continues the real
+    // season.
+    finalSeasonRp = new Map(
+      options.algorithms.map((algorithm) => [algorithm.id, layers.get(algorithm.id)!.rpVariableBeliefs()])
+    );
   }
 
   // --- Manifests (D-18/D-03) and D-12's state snapshot / D1 seed ---
@@ -3367,9 +3377,19 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       // algorithm serializer has run, so no algorithm's serializer knows it
       // exists — see `withSwingBeliefs`. Without this the seeded Worker would
       // cold-start every band while the artifacts it serves already carry one.
-      const rows = withSwingBeliefs(
-        serializeState(algorithm.id, algorithm.version, state as Sigma1State | EpaState | OprState, stamp),
-        finalSeasonSwing.get(algorithm.id) ?? new Map()
+      // Shape 15 (plan 09-08): the RP passenger chains on beside the Swing
+      // one, before `emitSeedSql`. Omitting it is not a cosmetic gap — a
+      // seeded Worker would cold-start every RP belief while the artifacts it
+      // serves already carry a full season's pmfs, so live and offline would
+      // price the same match from two different histories with both sides
+      // looking healthy. Exactly the failure the Swing line it sits beside
+      // was written to prevent.
+      const rows = withRpBeliefs(
+        withSwingBeliefs(
+          serializeState(algorithm.id, algorithm.version, state as Sigma1State | EpaState | OprState, stamp),
+          finalSeasonSwing.get(algorithm.id) ?? new Map()
+        ),
+        finalSeasonRp.get(algorithm.id) ?? new Map()
       );
       const outPath = join(SEED_OUT_DIR, `seed-${algorithm.id}.sql`);
       emitSeedSql(rows, { algorithmId: algorithm.id, out: outPath });

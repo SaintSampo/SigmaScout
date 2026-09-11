@@ -50,7 +50,7 @@ import type { CompLevel, MatchResult, Prediction, UpcomingMatch } from "../core/
 import type { PredictionRecord } from "./replay.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 import { isRpEligibleEventType } from "../core/rankingPoints/constants.js";
-import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
+import { RpMomentsAccumulator, type RpTeamBeliefs } from "../core/rankingPoints/empiricalMoments.js";
 import {
   analyticRpPmf,
   emptyMarginalResolutionTally,
@@ -175,6 +175,24 @@ export class SigmaScoutLayer {
    */
   swingBeliefs(): ReadonlyMap<string, SwingBelief> {
     return this.#swing.beliefsByTeam();
+  }
+
+  /**
+   * Every team's RAW running RP state, for the D1 seed the live Worker
+   * resumes from (shape 15, plan 09-08).
+   *
+   * The exact counterpart of `swingBeliefs()` above and distinct from
+   * anything the publisher renders, for the same reason: this is raw running
+   * state, not a finished figure. Dropping a single-observation team from a
+   * seed would make its first live match fold against an empty belief and
+   * diverge from what the offline publisher would have produced — silently,
+   * because the resulting pmf is still a valid distribution.
+   *
+   * Empty for a season that registers no RP rules, which is the honest answer
+   * rather than an error: the feature is ABSENT for that season, not empty.
+   */
+  rpVariableBeliefs(): ReadonlyMap<string, RpTeamBeliefs> {
+    return this.#rp?.beliefsByTeam() ?? new Map();
   }
 
   /** The RP beliefs learned so far, or `undefined` for a season with no registered rules. */
