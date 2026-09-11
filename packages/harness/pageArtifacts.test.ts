@@ -27,6 +27,7 @@ import {
   PAGE_ARTIFACT_SCHEMA_VERSION,
   preScheduleKey,
   PreScheduleArtifactSchema,
+  FieldAveragedPreScheduleArtifactSchema,
   TeamsArtifactSchema,
   TeamsArtifactWireSchema,
   TeamSeasonArtifactSchema,
@@ -1648,5 +1649,96 @@ describe("PreScheduleArtifactSchema (quick task 260905-tll Task 1)", () => {
     const fixture = validPreScheduleFixture();
     fixture.baked.histograms[2] = [499, 100, 100, 100, 100, 100]; // sums to 999, draws is 1000
     expect(() => PreScheduleArtifactSchema.parse(fixture)).toThrow(/sum exactly to baked\.draws/);
+  });
+});
+
+describe("FieldAveragedPreScheduleArtifactSchema (plan 09-09 Task 2; D-16, D-17)", () => {
+  /** A well-formed rung-1 sidecar: three teams, a seven-entry per-MATCH pmf each. */
+  function validFieldAveragedFixture(): {
+    schemaVersion: number;
+    generation: string;
+    computedAt: string;
+    algorithmId: string;
+    algorithmVersion: string;
+    eventKey: string;
+    season: number;
+    pricedFrom: string;
+    matchesPerTeam: number;
+    roster: string[];
+    perTeamPmf: number[][];
+    draws: number;
+    seed: number;
+  } {
+    return {
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-test",
+      computedAt: "2026-09-11T00:00:00.000Z",
+      algorithmId: "bpr",
+      algorithmVersion: "3.0.0+baseline",
+      eventKey: "2023gaalb",
+      season: 2023,
+      pricedFrom: "pre-event-walk-forward",
+      matchesPerTeam: 12,
+      roster: ["frc1", "frc2", "frc3"],
+      perTeamPmf: [
+        [0.05, 0.1, 0.15, 0.2, 0.25, 0.15, 0.1],
+        [0.1, 0.1, 0.1, 0.2, 0.2, 0.2, 0.1],
+        [0.2, 0.2, 0.2, 0.2, 0.1, 0.05, 0.05],
+      ],
+      draws: 1000,
+      seed: 123456789,
+    };
+  }
+
+  it("accepts a well-formed artifact and round-trips it", () => {
+    const fixture = validFieldAveragedFixture();
+    const parsed = FieldAveragedPreScheduleArtifactSchema.parse(fixture);
+    expect(parsed.roster).toEqual(["frc1", "frc2", "frc3"]);
+    expect(parsed.perTeamPmf).toEqual(fixture.perTeamPmf);
+    expect(parsed.matchesPerTeam).toBe(12);
+    expect(parsed.draws).toBe(1000);
+    expect(parsed.seed).toBe(123456789);
+  });
+
+  it("rejects a perTeamPmf whose length disagrees with roster.length — the desync that attributes every band to the wrong team", () => {
+    const fixture = validFieldAveragedFixture();
+    fixture.perTeamPmf = fixture.perTeamPmf.slice(0, 2);
+    expect(() => FieldAveragedPreScheduleArtifactSchema.parse(fixture)).toThrow(/one pmf per roster team/);
+  });
+
+  it("rejects a perTeamPmf entry that does not sum to 1, through the file's EXISTING shared isValidPmf tolerance", () => {
+    const fixture = validFieldAveragedFixture();
+    fixture.perTeamPmf[1] = [0.05, 0.1, 0.15, 0.2, 0.25, 0.15, 0.05]; // sums to 0.95
+    expect(() => FieldAveragedPreScheduleArtifactSchema.parse(fixture)).toThrow(/valid pmf/);
+  });
+
+  it("rejects an EMPTY perTeamPmf entry", () => {
+    const fixture = validFieldAveragedFixture();
+    fixture.perTeamPmf[0] = [];
+    expect(() => FieldAveragedPreScheduleArtifactSchema.parse(fixture)).toThrow(/valid pmf/);
+  });
+
+  it("rejects a roster carrying a DUPLICATE team key — the client indexes per-team distributions by team key", () => {
+    const fixture = validFieldAveragedFixture();
+    fixture.roster[1] = fixture.roster[0]!;
+    expect(() => FieldAveragedPreScheduleArtifactSchema.parse(fixture)).toThrow(/duplicate team keys/);
+  });
+
+  it("rejects a matchesPerTeam of 0 — a zero-fold convolution is a confident point mass at zero RP for every team", () => {
+    const fixture = validFieldAveragedFixture();
+    fixture.matchesPerTeam = 0;
+    expect(() => FieldAveragedPreScheduleArtifactSchema.parse(fixture)).toThrow();
+  });
+
+  it("rejects a draws of 0", () => {
+    const fixture = validFieldAveragedFixture();
+    fixture.draws = 0;
+    expect(() => FieldAveragedPreScheduleArtifactSchema.parse(fixture)).toThrow();
+  });
+
+  it("preScheduleKey is UNCHANGED by this plan — an equality pin on the exact literal key string for a bpr artifact (Delta A is plan 09-10's, not this plan's)", () => {
+    expect(preScheduleKey({ eventKey: "2023gaalb", algorithmId: "bpr", version: "3.0.0+baseline" })).toBe(
+      "v1/presim/2023gaalb/bpr@3.0.0+baseline.json"
+    );
   });
 });

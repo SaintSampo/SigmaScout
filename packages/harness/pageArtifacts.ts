@@ -2048,6 +2048,93 @@ export const PreScheduleArtifactSchema = AlgorithmScopedPreambleSchema.extend({
 
 export type PreScheduleArtifact = z.infer<typeof PreScheduleArtifactSchema>;
 
+/**
+ * THE FIELD-AVERAGED pre-schedule sidecar (plan 09-09 rung 1; D-16, D-17).
+ *
+ * WHAT THIS REPLACES. `PreScheduleArtifactSchema` above carries K priced
+ * synthetic schedules plus a baked rank histogram per team. This carries ONE
+ * per-match pmf per team, and nothing else. D-16 names why the schedules were
+ * never the thing that was needed: the 20 of them were a MONTE CARLO
+ * APPROXIMATION OF AN EXPECTATION OVER SCHEDULE RANDOMNESS — the same insight
+ * as the RP pmf, one level up — so if schedule randomness is averaged away in
+ * the end, what is needed is the DISTRIBUTION A RANDOM SCHEDULE INDUCES, and
+ * that has a closed form.
+ *
+ * `perTeamPmf[i]` is `roster[i]`'s FIELD-AVERAGED distribution over its own
+ * alliance's TOTAL ranking points in ONE qualification match — NOT its season
+ * total. The consumer convolves `matchesPerTeam` copies of it
+ * (`seasonTotalPmf`, `packages/core/rankingPoints/fieldAveraged.ts`) to get
+ * the season total. Publishing the per-match form rather than the season total
+ * is a size decision with a measured basis: the per-match pmf is roughly seven
+ * entries and the season total is roughly seventy-three.
+ *
+ * `seed` and `draws` are published so the offline builder, the measurement
+ * script and the browser all run `simulateRanks(matches, baselines, draws,
+ * mulberry32(seed))` on identical inputs and get IDENTICAL histograms. That
+ * identity is a test, not a hope.
+ *
+ * THE HONEST CAVEATS (D-16 requires these wherever this ships): the
+ * field-averaged form assumes a team's matches are near-independent, and it
+ * washes out coupling from teams that share specific matches — AND, IN THE
+ * SAME BREATH, the 20-schedule form washed that same coupling out BY DESIGN,
+ * averaging over 20 independent shuffles precisely so no particular pairing
+ * survived into the published band. It is a shared property of both forms, not
+ * a defect unique to this one. The composition-induced spread is treated as
+ * Gaussian, the same approximation class used elsewhere here.
+ *
+ * WHICH OF THE OLD SCHEMA'S REFINEMENTS SURVIVE, NAMED RATHER THAN LEFT TO A
+ * DIFF:
+ *   - the valid-pmf refine SURVIVES, widened from `rp`/`bp` to every
+ *     `perTeamPmf` entry, calling the file's EXISTING shared `isValidPmf` and
+ *     its existing tolerance — no second pmf tolerance is introduced;
+ *   - the duplicate-roster-key refine SURVIVES, load-bearing for exactly the
+ *     reason its original comment gives: the client indexes by team key, so a
+ *     duplicate collapses two entries into one;
+ *   - a length refine is ADDED (`perTeamPmf.length === roster.length`) — a
+ *     short or long array desynchronises team keys from distributions, so
+ *     every band is attributed to the wrong team with no error anywhere;
+ *   - the roster-index bounds refine is GONE because it has no referent —
+ *     there are no `r`/`b` arrays here;
+ *   - the two `baked` refinements are GONE for the same reason — there is no
+ *     baked block. The properties they guaranteed (one histogram per roster
+ *     team, each of length `roster.length`, each summing to `draws`) did not
+ *     disappear: they MOVED to the client, where the histograms are now
+ *     computed, and are asserted there
+ *     (`apps/web/src/lib/preScheduleResult.test.ts`).
+ *
+ * `preScheduleKey` is UNCHANGED by this plan — same function, same
+ * `v1/presim/{eventKey}/{algorithmId}@{version}.json` key form. The
+ * algorithm-id segment moving off retired `vpr` is plan 09-10's Delta A and is
+ * not touched here.
+ */
+export const FieldAveragedPreScheduleArtifactSchema = AlgorithmScopedPreambleSchema.extend({
+  eventKey: z.string().min(1),
+  season: z.number().int(),
+  /** How this sidecar was priced (PD-02) — unchanged in meaning from the schedule-based schema above. */
+  pricedFrom: z.enum(["pre-event-walk-forward", "current-state"]),
+  /** How many qualification matches each team plays. The consumer convolves this many copies of its `perTeamPmf` entry for the season total. */
+  matchesPerTeam: z.number().int().positive(),
+  /** The team keys that define the index space for `perTeamPmf` — sorted ascending by the builder, so republishes are byte-stable regardless of corpus row order. */
+  roster: z.array(z.string().min(1)).min(1),
+  /** One PER-MATCH total-RP pmf per roster team, in roster order. See this schema's doc comment: per-match, never the season total. */
+  perTeamPmf: z.array(z.array(z.number())).min(1),
+  /** The draw count the consumer runs `simulateRanks` for — published so all three consumers produce identical histograms. */
+  draws: z.number().int().positive(),
+  /** The seed the consumer runs `simulateRanks` with — published for the same reason as `draws`. */
+  seed: z.number().int(),
+})
+  .refine((artifact) => artifact.perTeamPmf.length === artifact.roster.length, {
+    message: "`perTeamPmf` must carry exactly one pmf per roster team (perTeamPmf.length === roster.length)",
+  })
+  .refine((artifact) => artifact.perTeamPmf.every((pmf) => isValidPmf(pmf)), {
+    message: "every `perTeamPmf` entry must be a valid pmf (non-empty, sums to 1 within the shared 1e-9 tolerance)",
+  })
+  .refine((artifact) => new Set(artifact.roster).size === artifact.roster.length, {
+    message: "`roster` must not contain duplicate team keys — the client indexes per-team distributions by team key",
+  });
+
+export type FieldAveragedPreScheduleArtifact = z.infer<typeof FieldAveragedPreScheduleArtifactSchema>;
+
 // ---------------------------------------------------------------------------
 // EPA vs Statbotics comparison — v1/methodology/epa-vs-statbotics.json
 // (quick task 260908-n5o)

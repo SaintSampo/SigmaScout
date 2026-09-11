@@ -70,15 +70,17 @@ import { SigmaScoutLayer } from "../packages/harness/sigmaScoutLayer.js";
 import { usesSigmaScore } from "../packages/harness/sigmaScore.js";
 import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
 import { matchesPerTeamFor } from "../packages/harness/scheduleTemplates.js";
-import { buildPreScheduleArtifact } from "../packages/harness/preSchedule.js";
+import {
+  buildPreScheduleArtifact,
+  buildFieldAveragedPreScheduleArtifact,
+  buildFieldContributions,
+} from "../packages/harness/preSchedule.js";
 import { makeRankingPointFiller } from "../packages/harness/publish.js";
 import { ALGORITHMS } from "../packages/harness/cli.js";
 import {
   ALLIANCE_SIZE,
-  fieldAveragedMatchPmf,
   fieldAveragedRankInputs,
   fieldStatistics,
-  type FieldTeamContribution,
 } from "../packages/core/rankingPoints/fieldAveraged.js";
 import { pmfMean } from "../packages/core/rankingPoints/analyticPmf.js";
 
@@ -347,35 +349,6 @@ function replaySeason(
   return result;
 }
 
-/** Builds the field contributions for one roster, inline (plan 09-09 Task 1 — Task 2 extracts this into `buildFieldContributions`). */
-function inlineFieldContributions(
-  roster: readonly string[],
-  layer: SigmaScoutLayer,
-  teamTotals: ReadonlyMap<string, number>
-): FieldTeamContribution[] | null {
-  const accumulator = layer.rpAccumulator;
-  if (accumulator === undefined) return null;
-  const consistency = layer.consistencyByTeam();
-  // The ALL-OR-NOTHING roster rule, reproduced from `makeRankingPointFiller`.
-  for (const teamKey of roster) {
-    if (!consistency.has(teamKey) || !teamTotals.has(teamKey)) return null;
-  }
-  return roster.map((teamKey) => {
-    // A ONE-TEAM roster: `momentsFor`'s even-split undo scales by
-    // `roster.length² / contributing` = 1, so this returns the team's OWN
-    // belief unscaled rather than an alliance aggregate.
-    const own = accumulator.momentsFor([teamKey], 0, 0);
-    const swing = consistency.get(teamKey)!;
-    return {
-      teamKey,
-      variableMeans: own.meanVector,
-      variableVariances: own.varianceBlock.map((row, i) => row[i] ?? 0),
-      scoreMean: teamTotals.get(teamKey)!,
-      bandVariance: swing * swing,
-    };
-  });
-}
-
 export interface MeasureOptions {
   readonly draws: number;
   readonly algorithmId: string;
@@ -465,16 +438,40 @@ export function measureEvent(
     const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
     if (total !== undefined) teamTotals.set(teamKey, total);
   }
-  const contributions = inlineFieldContributions(roster, layer, teamTotals);
+  const contributions = buildFieldContributions({
+    roster,
+    rpAccumulator: layer.rpAccumulator,
+    consistencyByTeam: consistency,
+    teamTotals,
+  });
   if (contributions === null) {
     throw new Error(`measureFieldAveragedRanks: the field-averaged arm returned null for ${target.eventKey} — the all-or-nothing roster rule rejected this roster.`);
   }
-  const variableNames = ruleModule.thresholdVariables.map((v) => v.name);
-  const stats = fieldStatistics(contributions, variableNames);
-  const perTeamPmf = contributions.map((c) => fieldAveragedMatchPmf(c, stats, ruleModule, eventType));
-  const fieldSeed = fnv1a32(`${target.eventKey}|${algorithm.version}|fieldAveraged`);
-  const { matches, baselines } = fieldAveragedRankInputs(roster, perTeamPmf, matchesPerTeam);
-  const fieldResult = simulateRanks(matches, baselines, bakedDraws, mulberry32(fieldSeed));
+  // The arm being measured is the arm that would SHIP: the bands below are
+  // derived from the PARSED, ROUNDED, published-shape artifact via the shared
+  // `fieldAveragedRankInputs`, not from an unrounded in-memory intermediate.
+  // That is what makes this a measurement of the artifact rather than of
+  // something adjacent to it.
+  const fieldArtifact = buildFieldAveragedPreScheduleArtifact({
+    eventKey: target.eventKey,
+    season: target.season,
+    eventType,
+    algorithmId: algorithm.id,
+    algorithmVersion: algorithm.version,
+    matchesPerTeam,
+    pricedFrom: "pre-event-walk-forward",
+    draws: bakedDraws,
+    generation: "measure",
+    computedAt: "1970-01-01T00:00:00.000Z",
+    ruleModule,
+    contributions,
+  });
+  if (fieldArtifact === null) {
+    throw new Error(`measureFieldAveragedRanks: buildFieldAveragedPreScheduleArtifact returned null for ${target.eventKey}.`);
+  }
+  const stats = fieldStatistics(contributions, ruleModule.thresholdVariables.map((v) => v.name));
+  const { matches, baselines } = fieldAveragedRankInputs(fieldArtifact.roster, fieldArtifact.perTeamPmf, fieldArtifact.matchesPerTeam);
+  const fieldResult = simulateRanks(matches, baselines, fieldArtifact.draws, mulberry32(fieldArtifact.seed));
 
   // Both arms MUST rank over the same draw count, or every difference below
   // is meaningless. Asserted, not assumed.
@@ -528,8 +525,7 @@ export function measureEvent(
   // --- Byte sizes, measured on the real artifacts. ---
   const bakedBytes = Buffer.byteLength(JSON.stringify(bakedArtifact), "utf8");
   const schedulesBytes = Buffer.byteLength(JSON.stringify(bakedArtifact.schedules), "utf8");
-  const fieldBody = JSON.stringify({ roster, matchesPerTeam, perTeamPmf, draws: bakedDraws, seed: fieldSeed });
-  const fieldAveragedBytes = Buffer.byteLength(fieldBody, "utf8");
+  const fieldAveragedBytes = Buffer.byteLength(JSON.stringify(fieldArtifact), "utf8");
   const bytes: ByteSizes = {
     bakedBytes,
     fieldAveragedBytes,

@@ -11,12 +11,24 @@
  * slot 9 are surrogates) — which is why the surrogate-honouring tests
  * (PD-03) use a 10-team roster at 10 matches per team.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Prediction, UpcomingMatch } from "../core/algorithms/types.js";
 import { PreScheduleArtifactSchema } from "./pageArtifacts.js";
 import { SCHEDULE_TEMPLATE_DIR } from "./scheduleTemplates.js";
-import { buildPreScheduleArtifact, PreSchedulePricingError, toSimMatchInput, type PreScheduleBuildParams } from "./preSchedule.js";
+import {
+  buildPreScheduleArtifact,
+  buildFieldAveragedPreScheduleArtifact,
+  buildFieldContributions,
+  PreSchedulePricingError,
+  toSimMatchInput,
+  type FieldAveragedPreScheduleBuildParams,
+  type FieldContributionInputs,
+  type PreScheduleBuildParams,
+} from "./preSchedule.js";
+import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
+import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
+import { fieldStatistics } from "../core/rankingPoints/fieldAveraged.js";
 
 const CACHE_AVAILABLE = existsSync(SCHEDULE_TEMPLATE_DIR);
 
@@ -220,5 +232,213 @@ describe("buildPreScheduleArtifact against the real template cache", () => {
   it("the returned object round-trips through PreScheduleArtifactSchema.parse unchanged", () => {
     const artifact = buildPreScheduleArtifact(baseParams())!;
     expect(PreScheduleArtifactSchema.parse(artifact)).toEqual(artifact);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The FIELD-AVERAGED path (plan 09-09 Task 2; D-16, D-17)
+// ---------------------------------------------------------------------------
+
+/** 2023 — two threshold variables, `winRp` 2, `tieRp` 1, three bonuses. */
+const FA_RULE = RP_RULE_MODULES[2023]!;
+const FA_VARIABLE_NAMES = FA_RULE.thresholdVariables.map((v) => v.name);
+const FA_REGIONAL_EVENT_TYPE = 0;
+
+/** Builds a real accumulator with `folds` alliance observations folded into each named team. */
+function accumulatorWith(teams: readonly string[], folds: number): RpMomentsAccumulator {
+  const accumulator = new RpMomentsAccumulator(FA_RULE);
+  for (const teamKey of teams) {
+    for (let i = 0; i < folds; i++) {
+      const values: Record<string, number> = {};
+      for (const [v, name] of FA_VARIABLE_NAMES.entries()) values[name] = 10 + v * 5 + i;
+      accumulator.fold([teamKey], values);
+    }
+  }
+  return accumulator;
+}
+
+function faInputs(overrides: Partial<FieldContributionInputs> = {}): FieldContributionInputs {
+  const roster = ["frc3", "frc1", "frc2"];
+  return {
+    roster,
+    rpAccumulator: accumulatorWith(roster, 4),
+    consistencyByTeam: new Map(roster.map((t) => [t, 12])),
+    teamTotals: new Map(roster.map((t, i) => [t, 40 + i * 5])),
+    ...overrides,
+  };
+}
+
+describe("buildFieldContributions (plan 09-09 Task 2 — the all-or-nothing roster rule, reproduced)", () => {
+  it("returns null when ANY roster team is missing a consistency figure", () => {
+    const inputs = faInputs();
+    const partial = new Map(inputs.consistencyByTeam);
+    partial.delete("frc2");
+    expect(buildFieldContributions({ ...inputs, consistencyByTeam: partial })).toBeNull();
+  });
+
+  it("returns null when ANY roster team is missing a TOTAL_METRIC_KEY total", () => {
+    // A SEPARATE case from the consistency one on purpose: the two absences
+    // have different causes (too little play versus an algorithm that has
+    // never rated the team) and collapsing them into one case would let a fix
+    // for one silently break the other.
+    const inputs = faInputs();
+    const partial = new Map(inputs.teamTotals);
+    partial.delete("frc2");
+    expect(buildFieldContributions({ ...inputs, teamTotals: partial })).toBeNull();
+  });
+
+  it("returns null when the layer carries no RP accumulator at all", () => {
+    expect(buildFieldContributions({ ...faInputs(), rpAccumulator: undefined })).toBeNull();
+  });
+
+  it("returns one contribution per roster team, in SORTED roster order, reading each team's OWN belief from a one-team momentsFor call", () => {
+    const inputs = faInputs();
+    const contributions = buildFieldContributions(inputs)!;
+    expect(contributions.map((c) => c.teamKey)).toEqual(["frc1", "frc2", "frc3"]);
+    for (const contribution of contributions) {
+      // Asserted against the accumulator DIRECTLY, so "a one-team roster
+      // returns the team's own belief" is proven here rather than argued in a
+      // comment.
+      const own = inputs.rpAccumulator!.momentsFor([contribution.teamKey], 0, 0);
+      expect(contribution.variableMeans).toEqual(own.meanVector);
+      expect(contribution.variableVariances).toEqual(own.varianceBlock.map((row, i) => row[i]));
+      expect(contribution.scoreMean).toBe(inputs.teamTotals.get(contribution.teamKey));
+      // `allianceSwingBandVariance`'s own per-team term is `swing * swing`.
+      expect(contribution.bandVariance).toBe(12 * 12);
+    }
+  });
+
+  it("a team with no folded observations contributes ZEROS rather than being dropped", () => {
+    const roster = ["frc1", "frc2", "frcCold"];
+    const inputs: FieldContributionInputs = {
+      roster,
+      rpAccumulator: accumulatorWith(["frc1", "frc2"], 4),
+      consistencyByTeam: new Map(roster.map((t) => [t, 9])),
+      teamTotals: new Map(roster.map((t) => [t, 50])),
+    };
+    const contributions = buildFieldContributions(inputs)!;
+    expect(contributions).toHaveLength(3);
+    const cold = contributions.find((c) => c.teamKey === "frcCold")!;
+    expect([...cold.variableMeans]).toEqual(FA_VARIABLE_NAMES.map(() => 0));
+    expect([...cold.variableVariances]).toEqual(FA_VARIABLE_NAMES.map(() => 0));
+    // And the field statistics INCLUDE it: dropping it would shift
+    // `meanOfVariableMeans` upward and silently narrow every band.
+    const stats = fieldStatistics(contributions, FA_VARIABLE_NAMES);
+    expect(stats.teamCount).toBe(3);
+  });
+});
+
+describe("buildFieldAveragedPreScheduleArtifact (plan 09-09 Task 2)", () => {
+  function faParams(overrides: Partial<FieldAveragedPreScheduleBuildParams> = {}): FieldAveragedPreScheduleBuildParams {
+    return {
+      eventKey: "2023gaalb",
+      season: 2023,
+      eventType: FA_REGIONAL_EVENT_TYPE,
+      algorithmId: "bpr",
+      algorithmVersion: "3.0.0+baseline",
+      matchesPerTeam: 12,
+      pricedFrom: "pre-event-walk-forward",
+      draws: 1000,
+      generation: "gen-test",
+      computedAt: "2026-09-11T00:00:00.000Z",
+      ruleModule: FA_RULE,
+      contributions: buildFieldContributions(faInputs())!,
+      ...overrides,
+    };
+  }
+
+  it("returns a parsed artifact whose roster is sorted, whose perTeamPmf shares that index space, and whose every scalar round-trips exactly", () => {
+    const artifact = buildFieldAveragedPreScheduleArtifact(faParams())!;
+    expect(artifact).not.toBeNull();
+    expect(artifact.roster).toEqual(["frc1", "frc2", "frc3"]);
+    expect(artifact.perTeamPmf).toHaveLength(3);
+    for (const pmf of artifact.perTeamPmf) {
+      expect(pmf).toHaveLength(FA_RULE.maxRp + 1);
+      expect(pmf.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 9);
+    }
+    expect(artifact.matchesPerTeam).toBe(12);
+    expect(artifact.draws).toBe(1000);
+    expect(Number.isInteger(artifact.seed)).toBe(true);
+    expect(artifact.generation).toBe("gen-test");
+    expect(artifact.computedAt).toBe("2026-09-11T00:00:00.000Z");
+    expect(artifact.algorithmId).toBe("bpr");
+    expect(artifact.algorithmVersion).toBe("3.0.0+baseline");
+    expect(artifact.eventKey).toBe("2023gaalb");
+    expect(artifact.season).toBe(2023);
+    expect(artifact.pricedFrom).toBe("pre-event-walk-forward");
+  });
+
+  it("returns null, not a partial artifact, when the contributions list is empty (the buildFieldContributions null contract)", () => {
+    expect(buildFieldAveragedPreScheduleArtifact(faParams({ contributions: [] }))).toBeNull();
+  });
+
+  it("is deterministic: two calls with identical params produce BYTE-identical JSON", () => {
+    const first = JSON.stringify(buildFieldAveragedPreScheduleArtifact(faParams()));
+    const second = JSON.stringify(buildFieldAveragedPreScheduleArtifact(faParams()));
+    // `toBe` on the STRINGS, not a deep-equal on the objects: key order is
+    // part of what a republish would churn in R2.
+    expect(second).toBe(first);
+  });
+
+  it("changing only eventKey or only algorithmVersion changes the published seed", () => {
+    const base = buildFieldAveragedPreScheduleArtifact(faParams())!;
+    expect(buildFieldAveragedPreScheduleArtifact(faParams({ eventKey: "2023mrcmp" }))!.seed).not.toBe(base.seed);
+    expect(buildFieldAveragedPreScheduleArtifact(faParams({ algorithmVersion: "3.0.1+x" }))!.seed).not.toBe(base.seed);
+  });
+
+  it("produces an artifact for a FIVE-team roster — below the schedule-template grid's 6-team floor, which the schedule-based builder cannot serve at all", () => {
+    // The single most direct proof that this path is genuinely independent of
+    // the template grid: no filesystem access, no template lookup, no
+    // ScheduleTemplateUnavailableError. This is the coverage WIDENING the
+    // plan's must_haves names, asserted as a behaviour.
+    const roster = ["frc1", "frc2", "frc3", "frc4", "frc5"];
+    const contributions = buildFieldContributions({
+      roster,
+      rpAccumulator: accumulatorWith(roster, 3),
+      consistencyByTeam: new Map(roster.map((t) => [t, 10])),
+      teamTotals: new Map(roster.map((t, i) => [t, 40 + i])),
+    })!;
+    const artifact = buildFieldAveragedPreScheduleArtifact(faParams({ contributions }))!;
+    expect(artifact.roster).toHaveLength(5);
+    expect(artifact.perTeamPmf).toHaveLength(5);
+  });
+
+  it("never reads the filesystem: the whole build runs with no schedule-template cache access", () => {
+    // Proven positively above by the 5-team case. Proven structurally here:
+    // the module's own import surface is pinned by the case below, and this
+    // builder touches none of it.
+    const artifact = buildFieldAveragedPreScheduleArtifact(faParams())!;
+    expect(artifact.perTeamPmf.every((pmf) => pmf.every((p) => Number.isFinite(p)))).toBe(true);
+  });
+});
+
+describe("preSchedule.ts's static import surface (plan 09-09 Task 2)", () => {
+  /**
+   * A SET-EQUALITY pin on the module specifiers `preSchedule.ts` statically
+   * imports, following 08-04's `readFileSync` + regex precedent (the same
+   * shape `browserSafeSchemas.test.ts` uses to read a shipped file off disk).
+   *
+   * Written NOW, while the schedule-template import is still present and
+   * therefore still in the expected set. Plan 09-09 Task 5 updates the
+   * expected set when that import goes — which is what turns "schedule
+   * generation was deleted" into a FAILING TEST rather than a diff someone
+   * has to read.
+   */
+  const EXPECTED_IMPORT_SPECIFIERS: readonly string[] = [
+    "./pageArtifacts.js",
+    "../core/rankingPoints/fieldAveraged.js",
+    "../core/rankingPoints/empiricalMoments.js",
+    "../core/rankingPoints/constants.js",
+    "./scheduleTemplates.js",
+    "./rounding.js",
+    "../core/algorithms/simulation/rankSimulation.js",
+    "../core/algorithms/types.js",
+  ];
+
+  it("imports exactly the expected set of module specifiers, no more and no fewer", () => {
+    const source = readFileSync(new URL("./preSchedule.ts", import.meta.url), "utf8");
+    const found = new Set<string>();
+    for (const match of source.matchAll(/from\s+"([^"]+)"/g)) found.add(match[1]!);
+    expect([...found].sort()).toEqual([...EXPECTED_IMPORT_SPECIFIERS].sort());
   });
 });

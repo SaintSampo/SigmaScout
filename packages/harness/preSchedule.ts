@@ -20,7 +20,20 @@
  * SAME joint-covariance RP path real matches use, and no independence
  * approximation can exist here because no pricing math exists here.
  */
-import { PAGE_ARTIFACT_SCHEMA_VERSION, PreScheduleArtifactSchema, type PreScheduleArtifact } from "./pageArtifacts.js";
+import {
+  PAGE_ARTIFACT_SCHEMA_VERSION,
+  PreScheduleArtifactSchema,
+  FieldAveragedPreScheduleArtifactSchema,
+  type PreScheduleArtifact,
+  type FieldAveragedPreScheduleArtifact,
+} from "./pageArtifacts.js";
+import {
+  fieldAveragedMatchPmf,
+  fieldStatistics,
+  type FieldTeamContribution,
+} from "../core/rankingPoints/fieldAveraged.js";
+import type { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
+import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 import { loadScheduleTemplate } from "./scheduleTemplates.js";
 import { roundPmf } from "./rounding.js";
 import {
@@ -324,4 +337,171 @@ export function buildPreScheduleArtifact(params: PreScheduleBuildParams): PreSch
     },
   };
   return PreScheduleArtifactSchema.parse(assembled);
+}
+
+// ---------------------------------------------------------------------------
+// The FIELD-AVERAGED path (plan 09-09 rung 1; D-16, D-17)
+// ---------------------------------------------------------------------------
+
+/** Everything `buildFieldContributions` reads, each from the instant the schedule-based path already read it from. */
+export interface FieldContributionInputs {
+  readonly roster: readonly string[];
+  /** The season's walk-forward per-team RP beliefs — `SigmaScoutLayer.rpAccumulator`. */
+  readonly rpAccumulator: RpMomentsAccumulator | undefined;
+  /** `SigmaScoutLayer.consistencyByTeam()` — Sigma Score for BPR, Swing Factor otherwise. */
+  readonly consistencyByTeam: ReadonlyMap<string, number>;
+  /** `algorithm.teamMetrics(pricingState, roster)[team][TOTAL_METRIC_KEY].value`, per team. */
+  readonly teamTotals: ReadonlyMap<string, number>;
+}
+
+/**
+ * One `FieldTeamContribution` per roster team, in SORTED roster order, or
+ * `null` under the all-or-nothing roster rule.
+ *
+ * ---------------------------------------------------------------------------
+ * THE ALL-OR-NOTHING ROSTER RULE, REPRODUCED RATHER THAN RE-INVENTED
+ * ---------------------------------------------------------------------------
+ *
+ * This is `makeRankingPointFiller`'s existing rule (`packages/harness/
+ * publish.ts`), and its comment there carries the measured reason: deciding
+ * per match meant an event containing even one team without a consistency
+ * figure priced its first synthetic match and then failed on a later one,
+ * which the builder correctly treats as corruption — so it threw and took the
+ * whole publish down (measured 2026-09-09 on `2026isde4`). DECIDE ONCE FOR THE
+ * WHOLE EVENT. A `null` is the ordinary "we have not seen enough of this
+ * roster to price it" answer and the sidecar is skipped silently, matching
+ * `buildFieldAveragedPreScheduleArtifact`'s own `null` contract.
+ *
+ * The two absences have different causes and are checked separately: a team
+ * missing from `consistencyByTeam` has played too little, and a team missing
+ * from `teamTotals` is one this algorithm has never rated. Both mean the same
+ * thing here — this roster cannot be priced honestly.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY A ONE-TEAM `momentsFor` CALL IS THE RIGHT CALL AND NOT A MISUSE
+ * ---------------------------------------------------------------------------
+ *
+ * `momentsFor` undoes the even-split shrinkage by scaling the summed per-team
+ * variances by `roster.length^2 / contributing`. With `roster.length === 1`
+ * and one contributing belief that factor is EXACTLY 1, so the returned
+ * variance IS `varianceOf(belief)` and the returned mean IS `belief.mean` —
+ * the team's OWN belief, not an alliance aggregate. That single fact is what
+ * makes a per-team contribution recoverable from the existing accumulator with
+ * no new accessor.
+ *
+ * A team with no belief for a variable yields mean `0` and variance `0` — the
+ * same honest cold start the alliance path already produces — and is INCLUDED
+ * in the field as a zero rather than skipped, because a cold team really is
+ * part of the field. Dropping it would shift `meanOfVariableMeans` upward and
+ * silently narrow every band in the event.
+ */
+export function buildFieldContributions(inputs: FieldContributionInputs): FieldTeamContribution[] | null {
+  const { rpAccumulator, consistencyByTeam, teamTotals } = inputs;
+  if (rpAccumulator === undefined) return null;
+  // Sorted first, for the same determinism reason
+  // `buildFieldAveragedPreScheduleArtifact` states below.
+  const sortedRoster = [...inputs.roster].sort();
+  if (sortedRoster.length === 0) return null;
+  for (const teamKey of sortedRoster) {
+    if (!consistencyByTeam.has(teamKey)) return null;
+    if (!teamTotals.has(teamKey)) return null;
+  }
+  return sortedRoster.map((teamKey) => {
+    const own = rpAccumulator.momentsFor([teamKey], 0, 0);
+    const consistency = consistencyByTeam.get(teamKey) as number;
+    return {
+      teamKey,
+      variableMeans: own.meanVector,
+      variableVariances: own.varianceBlock.map((row, i) => row[i] ?? 0),
+      scoreMean: teamTotals.get(teamKey) as number,
+      // Squared: `allianceSwingBandVariance`'s own per-team term is
+      // `swing * swing`, so this is the identical quantity under the
+      // identical convention.
+      bandVariance: consistency * consistency,
+    };
+  });
+}
+
+export interface FieldAveragedPreScheduleBuildParams {
+  readonly eventKey: string;
+  readonly season: number;
+  /** TBA `event_type` — load-bearing, not decorative: `eventTierFor` throws for an unmapped type and the bonus thresholds are tier-dependent. */
+  readonly eventType: number;
+  readonly algorithmId: string;
+  readonly algorithmVersion: string;
+  readonly matchesPerTeam: number;
+  readonly pricedFrom: "pre-event-walk-forward" | "current-state";
+  readonly draws: number;
+  readonly generation: string;
+  readonly computedAt: string;
+  readonly ruleModule: RpRuleModule;
+  /** `buildFieldContributions`' output — already sorted, already all-or-nothing checked. The roster IS its team keys. */
+  readonly contributions: readonly FieldTeamContribution[];
+}
+
+/**
+ * Builds one event's FIELD-AVERAGED pre-schedule sidecar (plan 09-09 rung 1;
+ * D-16, D-17), or `null` when it cannot be priced.
+ *
+ * PURITY CONTRACT, STRENGTHENED: no corpus read, no R2 call, no wall-clock
+ * read — and now NOT EVEN A FILESYSTEM ACCESS. The schedule-template read was
+ * this module's one filesystem touch and this path does not have it, which is
+ * also what makes the artifact independent of the template grid's 6-100-team
+ * coverage: an event the grid cannot serve gets a sidecar here.
+ *
+ * Every value that varies between runs is either passed in (`generation`,
+ * `computedAt`) or derived from a pure hash of `eventKey`/`algorithmVersion`
+ * through this module's existing `fnv1a32` salted-seed convention. The
+ * platform's non-seedable random source never appears in this module, so
+ * republishing the same corpus twice produces byte-identical sidecars.
+ *
+ * C-04, SUCCESSION STATED EXPLICITLY. The schedule-based builder honoured C-04
+ * ("no pricing math lives in the sidecar builder") by owning no pricing math
+ * at all and calling back into the caller's bound `predict`. This one honours
+ * it by calling the SAME `analyticRpPmf` every real match runs, through
+ * `fieldAveragedMatchPmf`. The GUARANTEE is preserved and its MECHANISM
+ * changed — worth one sentence so a reader does not conclude it lapsed.
+ *
+ * The returned object has already passed
+ * `FieldAveragedPreScheduleArtifactSchema.parse` — parse, not `safeParse`, so
+ * a builder bug can never reach R2.
+ */
+export function buildFieldAveragedPreScheduleArtifact(
+  params: FieldAveragedPreScheduleBuildParams
+): FieldAveragedPreScheduleArtifact | null {
+  if (params.contributions.length === 0) return null;
+  // Sorting (rather than trusting caller order) is what makes republish
+  // determinism independent of corpus row order: this sorted array IS the
+  // published roster and defines the index space for every `perTeamPmf`
+  // entry. `buildFieldContributions` already sorts, so this re-establishes
+  // that invariant rather than trusting it.
+  const sortedRoster = params.contributions.map((c) => c.teamKey).sort();
+  const byTeam = new Map(params.contributions.map((c) => [c.teamKey, c]));
+
+  const variableNames = params.ruleModule.thresholdVariables.map((v) => v.name);
+  const stats = fieldStatistics(params.contributions, variableNames);
+  const perTeamPmf = sortedRoster.map((teamKey) =>
+    // Rounded through the same `roundPmf` as every other published pmf —
+    // identical quantity, identical `ROUNDING_RULE.pmf` precision.
+    roundPmf(fieldAveragedMatchPmf(byTeam.get(teamKey) as FieldTeamContribution, stats, params.ruleModule, params.eventType))
+  );
+
+  const seed = fnv1a32(`${params.eventKey}|${params.algorithmVersion}|fieldAveraged`);
+
+  const assembled = {
+    schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+    generation: params.generation,
+    computedAt: params.computedAt,
+    algorithmId: params.algorithmId,
+    algorithmVersion: params.algorithmVersion,
+    eventKey: params.eventKey,
+    season: params.season,
+    pricedFrom: params.pricedFrom,
+    matchesPerTeam: params.matchesPerTeam,
+    roster: sortedRoster,
+    perTeamPmf,
+    draws: params.draws,
+    seed,
+  };
+  return FieldAveragedPreScheduleArtifactSchema.parse(assembled);
 }
