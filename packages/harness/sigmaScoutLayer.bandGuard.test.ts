@@ -28,7 +28,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
-import type { UpcomingMatch } from "./replay.js";
+import type { UpcomingMatch } from "../core/algorithms/types.js";
 
 function upcomingMatch(): UpcomingMatch {
   return {

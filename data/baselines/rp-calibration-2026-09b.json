@@ -1,0 +1,725 @@
+{
+  "measuredAt": "2026-09-11T22:33:13.014Z",
+  "command": "npx tsx scripts/measureRpCalibration.ts --seasons 2016-2020,2022-2026 --emit-artifact data/baselines/rp-calibration-2026-09b.json",
+  "corpusIdentity": "data/corpus.sqlite",
+  "offseasonIncluded": true,
+  "algorithmVersions": {
+    "opr": "4.0.0+baseline",
+    "epa": "10.0.0+baseline",
+    "bpr": "3.0.0+baseline"
+  },
+  "rpLayer": "winSource=score-draw, tieModel=continuous-equality, marginal=gaussian",
+  "records": [
+    {
+      "season": 2016,
+      "algorithmId": "opr",
+      "calibration": {
+        "scoredCount": 38216,
+        "bonuses": [
+          {
+            "name": "breach",
+            "count": 19108,
+            "meanPredicted": 0.02719568969692228,
+            "observedFrequency": 0.7338287628218547,
+            "brierScore": 0.6897319163599869
+          },
+          {
+            "name": "capture",
+            "count": 19108,
+            "meanPredicted": 0.02659025133148086,
+            "observedFrequency": 0.1440757797781034,
+            "brierScore": 0.1236900514829117
+          }
+        ]
+      }
+    },
+    {
+      "season": 2016,
+      "algorithmId": "epa",
+      "calibration": {
+        "scoredCount": 38216,
+        "bonuses": [
+          {
+            "name": "breach",
+            "count": 19108,
+            "meanPredicted": 0.02719568969692228,
+            "observedFrequency": 0.7338287628218547,
+            "brierScore": 0.6897319163599869
+          },
+          {
+            "name": "capture",
+            "count": 19108,
+            "meanPredicted": 0.02659025133148086,
+            "observedFrequency": 0.1440757797781034,
+            "brierScore": 0.1236900514829117
+          }
+        ]
+      }
+    },
+    {
+      "season": 2016,
+      "algorithmId": "bpr",
+      "calibration": {
+        "scoredCount": 44316,
+        "bonuses": [
+          {
+            "name": "breach",
+            "count": 22158,
+            "meanPredicted": 0.024681018423643324,
+            "observedFrequency": 0.6998375304630382,
+            "brierScore": 0.6607056335526311
+          },
+          {
+            "name": "capture",
+            "count": 22158,
+            "meanPredicted": 0.02324460528745157,
+            "observedFrequency": 0.1298402382886542,
+            "brierScore": 0.11214237484198956
+          }
+        ]
+      }
+    },
+    {
+      "season": 2017,
+      "algorithmId": "opr",
+      "calibration": {
+        "scoredCount": 44276,
+        "bonuses": [
+          {
+            "name": "kPa",
+            "count": 22138,
+            "meanPredicted": 0.0016732262441184092,
+            "observedFrequency": 0.03351702954196405,
+            "brierScore": 0.032012512521270055
+          },
+          {
+            "name": "rotor",
+            "count": 22138,
+            "meanPredicted": 0.04716639028975454,
+            "observedFrequency": 0.09978317824555064,
+            "brierScore": 0.07721589519460292
+          }
+        ]
+      }
+    },
+    {
+      "season": 2017,
+      "algorithmId": "epa",
+      "calibration": {
+        "scoredCount": 44276,
+        "bonuses": [
+          {
+            "name": "kPa",
+            "count": 22138,
+            "meanPredicted": 0.0016732262441184092,
+            "observedFrequency": 0.03351702954196405,
+            "brierScore": 0.032012512521270055
+          },
+          {
+            "name": "rotor",
+            "count": 22138,
+            "meanPredicted": 0.04716639028975454,
+            "observedFrequency": 0.09978317824555064,
+            "brierScore": 0.07721589519460292
+          }
+        ]
+      }
+    },
+    {
+      "season": 2017,
+      "algorithmId": "bpr",
+      "calibration": {
+        "scoredCount": 50772,
+        "bonuses": [
+          {
+            "name": "kPa",
+            "count": 25386,
+            "meanPredicted": 0.001503267890568947,
+            "observedFrequency": 0.030489246041125028,
+            "brierScore": 0.029153859621407593
+          },
+          {
+            "name": "rotor",
+            "count": 25386,
+            "meanPredicted": 0.041585846786843246,
+            "observedFrequency": 0.08792247695580241,
+            "brierScore": 0.06820206056328613
+          }
+        ]
+      }
+    },
+    {
+      "season": 2018,
+      "algorithmId": "opr",
+      "calibration": {
+        "scoredCount": 49424,
+        "bonuses": [
+          {
+            "name": "autoQuest",
+            "count": 24712,
+            "meanPredicted": 0.2002833742263537,
+            "observedFrequency": 0.5247652962123664,
+            "brierScore": 0.3191518924333185
+          },
+          {
+            "name": "faceTheBoss",
+            "count": 24712,
+            "meanPredicted": 0.025837072362078262,
+            "observedFrequency": 0.09525736484299126,
+            "brierScore": 0.08463699923123527
+          }
+        ]
+      }
+    },
+    {
+      "season": 2018,
+      "algorithmId": "epa",
+      "calibration": {
+        "scoredCount": 49424,
+        "bonuses": [
+          {
+            "name": "autoQuest",
+            "count": 24712,
+            "meanPredicted": 0.2002833742263537,
+            "observedFrequency": 0.5247652962123664,
+            "brierScore": 0.3191518924333185
+          },
+          {
+            "name": "faceTheBoss",
+            "count": 24712,
+            "meanPredicted": 0.025837072362078262,
+            "observedFrequency": 0.09525736484299126,
+            "brierScore": 0.08463699923123527
+          }
+        ]
+      }
+    },
+    {
+      "season": 2018,
+      "algorithmId": "bpr",
+      "calibration": {
+        "scoredCount": 56624,
+        "bonuses": [
+          {
+            "name": "autoQuest",
+            "count": 28312,
+            "meanPredicted": 0.1801749226132841,
+            "observedFrequency": 0.4889446171234812,
+            "brierScore": 0.3055630492029325
+          },
+          {
+            "name": "faceTheBoss",
+            "count": 28312,
+            "meanPredicted": 0.022941310600018413,
+            "observedFrequency": 0.08770132805877366,
+            "brierScore": 0.07833081629397254
+          }
+        ]
+      }
+    },
+    {
+      "season": 2019,
+      "algorithmId": "opr",
+      "calibration": {
+        "scoredCount": 52348,
+        "bonuses": [
+          {
+            "name": "habDocking",
+            "count": 26174,
+            "meanPredicted": 0.27493292980392087,
+            "observedFrequency": 0.43482081454878885,
+            "brierScore": 0.2171036641355268
+          },
+          {
+            "name": "completeRocket",
+            "count": 26174,
+            "meanPredicted": 0,
+            "observedFrequency": 0.05146328417513563,
+            "brierScore": 0.05146328417513563
+          }
+        ]
+      }
+    },
+    {
+      "season": 2019,
+      "algorithmId": "epa",
+      "calibration": {
+        "scoredCount": 52348,
+        "bonuses": [
+          {
+            "name": "habDocking",
+            "count": 26174,
+            "meanPredicted": 0.27493292980392087,
+            "observedFrequency": 0.43482081454878885,
+            "brierScore": 0.2171036641355268
+          },
+          {
+            "name": "completeRocket",
+            "count": 26174,
+            "meanPredicted": 0,
+            "observedFrequency": 0.05146328417513563,
+            "brierScore": 0.05146328417513563
+          }
+        ]
+      }
+    },
+    {
+      "season": 2019,
+      "algorithmId": "bpr",
+      "calibration": {
+        "scoredCount": 59716,
+        "bonuses": [
+          {
+            "name": "habDocking",
+            "count": 29858,
+            "meanPredicted": 0.24935187715318427,
+            "observedFrequency": 0.41318909504990287,
+            "brierScore": 0.21708294174498124
+          },
+          {
+            "name": "completeRocket",
+            "count": 29858,
+            "meanPredicted": 0,
+            "observedFrequency": 0.047324000267934895,
+            "brierScore": 0.047324000267934895
+          }
+        ]
+      }
+    },
+    {
+      "season": 2020,
+      "algorithmId": "opr",
+      "calibration": {
+        "scoredCount": 6186,
+        "bonuses": [
+          {
+            "name": "shieldOperational",
+            "count": 6186,
+            "meanPredicted": 0.05219290526310012,
+            "observedFrequency": 0.16052376333656643,
+            "brierScore": 0.13910454759678648
+          }
+        ]
+      }
+    },
+    {
+      "season": 2020,
+      "algorithmId": "epa",
+      "calibration": {
+        "scoredCount": 6186,
+        "bonuses": [
+          {
+            "name": "shieldOperational",
+            "count": 6186,
+            "meanPredicted": 0.05219290526310012,
+            "observedFrequency": 0.16052376333656643,
+            "brierScore": 0.13910454759678648
+          }
+        ]
+      }
+    },
+    {
+      "season": 2020,
+      "algorithmId": "bpr",
+      "calibration": {
+        "scoredCount": 7640,
+        "bonuses": [
+          {
+            "name": "shieldOperational",
+            "count": 7640,
+            "meanPredicted": 0.04302945816753733,
+            "observedFrequency": 0.14646596858638744,
+            "brierScore": 0.12944987543736597
+          }
+        ]
+      }
+    },
+    {
+      "season": 2022,
+      "algorithmId": "opr",
+      "calibration": {
+        "scoredCount": 42072,
+        "bonuses": [
+          {
+            "name": "cargoBonus",
+            "count": 21036,
+            "meanPredicted": 0.24526868088981277,
+            "observedFrequency": 0.365135957406351,
+            "brierScore": 0.16936846927342197
+          },
+          {
+            "name": "hangarBonus",
+            "count": 21036,
+            "meanPredicted": 0.38329383078768964,
+            "observedFrequency": 0.45930785320403117,
+            "brierScore": 0.19452734211967793
+          }
+        ]
+      }
+    },
+    {
+      "season": 2022,
+      "algorithmId": "epa",
+      "calibration": {
+        "scoredCount": 42072,
+        "bonuses": [
+          {
+            "name": "cargoBonus",
+            "count": 21036,
+            "meanPredicted": 0.24526868088981277,
+            "observedFrequency": 0.365135957406351,
+            "brierScore": 0.16936846927342197
+          },
+          {
+            "name": "hangarBonus",
+            "count": 21036,
+            "meanPredicted": 0.38329383078768964,
+            "observedFrequency": 0.45930785320403117,
+            "brierScore": 0.19452734211967793
+          }
+        ]
+      }
+    },
+    {
+      "season": 2022,
+      "algorithmId": "bpr",
+      "calibration": {
+        "scoredCount": 48256,
+        "bonuses": [
+          {
+            "name": "cargoBonus",
+            "count": 24128,
+            "meanPredicted": 0.2205848916425879,
+            "observedFrequency": 0.3399370026525199,
+            "brierScore": 0.16553141787011183
+          },
+          {
+            "name": "hangarBonus",
+            "count": 24128,
+            "meanPredicted": 0.3523129909692915,
+            "observedFrequency": 0.4368368700265252,
+            "brierScore": 0.19697362437157817
+          }
+        ]
+      }
+    },
+    {
+      "season": 2023,
+      "algorithmId": "opr",
+      "calibration": {
+        "scoredCount": 47588,
+        "bonuses": [
+          {
+            "name": "activationBonus",
+            "count": 23794,
+            "meanPredicted": 0.44762520339484696,
+            "observedFrequency": 0.5875851054887787,
+            "brierScore": 0.23209061284396756
+          },
+          {
+            "name": "sustainabilityBonus",
+            "count": 23794,
+            "meanPredicted": 0.05385947569327908,
+            "observedFrequency": 0.26426830293351267,
+            "brierScore": 0.20201108739413184
+          }
+        ]
+      }
+    },
+    {
+      "season": 2023,
+      "algorithmId": "epa",
+      "calibration": {
+        "scoredCount": 47588,
+        "bonuses": [
+          {
+            "name": "activationBonus",
+            "count": 23794,
+            "meanPredicted": 0.44762520339484696,
+            "observedFrequency": 0.5875851054887787,
+            "brierScore": 0.23209061284396756
+          },
+          {
+            "name": "sustainabilityBonus",
+            "count": 23794,
+            "meanPredicted": 0.05385947569327908,
+            "observedFrequency": 0.26426830293351267,
+            "brierScore": 0.20201108739413184
+          }
+        ]
+      }
+    },
+    {
+      "season": 2023,
+      "algorithmId": "bpr",
+      "calibration": {
+        "scoredCount": 54232,
+        "bonuses": [
+          {
+            "name": "activationBonus",
+            "count": 27116,
+            "meanPredicted": 0.41419589159677317,
+            "observedFrequency": 0.5654595073019619,
+            "brierScore": 0.2404914207090841
+          },
+          {
+            "name": "sustainabilityBonus",
+            "count": 27116,
+            "meanPredicted": 0.0477899900531003,
+            "observedFrequency": 0.24295618822835227,
+            "brierScore": 0.1879053622644637
+          }
+        ]
+      }
+    },
+    {
+      "season": 2024,
+      "algorithmId": "opr",
+      "calibration": {
+        "scoredCount": 49588,
+        "bonuses": [
+          {
+            "name": "melodyBonus",
+            "count": 24794,
+            "meanPredicted": 0.17695479924598945,
+            "observedFrequency": 0.4106638702911995,
+            "brierScore": 0.24625991689320095
+          },
+          {
+            "name": "ensembleBonus",
+            "count": 24794,
+            "meanPredicted": 0.014331856090227416,
+            "observedFrequency": 0.11740743728321368,
+            "brierScore": 0.10681644098200671
+          }
+        ]
+      }
+    },
+    {
+      "season": 2024,
+      "algorithmId": "epa",
+      "calibration": {
+        "scoredCount": 49588,
+        "bonuses": [
+          {
+            "name": "melodyBonus",
+            "count": 24794,
+            "meanPredicted": 0.17695479924598945,
+            "observedFrequency": 0.4106638702911995,
+            "brierScore": 0.24625991689320095
+          },
+          {
+            "name": "ensembleBonus",
+            "count": 24794,
+            "meanPredicted": 0.014331856090227416,
+            "observedFrequency": 0.11740743728321368,
+            "brierScore": 0.10681644098200671
+          }
+        ]
+      }
+    },
+    {
+      "season": 2024,
+      "algorithmId": "bpr",
+      "calibration": {
+        "scoredCount": 56564,
+        "bonuses": [
+          {
+            "name": "melodyBonus",
+            "count": 28282,
+            "meanPredicted": 0.16130275979201372,
+            "observedFrequency": 0.3886570963863942,
+            "brierScore": 0.2398488902914176
+          },
+          {
+            "name": "ensembleBonus",
+            "count": 28282,
+            "meanPredicted": 0.012711648639517016,
+            "observedFrequency": 0.10946892016123329,
+            "brierScore": 0.10011063361323906
+          }
+        ]
+      }
+    },
+    {
+      "season": 2025,
+      "algorithmId": "opr",
+      "calibration": {
+        "scoredCount": 77934,
+        "bonuses": [
+          {
+            "name": "autoBonus",
+            "count": 25978,
+            "meanPredicted": 0.19589877654412188,
+            "observedFrequency": 0.6594041111709908,
+            "brierScore": 0.40438665139428925
+          },
+          {
+            "name": "coralBonus",
+            "count": 25978,
+            "meanPredicted": 0.008144169438843343,
+            "observedFrequency": 0.19104626992070214,
+            "brierScore": 0.18190267149264736
+          },
+          {
+            "name": "bargeBonus",
+            "count": 25978,
+            "meanPredicted": 0.2486390754619153,
+            "observedFrequency": 0.45904226653322044,
+            "brierScore": 0.23817754949456604
+          }
+        ]
+      }
+    },
+    {
+      "season": 2025,
+      "algorithmId": "epa",
+      "calibration": {
+        "scoredCount": 77934,
+        "bonuses": [
+          {
+            "name": "autoBonus",
+            "count": 25978,
+            "meanPredicted": 0.19589877654412188,
+            "observedFrequency": 0.6594041111709908,
+            "brierScore": 0.40438665139428925
+          },
+          {
+            "name": "coralBonus",
+            "count": 25978,
+            "meanPredicted": 0.008144169438843343,
+            "observedFrequency": 0.19104626992070214,
+            "brierScore": 0.18190267149264736
+          },
+          {
+            "name": "bargeBonus",
+            "count": 25978,
+            "meanPredicted": 0.2486390754619153,
+            "observedFrequency": 0.45904226653322044,
+            "brierScore": 0.23817754949456604
+          }
+        ]
+      }
+    },
+    {
+      "season": 2025,
+      "algorithmId": "bpr",
+      "calibration": {
+        "scoredCount": 88926,
+        "bonuses": [
+          {
+            "name": "autoBonus",
+            "count": 29642,
+            "meanPredicted": 0.178992995591197,
+            "observedFrequency": 0.6254638688347615,
+            "brierScore": 0.3958551464209553
+          },
+          {
+            "name": "coralBonus",
+            "count": 29642,
+            "meanPredicted": 0.007206182796311908,
+            "observedFrequency": 0.17687740368396196,
+            "brierScore": 0.16879795672705558
+          },
+          {
+            "name": "bargeBonus",
+            "count": 29642,
+            "meanPredicted": 0.22789116823837616,
+            "observedFrequency": 0.44008501450644355,
+            "brierScore": 0.2392828357882487
+          }
+        ]
+      }
+    },
+    {
+      "season": 2026,
+      "algorithmId": "opr",
+      "calibration": {
+        "scoredCount": 80370,
+        "bonuses": [
+          {
+            "name": "energized",
+            "count": 26790,
+            "meanPredicted": 0.5783964746906474,
+            "observedFrequency": 0.5912653975363942,
+            "brierScore": 0.1863350605836428
+          },
+          {
+            "name": "supercharged",
+            "count": 26790,
+            "meanPredicted": 0.04563056380361864,
+            "observedFrequency": 0.08861515490854796,
+            "brierScore": 0.06367206946229109
+          },
+          {
+            "name": "traversal",
+            "count": 26790,
+            "meanPredicted": 0.00005188225414507146,
+            "observedFrequency": 0.0012318029115341545,
+            "brierScore": 0.0012276494117543044
+          }
+        ]
+      }
+    },
+    {
+      "season": 2026,
+      "algorithmId": "epa",
+      "calibration": {
+        "scoredCount": 80370,
+        "bonuses": [
+          {
+            "name": "energized",
+            "count": 26790,
+            "meanPredicted": 0.5783964746906474,
+            "observedFrequency": 0.5912653975363942,
+            "brierScore": 0.1863350605836428
+          },
+          {
+            "name": "supercharged",
+            "count": 26790,
+            "meanPredicted": 0.04563056380361864,
+            "observedFrequency": 0.08861515490854796,
+            "brierScore": 0.06367206946229109
+          },
+          {
+            "name": "traversal",
+            "count": 26790,
+            "meanPredicted": 0.00005188225414507146,
+            "observedFrequency": 0.0012318029115341545,
+            "brierScore": 0.0012276494117543044
+          }
+        ]
+      }
+    },
+    {
+      "season": 2026,
+      "algorithmId": "bpr",
+      "calibration": {
+        "scoredCount": 91146,
+        "bonuses": [
+          {
+            "name": "energized",
+            "count": 30382,
+            "meanPredicted": 0.5519859666374366,
+            "observedFrequency": 0.5767559739319333,
+            "brierScore": 0.1974110845671002
+          },
+          {
+            "name": "supercharged",
+            "count": 30382,
+            "meanPredicted": 0.04070730222817449,
+            "observedFrequency": 0.08106773747613719,
+            "brierScore": 0.058846294291334346
+          },
+          {
+            "name": "traversal",
+            "count": 30382,
+            "meanPredicted": 0.00004716490745315871,
+            "observedFrequency": 0.0012178263445461128,
+            "brierScore": 0.001214067901612904
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -240,6 +240,19 @@ const LEVEL1_DIGEST_BASELINE_FILE = "level1-digest-2026-09.json";
  */
 const RP_ATTRIBUTION_BASELINE_FILE = "rp-attribution-2026-09.json";
 
+/**
+ * NOT A FINGERPRINT. The RP calibration RE-MEASUREMENT emitted from the
+ * collapsed single-path code once plan 09-06's bar had refused all three
+ * candidate model changes, and the file `RP_CALIBRATION_MEASUREMENT_PATH` now
+ * points at.
+ *
+ * It sits BESIDE `RP_CALIBRATION_BASELINE_FILE` rather than replacing it, on
+ * this directory's standing rule that a re-measurement gets a new dated
+ * filename: the `-09` file is the frozen pre-phase instrument and overwriting
+ * it would turn a real before/after into a single moving number.
+ */
+const RP_CALIBRATION_2026_09B_FILE = "rp-calibration-2026-09b.json";
+
 describe("committed baseline fingerprints", () => {
   it("every .json file under data/baselines/ parses against BaselineFingerprintSchema", () => {
     const files = readdirSync(BASELINES_DIR).filter(
@@ -248,7 +261,8 @@ describe("committed baseline fingerprints", () => {
         name !== EPA_VS_STATBOTICS_BASELINE_FILE &&
         name !== RP_CALIBRATION_BASELINE_FILE &&
         name !== LEVEL1_DIGEST_BASELINE_FILE &&
-        name !== RP_ATTRIBUTION_BASELINE_FILE
+        name !== RP_ATTRIBUTION_BASELINE_FILE &&
+        name !== RP_CALIBRATION_2026_09B_FILE
     );
     expect(files.length).toBeGreaterThanOrEqual(2);
     for (const file of files) {
@@ -383,7 +397,8 @@ describe("committed baseline fingerprints", () => {
         name !== EPA_VS_STATBOTICS_BASELINE_FILE &&
         name !== RP_CALIBRATION_BASELINE_FILE &&
         name !== LEVEL1_DIGEST_BASELINE_FILE &&
-        name !== RP_ATTRIBUTION_BASELINE_FILE
+        name !== RP_ATTRIBUTION_BASELINE_FILE &&
+        name !== RP_CALIBRATION_2026_09B_FILE
     );
     expect(files.length).toBeGreaterThanOrEqual(2);
     for (const file of files) {
@@ -442,7 +457,7 @@ describe("committed baseline fingerprints", () => {
     expect(sigma1Adapt?.version).toBe("2.0.0+tune-joint-on-winner");
   });
 
-  it("data/baselines/ contains exactly 10 committed baseline files: two retired-implementation fingerprints, the event-scoped re-run, the offseason-inclusive SC-3 re-measurement, both rolling-origin SC-3 re-measurements, the SC-2 EPA-vs-Statbotics tolerance baseline, and phase 09's RP calibration, level-1 digest and RP attribution baselines", () => {
+  it("data/baselines/ contains exactly 11 committed baseline files: two retired-implementation fingerprints, the event-scoped re-run, the offseason-inclusive SC-3 re-measurement, both rolling-origin SC-3 re-measurements, the SC-2 EPA-vs-Statbotics tolerance baseline, and phase 09's RP calibration (pre-phase and post-collapse), level-1 digest and RP attribution baselines", () => {
     // The fingerprint count only ever goes UP. Each fingerprint records what
     // one completed run measured under the versions of its day, so a later
     // re-measurement is added alongside its predecessor, never in place of
@@ -455,9 +470,11 @@ describe("committed baseline fingerprints", () => {
     // (D-12's level-1 byte-identity gate) — both counted here too. Plan 09-06
     // (2026-09-11) added a third, `RP_ATTRIBUTION_BASELINE_FILE`: the
     // eight-arm measurement whose pre-committed bar decided that none of the
-    // three candidate RP model changes would ship.
+    // three candidate RP model changes would ship — and a fourth,
+    // `RP_CALIBRATION_2026_09B_FILE`, the calibration re-emitted from the
+    // collapsed code once that decision was carried out.
     const files = readdirSync(BASELINES_DIR).filter((name) => name.endsWith(".json"));
-    expect(files).toHaveLength(10);
+    expect(files).toHaveLength(11);
     expect(files).toContain(EVENT_SCOPED_FINGERPRINT_FILE);
     expect(files).toContain(OFFSEASON_INCLUSIVE_FINGERPRINT_FILE);
     expect(files).toContain(ROLLING_ORIGIN_FINGERPRINT_FILE);
@@ -466,6 +483,7 @@ describe("committed baseline fingerprints", () => {
     expect(files).toContain(RP_CALIBRATION_BASELINE_FILE);
     expect(files).toContain(LEVEL1_DIGEST_BASELINE_FILE);
     expect(files).toContain(RP_ATTRIBUTION_BASELINE_FILE);
+    expect(files).toContain(RP_CALIBRATION_2026_09B_FILE);
   });
 
   /**

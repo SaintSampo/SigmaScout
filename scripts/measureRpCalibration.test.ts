@@ -33,12 +33,14 @@ import type { AlgorithmModule, MatchResult } from "../packages/core/algorithms/t
 import { WalkForwardSimulator } from "../packages/harness/replay.js";
 import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
+import { RpCalibrationMeasurementSchema } from "../packages/harness/publish.js";
 import {
   buildRpAttributionDigest,
   buildRpCalibrationRecord,
   RP_DOT_THRESHOLD_DEFAULT,
   RP_RELIABILITY_BUCKET_EDGES,
   RpAttributionRecordSchema,
+  SHIPPED_RP_LAYER_LABEL,
   type Observation,
 } from "./measureRpCalibration.js";
 
@@ -332,5 +334,73 @@ describe("docs/models/rp-attribution.md cannot drift off the record it describes
     const mentionsYear = (text: string, year: number): boolean => new RegExp(`\b${year}\b`).test(text);
     for (const s of record.reportingSlice.seasons) expect(mentionsYear(selection, s), `selection section mentions reporting season ${s}`).toBe(false);
     for (const s of record.selectionSlice.seasons) expect(mentionsYear(reporting, s), `reporting section mentions selection season ${s}`).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE COLLAPSE WAS A REFACTOR, AND THIS IS THE PROOF (09-06 Task 4, D-06)
+// ---------------------------------------------------------------------------
+
+describe("data/baselines/rp-calibration-2026-09b.json — re-emitted from the collapsed single-path code", () => {
+  const REEMITTED = RpCalibrationMeasurementSchema.parse(
+    JSON.parse(readFileSync(new URL("../data/baselines/rp-calibration-2026-09b.json", import.meta.url), "utf8"))
+  );
+
+  it("is per-bonus EXACTLY equal to the chosen arm's pre-collapse figures — `===`, never a tolerance", () => {
+    // A tolerance would hide precisely the deletion this gate exists to catch:
+    // a branch removed that was still doing something would move a figure by a
+    // small amount, and "close enough" would wave it through. If any figure
+    // moves, the right response is to find the branch, NOT to widen the
+    // comparison or regenerate either file until they agree.
+    const record = RpAttributionRecordSchema.parse(ATTRIBUTION_RAW);
+    const chosenArm = record.decision.acceptedFields.length === 0 ? "control" : "";
+    expect(chosenArm, "the chosen arm must be identifiable from the committed decision").not.toBe("");
+
+    const preCollapse = new Map(
+      record.reportingSlice.cells
+        .filter((c) => c.arm === chosenArm && c.count > 0)
+        .map((c) => [`${c.algorithmId}|${c.season}|${c.bonusName}`, c])
+    );
+
+    let compared = 0;
+    for (const rec of REEMITTED.records) {
+      if (!record.reportingSlice.seasons.includes(rec.season)) continue;
+      for (const bonus of rec.calibration.bonuses) {
+        const key = `${rec.algorithmId}|${rec.season}|${bonus.name}`;
+        const before = preCollapse.get(key);
+        expect(before, `no pre-collapse cell for ${key}`).toBeDefined();
+        expect(bonus.count, `count moved for ${key}`).toBe(before!.count);
+        expect(bonus.meanPredicted, `meanPredicted moved for ${key}`).toBe(before!.meanPredicted);
+        expect(bonus.observedFrequency, `observedFrequency moved for ${key}`).toBe(before!.observedFrequency);
+        expect(bonus.brierScore, `brierScore moved for ${key}`).toBe(before!.brierScore);
+        compared++;
+      }
+    }
+    // The derived census, not a hardcoded 30: a newly-registered season must
+    // widen this gate rather than slip past it.
+    const bonusTotal = record.reportingSlice.seasons.reduce((sum, s) => sum + RP_RULE_MODULES[s]!.bonusNames.length, 0);
+    expect(compared).toBe(bonusTotal * PUBLISHED_ALGORITHM_IDS.length);
+  });
+
+  it("covers the full cross product of registered seasons and published algorithms — the same equality pin 09-01 used, re-asserted against the new file", () => {
+    const expected = new Set<string>();
+    for (const season of Object.keys(RP_RULE_MODULES).map(Number)) {
+      for (const algorithmId of PUBLISHED_ALGORITHM_IDS) expected.add(`${season}|${algorithmId}`);
+    }
+    expect(new Set(REEMITTED.records.map((r) => `${r.season}|${r.algorithmId}`))).toEqual(expected);
+  });
+
+  it("records the shipped combination as a LABEL, now that the config object that described it is gone (D-05 after D-06)", () => {
+    expect(REEMITTED.rpLayer).toBe(SHIPPED_RP_LAYER_LABEL);
+  });
+
+  it("09-01's frozen pre-phase measurement is untouched — a re-measurement gets a NEW dated filename so before/after stays a real comparison", () => {
+    const frozen = JSON.parse(
+      readFileSync(new URL("../data/baselines/rp-calibration-2026-09.json", import.meta.url), "utf8")
+    ) as { rpLayer?: string; records: unknown[] };
+    // The frozen file predates the label entirely, which is exactly why the
+    // schema's new field is optional.
+    expect(frozen.rpLayer).toBeUndefined();
+    expect(frozen.records.length).toBeGreaterThan(0);
   });
 });

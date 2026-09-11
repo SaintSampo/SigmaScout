@@ -1548,7 +1548,19 @@ void _rpCalibrationSchemaMatchesWireType;
  * NEW dated file and repoints this default rather than overwriting this one
  * (`must_haves.prohibitions`: never edit a committed baseline in place).
  */
-export const RP_CALIBRATION_MEASUREMENT_PATH = "data/baselines/rp-calibration-2026-09.json";
+/**
+ * REPOINTED 2026-09-11 (plan 09-06) at the `-09b` re-measurement, emitted from
+ * the COLLAPSED single-path code after the pre-committed bar refused all three
+ * candidate RP model changes.
+ *
+ * The `-09` file it replaced is NOT edited and NOT deleted: it is 09-01's
+ * frozen pre-phase instrument, captured before 09-04 replaced the Monte Carlo,
+ * and a re-measurement gets a new dated filename so before/after stays a real
+ * comparison rather than a file that was quietly overwritten. A test asserts
+ * the new file is per-bonus `===` equal to the chosen arm's pre-collapse
+ * figures, which is the proof that the deletion pass was a refactor.
+ */
+export const RP_CALIBRATION_MEASUREMENT_PATH = "data/baselines/rp-calibration-2026-09b.json";
 
 /**
  * A committed, self-describing measurement of every registered season's
@@ -1563,6 +1575,26 @@ export const RpCalibrationMeasurementSchema = z.object({
   corpusIdentity: z.string().min(1),
   offseasonIncluded: z.boolean(),
   algorithmVersions: z.record(z.string(), z.string()),
+  /**
+   * D-05 AFTER D-06: the shipped RP layer combination, in words.
+   *
+   * D-05 required the shipped combination to be recorded in the published
+   * artifact and self-describing after the fact; D-06 then deleted the config
+   * object that described it. These are sequential, not contradictory, and
+   * this OPTIONAL field is the seam: once there is no config to record, the
+   * record is a LABEL, and it lives in the committed measurement's own header
+   * rather than on the wire.
+   *
+   * Written by `scripts/measureRpCalibration.ts`'s emitter, READ BY NOTHING,
+   * and costing ZERO WIRE BYTES — `buildCompareArtifact` attaches per-slice
+   * `calibration` records and never the measurement's header. That matters:
+   * 09-01 measured the `compare` page kind at 14,088 bytes against a
+   * 20,000-byte ceiling, and the remedy for an overrun on this project is to
+   * shrink the block, never to raise the budget.
+   *
+   * Optional so every measurement emitted before the collapse still parses.
+   */
+  rpLayer: z.string().min(1).optional(),
   records: z.array(
     z.object({
       season: z.number().int(),
