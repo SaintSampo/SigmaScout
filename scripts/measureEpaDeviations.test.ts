@@ -44,11 +44,15 @@ import { EPA_FALLBACK_SCORE_SD, EPA_K, EPA_SCORE_SD_SEED_COUNT } from "../packag
 // what this file still asserts ABOUT them: that the arm threads its own
 // threshold into `cleanSeasonMean`.
 import { EPA_CARRY_RESCALE_MIN_OBS } from "../packages/core/algorithms/epaCarryScale.js";
+import { componentMapForSeason, type SeasonComponentMap } from "../packages/core/algorithms/breakdown/index.js";
+import { epa, type EpaState } from "../packages/core/algorithms/epa.js";
+import type { AlgorithmModule, CompLevel, MatchResult } from "../packages/core/algorithms/types.js";
 import {
   ARM_IDS,
   armRegister,
   BASELINE_ARM_ID,
   buildArtifact,
+  componentMapArm,
   contrastFor,
   deviationRegister,
   emptyAblationCensus,
@@ -420,5 +424,222 @@ describe("the threshold decision survives as literal data after its arms were de
 
   it("keeps the schema version, because a consumer must read baselineArmId", () => {
     expect(SCHEMA_VERSION).toBe(2);
+  });
+});
+
+// ───────────────── the component-map seam (quick task 260911-gfe) ─────────
+//
+// `componentMapArm` is registered in NO arm today, on purpose: no season has a
+// faithful Statbotics partition to toggle against (see
+// `docs/models/statbotics-breakdown-reference.md` section 8). What is tested
+// here is that the machinery is correct ANYWAY, so the day a season does have
+// one, registering the arm is a one-line addition rather than a re-derivation
+// of this whole question.
+//
+// The failure this guards against is specific and silent. `AlgorithmModule`'s
+// declared `update`/`carrySeason` take two parameters. If `componentMapArm`
+// spread an `AlgorithmModule`-typed reference instead of the concrete `epa`
+// export, the override map would be dropped at the call, the arm would replay
+// identically to the baseline, and the harness would report a delta of exactly
+// zero — which a reader would take as "the component map does not matter"
+// rather than "the arm never ran".
+
+describe("componentMapArm — inert when handed the season's own map", () => {
+  const ARM_TEAMS = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
+
+  function armBreakdownJson(red: number, blue: number): string {
+    const side = (auto: number) => ({
+      autoLeavePoints: auto,
+      autoAmpNotePoints: 0,
+      autoSpeakerNotePoints: 0,
+      teleopAmpNotePoints: 0,
+      teleopSpeakerNotePoints: auto * 2,
+      teleopSpeakerNoteAmplifiedPoints: 0,
+      endGameOnStagePoints: auto,
+      endGameParkPoints: 0,
+      endGameHarmonyPoints: 0,
+      endGameNoteInTrapPoints: 0,
+      endGameSpotLightBonusPoints: 0,
+      adjustPoints: 0,
+      foulPoints: 0,
+    });
+    return JSON.stringify({ red: side(red), blue: side(blue) });
+  }
+
+  function armStream(): MatchResult[] {
+    return Array.from({ length: 12 }, (_, i) => {
+      const red = 4 + (i % 5);
+      const blue = 3 + (i % 4);
+      return {
+        matchKey: `2024arm_qm${i + 1}`,
+        eventKey: "2024arm",
+        compLevel: (i === 10 ? "sf" : "qm") as CompLevel,
+        setNumber: 1,
+        matchNumber: i + 1,
+        redTeams: [ARM_TEAMS[i % 3]!, ARM_TEAMS[(i + 1) % 3]!, ARM_TEAMS[(i + 2) % 3]!],
+        blueTeams: [ARM_TEAMS[3 + (i % 3)]!, ARM_TEAMS[3 + ((i + 1) % 3)]!, ARM_TEAMS[3 + ((i + 2) % 3)]!],
+        redSurrogates: [],
+        blueSurrogates: [],
+        eventType: 0,
+        winner: (red * 4 >= blue * 4 ? "red" : "blue") as "red" | "blue",
+        redScore: red * 4,
+        blueScore: blue * 4,
+        redRpEarned: 2,
+        blueRpEarned: 0,
+        redDqs: [],
+        blueDqs: [],
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: armBreakdownJson(red, blue),
+      };
+    });
+  }
+
+  /** Every field of the state, sorted, with a loud throw on any non-finite value. */
+  function digest(state: EpaState): string {
+    const components = [...state.teamComponents.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([team, record]) => [
+        team,
+        Object.keys(record)
+          .sort()
+          .map((name) => [name, finiteOrThrow(record[name]!, `componentMapArm digest ${team}.${name}`)]),
+      ]);
+    return JSON.stringify({
+      season: state.season,
+      components,
+      counts: [...state.teamMatchCounts.entries()].sort(([a], [b]) => a.localeCompare(b)),
+      stats: state.allianceScoreStats,
+      carrySeedMean: Number.isNaN(state.carrySeedMean) ? "NaN" : state.carrySeedMean,
+      carryPending: [...state.carryPending].sort(),
+      breakdownParseFailureCount: state.breakdownParseFailureCount,
+    });
+  }
+
+  /**
+   * BOTH states, and the played one is the load-bearing half.
+   *
+   * `carrySeason` sums EVERY component into one carried total and redistributes
+   * it across the incoming season's components, so the carried state is
+   * PARTITION-INVARIANT by construction: two arms that disagree violently
+   * within a season produce byte-identical states the moment a boundary is
+   * crossed. A liveness check that looked only after the boundary would
+   * therefore pass for an arm that dropped its map entirely. This is not a
+   * hypothetical — it is what the first version of this test did.
+   */
+  function replay(module: AlgorithmModule<EpaState>): { played: EpaState; carried: EpaState } {
+    let played = module.initState(ARM_TEAMS);
+    for (const result of armStream()) played = module.update(played, result);
+    return {
+      played,
+      carried: module.carrySeason!(played, { fromSeason: 2024, toSeason: 2025, isColdStart: false }),
+    };
+  }
+
+  function bothDigests(module: AlgorithmModule<EpaState>): string {
+    const { played, carried } = replay(module);
+    return `${digest(played)}
+${digest(carried)}`;
+  }
+
+  it("an arm handed componentMapForSeason(season) is state-identical to the baseline", () => {
+    const arm = componentMapArm("epa-componentmap-identity", (season) => componentMapForSeason(season));
+    expect(bothDigests(arm)).toBe(bothDigests(epa));
+  });
+
+  it("an arm whose mapForSeason returns undefined falls through to the shipped map", () => {
+    const arm = componentMapArm("epa-componentmap-undefined", () => undefined);
+    expect(bothDigests(arm)).toBe(bothDigests(epa));
+  });
+
+  it("the override REACHES the module — a different map produces a different state", () => {
+    // Without this case the two above would also pass for an arm that dropped
+    // the map at the call, which is the whole failure mode being guarded.
+    const coarse: SeasonComponentMap = {
+      components: ["noFoulTotal", "adjust", "foulsCommitted"],
+      parse(raw: unknown, side: "red" | "blue") {
+        const full = componentMapForSeason(2024).parse(raw, side);
+        const out: Record<string, number> = Object.create(null) as Record<string, number>;
+        let total = 0;
+        for (const [name, value] of Object.entries(full)) {
+          if (name === "adjust" || name === "foulsCommitted") continue;
+          total += value;
+        }
+        out.noFoulTotal = total;
+        out.adjust = full.adjust ?? 0;
+        out.foulsCommitted = full.foulsCommitted ?? 0;
+        return out;
+      },
+    };
+    const arm = componentMapArm("epa-componentmap-coarse", (season) => (season === 2024 ? coarse : undefined));
+    expect(digest(replay(arm).played)).not.toBe(digest(replay(epa).played));
+    // The component NAMES really did change, so this is the map taking effect
+    // rather than some unrelated numeric drift.
+    expect(Object.keys(replay(arm).played.teamComponents.get("frc1") ?? {}).sort()).toEqual([
+      "adjust",
+      "foulsCommitted",
+      "noFoulTotal",
+    ]);
+  });
+
+  it("and the carried state is NOT where to look: carrySeason sums the partition away", () => {
+    // Recorded as an assertion rather than a comment because it is the reason
+    // the liveness case above compares the PLAYED state. carrySeason folds every
+    // component into one total, so any two partitions of the same score cross a
+    // boundary identically. A future reader who moves the liveness check after
+    // the boundary will fail here and read why.
+    const coarse: SeasonComponentMap = {
+      components: ["noFoulTotal", "adjust", "foulsCommitted"],
+      parse(raw: unknown, side: "red" | "blue") {
+        const full = componentMapForSeason(2024).parse(raw, side);
+        const out: Record<string, number> = Object.create(null) as Record<string, number>;
+        let total = 0;
+        for (const [name, value] of Object.entries(full)) {
+          if (name === "adjust" || name === "foulsCommitted") continue;
+          total += value;
+        }
+        out.noFoulTotal = total;
+        out.adjust = full.adjust ?? 0;
+        out.foulsCommitted = full.foulsCommitted ?? 0;
+        return out;
+      },
+    };
+    const arm = componentMapArm("epa-componentmap-coarse", (season) => (season === 2024 ? coarse : undefined));
+    expect(digest(replay(arm).carried)).toBe(digest(replay(epa).carried));
+  });
+
+  it("names its own version, so an artifact can never attribute its rows to the shipped module", () => {
+    const arm = componentMapArm("epa-componentmap-identity", (season) => componentMapForSeason(season));
+    expect(arm.version).toBe(`${epa.version.split("+")[0]}+epa-componentmap-identity`);
+    expect(arm.version).not.toBe(epa.version);
+  });
+});
+
+describe("the component-map deviation no longer blames a missing seam", () => {
+  it("names the real blocker, and is no longer unmeasurable-in-this-harness", () => {
+    const entry = deviationRegister().find((d) => d.id === "component-map")!;
+    // The seam exists (commit b62c3655). A register that still called it the
+    // blocker would send the next reader to build something that is already
+    // there. Pinned with the EXACT predicate the plan's artifact check runs, so
+    // the two can never drift and disagree about what counts as fixed.
+    expect(entry.reason).not.toMatch(/injection point|injection seam/i);
+    expect(entry.reason).toMatch(/b62c3655/);
+    expect(entry.status).toBe("unmeasurable-no-reference");
+  });
+
+  it("does not attribute this project's own four-way grouping to Statbotics", () => {
+    const entry = deviationRegister().find((d) => d.id === "component-map")!;
+    const labels = entry.priorMeasurement!.values.map((v) => v.label);
+    // The 0.7461 measurement is REAL and stays. Only its attribution was wrong.
+    const relabelled = entry.priorMeasurement!.values.find((v) => v.value === 0.7461)!;
+    expect(relabelled).toBeTruthy();
+    expect(relabelled.label).toMatch(/THIS PROJECT/);
+    expect(labels).not.toContain("Statbotics' comp partition");
+  });
+
+  it("registers no component-map arm, and says so rather than leaving it ambiguous", () => {
+    const entry = deviationRegister().find((d) => d.id === "component-map")!;
+    expect(entry.armIds).toEqual([]);
+    expect(entry.reason).toMatch(/statbotics-breakdown-reference/);
+    expect([...ARM_IDS]).not.toContain("epa-componentmap-identity");
   });
 });

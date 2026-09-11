@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-11T07:52:26.330Z",
+  "generatedAt": "2026-09-11T16:31:12.921Z",
   "generator": "scripts/measureEpaDeviations.ts (pnpm measure:epa-deviations)",
   "corpusPath": "data/corpus.sqlite",
   "seasons": [
@@ -153,14 +153,14 @@
     },
     {
       "id": "component-map",
-      "title": "This project's own per-season component maps, not Statbotics' all_keys[year] grouping",
+      "title": "This project's own per-season component maps, and Statbotics has no partition to compare them to",
       "class": "rating-mechanics",
-      "status": "unmeasurable-in-this-harness",
+      "status": "unmeasurable-no-reference",
       "shippable": null,
       "predictionAffecting": true,
       "docSection": "§6",
-      "summary": "breakdown/{2016..2026}.ts are independently derived per-season component maps with their own granularity choices. 2024's was re-measured and coarsened to phase groups by quick task 260910-5ym.",
-      "reason": "epa.ts's update() and carrySeason() call componentMapForSeason(season) DIRECTLY; there is no injection point, so a scripts/ wrapper cannot intercept it — the wrapper sees only the state before and after, never the map the update used. The missing seam is an optional component-map parameter threaded through update() and carrySeason(), which is a packages/ change and therefore stage-2 work, not something this measurement-only task may make.",
+      "summary": "breakdown/{2016..2026}.ts are independently derived per-season component maps with their own granularity choices. 2024's was re-measured and coarsened to phase groups by quick task 260910-5ym. What this entry used to call a difference in GROUPING turns out to be a difference in KIND: SigmaScout rates several components and sums them, Statbotics rates one quantity per season and predicts from it directly.",
+      "reason": "THE MISSING SEAM NOW EXISTS — commit b62c3655 (quick task 260911-gfe) added an optional component-map parameter to epa.update() and epa.carrySeason(), inert at its default and proven so by a replay test, and componentMapArm() in this file builds an arm on it. The blocker MOVED rather than closed: there is nothing to point the arm at. Statbotics' all_keys[year] is a rated-quantity LIST, not a partition — it carries no_foul_points beside the auto/teleop/endgame keys it is the sum of, its comp_0..comp_9 are sub-elements WITHIN those phases, and in 2022 and 2026 endgame_points appears twice. Per-season verdicts are in docs/models/statbotics-breakdown-reference.md section 8: no season is partition-constructible, so ARM_IDS is deliberately unchanged. Selecting a non-overlapping subset of those keys and calling it Statbotics' partition would measure this project's own construction, which is exactly the mislabelling corrected in priorMeasurement below.",
       "approximation": null,
       "armIds": [],
       "priorMeasurement": {
@@ -175,7 +175,7 @@
             "value": 0.7348
           },
           {
-            "label": "Statbotics' comp partition",
+            "label": "a four-way grouping THIS PROJECT assembled from comp_* names (NOT Statbotics' own)",
             "value": 0.7461
           },
           {
@@ -183,11 +183,11 @@
             "value": 0.752
           },
           {
-            "label": "a single no-foul total",
+            "label": "a single no-foul total — Statbotics' ACTUAL 2024 target",
             "value": 0.7403
           }
         ],
-        "note": "The curve TURNS OVER — a single total is worse than three groups, so 'fewer components is better' is not the lesson. And Statbotics does not predict from its comp partition at all: get_score_from_breakdown's 2024 branch is score = breakdown['no_foul_points'], and its comp_0..comp_9 keys OVERLAP (speaker_points re-counts notes already inside auto_note_points/teleop_note_points), so they are display/RP quantities rather than an additive partition. For at least 2024 there is therefore NO Statbotics partition to toggle against — which is a stage-3 answer, not a stage-3 gap."
+        "note": "The curve TURNS OVER — a single total is worse than three groups, so 'fewer components is better' is not the lesson. And Statbotics does not predict from a comp partition at all: get_score_from_breakdown's 2024 branch is score = breakdown['no_foul_points'], and its comp_0..comp_9 keys OVERLAP (speaker_points re-counts notes already inside auto_note_points/teleop_note_points), so they are display/RP quantities rather than an additive partition. THE 2024 ANSWER, stated as a cost rather than as a gap: rating what Statbotics actually rates scores 0.7403 where the shipped phase-group map scores 0.7520, so faithfulness here would cost about 1.2 percentage points of winner accuracy. These four figures come from a scratch scorer (experiments/260910-4x0) and are comparable to EACH OTHER only — never difference one of them against a published figure, which counts ties."
       }
     },
     {
@@ -2419,7 +2419,7 @@
       "closed": "no live divergence remains — adopted, or never a divergence at all",
       "display-only": "cannot move a win probability; labelled rather than measured",
       "unmeasurable-in-this-harness": "a real, live divergence this harness structurally cannot toggle — see `reason`",
-      "unmeasurable-no-reference": "the divergence's reference form is not recoverable from this repo — see `reason`"
+      "unmeasurable-no-reference": "there is no reference form to reproduce: either it was never recorded here, or the object it would be compared against does not exist — see `reason`"
     }
   },
   "census": {

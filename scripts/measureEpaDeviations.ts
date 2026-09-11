@@ -170,6 +170,7 @@ import {
   type EpaState,
 } from "../packages/core/algorithms/epa.js";
 import { populationMeanSd } from "../packages/core/algorithms/carryover.js";
+import type { SeasonComponentMap } from "../packages/core/algorithms/breakdown/index.js";
 // MOVED, not copied (quick task 260911-3kc): these five now SHIP inside
 // `epa.ts`, so this harness imports them rather than keeping a second copy. Two
 // copies of a scale conversion drifting apart is the exact failure
@@ -669,21 +670,33 @@ export function deviationRegister(): DeviationEntry[] {
     },
     {
       id: "component-map",
-      title: "This project's own per-season component maps, not Statbotics' all_keys[year] grouping",
+      title: "This project's own per-season component maps, and Statbotics has no partition to compare them to",
       class: "rating-mechanics",
-      status: "unmeasurable-in-this-harness",
+      // WAS `unmeasurable-in-this-harness`, with the absent parameter on
+      // update()/carrySeason() as its blocker. That seam EXISTS as of b62c3655:
+      // epa.update/epa.carrySeason take an optional component map and
+      // `componentMapArm` below builds an arm on it. The blocker moved, it did
+      // not close — there is no Statbotics partition to point the arm AT.
+      status: "unmeasurable-no-reference",
       shippable: null,
       predictionAffecting: true,
       docSection: "§6",
       summary:
         "breakdown/{2016..2026}.ts are independently derived per-season component maps with their own granularity " +
-        "choices. 2024's was re-measured and coarsened to phase groups by quick task 260910-5ym.",
+        "choices. 2024's was re-measured and coarsened to phase groups by quick task 260910-5ym. What this entry " +
+        "used to call a difference in GROUPING turns out to be a difference in KIND: SigmaScout rates several " +
+        "components and sums them, Statbotics rates one quantity per season and predicts from it directly.",
       reason:
-        "epa.ts's update() and carrySeason() call componentMapForSeason(season) DIRECTLY; there is no injection " +
-        "point, so a scripts/ wrapper cannot intercept it — the wrapper sees only the state before and after, never " +
-        "the map the update used. The missing seam is an optional component-map parameter threaded through update() " +
-        "and carrySeason(), which is a packages/ change and therefore stage-2 work, not something this " +
-        "measurement-only task may make.",
+        "THE MISSING SEAM NOW EXISTS — commit b62c3655 (quick task 260911-gfe) added an optional component-map " +
+        "parameter to epa.update() and epa.carrySeason(), inert at its default and proven so by a replay test, and " +
+        "componentMapArm() in this file builds an arm on it. The blocker MOVED rather than closed: there is nothing " +
+        "to point the arm at. Statbotics' all_keys[year] is a rated-quantity LIST, not a partition — it carries " +
+        "no_foul_points beside the auto/teleop/endgame keys it is the sum of, its comp_0..comp_9 are sub-elements " +
+        "WITHIN those phases, and in 2022 and 2026 endgame_points appears twice. Per-season verdicts are in " +
+        "docs/models/statbotics-breakdown-reference.md section 8: no season is partition-constructible, so ARM_IDS " +
+        "is deliberately unchanged. Selecting a non-overlapping subset of those keys and calling it Statbotics' " +
+        "partition would measure this project's own construction, which is exactly the mislabelling corrected in " +
+        "priorMeasurement below.",
       approximation: null,
       armIds: [],
       priorMeasurement: {
@@ -694,17 +707,31 @@ export function deviationRegister(): DeviationEntry[] {
         metric: "winnerAccuracy",
         values: [
           { label: "eleven offensive components (the retired 2024 map)", value: 0.7348 },
-          { label: "Statbotics' comp partition", value: 0.7461 },
+          // RELABELLED 2026-09-11 (quick task 260911-gfe). This was "Statbotics'
+          // comp partition". No such partition exists (see `reason` above): the
+          // arm behind this number is a four-way grouping THIS PROJECT
+          // assembled out of comp_* NAMES in experiments/260910-4x0/granularity.ts.
+          // The measurement is real; only the attribution was wrong.
+          {
+            label: "a four-way grouping THIS PROJECT assembled from comp_* names (NOT Statbotics' own)",
+            value: 0.7461,
+          },
           { label: "phase groups auto/teleop/endgame (the shipped 2024 map)", value: 0.752 },
-          { label: "a single no-foul total", value: 0.7403 },
+          // The one arm that IS faithful to Statbotics for 2024: its
+          // get_score_from_breakdown branch rates exactly this quantity. The
+          // gap to the shipped 0.7520 is what copying Statbotics would cost.
+          { label: "a single no-foul total — Statbotics' ACTUAL 2024 target", value: 0.7403 },
         ],
         note:
           "The curve TURNS OVER — a single total is worse than three groups, so 'fewer components is better' is not " +
-          "the lesson. And Statbotics does not predict from its comp partition at all: get_score_from_breakdown's " +
+          "the lesson. And Statbotics does not predict from a comp partition at all: get_score_from_breakdown's " +
           "2024 branch is score = breakdown['no_foul_points'], and its comp_0..comp_9 keys OVERLAP " +
           "(speaker_points re-counts notes already inside auto_note_points/teleop_note_points), so they are " +
-          "display/RP quantities rather than an additive partition. For at least 2024 there is therefore NO " +
-          "Statbotics partition to toggle against — which is a stage-3 answer, not a stage-3 gap.",
+          "display/RP quantities rather than an additive partition. THE 2024 ANSWER, stated as a cost rather than " +
+          "as a gap: rating what Statbotics actually rates scores 0.7403 where the shipped phase-group map scores " +
+          "0.7520, so faithfulness here would cost about 1.2 percentage points of winner accuracy. These four " +
+          "figures come from a scratch scorer (experiments/260910-4x0) and are comparable to EACH OTHER only — " +
+          "never difference one of them against a published figure, which counts ties.",
       },
     },
     {
@@ -1067,7 +1094,14 @@ export function buildArtifact(input: BuildArtifactInput): AblationArtifact {
         closed: "no live divergence remains — adopted, or never a divergence at all",
         "display-only": "cannot move a win probability; labelled rather than measured",
         "unmeasurable-in-this-harness": "a real, live divergence this harness structurally cannot toggle — see `reason`",
-        "unmeasurable-no-reference": "the divergence's reference form is not recoverable from this repo — see `reason`",
+        // Covers TWO shapes, and each entry's own `reason` says which: the
+        // reference form was never recorded here and would have to be re-fetched
+        // (the 2018 sigmoid), or the object it would be compared against turns
+        // out not to exist at all (component-map, quick task 260911-gfe).
+        // Neither is a harness limitation.
+        "unmeasurable-no-reference":
+          "there is no reference form to reproduce: either it was never recorded here, or the object it would be " +
+          "compared against does not exist — see `reason`",
       },
     },
     census: { ...input.census },
@@ -1108,6 +1142,73 @@ export function winProbabilityArm(id: string, scoreSd: number): AlgorithmModule<
       return { ...base, pRedWin, winner };
     },
   };
+}
+
+/**
+ * A component-map arm: the shipped module with `update` and `carrySeason`
+ * wrapped so each forwards an OVERRIDE component map (quick task 260911-gfe,
+ * built on the seam commit b62c3655).
+ *
+ * `mapForSeason` returns `undefined` for any season the arm is not live for,
+ * and that season then runs the shipped map — so one arm can be live for one
+ * season and inert for the other eight, which is the only shape a per-season
+ * partition question could ever take.
+ *
+ * TWO SEASONS, NOT ONE. `update` is handed the map for the MATCH'S OWN season;
+ * `carrySeason` is handed the map for the INCOMING season (`boundary.toSeason`).
+ * Passing one where the other belongs would express carried ratings in the
+ * wrong season's units and the arm would measure that mistake instead of the
+ * map.
+ *
+ * The spread is over the CONCRETE `epa` import, never an `AlgorithmModule`-typed
+ * reference: `AlgorithmModule`'s declared `update`/`carrySeason` take two
+ * parameters, so an annotated reference would make the third one invisible and
+ * the override would silently never take effect. `epa.ts` declares its export
+ * with `satisfies` for exactly this reason.
+ *
+ * NO ARM IS REGISTERED IN `ARM_IDS` TODAY, deliberately. See
+ * `docs/models/statbotics-breakdown-reference.md` §8: no season has a faithful
+ * Statbotics partition to toggle against. The machinery is here, unit-tested,
+ * so the day a season does have one the arm is a one-line addition rather than
+ * a re-derivation of the whole question.
+ */
+export function componentMapArm(
+  id: string,
+  mapForSeason: (season: number) => SeasonComponentMap | undefined
+): AlgorithmModule<EpaState> {
+  return {
+    ...epa,
+    id,
+    version: `${epa.version.split("+")[0]}+${id}`,
+    update(state: EpaState, result: MatchResult) {
+      return epa.update(state, result, mapForSeason(armSeasonFor(state, result)));
+    },
+    carrySeason(state: EpaState, boundary: SeasonBoundary) {
+      return epa.carrySeason(state, boundary, mapForSeason(boundary.toSeason));
+    },
+  };
+}
+
+/**
+ * The season an `epa` update will resolve for this match — `state.season` when
+ * it is set, otherwise the event key's leading year, which is exactly
+ * `epa.ts`'s own `deriveSeasonFromEventKey` rule.
+ *
+ * Mirrored rather than imported because that helper is module-private. Getting
+ * it wrong would hand the override map for the WRONG season to `update`, which
+ * would not throw anywhere: the arm would simply parse a season's breakdown
+ * with another season's map and report the resulting damage as the effect of
+ * the component map. Thrown loudly instead.
+ */
+function armSeasonFor(state: EpaState, result: MatchResult): number {
+  if (state.season !== null) return state.season;
+  const season = Number.parseInt(result.eventKey.slice(0, 4), 10);
+  if (!Number.isInteger(season)) {
+    throw new Error(
+      `measure:epa-deviations: componentMapArm could not derive a season from event key "${result.eventKey}"`
+    );
+  }
+  return season;
 }
 
 // ───────────────────────────── the measurement ─────────────────────────────
