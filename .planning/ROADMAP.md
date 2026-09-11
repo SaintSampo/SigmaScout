@@ -625,11 +625,20 @@ All 38 v1 requirements map to exactly one phase. No orphans, no duplicates.
 
 **Note:** F8's cold-start gate is already fixed for BPR by the Sigma Score work committed 2026-09-10 22:43, but remains live for OPR and EPA, which still use Swing's two-observation rule.
 
-**Plans:** 0 plans
+**Plans:** 10 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 9 to break down)
+- [ ] 09-01 — TRACER: RP calibration scorecard end-to-end + frozen before-baselines (wave 1)
+- [ ] 09-02 — Declarative bonus-predicate contract across all ten season modules (wave 1)
+- [ ] 09-03 — `marginals.ts` numerics + F3 warm-roster re-measurement (wave 2)
+- [ ] 09-04 — `analyticPmf.ts` replaces the Monte Carlo, `RpLayerConfig` inert, D-12 proven (wave 3)
+- [ ] 09-05 — Win/tie/marginal as inert-by-default config branches (wave 4)
+- [ ] 09-07 — Rank-simulation red/blue coupling fix (wave 5)
+- [ ] 09-06 — Attribution, the D-09 call [checkpoint], and the D-06 collapse (wave 6)
+- [ ] 09-09 — Pre-schedule ladder rung 1 [checkpoint] (wave 7)
+- [ ] 09-08 — Live Worker RP, state shape bump [checkpoint] (wave 8)
+- [ ] 09-10 — Sidecars, presim re-enable, republish, phase close [checkpoint] (wave 9)
 
 ---
 *Roadmap created: 2026-08-12*
