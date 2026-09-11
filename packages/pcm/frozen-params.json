@@ -1,0 +1,36 @@
+{
+  "_note": [
+    "Frozen PCM parameters for the SINGLE-SHOT 2023+2024 holdout.",
+    "Every shared knob carries BPR's tuned value verbatim, so a measured",
+    "difference between the arms is attributable to the component split and",
+    "not to PCM having been handed worse constants. The two knobs BPR does",
+    "not have are set inert (phaseCorr = 0 reproduces the independent sum",
+    "exactly) and conservative (minPhaseMatches = 20).",
+    "",
+    "This file must be committed BEFORE packages/pcm/holdout.ts is run --",
+    "the seal must predate the evaluation. Re-freezing after a design-era",
+    "tuning pass means committing the new values first, then running once."
+  ],
+  "params": {
+    "obsSd": 0.45,
+    "qSlow": 0.0015,
+    "rhoFast": 0.85,
+    "qFast": 0.01,
+    "priorVar": 0.5,
+    "fastPriorVar": 0.05,
+    "rookieMean": 0.75,
+    "seasonShrink": 0.7,
+    "seasonVar": 0.25,
+    "scaleMinLr": 0.01,
+    "w2": 1.0,
+    "w3": 1.0,
+    "huberK": 1e9,
+    "elimWeight": 1.0,
+    "tau0": 1.0,
+    "tauLr": 0.02,
+    "biasLr": 0,
+    "phaseCorr": 0,
+    "minPhaseMatches": 20,
+    "fallback": "total"
+  }
+}

@@ -23,6 +23,8 @@
     "gbr:eval": "tsx packages/gbr/evaluate.ts",
     "gbr:holdout": "tsx packages/gbr/holdout.ts",
     "gbr:tune": "tsx packages/gbr/tune.ts",
+    "pcm:eval": "tsx packages/pcm/cli.ts",
+    "pcm:holdout": "tsx packages/pcm/holdout.ts",
     "rp:conservative-branch": "tsx packages/harness/rpConservativeBranch.ts",
     "tune": "tsx packages/harness/tune.ts",
     "promote": "tsx packages/harness/promote.ts",
