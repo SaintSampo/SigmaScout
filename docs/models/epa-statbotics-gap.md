@@ -136,20 +136,60 @@ slots at import time, and sums it component-wise across the alliance (reference 
 and sums it across `ratingEligibleTeams` (`epa.ts:sumComponentsAcrossTeam`, `epa.ts:predictCore`).
 
 **Both sides rate a vector per team.** This closes the question quick task 260911-gfe got wrong.
-The gap is which entries and how many — a difference of DEGREE inside a shared structure, not the
-difference of KIND the repo currently claims in three places (see stage 1).
 
-| season | Statbotics rated entries | SigmaScout rated components | what closing it requires | verdict |
-|---|---|---|---|---|
-| 2016 | 17 named + 1 `"empty"` pad | 10: `autoReach`, `autoCrossing`, `autoBoulder`, `teleopCrossing`, `teleopBoulder`, `teleopChallenge`, `teleopScale`, `breach`, `capture`, `adjust`, plus `foulsCommitted` | adopt `key_to_name[2016]`'s comp set; drop `breach`/`capture` per mechanism 11 | GAP |
-| 2017 | 18 named | 9 offensive plus `foulsCommitted` | adopt `key_to_name[2017]`; `comp_8`/`comp_9` (`kpa`, `gears`) are derived counts SigmaScout does not compute | GAP |
-| 2018 | 18 named | 8: seven ownership/vault/endgame plus `foulsCommitted` | adopt the four `*_power` ratio entries, which require `post_clean_breakdown` (reference section 17) | GAP |
-| 2019 | 18 named | 5: `sandstormBonus`, `hatchPanel`, `cargo`, `habClimb`, `foulsCommitted` | adopt the eight per-location piece counts; SigmaScout reads point fields, Statbotics counts pieces out of the bay/rocket JSON | GAP |
-| 2022 | 14 named + 4 pad | 5: `autoTaxi`, `autoCargo`, `teleopCargo`, `endgame`, `foulsCommitted` | adopt lower/upper cargo splits | GAP |
-| 2023 | 18 named | 8 | adopt the bottom/middle/top piece counts, `links`, and the cube/cone point split | GAP |
-| 2024 | 18 named | 5: `auto`, `teleop`, `endgame`, `adjust`, `foulsCommitted` | adopt the ten `comp_*` entries; note reference section 10 measured that coarsening 2024 to three phase groups BEAT eleven components by 1.7 points of winner accuracy | GAP |
-| 2025 | 18 named | 6: `autoMobility`, `autoCoral`, `teleopCoral`, `algae`, `endGameBarge`, `foulsCommitted` | adopt the four coral-level counts and the processor/net algae split | GAP |
-| 2026 | 15 named + 3 pad | 10: `autoTower`, `endGameTower`, `hubAuto`, `hubTransition`, `hubShift1`..`hubShift4`, `hubEndgame`, `foulsCommitted` | SigmaScout is FINER here: it rates shifts 1-4 separately where Statbotics pairs them into `first_shift_fuel`/`second_shift_fuel` | GAP |
+**RE-DERIVED 2026-09-11 (quick task 260911-pon). The framing below replaces "which entries and how
+many — a difference of DEGREE."** That framing is not false, but it is not the finding, and by
+reading as a data-entry problem it hides the structural reason this gap is not data entry. The
+finding, in three facts checked against both sides:
+
+1. **Statbotics' RATED vector and the subset its SCORE READS are different objects.**
+   `get_score_from_breakdown` reads a per-season subset of the 18 slots, and in seven of the nine
+   corpus seasons that subset is a single entry (reference section 18). The other seventeen slots
+   are still rated, still updated every match, and still published through the API — they simply
+   never reach the predicted score in that season.
+2. **The rated vector DOUBLE-COUNTS by construction, so it is not an additive partition and never
+   was.** Reference section 2's shared cleaner enforces
+   `no_foul_points == auto_points + teleop_points + endgame_points`, and `comp_0..comp_9` are
+   sub-elements *within* those same phases — the vector carries a total beside its own parts. This
+   is the same fact `scripts/measureEpaDeviations.ts`'s `component-map` deviation-register entry
+   already records under `reason`, and **the two must not be allowed to drift apart**: if one is
+   edited, the other is edited in the same change.
+3. **In SigmaScout the rated set IS the score-read set.** `epa.ts:predictCore`'s
+   `redOffensiveTotal` / `blueOffensiveTotal` reducers sum EVERY rated component except the
+   alliance's own `FOULS_COMMITTED_COMPONENT` into the offensive total. There is no channel at all
+   for a component that is rated but not scored.
+
+**So mechanism 1 is TWO separable sub-gaps, and they must never again be conflated:**
+
+- **1a — the SCORE-READ set.** What `get_score_from_breakdown` actually reads for that season.
+  **Buildable TODAY**, with no interface change, through the existing `componentMapArm` seam
+  (commit `b62c3655`; `scripts/measureEpaDeviations.ts:componentMapArm`), for every season whose
+  score read is a linear sum of that alliance's own entries. A season-specific component map is
+  handed to `epa.update` for the match's own season and to `epa.carrySeason` for the INCOMING
+  season, and the shipped map is never touched.
+- **1b — the FULL RATED vector**, including every entry the score never reads. Those entries are
+  display, API and ranking-point quantities upstream. **SigmaScout has no rated-but-not-scored
+  channel**, per fact 3 above, so 1b is not reachable without building one. That is a structural
+  change to what a rated component means in this project; it is not designed here, and no amount of
+  per-season map work reaches it.
+
+The per-season table below therefore carries a **score-read column** (sourced from reference
+section 18) beside the rated-entry column, so the next agent can see at a glance which seasons are
+1a-cheap and which are not. Section 18's three "must not miss" observations — 2018's double
+`zero_sigmoid`, `post_process_breakdown` writing back into index 0 before the read, and its
+per-alliance in-place mutation — are carried BY REFERENCE and are deliberately not re-quoted here.
+
+| season | Statbotics RATED entries (1b) | entries the SCORE READS (1a, ref. 18) | SigmaScout rated components | what closing 1a requires | verdict |
+|---|---|---|---|---|---|
+| 2016 | 17 named + 1 `"empty"` pad | **1 own**: `no_foul_points`; plus `rp_1`/`rp_2` in ELIMS only (registers R1/R2, decision D-2) | 10: `autoReach`, `autoCrossing`, `autoBoulder`, `teleopCrossing`, `teleopBoulder`, `teleopChallenge`, `teleopScale`, `breach`, `capture`, `adjust`, plus `foulsCommitted` | collapse to one rated no-foul total; drop `breach`/`capture` per mechanism 11; carry the elim bonus terms per D-2 | GAP |
+| 2017 | 18 named | **1 own**: `no_foul_points`; plus `rp_1`/`rp_2` in ELIMS only (R1/R2, D-2) | 9 offensive plus `foulsCommitted` | collapse to one rated no-foul total; drop `rotorBonus`/`kPaBonus` per mechanism 11; carry the elim bonus terms per D-2 | GAP |
+| 2018 | 18 named | **7 own + 3 OPPONENT**, with the double-`zero_sigmoid` asymmetry | 8: seven ownership/vault/endgame plus `foulsCommitted` | not a re-grouping at all: opponent coupling, two sigmoid layers, `min()` caps, and `post_clean_breakdown`'s four `*_power` ratios | GAP |
+| 2019 | 18 named | **1 own**: `no_foul_points` | 5: `sandstormBonus`, `hatchPanel`, `cargo`, `habClimb`, `foulsCommitted` | collapse to one rated no-foul total (1a); the eight per-location piece counts are 1b only | GAP |
+| 2022 | 14 named + 4 pad | **1 own**: `no_foul_points` | 5: `autoTaxi`, `autoCargo`, `teleopCargo`, `endgame`, `foulsCommitted` | collapse to one rated no-foul total (1a); the lower/upper cargo splits are 1b only | GAP |
+| 2023 | 18 named | **7 own**, with `min(9, links)` and `min(30, endgame_charge_station_points)` | 8 | the 9-piece cascade, the cube/cone regrade and two caps — a component sum cannot express it | GAP |
+| 2024 | 18 named | **1 own**: `no_foul_points` | 5: `auto`, `teleop`, `endgame`, `adjust`, `foulsCommitted` | collapse to one rated no-foul total — **BUILT AND MEASURED as an arm by quick task 260911-pon; see the tracer result below** — while the ten `comp_*` entries stay 1b only | GAP |
+| 2025 | 18 named | **1 own**: `no_foul_points` via the `else` fallback — but index 0 has already been moved by an OPPONENT-COUPLED processor-algae correction (ref. 18, observation 2) | 6: `autoMobility`, `autoCoral`, `teleopCoral`, `algae`, `endGameBarge`, `foulsCommitted` | collapse to one rated no-foul total, then the coupled correction (mechanism 3); the coral-level counts and the processor/net split are 1b only | GAP |
+| 2026 | 15 named + 3 pad | **1 own**: `no_foul_points` via the `else` fallback | 10: `autoTower`, `endGameTower`, `hubAuto`, `hubTransition`, `hubShift1`..`hubShift4`, `hubEndgame`, `foulsCommitted` | collapse to one rated no-foul total (1a). For 1b SigmaScout is FINER: it rates shifts 1-4 separately where Statbotics pairs them into `first_shift_fuel`/`second_shift_fuel` | GAP |
 
 **Statbotics rates NO per-team foul entry at all, and SigmaScout still does — recorded here rather
 than left as a silent omission (quick task 260911-l2k, D-1).** Every row above ends "plus
@@ -159,13 +199,85 @@ l2k moved WHERE that component enters a prediction — it no longer enters one a
 deliberately kept it rated, published and carried, because deleting it would reach identical
 predicted numbers while disturbing a user-facing metric, `UNGROUPED_COMPONENTS`, every carried
 rating, and `fallbackObserved`'s netting. So this remains a mechanism-1 entry-set difference in all
-nine seasons, and it is NOT closed by mechanism 5's closure.
+nine seasons, and it is NOT closed by mechanism 5's closure. It is a **1b** difference specifically:
+nothing either side's SCORE reads depends on it.
+
+**NO TRANSCRIPTION AND NO FETCH IS OWED AT THIS MECHANISM.** Reference section 17 carries all
+eleven `clean_breakdown_{year}` functions verbatim, 2016 through 2026, plus `post_clean_breakdown`,
+and that file's Provenance block A proves each is a byte-identical substring of a fetched source.
+Quick task 260911-pon re-checked every one of them mechanically against the on-disk
+`tba_breakdown.py`: eleven of eleven, plus `post_clean_breakdown`, came back verbatim. Any text
+elsewhere implying mechanism 1 still waits on a fetch or a transcription is stale.
 
 **A caution that survives from `epa-divergences.md` section 6 and must not be lost:** the accuracy
 curve TURNS OVER with component count. On 2024, eleven components scored 0.7348, three scored
 0.7520, one scored 0.7403. Adopting Statbotics' entry set is a FIDELITY move, not an accuracy move,
 and on at least one season it is measurably an accuracy LOSS. That is the developer's stated
 trade and it is recorded here so nobody re-litigates it as a bug.
+
+### The two decisions quick task 260911-pon made about closing mechanism 1
+
+**Decision 1 — the tracer season is 2024, and only 2024.** Three reasons, recorded so the choice is
+auditable rather than arbitrary:
+
+- Mechanisms 2 and 11 both read `ALREADY MATCHES` for 2024, so a 2024 arm isolates mechanism 1 with
+  nothing else moving. On the other one-entry seasons at least one neighbouring mechanism is still
+  `GAP`, and the measurement would be confounded by it.
+- 2024's score read is a single own entry, so sub-gap 1a is expressible in today's interface with
+  no new machinery.
+- Its cost is already approximately known, which makes the arm a CHECK on a prior number rather
+  than a leap into one.
+
+**The cost figure to carry forward is about 1.2 points of winner accuracy, NOT 1.7.** Reference
+section 10 measured 2024's single no-foul total at **0.7403** against the shipped phase-group map's
+**0.7520** — about 1.2 percentage points. The 1.7-point figure that also circulates in this
+project's notes is the gap between the RETIRED eleven-component map (0.7348) and the shipped phase
+groups (0.7520); that is a granularity measurement of **this project's own maps** and is not what
+adopting Statbotics' score read costs. Conflating the two overstates the price by roughly half.
+
+**Decision 2 — the tracer lands as a measured ARM, never as the shipped default.** Three reasons:
+
+- Mechanism 1 is only coherent when all nine seasons are done. One season adopted alone leaves the
+  model inconsistent across seasons — 2024 predicting off one rated total while its neighbours
+  predict off phase groups — which is worse than a uniform, documented gap.
+- A faithful 2024 map collapses to two components, which would disturb `groups.ts`'s published
+  phase metrics and `UNGROUPED_COMPONENTS` for a fidelity move that is not yet complete.
+- Shipping it would incur republish debt on top of the debt already owed for `epa@9.0.0+baseline`
+  and `epa@10.0.0+baseline`. Nothing published changes while it is an arm.
+
+Accordingly `SEASON_COMPONENT_MAPS` in `packages/core/algorithms/breakdown/index.ts` is unchanged,
+`packages/core/algorithms/breakdown/2024.ts` is unchanged, `ARM_IDS` in
+`scripts/measureEpaDeviations.ts` is unchanged, and `epa.version` is unchanged. The faithful map
+lives at `scripts/statboticsComponentMaps.ts`, outside `packages/`, so it cannot be mistaken for a
+shipped default.
+
+### The eight non-tracer seasons are DEFERRED, keyed to this document's own stages
+
+No partial season map is left half-built anywhere. Each group below is sized as its own quick task
+and is keyed to the stage sequence this document already has — a second, parallel grouping is
+deliberately not invented.
+
+- **2019, 2022, 2025, 2026 — stage 5's remaining linear seasons.** One quick task each, the same
+  shape as the 2024 tracer: collapse to one rated no-foul total behind `componentMapArm`, measure,
+  report as found. 2025 carries the opponent-coupled processor-algae correction on top
+  (mechanism 3), so it goes last of the four.
+- **2023 — stage 6, first.** Seven entries, the 9-piece cascade, the cube/cone regrade, two `min()`
+  caps. No opponent coupling, which is what makes it strictly simpler than 2018.
+- **2018 — stage 6, last.** `zero_sigmoid`, the double-sigmoid asymmetry, opponent coupling,
+  `post_clean_breakdown`'s four `*_power` ratios, and a hard dependency on register R4's three
+  2018-only season aggregates.
+- **2016, 2017 — stage 7. NO LONGER BLOCKED as of decision D-2 (2026-09-11).** The developer's
+  ruling is *"for 2016/2017 RP do whatever Statbotics does"*: `rp_1` and `rp_2` are two ordinary
+  slots of the same rated vector, and in ELIMINATION matches of 2016 and 2017 only, the score
+  formula adds them back at their playoff bonus-point values (`rp_1 * 20 + rp_2 * 25` in 2016,
+  `rp_1 * 100 + rp_2 * 20` in 2017 — reference section 15). Registers R1 and R2 record what that
+  does and does not license; in particular those terms are INTERNAL score arithmetic and **L-02
+  stands unchanged** — EPA publishes no ranking-point number, anywhere, in any season.
+
+**This task closes NOTHING in the verdict matrix.** Mechanism 1's nine cells still read `GAP` in
+every season and the tally beneath the matrix is untouched. What changed is what closing mechanism 1
+*means*: 1a is now a named, buildable, per-season job with one season proven, and 1b is a named
+structural gap with no channel to build it through.
 
 ## Mechanism 2 — the score formula
 
@@ -189,8 +301,8 @@ section 2). Both sides therefore target the same quantity: score minus fouls min
 
 | season | what Statbotics does | what SigmaScout does today | what closing the gap requires | verdict |
 |---|---|---|---|---|
-| 2016 | reads index 0; **in ELIMS adds `rp_1_pred * 20 + rp_2_pred * 25`** (ref. 15) | sums components, identically in quals and elims (`epa.ts:predictCore`) | quals: nothing. Elims: blocked by L-02 — register R1 | GAP (see register R1) |
-| 2017 | reads index 0; **in ELIMS adds `rp_1_pred * 100 + rp_2_pred * 20`** (ref. 15) | same | quals: nothing. Elims: blocked by L-02 — register R2 | GAP (see register R2) |
+| 2016 | reads index 0; **in ELIMS adds `rp_1_pred * 20 + rp_2_pred * 25`** (ref. 15) | sums components, identically in quals and elims (`epa.ts:predictCore`) | quals: nothing. Elims: **UNBLOCKED by D-2** — carry `rp_1 * 20 + rp_2 * 25` as an internal score term (register R1) | GAP (see register R1) |
+| 2017 | reads index 0; **in ELIMS adds `rp_1_pred * 100 + rp_2_pred * 20`** (ref. 15) | same | quals: nothing. Elims: **UNBLOCKED by D-2** — carry `rp_1 * 100 + rp_2 * 20` as an internal score term (register R2) | GAP (see register R2) |
 | 2018 | seven own entries plus three opponent entries, with `min(15/45/90)` caps and three `zero_sigmoid` terms — **non-linear** (ref. 18) | linear sum | implement `zero_sigmoid`, the caps, and opponent coupling. A re-grouping cannot do this | GAP |
 | 2019 | reads index 0 (ref. 15) | linear sum of the same modeled quantity | nothing at this mechanism | ALREADY MATCHES |
 | 2022 | reads index 0 (ref. 15) | linear sum | nothing at this mechanism | ALREADY MATCHES |
@@ -551,13 +663,22 @@ into each entry. Statbotics cleans TBA's raw `score_breakdown` in `src/tba/break
 Everything that CANNOT be reproduced under L-01 or L-02, each with a number attached. Ordered by
 how much of the corpus it touches.
 
+**R1 and R2 LEFT this register on 2026-09-11 (decision D-2) and are kept below with their
+supersession marked, rather than deleted, because the exposure figures and the qual/elim evidence
+in them are still the reference for stage 7's implementation.** R3 and R4 remain open.
+
 ### R1 — 2016 elimination matches fold RP predictions into the SCORE
 
 **Mechanism:** `get_score_from_breakdown`'s 2016 branch (reference section 15) adds
 `rp_1_pred * 20 + rp_2_pred * 25` to the predicted score, in ELIMINATION matches only.
 `rp_1_pred` and `rp_2_pred` are the unit-sigmoided RP entries from the rated vector.
 
-**Collides with:** L-02. Those entries do not exist in SigmaScout, so the terms cannot be formed.
+**Collides with:** ~~L-02. Those entries do not exist in SigmaScout, so the terms cannot be
+formed.~~ **SUPERSEDED 2026-09-11 by decision D-2** — see "R1 + R2" below. Upstream forms both
+terms out of two ordinary slots of the rated vector, and SigmaScout is to do the same, as INTERNAL
+score arithmetic that publishes nothing. R1 and R2 are now implementation work (stage 7), not
+permanent divergences, and L-02 is unchanged because it governs published output rather than this
+term.
 
 **Exposure: 2,223 official elimination matches in 2016 — 16.7% of that season's 13,286.**
 
@@ -569,7 +690,8 @@ point, which L-02 forbids in any form.
 
 **Mechanism:** the 2017 branch adds `rp_1_pred * 100 + rp_2_pred * 20` in elimination matches.
 
-**Collides with:** L-02, identically to R1.
+**Collides with:** ~~L-02, identically to R1.~~ **SUPERSEDED 2026-09-11 by decision D-2,
+identically to R1.**
 
 **Exposure: 2,741 official elimination matches in 2017 — 17.8% of that season's 15,424.**
 
@@ -630,8 +752,24 @@ every qual, and will contribute a small positive amount in elims — which is qu
 Statbotics' `rp_1_pred * 20` term does, arrived at without an RP. This does **not** make R1 and R2
 reproducible: the numbers will differ, because a smeared EWMA over mostly-zero observations is not
 `unit_sigmoid` of a rated RP. But it does mean option A costs less than it looks like it costs, and
-that option C is not the only way to have any signal at all in those matches. **This is a
-developer decision and this task does not make it.**
+that option C is not the only way to have any signal at all in those matches.
+
+**DECIDED 2026-09-11 — decision D-2, recorded by quick task 260911-pon. The paragraph above ended
+"this is a developer decision and this task does not make it"; the decision has since been made and
+the option set above is settled.** The developer's ruling, verbatim: *"for 2016/2017 RP do whatever
+Statbotics does."* None of options A, B or C is taken as written. What is taken is upstream's own
+construction: `rp_1` and `rp_2` are two ordinary slots of the same rated vector
+(`models_epa_main.py:104-110`), and in ELIMINATION matches of 2016 and 2017 only the score formula
+adds them back at their playoff bonus-point values (`models_epa_breakdown.py:94-115`, reference
+section 15). R1 and R2 therefore become ordinary implementation work rather than permanent
+divergences, and stage 7 below is unblocked accordingly.
+
+**This does NOT reopen L-02, and the two must not be collapsed into each other.** L-02 governs
+OUTPUT — no published bonus-RP probability, no RP pmf into the rank simulation, no RP predictor
+anywhere on the site — and it stands unchanged in every season. D-2 governs an INTERNAL term of two
+seasons' score arithmetic, for achievements that were worth real points on the playoff scoreboard.
+The terms stay inside `predictCore` and reach no artifact, no API surface and no page. Option C
+("revisit L-02") remains NOT taken.
 
 ### R3 — the 21 season aggregates (L-01) — THE one documented difference
 
@@ -884,21 +1022,41 @@ score read looks like a single entry.
 **Closes:** mechanisms 2, 3 and 10 for 2018, 2023 and 2025.
 **Republish debt: YES.**
 
-### Stage 7 — 2016 and 2017 — BLOCKED ON A DEVELOPER DECISION
+### Stage 7 — 2016 and 2017 — UNBLOCKED 2026-09-11 (decision D-2), reproduce upstream exactly
 
-**Why last, and why it is not merely last but gated:** everything else in this list is an
-implementation question. This one is not. R1 and R2 put roughly 5,000 matches — about one in six
-across those two seasons — permanently outside a faithful reproduction under L-02, and the three
-options (A, B, C above) produce three different published claims. **No implementation work on 2016
-or 2017 should start before the developer picks one.** Doing the cleaning-layer work first and
-discovering afterward that option B removes those matches from the comparison entirely would waste
-it.
+**THE BLOCKER IS STRUCK.** This stage used to read `BLOCKED ON A DEVELOPER DECISION` and to say
+*"no implementation work on 2016 or 2017 should start before the developer picks one"* of options
+A, B or C. The developer decided on 2026-09-11, verbatim: *"for 2016/2017 RP do whatever Statbotics
+does."* That sentence is the whole ruling and it resolves R1 and R2 together.
 
-**Flag: this stage forces the developer's hand on the 2016/2017 elim-RP collision.** It is the only
-stage in this list that does.
+**What it requires, concretely** (`models_epa_breakdown.py:94-115`, reference section 15; and
+`models_epa_main.py:104-110` for where the two values come from). `rp_1` and `rp_2` are **two
+ordinary slots of the same 18-entry rated vector**, read straight off `post_process_breakdown`'s
+output like any other slot — they are not a separate model and they need no separate machinery. In
+**elimination matches of 2016 and 2017 only**, the score formula adds them back at their playoff
+bonus-point values: `rp_1 * 20 + rp_2 * 25` in 2016, `rp_1 * 100 + rp_2 * 20` in 2017. In quals
+those two seasons, and in every other season, those slots are multiplied by nothing and contribute
+exactly zero to the score.
 
-**Closes:** mechanisms 2 and 11 for 2016 and 2017, to whatever extent the chosen option allows.
-**Republish debt: YES**, if any option other than pure documentation is chosen.
+**L-02 IS UNCHANGED, and the distinction is stated here so a later session does not "fix" one into
+the other.** L-02 governs OUTPUT: EPA must publish no bonus-RP probability, must feed the rank
+simulation no RP pmf, and must appear nowhere on the site as an RP predictor. That stands in all
+nine seasons including 2016 and 2017. D-2 governs an INTERNAL TERM of two seasons' score
+arithmetic — in those seasons the achievements in question (2016 Defenses Breached / Tower
+Captured, 2017 Rotor and kPa bonuses) were worth actual points on the playoff scoreboard, so
+reproducing the score means carrying the term. It is a score component that happens to share a name
+with a ranking point, not a ranking-point prediction. `rp_1`/`rp_2` stay internal to
+`predictCore`'s score arithmetic and reach no artifact, no API surface and no page. **A reader who
+believes D-2 licenses publishing an RP number has misread it.**
+
+**Why it is still LAST in the sequence:** it is no longer gated, but it is still the most involved
+of the linear seasons — both seasons also need their cleaning layer (mechanism 11 drops
+`breach`/`capture` and `rotorBonus`/`kPaBonus` at clean time, which is precisely what makes
+room for the elim add-back) and the 2017 rotor redistribution on top. Order, not permission, is what
+keeps it here.
+
+**Closes:** mechanisms 2 and 11 for 2016 and 2017, and registers R1 and R2 with them.
+**Republish debt: YES.**
 
 ### Stage 8 — The 2026 `district == "isr"` exception
 
@@ -914,18 +1072,22 @@ field for a team-season. Whether the corpus carries one must be checked before t
 
 ### Stages that are blocked on a fetch
 
-Reference section 20 lists ten residual gaps — facts absent from the eight fetched files. Two of
-them block work above:
+Reference section 20 lists ten residual gaps — facts absent from the fetched files. **ONE of them
+still touches work above; the other was closed and is struck below** (quick task 260911-pon):
 
-- **Residual gap 1 — how the 21 `Year` aggregate columns are COMPUTED** (over which match
-  population, at what point in the season). Stage 2 can proceed without it, because L-01 forces a
-  live estimate regardless, but the estimate would be aimed at a plausible neighbour of Statbotics'
-  quantity rather than at the quantity itself. **This is the single most valuable remaining fetch**
-  and it is one line of work: find and fetch the module that writes `YearORM`'s `*_mean` and
-  `score_sd` columns.
+- ~~**Residual gap 1 — how the 21 `Year` aggregate columns are COMPUTED.**~~ **RETRACTED
+  2026-09-11 (quick task 260911-pon): this bullet is stale and its claim is withdrawn.** It said
+  the estimate "would be aimed at a plausible neighbour of Statbotics' quantity rather than at the
+  quantity itself" and called this "the single most valuable remaining fetch". Both statements were
+  true when written and are no longer: `backend/src/data/avg.py` HAS been fetched and is
+  transcribed verbatim at reference section 20, it answers the question outright — every `Year`
+  aggregate is computed from `week_one_matches` alone — and the correction block at the top of
+  this document already records the consequence. Nothing here is blocked on that fetch. Residual
+  gap 3 below is the only surviving fetch-shaped item in this section.
 - **Residual gap 3 — `backend/src/models/template.py`**, which holds the match loop and therefore
   the predict-before-update sequencing. Nothing above is blocked on it today, because SigmaScout's
   own walk-forward harness already enforces that ordering, but any claim that the two ORDERINGS
   match is currently unverified and should not be published until it is fetched.
 
-Neither is a reason to delay stages 1 through 3.
+Neither is a reason to delay stages 1 through 3, and residual gap 1 is no longer a reason to
+delay anything at all.
