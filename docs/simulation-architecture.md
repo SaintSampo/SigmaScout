@@ -176,9 +176,20 @@ Two independent reasons:
 1. **Every sidecar in R2 is keyed to `vpr`**, which was retired from the published set on
    2026-09-09. The client only ever requests `{selected algorithm}@{manifest version}`, so
    those objects are unreachable orphans.
-2. **Generation has been off since 2026-09-10**: `publish:seasons` runs with
-   `--presim-from-season 9999` (commit `1a759198`), added while the simulation/swing rethink
-   iterates. The last three republishes wrote zero sidecars.
+2. **Generation was off from 2026-09-10 until 2026-09-11**, when plan 09-10 re-enabled it.
+   `publish:seasons` ran with `--presim-from-season 9999` — a far-future sentinel added by commit
+   `1a759198` while the simulation/swing rethink iterated — and a cutoff above every season in the
+   corpus makes `publish.ts`'s `season >= preScheduleFromSeason` gate false for *every* season, so
+   the last three republishes wrote zero sidecars. **The sentinel was committed, in `package.json`'s
+   `publish:seasons` script — not a per-run CLI override.** That distinction is load-bearing and was
+   got wrong in `09-RESEARCH.md`'s Pitfall 1, which asserted no such literal existed in the tree and
+   that re-enabling was "a republish command, not a code change"; following that reading would have
+   spent a full forty-five-minute R2 write pass, printed no `presim:` line, and left this stop dark
+   with a green-looking run report. 09-10 changed the argument to `2026` (the current-season scope
+   presim has always had — `DEFAULT_PRESCHEDULE_FROM_SEASON` is already `2026`, so the explicit value
+   changes no behaviour relative to the default but records the decision) and added a drift tripwire
+   in `packages/harness/publish.test.ts` that fails loudly if the cutoff is ever parked past the
+   latest season the same script publishes.
 
 So today the tab opens on `defaultStartMatchKey` (first unplayed row, or `qm1` on a finished
 event) and only the live engine can produce anything.

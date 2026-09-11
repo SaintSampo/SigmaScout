@@ -4294,6 +4294,68 @@ describe("parseSeasonsRange — gapped list form (quick task 260904-nt4)", () =>
     expect(parsed, "2021 is a permanent exclusion — the at-home season has no conventional 3v3 matches").not.toContain(2021);
   });
 
+  // Plan 09-10 Task 1, Step 2 — the presim-flag drift tripwire, sibling to the
+  // `--seasons` one immediately above: same `package.json` read, same
+  // "script must exist" guard, same regex-then-assert shape, different argument.
+  //
+  // WHY THIS EXISTS, recorded so it is never weakened into a formality. Commit
+  // `1a759198` set `publish:seasons`' `--presim-from-season` to the far-future
+  // sentinel `9999` while the simulation/swing rethink iterated. A cutoff above
+  // every season in the corpus makes `presimEnabled` (`publish.ts`'s
+  // `season >= preScheduleFromSeason`) false for EVERY season, so each run
+  // logged a "below presim-from-season" skip per season and wrote zero
+  // sidecars. That value stayed committed through at least three full publish
+  // runs — roughly forty-five minutes and a complete R2 write pass each — and
+  // NO test noticed, because the only committed assertions over this script
+  // string read its `--seasons` argument. The pre-schedule stop was dark the
+  // whole time while every run reported success.
+  //
+  // The assertion is deliberately a RELATION, not a literal year: the cutoff
+  // must be at most the latest season the same script says it publishes. That
+  // makes the two arguments move together (widen the corpus, the bound widens
+  // with it) while still failing loudly on any value that disables generation
+  // by sitting in the far future. A hardcoded `2026` here would go stale the
+  // day 2027 is ingested and invite exactly the weakening this comment exists
+  // to prevent.
+  it("the presim-flag drift tripwire: package.json's publish:seasons --presim-from-season is an integer year no later than the latest season it publishes", () => {
+    const packageJsonRaw = readFileSync(new URL("../../package.json", import.meta.url), "utf8");
+    const pkg = JSON.parse(packageJsonRaw) as { scripts: Record<string, string> };
+    const script = pkg.scripts["publish:seasons"];
+    expect(script, "publish:seasons script must exist in package.json").toBeDefined();
+
+    const presimMatch = /--presim-from-season\s+(\S+)/.exec(script!);
+    expect(
+      presimMatch,
+      `--presim-from-season argument not found in publish:seasons script: ${script}. ` +
+        `The flag is kept with an EXPLICIT value on purpose (09-10 Task 1): the value is Claude's ` +
+        `Discretion under 09-CONTEXT.md, so an explicit year is a recorded decision while a deletion ` +
+        `is a silent fallback to DEFAULT_PRESCHEDULE_FROM_SEASON — and this tripwire needs something ` +
+        `to assert equality against rather than an absence.`
+    ).not.toBeNull();
+
+    const presimFromSeason = Number.parseInt(presimMatch![1]!, 10);
+    expect(
+      Number.isInteger(presimFromSeason),
+      `--presim-from-season must be an integer year, got "${presimMatch![1]}"`
+    ).toBe(true);
+
+    const seasonsMatch = /--seasons\s+(\S+)/.exec(script!);
+    expect(seasonsMatch, `--seasons argument not found in publish:seasons script: ${script}`).not.toBeNull();
+    const publishedSeasons = parseSeasonsRange(seasonsMatch![1]!);
+    const latestPublishedSeason = Math.max(...publishedSeasons);
+
+    expect(
+      presimFromSeason,
+      `--presim-from-season is ${presimFromSeason}, later than the latest season this same script ` +
+        `publishes (${latestPublishedSeason}). A cutoff above every season in the corpus makes ` +
+        `publish.ts's \`season >= preScheduleFromSeason\` gate false for EVERY season: the run logs a ` +
+        `"below presim-from-season" skip per season, writes ZERO pre-schedule sidecars, and still ` +
+        `reports success. That is exactly what commit 1a759198's \`9999\` did for three full publish ` +
+        `runs, leaving the Simulation tab's pre-schedule stop dark site-wide. If presim generation is ` +
+        `being switched off deliberately, remove the flag and record why — do not park it in the future.`
+    ).toBeLessThanOrEqual(latestPublishedSeason);
+  });
+
   // Kept on the literal seven-season spec (NOT re-pointed at package.json):
   // this case is about `seasonBoundaryFor`'s arithmetic across a one-season
   // hole, and `2019,2020,2022-2026` is the minimal spec that exhibits one.
