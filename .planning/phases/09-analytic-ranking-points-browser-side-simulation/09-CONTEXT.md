@@ -347,6 +347,43 @@ Every bonus 2016–2026 reduces to conjunctions of one-sided comparisons over in
 
 </deferred>
 
+<approvals>
+
+## Standing authorization for the four one-way checkpoints
+
+**Granted by Jacob (the developer), 2026-09-11, in response to the post-planning status summary.**
+Verbatim: *"spending through 2026, Approved! D1 work approved, deleting schedule generation approved,
+R2 delete approved"*.
+
+This is durable, pre-measurement authorization. The four `checkpoint:decision` tasks below are
+**pre-authorized to proceed without re-asking**. They still run — each presents its measured briefing
+for the record — but an approved branch does not block on a human.
+
+| Plan | Task | Authorized act |
+|---|---|---|
+| 09-06 | Task 3 | Spending the 2023-2026 reporting slice (D-04). The accept/revert verdict itself remains the **pre-committed** `evaluateD09Bar` / `decideRpShipConfig` rule, which was frozen in its own commit before any measurement code existed. Authorization covers the spend, not the verdict — the rule decides the verdict. |
+| 09-08 | Task 4 | The D1 seed-then-deploy pair at state shape 12 to 13, seed-first and deploy-second (D-21). |
+| 09-09 | Task 4 | The **SHIP branch only** — deleting schedule generation and promoting the field-averaged sidecar (D-16, Delta B to `promote`). |
+| 09-10 | Task 4 | Overwriting and deleting published R2 presim sidecars, including the orphaned `vpr`-keyed objects (D-20, Delta A to `promote`). |
+
+### Two branches this authorization does NOT cover — still stop and ask
+
+1. **09-09 NO-SHIP.** The approval is for deleting schedule generation, which is the SHIP branch and is
+   conditional on rung 1 **meeting** the acceptance criterion. If the measurement **fails** the
+   criterion, deleting is the wrong act: Delta B degrades to `no-change`, concrete schedules stay
+   primary, the ladder advances to rung 2, and **D-19's schedule-template redistribution licensing
+   becomes live**. That licensing judgement is explicitly the developer's and was never delegated.
+   **Stop and report the measured table.**
+2. **09-10 payload-budget overrun.** The `compare` page kind's 20,000-byte ceiling has a pre-committed
+   disposition (shrink the block, never raise the budget) and needs no ask. The `event` kind's
+   350,000-byte ceiling is **stop-and-report** in `payloadBudget.test.ts`'s own words. If the
+   pre-write `--dry-run` rehearsal shows an event-kind overrun, **stop before the R2 write.**
+
+Nothing here authorizes work outside Phase 9's scope fence, and the out-of-scope list (F4, F12, 2022
+`cargoBonus`, F13, F8/F9's cold-start gate, the F10 display threshold) is unchanged.
+
+</approvals>
+
 ---
 
 *Phase: 9-analytic-ranking-points-browser-side-simulation*
