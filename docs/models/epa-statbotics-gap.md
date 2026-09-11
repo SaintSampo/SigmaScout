@@ -306,6 +306,30 @@ change is recorded in
 `.planning/quick/260911-l2k-adopt-statbotics-foul-model-scalar-after/260911-l2k-SUMMARY.md` and
 was adopted for FIDELITY, not accuracy.
 
+**A KNOWN AND ACCEPTED CONSEQUENCE: exactly-tied margins became common, and every one of them is
+called RED.** Measured over the nine corpus seasons at `epa@10.0.0+baseline`: **2,667 of 148,094
+matches (1.8%) now predict an exactly-zero margin**, up from a rate low enough never to have
+mattered before. Per season the exact-zero count runs 246 (2022) to 331 (2025 and 2026).
+
+The cause is this mechanism's own closure and is not a defect. The retired cross-attribution added
+the OPPONENT's `foulsCommitted` mean to each alliance's score, and those two means are different
+numbers, so it separated two otherwise identically-rated alliances on essentially every match.
+With it gone, two alliances carrying equal ratings — the common case early in a season, when every
+team still sits at the same cold-start value — produce two equal no-foul totals and a margin of
+exactly 0. `epa.ts:predictCore` resolves `pRedWin >= 0.5` to `"red"`, matching `opr.ts`'s tie
+convention, so all 2,667 are predicted red.
+
+**SEEN AND ACCEPTED by the developer on 2026-09-11, not missed, and deliberately NOT acted on.**
+Calling red on a true coin flip costs nothing in expectation, and Statbotics has the same property,
+so matching it is arguably the correct behaviour rather than a wart to paper over. The tie
+convention is unchanged and this was not investigated further. It is recorded here so a future
+reader who notices a red-heavy tail on tied matches finds the explanation instead of re-opening it.
+
+One downstream note, because it is where this DID have a visible effect: it walked
+`scripts/measureEpaDeviations.ts`'s pre-registered winner-accuracy invariant onto a floating-point
+knife-edge on a single 2016 match. That guard was amended in place, with approval, on the same
+date — see its own comment.
+
 **NAMED RESIDUAL, recorded rather than hidden (l2k D-2).** The no-foul/foul split this project
 folds is taken from the SCORE — `foul side = own raw foulPoints + own adjustPoints`,
 `no-foul = score - foul side` — which is reference section 2's shared cleaner VERBATIM. But the

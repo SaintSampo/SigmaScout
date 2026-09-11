@@ -1137,6 +1137,94 @@ export function buildArtifact(input: BuildArtifactInput): AblationArtifact {
 // entry and in `THRESHOLD_SELECTION_OUTCOME`.
 
 /**
+ * The largest `|margin / scale|` for which `Math.exp()` returns EXACTLY 1, and
+ * therefore the ratio at or below which the logistic collapses to exactly 0.5
+ * and the `>= 0.5` tie convention decides the winner instead of the margin.
+ *
+ * DERIVED, not measured, and deliberately not a tolerance anybody picked:
+ * `exp(x) = 1 + x + O(x^2)`, and IEEE-754 doubles have 52 explicit mantissa
+ * bits, so the spacing of representable values immediately below 1 is 2^-53.
+ * Any `x` with `|x| <= 2^-53` therefore rounds to 1.0 on the nearest-even
+ * rule. `Number.EPSILON` is 2^-52 (the spacing ABOVE 1), so half of it is that
+ * 2^-53 boundary. Nothing about this number was chosen to clear any particular
+ * match; it is a property of the format.
+ */
+const EXP_SATURATION_RATIO = Number.EPSILON / 2;
+
+/**
+ * Is this winner disagreement attributable to `Math.exp()` saturation ALONE?
+ *
+ * The observable signature of `|margin / scale| <= EXP_SATURATION_RATIO` is
+ * that the logistic returns exactly 0.5, so this predicate requires:
+ *
+ *   1. at least one side's `pRedWin` to be EXACTLY 0.5 — that side's `exp()`
+ *      provably saturated, which is the only way the tie convention (rather
+ *      than the margin) can have picked its winner; and
+ *   2. the OTHER side's `pRedWin` to be within one ulp of 0.5 — i.e. the two
+ *      probabilities are indistinguishable at double precision, so the margin
+ *      they disagree about is smaller than the arithmetic can represent.
+ *
+ * Testing the probabilities rather than reconstructing each arm's scale is
+ * deliberate: the baseline's scale moves per match (expanding SD before the
+ * week-1 seal, frozen after), so any reconstruction here would be a second
+ * implementation of `predictCore`'s denominator that could drift from it. The
+ * probabilities are what the arms actually produced.
+ *
+ * Both clauses must hold. A winner difference where either probability is
+ * meaningfully away from 0.5 is a REAL divergence and is reported as one.
+ */
+function isExpSaturationTie(baselinePRedWin: number, armPRedWin: number): boolean {
+  const ulpOfHalf = EXP_SATURATION_RATIO; // spacing of doubles just below 1.0, and at 0.5
+  const eitherSaturated = baselinePRedWin === 0.5 || armPRedWin === 0.5;
+  const bothAtTheTie =
+    Math.abs(baselinePRedWin - 0.5) <= ulpOfHalf && Math.abs(armPRedWin - 0.5) <= ulpOfHalf;
+  return eitherSaturated && bothAtTheTie;
+}
+
+/** One match where an arm and the baseline disagreed on the winner. */
+interface WinnerDifference {
+  readonly matchKey: string;
+  readonly baselineWinner: string;
+  readonly armWinner: string;
+  readonly baselinePRedWin: number;
+  readonly armPRedWin: number;
+}
+
+/**
+ * Every match where `armId` and the baseline disagree on the winner and the
+ * disagreement is NOT an `exp()` saturation tie — i.e. every genuine violation
+ * of the pre-registered invariant. Empty means the invariant holds.
+ */
+function unexcusedWinnerDifferences(
+  records: readonly { algorithmId: string; match: { matchKey: string }; prediction: { winner: string; pRedWin: number } }[],
+  armId: string
+): WinnerDifference[] {
+  const baselineByMatch = new Map<string, { winner: string; pRedWin: number }>();
+  for (const record of records) {
+    if (record.algorithmId === BASELINE_ARM_ID) {
+      baselineByMatch.set(record.match.matchKey, record.prediction);
+    }
+  }
+
+  const out: WinnerDifference[] = [];
+  for (const record of records) {
+    if (record.algorithmId !== armId) continue;
+    const base = baselineByMatch.get(record.match.matchKey);
+    if (!base) continue;
+    if (base.winner === record.prediction.winner) continue;
+    if (isExpSaturationTie(base.pRedWin, record.prediction.pRedWin)) continue;
+    out.push({
+      matchKey: record.match.matchKey,
+      baselineWinner: base.winner,
+      armWinner: record.prediction.winner,
+      baselinePRedWin: base.pRedWin,
+      armPRedWin: record.prediction.pRedWin,
+    });
+  }
+  return out;
+}
+
+/**
  * One alliance's NO-FOUL total, reconstructed from the UNSCALED component
  * record `epa.predict` returns (quick task 260911-l2k).
  *
@@ -1628,17 +1716,75 @@ async function main(): Promise<void> {
       }
 
       // ── the pre-registered win-probability invariant ─────────────────────
+      //
+      // AMENDED 2026-09-11 (quick task 260911-l2k), with the developer's
+      // explicit approval on that date. A pre-registered rule was edited, so
+      // the amendment is recorded HERE, at the rule, rather than only in a
+      // SUMMARY a future reader will not be holding.
+      //
+      // WHAT IT SAID BEFORE: a `winprob-*` arm MUST report winner accuracy
+      // EXACTLY equal to the baseline's in every season, on the grounds that a
+      // scale on the logistic cannot change `sign(margin)`.
+      //
+      // WHAT IT SAYS NOW: a per-match winner DIFFERENCE is a violation unless
+      // that single match's disagreement is attributable to `Math.exp()`
+      // saturating — see `isExpSaturationTie`. Accuracy equality remains the
+      // cheap trigger; the audit below runs only when it fails.
+      //
+      // WHY. The prose claim is true IN EXACT ARITHMETIC and remains the thing
+      // being tested. Winner accuracy was a PROXY for it, and the proxy also
+      // picks up a floating-point artifact that has nothing to do with any
+      // arm: `pRedWin = 1 / (1 + exp(-margin / scale))` with the `>= 0.5` tie
+      // convention resolving to red. For |margin / scale| <= 2^-53,
+      // `Math.exp()` returns exactly 1 and `pRedWin` is exactly 0.5 -> red;
+      // at a smaller scale the same margin does not saturate and the true
+      // (negative) sign survives -> blue. Two scales straddling that threshold
+      // therefore disagree on the WINNER while agreeing on the margin's sign
+      // to every bit they can represent.
+      //
+      // THE EVIDENCE, verified independently before the amendment was
+      // approved: `2016ausy_qm14`. Its two alliances are MATHEMATICALLY EQUAL
+      // (red no-foul 45.577777777777776, blue 45.57777777777778); the margin
+      // of -7.105e-15 is pure summation-order noise, not a modelled
+      // difference. Baseline scale gave 0.4999999999999999 -> blue; the
+      // season-SD arm's larger scale saturated to exactly 0.5 -> red. ONE
+      // match in 148,094 across nine seasons; per-season winner differences
+      // are 2016 = 1 and every other season = 0.
+      //
+      // WHY IT SURFACED NOW: `epa@10.0.0+baseline` removed the asymmetric foul
+      // cross-attribution from the margin, so two identically-rated alliances
+      // are no longer separated by it and exactly-tied margins became common.
+      // That is the intended behaviour of that change, not a defect, but it
+      // walks this guard onto a knife-edge it had never reached before.
+      //
+      // THIS IS A TIGHTENING, NOT A LOOSENING, and deliberately so: the old
+      // rule could only ever say "some accuracy moved somewhere in this
+      // season", while the new one names the offending MATCH and rejects it
+      // unless both probabilities are within one ulp of 0.5. A wrapper that
+      // genuinely perturbed state evolution moves winners on confidently
+      // predicted matches, and every one of those still fails loudly.
       const baselineSeasonRow = rows.find(
         (r) => r.scope === "season" && r.season === season && r.armId === BASELINE_ARM_ID
       )!;
       for (const armId of [WINPROB_SEASON_SD_ARM_ID, WINPROB_FIXED_SD_ARM_ID]) {
         const armRow = rows.find((r) => r.scope === "season" && r.season === season && r.armId === armId)!;
-        if (armRow.winnerAccuracy !== baselineSeasonRow.winnerAccuracy) {
+        if (armRow.winnerAccuracy === baselineSeasonRow.winnerAccuracy) continue;
+
+        const unexcused = unexcusedWinnerDifferences(records, armId);
+        if (unexcused.length > 0) {
+          const shown = unexcused
+            .slice(0, 3)
+            .map(
+              (d) =>
+                `${d.matchKey} (baseline ${d.baselineWinner} p=${d.baselinePRedWin}, arm ${d.armWinner} p=${d.armPRedWin})`
+            )
+            .join("; ");
           throw new Error(
             `measure:epa-deviations: PRE-REGISTERED INVARIANT VIOLATED in ${season} — arm ${armId} reports winner ` +
-              `accuracy ${armRow.winnerAccuracy} against baseline's ${baselineSeasonRow.winnerAccuracy}. A scale on ` +
-              `the logistic cannot change sign(margin), so this arm changed something it should not have. Refusing ` +
-              `to report a contrast from a wrapper that is not the wrapper it claims to be.`
+              `accuracy ${armRow.winnerAccuracy} against baseline's ${baselineSeasonRow.winnerAccuracy}, and ` +
+              `${unexcused.length} of the differing matches are NOT exp() saturation ties: ${shown}. A scale on the ` +
+              `logistic cannot change sign(margin), so this arm changed something it should not have. Refusing to ` +
+              `report a contrast from a wrapper that is not the wrapper it claims to be.`
           );
         }
       }
