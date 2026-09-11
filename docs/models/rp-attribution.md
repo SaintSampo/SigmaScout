@@ -297,6 +297,42 @@ The shipped combination is therefore the legacy path on 09-04's closed form:
 developer's authorization and the rule's answer are set side by side here deliberately, as they are
 required to be even when they agree.
 
+## What was deleted, and the proof it moved no number
+
+The decision was carried out on the same day it was taken. Every branch that lost is gone, and so is
+the config object that selected between them — there is one RP model in the tree again, with no
+selectable surface anywhere in `packages/core/rankingPoints/`, `packages/harness/` or `scripts/`.
+
+Deleted: the layer-config type and its two member unions, the production default, the label function,
+the support assertion, the family resolver; the layer constructor's config parameter and its getter,
+and the threading through the two publish entry points; the published-win-probability branch and the
+input field it required; the discrete-margin tie model, its tie-probability function and its
+half-width constant; the proportional outcome split and its result type, which became the identity
+once tie mass is identically zero and whose clamp guarded an input that no longer exists; the
+negative-binomial fit and its log-space exact discrete CDF; the inertness golden, its generator and
+its package script; and the attribution machinery itself — the arm registry, the arm resolver, the
+`--arms` flag, the nested per-arm layer map, the identical-population guard, the bar and the
+ship-decision rule.
+
+**THE COLLAPSE IS PROVEN TO BE A REFACTOR.** The calibration re-emitted from the collapsed
+single-path code is, for every one of the 30 reporting-slice cells, exactly equal under `===` to the
+chosen arm's figures measured before the deletion pass — count, mean predicted, observed frequency
+and Brier score, with no tolerance anywhere in the comparison. A tolerance would have hidden exactly
+the mistake the gate exists to catch. The gate's failure mode was demonstrated rather than assumed:
+perturbing its own comparison by 1e-12 fails it and names the cell.
+
+Three things were kept deliberately, each with its reason written at the site:
+
+- **The alliance band guard.** It still takes both alliance band variances and still returns no RP
+  fields when either is undefined. Under the shipped combination the band IS read, so it is not
+  vestigial — but the cold-start behaviour it protects is out of scope for this phase either way, and
+  it now has a behavioral test of its own so a future cleanup cannot remove it as unused.
+- **The resolved-family tally**, minus its negative-binomial counter. What remains counts Gaussian
+  against degenerate over a fallback ladder that is still live and still multi-valued, which is a real
+  diagnostic rather than a toggle that lost its second position.
+- **The per-variable family declaration site**, and a one-member family union. D-02 locked the
+  declaration site so that a future family extends it rather than reintroducing a global switch.
+
 ## What this document does not say
 
 - **No claim about winner prediction or match Brier.** Those are level-1 concerns and nothing here

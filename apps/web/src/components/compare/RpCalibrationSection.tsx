@@ -42,9 +42,22 @@ export const DEFAULT_RP_CALIBRATION_YEAR = 2026;
 /** Rendered — a sentence, never a zero — when a season/algorithm's slice carries no `rpCalibration` record: the artifact predates the field, or this season/algorithm has not been measured yet. */
 export const RP_CALIBRATION_ABSENT_TEXT = "Bonus ranking point accuracy has not been measured for this artifact yet.";
 
-/** States the measured population in words (D-09's per-bonus framing): every qualification match in the corpus, offseason events INCLUDED — unlike the win-probability calibration above, which excludes them. */
+/**
+ * States the measured population in words (D-09's per-bonus framing): every
+ * qualification match in the corpus, offseason events INCLUDED — unlike the
+ * win-probability calibration above, which excludes them.
+ *
+ * D-04 PROVENANCE (added 2026-09-11, plan 09-06). The second sentence names
+ * the seasons that informed the model's own family choice and states that the
+ * headline comes from the seasons that did not. Without it a reader could take
+ * a figure from a season the model was chosen on and read it as
+ * out-of-sample — which is the one thing the two-slice split exists to
+ * prevent. This is a COPY change to this existing constant: no component, no
+ * card, no schema key and no test id moves with it.
+ */
 export const RP_CALIBRATION_EXPLAINER =
-  "These cards show how often each predicted bonus ranking point actually happened, checked against every qualification match in the corpus — including offseason events, unlike the win-probability calibration above.";
+  "These cards show how often each predicted bonus ranking point actually happened, checked against every qualification match in the corpus — including offseason events, unlike the win-probability calibration above. " +
+  "The 2016-2020 and 2022 seasons were used to choose the model, so the accuracy reported for 2023 onward is measured on seasons that had no say in that choice.";
 
 export interface RpCalibrationSectionProps {
   readonly artifactsByYear: ReadonlyMap<number, CompareArtifact>;

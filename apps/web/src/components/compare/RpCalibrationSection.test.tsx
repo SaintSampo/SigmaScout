@@ -17,6 +17,7 @@ import { buildRpCalibrationCard, rpCardHeadlineSentence } from "./rpCalibrationC
 import {
   DEFAULT_RP_CALIBRATION_YEAR,
   RP_CALIBRATION_ABSENT_TEXT,
+  RP_CALIBRATION_EXPLAINER,
   RpCalibrationSection,
   rpCalibrationCardSentenceTestId,
   rpCalibrationCardTestId,
@@ -82,5 +83,25 @@ describe("RpCalibrationSection — populated render (real emitted record attache
     for (const bonus of RP_RECORD.bonuses) {
       expect(cardEl.textContent).toContain(bonus.name);
     }
+  });
+});
+
+describe("RpCalibrationSection — D-04 provenance in the explainer copy (09-06)", () => {
+  it("names the seasons that informed the model choice, and says the headline comes from the ones that did not", () => {
+    // The two-slice split is only honest if a reader can tell which half they
+    // are looking at. Without this sentence a figure from a season the model
+    // was CHOSEN on could be read as out-of-sample, which is exactly what the
+    // split exists to prevent.
+    for (const season of ["2016-2020", "2022"]) {
+      expect(RP_CALIBRATION_EXPLAINER).toContain(season);
+    }
+    expect(RP_CALIBRATION_EXPLAINER).toContain("2023 onward");
+    expect(RP_CALIBRATION_EXPLAINER).toMatch(/had no say in that choice/);
+  });
+
+  it("renders that sentence into the section rather than merely declaring it", () => {
+    const artifact = CompareArtifactSchema.parse(compare2026) as CompareArtifact;
+    render(<RpCalibrationSection artifactsByYear={new Map([[DEFAULT_RP_CALIBRATION_YEAR, artifact]])} />);
+    expect(screen.getByText(RP_CALIBRATION_EXPLAINER)).toBeDefined();
   });
 });

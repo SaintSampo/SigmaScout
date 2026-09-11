@@ -242,15 +242,50 @@ flag.** A golden regenerated to make a failing `rpLayerInertness.test.ts` green 
 this instrument exists to catch. It was NOT regenerated at any point during plan 09-05 — the file has
 exactly one commit in its git history (`git log --oneline -- packages/core/rankingPoints/rpLayerInertness.json`).
 
+## Outcome — all three arms were measured and all three were REVERTED (2026-09-11, plan 09-06)
+
+**This document is now a historical record of work that was tried and rejected, not a description of
+a live configuration surface.** The surface it documents no longer exists: the config object, its
+member unions, its production default, its label function, its support assertion and its family
+resolver were all deleted, along with every branch they selected between. The arms below existed at
+commit `2731bfab^`; that is where to look for the code.
+
+| Arm | Improved | Regressed | Tied | Met the bar | Decision | Branch deleted |
+|---|---|---|---|---|---|---|
+| `win` — `winSource: "p-red-win"` (D-13) | 0 | 0 | 30 | no | **revert** | yes |
+| `tie` — `tieModel: "discrete-margin"` (D-14) | 0 | 0 | 30 | no | **revert** | yes |
+| `marginal` — `marginal: "negative-binomial"` (D-01) | 3 | 3 | 24 | no | **revert** | yes |
+
+Each figure is over the 30 scored bonus cells of the 2023-2026 reporting slice. The bar required a
+majority to improve on Brier and none to regress. `docs/models/rp-attribution.md` carries the
+per-cell table, the decision rule's own trace, and the measured effects of each arm.
+
+**The two zero-rows are the finding, not an absence of one.** The win source and the tie model are
+structurally invisible to a per-bonus Brier: both change only the win/tie/loss half of the
+ranking-point distribution. What they actually did was measured and is recorded — the win source
+drove the gap between the pmf-implied and published win probability to exactly zero, and the tie
+model replaced an identically-zero tie probability with 0.008239 against a measured base rate of
+0.010928. Both were reverted anyway, because the bar this phase committed to in advance does not read
+those quantities.
+
+**The marginal swap's reach was far narrower than this document's "34 declarations" table implies.**
+`clauseProbability` refits a clause's combined moments as a hardcoded Gaussian, so only
+`nestedSameVariable` bonuses ever honored a declared family at all — one season has any, and its two
+bonuses across three algorithms are exactly the six cells that moved. The resolved-family tally
+reported a 69.62% negative-binomial share for an arm whose published output was Gaussian-derived in
+24 of its 30 cells, because it counts fits PERFORMED rather than fits USED. That is a real limitation
+of the observability mechanism this document describes, and it is recorded rather than quietly fixed.
+
 ## What this document does not say
 
-This document carries no accuracy claim, no Brier number, no recommendation for or against any arm,
-and no figure from the 2023-2026 reporting slice. D-04 reserves that slice for 09-06's own
-measurement and forbids spending it here; D-09/D-11 name the exact bar and the exact scorer 09-06 must
-use. Nothing in this document should be read as a preview of that verdict.
+This document carries no accuracy claim of its own and no figure that was not measured by 09-06's
+committed run. Its original reservation — that the 2023-2026 slice was D-04's to spend and not
+this document's — was RELEASED on 2026-09-11 when 09-06 spent it, once, against a bar frozen as
+executable code before any of those figures existed. The verdict above is that bar's mechanical
+answer, taken without override.
 
 ---
 
 *Phase: 09-analytic-ranking-points-browser-side-simulation*
-*Plan: 09-05*
+*Plan: 09-05 (outcome section added by 09-06, 2026-09-11)*
 *Written: 2026-09-11*
