@@ -65,8 +65,8 @@
  * Threshold comparison semantics are `>=` throughout.
  */
 import { z } from "zod";
-import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
-import { assertFiniteThresholdVariables, eventTierFor } from "./constants.js";
+import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
+import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor } from "./constants.js";
 
 /**
  * Only the subset of TBA's `score_breakdown.{side}` object this module
@@ -105,21 +105,69 @@ const FACE_THE_BOSS_THRESHOLD: RpTieredThreshold = { base: 90, districtChampions
 const AUTO_SWITCH_SECONDS_FALLBACK_FLOOR: RpTieredThreshold = { base: 1, districtChampionship: 1, championship: 1 };
 
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
-  { name: "autoRunPoints", unit: "points" },
+  {
+    name: "autoRunPoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
   // The enum carries no time unit; `count` is correct here because the
   // discipline this field exists for is "never read a points roll-up where
   // a raw quantity is wanted" (constants.ts's own file header) — ownership
   // seconds are the raw quantity, not a derived point value.
-  { name: "autoSwitchOwnershipSec", unit: "count" },
-  { name: "endgamePoints", unit: "points" },
+  {
+    name: "autoSwitchOwnershipSec",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "endgamePoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
 ];
 
-const BONUS_NAMES = ["autoQuest", "faceTheBoss"] as const;
+/**
+ * D-02, D-07, Pitfall 4: `autoQuest`'s real condition also gates on
+ * `autoSwitchAtZero`, a boolean `predictThresholds` cannot reach — declared
+ * `conjunctionDistinct` over the two numeric fallback clauses, carrying an
+ * `RpUntrackedGate` whose `errorDirection` is `"overstates"`, the ONE
+ * documented exception in the project (see file header for the full
+ * measured justification: 0 false negatives at every tier, a small honest
+ * over-fire, the opposite direction from every other gated bonus in this
+ * codebase). `faceTheBoss` is fully numeric — `singleThreshold`, no gate.
+ */
+const BONUS_PREDICATES: readonly BonusPredicate[] = [
+  {
+    kind: "conjunctionDistinct",
+    name: "autoQuest",
+    clauses: [
+      { terms: [{ variable: "autoRunPoints" }], direction: "gte", threshold: AUTO_RUN_THRESHOLD },
+      { terms: [{ variable: "autoSwitchOwnershipSec" }], direction: "gte", threshold: AUTO_SWITCH_SECONDS_FALLBACK_FLOOR },
+    ],
+    untrackedGate: {
+      signal: "autoSwitchAtZero",
+      branch: "numeric-proxy",
+      errorDirection: "overstates",
+      note:
+        "The numeric fallback (autoRunPoints >= 15 && autoSwitchOwnershipSec >= 1) over-fires relative to the exact autoSwitchAtZero boolean parse() reads: 99.813%/99.648%/99.594% agreement at base/districtChampionship/championship, 0 false negatives at every tier, 43/9/11 false positives — the one deliberate departure in this codebase from the usual conservative-branch convention (see file header). pnpm rp:conservative-branch measures this as a pooled-season overstatedRate of 0.2225%, the only nonzero overstatedRate anywhere in the RP layer.",
+    },
+  },
+  {
+    kind: "singleThreshold",
+    name: "faceTheBoss",
+    variable: "endgamePoints",
+    direction: "gte",
+    threshold: FACE_THE_BOSS_THRESHOLD,
+  },
+];
+
+const BONUS_NAMES = BONUS_PREDICATES.map((p) => p.name);
 
 export const rp2018: RpRuleModule = {
   season: 2018,
   thresholdVariables: THRESHOLD_VARIABLES,
   bonusNames: BONUS_NAMES,
+  bonusPredicates: BONUS_PREDICATES,
   maxRp: 2 + BONUS_NAMES.length,
   winRp: 2,
   tieRp: 1,
@@ -168,21 +216,10 @@ export const rp2018: RpRuleModule = {
    * above the fallback floor — 0 false negatives at every tier, a small,
    * honestly-stated over-fire, the opposite direction from this codebase's
    * usual conservative-branch convention and a deliberate departure from
-   * it, justified in the file header.
+   * it, justified in the file header. Delegates to the shared declarative
+   * evaluator (D-02, D-07); see `BONUS_PREDICATES` above.
    */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
-    const tier = eventTierFor(eventType);
-    const autoRunPoints = values.autoRunPoints ?? 0;
-    const autoSwitchOwnershipSec = values.autoSwitchOwnershipSec ?? 0;
-    const endgamePoints = values.endgamePoints ?? 0;
-
-    const autoQuest = autoRunPoints >= AUTO_RUN_THRESHOLD[tier] && autoSwitchOwnershipSec >= AUTO_SWITCH_SECONDS_FALLBACK_FLOOR[tier];
-    const faceTheBoss = endgamePoints >= FACE_THE_BOSS_THRESHOLD[tier];
-
-    const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
-    bonusFlags.autoQuest = autoQuest;
-    bonusFlags.faceTheBoss = faceTheBoss;
-
-    return { bonusFlags, totalRp: Number(autoQuest) + Number(faceTheBoss) };
+    return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
   },
 };

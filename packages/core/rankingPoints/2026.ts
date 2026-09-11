@@ -67,8 +67,16 @@ const SUPERCHARGED_THRESHOLD: RpTieredThreshold = { base: 360, districtChampions
 const TRAVERSAL_THRESHOLD: RpTieredThreshold = { base: 50, districtChampionship: 50, championship: 50 };
 
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
-  { name: "hubTotalCount", unit: "count", marginalFamily: "gaussian" },
-  { name: "totalTowerPoints", unit: "points", marginalFamily: "gaussian" },
+  {
+    name: "hubTotalCount",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "totalTowerPoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
 ];
 
 /**

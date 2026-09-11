@@ -71,8 +71,8 @@
  * Threshold comparison semantics are `>=` throughout.
  */
 import { z } from "zod";
-import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
-import { assertFiniteThresholdVariables, eventTierFor } from "./constants.js";
+import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
+import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor } from "./constants.js";
 
 /**
  * Only the subset of TBA's `score_breakdown.{side}` object this module
@@ -130,21 +130,68 @@ function rotorCount(autoRotorPoints: number, teleopRotorPoints: number): number 
 }
 
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
-  { name: "autoFuelPoints", unit: "points" },
-  { name: "teleopFuelPoints", unit: "points" },
+  {
+    name: "autoFuelPoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "teleopFuelPoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
   // Point values, not counts — the rule converts them to a rotor count with
   // the per-rotor divisors above rather than reading a count field, because
   // TBA's 2017 breakdown carries no rotor-count field at all.
-  { name: "autoRotorPoints", unit: "points" },
-  { name: "teleopRotorPoints", unit: "points" },
+  {
+    name: "autoRotorPoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "teleopRotorPoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
 ];
 
-const BONUS_NAMES = ["kPa", "rotor"] as const;
+/**
+ * D-02, D-07: both bonuses are `linearCombination` — `kPa` sums
+ * `autoFuelPoints`/`teleopFuelPoints` with no divisor (both already in the
+ * same point unit); `rotor` sums `autoRotorPoints`/`teleopRotorPoints`
+ * divided by their own per-rotor point values (`RpLinearTerm.divisor`,
+ * never a multiplier — see "THE REJECTED RULE" in the file header for why
+ * a plain point sum is wrong here). Neither bonus gates on an untracked
+ * signal — 2017 is exact and fully reachable for both, per the file
+ * header.
+ */
+const BONUS_PREDICATES: readonly BonusPredicate[] = [
+  {
+    kind: "linearCombination",
+    name: "kPa",
+    terms: [{ variable: "autoFuelPoints" }, { variable: "teleopFuelPoints" }],
+    direction: "gte",
+    threshold: KPA_FUEL_POINTS_THRESHOLD,
+  },
+  {
+    kind: "linearCombination",
+    name: "rotor",
+    terms: [
+      { variable: "autoRotorPoints", divisor: AUTO_ROTOR_POINTS_PER_ROTOR },
+      { variable: "teleopRotorPoints", divisor: TELEOP_ROTOR_POINTS_PER_ROTOR },
+    ],
+    direction: "gte",
+    threshold: ROTOR_COUNT_THRESHOLD,
+  },
+];
+
+const BONUS_NAMES = BONUS_PREDICATES.map((p) => p.name);
 
 export const rp2017: RpRuleModule = {
   season: 2017,
   thresholdVariables: THRESHOLD_VARIABLES,
   bonusNames: BONUS_NAMES,
+  bonusPredicates: BONUS_PREDICATES,
   maxRp: 2 + BONUS_NAMES.length,
   winRp: 2,
   tieRp: 1,
@@ -191,22 +238,10 @@ export const rp2017: RpRuleModule = {
    * reachable from the four tracked threshold variables, so there is no
    * fallback, no conservative branch and no asymmetry here. See the file
    * header: 2017 is the first season in this project for which that is true
-   * of every one of its bonuses.
+   * of every one of its bonuses. Delegates to the shared declarative
+   * evaluator (D-02, D-07); see `BONUS_PREDICATES` above.
    */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
-    const tier = eventTierFor(eventType);
-    const autoFuelPoints = values.autoFuelPoints ?? 0;
-    const teleopFuelPoints = values.teleopFuelPoints ?? 0;
-    const autoRotorPoints = values.autoRotorPoints ?? 0;
-    const teleopRotorPoints = values.teleopRotorPoints ?? 0;
-
-    const kPa = autoFuelPoints + teleopFuelPoints >= KPA_FUEL_POINTS_THRESHOLD[tier];
-    const rotor = rotorCount(autoRotorPoints, teleopRotorPoints) >= ROTOR_COUNT_THRESHOLD[tier];
-
-    const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
-    bonusFlags.kPa = kPa;
-    bonusFlags.rotor = rotor;
-
-    return { bonusFlags, totalRp: Number(kPa) + Number(rotor) };
+    return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
   },
 };

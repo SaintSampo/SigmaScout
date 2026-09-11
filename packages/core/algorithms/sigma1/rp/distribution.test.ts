@@ -12,7 +12,7 @@ import { makeSigma1, type Sigma1State } from "../index.js";
 import { opr } from "../../opr.js";
 import { epa } from "../../epa.js";
 import { RP_REGISTERED_SEASONS, rpRuleModuleForSeason } from "../../../rankingPoints/rules.js";
-import type { RpRuleModule } from "../../../rankingPoints/constants.js";
+import { evaluateBonusPredicates, type BonusPredicate, type RpRuleModule } from "../../../rankingPoints/constants.js";
 import type { AllianceRpMoments } from "./state.js";
 import { boxMullerPair, fnv1a32, mulberry32, pmfMean, pmfStandardDeviation, rpPmfForMatch, type RpPmfInput } from "../../../rankingPoints/distribution.js";
 
@@ -194,18 +194,25 @@ describe("rpPmfForMatch — per-bonus probabilities (plan 06.1-02 Task 1, F-06-1
     // A single-bonus module with winRp/tieRp both 0 means the ONLY way to
     // earn a ranking point is the bonus itself -- P(bonus) and P(RP=1) are
     // the identical event.
+    // 09-02 Task 2: a one-element BonusPredicate array reproducing the
+    // previous inline arrow body exactly (singleThreshold over
+    // matchCargoTotal at the plain number 20), plus a marginalFamily on the
+    // one threshold variable — the only external RpRuleModule construction
+    // site outside the ten season modules, kept satisfying the tightened
+    // (required) contract Task 3 lands.
+    const singleBonusPredicates: readonly BonusPredicate[] = [
+      { kind: "singleThreshold", name: "cargoBonus", variable: "matchCargoTotal", direction: "gte", threshold: 20 },
+    ];
     const singleBonusModule: RpRuleModule = {
       season: 2022,
-      thresholdVariables: [{ name: "matchCargoTotal", unit: "count" }],
+      thresholdVariables: [{ name: "matchCargoTotal", unit: "count", marginalFamily: "gaussian" }],
       bonusNames: ["cargoBonus"],
+      bonusPredicates: singleBonusPredicates,
       maxRp: 1,
       winRp: 0,
       tieRp: 0,
       parse: RULE_2022.parse,
-      predictThresholds: (values) => {
-        const achieved = (values["matchCargoTotal"] ?? 0) >= 20;
-        return { bonusFlags: { cargoBonus: achieved }, totalRp: achieved ? 1 : 0 };
-      },
+      predictThresholds: (values, eventType) => evaluateBonusPredicates(singleBonusPredicates, values, eventType),
     };
     const input = baseInput({
       ruleModule: singleBonusModule,

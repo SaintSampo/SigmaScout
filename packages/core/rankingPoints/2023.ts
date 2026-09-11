@@ -27,8 +27,8 @@
  * check produced 0/27116), so `parse` reads both sides of the raw object.
  */
 import { z } from "zod";
-import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
-import { assertFiniteThresholdVariables, eventTierFor } from "./constants.js";
+import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
+import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor } from "./constants.js";
 
 const SideSchema = z.object({
   totalChargeStationPoints: z.number().finite(),
@@ -56,17 +56,68 @@ const SUSTAINABILITY_THRESHOLD_NON_COOP: RpTieredThreshold = { base: 5, district
 /** Sustainability Bonus threshold in LINKS when BOTH alliances' coopertition criteria ARE met. */
 const SUSTAINABILITY_THRESHOLD_COOP: RpTieredThreshold = { base: 4, districtChampionship: 4, championship: 5 };
 
+/**
+ * Points per link, used to convert `linkPoints` into a LINK count. Verified
+ * 100% integer across 27,116 sides with 0 exceptions (D-03) — the quotient
+ * `linkPoints / LINK_POINTS_PER_LINK` is exact, never fractional. Named here
+ * (09-02 Task 2) rather than left as `parse`'s previous inline `/ 5`
+ * literal, and used in BOTH `parse` and `BONUS_PREDICATES` below so there is
+ * exactly one spelling of this number in the module.
+ */
+const LINK_POINTS_PER_LINK = 5;
+
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
-  { name: "totalChargeStationPoints", unit: "points" },
-  { name: "linkPoints", unit: "points" },
+  {
+    name: "totalChargeStationPoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "linkPoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
 ];
 
-const BONUS_NAMES = ["activationBonus", "sustainabilityBonus"] as const;
+/**
+ * D-02, D-07, Pitfall 4: `activationBonus` is `singleThreshold`.
+ * `sustainabilityBonus` is `linearCombination` — one term, `linkPoints`
+ * divided by `LINK_POINTS_PER_LINK` — evaluated at the STRICTER
+ * `SUSTAINABILITY_THRESHOLD_NON_COOP` table, carrying an `RpUntrackedGate`
+ * for the untracked both-alliances `coopertitionCriteriaMet` signal
+ * (conservative, understates).
+ */
+const BONUS_PREDICATES: readonly BonusPredicate[] = [
+  {
+    kind: "singleThreshold",
+    name: "activationBonus",
+    variable: "totalChargeStationPoints",
+    direction: "gte",
+    threshold: ACTIVATION_BONUS_THRESHOLD,
+  },
+  {
+    kind: "linearCombination",
+    name: "sustainabilityBonus",
+    terms: [{ variable: "linkPoints", divisor: LINK_POINTS_PER_LINK }],
+    direction: "gte",
+    threshold: SUSTAINABILITY_THRESHOLD_NON_COOP,
+    untrackedGate: {
+      signal: "coopertitionCriteriaMet (both alliances)",
+      branch: "conservative",
+      errorDirection: "understates",
+      note:
+        "Evaluated at the stricter non-coop threshold table because coopertition (BOTH alliances' coopertitionCriteriaMet) is not a tracked threshold variable. pnpm rp:conservative-branch measures a pooled-season meanRpUnderstatement of 0.105362 RP per alliance-match (understatedRate 10.5362%) — see docs/models/sigma1-rp-verification.md's Conservative-Branch Understatement section.",
+    },
+  },
+];
+
+const BONUS_NAMES = BONUS_PREDICATES.map((p) => p.name);
 
 export const rp2023: RpRuleModule = {
   season: 2023,
   thresholdVariables: THRESHOLD_VARIABLES,
   bonusNames: BONUS_NAMES,
+  bonusPredicates: BONUS_PREDICATES,
   maxRp: 2 + BONUS_NAMES.length,
   winRp: 2,
   tieRp: 1,
@@ -86,7 +137,7 @@ export const rp2023: RpRuleModule = {
 
     // Coopertition requires BOTH alliances' criteria met — AND, never OR.
     const bothCoopMet = own.coopertitionCriteriaMet && opponent.coopertitionCriteriaMet;
-    const links = own.linkPoints / 5;
+    const links = own.linkPoints / LINK_POINTS_PER_LINK;
     const sustainabilityThreshold = bothCoopMet ? SUSTAINABILITY_THRESHOLD_COOP[tier] : SUSTAINABILITY_THRESHOLD_NON_COOP[tier];
     const sustainabilityBonus = links >= sustainabilityThreshold;
 
@@ -118,20 +169,10 @@ export const rp2023: RpRuleModule = {
    * stricter `SUSTAINABILITY_THRESHOLD_NON_COOP` table, per
    * `RpRuleModule.predictThresholds`'s documented conservative-gate
    * convention (understates, never overstates, this bonus's probability).
+   * Delegates to the shared declarative evaluator (D-02, D-07); see
+   * `BONUS_PREDICATES` above.
    */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
-    const tier = eventTierFor(eventType);
-    const totalChargeStationPoints = values.totalChargeStationPoints ?? 0;
-    const linkPoints = values.linkPoints ?? 0;
-
-    const activationBonus = totalChargeStationPoints >= ACTIVATION_BONUS_THRESHOLD[tier];
-    const links = linkPoints / 5;
-    const sustainabilityBonus = links >= SUSTAINABILITY_THRESHOLD_NON_COOP[tier];
-
-    const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
-    bonusFlags.activationBonus = activationBonus;
-    bonusFlags.sustainabilityBonus = sustainabilityBonus;
-
-    return { bonusFlags, totalRp: Number(activationBonus) + Number(sustainabilityBonus) };
+    return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
   },
 };

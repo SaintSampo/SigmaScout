@@ -45,8 +45,8 @@
  * rather than folded in as an always-false bonus.
  */
 import { z } from "zod";
-import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
-import { assertFiniteThresholdVariables, eventTierFor } from "./constants.js";
+import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
+import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor } from "./constants.js";
 
 /**
  * Only the subset of TBA's `score_breakdown.{side}` object this module
@@ -76,7 +76,13 @@ const Rp2020Schema = z.object({
  */
 const SHIELD_OPERATIONAL_THRESHOLD: RpTieredThreshold = { base: 65, districtChampionship: 65, championship: 65 };
 
-const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [{ name: "endgamePoints", unit: "points" }];
+const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
+  {
+    name: "endgamePoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
+];
 
 /**
  * Shield Energized is deliberately ABSENT (D RP-4): it fired 0/7,640 times
@@ -86,13 +92,27 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [{ name: "endgamePoi
  * no recomputed twin would break the paired shape
  * `reconciliation.test.ts` relies on. `maxRp` therefore derives to
  * `2 + 1 = 3`, never a hand-written literal.
+ *
+ * D-02, D-07: 2020 declares exactly ONE bonus, `singleThreshold`, no
+ * untracked gate.
  */
-const BONUS_NAMES = ["shieldOperational"] as const;
+const BONUS_PREDICATES: readonly BonusPredicate[] = [
+  {
+    kind: "singleThreshold",
+    name: "shieldOperational",
+    variable: "endgamePoints",
+    direction: "gte",
+    threshold: SHIELD_OPERATIONAL_THRESHOLD,
+  },
+];
+
+const BONUS_NAMES = BONUS_PREDICATES.map((p) => p.name);
 
 export const rp2020: RpRuleModule = {
   season: 2020,
   thresholdVariables: THRESHOLD_VARIABLES,
   bonusNames: BONUS_NAMES,
+  bonusPredicates: BONUS_PREDICATES,
   maxRp: 2 + BONUS_NAMES.length,
   winRp: 2,
   tieRp: 1,
@@ -135,16 +155,8 @@ export const rp2020: RpRuleModule = {
     };
   },
 
-  /** Fully computable from the one tracked threshold variable alone — no untracked alliance-level gate (see `RpRuleModule.predictThresholds`'s doc comment for the general contract). */
+  /** Fully computable from the one tracked threshold variable alone — no untracked alliance-level gate (see `RpRuleModule.predictThresholds`'s doc comment for the general contract). Delegates to the shared declarative evaluator (D-02, D-07); see `BONUS_PREDICATES` above. */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
-    const tier = eventTierFor(eventType);
-    const endgamePoints = values.endgamePoints ?? 0;
-
-    const shieldOperational = endgamePoints >= SHIELD_OPERATIONAL_THRESHOLD[tier];
-
-    const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
-    bonusFlags.shieldOperational = shieldOperational;
-
-    return { bonusFlags, totalRp: Number(shieldOperational) };
+    return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
   },
 };

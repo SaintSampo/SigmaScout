@@ -26,8 +26,8 @@
  * rule.
  */
 import { z } from "zod";
-import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
-import { assertFiniteThresholdVariables, eventTierFor } from "./constants.js";
+import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
+import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor } from "./constants.js";
 
 /**
  * Only the subset of TBA's `score_breakdown.{side}` object this module
@@ -64,17 +64,53 @@ const CARGO_BONUS_THRESHOLD_QUINTET: RpTieredThreshold = { base: 18, districtCha
 const HANGAR_BONUS_THRESHOLD: RpTieredThreshold = { base: 16, districtChampionship: 16, championship: 16 };
 
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
-  { name: "matchCargoTotal", unit: "count" },
-  { name: "autoCargoTotal", unit: "count" },
-  { name: "endgamePoints", unit: "points" },
+  {
+    name: "matchCargoTotal",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "autoCargoTotal",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "endgamePoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
 ];
 
-const BONUS_NAMES = ["cargoBonus", "hangarBonus"] as const;
+/**
+ * D-02, D-07: `cargoBonus` is `dataDependentMixture` — selector
+ * `autoCargoTotal >= QUINTET_AUTO_CARGO_THRESHOLD` picks between the
+ * quintet and non-quintet `matchCargoTotal` branches. `hangarBonus` is
+ * `singleThreshold`. Neither gates on an untracked signal.
+ */
+const BONUS_PREDICATES: readonly BonusPredicate[] = [
+  {
+    kind: "dataDependentMixture",
+    name: "cargoBonus",
+    selector: { terms: [{ variable: "autoCargoTotal" }], direction: "gte", threshold: QUINTET_AUTO_CARGO_THRESHOLD },
+    whenSelectorTrue: { terms: [{ variable: "matchCargoTotal" }], direction: "gte", threshold: CARGO_BONUS_THRESHOLD_QUINTET },
+    whenSelectorFalse: { terms: [{ variable: "matchCargoTotal" }], direction: "gte", threshold: CARGO_BONUS_THRESHOLD_NON_QUINTET },
+  },
+  {
+    kind: "singleThreshold",
+    name: "hangarBonus",
+    variable: "endgamePoints",
+    direction: "gte",
+    threshold: HANGAR_BONUS_THRESHOLD,
+  },
+];
+
+const BONUS_NAMES = BONUS_PREDICATES.map((p) => p.name);
 
 export const rp2022: RpRuleModule = {
   season: 2022,
   thresholdVariables: THRESHOLD_VARIABLES,
   bonusNames: BONUS_NAMES,
+  bonusPredicates: BONUS_PREDICATES,
   maxRp: 2 + BONUS_NAMES.length,
   winRp: 2,
   tieRp: 1,
@@ -115,22 +151,8 @@ export const rp2022: RpRuleModule = {
     };
   },
 
-  /** Fully computable from tracked threshold variables alone — no untracked alliance-level gate (see `RpRuleModule.predictThresholds`'s doc comment for the general contract). */
+  /** Fully computable from tracked threshold variables alone — no untracked alliance-level gate (see `RpRuleModule.predictThresholds`'s doc comment for the general contract). Delegates to the shared declarative evaluator (D-02, D-07); see `BONUS_PREDICATES` above. */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
-    const tier = eventTierFor(eventType);
-    const matchCargoTotal = values.matchCargoTotal ?? 0;
-    const autoCargoTotal = values.autoCargoTotal ?? 0;
-    const endgamePoints = values.endgamePoints ?? 0;
-
-    const quintetAchieved = autoCargoTotal >= QUINTET_AUTO_CARGO_THRESHOLD[tier];
-    const cargoThreshold = quintetAchieved ? CARGO_BONUS_THRESHOLD_QUINTET[tier] : CARGO_BONUS_THRESHOLD_NON_QUINTET[tier];
-    const cargoBonus = matchCargoTotal >= cargoThreshold;
-    const hangarBonus = endgamePoints >= HANGAR_BONUS_THRESHOLD[tier];
-
-    const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
-    bonusFlags.cargoBonus = cargoBonus;
-    bonusFlags.hangarBonus = hangarBonus;
-
-    return { bonusFlags, totalRp: Number(cargoBonus) + Number(hangarBonus) };
+    return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
   },
 };

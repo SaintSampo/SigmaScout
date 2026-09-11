@@ -63,8 +63,8 @@
  * Threshold comparison semantics are `>=` throughout.
  */
 import { z } from "zod";
-import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
-import { assertFiniteThresholdVariables, eventTierFor } from "./constants.js";
+import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
+import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor } from "./constants.js";
 
 /**
  * Only the subset of TBA's `score_breakdown.{side}` object this module
@@ -91,7 +91,13 @@ const Rp2019Schema = z.object({
 /** HAB Docking Bonus threshold: `habClimbPoints >= 15`. Not tiered — flatness MEASURED (0 mismatches at every tier over 29,858 sides), not assumed. */
 const HAB_DOCKING_THRESHOLD: RpTieredThreshold = { base: 15, districtChampionship: 15, championship: 15 };
 
-const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [{ name: "habClimbPoints", unit: "points" }];
+const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
+  {
+    name: "habClimbPoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
+];
 
 /**
  * Complete Rocket carries no threshold variable (see file header's
@@ -99,13 +105,40 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [{ name: "habClimbPo
  * numeric threshold, so it has nothing to add to `THRESHOLD_VARIABLES`
  * above. `maxRp` still derives to `2 + 2 = 4` because `bonusNames.length`
  * counts it regardless of whether it tracks a threshold variable.
+ *
+ * D-02, D-07: `habDocking` is `singleThreshold`. `completeRocket` is
+ * declared `constant`, `value: false` — F12, out of scope for Phase 9. It
+ * has no threshold-variable-only fallback at all (see file header), so
+ * there is nothing to gate with an `RpUntrackedGate`; the `reason` field is
+ * where a `constant` predicate carries that justification instead. Measured
+ * (`pnpm rp:conservative-branch`): a pooled-season understatedRate of
+ * 4.7324%, predicted 0.0000 against an observed ~5.15% (F12) — declared
+ * here, not fixed, per this plan's explicit out-of-scope list.
  */
-const BONUS_NAMES = ["habDocking", "completeRocket"] as const;
+const BONUS_PREDICATES: readonly BonusPredicate[] = [
+  {
+    kind: "singleThreshold",
+    name: "habDocking",
+    variable: "habClimbPoints",
+    direction: "gte",
+    threshold: HAB_DOCKING_THRESHOLD,
+  },
+  {
+    kind: "constant",
+    name: "completeRocket",
+    value: false,
+    reason:
+      "F12: no threshold-variable-only fallback exists for completedRocketNear || completedRocketFar (both booleans, unreachable from predictThresholds). Predicted 0.0000 against an observed ~5.15% (pnpm rp:conservative-branch measures a pooled-season understatedRate of 4.7324%). Deferred out of Phase 9 deliberately — see 09-CONTEXT.md's deferred list.",
+  },
+];
+
+const BONUS_NAMES = BONUS_PREDICATES.map((p) => p.name);
 
 export const rp2019: RpRuleModule = {
   season: 2019,
   thresholdVariables: THRESHOLD_VARIABLES,
   bonusNames: BONUS_NAMES,
+  bonusPredicates: BONUS_PREDICATES,
   maxRp: 2 + BONUS_NAMES.length,
   winRp: 2,
   tieRp: 1,
@@ -150,21 +183,13 @@ export const rp2019: RpRuleModule = {
    * booleans (`completedRocketNear`/`completedRocketFar`), which this
    * season tracks no threshold-variable-only fallback for at all — there
    * is no numeric proxy available to the Monte Carlo joint draw. Always
-   * `false` here, following 2025's `autoBonus` precedent (see file
-   * header and `2025.ts`'s own `predictThresholds` doc comment for the
-   * general conservative-branch contract).
+   * `false` here (declared `constant`, see `BONUS_PREDICATES` above),
+   * following 2025's `autoBonus` precedent (see file header and
+   * `2025.ts`'s own `predictThresholds` doc comment for the general
+   * conservative-branch contract). Delegates to the shared declarative
+   * evaluator (D-02, D-07).
    */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
-    const tier = eventTierFor(eventType);
-    const habClimbPoints = values.habClimbPoints ?? 0;
-
-    const habDocking = habClimbPoints >= HAB_DOCKING_THRESHOLD[tier];
-    const completeRocket = false;
-
-    const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
-    bonusFlags.habDocking = habDocking;
-    bonusFlags.completeRocket = completeRocket;
-
-    return { bonusFlags, totalRp: Number(habDocking) + Number(completeRocket) };
+    return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
   },
 };

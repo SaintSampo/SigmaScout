@@ -49,8 +49,8 @@
  * prohibition on widening tolerances to force a fit.
  */
 import { z } from "zod";
-import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
-import { assertFiniteThresholdVariables, eventTierFor } from "./constants.js";
+import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
+import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor } from "./constants.js";
 
 const ON_STAGE_STATES = new Set(["StageLeft", "StageRight", "CenterStage"]);
 
@@ -93,17 +93,62 @@ const ENSEMBLE_BONUS_STAGE_POINTS_THRESHOLD: RpTieredThreshold = { base: 10, dis
 const ENSEMBLE_BONUS_ON_STAGE_ROBOTS_THRESHOLD: RpTieredThreshold = { base: 2, districtChampionship: 2, championship: 2 };
 
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
-  { name: "noteCount", unit: "count" },
-  { name: "endGameTotalStagePoints", unit: "points" },
-  { name: "onStageRobotCount", unit: "count" },
+  {
+    name: "noteCount",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "endGameTotalStagePoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "onStageRobotCount",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
 ];
 
-const BONUS_NAMES = ["melodyBonus", "ensembleBonus"] as const;
+/**
+ * D-02, D-07, Pitfall 4: `melodyBonus` is `singleThreshold` over `noteCount`
+ * at the stricter `MELODY_BONUS_THRESHOLD_NON_COOP` table, carrying an
+ * `RpUntrackedGate` for the untracked `coopertitionBonusAchieved` signal
+ * (conservative, understates). `ensembleBonus` is `conjunctionDistinct`
+ * over two DISTINCT, both-tracked variables — no gate.
+ */
+const BONUS_PREDICATES: readonly BonusPredicate[] = [
+  {
+    kind: "singleThreshold",
+    name: "melodyBonus",
+    variable: "noteCount",
+    direction: "gte",
+    threshold: MELODY_BONUS_THRESHOLD_NON_COOP,
+    untrackedGate: {
+      signal: "coopertitionBonusAchieved",
+      branch: "conservative",
+      errorDirection: "understates",
+      note:
+        "Evaluated at the stricter non-coop notes table because coopertitionBonusAchieved is not a tracked threshold variable. pnpm rp:conservative-branch measures a pooled-season meanRpUnderstatement of 0.123188 RP per alliance-match (understatedRate 12.3188%) — see docs/models/sigma1-rp-verification.md's Conservative-Branch Understatement section.",
+    },
+  },
+  {
+    kind: "conjunctionDistinct",
+    name: "ensembleBonus",
+    clauses: [
+      { terms: [{ variable: "endGameTotalStagePoints" }], direction: "gte", threshold: ENSEMBLE_BONUS_STAGE_POINTS_THRESHOLD },
+      { terms: [{ variable: "onStageRobotCount" }], direction: "gte", threshold: ENSEMBLE_BONUS_ON_STAGE_ROBOTS_THRESHOLD },
+    ],
+  },
+];
+
+const BONUS_NAMES = BONUS_PREDICATES.map((p) => p.name);
 
 export const rp2024: RpRuleModule = {
   season: 2024,
   thresholdVariables: THRESHOLD_VARIABLES,
   bonusNames: BONUS_NAMES,
+  bonusPredicates: BONUS_PREDICATES,
   maxRp: 2 + BONUS_NAMES.length,
   winRp: 2,
   tieRp: 1,
@@ -167,23 +212,10 @@ export const rp2024: RpRuleModule = {
    * evaluated here assuming coopertition is NOT achieved, i.e. the stricter
    * `MELODY_BONUS_THRESHOLD_NON_COOP` table, per
    * `RpRuleModule.predictThresholds`'s documented conservative-gate
-   * convention.
+   * convention. Delegates to the shared declarative evaluator (D-02, D-07);
+   * see `BONUS_PREDICATES` above.
    */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
-    const tier = eventTierFor(eventType);
-    const noteCount = values.noteCount ?? 0;
-    const endGameTotalStagePoints = values.endGameTotalStagePoints ?? 0;
-    const onStageRobotCount = values.onStageRobotCount ?? 0;
-
-    const melodyBonus = noteCount >= MELODY_BONUS_THRESHOLD_NON_COOP[tier];
-    const ensembleBonus =
-      endGameTotalStagePoints >= ENSEMBLE_BONUS_STAGE_POINTS_THRESHOLD[tier] &&
-      onStageRobotCount >= ENSEMBLE_BONUS_ON_STAGE_ROBOTS_THRESHOLD[tier];
-
-    const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
-    bonusFlags.melodyBonus = melodyBonus;
-    bonusFlags.ensembleBonus = ensembleBonus;
-
-    return { bonusFlags, totalRp: Number(melodyBonus) + Number(ensembleBonus) };
+    return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
   },
 };

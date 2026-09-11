@@ -129,8 +129,8 @@
  * never as an input to `bonusFlags`.
  */
 import { z } from "zod";
-import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
-import { assertFiniteThresholdVariables, eventTierFor } from "./constants.js";
+import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
+import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor } from "./constants.js";
 
 /**
  * Only the subset of TBA's `score_breakdown.{side}` object this module
@@ -228,28 +228,103 @@ function towerRobotCount(teleopChallengePoints: number, teleopScalePoints: numbe
 
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   // Crossing counts per defense position — raw counts, not point values.
-  { name: "position1crossings", unit: "count" },
-  { name: "position2crossings", unit: "count" },
-  { name: "position3crossings", unit: "count" },
-  { name: "position4crossings", unit: "count" },
-  { name: "position5crossings", unit: "count" },
+  {
+    name: "position1crossings",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "position2crossings",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "position3crossings",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "position4crossings",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "position5crossings",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
   // The OPPONENT side's `towerEndStrength`, exposed as an own-alliance
   // variable because it measures THIS alliance's offensive output against
   // the tower it attacked. See "CAPTURE" in the file header.
-  { name: "attackedTowerEndStrength", unit: "count" },
+  {
+    name: "attackedTowerEndStrength",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
   // Point values, not counts — the rule converts them to a robot count with
   // the per-robot divisors above rather than reading a count field, because
   // TBA's 2016 breakdown carries no tower-robot-count field at all.
-  { name: "teleopChallengePoints", unit: "points" },
-  { name: "teleopScalePoints", unit: "points" },
+  {
+    name: "teleopChallengePoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "teleopScalePoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
 ];
 
-const BONUS_NAMES = ["breach", "capture"] as const;
+/**
+ * D-02, D-07: `breach` is `countOfIndicators` — five indicator clauses
+ * (`position{1..5}crossings` each `>= CROSSINGS_FOR_DAMAGED_DEFENSE`, a
+ * plain definitional constant, not itself a tiered threshold), `required`
+ * the tiered `BREACH_DAMAGED_DEFENSE_THRESHOLD` (4 of 5, not all 5 — see
+ * file header). `capture` is `conjunctionDistinct`: the tower half is the
+ * project's only `"lte"` clause (`attackedTowerEndStrength <=
+ * CAPTURED_TOWER_END_STRENGTH_THRESHOLD`), the robot half is a two-term
+ * `RpLinearTerm` divisor combination (`teleopChallengePoints /
+ * CHALLENGE_POINTS_PER_ROBOT + teleopScalePoints / SCALE_POINTS_PER_ROBOT
+ * >= CAPTURE_ROBOT_COUNT_THRESHOLD`) — both terms summed left to right,
+ * matching `towerRobotCount`'s own addition order exactly (float addition
+ * is not associative). Neither bonus gates on an untracked signal.
+ */
+const BONUS_PREDICATES: readonly BonusPredicate[] = [
+  {
+    kind: "countOfIndicators",
+    name: "breach",
+    indicators: DEFENSE_POSITIONS.map((i) => ({
+      terms: [{ variable: `position${i}crossings` }],
+      direction: "gte" as const,
+      threshold: CROSSINGS_FOR_DAMAGED_DEFENSE,
+    })),
+    required: BREACH_DAMAGED_DEFENSE_THRESHOLD,
+  },
+  {
+    kind: "conjunctionDistinct",
+    name: "capture",
+    clauses: [
+      { terms: [{ variable: "attackedTowerEndStrength" }], direction: "lte", threshold: CAPTURED_TOWER_END_STRENGTH_THRESHOLD },
+      {
+        terms: [
+          { variable: "teleopChallengePoints", divisor: CHALLENGE_POINTS_PER_ROBOT },
+          { variable: "teleopScalePoints", divisor: SCALE_POINTS_PER_ROBOT },
+        ],
+        direction: "gte",
+        threshold: CAPTURE_ROBOT_COUNT_THRESHOLD,
+      },
+    ],
+  },
+];
+
+const BONUS_NAMES = BONUS_PREDICATES.map((p) => p.name);
 
 export const rp2016: RpRuleModule = {
   season: 2016,
   thresholdVariables: THRESHOLD_VARIABLES,
   bonusNames: BONUS_NAMES,
+  bonusPredicates: BONUS_PREDICATES,
   maxRp: 2 + BONUS_NAMES.length,
   winRp: 2,
   tieRp: 1,
@@ -313,24 +388,11 @@ export const rp2016: RpRuleModule = {
    * Note the `?? 0` default on `attackedTowerEndStrength` satisfies the
    * tower half (`0 <= 0`) — see the file header for why that is safe (the
    * robot-count conjunct still gates it, and `rp/distribution.ts` always
-   * supplies every tracked variable on the live path).
+   * supplies every tracked variable on the live path). Delegates to the
+   * shared declarative evaluator (D-02, D-07); see `BONUS_PREDICATES`
+   * above.
    */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
-    const tier = eventTierFor(eventType);
-    const crossings = DEFENSE_POSITIONS.map((i) => values[`position${i}crossings`] ?? 0);
-    const attackedTowerEndStrength = values.attackedTowerEndStrength ?? 0;
-    const teleopChallengePoints = values.teleopChallengePoints ?? 0;
-    const teleopScalePoints = values.teleopScalePoints ?? 0;
-
-    const breach = damagedDefenseCount(crossings) >= BREACH_DAMAGED_DEFENSE_THRESHOLD[tier];
-    const capture =
-      attackedTowerEndStrength <= CAPTURED_TOWER_END_STRENGTH_THRESHOLD[tier] &&
-      towerRobotCount(teleopChallengePoints, teleopScalePoints) >= CAPTURE_ROBOT_COUNT_THRESHOLD[tier];
-
-    const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
-    bonusFlags.breach = breach;
-    bonusFlags.capture = capture;
-
-    return { bonusFlags, totalRp: Number(breach) + Number(capture) };
+    return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
   },
 };

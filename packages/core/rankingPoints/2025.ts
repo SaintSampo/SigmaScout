@@ -63,8 +63,8 @@
  * `docs/models/sigma1-rp-verification.md` for the measured effect.
  */
 import { z } from "zod";
-import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
-import { assertFiniteThresholdVariables, eventTierFor } from "./constants.js";
+import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
+import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor } from "./constants.js";
 
 const ReefSchema = z.object({
   trough: z.number().finite(),
@@ -111,11 +111,31 @@ const AUTO_LINE_ROBOTS_REQUIRED = 3;
 const AUTO_CORAL_REQUIRED = 1;
 
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
-  { name: "trough", unit: "count" },
-  { name: "botRow", unit: "count" },
-  { name: "midRow", unit: "count" },
-  { name: "topRow", unit: "count" },
-  { name: "endGameBargePoints", unit: "points" },
+  {
+    name: "trough",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "botRow",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "midRow",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "topRow",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "endGameBargePoints",
+    unit: "points",
+    marginalFamily: "gaussian",
+  },
   // Added 2026-09-09 so `autoBonus` can be PREDICTED at all. Before this it
   // was hardcoded `false` in `predictThresholds` below, honestly documented as
   // the limit of what the tracked variables could express — but measured over
@@ -123,16 +143,70 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   // that hardcoded `false` the second-worst prediction in the whole RP layer
   // (Brier 0.6594, worse than predicting 0.5 for everything). It was a missing
   // input, not a modelling approximation, so the input is now tracked.
-  { name: "autoLineCount", unit: "count" },
-  { name: "autoCoralCount", unit: "count" },
+  {
+    name: "autoLineCount",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
+  {
+    name: "autoCoralCount",
+    unit: "count",
+    marginalFamily: "gaussian",
+  },
 ];
 
-const BONUS_NAMES = ["autoBonus", "coralBonus", "bargeBonus"] as const;
+/**
+ * D-02, D-07, Pitfall 4: `autoBonus` is `conjunctionDistinct` over two
+ * DISTINCT, both-tracked counts (`autoLineCount`, `autoCoralCount`) — NO
+ * `untrackedGate`: both variables have been tracked since 2026-09-09 (see
+ * `THRESHOLD_VARIABLES` comment above). `coralBonus` is `countOfIndicators`
+ * over the four reef levels at the STRICT (non-coop) per-level threshold,
+ * `required: 4` (all four — `indicators.length`), carrying an
+ * `RpUntrackedGate` for the untracked both-alliances
+ * `coopertitionCriteriaMet` signal. `bargeBonus` is `singleThreshold`.
+ */
+const BONUS_PREDICATES: readonly BonusPredicate[] = [
+  {
+    kind: "conjunctionDistinct",
+    name: "autoBonus",
+    clauses: [
+      { terms: [{ variable: "autoLineCount" }], direction: "gte", threshold: AUTO_LINE_ROBOTS_REQUIRED },
+      { terms: [{ variable: "autoCoralCount" }], direction: "gte", threshold: AUTO_CORAL_REQUIRED },
+    ],
+  },
+  {
+    kind: "countOfIndicators",
+    name: "coralBonus",
+    indicators: (["trough", "botRow", "midRow", "topRow"] as const).map((variable) => ({
+      terms: [{ variable }],
+      direction: "gte" as const,
+      threshold: CORAL_LEVEL_THRESHOLD_STRICT,
+    })),
+    required: 4,
+    untrackedGate: {
+      signal: "coopertitionCriteriaMet (both alliances)",
+      branch: "conservative",
+      errorDirection: "understates",
+      note:
+        "Evaluated at the strict all-4-levels count because coopertitionCriteriaMet is not a tracked threshold variable; the coop branch would require only CORAL_BONUS_COOP_LEVELS_REQUIRED (3) of the four. pnpm rp:conservative-branch measures a pooled-season meanRpUnderstatement of 0.095405 RP per alliance-match (understatedRate 9.5405%) — see docs/models/sigma1-rp-verification.md's Conservative-Branch Understatement section.",
+    },
+  },
+  {
+    kind: "singleThreshold",
+    name: "bargeBonus",
+    variable: "endGameBargePoints",
+    direction: "gte",
+    threshold: BARGE_BONUS_THRESHOLD,
+  },
+];
+
+const BONUS_NAMES = BONUS_PREDICATES.map((p) => p.name);
 
 export const rp2025: RpRuleModule = {
   season: 2025,
   thresholdVariables: THRESHOLD_VARIABLES,
   bonusNames: BONUS_NAMES,
+  bonusPredicates: BONUS_PREDICATES,
   maxRp: 3 + BONUS_NAMES.length,
   winRp: 3,
   tieRp: 1,
@@ -225,25 +299,11 @@ export const rp2025: RpRuleModule = {
    * a continuous distribution and cut at its own ceiling still understates how
    * often all three robots leave, because "3 of 3" is a discrete outcome at the
    * top of the range rather than a tail event.
+   *
+   * Delegates to the shared declarative evaluator (D-02, D-07); see
+   * `BONUS_PREDICATES` above.
    */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
-    const tier = eventTierFor(eventType);
-    const trough = values.trough ?? 0;
-    const botRow = values.botRow ?? 0;
-    const midRow = values.midRow ?? 0;
-    const topRow = values.topRow ?? 0;
-    const endGameBargePoints = values.endGameBargePoints ?? 0;
-
-    const autoBonus = (values.autoLineCount ?? 0) >= AUTO_LINE_ROBOTS_REQUIRED && (values.autoCoralCount ?? 0) >= AUTO_CORAL_REQUIRED;
-    const levels = [trough, botRow, midRow, topRow];
-    const coralBonus = levels.every((v) => v >= CORAL_LEVEL_THRESHOLD_STRICT[tier]);
-    const bargeBonus = endGameBargePoints >= BARGE_BONUS_THRESHOLD[tier];
-
-    const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
-    bonusFlags.autoBonus = autoBonus;
-    bonusFlags.coralBonus = coralBonus;
-    bonusFlags.bargeBonus = bargeBonus;
-
-    return { bonusFlags, totalRp: Number(autoBonus) + Number(coralBonus) + Number(bargeBonus) };
+    return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
   },
 };
