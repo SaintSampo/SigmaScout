@@ -1,0 +1,27 @@
+{
+  "measuredAt": "2026-09-11T16:24:01.294Z",
+  "sliceSeason": 2022,
+  "sliceEventKeys": [
+    "2022alhu",
+    "2022azfl",
+    "2022azva"
+  ],
+  "sliceMatchCount": 265,
+  "entries": [
+    {
+      "algorithmId": "opr",
+      "algorithmVersion": "4.0.0+baseline",
+      "predictionStreamSha256": "223a3e0da5a81edff384367e67da2805cda502237336914386853967f66ff324"
+    },
+    {
+      "algorithmId": "epa",
+      "algorithmVersion": "8.0.0+baseline",
+      "predictionStreamSha256": "2f723c8950c70aa17d96c8f0cf62db652b4343c8ad696e92ee9d0b9230a82155"
+    },
+    {
+      "algorithmId": "bpr",
+      "algorithmVersion": "3.0.0+baseline",
+      "predictionStreamSha256": "ee9acfec85ae0a72c3bbd53ea82092efe1e706352f2be9512798be72551ede49"
+    }
+  ]
+}
