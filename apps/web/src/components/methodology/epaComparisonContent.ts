@@ -21,6 +21,16 @@
  * student audience rather than pasted, since that document is written for a
  * maintainer.
  *
+ * NOT REVISED for `epa@8.0.0+baseline` (quick task 260911-3kc, 2026-09-11), and
+ * that is deliberate. 8.0.0 corrected the SEASON-BOUNDARY SCALE ANCHOR: a
+ * carried rating now enters a new season in that season's point units. It is a
+ * real divergence-narrowing, but this page's difference set is PINNED at three
+ * ids by a locked decision recorded below, and a fourth entry is exactly the
+ * "add it for completeness" instinct that decision rules out. What a reader
+ * should know: the numbers this page RENDERS come from the published
+ * `v1/methodology/epa-vs-statbotics.json`, which was generated under 7.0.0 and
+ * is STALE until the republish that 8.0.0 owes.
+ *
  * REVISED 2026-09-10 (quick task 260910-5ym) for `epa@7.0.0+baseline`, which
  * changed the facts under two of the three entries. `win-probability-scale`
  * gained a paragraph on the season boundary: the running spread measure used

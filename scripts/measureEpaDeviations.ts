@@ -171,6 +171,17 @@ import {
   type EpaState,
 } from "../packages/core/algorithms/epa.js";
 import { populationMeanSd } from "../packages/core/algorithms/carryover.js";
+// MOVED, not copied (quick task 260911-3kc): these five now SHIP inside
+// `epa.ts`, so this harness imports them rather than keeping a second copy. Two
+// copies of a scale conversion drifting apart is the exact failure
+// `carryover.ts`'s own `populationMeanSd` comment warns about.
+import {
+  carryRescaleRatio,
+  cleanSeasonMean,
+  materializePendingTeams,
+  rescaleComponents,
+  EPA_CARRY_RESCALE_MIN_OBS,
+} from "../packages/core/algorithms/epaCarryScale.js";
 import { ratingEligibleTeams } from "../packages/core/algorithms/opr.js";
 import { accuracyCall, outcomeTarget, scoreSet, type MatchOutcome, type ScoredPrediction } from "../packages/core/scoring/brier.js";
 import { isValidPRedWin } from "../packages/core/scoring/predictionValidity.js";
@@ -225,43 +236,15 @@ export const ARM_IDS = [
   WINPROB_FIXED_SD_ARM_ID,
 ] as const;
 
-/**
- * How many of a new season's OWN alliance scores must have been folded before
- * the carryover arm will read a rescale ratio off them.
- *
- * Below this the season mean is an estimate from a handful of events that could
- * easily be a single unusually high- or low-scoring regional, and multiplying
- * every component of a carried team by a noisy ratio is worse than not
- * rescaling at all. A team first seen inside this window is materialized at
- * `ratio = 1` and counted as a DEFERRAL — this arm's honest, reported cost of
- * being walk-forward-legal, and the single number that separates it from the
- * offline rescale Statbotics can simply do.
- *
- * 100 alliance scores is about 50 matches — roughly one event's qualification
- * round, and the same order of magnitude `EPA_SCORE_SD_SEED_COUNT` (50) already
- * uses for the SD seed it unwinds.
- */
-export const EPA_CARRY_RESCALE_MIN_OBS = 100;
-
-/**
- * THE ENTIRE THRESHOLD SEARCH, PRE-DECLARED. Three values, no sweep.
- *
- * `100` is the INCUMBENT — the plain fix quick task 260910-x09 already measured
- * end to end (pooled +0.01059 ACC, -0.00521 Brier, both intervals excluding
- * zero). `250` and `500` are the only two challengers that will ever be
- * measured, bracketing "roughly one event's qualification round" to "roughly
- * five events".
- *
- * A FOURTH VALUE, OR A SCAN OVER A RANGE, IS FORBIDDEN. Nine seasons of scoring
- * include 2019, and 2019 carries essentially the entire measured effect; a sweep
- * scored on that population is selection against one season wearing the clothes
- * of a nine-season result. Three pre-declared points and a pre-declared rule are
- * a decision. A curve over the same data is a fit.
- */
 export const THRESHOLD_CANDIDATES = [100, 250, 500] as const;
 
 /** The incumbent, and the shipped default whenever no challenger clears the bar. */
-export const THRESHOLD_DEFAULT = EPA_CARRY_RESCALE_MIN_OBS;
+// The INCUMBENT AT THE TIME OF THE MEASUREMENT, pinned to the candidate set
+// rather than to `EPA_CARRY_RESCALE_MIN_OBS`. Those were the same number when
+// this ran; they are not now, because the run's own outcome moved the shipped
+// constant to 250. Reading the shipped constant here would retroactively
+// rewrite what the measurement was measured against.
+export const THRESHOLD_DEFAULT = THRESHOLD_CANDIDATES[0];
 
 /**
  * The selection rule, WRITTEN DOWN BEFORE ANY THRESHOLD NUMBER EXISTS. Printed
@@ -321,100 +304,12 @@ export function finiteOrThrow(value: number, context: string): number {
   return value;
 }
 
-/**
- * Recovers the arithmetic mean of the alliance scores a season has actually
- * folded, by unwinding the prior-season seed `carrySeason` left in the
- * accumulator.
- *
- * After `reseedFromPrior(stats, EPA_SCORE_SD_SEED_COUNT)` the accumulator holds
- * exactly `seedCount` pseudo-observations at `seedMean`; every later fold is the
- * new season's own. So
- *
- *     cleanMean = (mean * count - seedMean * seedCount) / (count - seedCount)
- *
- * Returns `null` — never a number — whenever the answer is not yet legible:
- * fewer than `minRealObs` real folds, no seed to unwind (`count <= seedCount`,
- * which happens when `reseedFromPrior` declined below 2 observations), or a
- * non-finite input. A `null` is a signal the caller must handle; a `NaN` is one
- * it would formats away.
- */
-export function cleanSeasonMean(
-  stats: { readonly count: number; readonly mean: number },
-  seedMean: number,
-  seedCount: number = EPA_SCORE_SD_SEED_COUNT,
-  minRealObs: number = EPA_CARRY_RESCALE_MIN_OBS
-): number | null {
-  if (!Number.isFinite(seedMean) || !Number.isFinite(stats.mean) || !Number.isFinite(stats.count)) return null;
-  const realCount = stats.count - seedCount;
-  if (realCount < minRealObs || realCount <= 0) return null;
-  const mean = (stats.mean * stats.count - seedMean * seedCount) / realCount;
-  return Number.isFinite(mean) ? mean : null;
-}
-
-/**
- * The per-team rescale factor: how many of THIS season's points one of LAST
- * season's points is worth.
- *
- * Returns `{ ratio: 1, deferred: true }` for every case where the ratio cannot
- * be trusted — a not-yet-measurable clean mean, a zero or non-finite seed mean
- * (dividing by it would be infinite), or a non-positive clean mean (which cannot
- * be a point scale and whose ratio would flip the sign of every carried
- * rating). `deferred` is counted and reported; it is never silently folded into
- * "we rescaled".
- */
-export function carryRescaleRatio(
-  cleanSeasonMeanValue: number | null,
-  seedMean: number
-): { ratio: number; deferred: boolean } {
-  if (cleanSeasonMeanValue === null) return { ratio: 1, deferred: true };
-  if (!Number.isFinite(seedMean) || seedMean <= 0) return { ratio: 1, deferred: true };
-  if (!Number.isFinite(cleanSeasonMeanValue) || cleanSeasonMeanValue <= 0) return { ratio: 1, deferred: true };
-  const ratio = cleanSeasonMeanValue / seedMean;
-  if (!Number.isFinite(ratio) || ratio <= 0) return { ratio: 1, deferred: true };
-  return { ratio, deferred: false };
-}
-
-/**
- * Multiplies every component of one team's record by `ratio`. A pinned-zero
- * component (EPA pins `adjust` at exactly 0, D-5) stays at zero for free —
- * `0 * ratio === 0` — which is the correct behaviour and is pinned by a test so
- * a future "improvement" cannot seed it.
- */
-export function rescaleComponents(
-  components: Readonly<Record<string, number>>,
-  ratio: number
-): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const [name, value] of Object.entries(components)) out[name] = value * ratio;
-  return out;
-}
-
-/**
- * Applies `ratio` to every team in `teams` that is still `pending`, returning a
- * NEW map and the list of teams actually touched.
- *
- * Never mutates its input, never rescales a team outside `pending` (that team
- * has already been corrected, and a second pass would square the ratio), and
- * leaves every untouched entry as the SAME object reference, so a caller can
- * tell by identity that nothing was rebuilt behind its back.
- */
-export function materializePendingTeams(
-  teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>,
-  teams: readonly string[],
-  pending: ReadonlySet<string>,
-  ratio: number
-): { teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>; touched: string[] } {
-  const touched: string[] = [];
-  for (const team of teams) {
-    if (!pending.has(team)) continue;
-    if (!teamComponents.has(team)) continue;
-    touched.push(team);
-  }
-  if (touched.length === 0) return { teamComponents, touched };
-  const next = new Map(teamComponents);
-  for (const team of touched) next.set(team, rescaleComponents(next.get(team)!, ratio));
-  return { teamComponents: next, touched };
-}
+// `cleanSeasonMean`, `carryRescaleRatio`, `rescaleComponents` and
+// `materializePendingTeams` USED to live here. They now SHIP in
+// `packages/core/algorithms/epaCarryScale.ts` and are imported at the top of
+// this file — see that module's header, and quick task 260911-3kc's SUMMARY,
+// for the landing. Their unit tests moved with them to
+// `packages/core/algorithms/epaCarryScale.test.ts`.
 
 /**
  * The win-probability logistic with a caller-supplied score SD, in the exact

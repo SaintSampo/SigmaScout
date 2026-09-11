@@ -261,8 +261,37 @@ export class MissingLeagueRowError extends Error {
  * (`MIN_POPULATION_FOR_TALENT_PRIOR`), so a Worker that resumed beliefs without
  * it would silently compute every band from the FLAT prior instead of the
  * talent scaled one, and disagree with the publisher while looking healthy.
+ *
+ * ---------------------------------------------------------------------------
+ * 11 -> 12 (2026-09-11, quick task 260911-3kc): EPA'S SEASON-BOUNDARY SCALE
+ * ---------------------------------------------------------------------------
+ *
+ * `epa@8.0.0+baseline` converts a carried rating into the INCOMING season's
+ * point units, lazily, per team, on first sight. That needs two pieces of state
+ * it did not have: `carrySeedMean` (the outgoing season's alliance-score mean)
+ * in the LEAGUE row, and `carryPending` (has this carried team been
+ * materialized yet?) as a flag on each TEAM row. The split is the D-13 rule,
+ * not a preference: `carrySeedMean` is ONE NUMBER and does not scale with team
+ * count, while a set of a few thousand team keys in the league row would breach
+ * `MAX_LEAGUE_ROW_BYTES` outright. Exactly the split the 10 -> 11 bump made for
+ * Sigma beliefs versus their population statistics.
+ *
+ * THE LOAD-BEARING REASON, stated explicitly because it is the whole point of
+ * this bump: `apps/worker/src/stateStore.ts`'s `readScopedState` filters rows
+ * by `algorithm_id` ONLY and never by version, so bumping `epa.version` from
+ * 7.0.0 to 8.0.0 does NOT by itself make a stale seeded row unreachable. A
+ * shape-11 EPA league row deserializes with `carryPending` absent and
+ * `carrySeedMean` undefined, which makes the ratio unreadable and therefore
+ * DISABLES THE RESCALE ENTIRELY on live traffic — silently, while the offline
+ * publisher applies it. Live and offline would then disagree on every carried
+ * rating at every boundary, with no error, no NaN and no malformed row to find.
+ * The shape check is the only thing that turns that into a loud
+ * `LeagueRowShapeVersionError` naming the re-seed as the fix.
+ *
+ * Costs a Worker re-seed from a fresh publish run, exactly like every bump
+ * above it. Seed first, deploy second.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 11;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 12;
 
 /**
  * Thrown when `deserializeState`'s league row does not declare the current
@@ -562,6 +591,14 @@ interface SerializedEpaLeague {
   snapshotShapeVersion: number;
   season: number | null;
   allianceScoreStats: ExpandingStats;
+  /**
+   * Shape 12: `EpaState.carrySeedMean`, the outgoing season's alliance-score
+   * mean. `null` ON THE WIRE stands for `Number.NaN` ("no boundary crossed
+   * yet") — JSON has no NaN, so writing it naively yields `null` but reads back
+   * as a value that is NOT NaN, silently turning "unreadable" into something
+   * `carryRescaleRatio` would have to guess about.
+   */
+  carrySeedMean: number | null;
   fallbackSkipped: number;
   breakdownParseFailureCount: number;
 }
@@ -571,6 +608,13 @@ interface SerializedEpaTeamRow {
   current?: SerializedEpaTeamState;
   priorSeasonLastSeason?: number;
   priorSeasonYearBefore?: number;
+  /**
+   * Shape 12: this team is carried across the most recent boundary and has NOT
+   * yet been materialized into the incoming season's point units. OMITTED when
+   * false, so an ordinary team's row is byte-identical to shape 11 and
+   * publish-time byte budgets are unchanged.
+   */
+  carryPending?: true;
 }
 
 function serializeEpaState(algorithmId: string, algorithmVersion: string, state: EpaState, stamp: StateStamp): StateRow[] {
@@ -578,6 +622,7 @@ function serializeEpaState(algorithmId: string, algorithmVersion: string, state:
     snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION,
     season: state.season,
     allianceScoreStats: state.allianceScoreStats,
+    carrySeedMean: Number.isFinite(state.carrySeedMean) ? state.carrySeedMean : null,
     fallbackSkipped: state.fallbackSkipped,
     breakdownParseFailureCount: state.breakdownParseFailureCount,
   };
@@ -593,6 +638,12 @@ function serializeEpaState(algorithmId: string, algorithmVersion: string, state:
     ...state.teamMatchCounts.keys(),
     ...state.priorSeasonRatings.lastSeason.keys(),
     ...state.priorSeasonRatings.yearBefore.keys(),
+    // Shape 12: a pending team always has a `teamComponents` entry today
+    // (`carrySeason` builds the pending set FROM those keys), so this term adds
+    // nothing right now. It is here so that if that ever stops being true, the
+    // team gets a row and keeps its flag rather than silently losing its
+    // rescale — the exact class of silent loss this union already exists for.
+    ...state.carryPending,
   ]);
   for (const teamKey of [...teamKeys].sort()) {
     const components = state.teamComponents.get(teamKey);
@@ -604,6 +655,7 @@ function serializeEpaState(algorithmId: string, algorithmVersion: string, state:
       ...(hasCurrent ? { current: { components: components ?? {}, matchCount: matchCount ?? 0 } } : {}),
       ...(priorSeasonLastSeason !== undefined ? { priorSeasonLastSeason } : {}),
       ...(priorSeasonYearBefore !== undefined ? { priorSeasonYearBefore } : {}),
+      ...(state.carryPending.has(teamKey) ? { carryPending: true as const } : {}),
     };
     rows.push(makeRow(algorithmId, algorithmVersion, "team", teamKey, teamJson, stamp));
   }
@@ -622,9 +674,11 @@ function deserializeEpaState(algorithmId: string, rows: readonly StateRow[]): Ep
   const teamMatchCounts = new Map<string, number>();
   const lastSeason = new Map<string, number>();
   const yearBefore = new Map<string, number>();
+  const carryPending = new Set<string>();
   for (const row of rows) {
     if (row.scopeKind !== "team") continue;
     const teamJson = JSON.parse(row.stateJson) as SerializedEpaTeamRow;
+    if (teamJson.carryPending === true) carryPending.add(row.scopeKey);
     if (teamJson.current !== undefined) {
       teamComponents.set(row.scopeKey, teamJson.current.components);
       teamMatchCounts.set(row.scopeKey, teamJson.current.matchCount);
@@ -638,6 +692,9 @@ function deserializeEpaState(algorithmId: string, rows: readonly StateRow[]): Ep
     teamComponents,
     teamMatchCounts,
     allianceScoreStats: leagueJson.allianceScoreStats,
+    // `null` on the wire IS `NaN` — see SerializedEpaLeague.carrySeedMean.
+    carrySeedMean: leagueJson.carrySeedMean === null ? Number.NaN : leagueJson.carrySeedMean,
+    carryPending,
     fallbackSkipped: leagueJson.fallbackSkipped,
     priorSeasonRatings: { lastSeason, yearBefore },
     breakdownParseFailureCount: leagueJson.breakdownParseFailureCount,

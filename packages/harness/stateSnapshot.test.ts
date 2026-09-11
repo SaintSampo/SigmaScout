@@ -493,7 +493,7 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     expect(() => deserializeState("opr", rows)).not.toThrow();
   });
 
-  it("STATE_SNAPSHOT_SHAPE_VERSION is 11, and league rows declaring the LITERAL 3, 4, 5, 6, 7, 8, 9 or 10 all throw (shape 11 added the live Sigma Score belief, 2026-09-10)", () => {
+  it("STATE_SNAPSHOT_SHAPE_VERSION is 12, and a league row declaring ANY earlier shape throws (shape 12 added EPA's season-boundary carry scale, 2026-09-11)", () => {
     // Pinned by literal value, not relative to the constant. Every earlier
     // shape must fail LOUDLY at load rather than deserialize into a field set
     // that no longer matches `Sigma1State`: shape 3 predates
@@ -526,9 +526,19 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     // `apps/worker/src/stateStore.ts` filters rows by `algorithm_id` only and
     // never by `algorithm_version`, so bumping the algorithm version does not
     // by itself make a stale seeded row unreachable — this check is what does.
-    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(11);
+    // Shape 11's EPA league row carries no `carrySeedMean` and its team rows no
+    // `carryPending`, so a stale shape-11 row makes the season-boundary rescale
+    // ratio unreadable and DISABLES the rescale on live traffic while the
+    // offline publisher applies it — the same silent live/offline split as
+    // every case above, on every carried rating at every boundary.
+    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(12);
 
-    for (const staleVersion of [3, 4, 5, 6, 7, 8, 9, 10]) {
+    // NOT an iteration over a list that can silently skip: the range is derived
+    // from the current version, so a future bump cannot leave the newest stale
+    // shape untested by forgetting to append it here.
+    const staleVersions = Array.from({ length: STATE_SNAPSHOT_SHAPE_VERSION - 3 }, (_, i) => i + 3);
+    expect(staleVersions.at(-1)).toBe(STATE_SNAPSHOT_SHAPE_VERSION - 1);
+    for (const staleVersion of staleVersions) {
       const staleRow: StateRow = StateRowSchema.parse({
         algorithmId: "vpr",
         algorithmVersion: vpr.version,
@@ -664,6 +674,8 @@ describe("serializeState/deserializeState — Map members survive by size", () =
         yearBefore: new Map([["frc1", 1490]]),
       },
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
 
     const rows = serializeState("epa", epa.version, fakeState, STAMP);

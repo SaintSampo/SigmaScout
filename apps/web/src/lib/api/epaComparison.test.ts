@@ -56,10 +56,10 @@ describe("fetchEpaComparisonArtifact", () => {
   });
 
   it("resolves with the parsed artifact on a valid response", async () => {
-    global.fetch = vi.fn(async () => new Response(JSON.stringify(validEpaComparisonBody({ epaVersion: "7.0.0+baseline" })), { status: 200 })) as unknown as typeof fetch;
+    global.fetch = vi.fn(async () => new Response(JSON.stringify(validEpaComparisonBody({ epaVersion: "8.0.0+baseline" })), { status: 200 })) as unknown as typeof fetch;
 
     const artifact = await fetchEpaComparisonArtifact();
-    expect(artifact.epaVersion).toBe("7.0.0+baseline");
+    expect(artifact.epaVersion).toBe("8.0.0+baseline");
   });
 
   it("a 404 rejects with EpaComparisonFetchError carrying status 404, distinguishing it from every other failure", async () => {

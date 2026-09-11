@@ -39,33 +39,34 @@
  */
 import { describe, expect, it } from "vitest";
 import { EPA_FALLBACK_SCORE_SD, EPA_K, EPA_SCORE_SD_SEED_COUNT } from "../packages/core/algorithms/epa.js";
+// MOVED to packages/ by quick task 260911-3kc — the blocks that exercised these
+// five moved with them to epaCarryScale.test.ts. What is imported here is only
+// what this file still asserts ABOUT them: that the arm threads its own
+// threshold into `cleanSeasonMean`.
+import { EPA_CARRY_RESCALE_MIN_OBS } from "../packages/core/algorithms/epaCarryScale.js";
 import {
   ARM_IDS,
   armRegister,
   BASELINE_ARM_ID,
   buildArtifact,
   carryoverFixArm,
-  carryRescaleRatio,
   CARRYOVER_FIX_ARM_ID,
   CARRYOVER_FIX_MIN250_ARM_ID,
   CARRYOVER_FIX_MIN500_ARM_ID,
-  cleanSeasonMean,
   contrastFor,
   deviationRegister,
   emptyAblationCensus,
-  EPA_CARRY_RESCALE_MIN_OBS,
   exclusionReasonFor,
   finiteOrThrow,
-  materializePendingTeams,
   meanDiff,
   pairedAccuracyDiffs,
   pairedBrierDiffs,
   ratioForState,
   rescaledWinProbability,
-  rescaleComponents,
   SCHEMA_VERSION,
   selectThreshold,
   THRESHOLD_CANDIDATES,
+  THRESHOLD_DEFAULT,
   verdictFor,
   type CarryoverFixState,
   type ContrastMetric,
@@ -73,105 +74,6 @@ import {
   type ScorableRow,
   type Scope,
 } from "./measureEpaDeviations.js";
-
-describe("cleanSeasonMean — unwinding reseedFromPrior's pseudo-observations", () => {
-  it("recovers the arithmetic mean of the real folds", () => {
-    // A boundary leaves the accumulator at exactly EPA_SCORE_SD_SEED_COUNT
-    // observations sitting at the prior season's mean. Fold 200 real
-    // observations averaging 60 on top and the blended mean is the
-    // count-weighted average of the two — unwinding must return 60 exactly.
-    const seedMean = 290;
-    const realCount = 200;
-    const realMean = 60;
-    const count = EPA_SCORE_SD_SEED_COUNT + realCount;
-    const mean = (seedMean * EPA_SCORE_SD_SEED_COUNT + realMean * realCount) / count;
-    expect(cleanSeasonMean({ count, mean }, seedMean)).toBeCloseTo(realMean, 9);
-  });
-
-  it("returns null below EPA_CARRY_RESCALE_MIN_OBS real observations — the walk-forward-legality floor", () => {
-    const seedMean = 290;
-    const justUnder = EPA_SCORE_SD_SEED_COUNT + EPA_CARRY_RESCALE_MIN_OBS - 1;
-    expect(cleanSeasonMean({ count: justUnder, mean: 100 }, seedMean)).toBeNull();
-    const exactly = EPA_SCORE_SD_SEED_COUNT + EPA_CARRY_RESCALE_MIN_OBS;
-    expect(cleanSeasonMean({ count: exactly, mean: 100 }, seedMean)).not.toBeNull();
-  });
-
-  it("returns null when the accumulator never carried a seed at all", () => {
-    // `reseedFromPrior` returns its input untouched below 2 observations, so a
-    // count at or below the seed size means there is no seed to unwind and the
-    // formula's denominator would be zero or negative.
-    expect(cleanSeasonMean({ count: EPA_SCORE_SD_SEED_COUNT, mean: 100 }, 290)).toBeNull();
-    expect(cleanSeasonMean({ count: 0, mean: 0 }, 290)).toBeNull();
-  });
-
-  it("returns null for a non-finite seed mean rather than propagating NaN", () => {
-    expect(cleanSeasonMean({ count: 1000, mean: 60 }, Number.NaN)).toBeNull();
-  });
-});
-
-describe("carryRescaleRatio", () => {
-  it("halving the season scale yields a ratio near 0.5", () => {
-    const { ratio, deferred } = carryRescaleRatio(50, 100);
-    expect(ratio).toBeCloseTo(0.5, 12);
-    expect(deferred).toBe(false);
-  });
-
-  it("an unchanged scale yields exactly 1", () => {
-    expect(carryRescaleRatio(100, 100)).toEqual({ ratio: 1, deferred: false });
-  });
-
-  it("a not-yet-measurable clean mean defers rather than guessing", () => {
-    expect(carryRescaleRatio(null, 100)).toEqual({ ratio: 1, deferred: true });
-  });
-
-  it("a zero or non-finite seed mean yields 1 and counts a deferral", () => {
-    expect(carryRescaleRatio(60, 0)).toEqual({ ratio: 1, deferred: true });
-    expect(carryRescaleRatio(60, Number.NaN)).toEqual({ ratio: 1, deferred: true });
-    expect(carryRescaleRatio(Number.NaN, 100)).toEqual({ ratio: 1, deferred: true });
-    // A negative clean mean cannot be a point scale; refuse rather than flip
-    // every carried rating's sign.
-    expect(carryRescaleRatio(-10, 100)).toEqual({ ratio: 1, deferred: true });
-  });
-});
-
-describe("rescaleComponents / materializePendingTeams", () => {
-  it("multiplies every component by the ratio and leaves a pinned zero at zero", () => {
-    const out = rescaleComponents({ autoPoints: 30, teleopPoints: 60, adjust: 0 }, 0.5);
-    expect(out).toEqual({ autoPoints: 15, teleopPoints: 30, adjust: 0 });
-  });
-
-  it("rescales a pending team, leaves a non-pending team untouched, and reports who it touched", () => {
-    const before = new Map<string, Readonly<Record<string, number>>>([
-      ["frc111", { autoPoints: 10, adjust: 0 }],
-      ["frc222", { autoPoints: 20, adjust: 0 }],
-    ]);
-    const { teamComponents, touched } = materializePendingTeams(
-      before,
-      ["frc111", "frc222"],
-      new Set(["frc111"]),
-      0.25
-    );
-    expect(touched).toEqual(["frc111"]);
-    expect(teamComponents.get("frc111")).toEqual({ autoPoints: 2.5, adjust: 0 });
-    // Untouched by reference, not merely by value — a copied-but-equal record
-    // would mean the materializer rebuilt state it had no business rebuilding.
-    expect(teamComponents.get("frc222")).toBe(before.get("frc222"));
-    // The input map is never mutated.
-    expect(before.get("frc111")).toEqual({ autoPoints: 10, adjust: 0 });
-  });
-
-  it("ignores a team with no state and a pending team not in this match", () => {
-    const before = new Map<string, Readonly<Record<string, number>>>([["frc111", { autoPoints: 10 }]]);
-    const { teamComponents, touched } = materializePendingTeams(
-      before,
-      ["frc999"],
-      new Set(["frc111", "frc999"]),
-      0.5
-    );
-    expect(touched).toEqual([]);
-    expect(teamComponents.get("frc111")).toEqual({ autoPoints: 10 });
-  });
-});
 
 describe("rescaledWinProbability", () => {
   it("agrees with the shipped logistic when handed the shipped SD", () => {
@@ -628,7 +530,13 @@ describe("the candidate set and the selection rule are literal data in the artif
     });
     const block = artifact.notes.thresholdSelection;
     expect(block.candidates).toHaveLength(3);
-    expect(block.default).toBe(EPA_CARRY_RESCALE_MIN_OBS);
+    // The INCUMBENT at measurement time, which is the smallest candidate — NOT
+    // `EPA_CARRY_RESCALE_MIN_OBS`. Those were the same number when this ran and
+    // are not now, because the run's own outcome moved the shipped constant to
+    // 250. Asserting the shipped constant here would let the record of what the
+    // challengers were measured against drift with the answer they produced.
+    expect(block.default).toBe(THRESHOLD_DEFAULT);
+    expect(block.default).toBe(THRESHOLD_CANDIDATES[0]);
     expect(block.rule).toBeTruthy();
     expect(block.tieBreak).toMatch(/smaller/i);
     // `selected` is null until the run has actually produced one: a pre-filled

@@ -141,6 +141,8 @@ describe("metricGroups <-> epa.teamMetrics parity (D-3, 260904-7id)", () => {
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
     const published = epa.teamMetrics(state)["frc1"]!;
 

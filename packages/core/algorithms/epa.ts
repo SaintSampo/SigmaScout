@@ -163,6 +163,13 @@ import {
   epaCarryover,
   type EpaCarryoverPriorRatings,
 } from "./carryover.js";
+import {
+  carryRescaleRatio,
+  cleanSeasonMean,
+  materializePendingTeams,
+  EPA_CARRY_RESCALE_MIN_OBS,
+  EPA_SCORE_SD_SEED_COUNT,
+} from "./epaCarryScale.js";
 
 // EPA_NORM_MEAN/EPA_NORM_SD/EPA_INIT_PENALTY/EPA_MEAN_REVERSION are owned by
 // carryover.ts (D-16) — imported here rather than redeclared, and
@@ -194,28 +201,14 @@ export const EPA_K = -5 / 8;
  */
 export const EPA_FALLBACK_SCORE_SD = 25;
 
-/**
- * Strength, in observations, of the prior-season seed `carrySeason` leaves in
- * `allianceScoreStats` at a season boundary (`reseedFromPrior`).
- *
- * Quick task 260910-4x0: this used to be unbounded. `carrySeason` handed the
- * whole accumulator across the boundary — observation count included — so the
- * win-probability denominator pooled every alliance score the replay had ever
- * seen. Across 2016-2024 that is 282,192 observations against a season's own
- * ~44,000, and FRC's point scale is not remotely stationary across seasons
- * (2018 alliances averaged 292 points, 2019 averaged 55). 2024 read a pooled
- * SD of 106.4 where its own was 27.2 — a ~3.9x too-flat logistic, measured at
- * 0.2204 Brier against 0.1764 for the same replay scored with a per-season
- * scale.
- *
- * 50 is about one event's worth of alliance scores: enough that a season's
- * opening matches inherit a sane scale instead of falling back to
- * `EPA_FALLBACK_SCORE_SD` (25 suits 2024's 27.2 but not 2026's 144.6), and
- * small enough that the season's own data has taken over well inside week 1.
- * Deliberately NOT zero (a hard reset) and deliberately NOT unbounded (the
- * defect this replaces).
- */
-export const EPA_SCORE_SD_SEED_COUNT = 50;
+// `EPA_SCORE_SD_SEED_COUNT` moved to `epaCarryScale.ts` (quick task
+// 260911-3kc) and is re-exported here so every existing import path is
+// unchanged — the same arrangement, and the same acyclic reasoning, as the
+// carryover.ts constants above. It lives there because `cleanSeasonMean`
+// UNWINDS exactly this seed: the seed strength and its unwind are one fact,
+// and a reader who changes one must see the other. See that module for the
+// measurement behind the value.
+export { EPA_SCORE_SD_SEED_COUNT, EPA_CARRY_RESCALE_MIN_OBS };
 
 /**
  * D-05 (quick task 260904-5px) — Statbotics' own `ELIM_WEIGHT`
@@ -312,6 +305,31 @@ export interface EpaState extends BreakdownParseTelemetry {
   readonly teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>;
   readonly teamMatchCounts: ReadonlyMap<string, number>;
   readonly allianceScoreStats: ExpandingStats;
+  /**
+   * The OUTGOING season's alliance-score mean at the moment of the most recent
+   * boundary — the point units every carried component is currently expressed
+   * in, and the denominator of the rescale ratio (quick task 260911-3kc).
+   *
+   * LEAGUE-scoped: exactly one number, captured in `carrySeason` BEFORE
+   * delegating to `epaCarryover`. `Number.NaN` means "no boundary has been
+   * crossed", which `carryRescaleRatio` treats as unreadable and therefore
+   * deferred — never as a silent 1.
+   */
+  readonly carrySeedMean: number;
+  /**
+   * Teams carried across the most recent boundary that have NOT yet been
+   * materialized into the incoming season's point units.
+   *
+   * Serialized PER TEAM, as a flag on that team's own row, never in the league
+   * row: D-13 requires a league row's bytes to stay flat in team count, and a
+   * few thousand team keys would breach `MAX_LEAGUE_ROW_BYTES` outright. Same
+   * team-row/league-row split the 10 -> 11 snapshot bump made for Sigma beliefs
+   * versus their population statistics.
+   *
+   * A team leaves this set the first time it is SEEN, whether or not its
+   * rescale could be read — see `update`.
+   */
+  readonly carryPending: ReadonlySet<string>;
   readonly fallbackSkipped: number;
   readonly priorSeasonRatings: EpaCarryoverPriorRatings;
   // `breakdownParseFailureCount` (D-Q2, `BreakdownParseTelemetry`, extended
@@ -329,6 +347,31 @@ const EMPTY_PRIOR_SEASON_RATINGS: EpaCarryoverPriorRatings = {
   lastSeason: new Map(),
   yearBefore: new Map(),
 };
+
+const EMPTY_CARRY_PENDING: ReadonlySet<string> = new Set<string>();
+
+/**
+ * The season-boundary rescale factor for this state: how many of the INCOMING
+ * season's points one of the OUTGOING season's is worth.
+ *
+ * Reads the accumulator as it stands BEFORE this match's own scores are folded,
+ * which is what makes `predict`'s transient materialization and `update`'s
+ * permanent one agree by construction rather than by coincidence.
+ */
+function carryRescaleRatioFor(state: EpaState): { ratio: number; deferred: boolean } {
+  return carryRescaleRatio(
+    cleanSeasonMean(state.allianceScoreStats, state.carrySeedMean, EPA_SCORE_SD_SEED_COUNT, EPA_CARRY_RESCALE_MIN_OBS),
+    state.carrySeedMean
+  );
+}
+
+/** Both alliances' rating-eligible teams, through the SAME remap/surrogate filter `predict`/`update` already apply. */
+function carryEligibleTeams(match: UpcomingMatch): string[] {
+  return [
+    ...ratingEligibleTeams(match.redTeams, match.redSurrogates),
+    ...ratingEligibleTeams(match.blueTeams, match.blueSurrogates),
+  ];
+}
 
 function deriveSeasonFromEventKey(eventKey: string): number {
   const season = Number.parseInt(eventKey.slice(0, 4), 10);
@@ -350,6 +393,11 @@ function initState(teams: string[]): EpaState {
     teamComponents,
     teamMatchCounts,
     allianceScoreStats: emptyExpandingStats(),
+    // No boundary crossed yet: nothing is carried, and there is no outgoing
+    // scale to unwind. NaN rather than 0 — a zero seed mean would be a legal
+    // -looking denominator.
+    carrySeedMean: Number.NaN,
+    carryPending: EMPTY_CARRY_PENDING,
     fallbackSkipped: 0,
     priorSeasonRatings: EMPTY_PRIOR_SEASON_RATINGS,
     breakdownParseFailureCount: 0,
@@ -482,7 +530,32 @@ function fallbackObserved(
   };
 }
 
+/**
+ * The season-boundary scale anchor's read path (quick task 260911-3kc): a
+ * carried team still pending is materialized into the INCOMING season's point
+ * units TRANSIENTLY — a temporary component map for this match's teams only,
+ * used for this prediction and then discarded.
+ *
+ * The early-out on an empty pending set is load-bearing, not an optimisation:
+ * the common path (every team already seen) must do no work at all, and an
+ * empty set is the state for all but the first appearance of each team after a
+ * boundary.
+ */
 function predict(state: EpaState, match: UpcomingMatch): Prediction {
+  if (state.carryPending.size > 0) {
+    const { ratio } = carryRescaleRatioFor(state);
+    const { teamComponents, touched } = materializePendingTeams(
+      state.teamComponents,
+      carryEligibleTeams(match),
+      state.carryPending,
+      ratio
+    );
+    if (touched.length > 0) return predictCore({ ...state, teamComponents }, match);
+  }
+  return predictCore(state, match);
+}
+
+function predictCore(state: EpaState, match: UpcomingMatch): Prediction {
   const redTeams = ratingEligibleTeams(match.redTeams, match.redSurrogates);
   const blueTeams = ratingEligibleTeams(match.blueTeams, match.blueSurrogates);
 
@@ -645,7 +718,40 @@ function applyComponentUpdate(
   return { teamComponents: nextComponents, teamMatchCounts: nextCounts };
 }
 
+/**
+ * The season-boundary scale anchor's write path (quick task 260911-3kc): a
+ * carried team still pending is materialized PERMANENTLY into the incoming
+ * season's point units, and then the ordinary update runs on top.
+ *
+ * Every rating-eligible team in this match leaves `carryPending` whether or not
+ * the ratio could be read. A team whose rescale was DEFERRED has already been
+ * moved by this match's EWMA, and rescaling a blend of last season's units and
+ * this season's observation later would be worse than not rescaling it at all.
+ * That forfeit is the measured, reported cost of being walk-forward-legal — see
+ * `epaCarryScale.ts`'s header and `docs/models/epa-divergences.md` §8.
+ *
+ * The ratio is read from the PRE-update accumulator, exactly as `predict` reads
+ * it, so the two agree by construction rather than by coincidence.
+ */
 function update(state: EpaState, result: MatchResult): EpaState {
+  if (state.carryPending.size === 0) return updateCore(state, result);
+  const { ratio } = carryRescaleRatioFor(state);
+  const teams = carryEligibleTeams(result);
+  const { teamComponents, touched } = materializePendingTeams(
+    state.teamComponents,
+    teams,
+    state.carryPending,
+    ratio
+  );
+  const carryPending = new Set(state.carryPending);
+  for (const team of teams) carryPending.delete(team);
+  return updateCore(
+    touched.length === 0 ? { ...state, carryPending } : { ...state, teamComponents, carryPending },
+    result
+  );
+}
+
+function updateCore(state: EpaState, result: MatchResult): EpaState {
   // Case 1 (`demoTeams.ts`): a fully-demo alliance is a non-contest (a
   // forfeit/no-show playoff bucket or an offseason bracket bye) — the WHOLE
   // MATCH is skipped, both alliances, never just the demo side's own share.
@@ -774,6 +880,11 @@ function update(state: EpaState, result: MatchResult): EpaState {
     teamComponents: afterBlue.teamComponents,
     teamMatchCounts: afterBlue.teamMatchCounts,
     allianceScoreStats,
+    // Carried forward UNCHANGED by an ordinary match update. `update` above
+    // is the only thing that removes a team from `carryPending`, and
+    // `carrySeason` is the only thing that sets either field.
+    carrySeedMean: state.carrySeedMean,
+    carryPending: state.carryPending,
     // Permanently zero (see EpaState's doc comment) — no code path below
     // this line increments it anymore.
     fallbackSkipped: state.fallbackSkipped,
@@ -903,6 +1014,14 @@ function teamMetrics(state: EpaState, teams?: readonly string[]): TeamMetrics {
 function carrySeason(state: EpaState, boundary: SeasonBoundary): EpaState {
   if (boundary.isColdStart) return state;
 
+  // Captured BEFORE delegating (quick task 260911-3kc). `epaCarryover` converts
+  // BOTH directions with the OUTGOING season's own distribution, so every
+  // carried total below leaves this function expressed in THESE units. The
+  // value survives `reseedFromPrior` and is recoverable afterwards, but
+  // capturing it here is what makes `cleanSeasonMean`'s unwind correct by
+  // construction rather than by a later re-derivation that could drift.
+  const carrySeedMean = state.allianceScoreStats.mean;
+
   const teamTotals = new Map<string, number>();
   for (const [team, components] of state.teamComponents) {
     let total = 0;
@@ -941,6 +1060,11 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary): EpaState {
     teamComponents,
     teamMatchCounts,
     allianceScoreStats: reseedFromPrior(state.allianceScoreStats, EPA_SCORE_SD_SEED_COUNT),
+    carrySeedMean,
+    // Exactly the carry-worthy teams: `teamComponents` above is a FRESH map
+    // containing only `carryResult.teamPointTotals`. Each of these is still in
+    // the outgoing season's point units until it is first seen.
+    carryPending: new Set(teamComponents.keys()),
     fallbackSkipped: 0,
     priorSeasonRatings: carryResult.priorSeasonRatings,
     // D-Q2 (quick task 260818-inm): carried forward UNCHANGED, in deliberate
@@ -1098,7 +1222,47 @@ export const epa: AlgorithmModule<EpaState> = {
   //      now excludes them from the carry instant — correct under the locked
   //      definition of official, and stated here rather than glossed as "no
   //      change".
-  version: "7.0.0+baseline",
+  //
+  // Bumped 7.0.0 -> 8.0.0 (quick task 260911-3kc, 2026-09-11): the SEASON
+  // BOUNDARY SCALE ANCHOR. A carried rating now enters the new season expressed
+  // in the INCOMING season's point units instead of the outgoing season's.
+  // `carryover.ts`'s `epaCarryover` is unchanged — it still converts both
+  // directions with the outgoing distribution, which keeps its own round trip
+  // self-consistent — and the correction is composed on top, LAZILY, per team,
+  // on first sight, by `carrySeason`/`predict`/`update` above reading
+  // `epaCarryScale.ts`.
+  //
+  // THIS IS A CORRECTNESS FIX AGAINST THIS PROJECT'S OWN RECORDED REFERENCE,
+  // NOT A TUNING WIN. `02-CONTEXT.md` D-16 and `02-RESEARCH.md` transcribe
+  // Statbotics' `init.py` verbatim as converting the carry into the NEW
+  // season's point units; `carryover.ts` converted into the outgoing season's.
+  // It would have been worth fixing at neutral accuracy. That it also measures
+  // better is a second reason, not the first.
+  //
+  // MAJOR, not minor, and deliberately so: EVERY carried rating changes at
+  // every boundary where the point scale moved, so every published EPA figure
+  // from the second replayed season onward moves. Measured over nine seasons
+  // and 147,221 matches (quick task 260910-x09 for the fix, 260911-3kc for the
+  // shipped threshold): pooled winner accuracy +0.01059 [+0.00846, +0.01285],
+  // pooled Brier -0.00521 [-0.00638, -0.00412], with the effect CONCENTRATED at
+  // 2019 (+0.0794 accuracy off 2018's 5x scale collapse) exactly as the
+  // pre-registered mechanism predicted. Stated with its costs rather than
+  // without them: 2018's Brier is definitively WORSE (+0.00052 [+0.00030,
+  // +0.00076]) and the pooled ONSET window pays for the boundary before it
+  // earns it back across the season.
+  //
+  // Two limitations, named here rather than left for a reader to discover:
+  //   1. It is an APPROXIMATION of Statbotics, never a match. Statbotics runs
+  //      offline and simply knows the incoming season's scale; a walk-forward
+  //      replay must estimate it from the incoming season's own folded scores,
+  //      and a team first seen before `EPA_CARRY_RESCALE_MIN_OBS` of them exist
+  //      forfeits its rescale permanently.
+  //   2. `teamMetrics` is UNCHANGED and publishes a still-pending team's
+  //      carried rating in the OUTGOING season's units — the same behaviour the
+  //      measured arm had. A team that has not yet played in the new season is
+  //      the only case, and correcting the display would be an unmeasured
+  //      change to a published number.
+  version: "8.0.0+baseline",
   initState,
   predict,
   update,

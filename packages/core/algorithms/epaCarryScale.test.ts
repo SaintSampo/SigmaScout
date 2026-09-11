@@ -39,7 +39,11 @@ describe("cleanSeasonMean — unwinding reseedFromPrior's pseudo-observations", 
     // observations averaging 60 on top and the blended mean is the
     // count-weighted average of the two — unwinding must return 60 exactly.
     const seedMean = 290;
-    const realCount = 200;
+    // DERIVED from the threshold, not hardcoded: this block tests the
+    // ARITHMETIC, and a literal count here silently became "below the
+    // threshold" the moment quick task 260911-3kc raised it from 100 to 250.
+    // The threshold itself has its own test at the bottom of this file.
+    const realCount = EPA_CARRY_RESCALE_MIN_OBS + 150;
     const realMean = 60;
     const count = EPA_SCORE_SD_SEED_COUNT + realCount;
     const mean = (seedMean * EPA_SCORE_SD_SEED_COUNT + realMean * realCount) / count;

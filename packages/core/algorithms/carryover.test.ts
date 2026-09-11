@@ -106,6 +106,8 @@ describe("epa.carrySeason — isColdStart short-circuit", () => {
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
 
     const result = epa.carrySeason!(state, boundary({ fromSeason: 2021, toSeason: 2022, isColdStart: true }));
@@ -178,6 +180,8 @@ describe("epa.carrySeason — end-to-end state carry", () => {
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
 
     const next = epa.carrySeason!(state, boundary({ fromSeason: 2022, toSeason: 2023, isColdStart: false }));
@@ -216,6 +220,8 @@ describe("epa.carrySeason — end-to-end state carry", () => {
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
 
     const next = epa.carrySeason!(state, boundary({ fromSeason: 2022, toSeason: 2023, isColdStart: false }));
@@ -233,6 +239,8 @@ describe("epa.carrySeason — end-to-end state carry", () => {
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
 
     const next = epa.carrySeason!(state, boundary({ fromSeason: 2022, toSeason: 2023, isColdStart: false }));
@@ -262,6 +270,8 @@ describe("epa.carrySeason — end-to-end state carry", () => {
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
 
     const next = epa.carrySeason!(state, boundary({ fromSeason: 2022, toSeason: 2023, isColdStart: false }));

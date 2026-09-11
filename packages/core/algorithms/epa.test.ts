@@ -23,7 +23,7 @@ import {
 } from "./breakdown/index.js";
 import { distributeResidual } from "./breakdown/fallback.js";
 import { emptyExpandingStats, foldObservation, standardDeviation } from "../scoring/expandingStats.js";
-import { EPA_SCORE_SD_SEED_COUNT, rescaleComponents } from "./epaCarryScale.js";
+import { EPA_CARRY_RESCALE_MIN_OBS, EPA_SCORE_SD_SEED_COUNT, rescaleComponents } from "./epaCarryScale.js";
 import type { EpaCarryoverPriorRatings } from "./carryover.js";
 import type { ComponentPrediction, MatchResult, SeasonBoundary, UpcomingMatch } from "./types.js";
 import { DEMO_PSEUDO_TEAM_KEY } from "./demoTeams.js";
@@ -121,6 +121,8 @@ describe("epa.update — two-stage EWMA reproduces a hand-computed value", () =>
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
 
     const result = matchResult({
@@ -165,6 +167,8 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
   }
 
@@ -238,6 +242,8 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
     const next = epa.update(
       state,
@@ -265,6 +271,8 @@ describe("epa.update — D-05: Statbotics' elimination discount, adopted (quick 
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
   }
 
@@ -385,6 +393,8 @@ describe("epa.predict — win-probability scale derivation (Pitfall EPA-1)", () 
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
 
     const prediction = epa.predict(
@@ -417,6 +427,8 @@ describe("epa.predict — D-04 foulsCommitted attributed to the opposing allianc
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
 
     const prediction = epa.predict(
@@ -458,6 +470,8 @@ describe("epa.update — event-boundary invariance (ALGO-02 checkpoint gap, D-13
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
 
     const firstMatch = matchResult({
@@ -522,6 +536,8 @@ describe("epa — contract shape", () => {
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
     const metrics = epa.teamMetrics(state);
     expect(metrics["frc1"]!["auto"]).toEqual({ value: 10 });
@@ -544,6 +560,8 @@ describe("epa — contract shape", () => {
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
     const metrics = epa.teamMetrics(state);
     expect(metrics["frc1"]!["total"]).toEqual({ value: 15 });
@@ -562,6 +580,8 @@ describe("epa — contract shape", () => {
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
     const metrics = epa.teamMetrics(state, ["frc1", "NEVERSEEN"]);
     expect(Object.keys(metrics)).toEqual(["frc1"]);
@@ -606,6 +626,8 @@ describe("epa.teamMetrics — D-1 (quick task 260904-7id): phase groups publishe
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
   }
 
@@ -681,6 +703,8 @@ describe("epa.carrySeason — D-01: the carryover input stays fouls-INCLUSIVE, d
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
 
     const boundary: SeasonBoundary = { fromSeason: 2024, toSeason: 2025, isColdStart: false };
@@ -718,6 +742,8 @@ describe("epa.update — D-05 fallback attribution (CR-01, code review phase 02)
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
 
     const fallbackMatch = matchResult({
@@ -1148,6 +1174,8 @@ describe("epa — adjust pinned at 0 per team (D-5/D-6, quick task 260904-6a1)",
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
     };
     const boundary: SeasonBoundary = { fromSeason: 2024, toSeason: 2025, isColdStart: false };
     const next = epa.carrySeason!(state, boundary);
@@ -1277,7 +1305,10 @@ describe("epa — season-boundary scale anchor: a carried rating enters in the I
   const M_OUT = 292;
   /** The incoming season's own mean. Deliberately far lower, the 2018 -> 2019 direction. */
   const M_IN = 55;
-  const REAL_FOLDS = 200;
+  // DERIVED from the shipped threshold, never a literal: a hardcoded count here
+  // silently drops below the threshold the moment it is re-measured, and the
+  // test would then pass on the OLD behaviour while asserting the new one.
+  const REAL_FOLDS = EPA_CARRY_RESCALE_MIN_OBS + 150;
 
   const BOUNDARY: SeasonBoundary = { fromSeason: FROM_SEASON, toSeason: TO_SEASON, isColdStart: false };
   const TEAM_TOTALS: ReadonlyArray<readonly [string, number]> = [
@@ -1318,7 +1349,11 @@ describe("epa — season-boundary scale anchor: a carried rating enters in the I
     return Object.values(components ?? {}).reduce((sum, value) => sum + value, 0);
   }
 
-  function allianceComponentSum(components: Record<string, ComponentPrediction>): number {
+  function allianceComponentSum(components: Record<string, ComponentPrediction> | undefined): number {
+    // `Prediction.redComponents` is optional on the interface. An absent map
+    // here would silently sum to 0 and read as "no carried rating", so it is
+    // refused rather than coerced.
+    if (components === undefined) throw new Error("epa.predict returned no component map for this alliance");
     return Object.values(components).reduce((sum, c) => sum + c.mean, 0);
   }
 
@@ -1349,7 +1384,7 @@ describe("epa — season-boundary scale anchor: a carried rating enters in the I
 
   it("keeps EPA's pinned-zero adjust component at exactly 0 through the rescale (D-5)", () => {
     const prediction = epa.predict(warmedState(), upcoming({ redTeams: RED, blueTeams: ["frc4", "frc5", "frc6"] }));
-    expect(prediction.redComponents[ADJUST_COMPONENT]?.mean).toBe(0);
+    expect(prediction.redComponents?.[ADJUST_COMPONENT]?.mean).toBe(0);
   });
 
   it("predict and update apply the SAME ratio — a divergence here is a live/offline split", () => {
