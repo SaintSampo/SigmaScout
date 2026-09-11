@@ -249,6 +249,73 @@ describe("simulationProtocol — Task 1: chunking equivalence and clone survival
   });
 });
 
+describe("simulationProtocol — D-15 (plan 09-07): the coupled shape needs no protocol change", () => {
+  const { matches: legacyMatches, baselines } = buildFixture();
+  // The SAME fixture as Test 4, with `outcome` attached to every match —
+  // proves the Worker protocol needed no change for the coupled shape,
+  // rather than merely appearing to (isSimulationRequest validates the
+  // `matches` ARRAY and never inspects an element's fields).
+  const matches: SimMatchInput[] = legacyMatches.map((match, i) => ({
+    ...match,
+    outcome: {
+      outcomePmf: [0.4, 0.2, 0.4],
+      redOutcomeRp: [2, 1, 0],
+      blueOutcomeRp: [0, 1, 2],
+      redBonusRpPmf: [0.5 + i * 0.01, 0.5 - i * 0.01],
+      blueBonusRpPmf: [0.3, 0.7],
+    },
+  }));
+
+  it("Test 10: a request whose matches carry `outcome` passes isSimulationRequest, survives the structuredClone round trip with the outcome sub-object and its five arrays intact, and produces histograms entry-for-entry identical to a direct simulateRanks call on the same coupled fixture and seed", async () => {
+    const direct = simulateRanks(matches, baselines, SIMULATION_DRAWS, mulberry32(DEFAULT_SIMULATION_SEED));
+
+    const collected: SimulationOutboundMessage[] = [];
+    const handle = installMockWorker({
+      script: (message, ctx) => runSimulationJob(message, ctx.post),
+    });
+    let resultMessage: SimulationResultMessage | undefined;
+    try {
+      const worker = new Worker("simulation-protocol-test-worker-10", {});
+      await new Promise<void>((resolve) => {
+        worker.onmessage = (event: MessageEvent) => {
+          const data = event.data as SimulationOutboundMessage;
+          collected.push(data);
+          if (data.type === "result") {
+            resultMessage = data;
+            resolve();
+          }
+        };
+        const request: SimulationRequest = {
+          type: "run",
+          matches,
+          baselines,
+          draws: SIMULATION_DRAWS,
+          seed: DEFAULT_SIMULATION_SEED,
+        };
+        worker.postMessage(request);
+      });
+    } finally {
+      handle.restore();
+    }
+
+    // The round trip produced at least one progress message and exactly one
+    // result — proof `isSimulationRequest` accepted the coupled-shape
+    // request rather than rejecting it, before the histogram comparison
+    // below even runs.
+    expect(collected.some((m) => m.type === "progress")).toBe(true);
+    if (resultMessage === undefined) throw new Error("coupled round trip produced no result message");
+
+    expect(resultMessage.rankHistograms.size).toBe(direct.rankHistograms.size);
+    for (const [teamKey, directHistogram] of direct.rankHistograms) {
+      const clonedHistogram = resultMessage.rankHistograms.get(teamKey);
+      expect(clonedHistogram).toBeDefined();
+      // Entry-for-entry, not a summary statistic — mirrors Test 4's own
+      // comparison, now on the coupled shape.
+      expect(Array.from(clonedHistogram!)).toEqual(Array.from(directHistogram));
+    }
+  });
+});
+
 describe("simulationProtocol — Task 2: the Vite seam, constructed through createSimulationWorker()", () => {
   const { matches, baselines } = buildFixture();
 

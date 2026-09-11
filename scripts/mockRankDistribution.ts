@@ -319,7 +319,23 @@ function assembleBaselineOnly(artifact: EventArtifact): { baselineSourceCounts: 
   return { baselineSourceCounts: counts, incompleteBaselineTeamKeyCount: inputs.incompleteBaselineTeamKeys.length };
 }
 
-/** The draw-loop simulation's OWN input assembly: the full-event rewind from the FIRST chronological `qm` row (point 4) — entirely separate from `assembleBaselineOnly`'s last-played-row assembly above. */
+/**
+ * The draw-loop simulation's OWN input assembly: the full-event rewind from
+ * the FIRST chronological `qm` row (point 4) — entirely separate from
+ * `assembleBaselineOnly`'s last-played-row assembly above.
+ *
+ * D-15 (plan 09-07): this function is the SECOND assembler over the same
+ * `EventArtifact` shape `apps/web/src/lib/simulationInputs.ts`'s
+ * `buildSimulationInputs` owns — the drift risk a second implementation
+ * would carry is real, so this function carries the RP decomposition
+ * through by CALLING `buildSimulationInputs` directly rather than
+ * reimplementing its `outcome`-attachment logic. `simulationInputs.ts` is
+ * the shape's one owner: when a `SimMatchInput` it returns carries
+ * `outcome` (the complete decomposition was present on the artifact), this
+ * mock renderer's `simulateRanks` call below exercises the identical
+ * coupled-draw path the browser's Web Worker does, with no separate
+ * plumbing required here.
+ */
 function assembleDrawLoopInputs(artifact: EventArtifact): { remainingMatches: readonly SimMatchInput[]; baselines: readonly SimTeamBaseline[] } | null {
   const qualRows = buildQualRows(artifact);
   if (qualRows.length === 0) return null;
