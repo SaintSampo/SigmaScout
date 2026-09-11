@@ -673,7 +673,13 @@ function eventMatchBonusRpFields(
  * moments come from every team's play SO FAR and the score variance from the
  * same swing band the real matches use.
  */
-function makeRankingPointFiller(
+/**
+ * Exported (plan 09-09 Task 1) so `scripts/measureFieldAveragedRanks.ts`'s
+ * BAKED arm is the arm the publisher actually builds, rather than a
+ * re-creation of it — the `measureRewindGap.ts` same-scorer convention,
+ * applied to the pricing closure. No behaviour change.
+ */
+export function makeRankingPointFiller(
   accumulator: RpMomentsAccumulator | undefined,
   ruleModule: RpRuleModule | undefined,
   swingByTeam: ReadonlyMap<string, number>,

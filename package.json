@@ -30,6 +30,7 @@
     "tune": "tsx packages/harness/tune.ts",
     "promote": "tsx packages/harness/promote.ts",
     "measure:rewind-gap": "tsx scripts/measureRewindGap.ts",
+    "measure:field-averaged": "tsx scripts/measureFieldAveragedRanks.ts",
     "measure:rp-mean-deficit": "tsx scripts/measureRpMeanDeficit.ts",
     "measure:swing-skill": "tsx scripts/measureSwingSkill.ts",
     "measure:alliance-reconstruction": "tsx scripts/measureAllianceReconstruction.ts",
