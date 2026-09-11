@@ -23,8 +23,9 @@ import {
 } from "./breakdown/index.js";
 import { distributeResidual } from "./breakdown/fallback.js";
 import { emptyExpandingStats, foldObservation, standardDeviation } from "../scoring/expandingStats.js";
+import { EPA_SCORE_SD_SEED_COUNT, rescaleComponents } from "./epaCarryScale.js";
 import type { EpaCarryoverPriorRatings } from "./carryover.js";
-import type { MatchResult, SeasonBoundary, UpcomingMatch } from "./types.js";
+import type { ComponentPrediction, MatchResult, SeasonBoundary, UpcomingMatch } from "./types.js";
 import { DEMO_PSEUDO_TEAM_KEY } from "./demoTeams.js";
 
 /** Empty `EpaState.priorSeasonRatings` — the value every intra-season fixture in this file carries, since none of these tests exercise a season boundary. */
@@ -1254,5 +1255,186 @@ describe("epa — adjust pinned at 0 per team (D-5/D-6, quick task 260904-6a1)",
       expect(afterFallback.teamComponents.get(team)![ADJUST_COMPONENT]).toBe(0);
       expect(afterFallback.teamMatchCounts.get(team)).toBe(1);
     }
+  });
+});
+
+// ─────────────── the season-boundary SCALE ANCHOR (quick task 260911-3kc) ───
+
+/**
+ * THE PIN THIS WHOLE CHANGE EXISTS TO ESTABLISH: a team that crosses a season
+ * boundary enters the new season expressed in the INCOMING season's point
+ * units, not the outgoing season's.
+ *
+ * Every assertion below is written so it FAILS against the pre-`epa@8.0.0`
+ * behaviour rather than merely passing under the new one — the un-multiplied
+ * value is asserted to be wrong explicitly, because a test that only checks the
+ * rescaled number would still pass if the rescale silently became a no-op.
+ */
+describe("epa — season-boundary scale anchor: a carried rating enters in the INCOMING season's units (quick task 260911-3kc)", () => {
+  const FROM_SEASON = 2023;
+  const TO_SEASON = 2024;
+  /** The outgoing season's alliance-score mean — the units every carried component starts in. */
+  const M_OUT = 292;
+  /** The incoming season's own mean. Deliberately far lower, the 2018 -> 2019 direction. */
+  const M_IN = 55;
+  const REAL_FOLDS = 200;
+
+  const BOUNDARY: SeasonBoundary = { fromSeason: FROM_SEASON, toSeason: TO_SEASON, isColdStart: false };
+  const TEAM_TOTALS: ReadonlyArray<readonly [string, number]> = [
+    ["frc1", 30],
+    ["frc2", 40],
+    ["frc3", 50],
+    ["frc4", 60],
+    ["frc5", 70],
+    ["frc6", 80],
+  ];
+
+  function outgoingState(): EpaState {
+    return {
+      season: FROM_SEASON,
+      // Component KEYS are irrelevant to the carry — `carrySeason` sums each
+      // team's values into one point total — so a single synthetic component
+      // keeps the fixture readable.
+      teamComponents: new Map(TEAM_TOTALS.map(([team, total]) => [team, { synthetic: total }])),
+      teamMatchCounts: new Map(TEAM_TOTALS.map(([team]) => [team, 12])),
+      allianceScoreStats: { count: 5000, mean: M_OUT, m2: 5000 * 40 * 40 },
+      fallbackSkipped: 0,
+      priorSeasonRatings: emptyPriorSeasonRatings(),
+      breakdownParseFailureCount: 0,
+      carrySeedMean: Number.NaN,
+      carryPending: new Set<string>(),
+    };
+  }
+
+  /** The state just after the boundary, warmed with `REAL_FOLDS` of the NEW season's own scores. */
+  function warmedState(realFolds = REAL_FOLDS): EpaState {
+    const carried = epa.carrySeason!(outgoingState(), BOUNDARY);
+    const count = EPA_SCORE_SD_SEED_COUNT + realFolds;
+    const mean = (M_OUT * EPA_SCORE_SD_SEED_COUNT + M_IN * realFolds) / count;
+    return { ...carried, allianceScoreStats: { count, mean, m2: 0 } };
+  }
+
+  function componentSum(components: Readonly<Record<string, number>> | undefined): number {
+    return Object.values(components ?? {}).reduce((sum, value) => sum + value, 0);
+  }
+
+  function allianceComponentSum(components: Record<string, ComponentPrediction>): number {
+    return Object.values(components).reduce((sum, c) => sum + c.mean, 0);
+  }
+
+  const RED = ["frc1", "frc2", "frc3"];
+  const EXPECTED_RATIO = M_IN / M_OUT;
+
+  it("captures the outgoing mean and marks every carried team pending at the boundary", () => {
+    const carried = epa.carrySeason!(outgoingState(), BOUNDARY);
+    expect(carried.carrySeedMean).toBe(M_OUT);
+    expect([...carried.carryPending].sort()).toEqual([...carried.teamComponents.keys()].sort());
+    expect(carried.carryPending.size).toBeGreaterThan(0);
+  });
+
+  it("a carried team's first-sight total is carriedPoints * (M_in / M_out), NOT carriedPoints", () => {
+    const carried = epa.carrySeason!(outgoingState(), BOUNDARY);
+    const warmed = warmedState();
+    const rawRedTotal = RED.reduce((sum, team) => sum + componentSum(carried.teamComponents.get(team)), 0);
+
+    const prediction = epa.predict(warmed, upcoming({ redTeams: RED, blueTeams: ["frc4", "frc5", "frc6"] }));
+    const seenRedTotal = allianceComponentSum(prediction.redComponents);
+
+    expect(seenRedTotal).toBeCloseTo(rawRedTotal * EXPECTED_RATIO, 9);
+    // The OLD behaviour, asserted wrong explicitly. Without this line the test
+    // would still pass if the rescale silently became a no-op.
+    expect(rawRedTotal).toBeGreaterThan(0);
+    expect(Math.abs(seenRedTotal - rawRedTotal)).toBeGreaterThan(1);
+  });
+
+  it("keeps EPA's pinned-zero adjust component at exactly 0 through the rescale (D-5)", () => {
+    const prediction = epa.predict(warmedState(), upcoming({ redTeams: RED, blueTeams: ["frc4", "frc5", "frc6"] }));
+    expect(prediction.redComponents[ADJUST_COMPONENT]?.mean).toBe(0);
+  });
+
+  it("predict and update apply the SAME ratio — a divergence here is a live/offline split", () => {
+    const warmed = warmedState();
+    // The same state with every carried team rescaled UP FRONT and nothing left
+    // pending. If predict's transient materialization and update's permanent one
+    // both apply the ratio this module computed, both must agree with this.
+    const preRescaled: EpaState = {
+      ...warmed,
+      carryPending: new Set<string>(),
+      teamComponents: new Map(
+        [...warmed.teamComponents].map(([team, components]) => [team, rescaleComponents(components, EXPECTED_RATIO)])
+      ),
+    };
+    const match = upcoming({ redTeams: RED, blueTeams: ["frc4", "frc5", "frc6"] });
+    const lazy = epa.predict(warmed, match);
+    const eager = epa.predict(preRescaled, match);
+    expect(lazy.redScore).toBeCloseTo(eager.redScore, 9);
+    expect(lazy.blueScore).toBeCloseTo(eager.blueScore, 9);
+    expect(lazy.pRedWin).toBeCloseTo(eager.pRedWin, 12);
+
+    const result = matchResult({ redTeams: RED, blueTeams: ["frc4", "frc5", "frc6"] });
+    const afterLazy = epa.update(warmed, result);
+    const afterEager = epa.update(preRescaled, result);
+    for (const team of [...RED, "frc4", "frc5", "frc6"]) {
+      expect(componentSum(afterLazy.teamComponents.get(team))).toBeCloseTo(
+        componentSum(afterEager.teamComponents.get(team)),
+        9
+      );
+    }
+  });
+
+  it("never applies the ratio twice — a materialized team leaves pending and is not rescaled again", () => {
+    const warmed = warmedState();
+    const match = upcoming({ redTeams: RED, blueTeams: ["frc4", "frc5", "frc6"] });
+    const after = epa.update(warmed, matchResult({ redTeams: RED, blueTeams: ["frc4", "frc5", "frc6"] }));
+    for (const team of [...RED, "frc4", "frc5", "frc6"]) {
+      expect(after.carryPending.has(team)).toBe(false);
+    }
+    // With pending already cleared for these teams, a later prediction must be
+    // byte-identical to one made against a state that carries no pending set at
+    // all — i.e. the ratio is NOT squared on the second pass.
+    const noPending: EpaState = { ...after, carryPending: new Set<string>() };
+    expect(epa.predict(after, match).redScore).toBe(epa.predict(noPending, match).redScore);
+  });
+
+  it("a deferral is a FORFEIT, not a delay: a team first seen before the ratio is readable is never rescaled later", () => {
+    // Only 10 of the new season's own scores exist, far below
+    // EPA_CARRY_RESCALE_MIN_OBS, so the ratio is not readable and every team in
+    // this match is materialized at ratio 1.
+    const cold = warmedState(10);
+    const match = upcoming({ redTeams: RED, blueTeams: ["frc4", "frc5", "frc6"] });
+    const early = epa.predict(cold, match);
+    const carried = epa.carrySeason!(outgoingState(), BOUNDARY);
+    const rawRedTotal = RED.reduce((sum, team) => sum + componentSum(carried.teamComponents.get(team)), 0);
+    expect(allianceComponentSum(early.redComponents)).toBeCloseTo(rawRedTotal, 9);
+
+    // The team leaves pending anyway. Once the season HAS been observed enough
+    // to read a ratio, the forfeited team is still not rescaled — its
+    // components have already absorbed this season's observations, and
+    // rescaling that blend later would be worse than not rescaling at all.
+    const after = epa.update(cold, matchResult({ redTeams: RED, blueTeams: ["frc4", "frc5", "frc6"] }));
+    for (const team of RED) expect(after.carryPending.has(team)).toBe(false);
+
+    const warmLater: EpaState = { ...after, allianceScoreStats: warmedState().allianceScoreStats };
+    const noPending: EpaState = { ...warmLater, carryPending: new Set<string>() };
+    expect(epa.predict(warmLater, match).redScore).toBe(epa.predict(noPending, match).redScore);
+  });
+
+  it("leaves cold start completely alone — nothing pending, nothing rescaled", () => {
+    const state = outgoingState();
+    const next = epa.carrySeason!(state, { fromSeason: FROM_SEASON, toSeason: TO_SEASON, isColdStart: true });
+    expect(next).toBe(state);
+    expect(next.carryPending.size).toBe(0);
+    expect(Number.isNaN(next.carrySeedMean)).toBe(true);
+  });
+
+  it("costs nothing on the common path — an empty pending set changes no prediction", () => {
+    const warmed = warmedState();
+    const empty: EpaState = { ...warmed, carryPending: new Set<string>() };
+    const match = upcoming({ redTeams: RED, blueTeams: ["frc4", "frc5", "frc6"] });
+    // Same state, no pending teams: the prediction is the un-rescaled one, and
+    // the early-out is what makes that free rather than merely equal.
+    const carried = epa.carrySeason!(outgoingState(), BOUNDARY);
+    const rawRedTotal = RED.reduce((sum, team) => sum + componentSum(carried.teamComponents.get(team)), 0);
+    expect(allianceComponentSum(epa.predict(empty, match).redComponents)).toBeCloseTo(rawRedTotal, 9);
   });
 });

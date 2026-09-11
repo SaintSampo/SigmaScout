@@ -1111,3 +1111,90 @@ describe("Sigma Score belief and population persistence (shape 11)", () => {
     expect(readSigmaPopulation(both)).toEqual(POPULATION);
   });
 });
+
+// ──────── EPA carry-scale state, shape 12 (quick task 260911-3kc) ───────────
+
+describe("serializeState/deserializeState — EPA's season-boundary carry scale state (shape 12)", () => {
+  function carriedEpaState(): EpaState {
+    return {
+      season: 2024,
+      teamComponents: new Map<string, Record<string, number>>([
+        ["frc1", { auto: 3 }],
+        ["frc2", { auto: 5, adjust: 0 }],
+        ["frc3", { auto: 7 }],
+      ]),
+      teamMatchCounts: new Map([
+        ["frc1", 0],
+        ["frc2", 0],
+        ["frc3", 2],
+      ]),
+      allianceScoreStats: emptyExpandingStats(),
+      fallbackSkipped: 0,
+      priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      breakdownParseFailureCount: 0,
+      // The outgoing season's alliance-score mean: LEAGUE-scoped, one number.
+      carrySeedMean: 292.5,
+      // Carried-but-not-yet-materialized teams: PER TEAM, a flag on that team's
+      // own row. D-13 forbids a league row whose bytes grow with team count,
+      // and a few thousand team keys in one row would breach
+      // MAX_LEAGUE_ROW_BYTES outright.
+      carryPending: new Set(["frc1", "frc2"]),
+    };
+  }
+
+  it("round-trips a non-empty pending set and a finite carrySeedMean", () => {
+    const state = carriedEpaState();
+    const reconstructed = deserializeState("epa", serializeState("epa", epa.version, state, STAMP)) as EpaState;
+    expect(reconstructed.carrySeedMean).toBe(292.5);
+    expect([...reconstructed.carryPending].sort()).toEqual(["frc1", "frc2"]);
+    // frc3 was NOT pending and must not become pending by round-tripping.
+    expect(reconstructed.carryPending.has("frc3")).toBe(false);
+  });
+
+  it("omits the per-team flag when false, so publish-time byte budgets are unchanged for an ordinary team", () => {
+    const rows = serializeState("epa", epa.version, carriedEpaState(), STAMP);
+    const frc3Row = rows.find((r) => r.scopeKind === "team" && r.scopeKey === "frc3")!;
+    expect(JSON.parse(frc3Row.stateJson)).not.toHaveProperty("carryPending");
+    const frc1Row = rows.find((r) => r.scopeKind === "team" && r.scopeKey === "frc1")!;
+    expect(JSON.parse(frc1Row.stateJson).carryPending).toBe(true);
+  });
+
+  it("keeps carryPending OUT of the league row — D-13's bytes-must-not-grow-with-team-count rule", () => {
+    const rows = serializeState("epa", epa.version, carriedEpaState(), STAMP);
+    const league = JSON.parse(rows.find((r) => r.scopeKind === "league")!.stateJson);
+    expect(league).not.toHaveProperty("carryPending");
+    expect(league.carrySeedMean).toBe(292.5);
+  });
+
+  it("round-trips a NaN carrySeedMean as NaN — JSON has no NaN, so this is the one that could silently become null", () => {
+    const state: EpaState = { ...carriedEpaState(), carrySeedMean: Number.NaN, carryPending: new Set<string>() };
+    const reconstructed = deserializeState("epa", serializeState("epa", epa.version, state, STAMP)) as EpaState;
+    expect(Number.isNaN(reconstructed.carrySeedMean)).toBe(true);
+    expect(reconstructed.carryPending.size).toBe(0);
+  });
+
+  it("throws LeagueRowShapeVersionError on a shape-11 EPA league row rather than silently disabling the rescale", () => {
+    // The load-bearing case. `apps/worker/src/stateStore.ts`'s readScopedState
+    // filters rows by algorithm_id ONLY and never by version, so bumping
+    // epa.version alone leaves a stale seeded row reachable. A shape-11 row
+    // deserializes with carryPending absent and carrySeedMean undefined, which
+    // would disable the rescale on live traffic while the offline publisher
+    // applied it — a live/offline divergence that looks healthy.
+    const staleRow: StateRow = {
+      algorithmId: "epa",
+      algorithmVersion: epa.version,
+      scopeKind: "league",
+      scopeKey: "league",
+      stateJson: JSON.stringify({
+        snapshotShapeVersion: 11,
+        season: 2024,
+        allianceScoreStats: emptyExpandingStats(),
+        fallbackSkipped: 0,
+        breakdownParseFailureCount: 0,
+      }),
+      generation: STAMP.generation,
+      computedAt: STAMP.computedAt,
+    };
+    expect(() => deserializeState("epa", [staleRow])).toThrow(LeagueRowShapeVersionError);
+  });
+});
