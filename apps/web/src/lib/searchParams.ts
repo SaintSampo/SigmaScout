@@ -334,18 +334,18 @@ export type EventSearch = z.infer<typeof EventSearchSchema>;
 export type EventTab = (typeof EVENT_TABS)[number];
 
 /**
- * The Districts page's four tabs (quick task 260905-lic Task 3), in the
- * fixed order the page's own tab strip renders: Insights, Breakdown,
- * District Locks, Champ Locks. Unlike `EVENT_TABS`'s per-wave narrowing
- * (`REGISTERED_EVENT_TABS`), this quick task ships all four tabs in one
- * task, so there is no partial-registration state a narrower array would
- * need to guard against — the route's own `REGISTERED_DISTRICT_TABS` still
- * exists (mirroring the event page's shape) but is simply the full set.
+ * The Locks page's two tabs, in the fixed order the page's own tab strip
+ * renders: District Locks, Champ Locks. Originally four (quick task
+ * 260905-lic Task 3) — the Insights and Breakdown tabs were removed
+ * 2026-09-10 when the page narrowed to locks only and the ribbon link was
+ * renamed Districts -> Locks. A stale `?tab=insights` / `?tab=breakdown`
+ * URL is not a special case: `z.enum().catch()` below already falls any
+ * unrecognized id back to `DEFAULT_DISTRICT_TAB`.
  */
-export const DISTRICT_TABS = ["insights", "breakdown", "district-locks", "champ-locks"] as const;
+export const DISTRICT_TABS = ["district-locks", "champ-locks"] as const;
 
-/** The Districts page's default tab — Insights, the page's landing tab. */
-export const DEFAULT_DISTRICT_TAB = "insights";
+/** The Locks page's default tab — District Locks, the page's landing tab. */
+export const DEFAULT_DISTRICT_TAB = "district-locks";
 
 /**
  * Extends `RootSearchSchema` with `district` (the selected TBA year-prefixed

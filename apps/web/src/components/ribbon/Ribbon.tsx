@@ -24,7 +24,7 @@ import { SearchBox } from "../search/SearchBox.js";
 const NAV_LINKS = [
   { to: "/teams", label: "Teams" },
   { to: "/events", label: "Events" },
-  { to: "/districts", label: "Districts" },
+  { to: "/districts", label: "Locks" },
   { to: "/methodology", label: "Methodology" },
 ] as const;
 
@@ -61,7 +61,7 @@ function NavLinks() {
   // element's `to` prop needs its own precise literal route path for
   // TanStack Router's typed `search` prop to type-check at all; mapping
   // over the union loses that per-route overload resolution. `NAV_LINKS`
-  // still names the ONE canonical Teams/Events/Districts/Methodology order
+  // still names the ONE canonical Teams/Events/Locks/Methodology order
   // both branches below render.
   //
   // Revision R2 (quick task 260905-lic Task R2b, user decision): Districts
@@ -162,7 +162,7 @@ export function Ribbon() {
         </div>
         {/* The "compact second row" (05-UI-SPEC.md "Top ribbon" overflow row):
             the SAME NavLinks element the desktop branch below renders — the
-            link order (Teams, Events, Districts, Methodology) never differs
+            link order (Teams, Events, Locks, Methodology) never differs
             between the two branches, only the surrounding layout reflows. `SearchBox`
             renders as the 44x44 icon trigger here (`useIsMobile()` inside it
             resolves the same way this component's own `isMobile` did). */}

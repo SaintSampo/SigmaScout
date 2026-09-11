@@ -104,20 +104,20 @@ describe("Ribbon", () => {
     // Districts' predecessor slot) was renamed Compare -> Methodology, now a
     // guide hub rather than a direct link to the accuracy tables. Revision R2
     // (quick task 260905-lic Task R2b, user decision) then moved Districts
-    // ahead of Methodology: the fixed order is Teams, Events, Districts,
+    // ahead of Methodology: the fixed order is Teams, Events, Locks (the Districts route, renamed 2026-09-10),
     // Methodology.
     const links = screen.getAllByRole("link");
     expect(links).toHaveLength(6);
-    expect(links.slice(0, 5).map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Districts", "Methodology"]);
+    expect(links.slice(0, 5).map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Locks", "Methodology"]);
     expect(screen.getByRole("link", { name: "SigmaScout on GitHub" })).toBeDefined();
   });
 
-  it("all four links render in the fixed order Teams, Events, Districts, Methodology (desktop)", async () => {
+  it("all four links render in the fixed order Teams, Events, Locks, Methodology (desktop)", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
     await renderRibbonAt("/events?year=2024&algorithm=bpr");
 
     const links = screen.getAllByRole("link");
-    expect(links.slice(0, 5).map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Districts", "Methodology"]);
+    expect(links.slice(0, 5).map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Locks", "Methodology"]);
   });
 
   it("that order is UNCHANGED when the mobile breakpoint hook reports true — the responsive treatment reflows, it never reorders", async () => {
@@ -138,7 +138,7 @@ describe("Ribbon", () => {
     try {
       await renderRibbonAt("/methodology?year=2024&algorithm=bpr");
       const links = screen.getAllByRole("link");
-      expect(links.slice(0, 5).map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Districts", "Methodology"]);
+      expect(links.slice(0, 5).map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Locks", "Methodology"]);
     } finally {
       window.matchMedia = original;
     }
@@ -151,7 +151,7 @@ describe("Ribbon", () => {
     const links = screen.getAllByRole("link");
     const teamsLink = links.find((link) => link.textContent === "Teams");
     const eventsLink = links.find((link) => link.textContent === "Events");
-    const districtsLink = links.find((link) => link.textContent === "Districts");
+    const districtsLink = links.find((link) => link.textContent === "Locks");
     const methodologyLink = links.find((link) => link.textContent === "Methodology");
 
     expect(teamsLink?.getAttribute("data-status")).toBe("active");

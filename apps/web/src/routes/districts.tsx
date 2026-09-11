@@ -5,32 +5,26 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DEFAULT_DISTRICT_TAB, DISTRICT_TABS, DistrictsSearchSchema, type DistrictTab } from "../lib/searchParams.js";
 import { districtQueryOptions, districtsIndexQueryOptions } from "../lib/api/districts.js";
-import { teamsQueryOptions } from "../lib/api/teams.js";
 import { ArtifactFetchError } from "../lib/api/errors.js";
-import { useAlgorithmVersion } from "../components/ribbon/AlgorithmSelect.js";
 import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { DistrictSelect } from "../components/districts/DistrictSelect.js";
-import { DistrictInsightsTab } from "../components/districts/DistrictInsightsTab.js";
-import { DistrictBreakdownTab } from "../components/districts/DistrictBreakdownTab.js";
 import { DistrictLocksTab } from "../components/districts/DistrictLocksTab.js";
 import type { DistrictArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
- * The `/districts` route (quick task 260905-lic Task 3; revision R3 adds a
- * THIRD, algorithm-scoped fetch). The district artifacts themselves carry no
- * algorithm dependency at all (`lib/api/districts.ts`'s own doc comment) —
- * `algorithm` still flows through `RootSearchSchema` (validated at
- * `__root.tsx`'s router boundary) so every `Link to="/team/$teamNumber"` on
- * this page can pass it through unchanged, AND (revision R3, user
- * correction: "the district insights and breakdown tables are now for
- * VPR/opr/epa") so the Insights and Breakdown tabs can join the district
- * roster against the selected algorithm's own teams-table artifact — the
- * SAME fetcher (`lib/api/teams.ts`) and `useAlgorithmVersion`-gated `enabled`
- * pattern `routes/teams.tsx` itself uses, added here rather than inside
- * either tab component so both tabs share one query (one cache entry, one
- * loading/placeholder lifecycle) instead of independently duplicating it.
- * District-Locks/Champ-Locks stay entirely unaffected — locks/points never
- * vary by algorithm.
+ * The `/districts` route — the Locks page (quick task 260905-lic Task 3;
+ * narrowed to locks only 2026-09-10, when the Insights and Breakdown tabs
+ * were removed and the ribbon link was renamed Districts -> Locks). The
+ * route PATH is unchanged; only the tab strip and the nav label narrowed.
+ *
+ * The district artifacts carry no algorithm dependency at all
+ * (`lib/api/districts.ts`'s own doc comment) — `algorithm` still flows
+ * through `RootSearchSchema` (validated at `__root.tsx`'s router boundary)
+ * so every `Link to="/team/$teamNumber"` on this page can pass it through
+ * unchanged. The algorithm-scoped teams-artifact fetch revision R3 added
+ * here went out with the Insights/Breakdown tabs it existed to join: locks
+ * and district points never vary by algorithm, so this route is back to its
+ * original two fetches (the district index and the selected district).
  */
 export const Route = createFileRoute("/districts")({
   validateSearch: DistrictsSearchSchema,
@@ -38,13 +32,14 @@ export const Route = createFileRoute("/districts")({
 });
 
 /**
- * Every id `DISTRICT_TABS` declares has a trigger and a content panel from
- * this task's first commit — unlike `event.$eventKey.tsx`'s
- * `REGISTERED_EVENT_TABS`, there is no per-wave partial-registration state
- * here to guard against. This narrowing array (and `resolveActiveTab` below)
- * are kept anyway, mirroring the event page's own shape exactly, per this
- * plan's own instruction to reuse "the same `REGISTERED_*_TABS` +
- * `resolveActiveTab` ... branch order the event page uses."
+ * Every id `DISTRICT_TABS` declares has a trigger and a content panel —
+ * unlike `event.$eventKey.tsx`'s `REGISTERED_EVENT_TABS`, there is no
+ * per-wave partial-registration state here to guard against. This narrowing
+ * array (and `resolveActiveTab` below) are kept anyway, mirroring the event
+ * page's own shape exactly, per this route's original instruction to reuse
+ * "the same `REGISTERED_*_TABS` + `resolveActiveTab` ... branch order the
+ * event page uses." It also catches a stale in-app `?tab=insights` link,
+ * falling it back to `DEFAULT_DISTRICT_TAB`.
  */
 const REGISTERED_DISTRICT_TABS: readonly DistrictTab[] = [...DISTRICT_TABS];
 
@@ -58,8 +53,8 @@ function resolveActiveTab(tab: DistrictTab): DistrictTab {
  * — the identical 404/error/pending/populated branch order, restated here
  * (not imported) because it is typed against `DistrictArtifact`, not
  * `EventArtifact`, and this route's fetch carries no algorithm/version to
- * gate on. Every one of this route's four tab-content renderers calls this
- * one function; none restates the branch order itself.
+ * gate on. Both of this route's tab-content renderers call this
+ * one function; neither restates the branch order itself.
  */
 function renderDistrictTabState({
   is404,
@@ -134,24 +129,6 @@ function DistrictsPage() {
     placeholderData: keepPreviousData,
   });
 
-  // Revision R3: the Insights/Breakdown tabs' algorithm-scoped join source.
-  // Matches `routes/teams.tsx`'s own pattern exactly — disabled until the
-  // algorithms manifest resolves a real version, `keepPreviousData` so an
-  // algorithm/year switch doesn't collapse the table mid-transition. This
-  // query's `data` staying `undefined` (pending, disabled, or errored) is
-  // NOT gated on here as a page-level error/pending branch — both tab
-  // components already treat an absent teams artifact as "no join yet" via
-  // `districtMetricsJoin.tsx`'s own em-dash contract, so a slow or failed
-  // algorithm fetch degrades to em-dashed metric cells rather than blocking
-  // the whole district page (whose own primary data has no algorithm
-  // dependency at all).
-  const version = useAlgorithmVersion(algorithm);
-  const teamsQuery = useQuery({
-    ...teamsQueryOptions({ year, algorithmId: algorithm, version: version ?? "" }),
-    enabled: version !== undefined,
-    placeholderData: keepPreviousData,
-  });
-
   const activeTab = resolveActiveTab(tab);
 
   function handleTabChange(value: string) {
@@ -171,32 +148,6 @@ function DistrictsPage() {
 
   const districtError = districtQuery.error;
   const districtIs404 = districtError instanceof ArtifactFetchError && districtError.status === 404;
-
-  function renderInsightsContent() {
-    return renderDistrictTabState({
-      is404: districtIs404,
-      error: districtError,
-      isPending: districtQuery.isPending,
-      data: districtQuery.data,
-      districtKey: district ?? "",
-      onRetry: () => void districtQuery.refetch(),
-      renderPending: () => <DistrictsTabSkeleton />,
-      renderPopulated: (artifact) => <DistrictInsightsTab artifact={artifact} teamsArtifact={teamsQuery.data} algorithm={algorithm} season={year} />,
-    });
-  }
-
-  function renderBreakdownContent() {
-    return renderDistrictTabState({
-      is404: districtIs404,
-      error: districtError,
-      isPending: districtQuery.isPending,
-      data: districtQuery.data,
-      districtKey: district ?? "",
-      onRetry: () => void districtQuery.refetch(),
-      renderPending: () => <DistrictsTabSkeleton />,
-      renderPopulated: (artifact) => <DistrictBreakdownTab artifact={artifact} teamsArtifact={teamsQuery.data} algorithm={algorithm} season={year} />,
-    });
-  }
 
   function renderDistrictLocksContent() {
     return renderDistrictTabState({
@@ -226,7 +177,7 @@ function DistrictsPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1200px] p-[var(--spacing-lg)]">
-      <h1 className="text-role-heading mb-[var(--spacing-md)]">Districts</h1>
+      <h1 className="text-role-heading mb-[var(--spacing-md)]">Locks</h1>
 
       {indexIs404 && (
         <EmptyState
@@ -246,17 +197,11 @@ function DistrictsPage() {
           </div>
 
           {district === undefined ? (
-            <EmptyState heading="Pick a district" body="Choose a district above to see its standings, breakdown and championship locks." />
+            <EmptyState heading="Pick a district" body="Choose a district above to see its district and championship locks." />
           ) : (
             <Tabs value={activeTab} onValueChange={handleTabChange}>
               <div className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain [scrollbar-width:none]">
                 <TabsList variant="line" className="w-full flex-wrap justify-start border-b border-[var(--color-border)]">
-                  <TabsTrigger value="insights" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
-                    Insights
-                  </TabsTrigger>
-                  <TabsTrigger value="breakdown" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
-                    Breakdown
-                  </TabsTrigger>
                   <TabsTrigger value="district-locks" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
                     District Locks
                   </TabsTrigger>
@@ -265,12 +210,6 @@ function DistrictsPage() {
                   </TabsTrigger>
                 </TabsList>
               </div>
-              <TabsContent value="insights" data-testid="district-insights-panel" className="min-w-0 mt-[var(--spacing-lg)]">
-                {renderInsightsContent()}
-              </TabsContent>
-              <TabsContent value="breakdown" data-testid="district-breakdown-panel" className="min-w-0 mt-[var(--spacing-lg)]">
-                {renderBreakdownContent()}
-              </TabsContent>
               <TabsContent value="district-locks" data-testid="district-locks-panel" className="min-w-0 mt-[var(--spacing-lg)]">
                 {renderDistrictLocksContent()}
               </TabsContent>
