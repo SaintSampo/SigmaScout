@@ -135,6 +135,7 @@ import {
   COMPONENT_GROUP_METRIC_KEYS,
   componentGroupsForSeason,
   type ParsedComponents,
+  type SeasonComponentMap,
 } from "./breakdown/index.js";
 import { distributeResidual } from "./breakdown/fallback.js";
 import {
@@ -732,9 +733,16 @@ function applyComponentUpdate(
  *
  * The ratio is read from the PRE-update accumulator, exactly as `predict` reads
  * it, so the two agree by construction rather than by coincidence.
+ *
+ * `componentMap` (quick task 260911-gfe) is the map for THIS MATCH'S OWN
+ * SEASON — deliberately a different season from `carrySeason`'s own optional
+ * map, which is the INCOMING season's. Conflating the two would rescale a
+ * carried rating into the wrong units. ABSENT MEANS RESOLVE EXACTLY AS BEFORE
+ * (`componentMapForSeason(season)` inside `updateCore`); `epa.test.ts`'s seam
+ * block is the proof of that inertness, not this sentence.
  */
-function update(state: EpaState, result: MatchResult): EpaState {
-  if (state.carryPending.size === 0) return updateCore(state, result);
+function update(state: EpaState, result: MatchResult, componentMap?: SeasonComponentMap): EpaState {
+  if (state.carryPending.size === 0) return updateCore(state, result, componentMap);
   const { ratio } = carryRescaleRatioFor(state);
   const teams = carryEligibleTeams(result);
   const { teamComponents, touched } = materializePendingTeams(
@@ -747,11 +755,20 @@ function update(state: EpaState, result: MatchResult): EpaState {
   for (const team of teams) carryPending.delete(team);
   return updateCore(
     touched.length === 0 ? { ...state, carryPending } : { ...state, teamComponents, carryPending },
-    result
+    result,
+    componentMap
   );
 }
 
-function updateCore(state: EpaState, result: MatchResult): EpaState {
+/**
+ * `componentMap` (quick task 260911-gfe): the match's own season's map, or
+ * absent to resolve it exactly as before. ONE resolved value governs BOTH the
+ * component LIST (`componentCount`, `nonFoulsComponents`) and the PARSE
+ * (`tryParseBreakdownPair`) below — those two used to resolve the map
+ * independently, and an override that changed one without the other would
+ * silently fold an observation vector into a mismatched component list.
+ */
+function updateCore(state: EpaState, result: MatchResult, componentMap?: SeasonComponentMap): EpaState {
   // Case 1 (`demoTeams.ts`): a fully-demo alliance is a non-contest (a
   // forfeit/no-show playoff bucket or an offseason bracket bye) — the WHOLE
   // MATCH is skipped, both alliances, never just the demo side's own share.
@@ -775,7 +792,7 @@ function updateCore(state: EpaState, result: MatchResult): EpaState {
   // function reads it.
   const isElimination = result.compLevel !== "qm";
 
-  const seasonMap = componentMapForSeason(season);
+  const seasonMap = componentMap ?? componentMapForSeason(season);
   // D-6 (quick task 260904-6a1): `ADJUST_COMPONENT` is excluded from the
   // cold-start divisor here and at the carrySeason boundary below — it is
   // never seeded (pinned at 0, D-5), so counting it in the divisor would
@@ -784,7 +801,7 @@ function updateCore(state: EpaState, result: MatchResult): EpaState {
   // `componentCount` parameter/consumer is unchanged in shape.
   const componentCount = seasonMap.components.filter((name) => name !== ADJUST_COMPONENT).length;
 
-  const breakdownOutcome = tryParseBreakdownPair(season, result.scoreBreakdownRaw);
+  const breakdownOutcome = tryParseBreakdownPair(season, result.scoreBreakdownRaw, seasonMap);
   const redParsed = breakdownOutcome.kind === "parsed" ? breakdownOutcome.red : null;
   const blueParsed = breakdownOutcome.kind === "parsed" ? breakdownOutcome.blue : null;
 
@@ -998,6 +1015,16 @@ function teamMetrics(state: EpaState, teams?: readonly string[]): TeamMetrics {
  * expected to call this for the cold-start season at all, but this makes
  * the contract safe to call defensively regardless).
  *
+ * `toSeasonMap` (quick task 260911-gfe) is the INCOMING season's map —
+ * `boundary.toSeason`, NOT the season just played, and NOT the same season as
+ * `update`'s own optional map. A reader who conflates the two would wire a
+ * measurement arm that expresses carried ratings in the wrong season's units.
+ * ABSENT MEANS RESOLVE EXACTLY AS BEFORE. Note that `AlgorithmModule`'s
+ * declared `carrySeason`/`update` signatures cannot see an optional third
+ * parameter at all, so a caller that wants to pass a map must hold the
+ * concrete `epa` object (this module's own export, typed by `satisfies`)
+ * rather than an `AlgorithmModule` reference.
+ *
  * `allianceScoreStats` is RE-SEEDED here, not carried whole (quick task
  * 260910-4x0). RESEARCH.md's Pitfall EPA-1 fix specifies seeding the
  * expanding-window score SD "from the prior season's final value at season
@@ -1011,7 +1038,7 @@ function teamMetrics(state: EpaState, teams?: readonly string[]): TeamMetrics {
  * against FRC point scales that move by 5x between seasons. See
  * `EPA_SCORE_SD_SEED_COUNT` for the measurement and the seed strength.
  */
-function carrySeason(state: EpaState, boundary: SeasonBoundary): EpaState {
+function carrySeason(state: EpaState, boundary: SeasonBoundary, toSeasonMap?: SeasonComponentMap): EpaState {
   if (boundary.isColdStart) return state;
 
   // Captured BEFORE delegating (quick task 260911-3kc). `epaCarryover` converts
@@ -1031,7 +1058,7 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary): EpaState {
 
   const carryResult = epaCarryover({ teamTotals, priorSeasonRatings: state.priorSeasonRatings });
 
-  const toSeasonComponents = componentMapForSeason(boundary.toSeason).components;
+  const toSeasonComponents = (toSeasonMap ?? componentMapForSeason(boundary.toSeason)).components;
   // D-5/D-6 EPA seam 4 (quick task 260904-6a1): `ADJUST_COMPONENT` is
   // excluded from the carried-share divisor, exactly like the cold-start
   // divisor above — without this, every team's `adjust` estimate would
@@ -1079,7 +1106,7 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary): EpaState {
   };
 }
 
-export const epa: AlgorithmModule<EpaState> = {
+export const epa = {
   id: "epa",
   // D-13 (plan 03-03, Rule 1 fix): `buildArtifact` (packages/harness/artifact.ts)
   // now REQUIRES every algorithm's `version` to carry the
@@ -1272,4 +1299,11 @@ export const epa: AlgorithmModule<EpaState> = {
   // ONLY algorithm that declares this; VPR, OPR and BPR omit it and so keep
   // carrying from the season-final state exactly as before.
   carryFrom: "last-official-match",
-};
+  // `satisfies`, not a type annotation (quick task 260911-gfe). An annotation
+  // would WIDEN this object to `AlgorithmModule<EpaState>`, whose declared
+  // `update`/`carrySeason` take two parameters, and the optional component-map
+  // third parameter would become invisible at every call site — including the
+  // measurement arm it exists for. `satisfies` keeps the conformance check
+  // (this object still has to be a valid `AlgorithmModule<EpaState>`) and keeps
+  // the concrete signatures.
+} satisfies AlgorithmModule<EpaState>;

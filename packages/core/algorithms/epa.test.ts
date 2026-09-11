@@ -19,7 +19,9 @@ import {
   ADJUST_COMPONENT,
   FOULS_COMMITTED_COMPONENT,
   COMPONENT_GROUP_METRIC_KEYS,
+  componentMapForSeason,
   componentsInGroup,
+  type SeasonComponentMap,
 } from "./breakdown/index.js";
 import { distributeResidual } from "./breakdown/fallback.js";
 import { emptyExpandingStats, foldObservation, standardDeviation } from "../scoring/expandingStats.js";
@@ -1471,5 +1473,203 @@ describe("epa — season-boundary scale anchor: a carried rating enters in the I
     const carried = epa.carrySeason!(outgoingState(), BOUNDARY);
     const rawRedTotal = RED.reduce((sum, team) => sum + componentSum(carried.teamComponents.get(team)), 0);
     expect(allianceComponentSum(epa.predict(empty, match).redComponents)).toBeCloseTo(rawRedTotal, 9);
+  });
+});
+
+/**
+ * The optional component-map seam (quick task 260911-gfe).
+ *
+ * Two cases, and BOTH are required. An inertness case alone would also pass if
+ * the new parameter were accepted and then thrown away, which is the exact
+ * shape of a dead seam: `measureEpaDeviations.ts` would build an arm, the arm
+ * would report a delta of zero, and that zero would read as "the component map
+ * does not matter" rather than as "the arm never took effect". The liveness
+ * case is what makes the zero mean something.
+ *
+ * The comparison is a CANONICAL SERIALIZATION of every `EpaState` field rather
+ * than a spot-check of one map, because a threading bug that reached (say)
+ * `allianceScoreStats` but not `teamComponents` would survive any narrower
+ * assertion. Every component value is asserted finite on the way in.
+ */
+describe("epa — the optional component-map seam is inert at its default and live when supplied", () => {
+  const SEAM_SEASON = 2024;
+  const SEAM_NEXT_SEASON = 2025;
+  const SEAM_BOUNDARY: SeasonBoundary = {
+    fromSeason: SEAM_SEASON,
+    toSeason: SEAM_NEXT_SEASON,
+    isColdStart: false,
+  };
+  const SEAM_TEAMS = Array.from({ length: 12 }, (_, i) => `frc${i + 1}`);
+
+  /** A deliberately DIFFERENT 2024 map: one offensive component instead of three phase groups. */
+  const COARSE_2024_MAP: SeasonComponentMap = {
+    components: ["noFoulTotal", ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT],
+    parse(rawBreakdownJson: unknown, side: "red" | "blue") {
+      const full = breakdown2024.parse(rawBreakdownJson, side);
+      const out: Record<string, number> = Object.create(null) as Record<string, number>;
+      let total = 0;
+      for (const [name, value] of Object.entries(full)) {
+        if (name === ADJUST_COMPONENT || name === FOULS_COMMITTED_COMPONENT) continue;
+        total += value;
+      }
+      out.noFoulTotal = total;
+      out[ADJUST_COMPONENT] = full[ADJUST_COMPONENT] ?? 0;
+      out[FOULS_COMMITTED_COMPONENT] = full[FOULS_COMMITTED_COMPONENT] ?? 0;
+      return out;
+    },
+  };
+
+  /** A deliberately DIFFERENT 2025 map: the carried total lands on one component, not five. */
+  const COARSE_2025_MAP: SeasonComponentMap = {
+    components: ["everything", ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT],
+    parse(): Record<string, number> {
+      throw new Error("COARSE_2025_MAP.parse must never run — carrySeason reads `components` only");
+    },
+  };
+
+  /**
+   * 36 synthetic 2024 matches across two events, including two elimination
+   * matches (the `EPA_ELIM_WEIGHT` path) and one match with NO breakdown at all
+   * (the D-05 fallback, which reads `seasonMap.components` through
+   * `nonFoulsComponents` and would miss a threading bug otherwise).
+   */
+  function seamStream(): MatchResult[] {
+    const stream: MatchResult[] = [];
+    for (let i = 0; i < 36; i += 1) {
+      const eventKey = i < 18 ? "2024seama" : "2024seamb";
+      const compLevel = i === 16 || i === 34 ? "sf" : "qm";
+      const redTeams = [0, 1, 2].map((k) => SEAM_TEAMS[(i * 3 + k) % SEAM_TEAMS.length]!);
+      const blueTeams = [3, 4, 5].map((k) => SEAM_TEAMS[(i * 3 + k) % SEAM_TEAMS.length]!);
+      const noBreakdown = i === 11;
+      const redAuto = 4 + (i % 5) * 2;
+      const redTele = 20 + (i % 7) * 3;
+      const redEnd = 5 + (i % 4) * 2;
+      const blueAuto = 6 + (i % 3) * 2;
+      const blueTele = 18 + (i % 6) * 3;
+      const blueEnd = 3 + (i % 5) * 2;
+      const redScore = redAuto + redTele + redEnd;
+      const blueScore = blueAuto + blueTele + blueEnd;
+      stream.push(
+        matchResult({
+          matchKey: `${eventKey}_${compLevel}${i + 1}`,
+          eventKey,
+          compLevel,
+          setNumber: 1,
+          matchNumber: i + 1,
+          redTeams,
+          blueTeams,
+          redScore,
+          blueScore,
+          winner: redScore >= blueScore ? "red" : "blue",
+          hasScoreBreakdown: !noBreakdown,
+          scoreBreakdownRaw: noBreakdown
+            ? null
+            : breakdown2024Json(
+                {
+                  autoLeavePoints: redAuto,
+                  teleopSpeakerNotePoints: redTele,
+                  endGameOnStagePoints: redEnd,
+                  foulPoints: blueEnd,
+                },
+                {
+                  autoLeavePoints: blueAuto,
+                  teleopSpeakerNotePoints: blueTele,
+                  endGameOnStagePoints: blueEnd,
+                  foulPoints: redEnd,
+                }
+              ),
+        })
+      );
+    }
+    return stream;
+  }
+
+  /** A number encoded so `NaN` can never compare equal to anything else by accident. */
+  function encodeNumber(value: number, context: string): string {
+    if (Number.isNaN(value)) return "NaN";
+    if (!Number.isFinite(value)) throw new Error(`epa seam test: non-finite value at ${context}: ${value}`);
+    return value.toExponential(17);
+  }
+
+  /**
+   * Every `EpaState` field, in a fixed order. Listed EXPLICITLY rather than
+   * spread, so a field added to `EpaState` later has to be added here
+   * deliberately instead of silently dropping out of the comparison.
+   */
+  function canonicalState(state: EpaState): string {
+    const teamComponents = [...state.teamComponents.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([team, components]) => [
+        team,
+        Object.keys(components)
+          .sort()
+          .map((name) => [name, encodeNumber(components[name]!, `${team}.${name}`)]),
+      ]);
+    const teamMatchCounts = [...state.teamMatchCounts.entries()].sort(([a], [b]) => a.localeCompare(b));
+    const priorSeasonRatings = {
+      lastSeason: [...state.priorSeasonRatings.lastSeason.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([team, value]) => [team, encodeNumber(value, `priorSeasonRatings.lastSeason.${team}`)]),
+      yearBefore: [...state.priorSeasonRatings.yearBefore.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([team, value]) => [team, encodeNumber(value, `priorSeasonRatings.yearBefore.${team}`)]),
+    };
+    return JSON.stringify({
+      season: state.season,
+      teamComponents,
+      teamMatchCounts,
+      allianceScoreStats: {
+        count: encodeNumber(state.allianceScoreStats.count, "allianceScoreStats.count"),
+        mean: encodeNumber(state.allianceScoreStats.mean, "allianceScoreStats.mean"),
+        m2: encodeNumber(state.allianceScoreStats.m2, "allianceScoreStats.m2"),
+      },
+      carrySeedMean: encodeNumber(state.carrySeedMean, "carrySeedMean"),
+      carryPending: [...state.carryPending].sort(),
+      fallbackSkipped: state.fallbackSkipped,
+      priorSeasonRatings,
+      breakdownParseFailureCount: state.breakdownParseFailureCount,
+    });
+  }
+
+  function replay(componentMap?: SeasonComponentMap): EpaState {
+    let state = epa.initState(SEAM_TEAMS);
+    for (const result of seamStream()) state = epa.update(state, result, componentMap);
+    return state;
+  }
+
+  it("replays identically with the parameter absent and with it set to the season's own map", () => {
+    const defaulted = canonicalState(replay());
+    const explicit = canonicalState(replay(componentMapForSeason(SEAM_SEASON)));
+    expect(defaulted).toBe(explicit);
+    // Not vacuous: the stream really did move state off its initial value.
+    expect(defaulted).not.toBe(canonicalState(epa.initState(SEAM_TEAMS)));
+  });
+
+  it("carries a season boundary identically with the parameter absent and with the INCOMING season's own map", () => {
+    const played = replay();
+    const defaulted = canonicalState(epa.carrySeason(played, SEAM_BOUNDARY));
+    const explicit = canonicalState(epa.carrySeason(played, SEAM_BOUNDARY, componentMapForSeason(SEAM_NEXT_SEASON)));
+    expect(defaulted).toBe(explicit);
+  });
+
+  it("is LIVE, not dead: a different update map produces a different state", () => {
+    const defaulted = canonicalState(replay());
+    const coarseState = replay(COARSE_2024_MAP);
+    expect(canonicalState(coarseState)).not.toBe(defaulted);
+    // And specifically at the component level, not only in some downstream counter.
+    expect(Object.keys(coarseState.teamComponents.get("frc1") ?? {}).sort()).toEqual(
+      [ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT, "noFoulTotal"].sort()
+    );
+  });
+
+  it("is LIVE at the boundary too: a different incoming-season map produces a different carried state", () => {
+    const played = replay();
+    const defaulted = canonicalState(epa.carrySeason(played, SEAM_BOUNDARY));
+    const coarse = canonicalState(epa.carrySeason(played, SEAM_BOUNDARY, COARSE_2025_MAP));
+    expect(coarse).not.toBe(defaulted);
+  });
+
+  it("does not bump the version — the seam is inert at its default, so 8.0.0+baseline still means what it meant", () => {
+    expect(epa.version).toBe("8.0.0+baseline");
   });
 });

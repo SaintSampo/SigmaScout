@@ -162,14 +162,27 @@ export type BreakdownParsePairOutcome =
  * count, or 0 for a `SyntaxError`) — deliberately no error message, no field
  * values, no payload fragment (T-03-27: third-party payload content must
  * never reach a log line through this path).
+ *
+ * `map` (quick task 260911-gfe) overrides the season's registered map for this
+ * one call. ABSENT MEANS RESOLVE EXACTLY AS BEFORE — `componentMapForSeason(season)`,
+ * same call, same position ahead of the `try`, so an unregistered season is
+ * still a loud unrecoverable throw (T-03-21) and is never folded into the
+ * guarded region. The seam exists so a measurement arm can replay a season
+ * under a DIFFERENT component map without editing this package; nothing in the
+ * shipped pipeline passes it, and `epa.test.ts`'s seam block is what holds that
+ * default inert rather than a comment saying so.
  */
-export function tryParseBreakdownPair(season: number, scoreBreakdownRaw: string | null): BreakdownParsePairOutcome {
+export function tryParseBreakdownPair(
+  season: number,
+  scoreBreakdownRaw: string | null,
+  map?: SeasonComponentMap
+): BreakdownParsePairOutcome {
   if (scoreBreakdownRaw === null) return { kind: "absent" };
-  const map = componentMapForSeason(season);
+  const resolved = map ?? componentMapForSeason(season);
   try {
     const rawJson: unknown = JSON.parse(scoreBreakdownRaw);
-    const red = map.parse(rawJson, "red");
-    const blue = map.parse(rawJson, "blue");
+    const red = resolved.parse(rawJson, "red");
+    const blue = resolved.parse(rawJson, "blue");
     return { kind: "parsed", red, blue };
   } catch (err) {
     if (!isRecoverableBreakdownParseError(err)) throw err;
