@@ -250,8 +250,19 @@ const UNSEEN_BELIEF: SigmaBelief = Object.freeze({
   talent: TALENT_FLOOR,
 });
 
-/** One team's running state. Six numbers, all O(1) to update. */
-interface SigmaBelief {
+/**
+ * The population statistics the talent prior is built from. Persisted alongside
+ * the per-team beliefs so a resumed accumulator computes the SAME prior the
+ * offline publisher did — see `SigmaScoreAccumulator.fromBeliefs`.
+ */
+export interface SigmaPopulation {
+  sumSquares: number;
+  talentSquares: number;
+  count: number;
+}
+
+/** One team's running state. Five numbers, all O(1) to update. */
+export interface SigmaBelief {
   /** Recency-weighted observation count for the BIAS term. */
   meanWeight: number;
   /** The bias term itself — recency-weighted mean deviation. */
@@ -461,6 +472,57 @@ export class SigmaScoreAccumulator {
    * precisely the signal a scout wants, and it would be partly cancelled if the
    * mean were updated first.
    */
+  /**
+   * Resumes from persisted beliefs — the live Worker's entry point (shape 11).
+   *
+   * Copies each belief rather than aliasing it, so folding here cannot mutate
+   * the caller's map. A resumed accumulator is indistinguishable from one that
+   * folded the whole history itself, which is the entire point: a live tick
+   * CONTINUES the offline publisher's accumulator rather than starting a
+   * second, shorter one. Starting fresh would build a band from one event's
+   * matches while the offline band came from the whole season, and both would
+   * look healthy.
+   *
+   * `population` carries the population statistics the talent prior needs.
+   * Without them a resumed accumulator would fall back to the flat prior (see
+   * `MIN_POPULATION_FOR_TALENT_PRIOR`) and quietly compute different numbers
+   * from the same beliefs.
+   */
+  static fromBeliefs(
+    beliefs: ReadonlyMap<string, SigmaBelief>,
+    population: SigmaPopulation | undefined,
+    options: Partial<SigmaScoreOptions> = {}
+  ): SigmaScoreAccumulator {
+    const accumulator = new SigmaScoreAccumulator(options);
+    for (const [teamKey, belief] of beliefs) accumulator.#beliefs.set(teamKey, { ...belief });
+    if (population !== undefined) {
+      accumulator.#populationSumSquares = population.sumSquares;
+      accumulator.#populationTalentSquares = population.talentSquares;
+      accumulator.#populationCount = population.count;
+    }
+    return accumulator;
+  }
+
+  /** Every team's RAW running state, for a caller that must persist it (the Worker's D1 rows, and the seed). */
+  beliefsByTeam(): ReadonlyMap<string, SigmaBelief> {
+    return new Map([...this.#beliefs].map(([teamKey, belief]) => [teamKey, { ...belief }]));
+  }
+
+  /**
+   * The population statistics behind the talent prior, for persistence.
+   *
+   * THREE NUMBERS, not per team, so this belongs in the league row rather than
+   * the team rows — it does not scale with team count, which is the rule
+   * `MAX_LEAGUE_ROW_BYTES` enforces.
+   */
+  population(): SigmaPopulation {
+    return {
+      sumSquares: this.#populationSumSquares,
+      talentSquares: this.#populationTalentSquares,
+      count: this.#populationCount,
+    };
+  }
+
   /** Every team this accumulator has seen, with its current Sigma Score. */
   scoreByTeam(): ReadonlyMap<string, number> {
     const scores = new Map<string, number>();

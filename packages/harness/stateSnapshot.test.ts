@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { epa } from "../core/algorithms/epa.js";
 import { opr } from "../core/algorithms/opr.js";
+import { bpr } from "../core/algorithms/bpr.js";
 import { vpr, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import type { EpaState } from "../core/algorithms/epa.js";
 import type { AlgorithmModule, MatchResult, UpcomingMatch } from "../core/algorithms/types.js";
@@ -31,7 +32,13 @@ import {
   StateRowSchema,
   deserializeState,
   emitSeedSql,
+  readSigmaBeliefs,
+  readSigmaPopulation,
+  readSwingBeliefs,
   serializeState,
+  withSigmaBeliefs,
+  withSigmaPopulation,
+  withSwingBeliefs,
   type StateRow,
   type StateStamp,
 } from "./stateSnapshot.js";
@@ -486,7 +493,7 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     expect(() => deserializeState("opr", rows)).not.toThrow();
   });
 
-  it("STATE_SNAPSHOT_SHAPE_VERSION is 10, and league rows declaring the LITERAL 3, 4, 5, 6, 7, 8 or 9 all throw (shape 10 added the live Swing Factor belief, 2026-09-09)", () => {
+  it("STATE_SNAPSHOT_SHAPE_VERSION is 11, and league rows declaring the LITERAL 3, 4, 5, 6, 7, 8, 9 or 10 all throw (shape 11 added the live Sigma Score belief, 2026-09-10)", () => {
     // Pinned by literal value, not relative to the constant. Every earlier
     // shape must fail LOUDLY at load rather than deserialize into a field set
     // that no longer matches `Sigma1State`: shape 3 predates
@@ -507,12 +514,21 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     // those very same matches. Live and offline would then disagree with both
     // sides looking healthy.
     //
+    // Shape 10's team rows carry `sigmascoutSwing` but no `sigmascoutSigma`,
+    // and its league row carries no `sigmascoutSigmaPopulation`. A stale shape
+    // 10 row therefore deserializes into a team with NO Sigma history at all
+    // while the offline publisher has a Sigma band for those same matches, and
+    // additionally loses the population the talent prior needs — so every band
+    // it did produce would come from the flat prior instead of the talent
+    // scaled one. Two silent divergences from one stale row, which is why this
+    // must throw rather than degrade.
+    //
     // `apps/worker/src/stateStore.ts` filters rows by `algorithm_id` only and
     // never by `algorithm_version`, so bumping the algorithm version does not
     // by itself make a stale seeded row unreachable — this check is what does.
-    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(10);
+    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(11);
 
-    for (const staleVersion of [3, 4, 5, 6, 7, 8, 9]) {
+    for (const staleVersion of [3, 4, 5, 6, 7, 8, 9, 10]) {
       const staleRow: StateRow = StateRowSchema.parse({
         algorithmId: "vpr",
         algorithmVersion: vpr.version,
@@ -1039,5 +1055,59 @@ describe("deserializeBprState — shape-version guard (quick task 260908-5wd)", 
       },
     ];
     expect(() => deserializeState("bpr", rows)).not.toThrow();
+  });
+});
+
+describe("Sigma Score belief and population persistence (shape 11)", () => {
+  const BELIEF = { meanWeight: 3.25, mean: 8.5, varWeight: 2.75, sumSquares: 91.5, talent: 42.25 };
+  const POPULATION = { sumSquares: 12345.5, talentSquares: 98765.25, count: 4321 };
+
+  function teamRows(): StateRow[] {
+    return serializeState("bpr", bpr.version, bpr.initState(["frc1", "frc2"]) as any, STAMP);
+  }
+
+  it("round-trips a belief through withSigmaBeliefs and readSigmaBeliefs unchanged", () => {
+    const rows = withSigmaBeliefs(teamRows(), new Map([["frc1", BELIEF]]));
+    expect(readSigmaBeliefs(rows).get("frc1")).toEqual(BELIEF);
+  });
+
+  it("leaves a team with no belief absent rather than writing a zero one", () => {
+    const rows = withSigmaBeliefs(teamRows(), new Map([["frc1", BELIEF]]));
+    const read = readSigmaBeliefs(rows);
+    expect(read.has("frc2")).toBe(false);
+  });
+
+  it("SKIPS a partially written belief entirely -- a part-filled one would produce a plausible but wrong band", () => {
+    const rows = teamRows().map((row) =>
+      row.scopeKind === "team" && row.scopeKey === "frc1"
+        ? { ...row, stateJson: JSON.stringify({ ...JSON.parse(row.stateJson), sigmascoutSigma: { meanWeight: 1, mean: 2 } }) }
+        : row
+    );
+    expect(readSigmaBeliefs(rows).has("frc1")).toBe(false);
+  });
+
+  it("does NOT put per-team beliefs in the league row, whose size budget forbids anything scaling with team count", () => {
+    const rows = withSigmaBeliefs(teamRows(), new Map([["frc1", BELIEF]]));
+    for (const row of rows) {
+      if (row.scopeKind !== "league") continue;
+      expect(row.stateJson).not.toContain("sigmascoutSigma\"");
+    }
+  });
+
+  it("round-trips the population through the LEAGUE row", () => {
+    const rows = withSigmaPopulation(teamRows(), POPULATION);
+    expect(readSigmaPopulation(rows)).toEqual(POPULATION);
+  });
+
+  it("returns undefined for a population that was never written, rather than fabricating one", () => {
+    expect(readSigmaPopulation(teamRows())).toBeUndefined();
+  });
+
+  it("coexists with the Swing belief -- both keys survive on the same row", () => {
+    const swung = withSwingBeliefs(teamRows(), new Map([["frc1", { weight: 1, weightSquares: 1, mean: 2, m2: 3 }]]));
+    const both = withSigmaPopulation(withSigmaBeliefs(swung, new Map([["frc1", BELIEF]])), POPULATION);
+    expect(readSwingBeliefs(both).get("frc1")).toEqual({ weight: 1, weightSquares: 1, mean: 2, m2: 3 });
+    expect(readSigmaBeliefs(both).get("frc1")).toEqual(BELIEF);
+    expect(readSigmaPopulation(both)).toEqual(POPULATION);
   });
 });

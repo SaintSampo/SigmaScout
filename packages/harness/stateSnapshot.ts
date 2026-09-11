@@ -38,6 +38,7 @@ import type { OprObservation, OprState } from "../core/algorithms/opr.js";
 import type { ElimScoreOffset, Sigma1League, Sigma1State, Sigma1TeamState } from "../core/algorithms/sigma1/index.js";
 import type { ExpandingStats } from "../core/scoring/expandingStats.js";
 import type { SwingBelief } from "./swingFactor.js";
+import type { SigmaBelief, SigmaPopulation } from "./sigmaScore.js";
 
 // ---------------------------------------------------------------------------
 // The row shape
@@ -231,8 +232,37 @@ export class MissingLeagueRowError extends Error {
  * Costs a Worker re-seed from a fresh publish run, exactly like every bump
  * above it. Seed first, deploy second: a deploy carrying shape 10 against
  * un-re-seeded rows takes live folding down until the seed runs.
+ *
+ * ---------------------------------------------------------------------------
+ * 10 -> 11 (2026-09-10): SIGMA SCORE BELIEFS
+ * ---------------------------------------------------------------------------
+ *
+ * Sigma Score shipped for BPR and drives its match bands, and BPR is the LIVE
+ * TIER. Without this bump the Worker would keep folding Swing Factors into
+ * live bands while the offline publisher wrote Sigma ones for the same
+ * algorithm, so a match touched during an event would read roughly twice as
+ * wide as its untouched neighbours (Swing prints 1.92 sigma, Sigma an honest
+ * 1 sigma). The same silent class of divergence the 9 -> 10 bump above was
+ * written about, with a bigger visible gap.
+ *
+ * Two things are added, and they live in DIFFERENT rows on purpose:
+ *
+ *   - the per-team belief, under `sigmascoutSigma` in each TEAM row, for the
+ *     same reason its Swing sibling lives there;
+ *   - the population statistics behind the talent prior, under
+ *     `sigmascoutSigmaPopulation` in the LEAGUE row, because they are THREE
+ *     NUMBERS TOTAL and do not scale with team count. Putting them per team
+ *     would duplicate one global fact across thousands of rows; putting the
+ *     per-team beliefs in the league row would breach `MAX_LEAGUE_ROW_BYTES`.
+ *     That split is the rule, not a preference.
+ *
+ * The population half is load bearing rather than an optimisation: the talent
+ * prior is deliberately withheld until the population is known
+ * (`MIN_POPULATION_FOR_TALENT_PRIOR`), so a Worker that resumed beliefs without
+ * it would silently compute every band from the FLAT prior instead of the
+ * talent scaled one, and disagree with the publisher while looking healthy.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 10;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 11;
 
 /**
  * Thrown when `deserializeState`'s league row does not declare the current
@@ -878,6 +908,91 @@ export function withSwingBeliefs(rows: readonly StateRow[], beliefs: ReadonlyMap
     if (belief === undefined) return row;
     const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
     return { ...row, stateJson: JSON.stringify({ ...parsed, [SWING_BELIEF_KEY]: belief }) };
+  });
+}
+
+const SIGMA_BELIEF_KEY = "sigmascoutSigma";
+const SIGMA_POPULATION_KEY = "sigmascoutSigmaPopulation";
+
+/**
+ * Reads each team's Sigma Score belief back out of the rows. The exact inverse
+ * of `withSigmaBeliefs`.
+ *
+ * A belief missing any field is SKIPPED ENTIRELY rather than part-filled, the
+ * same all-or-nothing rule `readSwingBeliefs` applies: a partially written
+ * belief would produce a plausible but wrong band rather than no band, and a
+ * wrong band is far harder to notice than an absent one.
+ */
+export function readSigmaBeliefs(rows: readonly StateRow[]): Map<string, SigmaBelief> {
+  const beliefs = new Map<string, SigmaBelief>();
+  for (const row of rows) {
+    if (row.scopeKind !== "team") continue;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const raw = parsed[SIGMA_BELIEF_KEY] as Partial<SigmaBelief> | undefined;
+    if (raw === undefined) continue;
+    const { meanWeight, mean, varWeight, sumSquares, talent } = raw;
+    if (![meanWeight, mean, varWeight, sumSquares, talent].every((v) => typeof v === "number" && Number.isFinite(v))) {
+      continue;
+    }
+    beliefs.set(row.scopeKey, {
+      meanWeight: meanWeight!,
+      mean: mean!,
+      varWeight: varWeight!,
+      sumSquares: sumSquares!,
+      talent: talent!,
+    });
+  }
+  return beliefs;
+}
+
+/** Injects each team's Sigma belief into the TEAM rows, returning new rows rather than mutating them. */
+export function withSigmaBeliefs(rows: readonly StateRow[], beliefs: ReadonlyMap<string, SigmaBelief>): StateRow[] {
+  return rows.map((row) => {
+    if (row.scopeKind !== "team") return row;
+    const belief = beliefs.get(row.scopeKey);
+    if (belief === undefined) return row;
+    const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
+    return { ...row, stateJson: JSON.stringify({ ...parsed, [SIGMA_BELIEF_KEY]: belief }) };
+  });
+}
+
+/**
+ * Reads the Sigma talent prior's population statistics out of the LEAGUE row,
+ * or `undefined` when absent.
+ *
+ * `undefined` is a real answer and not an error: a pre shape 11 row, or a
+ * league that has folded nothing, legitimately has none. The caller must then
+ * accept the flat prior rather than fabricate a population.
+ */
+export function readSigmaPopulation(rows: readonly StateRow[]): SigmaPopulation | undefined {
+  for (const row of rows) {
+    if (row.scopeKind !== "league") continue;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
+    } catch {
+      return undefined;
+    }
+    const raw = parsed[SIGMA_POPULATION_KEY] as Partial<SigmaPopulation> | undefined;
+    if (raw === undefined) return undefined;
+    const { sumSquares, talentSquares, count } = raw;
+    if (![sumSquares, talentSquares, count].every((v) => typeof v === "number" && Number.isFinite(v))) return undefined;
+    return { sumSquares: sumSquares!, talentSquares: talentSquares!, count: count! };
+  }
+  return undefined;
+}
+
+/** Injects the Sigma population statistics into the LEAGUE row. Three numbers, so this cannot scale with team count. */
+export function withSigmaPopulation(rows: readonly StateRow[], population: SigmaPopulation): StateRow[] {
+  return rows.map((row) => {
+    if (row.scopeKind !== "league") return row;
+    const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
+    return { ...row, stateJson: JSON.stringify({ ...parsed, [SIGMA_POPULATION_KEY]: population }) };
   });
 }
 

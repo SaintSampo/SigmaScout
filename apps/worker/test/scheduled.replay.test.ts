@@ -31,7 +31,8 @@ import { epa } from "../../../packages/core/algorithms/epa.js";
 import { makeSigma1 } from "../../../packages/core/algorithms/sigma1/index.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
 import { roundMetric, roundProbability, roundTo, ROUNDING_RULE } from "../../../packages/harness/rounding.js";
-import { SwingFactorAccumulator } from "../../../packages/harness/swingFactor.js";
+import { SigmaScoutLayer } from "../../../packages/harness/sigmaScoutLayer.js";
+import { TOTAL_METRIC_KEY } from "../../../packages/core/algorithms/types.js";
 import type { AlgorithmModule, MatchResult, Prediction } from "../../../packages/core/algorithms/types.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
@@ -495,15 +496,35 @@ describe("scheduled.replay — offline equivalence (D-14)", () => {
 
         expect(onlineDigest, `algorithm "${algorithmId}": online (deployed-tick) and offline (WalkForwardSimulator) prediction-stream digests diverged`).toBe(offlineDigest);
 
-        // THE MATCH BAND, on the same two streams (shape 10). Built offline
-        // exactly as `publish.ts` builds it: read each alliance's band from
-        // history so far, THEN fold the match in, so a match never informs its
-        // own band.
-        const swing = new SwingFactorAccumulator();
+        // THE MATCH BAND, on the same two streams (shape 11).
+        //
+        // Built offline through the REAL `SigmaScoutLayer` that `publish.ts`
+        // drives, not through a hand-rolled accumulator. That distinction is
+        // the whole point of this assertion and it was learned the hard way:
+        // this block previously constructed a bare `SwingFactorAccumulator`,
+        // so when the publisher moved BPR's band onto Sigma Score the test's
+        // "offline" side kept modelling a publisher that no longer existed and
+        // compared the Worker against a stand-in. A second implementation of
+        // the thing under test can always drift from it.
+        //
+        // Talent is read from the state AFTER each match and handed to
+        // `foldPlayed`, which applies it only after folding -- the exact
+        // ordering `publish.ts` uses, so talent as of after a match informs
+        // the team's NEXT match and never its own.
+        const layer = new SigmaScoutLayer(undefined, algorithmId);
+        let offlineState: unknown = offlineModule.initState([...ALL_TOUCHED_TEAMS]);
         const offlineBands = offlineRecords.map((r) => {
-          const red = swing.bandVarianceFor(r.match.redTeams);
-          const blue = swing.bandVarianceFor(r.match.blueTeams);
-          swing.foldMatch(r.match, r.prediction);
+          offlineState = offlineModule.update(offlineState, r.match);
+          const roster = [...r.match.redTeams, ...r.match.blueTeams];
+          const metrics = offlineModule.teamMetrics(offlineState, roster);
+          const talent = new Map<string, number>();
+          for (const teamKey of roster) {
+            const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+            if (total !== undefined) talent.set(teamKey, total);
+          }
+          const enriched = layer.foldPlayed(r.match, r.prediction, talent);
+          const red = enriched.swingBand?.red;
+          const blue = enriched.swingBand?.blue;
           return {
             matchKey: r.match.matchKey,
             red: red === undefined ? undefined : roundTo(red, ROUNDING_RULE.variance),

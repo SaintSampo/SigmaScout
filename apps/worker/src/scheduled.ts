@@ -123,8 +123,19 @@ import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
 // zero runtime imports) — the same direct-from-core precedent
 // apps/web/src/components/event/EventMatchTable.tsx already cites.
 import { isBonusRpCompLevel } from "../../../packages/core/rankingPoints/constants.js";
-import { deserializeState, readSwingBeliefs, serializeState, withSwingBeliefs } from "../../../packages/harness/stateSnapshot.js";
+import {
+  deserializeState,
+  readSigmaBeliefs,
+  readSigmaPopulation,
+  readSwingBeliefs,
+  serializeState,
+  withSigmaBeliefs,
+  withSigmaPopulation,
+  withSwingBeliefs,
+} from "../../../packages/harness/stateSnapshot.js";
 import { SwingFactorAccumulator } from "../../../packages/harness/swingFactor.js";
+import { SigmaScoreAccumulator, usesSigmaScore } from "../../../packages/harness/sigmaScore.js";
+import { TOTAL_METRIC_KEY } from "../../../packages/core/algorithms/types.js";
 import {
   artifactKey,
   deriveMetricKeyOrder,
@@ -986,6 +997,20 @@ async function processEvent(
         // disagreeing with both sides looking healthy, which is exactly what
         // the shape bump exists to prevent.
         const swing = SwingFactorAccumulator.fromBeliefs(readSwingBeliefs(rows));
+        // SIGMA SCORE, for the algorithms that publish it (BPR today). Resumed
+        // from the same rows, WITH the population statistics the talent prior
+        // needs: without them the prior silently falls back to its flat form
+        // (`MIN_POPULATION_FOR_TALENT_PRIOR`) and every band this tick writes
+        // would differ from the publisher's while looking healthy.
+        const sigma = usesSigmaScore(algorithmId)
+          ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(rows), readSigmaPopulation(rows))
+          : undefined;
+        // One alliance's band, from whichever estimator this algorithm is on.
+        // ONE accessor so the played loop, the upcoming loop and the persisted
+        // rows below cannot disagree about which one that is.
+        const bandFor = (roster: readonly string[]): number | undefined =>
+          sigma === undefined ? swing.bandVarianceFor(roster) : sigma.bandVarianceFor(roster);
+
         const newBands = new Map<string, { red?: number; blue?: number }>();
         const newPredictions = new Map<string, Prediction>();
         for (const result of newlyFoldedResults) {
@@ -996,11 +1021,25 @@ async function processEvent(
           // reason: a band says how unsure we were when we predicted this, and
           // this match's own result is not an admissible input to that.
           newBands.set(result.matchKey, {
-            ...(swing.bandVarianceFor(result.redTeams) !== undefined ? { red: swing.bandVarianceFor(result.redTeams) } : {}),
-            ...(swing.bandVarianceFor(result.blueTeams) !== undefined ? { blue: swing.bandVarianceFor(result.blueTeams) } : {}),
+            ...(bandFor(result.redTeams) !== undefined ? { red: bandFor(result.redTeams) } : {}),
+            ...(bandFor(result.blueTeams) !== undefined ? { blue: bandFor(result.blueTeams) } : {}),
           });
           state = algorithm.update(state, result);
           swing.foldMatch(result, prediction);
+          sigma?.foldMatch(result, prediction);
+          // Talent AFTER the fold, read from the post-update state — the exact
+          // ordering `SigmaScoutLayer.foldPlayed` uses offline. Talent as of
+          // after this match is admissible evidence for the team's NEXT match
+          // and never for this one, so applying it before the fold would let a
+          // match inform its own prior and put live out of step with offline.
+          if (sigma !== undefined) {
+            const roster = [...result.redTeams, ...result.blueTeams];
+            const metrics = algorithm.teamMetrics(state, roster);
+            for (const teamKey of roster) {
+              const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+              if (total !== undefined) sigma.observeTalent(teamKey, total);
+            }
+          }
         }
 
         const upcomingPredictions = new Map<string, Prediction>();
@@ -1010,20 +1049,26 @@ async function processEvent(
           // Read only — an unplayed match has no residual of its own, so its
           // band is built from everything played so far.
           upcomingBands.set(match.matchKey, {
-            ...(swing.bandVarianceFor(match.redTeams) !== undefined ? { red: swing.bandVarianceFor(match.redTeams) } : {}),
-            ...(swing.bandVarianceFor(match.blueTeams) !== undefined ? { blue: swing.bandVarianceFor(match.blueTeams) } : {}),
+            ...(bandFor(match.redTeams) !== undefined ? { red: bandFor(match.redTeams) } : {}),
+            ...(bandFor(match.blueTeams) !== undefined ? { blue: bandFor(match.blueTeams) } : {}),
           });
         }
 
         const touchedMetrics = algorithm.teamMetrics(state, touchedTeams);
-        const swingByTeam = swing.swingByTeam();
+        const swingByTeam = sigma === undefined ? swing.swingByTeam() : sigma.scoreByTeam();
 
-        // The belief rides back into the TEAM rows after the algorithm
-        // serializer has run, so no algorithm's serializer knows it exists.
-        const candidateRows = withSwingBeliefs(
+        // The beliefs ride back into the rows after the algorithm serializer
+        // has run, so no algorithm's serializer knows they exist. Swing is
+        // ALWAYS persisted, including for a Sigma algorithm: its accumulator is
+        // still folded above, and dropping it would strand any later change
+        // wanting it back with no history to resume from.
+        let candidateRows = withSwingBeliefs(
           serializeState(algorithmId, algorithm.version, state, stamp),
           swing.beliefsByTeam()
         );
+        if (sigma !== undefined) {
+          candidateRows = withSigmaPopulation(withSigmaBeliefs(candidateRows, sigma.beliefsByTeam()), sigma.population());
+        }
         const changedRows = selectChangedRows(rows, candidateRows);
 
         budget.consume(1);

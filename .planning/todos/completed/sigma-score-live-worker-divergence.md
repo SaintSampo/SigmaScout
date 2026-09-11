@@ -4,7 +4,24 @@ created: 2026-09-10
 source: quick task 260910-u7g shipping Sigma Score for BPR; found while wiring the publish path
 resolves_phase:
 priority: high
+completed: 2026-09-10
 ---
+
+> **RESOLVED 2026-09-10 by quick task 260910-wg8**, except for the seed-and-deploy
+> step, which is operational and rides the republish.
+>
+> The Worker now resumes and persists Sigma beliefs (shape 11), reads talent from
+> the post-update state on the same side of the fold the publisher does, and emits
+> Sigma bands for algorithms in `SIGMA_SCORE_ALGORITHM_IDS`.
+>
+> **One claim below was WRONG and is corrected here:** step 5 said the replay
+> digest "currently digests only pRedWin/predictedRedScore/predictedBlueScore, so
+> it would not catch this divergence at all". A band-stream digest already
+> existed, and it caught the divergence on the first run. What it could NOT catch
+> was a stale reference: its offline side hand-rolled a `SwingFactorAccumulator`
+> instead of driving the real `SigmaScoutLayer`, so it modelled a publisher that
+> no longer existed. That is now fixed, and the test was verified to FAIL with the
+> Worker's Sigma path reverted.
 
 # BLOCKER BEFORE THE NEXT LIVE EVENT — the Worker still computes Swing bands for BPR
 
