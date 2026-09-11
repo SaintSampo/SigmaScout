@@ -109,17 +109,78 @@ season. It is a **manual operation run before and after an event weekend** — s
 [`publish-budget.md`](publish-budget.md) for why it is manual rather than scheduled.
 
 ```bash
+# Load credentials WITHOUT rendering them. Never cat, echo, or Read .env.
+set -a; . ./.env; set +a
+
 pnpm publish:seasons
 npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-opr.sql
 npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-epa.sql
-npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-vpr.sql
+npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-bpr.sql
+pnpm worker:deploy
 ```
 As of plan 07-17, `pnpm publish:seasons` includes offseason and preseason events (`--include-offseason`) in both the published set and the walk-forward stream — an operator running this command is entitled to know its scope changed.
 
-The third seed file's name follows the algorithm's own registry id (`publish.ts`'s
-`seed-${algorithm.id}.sql`) — renamed from `seed-sigma1.sql` by plan 07-16 (D-04/D-05). This
-instruction describes the file a FUTURE `pnpm publish:seasons` run produces; see the transition
-note under "Live folding tier" below for what has and has not landed yet.
+Each seed file's name follows the algorithm's own registry id (`publish.ts`'s
+`seed-${algorithm.id}.sql`), so the three files track `PUBLISHED_ALGORITHM_IDS` — today
+`opr`, `epa`, `bpr`. **The third file was `seed-vpr.sql` in this runbook until 2026-09-11
+and is now `seed-bpr.sql`**: VPR is retired and no publish run produces a `vpr` seed any
+more. Called out rather than silently swapped, so an operator who remembers the old name
+knows it was retired rather than mistyped. (BPR is *displayed* as "SPR" on the site since
+2026-09-10; the registry id, the seed filename and every command here are still `bpr`.)
+
+### Secrets, in this runbook's own voice
+
+This is the page someone reads while typing the command, so the rule is repeated here rather
+than referenced:
+
+- Load `.env` with `set -a; . ./.env; set +a` and reference variables **unexpanded**.
+- **Never** `cat`, `echo`, `head`, `Read`, or otherwise render `.env` or any value from it —
+  not into a terminal, a log, a commit message, a test name, or a planning document.
+- `wrangler d1 execute --remote --file` **rejects OAuth with error code 10000**. The account id
+  must be exported from the loaded environment (`CLOUDFLARE_ACCOUNT_ID`), which `set -a` above
+  already does. Do not paste it inline.
+
+This rule exists because it was broken once on this project and a live R2 access key had to be
+rotated — and `scripts/secrets-boundary.test.ts` passed the whole time, so passing it is never
+evidence that secrets were handled correctly.
+
+### Seed first, deploy second — and the reverse hazard is just as bad
+
+**When a re-baseline also carries a `STATE_SNAPSHOT_SHAPE_VERSION` bump, the seed and the
+deploy are a matched ordered pair that belong in ONE window, in that order.**
+
+They are a pair because there is no safe intermediate state, and the hazard runs in **both**
+directions — the familiar one is only half of it:
+
+- **Deploy without seeding:** the new Worker reads rows written at the old shape, throws
+  `LeagueRowShapeVersionError` on every tick, and live folding is down until the seed runs.
+- **Seed without deploying:** the still-old Worker reads rows written at the NEW shape and
+  throws exactly the same error. Live folding is down just as hard, in the other direction.
+
+The recovery from either is *the other command*, which costs another pass against the write cap
+below. The shape check is deliberately loud precisely so this fails visibly rather than
+diverging silently.
+
+**Outstanding shape obligation as of 2026-09-11.** Live D1 and the deployed Worker are at
+**shape 11**. Four bumps have landed in the repository since, none of them seeded or deployed:
+
+| Bump | Landed by | What it added |
+|---|---|---|
+| 11 -> 12 | quick task `260911-3kc` | EPA's season-boundary carry scale |
+| 12 -> 13 | quick task `260911-j2w` | EPA's week-1 calibration |
+| 13 -> 14 | quick task `260911-l2k` | EPA's foul rate |
+| 14 -> 15 | plan 09-08 (D-21) | the live Worker's ranking-point beliefs |
+
+**All four are closed by the same single seed-and-deploy pass** — this is one pass, not four.
+`260911-3kc`'s own plan recorded "No republish runs. No R2 write, no D1 seed, no
+publish:seasons, no deploy", and each bump since inherited that debt. Live folding is currently
+down-level and latent only because nothing is live.
+
+**The D1 write cap.** Roughly **four seed passes exhaust D1's 100,000 daily row-write cap**
+(hit once already, 2026-09-10). That is benign when nothing is live and decidedly not benign
+during an event, where exhausting it would reject the tick's own state writes. Count passes
+deliberately: the seed files are a byproduct of `pnpm publish:seasons` and are not produced by
+any standalone command, so an extra publish is an extra pass.
 
 Skipping it breaks nothing — the site stays up and approximately fresh. It just means any drift
 between the Worker's incremental folding and a from-scratch offline replay goes uncorrected until
