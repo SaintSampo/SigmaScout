@@ -90,17 +90,53 @@ agreement with Statbotics got tighter or looser as a result.
 
 **Why:** This is not a "fix" to Statbotics' EPA — it is a faithful reproduction of what Statbotics' EPA actually is (mean-only), stated explicitly here so a reader does not mistake EPA's lack of `±` for an oversight. The variance gap between EPA and Sigma1 is the entire point of building both: EPA is the honest, faithful, variance-free baseline; Sigma1 is the variance-carrying alternative this project is built to prove out.
 
-## 6. Component extraction — this project's own per-season maps, not Statbotics' `all_keys[year]` grouping
+## 6. Component extraction — this project's own per-season maps, and Statbotics has no partition to compare them to
 
-**Statbotics:** groups TBA's raw `score_breakdown` fields into named "attributes" via a per-year `all_keys[year]` table (`backend/src/breakdown.py`), with its own grouping granularity choices (e.g. some 2024 auto/teleop note fields collapsed into fewer named attributes than TBA's raw field count).
+**Statbotics:** rates a per-season list of named quantities built in `backend/src/breakdown.py` (`all_keys[year]`), and predicts a match score from `get_score_from_breakdown`. For 2024 that branch is `score = breakdown["no_foul_points"]` — ONE directly-rated quantity. The rest of the list is published beside it, not summed into it.
 
-**This project:** `packages/core/algorithms/breakdown/{2022..2026}.ts` are this project's own independently-built per-season component maps (D-02), verified directly against this project's own ingested corpus (`data/corpus.sqlite`) rather than ported from Statbotics' table. Granularity choices (e.g. 2024's `autoAmpNotePoints`/`autoSpeakerNotePoints`/`teleopAmpNotePoints`/`teleopSpeakerNotePoints`/`teleopSpeakerNoteAmplifiedPoints` kept as five separate components rather than collapsed) were made per-season during plan 02-01/02-02, using Statbotics' own grouping as a starting reference (D-01: "when in doubt about what to track or how to define it, match what Statbotics does") but re-derived independently against this project's own field inventory, per the clean-slate mandate (REBUILD_SPEC.md — no porting of pre-v3 values, and Statbotics' component tables are a different codebase entirely, not this project's own prior implementation, so this is a design choice rather than a provenance violation).
+**This project:** `packages/core/algorithms/breakdown/{2016..2026}.ts` are this project's own independently-built per-season component maps (D-02), verified directly against this project's own ingested corpus (`data/corpus.sqlite`) rather than ported from Statbotics' table. Granularity was chosen per season during plan 02-01/02-02, using Statbotics' own grouping as a starting reference (D-01) but re-derived independently against this project's own field inventory, per the clean-slate mandate (REBUILD_SPEC.md). EPA predicts a score by summing every rated component.
 
-**2024 NARROWED (quick task 260910-5ym, 2026-09-10): its map is now COARSER than Statbotics', not finer.** The granularity choice this section defends — 2024's five separate note-point components, eleven offensive components in total — was measured and cost accuracy. 2024 carried the most granular map of any season (13 components against a median of 9) on the season with the second-lowest score variance in the corpus, so eleven noisy per-team EWMAs, each estimated from roughly a dozen quals, were summed into every predicted alliance total. Four additive partitions were replayed off one shared carry and scored on 2024's 16,764 decided official matches: eleven offensive components 0.7348, Statbotics' own comp partition 0.7461, phase groups (auto/teleop/endgame) 0.7520, a single no-foul total 0.7403. 2024's map is now the phase-group partition, matching `groups.ts`'s existing 2024 grouping and three of Statbotics' own rated keys (`auto_points`, `teleop_points`, `endgame_points`).
+### CORRECTED 2026-09-11 (quick task 260911-gfe): this is a difference in KIND, not in grouping
 
-Two things worth stating so this is not over-generalised. First, **the curve turns over**: collapsing to a single total is WORSE than three groups, so "fewer components is better" is not the lesson and must not be propagated to another season without measuring that season the same way. Second, **Statbotics does not predict from its comp partition at all** — `get_score_from_breakdown`'s 2024 branch is `score = breakdown["no_foul_points"]`, one directly-rated quantity, and its `comp_0..comp_9` keys overlap (`speaker_points` re-counts notes already inside `auto_note_points`/`teleop_note_points`), so they are display/RP quantities rather than an additive partition anyone could match. Verified against `backend/src/models/epa/breakdown.py` and `backend/src/breakdown.py`, fetched 2026-09-10.
+This section used to open by saying Statbotics "groups TBA's raw `score_breakdown` fields into named attributes ... with its own grouping granularity choices", and the methodology page said the same thing in student language. **Nobody had verified it, and it is not what the source shows.**
 
-**Why:** D-02 requires per-season, data-driven component maps (never hardcoded branches); each season's map is built and Zod-validated against this project's own corpus (T-02-01/ASVS V5 — every read field asserted finite, unknown fields stripped rather than passed through). Divergent granularity from Statbotics' own table is an accepted consequence of independent re-derivation, not a defect — the harness's own accuracy measurement (this phase's `reports/full-v2/artifact.json`) is what would surface a granularity choice that costs accuracy, not a requirement to match Statbotics' table exactly.
+`all_keys[year]` is a RATED-QUANTITY LIST, not a partition, and it double-counts by construction:
+
+- It carries `no_foul_points` beside `auto_points`, `teleop_points` and `endgame_points`, which that first key is the SUM of. Statbotics validates exactly that identity: `error = no_foul_points - (auto_points + teleop_points + endgame_points)`.
+- `comp_0..comp_9` are sub-elements WITHIN those phases, not independent score sources.
+- `rp_1`/`rp_2`/`rp_3`/`tiebreaker_points` are not score contributions at all.
+- In 2022 and 2026, `endgame_points` appears twice in the same list.
+
+So there is no "Statbotics component partition" to compare a SigmaScout map against. The two objects are different in kind: an additive partition summed into a prediction on one side, a rating menu on the other. The full transcription, its provenance limits, and a per-season verdict table (`yes` / `no-overlapping-keys` / `no-rates-a-single-quantity` / `not-established`, one row per season 2016-2026, each citing its evidence) live in **`docs/models/statbotics-breakdown-reference.md`**. Summary of that table: **no season is `partition-constructible: yes`**, 2024 is `no-rates-a-single-quantity` on direct verification, and every other season is `no-overlapping-keys` on the structural argument above with its `get_score_from_breakdown` branch NOT ESTABLISHED.
+
+### The injection seam now exists, and the blocker moved rather than closed
+
+Quick task 260910-x09 filed this deviation as `unmeasurable-in-this-harness`, naming the missing seam: `epa.ts`'s `update()` and `carrySeason()` resolved the component map internally, so no `scripts/` wrapper could intercept it. **Commit b62c3655 added that seam** — an optional `SeasonComponentMap` parameter on `epa.update`, `epa.carrySeason` and `tryParseBreakdownPair`, inert at its default, with the inertness proven by a full-state replay test rather than asserted. `componentMapArm()` in `scripts/measureEpaDeviations.ts` builds an arm on it and is unit-tested.
+
+The register entry is therefore now `unmeasurable-no-reference`, not `unmeasurable-in-this-harness`: the machinery exists and there is nothing to point it at. `ARM_IDS` is deliberately unchanged. Registering an arm over a non-overlapping subset hand-picked out of `comp_*` keys would measure this project's own construction while labelling it Statbotics', which is the error corrected immediately below.
+
+### Label correction: the 0.7461 figure is OURS, not Statbotics'
+
+`experiments/260910-4x0/granularity.ts` carries an arm labelled *"Statbotics comp partition (leave/auto/tele/eg)"*. That label is wrong. The arm is a four-way grouping THIS PROJECT assembled from `comp_*` names; no such partition exists in Statbotics. The measurement (0.7461) is real and is kept. Only the attribution is corrected, in `deviationRegister()`'s `component-map` `priorMeasurement.values` and here. Do not delete the number.
+
+### 2024 NARROWED (quick task 260910-5ym, 2026-09-10): its map is now COARSER than Statbotics', not finer
+
+The granularity choice this section used to defend — 2024's five separate note-point components, eleven offensive components in total — was measured and cost accuracy. 2024 carried the most granular map of any season (13 components against a median of 9) on the season with the second-lowest score variance in the corpus, so eleven noisy per-team EWMAs, each estimated from roughly a dozen quals, were summed into every predicted alliance total. Four additive partitions were replayed off one shared carry and scored on 2024's 16,764 decided official matches:
+
+| partition | winner accuracy | what it is |
+|---|---|---|
+| eleven offensive components | 0.7348 | the retired 2024 map |
+| a four-way grouping from `comp_*` names | 0.7461 | **this project's own construction** (was mislabelled "Statbotics' comp partition") |
+| phase groups auto/teleop/endgame | **0.7520** | the shipped 2024 map |
+| a single no-foul total | 0.7403 | **Statbotics' ACTUAL 2024 target** |
+
+2024's map is now the phase-group partition, matching `groups.ts`'s existing 2024 grouping and the three phase keys Statbotics' own validation checks against.
+
+**What faithfulness would cost, for 2024, stated as a number:** copying what Statbotics actually rates (the single no-foul total) scores 0.7403 against the shipped 0.7520, so roughly 1.2 percentage points of winner accuracy. These four figures come from a scratch scorer and are comparable to EACH OTHER only. Never difference one of them against a published figure, which counts ties.
+
+Two things worth stating so this is not over-generalised. First, **the curve turns over**: collapsing to a single total is WORSE than three groups, so "fewer components is better" is not the lesson and must not be propagated to another season without measuring that season the same way. Second, **`groups.ts` is not a shortcut to a faithful phase partition for other seasons** — its grouping is a declared judgement that deliberately disagrees with TBA's own roll-ups in 2016, 2019 and 2022 (its own header says so), and Statbotics computes its phase keys per year in code this repo has never transcribed. Building a phase arm out of `groups.ts` would reproduce exactly the mislabelling corrected above. See `statbotics-breakdown-reference.md` §9.
+
+**Why:** D-02 requires per-season, data-driven component maps (never hardcoded branches); each season's map is built and Zod-validated against this project's own corpus (T-02-01/ASVS V5 — every read field asserted finite, unknown fields stripped rather than passed through). Divergent granularity is an accepted consequence of independent re-derivation, not a defect — the harness's own accuracy measurement is what would surface a granularity choice that costs accuracy, not a requirement to match a table that turns out not to be a table.
 
 ## 7. Data population — offseason play. NARROWED (not closed) as of `epa@6.0.0+baseline`
 

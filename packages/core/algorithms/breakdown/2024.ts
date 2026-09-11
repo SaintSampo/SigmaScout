@@ -72,7 +72,7 @@ const Breakdown2024Schema = z.object({
  *   | rating granularity                          | comps | accuracy |
  *   |---------------------------------------------|-------|----------|
  *   | one component per TBA field (was shipping)   |    13 |   0.7348 |
- *   | Statbotics' comp partition                   |     6 |   0.7461 |
+ *   | a four-way grouping WE assembled (see below) |     6 |   0.7461 |
  *   | phase groups — THIS MAP                      |     5 |   0.7520 |
  *   | a single no-foul total                       |     3 |   0.7403 |
  *
@@ -80,6 +80,18 @@ const Breakdown2024Schema = z.object({
  * than three phase groups, so this is a bias/variance optimum and not a
  * "fewer is always better" rule to propagate to other seasons without
  * measuring them the same way. Statbotics' own 2024 accuracy is 0.7627.
+ *
+ * LABEL CORRECTED 2026-09-11 (quick task 260911-gfe). Row two used to read
+ * "Statbotics' comp partition". There is no such object: Statbotics'
+ * `all_keys[year]` is a rated-quantity LIST that double-counts by construction
+ * (it carries `no_foul_points` beside the three phase keys it is the sum of),
+ * so the six-way row is a grouping THIS PROJECT assembled out of `comp_*`
+ * names in `experiments/260910-4x0/granularity.ts`. The 0.7461 measurement is
+ * real and is kept; only what it is a number OF is corrected. The row that IS
+ * faithful to Statbotics is the last one: its 2024 `get_score_from_breakdown`
+ * branch rates exactly one no-foul total, so copying it would cost about 1.2
+ * percentage points here. See `docs/models/statbotics-breakdown-reference.md`
+ * and `docs/models/epa-divergences.md` section 6.
  *
  * The grouping is not invented here — it is exactly `groups.ts`'s existing
  * 2024 `auto`/`teleop`/`endgame` partition, which the site already publishes

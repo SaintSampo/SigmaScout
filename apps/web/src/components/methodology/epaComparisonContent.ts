@@ -21,6 +21,24 @@
  * student audience rather than pasted, since that document is written for a
  * maintainer.
  *
+ * REVISED 2026-09-11 (quick task 260911-gfe): the `component-maps` entry. What
+ * it used to say was that Statbotics groups FIRST's raw scoring fields into
+ * pieces using its own table, and that the two sites group those pieces
+ * differently in some seasons. Nobody had verified that. The recovered
+ * reference (`docs/models/statbotics-breakdown-reference.md`, and the 2026-09-10
+ * verification it builds on) shows Statbotics' per-season key list is a
+ * RATED-QUANTITY MENU, not a partition: it carries the no-foul total beside the
+ * three phase pieces that total is the sum of, and its finer keys sit inside
+ * those phases. For 2024 its predicted score comes from one directly rated
+ * quantity. So the difference is one of KIND, not of grouping, and the entry now
+ * says that. What survives unchanged: the thin-evidence argument, and the
+ * 73.5 / 75.2 / 74.0 percent figures from quick task 260910-4x0's partition
+ * sweep. The single-piece figure is now named as the shape Statbotics uses,
+ * because that is what makes it the interesting one. The `heading` is
+ * deliberately UNCHANGED: the developer named this exception by that phrase, and
+ * "how a match score is split into pieces" still describes a difference in which
+ * one site splits and the other does not. The id set stays at three; see below.
+ *
  * NOT REVISED for `epa@8.0.0+baseline` (quick task 260911-3kc, 2026-09-11), and
  * that is deliberate. 8.0.0 corrected the SEASON-BOUNDARY SCALE ANCHOR: a
  * carried rating now enters a new season in that season's point units. It is a
@@ -83,11 +101,12 @@ export const EPA_DIFFERENCE_ENTRIES: readonly EpaDifferenceEntry[] = [
     id: "component-maps",
     heading: "How a match score is split into pieces",
     paragraphs: [
-      "A game like FRC scores points in pieces: autonomous points, teleop points, endgame points, and finer pieces inside those. Statbotics groups the raw scoring fields FIRST publishes into these pieces using its own table.",
-      "SigmaScout built its own table instead, checked directly against the matches it has stored. In some seasons the two sites group scoring pieces differently. For 2024, SigmaScout rates three pieces, one for each phase of the match, while several other seasons are split more finely than that.",
+      "A match score can be broken into pieces: points scored in the autonomous period, points scored by the drivers, points scored at the end of the match. SigmaScout rates each piece separately for every team, then adds the pieces back together to predict a score.",
+      "Statbotics predicts from a single number instead. For 2024 it rates one quantity per alliance, the match score with penalty points taken out, and predicts directly from that. It does publish piece by piece figures beside it, and those are worth reading, but they are extra views rather than the thing its predicted score is built from. Several of them overlap, counting the same points at two levels of detail at once.",
+      "So the two sites are not slicing the same score two different ways. One rates several pieces and adds them up. The other rates one total. For 2024 the three pieces SigmaScout rates are the three phases of a match, which is also the split Statbotics uses when it checks its own numbers add up.",
       "How finely to slice matters more than it sounds. Each piece is rated separately from roughly a dozen qualification matches per team, so more pieces means each one is estimated from the same thin evidence and carries more noise. Adding those noisy pieces back together makes a noisier predicted score.",
-      "Slicing 2024 more coarsely was a measured change, not a preference. Rating eleven scoring pieces predicted 73.5 percent of 2024 winners correctly. Rating three predicted 75.2 percent. Going all the way down to a single piece was worse again at 74.0 percent, so there is a best middle and it is not the finest or the coarsest slicing.",
-      "Neither grouping is more correct. They are different choices about how finely to slice the same total score, and a different slicing can shift a rating without changing anything that happened on the field.",
+      "Slicing 2024 more coarsely was a measured change, not a preference. Rating eleven scoring pieces predicted 73.5 percent of 2024 winners correctly. Rating three predicted 75.2 percent. Rating a single total, which is the shape Statbotics uses, predicted 74.0 percent. There is a best middle and it is neither the finest nor the coarsest slicing.",
+      "Neither approach is more correct. They are different choices about how much detail to rate, and a different choice can shift a rating without changing anything that happened on the field.",
     ],
   },
   {
