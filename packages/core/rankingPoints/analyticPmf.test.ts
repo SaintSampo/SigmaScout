@@ -7,23 +7,42 @@
  * 1.5e-7) except for structural identities (sums, exact zeros, exact
  * equalities between two computed quantities), which are exact.
  *
- * This file (Task 1, plan 09-04) carries the tracer's eight behaviors:
- * the 2026 nested-threshold non-vacuity case, the full 2026 end-to-end pmf,
- * an asymmetric-inputs proof that symmetry alone is not evidence, the
- * outcome half in isolation, the two short-circuits, the independence
- * precondition, the `RpLayerConfig` refusal, and the normalization
- * guarantee. Task 2 adds the remaining six mechanism classes and the
- * all-season structural sweep in a SEPARATE file
- * (`analyticPmf.seasons.test.ts`) — this file only ever exercises 2026.
+ * Task 1's tracer carries eight behaviors, all exercised on 2026 alone: the
+ * nested-threshold non-vacuity case, the full 2026 end-to-end pmf, an
+ * asymmetric-inputs proof that symmetry alone is not evidence, the outcome
+ * half in isolation, the two short-circuits, the independence precondition,
+ * the `RpLayerConfig` refusal, and the normalization guarantee.
+ *
+ * Task 2 adds a SECOND describe block below — one test per remaining
+ * mechanism class (`singleThreshold`, `linearCombination`,
+ * `conjunctionDistinct`, `countOfIndicators`, `dataDependentMixture`,
+ * `constant`), each asserting a per-bonus probability against a value
+ * derived from the closed form at planning time. This file fails for a
+ * DIFFERENT reason than its sibling `analyticPmf.seasons.test.ts`: "this
+ * mechanism's arithmetic is wrong" here, versus "the contract between the
+ * declarations and the pmf layer has drifted" there. The shared
+ * `buildRuleModuleMoments` fixture builder is imported from the non-test
+ * sibling module `analyticPmfFixtures.ts` (NOT from
+ * `analyticPmf.seasons.test.ts` — importing one `.test.ts` file from another
+ * re-executes its top-level `describe()` calls and silently duplicates every
+ * test in it; see `analyticPmfFixtures.ts`'s own header), so there is one
+ * fixture builder in the tree and not two that can drift about what
+ * "diagonal" means.
  */
 import { describe, expect, it } from "vitest";
 import {
+  allianceBonusRpPmf,
   analyticRpPmf,
   assertSupportedRpLayerConfig,
   matchOutcomeDistribution,
   RP_LAYER_CONFIG_DEFAULT,
   type RpLayerConfig,
 } from "./analyticPmf.js";
+import { buildRuleModuleMoments } from "./analyticPmfFixtures.js";
+import { rp2016 } from "./2016.js";
+import { rp2017 } from "./2017.js";
+import { rp2019 } from "./2019.js";
+import { rp2022 } from "./2022.js";
 import { rp2026 } from "./2026.js";
 import type { AllianceRpMoments } from "./moments.js";
 
@@ -281,5 +300,86 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
         config: RP_LAYER_CONFIG_DEFAULT,
       })
     ).toThrow();
+  });
+});
+
+describe("analyticRpPmf — Task 2 (D-07's remaining six mechanism classes)", () => {
+  it("singleThreshold — 2022 hangarBonus, endgamePoints mean 12 variance 16 (threshold 16, z = (16-12)/4 = 1)", () => {
+    const moments = buildRuleModuleMoments(rp2022, { endgamePoints: { mean: 12, variance: 16 } });
+    const result = allianceBonusRpPmf(moments, rp2022, 0, RP_LAYER_CONFIG_DEFAULT);
+    const p = result.bonusProbabilities[rp2022.bonusNames.indexOf("hangarBonus")]!;
+    // 1 - Phi(1) = 0.158655254
+    expect(p).toBeCloseTo(0.158655254, 6);
+  });
+
+  it("linearCombination — 2017 rotor, autoRotorPoints mean 120 var 3600 (/60) + teleopRotorPoints mean 40 var 1600 (/40): sum mean 3, sum variance 2, threshold 4", () => {
+    const moments = buildRuleModuleMoments(rp2017, {
+      autoRotorPoints: { mean: 120, variance: 3600 },
+      teleopRotorPoints: { mean: 40, variance: 1600 },
+    });
+    const result = allianceBonusRpPmf(moments, rp2017, 0, RP_LAYER_CONFIG_DEFAULT);
+    const p = result.bonusProbabilities[rp2017.bonusNames.indexOf("rotor")]!;
+    // combined mean = 120/60 + 40/40 = 3, combined variance = 3600/3600 + 1600/1600 = 2
+    // z = (4-3)/sqrt(2) = 0.707106781187 -> 1 - Phi(0.707106781187) = 1 - 0.760249938907 = 0.239750061093
+    expect(p).toBeCloseTo(0.239750061, 6);
+  });
+
+  it("conjunctionDistinct — 2016 capture: attackedTowerEndStrength<=0 (mean 4 var 16) AND teleopChallengePoints/5+teleopScalePoints/15>=3 (means 5,15 vars 25,225)", () => {
+    const moments = buildRuleModuleMoments(rp2016, {
+      attackedTowerEndStrength: { mean: 4, variance: 16 },
+      teleopChallengePoints: { mean: 5, variance: 25 },
+      teleopScalePoints: { mean: 15, variance: 225 },
+    });
+    const result = allianceBonusRpPmf(moments, rp2016, 0, RP_LAYER_CONFIG_DEFAULT);
+    const p = result.bonusProbabilities[rp2016.bonusNames.indexOf("capture")]!;
+    // Clause A (lte, inverted): z = (0-4)/4 = -1 -> Phi(-1) = 0.158655254
+    // Clause B (gte): combined mean 5/5+15/15=2, combined variance 25/25+225/225=2,
+    //   z = (3-2)/sqrt(2) = 0.707106781187 -> 1 - Phi(0.707106781187) = 0.239750061093
+    // Product (independent, disjoint footprints): 0.158655254 * 0.239750061 = 0.038037607
+    expect(p).toBeCloseTo(0.038037607, 6);
+  });
+
+  it("countOfIndicators — 2016 breach, position1crossings mean 3 var 1 plus four more at mean 2 var 1, required 4 of 5", () => {
+    const moments = buildRuleModuleMoments(rp2016, {
+      position1crossings: { mean: 3, variance: 1 },
+      position2crossings: { mean: 2, variance: 1 },
+      position3crossings: { mean: 2, variance: 1 },
+      position4crossings: { mean: 2, variance: 1 },
+      position5crossings: { mean: 2, variance: 1 },
+    });
+    const result = allianceBonusRpPmf(moments, rp2016, 0, RP_LAYER_CONFIG_DEFAULT);
+    const p = result.bonusProbabilities[rp2016.bonusNames.indexOf("breach")]!;
+    // indicator1: z=(2-3)/1=-1 -> p1 = 1-Phi(-1) = 0.841344746
+    // indicators 2-5: z=(2-2)/1=0 -> p = 1-Phi(0) = 0.5 each
+    // P(at least 4 of 5) = p1*P(X>=3) + (1-p1)*P(X=4), X ~ Binomial(4, 0.5)
+    //   = 0.841344746*(5/16) + 0.158655254*(1/16) = 0.272836186
+    expect(p).toBeCloseTo(0.272836186, 6);
+  });
+
+  it("dataDependentMixture — 2022 cargoBonus, selector autoCargoTotal>=5 (mean 5 var 1), matchCargoTotal mean 18 var 4 (thresholds 18/20)", () => {
+    const moments = buildRuleModuleMoments(rp2022, {
+      autoCargoTotal: { mean: 5, variance: 1 },
+      matchCargoTotal: { mean: 18, variance: 4 },
+    });
+    const result = allianceBonusRpPmf(moments, rp2022, 0, RP_LAYER_CONFIG_DEFAULT);
+    const p = result.bonusProbabilities[rp2022.bonusNames.indexOf("cargoBonus")]!;
+    // selector: z=(5-5)/1=0 -> ps = 1-Phi(0) = 0.5
+    // branch-true (quintet, threshold 18): z=(18-18)/2=0 -> p_true = 0.5
+    // branch-false (non-quintet, threshold 20): z=(20-18)/2=1 -> p_false = 1-Phi(1) = 0.158655254
+    // P = 0.5*0.5 + 0.5*0.158655254 = 0.329327627
+    expect(p).toBeCloseTo(0.329327627, 6);
+  });
+
+  it("constant — 2019 completeRocket is exactly 0, and with habDocking at mean 15 variance 25 (p=0.5) the season's bonus-only pmf is [0.5, 0.5, 0] — the unreachable index is a REAL zero, not a small number", () => {
+    const moments = buildRuleModuleMoments(rp2019, { habClimbPoints: { mean: 15, variance: 25 } });
+    const result = allianceBonusRpPmf(moments, rp2019, 0, RP_LAYER_CONFIG_DEFAULT);
+    const completeRocketP = result.bonusProbabilities[rp2019.bonusNames.indexOf("completeRocket")]!;
+    const habDockingP = result.bonusProbabilities[rp2019.bonusNames.indexOf("habDocking")]!;
+    expect(completeRocketP).toBe(0); // exact, not toBeCloseTo — a constant(false) predicate is a real 0
+    expect(habDockingP).toBeCloseTo(0.5, 6);
+    expect(result.pmf).toHaveLength(3);
+    expect(result.pmf[0]).toBeCloseTo(0.5, 6);
+    expect(result.pmf[1]).toBeCloseTo(0.5, 6);
+    expect(result.pmf[2]).toBe(0); // structurally unreachable — completeRocket can never fire
   });
 });
