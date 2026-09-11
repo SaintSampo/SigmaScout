@@ -335,6 +335,66 @@ export function probAtMost(marginal: FittedMarginal, threshold: number): number 
   }
 }
 
-// Poisson-binomial convolution (2016 `breach`, the strict branch of 2025
-// `coralBonus`) is added in Task 3, below the browser-safe registration this
-// plan's Task 3 also adds — see 09-03-PLAN.md Task 3.
+// ---------------------------------------------------------------------------
+// Poisson-binomial convolution — count-of-indicators bonuses (2016 `breach`,
+// the strict branch of 2025 `coralBonus`).
+// ---------------------------------------------------------------------------
+
+/**
+ * The exact pmf of a sum of independent (but not identically distributed)
+ * Bernoulli indicators, via direct dynamic-programming convolution: start
+ * from `[1]` and, for each `p`, build a FRESH array with
+ * `next[i] += current[i] · (1−p)` and `next[i+1] += current[i] · p`.
+ * Writing in place would alias the array and silently compute a different
+ * distribution, so this always allocates rather than mutates.
+ *
+ * At this phase's sizes — five indicators for 2016 `breach`, four reef
+ * levels for 2025 `coralBonus` — the direct form is exact to well within
+ * 1e-12 and no log-space variant is warranted (09-CONTEXT.md's "Claude's
+ * Discretion" line assigns this numerical-stability judgement to this plan;
+ * the judgement made is: direct convolution, no log-space, because the
+ * factor count here never approaches the range where direct convolution's
+ * underflow risk becomes real).
+ *
+ * Each incoming `p` is clamped into `[0, 1]` on entry. A non-finite entry is
+ * SKIPPED — that indicator is dropped from the convolution entirely (the
+ * output shrinks by one dimension) rather than being coerced into `0` or
+ * `1`, since either coercion would silently assert a fact about an
+ * indicator this function was given no finite probability for.
+ */
+export function poissonBinomialPmf(probabilities: readonly number[]): number[] {
+  let current = [1];
+  for (const raw of probabilities) {
+    if (!Number.isFinite(raw)) continue;
+    const p = clamp01(raw);
+    const next = new Array<number>(current.length + 1).fill(0);
+    for (let i = 0; i < current.length; i++) {
+      next[i]! += current[i]! * (1 - p);
+      next[i + 1]! += current[i]! * p;
+    }
+    current = next;
+  }
+  return current;
+}
+
+/**
+ * `P(count >= k)` for the Poisson-binomial sum. `k <= 0` is exactly `1`;
+ * `k > probabilities.length` is exactly `0`. Serves two named rule shapes:
+ * 2016 `breach` (`k = 4` of five damaged-defence indicators, each indicator
+ * itself `probAtLeast(positionNcrossings marginal, 2)`) and the STRICT
+ * branch of 2025 `coralBonus` (`k = n = 4` reef levels — the `k = n` case
+ * reduces to the product of all four probabilities, exactly reproducing the
+ * conjunction `predictThresholds` already computes). The coopertition-
+ * relaxed `coopCount >= 3` branch of `parse` is NOT served here:
+ * `predictThresholds` deliberately evaluates only the strict branch
+ * (Pitfall 4's conservative convention, preserved byte-for-byte by 09-02),
+ * and this module must not quietly "improve" that choice.
+ */
+export function poissonBinomialAtLeast(probabilities: readonly number[], k: number): number {
+  if (k <= 0) return 1;
+  if (k > probabilities.length) return 0;
+  const pmf = poissonBinomialPmf(probabilities);
+  let sum = 0;
+  for (let i = k; i < pmf.length; i++) sum += pmf[i]!;
+  return clamp01(sum);
+}

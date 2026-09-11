@@ -14,12 +14,16 @@ import {
   fitAllianceMarginals,
   probAtLeast,
   probAtMost,
+  poissonBinomialPmf,
+  poissonBinomialAtLeast,
   erf,
   standardNormalCdf,
   type FittedMarginal,
 } from "./marginals.js";
 import type { AllianceRpMoments } from "./moments.js";
 import type { RpThresholdVariable } from "./constants.js";
+import { RpMomentsAccumulator } from "./empiricalMoments.js";
+import { rp2026 } from "./2026.js";
 
 describe("fitMarginal — negative-binomial pinned parameterization (D-01)", () => {
   it("fitMarginal(2, 4, 'negative-binomial') yields the exact pinned r and p — r = mean²/(variance−mean), p = mean/(mean+r)", () => {
@@ -199,6 +203,167 @@ describe("fitAllianceMarginals — reads only the diagonal", () => {
     };
     const fits = fitAllianceMarginals(moments, []);
     expect(fits.get("unknownVar")?.resolved).toBe("gaussian");
+  });
+});
+
+describe("poissonBinomialPmf / poissonBinomialAtLeast — hand-computed, tolerance 1e-12", () => {
+  it("[0.1, 0.2, 0.3] pmf === [0.504, 0.398, 0.092, 0.006]", () => {
+    const pmf = poissonBinomialPmf([0.1, 0.2, 0.3]);
+    expect(pmf[0]).toBeCloseTo(0.504, 12);
+    expect(pmf[1]).toBeCloseTo(0.398, 12);
+    expect(pmf[2]).toBeCloseTo(0.092, 12);
+    expect(pmf[3]).toBeCloseTo(0.006, 12);
+  });
+
+  it("[0.1, 0.2, 0.3] atLeast(2) === 0.098", () => {
+    expect(poissonBinomialAtLeast([0.1, 0.2, 0.3], 2)).toBeCloseTo(0.098, 12);
+  });
+
+  it("[0.5, 0.5, 0.5] pmf === [0.125, 0.375, 0.375, 0.125]", () => {
+    const pmf = poissonBinomialPmf([0.5, 0.5, 0.5]);
+    expect(pmf[0]).toBeCloseTo(0.125, 12);
+    expect(pmf[1]).toBeCloseTo(0.375, 12);
+    expect(pmf[2]).toBeCloseTo(0.375, 12);
+    expect(pmf[3]).toBeCloseTo(0.125, 12);
+  });
+
+  it("[0.5, 0.5, 0.5] atLeast(2) === 0.5", () => {
+    expect(poissonBinomialAtLeast([0.5, 0.5, 0.5], 2)).toBeCloseTo(0.5, 12);
+  });
+
+  it("[0.9, 0.8, 0.7, 0.6, 0.5] atLeast(4) ≈ 0.5226 — the 2016 breach shape: five defence positions, four required", () => {
+    expect(poissonBinomialAtLeast([0.9, 0.8, 0.7, 0.6, 0.5], 4)).toBeCloseTo(0.5226, 4);
+  });
+
+  it("[0.5, 0.5, 0.5, 0.5] atLeast(4) === 0.0625 === 0.5**4 exactly — the k=n case, the conjunction 2025 coralBonus's strict branch computes", () => {
+    const result = poissonBinomialAtLeast([0.5, 0.5, 0.5, 0.5], 4);
+    expect(result).toBeCloseTo(0.0625, 12);
+    expect(result).toBeCloseTo(0.5 ** 4, 12);
+  });
+
+  it("empty array: pmf === [1]; atLeast(0) === 1; atLeast(1) === 0", () => {
+    expect(poissonBinomialPmf([])).toEqual([1]);
+    expect(poissonBinomialAtLeast([], 0)).toBe(1);
+    expect(poissonBinomialAtLeast([], 1)).toBe(0);
+  });
+
+  it("atLeast(k) with k <= 0 is exactly 1, for any probabilities", () => {
+    expect(poissonBinomialAtLeast([0.3, 0.4], 0)).toBe(1);
+    expect(poissonBinomialAtLeast([0.3, 0.4], -5)).toBe(1);
+  });
+
+  it("atLeast(k) with k > n is exactly 0", () => {
+    expect(poissonBinomialAtLeast([0.3, 0.4], 3)).toBe(0);
+  });
+
+  it("[0.1, 0.2, 0.3] pmf sums to 1 within 1e-12", () => {
+    const pmf = poissonBinomialPmf([0.1, 0.2, 0.3]);
+    expect(pmf.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+  });
+});
+
+describe("invariants across a grid of fits (negative-binomial, Gaussian, degenerate)", () => {
+  const nbFit = fitMarginal(12, 40, "negative-binomial");
+  const gaussianFit = fitMarginal(12, 40, "gaussian");
+  const degenerateFit = fitMarginal(12, 0, "gaussian");
+  const fits: readonly [string, FittedMarginal][] = [
+    ["negative-binomial", nbFit],
+    ["gaussian", gaussianFit],
+    ["degenerate", degenerateFit],
+  ];
+
+  it("probAtLeast is monotone non-increasing over t = -1..50 for every resolved family — protects 09-04's nested-threshold differencing (P(only energized) = probAtLeast(T_e) - probAtLeast(T_s))", () => {
+    for (const [name, fit] of fits) {
+      let prev = probAtLeast(fit, -1);
+      for (let t = 0; t <= 50; t++) {
+        const cur = probAtLeast(fit, t);
+        expect(cur, `${name} at t=${t}`).toBeLessThanOrEqual(prev);
+        prev = cur;
+      }
+    }
+  });
+
+  it("every returned probability is finite and in [0, 1] — no NaN, no Infinity, no -0 masquerading as a probability", () => {
+    for (const [, fit] of fits) {
+      for (let t = -1; t <= 50; t++) {
+        const a = probAtLeast(fit, t);
+        const b = probAtMost(fit, t);
+        expect(Number.isFinite(a)).toBe(true);
+        expect(Number.isFinite(b)).toBe(true);
+        expect(a).toBeGreaterThanOrEqual(0);
+        expect(a).toBeLessThanOrEqual(1);
+        expect(b).toBeGreaterThanOrEqual(0);
+        expect(b).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("discrete identity (negative-binomial only): probAtMost(t) + probAtLeast(t+1) === 1 within 1e-12", () => {
+    for (let t = -1; t <= 50; t++) {
+      expect(probAtMost(nbFit, t) + probAtLeast(nbFit, t + 1)).toBeCloseTo(1, 12);
+    }
+  });
+
+  it("continuous identity (Gaussian only): probAtMost(t) + probAtLeast(t) === 1 within 1e-12", () => {
+    for (let t = -1; t <= 50; t++) {
+      expect(probAtMost(gaussianFit, t) + probAtLeast(gaussianFit, t)).toBeCloseTo(1, 12);
+    }
+  });
+
+  it("the degenerate family is EXEMPT from both the discrete and continuous identities — a point mass between two integers satisfies neither, which is correct", () => {
+    // mean=12 is an integer here, so pick a fit whose point mass sits between
+    // integers to prove the exemption for real, not just by coincidence.
+    const betweenIntegers = fitMarginal(12.5, 0, "gaussian");
+    expect(betweenIntegers.resolved).toBe("degenerate");
+    const discreteSum = probAtMost(betweenIntegers, 12) + probAtLeast(betweenIntegers, 13);
+    const continuousSum = probAtMost(betweenIntegers, 12) + probAtLeast(betweenIntegers, 12);
+    // Neither identity is required to hold; assert what actually happens
+    // (12 < 12.5 so probAtMost(12) is 0 and probAtLeast(13) is 0 -> discrete
+    // sum is 0, not 1; probAtLeast(12) is 1 -> continuous sum is 1, matching
+    // by coincidence for THIS threshold but not asserted as a general rule).
+    expect(discreteSum).not.toBeCloseTo(1, 6);
+    expect(Number.isFinite(continuousSum)).toBe(true);
+  });
+
+  it("probAtLeast(fit, 0) is exactly 1 for the negative-binomial fit (support [0, infinity)) and strictly less than 1 for the Gaussian fit (support all of R) — the one place the two families are legitimately allowed to disagree", () => {
+    expect(probAtLeast(nbFit, 0)).toBe(1);
+    expect(probAtLeast(gaussianFit, 0)).toBeLessThan(1);
+  });
+});
+
+describe("cold-team well-formedness — proven against the REAL RpMomentsAccumulator (Pitfall 3's named warning sign)", () => {
+  it("one observation: variance-le-mean's sibling, zero-variance — degenerate/zero-variance, probAtLeast(12)===1, probAtLeast(13)===0", () => {
+    const accumulator = new RpMomentsAccumulator(rp2026);
+    const roster = ["frc1", "frc2", "frc3"];
+    accumulator.fold(roster, { hubTotalCount: 12, totalTowerPoints: 12 });
+    const moments = accumulator.momentsFor(roster, 0, 0);
+    expect(moments.meanVector[0]).toBe(12);
+    expect(moments.varianceBlock[0]![0]).toBe(0);
+
+    const fit = fitMarginal(moments.meanVector[0]!, moments.varianceBlock[0]![0]!, "negative-binomial");
+    expect(fit.resolved).toBe("degenerate");
+    expect(fit.fallbackReason).toBe("zero-variance");
+    expect(probAtLeast(fit, 12)).toBe(1);
+    expect(probAtLeast(fit, 13)).toBe(0);
+  });
+
+  it("two observations (folded 12 then 15): variance-le-mean — mean=13.586547164699777, variance=4.5 (both derived from empiricalMoments.ts's own arithmetic at planning time; a mismatch means the accumulator changed, a finding to report, not a number to overwrite). Resolves gaussian/variance-le-mean, declared stays negative-binomial, finite probability in [0,1]", () => {
+    const accumulator = new RpMomentsAccumulator(rp2026);
+    const roster = ["frc1", "frc2", "frc3"];
+    accumulator.fold(roster, { hubTotalCount: 12, totalTowerPoints: 12 });
+    accumulator.fold(roster, { hubTotalCount: 15, totalTowerPoints: 15 });
+    const moments = accumulator.momentsFor(roster, 0, 0);
+    expect(moments.meanVector[0]).toBeCloseTo(13.586547164699777, 9);
+    expect(moments.varianceBlock[0]![0]).toBeCloseTo(4.5, 9);
+
+    const fit = fitMarginal(moments.meanVector[0]!, moments.varianceBlock[0]![0]!, "negative-binomial");
+    expect(fit.declared).toBe("negative-binomial");
+    expect(fit.resolved).toBe("gaussian");
+    expect(fit.fallbackReason).toBe("variance-le-mean");
+    const p = probAtLeast(fit, 14);
+    expect(Number.isFinite(p)).toBe(true);
+    expect(p).toBeGreaterThanOrEqual(0);
+    expect(p).toBeLessThanOrEqual(1);
   });
 });
 

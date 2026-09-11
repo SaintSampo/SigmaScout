@@ -55,6 +55,21 @@
  * intended design. It is checked ONLY for Node built-in imports, exactly
  * like the breakdown/rp-constants/rank-simulation entry points above.
  *
+ * Plan 09-03 Task 3 extends this with an EIGHTH entry point:
+ * `packages/core/rankingPoints/marginals.ts` — D-08: the RP module becomes
+ * browser-safe in Phase 9 so the browser runs the SAME pure function real
+ * matches do, which is deliverable 8's precondition for pricing the
+ * pre-schedule rank simulation client-side. Like the breakdown/rp-constants/
+ * rank-simulation entry points above, this one legitimately LIVES under
+ * `packages/core/algorithms/`'s SIBLING directory `packages/core/
+ * rankingPoints/` and is checked ONLY for Node built-in imports; its one
+ * import is a type-only import of `MarginalFamily`/`RpThresholdVariable`
+ * from `./constants.ts`, which itself type-imports `algorithms/types.js` —
+ * so the stricter "never reaches a file under packages/core/algorithms/"
+ * assertion the `ENTRY_POINTS` pair is held to would fail on this module's
+ * own intended design (exactly the same reason `RP_CONSTANTS_ENTRY_POINT`
+ * above is checked the same restricted way).
+ *
  * Scope: static `import`/`export ... from` specifiers only — this repo has
  * no dynamic imports in the modules under scan.
  */
@@ -69,6 +84,7 @@ const BREAKDOWN_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "breakdo
 const RP_CONSTANTS_ENTRY_POINT = resolve(HERE, "..", "core", "rankingPoints", "constants.ts");
 const RANK_SIMULATION_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "simulation", "rankSimulation.ts");
 const TEAM_RANKS_ENTRY_POINT = resolve(HERE, "teamRanks.ts");
+const MARGINALS_ENTRY_POINT = resolve(HERE, "..", "core", "rankingPoints", "marginals.ts");
 const FORBIDDEN_DIR = resolve(HERE, "..", "core", "algorithms");
 
 /** Matches one `import ... from "spec"` or `export ... from "spec"` line — this repo's convention keeps every such statement on one line. */
@@ -200,6 +216,15 @@ describe("browser-safe schema import graph", () => {
     if (nodeBuiltinViolations.length > 0) {
       const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
       expect.fail(`Node built-in import(s) reachable from packages/harness/teamRanks.ts: ${detail}`);
+    }
+  });
+
+  it("never reaches a Node built-in import from packages/core/rankingPoints/marginals.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/rankingPoints/, outside packages/core/algorithms/ entirely, plan 09-03 Task 3, D-08)", () => {
+    const { nodeBuiltinViolations, visited } = scan([MARGINALS_ENTRY_POINT]);
+    expect(visited.has(MARGINALS_ENTRY_POINT)).toBe(true);
+    if (nodeBuiltinViolations.length > 0) {
+      const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
+      expect.fail(`Node built-in import(s) reachable from packages/core/rankingPoints/marginals.ts: ${detail}`);
     }
   });
 });
