@@ -30,12 +30,21 @@ import { describe, expect, it } from "vitest";
 import type { AlgorithmModule, MatchResult } from "../packages/core/algorithms/types.js";
 import { WalkForwardSimulator } from "../packages/harness/replay.js";
 import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
-import { RP_LAYER_CONFIG_DEFAULT } from "../packages/core/rankingPoints/analyticPmf.js";
+import { RP_LAYER_CONFIG_DEFAULT, type RpLayerConfig } from "../packages/core/rankingPoints/analyticPmf.js";
+import { SigmaScoutLayer } from "../packages/harness/sigmaScoutLayer.js";
+import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
 import {
+  assertIdenticalPopulations,
   buildRpCalibrationRecord,
   decideRpShipConfig,
   evaluateD09Bar,
+  negativeBinomialShare,
+  resolveRpArms,
+  RP_ATTRIBUTION_ARMS,
   RP_RELIABILITY_BUCKET_EDGES,
+  RP_REPORTING_SLICE_SEASONS,
+  RP_SELECTION_SLICE_SEASONS,
+  rpCellKey,
   type Observation,
   type RpArmVerdict,
   type RpBonusCell,
@@ -194,10 +203,17 @@ describe("widened emitter (Task 2, D-09) — one runAll, disjoint per-algorithm 
 });
 
 describe("same-scorer structural assertions (D-11)", () => {
-  it("constructs SigmaScoutLayer exactly once, with a resolved algorithm id as the second argument", () => {
+  it("constructs SigmaScoutLayer exactly once, with a rule module, a resolved algorithm id and an arm config", () => {
     const matches = [...SOURCE.matchAll(/new SigmaScoutLayer\(/g)];
     expect(matches).toHaveLength(1);
-    expect(SOURCE).toMatch(/new SigmaScoutLayer\(ruleModule, \w+\.id\)/);
+    // 09-06 Task 1 Step 3 widened this site from two arguments to three. The
+    // second argument is still the resolved algorithm id — 09-01's same-scorer
+    // fix, and the premise of every figure this script produces — and the
+    // third is the ARM's config, which is the only thing that differs between
+    // arms. ONE construction site for eight arms is what makes "every arm
+    // through the same imported SigmaScoutLayer" a structural fact rather than
+    // a claim in a header.
+    expect(SOURCE).toMatch(/new SigmaScoutLayer\(ruleModule, \w+\.id, \w+\.config\)/);
   });
 
   it("reaches RP only through SigmaScoutLayer.foldPlayed — no direct rpPmfForMatch/RpMomentsAccumulator call outside a comment", () => {
@@ -473,5 +489,160 @@ describe("decideRpShipConfig — the pre-committed three-step rule, applied mech
         verdicts([verdict("win", 8, 0), verdict("tie", 7, 0), verdict("marginal", 9, 0)])
       )
     ).toThrow(/decideRpShipConfig/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The arm registry, D-04's slices, and the multi-arm fold (09-06 Task 1)
+// ---------------------------------------------------------------------------
+
+describe("RP_ATTRIBUTION_ARMS — the eight arms", () => {
+  it("has exactly eight entries with `control` first, deep-equal to the imported production default", () => {
+    expect(RP_ATTRIBUTION_ARMS).toHaveLength(8);
+    expect(RP_ATTRIBUTION_ARMS[0]!.name).toBe("control");
+    expect(RP_ATTRIBUTION_ARMS[0]!.config).toEqual(RP_LAYER_CONFIG_DEFAULT);
+  });
+
+  it("covers the FULL cross product of the three fields' declared unions — one set equality, not a loop over a hand-typed list", () => {
+    // The member lists are written out here because a TypeScript union is not
+    // enumerable at run time. They are typed against the config's own fields,
+    // so a member renamed or removed upstream is a COMPILE error in this test
+    // rather than a silently shrunken cross product.
+    const winSources: readonly RpLayerConfig["winSource"][] = ["score-draw", "p-red-win"];
+    const tieModels: readonly RpLayerConfig["tieModel"][] = ["continuous-equality", "discrete-margin"];
+    const marginals: readonly RpLayerConfig["marginal"][] = ["gaussian", "negative-binomial"];
+
+    const expected = new Set<string>();
+    for (const w of winSources) {
+      for (const t of tieModels) {
+        for (const m of marginals) expected.add(`${w}|${t}|${m}`);
+      }
+    }
+    const actual = new Set(
+      RP_ATTRIBUTION_ARMS.map((a) => `${a.config.winSource}|${a.config.tieModel}|${a.config.marginal}`)
+    );
+    expect(actual).toEqual(expected);
+    expect(actual.size).toBe(8);
+  });
+
+  it("names every arm after the fields it changes, and every name is distinct", () => {
+    expect(RP_ATTRIBUTION_ARMS.map((a) => a.name)).toEqual([
+      "control",
+      "win",
+      "tie",
+      "marginal",
+      "win+tie",
+      "win+marginal",
+      "tie+marginal",
+      "win+tie+marginal",
+    ]);
+    expect(new Set(RP_ATTRIBUTION_ARMS.map((a) => a.name)).size).toBe(8);
+  });
+});
+
+describe("resolveRpArms", () => {
+  it('"all" returns all eight in registry order', () => {
+    expect(resolveRpArms("all").map((a) => a.name)).toEqual(RP_ATTRIBUTION_ARMS.map((a) => a.name));
+  });
+
+  it("a comma list returns exactly those named, in REGISTRY order regardless of the order given", () => {
+    expect(resolveRpArms("marginal,control,win").map((a) => a.name)).toEqual(["control", "win", "marginal"]);
+  });
+
+  it("no spec returns `control` alone, so every pre-existing invocation keeps its current meaning", () => {
+    const resolved = resolveRpArms();
+    expect(resolved.map((a) => a.name)).toEqual(["control"]);
+    expect(resolved[0]!.config).toEqual(RP_LAYER_CONFIG_DEFAULT);
+  });
+
+  it("an unknown name throws, naming the unknown arm AND listing the valid ones", () => {
+    expect(() => resolveRpArms("win,negbinom")).toThrow(/negbinom/);
+    expect(() => resolveRpArms("win,negbinom")).toThrow(/win\+tie\+marginal/);
+  });
+});
+
+describe("D-04's two slices", () => {
+  it("are disjoint, and their union is exactly the registered season list", () => {
+    const selection = new Set(RP_SELECTION_SLICE_SEASONS);
+    const reporting = new Set(RP_REPORTING_SLICE_SEASONS);
+    const registered = new Set(Object.keys(RP_RULE_MODULES).map(Number));
+    for (const s of selection) expect(reporting.has(s)).toBe(false);
+    expect(new Set([...selection, ...reporting])).toEqual(registered);
+  });
+
+  it("the reporting slice carries the cells D-09's bar is read over, derived and never hardcoded", () => {
+    // Derived from RP_RULE_MODULES and PUBLISHED_ALGORITHM_IDS at run time: a
+    // test that iterates a hardcoded season list silently skips a
+    // newly-registered season, while only an equality pin fails loudly.
+    const bonusTotal = RP_REPORTING_SLICE_SEASONS.reduce((sum, s) => sum + RP_RULE_MODULES[s]!.bonusNames.length, 0);
+    expect(bonusTotal).toBe(10);
+    expect(bonusTotal * PUBLISHED_ALGORITHM_IDS.length).toBe(30);
+  });
+});
+
+describe("assertIdenticalPopulations — the in-flight guard", () => {
+  const arms = resolveRpArms("control,win");
+
+  it("passes when every arm scored the identical observation set", () => {
+    const counts = new Map([
+      [rpCellKey("control", "bpr", 2026, "energized"), 400],
+      [rpCellKey("win", "bpr", 2026, "energized"), 400],
+    ]);
+    expect(() => assertIdenticalPopulations(counts, arms, ["bpr"], 2026, ["energized"])).not.toThrow();
+  });
+
+  it("throws naming the differing cell AND both counts when an arm's population differs", () => {
+    const counts = new Map([
+      [rpCellKey("control", "bpr", 2026, "energized"), 400],
+      [rpCellKey("win", "bpr", 2026, "energized"), 399],
+    ]);
+    expect(() => assertIdenticalPopulations(counts, arms, ["bpr"], 2026, ["energized"])).toThrow(/energized/);
+    expect(() => assertIdenticalPopulations(counts, arms, ["bpr"], 2026, ["energized"])).toThrow(/control=400, win=399/);
+  });
+});
+
+describe("negativeBinomialShare — reads RESOLVED, never DECLARED", () => {
+  it("counts fallbacks separately from a declared Gaussian default", () => {
+    // 90 negative binomial, 10 gaussian, 0 degenerate, 7 of which were
+    // fallbacks: the share is over the RESOLVED families, and `fallbacks` is a
+    // separate axis rather than a fourth family.
+    expect(negativeBinomialShare({ negativeBinomial: 90, gaussian: 10, degenerate: 0, fallbacks: 7 })).toBeCloseTo(0.9, 10);
+  });
+
+  it("an all-Gaussian tally under a negative-binomial label reports 0, which is the whole point of reading it", () => {
+    expect(negativeBinomialShare({ negativeBinomial: 0, gaussian: 100, degenerate: 0, fallbacks: 100 })).toBe(0);
+  });
+});
+
+describe("the multi-arm fold — eight layers off ONE replay", () => {
+  it("gives every arm's layer every record in chronological order, with disjoint layer objects", () => {
+    const ruleModule = RP_RULE_MODULES[2026]!;
+    const arms = resolveRpArms("all");
+    const layers = arms.map((arm) => new SigmaScoutLayer(ruleModule, "bpr", arm.config));
+    expect(new Set(layers).size).toBe(8);
+    for (let i = 0; i < layers.length; i++) {
+      for (let j = i + 1; j < layers.length; j++) expect(layers[i]).not.toBe(layers[j]);
+    }
+  });
+
+  it("folding one record list through eight layers leaves the input records deep-equal to their pre-fold selves", () => {
+    const ruleModule = RP_RULE_MODULES[2026]!;
+    const arms = resolveRpArms("all");
+    const layers = arms.map((arm) => new SigmaScoutLayer(ruleModule, "bpr", arm.config));
+
+    const records = [1, 2, 3].map((n) => ({
+      match: makeMatch({ matchKey: `2026test_qm${n}`, matchNumber: n, eventKey: "2026test", eventType: 0 }),
+      prediction: { winner: "red" as const, redScore: 100, blueScore: 90, pRedWin: 0.62 },
+    }));
+    const before = structuredClone(records);
+
+    for (const r of records) {
+      for (const layer of layers) layer.foldPlayed(r.match, r.prediction);
+    }
+
+    // `foldPlayed` returns a NEW enriched prediction rather than mutating the
+    // input — which is what makes folding ONE record list through eight layers
+    // safe, and therefore what makes "one replay per season" honest.
+    expect(records).toEqual(before);
   });
 });

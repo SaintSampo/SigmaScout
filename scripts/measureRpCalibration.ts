@@ -61,8 +61,48 @@
  * 0.3109 predates this fix and is NOT the number 09-01-SUMMARY.md freezes —
  * see that summary's before/after table for the corrected figures.
  *
+ * ---------------------------------------------------------------------------
+ * THE ARM VOCABULARY (2026-09-11, phase 09 plan 09-06 Task 1, D-09/D-11)
+ * ---------------------------------------------------------------------------
+ *
+ * This script now measures up to EIGHT named arms — the full cross product of
+ * the three `RpLayerConfig` fields 09-05 landed — and EVERY ARM PASSES THROUGH
+ * THE SAME IMPORTED `SigmaScoutLayer`, in one process, at one commit, over ONE
+ * walk-forward replay per season. There is exactly one layer construction site
+ * in this file and exactly one `runAll` per season; the arms multiply layers,
+ * never replays. That sentence is D-11's mitigation expressed as a file-header
+ * discipline, and it is the same convention `measureRewindGap.ts` carries for
+ * its two arms.
+ *
+ *   control           all-legacy — THE HONEST BASELINE
+ *   win               winSource: "p-red-win"            (D-13)
+ *   tie               tieModel:  "discrete-margin"      (D-14)
+ *   marginal          marginal:  "negative-binomial"    (D-01)
+ *   win+tie, win+marginal, tie+marginal, win+tie+marginal
+ *
+ * `control` IS THE LEFT-HAND SIDE OF D-09's BAR. It is the all-legacy config
+ * running on 09-04's CLOSED FORM, measured at HEAD in the same process as
+ * every other arm. D-10 ships the closed form unconditionally, so the engine
+ * swap is not on trial; the only question the bar governs is whether each
+ * MODELLING change earns its place GIVEN the closed form.
+ *
+ * CROSS-GENERATION WARNING. 09-01's frozen
+ * `data/baselines/rp-calibration-2026-09.json` was captured BEFORE 09-04
+ * replaced the 4,000-draw Monte Carlo with the closed form, and every
+ * published pmf value changed as a result. A comparison against that file is
+ * therefore a CROSS-GENERATION comparison — it measures the engine swap, not a
+ * modelling change — and MUST be labelled as one wherever it is reported. It
+ * is never the left-hand side of D-09's bar: scoring an arm against it would
+ * credit or blame the modelling changes for the Monte Carlo's removal, and
+ * would compare a HEAD-computed number against one produced by code that no
+ * longer exists.
+ *
  * Usage:
- *   npx tsx scripts/measureRpCalibration.ts [--seasons 2024-2026] [--algorithm bpr] [--emit-artifact <path>]
+ *   npx tsx scripts/measureRpCalibration.ts [--seasons 2024-2026] [--algorithm bpr] [--arms all] [--emit-artifact <path>]
+ *
+ * `--arms` DEFAULTS TO `control` ALONE, so every pre-existing invocation —
+ * including `ranking-points-audit.md`'s own reproduction command — keeps
+ * exactly its current meaning.
  */
 
 import { writeFileSync } from "node:fs";
@@ -74,7 +114,12 @@ import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
 import { actualBonusFlagsForSeason } from "../packages/harness/publish.js";
 import { resolvePublishAlgorithms } from "../packages/harness/publish.js";
 import { RpCalibrationMeasurementSchema, type RpCalibrationRecord } from "../packages/harness/publish.js";
-import { RP_LAYER_CONFIG_DEFAULT, type RpLayerConfig } from "../packages/core/rankingPoints/analyticPmf.js";
+import {
+  emptyMarginalResolutionTally,
+  RP_LAYER_CONFIG_DEFAULT,
+  type MarginalResolutionTally,
+  type RpLayerConfig,
+} from "../packages/core/rankingPoints/analyticPmf.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 
@@ -506,6 +551,171 @@ export function decideRpShipConfig(verdicts: ReadonlyMap<string, RpArmVerdict>):
   );
 }
 
+// ---------------------------------------------------------------------------
+// THE ARM REGISTRY AND D-04's TWO SLICES (09-06 Task 1 Step 2)
+// ---------------------------------------------------------------------------
+
+/** One named arm: a name the verdict map is keyed by, and the config it runs. */
+export interface RpArm {
+  readonly name: string;
+  readonly config: RpLayerConfig;
+}
+
+/**
+ * The eight arms — the full cross product of the three fields' declared
+ * unions — with `control` (all-legacy) FIRST.
+ *
+ * Every config is built by spreading the IMPORTED production default and
+ * overriding the fields that arm names (`rpConfigForFields`), never from
+ * literal member strings written out here. A member renamed upstream is then
+ * a compile error in `RP_ARM_FIELD_SHIP_VALUES` rather than a silently wrong
+ * arm that measures the legacy path under a new label.
+ *
+ * `control` is THE HONEST BASELINE and it is the left-hand side of D-09's bar.
+ * It is the all-legacy config running on 09-04's CLOSED FORM. It is NOT
+ * 09-01's frozen `data/baselines/rp-calibration-2026-09.json`, which was
+ * captured before 09-04 replaced the 4,000-draw Monte Carlo: D-10 ships that
+ * engine change unconditionally, so scoring a modelling arm against the frozen
+ * file would credit or blame the modelling changes for the Monte Carlo's
+ * removal, and would compare a HEAD-computed number against one produced by
+ * code that no longer exists.
+ */
+export const RP_ATTRIBUTION_ARMS: readonly RpArm[] = (
+  [
+    [],
+    ["win"],
+    ["tie"],
+    ["marginal"],
+    ["win", "tie"],
+    ["win", "marginal"],
+    ["tie", "marginal"],
+    ["win", "tie", "marginal"],
+  ] as readonly (readonly RpArmField[])[]
+).map((fields) => ({ name: rpArmNameForFields(fields), config: rpConfigForFields(fields) }));
+
+/**
+ * D-04's CHOOSING slice. These seasons were free to inform the marginal-family
+ * choice and 09-03's warm-roster record is drawn from them. 2021 is a
+ * permanent exclusion (no registered RP rules), not a gap to fill.
+ */
+export const RP_SELECTION_SLICE_SEASONS: readonly number[] = [2016, 2017, 2018, 2019, 2020, 2022];
+
+/**
+ * D-04's REPORTING slice. D-09's ship bar is evaluated here and the published
+ * calibration headline is taken here. These seasons had NO say in the family
+ * choice, which is what makes the published figure out-of-sample and free of a
+ * disclosure caveat. Looked at exactly once, against a rule frozen beforehand.
+ */
+export const RP_REPORTING_SLICE_SEASONS: readonly number[] = [2023, 2024, 2025, 2026];
+
+/**
+ * `"all"` or a comma-separated arm-name list, always returned in REGISTRY
+ * order so two invocations naming the same arms produce identically-ordered
+ * output. `undefined` returns `control` alone, so every pre-existing
+ * invocation of this script keeps its current meaning.
+ *
+ * An unknown name throws, naming the unknown arm and listing the valid ones —
+ * a typo'd arm silently resolving to something else is how a measurement ends
+ * up describing a model nobody ran.
+ */
+export function resolveRpArms(spec?: string): readonly RpArm[] {
+  if (spec === undefined) return RP_ATTRIBUTION_ARMS.filter((a) => a.name === "control");
+  if (spec.trim() === "all") return RP_ATTRIBUTION_ARMS;
+  const requested = spec
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  const valid = RP_ATTRIBUTION_ARMS.map((a) => a.name);
+  for (const name of requested) {
+    if (!valid.includes(name)) {
+      throw new Error(`resolveRpArms: unknown arm "${name}" — valid arms are ${valid.join(", ")} (or "all")`);
+    }
+  }
+  return RP_ATTRIBUTION_ARMS.filter((a) => requested.includes(a.name));
+}
+
+/**
+ * ONE SCORED CELL PER (arm, algorithmId, season, bonusName), accumulated
+ * in-flight and read back per slice. Keyed as a flat string so a cell cannot
+ * be matched by position anywhere in this script.
+ */
+export function rpCellKey(arm: string, algorithmId: string, season: number, bonusName: string): string {
+  return `${arm}|${algorithmId}|${season}|${bonusName}`;
+}
+
+/**
+ * THE IDENTICAL-POPULATION GUARD (09-06 Task 1 Step 4).
+ *
+ * Asserts that every selected arm scored the SAME NUMBER of observations for
+ * every `(algorithmId, season, bonusName)` triple.
+ *
+ * The arms genuinely cannot differ here, and that is the point.
+ * `SigmaScoutLayer.#rpFieldsFor` evaluates its eligibility gates — no rule
+ * module, an RP-ineligible event type, and the alliance band guard — BEFORE it
+ * reaches `analyticRpPmf` and therefore before any config branch runs. The set
+ * of scored `(match, alliance, bonus)` observations is fixed by those gates
+ * alone. So a difference in counts does not mean "this arm saw fewer matches";
+ * it means something is wired wrong — an arm folding a different record
+ * stream, a layer shared between arms, or an accumulator keyed by the wrong
+ * arm name. Catching that here is cheap; discovering it inside a published
+ * accuracy claim is not, and D-09's bar reads a per-cell Brier that a
+ * differing denominator would silently corrupt.
+ */
+export function assertIdenticalPopulations(
+  counts: ReadonlyMap<string, number>,
+  arms: readonly RpArm[],
+  algorithmIds: readonly string[],
+  season: number,
+  bonusNames: readonly string[]
+): void {
+  if (arms.length < 2) return;
+  for (const algorithmId of algorithmIds) {
+    for (const bonusName of bonusNames) {
+      const observed = arms.map((arm) => ({
+        arm: arm.name,
+        count: counts.get(rpCellKey(arm.name, algorithmId, season, bonusName)) ?? 0,
+      }));
+      const first = observed[0]!.count;
+      const differing = observed.filter((o) => o.count !== first);
+      if (differing.length > 0) {
+        throw new Error(
+          `identical-population guard FAILED for (${algorithmId}, ${season}, ${bonusName}): ` +
+            `${observed.map((o) => `${o.arm}=${o.count}`).join(", ")} — ` +
+            `every arm must score the identical observation set because #rpFieldsFor's ` +
+            `eligibility gates run before any config branch; a difference means an arm is wired wrong`
+        );
+      }
+    }
+  }
+}
+
+/** A `MarginalResolutionTally` summed across several layers, for one arm's readout. */
+export function sumMarginalTallies(tallies: readonly MarginalResolutionTally[]): MarginalResolutionTally {
+  const total = emptyMarginalResolutionTally();
+  for (const t of tallies) {
+    total.negativeBinomial += t.negativeBinomial;
+    total.gaussian += t.gaussian;
+    total.degenerate += t.degenerate;
+    total.fallbacks += t.fallbacks;
+  }
+  return total;
+}
+
+/**
+ * The share of an arm's fits that RESOLVED to negative binomial. Read from
+ * `FittedMarginal.resolved`, never `.declared` — 09-03 refused to collapse the
+ * two into one field and 09-05 made the distinction countable, precisely so
+ * this plan cannot publish an accept/revert call for an arm labelled
+ * `"negative-binomial"` that silently resolved to Gaussian on a large share of
+ * its fits. `fallbacks` is counted SEPARATELY: a declared Gaussian default is
+ * not a fallback, and conflating the two would overstate how much of the arm
+ * actually ran the model its name claims.
+ */
+export function negativeBinomialShare(tally: MarginalResolutionTally): number {
+  const total = tally.negativeBinomial + tally.gaussian + tally.degenerate;
+  return total === 0 ? Number.NaN : tally.negativeBinomial / total;
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const seasonsSpec = args[args.indexOf("--seasons") + 1] ?? "2023-2026";
@@ -517,168 +727,257 @@ async function main(): Promise<void> {
   // script previously just discarded everything after `[0]`.
   const algorithmIdsCsv = args.indexOf("--algorithm") === -1 ? undefined : args[args.indexOf("--algorithm") + 1]!;
   const emitArtifactPath = args.indexOf("--emit-artifact") === -1 ? undefined : args[args.indexOf("--emit-artifact") + 1];
+  // 09-06 Task 1 Step 2 (D-09/D-11): `--arms` DEFAULTS TO `control` ALONE, so
+  // every pre-existing invocation of this script — including the audit's own
+  // reproduction command — keeps exactly its current meaning.
+  const armsSpec = args.indexOf("--arms") === -1 ? undefined : args[args.indexOf("--arms") + 1]!;
   const seasons = parseSeasons(seasonsSpec).filter((s) => RP_RULE_MODULES[s] !== undefined);
   const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
   if (algorithms.length === 0) throw new Error(`no algorithms resolved from "${algorithmIdsCsv ?? "(default)"}"`);
+  const arms = resolveRpArms(armsSpec);
 
   console.log(`RP calibration — algorithms [${algorithms.map((a) => `${a.id}@${a.version}`).join(", ")}], seasons ${seasons.join(", ")}`);
+  console.log(`arms [${arms.map((a) => a.name).join(", ")}] — every one through the SAME imported SigmaScoutLayer, in this one process, at this one commit.`);
   console.log(`Walk-forward through the same SigmaScoutLayer the publisher runs.\n`);
 
   const db = openCorpusReadOnly(CORPUS_PATH);
   try {
-    // Pooled PER ALGORITHM across seasons, for that algorithm's own headline
-    // claims — mixing algorithms into one pooled figure would average away
-    // exactly the per-algorithm comparison D-09/D-11 need, so pooling stays
-    // scoped to one algorithm at a time, same as before this widening.
-    const allMarginalByAlgo = new Map<string, Observation[]>(algorithms.map((a) => [a.id, []]));
-    const allPairsByAlgo = new Map<string, { p1: number; p2: number; a1: boolean; a2: boolean }[]>(algorithms.map((a) => [a.id, []]));
+    // Pooled PER (ALGORITHM, ARM) across seasons — mixing algorithms into one
+    // pooled figure would average away exactly the per-algorithm comparison
+    // D-09/D-11 need, and mixing arms would average away the comparison this
+    // whole plan exists to make.
+    const allMarginal = new Map<string, Observation[]>();
+    const allPairs = new Map<string, { p1: number; p2: number; a1: boolean; a2: boolean }[]>();
+    for (const a of algorithms) {
+      for (const arm of arms) {
+        allMarginal.set(`${a.id}|${arm.name}`, []);
+        allPairs.set(`${a.id}|${arm.name}`, []);
+      }
+    }
+    // One scored cell per (arm, algorithmId, season, bonusName) — the unit of
+    // account D-09's bar reads. Keyed, never positional.
+    const cellsByArm = new Map<string, RpBonusCell[]>(arms.map((arm) => [arm.name, []]));
+    // Each arm's running resolved-family mix, summed over every layer it owns.
+    const talliesByArm = new Map<string, MarginalResolutionTally[]>(arms.map((arm) => [arm.name, []]));
     const emittedRecords: { season: number; algorithmId: string; calibration: RpCalibrationRecord }[] = [];
+    const emitArm = arms[0]!;
 
     for (const season of seasons) {
       const ruleModule = RP_RULE_MODULES[season]!;
-      // Built ONCE per season and shared across every algorithm — the
-      // publisher's own `Map<string, SigmaScoutLayer>` shape
-      // (`publish.ts`'s season loop), folded from one shared record list, so
-      // a multi-algorithm pass costs one replay instead of one per
-      // algorithm.
+      // Built ONCE per season and shared across every algorithm AND every arm
+      // — the publisher's own `Map<string, SigmaScoutLayer>` shape
+      // (`publish.ts`'s season loop), folded from one shared record list. The
+      // ARMS MULTIPLY LAYERS, NEVER REPLAYS: one `runAll` per season however
+      // many arms are selected, which is what makes "one replay per season"
+      // in D-11's mitigation a literal statement about this loop.
       const stream = buildSeasonStream(db, season, { includeOffseason: true });
       const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
       const records = new WalkForwardSimulator(stream).runAll(algorithms, teams);
       const actualFlags = actualBonusFlagsForSeason(stream, season);
 
-      // SAME-SCORER FIX (see header): the second constructor argument
-      // selects Sigma-vs-Swing band variance exactly the way the publisher's
-      // own layer construction does (publish.ts's season loop) — without it
-      // this script silently scored a different band than the one it
-      // published. Now applied per algorithm.
-      const layers = new Map(algorithms.map((a) => [a.id, new SigmaScoutLayer(ruleModule, a.id)]));
-      const perBonusByAlgo = new Map<string, Observation[][]>(algorithms.map((a) => [a.id, ruleModule.bonusNames.map(() => [])]));
-      const pairsByAlgo = new Map<string, { p1: number; p2: number; a1: boolean; a2: boolean }[]>(algorithms.map((a) => [a.id, []]));
+      // SAME-SCORER FIX (see header): the second constructor argument selects
+      // Sigma-vs-Swing band variance exactly the way the publisher's own layer
+      // construction does (publish.ts's season loop) — without it this script
+      // silently scored a different band than the one it published. The third
+      // is the arm's config (D-05). This is the ONE `SigmaScoutLayer`
+      // construction site this file is allowed to have.
+      const layers = new Map<string, Map<string, SigmaScoutLayer>>();
+      for (const algorithm of algorithms) {
+        const byArm = new Map<string, SigmaScoutLayer>();
+        for (const arm of arms) byArm.set(arm.name, new SigmaScoutLayer(ruleModule, algorithm.id, arm.config));
+        layers.set(algorithm.id, byArm);
+      }
+      const perBonus = new Map<string, Observation[][]>();
+      const pairs = new Map<string, { p1: number; p2: number; a1: boolean; a2: boolean }[]>();
+      for (const algorithm of algorithms) {
+        for (const arm of arms) {
+          perBonus.set(`${algorithm.id}|${arm.name}`, ruleModule.bonusNames.map(() => []));
+          pairs.set(`${algorithm.id}|${arm.name}`, []);
+        }
+      }
 
       for (const r of records) {
-        const layer = layers.get(r.algorithmId)!;
-        const enriched = layer.foldPlayed(r.match, r.prediction);
         const actual = actualFlags.get(r.match.matchKey);
-        if (actual === undefined || actual === null) continue;
+        const byArm = layers.get(r.algorithmId)!;
+        for (const arm of arms) {
+          // `foldPlayed` is called for EVERY record on EVERY arm, BEFORE the
+          // missing-result skip below — it folds the played result into the
+          // layer's accumulators, so skipping it for an unscoreable match
+          // would leave that arm's layer in a different state from the
+          // publisher's and change every later prediction. The skip is on the
+          // ACCUMULATION, never on the fold.
+          const enriched = byArm.get(arm.name)!.foldPlayed(r.match, r.prediction);
+          if (actual === undefined || actual === null) continue;
 
-        const perBonus = perBonusByAlgo.get(r.algorithmId)!;
-        const pairs = pairsByAlgo.get(r.algorithmId)!;
-        const allMarginal = allMarginalByAlgo.get(r.algorithmId)!;
+          const key = `${r.algorithmId}|${arm.name}`;
+          const bonusObs = perBonus.get(key)!;
+          const pairObs = pairs.get(key)!;
+          const pooled = allMarginal.get(key)!;
 
-        for (const side of ["red", "blue"] as const) {
-          const predictedBonuses = side === "red" ? enriched.prediction.redBonusRp : enriched.prediction.blueBonusRp;
-          const actualBonuses = side === "red" ? actual.red : actual.blue;
-          if (predictedBonuses === undefined) continue;
-          if (predictedBonuses.length !== actualBonuses.length) continue;
+          for (const side of ["red", "blue"] as const) {
+            const predictedBonuses = side === "red" ? enriched.prediction.redBonusRp : enriched.prediction.blueBonusRp;
+            const actualBonuses = side === "red" ? actual.red : actual.blue;
+            if (predictedBonuses === undefined) continue;
+            if (predictedBonuses.length !== actualBonuses.length) continue;
 
-          for (let i = 0; i < predictedBonuses.length; i++) {
-            const observation = { predicted: predictedBonuses[i]!, actual: actualBonuses[i]! };
-            perBonus[i]!.push(observation);
-            allMarginal.push(observation);
-          }
-          // The correlation claim needs the FIRST TWO bonuses of a season
-          // together on the same alliance — the pair the diagonal block claims
-          // are independent.
-          if (predictedBonuses.length >= 2) {
-            pairs.push({ p1: predictedBonuses[0]!, p2: predictedBonuses[1]!, a1: actualBonuses[0]!, a2: actualBonuses[1]! });
+            for (let i = 0; i < predictedBonuses.length; i++) {
+              const observation = { predicted: predictedBonuses[i]!, actual: actualBonuses[i]! };
+              bonusObs[i]!.push(observation);
+              pooled.push(observation);
+            }
+            // The correlation claim needs the FIRST TWO bonuses of a season
+            // together on the same alliance — the pair the diagonal block
+            // claims are independent.
+            if (predictedBonuses.length >= 2) {
+              pairObs.push({ p1: predictedBonuses[0]!, p2: predictedBonuses[1]!, a1: actualBonuses[0]!, a2: actualBonuses[1]! });
+            }
           }
         }
       }
 
+      // ---- Step 4: the identical-population guard, in flight ----
+      const counts = new Map<string, number>();
       for (const algorithm of algorithms) {
-        const perBonus = perBonusByAlgo.get(algorithm.id)!;
-        const pairs = pairsByAlgo.get(algorithm.id)!;
-        allPairsByAlgo.get(algorithm.id)!.push(...pairs);
-        emittedRecords.push({ season, algorithmId: algorithm.id, calibration: buildRpCalibrationRecord(ruleModule.bonusNames, perBonus) });
-
-        const total = perBonus.reduce((sum, b) => sum + b.length, 0);
-        console.log(`── ${season} [${algorithm.id}] ── ${total} (alliance, bonus) observations`);
-        if (total === 0) {
-          console.log(`   no scored bonus observations this season\n`);
-          continue;
+        for (const arm of arms) {
+          const bonusObs = perBonus.get(`${algorithm.id}|${arm.name}`)!;
+          for (const [i, name] of ruleModule.bonusNames.entries()) {
+            counts.set(rpCellKey(arm.name, algorithm.id, season, name), bonusObs[i]!.length);
+          }
         }
+      }
+      assertIdenticalPopulations(counts, arms, algorithms.map((a) => a.id), season, ruleModule.bonusNames);
 
-        for (const [i, name] of ruleModule.bonusNames.entries()) {
-          const observations = perBonus[i]!;
-          if (observations.length === 0) continue;
+      for (const algorithm of algorithms) {
+        for (const arm of arms) {
+          const key = `${algorithm.id}|${arm.name}`;
+          const bonusObs = perBonus.get(key)!;
+          allPairs.get(key)!.push(...pairs.get(key)!);
+          // ---- Step 5: read the arm's resolved-family tally ----
+          talliesByArm.get(arm.name)!.push(layers.get(algorithm.id)!.get(arm.name)!.rpMarginalResolutionTally);
+
+          for (const [i, name] of ruleModule.bonusNames.entries()) {
+            const observations = bonusObs[i]!;
+            cellsByArm.get(arm.name)!.push({
+              algorithmId: algorithm.id,
+              season,
+              bonusName: name,
+              count: observations.length,
+              meanPredicted: meanPredicted(observations),
+              observedFrequency: rate(observations),
+              brierScore: brier(observations),
+            });
+          }
+
+          if (arm.name === emitArm.name) {
+            emittedRecords.push({ season, algorithmId: algorithm.id, calibration: buildRpCalibrationRecord(ruleModule.bonusNames, bonusObs) });
+          }
+
+          const total = bonusObs.reduce((sum, b) => sum + b.length, 0);
+          console.log(`── ${season} [${algorithm.id} / ${arm.name}] ── ${total} (alliance, bonus) observations`);
+          if (total === 0) {
+            console.log(`   no scored bonus observations this season\n`);
+            continue;
+          }
+
+          for (const [i, name] of ruleModule.bonusNames.entries()) {
+            const observations = bonusObs[i]!;
+            if (observations.length === 0) continue;
+            console.log(
+              `   ${name}: n=${observations.length}  mean predicted=${meanPredicted(observations).toFixed(4)}  ` +
+                `observed=${rate(observations).toFixed(4)}  Brier=${brier(observations).toFixed(4)}`
+            );
+            for (const line of reliabilityTable(observations)) console.log(line);
+          }
+
+          const pairObs = pairs.get(key)!;
+          if (pairObs.length > 0) {
+            const [n1, n2] = [ruleModule.bonusNames[0]!, ruleModule.bonusNames[1]!];
+            const both = pairObs.filter((p) => p.a1 && p.a2).length / pairObs.length;
+            const rateA = pairObs.filter((p) => p.a1).length / pairObs.length;
+            const rateB = pairObs.filter((p) => p.a2).length / pairObs.length;
+            const independentJoint = rateA * rateB;
+            const modelJoint = pairObs.reduce((sum, p) => sum + p.p1 * p.p2, 0) / pairObs.length;
+            console.log(
+              `   JOINT (${n1} AND ${n2}): observed=${both.toFixed(4)}  ` +
+                `if independent=${independentJoint.toFixed(4)}  model implies=${modelJoint.toFixed(4)}  ` +
+                `real dependence=${both - independentJoint >= 0 ? "+" : ""}${(both - independentJoint).toFixed(4)}`
+            );
+          }
+          console.log("");
+        }
+      }
+    }
+
+    // ---- Pooled headline claims, ONE PER (ALGORITHM, ARM) ----
+    for (const algorithm of algorithms) {
+      for (const arm of arms) {
+        const key = `${algorithm.id}|${arm.name}`;
+        const marginal = allMarginal.get(key)!;
+        const pairObs = allPairs.get(key)!;
+        if (marginal.length === 0) continue;
+
+        console.log(`═══ POOLED [${algorithm.id} / ${arm.name}] ═══`);
+        console.log(`${marginal.length} (alliance, bonus) observations across ${seasons.length} season(s)\n`);
+
+        console.log(`OVERALL: mean predicted=${meanPredicted(marginal).toFixed(4)}  observed=${rate(marginal).toFixed(4)}  Brier=${brier(marginal).toFixed(4)}`);
+
+        const confident = marginal.filter((o) => o.predicted < 0.05 || o.predicted > 0.95);
+        const lowConfident = marginal.filter((o) => o.predicted < 0.05);
+        const highConfident = marginal.filter((o) => o.predicted > 0.95);
+        console.log(
+          `\nTHE EXTREMES CLAIM — ${((confident.length / marginal.length) * 100).toFixed(1)}% of predictions are below 0.05 or above 0.95`
+        );
+        if (lowConfident.length > 0) {
           console.log(
-            `   ${name}: n=${observations.length}  mean predicted=${meanPredicted(observations).toFixed(4)}  ` +
-              `observed=${rate(observations).toFixed(4)}  Brier=${brier(observations).toFixed(4)}`
+            `   predicted <0.05: n=${lowConfident.length}  mean predicted=${meanPredicted(lowConfident).toFixed(4)}  ` +
+              `ACTUALLY happened ${(rate(lowConfident) * 100).toFixed(2)}% of the time`
           );
-          for (const line of reliabilityTable(observations)) console.log(line);
+        }
+        if (highConfident.length > 0) {
+          console.log(
+            `   predicted >0.95: n=${highConfident.length}  mean predicted=${meanPredicted(highConfident).toFixed(4)}  ` +
+              `ACTUALLY happened ${(rate(highConfident) * 100).toFixed(2)}% of the time`
+          );
         }
 
-        if (pairs.length > 0) {
-          const [n1, n2] = [ruleModule.bonusNames[0]!, ruleModule.bonusNames[1]!];
-          const both = pairs.filter((p) => p.a1 && p.a2).length / pairs.length;
-          const rateA = pairs.filter((p) => p.a1).length / pairs.length;
-          const rateB = pairs.filter((p) => p.a2).length / pairs.length;
+        if (pairObs.length > 0) {
+          const both = pairObs.filter((p) => p.a1 && p.a2).length / pairObs.length;
+          const rateA = pairObs.filter((p) => p.a1).length / pairObs.length;
+          const rateB = pairObs.filter((p) => p.a2).length / pairObs.length;
           const independentJoint = rateA * rateB;
-          const modelJoint = pairs.reduce((sum, p) => sum + p.p1 * p.p2, 0) / pairs.length;
+          const modelJoint = pairObs.reduce((sum, p) => sum + p.p1 * p.p2, 0) / pairObs.length;
+          console.log(`\nTHE CORRELATION CLAIM — n=${pairObs.length} alliance-matches carrying two bonuses`);
+          console.log(`   observed P(both)                     = ${both.toFixed(4)}`);
+          console.log(`   P(A)*P(B), i.e. if truly independent = ${independentJoint.toFixed(4)}`);
+          console.log(`   the model's own implied P(both)      = ${modelJoint.toFixed(4)}`);
+          const dependence = both - independentJoint;
           console.log(
-            `   JOINT (${n1} AND ${n2}): observed=${both.toFixed(4)}  ` +
-              `if independent=${independentJoint.toFixed(4)}  model implies=${modelJoint.toFixed(4)}  ` +
-              `real dependence=${both - independentJoint >= 0 ? "+" : ""}${(both - independentJoint).toFixed(4)}`
+            `   REAL dependence the diagonal block discards = ${dependence >= 0 ? "+" : ""}${dependence.toFixed(4)} ` +
+              `(${dependence > 0 ? "POSITIVE — the two go together more often than independence predicts, as the header expected" : "NEGATIVE — the two go together LESS often than independence predicts, opposite to what the header expected"})`
           );
         }
         console.log("");
       }
     }
 
-    // ---- Pooled headline claims, ONE PER ALGORITHM ----
-    for (const algorithm of algorithms) {
-      const allMarginal = allMarginalByAlgo.get(algorithm.id)!;
-      const allPairs = allPairsByAlgo.get(algorithm.id)!;
-      if (allMarginal.length === 0) continue;
-
-      console.log(`═══ POOLED [${algorithm.id}] ═══`);
-      console.log(`${allMarginal.length} (alliance, bonus) observations across ${seasons.length} season(s)\n`);
-
-      console.log(`OVERALL: mean predicted=${meanPredicted(allMarginal).toFixed(4)}  observed=${rate(allMarginal).toFixed(4)}  Brier=${brier(allMarginal).toFixed(4)}`);
-
-      const confident = allMarginal.filter((o) => o.predicted < 0.05 || o.predicted > 0.95);
-      const lowConfident = allMarginal.filter((o) => o.predicted < 0.05);
-      const highConfident = allMarginal.filter((o) => o.predicted > 0.95);
+    // ---- Step 5's readout: the resolved-family mix, per arm ----
+    console.log(`═══ RESOLVED-FAMILY MIX (FittedMarginal.resolved, never .declared) ═══`);
+    for (const arm of arms) {
+      const tally = sumMarginalTallies(talliesByArm.get(arm.name)!);
+      const share = negativeBinomialShare(tally);
       console.log(
-        `\nTHE EXTREMES CLAIM — ${((confident.length / allMarginal.length) * 100).toFixed(1)}% of predictions are below 0.05 or above 0.95`
+        `   ${arm.name.padEnd(18)} negative-binomial=${tally.negativeBinomial}  gaussian=${tally.gaussian}  ` +
+          `degenerate=${tally.degenerate}  (fallbacks counted separately: ${tally.fallbacks})  ` +
+          `NB share=${Number.isNaN(share) ? "n/a" : `${(share * 100).toFixed(2)}%`}`
       );
-      if (lowConfident.length > 0) {
-        console.log(
-          `   predicted <0.05: n=${lowConfident.length}  mean predicted=${meanPredicted(lowConfident).toFixed(4)}  ` +
-            `ACTUALLY happened ${(rate(lowConfident) * 100).toFixed(2)}% of the time`
-        );
-      }
-      if (highConfident.length > 0) {
-        console.log(
-          `   predicted >0.95: n=${highConfident.length}  mean predicted=${meanPredicted(highConfident).toFixed(4)}  ` +
-            `ACTUALLY happened ${(rate(highConfident) * 100).toFixed(2)}% of the time`
-        );
-      }
-
-      if (allPairs.length > 0) {
-        const both = allPairs.filter((p) => p.a1 && p.a2).length / allPairs.length;
-        const rateA = allPairs.filter((p) => p.a1).length / allPairs.length;
-        const rateB = allPairs.filter((p) => p.a2).length / allPairs.length;
-        const independentJoint = rateA * rateB;
-        const modelJoint = allPairs.reduce((sum, p) => sum + p.p1 * p.p2, 0) / allPairs.length;
-        console.log(`\nTHE CORRELATION CLAIM — n=${allPairs.length} alliance-matches carrying two bonuses`);
-        console.log(`   observed P(both)                     = ${both.toFixed(4)}`);
-        console.log(`   P(A)*P(B), i.e. if truly independent = ${independentJoint.toFixed(4)}`);
-        console.log(`   the model's own implied P(both)      = ${modelJoint.toFixed(4)}`);
-        const dependence = both - independentJoint;
-        console.log(
-          `   REAL dependence the diagonal block discards = ${dependence >= 0 ? "+" : ""}${dependence.toFixed(4)} ` +
-            `(${dependence > 0 ? "POSITIVE — the two go together more often than independence predicts, as the header expected" : "NEGATIVE — the two go together LESS often than independence predicts, opposite to what the header expected"})`
-        );
-      }
-      console.log("");
     }
+    console.log("");
 
-    // ---- Grand-pooled headline, across EVERY algorithm AND season — the
-    // single figure 09-01-SUMMARY.md sets beside ranking-points-audit.md
-    // F2's recorded 0.1507 / 0.3109. Computed directly from the emitted
-    // records so it matches whatever byte the measurement file itself
-    // carries, never a separate re-derivation.
+    // ---- Grand-pooled headline, across EVERY algorithm AND season, for the
+    // EMITTED arm — the single figure 09-01-SUMMARY.md sets beside
+    // ranking-points-audit.md F2's recorded 0.1507 / 0.3109. Computed directly
+    // from the emitted records so it matches whatever byte the measurement
+    // file itself carries, never a separate re-derivation.
     const grandPooled = emittedRecords.flatMap((r) =>
       r.calibration.bonuses.map((b) => ({ p: b.meanPredicted, o: b.observedFrequency, n: b.count }))
     );
@@ -686,8 +985,27 @@ async function main(): Promise<void> {
       const totalN = grandPooled.reduce((sum, g) => sum + g.n, 0);
       const grandMeanPredicted = grandPooled.reduce((sum, g) => sum + g.p * g.n, 0) / totalN;
       const grandObserved = grandPooled.reduce((sum, g) => sum + g.o * g.n, 0) / totalN;
-      console.log(`═══ GRAND POOLED (every algorithm, every season) ═══`);
+      console.log(`═══ GRAND POOLED (every algorithm, every season) [arm: ${emitArm.name}] ═══`);
       console.log(`n=${totalN}  mean predicted=${grandMeanPredicted.toFixed(4)}  observed=${grandObserved.toFixed(4)}`);
+    }
+
+    // ---- D-09's bar, applied to whatever slice of seasons was just run ----
+    // NOTHING IS DECIDED HERE. The bar's verdict is printed for every
+    // non-control arm so a reader can see the machinery working; the actual
+    // per-field ship/revert call is taken ONCE, on the WHOLE reporting slice,
+    // at this plan's checkpoint. A verdict printed over a partial season list
+    // is a demonstration, not a decision.
+    const controlCells = cellsByArm.get("control");
+    if (controlCells !== undefined && arms.length > 1) {
+      console.log(`\n═══ D-09 BAR over seasons ${seasons.join(", ")} — DEMONSTRATION, NOTHING IS DECIDED HERE ═══`);
+      for (const arm of arms) {
+        if (arm.name === "control") continue;
+        const v = evaluateD09Bar(controlCells, cellsByArm.get(arm.name)!, arm.name);
+        console.log(
+          `   ${v.arm.padEnd(18)} scored=${v.scored}  improved=${v.improved}  regressed=${v.regressed}  tied=${v.tied}  ` +
+            `meetsBar=${v.meetsBar}`
+        );
+      }
     }
 
     if (emitArtifactPath !== undefined) {
@@ -704,7 +1022,7 @@ async function main(): Promise<void> {
       };
       const parsed = RpCalibrationMeasurementSchema.parse(candidate);
       writeFileSync(emitArtifactPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
-      console.log(`\nwrote ${emitArtifactPath}`);
+      console.log(`\nwrote ${emitArtifactPath} (arm: ${emitArm.name})`);
     }
   } finally {
     db.close();
