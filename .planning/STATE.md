@@ -494,6 +494,7 @@ None yet.
 - Phase 03.1 inserted after Phase 3: Address Phase 1-3 review warnings and doc drift (URGENT)
 - Phase 3.2 inserted after Phase 3.1: Swap OPR to event-scoped and re-issue affected figures (URGENT)
 - Phase 3.2 edited: SC-2 reworded: docs/models and PROJECT.md re-issued outright; Phase 1-3 SUMMARYs annotated with dated superseded-by notes, original numbers intact (03.2-CONTEXT D-16). Reworded before any new figures were measured.
+- Phase 9 added: Analytic Ranking Points & Browser-Side Simulation -- exact closed-form RP replacing the Monte Carlo draw, a published RP accuracy scorecard, live-Worker RP, and pre-schedule simulation priced in the browser. First post-v1.0 phase; scope derives from the RP audit (13 findings) and the simulation architecture audit.
 
 ## Deferred Items
 

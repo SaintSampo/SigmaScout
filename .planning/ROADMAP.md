@@ -24,6 +24,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 06.1: Match and event data enrichment** (INSERTED) - Per-bonus RP, per-event rank, and per-event rarity tiers backed by real published data (completed 2026-08-26)
 - [x] **Phase 7: Event Pages** - Insights, Breakdown, Quals, Alliances, and Elims tabs (completed 2026-08-30)
 - [x] **Phase 8: Simulation & Compare** - 1000-run rank simulation and the published per-algorithm accuracy table (completed 2026-08-31)
+- [ ] **Phase 9: Analytic Ranking Points & Browser-Side Simulation** - Exact closed-form RP replacing the Monte Carlo draw, a published RP accuracy scorecard, live-Worker RP, and pre-schedule simulation priced in the browser
 
 ## Phase Details
 
@@ -550,7 +551,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 → 8
+Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 → 8 → 9
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -563,6 +564,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 6. Team Pages | 9/9 | Complete    | 2026-08-26 |
 | 7. Event Pages | 20/20 | Complete    | 2026-08-30 |
 | 8. Simulation & Compare | 15/15 | Complete    | 2026-08-31 |
+| 9. Analytic Ranking Points & Browser-Side Simulation | 0/0 | Not planned | — |
 
 ## Coverage
 
@@ -584,6 +586,46 @@ All 38 v1 requirements map to exactly one phase. No orphans, no duplicates.
 - The Compare ribbon link exists from Phase 5 but lands on a placeholder until Phase 8 fills it.
 - Phase 5 can begin against fixture artifacts as soon as Phase 4 fixes the artifact schema; the dependency is on the schema, not on production data.
 - No standalone "polish" phase exists — deep links (NAV-05), mobile (NAV-04), and load performance (NAV-06, DATA-03) are success criteria inside the phases that build the pages, not deferred cleanup. The freshness indicator is v2 (ENH-01).
+
+### Phase 9: Analytic Ranking Points & Browser-Side Simulation
+
+**Goal:** Ranking points are predicted by an exact closed form instead of a 4000-draw Monte Carlo, their accuracy is published rather than merely computed, the live Worker stops stripping them, and the pre-schedule simulation is priced in the visitor's browser.
+
+**Requirements**: Post-v1.0. No v1 requirement IDs (all 38 map to Phases 1-8). Scope derives from two read-only audits: `.planning/todos/pending/ranking-points-audit.md` (13 findings, F1-F13) and `docs/simulation-architecture.md`.
+
+**Depends on:** Phase 8
+
+**Why now:** `empiricalMoments.momentsFor` returns a diagonal variance block and all-zero cross-covariance, and `buildJointModel` zeroes the cross-alliance blocks -- so all 2+2T variables are already mutually independent and the Monte Carlo is approximating a distribution that has an exact closed form, adding +/-0.008 of sampling noise for nothing. Separately, published bonus probabilities under-predict 2.06x in all ten seasons (488,002 observations, measured 2026-09-10), nothing on the site reports RP accuracy at all, and the live Worker never computes RP -- so every live tick strips it.
+
+**Deliverables:**
+
+1. Declarative bonus-predicate contract in `RpRuleModule`, covering all seven verified mechanisms: single-variable `>=`/`<=`; linear combination; conjunction across distinct variables; **nested thresholds on the same variable** (2026 `energized`/`supercharged` -- must not be treated as independent); count-of-indicators / Poisson-binomial (2016 `breach`); data-dependent threshold mixture (2022 `cargoBonus`); always-false conservative branch (2019 `completeRocket`). `predictThresholds` stays, implemented from the declarations, so `rpConservativeBranch.ts` and the existing equivalence tests keep working unchanged.
+2. `analyticRpPmf` replacing `rpPmfForMatch`: group bonuses by shared threshold variable, enumerate joint outcomes per group from marginal CDFs, convolve groups, convolve with outcome RP. Deletes `CHOLESKY_RIDGES`, `clampCrossCovariance`, `buildJointModel`, the module-local `mulberry32`/`boxMullerPair`/`fnv1a32`, and the `rpMonteCarloSeed`/`rpMonteCarloDraws` config. `maxRp === winRp + bonusCount` in every season, so the `Math.min` cap is a no-op.
+3. Win RP from the published `pRedWin` (closes F6: the pmf-implied win probability differs from the displayed one by 0.12 at p90, max 0.34), plus a discrete score-margin tie model (closes F7: the tie branch needs exact float equality of two continuous draws and can never fire, while 1.09% of quals actually tie).
+4. Right-skewed marginals for count-valued threshold variables, replacing the symmetric Gaussian that systematically under-predicts `P(X >= t)` for right-skewed counts -- the leading candidate for the 2.06x gap. **Deliverables 3 and 4 must each be independently toggleable** so attribution stays measurable even though they ship together (the developer chose to combine them; the attribution risk was raised and accepted).
+5. RP calibration scorecard published to the Compare page from `scripts/measureRpCalibration.ts`, which already computes everything needed (closes F1).
+6. Live Worker RP (closes F5): add `redRpPmf`/`blueRpPmf` to `buildEventMatchRow`, which omits them entirely today while the offline builder emits them and the schema states the field must survive on played rows; give the Worker an RP accumulator resumed from D1 behind a new state shape (the existing `rpBeliefs` field belongs to retired VPR and must not be reused); add a live/offline row-shape parity test. Enabled by the analytic form being ~1000x cheaper, which fits the 10ms CPU budget.
+7. Rank simulation: draw each match outcome **once** and then bonuses per alliance, replacing today's independent red/blue marginal draws where both alliances can win the same draw. Monte Carlo is **kept** for the rank step -- it approximates a joint with no tractable closed form and captures shared-match coupling an analytic form would discard.
+8. Pre-schedule simulation priced in the browser: ship roster-index schedule arrays without pmfs and price them client-side, dropping the sidecar from ~265 KB to ~15-20 KB while gaining reader-chosen schedule counts and visible schedule-to-schedule spread. Re-key/regenerate the sidecars (every one in R2 belongs to retired `vpr`) and re-enable presim generation (currently off via `--presim-from-season 9999`). The analytic form removes three of the four blockers the simulation audit identified; schedule-template licensing is the fourth and is **not** resolved here.
+
+**Sequence inside the phase (prerequisites):**
+
+- Publish the scorecard (deliverable 5) **before** any accuracy change, or deliverables 3 and 4 are unmeasurable.
+- Re-measure F3's mean deficit **restricted to fully-warm 3/3 rosters** before committing to the marginal swap -- the probe that found predicted means low in 33 of 34 season-variables included partially-cold rosters, which the RP-producing population largely excludes.
+
+**Out of scope:**
+
+- Modelling dependence between threshold variables. The diagonal block discards a measured +0.0391 of real dependence, but bivariate has a closed form while 2025 `coralBonus`'s four levels would need Genz quadrature. Deliberately deferred (F4).
+- 2019 `completeRocket`'s always-false branch (F12) and 2022 `cargoBonus`'s auto-vs-match cargo independence flaw.
+- Schedule-template redistribution licensing.
+
+**Note:** F8's cold-start gate is already fixed for BPR by the Sigma Score work committed 2026-09-10 22:43, but remains live for OPR and EPA, which still use Swing's two-observation rule.
+
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 9 to break down)
 
 ---
 *Roadmap created: 2026-08-12*
