@@ -120,10 +120,10 @@ describe("/methodology/sigma names only the algorithms the site publishes", () =
     expect(document.body.textContent ?? "").not.toMatch(/\bvpr\b/i);
   });
 
-  it("names OPR, EPA and BPR", async () => {
+  it("names OPR, EPA and SPR", async () => {
     await renderMethodologySigma();
     const bodyText = document.body.textContent ?? "";
-    for (const algorithm of ["OPR", "EPA", "BPR"]) {
+    for (const algorithm of ["OPR", "EPA", "SPR"]) {
       expect(bodyText, `the page never names ${algorithm}`).toContain(algorithm);
     }
   });

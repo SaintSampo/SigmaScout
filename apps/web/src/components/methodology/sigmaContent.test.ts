@@ -188,11 +188,11 @@ describe("voice gate over every exported string", () => {
     }
   });
 
-  it("names OPR, EPA and BPR, which are the algorithms the site does publish", () => {
+  it("names OPR, EPA and SPR, which are the algorithms the site does publish", () => {
     const joined = collectStrings()
       .map((record) => record.text)
       .join(" ");
-    for (const algorithm of ["OPR", "EPA", "BPR"]) {
+    for (const algorithm of ["OPR", "EPA", "SPR"]) {
       expect(joined, `the page never names ${algorithm}`).toContain(algorithm);
     }
   });

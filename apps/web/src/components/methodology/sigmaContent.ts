@@ -1,7 +1,8 @@
 /**
  * Content-as-data for `/methodology/sigma`. Replaces `swingContent.ts`, which
  * explained a number the site stopped showing on 2026-09-10 when Sigma Score
- * shipped for BPR.
+ * shipped for the SPR rating (published under the internal id `bpr`, still
+ * unchanged; see `sprContent.ts`).
  *
  * Same discipline as its predecessor and as `epaComparisonContent.ts`: this
  * module is the single source of every prose string the page renders, so
@@ -177,7 +178,7 @@ export const SIGMA_SECTIONS: readonly SigmaSection[] = [
       "A robot with a small Sigma plays about the same every match. A robot with a large one might dominate one match and barely show up in the next. Two robots can carry the exact same rating and completely different Sigma.",
       "Which one you want depends on where you are sitting. A top seed picking first usually wants a low Sigma, a partner that turns up the same every match. A low seed hunting an upset wants a high one, because it needs the variance to have any shot at all. Halfway through quals it is how you judge whether the partner you drew can be relied on.",
       "It has its own column in the Teams list and its own tile at the top of a team page, both labelled Sigma, to two decimals.",
-      "The site publishes three ratings, OPR, EPA and BPR. Sigma is worked out for BPR only. It was tested against all three and came out better for OPR and BPR and worse for EPA, so rather than show a number that is better in some places and worse in others, it is shown where the testing supported it. Under OPR and EPA the column is simply empty.",
+      "The site publishes three ratings, OPR, EPA and SPR. Sigma is worked out for SPR only. It was tested against all three and came out better for OPR and SPR and worse for EPA, so rather than show a number that is better in some places and worse in others, it is shown where the testing supported it. Under OPR and EPA the column is simply empty.",
       "The reading is a true one standard deviation, in points. A robot at 12.00 lands within 12 points of its usual level in roughly two matches out of three.",
     ],
   },

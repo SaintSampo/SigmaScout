@@ -327,14 +327,14 @@ describe("/compare route — D-11 named real-data regression cases (elimination 
     }) as typeof fetch;
   }
 
-  it("2023 elimination Winner Accuracy renders no bold at all — BPR leads but inside the near-tie threshold", async () => {
+  it("2023 elimination Winner Accuracy renders no bold at all — SPR leads but inside the near-tie threshold", async () => {
     // Was "renders VPR bold — the tightest above-threshold case in the
-    // corpus". Publishing BPR (quick task 260908-b4t) ended that: BPR now
-    // leads 2023 elimination accuracy, but by less than the near-tie
-    // threshold, so the rule withholds emphasis from EVERY cell rather than
-    // moving the bold from VPR to BPR. Asserting the whole row is unbolded is
-    // the stronger claim, and it is the same case the D-11 divergence lock
-    // above names as `elimination 2023 accuracy`.
+    // corpus". Publishing the bpr algorithm (quick task 260908-b4t) ended
+    // that: SPR now leads 2023 elimination accuracy, but by less than the
+    // near-tie threshold, so the rule withholds emphasis from EVERY cell
+    // rather than moving the bold from VPR to SPR. Asserting the whole row
+    // is unbolded is the stronger claim, and it is the same case the D-11
+    // divergence lock above names as `elimination 2023 accuracy`.
     mockFetch();
     renderCompareRoute();
     await waitFor(() => expect(within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("table")).toBeDefined());

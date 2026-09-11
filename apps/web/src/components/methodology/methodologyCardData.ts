@@ -67,7 +67,7 @@ export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
   {
     to: "/methodology/compare",
     title: "Algorithm accuracy",
-    blurb: "How BPR's predictions score against OPR and EPA, season by season.",
+    blurb: "How SPR's predictions score against OPR and EPA, season by season.",
     testId: "methodology-card-compare",
   },
   {

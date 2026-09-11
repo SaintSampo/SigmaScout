@@ -68,11 +68,14 @@ export const COLD_START_EXPLANATION =
 
 /**
  * The algorithm this note's Brier list and best-season clause describe —
- * SigmaScout's premier algorithm, which became BPR on 2026-09-09 when VPR left
- * the published set. Named for its ROLE rather than hardcoded at each use, so
- * the note follows the premier algorithm instead of having to be rewritten
- * around it. The compare artifact still carries `vpr` slices for the seasons it
- * was published on; they are simply no longer what this note reads.
+ * SigmaScout's premier algorithm. The internal id became `bpr` on 2026-09-09
+ * when the prior premier rating left the published set, and the label
+ * displayed on methodology pages became SPR on 2026-09-10 (quick task
+ * 260910-vof); the id itself did not change. Named for its ROLE rather than
+ * hardcoded at each use, so the note follows the premier algorithm instead of
+ * having to be rewritten around it. The compare artifact still carries `vpr`
+ * slices for the seasons it was published on; they are simply no longer what
+ * this note reads.
  */
 const PREMIER_ALGORITHM_ID = "bpr";
 
@@ -199,7 +202,7 @@ function buildBrierListSentence(seasonBriers: readonly SeasonBrier[]): string {
 function buildMethodologySentence(figures: MethodologyFiguresComplete): string {
   const brierList = buildBrierListSentence(figures.seasonBriers);
   const seasonCountWord = numberWord(figures.seasons.length);
-  const bestClause = `${figures.bestSeason} is BPR's single best season of the ${seasonCountWord}.`;
+  const bestClause = `${figures.bestSeason} is SPR's single best season of the ${seasonCountWord}.`;
 
   return `${brierList} ${bestClause}`;
 }
