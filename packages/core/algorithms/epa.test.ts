@@ -122,6 +122,8 @@ describe("epa.update — two-stage EWMA reproduces a hand-computed value", () =>
       teamComponents: new Map([["frc1", { auto: 10 }]]),
       teamMatchCounts: new Map([["frc1", 0]]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
@@ -169,6 +171,8 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
         ["frc3", 0],
       ]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
@@ -245,6 +249,8 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
       teamComponents: new Map([["frc1", { auto: 10 }]]),
       teamMatchCounts: new Map([["frc1", 0]]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
@@ -275,6 +281,8 @@ describe("epa.update — D-05: Statbotics' elimination discount, adopted (quick 
       teamComponents: new Map([["frc1", { auto: 10 }]]),
       teamMatchCounts: new Map([["frc1", 0]]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
@@ -398,6 +406,8 @@ describe("epa.predict — win-probability scale derivation (Pitfall EPA-1)", () 
         ["B1", 0],
       ]),
       allianceScoreStats: stats,
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
@@ -433,6 +443,8 @@ describe("epa.predict — D-04 foulsCommitted attributed to the opposing allianc
         ["B1", 0],
       ]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
@@ -477,6 +489,8 @@ describe("epa.update — event-boundary invariance (ALGO-02 checkpoint gap, D-13
       teamComponents: new Map([["frc1", {}]]),
       teamMatchCounts: new Map([["frc1", 0]]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
@@ -544,6 +558,8 @@ describe("epa — contract shape", () => {
       teamComponents: new Map([["frc1", { auto: 10, teleop: 5, foulsCommitted: 7 }]]),
       teamMatchCounts: new Map([["frc1", 1]]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
@@ -569,6 +585,8 @@ describe("epa — contract shape", () => {
       teamComponents: new Map([["frc1", { auto: 10, teleop: 5 }]]),
       teamMatchCounts: new Map([["frc1", 1]]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
@@ -590,6 +608,8 @@ describe("epa — contract shape", () => {
       teamComponents: new Map([["frc1", { auto: 10, teleop: 5 }]]),
       teamMatchCounts: new Map([["frc1", 1]]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
@@ -637,6 +657,8 @@ describe("epa.teamMetrics — D-1 (quick task 260904-7id): phase groups publishe
       teamComponents: new Map([["frc1", components]]),
       teamMatchCounts: new Map([["frc1", 1]]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
@@ -715,6 +737,8 @@ describe("epa.carrySeason — D-01: the carryover input stays fouls-INCLUSIVE, d
         ["frc2", 10],
       ]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
@@ -755,6 +779,8 @@ describe("epa.update — D-05 fallback attribution (CR-01, code review phase 02)
         ["B1", 0],
       ]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
@@ -1188,6 +1214,8 @@ describe("epa — adjust pinned at 0 per team (D-5/D-6, quick task 260904-6a1)",
         ["frc2", 10],
       ]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
@@ -1347,6 +1375,8 @@ describe("epa — season-boundary scale anchor: a carried rating enters in the I
       teamComponents: new Map(TEAM_TOTALS.map(([team, total]) => [team, { synthetic: total }])),
       teamMatchCounts: new Map(TEAM_TOTALS.map(([team]) => [team, 12])),
       allianceScoreStats: { count: 5000, mean: M_OUT, m2: 5000 * 40 * 40 },
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
@@ -1823,5 +1853,192 @@ describe("epa week-1 calibration — the accumulator and its freeze", () => {
     expect(state.weekOne.stats.count).toBe(0);
     expect(state.weekOne.frozen).toBeNull();
     expect(state.weekOne.sealed).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE NO-FOUL / FOUL SPLIT FOLD (quick task 260911-l2k Task 1)
+// ---------------------------------------------------------------------------
+describe("epa.update — the no-foul/foul split fold", () => {
+  /**
+   * THE DIRECTION TEST, and the reason it is built the way it is.
+   *
+   * An alliance's OWN raw `foulPoints` field is the points it RECEIVED from
+   * the opponent's fouls (`breakdown/2024.ts`'s D-04 comment), and §2's shared
+   * cleaner reads exactly that field: `foul_points = breakdown["foulPoints"] +
+   * breakdown["adjustPoints"]`, both from the alliance's OWN side.
+   *
+   * But `breakdown/{year}.ts` sets `result[FOULS_COMMITTED_COMPONENT] =
+   * opponent.foulPoints`, so an alliance's own raw `foulPoints` value does NOT
+   * survive into its own parsed record — it survives into the OPPONENT's.
+   * Red's foul side is therefore `blueParsed.foulsCommitted + redParsed.adjust`:
+   * the received-points half comes from the OPPONENT's parsed slot, the adjust
+   * half from its OWN.
+   *
+   * WHAT MAKES THIS FIXTURE DISCRIMINATING, AND WHAT WOULD NOT.
+   *
+   * Asymmetric foul values are necessary but NOT sufficient, and the reason is
+   * worth writing down because it is a real trap: under this particular
+   * reversal the two accumulator MEANS are invariant. Correct, red's foul side
+   * is `blueFoul + redAdjust` and blue's is `redFoul + blueAdjust`; reversed,
+   * red's is `redFoul + redAdjust` and blue's is `blueFoul + blueAdjust`. Both
+   * readings sum to `redFoul + blueFoul + redAdjust + blueAdjust`, so the
+   * pooled foul mean is identical either way — and because the no-foul side is
+   * the complement of a fixed pair of scores, its pooled mean is identical too.
+   * A test asserting only the two means would pass against a reversed lookup.
+   *
+   * What DOES separate them is how the same total is SPLIT between the two
+   * alliances. Correct: no-foul 68 and 75. Reversed: 94 and 49. Same sum,
+   * different spread. So this test asserts the accumulator's `m2` — the
+   * Welford sum of squared deviations, which is a function of the split rather
+   * than the total — and the companion test below isolates a SINGLE alliance
+   * so its mean IS the per-alliance value with no averaging to hide behind.
+   */
+  it("reads each alliance's RECEIVED foul points out of the OPPONENT's parsed slot, not its own", () => {
+    const state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    // raw red foulPoints 30 => RED received 30, and that value lands in BLUE's
+    //                          parsed foulsCommitted slot
+    // raw blue foulPoints 4 => BLUE received 4, landing in RED's parsed slot
+    const result = matchResult({
+      week: 0,
+      redScore: 100,
+      blueScore: 80,
+      scoreBreakdownRaw: breakdown2024Json({ foulPoints: 30, adjustPoints: 2 }, { foulPoints: 4, adjustPoints: 1 }),
+    });
+    const next = epa.update(state, result);
+
+    // RED: received 30 (read out of BLUE's parsed foulsCommitted) plus its OWN
+    // adjust of 2 => foul side 32, no-foul 100 - 32 = 68.
+    // BLUE: received 4 (read out of RED's parsed slot) plus its own adjust of
+    // 1 => foul side 5, no-foul 80 - 5 = 75.
+    expect(next.allianceFoulStats.count).toBe(2);
+    expect(next.allianceNoFoulStats.count).toBe(2);
+    expect(next.allianceFoulStats.mean).toBeCloseTo((32 + 5) / 2, 10);
+    expect(next.allianceNoFoulStats.mean).toBeCloseTo((68 + 75) / 2, 10);
+
+    // THE DISCRIMINATING ASSERTIONS. Welford's `m2` over the correct {68, 75}
+    // is 2 * (3.5 ** 2) = 24.5; the reversed reading's {94, 49} gives
+    // 2 * (22.5 ** 2) = 1012.5. Same means, different spread — this is the
+    // pair of numbers a reversed lookup cannot reproduce.
+    expect(next.allianceNoFoulStats.m2).toBeCloseTo(24.5, 8);
+    expect(next.allianceNoFoulStats.m2).not.toBeCloseTo(1012.5, 8);
+    expect(next.allianceFoulStats.m2).toBeCloseTo(2 * (13.5 * 13.5), 8);
+    expect(next.weekOne.noFoulStats.m2).toBeCloseTo(24.5, 8);
+  });
+
+  it("the per-alliance split itself is reversal-sensitive: red's no-foul is 68, not 94", () => {
+    // The sharpest form of the direction check. Only RED is foldable here
+    // (blue is a ruling zero), so the accumulator holds exactly ONE
+    // observation and its mean IS red's own no-foul value — no averaging can
+    // hide a reversed lookup behind an invariant sum.
+    //
+    // Correct:  red foul side = BLUE's parsed foulsCommitted (30, i.e. red's
+    //           own raw foulPoints) + red's adjust (2) = 32 => no-foul 68
+    // Reversed: red foul side = RED's parsed foulsCommitted (4) + red's
+    //           adjust (2) = 6 => no-foul 94
+    const state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    const result = matchResult({
+      week: 0,
+      redScore: 100,
+      blueScore: 0,
+      blueDqs: ["frc4", "frc5", "frc6"],
+      scoreBreakdownRaw: breakdown2024Json({ foulPoints: 30, adjustPoints: 2 }, { foulPoints: 4, adjustPoints: 1 }),
+    });
+    const next = epa.update(state, result);
+
+    expect(next.allianceNoFoulStats.count).toBe(1);
+    expect(next.allianceNoFoulStats.mean).toBeCloseTo(68, 10);
+    expect(next.allianceNoFoulStats.mean).not.toBeCloseTo(94, 10);
+    expect(next.allianceFoulStats.mean).toBeCloseTo(32, 10);
+  });
+
+  it("folds a week-1 match into BOTH the season-wide pair and the week-1 pair", () => {
+    const state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    const next = epa.update(state, matchResult({ week: 0, scoreBreakdownRaw: breakdown2024Json({ foulPoints: 10 }, { foulPoints: 6 }) }));
+    expect(next.allianceNoFoulStats.count).toBe(2);
+    expect(next.weekOne.noFoulStats.count).toBe(2);
+    expect(next.weekOne.foulStats.count).toBe(2);
+  });
+
+  it("folds a week-2 match into the season-wide pair ONLY", () => {
+    const state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    const next = epa.update(state, matchResult({ week: 1, scoreBreakdownRaw: breakdown2024Json({ foulPoints: 10 }, { foulPoints: 6 }) }));
+    expect(next.allianceNoFoulStats.count).toBe(2);
+    expect(next.weekOne.noFoulStats.count).toBe(0);
+  });
+
+  it("folds a NULL-week match into the season-wide pair only, and does not seal", () => {
+    // Preseason/offseason play. This is the case that makes the season-wide
+    // pair load-bearing rather than a convenience (D-3): null-week play
+    // precedes week 1 in every season, and without this accumulator every one
+    // of those matches would be predicted at a zero foul rate.
+    const state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    const next = epa.update(state, matchResult({ week: null, scoreBreakdownRaw: breakdown2024Json({ foulPoints: 10 }, { foulPoints: 6 }) }));
+    expect(next.allianceNoFoulStats.count).toBe(2);
+    expect(next.weekOne.noFoulStats.count).toBe(0);
+    expect(next.weekOne.sealed).toBe(false);
+  });
+
+  it("excludes a ruling-zero alliance from BOTH pairs — the 2026bc2_sf14m1 adjust-zeroed shape", () => {
+    // `adjustPoints: -456` against a 0 score. Folding it would put a ~456
+    // point garbage no-foul observation into a constant every later prediction
+    // divides by.
+    const state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    const next = epa.update(
+      state,
+      matchResult({
+        week: 0,
+        redScore: 120,
+        blueScore: 0,
+        scoreBreakdownRaw: breakdown2024Json({ foulPoints: 8, adjustPoints: 0 }, { foulPoints: 4, adjustPoints: -456 }),
+      })
+    );
+    // Red's foul side is BLUE's parsed foulsCommitted (red's own raw
+    // foulPoints, 8) plus red's own adjust (0) => no-foul 120 - 8 = 112.
+    expect(next.allianceNoFoulStats.count).toBe(1);
+    expect(next.allianceNoFoulStats.mean).toBeCloseTo(112, 10);
+    expect(next.weekOne.noFoulStats.count).toBe(1);
+  });
+
+  it("excludes BOTH alliances when the breakdown did not parse — folding an imputed value would be circular", () => {
+    const state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    const next = epa.update(state, matchResult({ week: 0, hasScoreBreakdown: false, scoreBreakdownRaw: null }));
+    expect(next.allianceNoFoulStats.count).toBe(0);
+    expect(next.allianceFoulStats.count).toBe(0);
+    expect(next.weekOne.noFoulStats.count).toBe(0);
+    // The raw-score accumulator still folds it — the score is known even when
+    // its breakdown is not. This asymmetry is R3's remaining named population
+    // difference, and it is asserted here so it stays visible.
+    expect(next.allianceScoreStats.count).toBe(2);
+  });
+
+  it("noFoulMean + foulMean reconciles to the raw score mean over the same folded population", () => {
+    let state: EpaState = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    state = epa.update(state, matchResult({ week: 0, redScore: 112, blueScore: 87, scoreBreakdownRaw: breakdown2024Json({ foulPoints: 5, adjustPoints: 1 }, { foulPoints: 12, adjustPoints: 0 }) }));
+    state = epa.update(state, matchResult({ matchKey: "2024test_qm2", week: 0, redScore: 140, blueScore: 65, scoreBreakdownRaw: breakdown2024Json({ foulPoints: 0, adjustPoints: 3 }, { foulPoints: 20, adjustPoints: 0 }) }));
+    expect(state.allianceNoFoulStats.mean + state.allianceFoulStats.mean).toBeCloseTo(state.allianceScoreStats.mean, 8);
+  });
+});
+
+describe("epa.carrySeason — the foul accumulators reset at a season boundary", () => {
+  it("RESETS both season-wide foul accumulators rather than reseeding them", () => {
+    // Deliberately unlike `allianceScoreStats`, which IS reseeded. A foul rate
+    // is a property of one season's own rules and point values; carrying last
+    // season's across the boundary would be a prior-season leak into a
+    // constant Statbotics derives from the incoming season's own week 1.
+    let state: EpaState = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    state = epa.update(state, matchResult({ week: 0, scoreBreakdownRaw: breakdown2024Json({ foulPoints: 12 }, { foulPoints: 8 }) }));
+    state = epa.update(state, matchResult({ matchKey: "2024test_qm2", week: 1, scoreBreakdownRaw: breakdown2024Json({ foulPoints: 12 }, { foulPoints: 8 }) }));
+    expect(state.allianceNoFoulStats.count).toBeGreaterThan(0);
+
+    const boundary: SeasonBoundary = { fromSeason: 2024, toSeason: 2025, isColdStart: false };
+    const carried = epa.carrySeason(state, boundary);
+
+    expect(carried.allianceNoFoulStats).toEqual({ count: 0, mean: 0, m2: 0 });
+    expect(carried.allianceFoulStats).toEqual({ count: 0, mean: 0, m2: 0 });
+    // And the whole week-1 state, foul record included, starts fresh.
+    expect(carried.weekOne.noFoulStats.count).toBe(0);
+    expect(carried.weekOne.frozenFoul).toBeNull();
+    expect(carried.weekOne.sealed).toBe(false);
   });
 });

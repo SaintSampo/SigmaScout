@@ -319,8 +319,42 @@ export class MissingLeagueRowError extends Error {
  *
  * Costs a Worker re-seed from a fresh publish run, exactly like every bump
  * above it. Seed first, deploy second.
+ *
+ * ---------------------------------------------------------------------------
+ * 13 -> 14 (2026-09-11, quick task 260911-l2k): EPA'S FOUL RATE
+ * ---------------------------------------------------------------------------
+ *
+ * `epa@10.0.0+baseline` moves the foul term OUT of the margin and applies it as
+ * one `(1 + foulRate)` scalar to both alliances AFTER the win probability
+ * (`main.py:125-130`, reference section 14). That rate is `foul_mean /
+ * no_foul_mean` over the week-1 population, so it needs five new LEAGUE-row
+ * fields: a season-wide `allianceNoFoulStats`/`allianceFoulStats` pair (the
+ * live pre-seal estimate), and — inside the existing `weekOne` object — a
+ * week-1-only `noFoulStats`/`foulStats` pair plus the frozen
+ * `frozenFoul: { rate, noFoulMean } | null`. All five are ONE FACT EACH and
+ * flat in team count, the D-13 rule that keeps them out of team rows. No team
+ * row changes at all in this bump.
+ *
+ * THE LOAD-BEARING REASON, and it is the SAME mechanism the 11 -> 12 and
+ * 12 -> 13 blocks above describe: `apps/worker/src/stateStore.ts`'s
+ * `readScopedState` filters rows by `algorithm_id` ONLY and never by version,
+ * so bumping `epa.version` from 9.0.0 to 10.0.0 does NOT by itself make a stale
+ * seeded row unreachable. A shape-13 EPA league row would deserialize with the
+ * foul accumulators ABSENT, so the live Worker would compute a PERMANENTLY
+ * ZERO foul rate — publishing every predicted score at its plain no-foul total
+ * — while the offline publisher applied the frozen week-1 rate to the same
+ * matches. The two would disagree on every published predicted score, all
+ * season, with no error, no NaN and no malformed row to find: both sides look
+ * perfectly healthy and only the numbers differ. Worse than its 12 -> 13
+ * sibling in one respect: a zero rate is a LEGAL rate
+ * (`EPA_FALLBACK_FOUL_RATE`), so nothing downstream can even flag it as
+ * suspicious. The shape check is the only thing that turns that into a loud
+ * `LeagueRowShapeVersionError` naming the re-seed as the fix.
+ *
+ * Costs a Worker re-seed from a fresh publish run, exactly like every bump
+ * above it. Seed first, deploy second.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 13;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 14;
 
 /**
  * Thrown when `deserializeState`'s league row does not declare the current
@@ -621,6 +655,15 @@ interface SerializedEpaLeague {
   season: number | null;
   allianceScoreStats: ExpandingStats;
   /**
+   * Shape 14: `EpaState.allianceNoFoulStats` / `.allianceFoulStats` — the
+   * SEASON-WIDE pair backing the live, pre-seal foul rate. Flat sibling fields
+   * rather than a nested object, deliberately unlike `weekOne` below: these two
+   * are independent accumulators with no third field whose partial presence
+   * could represent an impossible state.
+   */
+  allianceNoFoulStats: ExpandingStats;
+  allianceFoulStats: ExpandingStats;
+  /**
    * Shape 12: `EpaState.carrySeedMean`, the outgoing season's alliance-score
    * mean. `null` ON THE WIRE stands for `Number.NaN` ("no boundary crossed
    * yet") — JSON has no NaN, so writing it naively yields `null` but reads back
@@ -644,10 +687,15 @@ interface SerializedEpaLeague {
   breakdownParseFailureCount: number;
 }
 
-/** Shape 13: the wire form of `EpaWeekOneState`. `ExpandingStats` and a nullable `{mean, sd}` are both plain JSON already, so no NaN-to-null dance is needed here (contrast `carrySeedMean` above). */
+/** Shape 13, extended at shape 14: the wire form of `EpaWeekOneState`. `ExpandingStats` and a nullable record are both plain JSON already, so no NaN-to-null dance is needed here (contrast `carrySeedMean` above). */
 interface SerializedEpaWeekOne {
   stats: ExpandingStats;
   frozen: { mean: number; sd: number } | null;
+  /** Shape 14: the week-1-only no-foul/foul accumulators the frozen rate is sealed from. */
+  noFoulStats: ExpandingStats;
+  foulStats: ExpandingStats;
+  /** Shape 14: the frozen `get_foul_rate()` record, or `null` when the seal refused a degenerate rate. Nested here rather than beside `frozen` at the league level so the whole week-1 state stays one object that cannot be partially present. */
+  frozenFoul: { rate: number; noFoulMean: number } | null;
   sealed: boolean;
 }
 
@@ -670,10 +718,18 @@ function serializeEpaState(algorithmId: string, algorithmVersion: string, state:
     snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION,
     season: state.season,
     allianceScoreStats: state.allianceScoreStats,
+    allianceNoFoulStats: state.allianceNoFoulStats,
+    allianceFoulStats: state.allianceFoulStats,
     carrySeedMean: Number.isFinite(state.carrySeedMean) ? state.carrySeedMean : null,
     weekOne: {
       stats: state.weekOne.stats,
       frozen: state.weekOne.frozen === null ? null : { mean: state.weekOne.frozen.mean, sd: state.weekOne.frozen.sd },
+      noFoulStats: state.weekOne.noFoulStats,
+      foulStats: state.weekOne.foulStats,
+      frozenFoul:
+        state.weekOne.frozenFoul === null
+          ? null
+          : { rate: state.weekOne.frozenFoul.rate, noFoulMean: state.weekOne.frozenFoul.noFoulMean },
       sealed: state.weekOne.sealed,
     },
     fallbackSkipped: state.fallbackSkipped,
@@ -745,6 +801,12 @@ function deserializeEpaState(algorithmId: string, rows: readonly StateRow[]): Ep
     teamComponents,
     teamMatchCounts,
     allianceScoreStats: leagueJson.allianceScoreStats,
+    // Shape 14. Read straight through, with deliberately NO `??` default, for
+    // the same reason `weekOne` below has none: the shape gate above is what
+    // guarantees presence, and a default here would silently pin the Worker at
+    // a zero foul rate — a LEGAL-looking rate nothing downstream can flag.
+    allianceNoFoulStats: leagueJson.allianceNoFoulStats,
+    allianceFoulStats: leagueJson.allianceFoulStats,
     // `null` on the wire IS `NaN` — see SerializedEpaLeague.carrySeedMean.
     carrySeedMean: leagueJson.carrySeedMean === null ? Number.NaN : leagueJson.carrySeedMean,
     carryPending,
@@ -756,6 +818,12 @@ function deserializeEpaState(algorithmId: string, rows: readonly StateRow[]): Ep
     weekOne: {
       stats: leagueJson.weekOne.stats,
       frozen: leagueJson.weekOne.frozen === null ? null : { mean: leagueJson.weekOne.frozen.mean, sd: leagueJson.weekOne.frozen.sd },
+      noFoulStats: leagueJson.weekOne.noFoulStats,
+      foulStats: leagueJson.weekOne.foulStats,
+      frozenFoul:
+        leagueJson.weekOne.frozenFoul === null
+          ? null
+          : { rate: leagueJson.weekOne.frozenFoul.rate, noFoulMean: leagueJson.weekOne.frozenFoul.noFoulMean },
       sealed: leagueJson.weekOne.sealed,
     },
     fallbackSkipped: leagueJson.fallbackSkipped,

@@ -495,7 +495,7 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     expect(() => deserializeState("opr", rows)).not.toThrow();
   });
 
-  it("STATE_SNAPSHOT_SHAPE_VERSION is 13, and a league row declaring ANY earlier shape throws (shape 13 added EPA's week-1 calibration state, 2026-09-11)", () => {
+  it("STATE_SNAPSHOT_SHAPE_VERSION is 14, and a league row declaring ANY earlier shape throws (shape 14 added EPA's foul rate, 2026-09-11)", () => {
     // Pinned by literal value, not relative to the constant. Every earlier
     // shape must fail LOUDLY at load rather than deserialize into a field set
     // that no longer matches `Sigma1State`: shape 3 predates
@@ -541,7 +541,14 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     // and the two would disagree on every prediction from week 2 onward with
     // no error, no NaN and no malformed row to find. Same silent live/offline
     // split, on the win-probability denominator this time.
-    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(13);
+    //
+    // Shape 13's EPA league row carries no foul accumulators, so a stale
+    // shape-13 row leaves `epa@10.0.0+baseline`'s foul rate permanently at
+    // `EPA_FALLBACK_FOUL_RATE`: the Worker would publish every predicted score
+    // at its plain no-foul total while the offline publisher applied the frozen
+    // week-1 rate. Worse than its predecessors in one respect — a zero rate is
+    // a LEGAL rate, so nothing downstream could flag it as suspicious.
+    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(14);
 
     // NOT an iteration over a list that can silently skip: the range is derived
     // from the current version, so a future bump cannot leave the newest stale
@@ -671,6 +678,8 @@ describe("serializeState/deserializeState — Map members survive by size", () =
         ["frc2", 3],
       ]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: {
@@ -1152,6 +1161,8 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
         ["frc3", 2],
       ]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
@@ -1200,6 +1211,9 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
       weekOne: {
         stats: { count: 412, mean: 71.25, m2: 94_318.5 },
         frozen: { mean: 71.25, sd: 15.125 },
+        noFoulStats: emptyExpandingStats(),
+        foulStats: emptyExpandingStats(),
+        frozenFoul: null,
         sealed: true,
       },
     };
@@ -1222,7 +1236,14 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
   it("round-trips an UNSEALED, unfrozen week-1 state without inventing a frozen aggregate", () => {
     const state: EpaState = {
       ...carriedEpaState(),
-      weekOne: { stats: { count: 6, mean: 40, m2: 200 }, frozen: null, sealed: false },
+      weekOne: {
+        stats: { count: 6, mean: 40, m2: 200 },
+        frozen: null,
+        noFoulStats: emptyExpandingStats(),
+        foulStats: emptyExpandingStats(),
+        frozenFoul: null,
+        sealed: false,
+      },
     };
     const reconstructed = deserializeState("epa", serializeState("epa", epa.version, state, STAMP)) as EpaState;
     expect(reconstructed.weekOne.frozen).toBeNull();
@@ -1237,7 +1258,14 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
     // running". Collapsing the two would reopen a freeze that already happened.
     const state: EpaState = {
       ...carriedEpaState(),
-      weekOne: { stats: { count: 1, mean: 55, m2: 0 }, frozen: null, sealed: true },
+      weekOne: {
+        stats: { count: 1, mean: 55, m2: 0 },
+        frozen: null,
+        noFoulStats: emptyExpandingStats(),
+        foulStats: emptyExpandingStats(),
+        frozenFoul: null,
+        sealed: true,
+      },
     };
     const reconstructed = deserializeState("epa", serializeState("epa", epa.version, state, STAMP)) as EpaState;
     expect(reconstructed.weekOne.frozen).toBeNull();
@@ -1295,6 +1323,96 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
         snapshotShapeVersion: 11,
         season: 2024,
         allianceScoreStats: emptyExpandingStats(),
+        fallbackSkipped: 0,
+        breakdownParseFailureCount: 0,
+      }),
+      generation: STAMP.generation,
+      computedAt: STAMP.computedAt,
+    };
+    expect(() => deserializeState("epa", [staleRow])).toThrow(LeagueRowShapeVersionError);
+  });
+  // -------------------------------------------------------------------------
+  // Shape 14 (quick task 260911-l2k): EPA's foul rate
+  // -------------------------------------------------------------------------
+
+  it("round-trips the season-wide no-foul/foul pair and a FROZEN foul record, all in the LEAGUE row", () => {
+    const state: EpaState = {
+      ...carriedEpaState(),
+      allianceNoFoulStats: { count: 900, mean: 64.5, m2: 120_000 },
+      allianceFoulStats: { count: 900, mean: 6.75, m2: 4_200 },
+      weekOne: {
+        stats: { count: 412, mean: 71.25, m2: 94_318.5 },
+        frozen: { mean: 71.25, sd: 15.125 },
+        noFoulStats: { count: 412, mean: 65.5, m2: 80_000 },
+        foulStats: { count: 412, mean: 5.75, m2: 3_100 },
+        frozenFoul: { rate: 5.75 / 65.5, noFoulMean: 65.5 },
+        sealed: true,
+      },
+    };
+    const rows = serializeState("epa", epa.version, state, STAMP);
+    const reconstructed = deserializeState("epa", rows) as EpaState;
+
+    expect(reconstructed.allianceNoFoulStats).toEqual({ count: 900, mean: 64.5, m2: 120_000 });
+    expect(reconstructed.allianceFoulStats).toEqual({ count: 900, mean: 6.75, m2: 4_200 });
+    expect(reconstructed.weekOne.noFoulStats).toEqual({ count: 412, mean: 65.5, m2: 80_000 });
+    expect(reconstructed.weekOne.foulStats).toEqual({ count: 412, mean: 5.75, m2: 3_100 });
+    expect(reconstructed.weekOne.frozenFoul).toEqual({ rate: 5.75 / 65.5, noFoulMean: 65.5 });
+
+    // D-13: two accumulator pairs and one record, none of which scale with
+    // team count, so they belong in the league row and NOT on any team row.
+    const leagueRow = rows.find((r) => r.scopeKind === "league");
+    const league = JSON.parse((leagueRow as StateRow).stateJson);
+    expect(league.weekOne.frozenFoul.noFoulMean).toBe(65.5);
+    for (const teamRow of rows.filter((r) => r.scopeKind === "team")) {
+      const parsed = JSON.parse(teamRow.stateJson);
+      expect(parsed).not.toHaveProperty("frozenFoul");
+      expect(parsed).not.toHaveProperty("allianceFoulStats");
+    }
+  });
+
+  it("round-trips a NULL frozen foul record rather than inventing a zero rate for it", () => {
+    // The refused-degenerate-rate state (D-5). `null` and `{ rate: 0 }` are
+    // NOT interchangeable: the first means "no usable week-1 foul population
+    // was found", the second means "week 1 genuinely had no fouls". Both
+    // publish plain no-foul totals today, so collapsing them would be
+    // invisible now and wrong the moment anything reads the distinction.
+    const state: EpaState = {
+      ...carriedEpaState(),
+      weekOne: {
+        stats: { count: 5, mean: 60, m2: 100 },
+        frozen: null,
+        noFoulStats: { count: 5, mean: 0, m2: 0 },
+        foulStats: { count: 5, mean: 4, m2: 10 },
+        frozenFoul: null,
+        sealed: true,
+      },
+    };
+    const reconstructed = deserializeState("epa", serializeState("epa", epa.version, state, STAMP)) as EpaState;
+    expect(reconstructed.weekOne.frozenFoul).toBeNull();
+    expect(reconstructed.weekOne.sealed).toBe(true);
+  });
+
+  it("throws LeagueRowShapeVersionError on a shape-13 EPA league row rather than silently pinning the Worker at a zero foul rate", () => {
+    // The load-bearing case for THIS bump, and the same mechanism as the
+    // shape-11 and shape-12 cases: `stateStore.ts` filters by algorithm_id
+    // only, so bumping epa.version 9.0.0 -> 10.0.0 does not make a stale row
+    // unreachable. A shape-13 row deserializes with the foul accumulators
+    // absent, so the live Worker would publish every predicted score at its
+    // plain no-foul total while the offline publisher applied the frozen
+    // week-1 rate. Worse than its predecessors in one respect: a zero rate is
+    // a LEGAL rate (EPA_FALLBACK_FOUL_RATE), so nothing downstream could flag
+    // it as suspicious.
+    const staleRow: StateRow = {
+      algorithmId: "epa",
+      algorithmVersion: epa.version,
+      scopeKind: "league",
+      scopeKey: "league",
+      stateJson: JSON.stringify({
+        snapshotShapeVersion: 13,
+        season: 2024,
+        allianceScoreStats: emptyExpandingStats(),
+        carrySeedMean: 292.5,
+        weekOne: { stats: emptyExpandingStats(), frozen: null, sealed: false },
         fallbackSkipped: 0,
         breakdownParseFailureCount: 0,
       }),

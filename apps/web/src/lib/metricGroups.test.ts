@@ -139,6 +139,8 @@ describe("metricGroups <-> epa.teamMetrics parity (D-3, 260904-7id)", () => {
       teamComponents: new Map([["frc1", components]]),
       teamMatchCounts: new Map([["frc1", 1]]),
       allianceScoreStats: emptyExpandingStats(),
+      allianceNoFoulStats: emptyExpandingStats(),
+      allianceFoulStats: emptyExpandingStats(),
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },

@@ -20,9 +20,14 @@ import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { openCorpusReadOnly, selectMatchesChronological } from "../../corpus/db.js";
 import {
+  EPA_FALLBACK_FOUL_RATE,
+  EPA_WEEK_ONE_MIN_FOUL_OBS,
+  EPA_WEEK_ONE_MIN_OBS,
   STATBOTICS_WEEK_ONE_CORPUS_WEEK,
   emptyEpaWeekOneState,
   foldWeekOneAllianceScore,
+  foldWeekOneFoulSplit,
+  foulRateFrom,
   isStatboticsWeekOne,
   sealWeekOneIfPast,
 } from "./epaWeekOne.js";
@@ -267,5 +272,183 @@ describe("sealWeekOneIfPast", () => {
     state = sealWeekOneIfPast(state, 1);
     expect(state.sealed).toBe(true);
     expect(state.frozen).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE WEEK-1 FOUL / NO-FOUL SPLIT (quick task 260911-l2k Task 1)
+// ---------------------------------------------------------------------------
+//
+// `avg.py` writes `year.foul_mean` and `year.no_foul_mean` from the SAME
+// week-1 list that writes `score_sd` (reference section 20), and
+// `get_foul_rate()` is their ratio (`year.py:176-177`). These cases pin the
+// accumulator, the ratio's guards, and the seal that freezes it — all of it
+// corpus-independent, because none of it depends on a real match.
+describe("foulRateFrom", () => {
+  it("is foulMean / noFoulMean, the ratio get_foul_rate() computes", () => {
+    expect(foulRateFrom(100, 10)).toBeCloseTo(0.1, 12);
+  });
+
+  it("is exactly 0 when no fouls were observed, not null — a zero rate is a real answer", () => {
+    expect(foulRateFrom(100, 0)).toBe(0);
+  });
+
+  it("REFUSES a zero no-foul mean rather than substituting a denominator of 1", () => {
+    // Upstream guards with `(self.no_foul_mean or 1)`, silently turning a
+    // degenerate divide into a rate of `foul_mean` itself. This project
+    // refuses instead (D-5), the `sealWeekOneIfPast` precedent.
+    expect(foulRateFrom(0, 10)).toBeNull();
+  });
+
+  it("refuses a negative no-foul mean", () => {
+    expect(foulRateFrom(-50, 10)).toBeNull();
+  });
+
+  it("refuses a non-finite input on either side", () => {
+    expect(foulRateFrom(Number.NaN, 10)).toBeNull();
+    expect(foulRateFrom(100, Number.NaN)).toBeNull();
+    expect(foulRateFrom(Number.POSITIVE_INFINITY, 10)).toBeNull();
+  });
+
+  it("refuses a negative foul mean, which would deflate both published scores", () => {
+    expect(foulRateFrom(100, -5)).toBeNull();
+  });
+});
+
+describe("foldWeekOneFoulSplit", () => {
+  it("folds a week-1 observation into both accumulators", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneFoulSplit(state, 0, 90, 10);
+    expect(state.noFoulStats.count).toBe(1);
+    expect(state.noFoulStats.mean).toBeCloseTo(90, 12);
+    expect(state.foulStats.count).toBe(1);
+    expect(state.foulStats.mean).toBeCloseTo(10, 12);
+  });
+
+  it("ignores a week greater than 0 — that is Statbotics' week 2 and beyond", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneFoulSplit(state, 1, 90, 10);
+    expect(state.noFoulStats.count).toBe(0);
+    expect(state.foulStats.count).toBe(0);
+  });
+
+  it("ignores a null week — unplaced play is neither week 1 nor after it", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneFoulSplit(state, null, 90, 10);
+    expect(state.noFoulStats.count).toBe(0);
+  });
+
+  it("ignores everything once sealed — a frozen constant that keeps moving is not a constant", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneFoulSplit(state, 0, 90, 10);
+    state = foldWeekOneFoulSplit(state, 0, 110, 20);
+    state = sealWeekOneIfPast(state, 1);
+    state = foldWeekOneFoulSplit(state, 0, 5000, 5000);
+    expect(state.noFoulStats.count).toBe(2);
+  });
+
+  it("drops a non-finite observation on either side rather than poisoning both means", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneFoulSplit(state, 0, Number.NaN, 10);
+    expect(state.noFoulStats.count).toBe(0);
+    expect(state.foulStats.count).toBe(0);
+    state = foldWeekOneFoulSplit(state, 0, 90, Number.NaN);
+    expect(state.noFoulStats.count).toBe(0);
+    expect(state.foulStats.count).toBe(0);
+  });
+
+  it("never mutates its input", () => {
+    const state = emptyEpaWeekOneState();
+    foldWeekOneFoulSplit(state, 0, 90, 10);
+    expect(state.noFoulStats.count).toBe(0);
+  });
+});
+
+describe("sealWeekOneIfPast — the foul record", () => {
+  it("freezes { rate, noFoulMean } in the SAME call that freezes mean/sd", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneAllianceScore(state, 0, 100);
+    state = foldWeekOneAllianceScore(state, 0, 140);
+    state = foldWeekOneFoulSplit(state, 0, 90, 10);
+    state = foldWeekOneFoulSplit(state, 0, 130, 10);
+    state = sealWeekOneIfPast(state, 1);
+    expect(state.frozen).not.toBeNull();
+    expect(state.frozenFoul).not.toBeNull();
+    expect(state.frozenFoul?.noFoulMean).toBeCloseTo(110, 12);
+    expect(state.frozenFoul?.rate).toBeCloseTo(10 / 110, 12);
+  });
+
+  it("freezes the foul record at ONE observation — a mean's own contract boundary", () => {
+    // Deliberately DIFFERENT from `frozen`'s EPA_WEEK_ONE_MIN_OBS = 2 gate:
+    // that one is `standardDeviation`'s boundary, this one is a mean's. The
+    // two gates are independent by design.
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneFoulSplit(state, 0, 90, 9);
+    state = sealWeekOneIfPast(state, 1);
+    expect(state.frozen).toBeNull();
+    expect(state.frozenFoul).not.toBeNull();
+    expect(state.frozenFoul?.rate).toBeCloseTo(0.1, 12);
+  });
+
+  it("records sealed with a NULL foul record when zero foul observations exist", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneAllianceScore(state, 0, 100);
+    state = foldWeekOneAllianceScore(state, 0, 140);
+    state = sealWeekOneIfPast(state, 1);
+    expect(state.sealed).toBe(true);
+    expect(state.frozen).not.toBeNull();
+    expect(state.frozenFoul).toBeNull();
+  });
+
+  it("refuses a degenerate rate rather than fudging it, and does not retry", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneFoulSplit(state, 0, 0, 10);
+    state = foldWeekOneFoulSplit(state, 0, 0, 10);
+    state = sealWeekOneIfPast(state, 1);
+    expect(state.sealed).toBe(true);
+    expect(state.frozenFoul).toBeNull();
+    state = sealWeekOneIfPast(state, 5);
+    expect(state.frozenFoul).toBeNull();
+  });
+
+  it("never reopens a frozen foul record for a late week-1 arrival", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneFoulSplit(state, 0, 100, 10);
+    state = sealWeekOneIfPast(state, 1);
+    const frozenAtSeal = state.frozenFoul;
+    state = foldWeekOneFoulSplit(state, 0, 100, 90);
+    expect(state.frozenFoul).toEqual(frozenAtSeal);
+  });
+
+  it("noFoulMean + foulMean equals the raw score mean over the same population, by construction", () => {
+    // D-2: the foul side is taken from the SCORE, so the complement identity
+    // `(1 + rate) * noFoulMean === scoreMean` holds exactly rather than
+    // approximately. This is what makes the rate precisely the inflation from
+    // a no-foul total to a real score.
+    const scores = [112, 87, 140, 65];
+    const fouls = [12, 0, 20, 5];
+    let state = emptyEpaWeekOneState();
+    for (let i = 0; i < scores.length; i += 1) {
+      state = foldWeekOneAllianceScore(state, 0, scores[i] as number);
+      state = foldWeekOneFoulSplit(state, 0, (scores[i] as number) - (fouls[i] as number), fouls[i] as number);
+    }
+    const scoreMean = scores.reduce((a, b) => a + b, 0) / scores.length;
+    expect(state.noFoulStats.mean + state.foulStats.mean).toBeCloseTo(scoreMean, 10);
+    state = sealWeekOneIfPast(state, 1);
+    const frozenFoul = state.frozenFoul as { rate: number; noFoulMean: number };
+    expect((1 + frozenFoul.rate) * frozenFoul.noFoulMean).toBeCloseTo(scoreMean, 10);
+  });
+});
+
+describe("EPA_FALLBACK_FOUL_RATE", () => {
+  it("is exactly 0, so a match with no foul information is published at its plain no-foul total", () => {
+    expect(EPA_FALLBACK_FOUL_RATE).toBe(0);
+  });
+});
+
+describe("EPA_WEEK_ONE_MIN_FOUL_OBS", () => {
+  it("is 1 — a mean is defined at one observation, where a standard deviation is not", () => {
+    expect(EPA_WEEK_ONE_MIN_FOUL_OBS).toBe(1);
+    expect(EPA_WEEK_ONE_MIN_OBS).toBe(2);
   });
 });

@@ -148,6 +148,7 @@ import {
 import {
   emptyEpaWeekOneState,
   foldWeekOneAllianceScore,
+  foldWeekOneFoulSplit,
   sealWeekOneIfPast,
   type EpaWeekOneState,
 } from "./epaWeekOne.js";
@@ -313,6 +314,28 @@ export interface EpaState extends BreakdownParseTelemetry {
   readonly teamMatchCounts: ReadonlyMap<string, number>;
   readonly allianceScoreStats: ExpandingStats;
   /**
+   * SEASON-WIDE expanding accumulators over each alliance's NO-FOUL total and
+   * its FOUL total (quick task 260911-l2k, `epa@10.0.0+baseline`).
+   *
+   * These are the LIVE pre-seal estimate of Statbotics' week-1
+   * `no_foul_mean`/`foul_mean` pair, and they exist for the same reason
+   * `allianceScoreStats` exists beside `weekOne.frozen`: `predict` needs a
+   * usable rate before week 1 has provably ended, and the week-1 accumulator
+   * cannot supply one for the play that happens BEFORE week 1. Null-week
+   * preseason play precedes week 1 in every season (2024's null-week events
+   * start 2024-02-03, its week-1 events 2024-02-24), so reading the week-1 pair
+   * as its own live estimate would predict every one of those matches at a
+   * zero foul rate (D-3).
+   *
+   * LEAGUE-scoped: two number pairs, flat in team count — the D-13 rule that
+   * puts `allianceScoreStats` and `carrySeedMean` in the league row.
+   *
+   * Both apply the SAME exclusions `allianceScoreStats` applies plus one more;
+   * see the fold site in `update`.
+   */
+  readonly allianceNoFoulStats: ExpandingStats;
+  readonly allianceFoulStats: ExpandingStats;
+  /**
    * The OUTGOING season's alliance-score mean at the moment of the most recent
    * boundary — the point units every carried component is currently expressed
    * in, and the denominator of the rescale ratio (quick task 260911-3kc).
@@ -436,6 +459,8 @@ function initState(teams: string[]): EpaState {
     teamComponents,
     teamMatchCounts,
     allianceScoreStats: emptyExpandingStats(),
+    allianceNoFoulStats: emptyExpandingStats(),
+    allianceFoulStats: emptyExpandingStats(),
     // No boundary crossed yet: nothing is carried, and there is no outgoing
     // scale to unwind. NaN rather than 0 — a zero seed mean would be a legal
     // -looking denominator.
@@ -959,11 +984,76 @@ function updateCore(state: EpaState, result: MatchResult, componentMap?: SeasonC
   if (!redIsRulingZero) weekOne = foldWeekOneAllianceScore(weekOne, result.week, result.redScore);
   if (!blueIsRulingZero) weekOne = foldWeekOneAllianceScore(weekOne, result.week, result.blueScore);
 
+  // ---------------------------------------------------------------------
+  // THE NO-FOUL / FOUL SPLIT (quick task 260911-l2k, `epa@10.0.0+baseline`)
+  // ---------------------------------------------------------------------
+  //
+  // Statbotics' shared cleaner, VERBATIM (reference section 2):
+  //
+  //     foul_points = breakdown.get("foulPoints", 0) + breakdown.get("adjustPoints", 0)
+  //     no_foul_points = score - foul_points
+  //
+  // So an alliance's FOUL side is the points it RECEIVED from the opponent's
+  // fouls, plus its OWN `adjustPoints`, and its no-foul side is the complement
+  // taken from the SCORE. Deriving no-foul by summing this alliance's own
+  // offensive components instead was considered and rejected (D-2): a season
+  // whose component map does not span the whole score would shift the
+  // aggregate silently, and upstream's own definition is score-based. Taking
+  // the complement also makes `noFoulMean + foulMean === scoreMean` hold by
+  // construction, so `(1 + rate) * noFoulMean` is exactly the inflation from a
+  // no-foul total to a real score.
+  //
+  // THE CROSS-SIDE DIRECTION, WHICH IS THE EASIEST THING HERE TO GET BACKWARDS.
+  // Every `breakdown/{year}.ts` sets `result[FOULS_COMMITTED_COMPONENT] =
+  // opponent.foulPoints` (D-04 — the component means "points this alliance's
+  // fouls cost the OTHER side"). So RED's parsed `foulsCommitted` holds the
+  // points BLUE received, and the points RED received therefore sit in BLUE's
+  // parsed slot. Red's foul side is `blueParsed[FOULS_COMMITTED_COMPONENT] +
+  // redParsed[ADJUST_COMPONENT]`: one value from the OPPONENT's record, one
+  // from its OWN.
+  //
+  // Getting that backwards is SILENT. The accumulators still fill, the seal
+  // still fires, the rate is still finite and plausible, every test that only
+  // checks shape still passes, and the published scores are simply inflated by
+  // the wrong number. That is why the direction has its own test with
+  // deliberately ASYMMETRIC foul values — a symmetric fixture passes either
+  // way and would prove nothing.
+  //
+  // TWO EXCLUSIONS (D-3), the second of which is not obvious:
+  //   1. a ruling-zero alliance, exactly as above — the `2026bc2_sf14m1` shape
+  //      is `adjustPoints: -456` against a 0 score, which would fold a ~456
+  //      point garbage no-foul observation into a constant every later
+  //      prediction divides by;
+  //   2. an alliance whose breakdown did NOT parse. The fallback path imputes
+  //      that alliance's components FROM the foul means these accumulators
+  //      feed, so folding an imputed value back in would be circular — the
+  //      rate would be partly an average of itself.
+  let allianceNoFoulStats = state.allianceNoFoulStats;
+  let allianceFoulStats = state.allianceFoulStats;
+  if (redParsed !== null && blueParsed !== null) {
+    const redFoulSide = (blueParsed[FOULS_COMMITTED_COMPONENT] ?? 0) + (redParsed[ADJUST_COMPONENT] ?? 0);
+    const blueFoulSide = (redParsed[FOULS_COMMITTED_COMPONENT] ?? 0) + (blueParsed[ADJUST_COMPONENT] ?? 0);
+    const redNoFoul = result.redScore - redFoulSide;
+    const blueNoFoul = result.blueScore - blueFoulSide;
+    if (!redIsRulingZero) {
+      allianceNoFoulStats = foldObservation(allianceNoFoulStats, redNoFoul);
+      allianceFoulStats = foldObservation(allianceFoulStats, redFoulSide);
+      weekOne = foldWeekOneFoulSplit(weekOne, result.week, redNoFoul, redFoulSide);
+    }
+    if (!blueIsRulingZero) {
+      allianceNoFoulStats = foldObservation(allianceNoFoulStats, blueNoFoul);
+      allianceFoulStats = foldObservation(allianceFoulStats, blueFoulSide);
+      weekOne = foldWeekOneFoulSplit(weekOne, result.week, blueNoFoul, blueFoulSide);
+    }
+  }
+
   return {
     season,
     teamComponents: afterBlue.teamComponents,
     teamMatchCounts: afterBlue.teamMatchCounts,
     allianceScoreStats,
+    allianceNoFoulStats,
+    allianceFoulStats,
     weekOne,
     // Carried forward UNCHANGED by an ordinary match update. `update` above
     // is the only thing that removes a team from `carryPending`, and
@@ -1155,6 +1245,19 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary, toSeasonMap?: Se
     teamComponents,
     teamMatchCounts,
     allianceScoreStats: reseedFromPrior(state.allianceScoreStats, EPA_SCORE_SD_SEED_COUNT),
+    // RESET, not reseeded (quick task 260911-l2k) — deliberately UNLIKE
+    // `allianceScoreStats` immediately above, and the difference is the point.
+    // A foul RATE is a property of one season's own rule set and point values:
+    // the same on-field contact is worth a different number of points from one
+    // season to the next, and a rules change can move the rate outright.
+    // Carrying last season's across the boundary would be a prior-season leak
+    // into a constant Statbotics derives from the INCOMING season's own week 1
+    // and nothing else (`avg.py`, reference section 20). The incoming season
+    // therefore starts with no foul information at all and publishes plain
+    // no-foul totals (`EPA_FALLBACK_FOUL_RATE`) until its own play supplies
+    // some — which is the honest state, not a degradation.
+    allianceNoFoulStats: emptyExpandingStats(),
+    allianceFoulStats: emptyExpandingStats(),
     // A new season's week 1 has not happened yet, so the incoming season starts
     // UNFROZEN and UNSEALED with an empty accumulator. Deliberately NOT seeded
     // from the outgoing season the way `allianceScoreStats` is: a frozen
