@@ -151,11 +151,12 @@ function HomePage() {
     <main className="mx-auto flex w-full max-w-4xl flex-col items-center gap-[var(--spacing-2xl)] p-[var(--spacing-lg)] pt-[var(--spacing-2xl)] text-center">
       <div className="flex flex-col items-center gap-[var(--spacing-md)]">
         <h1 className="text-role-display text-[var(--color-text-primary)]" style={{ fontSize: "2rem", letterSpacing: "-0.015em", textWrap: "balance" }}>
-          Match predictions you can check.
+          Scouting, plus the sigma.
         </h1>
         <p className="text-role-body max-w-[42rem] text-[var(--color-text-muted)]">
-          Every SigmaScout rating ships with honest uncertainty: a value ± one standard deviation. Every
-          algorithm&apos;s accuracy is measured walk-forward and published next to the baselines it beats.
+          With SPR (Sigma Power Rating), every team carries a mean and a variance. We show you both, as
+          mean ± sigma. The mean is a robot&apos;s average score — but that is half the story. How consistent
+          is that robot? That&apos;s sigma.
         </p>
       </div>
 
