@@ -564,7 +564,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 3.1 → 4 → 5 → 6 → 7 �
 | 6. Team Pages | 9/9 | Complete    | 2026-08-26 |
 | 7. Event Pages | 20/20 | Complete    | 2026-08-30 |
 | 8. Simulation & Compare | 15/15 | Complete    | 2026-08-31 |
-| 9. Analytic Ranking Points & Browser-Side Simulation | 2/10 | In Progress|  |
+| 9. Analytic Ranking Points & Browser-Side Simulation | 4/10 | In Progress|  |
 
 ## Coverage
 
@@ -625,21 +625,20 @@ All 38 v1 requirements map to exactly one phase. No orphans, no duplicates.
 
 **Note:** F8's cold-start gate is already fixed for BPR by the Sigma Score work committed 2026-09-10 22:43, but remains live for OPR and EPA, which still use Swing's two-observation rule.
 
-**Plans:** 2/10 plans executed
+**Plans:** 4/10 plans executed
 
 Plans:
 
 - [x] 09-01-PLAN.md
 - [x] 09-02-PLAN.md
-- [ ] 09-03-PLAN.md
-- [ ] 09-04-PLAN.md
+- [x] 09-03-PLAN.md
+- [x] 09-04-PLAN.md
 - [ ] 09-05-PLAN.md
 - [ ] 09-06-PLAN.md
 - [ ] 09-07-PLAN.md
 - [ ] 09-08-PLAN.md
 - [ ] 09-09-PLAN.md
 - [ ] 09-10-PLAN.md
-
 
 ---
 *Roadmap created: 2026-08-12*
