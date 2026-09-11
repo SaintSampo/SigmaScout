@@ -122,13 +122,18 @@ import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
 // Quick 260905-jj8: dependency-free comp-level predicate (rp/constants.ts has
 // zero runtime imports) — the same direct-from-core precedent
 // apps/web/src/components/event/EventMatchTable.tsx already cites.
-import { isBonusRpCompLevel } from "../../../packages/core/rankingPoints/constants.js";
+import { isBonusRpCompLevel, isRpEligibleEventType } from "../../../packages/core/rankingPoints/constants.js";
+import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
+import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
+import { analyticRpPmf } from "../../../packages/core/rankingPoints/analyticPmf.js";
 import {
   deserializeState,
   readSigmaBeliefs,
   readSigmaPopulation,
+  readRpBeliefs,
   readSwingBeliefs,
   serializeState,
+  withRpBeliefs,
   withSigmaBeliefs,
   withSigmaPopulation,
   withSwingBeliefs,
@@ -549,6 +554,23 @@ function buildEventMatchRow(match: MatchResult, prediction: Prediction, band: Ma
     pRedWin: roundProbability(prediction.pRedWin),
     predictedRedScore: roundMetric(prediction.redScore),
     predictedBlueScore: roundMetric(prediction.blueScore),
+    // D-21, plan 09-08: the pmf pair `buildEventUpcomingRow` below has carried
+    // all along and this builder did not list AT ALL, which is why a live tick
+    // stripped ranking points off every played row (audit finding F5).
+    // `EventMatchSchema.redRpPmf`'s own doc comment states why a PLAYED row
+    // must carry it: a rewind start match is the common case, 1,312 of 1,353
+    // corpus events having no unplayed qualification match at all.
+    redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
+    blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
+    // D-15, plan 09-07: the RP decomposition, read straight off `prediction`
+    // and never gated on competition level — the identical reason the
+    // `redRpPmf`/`blueRpPmf` pair above is not gated (PD-02: a gate here
+    // would make this the only surface in the pipeline that drops what the
+    // model returned). Same three lines `publish.ts`'s own two row builders
+    // carry, so a live row and an offline row for the same match agree.
+    matchOutcomePmf: prediction.matchOutcomePmf ? roundPmf(prediction.matchOutcomePmf) : undefined,
+    redBonusRpPmf: prediction.redBonusRpPmf ? roundPmf(prediction.redBonusRpPmf) : undefined,
+    blueBonusRpPmf: prediction.blueBonusRpPmf ? roundPmf(prediction.blueBonusRpPmf) : undefined,
     ...liveBonusRpFields(match.compLevel, prediction),
     ...swingBandFields(band),
     actualWinner: match.winner,
@@ -571,9 +593,42 @@ function buildEventUpcomingRow(match: UpcomingMatch, prediction: Prediction, ban
     predictedBlueScore: roundMetric(prediction.blueScore),
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
+    // D-15, plan 09-07: the RP decomposition, read straight off `prediction`
+    // and never gated on competition level — the identical reason the
+    // `redRpPmf`/`blueRpPmf` pair above is not gated (PD-02: a gate here
+    // would make this the only surface in the pipeline that drops what the
+    // model returned). Same three lines `publish.ts`'s own two row builders
+    // carry, so a live row and an offline row for the same match agree.
+    matchOutcomePmf: prediction.matchOutcomePmf ? roundPmf(prediction.matchOutcomePmf) : undefined,
+    redBonusRpPmf: prediction.redBonusRpPmf ? roundPmf(prediction.redBonusRpPmf) : undefined,
+    blueBonusRpPmf: prediction.blueBonusRpPmf ? roundPmf(prediction.blueBonusRpPmf) : undefined,
     ...liveBonusRpFields(match.compLevel, prediction),
     ...swingBandFields(band),
   };
+}
+
+/**
+ * D-15, plan 09-07: `{ win, tie }` from the first prediction (played, then
+ * upcoming) carrying both outcome-RP vectors. A deliberate small
+ * reimplementation of `publish.ts`'s module-private `findRpOutcomeRp` — that
+ * function is not exported and `publish.ts` cannot be imported here (it pulls
+ * `packages/corpus/db.ts` and `better-sqlite3` into apps/worker's
+ * Cloudflare-typed program), the same cross-boundary situation
+ * `scheduled.replay.test.ts`'s own header documents. Reads the SAME
+ * `redOutcomeRp[0]`/`[1]` positions, which `sigmaScoutLayer.ts` composes as
+ * `[winRp, tieRp, 0]`.
+ */
+function findRpOutcomeRp(
+  played: readonly Prediction[],
+  upcoming: readonly Prediction[]
+): { win: number; tie: number } | undefined {
+  for (const prediction of [...played, ...upcoming]) {
+    const { redOutcomeRp, blueOutcomeRp } = prediction;
+    if (redOutcomeRp !== undefined && blueOutcomeRp !== undefined) {
+      return { win: redOutcomeRp[0]!, tie: redOutcomeRp[1]! };
+    }
+  }
+  return undefined;
 }
 
 interface MergeEventArtifactParams {
@@ -603,6 +658,17 @@ function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
 
   const upcoming = stillUpcoming.map((m) => buildEventUpcomingRow(m, upcomingPredictions.get(m.matchKey)!, upcomingBands.get(m.matchKey)));
 
+  // D-15, plan 09-07: this season's own win/tie RP constants, published ONCE
+  // PER ARTIFACT. Derived exactly as `publish.ts`'s `findRpOutcomeRp` derives
+  // it — off `redOutcomeRp[0]`/`[1]`, which are `winRp`/`tieRp` by
+  // construction — rather than from a literal or a second season lookup, so
+  // the live and offline artifacts cannot disagree about a season constant.
+  // Falls back to whatever the existing artifact already carried, matching
+  // this merge's preserve-what-we-cannot-recompute discipline everywhere
+  // else, and stays ABSENT when neither source has it.
+  const rpOutcomeRp =
+    findRpOutcomeRp([...newPredictions.values()], [...upcomingPredictions.values()]) ?? existing?.rpOutcomeRp;
+
   const existingTeams = existing?.teams ?? [];
   const touchedSet = new Set(touchedTeams);
   const teams = [
@@ -629,6 +695,7 @@ function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
     matches,
     upcoming,
     teams,
+    ...(rpOutcomeRp !== undefined ? { rpOutcomeRp } : {}),
   };
 }
 
@@ -1033,22 +1100,142 @@ async function processEvent(
         const bandFor = (roster: readonly string[]): number | undefined =>
           sigma === undefined ? swing.bandVarianceFor(roster) : sigma.bandVarianceFor(roster);
 
+        // RANKING POINTS (shape 15, plan 09-08, D-21). Resumed from the very
+        // same rows, for the identical reason the two accumulators above are:
+        // a cold-started accumulator would price this match from THIS EVENT's
+        // matches alone while the offline publisher priced it from the whole
+        // season, and an RP pmf that is wrong is still a valid distribution —
+        // it sums to 1 and renders without complaint.
+        //
+        // The rule-module lookup is INDEXED, not `rpRuleModuleForSeason`,
+        // which THROWS for an unmapped season. A season with no registered
+        // rules (2021, and anything before the vocabulary starts) must yield
+        // no accumulator and no RP at all rather than taking the whole tick
+        // down — the same "absent feature, not empty feature" construction
+        // `SigmaScoutLayer`'s own constructor performs.
+        const rpRuleModule = RP_RULE_MODULES[window.season];
+        const rpBeliefs = readRpBeliefs(rows);
+        const rp = rpRuleModule !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs) : undefined;
+        // Teams whose beliefs this tick actually resumed, plus the teams it
+        // folds as it goes. The partial-roster gate below reads this; see its
+        // own comment for why an unresumed team must suppress the pmf rather
+        // than silently contribute nothing to it.
+        const rpKnownTeams = new Set(rpBeliefs.keys());
+
+        // ONE accessor for this tick's RP, alongside `bandFor` and for the
+        // identical stated reason: the played loop, the upcoming loop and the
+        // persisted rows cannot be allowed to disagree about what RP means
+        // this tick. Field-for-field the same call
+        // `SigmaScoutLayer.#rpFieldsFor` makes offline — read the two together
+        // if either changes.
+        const rpFieldsFor = (
+          view: { redTeams: readonly string[]; blueTeams: readonly string[]; eventType: number; matchKey: string; compLevel: MatchResult["compLevel"] },
+          prediction: Prediction,
+          redBandVariance: number | undefined,
+          blueBandVariance: number | undefined
+        ): Partial<Prediction> => {
+          if (rp === undefined || rpRuleModule === undefined) return {};
+          if (!isRpEligibleEventType(view.eventType)) return {};
+          if (redBandVariance === undefined || blueBandVariance === undefined) return {};
+          // THE PARTIAL-ROSTER GATE — the RP counterpart of
+          // `allianceSwingBandVariance`'s all-or-nothing rule.
+          //
+          // The Worker reads state only for the teams touched by THIS tick's
+          // newly-folded matches, so an upcoming match can name a team whose
+          // row was never loaded. `momentsFor` sums silently over whatever
+          // beliefs it finds, so a partially-resumed roster yields a
+          // NARROWER, MORE CONFIDENT pmf than the truth, with nothing
+          // anywhere reporting a problem.
+          //
+          // Deliberately MORE CONSERVATIVE than the offline path, which
+          // always has the whole season's roster in hand. The conservative
+          // direction — an absent pmf rather than a wrong one — is the same
+          // direction every other gate in this file takes.
+          for (const teamKey of [...view.redTeams, ...view.blueTeams]) {
+            if (!rpKnownTeams.has(teamKey)) return {};
+          }
+
+          const pmf = analyticRpPmf({
+            red: rp.momentsFor(view.redTeams, prediction.redScore, redBandVariance),
+            blue: rp.momentsFor(view.blueTeams, prediction.blueScore, blueBandVariance),
+            ruleModule: rpRuleModule,
+            eventType: view.eventType,
+            compLevel: view.compLevel,
+          });
+
+          // D-15 (plan 09-07): the five decomposition fields, composed
+          // exactly as `SigmaScoutLayer.#rpFieldsFor` composes them — from
+          // 09-04's exported halves plus THIS season's own winRp/tieRp read
+          // off the rule module, never hardcoded (2/1 in 2016-2024, 3/1 in
+          // 2025-2026). Gated on the decomposition actually being present;
+          // absent stays absent rather than becoming empty.
+          const decomposition: Partial<Prediction> =
+            pmf.outcome !== undefined && pmf.redBonusPmf !== undefined && pmf.blueBonusPmf !== undefined
+              ? {
+                  matchOutcomePmf: [pmf.outcome.pRedWin, pmf.outcome.pTie, pmf.outcome.pBlueWin],
+                  redOutcomeRp: [pmf.outcome.winRp, pmf.outcome.tieRp, 0],
+                  blueOutcomeRp: [0, pmf.outcome.tieRp, pmf.outcome.winRp],
+                  redBonusRpPmf: pmf.redBonusPmf,
+                  blueBonusRpPmf: pmf.blueBonusPmf,
+                }
+              : {};
+
+          return {
+            redRpPmf: pmf.redPmf,
+            blueRpPmf: pmf.bluePmf,
+            ...(pmf.redBonusProbabilities !== undefined ? { redBonusRp: pmf.redBonusProbabilities } : {}),
+            ...(pmf.blueBonusProbabilities !== undefined ? { blueBonusRp: pmf.blueBonusProbabilities } : {}),
+            ...decomposition,
+          };
+        };
+
+        /** Folds one played match's OBSERVED threshold variables — the exact mirror of `SigmaScoutLayer.#foldObservedThresholds`, including its degrade-to-a-counted-skip try/catch. */
+        const foldObservedRp = (result: MatchResult): void => {
+          if (rp === undefined || rpRuleModule === undefined) return;
+          if (!isRpEligibleEventType(result.eventType)) return;
+          if (!result.hasScoreBreakdown || result.scoreBreakdownRaw === null) return;
+          for (const side of ["red", "blue"] as const) {
+            try {
+              const parsed = rpRuleModule.parse(JSON.parse(result.scoreBreakdownRaw), side, result.eventType);
+              rp.fold(side === "red" ? result.redTeams : result.blueTeams, parsed.thresholdVariables);
+            } catch {
+              // A breakdown this season's module cannot parse contributes
+              // nothing rather than failing the tick.
+            }
+          }
+          for (const teamKey of [...result.redTeams, ...result.blueTeams]) rpKnownTeams.add(teamKey);
+        };
+
         const newBands = new Map<string, { red?: number; blue?: number }>();
         const newPredictions = new Map<string, Prediction>();
         for (const result of newlyFoldedResults) {
           const prediction = algorithm.predict(state, toLeakProofUpcoming(result));
-          newPredictions.set(result.matchKey, prediction);
           // Read the band BEFORE folding this match in, in the same place
           // `predict` already happens — predict-before-update, for the same
           // reason: a band says how unsure we were when we predicted this, and
           // this match's own result is not an admissible input to that.
+          const redBandVariance = bandFor(result.redTeams);
+          const blueBandVariance = bandFor(result.blueTeams);
           newBands.set(result.matchKey, {
-            ...(bandFor(result.redTeams) !== undefined ? { red: bandFor(result.redTeams) } : {}),
-            ...(bandFor(result.blueTeams) !== undefined ? { blue: bandFor(result.blueTeams) } : {}),
+            ...(redBandVariance !== undefined ? { red: redBandVariance } : {}),
+            ...(blueBandVariance !== undefined ? { blue: blueBandVariance } : {}),
+          });
+          // RP from the PRE-FOLD accumulator, same predict-before-update
+          // position as the band above. The ENRICHED prediction is what goes
+          // into `newPredictions`, never a parallel map: all three row
+          // builders read this same `Prediction`, so a field attached once
+          // here reaches every one of them. That is `sigmaScoutLayer.ts`'s
+          // own discipline applied inside the Worker, rather than the fourth
+          // instance of the add-a-field-in-a-caller's-loop bug that module
+          // was extracted to prevent (D-21).
+          newPredictions.set(result.matchKey, {
+            ...prediction,
+            ...rpFieldsFor(result, prediction, redBandVariance, blueBandVariance),
           });
           state = algorithm.update(state, result);
           swing.foldMatch(result, prediction);
           sigma?.foldMatch(result, prediction);
+          foldObservedRp(result);
           // Talent AFTER the fold, read from the post-update state — the exact
           // ordering `SigmaScoutLayer.foldPlayed` uses offline. Talent as of
           // after this match is admissible evidence for the team's NEXT match
@@ -1067,12 +1254,21 @@ async function processEvent(
         const upcomingPredictions = new Map<string, Prediction>();
         const upcomingBands = new Map<string, { red?: number; blue?: number }>();
         for (const match of stillUpcomingViews) {
-          upcomingPredictions.set(match.matchKey, algorithm.predict(state, match));
+          const prediction = algorithm.predict(state, match);
           // Read only — an unplayed match has no residual of its own, so its
           // band is built from everything played so far.
+          const redBandVariance = bandFor(match.redTeams);
+          const blueBandVariance = bandFor(match.blueTeams);
           upcomingBands.set(match.matchKey, {
-            ...(bandFor(match.redTeams) !== undefined ? { red: bandFor(match.redTeams) } : {}),
-            ...(bandFor(match.blueTeams) !== undefined ? { blue: bandFor(match.blueTeams) } : {}),
+            ...(redBandVariance !== undefined ? { red: redBandVariance } : {}),
+            ...(blueBandVariance !== undefined ? { blue: blueBandVariance } : {}),
+          });
+          // Read-only for RP too: an unplayed match has no result to fold.
+          // This is what makes `buildEventUpcomingRow`'s already-present pmf
+          // field lines carry real values instead of `undefined`.
+          upcomingPredictions.set(match.matchKey, {
+            ...prediction,
+            ...rpFieldsFor(match, prediction, redBandVariance, blueBandVariance),
           });
         }
 
@@ -1088,6 +1284,11 @@ async function processEvent(
           serializeState(algorithmId, algorithm.version, state, stamp),
           swing.beliefsByTeam()
         );
+        // The RP passenger rides back in the same way and in the same place
+        // (shape 15) — after `serializeState`, so no algorithm's serializer
+        // knows the key exists, and at zero additional D1 subrequests: these
+        // are the rows the tick already reads and already writes back.
+        if (rp !== undefined) candidateRows = withRpBeliefs(candidateRows, rp.beliefsByTeam());
         if (sigma !== undefined) {
           candidateRows = withSigmaPopulation(withSigmaBeliefs(candidateRows, sigma.beliefsByTeam()), sigma.population());
         }

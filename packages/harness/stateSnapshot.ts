@@ -39,6 +39,7 @@ import type { ElimScoreOffset, Sigma1League, Sigma1State, Sigma1TeamState } from
 import type { ExpandingStats } from "../core/scoring/expandingStats.js";
 import type { SwingBelief } from "./swingFactor.js";
 import type { SigmaBelief, SigmaPopulation } from "./sigmaScore.js";
+import type { RpTeamBeliefs, RpVariableBelief } from "../core/rankingPoints/empiricalMoments.js";
 
 // ---------------------------------------------------------------------------
 // The row shape
@@ -353,8 +354,39 @@ export class MissingLeagueRowError extends Error {
  *
  * Costs a Worker re-seed from a fresh publish run, exactly like every bump
  * above it. Seed first, deploy second.
+ *
+ * ---------------------------------------------------------------------------
+ * 14 -> 15 (2026-09-11, plan 09-08): RANKING POINTS IN THE LIVE WORKER (D-21)
+ * ---------------------------------------------------------------------------
+ *
+ * The live Worker never computed ranking points at all (audit finding F5), so
+ * every live tick stripped them off the rows it wrote. Fixing that needs the
+ * Worker to RESUME the publisher's own RP beliefs rather than cold-start its
+ * own, which is one new TEAM-row passenger key, `sigmascoutRp`: a per-team,
+ * per-threshold-variable record of `{weight, weightSquares, mean, m2}`
+ * (`RpMomentsAccumulator`'s raw running state).
+ *
+ * NO LEAGUE-ROW HALF, and that is a decision rather than an oversight — worth
+ * saying out loud because the 10 -> 11 Sigma bump above DID have one. RP needs
+ * no population statistic: every quantity it reads is per-team, and D-13's
+ * rule puts anything that scales with team count in the team row. Nothing was
+ * forgotten here.
+ *
+ * THE LOAD-BEARING REASON, and it is the SAME shape as every bump above: a
+ * Worker that cold-started its RP accumulator would price a match's pmf from
+ * THIS EVENT's matches alone, while the offline publisher priced the same
+ * match from the whole season's. Two different histories, two different
+ * answers, no error, no NaN, no malformed row — both sides look perfectly
+ * healthy and only the numbers differ. Worse than its siblings in one
+ * respect: an RP pmf is a probability distribution, so a wrong one is still a
+ * VALID one — it sums to 1, parses clean and renders without complaint. The
+ * shape check is the only thing that turns a stale seeded row into a loud
+ * `LeagueRowShapeVersionError` naming the re-seed as the fix.
+ *
+ * Costs a Worker re-seed from a fresh publish run, exactly like every bump
+ * above it. Seed first, deploy second.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 14;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 15;
 
 /**
  * Thrown when `deserializeState`'s league row does not declare the current
@@ -1181,6 +1213,97 @@ export function withSigmaPopulation(rows: readonly StateRow[], population: Sigma
     if (row.scopeKind !== "league") return row;
     const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
     return { ...row, stateJson: JSON.stringify({ ...parsed, [SIGMA_POPULATION_KEY]: population }) };
+  });
+}
+
+/**
+ * The key every `scopeKind: "team"` row carries its RANKING-POINT beliefs
+ * under (shape 15, plan 09-08).
+ *
+ * `sigmascoutRp`, following `sigmascoutSwing`/`sigmascoutSigma`: the
+ * `sigmascout{Feature}` prefix says out loud that this is a level-2 passenger
+ * rather than part of any model.
+ *
+ * MUST NOT be confused with the retired VPR `rpBeliefs` field that lives
+ * inside this same file's Sigma1 team-state serializer. That one is typed
+ * `Sigma1TeamState["rpBeliefs"]` — the retired algorithm's own Kalman state,
+ * a different thing that happens to share a word. D-21 prohibits reusing it,
+ * and it is equally not ours to rename or delete.
+ */
+const RP_BELIEF_KEY = "sigmascoutRp";
+
+/**
+ * Reads every team's RP beliefs back out of the rows. The exact inverse of
+ * `withRpBeliefs`.
+ *
+ * ALL-OR-NOTHING, AT TEAM GRANULARITY. Every variable entry in a team's
+ * record is checked, and if ANY of them is missing a field or holds a
+ * non-finite value the WHOLE TEAM is skipped rather than part-filled. The
+ * reasoning `readSwingBeliefs` records applies here and then some: a
+ * partially-written belief produces a plausible but WRONG pmf rather than no
+ * pmf, and a wrong one is far harder to notice than an absent one. It is
+ * strictly worse for RP than for a band, because `momentsFor` sums silently
+ * over whatever beliefs it finds and reports nothing when it finds fewer than
+ * it should — a half-filled record yields a narrower, more confident
+ * distribution with nothing anywhere flagging a problem.
+ *
+ * ABSENT IS A REAL ANSWER. A team row with no key yields no entry, and the
+ * caller must treat that as "no history" and accept a cold start — never
+ * fabricate one.
+ */
+export function readRpBeliefs(rows: readonly StateRow[]): Map<string, RpTeamBeliefs> {
+  const beliefs = new Map<string, RpTeamBeliefs>();
+  for (const row of rows) {
+    if (row.scopeKind !== "team") continue;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const raw = parsed[RP_BELIEF_KEY] as Record<string, Partial<RpVariableBelief>> | undefined;
+    if (raw === undefined || typeof raw !== "object" || raw === null) continue;
+    const entries = Object.entries(raw);
+    if (entries.length === 0) continue;
+    const record: Record<string, RpVariableBelief> = {};
+    let usable = true;
+    for (const [name, belief] of entries) {
+      if (belief === null || typeof belief !== "object") {
+        usable = false;
+        break;
+      }
+      const { weight, weightSquares, mean, m2 } = belief;
+      if (![weight, weightSquares, mean, m2].every((v) => typeof v === "number" && Number.isFinite(v))) {
+        usable = false;
+        break;
+      }
+      record[name] = { weight: weight!, weightSquares: weightSquares!, mean: mean!, m2: m2! };
+    }
+    if (!usable) continue;
+    beliefs.set(row.scopeKey, record);
+  }
+  return beliefs;
+}
+
+/**
+ * Injects each team's RP beliefs into the TEAM rows, returning NEW rows
+ * rather than mutating them.
+ *
+ * Only `scopeKind: "team"` rows are touched. The league row is left alone on
+ * purpose — `MAX_LEAGUE_ROW_BYTES` caps it precisely because nothing in it
+ * may scale with team count, and a per-team belief is the definition of
+ * something that does.
+ *
+ * A team with no belief gets no key, which round-trips through
+ * `readRpBeliefs` as "no history".
+ */
+export function withRpBeliefs(rows: readonly StateRow[], beliefs: ReadonlyMap<string, RpTeamBeliefs>): StateRow[] {
+  return rows.map((row) => {
+    if (row.scopeKind !== "team") return row;
+    const belief = beliefs.get(row.scopeKey);
+    if (belief === undefined) return row;
+    const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
+    return { ...row, stateJson: JSON.stringify({ ...parsed, [RP_BELIEF_KEY]: belief }) };
   });
 }
 

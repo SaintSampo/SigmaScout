@@ -229,3 +229,72 @@ describe("RpMomentsAccumulator — alliance variance reconstructs the alliance's
     expect(reported).toBeCloseTo(weightedVarianceOf(observed), 6);
   });
 });
+
+// ──────── Seed round-trip, shape 15 (plan 09-08, D-21) ─────────────────────
+
+describe("RpMomentsAccumulator — beliefsByTeam/fromBeliefs, the live Worker's resume path", () => {
+  const BLUE = ["frc4", "frc5", "frc6"];
+
+  /** A few matches folded, so every team carries real running state rather than a cold start. */
+  function foldedAccumulator(): RpMomentsAccumulator {
+    const acc = new RpMomentsAccumulator(RULES_2026);
+    acc.fold(RED, { [HUB]: 120, [TOWER]: 40 });
+    acc.fold(BLUE, { [HUB]: 95, [TOWER]: 55 });
+    acc.fold(RED, { [HUB]: 150, [TOWER]: 35 });
+    acc.fold(BLUE, { [HUB]: 88, [TOWER]: 62 });
+    return acc;
+  }
+
+  it("a round-tripped accumulator produces momentsFor output IDENTICAL to the original, varianceBlock included", () => {
+    const original = foldedAccumulator();
+    const restored = RpMomentsAccumulator.fromBeliefs(RULES_2026, original.beliefsByTeam());
+    // The WHOLE returned object, not just meanVector: the variance block is
+    // where the even-split-shrinkage correction lives, and a round-trip that
+    // lost `weightSquares` would still get the means exactly right.
+    expect(restored.momentsFor(RED, 130, 400)).toEqual(original.momentsFor(RED, 130, 400));
+    expect(restored.momentsFor(BLUE, 91, 380)).toEqual(original.momentsFor(BLUE, 91, 380));
+  });
+
+  it("beliefsByTeam() on a fresh accumulator is empty, and fromBeliefs(empty) behaves like a fresh one", () => {
+    const fresh = new RpMomentsAccumulator(RULES_2026);
+    expect(fresh.beliefsByTeam().size).toBe(0);
+    const fromEmpty = RpMomentsAccumulator.fromBeliefs(RULES_2026, new Map());
+    expect(fromEmpty.momentsFor(RED, 100, 300)).toEqual(fresh.momentsFor(RED, 100, 300));
+    expect(fromEmpty.hasHistory("frc1")).toBe(false);
+  });
+
+  it("a RESTORED accumulator folded further matches one that folded the whole stream without a round-trip", () => {
+    // This is the property the live Worker actually depends on: resume, then
+    // continue. A round-trip that dropped `weightSquares` or `m2` would pass
+    // the identity test above and fail here on the very next fold.
+    const straightThrough = foldedAccumulator();
+    const resumed = RpMomentsAccumulator.fromBeliefs(RULES_2026, foldedAccumulator().beliefsByTeam());
+
+    straightThrough.fold(RED, { [HUB]: 175, [TOWER]: 48 });
+    resumed.fold(RED, { [HUB]: 175, [TOWER]: 48 });
+
+    expect(resumed.momentsFor(RED, 140, 420)).toEqual(straightThrough.momentsFor(RED, 140, 420));
+  });
+
+  it("the exported records are COPIES -- mutating one cannot reach back into the accumulator", () => {
+    const acc = foldedAccumulator();
+    const before = acc.momentsFor(RED, 130, 400);
+    const exported = acc.beliefsByTeam();
+    (exported.get("frc1") as Record<string, { mean: number }>)[HUB]!.mean = 9999;
+    expect(acc.momentsFor(RED, 130, 400)).toEqual(before);
+  });
+
+  it("fromBeliefs DROPS a variable name this season's rule module does not declare", () => {
+    const acc = foldedAccumulator();
+    const smuggled = new Map(acc.beliefsByTeam());
+    smuggled.set("frc1", {
+      ...smuggled.get("frc1")!,
+      cargoBonus: { weight: 5, weightSquares: 3, mean: 999, m2: 100 },
+    });
+    const restored = RpMomentsAccumulator.fromBeliefs(RULES_2026, smuggled);
+    // A seed written under a different season's rules cannot smuggle a stale
+    // variable into a new season's accumulator.
+    expect(Object.keys(restored.beliefsByTeam().get("frc1")!)).toEqual([HUB, TOWER]);
+    expect(restored.momentsFor(RED, 130, 400)).toEqual(acc.momentsFor(RED, 130, 400));
+  });
+});

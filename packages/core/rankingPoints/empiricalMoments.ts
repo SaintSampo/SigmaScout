@@ -69,13 +69,38 @@ export const RP_MOMENTS_HALF_LIFE_MATCHES = 6;
 
 const DECAY = 0.5 ** (1 / RP_MOMENTS_HALF_LIFE_MATCHES);
 
-/** One team's running belief about one threshold variable. */
-interface VariableBelief {
+/**
+ * One team's running belief about one threshold variable.
+ *
+ * EXPORTED (plan 09-08, D-21) so the live Worker can persist it into D1 as a
+ * `sigmascoutRp` passenger and resume from it. The name says which feature it
+ * belongs to on purpose: `stateSnapshot.ts` also carries a RETIRED VPR
+ * `rpBeliefs` field inside its Sigma1 team-state serializer, which is
+ * Sigma1's own Kalman state and a completely different thing that happens to
+ * share a word.
+ *
+ * This was a rename-and-export, not a re-shape: no field changed name or
+ * meaning, so a belief written before 09-08 means exactly what one written
+ * after it means.
+ */
+export interface RpVariableBelief {
   weight: number;
   weightSquares: number;
   mean: number;
   m2: number;
 }
+
+/**
+ * One team's beliefs across EVERY threshold variable this season tracks,
+ * keyed by variable NAME — which is why the persisted value is a nested
+ * record rather than a flat object. 2026 tracks two (`hubTotalCount` and
+ * `totalTowerPoints`), so a single-variable round-trip would not exercise
+ * the nesting at all.
+ */
+export type RpTeamBeliefs = Readonly<Record<string, RpVariableBelief>>;
+
+/** Internal alias kept so the helpers below read unchanged. */
+type VariableBelief = RpVariableBelief;
 
 function emptyBelief(): VariableBelief {
   return { weight: 0, weightSquares: 0, mean: 0, m2: 0 };
@@ -221,6 +246,54 @@ export class RpMomentsAccumulator {
         fold(belief, share);
       }
     }
+  }
+
+  /**
+   * Every team's RAW running state, for the D1 seed the live Worker resumes
+   * from (shape 15, plan 09-08).
+   *
+   * The same distinction `SwingFactorAccumulator.beliefsByTeam()` draws, and
+   * for the same reason: this is the raw running state, NOT `momentsFor`'s
+   * derived output. A team with a single observation must carry that
+   * observation forward, or its first live match would fold against an empty
+   * belief and the live pmf would diverge from what the offline publisher
+   * would have produced — with both sides looking perfectly healthy.
+   *
+   * The returned records are COPIES all the way down, so a caller cannot
+   * reach through them and mutate this accumulator's internals.
+   */
+  beliefsByTeam(): ReadonlyMap<string, RpTeamBeliefs> {
+    const out = new Map<string, RpTeamBeliefs>();
+    for (const [teamKey, byVariable] of this.#byTeam) {
+      const record: Record<string, RpVariableBelief> = {};
+      for (const [name, belief] of byVariable) record[name] = { ...belief };
+      out.set(teamKey, record);
+    }
+    return out;
+  }
+
+  /**
+   * Rebuilds an accumulator from `beliefsByTeam()`'s output — the live
+   * Worker's resume path.
+   *
+   * Keeps ONLY the variable names `ruleModule` declares. A seed written under
+   * a different season's rules therefore cannot smuggle a stale variable into
+   * a new season's accumulator: an unknown name is dropped rather than
+   * carried, so `momentsFor` can never sum over a variable this season does
+   * not track.
+   */
+  static fromBeliefs(ruleModule: RpRuleModule, beliefs: ReadonlyMap<string, RpTeamBeliefs>): RpMomentsAccumulator {
+    const accumulator = new RpMomentsAccumulator(ruleModule);
+    const known = new Set(ruleModule.thresholdVariables.map((v) => v.name));
+    for (const [teamKey, record] of beliefs) {
+      const byVariable = new Map<string, VariableBelief>();
+      for (const [name, belief] of Object.entries(record)) {
+        if (!known.has(name)) continue;
+        byVariable.set(name, { ...belief });
+      }
+      if (byVariable.size > 0) accumulator.#byTeam.set(teamKey, byVariable);
+    }
+    return accumulator;
   }
 
   /** True once this team has at least one observation of every tracked variable — the caller's cue that a prediction rests on real history. */

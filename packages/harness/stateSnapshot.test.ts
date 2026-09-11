@@ -41,6 +41,8 @@ import {
   withSwingBeliefs,
   type StateRow,
   type StateStamp,
+  readRpBeliefs,
+  withRpBeliefs,
 } from "./stateSnapshot.js";
 import { emptyEpaWeekOneState } from "../core/algorithms/epaWeekOne.js";
 
@@ -495,7 +497,7 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     expect(() => deserializeState("opr", rows)).not.toThrow();
   });
 
-  it("STATE_SNAPSHOT_SHAPE_VERSION is 14, and a league row declaring ANY earlier shape throws (shape 14 added EPA's foul rate, 2026-09-11)", () => {
+  it("STATE_SNAPSHOT_SHAPE_VERSION is 15, and a league row declaring ANY earlier shape throws (shape 15 added the live Worker's ranking-point beliefs, plan 09-08, 2026-09-11)", () => {
     // Pinned by literal value, not relative to the constant. Every earlier
     // shape must fail LOUDLY at load rather than deserialize into a field set
     // that no longer matches `Sigma1State`: shape 3 predates
@@ -525,6 +527,15 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     // scaled one. Two silent divergences from one stale row, which is why this
     // must throw rather than degrade.
     //
+    // Shape 14's team rows carry no `sigmascoutRp` at all, so a stale shape
+    // 14 row deserializes into a team with NO ranking-point history while the
+    // offline publisher has a full season's of it for those same matches. The
+    // live tick would then price every pmf from that event's matches alone.
+    // Worse than its siblings in one specific way: the resulting pmf is still
+    // a VALID probability distribution — it sums to 1, passes the schema's own
+    // refinement and renders without complaint — so nothing downstream can
+    // flag it. This check is the only thing that makes it loud.
+    //
     // `apps/worker/src/stateStore.ts` filters rows by `algorithm_id` only and
     // never by `algorithm_version`, so bumping the algorithm version does not
     // by itself make a stale seeded row unreachable — this check is what does.
@@ -548,7 +559,7 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     // at its plain no-foul total while the offline publisher applied the frozen
     // week-1 rate. Worse than its predecessors in one respect — a zero rate is
     // a LEGAL rate, so nothing downstream could flag it as suspicious.
-    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(14);
+    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(15);
 
     // NOT an iteration over a list that can silently skip: the range is derived
     // from the current version, so a future bump cannot leave the newest stale
@@ -1420,5 +1431,114 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
       computedAt: STAMP.computedAt,
     };
     expect(() => deserializeState("epa", [staleRow])).toThrow(LeagueRowShapeVersionError);
+  });
+});
+
+// ──────── Ranking-point beliefs, shape 15 (plan 09-08, D-21) ───────────────
+
+describe("ranking-point belief persistence (shape 15, plan 09-08)", () => {
+  /**
+   * TWO variable names on purpose — 2026 tracks `hubTotalCount` and
+   * `totalTowerPoints`, and a single-variable record would not exercise the
+   * per-variable nesting that makes this passenger a nested record rather
+   * than a flat object at all.
+   */
+  const BELIEFS = {
+    hubTotalCount: { weight: 3.5, weightSquares: 2.25, mean: 41.75, m2: 180.5 },
+    totalTowerPoints: { weight: 3.5, weightSquares: 2.25, mean: 12.25, m2: 44.75 },
+  };
+
+  function teamRows(): StateRow[] {
+    return serializeState("bpr", bpr.version, bpr.initState(["frc1", "frc2"]) as any, STAMP);
+  }
+
+  it("round-trips one team's beliefs across TWO variable names unchanged", () => {
+    const rows = withRpBeliefs(teamRows(), new Map([["frc1", BELIEFS]]));
+    expect(readRpBeliefs(rows).get("frc1")).toEqual(BELIEFS);
+  });
+
+  it("SKIPS the WHOLE TEAM when any one variable's m2 is a string -- momentsFor sums silently, so a part-filled record yields a confident WRONG pmf", () => {
+    const rows = teamRows().map((row) =>
+      row.scopeKind === "team" && row.scopeKey === "frc1"
+        ? {
+            ...row,
+            stateJson: JSON.stringify({
+              ...JSON.parse(row.stateJson),
+              sigmascoutRp: { ...BELIEFS, totalTowerPoints: { ...BELIEFS.totalTowerPoints, m2: "44.75" } },
+            }),
+          }
+        : row
+    );
+    expect(readRpBeliefs(rows).has("frc1")).toBe(false);
+  });
+
+  it("SKIPS the WHOLE TEAM when any one variable's m2 is NaN", () => {
+    const rows = teamRows().map((row) =>
+      row.scopeKind === "team" && row.scopeKey === "frc1"
+        ? {
+            ...row,
+            stateJson: JSON.stringify({
+              ...JSON.parse(row.stateJson),
+              sigmascoutRp: { ...BELIEFS, hubTotalCount: { ...BELIEFS.hubTotalCount, m2: Number.NaN } },
+            }),
+          }
+        : row
+    );
+    // JSON.stringify turns NaN into null, which is the on-disk reality this
+    // guard actually faces -- and null is not a finite number either way.
+    expect(readRpBeliefs(rows).has("frc1")).toBe(false);
+  });
+
+  it("SKIPS the WHOLE TEAM when any one variable is missing a field entirely", () => {
+    const rows = teamRows().map((row) =>
+      row.scopeKind === "team" && row.scopeKey === "frc1"
+        ? {
+            ...row,
+            stateJson: JSON.stringify({
+              ...JSON.parse(row.stateJson),
+              sigmascoutRp: { ...BELIEFS, totalTowerPoints: { weight: 1, mean: 2 } },
+            }),
+          }
+        : row
+    );
+    expect(readRpBeliefs(rows).has("frc1")).toBe(false);
+  });
+
+  it("returns NEW rows -- the input array's stateJson strings are unchanged by reference", () => {
+    const input = teamRows();
+    const before = input.map((r) => r.stateJson);
+    const out = withRpBeliefs(input, new Map([["frc1", BELIEFS]]));
+    expect(input.map((r) => r.stateJson)).toEqual(before);
+    expect(out).not.toBe(input);
+  });
+
+  it("leaves a team with no belief absent rather than writing an empty record", () => {
+    const rows = withRpBeliefs(teamRows(), new Map([["frc1", BELIEFS]]));
+    expect(readRpBeliefs(rows).has("frc2")).toBe(false);
+  });
+
+  it("returns event and league rows untouched -- the league row's size budget forbids anything scaling with team count", () => {
+    const input = teamRows();
+    const out = withRpBeliefs(input, new Map([["frc1", BELIEFS]]));
+    for (let i = 0; i < input.length; i++) {
+      if (input[i]!.scopeKind === "team") continue;
+      expect(out[i]).toBe(input[i]);
+    }
+    for (const row of out) {
+      if (row.scopeKind === "team") continue;
+      expect(row.stateJson).not.toContain("sigmascoutRp");
+    }
+  });
+
+  it("coexists with BOTH the Swing and Sigma passengers on the same team row", () => {
+    const swing = { weight: 1, weightSquares: 1, mean: 2, m2: 3 };
+    const sigma = { meanWeight: 3.25, mean: 8.5, varWeight: 2.75, sumSquares: 91.5, talent: 42.25 };
+    const all = withRpBeliefs(
+      withSigmaBeliefs(withSwingBeliefs(teamRows(), new Map([["frc1", swing]])), new Map([["frc1", sigma]])),
+      new Map([["frc1", BELIEFS]])
+    );
+    expect(readSwingBeliefs(all).get("frc1")).toEqual(swing);
+    expect(readSigmaBeliefs(all).get("frc1")).toEqual(sigma);
+    expect(readRpBeliefs(all).get("frc1")).toEqual(BELIEFS);
   });
 });
