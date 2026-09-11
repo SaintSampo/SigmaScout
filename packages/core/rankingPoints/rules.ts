@@ -24,11 +24,19 @@ export {
   EVENT_TYPE_TIERS,
   assertFiniteThresholdVariables,
   eventTierFor,
+  evaluateBonusPredicates,
+  resolveRpThreshold,
+  type BonusPredicate,
   type EventTier,
+  type MarginalFamily,
+  type RpLinearTerm,
   type RpParsedResult,
+  type RpPredicateThreshold,
   type RpRuleModule,
+  type RpThresholdClause,
   type RpThresholdVariable,
   type RpTieredThreshold,
+  type RpUntrackedGate,
 } from "./constants.js";
 import type { RpRuleModule } from "./constants.js";
 

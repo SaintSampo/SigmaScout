@@ -23,12 +23,38 @@
 import type { CompLevel } from "../algorithms/types.js";
 
 /**
+ * The marginal probability family a threshold variable's belief is modelled
+ * with (D-01, D-02). `"gaussian"` is what every declaration in the tree
+ * names today. D-01 chose the count-native `"negative-binomial"` family for
+ * count-valued variables (right-skewed, exact discrete CDF at integer
+ * thresholds, support `[0, infinity)`); D-02 put that CHOICE in the season
+ * module beside `unit` rather than deriving it implicitly from `unit`. The
+ * flip is 09-05's, gated on 09-03's warm-roster re-measurement of F3's mean
+ * deficit — this plan (09-02) only plants the declared place for it to
+ * land; nothing in this plan reads this field for anything other than a
+ * structural domain/all-Gaussian assertion.
+ */
+export type MarginalFamily = "gaussian" | "negative-binomial";
+
+/**
  * One named scalar a season's RP rules threshold on, tracked in its own
  * units. Named "threshold variable", not "count" — see the file header.
  */
 export interface RpThresholdVariable {
   readonly name: string;
   readonly unit: "count" | "points";
+  /**
+   * D-02: which `MarginalFamily` this variable's belief is modelled with,
+   * declared explicitly beside `unit` rather than derived from it — a
+   * variable needing an exception has somewhere to say so. Every
+   * declaration in the tree names the Gaussian value today; the flip to
+   * the count-native family is 09-05's, gated on 09-03's warm-roster
+   * re-measurement. Optional for exactly one plan's worth of migration
+   * (09-02 Task 1): the nine season modules not yet converted in that task
+   * still typecheck without it. Task 3 tightens this to required once
+   * every module declares it.
+   */
+  readonly marginalFamily?: MarginalFamily;
 }
 
 /**
@@ -117,6 +143,235 @@ export function isRpEligibleEventType(eventType: number): boolean {
 export type RpTieredThreshold = Readonly<Record<EventTier, number>>;
 
 /**
+ * What a `BonusPredicate` clause compares a variable (or linear
+ * combination) against: either a genuinely tiered `RpTieredThreshold`
+ * table, or a plain `number` for a definitional constant that is not
+ * itself a threshold (`CROSSINGS_FOR_DAMAGED_DEFENSE`,
+ * `AUTO_LINE_ROBOTS_REQUIRED`, `AUTO_CORAL_REQUIRED`,
+ * `CORAL_BONUS_COOP_LEVELS_REQUIRED`) — see `resolveRpThreshold`, the sole
+ * place this distinction is branched on.
+ */
+export type RpPredicateThreshold = RpTieredThreshold | number;
+
+/**
+ * The ONE place `RpPredicateThreshold`'s `RpTieredThreshold`-vs-`number`
+ * distinction is branched on, anywhere in this leaf. Keeping this the sole
+ * branch point is what lets `CROSSINGS_FOR_DAMAGED_DEFENSE`,
+ * `AUTO_LINE_ROBOTS_REQUIRED`, `AUTO_CORAL_REQUIRED` and
+ * `CORAL_BONUS_COOP_LEVELS_REQUIRED` stay the plain numbers their own doc
+ * comments explain they are, instead of being laundered into uniform
+ * triples that would misrepresent their provenance.
+ */
+export function resolveRpThreshold(threshold: RpPredicateThreshold, tier: EventTier): number {
+  return typeof threshold === "number" ? threshold : threshold[tier];
+}
+
+/**
+ * One term of a `linearCombination`/`countOfIndicators` clause: a
+ * threshold-variable name and a DIVISOR (never a multiplier) that term's
+ * value is divided by before summing. `divisor` defaults to `1` when
+ * absent. This is load-bearing: dividing by 5 and multiplying by the
+ * nearest double to one-fifth are different operations on a binary float,
+ * and a threshold comparison is precisely where that difference is
+ * observable — so the evaluator always divides, never multiplies by a
+ * precomputed coefficient, and term order is part of the declaration
+ * because floating-point addition is not associative. The three affected
+ * derivations are 2016's `towerRobotCount` (divisors 5 and 15), 2017's
+ * `rotorCount` (divisors 60 and 40) and 2023's `links` (divisor 5).
+ */
+export interface RpLinearTerm {
+  readonly variable: string;
+  readonly divisor?: number;
+}
+
+/**
+ * One linear inequality: sum `terms` left to right (each term divided by
+ * its own `divisor`), then compare the sum against `threshold` with
+ * `direction`. `"lte"` exists for exactly one clause in the whole tree —
+ * 2016 `capture`'s attacked-tower half — see
+ * `CAPTURED_TOWER_END_STRENGTH_THRESHOLD`'s own "the only inverted
+ * comparison in this module" note in `2016.ts`.
+ */
+export interface RpThresholdClause {
+  readonly terms: readonly RpLinearTerm[];
+  readonly direction: "gte" | "lte";
+  readonly threshold: RpPredicateThreshold;
+}
+
+/**
+ * Metadata recording that a bonus's REAL achievement condition also gates
+ * on an alliance-level signal that is NOT itself a tracked threshold
+ * variable (coopertition flags, per-robot auto-leave state) — see
+ * `RpRuleModule.predictThresholds`'s own doc comment for the general
+ * conservative-branch contract this records. `branch` is `"conservative"`
+ * for the five bonuses that take the stricter table or the hardcoded
+ * `false`, and `"numeric-proxy"` for 2018 `autoQuest`, the one documented
+ * exception whose fallback OVER-fires rather than under-fires.
+ * `errorDirection` names which way: `"understates"` for the five,
+ * `"overstates"` for 2018. `note` carries the one-sentence justification
+ * and the measured figure, attributed to `pnpm rp:conservative-branch` and
+ * `docs/models/sigma1-rp-verification.md`'s
+ * `## Conservative-Branch Understatement` section — never restated as a
+ * fresh claim.
+ *
+ * **THIS TYPE IS METADATA ONLY. `evaluateBonusPredicates` must never read
+ * it.** The conservative choice is already baked into which threshold
+ * table or branch the declaration names, so there is nothing for the
+ * evaluator to decide, and a gate the evaluator COULD branch on is a gate a
+ * future edit could flip (Pitfall 4).
+ */
+export interface RpUntrackedGate {
+  readonly signal: string;
+  readonly branch: "conservative" | "numeric-proxy";
+  readonly errorDirection: "understates" | "overstates";
+  readonly note: string;
+}
+
+/**
+ * One bonus's achievement condition, expressed as declared data instead of
+ * a hand-written comparison (D-02, D-07). All 21 bonuses across the ten
+ * registered seasons reduce to exactly these seven mechanism classes — see
+ * 09-RESEARCH.md's "seven bonus mechanisms" enumeration, verified against
+ * every season's `predictThresholds` at HEAD before this plan. None
+ * required an eighth.
+ */
+export type BonusPredicate =
+  | {
+      readonly kind: "singleThreshold";
+      readonly name: string;
+      readonly variable: string;
+      readonly direction: "gte" | "lte";
+      readonly threshold: RpPredicateThreshold;
+      readonly untrackedGate?: RpUntrackedGate;
+    }
+  | {
+      readonly kind: "linearCombination";
+      readonly name: string;
+      readonly terms: readonly RpLinearTerm[];
+      readonly direction: "gte" | "lte";
+      readonly threshold: RpPredicateThreshold;
+      readonly untrackedGate?: RpUntrackedGate;
+    }
+  | {
+      readonly kind: "conjunctionDistinct";
+      readonly name: string;
+      readonly clauses: readonly RpThresholdClause[];
+      readonly untrackedGate?: RpUntrackedGate;
+    }
+  | {
+      readonly kind: "nestedSameVariable";
+      readonly name: string;
+      readonly variable: string;
+      readonly direction: "gte" | "lte";
+      readonly threshold: RpPredicateThreshold;
+      /**
+       * The sibling bonus name(s) thresholding the SAME `variable` — 09-04's
+       * grouping key (D-07). 2026's `energized`/`supercharged` pair names
+       * each other here, distinguishable from `conjunctionDistinct` at the
+       * TYPE level so 09-04 cannot accidentally group them as independent.
+       */
+      readonly nestedWith: readonly string[];
+    }
+  | {
+      readonly kind: "countOfIndicators";
+      readonly name: string;
+      readonly indicators: readonly RpThresholdClause[];
+      readonly required: RpPredicateThreshold;
+      readonly untrackedGate?: RpUntrackedGate;
+    }
+  | {
+      readonly kind: "dataDependentMixture";
+      readonly name: string;
+      readonly selector: RpThresholdClause;
+      readonly whenSelectorTrue: RpThresholdClause;
+      readonly whenSelectorFalse: RpThresholdClause;
+    }
+  | {
+      readonly kind: "constant";
+      readonly name: string;
+      readonly value: boolean;
+      readonly reason: string;
+    };
+
+function evaluateClause(clause: RpThresholdClause, values: Readonly<Record<string, number>>, tier: EventTier): boolean {
+  let sum = 0;
+  for (const term of clause.terms) {
+    sum += (values[term.variable] ?? 0) / (term.divisor ?? 1);
+  }
+  const threshold = resolveRpThreshold(clause.threshold, tier);
+  return clause.direction === "gte" ? sum >= threshold : sum <= threshold;
+}
+
+/**
+ * The thin evaluator every season's `predictThresholds` delegates to
+ * (D-02, D-07). First statement is `eventTierFor(eventType)` — reached
+ * before any comparison, so an unmapped event type still throws exactly as
+ * every season's hand-written implementation already does. Builds
+ * `bonusFlags` with `Object.create(null)` and assigns one key per predicate
+ * in ARRAY order, matching every module's current epilogue exactly. One
+ * `switch` on `kind`, seven arms, no default fallthrough that silently
+ * returns `false` — an unhandled kind is a COMPILE error via the
+ * exhaustiveness check in the `default` arm, never a silent mis-evaluation.
+ *
+ * `nestedSameVariable` evaluates IDENTICALLY to `singleThreshold` here —
+ * the nesting is declarative information for 09-04's grouping, and making
+ * it change the boolean answer here would break byte-for-byte equivalence
+ * with the pre-rewrite code.
+ */
+export function evaluateBonusPredicates(
+  predicates: readonly BonusPredicate[],
+  values: Readonly<Record<string, number>>,
+  eventType: number
+): RpThresholdPrediction {
+  const tier = eventTierFor(eventType);
+  const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
+
+  for (const predicate of predicates) {
+    let achieved: boolean;
+    switch (predicate.kind) {
+      case "singleThreshold":
+      case "nestedSameVariable": {
+        const value = values[predicate.variable] ?? 0;
+        const threshold = resolveRpThreshold(predicate.threshold, tier);
+        achieved = predicate.direction === "gte" ? value >= threshold : value <= threshold;
+        break;
+      }
+      case "linearCombination": {
+        achieved = evaluateClause({ terms: predicate.terms, direction: predicate.direction, threshold: predicate.threshold }, values, tier);
+        break;
+      }
+      case "conjunctionDistinct": {
+        achieved = predicate.clauses.every((clause) => evaluateClause(clause, values, tier));
+        break;
+      }
+      case "countOfIndicators": {
+        const satisfied = predicate.indicators.filter((clause) => evaluateClause(clause, values, tier)).length;
+        const required = resolveRpThreshold(predicate.required, tier);
+        achieved = satisfied >= required;
+        break;
+      }
+      case "dataDependentMixture": {
+        const selected = evaluateClause(predicate.selector, values, tier);
+        achieved = evaluateClause(selected ? predicate.whenSelectorTrue : predicate.whenSelectorFalse, values, tier);
+        break;
+      }
+      case "constant": {
+        achieved = predicate.value;
+        break;
+      }
+      default: {
+        const exhaustive: never = predicate;
+        throw new Error(`evaluateBonusPredicates: unhandled predicate kind ${JSON.stringify(exhaustive)}`);
+      }
+    }
+    bonusFlags[predicate.name] = achieved;
+  }
+
+  const totalRp = Object.values(bonusFlags).filter(Boolean).length;
+  return { bonusFlags, totalRp };
+}
+
+/**
  * What a season module's `parse` returns for ONE alliance. `bonusFlags` are
  * RECOMPUTED from raw fields; `recordedBonusFlags` are TBA's own booleans
  * read verbatim from the same raw payload — keeping both is what turns
@@ -166,6 +421,15 @@ export interface RpRuleModule {
   readonly season: number;
   readonly thresholdVariables: readonly RpThresholdVariable[];
   readonly bonusNames: readonly string[];
+  /**
+   * D-02/Pitfall 2: `bonusNames` above is DERIVED from this array —
+   * `bonusNames.map(p => p.name)` in every season module, one list of
+   * bonus names in the tree that can never drift from a second,
+   * separately-maintained literal. Optional for exactly one plan's worth
+   * of migration (09-02 Task 1); Task 3 tightens this to required once
+   * every season module declares it.
+   */
+  readonly bonusPredicates?: readonly BonusPredicate[];
   readonly maxRp: number;
   readonly winRp: number;
   readonly tieRp: number;

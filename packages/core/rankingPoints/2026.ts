@@ -36,8 +36,8 @@
  * the sole basis, now that it has an independent manual confirmation.
  */
 import { z } from "zod";
-import type { RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
-import { assertFiniteThresholdVariables, eventTierFor } from "./constants.js";
+import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
+import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor } from "./constants.js";
 
 const HubScoreSchema = z.object({
   totalCount: z.number().finite(),
@@ -67,16 +67,56 @@ const SUPERCHARGED_THRESHOLD: RpTieredThreshold = { base: 360, districtChampions
 const TRAVERSAL_THRESHOLD: RpTieredThreshold = { base: 50, districtChampionship: 50, championship: 50 };
 
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
-  { name: "hubTotalCount", unit: "count" },
-  { name: "totalTowerPoints", unit: "points" },
+  { name: "hubTotalCount", unit: "count", marginalFamily: "gaussian" },
+  { name: "totalTowerPoints", unit: "points", marginalFamily: "gaussian" },
 ];
 
-const BONUS_NAMES = ["energized", "supercharged", "traversal"] as const;
+/**
+ * D-02, D-07: `energized` and `supercharged` both threshold `hubTotalCount`
+ * — declared `nestedSameVariable`, distinguishable from `conjunctionDistinct`
+ * at the TYPE level, each naming the other in `nestedWith`. Per the file
+ * header, `SUPERCHARGED_THRESHOLD[tier] >= ENERGIZED_THRESHOLD[tier]` at
+ * EVERY tier (360>=100, 360>=240, 500>=360), so supercharged structurally
+ * implies energized — 09-04 must compute the joint as an interval
+ * probability (`P(both) = P(supercharged)`), never a product of
+ * independents (D-07's named single-easiest-thing-to-get-silently-wrong).
+ * `traversal` is fully independent — declared `singleThreshold` over
+ * `totalTowerPoints`. No bonus here gates on an untracked alliance-level
+ * signal, so none carries an `untrackedGate`.
+ */
+const BONUS_PREDICATES: readonly BonusPredicate[] = [
+  {
+    kind: "nestedSameVariable",
+    name: "energized",
+    variable: "hubTotalCount",
+    direction: "gte",
+    threshold: ENERGIZED_THRESHOLD,
+    nestedWith: ["supercharged"],
+  },
+  {
+    kind: "nestedSameVariable",
+    name: "supercharged",
+    variable: "hubTotalCount",
+    direction: "gte",
+    threshold: SUPERCHARGED_THRESHOLD,
+    nestedWith: ["energized"],
+  },
+  {
+    kind: "singleThreshold",
+    name: "traversal",
+    variable: "totalTowerPoints",
+    direction: "gte",
+    threshold: TRAVERSAL_THRESHOLD,
+  },
+];
+
+const BONUS_NAMES = BONUS_PREDICATES.map((p) => p.name);
 
 export const rp2026: RpRuleModule = {
   season: 2026,
   thresholdVariables: THRESHOLD_VARIABLES,
   bonusNames: BONUS_NAMES,
+  bonusPredicates: BONUS_PREDICATES,
   maxRp: 3 + BONUS_NAMES.length,
   winRp: 3,
   tieRp: 1,
@@ -119,21 +159,14 @@ export const rp2026: RpRuleModule = {
     };
   },
 
-  /** Fully computable from tracked threshold variables alone — no untracked alliance-level gate (see `RpRuleModule.predictThresholds`'s doc comment for the general contract). */
+  /**
+   * Fully computable from tracked threshold variables alone — no untracked
+   * alliance-level gate (see `RpRuleModule.predictThresholds`'s doc comment
+   * for the general contract). Delegates to the shared declarative
+   * evaluator (D-02, D-07); see `BONUS_PREDICATES` above for the nested
+   * `energized`/`supercharged` pair's own reasoning.
+   */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
-    const tier = eventTierFor(eventType);
-    const hubTotalCount = values.hubTotalCount ?? 0;
-    const totalTowerPoints = values.totalTowerPoints ?? 0;
-
-    const energized = hubTotalCount >= ENERGIZED_THRESHOLD[tier];
-    const supercharged = hubTotalCount >= SUPERCHARGED_THRESHOLD[tier];
-    const traversal = totalTowerPoints >= TRAVERSAL_THRESHOLD[tier];
-
-    const bonusFlags: Record<string, boolean> = Object.create(null) as Record<string, boolean>;
-    bonusFlags.energized = energized;
-    bonusFlags.supercharged = supercharged;
-    bonusFlags.traversal = traversal;
-
-    return { bonusFlags, totalRp: Number(energized) + Number(supercharged) + Number(traversal) };
+    return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
   },
 };
