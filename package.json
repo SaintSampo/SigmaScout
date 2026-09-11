@@ -30,6 +30,7 @@
     "promote": "tsx packages/harness/promote.ts",
     "measure:rewind-gap": "tsx scripts/measureRewindGap.ts",
     "measure:swing-skill": "tsx scripts/measureSwingSkill.ts",
+    "measure:alliance-reconstruction": "tsx scripts/measureAllianceReconstruction.ts",
     "compare:sigma-score": "tsx scripts/compareSigmaScore.ts",
     "fetch:schedule-templates": "tsx scripts/fetchScheduleTemplates.ts",
     "reparam:equivalence": "tsx scripts/reparamEquivalence.ts",
