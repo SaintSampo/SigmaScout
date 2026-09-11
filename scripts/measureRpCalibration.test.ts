@@ -35,15 +35,19 @@ import { SigmaScoutLayer } from "../packages/harness/sigmaScoutLayer.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
 import {
   assertIdenticalPopulations,
+  buildRpAttributionDigest,
+  buildRpAttributionRecord,
   buildRpCalibrationRecord,
   decideRpShipConfig,
   evaluateD09Bar,
   negativeBinomialShare,
   resolveRpArms,
   RP_ATTRIBUTION_ARMS,
+  RP_DOT_THRESHOLD_DEFAULT,
   RP_RELIABILITY_BUCKET_EDGES,
   RP_REPORTING_SLICE_SEASONS,
   RP_SELECTION_SLICE_SEASONS,
+  RpAttributionRecordSchema,
   rpCellKey,
   type Observation,
   type RpArmVerdict,
@@ -644,5 +648,214 @@ describe("the multi-arm fold — eight layers off ONE replay", () => {
     // input — which is what makes folding ONE record list through eight layers
     // safe, and therefore what makes "one replay per season" honest.
     expect(records).toEqual(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The committed attribution record and its document (09-06 Task 2)
+// ---------------------------------------------------------------------------
+//
+// STRUCTURAL AND EQUALITY EXPECTATIONS ONLY. The measured figures themselves
+// are the output of the run and are recorded, never asserted against a number
+// picked in advance — asserting a measured Brier here would be pinning the
+// answer to a question this plan exists to ask.
+
+const ATTRIBUTION_RAW = JSON.parse(
+  readFileSync(new URL("../data/baselines/rp-attribution-2026-09.json", import.meta.url), "utf8")
+) as unknown;
+
+describe("data/baselines/rp-attribution-2026-09.json — the committed record", () => {
+  it("parses through its own schema — the validate-then-write boundary, re-checked at rest", () => {
+    expect(() => RpAttributionRecordSchema.parse(ATTRIBUTION_RAW)).not.toThrow();
+  });
+
+  const record = RpAttributionRecordSchema.parse(ATTRIBUTION_RAW);
+  const allCells = [...record.selectionSlice.cells, ...record.reportingSlice.cells];
+
+  it("covers the FULL cross product of arms x published algorithms x registered seasons — one set equality", () => {
+    // NOT a loop over a hand-typed list: a test that iterates a hardcoded
+    // season list silently skips a newly-registered season, while only an
+    // equality pin fails loudly.
+    const expected = new Set<string>();
+    for (const arm of RP_ATTRIBUTION_ARMS) {
+      for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
+        for (const season of Object.keys(RP_RULE_MODULES).map(Number)) {
+          expected.add(`${arm.name}|${algorithmId}|${season}`);
+        }
+      }
+    }
+    const actual = new Set(allCells.map((c) => `${c.arm}|${c.algorithmId}|${c.season}`));
+    expect(actual).toEqual(expected);
+  });
+
+  it("keeps every season's bonuses in the season module's own positional order", () => {
+    // The positional bonus contract 09-02 pinned: the record's cells for one
+    // (arm, algorithm, season) must appear in `bonusNames` order, because the
+    // rest of the site reads bonus arrays positionally.
+    for (const arm of RP_ATTRIBUTION_ARMS) {
+      for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
+        for (const season of Object.keys(RP_RULE_MODULES).map(Number)) {
+          const mine = allCells.filter((c) => c.arm === arm.name && c.algorithmId === algorithmId && c.season === season);
+          expect(mine.map((c) => c.bonusName)).toEqual([...RP_RULE_MODULES[season]!.bonusNames]);
+        }
+      }
+    }
+  });
+
+  it("every arm scored the IDENTICAL observation set — the population guard, re-asserted at rest", () => {
+    const byCell = new Map<string, Map<string, number>>();
+    for (const c of allCells) {
+      const key = `${c.algorithmId}|${c.season}|${c.bonusName}`;
+      if (!byCell.has(key)) byCell.set(key, new Map());
+      byCell.get(key)!.set(c.arm, c.count);
+    }
+    for (const [key, byArm] of byCell) {
+      const counts = [...byArm.values()];
+      expect(new Set(counts).size, `differing counts for ${key}: ${[...byArm].map(([a, n]) => `${a}=${n}`).join(", ")}`).toBe(1);
+    }
+  });
+
+  it("the two slices partition the registered seasons, and every cell lands in exactly one of them", () => {
+    const selection = new Set(record.selectionSlice.seasons);
+    const reporting = new Set(record.reportingSlice.seasons);
+    for (const s of selection) expect(reporting.has(s)).toBe(false);
+    expect(new Set([...selection, ...reporting])).toEqual(new Set(Object.keys(RP_RULE_MODULES).map(Number)));
+    for (const c of record.selectionSlice.cells) expect(selection.has(c.season)).toBe(true);
+    for (const c of record.reportingSlice.cells) expect(reporting.has(c.season)).toBe(true);
+  });
+
+  it("the reporting slice carries the derived cell census — 30 scored cells across three algorithms", () => {
+    const scoredCells = record.reportingSlice.cells.filter((c) => c.arm === "control" && c.count > 0);
+    const bonusTotal = RP_REPORTING_SLICE_SEASONS.reduce((sum, s) => sum + RP_RULE_MODULES[s]!.bonusNames.length, 0);
+    expect(scoredCells.length).toBe(bonusTotal * PUBLISHED_ALGORITHM_IDS.length);
+  });
+
+  it("the stored decision is REPRODUCED by re-running the rule over the record's own armVerdicts, not merely trusted", () => {
+    // A stored verdict that disagrees with the rule applied to the stored
+    // table is the one corruption that would be invisible to a reader.
+    const rerun = decideRpShipConfig(new Map(record.armVerdicts.map((v) => [v.arm, v])));
+    expect(rerun.acceptedFields).toEqual(record.decision.acceptedFields);
+    expect(rerun.revertedFields).toEqual(record.decision.revertedFields);
+    expect(rerun.path).toEqual(record.decision.path);
+    expect({ ...rerun.shipConfig }).toEqual(record.decision.shipConfig);
+  });
+
+  it("every arm verdict is REPRODUCED by re-running the bar over the record's own reporting-slice cells", () => {
+    const byArm = new Map<string, RpBonusCell[]>();
+    for (const c of record.reportingSlice.cells) {
+      if (!byArm.has(c.arm)) byArm.set(c.arm, []);
+      byArm.get(c.arm)!.push({
+        algorithmId: c.algorithmId,
+        season: c.season,
+        bonusName: c.bonusName,
+        count: c.count,
+        meanPredicted: c.meanPredicted ?? Number.NaN,
+        observedFrequency: c.observedFrequency ?? Number.NaN,
+        brierScore: c.brierScore ?? Number.NaN,
+      });
+    }
+    for (const stored of record.armVerdicts) {
+      expect(evaluateD09Bar(byArm.get("control")!, byArm.get(stored.arm)!, stored.arm)).toEqual(stored);
+    }
+  });
+
+  it("records the corpus it was measured against, and the arms as PLAIN STRING MAPS that outlive the deleted config type", () => {
+    expect(record.corpusIdentity.path).toBe("data/corpus.sqlite");
+    expect(record.corpusIdentity.sizeBytes).toBeGreaterThan(0);
+    expect(Object.keys(record.armConfigs).sort()).toEqual(RP_ATTRIBUTION_ARMS.map((a) => a.name).sort());
+    for (const config of Object.values(record.armConfigs)) {
+      for (const value of Object.values(config)) expect(typeof value).toBe("string");
+    }
+  });
+
+  it("pins F10's dot threshold into the record without importing it from the web app", () => {
+    expect(record.dotThreshold).toBe(RP_DOT_THRESHOLD_DEFAULT);
+  });
+});
+
+describe("the cross-generation panel is emitted and NEVER reaches the bar", () => {
+  it("changing the cross-generation block cannot move a single arm verdict", () => {
+    // 09-01's frozen file predates 09-04's engine swap. Feeding it to the bar
+    // would credit or blame the modelling changes for the Monte Carlo's
+    // removal, and would compare a HEAD-computed number against one produced
+    // by code that no longer exists. Asserted behaviorally: the bar's inputs
+    // come ONLY from arms measured in this process.
+    const cells = RP_ATTRIBUTION_ARMS.flatMap((arm) =>
+      RP_REPORTING_SLICE_SEASONS.flatMap((season) =>
+        RP_RULE_MODULES[season]!.bonusNames.map((bonusName) => ({
+          arm: arm.name,
+          algorithmId: "bpr",
+          season,
+          bonusName,
+          count: 100,
+          meanPredicted: 0.5,
+          observedFrequency: 0.5,
+          brierScore: arm.name === "control" ? 0.25 : 0.24,
+          dotEligibleShare: 0.5,
+        }))
+      )
+    );
+    const base = {
+      measuredAt: "2026-09-11T00:00:00.000Z",
+      command: "test",
+      corpusIdentity: { path: "data/corpus.sqlite", sizeBytes: 1, mtime: "2026-09-11T00:00:00.000Z" },
+      offseasonIncluded: true,
+      algorithmVersions: { bpr: "3.0.0" },
+      arms: RP_ATTRIBUTION_ARMS,
+      dotThreshold: RP_DOT_THRESHOLD_DEFAULT,
+      cells,
+      marginalResolution: Object.fromEntries(
+        RP_ATTRIBUTION_ARMS.map((a) => [a.name, { negativeBinomial: 0, gaussian: 0, degenerate: 0, fallbacks: 0 }])
+      ),
+      outcomeCoherence: [],
+    };
+    const withoutPanel = buildRpAttributionRecord({ ...base, crossGeneration: [] });
+    const withWildPanel = buildRpAttributionRecord({
+      ...base,
+      crossGeneration: RP_REPORTING_SLICE_SEASONS.flatMap((season) =>
+        RP_RULE_MODULES[season]!.bonusNames.map((bonusName) => ({
+          algorithmId: "bpr",
+          season,
+          bonusName,
+          frozenMeanPredicted: 0.99,
+          controlMeanPredicted: 0.01,
+          frozenBrier: 0.99,
+          controlBrier: 0.01,
+          observedFrequency: 0.5,
+        }))
+      ),
+    });
+    expect(withWildPanel.armVerdicts).toEqual(withoutPanel.armVerdicts);
+    expect(withWildPanel.decision).toEqual(withoutPanel.decision);
+  });
+});
+
+describe("docs/models/rp-attribution.md cannot drift off the record it describes", () => {
+  it("its machine-readable block deep-equals the digest of the committed record", () => {
+    const doc = readFileSync(new URL("../docs/models/rp-attribution.md", import.meta.url), "utf8");
+    const match = doc.match(/```json\n([\s\S]*?)\n```/);
+    expect(match, "docs/models/rp-attribution.md must carry one ```json fenced block").not.toBeNull();
+    const block = JSON.parse(match![1]!) as unknown;
+    expect(block).toEqual(buildRpAttributionDigest(RpAttributionRecordSchema.parse(ATTRIBUTION_RAW)));
+  });
+
+  it("keeps D-04's two slices under separate headings, with no season under the wrong one", () => {
+    const doc = readFileSync(new URL("../docs/models/rp-attribution.md", import.meta.url), "utf8");
+    const section = (heading: string): string => {
+      const start = doc.indexOf(heading);
+      expect(start, `missing heading: ${heading}`).toBeGreaterThan(-1);
+      const rest = doc.slice(start + heading.length);
+      const end = rest.search(/\n## /);
+      return end === -1 ? rest : rest.slice(0, end);
+    };
+    const selection = section("## SELECTION SLICE");
+    const reporting = section("## REPORTING SLICE");
+    // Asserted structurally over the two headed sections, not by eye. Matched
+    // as WHOLE TOKENS rather than substrings: a Brier score of 0.202011
+    // contains "2020" and a raw `toContain` would read that as a selection
+    // season leaking into the reporting section.
+    const mentionsYear = (text: string, year: number): boolean => new RegExp(`\b${year}\b`).test(text);
+    for (const s of RP_REPORTING_SLICE_SEASONS) expect(mentionsYear(selection, s), `selection section mentions reporting season ${s}`).toBe(false);
+    for (const s of RP_SELECTION_SLICE_SEASONS) expect(mentionsYear(reporting, s), `reporting section mentions selection season ${s}`).toBe(false);
   });
 });

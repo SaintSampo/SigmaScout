@@ -105,7 +105,8 @@
  * exactly its current meaning.
  */
 
-import { writeFileSync } from "node:fs";
+import { statSync, writeFileSync } from "node:fs";
+import { z } from "zod";
 import { pathToFileURL } from "node:url";
 import { openCorpusReadOnly } from "../packages/corpus/db.js";
 import { buildSeasonStream, WalkForwardSimulator } from "../packages/harness/replay.js";
@@ -113,7 +114,7 @@ import { SigmaScoutLayer } from "../packages/harness/sigmaScoutLayer.js";
 import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
 import { actualBonusFlagsForSeason } from "../packages/harness/publish.js";
 import { resolvePublishAlgorithms } from "../packages/harness/publish.js";
-import { RpCalibrationMeasurementSchema, type RpCalibrationRecord } from "../packages/harness/publish.js";
+import { loadRpCalibrationMeasurement, RP_CALIBRATION_MEASUREMENT_PATH, RpCalibrationMeasurementSchema, type RpCalibrationRecord } from "../packages/harness/publish.js";
 import {
   emptyMarginalResolutionTally,
   RP_LAYER_CONFIG_DEFAULT,
@@ -716,6 +717,305 @@ export function negativeBinomialShare(tally: MarginalResolutionTally): number {
   return total === 0 ? Number.NaN : tally.negativeBinomial / total;
 }
 
+// ---------------------------------------------------------------------------
+// THE COMMITTED ATTRIBUTION RECORD (09-06 Task 2)
+// ---------------------------------------------------------------------------
+
+/** The committed record's home. */
+export const RP_ATTRIBUTION_PATH = "data/baselines/rp-attribution-2026-09.json";
+
+/**
+ * F10's dot threshold, DUPLICATED here as a default rather than imported.
+ * `apps/web/src/lib/bonusRp.ts` is the publisher of
+ * `PREDICTED_BONUS_THRESHOLD`, and an offline measurement script importing
+ * from the web app would couple the pipeline to the client bundle for one
+ * float. The two are kept honest by an EQUALITY PIN on the web side
+ * (`apps/web/src/lib/bonusRp.test.ts` asserts the committed record's
+ * `dotThreshold` equals the constant), so a change to either fails loudly
+ * instead of letting the measurement drift off the constant it describes.
+ *
+ * THE THRESHOLD ITSELF IS NOT CHANGED BY THIS PLAN. F10's display half was
+ * offered and not taken up; only its UPSTREAM cause is in scope.
+ */
+export const RP_DOT_THRESHOLD_DEFAULT = 0.5;
+
+/**
+ * One scored cell under one arm, plus F10's dot-eligible share.
+ *
+ * The three figures are `null` — never `NaN` — when `count` is 0. A
+ * non-finite number in a committed measurement formats downstream as a dash
+ * and reads identically to "no data" (T-09-06-08); a `null` says which it is.
+ */
+export interface RpAttributionCell {
+  readonly arm: string;
+  readonly algorithmId: string;
+  readonly season: number;
+  readonly bonusName: string;
+  readonly count: number;
+  readonly meanPredicted: number | null;
+  readonly observedFrequency: number | null;
+  readonly brierScore: number | null;
+  /** F10 UPSTREAM: the share of this cell's alliance-sides whose predicted probability reaches the dot threshold. */
+  readonly dotEligibleShare: number | null;
+}
+
+/** One bonus's movement between 09-01's frozen pre-engine-swap file and the `control` arm at HEAD. */
+export interface RpCrossGenerationCell {
+  readonly algorithmId: string;
+  readonly season: number;
+  readonly bonusName: string;
+  readonly frozenMeanPredicted: number;
+  readonly controlMeanPredicted: number | null;
+  readonly frozenBrier: number;
+  readonly controlBrier: number | null;
+  readonly observedFrequency: number | null;
+}
+
+/** F6 and F7's descriptive population figures, per arm, on the reporting slice. NEITHER IS A GATE. */
+export interface RpOutcomeCoherence {
+  readonly arm: string;
+  readonly n: number;
+  /** F6: mean |pmf-implied pRedWin - published pRedWin|. Zero BY CONSTRUCTION under the `win` arm. */
+  readonly meanAbsPRedWinDiff: number | null;
+  /** F7: mean predicted tie probability, against the audit's measured base rate of 1206/110362. */
+  readonly meanPredictedTie: number | null;
+}
+
+const RpAttributionCellSchema = z.object({
+  arm: z.string().min(1),
+  algorithmId: z.string().min(1),
+  season: z.number().int(),
+  bonusName: z.string().min(1),
+  count: z.number().int().nonnegative(),
+  meanPredicted: z.number().finite().nullable(),
+  observedFrequency: z.number().finite().nullable(),
+  brierScore: z.number().finite().nullable(),
+  dotEligibleShare: z.number().finite().nullable(),
+});
+
+const RpArmVerdictSchema = z.object({
+  arm: z.string().min(1),
+  scored: z.number().int().nonnegative(),
+  improved: z.number().int().nonnegative(),
+  regressed: z.number().int().nonnegative(),
+  tied: z.number().int().nonnegative(),
+  meetsBar: z.boolean(),
+});
+
+/**
+ * THE RECORD'S SCHEMA DELIBERATELY REFERENCES NO LAYER-CONFIG TYPE.
+ *
+ * Every arm's configuration is stored as a PLAIN MAP OF FIELD NAME TO MEMBER
+ * STRING (`z.record(z.string(), z.string())`), and so is the decision's ship
+ * config. This is not tidiness. D-06 deletes that type at the end of this
+ * plan, and a record schema, a digest builder or a document sync test typed
+ * against it would die with it — taking the committed measurement's drift
+ * guard down at exactly the moment the code that produced the measurement
+ * stops existing. A measurement that outlives its generating code is how this
+ * project already carries its other measured rejections, and it only works if
+ * the record stands on its own.
+ */
+export const RpAttributionRecordSchema = z.object({
+  measuredAt: z.string().min(1),
+  command: z.string().min(1),
+  corpusIdentity: z.object({
+    path: z.string().min(1),
+    sizeBytes: z.number().int().nonnegative(),
+    mtime: z.string().min(1),
+  }),
+  offseasonIncluded: z.boolean(),
+  algorithmVersions: z.record(z.string(), z.string()),
+  armConfigs: z.record(z.string(), z.record(z.string(), z.string())),
+  dotThreshold: z.number().finite(),
+  selectionSlice: z.object({ seasons: z.array(z.number().int()), cells: z.array(RpAttributionCellSchema) }),
+  reportingSlice: z.object({ seasons: z.array(z.number().int()), cells: z.array(RpAttributionCellSchema) }),
+  marginalResolution: z.record(
+    z.string(),
+    z.object({
+      negativeBinomial: z.number().int().nonnegative(),
+      gaussian: z.number().int().nonnegative(),
+      degenerate: z.number().int().nonnegative(),
+      fallbacks: z.number().int().nonnegative(),
+    })
+  ),
+  armVerdicts: z.array(RpArmVerdictSchema),
+  decision: z.object({
+    shipConfig: z.record(z.string(), z.string()),
+    acceptedFields: z.array(z.string()),
+    revertedFields: z.array(z.string()),
+    path: z.array(z.string()),
+  }),
+  crossGeneration: z.array(
+    z.object({
+      algorithmId: z.string().min(1),
+      season: z.number().int(),
+      bonusName: z.string().min(1),
+      frozenMeanPredicted: z.number().finite(),
+      controlMeanPredicted: z.number().finite().nullable(),
+      frozenBrier: z.number().finite(),
+      controlBrier: z.number().finite().nullable(),
+      observedFrequency: z.number().finite().nullable(),
+    })
+  ),
+  outcomeCoherence: z.array(
+    z.object({
+      arm: z.string().min(1),
+      n: z.number().int().nonnegative(),
+      meanAbsPRedWinDiff: z.number().finite().nullable(),
+      meanPredictedTie: z.number().finite().nullable(),
+    })
+  ),
+});
+export type RpAttributionRecord = z.infer<typeof RpAttributionRecordSchema>;
+
+export interface BuildRpAttributionParams {
+  readonly measuredAt: string;
+  readonly command: string;
+  readonly corpusIdentity: { readonly path: string; readonly sizeBytes: number; readonly mtime: string };
+  readonly offseasonIncluded: boolean;
+  readonly algorithmVersions: Record<string, string>;
+  readonly arms: readonly RpArm[];
+  readonly dotThreshold: number;
+  readonly cells: readonly RpAttributionCell[];
+  readonly marginalResolution: Record<string, MarginalResolutionTally>;
+  readonly crossGeneration: readonly RpCrossGenerationCell[];
+  readonly outcomeCoherence: readonly RpOutcomeCoherence[];
+}
+
+/** An attribution cell as the bar reads it. `null` figures become `NaN`, which the bar never reaches because `count` is 0 there. */
+function toBonusCell(cell: RpAttributionCell): RpBonusCell {
+  return {
+    algorithmId: cell.algorithmId,
+    season: cell.season,
+    bonusName: cell.bonusName,
+    count: cell.count,
+    meanPredicted: cell.meanPredicted ?? Number.NaN,
+    observedFrequency: cell.observedFrequency ?? Number.NaN,
+    brierScore: cell.brierScore ?? Number.NaN,
+  };
+}
+
+/**
+ * Builds the full committed record. PURE — every figure is passed in, nothing
+ * is measured here.
+ *
+ * `armVerdicts` is `evaluateD09Bar` applied to every non-control arm ON THE
+ * REPORTING SLICE ONLY (D-04: the selection slice chose the family, the
+ * reporting slice evaluates the ship bar), and `decision` is
+ * `decideRpShipConfig` applied to those verdicts.
+ *
+ * THE CROSS-GENERATION PANEL IS NEVER AN INPUT TO THE BAR. It is emitted
+ * beside the verdicts and read by no step of the rule: 09-01's frozen file
+ * predates 09-04's engine swap, so feeding it to `evaluateD09Bar` would credit
+ * or blame the modelling changes for the Monte Carlo's removal.
+ */
+export function buildRpAttributionRecord(params: BuildRpAttributionParams): RpAttributionRecord {
+  const selectionSeasons = new Set(RP_SELECTION_SLICE_SEASONS);
+  const reportingSeasons = new Set(RP_REPORTING_SLICE_SEASONS);
+  const selectionCells = params.cells.filter((c) => selectionSeasons.has(c.season));
+  const reportingCells = params.cells.filter((c) => reportingSeasons.has(c.season));
+
+  const reportingByArm = new Map<string, RpBonusCell[]>();
+  for (const arm of params.arms) reportingByArm.set(arm.name, []);
+  for (const cell of reportingCells) reportingByArm.get(cell.arm)?.push(toBonusCell(cell));
+
+  const control = reportingByArm.get("control");
+  if (control === undefined) {
+    throw new Error("buildRpAttributionRecord: the `control` arm is absent — it is the left-hand side of D-09's bar and cannot be omitted");
+  }
+
+  const armVerdicts: RpArmVerdict[] = [];
+  for (const arm of params.arms) {
+    if (arm.name === "control") continue;
+    armVerdicts.push(evaluateD09Bar(control, reportingByArm.get(arm.name)!, arm.name));
+  }
+  const decision = decideRpShipConfig(new Map(armVerdicts.map((v) => [v.arm, v])));
+
+  const candidate = {
+    measuredAt: params.measuredAt,
+    command: params.command,
+    corpusIdentity: params.corpusIdentity,
+    offseasonIncluded: params.offseasonIncluded,
+    algorithmVersions: params.algorithmVersions,
+    armConfigs: Object.fromEntries(
+      params.arms.map((arm) => [arm.name, { ...arm.config } as unknown as Record<string, string>])
+    ),
+    dotThreshold: params.dotThreshold,
+    selectionSlice: { seasons: [...RP_SELECTION_SLICE_SEASONS], cells: selectionCells },
+    reportingSlice: { seasons: [...RP_REPORTING_SLICE_SEASONS], cells: reportingCells },
+    marginalResolution: params.marginalResolution,
+    armVerdicts,
+    decision: {
+      // Stored as a plain string map so the record does not reference the type
+      // D-06 deletes — see `RpAttributionRecordSchema`'s own comment.
+      shipConfig: { ...decision.shipConfig } as unknown as Record<string, string>,
+      acceptedFields: [...decision.acceptedFields],
+      revertedFields: [...decision.revertedFields],
+      path: [...decision.path],
+    },
+    crossGeneration: params.crossGeneration,
+    outcomeCoherence: params.outcomeCoherence,
+  };
+
+  // Validate-then-write: a malformed record can never reach disk, the same
+  // boundary `buildCompareArtifact` already applies.
+  return RpAttributionRecordSchema.parse(candidate);
+}
+
+/**
+ * The machine-readable block `docs/models/rp-attribution.md` carries, and that
+ * its sync test deep-equals against this function applied to the committed
+ * record. A figure edited in the prose without regenerating the block fails
+ * that test — this project's own failure log carries "the README described a
+ * model that had been deleted", and this is the test class that prevents it.
+ *
+ * PURE OVER THE COMMITTED JSON. It references no layer-config type, so it
+ * survives D-06's collapse along with the record and the document.
+ */
+export function buildRpAttributionDigest(record: RpAttributionRecord): unknown {
+  const pooled = (arm: string, cells: readonly RpAttributionCell[]): { n: number; meanPredicted: number | null; observedFrequency: number | null } => {
+    const mine = cells.filter((c) => c.arm === arm && c.count > 0);
+    const n = mine.reduce((sum, c) => sum + c.count, 0);
+    if (n === 0) return { n: 0, meanPredicted: null, observedFrequency: null };
+    return {
+      n,
+      meanPredicted: mine.reduce((sum, c) => sum + c.meanPredicted! * c.count, 0) / n,
+      observedFrequency: mine.reduce((sum, c) => sum + c.observedFrequency! * c.count, 0) / n,
+    };
+  };
+  const shipped = rpArmNameForFields(record.decision.acceptedFields as RpArmField[]);
+  const autoBonus2025 = (arm: string): RpAttributionCell | undefined =>
+    record.reportingSlice.cells.find((c) => c.arm === arm && c.season === 2025 && c.bonusName === "autoBonus" && c.algorithmId === "bpr");
+
+  return {
+    measuredAt: record.measuredAt,
+    command: record.command,
+    corpusIdentity: record.corpusIdentity,
+    arms: Object.keys(record.armConfigs),
+    armConfigs: record.armConfigs,
+    dotThreshold: record.dotThreshold,
+    selectionSeasons: record.selectionSlice.seasons,
+    reportingSeasons: record.reportingSlice.seasons,
+    reportingCellCount: record.reportingSlice.cells.length,
+    selectionCellCount: record.selectionSlice.cells.length,
+    armVerdicts: record.armVerdicts,
+    decision: record.decision,
+    shippedArm: shipped,
+    marginalResolution: record.marginalResolution,
+    pooledReporting: {
+      control: pooled("control", record.reportingSlice.cells),
+      shipped: pooled(shipped, record.reportingSlice.cells),
+      fullChange: pooled("win+tie+marginal", record.reportingSlice.cells),
+    },
+    f10AutoBonus2025Bpr: {
+      control: autoBonus2025("control")?.dotEligibleShare ?? null,
+      shipped: autoBonus2025(shipped)?.dotEligibleShare ?? null,
+      observedFrequency: autoBonus2025("control")?.observedFrequency ?? null,
+    },
+    outcomeCoherence: record.outcomeCoherence,
+  };
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const seasonsSpec = args[args.indexOf("--seasons") + 1] ?? "2023-2026";
@@ -731,6 +1031,12 @@ async function main(): Promise<void> {
   // every pre-existing invocation of this script — including the audit's own
   // reproduction command — keeps exactly its current meaning.
   const armsSpec = args.indexOf("--arms") === -1 ? undefined : args[args.indexOf("--arms") + 1]!;
+  const attributionOutPath = args.indexOf("--attribution-out") === -1 ? undefined : args[args.indexOf("--attribution-out") + 1];
+  // F10 UPSTREAM (D-06 scope note): the dot threshold is READ here and never
+  // written. Its default mirrors `apps/web/src/lib/bonusRp.ts`'s published
+  // `PREDICTED_BONUS_THRESHOLD`, pinned equal by a test on the web side.
+  const dotThreshold =
+    args.indexOf("--dot-threshold") === -1 ? RP_DOT_THRESHOLD_DEFAULT : Number.parseFloat(args[args.indexOf("--dot-threshold") + 1]!);
   const seasons = parseSeasons(seasonsSpec).filter((s) => RP_RULE_MODULES[s] !== undefined);
   const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
   if (algorithms.length === 0) throw new Error(`no algorithms resolved from "${algorithmIdsCsv ?? "(default)"}"`);
@@ -761,6 +1067,15 @@ async function main(): Promise<void> {
     const talliesByArm = new Map<string, MarginalResolutionTally[]>(arms.map((arm) => [arm.name, []]));
     const emittedRecords: { season: number; algorithmId: string; calibration: RpCalibrationRecord }[] = [];
     const emitArm = arms[0]!;
+    // The committed record's own cells, plus F6/F7's descriptive population
+    // figures. NEITHER F6 NOR F7 IS A GATE: a tie probability being right on
+    // average says nothing about a bonus Brier, and presenting it as an
+    // accuracy claim would be a category error.
+    const attributionCells: RpAttributionCell[] = [];
+    const coherence = new Map<string, { n: number; absDiff: number; tie: number }>(
+      arms.map((arm) => [arm.name, { n: 0, absDiff: 0, tie: 0 }])
+    );
+    const reportingSeasonSet = new Set(RP_REPORTING_SLICE_SEASONS);
 
     for (const season of seasons) {
       const ruleModule = RP_RULE_MODULES[season]!;
@@ -808,6 +1123,20 @@ async function main(): Promise<void> {
           // ACCUMULATION, never on the fold.
           const enriched = byArm.get(arm.name)!.foldPlayed(r.match, r.prediction);
           if (actual === undefined || actual === null) continue;
+
+          // F6 (pmf-implied vs published win probability) and F7 (predicted
+          // tie probability), on the REPORTING slice only, read from 09-07's
+          // published decomposition rather than re-derived.
+          if (reportingSeasonSet.has(season)) {
+            const outcomePmf = enriched.prediction.matchOutcomePmf;
+            const publishedPRedWin = r.prediction.pRedWin;
+            if (outcomePmf !== undefined && publishedPRedWin !== undefined) {
+              const c = coherence.get(arm.name)!;
+              c.n += 1;
+              c.absDiff += Math.abs(outcomePmf[0]! - publishedPRedWin);
+              c.tie += outcomePmf[1]!;
+            }
+          }
 
           const key = `${r.algorithmId}|${arm.name}`;
           const bonusObs = perBonus.get(key)!;
@@ -857,6 +1186,7 @@ async function main(): Promise<void> {
 
           for (const [i, name] of ruleModule.bonusNames.entries()) {
             const observations = bonusObs[i]!;
+            const empty = observations.length === 0;
             cellsByArm.get(arm.name)!.push({
               algorithmId: algorithm.id,
               season,
@@ -865,6 +1195,20 @@ async function main(): Promise<void> {
               meanPredicted: meanPredicted(observations),
               observedFrequency: rate(observations),
               brierScore: brier(observations),
+            });
+            attributionCells.push({
+              arm: arm.name,
+              algorithmId: algorithm.id,
+              season,
+              bonusName: name,
+              count: observations.length,
+              // `null`, never `NaN`, for an unobserved cell (T-09-06-08).
+              meanPredicted: empty ? null : meanPredicted(observations),
+              observedFrequency: empty ? null : rate(observations),
+              brierScore: empty ? null : brier(observations),
+              dotEligibleShare: empty
+                ? null
+                : observations.filter((o) => o.predicted >= dotThreshold).length / observations.length,
             });
           }
 
@@ -1006,6 +1350,83 @@ async function main(): Promise<void> {
             `meetsBar=${v.meetsBar}`
         );
       }
+    }
+
+    // ---- Step 3: the CROSS-GENERATION panel, labelled as such ----
+    // 09-01's frozen file was captured BEFORE 09-04 replaced the 4,000-draw
+    // Monte Carlo with the closed form, so the difference below is
+    // attributable to THE ENGINE SWAP — which D-10 ships unconditionally and
+    // which is therefore NOT ON TRIAL. It is reported as free evidence about
+    // 09-04's work and about F2's phase-level movement, and it is NEVER an
+    // input to `evaluateD09Bar`: the bar's inputs come only from arms measured
+    // in this process, at this commit, through this one scorer.
+    const crossGeneration: RpCrossGenerationCell[] = [];
+    const frozen = loadRpCalibrationMeasurement(RP_CALIBRATION_MEASUREMENT_PATH);
+    if (frozen !== undefined) {
+      const controlCellByKey = new Map(
+        attributionCells.filter((c) => c.arm === "control").map((c) => [`${c.algorithmId}|${c.season}|${c.bonusName}`, c])
+      );
+      for (const rec of frozen.records) {
+        for (const bonus of rec.calibration.bonuses) {
+          const key = `${rec.algorithmId}|${rec.season}|${bonus.name}`;
+          const control = controlCellByKey.get(key);
+          if (control === undefined) continue;
+          crossGeneration.push({
+            algorithmId: rec.algorithmId,
+            season: rec.season,
+            bonusName: bonus.name,
+            frozenMeanPredicted: bonus.meanPredicted,
+            controlMeanPredicted: control.meanPredicted,
+            frozenBrier: bonus.brierScore,
+            controlBrier: control.brierScore,
+            observedFrequency: control.observedFrequency,
+          });
+        }
+      }
+    }
+
+    if (attributionOutPath !== undefined) {
+      const corpusStat = statSync(CORPUS_PATH);
+      const record = buildRpAttributionRecord({
+        measuredAt: new Date().toISOString(),
+        command: `npx tsx scripts/measureRpCalibration.ts ${args.join(" ")}`,
+        corpusIdentity: {
+          path: CORPUS_PATH,
+          sizeBytes: corpusStat.size,
+          mtime: corpusStat.mtime.toISOString(),
+        },
+        offseasonIncluded: true,
+        algorithmVersions: Object.fromEntries(algorithms.map((a) => [a.id, a.version])),
+        arms,
+        dotThreshold,
+        cells: attributionCells,
+        marginalResolution: Object.fromEntries(
+          arms.map((arm) => [arm.name, sumMarginalTallies(talliesByArm.get(arm.name)!)])
+        ),
+        crossGeneration,
+        outcomeCoherence: arms.map((arm) => {
+          const c = coherence.get(arm.name)!;
+          return {
+            arm: arm.name,
+            n: c.n,
+            meanAbsPRedWinDiff: c.n === 0 ? null : c.absDiff / c.n,
+            meanPredictedTie: c.n === 0 ? null : c.tie / c.n,
+          };
+        }),
+      });
+      writeFileSync(attributionOutPath, `${JSON.stringify(record, null, 2)}
+`, "utf8");
+      console.log(`
+wrote ${attributionOutPath}`);
+      console.log(`
+═══ MECHANICAL VERDICT (reporting slice ${RP_REPORTING_SLICE_SEASONS.join(", ")}) ═══`);
+      for (const v of record.armVerdicts) {
+        console.log(
+          `   ${v.arm.padEnd(18)} scored=${v.scored}  improved=${v.improved}  regressed=${v.regressed}  tied=${v.tied}  meetsBar=${v.meetsBar}`
+        );
+      }
+      console.log(`   accepted: [${record.decision.acceptedFields.join(", ")}]  reverted: [${record.decision.revertedFields.join(", ")}]`);
+      for (const line of record.decision.path) console.log(`   path: ${line}`);
     }
 
     if (emitArtifactPath !== undefined) {

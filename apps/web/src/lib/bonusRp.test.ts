@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { RP_RULE_MODULES } from "../../../../packages/core/rankingPoints/rules.js";
 import {
@@ -143,5 +145,37 @@ describe("bonusDotLabel", () => {
 describe("PREDICTED_BONUS_THRESHOLD", () => {
   it("is exported and equals one half (PD-11)", () => {
     expect(PREDICTED_BONUS_THRESHOLD).toBe(0.5);
+  });
+});
+
+describe("F10's upstream measurement stays pinned to the threshold it describes", () => {
+  it("the committed attribution record's dotThreshold equals PREDICTED_BONUS_THRESHOLD exactly", () => {
+    // `scripts/measureRpCalibration.ts` measures F10's dot-eligible share
+    // against a threshold it duplicates as a default rather than importing
+    // from this app — an offline pipeline script should not depend on the
+    // client bundle for one float. THIS TEST IS WHAT KEEPS THE TWO HONEST:
+    // if either side moves, the measurement stops describing the constant it
+    // claims to describe, and that failure is loud here instead of silent in
+    // a published document.
+    //
+    // The threshold itself is NOT changed by phase 09. F10's display half was
+    // offered and not taken up; only its upstream cause is in scope.
+    // Resolved by walking up from the working directory rather than from
+    // `import.meta.url`: this file runs under the web project's jsdom
+    // environment, where `import.meta.url` is not a file: URL.
+    const RECORD_RELATIVE = "data/baselines/rp-attribution-2026-09.json";
+    let dir = process.cwd();
+    let recordPath: string | undefined;
+    for (let i = 0; i < 6; i++) {
+      const candidate = resolve(dir, RECORD_RELATIVE);
+      if (existsSync(candidate)) {
+        recordPath = candidate;
+        break;
+      }
+      dir = resolve(dir, "..");
+    }
+    expect(recordPath, `could not locate ${RECORD_RELATIVE} above ${process.cwd()}`).toBeDefined();
+    const record = JSON.parse(readFileSync(recordPath!, "utf8")) as { dotThreshold: number };
+    expect(record.dotThreshold).toBe(PREDICTED_BONUS_THRESHOLD);
   });
 });
