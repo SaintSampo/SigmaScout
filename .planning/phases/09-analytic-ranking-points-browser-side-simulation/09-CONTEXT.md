@@ -382,6 +382,41 @@ for the record — but an approved branch does not block on a human.
 Nothing here authorizes work outside Phase 9's scope fence, and the out-of-scope list (F4, F12, 2022
 `cargoBonus`, F13, F8/F9's cold-start gate, the F10 display threshold) is unchanged.
 
+
+### Checkpoint resolution — 09-09 rung 1: NO-SHIP
+
+**Decided by Jacob, 2026-09-11**, on the measured table, not a projection.
+
+Rung 1 **failed** the pre-committed acceptance criterion: 32.8% of 244 teams within 0.5 median
+ranks against a bar of >= 95%, and band edges at 55.7% (p10) / 52.0% (p90) against >= 90%. Clause 3
+(no systematic shift) passed at -0.0465 ranks. Worst single team `frc11269` at `2026joh`, 7.59 ranks.
+
+**Decision: `no-ship`.** Concrete schedules remain primary. Delta B is recorded `no-change`. The
+field-averaged predictor, its schema, its builders and `docs/models/field-averaged-presim.md` stay
+committed but **unwired** — they are the baseline rung 2 is scored against, not discarded work.
+Rung 1's measured size win (51.6x-79.5x smaller; 1,014-5,393 bytes against 52,351-410,707) was real
+and is not what failed.
+
+**Two consequences, both now open:**
+
+1. **D-19 is LIVE.** Advancing the ladder to rung 2 (self-generated random schedules) makes the
+   schedule-template redistribution **licensing** question live for the first time. `09-CONTEXT.md`
+   is explicit that this judgement is the developer's, not an agent's. No licence file has been read,
+   quoted, or reasoned about by any agent in this phase. **This is Jacob's to decide before rung 2
+   is planned.**
+2. **The acceptance criterion must be restated together with the draw count — decided 2026-09-11.**
+   The executor's same-arm seed-noise control found the **incumbent baked path agrees with itself
+   only 68.4% of the time within half a rank** across two seeds at 1,000 draws. The bar as written is
+   therefore unreachable by **any** method at that draw count, including the method currently
+   shipping. A tolerance expressed in rank units is only meaningful relative to the simulation's own
+   noise floor, so **rung 2's bar and its draw count must be fixed together**, before rung 2 runs.
+   Rung 1 was nonetheless worse than pure seed noise on all six events, so the no-ship decision does
+   not rest on the mis-specified bar.
+
+Named suspect for rung 2, measured not assumed: assumption A-FA1's residual is exactly **zero** on
+`2023gaalb` (where rung 1 does best) and mean **40.14** / sd **24.74** / max **148.21** on `2026joh`
+(where it does worst). The additive constant cancels as A-FA1 says; its standard deviation does not.
+
 </approvals>
 
 ---
