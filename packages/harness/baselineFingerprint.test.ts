@@ -204,10 +204,38 @@ const ROLLING_ORIGIN_2026_09B_FINGERPRINT_FILE = "sc3-rolling-origin-2026-09b.js
  */
 const EPA_VS_STATBOTICS_BASELINE_FILE = "epa-vs-statbotics-2026-09.json";
 
+/**
+ * Phase 09 plan 09-01 Task 2 (F1/D-09/D-11): the committed "before" per-bonus
+ * RP calibration measurement, `scripts/measureRpCalibration.ts --emit-artifact`'s
+ * output validated through `packages/harness/publish.ts`'s
+ * `RpCalibrationMeasurementSchema` — a THIRD baseline family in this
+ * directory, distinct from both `BaselineFingerprintSchema` (Brier/accuracy
+ * per algorithm/season) and `EPA_VS_STATBOTICS_BASELINE_FILE`'s tolerance
+ * bands. Excluded by name from every test below that assumes the
+ * directory's contents are uniformly fingerprints.
+ */
+const RP_CALIBRATION_BASELINE_FILE = "rp-calibration-2026-09.json";
+
+/**
+ * Phase 09 plan 09-01 Task 3 (D-12): the committed level-1 output
+ * byte-identity gate's baseline — `pRedWin`/`redScore`/`blueScore` digests
+ * per published algorithm on a bounded 2022 slice, read by
+ * `packages/harness/level1Digest.test.ts`. Not a `BaselineFingerprintSchema`
+ * shape either (no `provenance`/`slices` — a flat `entries` array of
+ * `{algorithmId, algorithmVersion, predictionStreamSha256}`). Excluded by
+ * name from every test below for the same reason as
+ * `RP_CALIBRATION_BASELINE_FILE`.
+ */
+const LEVEL1_DIGEST_BASELINE_FILE = "level1-digest-2026-09.json";
+
 describe("committed baseline fingerprints", () => {
   it("every .json file under data/baselines/ parses against BaselineFingerprintSchema", () => {
     const files = readdirSync(BASELINES_DIR).filter(
-      (name) => name.endsWith(".json") && name !== EPA_VS_STATBOTICS_BASELINE_FILE
+      (name) =>
+        name.endsWith(".json") &&
+        name !== EPA_VS_STATBOTICS_BASELINE_FILE &&
+        name !== RP_CALIBRATION_BASELINE_FILE &&
+        name !== LEVEL1_DIGEST_BASELINE_FILE
     );
     expect(files.length).toBeGreaterThanOrEqual(2);
     for (const file of files) {
@@ -339,7 +367,9 @@ describe("committed baseline fingerprints", () => {
         name !== OFFSEASON_INCLUSIVE_FINGERPRINT_FILE &&
         name !== ROLLING_ORIGIN_FINGERPRINT_FILE &&
         name !== ROLLING_ORIGIN_2026_09B_FINGERPRINT_FILE &&
-        name !== EPA_VS_STATBOTICS_BASELINE_FILE
+        name !== EPA_VS_STATBOTICS_BASELINE_FILE &&
+        name !== RP_CALIBRATION_BASELINE_FILE &&
+        name !== LEVEL1_DIGEST_BASELINE_FILE
     );
     expect(files.length).toBeGreaterThanOrEqual(2);
     for (const file of files) {
@@ -398,20 +428,26 @@ describe("committed baseline fingerprints", () => {
     expect(sigma1Adapt?.version).toBe("2.0.0+tune-joint-on-winner");
   });
 
-  it("data/baselines/ contains exactly 7 committed baseline files: two retired-implementation fingerprints, the event-scoped re-run, the offseason-inclusive SC-3 re-measurement, both rolling-origin SC-3 re-measurements, and the SC-2 EPA-vs-Statbotics tolerance baseline", () => {
+  it("data/baselines/ contains exactly 9 committed baseline files: two retired-implementation fingerprints, the event-scoped re-run, the offseason-inclusive SC-3 re-measurement, both rolling-origin SC-3 re-measurements, the SC-2 EPA-vs-Statbotics tolerance baseline, and phase 09's RP calibration + level-1 digest baselines", () => {
     // The fingerprint count only ever goes UP. Each fingerprint records what
     // one completed run measured under the versions of its day, so a later
     // re-measurement is added alongside its predecessor, never in place of
     // it. `EPA_VS_STATBOTICS_BASELINE_FILE` is not a fingerprint (see its own
     // doc comment) but lives in this same directory and is counted here too,
     // since this is the one test asserting the directory's exact contents.
+    // Phase 09 plan 09-01 (2026-09-11) added TWO more non-fingerprint
+    // baselines for the same reason — `RP_CALIBRATION_BASELINE_FILE` (D-09's
+    // per-bonus "before" measurement) and `LEVEL1_DIGEST_BASELINE_FILE`
+    // (D-12's level-1 byte-identity gate) — both counted here too.
     const files = readdirSync(BASELINES_DIR).filter((name) => name.endsWith(".json"));
-    expect(files).toHaveLength(7);
+    expect(files).toHaveLength(9);
     expect(files).toContain(EVENT_SCOPED_FINGERPRINT_FILE);
     expect(files).toContain(OFFSEASON_INCLUSIVE_FINGERPRINT_FILE);
     expect(files).toContain(ROLLING_ORIGIN_FINGERPRINT_FILE);
     expect(files).toContain(ROLLING_ORIGIN_2026_09B_FINGERPRINT_FILE);
     expect(files).toContain(EPA_VS_STATBOTICS_BASELINE_FILE);
+    expect(files).toContain(RP_CALIBRATION_BASELINE_FILE);
+    expect(files).toContain(LEVEL1_DIGEST_BASELINE_FILE);
   });
 
   /**

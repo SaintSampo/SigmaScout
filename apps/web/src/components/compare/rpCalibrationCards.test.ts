@@ -12,7 +12,7 @@ import { buildRpCalibrationCard, rpCardHeadlineSentence } from "./rpCalibrationC
 import type { CompareRpCalibration } from "../../../../../packages/harness/pageArtifacts.js";
 
 function record(bonuses: CompareRpCalibration["bonuses"]): CompareRpCalibration {
-  return { scoredCount: bonuses.reduce((sum, b) => sum + b.count, 0), bonuses, reliabilityBins: [] };
+  return { scoredCount: bonuses.reduce((sum, b) => sum + b.count, 0), bonuses };
 }
 
 describe("buildRpCalibrationCard — order and headline selection", () => {

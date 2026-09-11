@@ -180,62 +180,76 @@ export function buildRpCalibrationRecord(
     });
   }
 
-  const reliabilityBins: RpCalibrationRecord["reliabilityBins"][number][] = [];
-  for (let i = 0; i < RP_RELIABILITY_BUCKET_EDGES.length - 1; i++) {
-    const lo = RP_RELIABILITY_BUCKET_EDGES[i]!;
-    const hi = RP_RELIABILITY_BUCKET_EDGES[i + 1]!;
-    const inBucket = pooled.filter((o) => o.predicted >= lo && o.predicted < hi);
-    reliabilityBins.push({
-      binStart: lo,
-      binEnd: hi >= 1 ? 1 : hi,
-      meanPredicted: inBucket.length > 0 ? meanPredicted(inBucket) : null,
-      observedFrequency: inBucket.length > 0 ? rate(inBucket) : null,
-      count: inBucket.length,
-    });
-  }
-
-  return { scoredCount: pooled.length, bonuses, reliabilityBins };
+  // Task 2 Step 5 (2026-09-11): the wire record used to also carry a
+  // `reliabilityBins` array here, pooled the same way `reliabilityTable`
+  // below buckets for the console. Real measured bytes showed attaching it
+  // to every 2016 qualification slice (three algorithms' worth) pushed
+  // `compare-2016.json` to 21,260 bytes against the committed 20,000-byte
+  // `budgetMaxBytes` — dropped per this plan's pre-committed remedy (shrink
+  // the block, never raise the budget), since nothing on the Compare page
+  // ever read it. `RP_RELIABILITY_BUCKET_EDGES` remains exported and used
+  // by `reliabilityTable` below for the console report, which is unaffected.
+  return { scoredCount: pooled.length, bonuses };
 }
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const seasonsSpec = args[args.indexOf("--seasons") + 1] ?? "2023-2026";
-  const algorithmId = args.indexOf("--algorithm") === -1 ? "bpr" : args[args.indexOf("--algorithm") + 1]!;
+  // Task 2 widening (D-09): absent --algorithm now resolves to EVERY
+  // published algorithm — `resolvePublishAlgorithms(undefined)`'s own
+  // documented default — rather than this script's old single-algorithm
+  // "bpr" default. `--algorithm` itself already accepted a comma-separated
+  // list before this change (`resolvePublishAlgorithms`'s own parsing); this
+  // script previously just discarded everything after `[0]`.
+  const algorithmIdsCsv = args.indexOf("--algorithm") === -1 ? undefined : args[args.indexOf("--algorithm") + 1]!;
   const emitArtifactPath = args.indexOf("--emit-artifact") === -1 ? undefined : args[args.indexOf("--emit-artifact") + 1];
   const seasons = parseSeasons(seasonsSpec).filter((s) => RP_RULE_MODULES[s] !== undefined);
-  const algorithm = resolvePublishAlgorithms(algorithmId)[0];
-  if (algorithm === undefined) throw new Error(`unknown algorithm "${algorithmId}"`);
+  const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
+  if (algorithms.length === 0) throw new Error(`no algorithms resolved from "${algorithmIdsCsv ?? "(default)"}"`);
 
-  console.log(`RP calibration — algorithm "${algorithm.id}@${algorithm.version}", seasons ${seasons.join(", ")}`);
+  console.log(`RP calibration — algorithms [${algorithms.map((a) => `${a.id}@${a.version}`).join(", ")}], seasons ${seasons.join(", ")}`);
   console.log(`Walk-forward through the same SigmaScoutLayer the publisher runs.\n`);
 
   const db = openCorpusReadOnly(CORPUS_PATH);
   try {
-    // Pooled across seasons, for the headline claims.
-    const allMarginal: Observation[] = [];
-    const allPairs: { p1: number; p2: number; a1: boolean; a2: boolean }[] = [];
+    // Pooled PER ALGORITHM across seasons, for that algorithm's own headline
+    // claims — mixing algorithms into one pooled figure would average away
+    // exactly the per-algorithm comparison D-09/D-11 need, so pooling stays
+    // scoped to one algorithm at a time, same as before this widening.
+    const allMarginalByAlgo = new Map<string, Observation[]>(algorithms.map((a) => [a.id, []]));
+    const allPairsByAlgo = new Map<string, { p1: number; p2: number; a1: boolean; a2: boolean }[]>(algorithms.map((a) => [a.id, []]));
     const emittedRecords: { season: number; algorithmId: string; calibration: RpCalibrationRecord }[] = [];
 
     for (const season of seasons) {
       const ruleModule = RP_RULE_MODULES[season]!;
+      // Built ONCE per season and shared across every algorithm — the
+      // publisher's own `Map<string, SigmaScoutLayer>` shape
+      // (`publish.ts`'s season loop), folded from one shared record list, so
+      // a multi-algorithm pass costs one replay instead of one per
+      // algorithm.
       const stream = buildSeasonStream(db, season, { includeOffseason: true });
       const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
-      const records = new WalkForwardSimulator(stream).runAll([algorithm], teams);
+      const records = new WalkForwardSimulator(stream).runAll(algorithms, teams);
       const actualFlags = actualBonusFlagsForSeason(stream, season);
 
       // SAME-SCORER FIX (see header): the second constructor argument
       // selects Sigma-vs-Swing band variance exactly the way the publisher's
       // own layer construction does (publish.ts's season loop) — without it
       // this script silently scored a different band than the one it
-      // published.
-      const layer = new SigmaScoutLayer(ruleModule, algorithm.id);
-      const perBonus: Observation[][] = ruleModule.bonusNames.map(() => []);
-      const pairs: { p1: number; p2: number; a1: boolean; a2: boolean }[] = [];
+      // published. Now applied per algorithm.
+      const layers = new Map(algorithms.map((a) => [a.id, new SigmaScoutLayer(ruleModule, a.id)]));
+      const perBonusByAlgo = new Map<string, Observation[][]>(algorithms.map((a) => [a.id, ruleModule.bonusNames.map(() => [])]));
+      const pairsByAlgo = new Map<string, { p1: number; p2: number; a1: boolean; a2: boolean }[]>(algorithms.map((a) => [a.id, []]));
 
       for (const r of records) {
+        const layer = layers.get(r.algorithmId)!;
         const enriched = layer.foldPlayed(r.match, r.prediction);
         const actual = actualFlags.get(r.match.matchKey);
         if (actual === undefined || actual === null) continue;
+
+        const perBonus = perBonusByAlgo.get(r.algorithmId)!;
+        const pairs = pairsByAlgo.get(r.algorithmId)!;
+        const allMarginal = allMarginalByAlgo.get(r.algorithmId)!;
 
         for (const side of ["red", "blue"] as const) {
           const predictedBonuses = side === "red" ? enriched.prediction.redBonusRp : enriched.prediction.blueBonusRp;
@@ -256,82 +270,110 @@ async function main(): Promise<void> {
           }
         }
       }
-      allPairs.push(...pairs);
-      emittedRecords.push({ season, algorithmId: algorithm.id, calibration: buildRpCalibrationRecord(ruleModule.bonusNames, perBonus) });
 
-      const total = perBonus.reduce((sum, b) => sum + b.length, 0);
-      console.log(`── ${season} ── ${total} (alliance, bonus) observations`);
-      if (total === 0) {
-        console.log(`   no scored bonus observations this season\n`);
-        continue;
+      for (const algorithm of algorithms) {
+        const perBonus = perBonusByAlgo.get(algorithm.id)!;
+        const pairs = pairsByAlgo.get(algorithm.id)!;
+        allPairsByAlgo.get(algorithm.id)!.push(...pairs);
+        emittedRecords.push({ season, algorithmId: algorithm.id, calibration: buildRpCalibrationRecord(ruleModule.bonusNames, perBonus) });
+
+        const total = perBonus.reduce((sum, b) => sum + b.length, 0);
+        console.log(`── ${season} [${algorithm.id}] ── ${total} (alliance, bonus) observations`);
+        if (total === 0) {
+          console.log(`   no scored bonus observations this season\n`);
+          continue;
+        }
+
+        for (const [i, name] of ruleModule.bonusNames.entries()) {
+          const observations = perBonus[i]!;
+          if (observations.length === 0) continue;
+          console.log(
+            `   ${name}: n=${observations.length}  mean predicted=${meanPredicted(observations).toFixed(4)}  ` +
+              `observed=${rate(observations).toFixed(4)}  Brier=${brier(observations).toFixed(4)}`
+          );
+          for (const line of reliabilityTable(observations)) console.log(line);
+        }
+
+        if (pairs.length > 0) {
+          const [n1, n2] = [ruleModule.bonusNames[0]!, ruleModule.bonusNames[1]!];
+          const both = pairs.filter((p) => p.a1 && p.a2).length / pairs.length;
+          const rateA = pairs.filter((p) => p.a1).length / pairs.length;
+          const rateB = pairs.filter((p) => p.a2).length / pairs.length;
+          const independentJoint = rateA * rateB;
+          const modelJoint = pairs.reduce((sum, p) => sum + p.p1 * p.p2, 0) / pairs.length;
+          console.log(
+            `   JOINT (${n1} AND ${n2}): observed=${both.toFixed(4)}  ` +
+              `if independent=${independentJoint.toFixed(4)}  model implies=${modelJoint.toFixed(4)}  ` +
+              `real dependence=${both - independentJoint >= 0 ? "+" : ""}${(both - independentJoint).toFixed(4)}`
+          );
+        }
+        console.log("");
       }
+    }
 
-      for (const [i, name] of ruleModule.bonusNames.entries()) {
-        const observations = perBonus[i]!;
-        if (observations.length === 0) continue;
+    // ---- Pooled headline claims, ONE PER ALGORITHM ----
+    for (const algorithm of algorithms) {
+      const allMarginal = allMarginalByAlgo.get(algorithm.id)!;
+      const allPairs = allPairsByAlgo.get(algorithm.id)!;
+      if (allMarginal.length === 0) continue;
+
+      console.log(`═══ POOLED [${algorithm.id}] ═══`);
+      console.log(`${allMarginal.length} (alliance, bonus) observations across ${seasons.length} season(s)\n`);
+
+      console.log(`OVERALL: mean predicted=${meanPredicted(allMarginal).toFixed(4)}  observed=${rate(allMarginal).toFixed(4)}  Brier=${brier(allMarginal).toFixed(4)}`);
+
+      const confident = allMarginal.filter((o) => o.predicted < 0.05 || o.predicted > 0.95);
+      const lowConfident = allMarginal.filter((o) => o.predicted < 0.05);
+      const highConfident = allMarginal.filter((o) => o.predicted > 0.95);
+      console.log(
+        `\nTHE EXTREMES CLAIM — ${((confident.length / allMarginal.length) * 100).toFixed(1)}% of predictions are below 0.05 or above 0.95`
+      );
+      if (lowConfident.length > 0) {
         console.log(
-          `   ${name}: n=${observations.length}  mean predicted=${meanPredicted(observations).toFixed(4)}  ` +
-            `observed=${rate(observations).toFixed(4)}  Brier=${brier(observations).toFixed(4)}`
+          `   predicted <0.05: n=${lowConfident.length}  mean predicted=${meanPredicted(lowConfident).toFixed(4)}  ` +
+            `ACTUALLY happened ${(rate(lowConfident) * 100).toFixed(2)}% of the time`
         );
-        for (const line of reliabilityTable(observations)) console.log(line);
+      }
+      if (highConfident.length > 0) {
+        console.log(
+          `   predicted >0.95: n=${highConfident.length}  mean predicted=${meanPredicted(highConfident).toFixed(4)}  ` +
+            `ACTUALLY happened ${(rate(highConfident) * 100).toFixed(2)}% of the time`
+        );
       }
 
-      if (pairs.length > 0) {
-        const [n1, n2] = [ruleModule.bonusNames[0]!, ruleModule.bonusNames[1]!];
-        const both = pairs.filter((p) => p.a1 && p.a2).length / pairs.length;
-        const rateA = pairs.filter((p) => p.a1).length / pairs.length;
-        const rateB = pairs.filter((p) => p.a2).length / pairs.length;
+      if (allPairs.length > 0) {
+        const both = allPairs.filter((p) => p.a1 && p.a2).length / allPairs.length;
+        const rateA = allPairs.filter((p) => p.a1).length / allPairs.length;
+        const rateB = allPairs.filter((p) => p.a2).length / allPairs.length;
         const independentJoint = rateA * rateB;
-        const modelJoint = pairs.reduce((sum, p) => sum + p.p1 * p.p2, 0) / pairs.length;
+        const modelJoint = allPairs.reduce((sum, p) => sum + p.p1 * p.p2, 0) / allPairs.length;
+        console.log(`\nTHE CORRELATION CLAIM — n=${allPairs.length} alliance-matches carrying two bonuses`);
+        console.log(`   observed P(both)                     = ${both.toFixed(4)}`);
+        console.log(`   P(A)*P(B), i.e. if truly independent = ${independentJoint.toFixed(4)}`);
+        console.log(`   the model's own implied P(both)      = ${modelJoint.toFixed(4)}`);
+        const dependence = both - independentJoint;
         console.log(
-          `   JOINT (${n1} AND ${n2}): observed=${both.toFixed(4)}  ` +
-            `if independent=${independentJoint.toFixed(4)}  model implies=${modelJoint.toFixed(4)}  ` +
-            `real dependence=${both - independentJoint >= 0 ? "+" : ""}${(both - independentJoint).toFixed(4)}`
+          `   REAL dependence the diagonal block discards = ${dependence >= 0 ? "+" : ""}${dependence.toFixed(4)} ` +
+            `(${dependence > 0 ? "POSITIVE — the two go together more often than independence predicts, as the header expected" : "NEGATIVE — the two go together LESS often than independence predicts, opposite to what the header expected"})`
         );
       }
       console.log("");
     }
 
-    // ---- Pooled headline claims ----
-    console.log("═══ POOLED ═══");
-    console.log(`${allMarginal.length} (alliance, bonus) observations across ${seasons.length} season(s)\n`);
-
-    console.log(`OVERALL: mean predicted=${meanPredicted(allMarginal).toFixed(4)}  observed=${rate(allMarginal).toFixed(4)}  Brier=${brier(allMarginal).toFixed(4)}`);
-
-    const confident = allMarginal.filter((o) => o.predicted < 0.05 || o.predicted > 0.95);
-    const lowConfident = allMarginal.filter((o) => o.predicted < 0.05);
-    const highConfident = allMarginal.filter((o) => o.predicted > 0.95);
-    console.log(
-      `\nTHE EXTREMES CLAIM — ${((confident.length / allMarginal.length) * 100).toFixed(1)}% of predictions are below 0.05 or above 0.95`
+    // ---- Grand-pooled headline, across EVERY algorithm AND season — the
+    // single figure 09-01-SUMMARY.md sets beside ranking-points-audit.md
+    // F2's recorded 0.1507 / 0.3109. Computed directly from the emitted
+    // records so it matches whatever byte the measurement file itself
+    // carries, never a separate re-derivation.
+    const grandPooled = emittedRecords.flatMap((r) =>
+      r.calibration.bonuses.map((b) => ({ p: b.meanPredicted, o: b.observedFrequency, n: b.count }))
     );
-    if (lowConfident.length > 0) {
-      console.log(
-        `   predicted <0.05: n=${lowConfident.length}  mean predicted=${meanPredicted(lowConfident).toFixed(4)}  ` +
-          `ACTUALLY happened ${(rate(lowConfident) * 100).toFixed(2)}% of the time`
-      );
-    }
-    if (highConfident.length > 0) {
-      console.log(
-        `   predicted >0.95: n=${highConfident.length}  mean predicted=${meanPredicted(highConfident).toFixed(4)}  ` +
-          `ACTUALLY happened ${(rate(highConfident) * 100).toFixed(2)}% of the time`
-      );
-    }
-
-    if (allPairs.length > 0) {
-      const both = allPairs.filter((p) => p.a1 && p.a2).length / allPairs.length;
-      const rateA = allPairs.filter((p) => p.a1).length / allPairs.length;
-      const rateB = allPairs.filter((p) => p.a2).length / allPairs.length;
-      const independentJoint = rateA * rateB;
-      const modelJoint = allPairs.reduce((sum, p) => sum + p.p1 * p.p2, 0) / allPairs.length;
-      console.log(`\nTHE CORRELATION CLAIM — n=${allPairs.length} alliance-matches carrying two bonuses`);
-      console.log(`   observed P(both)                     = ${both.toFixed(4)}`);
-      console.log(`   P(A)*P(B), i.e. if truly independent = ${independentJoint.toFixed(4)}`);
-      console.log(`   the model's own implied P(both)      = ${modelJoint.toFixed(4)}`);
-      const dependence = both - independentJoint;
-      console.log(
-        `   REAL dependence the diagonal block discards = ${dependence >= 0 ? "+" : ""}${dependence.toFixed(4)} ` +
-          `(${dependence > 0 ? "POSITIVE — the two go together more often than independence predicts, as the header expected" : "NEGATIVE — the two go together LESS often than independence predicts, opposite to what the header expected"})`
-      );
+    if (grandPooled.length > 0) {
+      const totalN = grandPooled.reduce((sum, g) => sum + g.n, 0);
+      const grandMeanPredicted = grandPooled.reduce((sum, g) => sum + g.p * g.n, 0) / totalN;
+      const grandObserved = grandPooled.reduce((sum, g) => sum + g.o * g.n, 0) / totalN;
+      console.log(`═══ GRAND POOLED (every algorithm, every season) ═══`);
+      console.log(`n=${totalN}  mean predicted=${grandMeanPredicted.toFixed(4)}  observed=${grandObserved.toFixed(4)}`);
     }
 
     if (emitArtifactPath !== undefined) {
@@ -343,7 +385,7 @@ async function main(): Promise<void> {
         // task does not change that — the number's population is recorded
         // here rather than quietly altered.
         offseasonIncluded: true,
-        algorithmVersions: { [algorithm.id]: algorithm.version },
+        algorithmVersions: Object.fromEntries(algorithms.map((a) => [a.id, a.version])),
         records: emittedRecords,
       };
       const parsed = RpCalibrationMeasurementSchema.parse(candidate);

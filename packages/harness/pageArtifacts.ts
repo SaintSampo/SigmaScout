@@ -1548,14 +1548,24 @@ const CompareRpBonusSchema = z.object({
 /**
  * The RP scorecard's wire shape (F1, D-09, D-11) — one per (season,
  * algorithm), attached to the matching `qualification` slice by
- * `buildCompareArtifact`. `reliabilityBins` reuses `CompareCalibrationBinSchema`
- * (never a second bin shape) pooling every bonus's observations for this
- * season/algorithm into one set of buckets.
+ * `buildCompareArtifact`.
+ *
+ * Task 2 Step 5 (2026-09-11): this shape ORIGINALLY also carried a
+ * `reliabilityBins` array (reusing `CompareCalibrationBinSchema`, pooling
+ * every bonus's observations into one set of buckets) — measured, real bytes
+ * showed attaching it pushed `compare-2016.json` to 21,260 bytes against the
+ * committed 20,000-byte `budgetMaxBytes` (`docs/publish-budget.md`), 2016
+ * carrying three algorithms' worth of RP calibration. Per this plan's own
+ * pre-committed remedy (shrink the block, never raise the budget),
+ * `reliabilityBins` was dropped here: nothing on `/methodology/compare`
+ * ever read it (the section renders per-bonus deviation bars from `bonuses`
+ * alone), so it was pure wire cost with no consumer. The per-bonus
+ * `bonuses` array — the one thing the headline sentence and D-09's per-bonus
+ * acceptance bar both need — is unaffected.
  */
 const CompareRpCalibrationSchema = z.object({
   scoredCount: z.number().int().nonnegative(),
   bonuses: z.array(CompareRpBonusSchema),
-  reliabilityBins: z.array(CompareCalibrationBinSchema),
 });
 
 /**

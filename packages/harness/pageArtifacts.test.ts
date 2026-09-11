@@ -406,7 +406,7 @@ describe("CompareSliceSchema.rpCalibration (F1/D-09/D-11, phase 09 plan 09-01)",
     const badSlice = {
       ...fixture.slices[0]!,
       compLevelView: "qualification" as const,
-      rpCalibration: { scoredCount: 10, bonuses: [{ name: "x", count: -1, meanPredicted: 0.5, observedFrequency: 0.5, brierScore: 0.1 }], reliabilityBins: [] },
+      rpCalibration: { scoredCount: 10, bonuses: [{ name: "x", count: -1, meanPredicted: 0.5, observedFrequency: 0.5, brierScore: 0.1 }] },
     };
     expect(() => CompareArtifactSchema.parse({ ...fixture, slices: [badSlice] })).toThrow();
   });

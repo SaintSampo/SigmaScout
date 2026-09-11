@@ -40,6 +40,7 @@ import type { CompareArtifact, EventArtifact, TeamSeasonArtifact } from "./pageA
 import type { MetricHistoryRow } from "./metricHistorySchema.js";
 import {
   actualBonusFlagsForSeason,
+  attachRpCalibration,
   buildCompareArtifact,
   buildEventArtifact,
   buildEventsArtifact,
@@ -53,6 +54,7 @@ import {
   parseSeasonsRange,
   publishSeasons,
   resolvePublishAlgorithms,
+  RP_CALIBRATION_MEASUREMENT_PATH,
   seasonStatsMetricsForTeam,
   withEventPercentiles,
   withHistoryPercentiles,
@@ -3989,7 +3991,6 @@ describe("buildCompareArtifact — rpCalibration attachment (F1/D-09/D-11, phase
         calibration: {
           scoredCount: 4,
           bonuses: [{ name: "energized", count: 4, meanPredicted: 0.123456789, observedFrequency: 0.987654321, brierScore: 0.111111111 }],
-          reliabilityBins: [],
         },
       },
     ],
@@ -4607,4 +4608,83 @@ describe("publishSeasons and --event agree on the presim sidecar (2026-09-09)", 
     expect(fromSeasons.schedules.flatMap((s) => s.matches).length, "the fixture produces matches to compare").toBeGreaterThan(0);
     expect(fromEvent.schedules).toEqual(fromSeasons.schedules);
   });
+});
+
+describe("buildCompareArtifact — one write path (F1/D-09/D-11, phase 09 plan 09-01 Task 2 Step 4)", () => {
+  it("every buildCompareArtifact({ call site in publish.ts passes an rpCalibration argument — a second call site added later cannot silently omit it", () => {
+    const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8");
+    const callSiteCount = (source.match(/buildCompareArtifact\(\{/g) ?? []).length;
+    expect(callSiteCount, "expected at least one buildCompareArtifact({ call site").toBeGreaterThan(0);
+    // Each call site's own object literal, from its `buildCompareArtifact({`
+    // opener to its closing `});`, must contain an `rpCalibration:` key.
+    const callSites = [...source.matchAll(/buildCompareArtifact\(\{[\s\S]*?\n\s*\}\);/g)];
+    expect(callSites).toHaveLength(callSiteCount);
+    for (const callSite of callSites) {
+      expect(callSite[0]).toMatch(/rpCalibration:/);
+    }
+  });
+});
+
+describe("data/baselines/rp-calibration-2026-09.json — the committed D-09 'before' baseline (phase 09 plan 09-01 Task 2)", () => {
+  const measurement = existsSync(RP_CALIBRATION_MEASUREMENT_PATH) ? loadRpCalibrationMeasurement(RP_CALIBRATION_MEASUREMENT_PATH) : undefined;
+
+  if (measurement === undefined) {
+    it.skip(`skipped: ${RP_CALIBRATION_MEASUREMENT_PATH} does not exist yet — run scripts/measureRpCalibration.ts with --emit-artifact first`, () => {});
+  } else {
+    it("covers the FULL cross product of every registered RP season and every published algorithm — pinned by set equality, never a loop over a hand-typed list", () => {
+      const expected = new Set(Object.keys(RP_RULE_MODULES).flatMap((season) => PUBLISHED_ALGORITHM_IDS.map((a) => `${season}:${a}`)));
+      const actual = new Set(measurement.records.map((r) => `${r.season}:${r.algorithmId}`));
+      expect(actual).toEqual(expected);
+    });
+
+    it("every record's bonuses are in the season module's OWN bonusNames order, and cover every bonus", () => {
+      for (const record of measurement.records) {
+        const ruleModule = RP_RULE_MODULES[record.season]!;
+        expect(record.calibration.bonuses.map((b) => b.name)).toEqual([...ruleModule.bonusNames]);
+        expect(record.calibration.bonuses).toHaveLength(ruleModule.bonusNames.length);
+      }
+    });
+
+    it("was measured with offseasonIncluded: true, recorded rather than silently altered", () => {
+      expect(measurement.offseasonIncluded).toBe(true);
+    });
+  }
+});
+
+describe("RP calibration wire-budget cost (F1/D-09/D-11, phase 09 plan 09-01 Task 2 Step 5)", () => {
+  const measurement = existsSync(RP_CALIBRATION_MEASUREMENT_PATH) ? loadRpCalibrationMeasurement(RP_CALIBRATION_MEASUREMENT_PATH) : undefined;
+  const COMPARE_FIXTURE_YEARS = [2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026];
+
+  if (measurement === undefined) {
+    it.skip(`skipped: ${RP_CALIBRATION_MEASUREMENT_PATH} does not exist yet`, () => {});
+  } else {
+    it("attaching the real committed measurement onto every committed compare-{year}.json fixture stays under docs/publish-budget.md's committed compare budgetMaxBytes", () => {
+      const budgetDoc = readFileSync(join("docs", "publish-budget.md"), "utf8");
+      const budgetMatch = /```json budget\r?\n([\s\S]*?)\r?\n```/.exec(budgetDoc);
+      expect(budgetMatch, "docs/publish-budget.md must carry a fenced ```json budget block").not.toBeNull();
+      const budget = JSON.parse(budgetMatch![1]!) as { pages: Record<string, { budgetMaxBytes: number }> };
+      const compareBudgetMaxBytes = budget.pages.compare?.budgetMaxBytes;
+      expect(typeof compareBudgetMaxBytes).toBe("number");
+
+      let largest = 0;
+      let largestYear = 0;
+      for (const year of COMPARE_FIXTURE_YEARS) {
+        const fixturePath = join("apps", "web", "src", "routes", "__fixtures__", `compare-${year}.json`);
+        const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as CompareArtifact;
+        const slicesWithRp = attachRpCalibration(fixture.slices as unknown as ScoreSlice[], measurement);
+        const withRp = { ...fixture, slices: slicesWithRp };
+        const bytes = Buffer.byteLength(JSON.stringify(withRp), "utf8");
+        if (bytes > largest) {
+          largest = bytes;
+          largestYear = year;
+        }
+        expect(
+          bytes,
+          `compare-${year}.json + rpCalibration (${bytes} bytes) exceeded the committed compare budgetMaxBytes (${compareBudgetMaxBytes})`
+        ).toBeLessThanOrEqual(compareBudgetMaxBytes!);
+      }
+      // Reported for the SUMMARY — the largest post-attach size against the committed ceiling.
+      console.log(`RP calibration wire-budget: largest post-attach compare artifact is ${largest} bytes (compare-${largestYear}.json), ceiling ${compareBudgetMaxBytes}`);
+    });
+  }
 });

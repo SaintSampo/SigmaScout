@@ -13,19 +13,64 @@
  *   - `bonuses` must stay in the CALLER's bonusNames order, never re-sorted —
  *     a silent alphabetisation would desynchronize this record from the
  *     season module's own order the rest of the site uses;
- *   - `reliabilityBins` must carry `null` figures (not a divide-by-zero NaN)
- *     for a bucket with zero observations, and the pooled count must equal
- *     the sum across ALL bonuses, not just one;
  *   - the same-scorer fix (D-11) must be structurally true: exactly one
  *     `SigmaScoutLayer` construction in the file, with the algorithm id as
  *     its second argument, and no direct call to `rpPmfForMatch`/
  *     `RpMomentsAccumulator` outside a comment.
+ *
+ * Task 2 Step 5 (2026-09-11): `buildRpCalibrationRecord`'s wire record no
+ * longer carries `reliabilityBins` — dropped after real measured bytes
+ * showed attaching it pushed `compare-2016.json` over the committed compare
+ * budget with nothing on the Compare page ever reading it.
+ * `RP_RELIABILITY_BUCKET_EDGES` stays exported and tested below because
+ * `reliabilityTable` (the CONSOLE report) still uses it.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import type { AlgorithmModule, MatchResult } from "../packages/core/algorithms/types.js";
+import { WalkForwardSimulator } from "../packages/harness/replay.js";
+import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
 import { buildRpCalibrationRecord, RP_RELIABILITY_BUCKET_EDGES, type Observation } from "./measureRpCalibration.js";
 
 const SOURCE = readFileSync(new URL("./measureRpCalibration.ts", import.meta.url), "utf8");
+
+/** Minimal chronologically-ordered synthetic match, same shape convention as `replay.test.ts`'s own `makeMatch`. */
+function makeMatch(overrides: Partial<MatchResult> = {}): MatchResult {
+  return {
+    matchKey: "2024test_qm1",
+    eventKey: "2024test",
+    compLevel: "qm",
+    setNumber: 1,
+    matchNumber: 1,
+    redTeams: ["frc1", "frc2", "frc3"],
+    blueTeams: ["frc4", "frc5", "frc6"],
+    redSurrogates: [],
+    blueSurrogates: [],
+    winner: "red",
+    redScore: 100,
+    blueScore: 80,
+    redRpEarned: 2,
+    blueRpEarned: 0,
+    redDqs: [],
+    blueDqs: [],
+    hasScoreBreakdown: true,
+    scoreBreakdownRaw: '{"red":{}}',
+    eventType: 0,
+    ...overrides,
+  };
+}
+
+/** A trivial algorithm module — deterministic, no real prediction logic — just enough to satisfy `AlgorithmModule<S>`. */
+function makeAlgorithm(id: string): AlgorithmModule<number> {
+  return {
+    id,
+    version: "1.0.0+test",
+    initState: () => 0,
+    predict: (state) => ({ winner: "red", pRedWin: 0.5, redScore: 50 + state, blueScore: 50 }),
+    update: (state) => state + 1,
+    teamMetrics: () => ({}),
+  };
+}
 
 describe("RP_RELIABILITY_BUCKET_EDGES", () => {
   it("is the seven-bucket edge set the console reliability table and the wire emitter both share", () => {
@@ -89,37 +134,52 @@ describe("buildRpCalibrationRecord", () => {
     expect(bonus.count).toBe(4);
   });
 
-  it("pools observations across EVERY bonus into reliabilityBins — a bucket with zero pooled observations gets null figures, not a divide-by-zero NaN", () => {
-    const record = buildRpCalibrationRecord(
-      ["a", "b"],
-      [
-        [{ predicted: 0.02, actual: false }],
-        [{ predicted: 0.03, actual: true }],
-      ]
-    );
-    // Both observations land in [0, 0.05) — every other bucket is empty.
-    const firstBin = record.reliabilityBins[0]!;
-    expect(firstBin.count).toBe(2);
-    expect(firstBin.meanPredicted).not.toBeNull();
-    expect(firstBin.observedFrequency).not.toBeNull();
-
-    const secondBin = record.reliabilityBins[1]!;
-    expect(secondBin.count).toBe(0);
-    expect(secondBin.meanPredicted).toBeNull();
-    expect(secondBin.observedFrequency).toBeNull();
+  it("carries no reliabilityBins key at all — dropped per Task 2 Step 5's measured byte-budget remedy", () => {
+    const record = buildRpCalibrationRecord(["a"], [[{ predicted: 0.5, actual: true }]]);
+    expect("reliabilityBins" in record).toBe(false);
   });
 
-  it("the last bin's binEnd is capped at 1, not the 1.0000001 sentinel edge", () => {
-    const record = buildRpCalibrationRecord(["a"], [[{ predicted: 1.0, actual: true }]]);
-    const lastBin = record.reliabilityBins.at(-1)!;
-    expect(lastBin.binEnd).toBe(1);
-  });
-
-  it("a fully empty input produces zero bonuses and every bin at count 0 with null figures — never a thrown error", () => {
+  it("a fully empty input produces zero bonuses and scoredCount 0 — never a thrown error", () => {
     const record = buildRpCalibrationRecord(["a", "b"], [[], []]);
     expect(record.scoredCount).toBe(0);
     expect(record.bonuses).toEqual([]);
-    expect(record.reliabilityBins.every((bin) => bin.count === 0 && bin.meanPredicted === null && bin.observedFrequency === null)).toBe(true);
+  });
+});
+
+describe("2021 has no registered RP rule module (guards the premise the season filter relies on)", () => {
+  it("RP_RULE_MODULES[2021] is undefined — the at-home season with no ranking-point rules to measure", () => {
+    expect(RP_RULE_MODULES[2021]).toBeUndefined();
+  });
+});
+
+describe("widened emitter (Task 2, D-09) — one runAll, disjoint per-algorithm record sets", () => {
+  it("runAll over two algorithm modules and a chronological match list folds each returned record into ITS OWN algorithm, disjoint and in chronological order", () => {
+    const matches: MatchResult[] = [
+      makeMatch({ matchKey: "2024test_qm1", matchNumber: 1 }),
+      makeMatch({ matchKey: "2024test_qm2", matchNumber: 2 }),
+      makeMatch({ matchKey: "2024test_qm3", matchNumber: 3 }),
+    ];
+    const algoA = makeAlgorithm("algoA");
+    const algoB = makeAlgorithm("algoB");
+    const teams = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
+
+    // Exactly ONE runAll for both algorithms sharing one chronological
+    // stream — the shape this task's widened emitter relies on to cost one
+    // replay instead of one per algorithm.
+    const records = new WalkForwardSimulator(matches).runAll([algoA, algoB], teams);
+
+    const forA = records.filter((r) => r.algorithmId === "algoA");
+    const forB = records.filter((r) => r.algorithmId === "algoB");
+
+    // Disjoint: every record belongs to exactly one algorithm.
+    expect(forA.length + forB.length).toBe(records.length);
+    expect(forA.every((r) => r.algorithmId !== "algoB")).toBe(true);
+    expect(forB.every((r) => r.algorithmId !== "algoA")).toBe(true);
+
+    // Chronologically ordered per algorithm — each algorithm's own subsequence
+    // preserves the match stream's original order.
+    expect(forA.map((r) => r.match.matchKey)).toEqual(["2024test_qm1", "2024test_qm2", "2024test_qm3"]);
+    expect(forB.map((r) => r.match.matchKey)).toEqual(["2024test_qm1", "2024test_qm2", "2024test_qm3"]);
   });
 });
 
@@ -127,7 +187,7 @@ describe("same-scorer structural assertions (D-11)", () => {
   it("constructs SigmaScoutLayer exactly once, with a resolved algorithm id as the second argument", () => {
     const matches = [...SOURCE.matchAll(/new SigmaScoutLayer\(/g)];
     expect(matches).toHaveLength(1);
-    expect(SOURCE).toContain("new SigmaScoutLayer(ruleModule, algorithm.id)");
+    expect(SOURCE).toMatch(/new SigmaScoutLayer\(ruleModule, \w+\.id\)/);
   });
 
   it("reaches RP only through SigmaScoutLayer.foldPlayed — no direct rpPmfForMatch/RpMomentsAccumulator call outside a comment", () => {

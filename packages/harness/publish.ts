@@ -1447,15 +1447,6 @@ const RpCalibrationBonusSchema = z.object({
   brierScore: z.number(),
 });
 
-/** Structurally identical to `pageArtifacts.ts`'s module-private `CompareCalibrationBinSchema`. */
-const RpCalibrationBinSchema = z.object({
-  binStart: z.number(),
-  binEnd: z.number(),
-  meanPredicted: z.number().nullable(),
-  observedFrequency: z.number().nullable(),
-  count: z.number().int().nonnegative(),
-});
-
 /**
  * Structurally identical to `pageArtifacts.ts`'s module-private
  * `CompareRpCalibrationSchema` — DUPLICATED, not imported, because that
@@ -1467,11 +1458,16 @@ const RpCalibrationBinSchema = z.object({
  * SAME real emitted record fixture
  * (`apps/web/src/routes/__fixtures__/rp-calibration-2026-bpr.json`) as a
  * runtime cross-check.
+ *
+ * Task 2 Step 5: no `reliabilityBins` field — dropped from the wire shape
+ * (see `pageArtifacts.ts`'s `CompareRpCalibrationSchema` doc comment for the
+ * measured byte-budget reason) and, for the same reason `RpCalibrationRecord`
+ * is a plain alias of `CompareRpCalibration` rather than its own type, never
+ * re-added here independently of that decision.
  */
 const RpCalibrationRecordSchema = z.object({
   scoredCount: z.number().int().nonnegative(),
   bonuses: z.array(RpCalibrationBonusSchema),
-  reliabilityBins: z.array(RpCalibrationBinSchema),
 });
 
 /** Alias, not a re-declaration — this IS `pageArtifacts.ts`'s wire type, used here so `scripts/measureRpCalibration.ts`'s emitter has one name for "the record" regardless of which file's schema last validated it. */
@@ -1564,7 +1560,7 @@ export function loadRpCalibrationMeasurement(path: string): RpCalibrationMeasure
  * the key absent rather than present-and-empty. `measurement === undefined`
  * (no committed baseline yet) is a no-op over every slice.
  */
-function attachRpCalibration(
+export function attachRpCalibration(
   slices: readonly ScoreSlice[],
   measurement: RpCalibrationMeasurement | undefined
 ): readonly (ScoreSlice & { rpCalibration?: CompareRpCalibration })[] {
@@ -1582,13 +1578,6 @@ function attachRpCalibration(
         meanPredicted: roundTo(b.meanPredicted, 6),
         observedFrequency: roundTo(b.observedFrequency, 6),
         brierScore: roundTo(b.brierScore, 6),
-      })),
-      reliabilityBins: calibration.reliabilityBins.map((bin) => ({
-        binStart: bin.binStart,
-        binEnd: bin.binEnd,
-        meanPredicted: bin.meanPredicted === null ? null : roundTo(bin.meanPredicted, 6),
-        observedFrequency: bin.observedFrequency === null ? null : roundTo(bin.observedFrequency, 6),
-        count: bin.count,
       })),
     };
     return { ...slice, rpCalibration };
@@ -2082,6 +2071,8 @@ export interface PublishSeasonsOptions {
   readonly preScheduleFromSeason?: number;
   readonly generation?: string;
   readonly computedAt?: string;
+  /** F1/D-09/D-11 (phase 09 plan 09-01 Task 2): the RP calibration measurement to attach onto the compare artifact's matching qualification slices. `undefined` attaches nothing — the CLI's default resolves this from `RP_CALIBRATION_MEASUREMENT_PATH` via `loadRpCalibrationMeasurement`, so an ordinary run needs no new flag once the baseline is committed. */
+  readonly rpCalibration?: RpCalibrationMeasurement;
 }
 
 export interface PublishSummary {
@@ -3214,6 +3205,8 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       slices,
       generation,
       computedAt,
+      // F1/D-09/D-11 (phase 09 plan 09-01 Task 2): the ONLY `buildCompareArtifact(` call site in this file — every one passes `rpCalibration`, so a second call site added later cannot silently omit it (the exact bug sigmaScoutLayer.ts was extracted to prevent, verified by `publish.test.ts`'s call-site-count assertion).
+      rpCalibration: options.rpCalibration,
     });
     const compareKey = artifactKey({ page: "compare", year: season });
     await uploader.publish("compare", compareKey, JSON.stringify(compareArtifact));
@@ -3690,14 +3683,21 @@ async function runSeasonsCliMode(
   dryRun: boolean,
   skipState: boolean,
   includeOffseason: boolean,
-  preScheduleFromSeason: number | undefined
+  preScheduleFromSeason: number | undefined,
+  rpCalibrationPathOverride: string | undefined,
+  noRpCalibration: boolean
 ): Promise<void> {
   const seasons = parseSeasonsRange(seasonsSpec);
   const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
+  // F1/D-09/D-11 (phase 09 plan 09-01 Task 2): `--no-rp-calibration` suppresses attachment entirely;
+  // otherwise `--rp-calibration <path>` overrides the default `RP_CALIBRATION_MEASUREMENT_PATH`.
+  // `loadRpCalibrationMeasurement` returns `undefined` for a path that does not exist yet — an
+  // ordinary run before this phase's baseline is committed attaches nothing, with no flag needed.
+  const rpCalibration = noRpCalibration ? undefined : loadRpCalibrationMeasurement(rpCalibrationPathOverride ?? RP_CALIBRATION_MEASUREMENT_PATH);
 
   const db = openCorpusReadOnly(CORPUS_PATH);
   try {
-    await publishSeasons(db, { seasons, algorithms, bucket, concurrency, dryRun, skipState, includeOffseason, preScheduleFromSeason });
+    await publishSeasons(db, { seasons, algorithms, bucket, concurrency, dryRun, skipState, includeOffseason, preScheduleFromSeason, rpCalibration });
   } finally {
     db.close();
   }
@@ -3718,6 +3718,10 @@ async function main(): Promise<void> {
       // season cutoff, threaded through runSeasonsCliMode into
       // publishSeasons — the default lives on DEFAULT_PRESCHEDULE_FROM_SEASON.
       "presim-from-season": { type: "string" },
+      // F1/D-09/D-11 (phase 09 plan 09-01 Task 2): override the committed
+      // RP calibration measurement path, or suppress attachment entirely.
+      "rp-calibration": { type: "string" },
+      "no-rp-calibration": { type: "boolean" },
     },
   });
 
@@ -3743,7 +3747,9 @@ async function main(): Promise<void> {
       dryRun,
       values["skip-state"] === true,
       values["include-offseason"] === true,
-      preScheduleFromSeason
+      preScheduleFromSeason,
+      values["rp-calibration"],
+      values["no-rp-calibration"] === true
     );
   } else {
     throw new Error("One of --event or --seasons is required");
