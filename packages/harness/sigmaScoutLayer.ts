@@ -296,11 +296,35 @@ export class SigmaScoutLayer {
       tally: this.#rpMarginalResolutionTally,
     });
 
+    // D-15 (plan 09-07): compose the five decomposition fields the rank
+    // simulation's coupled draw consumes, from 09-04's exported halves
+    // (`pmf.outcome`, `pmf.redBonusPmf`/`pmf.blueBonusPmf`) plus this
+    // season's own winRp/tieRp constants — read from `#ruleModule`, never
+    // hardcoded (2/1 in 2016-2024, 3/1 in 2025-2026). This function is the
+    // ONE place in the pipeline that knows both the decomposition and the
+    // season's RP constants, which is why the outcome-RP vectors are
+    // composed here rather than in either transport. Gated on `pmf.outcome`
+    // actually being present (absent only for the non-qualification
+    // short-circuit, which fits no marginal at all) — an algorithm or
+    // configuration that produces no decomposition keeps every one of these
+    // five keys absent rather than empty.
+    const decomposition: Partial<Prediction> =
+      pmf.outcome !== undefined && pmf.redBonusPmf !== undefined && pmf.blueBonusPmf !== undefined
+        ? {
+            matchOutcomePmf: [pmf.outcome.pRedWin, pmf.outcome.pTie, pmf.outcome.pBlueWin],
+            redOutcomeRp: [pmf.outcome.winRp, pmf.outcome.tieRp, 0],
+            blueOutcomeRp: [0, pmf.outcome.tieRp, pmf.outcome.winRp],
+            redBonusRpPmf: pmf.redBonusPmf,
+            blueBonusRpPmf: pmf.blueBonusPmf,
+          }
+        : {};
+
     return {
       redRpPmf: pmf.redPmf,
       blueRpPmf: pmf.bluePmf,
       ...(pmf.redBonusProbabilities !== undefined ? { redBonusRp: pmf.redBonusProbabilities } : {}),
       ...(pmf.blueBonusProbabilities !== undefined ? { blueBonusRp: pmf.blueBonusProbabilities } : {}),
+      ...decomposition,
     };
   }
 

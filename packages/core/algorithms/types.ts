@@ -209,6 +209,49 @@ export interface Prediction {
   redBonusRp?: readonly number[];
   /** The blue alliance's counterpart to `redBonusRp` — see its doc comment for the full contract. */
   blueBonusRp?: readonly number[];
+  /**
+   * Plan 09-07 (D-15): the win/tie/loss half of the RP decomposition —
+   * `[P(red wins), P(tie), P(blue wins)]`, three entries, sums to 1. This is
+   * `analyticRpPmf`'s `outcome` field (`RpOutcomeDistribution`'s
+   * `pRedWin`/`pTie`/`pBlueWin`) flattened into the index order pinned by
+   * `EventMatchSchema.matchOutcomePmf`'s doc comment (the single definition
+   * site). Published so the rank simulation can draw a match's outcome ONCE
+   * instead of drawing each alliance's total RP independently — today's
+   * independent draws let both alliances "win" the same draw. Carries three
+   * entries at every configuration; the tie entry is ~0 until D-14's
+   * discrete score-margin tie model is selected, so the shape never changes
+   * when the model does. Optional, following `redRpPmf`'s omitted-entirely
+   * convention: absent (never a zero-filled array) whenever `redRpPmf` is,
+   * for the identical reasons.
+   */
+  matchOutcomePmf?: readonly number[];
+  /**
+   * Plan 09-07 (D-15): the red alliance's ranking points under each entry of
+   * `matchOutcomePmf`, index-aligned to it — `[winRp, tieRp, 0]`, read from
+   * the season's own `RpRuleModule.winRp`/`.tieRp` (2/1 in 2016-2024, 3/1 in
+   * 2025-2026), never hardcoded. A THIRD quantity again, distinct from both
+   * neighbours: `redRpPmf` is a distribution over the RP TOTAL, `redBonusRp`
+   * is a per-bonus MARGINAL that does not sum to 1, and this is a small
+   * exact vector giving each alliance's OUTCOME-only RP conditional on which
+   * of the three outcomes occurred — never a distribution in its own right.
+   * Optional, same convention as `matchOutcomePmf`.
+   */
+  redOutcomeRp?: readonly number[];
+  /** The blue alliance's counterpart to `redOutcomeRp` — `[0, tieRp, winRp]`, index-aligned to the SAME `matchOutcomePmf` order. See its doc comment for the full contract. */
+  blueOutcomeRp?: readonly number[];
+  /**
+   * Plan 09-07 (D-15): the red alliance's BONUS ranking points only —
+   * `analyticRpPmf`'s `redBonusPmf`, a distribution over the bonus-RP COUNT
+   * (sums to 1, unlike `redBonusRp`'s per-bonus marginal above). A THIRD
+   * quantity from both neighbours by name: `redRpPmf` is the RP TOTAL
+   * distribution (win/tie RP and bonus RP already folded in), `redBonusRp`
+   * is a per-bonus MARGINAL whose entries do not sum to 1, and this is a
+   * distribution over the bonus-RP count alone, independent of the match
+   * outcome. Optional, same convention as `matchOutcomePmf`.
+   */
+  redBonusRpPmf?: readonly number[];
+  /** The blue alliance's counterpart to `redBonusRpPmf` — see its doc comment for the full contract. */
+  blueBonusRpPmf?: readonly number[];
 }
 
 /**

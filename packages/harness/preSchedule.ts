@@ -23,7 +23,13 @@
 import { PAGE_ARTIFACT_SCHEMA_VERSION, PreScheduleArtifactSchema, type PreScheduleArtifact } from "./pageArtifacts.js";
 import { loadScheduleTemplate } from "./scheduleTemplates.js";
 import { roundPmf } from "./rounding.js";
-import { mulberry32, simulateRanks, type SimMatchInput, type SimTeamBaseline } from "../core/algorithms/simulation/rankSimulation.js";
+import {
+  mulberry32,
+  simulateRanks,
+  type SimMatchInput,
+  type SimMatchOutcomeInput,
+  type SimTeamBaseline,
+} from "../core/algorithms/simulation/rankSimulation.js";
 import type { Prediction, UpcomingMatch } from "../core/algorithms/types.js";
 
 /**
@@ -36,12 +42,50 @@ import type { Prediction, UpcomingMatch } from "../core/algorithms/types.js";
  * returns `null` instead of throwing.
  */
 export class PreSchedulePricingError extends Error {
-  constructor(syntheticMatchKey: string) {
+  /**
+   * `missing` names what vanished partway through the schedule — either the
+   * base `redRpPmf`/`blueRpPmf` pair (the original case) or, since plan
+   * 09-07 (D-15), the RP decomposition (`matchOutcomePmf`/`redOutcomeRp`/
+   * `blueOutcomeRp`/`redBonusRpPmf`/`blueBonusRpPmf`) once the FIRST priced
+   * prediction established that this algorithm carries it — the same
+   * first-match-probe discipline `buildPreScheduleArtifact` already applies
+   * to the base pmf pair, extended rather than duplicated.
+   */
+  constructor(syntheticMatchKey: string, missing: "redRpPmf/blueRpPmf" | "the RP decomposition" = "redRpPmf/blueRpPmf") {
     super(
-      `buildPreScheduleArtifact: predict returned no redRpPmf/blueRpPmf for synthetic match "${syntheticMatchKey}" after pricing earlier matches successfully — a pmf that goes missing partway through a schedule is corruption, not an RP-less algorithm`
+      `buildPreScheduleArtifact: predict returned no ${missing} for synthetic match "${syntheticMatchKey}" after pricing earlier matches successfully — a pmf that goes missing partway through a schedule is corruption, not an RP-less algorithm`
     );
     this.name = "PreSchedulePricingError";
   }
+}
+
+/**
+ * Builds the fifth `toSimMatchInput` argument from a `Prediction`'s RP
+ * decomposition (D-15, plan 09-07) — `undefined` unless ALL FIVE fields are
+ * present, since a partial set is not a usable coupled-draw input.
+ * `redOutcomeRp`/`blueOutcomeRp` pass through UNROUNDED (exact small
+ * integers from the rule module — rounding them would only introduce a way
+ * for them to differ); `outcomePmf` and both bonus pmfs are rounded through
+ * `roundPmf`, the same quantity/precision `rp`/`bp` already use two lines
+ * below each call site.
+ */
+function buildOutcomeInput(prediction: Prediction): SimMatchOutcomeInput | undefined {
+  if (
+    prediction.matchOutcomePmf === undefined ||
+    prediction.redOutcomeRp === undefined ||
+    prediction.blueOutcomeRp === undefined ||
+    prediction.redBonusRpPmf === undefined ||
+    prediction.blueBonusRpPmf === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    outcomePmf: roundPmf(prediction.matchOutcomePmf),
+    redOutcomeRp: prediction.redOutcomeRp,
+    blueOutcomeRp: prediction.blueOutcomeRp,
+    redBonusRpPmf: roundPmf(prediction.redBonusRpPmf),
+    blueBonusRpPmf: roundPmf(prediction.blueBonusRpPmf),
+  };
 }
 
 export interface PreScheduleBuildParams {
@@ -113,13 +157,15 @@ function seededShuffle(count: number, rng: () => number): number[] {
 export function toSimMatchInput(
   upcoming: UpcomingMatch,
   redRpPmf: readonly number[],
-  blueRpPmf: readonly number[]
+  blueRpPmf: readonly number[],
+  outcome?: SimMatchOutcomeInput
 ): SimMatchInput {
   return {
     redTeamKeys: upcoming.redTeams.filter((teamKey) => !upcoming.redSurrogates.includes(teamKey)),
     blueTeamKeys: upcoming.blueTeams.filter((teamKey) => !upcoming.blueSurrogates.includes(teamKey)),
     redRpPmf,
     blueRpPmf,
+    ...(outcome !== undefined ? { outcome } : {}),
   };
 }
 
@@ -195,6 +241,13 @@ export function buildPreScheduleArtifact(params: PreScheduleBuildParams): PreSch
   if (firstPrediction.redRpPmf === undefined || firstPrediction.blueRpPmf === undefined) {
     return null;
   }
+  // D-15 (plan 09-07): same first-match-probe discipline, extended to the
+  // decomposition rather than duplicated — whether THIS algorithm carries
+  // it is decided once, here, from the first priced prediction. If it does
+  // not, absent-throughout is an ordinary answer and the whole schedule
+  // prices on the legacy path; the decomposition is never a precondition
+  // for building a sidecar at all.
+  const firstHasDecomposition = buildOutcomeInput(firstPrediction) !== undefined;
 
   const schedules: PreScheduleArtifact["schedules"][number][] = [];
   const simInputsBySchedule: SimMatchInput[][] = [];
@@ -220,8 +273,15 @@ export function buildPreScheduleArtifact(params: PreScheduleBuildParams): PreSch
       // matches — identical quantity, identical `ROUNDING_RULE.pmf` precision.
       const rp = roundPmf(prediction.redRpPmf);
       const bp = roundPmf(prediction.blueRpPmf);
+      const outcome = buildOutcomeInput(prediction);
+      if (firstHasDecomposition && outcome === undefined) {
+        // The FIRST priced prediction carried the decomposition, so a later
+        // one that lacks it is corruption, exactly as a vanishing
+        // redRpPmf/blueRpPmf already is above.
+        throw new PreSchedulePricingError(synthetic.upcoming.matchKey, "the RP decomposition");
+      }
       publishedMatches.push({ r: [...synthetic.r], b: [...synthetic.b], rp, bp });
-      simInputs.push(toSimMatchInput(synthetic.upcoming, rp, bp));
+      simInputs.push(toSimMatchInput(synthetic.upcoming, rp, bp, outcome));
     }
     schedules.push({ seed, matches: publishedMatches });
     simInputsBySchedule.push(simInputs);

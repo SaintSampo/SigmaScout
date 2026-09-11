@@ -17,13 +17,29 @@
  * this pipeline stores as `EventTeamSchema.rp`,
  * `packages/harness/pageArtifacts.ts`'s own doc comment: "TBA's Ranking
  * Score... a per-match AVERAGE"), is average total RP per match played.
- * That is exactly what this module sorts by — no separate win/loss model,
- * no separately-drawn winner: `redRpPmf`/`blueRpPmf` are already
- * distributions over an alliance's TOTAL RP for a match (win/tie RP and
- * bonus RP already folded into the domain, see `drawCategorical`'s call
- * site in `simulateRanks` below), so drawing one value per alliance per
- * match and dividing the running sum by matches played reproduces Ranking
- * Score directly.
+ * That is exactly what this module sorts by.
+ *
+ * A match has ONE outcome. Drawing red's and blue's total RP as two fully
+ * INDEPENDENT inversions of `redRpPmf`/`blueRpPmf` — the module's original
+ * design — lets both alliances receive the winning alliance's ranking
+ * points in a single draw, a state the sport cannot produce. D-15 (plan
+ * 09-07) fixes this without touching the Monte Carlo itself (D-15 keeps it,
+ * developer-confirmed: rank has no tractable closed form and the draw
+ * captures for free the coupling where teammates on an alliance receive the
+ * SAME draw): draw the match's outcome ONCE from a shared three-entry
+ * distribution (red win / tie / blue win), then each alliance's BONUS RP
+ * independently from its own bonus-only marginal, then add the
+ * deterministic-given-outcome win/tie RP on top. This is approach (b) of
+ * 09-RESEARCH.md's assumption A3 — chosen over (a), a genuinely joint
+ * red/blue total-RP pmf, because the bonus-only marginal 09-04 already
+ * exports separately is exactly what (b) needs and (a) would require
+ * reconstructing a joint distribution this project has no measured form
+ * for.
+ *
+ * A `SimMatchInput` with no `outcome` still takes the ORIGINAL two
+ * independent-draw path, unchanged, reproducing today's histograms exactly
+ * under the same seed — the path every artifact published before 09-10's
+ * republish takes, and Tests 1-14 (below) are its regression oracle.
  */
 
 /**
@@ -104,12 +120,52 @@ export class UnknownTeamKeyError extends Error {
   }
 }
 
-/** One remaining qualification match's simulation input: the two alliances' team keys and their RP-total pmfs (already fold in win/tie/bonus RP — see this file's header). */
+/**
+ * The coupled-draw decomposition for one match (D-15, plan 09-07). This
+ * module assigns NO MEANING to any index — it never learns which entry of
+ * `outcomePmf` is a "win" — the same refusal this file already makes about
+ * row selection. The index order is pinned by this shape's PRODUCERS, in
+ * exactly one place: `EventMatchSchema.matchOutcomePmf`'s doc comment
+ * (`packages/harness/pageArtifacts.ts`). This interface only documents what
+ * each array IS, never what a given index MEANS.
+ *
+ * - `outcomePmf`: a distribution over mutually exclusive match outcomes.
+ *   Three entries at every configuration (red win / tie / blue win); the
+ *   tie entry is ~0 until D-14's discrete score-margin tie model is
+ *   selected, so the shape never changes when the model does.
+ * - `redOutcomeRp` / `blueOutcomeRp`: index-aligned to `outcomePmf`, each
+ *   alliance's ranking points under that outcome.
+ * - `redBonusRpPmf` / `blueBonusRpPmf`: each alliance's own distribution
+ *   over its BONUS ranking points only, drawn INDEPENDENTLY of each other —
+ *   red and blue share no team, so nothing couples their bonus draws.
+ */
+export interface SimMatchOutcomeInput {
+  readonly outcomePmf: readonly number[];
+  readonly redOutcomeRp: readonly number[];
+  readonly blueOutcomeRp: readonly number[];
+  readonly redBonusRpPmf: readonly number[];
+  readonly blueBonusRpPmf: readonly number[];
+}
+
+/**
+ * One remaining qualification match's simulation input: the two alliances'
+ * team keys and their RP-total pmfs (already fold in win/tie/bonus RP — see
+ * this file's header).
+ *
+ * `outcome` (D-15, plan 09-07) is OPTIONAL and, when present, is what this
+ * match's draw is actually built from — see `SimMatchOutcomeInput`'s own
+ * doc comment. A single optional OBJECT rather than five optional scalars
+ * is deliberate: it makes all-present-or-all-absent a compile-time property
+ * instead of a runtime check. Absent means this match takes the ORIGINAL
+ * two-independent-draw path over `redRpPmf`/`blueRpPmf` — the path every
+ * artifact published before 09-10's republish takes.
+ */
 export interface SimMatchInput {
   readonly redTeamKeys: readonly string[];
   readonly blueTeamKeys: readonly string[];
   readonly redRpPmf: readonly number[];
   readonly blueRpPmf: readonly number[];
+  readonly outcome?: SimMatchOutcomeInput;
 }
 
 /** One team's starting state going into the simulation. */
@@ -194,27 +250,58 @@ export function simulateRanks(
     });
   }
 
-  function assertValidPmf(pmf: readonly number[], matchPosition: number, side: "red" | "blue"): void {
+  function assertValidPmf(pmf: readonly number[], matchPosition: number, fieldName: string): void {
     if (pmf.length === 0) {
-      throw new InvalidPmfError(`simulateRanks: match at position ${matchPosition} carries an empty ${side}RpPmf`);
+      throw new InvalidPmfError(`simulateRanks: match at position ${matchPosition} carries an empty ${fieldName}`);
     }
     for (const value of pmf) {
       if (!Number.isFinite(value)) {
         throw new InvalidPmfError(
-          `simulateRanks: match at position ${matchPosition} carries a non-finite ${side}RpPmf entry (${value})`
+          `simulateRanks: match at position ${matchPosition} carries a non-finite ${fieldName} entry (${value})`
         );
       }
     }
   }
 
+  /** Every entry of an outcome-RP vector must be finite (D-15, plan 09-07) — an `undefined`/`NaN` entry would otherwise reach `rpSum` and produce a comparator ordering that is neither stable nor meaningful. */
+  function assertFiniteVector(vector: readonly number[], matchPosition: number, fieldName: string): void {
+    for (const value of vector) {
+      if (!Number.isFinite(value)) {
+        throw new InvalidPmfError(
+          `simulateRanks: match at position ${matchPosition} carries a non-finite ${fieldName} entry (${value})`
+        );
+      }
+    }
+  }
+
+  /** An outcome-RP vector shorter than `outcomePmf` yields `undefined` at the drawn index; `undefined + number` is `NaN` (D-15, plan 09-07). */
+  function assertOutcomeVectorLength(vector: readonly number[], expectedLength: number, matchPosition: number, fieldName: string): void {
+    if (vector.length !== expectedLength) {
+      throw new InvalidPmfError(
+        `simulateRanks: match at position ${matchPosition} carries a ${fieldName} of length ${vector.length}, expected ${expectedLength} (outcomePmf's own length)`
+      );
+    }
+  }
+
   const resolvedMatches = remainingMatches.map((match, matchPosition) => {
-    assertValidPmf(match.redRpPmf, matchPosition, "red");
-    assertValidPmf(match.blueRpPmf, matchPosition, "blue");
+    assertValidPmf(match.redRpPmf, matchPosition, "redRpPmf");
+    assertValidPmf(match.blueRpPmf, matchPosition, "blueRpPmf");
+    if (match.outcome !== undefined) {
+      const { outcomePmf, redOutcomeRp, blueOutcomeRp, redBonusRpPmf, blueBonusRpPmf } = match.outcome;
+      assertValidPmf(outcomePmf, matchPosition, "outcomePmf");
+      assertValidPmf(redBonusRpPmf, matchPosition, "redBonusRpPmf");
+      assertValidPmf(blueBonusRpPmf, matchPosition, "blueBonusRpPmf");
+      assertFiniteVector(redOutcomeRp, matchPosition, "redOutcomeRp");
+      assertFiniteVector(blueOutcomeRp, matchPosition, "blueOutcomeRp");
+      assertOutcomeVectorLength(redOutcomeRp, outcomePmf.length, matchPosition, "redOutcomeRp");
+      assertOutcomeVectorLength(blueOutcomeRp, outcomePmf.length, matchPosition, "blueOutcomeRp");
+    }
     return {
       redIndices: resolveTeamIndices(match.redTeamKeys, matchPosition),
       blueIndices: resolveTeamIndices(match.blueTeamKeys, matchPosition),
       redRpPmf: match.redRpPmf,
       blueRpPmf: match.blueRpPmf,
+      outcome: match.outcome,
     };
   });
 
@@ -262,8 +349,25 @@ export function simulateRanks(
     }
 
     for (const match of resolvedMatches) {
-      const redRp = drawCategorical(match.redRpPmf, rng);
-      const blueRp = drawCategorical(match.blueRpPmf, rng);
+      let redRp: number;
+      let blueRp: number;
+      if (match.outcome !== undefined) {
+        // Draw order is OUTCOME, then RED bonus, then BLUE bonus — pinned
+        // here because the order defines the rng stream; changing it later
+        // silently changes every seeded output (D-15, plan 09-07).
+        const outcomeIndex = drawCategorical(match.outcome.outcomePmf, rng);
+        const redBonusRp = drawCategorical(match.outcome.redBonusRpPmf, rng);
+        const blueBonusRp = drawCategorical(match.outcome.blueBonusRpPmf, rng);
+        redRp = match.outcome.redOutcomeRp[outcomeIndex]! + redBonusRp;
+        blueRp = match.outcome.blueOutcomeRp[outcomeIndex]! + blueBonusRp;
+      } else {
+        // The ORIGINAL two-independent-draw path (pre-09-07): reproduces
+        // today's histograms exactly under the same seed. This is the path
+        // a published artifact predating the decomposition takes, and
+        // Tests 1-14 are its regression oracle.
+        redRp = drawCategorical(match.redRpPmf, rng);
+        blueRp = drawCategorical(match.blueRpPmf, rng);
+      }
       for (const i of match.redIndices) {
         rpSum[i]! += redRp;
         matchesPlayed[i]! += 1;

@@ -79,6 +79,40 @@ describe("toSimMatchInput (PD-03 — the one implementation the builder hands si
     expect(input.redRpPmf).toEqual(STUB_PMF);
     expect(input.blueRpPmf).toEqual(STUB_PMF);
   });
+
+  const decompositionUpcoming: UpcomingMatch = {
+    matchKey: "2026casj_presim0_qm5",
+    eventKey: "2026casj",
+    compLevel: "qm",
+    setNumber: 1,
+    matchNumber: 5,
+    redTeams: ["frc1", "frc2", "frc3"],
+    blueTeams: ["frc4", "frc5", "frc6"],
+    redSurrogates: ["frc2"],
+    blueSurrogates: [],
+    eventType: 0,
+    week: null,
+  };
+  const STUB_OUTCOME = {
+    outcomePmf: [0.5, 0, 0.5],
+    redOutcomeRp: [2, 1, 0],
+    blueOutcomeRp: [0, 1, 2],
+    redBonusRpPmf: [1],
+    blueBonusRpPmf: [1],
+  };
+
+  it("a fifth `outcome` argument populates SimMatchInput.outcome without disturbing PD-03's surrogate exclusion", () => {
+    const input = toSimMatchInput(decompositionUpcoming, STUB_PMF, STUB_PMF, STUB_OUTCOME);
+    expect(input.outcome).toEqual(STUB_OUTCOME);
+    expect(input.redTeamKeys).toEqual(["frc1", "frc3"]);
+    expect(input.blueTeamKeys).toEqual(["frc4", "frc5", "frc6"]);
+  });
+
+  it("omitting the fifth argument leaves SimMatchInput.outcome entirely absent, not an empty or zero-filled object", () => {
+    const input = toSimMatchInput(decompositionUpcoming, STUB_PMF, STUB_PMF);
+    expect("outcome" in input).toBe(false);
+    expect(input.outcome).toBeUndefined();
+  });
 });
 
 describe("buildPreScheduleArtifact against the real template cache", () => {

@@ -22,6 +22,7 @@ import {
   mulberry32,
   simulateRanks,
   type SimMatchInput,
+  type SimMatchOutcomeInput,
   type SimTeamBaseline,
 } from "./rankSimulation.js";
 
@@ -402,5 +403,339 @@ describe("simulateRanks — Test 14: zero remaining matches is a valid input", (
     expect(result.rankHistograms.get("frcTop")![0]).toBe(1000);
     expect(result.rankHistograms.get("frcMid")![1]).toBe(1000);
     expect(result.rankHistograms.get("frcBottom")![2]).toBe(1000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D-15 (plan 09-07): the coupled draw — one outcome, then bonuses per
+// alliance. Tests 15-21 continue this file's own numbering. Shared fixture
+// convention for Tests 15-17: one remaining match (frcRed vs frcBlue) plus
+// one frcRef team that plays no remaining match and whose baseline pins an
+// exact average, so a rank read off the histogram observes a per-draw
+// quantity even though the output is only a histogram.
+// ---------------------------------------------------------------------------
+
+describe("simulateRanks — Test 15: both alliances cannot win the same draw", () => {
+  it("keeps frcRef strictly between the two alliances in all 1000 draws under the coupled path", () => {
+    // Under today's independent draws this fixture would put frcRef at rank
+    // 3 on a both-win draw and rank 1 on a both-lose draw roughly half the
+    // time -- this assertion is exact and structural, not statistical.
+    const outcome: SimMatchOutcomeInput = {
+      outcomePmf: [0.5, 0, 0.5],
+      redOutcomeRp: [2, 1, 0],
+      blueOutcomeRp: [0, 1, 2],
+      redBonusRpPmf: [1],
+      blueBonusRpPmf: [1],
+    };
+    const baselines: SimTeamBaseline[] = [
+      { teamKey: "frcRed", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frcBlue", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frcRef", earnedRpSum: 1, matchesPlayed: 1 }, // average exactly 1
+    ];
+    const remainingMatches: SimMatchInput[] = [
+      { redTeamKeys: ["frcRed"], blueTeamKeys: ["frcBlue"], redRpPmf: [1], blueRpPmf: [1], outcome },
+    ];
+
+    const result = simulateRanks(remainingMatches, baselines, 1000, mulberry32(1));
+
+    expect(Array.from(result.rankHistograms.get("frcRef")!)).toEqual([0, 1000, 0]);
+  });
+});
+
+describe("simulateRanks — Test 16: bonus RP adds on top of the outcome RP, deterministically given the outcome", () => {
+  it("pins red's total at exactly 3 via two brackets around it", () => {
+    // Red always wins (outcomePmf: [1, 0, 0]) and always earns exactly 1
+    // bonus RP (redBonusRpPmf: [0, 1]); blue never earns a bonus
+    // (blueBonusRpPmf: [1]). Red's total is exactly 2 (win RP) + 1 (bonus) =
+    // 3 every draw; blue's is exactly 0. Neither bracket alone pins the
+    // value -- together they do.
+    const outcome: SimMatchOutcomeInput = {
+      outcomePmf: [1, 0, 0],
+      redOutcomeRp: [2, 1, 0],
+      blueOutcomeRp: [0, 1, 2],
+      redBonusRpPmf: [0, 1],
+      blueBonusRpPmf: [1],
+    };
+    const remainingMatches: SimMatchInput[] = [
+      { redTeamKeys: ["frcRed"], blueTeamKeys: ["frcBlue"], redRpPmf: [1], blueRpPmf: [1], outcome },
+    ];
+
+    const lowBaselines: SimTeamBaseline[] = [
+      { teamKey: "frcRed", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frcBlue", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frcRef", earnedRpSum: 2.5, matchesPlayed: 1 },
+    ];
+    const lowResult = simulateRanks(remainingMatches, lowBaselines, 1000, mulberry32(2));
+    expect(lowResult.rankHistograms.get("frcRed")![0]).toBe(1000);
+    expect(lowResult.rankHistograms.get("frcRef")![1]).toBe(1000);
+    expect(lowResult.rankHistograms.get("frcBlue")![2]).toBe(1000);
+
+    const highBaselines: SimTeamBaseline[] = [
+      { teamKey: "frcRed", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frcBlue", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frcRef", earnedRpSum: 3.5, matchesPlayed: 1 },
+    ];
+    const highResult = simulateRanks(remainingMatches, highBaselines, 1000, mulberry32(2));
+    expect(highResult.rankHistograms.get("frcRef")![0]).toBe(1000);
+    expect(highResult.rankHistograms.get("frcRed")![1]).toBe(1000);
+    expect(highResult.rankHistograms.get("frcBlue")![2]).toBe(1000);
+  });
+});
+
+describe("simulateRanks — Test 17: the tie outcome is reachable and pays both alliances", () => {
+  it("pays both alliances exactly tieRp, pinned via two brackets around frcRef", () => {
+    // outcomePmf: [0, 1, 0] -- the tie entry always fires. This case could
+    // not fire at all before 09-05 (today's tie branch needs exact
+    // float-equality of two continuous draws, while 1.09% of quals actually
+    // tie, F7), so it is asserted here rather than assumed to arrive free
+    // with the config flip.
+    const outcome: SimMatchOutcomeInput = {
+      outcomePmf: [0, 1, 0],
+      redOutcomeRp: [2, 1, 0],
+      blueOutcomeRp: [0, 1, 2],
+      redBonusRpPmf: [1],
+      blueBonusRpPmf: [1],
+    };
+    const remainingMatches: SimMatchInput[] = [
+      { redTeamKeys: ["frcRed"], blueTeamKeys: ["frcBlue"], redRpPmf: [1], blueRpPmf: [1], outcome },
+    ];
+
+    // frcRed and frcBlue both land on average 1 (tieRp), so frcRef at 0.5 is
+    // last in every draw regardless of how the frcRed/frcBlue tie itself
+    // resolves.
+    const lowBaselines: SimTeamBaseline[] = [
+      { teamKey: "frcRed", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frcBlue", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frcRef", earnedRpSum: 0.5, matchesPlayed: 1 },
+    ];
+    const lowResult = simulateRanks(remainingMatches, lowBaselines, 1000, mulberry32(3));
+    expect(lowResult.rankHistograms.get("frcRef")![2]).toBe(1000);
+
+    const highBaselines: SimTeamBaseline[] = [
+      { teamKey: "frcRed", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frcBlue", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frcRef", earnedRpSum: 1.5, matchesPlayed: 1 },
+    ];
+    const highResult = simulateRanks(remainingMatches, highBaselines, 1000, mulberry32(3));
+    expect(highResult.rankHistograms.get("frcRef")![0]).toBe(1000);
+  });
+});
+
+describe("simulateRanks — Test 18: rng consumption is fixed per match list, never data-dependent", () => {
+  function countingRng(seed: number): { rng: () => number; count: () => number } {
+    const inner = mulberry32(seed);
+    let calls = 0;
+    return {
+      rng: () => {
+        calls++;
+        return inner();
+      },
+      count: () => calls,
+    };
+  }
+
+  const legacyMatch = (): SimMatchInput => ({
+    redTeamKeys: ["frcRed"],
+    blueTeamKeys: ["frcBlue"],
+    redRpPmf: [1],
+    blueRpPmf: [1],
+  });
+
+  const coupledMatch = (): SimMatchInput => ({
+    redTeamKeys: ["frcRed"],
+    blueTeamKeys: ["frcBlue"],
+    redRpPmf: [1],
+    blueRpPmf: [1],
+    outcome: {
+      outcomePmf: [0.5, 0, 0.5],
+      redOutcomeRp: [2, 1, 0],
+      blueOutcomeRp: [0, 1, 2],
+      redBonusRpPmf: [1],
+      blueBonusRpPmf: [1],
+    },
+  });
+
+  const baselines: SimTeamBaseline[] = [
+    { teamKey: "frcRed", earnedRpSum: 0, matchesPlayed: 0 },
+    { teamKey: "frcBlue", earnedRpSum: 0, matchesPlayed: 0 },
+  ];
+
+  it("consumes exactly 2/3/(2*legacy+3*coupled) x draws for an all-legacy, all-coupled, and mixed fixture respectively", () => {
+    const draws = 50;
+
+    // Sub-case A: all-legacy fixture -- 2 rng values per match per draw.
+    const legacyMatches = [legacyMatch(), legacyMatch(), legacyMatch()];
+    const legacyCounter = countingRng(1);
+    simulateRanks(legacyMatches, baselines, draws, legacyCounter.rng);
+    expect(legacyCounter.count()).toBe(2 * legacyMatches.length * draws);
+
+    // Sub-case B: all-coupled fixture -- 3 rng values per match per draw.
+    const coupledMatches = [coupledMatch(), coupledMatch(), coupledMatch()];
+    const coupledCounter = countingRng(1);
+    simulateRanks(coupledMatches, baselines, draws, coupledCounter.rng);
+    expect(coupledCounter.count()).toBe(3 * coupledMatches.length * draws);
+
+    // Sub-case C: mixed fixture -- (2 x legacyCount + 3 x coupledCount) per draw.
+    const mixedMatches = [legacyMatch(), coupledMatch(), legacyMatch(), coupledMatch(), coupledMatch()];
+    const legacyCount = 2;
+    const coupledCount = 3;
+    const mixedCounter = countingRng(1);
+    simulateRanks(mixedMatches, baselines, draws, mixedCounter.rng);
+    expect(mixedCounter.count()).toBe((2 * legacyCount + 3 * coupledCount) * draws);
+  });
+});
+
+describe("simulateRanks — Test 19: chunk-equals-whole still holds with outcome present", () => {
+  it("ten chunked calls of 100 draws sharing one rng sum to the same histogram as one call of 1000", () => {
+    const outcome: SimMatchOutcomeInput = {
+      outcomePmf: [0.4, 0.2, 0.4],
+      redOutcomeRp: [2, 1, 0],
+      blueOutcomeRp: [0, 1, 2],
+      redBonusRpPmf: [0.5, 0.5],
+      blueBonusRpPmf: [0.3, 0.7],
+    };
+    const baselines: SimTeamBaseline[] = [
+      { teamKey: "frcRed", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frcBlue", earnedRpSum: 0, matchesPlayed: 0 },
+    ];
+    const remainingMatches: SimMatchInput[] = [
+      { redTeamKeys: ["frcRed"], blueTeamKeys: ["frcBlue"], redRpPmf: [1], blueRpPmf: [1], outcome },
+    ];
+
+    const wholeResult = simulateRanks(remainingMatches, baselines, 1000, mulberry32(12345));
+
+    const rng = mulberry32(12345);
+    const accumulated = new Map<string, Int32Array>(baselines.map((b) => [b.teamKey, new Int32Array(baselines.length)]));
+    for (let chunk = 0; chunk < 10; chunk++) {
+      const chunkResult = simulateRanks(remainingMatches, baselines, 100, rng);
+      for (const baseline of baselines) {
+        const acc = accumulated.get(baseline.teamKey)!;
+        const chunkHist = chunkResult.rankHistograms.get(baseline.teamKey)!;
+        for (let i = 0; i < acc.length; i++) acc[i]! += chunkHist[i]!;
+      }
+    }
+
+    for (const baseline of baselines) {
+      expect(Array.from(accumulated.get(baseline.teamKey)!)).toEqual(
+        Array.from(wholeResult.rankHistograms.get(baseline.teamKey)!)
+      );
+    }
+  });
+});
+
+describe("simulateRanks — Test 20: every malformed new field is rejected up front, before any draw", () => {
+  const baselines: SimTeamBaseline[] = [
+    { teamKey: "frcRed", earnedRpSum: 0, matchesPlayed: 0 },
+    { teamKey: "frcBlue", earnedRpSum: 0, matchesPlayed: 0 },
+  ];
+
+  function countingRng(seed: number): { rng: () => number; count: () => number } {
+    const inner = mulberry32(seed);
+    let calls = 0;
+    return {
+      rng: () => {
+        calls++;
+        return inner();
+      },
+      count: () => calls,
+    };
+  }
+
+  function matchWithOutcome(outcome: SimMatchOutcomeInput): SimMatchInput[] {
+    return [{ redTeamKeys: ["frcRed"], blueTeamKeys: ["frcBlue"], redRpPmf: [1], blueRpPmf: [1], outcome }];
+  }
+
+  it("throws InvalidPmfError naming the position and the offending field for each of five malformed shapes, with zero rng calls in every case", () => {
+    // Sub-case A: an empty outcomePmf.
+    const emptyOutcomePmf = matchWithOutcome({
+      outcomePmf: [],
+      redOutcomeRp: [2, 1, 0],
+      blueOutcomeRp: [0, 1, 2],
+      redBonusRpPmf: [1],
+      blueBonusRpPmf: [1],
+    });
+    const counterA = countingRng(1);
+    expect(() => simulateRanks(emptyOutcomePmf, baselines, 1000, counterA.rng)).toThrow(/position 0.*outcomePmf/s);
+    expect(counterA.count()).toBe(0);
+
+    // Sub-case B: a redOutcomeRp shorter than outcomePmf.
+    const shortRedOutcomeRp = matchWithOutcome({
+      outcomePmf: [0.5, 0, 0.5],
+      redOutcomeRp: [2, 1],
+      blueOutcomeRp: [0, 1, 2],
+      redBonusRpPmf: [1],
+      blueBonusRpPmf: [1],
+    });
+    const counterB = countingRng(1);
+    expect(() => simulateRanks(shortRedOutcomeRp, baselines, 1000, counterB.rng)).toThrow(/position 0.*redOutcomeRp/s);
+    expect(counterB.count()).toBe(0);
+
+    // Sub-case C: a blueOutcomeRp containing NaN.
+    const nanBlueOutcomeRp = matchWithOutcome({
+      outcomePmf: [0.5, 0, 0.5],
+      redOutcomeRp: [2, 1, 0],
+      blueOutcomeRp: [0, 1, Number.NaN],
+      redBonusRpPmf: [1],
+      blueBonusRpPmf: [1],
+    });
+    const counterC = countingRng(1);
+    expect(() => simulateRanks(nanBlueOutcomeRp, baselines, 1000, counterC.rng)).toThrow(/position 0.*blueOutcomeRp/s);
+    expect(counterC.count()).toBe(0);
+
+    // Sub-case D: an empty redBonusRpPmf.
+    const emptyRedBonusRpPmf = matchWithOutcome({
+      outcomePmf: [0.5, 0, 0.5],
+      redOutcomeRp: [2, 1, 0],
+      blueOutcomeRp: [0, 1, 2],
+      redBonusRpPmf: [],
+      blueBonusRpPmf: [1],
+    });
+    const counterD = countingRng(1);
+    expect(() => simulateRanks(emptyRedBonusRpPmf, baselines, 1000, counterD.rng)).toThrow(/position 0.*redBonusRpPmf/s);
+    expect(counterD.count()).toBe(0);
+
+    // Sub-case E: a blueBonusRpPmf containing Infinity.
+    const infiniteBlueBonusRpPmf = matchWithOutcome({
+      outcomePmf: [0.5, 0, 0.5],
+      redOutcomeRp: [2, 1, 0],
+      blueOutcomeRp: [0, 1, 2],
+      redBonusRpPmf: [1],
+      blueBonusRpPmf: [Number.POSITIVE_INFINITY],
+    });
+    const counterE = countingRng(1);
+    expect(() => simulateRanks(infiniteBlueBonusRpPmf, baselines, 1000, counterE.rng)).toThrow(/position 0.*blueBonusRpPmf/s);
+    expect(counterE.count()).toBe(0);
+  });
+});
+
+describe("simulateRanks — Test 21: mixed input is valid", () => {
+  it("returns a complete histogram set when remainingMatches mixes a coupled match and a legacy match", () => {
+    const legacyPmf = realPmfPair(50, 50);
+    const outcome: SimMatchOutcomeInput = {
+      outcomePmf: [0.4, 0.2, 0.4],
+      redOutcomeRp: [2, 1, 0],
+      blueOutcomeRp: [0, 1, 2],
+      redBonusRpPmf: [0.5, 0.5],
+      blueBonusRpPmf: [0.3, 0.7],
+    };
+    const baselines: SimTeamBaseline[] = [
+      { teamKey: "frc1", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frc2", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frc3", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frc4", earnedRpSum: 0, matchesPlayed: 0 },
+    ];
+    const remainingMatches: SimMatchInput[] = [
+      { redTeamKeys: ["frc1"], blueTeamKeys: ["frc2"], redRpPmf: legacyPmf.redRpPmf, blueRpPmf: legacyPmf.bluePmf },
+      { redTeamKeys: ["frc3"], blueTeamKeys: ["frc4"], redRpPmf: [1], blueRpPmf: [1], outcome },
+    ];
+
+    const result = simulateRanks(remainingMatches, baselines, 1000, mulberry32(5));
+
+    expect(result.rankHistograms.size).toBe(4);
+    for (const baseline of baselines) {
+      const histogram = result.rankHistograms.get(baseline.teamKey)!;
+      const sum = Array.from(histogram).reduce((a, b) => a + b, 0);
+      expect(sum).toBe(1000);
+    }
   });
 });
