@@ -6,7 +6,9 @@ Statbotics' source, verified verbatim against `github.com/avgupta456/statbotics`
 
 **See `docs/models/epa-vs-statbotics.md` (quick task 260904-4aa, re-measured 260904-5px) for the measurement these divergences predict.** Every deliberate divergence listed below is a reason SigmaScout's EPA does not land at an OLS slope of exactly 1.0 against Statbotics' own per-team `epa.total_points`. §1 (elimination-match handling) is now CLOSED (see below) — the remaining ones are §3 (no per-season post-processing), the independently-derived component maps, and Pitfall EPA-1's expanding-window win-probability scale, plus the offseason-population effect (§7, NARROWED as of `epa@6.0.0+baseline`) and the season-boundary carry scale anchor (§8, NARROWED as of `epa@8.0.0+baseline`). That document is the committed, re-runnable per-team comparison (SC-2).
 
-**Version status of the quoted figures. SHIPPING MODEL IS NOW `epa@8.0.0+baseline` (quick task 260911-3kc, 2026-09-11): the season-boundary carry scale anchor is corrected, so a carried rating enters a new season in THAT season's point units (§8 below). Every "beats EPA" and every Statbotics-agreement figure in this document, in `epa-vs-statbotics.md`, and in `data/baselines/epa-vs-statbotics-2026-09.json` was measured against an EARLIER EPA and is stale until re-run; `scripts/epaVsStatbotics.ts --check` will now fail, and that failure is correct rather than a regression. A REPUBLISH IS OWED — published EPA ratings change — and had not been run when 8.0.0 landed.**
+**Version status of the quoted figures. SHIPPING MODEL IS NOW `epa@9.0.0+baseline` (quick task 260911-j2w, 2026-09-11): EPA's win-probability denominator and its season-boundary carry anchor both read a FROZEN WEEK-1 aggregate from week 2 onward, and the live expanding estimate during week 1 only (§4 below). REPUBLISH DEBT IS NOW CUMULATIVE AND UNPAID: 8.0.0 already owed one and it was never run, and 9.0.0 adds a second. Every published EPA rating and every published `pRedWin` on the live site predates BOTH. `scripts/epaVsStatbotics.ts --check` was ALREADY failing against `data/baselines/epa-vs-statbotics-2026-09.json` under 8.0.0 and still fails; that is pre-existing and was deliberately NOT re-baselined by j2w.**
+
+**Previous status, retained because every paragraph below is written against it. SHIPPING MODEL WAS `epa@8.0.0+baseline` (quick task 260911-3kc, 2026-09-11): the season-boundary carry scale anchor is corrected, so a carried rating enters a new season in THAT season's point units (§8 below). Every "beats EPA" and every Statbotics-agreement figure in this document, in `epa-vs-statbotics.md`, and in `data/baselines/epa-vs-statbotics-2026-09.json` was measured against an EARLIER EPA and is stale until re-run; `scripts/epaVsStatbotics.ts --check` will now fail, and that failure is correct rather than a regression. A REPUBLISH IS OWED — published EPA ratings change — and had not been run when 8.0.0 landed.**
 
 **Previous status, retained because the paragraph below is still written against it. SHIPPING MODEL WAS `epa@7.0.0+baseline` (quick task 260910-5ym, 2026-09-10), and the agreement figures in the paragraph below had NOT been re-measured under it.** 7.0.0 changed two things that move per-team ratings: 2024's component map is grouped at phase granularity (§6), and the win-probability denominator is re-seeded per season instead of pooled across all of them (§4). The second cannot move a per-team total at all — it only scales `pRedWin` — but the first changes 2024's EWMA dynamics, so 2024's agreement row genuinely needs re-running. `scripts/epaVsStatbotics.ts --check` is the gate, and until it is re-run against `data/baselines/epa-vs-statbotics-2026-09.json` the 6.0.0 status below is history rather than a live claim.
 
@@ -72,9 +74,42 @@ agreement with Statbotics got tighter or looser as a result.
 
 **Still unmeasured, and why.** `scripts/measureEpaDeviations.ts` could not build an arm for this: the sigmoid's exact FORM was never transcribed into this repo. D-13, `02-CONTEXT.md` and `02-RESEARCH.md` all NAME it (and list `zero_sigmoid`/`unit_sigmoid` among the functions fetched during 2026-08-13's research session) but no transcription of either body survives. Implementing a guessed sigmoid would measure an invention rather than the divergence, so the harness reports `unmeasurable-no-reference` instead of approximating. Closing this means re-fetching Statbotics' `backend/src/models/epa/{math,breakdown}.py` — a research step, not a harness step.
 
-## 4. Win-probability scale — expanding-window SD, never a season-batch constant (Pitfall EPA-1)
+## 4. Win-probability scale — NARROWED as of `epa@9.0.0+baseline`: a FROZEN WEEK-1 SD from week 2 on, the expanding-window SD during week 1
 
-**Statbotics:** `predict_match` divides the score margin by `year_obj.score_sd`, computed once as a season-level constant.
+### NARROWED 2026-09-11 (quick task 260911-j2w): the Statbotics constant is a WEEK-1 number, and SigmaScout now adopts it
+
+**Everything below this block was written when this section believed Statbotics' `year_obj.score_sd` was a SEASON-FINAL constant. It is not.** `backend/src/data/avg.py` (`docs/models/statbotics-breakdown-reference.md` section 20, verbatim) opens `process_year` with
+
+```python
+    week_one_matches = [
+        m for m in matches if m.week == 1 and m.status == MatchStatus.COMPLETED
+    ]
+```
+
+and computes `year.score_sd` — along with every other `Year` aggregate — from that list alone. So the denominator Statbotics divides by is a WEEK-1 statistic.
+
+**That changes the verdict, not just the wording.** A week-1 aggregate is knowable the moment week 1 ends, so reading it for a week-2-or-later match is not outcome leakage at all — every match it summarises has already been played. The leakage objection below is correct ONLY for week 1 itself.
+
+`epa@9.0.0+baseline` therefore:
+
+- accumulates a **week-1-only** alliance-score Welford accumulator alongside the season-wide one (`packages/core/algorithms/epaWeekOne.ts`);
+- **freezes** it on the first match carrying a numeric week greater than 0, which in a chronological stream proves every week-1 match has already passed — no lookahead, so no walk-forward violation;
+- divides by that **frozen week-1 SD** for every remaining match of the season;
+- divides by the **live expanding-window SD** during week 1 itself, byte-identical to `8.0.0`.
+
+**This is an EXACT target, not a neighbour.** `avg.py` computes `year.score_sd` from the RAW alliance score with fouls INCLUDED (`no_foul_mean` keeps only its mean; its SD is discarded into `_`), and the raw alliance score is exactly what `epa.ts` already folds. The carry ANCHOR's mean target is a named neighbour — see `epa-statbotics-gap.md`'s R3 entry, residual gap 1.
+
+**The off-by-one this turns on.** This corpus stores TBA's week 0-indexed, so Statbotics' `week == 1` is this corpus's `week === 0`. Verified against `data/corpus.sqlite` in every season rather than asserted, and pinned by `epaWeekOne.test.ts`. Getting it backwards calibrates on the wrong week and nothing visibly fails.
+
+**Null-week play is UNPLACED.** Championship, preseason and offseason events carry `week = null`; in 2024 that is 143 events and 6,255 played matches spanning 2024-02-03 to 2024-12-27. Such a match never joins the week-1 population and never triggers the freeze.
+
+**Two costs, named.** (1) The seal happens inside `update`, so the season's first week-2 match is predicted before the freeze and still reads the live estimate — one match per season. (2) A late week-1 arrival (a multi-day week-0 event running a match on the day a week-1 event opens) is excluded rather than reopening the frozen value, so the population can be slightly smaller than Statbotics' offline `week_one_matches` list.
+
+**PUBLISHED-SURFACE DEBT created and discovered here, unpaid as of this commit.** `/methodology/epa-vs-statbotics`'s `win-probability-scale` entry (`apps/web/src/components/methodology/epaComparisonContent.ts`) tells readers that Statbotics "uses one number for the whole season, calculated only once the season is over". The `avg.py` transcription above disproves the second half of that sentence: the number is computed from week 1, not from the finished season. The same entry's description of SigmaScout's side is now INCOMPLETE rather than false — "a running measure that only knows about matches played so far" still holds of the frozen week-1 aggregate, but the entry does not mention the freeze. Quick task 260911-j2w deliberately did NOT edit that entry: its own scope pinned three surfaces, and this page's content set is a locked decision. It is recorded here as an owed correction, to be made alongside the republish this version owes.
+
+### The original section, retained because the paragraphs below are written against it
+
+**Statbotics:** `predict_match` divides the score margin by `year_obj.score_sd`, described here as a season-level constant computed once. Corrected above: it is a WEEK-1 aggregate.
 
 **This project:** `epa.ts`'s `predict()` divides by `standardDeviation(state.allianceScoreStats, EPA_FALLBACK_SCORE_SD)` — an expanding-window Welford SD (`packages/core/scoring/expandingStats.ts`) folded match-by-match as `update()` runs, seeded at a season boundary from the prior season's final value (`epa.ts`'s `carrySeason`), falling back to a documented constant (`EPA_FALLBACK_SCORE_SD = 25`) before at least 2 observations exist.
 

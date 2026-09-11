@@ -145,6 +145,12 @@ import {
   standardDeviation,
   type ExpandingStats,
 } from "../scoring/expandingStats.js";
+import {
+  emptyEpaWeekOneState,
+  foldWeekOneAllianceScore,
+  sealWeekOneIfPast,
+  type EpaWeekOneState,
+} from "./epaWeekOne.js";
 import { assertValidPRedWin } from "../scoring/predictionValidity.js";
 import {
   TOTAL_METRIC_KEY,
@@ -331,6 +337,25 @@ export interface EpaState extends BreakdownParseTelemetry {
    * rescale could be read — see `update`.
    */
   readonly carryPending: ReadonlySet<string>;
+  /**
+   * WEEK-1 CALIBRATION STATE (quick task 260911-j2w, `epa@9.0.0+baseline`).
+   *
+   * Statbotics' `backend/src/data/avg.py` computes every season-level `Year`
+   * aggregate from week-1 matches alone, so its `year.score_sd` (the
+   * win-probability denominator) and its `year.score_mean`/`no_foul_mean` (the
+   * `get_constants` scale anchor) are WEEK-1 numbers, not season-final ones
+   * (`docs/models/statbotics-breakdown-reference.md` section 20). A week-1
+   * aggregate is knowable the moment week 1 ends, so reading it from week 2
+   * onward costs no walk-forward legitimacy at all.
+   *
+   * LEAGUE-scoped: an accumulator, a frozen `{mean, sd}` and a boolean, none of
+   * which scale with team count — the same D-13 rule that puts
+   * `allianceScoreStats` and `carrySeedMean` in the league row.
+   *
+   * `epaWeekOne.ts` owns the fold rule, the seal rule, the 0-indexing evidence
+   * and the null-week policy. Nothing here re-derives any of them.
+   */
+  readonly weekOne: EpaWeekOneState;
   readonly fallbackSkipped: number;
   readonly priorSeasonRatings: EpaCarryoverPriorRatings;
   // `breakdownParseFailureCount` (D-Q2, `BreakdownParseTelemetry`, extended
@@ -360,10 +385,27 @@ const EMPTY_CARRY_PENDING: ReadonlySet<string> = new Set<string>();
  * permanent one agree by construction rather than by coincidence.
  */
 function carryRescaleRatioFor(state: EpaState): { ratio: number; deferred: boolean } {
-  return carryRescaleRatio(
-    cleanSeasonMean(state.allianceScoreStats, state.carrySeedMean, EPA_SCORE_SD_SEED_COUNT, EPA_CARRY_RESCALE_MIN_OBS),
-    state.carrySeedMean
-  );
+  // READ POINT (b), quick task 260911-j2w. `get_constants(year)` reads the
+  // INCOMING season's WEEK-1 mean, so once week 1 has provably ended that
+  // frozen mean IS the numerator and no estimate is required. Before the
+  // freeze, 8.0.0's live unwind applies UNCHANGED.
+  //
+  // The pre-freeze half is not a fallback, it is load-bearing: a team first
+  // seen during week 1 would forfeit its rescale entirely if the anchor waited
+  // for the seal, and week 1 is roughly a sixth of a season's matches. Keeping
+  // the live estimate during week 1 and switching at the boundary is what makes
+  // this a REFINEMENT of 8.0.0 rather than a reversal of it.
+  //
+  // NAMED RESIDUAL GAP, not a silent approximation: Statbotics' `get_constants`
+  // reads week-1 `no_foul_mean` (falling back to `score_mean`), while this
+  // frozen mean is over the RAW alliance score, fouls INCLUDED. The SD target
+  // at read point (a) is EXACT; this mean target is a named neighbour.
+  // Registered in `docs/models/epa-statbotics-gap.md`'s R3 entry.
+  const numerator =
+    state.weekOne.frozen !== null
+      ? state.weekOne.frozen.mean
+      : cleanSeasonMean(state.allianceScoreStats, state.carrySeedMean, EPA_SCORE_SD_SEED_COUNT, EPA_CARRY_RESCALE_MIN_OBS);
+  return carryRescaleRatio(numerator, state.carrySeedMean);
 }
 
 /** Both alliances' rating-eligible teams, through the SAME remap/surrogate filter `predict`/`update` already apply. */
@@ -399,6 +441,7 @@ function initState(teams: string[]): EpaState {
     // -looking denominator.
     carrySeedMean: Number.NaN,
     carryPending: EMPTY_CARRY_PENDING,
+    weekOne: emptyEpaWeekOneState(),
     fallbackSkipped: 0,
     priorSeasonRatings: EMPTY_PRIOR_SEASON_RATINGS,
     breakdownParseFailureCount: 0,
@@ -580,9 +623,20 @@ function predictCore(state: EpaState, match: UpcomingMatch): Prediction {
   const redScore = redOffensiveTotal + (blueComponents[FOULS_COMMITTED_COMPONENT]?.mean ?? 0);
   const blueScore = blueOffensiveTotal + (redComponents[FOULS_COMMITTED_COMPONENT]?.mean ?? 0);
 
-  // Pitfall EPA-1: the expanding-window SD only ever reflects matches
-  // already replayed (folded in `update`), never a season-batch constant.
-  const seasonScoreSd = standardDeviation(state.allianceScoreStats, EPA_FALLBACK_SCORE_SD);
+  // READ POINT (a), quick task 260911-j2w. Statbotics divides by
+  // `year.score_sd`, which `avg.py` computes from week-1 matches' RAW alliance
+  // scores with fouls INCLUDED — exactly the quantity `update` below already
+  // folds, so this is an EXACT target rather than a neighbour.
+  //
+  // Once week 1 has provably ended (`epaWeekOne.ts`'s seal rule) that frozen SD
+  // is used for every remaining match of the season. Until then — which is week
+  // 1 itself — the live expanding-window SD applies, byte-identical to
+  // `epa@8.0.0+baseline`. Pitfall EPA-1 still holds on BOTH branches: neither
+  // can incorporate a match that has not been replayed yet.
+  const seasonScoreSd =
+    state.weekOne.frozen !== null
+      ? state.weekOne.frozen.sd
+      : standardDeviation(state.allianceScoreStats, EPA_FALLBACK_SCORE_SD);
   const scale = seasonScoreSd / (-EPA_K * Math.LN10);
   const margin = redScore - blueScore;
   const pRedWin = 1 / (1 + Math.exp(-margin / scale));
@@ -892,11 +946,25 @@ function updateCore(state: EpaState, result: MatchResult, componentMap?: SeasonC
   if (!redIsRulingZero) allianceScoreStats = foldObservation(allianceScoreStats, result.redScore);
   if (!blueIsRulingZero) allianceScoreStats = foldObservation(allianceScoreStats, result.blueScore);
 
+  // WEEK-1 CALIBRATION (quick task 260911-j2w). Seal FIRST, then fold: a match
+  // is either week 1 or past it, never both, so the order cannot change the
+  // outcome for this match. It is fixed this way only so the seal is read
+  // before any fold a future edit might make conditional on it.
+  //
+  // The SAME ruling-zero exclusion the season-wide accumulator applies above
+  // applies here, for the same reason: a scorekeeper's ruling is not an
+  // observed score, and folding it would drag the frozen constant toward zero
+  // for no on-field reason.
+  let weekOne = sealWeekOneIfPast(state.weekOne, result.week);
+  if (!redIsRulingZero) weekOne = foldWeekOneAllianceScore(weekOne, result.week, result.redScore);
+  if (!blueIsRulingZero) weekOne = foldWeekOneAllianceScore(weekOne, result.week, result.blueScore);
+
   return {
     season,
     teamComponents: afterBlue.teamComponents,
     teamMatchCounts: afterBlue.teamMatchCounts,
     allianceScoreStats,
+    weekOne,
     // Carried forward UNCHANGED by an ordinary match update. `update` above
     // is the only thing that removes a team from `carryPending`, and
     // `carrySeason` is the only thing that sets either field.
@@ -1087,6 +1155,13 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary, toSeasonMap?: Se
     teamComponents,
     teamMatchCounts,
     allianceScoreStats: reseedFromPrior(state.allianceScoreStats, EPA_SCORE_SD_SEED_COUNT),
+    // A new season's week 1 has not happened yet, so the incoming season starts
+    // UNFROZEN and UNSEALED with an empty accumulator. Deliberately NOT seeded
+    // from the outgoing season the way `allianceScoreStats` is: a frozen
+    // constant carried across a boundary would be last season's point scale
+    // masquerading as this one's, which is the exact defect `reseedFromPrior`
+    // exists to prevent and which quick task 260910-4x0 measured.
+    weekOne: emptyEpaWeekOneState(),
     carrySeedMean,
     // Exactly the carry-worthy teams: `teamComponents` above is a FRESH map
     // containing only `carryResult.teamPointTotals`. Each of these is still in
@@ -1289,7 +1364,50 @@ export const epa = {
   //      measured arm had. A team that has not yet played in the new season is
   //      the only case, and correcting the display would be an unmeasured
   //      change to a published number.
-  version: "8.0.0+baseline",
+  //
+  // Bumped 8.0.0 -> 9.0.0 (quick task 260911-j2w, 2026-09-11): WEEK-1
+  // CALIBRATION. Two live-estimated season scalars are now retargeted at the
+  // FROZEN WEEK-1 aggregate Statbotics actually uses, from week 2 onward:
+  //   (a) `predict`'s norm-diff denominator, which targets `year.score_sd`;
+  //   (b) `carryRescaleRatio`'s numerator, which targets `get_constants`'s
+  //       incoming-season mean.
+  // During week 1 itself both read exactly what 8.0.0 read. `epaWeekOne.ts`
+  // owns the accumulator, the seal rule and the null-week policy.
+  //
+  // WHY THIS IS WALK-FORWARD LEGAL, stated at the version rather than buried:
+  // `backend/src/data/avg.py` computes every `Year` aggregate from week-1
+  // matches alone (`docs/models/statbotics-breakdown-reference.md` section 20),
+  // and a week-1 aggregate is knowable the moment week 1 ends. The freeze
+  // triggers on the first match carrying a numeric week greater than 0, which
+  // in a chronological stream PROVES every week-1 match has already been
+  // played. No lookahead, no season-final read. This narrows L-01 from a
+  // season-wide divergence to a one-week one.
+  //
+  // MAJOR, not minor: every published `pRedWin` from week 2 onward changes in
+  // every season, and every carried rating rescaled after a freeze changes
+  // too. Same D-13 invariant as every bump above — no version string may
+  // stand for two structurally different computations. A REPUBLISH IS OWED,
+  // on top of the one 8.0.0 already owed and which had not been run.
+  //
+  // THE GOAL IS REPRODUCTION FIDELITY, NOT ACCURACY, and the measurement is
+  // reported as found rather than as hoped. Nothing here was tuned, swept or
+  // selected against any season; the only new constant, `EPA_WEEK_ONE_MIN_OBS`,
+  // is `standardDeviation`'s own contract boundary of 2. Before/after winner
+  // accuracy and Brier, per season and pooled, event-blocked, same scorer:
+  // the quick task's SUMMARY and the two committed
+  // `*-epa-deviation-ablation.json` artifacts beside it.
+  //
+  // Three limitations, named rather than left for a reader to discover:
+  //   1. NAMED RESIDUAL GAP on the MEAN. Statbotics' `get_constants` reads
+  //      week-1 `no_foul_mean`; this frozen mean is over the RAW alliance
+  //      score, fouls INCLUDED. The SD target is exact, the mean target is a
+  //      named neighbour. Registered in `docs/models/epa-statbotics-gap.md`.
+  //   2. `avg.py`'s 2025 processor-algae correction is applied at AGGREGATE
+  //      time upstream and is NOT adopted here.
+  //   3. ONE-MATCH LAG and LATE WEEK-1 ARRIVALS — see `epaWeekOne.ts`'s
+  //      header. Both are consequences of sealing inside a chronological
+  //      stream rather than reading an offline list.
+  version: "9.0.0+baseline",
   initState,
   predict,
   update,

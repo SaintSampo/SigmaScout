@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { COMPONENT_GROUP_METRIC_KEYS } from "../../../../packages/core/algorithms/breakdown/index.js";
 import { epa, type EpaState } from "../../../../packages/core/algorithms/epa.js";
 import { emptyExpandingStats } from "../../../../packages/core/scoring/expandingStats.js";
+import { emptyEpaWeekOneState } from "../../../../packages/core/algorithms/epaWeekOne.js";
 import { groupMetricKey, METRIC_GROUPS, withDerivedGroupMetrics } from "./metricGroups.js";
 
 /**
@@ -138,6 +139,7 @@ describe("metricGroups <-> epa.teamMetrics parity (D-3, 260904-7id)", () => {
       teamComponents: new Map([["frc1", components]]),
       teamMatchCounts: new Map([["frc1", 1]]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       breakdownParseFailureCount: 0,

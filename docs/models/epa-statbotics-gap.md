@@ -500,22 +500,54 @@ developer decision and this task does not make it.**
 
 ### R3 — the 21 season aggregates (L-01) — THE one documented difference
 
-**Mechanism:** Statbotics reads 21 distinct season-level `Year` columns through 7 read points
-(reference section 19). Every one is a season-final number.
+**NARROWED 2026-09-11 by quick task 260911-j2w (`epa@9.0.0+baseline`): items 1 and 2 are now
+ADOPTED for weeks 2 onward.** They are WEEK-1 aggregates, not season-final ones (reference
+section 20, `avg.py` verbatim), and a week-1 aggregate is knowable the moment week 1 ends. So
+reading it from week 2 onward is not a walk-forward violation at all. `epaWeekOne.ts` freezes the
+week-1 aggregate on the first match carrying a numeric week greater than 0 — which in a
+chronological stream PROVES every week-1 match has already been played — and `epa.ts` reads the
+frozen SD as `predict`'s denominator and the frozen mean as `carryRescaleRatio`'s numerator from
+that point on. During week 1 itself both read exactly what `8.0.0` read. Items 3, 4 and 5 are
+UNCHANGED and still live-estimated or absent. The text below is written against the pre-j2w state
+except where a row says otherwise.
 
-**Collides with:** L-01.
+**THREE NAMED RESIDUAL GAPS inside the narrowing, recorded so they are known open items rather
+than undocumented divergences:**
+
+1. **The MEAN target is a neighbour, not an exact match.** `get_constants` reads week-1
+   `no_foul_mean` (falling back to `score_mean`); SigmaScout's frozen mean is over the RAW
+   alliance score, fouls INCLUDED. The SD target is EXACT — `avg.py` computes `year.score_sd`
+   from the raw score with fouls included, and `no_foul_mean`'s own SD is discarded (`_`) — but
+   the mean is not. Closing it needs a second, no-foul week-1 accumulator, which j2w deliberately
+   did NOT build.
+2. **`avg.py`'s 2025 processor-algae correction is NOT adopted.** Upstream subtracts
+   `3 * comp_6_mean` from `no_foul_mean`, `teleop_mean` and `comp_7_mean` at AGGREGATE time, a
+   second site for the same adjustment beyond `post_process_breakdown`. SigmaScout applies neither
+   the aggregate-time correction nor a 2025 branch of any kind (mechanism 3 / D-13).
+3. **The frozen population can be slightly SMALLER than Statbotics' `week_one_matches`.** Statbotics
+   filters an offline list; SigmaScout seals a streaming accumulator. Week-0 and week-1 event
+   windows never overlap by start date in any corpus season, but a multi-day week-0 event can still
+   run a match on the day a week-1 event opens, and any such late arrival is excluded by the seal.
+   Reopening a frozen constant would make it not a constant, so this is a deliberate cost of being
+   walk-forward rather than offline.
+
+**Mechanism:** Statbotics reads 21 distinct season-level `Year` columns through 7 read points
+(reference section 19). Every one is a WEEK-1 number (reference section 20; this line previously
+said "season-final", which was the overstatement the 2026-09-11 correction block at the top of
+this file retracts).
+
+**Collides with:** L-01, for items 3-5. Items 1 and 2 no longer do.
 
 **Exposure: every match in every season — all nine corpus seasons, 100%.** This is the widest entry
 in the register by far, and it is deliberately ONE entry rather than 21, per L-01.
 
-**Why no workaround exists:** a season-final mean or SD is not knowable at the time of an
-early-season prediction. Adopting it is a walk-forward violation by construction. SigmaScout
-live-estimates each from the data available so far.
+**Why no workaround exists** — for the items still live-estimated: the quantity is not knowable at
+the time of an early-season prediction, or SigmaScout computes no equivalent at all.
 
-| # | Statbotics quantity | where it is read (ref. 19) | what SigmaScout live-estimates instead |
+| # | Statbotics quantity | where it is read (ref. 19) | what SigmaScout does |
 |---|---|---|---|
-| 1 | `score_sd` in `norm_diff` | `main.py:125` | expanding-window Welford SD over alliance scores replayed so far (`epa.ts:predictCore`), `EPA_FALLBACK_SCORE_SD = 25` before 2 observations |
-| 2 | `score_sd`, `no_foul_mean`, `score_mean` in `get_constants` | `init.py:16-21` | `epaCarryScale.ts:cleanSeasonMean` plus the expanding stats, seeded across the boundary by `reseedFromPrior` with `EPA_SCORE_SD_SEED_COUNT` |
+| 1 | `score_sd` in `norm_diff` | `main.py:125` | **ADOPTED from week 2 on (j2w):** the FROZEN week-1 alliance-score SD, an EXACT target. During week 1: expanding-window Welford SD over alliance scores replayed so far (`epa.ts:predictCore`), `EPA_FALLBACK_SCORE_SD = 25` before 2 observations |
+| 2 | `score_sd`, `no_foul_mean`, `score_mean` in `get_constants` | `init.py:16-21` | **ADOPTED from week 2 on (j2w):** the FROZEN week-1 alliance-score MEAN as `carryRescaleRatio`'s numerator — a NAMED NEIGHBOUR of `no_foul_mean`, see residual gap 1 above. During week 1: `epaCarryScale.ts:cleanSeasonMean` plus the expanding stats, seeded across the boundary by `reseedFromPrior` with `EPA_SCORE_SD_SEED_COUNT` |
 | 3 | `foul_mean` and `no_foul_mean` in `get_foul_rate()` | `main.py:128`, via `year.py:176-177` | nothing equivalent — SigmaScout has no foul-rate scalar at all. Its per-team `foulsCommitted` EWMA is the live estimate of the same phenomenon (mechanism 5) |
 | 4 | the 18 columns behind `get_mean_components()` | `init.py:47`, via `year.py:179-203` | not estimated per component at all — `epa.ts:carrySeason` splits one carried total evenly, and `componentColdStartValue` seeds a flat constant. **This is the largest single divergence inside R3** and is also mechanism 6's `GAP` |
 | 5 | `comp_6_mean`, `comp_7_mean`, `comp_8_mean` (2018 only) | `models/epa/breakdown.py:167,171,172` | nothing — see R4 |
@@ -568,7 +600,12 @@ republish. Every stage below that changes a published EPA number adds to that de
 published methodology numbers are stale until it is paid.** Do not read a stage's "no republish
 owed" as "the site is current" — it means only that this stage added nothing.
 
-### Stage 1 — Correct the three surfaces still carrying the disproven claim
+### Stage 1 — Correct the three surfaces still carrying the disproven claim — DONE 2026-09-11
+
+**DONE** by quick task 260911-j2w (commit `894cb923`). All three surfaces now say that both sides
+rate a per-team vector and that what differs is which entries the predicted score READS.
+`epaComparisonContent.test.ts` pins the retracted phrasings so they cannot return silently.
+`EPA_DIFFERENCE_IDS` is byte-identical. No number changed and no republish was owed by this stage.
 
 **Why first:** it costs nothing, changes no number, owes no republish, and one of the three
 surfaces is **published to users right now**. It is also the only stage that can be done without

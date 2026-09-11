@@ -42,6 +42,7 @@ import {
   type StateRow,
   type StateStamp,
 } from "./stateSnapshot.js";
+import { emptyEpaWeekOneState } from "../core/algorithms/epaWeekOne.js";
 
 const STAMP: StateStamp = { generation: "test-gen-1", computedAt: "2026-08-22T00:00:00.000Z" };
 
@@ -494,7 +495,7 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     expect(() => deserializeState("opr", rows)).not.toThrow();
   });
 
-  it("STATE_SNAPSHOT_SHAPE_VERSION is 12, and a league row declaring ANY earlier shape throws (shape 12 added EPA's season-boundary carry scale, 2026-09-11)", () => {
+  it("STATE_SNAPSHOT_SHAPE_VERSION is 13, and a league row declaring ANY earlier shape throws (shape 13 added EPA's week-1 calibration state, 2026-09-11)", () => {
     // Pinned by literal value, not relative to the constant. Every earlier
     // shape must fail LOUDLY at load rather than deserialize into a field set
     // that no longer matches `Sigma1State`: shape 3 predates
@@ -532,7 +533,15 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     // ratio unreadable and DISABLES the rescale on live traffic while the
     // offline publisher applies it — the same silent live/offline split as
     // every case above, on every carried rating at every boundary.
-    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(12);
+    //
+    // Shape 12's EPA league row carries no `weekOne`, so a stale shape-12 row
+    // leaves `epa@9.0.0+baseline`'s FROZEN WEEK-1 aggregate permanently
+    // unavailable: the Worker would run the live expanding estimate for the
+    // whole season while the offline publisher ran the frozen week-1 constant,
+    // and the two would disagree on every prediction from week 2 onward with
+    // no error, no NaN and no malformed row to find. Same silent live/offline
+    // split, on the win-probability denominator this time.
+    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(13);
 
     // NOT an iteration over a list that can silently skip: the range is derived
     // from the current version, so a future bump cannot leave the newest stale
@@ -662,6 +671,7 @@ describe("serializeState/deserializeState — Map members survive by size", () =
         ["frc2", 3],
       ]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: {
         lastSeason: new Map([
@@ -1127,7 +1137,7 @@ describe("Sigma Score belief and population persistence (shape 11)", () => {
 
 // ──────── EPA carry-scale state, shape 12 (quick task 260911-3kc) ───────────
 
-describe("serializeState/deserializeState — EPA's season-boundary carry scale state (shape 12)", () => {
+describe("serializeState/deserializeState — EPA's season-boundary carry scale state (shape 12) and week-1 calibration state (shape 13)", () => {
   function carriedEpaState(): EpaState {
     return {
       season: 2024,
@@ -1142,6 +1152,7 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
         ["frc3", 2],
       ]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       breakdownParseFailureCount: 0,
@@ -1177,6 +1188,88 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
     const league = JSON.parse(rows.find((r) => r.scopeKind === "league")!.stateJson);
     expect(league).not.toHaveProperty("carryPending");
     expect(league.carrySeedMean).toBe(292.5);
+  });
+
+  // -------------------------------------------------------------------------
+  // Shape 13 (quick task 260911-j2w): EPA's week-1 calibration state
+  // -------------------------------------------------------------------------
+
+  it("round-trips a FROZEN week-1 aggregate, its accumulator and its sealed flag, all in the LEAGUE row", () => {
+    const state: EpaState = {
+      ...carriedEpaState(),
+      weekOne: {
+        stats: { count: 412, mean: 71.25, m2: 94_318.5 },
+        frozen: { mean: 71.25, sd: 15.125 },
+        sealed: true,
+      },
+    };
+    const rows = serializeState("epa", epa.version, state, STAMP);
+    const reconstructed = deserializeState("epa", rows) as EpaState;
+
+    expect(reconstructed.weekOne.stats).toEqual({ count: 412, mean: 71.25, m2: 94_318.5 });
+    expect(reconstructed.weekOne.frozen).toEqual({ mean: 71.25, sd: 15.125 });
+    expect(reconstructed.weekOne.sealed).toBe(true);
+
+    // D-13: three scalars and an accumulator, none of which scale with team
+    // count, so they belong in the league row and NOT on any team row.
+    const league = JSON.parse(rows.find((r) => r.scopeKind === "league")!.stateJson);
+    expect(league.weekOne.sealed).toBe(true);
+    for (const teamRow of rows.filter((r) => r.scopeKind === "team")) {
+      expect(JSON.parse(teamRow.stateJson)).not.toHaveProperty("weekOne");
+    }
+  });
+
+  it("round-trips an UNSEALED, unfrozen week-1 state without inventing a frozen aggregate", () => {
+    const state: EpaState = {
+      ...carriedEpaState(),
+      weekOne: { stats: { count: 6, mean: 40, m2: 200 }, frozen: null, sealed: false },
+    };
+    const reconstructed = deserializeState("epa", serializeState("epa", epa.version, state, STAMP)) as EpaState;
+    expect(reconstructed.weekOne.frozen).toBeNull();
+    expect(reconstructed.weekOne.sealed).toBe(false);
+    expect(reconstructed.weekOne.stats.count).toBe(6);
+  });
+
+  it("round-trips SEALED-with-nothing-frozen, the state a season with too little week-1 play produces", () => {
+    // Distinct from the unsealed case above and NOT interchangeable with it:
+    // sealed-with-null means "week 1 is over and there was too little of it",
+    // which must never be retried, while unsealed means "week 1 is still
+    // running". Collapsing the two would reopen a freeze that already happened.
+    const state: EpaState = {
+      ...carriedEpaState(),
+      weekOne: { stats: { count: 1, mean: 55, m2: 0 }, frozen: null, sealed: true },
+    };
+    const reconstructed = deserializeState("epa", serializeState("epa", epa.version, state, STAMP)) as EpaState;
+    expect(reconstructed.weekOne.frozen).toBeNull();
+    expect(reconstructed.weekOne.sealed).toBe(true);
+  });
+
+  it("throws LeagueRowShapeVersionError on a shape-12 EPA league row rather than silently running the live estimate all season", () => {
+    // The load-bearing case for THIS bump, and the same mechanism as the
+    // shape-11 case below: `stateStore.ts` filters by algorithm_id only, so
+    // bumping epa.version 8.0.0 -> 9.0.0 does not make a stale row unreachable.
+    // A shape-12 row deserializes with `weekOne` absent, so the frozen week-1
+    // aggregate is permanently unavailable and the Worker runs the LIVE
+    // expanding estimate for the whole season while the offline publisher runs
+    // the frozen constant — disagreeing on every prediction from week 2 onward
+    // with both sides looking healthy.
+    const staleRow: StateRow = {
+      algorithmId: "epa",
+      algorithmVersion: epa.version,
+      scopeKind: "league",
+      scopeKey: "league",
+      stateJson: JSON.stringify({
+        snapshotShapeVersion: 12,
+        season: 2024,
+        allianceScoreStats: emptyExpandingStats(),
+        carrySeedMean: 292.5,
+        fallbackSkipped: 0,
+        breakdownParseFailureCount: 0,
+      }),
+      generation: STAMP.generation,
+      computedAt: STAMP.computedAt,
+    };
+    expect(() => deserializeState("epa", [staleRow])).toThrow(LeagueRowShapeVersionError);
   });
 
   it("round-trips a NaN carrySeedMean as NaN — JSON has no NaN, so this is the one that could silently become null", () => {

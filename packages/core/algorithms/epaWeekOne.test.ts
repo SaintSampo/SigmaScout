@@ -19,7 +19,13 @@
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { openCorpusReadOnly, selectMatchesChronological } from "../../corpus/db.js";
-import { STATBOTICS_WEEK_ONE_CORPUS_WEEK, isStatboticsWeekOne } from "./epaWeekOne.js";
+import {
+  STATBOTICS_WEEK_ONE_CORPUS_WEEK,
+  emptyEpaWeekOneState,
+  foldWeekOneAllianceScore,
+  isStatboticsWeekOne,
+  sealWeekOneIfPast,
+} from "./epaWeekOne.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const CORPUS_AVAILABLE = existsSync(CORPUS_PATH);
@@ -155,5 +161,111 @@ describe.skipIf(!CORPUS_AVAILABLE)("corpus-backed: week reaches the algorithm bo
     } finally {
       db.close();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The week-1 accumulator and its freeze rule (quick task 260911-j2w Task 3)
+// ---------------------------------------------------------------------------
+
+describe("emptyEpaWeekOneState", () => {
+  it("starts with no observations, nothing frozen, and unsealed", () => {
+    const state = emptyEpaWeekOneState();
+    expect(state.stats.count).toBe(0);
+    expect(state.frozen).toBeNull();
+    expect(state.sealed).toBe(false);
+  });
+});
+
+describe("foldWeekOneAllianceScore", () => {
+  it("advances the week-1 accumulator for a week-0 (Statbotics week 1) match", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneAllianceScore(state, 0, 100);
+    state = foldWeekOneAllianceScore(state, 0, 140);
+    expect(state.stats.count).toBe(2);
+    expect(state.stats.mean).toBeCloseTo(120, 10);
+    expect(state.frozen).toBeNull();
+    expect(state.sealed).toBe(false);
+  });
+
+  it("ignores a null-week alliance score entirely and never seals on one", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneAllianceScore(state, 0, 100);
+    state = foldWeekOneAllianceScore(state, null, 999);
+    state = foldWeekOneAllianceScore(state, null, 1);
+    expect(state.stats.count).toBe(1);
+    expect(state.sealed).toBe(false);
+    expect(state.frozen).toBeNull();
+  });
+
+  it("does not fold a non-finite score", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneAllianceScore(state, 0, Number.NaN);
+    expect(state.stats.count).toBe(0);
+  });
+});
+
+describe("sealWeekOneIfPast", () => {
+  it("freezes the week-1 aggregate on the first week greater than 0", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneAllianceScore(state, 0, 100);
+    state = foldWeekOneAllianceScore(state, 0, 140);
+    state = sealWeekOneIfPast(state, 1);
+    expect(state.sealed).toBe(true);
+    expect(state.frozen).not.toBeNull();
+    expect(state.frozen?.mean).toBeCloseTo(120, 10);
+    expect(state.frozen?.sd).toBeCloseTo(20, 10);
+  });
+
+  it("does not seal on week 0, and does not seal on a null week", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneAllianceScore(state, 0, 100);
+    state = foldWeekOneAllianceScore(state, 0, 140);
+    expect(sealWeekOneIfPast(state, 0).sealed).toBe(false);
+    expect(sealWeekOneIfPast(state, null).sealed).toBe(false);
+  });
+
+  it("a late week-1 arrival after the seal does NOT reopen the frozen aggregate", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneAllianceScore(state, 0, 100);
+    state = foldWeekOneAllianceScore(state, 0, 140);
+    state = sealWeekOneIfPast(state, 2);
+    const frozenAtSeal = state.frozen;
+    state = foldWeekOneAllianceScore(state, 0, 5000);
+    expect(state.frozen).toEqual(frozenAtSeal);
+    expect(state.stats.count).toBe(2);
+  });
+
+  it("a second week greater than 0 does not re-seal at a different value", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneAllianceScore(state, 0, 100);
+    state = foldWeekOneAllianceScore(state, 0, 140);
+    state = sealWeekOneIfPast(state, 1);
+    const first = state.frozen;
+    state = sealWeekOneIfPast(state, 5);
+    expect(state.frozen).toEqual(first);
+  });
+
+  it("a seal with fewer than 2 week-1 observations takes NO effect but is recorded as sealed", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneAllianceScore(state, 0, 100);
+    state = sealWeekOneIfPast(state, 1);
+    expect(state.sealed).toBe(true);
+    expect(state.frozen).toBeNull();
+  });
+
+  it("a seal with zero week-1 observations takes NO effect but is recorded as sealed", () => {
+    const state = sealWeekOneIfPast(emptyEpaWeekOneState(), 3);
+    expect(state.sealed).toBe(true);
+    expect(state.frozen).toBeNull();
+  });
+
+  it("refuses to freeze a degenerate zero-spread aggregate, which would be an infinite logistic scale", () => {
+    let state = emptyEpaWeekOneState();
+    state = foldWeekOneAllianceScore(state, 0, 90);
+    state = foldWeekOneAllianceScore(state, 0, 90);
+    state = sealWeekOneIfPast(state, 1);
+    expect(state.sealed).toBe(true);
+    expect(state.frozen).toBeNull();
   });
 });

@@ -29,6 +29,7 @@ import { EPA_CARRY_RESCALE_MIN_OBS, EPA_SCORE_SD_SEED_COUNT, rescaleComponents }
 import type { EpaCarryoverPriorRatings } from "./carryover.js";
 import type { ComponentPrediction, MatchResult, SeasonBoundary, UpcomingMatch } from "./types.js";
 import { DEMO_PSEUDO_TEAM_KEY } from "./demoTeams.js";
+import { emptyEpaWeekOneState } from "./epaWeekOne.js";
 
 /** Empty `EpaState.priorSeasonRatings` — the value every intra-season fixture in this file carries, since none of these tests exercise a season boundary. */
 function emptyPriorSeasonRatings(): EpaCarryoverPriorRatings {
@@ -121,6 +122,7 @@ describe("epa.update — two-stage EWMA reproduces a hand-computed value", () =>
       teamComponents: new Map([["frc1", { auto: 10 }]]),
       teamMatchCounts: new Map([["frc1", 0]]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
@@ -167,6 +169,7 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
         ["frc3", 0],
       ]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
@@ -242,6 +245,7 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
       teamComponents: new Map([["frc1", { auto: 10 }]]),
       teamMatchCounts: new Map([["frc1", 0]]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
@@ -271,6 +275,7 @@ describe("epa.update — D-05: Statbotics' elimination discount, adopted (quick 
       teamComponents: new Map([["frc1", { auto: 10 }]]),
       teamMatchCounts: new Map([["frc1", 0]]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
@@ -393,6 +398,7 @@ describe("epa.predict — win-probability scale derivation (Pitfall EPA-1)", () 
         ["B1", 0],
       ]),
       allianceScoreStats: stats,
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
@@ -427,6 +433,7 @@ describe("epa.predict — D-04 foulsCommitted attributed to the opposing allianc
         ["B1", 0],
       ]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
@@ -470,6 +477,7 @@ describe("epa.update — event-boundary invariance (ALGO-02 checkpoint gap, D-13
       teamComponents: new Map([["frc1", {}]]),
       teamMatchCounts: new Map([["frc1", 0]]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
@@ -536,6 +544,7 @@ describe("epa — contract shape", () => {
       teamComponents: new Map([["frc1", { auto: 10, teleop: 5, foulsCommitted: 7 }]]),
       teamMatchCounts: new Map([["frc1", 1]]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
@@ -560,6 +569,7 @@ describe("epa — contract shape", () => {
       teamComponents: new Map([["frc1", { auto: 10, teleop: 5 }]]),
       teamMatchCounts: new Map([["frc1", 1]]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
@@ -580,6 +590,7 @@ describe("epa — contract shape", () => {
       teamComponents: new Map([["frc1", { auto: 10, teleop: 5 }]]),
       teamMatchCounts: new Map([["frc1", 1]]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
@@ -626,6 +637,7 @@ describe("epa.teamMetrics — D-1 (quick task 260904-7id): phase groups publishe
       teamComponents: new Map([["frc1", components]]),
       teamMatchCounts: new Map([["frc1", 1]]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
@@ -703,6 +715,7 @@ describe("epa.carrySeason — D-01: the carryover input stays fouls-INCLUSIVE, d
         ["frc2", 10],
       ]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
@@ -742,6 +755,7 @@ describe("epa.update — D-05 fallback attribution (CR-01, code review phase 02)
         ["B1", 0],
       ]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
@@ -1174,6 +1188,7 @@ describe("epa — adjust pinned at 0 per team (D-5/D-6, quick task 260904-6a1)",
         ["frc2", 10],
       ]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
@@ -1332,6 +1347,7 @@ describe("epa — season-boundary scale anchor: a carried rating enters in the I
       teamComponents: new Map(TEAM_TOTALS.map(([team, total]) => [team, { synthetic: total }])),
       teamMatchCounts: new Map(TEAM_TOTALS.map(([team]) => [team, 12])),
       allianceScoreStats: { count: 5000, mean: M_OUT, m2: 5000 * 40 * 40 },
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
       breakdownParseFailureCount: 0,
@@ -1670,7 +1686,142 @@ describe("epa — the optional component-map seam is inert at its default and li
     expect(coarse).not.toBe(defaulted);
   });
 
-  it("does not bump the version — the seam is inert at its default, so 8.0.0+baseline still means what it meant", () => {
-    expect(epa.version).toBe("8.0.0+baseline");
+  // The component-map SEAM still bumps nothing — it is inert at its default
+  // and proven so by the replay assertions above. The pinned string moved to
+  // 9.0.0+baseline for an unrelated reason: quick task 260911-j2w retargeted
+  // the win-probability denominator and the carry anchor at Statbotics' frozen
+  // WEEK-1 aggregate. Pinning by equality is what forced this edit to be a
+  // deliberate one rather than a silent drift, which is the point of the pin.
+  it("carries exactly one version string, pinned by equality so any bump is deliberate", () => {
+    expect(epa.version).toBe("9.0.0+baseline");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Week-1 calibration (quick task 260911-j2w Task 3, epa@9.0.0+baseline)
+// ---------------------------------------------------------------------------
+
+describe("epa week-1 calibration — the accumulator and its freeze", () => {
+  /** A 2024 played match at a given week, with the given alliance scores. */
+  function weekMatch(week: number | null, matchNumber: number, redScore: number, blueScore: number): MatchResult {
+    return matchResult({
+      matchKey: `2024test_qm${matchNumber}`,
+      matchNumber,
+      week,
+      redScore,
+      blueScore,
+      winner: redScore >= blueScore ? "red" : "blue",
+      scoreBreakdownRaw: breakdown2024Json({ teleopSpeakerNotePoints: redScore }, { teleopSpeakerNotePoints: blueScore }),
+    });
+  }
+
+  it("a week-0 fold advances BOTH the season-wide accumulator and the week-1 accumulator", () => {
+    const start = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    const after = epa.update(start, weekMatch(0, 1, 100, 60));
+    expect(after.allianceScoreStats.count).toBe(2);
+    expect(after.weekOne.stats.count).toBe(2);
+    expect(after.weekOne.frozen).toBeNull();
+    expect(after.weekOne.sealed).toBe(false);
+  });
+
+  it("a null-week fold advances the season-wide accumulator ONLY, and never seals", () => {
+    const start = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    const after = epa.update(start, weekMatch(null, 1, 100, 60));
+    expect(after.allianceScoreStats.count).toBe(2);
+    expect(after.weekOne.stats.count).toBe(0);
+    expect(after.weekOne.sealed).toBe(false);
+  });
+
+  it("the first fold of a week greater than 0 freezes the week-1 aggregate", () => {
+    let state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    state = epa.update(state, weekMatch(0, 1, 100, 60));
+    state = epa.update(state, weekMatch(0, 2, 120, 80));
+    expect(state.weekOne.frozen).toBeNull();
+    state = epa.update(state, weekMatch(1, 3, 90, 70));
+    expect(state.weekOne.sealed).toBe(true);
+    expect(state.weekOne.frozen).not.toBeNull();
+    // Mean of [100, 60, 120, 80] = 90.
+    expect(state.weekOne.frozen?.mean).toBeCloseTo(90, 10);
+    // The week-2 match's own scores never join the week-1 aggregate.
+    expect(state.weekOne.stats.count).toBe(4);
+  });
+
+  it("a late week-1 arrival after the freeze does not reopen it", () => {
+    let state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    state = epa.update(state, weekMatch(0, 1, 100, 60));
+    state = epa.update(state, weekMatch(0, 2, 120, 80));
+    state = epa.update(state, weekMatch(1, 3, 90, 70));
+    const frozenAtSeal = state.weekOne.frozen;
+    state = epa.update(state, weekMatch(0, 4, 5000, 5000));
+    expect(state.weekOne.frozen).toEqual(frozenAtSeal);
+    expect(state.weekOne.stats.count).toBe(4);
+  });
+
+  it("BEFORE the freeze, predict's denominator is byte-identical to 8.0.0's live expanding SD", () => {
+    let state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    state = epa.update(state, weekMatch(0, 1, 100, 60));
+    state = epa.update(state, weekMatch(0, 2, 120, 80));
+    const prediction = epa.predict(state, upcoming({ matchKey: "2024test_qm9", matchNumber: 9, week: 0 }));
+
+    // Recompute 8.0.0's exact denominator by hand from the live accumulator.
+    const liveSd = standardDeviation(state.allianceScoreStats, EPA_FALLBACK_SCORE_SD);
+    const scale = liveSd / (-EPA_K * Math.LN10);
+    const margin = prediction.redScore - prediction.blueScore;
+    expect(prediction.pRedWin).toBeCloseTo(1 / (1 + Math.exp(-margin / scale)), 12);
+  });
+
+  it("AFTER the freeze, predict's denominator is the FROZEN week-1 SD, not the live one", () => {
+    let state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    state = epa.update(state, weekMatch(0, 1, 100, 60));
+    state = epa.update(state, weekMatch(0, 2, 120, 80));
+    state = epa.update(state, weekMatch(1, 3, 90, 70));
+    // Push the live accumulator somewhere very different from week 1's spread,
+    // so reading the wrong one is unmistakable.
+    state = epa.update(state, weekMatch(2, 4, 400, 10));
+    state = epa.update(state, weekMatch(2, 5, 420, 5));
+
+    const frozenSd = state.weekOne.frozen!.sd;
+    const liveSd = standardDeviation(state.allianceScoreStats, EPA_FALLBACK_SCORE_SD);
+    expect(Math.abs(frozenSd - liveSd)).toBeGreaterThan(1);
+
+    const prediction = epa.predict(state, upcoming({ matchKey: "2024test_qm9", matchNumber: 9, week: 3 }));
+    const margin = prediction.redScore - prediction.blueScore;
+    expect(prediction.pRedWin).toBeCloseTo(1 / (1 + Math.exp(-margin / (frozenSd / (-EPA_K * Math.LN10)))), 12);
+    expect(prediction.pRedWin).not.toBeCloseTo(1 / (1 + Math.exp(-margin / (liveSd / (-EPA_K * Math.LN10)))), 6);
+  });
+
+  it("a freeze that found fewer than 2 week-1 observations does not take effect, and the state says so", () => {
+    let state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    // Straight to week 2: no week-1 match was ever folded.
+    state = epa.update(state, weekMatch(1, 1, 100, 60));
+    expect(state.weekOne.sealed).toBe(true);
+    expect(state.weekOne.frozen).toBeNull();
+
+    state = epa.update(state, weekMatch(2, 2, 110, 70));
+    const prediction = epa.predict(state, upcoming({ matchKey: "2024test_qm9", matchNumber: 9, week: 2 }));
+    const liveSd = standardDeviation(state.allianceScoreStats, EPA_FALLBACK_SCORE_SD);
+    const margin = prediction.redScore - prediction.blueScore;
+    expect(prediction.pRedWin).toBeCloseTo(1 / (1 + Math.exp(-margin / (liveSd / (-EPA_K * Math.LN10)))), 12);
+  });
+
+  it("carrySeason resets the week-1 accumulator and the frozen flag, so a new season starts unfrozen", () => {
+    let state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    state = epa.update(state, weekMatch(0, 1, 100, 60));
+    state = epa.update(state, weekMatch(0, 2, 120, 80));
+    state = epa.update(state, weekMatch(1, 3, 90, 70));
+    expect(state.weekOne.frozen).not.toBeNull();
+
+    const boundary: SeasonBoundary = { fromSeason: 2024, toSeason: 2025, isColdStart: false };
+    const carried = epa.carrySeason!(state, boundary);
+    expect(carried.weekOne.frozen).toBeNull();
+    expect(carried.weekOne.sealed).toBe(false);
+    expect(carried.weekOne.stats.count).toBe(0);
+  });
+
+  it("initState starts with an empty, unsealed week-1 state", () => {
+    const state = epa.initState(["frc1"]);
+    expect(state.weekOne.stats.count).toBe(0);
+    expect(state.weekOne.frozen).toBeNull();
+    expect(state.weekOne.sealed).toBe(false);
   });
 });

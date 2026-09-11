@@ -18,6 +18,7 @@ import {
 import { epa, EPA_SCORE_SD_SEED_COUNT, type EpaState } from "./epa.js";
 import { emptyExpandingStats, standardDeviation } from "../scoring/expandingStats.js";
 import type { SeasonBoundary } from "./types.js";
+import { emptyEpaWeekOneState } from "./epaWeekOne.js";
 
 describe("EPA_ROOKIE_BASELINE", () => {
   it("is the expression NORM_MEAN - INIT_PENALTY * NORM_SD, evaluating to 1450", () => {
@@ -103,6 +104,7 @@ describe("epa.carrySeason — isColdStart short-circuit", () => {
       teamComponents: new Map([["frc1", { autoLeave: 10 }]]),
       teamMatchCounts: new Map([["frc1", 5]]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       breakdownParseFailureCount: 0,
@@ -177,6 +179,7 @@ describe("epa.carrySeason — end-to-end state carry", () => {
         ["frc2", 8],
       ]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       breakdownParseFailureCount: 0,
@@ -217,6 +220,7 @@ describe("epa.carrySeason — end-to-end state carry", () => {
       teamComponents: new Map([["frc1", { autoTaxi: 5 }]]),
       teamMatchCounts: new Map([["frc1", 3]]),
       allianceScoreStats: emptyExpandingStats(),
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       breakdownParseFailureCount: 0,
@@ -236,6 +240,7 @@ describe("epa.carrySeason — end-to-end state carry", () => {
       teamComponents: new Map([["frc1", { autoTaxi: 10 }]]),
       teamMatchCounts: new Map([["frc1", 3]]),
       allianceScoreStats: { count: 10, mean: 90, m2: 400 },
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       breakdownParseFailureCount: 0,
@@ -267,6 +272,7 @@ describe("epa.carrySeason — end-to-end state carry", () => {
       teamComponents: new Map([["frc1", { autoTaxi: 10 }]]),
       teamMatchCounts: new Map([["frc1", 3]]),
       allianceScoreStats: { count: 1, mean: 90, m2: 0 },
+      weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       breakdownParseFailureCount: 0,

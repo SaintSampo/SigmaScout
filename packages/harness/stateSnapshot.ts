@@ -290,8 +290,37 @@ export class MissingLeagueRowError extends Error {
  *
  * Costs a Worker re-seed from a fresh publish run, exactly like every bump
  * above it. Seed first, deploy second.
+ *
+ * ---------------------------------------------------------------------------
+ * 12 -> 13 (2026-09-11, quick task 260911-j2w): EPA'S WEEK-1 CALIBRATION
+ * ---------------------------------------------------------------------------
+ *
+ * `epa@9.0.0+baseline` reads a FROZEN WEEK-1 aggregate from week 2 onward for
+ * two things: the win-probability denominator and the season-boundary carry
+ * anchor. That needs one new LEAGUE-row field, `weekOne` — a week-1-only
+ * Welford accumulator, the frozen `{mean, sd}` (or `null`), and a `sealed`
+ * flag. All three are ONE FACT EACH and flat in team count, which is the D-13
+ * rule that puts them in the league row rather than on team rows. No team row
+ * changes at all in this bump.
+ *
+ * THE LOAD-BEARING REASON, stated explicitly because it is the whole point of
+ * this bump, and it is the SAME mechanism the 11 -> 12 block above describes:
+ * `apps/worker/src/stateStore.ts`'s `readScopedState` filters rows by
+ * `algorithm_id` ONLY and never by version, so bumping `epa.version` from
+ * 8.0.0 to 9.0.0 does NOT by itself make a stale seeded row unreachable. A
+ * shape-12 EPA league row would deserialize with the week-1 fields ABSENT,
+ * leaving the frozen aggregate permanently unavailable — so the Worker would
+ * use the LIVE expanding estimate for the entire season while the offline
+ * publisher used the frozen week-1 constant. The two would then disagree on
+ * every prediction from week 2 onward, with no error, no NaN and no malformed
+ * row to find: both sides look perfectly healthy, and only the numbers differ.
+ * The shape check is the only thing that turns that into a loud
+ * `LeagueRowShapeVersionError` naming the re-seed as the fix.
+ *
+ * Costs a Worker re-seed from a fresh publish run, exactly like every bump
+ * above it. Seed first, deploy second.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 12;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 13;
 
 /**
  * Thrown when `deserializeState`'s league row does not declare the current
@@ -599,8 +628,27 @@ interface SerializedEpaLeague {
    * `carryRescaleRatio` would have to guess about.
    */
   carrySeedMean: number | null;
+  /**
+   * Shape 13: `EpaState.weekOne`, EPA's week-1 calibration state — the
+   * week-1-only accumulator, the frozen `{mean, sd}` aggregate (or `null`
+   * while week 1 is still running, or when the seal found too little data),
+   * and whether the seal has already been attempted.
+   *
+   * Written as a plain object rather than flattened into three sibling fields
+   * so the three cannot be partially present: a row carrying `frozen` without
+   * `sealed` would be a state `epaWeekOne.ts` can never produce, and the
+   * nested shape makes that unrepresentable instead of merely unlikely.
+   */
+  weekOne: SerializedEpaWeekOne;
   fallbackSkipped: number;
   breakdownParseFailureCount: number;
+}
+
+/** Shape 13: the wire form of `EpaWeekOneState`. `ExpandingStats` and a nullable `{mean, sd}` are both plain JSON already, so no NaN-to-null dance is needed here (contrast `carrySeedMean` above). */
+interface SerializedEpaWeekOne {
+  stats: ExpandingStats;
+  frozen: { mean: number; sd: number } | null;
+  sealed: boolean;
 }
 
 /** D-13: same union shape as sigma1's `SerializedSigma1TeamRow` — see that interface's doc comment. */
@@ -623,6 +671,11 @@ function serializeEpaState(algorithmId: string, algorithmVersion: string, state:
     season: state.season,
     allianceScoreStats: state.allianceScoreStats,
     carrySeedMean: Number.isFinite(state.carrySeedMean) ? state.carrySeedMean : null,
+    weekOne: {
+      stats: state.weekOne.stats,
+      frozen: state.weekOne.frozen === null ? null : { mean: state.weekOne.frozen.mean, sd: state.weekOne.frozen.sd },
+      sealed: state.weekOne.sealed,
+    },
     fallbackSkipped: state.fallbackSkipped,
     breakdownParseFailureCount: state.breakdownParseFailureCount,
   };
@@ -695,6 +748,16 @@ function deserializeEpaState(algorithmId: string, rows: readonly StateRow[]): Ep
     // `null` on the wire IS `NaN` — see SerializedEpaLeague.carrySeedMean.
     carrySeedMean: leagueJson.carrySeedMean === null ? Number.NaN : leagueJson.carrySeedMean,
     carryPending,
+    // Shape 13. Read straight through: the shape-version gate above is what
+    // guarantees the field is present, so there is deliberately NO `??`
+    // default here. A default would be exactly the silent degradation this
+    // bump's doc block exists to prevent — a Worker quietly running the live
+    // estimate all season while the publisher runs the frozen constant.
+    weekOne: {
+      stats: leagueJson.weekOne.stats,
+      frozen: leagueJson.weekOne.frozen === null ? null : { mean: leagueJson.weekOne.frozen.mean, sd: leagueJson.weekOne.frozen.sd },
+      sealed: leagueJson.weekOne.sealed,
+    },
     fallbackSkipped: leagueJson.fallbackSkipped,
     priorSeasonRatings: { lastSeason, yearBefore },
     breakdownParseFailureCount: leagueJson.breakdownParseFailureCount,

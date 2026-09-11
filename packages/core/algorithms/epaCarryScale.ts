@@ -148,6 +148,14 @@ export function cleanSeasonMean(
  * be a point scale and whose ratio would flip the sign of every carried
  * rating). `deferred` is counted and reported; it is never silently folded into
  * "we rescaled".
+ *
+ * TWO NUMERATOR SOURCES as of `epa@9.0.0+baseline` (quick task 260911-j2w), and
+ * this function is deliberately blind to which one it got. `epa.ts`'s
+ * `carryRescaleRatioFor` passes the FROZEN WEEK-1 MEAN once week 1 has provably
+ * ended, and `cleanSeasonMean`'s live unwind above before that. The arithmetic
+ * here is UNCHANGED and its reproduction gate stays green without an edit to any
+ * expectation — which is the whole reason the numerator is chosen at the CALL
+ * SITE rather than by teaching this function about weeks.
  */
 export function carryRescaleRatio(
   cleanSeasonMeanValue: number | null,
