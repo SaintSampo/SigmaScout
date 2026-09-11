@@ -50,4 +50,23 @@ describe("/methodology/spr", () => {
       }
     }
   });
+
+  it("never states the retired sealed-holdout figure or the retired display label in rendered text", async () => {
+    await renderMethodologySpr();
+    const bodyText = document.body.textContent ?? "";
+    expect(bodyText, "rendered text states the retired holdout figure").not.toContain("78.05");
+    expect(bodyText, "rendered text renders the retired display label").not.toContain("BPR");
+  });
+
+  it("links to /methodology/compare for the measured accuracy numbers", async () => {
+    await renderMethodologySpr();
+    const links = screen.getAllByRole("link").filter((link) => link.getAttribute("href")?.includes("/methodology/compare") ?? false);
+    expect(links.length, "no link to /methodology/compare is rendered").toBeGreaterThan(0);
+  });
+
+  it("links to /methodology/sigma to disambiguate SPR from Sigma Score", async () => {
+    await renderMethodologySpr();
+    const links = screen.getAllByRole("link").filter((link) => link.getAttribute("href")?.includes("/methodology/sigma") ?? false);
+    expect(links.length, "no link to /methodology/sigma is rendered").toBeGreaterThan(0);
+  });
 });
