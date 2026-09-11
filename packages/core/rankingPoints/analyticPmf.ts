@@ -121,13 +121,15 @@ export function describeRpLayerConfig(config: RpLayerConfig): string {
 }
 
 /**
- * Throws for every `RpLayerConfig` value not yet implemented anywhere in the
- * tree — a config that claims a model it did not run is worse than one that
- * refuses (T-09-04-04). The default value never throws. `winSource:
- * "p-red-win"` (09-05 Task 1, D-13) and `tieModel: "discrete-margin"`
- * (09-05 Task 2, D-14) no longer throw as of this plan; `marginal` still
- * refuses its non-default member until 09-05 Task 3 lands the
- * negative-binomial branch.
+ * Throws for every `RpLayerConfig` value not yet implemented anywhere in
+ * the tree — a config that claims a model it did not run is worse than one
+ * that refuses (T-09-04-04). The default value never throws. As of 09-05
+ * Task 3 (D-01) all three fields' real branches are landed — `winSource:
+ * "p-red-win"` (Task 1, D-13), `tieModel: "discrete-margin"` (Task 2,
+ * D-14), `marginal: "negative-binomial"` (Task 3, D-01) — so nothing left
+ * in this tree throws. Kept, not deleted: a FOURTH, truly unimplemented
+ * member added later must still refuse loudly, and 09-06's collapse (D-06)
+ * is what removes this function, not this task.
  */
 export function assertSupportedRpLayerConfig(config: RpLayerConfig): void {
   if (config.winSource !== "score-draw" && config.winSource !== "p-red-win") {
@@ -140,24 +142,71 @@ export function assertSupportedRpLayerConfig(config: RpLayerConfig): void {
       `analyticRpPmf: RpLayerConfig.tieModel "${config.tieModel}" is not implemented — no plan has shipped this branch`
     );
   }
-  if (config.marginal !== "gaussian") {
+  if (config.marginal !== "gaussian" && config.marginal !== "negative-binomial") {
     throw new Error(
-      `analyticRpPmf: RpLayerConfig.marginal "${config.marginal}" is not yet implemented (09-05 Task 3, D-01)`
+      `analyticRpPmf: RpLayerConfig.marginal "${config.marginal}" is not implemented — no plan has shipped this branch`
     );
   }
 }
 
 /**
- * `config.marginal === "gaussian"` (the inert default): every variable is
- * fitted Gaussian regardless of what it declares — one field change reverts
- * the whole marginal swap without editing 34 declarations (D-10). Otherwise
- * each variable is fitted with its own declared family. Today both sides
- * agree (config gaussian, all 34 declarations gaussian), so this is inert;
- * `assertSupportedRpLayerConfig` rejects the non-default branch in THIS
- * plan, so it is written and documented now but unreachable until 09-05.
+ * The SOLE producer of `fitMarginal`'s (09-03, `marginals.ts`) `declared`
+ * argument (09-05 Task 3, D-01) — every `fitAllianceMarginals`/`fitMarginal`
+ * call in this module routes its declared-family value through this one
+ * function, honoring 09-03's contract that the negative-binomial path is
+ * reachable PURELY by changing `declared`, with no second entry point and
+ * no branch inside `marginals.ts` keyed on anything else.
+ *
+ * `config.marginal === "negative-binomial"`: the variable's own declared
+ * `marginalFamily` is honored verbatim. Otherwise (the inert default,
+ * `"gaussian"`): every variable is forced to `"gaussian"` regardless of
+ * what it declares — one field change reverts the whole marginal swap
+ * without editing 34 declarations (D-10). Today the LEGACY branch forces
+ * `"gaussian"` regardless of the season modules' own declarations, which is
+ * what makes flipping all 34 declarations to `"negative-binomial"` a no-op
+ * for production until this config field is itself flipped.
  */
-export function resolveMarginalFamily(declared: MarginalFamily, config: RpLayerConfig): MarginalFamily {
-  return config.marginal === "gaussian" ? "gaussian" : declared;
+export function resolveDeclaredFamily(variable: RpThresholdVariable, config: RpLayerConfig): MarginalFamily {
+  return config.marginal === "negative-binomial" ? variable.marginalFamily : "gaussian";
+}
+
+/**
+ * Running counts of what a set of `fitMarginal` calls actually RESOLVED to
+ * (09-05 Task 3, D-01) — `FittedMarginal.resolved`, never `.declared`. An
+ * arm labelled `"negative-binomial"` cannot silently be mostly Gaussian:
+ * without this, 09-06 could publish a per-bonus accept/revert call on an
+ * arm whose fits mostly fell back to Gaussian without anyone noticing.
+ * `fallbacks` is counted SEPARATELY from `gaussian` — a declared Gaussian
+ * default (`resolved === declared === "gaussian"`) is not a fallback, and
+ * conflating the two would corrupt 09-06's count (the same discipline
+ * 09-03 applied to `FittedMarginal.fallbackReason`).
+ */
+export interface MarginalResolutionTally {
+  negativeBinomial: number;
+  gaussian: number;
+  degenerate: number;
+  fallbacks: number;
+}
+
+/** A fresh, all-zero `MarginalResolutionTally` — for callers that want their own counter rather than sharing `SigmaScoutLayer`'s running one. */
+export function emptyMarginalResolutionTally(): MarginalResolutionTally {
+  return { negativeBinomial: 0, gaussian: 0, degenerate: 0, fallbacks: 0 };
+}
+
+/** Increments `tally` by one fitted marginal's resolved family and (separately) its fallback status. */
+function accumulateMarginalResolution(tally: MarginalResolutionTally, marginal: FittedMarginal): void {
+  switch (marginal.resolved) {
+    case "negative-binomial":
+      tally.negativeBinomial += 1;
+      break;
+    case "gaussian":
+      tally.gaussian += 1;
+      break;
+    case "degenerate":
+      tally.degenerate += 1;
+      break;
+  }
+  if (marginal.fallbackReason !== undefined) tally.fallbacks += 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -521,15 +570,19 @@ export function allianceBonusRpPmf(
   moments: AllianceRpMoments,
   ruleModule: RpRuleModule,
   eventType: number,
-  config: RpLayerConfig
+  config: RpLayerConfig,
+  tally?: MarginalResolutionTally
 ): AllianceBonusRp {
   assertIndependencePrecondition(moments, ruleModule.season);
   const tier = eventTierFor(eventType);
   const variablesForFit: RpThresholdVariable[] = ruleModule.thresholdVariables.map((variable) => ({
     ...variable,
-    marginalFamily: resolveMarginalFamily(variable.marginalFamily, config),
+    marginalFamily: resolveDeclaredFamily(variable, config),
   }));
   const marginalsByName = fitAllianceMarginals(moments, variablesForFit);
+  if (tally !== undefined) {
+    for (const marginal of marginalsByName.values()) accumulateMarginalResolution(tally, marginal);
+  }
   const groups = groupBonusPredicates(ruleModule.bonusPredicates);
 
   let pmf: number[] = [1];
@@ -791,6 +844,14 @@ export interface AnalyticRpPmfInput {
   readonly compLevel: CompLevel;
   readonly config: RpLayerConfig;
   readonly pRedWin: number;
+  /**
+   * Optional EXTERNAL accumulator (09-05 Task 3, D-01) — when supplied, this
+   * call's marginal fits (both alliances) are ALSO folded into it, so a
+   * caller (`SigmaScoutLayer.rpMarginalResolutionTally`) can track the
+   * resolved-family mix across many calls. A call given no tally still
+   * returns a correct pmf and does not throw.
+   */
+  readonly tally?: MarginalResolutionTally;
 }
 
 export interface AnalyticRpPmfResult {
@@ -804,6 +865,8 @@ export interface AnalyticRpPmfResult {
   /** 09-03's `FittedMarginal[]`, carried through so 09-06 can count fallback rates. */
   readonly redMarginals?: readonly FittedMarginal[];
   readonly blueMarginals?: readonly FittedMarginal[];
+  /** THIS CALL's OWN resolved-family counts (both alliances), independent of whether `input.tally` was also supplied. Undefined for the non-qualification short-circuit, which fits no marginal at all. */
+  readonly marginalResolution?: MarginalResolutionTally;
   /** The shared win/tie/loss draw both alliances' outcome halves were built from — what 09-07 composes its `[winRp, tieRp, 0]`/`[0, tieRp, winRp]` vectors against. */
   readonly outcome?: RpOutcomeDistribution;
 }
@@ -848,14 +911,25 @@ export function pmfStandardDeviation(pmf: readonly number[]): number {
  */
 export function analyticRpPmf(input: AnalyticRpPmfInput): AnalyticRpPmfResult {
   assertSupportedRpLayerConfig(input.config);
-  const { red, blue, ruleModule, eventType, compLevel, config, pRedWin } = input;
+  const { red, blue, ruleModule, eventType, compLevel, config, pRedWin, tally } = input;
 
   if (!isBonusRpCompLevel(compLevel)) {
     return { redPmf: [1], bluePmf: [1] };
   }
 
-  const redBonus = allianceBonusRpPmf(red, ruleModule, eventType, config);
-  const blueBonus = allianceBonusRpPmf(blue, ruleModule, eventType, config);
+  // THIS CALL's own tally (both alliances) — always built when the bonus
+  // path runs, regardless of whether an external `tally` accumulator was
+  // also supplied. Merged into the external accumulator below, never
+  // replacing it (D-01, 09-05 Task 3).
+  const callTally = emptyMarginalResolutionTally();
+  const redBonus = allianceBonusRpPmf(red, ruleModule, eventType, config, callTally);
+  const blueBonus = allianceBonusRpPmf(blue, ruleModule, eventType, config, callTally);
+  if (tally !== undefined) {
+    tally.negativeBinomial += callTally.negativeBinomial;
+    tally.gaussian += callTally.gaussian;
+    tally.degenerate += callTally.degenerate;
+    tally.fallbacks += callTally.fallbacks;
+  }
 
   const outcome = matchOutcomeDistribution({
     redScoreMean: red.scoreMean,
@@ -893,6 +967,7 @@ export function analyticRpPmf(input: AnalyticRpPmfInput): AnalyticRpPmfResult {
     blueBonusPmf: blueBonus.pmf,
     redMarginals: redBonus.marginals,
     blueMarginals: blueBonus.marginals,
+    marginalResolution: callTally,
     outcome,
   };
 }

@@ -51,7 +51,13 @@ import type { PredictionRecord } from "./replay.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 import { isRpEligibleEventType } from "../core/rankingPoints/constants.js";
 import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
-import { analyticRpPmf, RP_LAYER_CONFIG_DEFAULT, type RpLayerConfig } from "../core/rankingPoints/analyticPmf.js";
+import {
+  analyticRpPmf,
+  emptyMarginalResolutionTally,
+  RP_LAYER_CONFIG_DEFAULT,
+  type MarginalResolutionTally,
+  type RpLayerConfig,
+} from "../core/rankingPoints/analyticPmf.js";
 import { allianceSwingBandVariance, SwingFactorAccumulator, type SwingBelief } from "./swingFactor.js";
 import { SigmaScoreAccumulator, usesSigmaScore } from "./sigmaScore.js";
 
@@ -85,6 +91,15 @@ export class SigmaScoutLayer {
   readonly #rp: RpMomentsAccumulator | undefined;
   readonly #ruleModule: RpRuleModule | undefined;
   readonly #rpLayerConfig: RpLayerConfig;
+  /**
+   * Running resolved-family mix (09-05 Task 3, D-01) across every pmf this
+   * layer instance has built. IN-MEMORY ONLY — never put on `Prediction`,
+   * never written to any artifact. 09-06 reads it after a run to report
+   * what share of the `"negative-binomial"` arm actually resolved to
+   * negative binomial rather than silently falling back to Gaussian. D-06
+   * deletes it with the rest of the temporary `RpLayerConfig` surface.
+   */
+  readonly #rpMarginalResolutionTally: MarginalResolutionTally = emptyMarginalResolutionTally();
 
   /**
    * `ruleModule` is the season's RP rules, or `undefined` for a season with no
@@ -112,6 +127,17 @@ export class SigmaScoutLayer {
   /** The `RpLayerConfig` this layer was constructed with — so a caller can record what it ran (D-05). */
   get rpLayerConfig(): RpLayerConfig {
     return this.#rpLayerConfig;
+  }
+
+  /**
+   * The resolved-family mix (09-05 Task 3, D-01) accumulated across every
+   * `#rpFieldsFor` call this layer instance has made so far. Read-only:
+   * reading it never mutates it. Returns a fresh copy each read, so a
+   * caller cannot accidentally mutate this layer's own running counts.
+   * In-memory only — see this field's own doc comment.
+   */
+  get rpMarginalResolutionTally(): MarginalResolutionTally {
+    return { ...this.#rpMarginalResolutionTally };
   }
 
   /** True when this layer publishes Sigma Score in place of a Swing Factor. */
@@ -264,6 +290,10 @@ export class SigmaScoutLayer {
       // pRedWin. Read and never re-derived here — under the legacy
       // winSource it is accepted and never read by analyticRpPmf.
       pRedWin: prediction.pRedWin,
+      // D-01 (09-05 Task 3): the layer's own running accumulator, folded
+      // into by every call. In-memory only — see rpMarginalResolutionTally's
+      // own doc comment.
+      tally: this.#rpMarginalResolutionTally,
     });
 
     return {

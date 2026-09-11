@@ -69,3 +69,54 @@ describe("SigmaScoutLayer — tieModel: \"discrete-margin\" real-margin regime g
     });
   }
 });
+
+describe("SigmaScoutLayer.rpMarginalResolutionTally — 09-05 Task 3 (D-01): the resolved-family mix, observable at the layer level", () => {
+  if (!FIXTURE_AVAILABLE) {
+    it.skip(`skipped: ${DIGEST_SLICE_FIXTURE_PATH} not found`, () => {});
+  } else {
+    it("starts all-zero, accumulates across successive foldPlayed calls, reading it never mutates the layer's own state, and no built Prediction gains a tally-shaped key", () => {
+      const fixture = JSON.parse(readFileSync(DIGEST_SLICE_FIXTURE_PATH, "utf8")) as DigestSliceFixture;
+      const ruleModule = RP_RULE_MODULES[fixture.sliceSeason]!;
+      const algorithm = resolvePublishAlgorithms(undefined)[0]!;
+      const teams = Array.from(new Set(fixture.matches.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
+      const simulator = new WalkForwardSimulator([...fixture.matches]);
+      const raw = simulator.run(algorithm, teams);
+
+      const config: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, marginal: "negative-binomial" };
+      const layer = new SigmaScoutLayer(ruleModule, algorithm.id, config);
+
+      expect(layer.rpMarginalResolutionTally).toEqual({ negativeBinomial: 0, gaussian: 0, degenerate: 0, fallbacks: 0 });
+
+      let anyRpPmf = false;
+      let sawTallyGrow = false;
+      const folded = raw.map((r) => {
+        const before = layer.rpMarginalResolutionTally;
+        const record = layer.foldPlayed(r.match, r.prediction);
+        const after = layer.rpMarginalResolutionTally;
+        if (record.prediction.redRpPmf !== undefined) {
+          anyRpPmf = true;
+          const totalBefore = before.negativeBinomial + before.gaussian + before.degenerate;
+          const totalAfter = after.negativeBinomial + after.gaussian + after.degenerate;
+          if (totalAfter > totalBefore) sawTallyGrow = true;
+        }
+        return record;
+      });
+
+      expect(anyRpPmf, "no folded prediction carried a defined redRpPmf — the RP layer never ran on this fixture").toBe(true);
+      expect(sawTallyGrow, "the tally never grew across any fold").toBe(true);
+
+      // Reading never mutates the layer's own state: a mutated READ COPY
+      // does not affect a subsequent read.
+      const readCopy = layer.rpMarginalResolutionTally;
+      readCopy.negativeBinomial = 999;
+      expect(layer.rpMarginalResolutionTally.negativeBinomial).not.toBe(999);
+
+      // Nothing tally-shaped ever appears on a built Prediction — the layer
+      // is IN-MEMORY ONLY (D-06's removal notice), never on the artifact.
+      for (const record of folded) {
+        expect(Object.keys(record.prediction)).not.toContain("marginalResolution");
+        expect(Object.keys(record.prediction)).not.toContain("rpMarginalResolutionTally");
+      }
+    });
+  }
+});

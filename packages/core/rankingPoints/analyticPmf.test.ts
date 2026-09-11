@@ -29,12 +29,15 @@
  * fixture builder in the tree and not two that can drift about what
  * "diagonal" means.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   allianceBonusRpPmf,
   analyticRpPmf,
   assertSupportedRpLayerConfig,
+  emptyMarginalResolutionTally,
   matchOutcomeDistribution,
+  resolveDeclaredFamily,
   splitOutcomeProbabilities,
   tieProbability,
   RP_LAYER_CONFIG_DEFAULT,
@@ -46,7 +49,24 @@ import { rp2017 } from "./2017.js";
 import { rp2019 } from "./2019.js";
 import { rp2022 } from "./2022.js";
 import { rp2026 } from "./2026.js";
+import { RP_REGISTERED_SEASONS, RP_RULE_MODULES, type MarginalFamily, type RpRuleModule } from "./rules.js";
 import type { AllianceRpMoments } from "./moments.js";
+
+/**
+ * Test-only fixture helper (09-05 Task 3): clones `ruleModule` with every
+ * threshold variable's `marginalFamily` overridden to `family`. Needed
+ * because Task 3's Commit 1 (mechanism) lands BEFORE Commit 2 (the 34
+ * declarations themselves flip) — at this point in the file's own
+ * git history every real season module still declares `"gaussian"`, so the
+ * mechanism tests below need a synthetic NB-declared module to exercise
+ * `resolveDeclaredFamily`'s `"negative-binomial"` branch at all.
+ */
+function ruleModuleWithDeclaredFamily(ruleModule: RpRuleModule, family: MarginalFamily): RpRuleModule {
+  return {
+    ...ruleModule,
+    thresholdVariables: ruleModule.thresholdVariables.map((v) => ({ ...v, marginalFamily: family })),
+  };
+}
 
 /** Builds a diagonal `AllianceRpMoments` for 2026 — the exact shape `empiricalMoments.ts`'s `momentsFor` produces. */
 function moments2026(
@@ -267,14 +287,18 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
     ).toThrow(/season 2026.*varianceBlock/);
   });
 
-  it("Test 7: the config refuses what it has not implemented yet — UPDATED by 09-05 Tasks 1/2: winSource: \"p-red-win\" and tieModel: \"discrete-margin\" no longer throw (D-13/D-14 landed); marginal still refuses until Task 3", () => {
+  it("Test 7: the config refuses what it has not implemented — UPDATED by 09-05 Tasks 1/2/3: all three real branches (winSource: \"p-red-win\", tieModel: \"discrete-margin\", marginal: \"negative-binomial\") no longer throw (D-13/D-14/D-01 all landed); an actually-unimplemented fourth value still would", () => {
     const winSourceVariant: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, winSource: "p-red-win" };
     const tieModelVariant: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, tieModel: "discrete-margin" };
     const marginalVariant: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, marginal: "negative-binomial" };
     expect(() => assertSupportedRpLayerConfig(winSourceVariant)).not.toThrow();
     expect(() => assertSupportedRpLayerConfig(tieModelVariant)).not.toThrow();
-    expect(() => assertSupportedRpLayerConfig(marginalVariant)).toThrow();
+    expect(() => assertSupportedRpLayerConfig(marginalVariant)).not.toThrow();
     expect(() => assertSupportedRpLayerConfig(RP_LAYER_CONFIG_DEFAULT)).not.toThrow();
+    // An actually-unimplemented value still refuses — the function is kept,
+    // not vestigial, per its own updated doc comment.
+    const unimplemented = { ...RP_LAYER_CONFIG_DEFAULT, winSource: "made-up-value" } as unknown as RpLayerConfig;
+    expect(() => assertSupportedRpLayerConfig(unimplemented)).toThrow();
   });
 
   it("Test 8: normalization is a guarantee, not a hope — every 2026 pmf entry is finite and in [0,1], and a non-finite score mean throws rather than emitting NaN", () => {
@@ -611,6 +635,160 @@ describe("tieProbability / matchOutcomeDistribution — 09-05 Task 2 (D-14, F7):
     const winIndex2016 = rp2016.winRp + bonusRp2016;
     expect(result2016.redPmf[tieIndex2016]).toBeCloseTo(result2016.outcome!.pTie, 12);
     expect(result2016.redPmf[winIndex2016]).toBeCloseTo(result2016.outcome!.pRedWin, 12);
+  });
+});
+
+describe("resolveDeclaredFamily / MarginalResolutionTally — 09-05 Task 3 (D-01): marginal: \"negative-binomial\"", () => {
+  it("under the legacy marginal member, resolveDeclaredFamily returns \"gaussian\" for a variable declaring EITHER family — the whole inertness argument", () => {
+    const config = RP_LAYER_CONFIG_DEFAULT;
+    const declaredGaussian = { name: "x", unit: "count" as const, marginalFamily: "gaussian" as const };
+    const declaredNb = { name: "y", unit: "count" as const, marginalFamily: "negative-binomial" as const };
+    expect(resolveDeclaredFamily(declaredGaussian, config)).toBe("gaussian");
+    expect(resolveDeclaredFamily(declaredNb, config)).toBe("gaussian");
+  });
+
+  it("under marginal: \"negative-binomial\", resolveDeclaredFamily returns the variable's OWN declared family verbatim, for both possible declarations", () => {
+    const config: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, marginal: "negative-binomial" };
+    const declaredGaussian = { name: "x", unit: "count" as const, marginalFamily: "gaussian" as const };
+    const declaredNb = { name: "y", unit: "count" as const, marginalFamily: "negative-binomial" as const };
+    expect(resolveDeclaredFamily(declaredGaussian, config)).toBe("gaussian");
+    expect(resolveDeclaredFamily(declaredNb, config)).toBe("negative-binomial");
+  });
+
+  it("driven over every variable in every registered season (34 total): under the legacy member the result is \"gaussian\" for all 34, the count asserted so a shrunken list cannot pass vacuously", () => {
+    let count = 0;
+    for (const season of RP_REGISTERED_SEASONS) {
+      const module = RP_RULE_MODULES[season]!;
+      for (const variable of module.thresholdVariables) {
+        expect(resolveDeclaredFamily(variable, RP_LAYER_CONFIG_DEFAULT)).toBe("gaussian");
+        count += 1;
+      }
+    }
+    expect(count).toBe(34);
+  });
+
+  it("emptyMarginalResolutionTally returns all-zero counters", () => {
+    expect(emptyMarginalResolutionTally()).toEqual({ negativeBinomial: 0, gaussian: 0, degenerate: 0, fallbacks: 0 });
+  });
+
+  // Task 3's Commit 1 (mechanism, tested here) lands BEFORE Commit 2 (the 34
+  // declarations themselves flip). At this point every REAL season module
+  // still declares "gaussian", so the tally tests below use a synthetic
+  // NB-declared clone of rp2026 (`ruleModuleWithDeclaredFamily`) to exercise
+  // resolveDeclaredFamily's "negative-binomial" branch at all — Task 3's
+  // Commit 2 (and rules.test.ts's pinned per-family list) is what proves
+  // the REAL 2026 declarations flip too.
+  const rp2026Nb = ruleModuleWithDeclaredFamily(rp2026, "negative-binomial");
+
+  it("under marginal: \"negative-binomial\" with variables DECLARED negative-binomial, comfortably overdispersed alliance moments (mean 40, variance 200 — well above mean) yield a tally where negativeBinomial equals the fitted-variable count and fallbacks is 0", () => {
+    const config: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, marginal: "negative-binomial" };
+    const moments = buildRuleModuleMoments(rp2026Nb, {
+      hubTotalCount: { mean: 40, variance: 200 },
+      totalTowerPoints: { mean: 40, variance: 200 },
+    });
+    const tally = emptyMarginalResolutionTally();
+    allianceBonusRpPmf(moments, rp2026Nb, 0, config, tally);
+    expect(tally.negativeBinomial).toBe(2); // both threshold variables, one alliance
+    expect(tally.fallbacks).toBe(0);
+    expect(tally.gaussian).toBe(0);
+  });
+
+  it("under marginal: \"negative-binomial\" with variables DECLARED negative-binomial, 09-03's own pinned cold-team case (alliance mean 13.586547164699777 against variance 4.5 — a 3-team roster that folded 4 then 5) yields a tally with non-zero gaussian AND non-zero fallbacks, while the declared family is still \"negative-binomial\" — an arm labelled negative-binomial cannot silently be mostly Gaussian", () => {
+    const config: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, marginal: "negative-binomial" };
+    const moments = buildRuleModuleMoments(rp2026Nb, {
+      hubTotalCount: { mean: 13.586547164699777, variance: 4.5 },
+      totalTowerPoints: { mean: 13.586547164699777, variance: 4.5 },
+    });
+    const tally = emptyMarginalResolutionTally();
+    allianceBonusRpPmf(moments, rp2026Nb, 0, config, tally);
+    expect(tally.gaussian).toBeGreaterThan(0);
+    expect(tally.fallbacks).toBeGreaterThan(0);
+    expect(tally.negativeBinomial).toBe(0);
+    expect(tally.gaussian).toBe(tally.fallbacks); // every fallback here resolved to gaussian
+  });
+
+  it("under the legacy marginal member, even a variable DECLARED negative-binomial resolves gaussian and is NOT counted as a fallback — the whole D-10 revert argument", () => {
+    const moments = buildRuleModuleMoments(rp2026Nb, {
+      hubTotalCount: { mean: 40, variance: 200 },
+      totalTowerPoints: { mean: 40, variance: 200 },
+    });
+    const tally = emptyMarginalResolutionTally();
+    allianceBonusRpPmf(moments, rp2026Nb, 0, RP_LAYER_CONFIG_DEFAULT, tally);
+    expect(tally.gaussian).toBe(2);
+    expect(tally.fallbacks).toBe(0);
+    expect(tally.negativeBinomial).toBe(0);
+  });
+
+  it("the tally is per-call: two successive calls on a fresh tally object accumulate; a call given no tally still returns a correct pmf and does not throw", () => {
+    const config: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, marginal: "negative-binomial" };
+    const moments = buildRuleModuleMoments(rp2026Nb, {
+      hubTotalCount: { mean: 40, variance: 200 },
+      totalTowerPoints: { mean: 40, variance: 200 },
+    });
+    const tally = emptyMarginalResolutionTally();
+    allianceBonusRpPmf(moments, rp2026Nb, 0, config, tally);
+    allianceBonusRpPmf(moments, rp2026Nb, 0, config, tally);
+    expect(tally.negativeBinomial).toBe(4);
+
+    expect(() => allianceBonusRpPmf(moments, rp2026Nb, 0, config)).not.toThrow();
+    const untallied = allianceBonusRpPmf(moments, rp2026Nb, 0, config);
+    expect(untallied.pmf.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 9);
+  });
+
+  it("analyticRpPmf's result.marginalResolution carries THIS CALL's OWN counts, and merges into an externally-supplied input.tally without replacing it", () => {
+    const config: RpLayerConfig = { ...RP_LAYER_CONFIG_DEFAULT, marginal: "negative-binomial" };
+    const moments = buildRuleModuleMoments(rp2026Nb, {
+      hubTotalCount: { mean: 40, variance: 200 },
+      totalTowerPoints: { mean: 40, variance: 200 },
+    });
+    const externalTally = emptyMarginalResolutionTally();
+    const result = analyticRpPmf({
+      red: moments,
+      blue: moments,
+      ruleModule: rp2026Nb,
+      eventType: 0,
+      compLevel: "qm",
+      config,
+      pRedWin: 0.5,
+      tally: externalTally,
+    });
+    expect(result.marginalResolution).toBeDefined();
+    // Both alliances, both threshold variables: 4 NB fits per call.
+    expect(result.marginalResolution!.negativeBinomial).toBe(4);
+    expect(externalTally.negativeBinomial).toBe(4);
+
+    // A second call folds into the SAME external accumulator.
+    analyticRpPmf({
+      red: moments,
+      blue: moments,
+      ruleModule: rp2026Nb,
+      eventType: 0,
+      compLevel: "qm",
+      config,
+      pRedWin: 0.5,
+      tally: externalTally,
+    });
+    expect(externalTally.negativeBinomial).toBe(8);
+  });
+
+  it("exactly one producer of fitMarginal's declared argument in analyticPmf.ts (grep source assertion, filtered to code lines)", () => {
+    const source = readFileSync(new URL("./analyticPmf.ts", import.meta.url), "utf8");
+    const codeLines = source.split("\n").filter((line) => !/^\s*(\*|\/\/)/.test(line));
+    const fitMarginalCallLines = codeLines.filter((line) => /\bfitMarginal\(/.test(line));
+    // The ONE direct fitMarginal(...) call in this file is clauseProbability's
+    // synthetic-linear-combination-sum fit, always Gaussian by a fixed
+    // literal — NOT driven by any variable's declared family, so it is not
+    // the "second entry point" 09-03's contract forbids. The per-variable
+    // declared value that DOES reach marginals.ts's fitAllianceMarginals
+    // flows through resolveDeclaredFamily, asserted below to have exactly
+    // one call site.
+    expect(fitMarginalCallLines).toHaveLength(1);
+    expect(fitMarginalCallLines[0]).toContain('fitMarginal(mean, variance, "gaussian")');
+
+    const resolveDeclaredFamilyCallLines = codeLines.filter(
+      (line) => /resolveDeclaredFamily\(/.test(line) && !/^export function resolveDeclaredFamily/.test(line.trim())
+    );
+    expect(resolveDeclaredFamilyCallLines).toHaveLength(1);
   });
 });
 
