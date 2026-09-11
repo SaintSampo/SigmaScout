@@ -8,14 +8,18 @@ completed: 2026-09-10
 
 # 260910-5ym — Fix 2024 EPA: both defects 260910-4x0 measured
 
-`epa@6.0.0+baseline` → `epa@7.0.0+baseline`. **Not yet republished** — see "Required next step".
+`epa@6.0.0+baseline` → `epa@7.0.0+baseline`. **Published 2026-09-10** as generation
+`97342984-f48c-49b7-9811-ab124a246cd8`; `epa@6.0.0+baseline` purged from R2. See "Republish and purge".
 
 ## Result
 
 | | before | after | Statbotics | gap closed |
 |---|---|---|---|---|
 | 2024 accuracy | 0.7348 | **0.7520** | 0.7627 | **62%** |
-| 2024 Brier | 0.2179 | **0.1704** | 0.1620 | **81%** |
+
+Both figures are the PUBLISHED ones (`v1/compare/2024.json`, generation `97342984`), not a
+scratch script's — see the correction below for why that distinction is load-bearing here.
+| 2024 Brier | 0.2179 | **0.1688** | 0.1620 | **88%** |
 
 ## Fix 1 — re-seed the win-probability scale at the season boundary
 
@@ -88,19 +92,43 @@ Fixed at the right layer for each algorithm, which is not the same layer:
   the committed bitwise digests all five promoted `vpr` parameter sets are pinned to
   (D-15/SC-5). Those seals are intact.
 
-## Honest costs
+## Measured outcome, all ten seasons
 
-Re-measured across all ten seasons against the shipped code. Five seasons gain 0.03–0.05
-Brier. **Three get marginally worse and are recorded, not omitted:** 2016 (+0.0031), 2017
-(+0.0027), 2019 (+0.0028). The re-seed carries the prior season's mean as well as its SD, and
-FRC's scale jumps hard across those boundaries (2016 averaged 85.5, 2017 averaged 233.5), so
-Welford's running variance is transiently inflated while the mean migrates. The pooled
-accumulator happened to sit closer to those three seasons' scales by coincidence. Pinned by a
-dedicated test so it is a known property, not a surprise.
+Like-for-like from the PUBLISHED `v1/compare/{year}.json` on both sides — generation
+`e169a4d4` at `epa@6.0.0+baseline` against `97342984` at `epa@7.0.0+baseline`, one scorer, one
+corpus, same tie handling:
 
-2016's accuracy moves −0.45 pp for a separate, benign reason: at cold start both alliances hold
-identical components, so the margin is exactly 0 and the `>= 0` tie convention picks red.
-Sorted summation turns some of those exact zeros into ±1e-15, flipping coin-flip picks.
+| Season | accuracy | Brier |
+|---|---|---|
+| 2016 | 0.7195 -> 0.7195 | 0.1857 -> 0.1857 |
+| 2017 | 0.6681 -> 0.6681 | 0.2047 -> 0.2043 |
+| 2018 | 0.7333 -> 0.7333 | 0.1801 -> 0.1797 |
+| 2019 | 0.6441 -> 0.6441 | 0.2310 -> 0.2309 |
+| 2020 | 0.7113 -> 0.7113 | 0.2164 -> 0.1909 |
+| 2022 | 0.7710 -> 0.7710 | 0.2149 -> 0.1598 |
+| 2023 | 0.7610 -> 0.7610 | 0.2079 -> 0.1628 |
+| **2024** | 0.7348 -> **0.7520** | 0.2179 -> **0.1688** |
+| 2025 | 0.7772 -> 0.7772 | 0.1953 -> 0.1596 |
+| 2026 | 0.7943 -> 0.7943 | 0.1548 -> 0.1536 |
+
+**No season regressed on either metric.** Brier improved in nine of ten and held exactly in
+2016, the cold-start season where `carrySeason` never runs. Accuracy moved only in 2024, which
+is the expected signature: the scale fix cannot change `sign(margin)`, and 2024 is the only
+season whose components were regrouped.
+
+### Correction: the "three seasons got worse" claim was wrong
+
+This summary, its commit message (`8da3e4cc`), the STATE row and a test comment all originally
+reported that 2016, 2017 and 2019 came out ~0.003 worse on Brier, explained by the re-seed
+carrying the prior season's mean across a hard scale jump. **That regression does not exist.**
+It was an artifact of the comparison: the "before" column was read from the published artifacts,
+which include ties in the Brier denominator, while the "after" column came from
+`experiments/260910-5ym/verify.ts`, which excluded them. Two different scorers, one table.
+
+The transient variance inflation the explanation invoked is a real property of
+`reseedFromPrior` and is still pinned by its own test — it simply never reached the season-level
+figures. The generalisable lesson: a before/after table whose columns come from two different
+scorers is not a measurement, and the fix is to compare two published generations directly.
 
 ## Verification
 
@@ -112,12 +140,14 @@ Sorted summation turns some of those exact zeros into ±1e-15, flipping coin-fli
   rather than by loosening an assertion. `carryover.test.ts`'s "carried forward unchanged"
   case pinned the defect itself and now pins the re-seed.
 
-## Required next step (not done here)
+## Republish and purge
 
-**A republish is required for any of this to reach the site.** `v1/compare/*.json` and
-`v1/methodology/epa-vs-statbotics.json` still serve `6.0.0` figures, and the per-team agreement
-statistics and committed tolerance bands in `docs/models/epa-vs-statbotics.md` have not been
-re-measured under `7.0.0` — that file now carries a stale-figures banner. Publishing is
-outward-facing and was left for explicit authorisation.
+**DONE 2026-09-10, authorised by the user.** Republished as generation
+`97342984-f48c-49b7-9811-ab124a246cd8`: 108,820 objects, 4,240,958,382 bytes, all three
+algorithms, artifacts before manifest. `scripts/epaVsStatbotics.ts --check` PASSED under 7.0.0,
+so the committed tolerance bands needed no re-measurement, and
+`v1/methodology/epa-vs-statbotics.json` was republished from that report at `7.0.0+baseline`.
+`epa@6.0.0+baseline` was then purged from R2; 3.0.0, 4.0.0 and 5.0.0 were censused first and
+confirmed already absent (0/60), so 6.0.0 was the only previous version that existed.
 
 Scratch scripts: `experiments/260910-4x0/` and `experiments/260910-5ym/` (gitignored).

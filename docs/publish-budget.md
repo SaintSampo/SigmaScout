@@ -1562,12 +1562,13 @@ than on structural growth, which is the opposite of what it exists to catch.
 stays at 600,000. The new 500,000 sits below it, so the structural backstop is untouched and still
 fires first on genuine bloat. No other page kind's ceiling moved.
 
-**What to watch — RESOLVED 2026-09-10.** This paragraph used to say the largest `team` object was
-VPR's own `frc3538/2024` and that retiring VPR would remove it outright, leaving the ceiling worth
-re-measuring downward. That is what happened: `team` max fell 392,088 -> 317,800 B and now sits at
-63.6% of its 500,000 ceiling instead of 98.0% of a 400,000 one. `compare` is now the tightest page
-kind at 70.0%. The downward re-measure is still owed and is deliberately NOT taken in the same run
-that observed the drop.
+**What to watch — RESOLVED 2026-09-10, and it moved again the same day.** This paragraph used to
+say the largest `team` object was VPR's own `frc3538/2024` and that retiring VPR would remove it
+outright, leaving the ceiling worth re-measuring downward. That is what happened, twice. Retiring
+VPR took `team` max 392,088 -> 317,800 B; `epa@7.0.0+baseline`'s 2024 regrouping then took it to
+266,417 B and moved the largest key off 2024 altogether, to `frc3538/2025`. `team` now sits at
+53.3% of its 500,000 ceiling. `compare` is the tightest page kind at 70.4%. The downward re-measure
+is still owed and is deliberately NOT taken in the same run that observed the drop.
 
 ## The machine-readable block
 
@@ -1576,24 +1577,24 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-09-10T15:45:00.000Z",
-  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 9999) -- generation e169a4d4-fce9-4da1-9d88-eb9edefcac29, 108,820 objects, 4,285,902,355 bytes total, zero presim sidecars, ~03:53-04:37 ET 2026-09-10, unattended overnight. Ships bpr@3.0.0+baseline: 260910-4bf's adjustPoints drop from the scoring target plus 260910-52c's soft credit allocation by expected rank; the sealed 78.05% now describes a model three revisions back. Object count unchanged at 108,820. Tail verified in the morning after a session restart lost task tracking (the process itself ran to completion): verify:subset 50 entries 0 failing at uniformity 1; D1 all three algorithms at e169a4d4 with bpr 3.0.0+baseline. DELETE PASSES RUN (pre-authorized): bpr@1.0.0 and bpr@2.0.0 both fully removed, 36,832 keys each (2016-2020: 17,560; 2022-2026: 19,272), post-census 0/60 on all four combinations; two transient R2 500s on 1.0.0's second range resolved by idempotent re-runs. epa@5.0.0+baseline orphan (census 57/60 present) DELETED later the same morning once authorized: one supersedes-live pass over 2019-2026, 25,724 keys, post-census 0/60 -- R2 now holds no orphaned generations at all. Sim tab still serves the 641 presim sidecars frozen at 2f1a8885.",
+  "measuredAt": "2026-09-10T19:46:47.679Z",
+  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 9999) -- generation 97342984-f48c-49b7-9811-ab124a246cd8, 108,820 objects, 4,240,958,382 bytes total, zero presim sidecars, ~15:46-16:34 ET 2026-09-10, attended. Ships epa@7.0.0+baseline (quick task 260910-5ym): the win-probability denominator is re-seeded per season instead of pooled across every season replayed, and 2024's component map is grouped at phase granularity. Object count unchanged at 108,820; total bytes fell 44,943,973 (4,285,902,355 -> 4,240,958,382) because 2024 now carries three rated components per team instead of eleven. The `team` max fell 321,657 -> 266,417 B and its largest key moved off 2024 entirely (frc3538/2024/epa@6.0.0 -> frc3538/2025/epa@7.0.0), which is the same regrouping showing up in the payload. Verified by content, not status: v1/manifest/algorithms.json reads back opr 4.0.0 / epa 7.0.0 / bpr 3.0.0 at this generation, and all ten v1/compare/{year}.json carry it. epaVsStatbotics --check PASSED under 7.0.0 so the committed tolerance bands needed no re-measure, and v1/methodology/epa-vs-statbotics.json was republished at 7.0.0+baseline (2,319 bytes, 5 agreement + 5 head-to-head rows). DELETE PASS RUN (pre-authorized): epa@6.0.0+baseline fully removed, 36,832 keys (2016-2020: 17,560; 2022-2026: 19,272), both ranges exit 0, post-census 0/60 on both; a live spot check returns 200 on epa@7.0.0 and 404 on epa@6.0.0 for the same team key. epa@3.0.0, 4.0.0 and 5.0.0 were censused first and were already absent (0/60), so 6.0.0 was the only previous version still in R2 -- R2 again holds no orphaned generations. Sim tab still serves the 641 presim sidecars frozen at 2f1a8885.",
   "pages": {
     "teams": {
       "count": 30,
       "medianBytes": 982507,
-      "p95Bytes": 1612311,
-      "maxBytes": 1626009,
+      "p95Bytes": 1498107,
+      "maxBytes": 1626019,
       "budgetMaxBytes": 3500000,
-      "largestKey": "v1/teams/2026/epa@6.0.0+baseline.json"
+      "largestKey": "v1/teams/2026/epa@7.0.0+baseline.json"
     },
     "team": {
       "count": 101409,
-      "medianBytes": 31128,
-      "p95Bytes": 88422,
-      "maxBytes": 321657,
+      "medianBytes": 30894,
+      "p95Bytes": 87089,
+      "maxBytes": 266417,
       "budgetMaxBytes": 500000,
-      "largestKey": "v1/team/frc3538/2024/epa@6.0.0+baseline.json"
+      "largestKey": "v1/team/frc3538/2025/epa@7.0.0+baseline.json"
     },
     "events": {
       "count": 30,
@@ -1605,17 +1606,17 @@ rendering of these same numbers, not a second source.
     },
     "event": {
       "count": 7341,
-      "medianBytes": 67803,
-      "p95Bytes": 109254,
+      "medianBytes": 67510,
+      "p95Bytes": 108141,
       "maxBytes": 246054,
       "budgetMaxBytes": 350000,
-      "largestKey": "v1/event/2016micmp/epa@6.0.0+baseline.json"
+      "largestKey": "v1/event/2016micmp/epa@7.0.0+baseline.json"
     },
     "compare": {
       "count": 10,
-      "medianBytes": 13711,
-      "p95Bytes": 14107,
-      "maxBytes": 14107,
+      "medianBytes": 14052,
+      "p95Bytes": 14088,
+      "maxBytes": 14088,
       "budgetMaxBytes": 20000,
       "largestKey": "v1/compare/2026.json"
     }

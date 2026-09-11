@@ -123,12 +123,19 @@ describe("reseedFromPrior", () => {
   it("transiently INFLATES the SD when the new regime's mean is far from the old one — a real cost, recorded not hidden", () => {
     // Welford's m2 accumulates squared deviations from a running mean, so
     // while that mean migrates from the seed's level to the new regime's,
-    // every new observation contributes a large deviation. EPA pays this at
-    // season boundaries where FRC's point scale jumps hard (2016 averaged
-    // 85.5, 2017 averaged 233.5), and it is why 2016/2017/2019 came out
-    // marginally WORSE on Brier under the re-seed — see
-    // `docs/models/epa-vs-statbotics.md`. Pinned here so the trade is a
-    // known, measured property rather than a surprise to the next reader.
+    // every new observation contributes a large deviation. EPA is exposed to
+    // this at season boundaries where FRC's point scale jumps hard (2016
+    // averaged 85.5, 2017 averaged 233.5).
+    //
+    // It is pinned here as a property of THIS FUNCTION, and deliberately not
+    // as an explanation of any season's published figures. An earlier version
+    // of this comment cited 2016/2017/2019 as having come out marginally
+    // worse on Brier because of it; re-measuring the two published
+    // generations against each other (one scorer on both sides) showed no
+    // season regressed at all, and that the apparent regression came from
+    // comparing a tie-inclusive baseline against a tie-exclusive scratch
+    // script. The inflation below is real; its season-level cost was not.
+    // See `docs/models/epa-vs-statbotics.md`'s correction note.
     let old = emptyExpandingStats();
     for (let i = 0; i < 1_000; i++) old = foldObservation(old, i % 2 === 0 ? 80 : 92); // mean 86, SD 6
     let reseeded = reseedFromPrior(old, 50);
