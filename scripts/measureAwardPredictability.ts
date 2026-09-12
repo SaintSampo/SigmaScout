@@ -2576,6 +2576,584 @@ export function loadSprParams(path: string): BprParams {
 }
 
 // ---------------------------------------------------------------------------
+// THE DISTRICT POINTS CUT, AND THE STRATUM EVERY DCMP AWARD BELONGS TO
+// (quick task 260912-l8t T1)
+// ---------------------------------------------------------------------------
+
+/**
+ * At a District Championship, award types 0 (Impact), 9 (Engineering
+ * Inspiration) and 10 (Rookie All Star) are NOT points toward qualification —
+ * they ARE the qualification. Each carries an AUTOMATIC WORLDS BERTH.
+ *
+ * That makes one question worth measuring that the rest of this script does not
+ * answer: can those particular awards be predicted? And it makes one failure
+ * mode dangerous enough to design against rather than check for afterwards —
+ *
+ *   THE MODEL MAY PREDICT ONLY THE DCMP AWARDS THAT GO TO ALREADY-QUALIFIED
+ *   POWERHOUSES AND BE USELESS ON EXACTLY THE ~50% THAT DECIDE A BERTH.
+ *
+ * The chain's central finding is that this model's predictive power comes
+ * almost entirely from PRIOR DECORATION, which identifies perennial winners;
+ * separately measured, award points land overwhelmingly on teams already safely
+ * qualified (mean 16.39 award points well above the cut against 1.33 well
+ * below). A pooled DCMP accuracy number would hide that completely. So every
+ * DCMP result is STRATIFIED by whether the actual winner was INSIDE or OUTSIDE
+ * the district points cut, and the pooled row is never emitted without both.
+ */
+
+/**
+ * `event_type` 2 = DISTRICT_CMP, 5 = DISTRICT_CMP_DIVISION. Type 5 is a DCMP
+ * DIVISION (Michigan runs several), so ONE district-season can carry several
+ * DCMP events. Both count: a division's Impact Award carries the same automatic
+ * berth its parent championship's does.
+ */
+export const DCMP_EVENT_TYPES: ReadonlySet<number> = new Set([2, 5]);
+
+/**
+ * The three award types that carry an AUTOMATIC WORLDS BERTH when won at a
+ * District Championship. Type 10 Rookie All Star is ALSO a `ROOKIE_AWARD_TYPES`
+ * member and is therefore read against RB1/RB2 and NEVER against B1/B2 — that
+ * is 260912-7bp's structural-zero lesson and it applies here unchanged.
+ */
+export const BERTH_AWARD_TYPES: readonly number[] = [0, 9, 10];
+
+/**
+ * Below this many JOINED DCMP events, `buildDistrictCuts` THROWS rather than
+ * returning an empty result. Expected in the full corpus: 110 type-2 plus 64
+ * type-5 = 174. The floor exists because the failure this guards against is
+ * SILENT — see `DCMP_DISTRICT_JOIN_SQL`.
+ */
+export const MIN_JOINED_DCMP_EVENTS = 100;
+
+/**
+ * THE CUT IS AN APPROXIMATION AND IS LABELLED ONE EVERYWHERE IT IS PRINTED.
+ *
+ * `district_rankings.rank <= districts.cmp_slots` is NOT the exact points cut.
+ * Automatic qualifiers — these very awards, plus Hall of Fame and other
+ * pre-qualified teams — CONSUME Worlds slots, so fewer points-based berths are
+ * actually available than `cmp_slots` suggests and the true cut sits SLIGHTLY
+ * HIGHER. The direction of the error is therefore known: every OUTSIDE share
+ * computed from this cut is CONSERVATIVE and understates the true one.
+ *
+ * `packages/core/districts/prequalified.ts` plus proper slot-consumption
+ * accounting would refine it. It is deliberately NOT imported here: the cut math
+ * for this measurement is local, approximate and named so. Conservative in a
+ * known direction is enough to MEASURE and not enough to PUBLISH.
+ */
+export const DISTRICT_CUT_BASIS =
+  "APPROXIMATE cut: district_rankings.rank <= districts.cmp_slots. Automatic qualifiers consume " +
+  "Worlds slots, so the TRUE cut sits higher and every OUTSIDE share here is CONSERVATIVE.";
+
+/**
+ * THE JOIN THAT WORKS. It already cost one debug cycle to get wrong.
+ *
+ * `events.district_key` holds the BARE ABBREVIATION (`'chs'`).
+ * `districts.district_key` is YEAR-PREFIXED (`'2024chs'`).
+ * `packages/corpus/schema.sql` warns about exactly this collision by name.
+ *
+ * Joining those two identically-named columns directly matches NOTHING and
+ * fails SILENTLY WITH AN EMPTY RESULT SET, NOT AN ERROR — producing a
+ * confident, wrong "no data" answer that looks like a finding. The only correct
+ * join is on `abbreviation` AND `year`, and `MIN_JOINED_DCMP_EVENTS` makes an
+ * empty one LOUD.
+ */
+export const DCMP_DISTRICT_JOIN_SQL = `
+  SELECT e.event_key AS event_key,
+         d.district_key AS district_key,
+         d.year AS year,
+         d.abbreviation AS abbreviation,
+         d.cmp_slots AS cmp_slots
+  FROM events e
+  JOIN districts d ON d.abbreviation = e.district_key AND d.year = e.year
+  WHERE e.event_type IN (2, 5)
+`;
+
+/**
+ * THE BROKEN JOIN, EXPORTED SOLELY SO A TEST CAN PROVE IT RETURNS ZERO ROWS.
+ *
+ * NEVER CALL THIS IN PRODUCTION CODE. It exists because "the trap is avoided"
+ * and "the trap is closed" are different claims, and only running the broken
+ * query against a fixture where the two key shapes collide can tell them apart.
+ * A test that merely exercised the correct join would pass identically if the
+ * correct join were replaced by the broken one on a fixture that happened to
+ * store bare keys in both tables.
+ */
+export const NAIVE_DCMP_DISTRICT_JOIN_SQL = `
+  SELECT e.event_key AS event_key, d.district_key AS district_key
+  FROM events e
+  JOIN districts d ON d.district_key = e.district_key
+  WHERE e.event_type IN (2, 5)
+`;
+
+export const DISTRICT_RANKINGS_SQL = `
+  SELECT district_key AS district_key, team_key AS team_key, rank AS rank
+  FROM district_rankings
+`;
+
+export const DCMP_EVENT_KEYS_SQL = `
+  SELECT event_key AS event_key FROM events WHERE event_type IN (2, 5)
+`;
+
+/** One row of `DCMP_DISTRICT_JOIN_SQL`, camel-cased. */
+export interface DcmpDistrictJoinRow {
+  readonly eventKey: string;
+  /** YEAR-PREFIXED, e.g. `2024chs`. */
+  readonly districtKey: string;
+  readonly year: number;
+  /** BARE, e.g. `chs`. */
+  readonly abbreviation: string;
+  /** NULLABLE. Null means "capacity unknown" — never zero, never unlimited. */
+  readonly cmpSlots: number | null;
+}
+
+/** One `district_rankings` row, narrowed to what the cut reads. */
+export interface DistrictRankingRow {
+  readonly districtKey: string;
+  readonly teamKey: string;
+  readonly rank: number;
+}
+
+/** One district-season's cut: its Worlds allocation and its final point ranking. */
+export interface DistrictCut {
+  readonly districtKey: string;
+  readonly year: number;
+  readonly abbreviation: string;
+  readonly cmpSlots: number | null;
+  readonly rankByTeam: ReadonlyMap<string, number>;
+}
+
+export interface DistrictCuts {
+  /** EVERY type-2/5 event in the corpus, joined or not. */
+  readonly dcmpEventKeys: ReadonlySet<string>;
+  /** DCMP event key -> the cut of the district-season it belongs to. */
+  readonly byEvent: ReadonlyMap<string, DistrictCut>;
+  readonly dcmpEvents: number;
+  readonly dcmpEventsJoined: number;
+  readonly districtSeasons: number;
+  /**
+   * COUNTED AND PRINTED, NEVER THROWN. A null `cmp_slots` caps what this
+   * measurement can say about that district-season, and the reader must see how
+   * much of the corpus that is rather than have it folded silently into UNKNOWN.
+   */
+  readonly districtSeasonsNullCmpSlots: number;
+  /** Same discipline: a district-season with ZERO `district_rankings` rows. */
+  readonly districtSeasonsNoRankings: number;
+}
+
+/**
+ * The message the `MIN_JOINED_DCMP_EVENTS` assertion throws. Kept as its own
+ * function because the message IS the point of the assertion: the failure it
+ * catches produces an empty result and no error, so a reader who sees only
+ * "0 rows" has no way to know which of a dozen things went wrong.
+ */
+export function dcmpJoinTrapMessage(joined: number): string {
+  return (
+    `loadDistrictCuts: only ${joined} DCMP event(s) joined to a district row, below the ` +
+    `${MIN_JOINED_DCMP_EVENTS} floor (expected 174 = 110 type-2 + 64 type-5).\n` +
+    `  THE BARE-ABBREVIATION / YEAR-PREFIXED TRAP is the overwhelmingly likely cause. ` +
+    `events.district_key stores the BARE abbreviation ('chs'); districts.district_key is ` +
+    `YEAR-PREFIXED ('2024chs'). The two columns share a name and mean different things. ` +
+    `Joining them directly matches NOTHING and returns an EMPTY RESULT SET WITH NO ERROR — ` +
+    `a confident, wrong "no data" answer.\n` +
+    `  The only correct join is: events.district_key = districts.abbreviation AND ` +
+    `events.year = districts.year. Fix the join before believing any number downstream.`
+  );
+}
+
+/**
+ * Builds the per-event cut lookup from already-read rows. Kept free of any
+ * database handle so the corpus read and the cut math stay separable and the
+ * whole thing is testable on synthetic fixtures.
+ *
+ * `minJoinedEvents` exists ONLY so a unit test can exercise the stratifier on a
+ * three-event fixture. Production callers never pass it and get the real floor.
+ */
+export function buildDistrictCuts(input: {
+  readonly dcmpEventKeys: readonly string[];
+  readonly joined: readonly DcmpDistrictJoinRow[];
+  readonly rankings: readonly DistrictRankingRow[];
+  readonly minJoinedEvents?: number;
+}): DistrictCuts {
+  const floor = input.minJoinedEvents ?? MIN_JOINED_DCMP_EVENTS;
+
+  const ranksByDistrict = new Map<string, Map<string, number>>();
+  for (const r of input.rankings) {
+    let m = ranksByDistrict.get(r.districtKey);
+    if (m === undefined) {
+      m = new Map<string, number>();
+      ranksByDistrict.set(r.districtKey, m);
+    }
+    m.set(r.teamKey, r.rank);
+  }
+
+  const seasons = new Map<string, DistrictCut>();
+  const byEvent = new Map<string, DistrictCut>();
+  for (const row of input.joined) {
+    let cut = seasons.get(row.districtKey);
+    if (cut === undefined) {
+      cut = {
+        districtKey: row.districtKey,
+        year: row.year,
+        abbreviation: row.abbreviation,
+        cmpSlots: row.cmpSlots,
+        rankByTeam: ranksByDistrict.get(row.districtKey) ?? new Map<string, number>(),
+      };
+      seasons.set(row.districtKey, cut);
+    }
+    byEvent.set(row.eventKey, cut);
+  }
+
+  if (byEvent.size < floor) throw new Error(dcmpJoinTrapMessage(byEvent.size));
+  if (![...seasons.values()].some((c) => c.rankByTeam.size > 0)) {
+    throw new Error(
+      `loadDistrictCuts: ${seasons.size} district-season(s) joined but NOT ONE has a single ` +
+        `district_rankings row, so no points cut can be computed for any of them. ` +
+        `district_rankings.district_key is YEAR-PREFIXED ('2024chs') and must be matched against ` +
+        `districts.district_key, never against events.district_key. Run the districts backfill ` +
+        `before this measurement — the corpus is gitignored and does not travel via git.`
+    );
+  }
+
+  let districtSeasonsNullCmpSlots = 0;
+  let districtSeasonsNoRankings = 0;
+  for (const c of seasons.values()) {
+    if (c.cmpSlots === null) districtSeasonsNullCmpSlots += 1;
+    if (c.rankByTeam.size === 0) districtSeasonsNoRankings += 1;
+  }
+
+  return {
+    dcmpEventKeys: new Set(input.dcmpEventKeys),
+    byEvent,
+    dcmpEvents: new Set(input.dcmpEventKeys).size,
+    dcmpEventsJoined: byEvent.size,
+    districtSeasons: seasons.size,
+    districtSeasonsNullCmpSlots,
+    districtSeasonsNoRankings,
+  };
+}
+
+/** Reads the corpus once and builds the cut lookup. READ-ONLY, no credential. */
+export function loadDistrictCuts(db: Corpus): DistrictCuts {
+  const dcmpEventKeys = (
+    db.prepare(DCMP_EVENT_KEYS_SQL).all() as { event_key: string }[]
+  ).map((r) => r.event_key);
+  const joined = (
+    db.prepare(DCMP_DISTRICT_JOIN_SQL).all() as {
+      event_key: string;
+      district_key: string;
+      year: number;
+      abbreviation: string;
+      cmp_slots: number | null;
+    }[]
+  ).map((r) => ({
+    eventKey: r.event_key,
+    districtKey: r.district_key,
+    year: r.year,
+    abbreviation: r.abbreviation,
+    cmpSlots: r.cmp_slots,
+  }));
+  const rankings = (
+    db.prepare(DISTRICT_RANKINGS_SQL).all() as {
+      district_key: string;
+      team_key: string;
+      rank: number;
+    }[]
+  ).map((r) => ({ districtKey: r.district_key, teamKey: r.team_key, rank: r.rank }));
+  return buildDistrictCuts({ dcmpEventKeys, joined, rankings });
+}
+
+/**
+ * Which side of the district points cut an award landed on.
+ *
+ * `UNKNOWN` is a THIRD ANSWER, never silently folded into either of the other
+ * two. "We cannot tell whether this award decided a berth" is a different
+ * statement from "it did not", and collapsing the two would quietly move every
+ * unmeasurable case into the stratum that flatters the result.
+ */
+export type Stratum = "INSIDE" | "OUTSIDE" | "UNKNOWN";
+
+/**
+ * Print order. OUTSIDE FIRST, BECAUSE OUTSIDE IS THE ANSWER — it is the stratum
+ * where the award was the entire reason the team reached Worlds. INSIDE is
+ * context. This ordering is not cosmetic; it is the load-bearing requirement of
+ * quick task 260912-l8t expressed as a constant.
+ */
+export const STRATA: readonly Stratum[] = ["OUTSIDE", "INSIDE", "UNKNOWN"];
+
+/** The pooled DCMP row. Named, so it can never be printed without the strata. */
+export const DCMP_ALL = "DCMP-ALL";
+export type StratumRow = Stratum | typeof DCMP_ALL;
+
+/** Print order for the whole DCMP block: the three strata, then the pooled row. */
+export const STRATUM_ROWS: readonly StratumRow[] = [...STRATA, DCMP_ALL];
+
+/**
+ * The stratum ONE AWARD belongs to, assigned from the award's OWN RECIPIENTS.
+ *
+ * Returns `null` for an award that is not at a DCMP event at all — such an
+ * instance contributes to NO stratum cell, which is what keeps the DCMP block
+ * narrow while the fit behind it stays wide.
+ *
+ * THE PRECEDENCE IS THE WHOLE RULE, and it runs in this order:
+ *
+ *   1. UNKNOWN if the event has no district row, if `cmp_slots` is null, or if
+ *      ANY recipient has no `district_rankings` rank. Cannot-tell wins.
+ *   2. OUTSIDE if ANY recipient ranks beyond the cut — the award decided a berth
+ *      for someone, and that is true of the award even when a co-recipient was
+ *      already safe.
+ *   3. INSIDE otherwise: every recipient was already qualified on points.
+ *
+ * The stratum is a fact about THE AWARD, not about the candidate pool, so it is
+ * assigned from `recipients` regardless of pool membership. An UNREACHABLE
+ * instance therefore still lands in a stratum and still scores 0 at every k,
+ * consistent with the two-denominator rule 260912-i13 established.
+ */
+export function assignStratum(
+  eventKey: string,
+  recipients: readonly string[],
+  cuts: DistrictCuts
+): Stratum | null {
+  if (!cuts.dcmpEventKeys.has(eventKey)) return null;
+  const cut = cuts.byEvent.get(eventKey);
+  if (cut === undefined) return "UNKNOWN";
+  if (cut.cmpSlots === null) return "UNKNOWN";
+  if (recipients.length === 0) return "UNKNOWN";
+  // Precedence pass one: cannot-tell beats both answers.
+  for (const team of recipients) {
+    if (!cut.rankByTeam.has(team)) return "UNKNOWN";
+  }
+  // Precedence pass two: any recipient beyond the cut makes the whole award OUTSIDE.
+  for (const team of recipients) {
+    const rank = cut.rankByTeam.get(team);
+    if (rank !== undefined && rank > cut.cmpSlots) return "OUTSIDE";
+  }
+  return "INSIDE";
+}
+
+const emptyStratumCounts = (): Record<Stratum, number> => ({
+  OUTSIDE: 0,
+  INSIDE: 0,
+  UNKNOWN: 0,
+});
+
+/**
+ * THE PREMISE CONTROL. It is a control, not a formality: if these numbers do not
+ * reproduce, the join or the cut is wrong and NOTHING downstream is trustworthy.
+ *
+ * TWO DENOMINATORS, AND THE DIFFERENCE BETWEEN THEM IS NOT A DISCREPANCY.
+ *
+ *   RECIPIENTS — one count per (award, winning team). This is the denominator
+ *   the 519 / 49.9% opportunity figures were measured on, so it is the one the
+ *   assertion below checks. Measured on this corpus: 519 recipients, 260 (50.1%)
+ *   OUTSIDE.
+ *
+ *   INSTANCES — one count per `(event, award_type)`, which is this script's unit
+ *   of prediction and merges same-type awards at one event (Michigan hands its
+ *   state-championship Impact Award to five teams under one event key).
+ *   519 recipients merge into 301 instances, about 1.72 recipients each. Under
+ *   the any-recipient OUTSIDE rule an instance is OUTSIDE if ANY of its winners
+ *   was below the cut, so the instance-level OUTSIDE share is MECHANICALLY
+ *   HIGHER than the recipient-level one — measured at 68.4%, not about 50%.
+ *
+ * THAT IS EXPECTED ARITHMETIC, NOT A BROKEN JOIN, and it is the one place the
+ * plan of quick task 260912-l8t mis-specified itself: it set the +/-10%-of-519
+ * and 45-55% tolerances against the pre-measured RECIPIENT numbers while
+ * describing them as bounds on the INSTANCE count. Checking the instance count
+ * against 519 would fail on a CORRECT implementation. The assertion therefore
+ * runs on the recipient denominator the figures were actually measured on, and
+ * BOTH counts are printed so no reader mistakes one for the other.
+ */
+export interface DcmpPremise {
+  /** `(event, award_type)` instances of a berth award type at a DCMP event. */
+  readonly instances: number;
+  readonly instancesByStratum: Readonly<Record<Stratum, number>>;
+  /** One per (instance, winning team). The PRE-MEASURED denominator. */
+  readonly recipients: number;
+  readonly recipientsByStratum: Readonly<Record<Stratum, number>>;
+  readonly outsideRecipientShare: number;
+  readonly outsideInstanceShare: number;
+}
+
+/** The pre-measured recipient count the premise check is scored against. */
+export const PREMISE_RECIPIENTS_EXPECTED = 519;
+/** +/-10%: 467 to 571 recipients. */
+export const PREMISE_RECIPIENT_TOLERANCE = 0.1;
+export const PREMISE_OUTSIDE_SHARE_MIN = 0.45;
+export const PREMISE_OUTSIDE_SHARE_MAX = 0.55;
+
+export function measureDcmpPremise(
+  instances: readonly AwardInstance[],
+  cuts: DistrictCuts
+): DcmpPremise {
+  const instancesByStratum = emptyStratumCounts();
+  const recipientsByStratum = emptyStratumCounts();
+  let instanceTotal = 0;
+  let recipientTotal = 0;
+
+  for (const inst of instances) {
+    if (!BERTH_AWARD_TYPES.includes(inst.awardType)) continue;
+    const stratum = assignStratum(inst.eventKey, inst.recipients, cuts);
+    if (stratum === null) continue;
+    instancesByStratum[stratum] += 1;
+    instanceTotal += 1;
+    for (const team of inst.recipients) {
+      // Each recipient is stratified ALONE, which is what makes this count
+      // comparable to the pre-measured per-row figure rather than to the
+      // any-recipient instance rule above it.
+      const own = assignStratum(inst.eventKey, [team], cuts);
+      if (own === null) continue;
+      recipientsByStratum[own] += 1;
+      recipientTotal += 1;
+    }
+  }
+
+  return {
+    instances: instanceTotal,
+    instancesByStratum,
+    recipients: recipientTotal,
+    recipientsByStratum,
+    outsideRecipientShare:
+      recipientTotal === 0 ? 0 : recipientsByStratum.OUTSIDE / recipientTotal,
+    outsideInstanceShare: instanceTotal === 0 ? 0 : instancesByStratum.OUTSIDE / instanceTotal,
+  };
+}
+
+/**
+ * Throws if the premise does not reproduce. DIAGNOSE, DO NOT EXPLAIN — a premise
+ * that has moved means the join or the cut changed under this measurement, and
+ * every stratified number printed after it would be confidently wrong.
+ */
+export function checkDcmpPremise(p: DcmpPremise): void {
+  const lo = Math.floor(PREMISE_RECIPIENTS_EXPECTED * (1 - PREMISE_RECIPIENT_TOLERANCE));
+  const hi = Math.ceil(PREMISE_RECIPIENTS_EXPECTED * (1 + PREMISE_RECIPIENT_TOLERANCE));
+  if (p.recipients < lo || p.recipients > hi) {
+    throw new Error(
+      `DCMP premise FAILED: ${p.recipients} berth-award recipients at DCMP events, outside the ` +
+        `${lo}-${hi} band around the pre-measured ${PREMISE_RECIPIENTS_EXPECTED}. The join or the ` +
+        `award filter is wrong.\n${dcmpJoinTrapMessage(p.recipients)}`
+    );
+  }
+  if (
+    p.outsideRecipientShare < PREMISE_OUTSIDE_SHARE_MIN ||
+    p.outsideRecipientShare > PREMISE_OUTSIDE_SHARE_MAX
+  ) {
+    throw new Error(
+      `DCMP premise FAILED: ${(100 * p.outsideRecipientShare).toFixed(1)}% of berth-award ` +
+        `recipients fall OUTSIDE the points cut, outside the ` +
+        `${(100 * PREMISE_OUTSIDE_SHARE_MIN).toFixed(0)}-` +
+        `${(100 * PREMISE_OUTSIDE_SHARE_MAX).toFixed(0)}% band around the pre-measured 49.9%. ` +
+        `The CUT is wrong: district_rankings.rank and districts.cmp_slots must come from the SAME ` +
+        `year-prefixed district_key. Diagnose it; do not explain it.`
+    );
+  }
+}
+
+/**
+ * The DCMP block header: the cut caveat, the join census and the premise
+ * control, printed BEFORE any result so a reader meets the caveats before the
+ * numbers rather than after them.
+ *
+ * The two-denominator explanation is printed rather than left in a comment
+ * because the instance-level OUTSIDE share (about 68%) and the recipient-level
+ * one (about 50%) differ by enough that a reader who saw only one would think
+ * the other was a bug.
+ */
+export function formatDcmpCensus(
+  cuts: DistrictCuts,
+  premise: DcmpPremise,
+  seasons: readonly number[]
+): string[] {
+  const share = (x: number): string => `${(100 * x).toFixed(1)}%`;
+  const trainingOnly = seasons[0];
+  const lines: string[] = [];
+  lines.push("DCMP AUTOMATIC-BERTH AWARDS — the census, the cut, and the premise control");
+  lines.push("");
+  lines.push(
+    "  At a District Championship, award types 0 (Impact), 9 (Engineering Inspiration) and"
+  );
+  lines.push(
+    "  10 (Rookie All Star) are NOT points toward qualification — they ARE the qualification."
+  );
+  lines.push("  Each carries an AUTOMATIC WORLDS BERTH.");
+  lines.push("");
+  lines.push(`  ${DISTRICT_CUT_BASIS}`);
+  lines.push("");
+  lines.push("  THE JOIN (it already cost one debug cycle):");
+  lines.push("    events.district_key is the BARE abbreviation ('chs'); districts.district_key is");
+  lines.push("    YEAR-PREFIXED ('2024chs'). Joining those two columns directly matches NOTHING and");
+  lines.push("    returns an EMPTY result with NO ERROR. The join used here is");
+  lines.push("    events.district_key = districts.abbreviation AND events.year = districts.year,");
+  lines.push(`    and a joined count below ${MIN_JOINED_DCMP_EVENTS} THROWS rather than measuring nothing.`);
+  lines.push(`      DCMP events (type 2 or 5) in the corpus: ${cuts.dcmpEvents}`);
+  lines.push(`      joined to a district row:                ${cuts.dcmpEventsJoined}`);
+  lines.push(`      district-seasons covered:                ${cuts.districtSeasons}`);
+  lines.push(
+    `      district-seasons with a NULL cmp_slots:  ${cuts.districtSeasonsNullCmpSlots}` +
+      `   (capacity unknown -> UNKNOWN, never zero)`
+  );
+  lines.push(
+    `      district-seasons with NO rankings rows:  ${cuts.districtSeasonsNoRankings}` +
+      `   (no cut computable -> UNKNOWN)`
+  );
+  lines.push("");
+  lines.push("  THE PREMISE CONTROL — two denominators, and the gap between them is arithmetic:");
+  lines.push(
+    `    RECIPIENTS (one per award per winning team) — the denominator the 519 / 49.9% opportunity`
+  );
+  lines.push(`    figures were measured on, and the one the assertion checks:`);
+  lines.push(
+    `      ${premise.recipients} recipients ` +
+      `(pre-measured ${PREMISE_RECIPIENTS_EXPECTED}, tolerance +/-${(100 * PREMISE_RECIPIENT_TOLERANCE).toFixed(0)}%)`
+  );
+  lines.push(
+    `      OUTSIDE ${premise.recipientsByStratum.OUTSIDE} (${share(premise.outsideRecipientShare)})` +
+      `   INSIDE ${premise.recipientsByStratum.INSIDE}` +
+      `   UNKNOWN ${premise.recipientsByStratum.UNKNOWN}` +
+      `   (pre-measured OUTSIDE share 49.9%, band ` +
+      `${(100 * PREMISE_OUTSIDE_SHARE_MIN).toFixed(0)}-${(100 * PREMISE_OUTSIDE_SHARE_MAX).toFixed(0)}%)`
+  );
+  lines.push(
+    `    INSTANCES (one per event+award_type, this script's unit of prediction) — same awards,`
+  );
+  lines.push(
+    `    fewer rows, because same-type awards at one event MERGE into one instance whose recipient`
+  );
+  lines.push(
+    `    set is their union. An instance is OUTSIDE if ANY of its winners was below the cut, so its`
+  );
+  lines.push(`    OUTSIDE share is MECHANICALLY HIGHER than the recipient one. NOT a discrepancy:`);
+  lines.push(
+    `      ${premise.instances} instances   ` +
+      `OUTSIDE ${premise.instancesByStratum.OUTSIDE} (${share(premise.outsideInstanceShare)})` +
+      `   INSIDE ${premise.instancesByStratum.INSIDE}` +
+      `   UNKNOWN ${premise.instancesByStratum.UNKNOWN}`
+  );
+  lines.push(
+    `      mean recipients per instance: ` +
+      `${(premise.instances === 0 ? 0 : premise.recipients / premise.instances).toFixed(2)}`
+  );
+  lines.push("");
+  if (trainingOnly !== undefined) {
+    lines.push(
+      `  ${trainingOnly} IS TRAINING-ONLY AND IS NEVER SCORED — it is the first season present and has no`
+    );
+    lines.push(
+      `  prior to fit on. The two examples that motivated this measurement are both ${trainingOnly}` +
+        ` (CHS Impact`
+    );
+    lines.push(
+      `  to a team ranked 34 with the cut at 25; FiM Rookie All Star to a team ranked 101 of 411 with`
+    );
+    lines.push(
+      `  the cut at 76). They are counted in the census above and DO NOT APPEAR in any scored table`
+    );
+    lines.push("  below. Expected, not a bug — do not go looking for them in the results.");
+    lines.push("");
+  }
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
 // Report printing
 // ---------------------------------------------------------------------------
 

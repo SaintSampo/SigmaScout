@@ -17,6 +17,7 @@
  * would manufacture a fake win, so RB1/RB2 and the max-of-four verdict rule are
  * pinned here rather than left to the report's prose.
  */
+import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import {
   ABSTAIN,
@@ -117,7 +118,30 @@ import {
   toTrainInstance,
   verdictMarginPp,
   winnerRank,
+  BERTH_AWARD_TYPES,
+  DCMP_ALL,
+  DCMP_DISTRICT_JOIN_SQL,
+  DISTRICT_CUT_BASIS,
+  MIN_JOINED_DCMP_EVENTS,
+  NAIVE_DCMP_DISTRICT_JOIN_SQL,
+  PREMISE_OUTSIDE_SHARE_MAX,
+  PREMISE_OUTSIDE_SHARE_MIN,
+  PREMISE_RECIPIENTS_EXPECTED,
+  PREMISE_RECIPIENT_TOLERANCE,
+  STRATA,
+  STRATUM_ROWS,
+  assignStratum,
+  buildDistrictCuts,
+  checkDcmpPremise,
+  dcmpJoinTrapMessage,
+  formatDcmpCensus,
+  loadDistrictCuts,
+  measureDcmpPremise,
   type AwardInstance,
+  type DcmpDistrictJoinRow,
+  type DcmpPremise,
+  type DistrictCuts,
+  type DistrictRankingRow,
   type AwardRowInput,
   type CalibrationStats,
   type Cell,
@@ -128,6 +152,8 @@ import {
   type ReplayMatch,
   type ReplayModel,
 } from "./measureAwardPredictability.js";
+
+type SqliteDb = InstanceType<typeof Database>;
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -2651,5 +2677,355 @@ describe("the full report carries the T3 output", () => {
 
   it("ends with the PRACTICAL ANSWER", () => {
     expect(formatReport(report)).toContain("PRACTICAL ANSWER");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE DISTRICT POINTS CUT AND THE STRATUM (quick task 260912-l8t T1)
+// ---------------------------------------------------------------------------
+
+/** A minimal `events` + `districts` + `district_rankings` schema, in memory. */
+function cutDb(): SqliteDb {
+  const db = new Database(":memory:");
+  db.exec(`
+    CREATE TABLE events (event_key TEXT PRIMARY KEY, year INTEGER, event_type INTEGER, district_key TEXT);
+    CREATE TABLE districts (district_key TEXT PRIMARY KEY, year INTEGER, abbreviation TEXT, cmp_slots INTEGER);
+    CREATE TABLE district_rankings (district_key TEXT, team_key TEXT, rank INTEGER);
+  `);
+  return db;
+}
+
+function joinRow(
+  eventKey: string,
+  districtKey: string,
+  year: number,
+  abbreviation: string,
+  cmpSlots: number | null
+): DcmpDistrictJoinRow {
+  return { eventKey, districtKey, year, abbreviation, cmpSlots };
+}
+
+/** `n` synthetic joined DCMP events, enough to clear `MIN_JOINED_DCMP_EVENTS`. */
+function manyJoinRows(n: number): DcmpDistrictJoinRow[] {
+  const out: DcmpDistrictJoinRow[] = [];
+  for (let i = 0; i < n; i += 1) {
+    out.push(joinRow(`20${20 + (i % 5)}d${i}cmp`, `20${20 + (i % 5)}d${i}`, 2020 + (i % 5), `d${i}`, 10));
+  }
+  return out;
+}
+
+/** A cut fixture with a real floor of 1, for the stratum-precedence tests. */
+function smallCuts(
+  joined: readonly DcmpDistrictJoinRow[],
+  rankings: readonly DistrictRankingRow[],
+  extraDcmpEventKeys: readonly string[] = []
+): DistrictCuts {
+  return buildDistrictCuts({
+    dcmpEventKeys: [...joined.map((j) => j.eventKey), ...extraDcmpEventKeys],
+    joined,
+    rankings,
+    minJoinedEvents: 1,
+  });
+}
+
+describe("THE JOIN TRAP — bare abbreviation vs year-prefixed district_key", () => {
+  it("the naive column-to-column join returns ZERO rows where the correct one returns rows", () => {
+    const db = cutDb();
+    try {
+      // The exact collision schema.sql warns about: the SAME district, stored
+      // BARE on events and YEAR-PREFIXED on districts.
+      db.prepare(`INSERT INTO events VALUES (?, ?, ?, ?)`).run("2024chscmp", 2024, 2, "chs");
+      db.prepare(`INSERT INTO districts VALUES (?, ?, ?, ?)`).run("2024chs", 2024, "chs", 23);
+
+      const naive = db.prepare(NAIVE_DCMP_DISTRICT_JOIN_SQL).all();
+      const correct = db.prepare(DCMP_DISTRICT_JOIN_SQL).all();
+
+      // THIS is the assertion the trap needs: the broken join does not error,
+      // it returns an empty result set — a confident, wrong "no data" answer.
+      expect(naive).toEqual([]);
+      expect(correct).toHaveLength(1);
+      expect(correct[0]).toMatchObject({
+        event_key: "2024chscmp",
+        district_key: "2024chs",
+        year: 2024,
+        abbreviation: "chs",
+        cmp_slots: 23,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("loadDistrictCuts reads a corpus-shaped database end to end", () => {
+    const db = cutDb();
+    try {
+      const ev = db.prepare(`INSERT INTO events VALUES (?, ?, ?, ?)`);
+      const di = db.prepare(`INSERT INTO districts VALUES (?, ?, ?, ?)`);
+      const ra = db.prepare(`INSERT INTO district_rankings VALUES (?, ?, ?)`);
+      for (let i = 0; i < 110; i += 1) {
+        const year = 2016 + (i % 10);
+        const abbr = `d${i}`;
+        ev.run(`${year}${abbr}cmp`, year, i % 2 === 0 ? 2 : 5, abbr);
+        di.run(`${year}${abbr}`, year, abbr, 20);
+        ra.run(`${year}${abbr}`, "frc1", 1);
+        ra.run(`${year}${abbr}`, "frc2", 40);
+      }
+      // A non-DCMP event must not join in, even though its district matches.
+      ev.run("2016d0", 2016, 1, "d0");
+
+      const cuts = loadDistrictCuts(db);
+      expect(cuts.dcmpEventsJoined).toBe(110);
+      expect(cuts.dcmpEvents).toBe(110);
+      expect(cuts.districtSeasons).toBe(110);
+      expect(cuts.districtSeasonsNullCmpSlots).toBe(0);
+      expect(cuts.districtSeasonsNoRankings).toBe(0);
+      expect(cuts.dcmpEventKeys.has("2016d0")).toBe(false);
+      expect(assignStratum("2016d0cmp", ["frc2"], cuts)).toBe("OUTSIDE");
+      expect(assignStratum("2016d0cmp", ["frc1"], cuts)).toBe("INSIDE");
+    } finally {
+      db.close();
+    }
+  });
+
+  it("throws, naming the trap, when too few DCMP events joined", () => {
+    const joined = manyJoinRows(MIN_JOINED_DCMP_EVENTS - 1);
+    expect(() =>
+      buildDistrictCuts({
+        dcmpEventKeys: joined.map((j) => j.eventKey),
+        joined,
+        rankings: [{ districtKey: joined[0]?.districtKey ?? "", teamKey: "frc1", rank: 1 }],
+      })
+    ).toThrow(/BARE-ABBREVIATION \/ YEAR-PREFIXED TRAP/);
+  });
+
+  it("throws on a completely empty join rather than measuring nothing", () => {
+    expect(() =>
+      buildDistrictCuts({ dcmpEventKeys: ["2024chscmp"], joined: [], rankings: [] })
+    ).toThrow(/only 0 DCMP event\(s\) joined/);
+  });
+
+  it("the trap message names both key shapes and the correct join", () => {
+    const msg = dcmpJoinTrapMessage(0);
+    expect(msg).toContain("events.district_key");
+    expect(msg).toContain("districts.district_key");
+    expect(msg).toContain("2024chs");
+    expect(msg).toContain("districts.abbreviation");
+    expect(msg).toContain("EMPTY RESULT SET WITH NO ERROR");
+  });
+
+  it("throws when the join succeeds but not one district-season has a rankings row", () => {
+    const joined = manyJoinRows(MIN_JOINED_DCMP_EVENTS + 5);
+    expect(() =>
+      buildDistrictCuts({ dcmpEventKeys: joined.map((j) => j.eventKey), joined, rankings: [] })
+    ).toThrow(/NOT ONE has a single district_rankings row/);
+  });
+
+  it("clears the floor at exactly MIN_JOINED_DCMP_EVENTS", () => {
+    const joined = manyJoinRows(MIN_JOINED_DCMP_EVENTS);
+    const cuts = buildDistrictCuts({
+      dcmpEventKeys: joined.map((j) => j.eventKey),
+      joined,
+      rankings: [{ districtKey: joined[0]?.districtKey ?? "", teamKey: "frc1", rank: 1 }],
+    });
+    expect(cuts.dcmpEventsJoined).toBe(MIN_JOINED_DCMP_EVENTS);
+  });
+});
+
+describe("the stratum every DCMP award belongs to", () => {
+  const joined = [
+    joinRow("2024chscmp", "2024chs", 2024, "chs", 25),
+    joinRow("2024chsd1", "2024chs", 2024, "chs", 25),
+  ];
+  const rankings: DistrictRankingRow[] = [
+    { districtKey: "2024chs", teamKey: "frcInside", rank: 10 },
+    { districtKey: "2024chs", teamKey: "frcAtCut", rank: 25 },
+    { districtKey: "2024chs", teamKey: "frcJustOut", rank: 26 },
+    { districtKey: "2024chs", teamKey: "frcFarOut", rank: 34 },
+  ];
+  const cuts = smallCuts(joined, rankings, ["2024orphancmp"]);
+
+  it("an award at a non-DCMP event has NO stratum at all", () => {
+    expect(assignStratum("2024week1", ["frcInside"], cuts)).toBeNull();
+  });
+
+  it("a DCMP event with no district row is UNKNOWN, not excluded", () => {
+    expect(assignStratum("2024orphancmp", ["frcInside"], cuts)).toBe("UNKNOWN");
+  });
+
+  it("the boundary is asserted, not assumed: rank === cmp_slots is INSIDE", () => {
+    expect(assignStratum("2024chscmp", ["frcAtCut"], cuts)).toBe("INSIDE");
+  });
+
+  it("the boundary is asserted, not assumed: rank === cmp_slots + 1 is OUTSIDE", () => {
+    expect(assignStratum("2024chscmp", ["frcJustOut"], cuts)).toBe("OUTSIDE");
+  });
+
+  it("a recipient missing from district_rankings is UNKNOWN, never INSIDE", () => {
+    expect(assignStratum("2024chscmp", ["frcNeverRanked"], cuts)).toBe("UNKNOWN");
+  });
+
+  it("PRECEDENCE: UNKNOWN beats OUTSIDE", () => {
+    expect(assignStratum("2024chscmp", ["frcFarOut", "frcNeverRanked"], cuts)).toBe("UNKNOWN");
+  });
+
+  it("PRECEDENCE: UNKNOWN beats INSIDE", () => {
+    expect(assignStratum("2024chscmp", ["frcInside", "frcNeverRanked"], cuts)).toBe("UNKNOWN");
+  });
+
+  it("PRECEDENCE: OUTSIDE beats INSIDE — one below-cut co-recipient decides a berth", () => {
+    expect(assignStratum("2024chscmp", ["frcInside", "frcFarOut"], cuts)).toBe("OUTSIDE");
+  });
+
+  it("every recipient inside the cut is INSIDE", () => {
+    expect(assignStratum("2024chscmp", ["frcInside", "frcAtCut"], cuts)).toBe("INSIDE");
+  });
+
+  it("no recipient at all is UNKNOWN, never INSIDE by default", () => {
+    expect(assignStratum("2024chscmp", [], cuts)).toBe("UNKNOWN");
+  });
+
+  it("a type-5 DIVISION resolves to the same district-season as its type-2 sibling", () => {
+    expect(cuts.byEvent.get("2024chsd1")).toBe(cuts.byEvent.get("2024chscmp"));
+    expect(assignStratum("2024chsd1", ["frcFarOut"], cuts)).toBe("OUTSIDE");
+  });
+
+  it("a NULL cmp_slots is UNKNOWN — never zero capacity, never unlimited", () => {
+    const nullCuts = smallCuts(
+      [joinRow("2024xxcmp", "2024xx", 2024, "xx", null)],
+      [{ districtKey: "2024xx", teamKey: "frcInside", rank: 1 }]
+    );
+    expect(nullCuts.districtSeasonsNullCmpSlots).toBe(1);
+    // Zero capacity would make this OUTSIDE; unlimited would make it INSIDE.
+    expect(assignStratum("2024xxcmp", ["frcInside"], nullCuts)).toBe("UNKNOWN");
+  });
+
+  it("a district-season with zero rankings rows is counted and reads UNKNOWN", () => {
+    const bare = smallCuts(
+      [joinRow("2024yycmp", "2024yy", 2024, "yy", 20), joinRow("2024zzcmp", "2024zz", 2024, "zz", 20)],
+      [{ districtKey: "2024zz", teamKey: "frcA", rank: 1 }]
+    );
+    expect(bare.districtSeasonsNoRankings).toBe(1);
+    expect(assignStratum("2024yycmp", ["frcA"], bare)).toBe("UNKNOWN");
+  });
+
+  it("OUTSIDE is printed first, because OUTSIDE is the answer", () => {
+    expect(STRATA[0]).toBe("OUTSIDE");
+    expect([...STRATA]).toEqual(["OUTSIDE", "INSIDE", "UNKNOWN"]);
+    expect([...STRATUM_ROWS]).toEqual(["OUTSIDE", "INSIDE", "UNKNOWN", DCMP_ALL]);
+    // The pooled row is LAST, so it can never be read before the strata.
+    expect(STRATUM_ROWS[STRATUM_ROWS.length - 1]).toBe(DCMP_ALL);
+  });
+
+  it("the berth award types are exactly Impact, Engineering Inspiration and Rookie All Star", () => {
+    expect([...BERTH_AWARD_TYPES]).toEqual([0, 9, 10]);
+    // Type 10 is ALSO a rookie type, so it is read against RB1/RB2 and never B1/B2.
+    expect(ROOKIE_AWARD_TYPES).toContain(10);
+  });
+});
+
+describe("the DCMP premise control", () => {
+  const joined = [joinRow("2024chscmp", "2024chs", 2024, "chs", 25)];
+  const rankings: DistrictRankingRow[] = [
+    { districtKey: "2024chs", teamKey: "frcIn", rank: 5 },
+    { districtKey: "2024chs", teamKey: "frcOut", rank: 40 },
+  ];
+  const cuts = smallCuts(joined, rankings);
+
+  it("counts instances and recipients on their OWN denominators", () => {
+    const premise = measureDcmpPremise(
+      [
+        // One merged instance with one inside and one outside winner: OUTSIDE by
+        // the any-recipient rule, but ONE inside and ONE outside recipient.
+        inst(2024, "2024chscmp", 0, ["frcIn", "frcOut"]),
+        inst(2024, "2024chscmp", 9, ["frcIn"]),
+        // Not a berth award type — excluded from the premise entirely.
+        inst(2024, "2024chscmp", 21, ["frcOut"]),
+        // Not a DCMP event — no stratum, no contribution.
+        inst(2024, "2024week1", 0, ["frcOut"]),
+      ],
+      cuts
+    );
+    expect(premise.instances).toBe(2);
+    expect(premise.instancesByStratum).toEqual({ OUTSIDE: 1, INSIDE: 1, UNKNOWN: 0 });
+    expect(premise.recipients).toBe(3);
+    expect(premise.recipientsByStratum).toEqual({ OUTSIDE: 1, INSIDE: 2, UNKNOWN: 0 });
+    // The instance share is MECHANICALLY HIGHER than the recipient share under
+    // the any-recipient rule. That is arithmetic, not a broken join.
+    expect(premise.outsideInstanceShare).toBeCloseTo(0.5, 10);
+    expect(premise.outsideRecipientShare).toBeCloseTo(1 / 3, 10);
+  });
+
+  function premiseOf(recipients: number, outside: number): DcmpPremise {
+    return {
+      instances: recipients,
+      instancesByStratum: { OUTSIDE: outside, INSIDE: recipients - outside, UNKNOWN: 0 },
+      recipients,
+      recipientsByStratum: { OUTSIDE: outside, INSIDE: recipients - outside, UNKNOWN: 0 },
+      outsideRecipientShare: recipients === 0 ? 0 : outside / recipients,
+      outsideInstanceShare: recipients === 0 ? 0 : outside / recipients,
+    };
+  }
+
+  it("passes on the pre-measured corpus numbers", () => {
+    expect(() => checkDcmpPremise(premiseOf(519, 260))).not.toThrow();
+  });
+
+  it("throws when the recipient count has moved outside the tolerance", () => {
+    expect(() => checkDcmpPremise(premiseOf(301, 206))).toThrow(/DCMP premise FAILED/);
+    expect(() => checkDcmpPremise(premiseOf(0, 0))).toThrow(/DCMP premise FAILED/);
+  });
+
+  it("throws when the OUTSIDE share has moved outside the band", () => {
+    // Right count, wrong cut: the join worked and the ranking did not.
+    expect(() => checkDcmpPremise(premiseOf(519, 40))).toThrow(/of berth-award/);
+    expect(() => checkDcmpPremise(premiseOf(519, 500))).toThrow(/of berth-award/);
+  });
+
+  it("the tolerances are the pre-measured ones", () => {
+    expect(PREMISE_RECIPIENTS_EXPECTED).toBe(519);
+    expect(PREMISE_RECIPIENT_TOLERANCE).toBeCloseTo(0.1, 10);
+    expect(PREMISE_OUTSIDE_SHARE_MIN).toBeCloseTo(0.45, 10);
+    expect(PREMISE_OUTSIDE_SHARE_MAX).toBeCloseTo(0.55, 10);
+  });
+});
+
+describe("the DCMP census header", () => {
+  const joined = [joinRow("2016chscmp", "2016chs", 2016, "chs", 25)];
+  const cuts = smallCuts(joined, [
+    { districtKey: "2016chs", teamKey: "frcIn", rank: 5 },
+    { districtKey: "2016chs", teamKey: "frcOut", rank: 34 },
+  ]);
+  const premise = measureDcmpPremise(
+    [inst(2016, "2016chscmp", 0, ["frcOut"]), inst(2016, "2016chscmp", 9, ["frcIn"])],
+    cuts
+  );
+  const text = formatDcmpCensus(cuts, premise, [2016, 2017, 2018]).join("\n");
+
+  it("labels the cut an APPROXIMATION and names the direction of the error", () => {
+    expect(text).toContain("APPROXIMATE cut");
+    expect(text).toContain("CONSERVATIVE");
+    expect(DISTRICT_CUT_BASIS).toContain("APPROXIMATE");
+  });
+
+  it("names the join trap before any result is printed", () => {
+    expect(text).toContain("BARE abbreviation");
+    expect(text).toContain("YEAR-PREFIXED");
+    expect(text).toContain("districts.abbreviation");
+  });
+
+  it("prints BOTH denominators, so neither is mistaken for the other", () => {
+    expect(text).toContain("RECIPIENTS");
+    expect(text).toContain("INSTANCES");
+    expect(text).toContain("MECHANICALLY HIGHER");
+  });
+
+  it("says the first season is training-only and its examples will not appear below", () => {
+    expect(text).toContain("2016 IS TRAINING-ONLY AND IS NEVER SCORED");
+    expect(text).toContain("DO NOT APPEAR in any scored table");
+  });
+
+  it("prints the null-cmp_slots and no-rankings counts rather than throwing on them", () => {
+    expect(text).toContain("NULL cmp_slots");
+    expect(text).toContain("NO rankings rows");
   });
 });
