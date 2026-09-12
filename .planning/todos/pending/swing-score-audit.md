@@ -338,3 +338,86 @@ holds. Worth reopening **only** after R1 ships, not before.
 - Did not run any measurement. Every figure quoted is from existing repo artifacts.
 - Did not measure the current estimator's achieved skill — that is R1, and it is the point.
 - Did not evaluate the simulation half of the rethink.
+
+---
+
+## HANDOFF 2026-09-12 — band calibration items inherited from `match-band-calibration-...`
+
+The 2026-09-12 backlog triage cut
+`match-band-calibration-and-the-broken-additivity-identity` down to its documentation item and
+retitled it `pageartifacts-header-claims-an-additivity-identity-its-own-test-denies`. **Its
+calibration findings live here now**, because this audit measures the same quantities correctly, on
+the shipped estimator, post-Sigma, and per algorithm — where that file measured them once, in
+aggregate, against `vpr@11.0.0`.
+
+They are recorded as inherited measurements, not as new findings. Where they overlap with an
+existing F-number, **the F-number wins** — it is later and better instrumented.
+
+### Finding B (inherited) — the ALLIANCE band is conservative, not broken
+
+36,805 alliance observations across 216 events, `z = (actual − predicted) / √varianceOwn`:
+RMS z **0.920**; **75.2%** within ±1σ (Gaussian would give 68.3%), 96.3% within ±2σ, 99.5% within
+±3σ, max |z| 6.66. So the band is drawn as ±1σ and behaves like a ~75% interval — about 8% too
+wide. Peakier than Gaussian in the middle, slightly heavier tail.
+
+**Do not conflate this with F6.** F6 measures **per-team** coverage against centred deviation
+(88–91%, scale that would deliver 68.3% = 0.889/1.026/1.101 against the shipped 1.92). This is
+**alliance-level** against actual alliance score. Different quantities, both real, and the
+constant's own header already quotes the alliance figures (1.68/1.71/1.13) separately. F5/F6 remain
+the live statements of the problem; this is the aggregate that predates them.
+
+### Finding C (inherited) — a systematic under-prediction, ~25σ
+
+Mean `z` = **+0.1197** over 36,805 observations (SE ≈ 0.0048). Alliances score about 0.12σ **above**
+prediction on average — roughly **+11 points per alliance** at a typical σ ≈ 95. Residual mean in
+points, measured separately: **+8.92**.
+
+Hypothesis on record and **never tested**: a filter lagging a target that improves across a season.
+The suggested discriminator is whether the bias is concentrated early-season (consistent with lag)
+or flat across weeks (which would mean something else).
+
+**This connects directly to §3.1's BIAS column**, which is the sharper version of the same
+observation: the signed miss is a **function of swing level and differs per algorithm** (BPR +2.48
+at the low decile, −4.12 at the high; EPA climbs monotonically +1.19 → +4.97). A single aggregate
++8.92 hides that structure. **Re-read Finding C through the decile table, not on its own.**
+
+**Where it belongs:** in the model, not in the band. A band drawn off-centre from its own tick would
+be its own kind of lie. Re-centring is worth more than re-shaping.
+
+### Finding E (inherited) — the skew is real, modest, and POPULATION-level
+
+36,806 alliance observations / 227 events, after removing Finding C's mean: skewness **+0.0825**;
+semi-deviation **64.91** below centre against **73.27** above, ratio **1.129**; centred p05/p95
+−101.6/+117.5.
+
+Coverage, symmetric vs asymmetric band of the same nominal width:
+
+| band | inside | miss LOW | miss HIGH |
+|---|---|---|---|
+| symmetric ±1σ | 74.0% | 11.8% | **14.3%** |
+| ±1 semi-deviation | 73.8% | 13.2% | 13.0% |
+
+It **redistributes, it does not tighten** — a reader is currently ~21% more likely to be surprised
+high than low, and an asymmetric band balances that at 13.2/13.0 while covering no more in total.
+A refinement, not a defect being repaired.
+
+**The trap, and it is the same one F3 names.** Do NOT build per-team semi-deviations. With a 6-match
+half-life the effective sample is ~9.2 per team, so splitting by sign leaves ~4.5 per side and any
+single team's up/down asymmetry would be almost pure noise — the site would assert a per-robot skew
+it cannot possibly know. The 1.129 ratio is stable *because* it rests on 36,806 observations.
+**If this is ever built: keep the per-team width symmetric and apply the population ratio as a
+global shaping constant.** That is the same argument F3 makes for shrinkage, arriving from the other
+direction, and R2 should be settled before either.
+
+### Ordering
+
+These three are **behind R2**, not beside it. R2's shrinkage changes every published swing, which
+changes every band, which re-opens B, C and E at new values. Measuring or re-captioning them first
+means measuring a thing that is about to move.
+
+### F8's second bullet is now discharged
+
+F8 noted that `match-band-calibration-...` needed a status line for its closed "one gap left". That
+file has been cut and retitled; the closure is recorded in it. **F8's first bullet is still open** —
+`remove-swing-from-sigma1-core.md` still points its evidence-preservation clause at
+`apps/web/src/lib/swingFactor.ts`, which does not exist.

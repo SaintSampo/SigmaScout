@@ -186,6 +186,67 @@ it to 0.1507. The remaining gap is not that fix failing — it is the causes bel
 **Scope, unchanged:** this is bonus RP and the rank simulation. Winner prediction and match Brier
 come from level 1 and are unaffected.
 
+#### Cause history, folded in from `rp-bonus-probabilities-are-severely-under-predicted` (2026-09-12)
+
+That todo is closed and its content lives here. It separated the under-prediction into **three
+causes by measurement**, and two of them are fixed — which is why F2's headline moved. Kept because
+the before-and-after is the only record of what each fix was worth, and because two of the three
+close permanently.
+
+| Cause | State | Evidence |
+|---|---|---|
+| 1 — conjunctions across a **diagonal** covariance block | **OPEN**, and now dominant | F4 below |
+| 2 — even-split **variance** shrinkage by exactly `rosterSize` | **FIXED** `72566078` | this section |
+| 3 — bonuses hardcoded `false` | **2025 FIXED** `72566078`; 2019 open (F12) | this section |
+
+**The before-and-after, over the same 488,026 observations:**
+
+| | before (2026-09-09) | after (`72566078`) |
+|---|---|---|
+| pooled Brier | 0.2164 | **0.1860** |
+| mean predicted (observed 0.3109) | 0.1131 | **0.1507** |
+| share of predictions below 0.05 | 70.5% | **52.2%** |
+| how often that sub-0.05 bucket happens | 18.41% | **11.26%** |
+
+18 of 21 season-bonuses improved; 2 unchanged (still hardcoded `false`); one moved -0.0002, noise.
+
+**Cause 2 was a genuine error, not a documented simplification.** A team's belief folds from
+`allianceValue / rosterSize`, so its variance estimated `Var(A)/9`; summing three teams gave
+`Var(A)/3` where the alliance variance should be `Var(A)`. `empiricalMoments.ts`'s header justifies
+the diagonal block and the zero cross-covariance deliberately and says nothing about this shrinkage.
+Shipped as the average of each contributing team's implied alliance variance
+(`rosterSize² × Var(belief)`), which reduces to `rosterSize × sum` on a full roster and degrades
+correctly on a partial one rather than shrinking twice. **Three tests now pin the variance
+MAGNITUDE** — every test that existed pinned only its shape (zero at one observation, positive once
+observations differ, diagonal), which is exactly how a factor-of-3 error survived all of them.
+
+**Cause 3, 2025 `autoBonus`, was a missing INPUT rather than a modelling approximation.** It happens
+**65.94%** of the time and the hardcoded `false` scored a Brier of 0.6594 over 25,978 observations —
+the second-worst number in the whole measurement. "All three recorded robots left" IS a count
+reaching 3; tracking `autoLineCount` and `autoCoralCount` as threshold variables took it to
+**0.4045**. Parse and predict now read the same two counts so their definitions cannot drift. It
+still understates, for a stated reason: a count drawn continuously and cut at its own ceiling
+understates a discrete "3 of 3". 2019 `completeRocket` was left alone deliberately — see F12.
+
+**The headline figure was corrected here, and the old one has propagated.** The closed todo's
+headline was **2.75x** (0.1131 against 0.3109) and that number reached commit `4bdb7717`'s subject
+line and this project's memory notes. It is the PRE-fix measurement. **This audit re-measured it as
+2.06x** (0.1507 against 0.3109) and 2.06x is the current figure. Anything still quoting 2.75x is
+quoting a state the code left on 2026-09-09.
+
+**Two corrections the closed todo carried that must not be re-lost:**
+
+- Its original measurement predated plan 09-01's same-scorer fix. `measureRpCalibration.ts` was
+  constructing `SigmaScoutLayer` with one argument while the publisher used two, so every bpr bonus
+  probability it reported came from a band the publisher does not use. The frozen post-fix baseline
+  is `data/baselines/rp-calibration-2026-09.json`; compare against that, not against the old report.
+- **Negative binomial is not the fix for this.** Its retest (`260912-2uz`) is a real, positive
+  result — pooled bonus-RP Brier -0.002898, 21 cells improved of 24 reachable — and it was declined
+  on cost. But a Brier improvement of 0.0029 is not a 2.06x calibration error being closed. The two
+  are separate problems and the retest does not touch this one.
+
+---
+
 ### F3 — The predicted alliance mean is systematically too low, in 33 of 34 season-variables.
 
 This is the most likely dominant cause of F2, and it is measured directly rather than inferred.
@@ -535,3 +596,26 @@ Two things the run established that the old text could not:
 So F2/F3 read: **the mechanism is real and measured; pursuing it was declined.** That is a closed
 disposition, not an open question. The four findings above (F4, F8/F9, F12, F13) plus F10's display
 half are what still hold this todo open.
+
+---
+
+## MERGE 2026-09-12 — `rp-bonus-probabilities-are-severely-under-predicted` folded in and closed
+
+The 2026-09-12 backlog triage found that every work item in that todo already existed here under an
+F-number, and that keeping both guaranteed F4 would be argued from two documents that rank it
+oppositely: that file called the diagonal block "the big one" and "now the dominant remaining term",
+while F4 here measures it as **secondary** — it moves P(both) from 0.0222 to about 0.0260 against an
+observed 0.1179, because 0.0222 → 0.0787 is F2/F3's marginal error squared and is much larger. F4's
+reading is the later one and the measured one; it stands.
+
+What was folded in, all of it into F2: the cause-1/2/3 separation, the before-and-after table for
+the two fixes that shipped in `72566078`, the two diagnostic notes (the same-scorer construction
+bug and the frozen baseline at `data/baselines/rp-calibration-2026-09.json`), and the negative-
+binomial disposition.
+
+**The headline figure to quote from now on is 2.06x, not 2.75x.** 2.75x is the pre-`72566078`
+measurement. It reached commit `4bdb7717`'s subject line and this project's memory notes, and it
+will keep surfacing from there; F2 above is the current number.
+
+Nothing else about this audit's status changed. It stays open on F4, F8/F9, F12, F13 and F10's
+display half.

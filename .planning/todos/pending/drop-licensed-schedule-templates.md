@@ -75,3 +75,59 @@ claimed the rung-2 result moots D-19 and that `09-CONTEXT.md`'s line was scoped 
 re-run. Both halves are false. `09-CONTEXT.md:402` is scoped to rung 2 being chosen, which is
 exactly what happened, and it says D-19 is live. **This work is blocked on that judgement**, not
 merely on the schedule count.
+
+## MUST FIX BEFORE WIRING — the corroboration sentence cites a figure that does not exist
+
+Moved here 2026-09-12 when `reconcile-the-two-rung2-documents` was closed. It is that todo's only
+real residue, and it belongs to this work because it over-credits the generator **in exactly the
+change that moves visitor-facing rank bands.**
+
+**The claim.** Lines 11-12 of this file open with "Measured by two independent sessions, different
+routes, agreeing floors (73.7% vs 74.2% at `2025cur` / n=1000)." The same claim is rendered into
+`docs/models/rung2-generated-schedules.md:31` as "Its n=1000 value independently reproduces that
+session's separately-built **74.2%** at `2025cur`."
+
+**Verified at HEAD: `74.2` appears nowhere in `docs/models/random-vs-generated-schedules.md`** — the
+document that sentence names as the source of the 74.2% figure. The 73.7% half checks out (it is in
+`rung2-generated-schedules.md:40`, the `2025cur` row, resampling column at n=1000). The 74.2% half
+does not resolve against the document it cites.
+
+**It is hardcoded, not computed.** The sentence is a string literal in
+`scripts/measureGeneratedSchedules.ts:1170-1173`, inside the `L.push(...)` block that `--render-doc`
+emits. So it is **not** a stale transcription that a re-run would correct — every re-render
+faithfully reproduces it, and it will keep agreeing with itself forever. The one number in these
+documents that is asserted rather than measured is the number claiming two independent measurements
+agree.
+
+**Why it is load-bearing here.** Independent corroboration is the strongest evidence either rung-2
+document has, and this todo's whole case for retiring 1,331 licensed template files opens by
+invoking it. If the agreement is narrower or differently-shaped than the sentence says, the case is
+weaker than it reads.
+
+**What to do, before the generator is wired in:**
+
+1. Re-derive `random-vs-generated-schedules.md`'s own binding floor at `2025cur` / n=1000 from
+   `scripts/measureRandomSchedules.ts`, and find out what the figure actually is.
+2. Correct the string literal at `measureGeneratedSchedules.ts:1170-1173` to the real figure, or —
+   better — stop hardcoding it and have the script read the comparand, so it cannot go stale again.
+3. Re-render `rung2-generated-schedules.md` with `--render-doc`, and correct lines 11-12 of this
+   file by hand to match.
+
+**Do not simply delete the sentence.** If the two harnesses do corroborate each other, that is the
+evidence worth keeping; it just has to be stated in a number that exists.
+
+> **This is a source-file change (`scripts/`) and was deliberately NOT made when this note was
+> filed** — the 2026-09-12 sweep was scoped to documentation and planning records only. It is
+> recorded, not fixed.
+
+## The "neither document should be acted on" gate is VOID (2026-09-12)
+
+`reconcile-the-two-rung2-documents` carried a line saying neither rung-2 document should be acted on
+until they were merged into one. **That gate is deleted.** The merge it was waiting on has been
+refused outright — both documents are machine-rendered by `--render-doc`/`--write-doc` and advertise
+that as their anti-drift guarantee, so a hand-merged third document would drift by construction —
+which means the gate could never have lifted on its own terms.
+
+**This does not unblock the work.** D-19 does that, and D-19 is live, unanswered, and Jacob's — see
+the correction block at the top of this file. What is removed is one *spurious* blocker sitting in
+front of a real one, which is worth removing precisely because it made the real one harder to see.

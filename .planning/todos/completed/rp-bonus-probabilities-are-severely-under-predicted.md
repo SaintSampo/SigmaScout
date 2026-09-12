@@ -163,3 +163,31 @@ Also note the headline multiplier in this todo predates plan 09-01's same-scorer
 `measureRpCalibration.ts` was constructing `SigmaScoutLayer` with one argument while the publisher
 used two, so every bpr bonus probability it reported came from a band the publisher does not use.
 The frozen post-fix baseline is `data/baselines/rp-calibration-2026-09.json`.
+
+---
+
+## CLOSED 2026-09-12 — merged into `ranking-points-audit`, which supersedes this file
+
+Closed by the 2026-09-12 backlog triage (`.planning/triage-2026-09-12.md` §3). Every work item here
+already existed in `ranking-points-audit.md` under an F-number, and its content has been folded into
+that document's **F2**, including the cause-1/2/3 separation and the before-and-after table for the
+two fixes that shipped in `72566078`.
+
+**Read nothing in this file as current.** Two specific traps:
+
+1. **The headline `2.75x` is the PRE-fix number** (mean predicted 0.1131 against an observed
+   0.3109). The audit re-measured it as **2.06x** (0.1507 against 0.3109) after the even-split
+   variance fix landed. 2.75x reached commit `4bdb7717`'s subject line and this project's memory
+   notes and will keep resurfacing from there. It is historical.
+2. **This file ranks cause 1 (the diagonal covariance block) as "the big one" and "now the dominant
+   remaining term". The audit's F4 measures it as SECONDARY** — fixing it alone moves P(both) from
+   0.0222 to roughly 0.0260 against an observed 0.1179, because the larger error (0.0222 → 0.0787)
+   is F2/F3's marginal error squared. **The marginals are the problem.** Keeping both documents open
+   is what would have got F4 argued from two sources that rank it oppositely, which is why this one
+   is closed rather than maintained.
+
+The three causes, as they stand at HEAD: cause 2 fixed (`72566078`), cause 3 fixed for 2025
+(`72566078`) and open for 2019 (audit F12), cause 1 open (audit F4). Negative binomial was retested
+positively (`260912-2uz`, pooled bonus-RP Brier -0.002898) and **declined on cost** — and it is not
+the fix for the under-prediction this file is about; 0.0029 of Brier is not a 2x calibration error
+being closed.

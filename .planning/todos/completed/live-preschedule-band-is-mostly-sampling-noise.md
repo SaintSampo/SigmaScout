@@ -69,3 +69,37 @@ honesty concern against shipping speed, and the measurement needed to inform it 
 
 Related: [[preschedule-schedule-count-and-acceptance-bar]],
 [[stop-baking-preschedule-schedules]], [[drop-licensed-schedule-templates]].
+
+---
+
+## CLOSED 2026-09-12 — option 1 was chosen; it discharges on the next publish
+
+Closed by the 2026-09-12 backlog triage (`.planning/triage-2026-09-12.md` §3). **There is no
+decision left in this file and no code left in it.**
+
+**Option 1 — raise the count — is what Jacob chose,** on 2026-09-12, in
+`preschedule-schedule-count-and-acceptance-bar` (now also closed): `PRESIM_SCHEDULE_COUNT` = 1,000,
+`drawsPerSchedule` held at 50, the bar restated against the binding (resampling) floor measured at
+n=4,000. At 1,000 the worst team moves about **1.2 ranks** between two runs of the identical
+construction, against the **10.61 ranks** this file measured at n=20 — below what a reader can
+perceive on an integer scale. Options 2 (caption the coarseness) and 3 (hide the view) are therefore
+moot, exactly as this file said they would be if option 1 were taken.
+
+**It is applied at HEAD** — `ea84a0da`, "feat(260912-5hs): PRESIM_SCHEDULE_COUNT 20 -> 1,000".
+
+**What is left is one operational job, not a todo.** Every presim object on R2 still carries the old
+shape — 20 schedules, `baked.draws: 1000`, no `scheduleCount` — so the caption this file objects to
+is still true of the bytes a visitor gets today. **This discharges on the next
+`pnpm publish:seasons`**, at which point the sidecars are rebuilt at 1,000 schedules and the
+resolution concern goes away without any further code or copy change.
+
+That republish is tracked as the project's single next action in `.planning/triage-2026-09-12.md`
+§2, with its non-optional tail (manifest read-back by content, `verify:subset`, the D1 re-seed
+before the deploy, `worker:deploy`, and a hand transcription of the budget summary into
+`docs/publish-budget.md`). It must be run from a main context — executor subagents' sandbox denies
+all network.
+
+**One thing to check when it lands, since this file is the record of what was wrong:** re-fetch a
+sidecar by CONTENT and confirm it carries `scheduleCount: 1000`. A 200 is not evidence — this file's
+own figures came from parsing the JSON, and the previous generation returned 200 the whole time it
+was serving a 20-schedule band.
