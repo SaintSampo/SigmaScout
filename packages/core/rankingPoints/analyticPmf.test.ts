@@ -32,6 +32,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { allianceBonusRpPmf, analyticRpPmf, emptyMarginalResolutionTally, matchOutcomeDistribution } from "./analyticPmf.js";
+import { fitMarginal, probAtLeast, probAtMost } from "./marginals.js";
 import { buildRuleModuleMoments } from "./analyticPmfFixtures.js";
 import { rp2016 } from "./2016.js";
 import { rp2017 } from "./2017.js";
@@ -424,5 +425,143 @@ describe("analyticPmf.ts's exported surface is pinned (09-06 Task 4, D-06)", () 
     ]) {
       expect(codeOnly, `deleted symbol "${dead}" still appears on a code line`).not.toContain(dead);
     }
+  });
+});
+
+describe("clauseProbability derives its marginal family from its terms (quick task 260911-w7k Task 2)", () => {
+  /**
+   * `MarginalFamily` has exactly ONE member today (`"gaussian"`), so both of
+   * `familyForClauseSum`'s guards are unreachable from real data: no season
+   * module can declare a second family, and a set of declarations drawn from a
+   * one-member union can never have size != 1 for a non-empty clause.
+   *
+   * Reaching them therefore requires an explicit cast, and that is the honest
+   * way to test them rather than leaving two throws in a numerical module with
+   * no test at all. A SECOND family added to the union would make both
+   * branches reachable from real declarations with no cast whatsoever — at
+   * which point these two tests should be rewritten to use it and this comment
+   * deleted. The cast is scaffolding for a one-member union, not a fixture
+   * shape worth keeping.
+   */
+  const NOT_GAUSSIAN = "negative-binomial" as unknown as MarginalFamily;
+
+  /** Clones `ruleModule`, overriding only the NAMED variables' declared families — so a mixed-declaration module is expressible, which no real season module is. */
+  function cloneWithFamilies(ruleModule: RpRuleModule, familyByName: Readonly<Record<string, MarginalFamily>>): RpRuleModule {
+    return {
+      ...ruleModule,
+      thresholdVariables: ruleModule.thresholdVariables.map((v) => ({
+        ...v,
+        marginalFamily: familyByName[v.name] ?? v.marginalFamily,
+      })),
+    };
+  }
+
+  /**
+   * 2017 is the fixture season for both guards because BOTH its bonuses are
+   * `linearCombination` with two terms (`kPa` sums two fuel-point variables
+   * undivided, `rotor` sums two rotor-point variables by their own per-rotor
+   * divisors). Every clause therefore takes the MULTI-TERM path, which is the
+   * only path that derives a family at all — the single-term fast path skips
+   * derivation entirely by design.
+   */
+  const MOMENTS_2017 = {
+    autoFuelPoints: { mean: 20, variance: 9 },
+    teleopFuelPoints: { mean: 20, variance: 9 },
+    autoRotorPoints: { mean: 40, variance: 16 },
+    teleopRotorPoints: { mean: 40, variance: 16 },
+  };
+
+  function messageFrom(run: () => unknown): string {
+    try {
+      run();
+    } catch (error) {
+      return (error as Error).message;
+    }
+    throw new Error("expected a throw, got none");
+  }
+
+  it("(a) refitting a fitted marginal's own (mean, variance) reproduces resolved/mean/sd on ALL THREE of fitMarginal's ladder rungs — the mechanism-level reason the single-term reuse is inert; the ONLY field that can differ is fallbackReason, which probAtLeast/probAtMost never read (they read resolved, mean and sd and nothing else)", () => {
+    const rungs = [
+      { label: "rung 1 — non-finite input", mean: Number.NaN, variance: 1 },
+      { label: "rung 2 — variance <= 0", mean: 30, variance: 0 },
+      { label: "rung 3 — variance > 0", mean: 30, variance: 9 },
+    ];
+
+    for (const { label, mean, variance } of rungs) {
+      const fitted = fitMarginal(mean, variance, "gaussian");
+      const refitted = fitMarginal(fitted.mean, fitted.variance, "gaussian");
+
+      expect(refitted.resolved, `${label}: resolved`).toBe(fitted.resolved);
+      expect(refitted.mean, `${label}: mean`).toBe(fitted.mean);
+      expect(refitted.sd, `${label}: sd`).toBe(fitted.sd);
+
+      // Everything probAtLeast/probAtMost can observe is identical, so the
+      // clause probability is identical whether the variable's own fit is
+      // reused or its moments are refitted.
+      for (const threshold of [-1, 0, 29, 30, 31, 1000]) {
+        expect(probAtLeast(refitted, threshold), `${label}: probAtLeast(${threshold})`).toBe(probAtLeast(fitted, threshold));
+        expect(probAtMost(refitted, threshold), `${label}: probAtMost(${threshold})`).toBe(probAtMost(fitted, threshold));
+      }
+    }
+
+    // The one field that DOES differ, asserted rather than merely claimed:
+    // rung 1 degenerates AT 0 with reason "non-finite", and refitting that
+    // (0, 0) pair lands on rung 2 with reason "zero-variance".
+    const nonFinite = fitMarginal(Number.NaN, 1, "gaussian");
+    expect(nonFinite.fallbackReason).toBe("non-finite");
+    expect(fitMarginal(nonFinite.mean, nonFinite.variance, "gaussian").fallbackReason).toBe("zero-variance");
+  });
+
+  it("(b) a multi-term clause whose terms declare MORE THAN ONE distinct family throws, naming the season, the bonus, both families and the clause's variables — never a silent fallback to one of them", () => {
+    const mixed = cloneWithFamilies(rp2017, { teleopFuelPoints: NOT_GAUSSIAN });
+    const moments = buildRuleModuleMoments(mixed, MOMENTS_2017);
+
+    const message = messageFrom(() => allianceBonusRpPmf(moments, mixed, 0));
+    expect(message).toContain("2017");
+    expect(message).toContain("kPa");
+    expect(message).toContain("gaussian");
+    expect(message).toContain("negative-binomial");
+    expect(message).toContain("autoFuelPoints");
+    expect(message).toContain("teleopFuelPoints");
+    // The precondition, not just the fact: a sum of scaled terms drawn from
+    // different families has no exact closed form.
+    expect(message).toContain("no exact closed form");
+  });
+
+  it("(c) a multi-term clause whose single declared family is NOT closed under scaled addition throws, naming the season, the bonus, that family and the violated precondition", () => {
+    const allNonGaussian = cloneWithFamilies(rp2017, {
+      autoFuelPoints: NOT_GAUSSIAN,
+      teleopFuelPoints: NOT_GAUSSIAN,
+      autoRotorPoints: NOT_GAUSSIAN,
+      teleopRotorPoints: NOT_GAUSSIAN,
+    });
+    const moments = buildRuleModuleMoments(allNonGaussian, MOMENTS_2017);
+
+    const message = messageFrom(() => allianceBonusRpPmf(moments, allNonGaussian, 0));
+    expect(message).toContain("2017");
+    expect(message).toContain("kPa");
+    expect(message).toContain("negative-binomial");
+    expect(message).toContain("not closed under scaled addition");
+    // Distinguishes this guard from (b)'s: exactly one family was declared, so
+    // the failure is the family's own algebra, not a disagreement between
+    // variables.
+    expect(message).not.toContain("distinct");
+  });
+
+  it("(d) a singleThreshold bonus over a variable whose fit resolved DEGENERATE returns exactly 1 or exactly 0 — a structural identity of the reused point mass, asserted with toBe because a point mass admits no rounding", () => {
+    // 2019 habDocking: habClimbPoints >= 15 at base tier. Zero variance drives
+    // fitMarginal's rung 2, degenerate AT the raw continuous mean.
+    const atThreshold = allianceBonusRpPmf(buildRuleModuleMoments(rp2019, { habClimbPoints: { mean: 15, variance: 0 } }), rp2019, 0);
+    const below = allianceBonusRpPmf(buildRuleModuleMoments(rp2019, { habClimbPoints: { mean: 14.999, variance: 0 } }), rp2019, 0);
+
+    const index = rp2019.bonusNames.indexOf("habDocking");
+    expect(atThreshold.bonusProbabilities[index]).toBe(1);
+    expect(below.bonusProbabilities[index]).toBe(0);
+
+    // The reused fit's own resolution survives into the returned marginals
+    // rather than being re-derived — the point of reusing it.
+    const habIndex = atThreshold.marginals.findIndex((m) => m.resolved === "degenerate");
+    expect(habIndex).toBeGreaterThanOrEqual(0);
+    expect(atThreshold.marginals[habIndex]!.fallbackReason).toBe("zero-variance");
   });
 });

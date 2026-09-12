@@ -204,13 +204,89 @@ function intersects(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
 }
 
 /**
- * Builds the clause's own marginal as the sum of its scaled terms (mean and
- * variance divided by each term's own `divisor`, summed LEFT TO RIGHT in
- * declared term order — floating-point addition is not associative, and
- * `RpLinearTerm.divisor` is always a DIVISOR, never a multiplier), fits it
- * Gaussian (exact and closed for a sum of independent marginals — see this
- * plan's "## The closed form, specified" Step 4), and compares against the
- * resolved threshold.
+ * Which `MarginalFamily` a clause's COMBINED moments may be fitted with,
+ * DERIVED from the families its contributing terms declare rather than
+ * asserted here. Reads `FittedMarginal.declared` — the per-variable
+ * declaration site D-02 locked — so a future family extends the declarations
+ * and this derivation picks it up, rather than reintroducing a global switch.
+ *
+ * Refuses, loudly, in both cases where no exact closed form exists. That is
+ * this module's house style (`assertIndependencePrecondition`,
+ * `assertPairwiseDisjoint`, `groupContribution`'s multi-bonus throw): name the
+ * season, name the subject, name the violated precondition, and never fall
+ * back silently to a distribution the caller did not ask for.
+ */
+function familyForClauseSum(
+  marginals: readonly FittedMarginal[],
+  clause: RpThresholdClause,
+  season: number,
+  bonusName: string
+): MarginalFamily {
+  const declared = new Set(marginals.map((m) => m.declared));
+  if (declared.size !== 1) {
+    throw new Error(
+      `analyticRpPmf: season ${season} bonus "${bonusName}" sums terms declaring ${declared.size} distinct marginal families {${[...declared].join(", ")}} over variables {${clause.terms.map((term) => term.variable).join(", ")}} — a sum of scaled terms drawn from different families has no exact closed form, so declare one family across the clause or implement that joint explicitly`
+    );
+  }
+
+  const family = [...declared][0]!;
+  switch (family) {
+    case "gaussian":
+      // The Gaussian family RETURNS here rather than throwing for one reason,
+      // and it is the reason the hardcoded literal this function replaced was
+      // numerically correct rather than merely convenient: a sum of
+      // independently-scaled Gaussians is exactly Gaussian, with the summed
+      // mean and the summed scaled variance. Closure under scaled addition is
+      // the whole precondition; a family without it cannot be fitted from
+      // combined moments at all.
+      return "gaussian";
+    default: {
+      // `never` so a SECOND union member fails to compile here — before it can
+      // fail at runtime on real data. Whoever adds that member gets a type
+      // error pointing at this arm, which is the design: they must decide
+      // whether their family is closed under scaled addition, not discover the
+      // answer from a wrong published probability.
+      const exhaustive: never = family;
+      throw new Error(
+        `analyticRpPmf: season ${season} bonus "${bonusName}" sums scaled terms all declaring "${String(exhaustive)}", which is not closed under scaled addition — a sum of its scaled terms has no exact closed form in that family, so implement that joint explicitly rather than fitting the combined moments with it`
+      );
+    }
+  }
+}
+
+/**
+ * One clause's probability, by one of two routes.
+ *
+ * A SINGLE UNSCALED TERM (`divisor` absent or 1) REUSES that variable's own
+ * `FittedMarginal` verbatim. The clause's random variable IS the variable's,
+ * so correctness here rests on identity rather than on any closure property,
+ * no family derivation applies, and the variable's own `resolved` /
+ * `fallbackReason` survive instead of being re-derived from its moments. The
+ * structural consequence is the point: `singleThreshold` — the most common
+ * predicate shape in the registry — now honours a FUTURE declared family for
+ * free, including one NOT closed under scaled addition, which a refit of the
+ * combined moments could never have done.
+ *
+ * EVERY OTHER CLAUSE builds its own marginal as the sum of its scaled terms
+ * (mean and variance divided by each term's own `divisor`, summed LEFT TO
+ * RIGHT in declared term order — floating-point addition is not associative,
+ * and `RpLinearTerm.divisor` is always a DIVISOR, never a multiplier), fits it
+ * with the family `familyForClauseSum` DERIVES from those terms' declarations,
+ * and compares against the resolved threshold. A single term with a divisor
+ * takes this route deliberately: `X / c` is not `X`, so closure under scaling
+ * is load-bearing there and identity is not available.
+ *
+ * The family used to be written here as the string literal `"gaussian"`,
+ * discarding whatever the contributing `RpThresholdVariable`s declared. Quick
+ * task 260911-w7k removed that literal on 2026-09-11. It moved NO published
+ * number — every declaration in the tree is Gaussian, which is closed under
+ * scaled addition, so the derived value equals the literal it replaced; that
+ * inertness is pinned by `analyticPmfGolden.json`, captured before the change
+ * and green after it with exact equality. The value of the change is REACH,
+ * not accuracy: a second family would now be honoured by every predicate shape
+ * whose terms declare it, where before only `nestedSameVariable` — 6 of 30
+ * season/bonus cells — could respond to one at all. See
+ * `docs/models/rp-attribution.md` for the measurement that found that limit.
  */
 function clauseProbability(
   clause: RpThresholdClause,
@@ -219,8 +295,10 @@ function clauseProbability(
   season: number,
   bonusName: string
 ): number {
-  let mean = 0;
-  let variance = 0;
+  // Every term's marginal is looked up FIRST, in declared order, so the
+  // missing-marginal throw still surfaces at the same term and still surfaces
+  // BEFORE any threshold-resolution throw below.
+  const marginals: FittedMarginal[] = [];
   for (const term of clause.terms) {
     const marginal = marginalsByName.get(term.variable);
     if (marginal === undefined) {
@@ -228,11 +306,28 @@ function clauseProbability(
         `analyticRpPmf: season ${season} bonus "${bonusName}" references threshold variable "${term.variable}" with no fitted marginal`
       );
     }
-    const divisor = term.divisor ?? 1;
-    mean += marginal.mean / divisor;
-    variance += marginal.variance / (divisor * divisor);
+    marginals.push(marginal);
   }
-  const combined = fitMarginal(mean, variance, "gaussian");
+
+  if (clause.terms.length === 1 && (clause.terms[0]!.divisor ?? 1) === 1) {
+    const only = marginals[0]!;
+    const threshold = resolveRpThreshold(clause.threshold, tier);
+    return clause.direction === "gte" ? probAtLeast(only, threshold) : probAtMost(only, threshold);
+  }
+
+  // Left-to-right in declared term order, dividing rather than multiplying by
+  // a precomputed coefficient. Both are load-bearing per `RpLinearTerm`'s own
+  // doc comment: a threshold comparison is exactly where that float difference
+  // becomes observable.
+  let mean = 0;
+  let variance = 0;
+  for (let i = 0; i < clause.terms.length; i++) {
+    const divisor = clause.terms[i]!.divisor ?? 1;
+    mean += marginals[i]!.mean / divisor;
+    variance += marginals[i]!.variance / (divisor * divisor);
+  }
+  const family = familyForClauseSum(marginals, clause, season, bonusName);
+  const combined = fitMarginal(mean, variance, family);
   const threshold = resolveRpThreshold(clause.threshold, tier);
   return clause.direction === "gte" ? probAtLeast(combined, threshold) : probAtMost(combined, threshold);
 }
