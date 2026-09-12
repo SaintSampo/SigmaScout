@@ -25,6 +25,57 @@ import type { RpThresholdVariable } from "./constants.js";
 import { RpMomentsAccumulator } from "./empiricalMoments.js";
 import { rp2026 } from "./2026.js";
 
+describe("fitMarginal — negative-binomial pinned parameterization (D-01)", () => {
+  it("fitMarginal(2, 4, 'negative-binomial') yields the exact pinned r and p — r = mean²/(variance−mean), p = mean/(mean+r)", () => {
+    const fit = fitMarginal(2, 4, "negative-binomial");
+    expect(fit.resolved).toBe("negative-binomial");
+    expect(fit.r).toBe(2);
+    expect(fit.p).toBe(0.5);
+    expect(fit.fallbackReason).toBeUndefined();
+  });
+});
+
+describe("negative-binomial CDF — hand-computed, exact dyadic rationals where noted", () => {
+  it("mean 2, var 4 (r=2, p=0.5): probAtMost(0) === 0.25 exactly", () => {
+    const fit = fitMarginal(2, 4, "negative-binomial");
+    expect(probAtMost(fit, 0)).toBeCloseTo(0.25, 15);
+  });
+
+  it("mean 2, var 4 (r=2, p=0.5): probAtLeast(3) === 5/16 = 0.3125 exactly (NB(r=2,p=0.5) has P(X=k)=(k+1)·2^-(k+2), no rounding anywhere)", () => {
+    const fit = fitMarginal(2, 4, "negative-binomial");
+    expect(probAtLeast(fit, 3)).toBeCloseTo(0.3125, 15);
+  });
+
+  it("mean 2, var 4 (r=2, p=0.5): probAtLeast(5) === 7/64 = 0.109375 exactly", () => {
+    const fit = fitMarginal(2, 4, "negative-binomial");
+    expect(probAtLeast(fit, 5)).toBeCloseTo(0.109375, 15);
+  });
+
+  it("mean 1, var 2 (r=1, p=0.5, geometric): probAtLeast(3) === 0.125 exactly (p^3)", () => {
+    const fit = fitMarginal(1, 2, "negative-binomial");
+    expect(fit.r).toBe(1);
+    expect(fit.p).toBe(0.5);
+    expect(probAtLeast(fit, 3)).toBeCloseTo(0.125, 15);
+  });
+
+  it("mean 3, var 4.5 (r=6, p=1/3): probAtMost(0) === (2/3)^6 === 64/729 === 0.0877914951989", () => {
+    const fit = fitMarginal(3, 4.5, "negative-binomial");
+    expect(fit.r).toBe(6);
+    expect(fit.p).toBeCloseTo(1 / 3, 15);
+    expect(probAtMost(fit, 0)).toBeCloseTo(0.0877914951989, 12);
+  });
+
+  it("mean 3, var 4.5 (r=6, p=1/3): probAtLeast(5) === 0.213128080069", () => {
+    const fit = fitMarginal(3, 4.5, "negative-binomial");
+    expect(probAtLeast(fit, 5)).toBeCloseTo(0.213128080069, 12);
+  });
+
+  it("mean 3, var 4.5 (r=6, p=1/3): probAtLeast(8) === 0.0346548346853 — the upper-tail branch (small probability, computed directly rather than by cancellation)", () => {
+    const fit = fitMarginal(3, 4.5, "negative-binomial");
+    expect(probAtLeast(fit, 8)).toBeCloseTo(0.0346548346853, 12);
+  });
+});
+
 describe("Gaussian family — retained as the inert default, no continuity correction", () => {
   it("fitMarginal(10, 16, 'gaussian') resolves 'gaussian' with sd === 4 and no fallbackReason", () => {
     const fit = fitMarginal(10, 16, "gaussian");
@@ -75,8 +126,32 @@ describe("the fallback ladder (Pitfall 3) — ordered, documented, and never NaN
     expect(probAtMost(fit, 7)).toBe(0);
   });
 
+  it("mean=0, variance=3, declared 'negative-binomial' -> gaussian/non-positive-mean, finite probability in [0,1]", () => {
+    const fit = fitMarginal(0, 3, "negative-binomial");
+    expect(fit.declared).toBe("negative-binomial");
+    expect(fit.resolved).toBe("gaussian");
+    expect(fit.fallbackReason).toBe("non-positive-mean");
+    const p = probAtLeast(fit, 2);
+    expect(Number.isFinite(p)).toBe(true);
+    expect(p).toBeGreaterThanOrEqual(0);
+    expect(p).toBeLessThanOrEqual(1);
+  });
 
+  it("mean=13.586547164699777, variance=4.5, declared 'negative-binomial' -> gaussian/variance-le-mean — the real 2-observation alliance from 09-03-PLAN.md's <baseline> table, not a contrived input", () => {
+    const fit = fitMarginal(13.586547164699777, 4.5, "negative-binomial");
+    expect(fit.resolved).toBe("gaussian");
+    expect(fit.fallbackReason).toBe("variance-le-mean");
+    const p = probAtLeast(fit, 14);
+    expect(Number.isFinite(p)).toBe(true);
+    expect(p).toBeGreaterThanOrEqual(0);
+    expect(p).toBeLessThanOrEqual(1);
+  });
 
+  it("mean=5, variance=5, declared 'negative-binomial' -> gaussian/variance-le-mean — exact equidispersion divides by zero in r; the ladder catches it before the division", () => {
+    const fit = fitMarginal(5, 5, "negative-binomial");
+    expect(fit.resolved).toBe("gaussian");
+    expect(fit.fallbackReason).toBe("variance-le-mean");
+  });
 
   it("mean=5, variance=12, declared 'gaussian' -> gaussian, fallbackReason undefined — the inert default is NOT a fallback", () => {
     const fit = fitMarginal(5, 12, "gaussian");
@@ -85,8 +160,15 @@ describe("the fallback ladder (Pitfall 3) — ordered, documented, and never NaN
   });
 });
 
-describe("declared vs resolved — three separate facts, never conflated", () => {
-  it("a fit over data that supports no distribution carries declared:'gaussian', resolved:'degenerate' and a reason — the two still differ, which is why the split survives a one-member declared union", () => {
+describe("declared vs resolved — three separate facts, never conflated (D-09 observability)", () => {
+  it("a fit that resolves to Gaussian under a 'negative-binomial' declaration carries declared:'negative-binomial', resolved:'gaussian' and a reason", () => {
+    const fit: FittedMarginal = fitMarginal(0, 3, "negative-binomial");
+    expect(fit.declared).toBe("negative-binomial");
+    expect(fit.resolved).toBe("gaussian");
+    expect(fit.fallbackReason).toBe("non-positive-mean");
+  });
+
+  it("a fit over data that supports no distribution carries declared:'gaussian', resolved:'degenerate' and a reason — the two still differ even when the declaration is the incumbent family", () => {
     const fit: FittedMarginal = fitMarginal(7.5, 0, "gaussian");
     expect(fit.declared).toBe("gaussian");
     expect(fit.resolved).toBe("degenerate");
@@ -195,10 +277,12 @@ describe("poissonBinomialPmf / poissonBinomialAtLeast — hand-computed, toleran
   });
 });
 
-describe("invariants across a grid of fits (Gaussian, degenerate)", () => {
+describe("invariants across a grid of fits (negative-binomial, Gaussian, degenerate)", () => {
+  const nbFit = fitMarginal(12, 40, "negative-binomial");
   const gaussianFit = fitMarginal(12, 40, "gaussian");
   const degenerateFit = fitMarginal(12, 0, "gaussian");
   const fits: readonly [string, FittedMarginal][] = [
+    ["negative-binomial", nbFit],
     ["gaussian", gaussianFit],
     ["degenerate", degenerateFit],
   ];
@@ -229,6 +313,11 @@ describe("invariants across a grid of fits (Gaussian, degenerate)", () => {
     }
   });
 
+  it("discrete identity (negative-binomial only): probAtMost(t) + probAtLeast(t+1) === 1 within 1e-12", () => {
+    for (let t = -1; t <= 50; t++) {
+      expect(probAtMost(nbFit, t) + probAtLeast(nbFit, t + 1)).toBeCloseTo(1, 12);
+    }
+  });
 
   it("continuous identity (Gaussian only): probAtMost(t) + probAtLeast(t) === 1 within 1e-12", () => {
     for (let t = -1; t <= 50; t++) {
@@ -251,6 +340,10 @@ describe("invariants across a grid of fits (Gaussian, degenerate)", () => {
     expect(Number.isFinite(continuousSum)).toBe(true);
   });
 
+  it("probAtLeast(fit, 0) is exactly 1 for the negative-binomial fit (support [0, infinity)) and strictly less than 1 for the Gaussian fit (support all of R) — the one place the two families are legitimately allowed to disagree", () => {
+    expect(probAtLeast(nbFit, 0)).toBe(1);
+    expect(probAtLeast(gaussianFit, 0)).toBeLessThan(1);
+  });
 });
 
 describe("cold-team well-formedness — proven against the REAL RpMomentsAccumulator (Pitfall 3's named warning sign)", () => {
@@ -269,7 +362,7 @@ describe("cold-team well-formedness — proven against the REAL RpMomentsAccumul
     expect(probAtLeast(fit, 13)).toBe(0);
   });
 
-  it("two observations (folded 12 then 15): mean=13.586547164699777, variance=4.5 (both derived from empiricalMoments.ts's own arithmetic at planning time; a mismatch means the accumulator changed, a finding to report, not a number to overwrite). Resolves gaussian with no fallback, finite probability in [0,1]", () => {
+  it("two observations (folded 12 then 15): mean=13.586547164699777, variance=4.5 (both derived from empiricalMoments.ts's own arithmetic at planning time; a mismatch means the accumulator changed, a finding to report, not a number to overwrite). Resolves gaussian with no fallback under a gaussian declaration, and gaussian/variance-le-mean under a negative-binomial one", () => {
     const accumulator = new RpMomentsAccumulator(rp2026);
     const roster = ["frc1", "frc2", "frc3"];
     accumulator.fold(roster, { hubTotalCount: 12, totalTowerPoints: 12 });
@@ -278,15 +371,24 @@ describe("cold-team well-formedness — proven against the REAL RpMomentsAccumul
     expect(moments.meanVector[0]).toBeCloseTo(13.586547164699777, 9);
     expect(moments.varianceBlock[0]![0]).toBeCloseTo(4.5, 9);
 
-    // This input (variance below the mean) used to exercise a fallback rung
-    // that only a negative-binomial declaration could reach. That family was
-    // measured and refused; the rung went with it, and an ordinary positive
-    // variance now simply fits Gaussian.
-    const fit = fitMarginal(moments.meanVector[0]!, moments.varianceBlock[0]![0]!, "gaussian");
-    expect(fit.declared).toBe("gaussian");
-    expect(fit.resolved).toBe("gaussian");
-    expect(fit.fallbackReason).toBeUndefined();
-    const p = probAtLeast(fit, 14);
+    // Under the incumbent Gaussian declaration this is an ordinary positive
+    // variance and simply fits Gaussian with no fallback.
+    const gaussianFit = fitMarginal(moments.meanVector[0]!, moments.varianceBlock[0]![0]!, "gaussian");
+    expect(gaussianFit.declared).toBe("gaussian");
+    expect(gaussianFit.resolved).toBe("gaussian");
+    expect(gaussianFit.fallbackReason).toBeUndefined();
+
+    // Under a negative-binomial declaration the SAME real input is
+    // under-dispersed (variance 4.5 below mean 13.59), so the method-of-moments
+    // fit is undefined and the ladder falls back to Gaussian with a COUNTED
+    // reason. This is the live risk D-06 names: a measurement arm labelled
+    // negative-binomial can be mostly Gaussian on real cold-roster data, and
+    // only the counted reason distinguishes that from the family losing.
+    const nbFit = fitMarginal(moments.meanVector[0]!, moments.varianceBlock[0]![0]!, "negative-binomial");
+    expect(nbFit.declared).toBe("negative-binomial");
+    expect(nbFit.resolved).toBe("gaussian");
+    expect(nbFit.fallbackReason).toBe("variance-le-mean");
+    const p = probAtLeast(nbFit, 14);
     expect(Number.isFinite(p)).toBe(true);
     expect(p).toBeGreaterThanOrEqual(0);
     expect(p).toBeLessThanOrEqual(1);

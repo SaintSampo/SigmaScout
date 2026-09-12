@@ -430,20 +430,18 @@ describe("analyticPmf.ts's exported surface is pinned (09-06 Task 4, D-06)", () 
 
 describe("clauseProbability derives its marginal family from its terms (quick task 260911-w7k Task 2)", () => {
   /**
-   * `MarginalFamily` has exactly ONE member today (`"gaussian"`), so both of
-   * `familyForClauseSum`'s guards are unreachable from real data: no season
-   * module can declare a second family, and a set of declarations drawn from a
-   * one-member union can never have size != 1 for a non-empty clause.
-   *
-   * Reaching them therefore requires an explicit cast, and that is the honest
-   * way to test them rather than leaving two throws in a numerical module with
-   * no test at all. A SECOND family added to the union would make both
-   * branches reachable from real declarations with no cast whatsoever — at
-   * which point these two tests should be rewritten to use it and this comment
-   * deleted. The cast is scaffolding for a one-member union, not a fixture
-   * shape worth keeping.
+   * THE CAST IS GONE (2026-09-12, quick task 260912-2uz). These guards used to
+   * be unreachable from real data — `MarginalFamily` had one member, so no
+   * declaration could disagree with another and no single declared family
+   * could be one that is not closed under scaled addition — and reaching them
+   * required an explicit `as unknown as MarginalFamily`. The prior comment
+   * said a second union member would make them reachable with no cast
+   * whatsoever, and said the tests should then be rewritten to use it. That is
+   * exactly what happened: `"negative-binomial"` is back in the union, so this
+   * is now an ordinary well-typed declaration and both guards are live against
+   * declarations a measurement arm really produces.
    */
-  const NOT_GAUSSIAN = "negative-binomial" as unknown as MarginalFamily;
+  const NOT_GAUSSIAN: MarginalFamily = "negative-binomial";
 
   /** Clones `ruleModule`, overriding only the NAMED variables' declared families — so a mixed-declaration module is expressible, which no real season module is. */
   function cloneWithFamilies(ruleModule: RpRuleModule, familyByName: Readonly<Record<string, MarginalFamily>>): RpRuleModule {
@@ -563,5 +561,64 @@ describe("clauseProbability derives its marginal family from its terms (quick ta
     const habIndex = atThreshold.marginals.findIndex((m) => m.resolved === "degenerate");
     expect(habIndex).toBeGreaterThanOrEqual(0);
     expect(atThreshold.marginals[habIndex]!.fallbackReason).toBe("zero-variance");
+  });
+});
+
+describe("MarginalResolutionTally — the negativeBinomial counter is live again (quick task 260912-2uz)", () => {
+  it("an all-negative-binomial 2026 module over overdispersed moments counts every fit on the negativeBinomial axis, with zero gaussian and zero fallbacks", () => {
+    const nbModule = ruleModuleWithDeclaredFamily(rp2026, "negative-binomial");
+    const tally = emptyMarginalResolutionTally();
+    analyticRpPmf({
+      red: SYMMETRIC_2026,
+      blue: SYMMETRIC_2026,
+      ruleModule: nbModule,
+      eventType: 0,
+      compLevel: "qm",
+      tally,
+    });
+
+    // Two variables per alliance, two alliances: hubTotalCount (230, 16900)
+    // and totalTowerPoints (50, 100) are both overdispersed, so all four fits
+    // resolve to negative binomial.
+    expect(tally.negativeBinomial).toBe(4);
+    expect(tally.gaussian).toBe(0);
+    expect(tally.degenerate).toBe(0);
+    expect(tally.fallbacks).toBe(0);
+  });
+
+  it("an UNDER-DISPERSED input under the same declaration counts as gaussian AND as a fallback, never as negativeBinomial — this separation is the whole point of the counter, because an arm whose fits fell back is not an arm that tested the family", () => {
+    const nbModule = ruleModuleWithDeclaredFamily(rp2026, "negative-binomial");
+    const tally = emptyMarginalResolutionTally();
+    // variance below mean on both variables: the method-of-moments fit is
+    // undefined and rung 4 falls back to Gaussian with "variance-le-mean".
+    const underDispersed = moments2026(230, 100, 50, 10, 100, 50);
+    analyticRpPmf({
+      red: underDispersed,
+      blue: underDispersed,
+      ruleModule: nbModule,
+      eventType: 0,
+      compLevel: "qm",
+      tally,
+    });
+
+    expect(tally.negativeBinomial).toBe(0);
+    expect(tally.gaussian).toBe(4);
+    expect(tally.fallbacks).toBe(4);
+  });
+
+  it("the incumbent gaussian declaration never touches the negativeBinomial axis — the restore is inert for production declarations", () => {
+    const tally = emptyMarginalResolutionTally();
+    analyticRpPmf({
+      red: SYMMETRIC_2026,
+      blue: SYMMETRIC_2026,
+      ruleModule: rp2026,
+      eventType: 0,
+      compLevel: "qm",
+      tally,
+    });
+
+    expect(tally.negativeBinomial).toBe(0);
+    expect(tally.gaussian).toBe(4);
+    expect(tally.fallbacks).toBe(0);
   });
 });

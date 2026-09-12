@@ -107,7 +107,15 @@ import {
  * of how often that happens is a real diagnostic, not a toggle that lost its
  * second position.
  *
- * Its `negativeBinomial` counter is gone with the family it counted.
+ * ITS `negativeBinomial` COUNTER IS BACK (2026-09-12, quick task 260912-2uz),
+ * restored with the family it counts and for the reason it existed: the NB
+ * method-of-moments fit is undefined for `mean <= 0` and for
+ * `variance <= mean`, and both fall back to Gaussian. Without this counter, a
+ * measurement arm labelled `"negative-binomial"` whose fits mostly fell back is
+ * indistinguishable from a genuine one — and a verdict taken on that arm would
+ * be a verdict about the fit's APPLICABILITY wearing the costume of a verdict
+ * about the family. Any measurement using the arm must report what fraction of
+ * its fits actually resolved here.
  *
  * `fallbacks` is counted SEPARATELY from `gaussian` — a fit that resolved to
  * what it declared is not a fallback, and conflating the two would overstate
@@ -115,6 +123,7 @@ import {
  * `declared`/`resolved`/`fallbackReason` split applies).
  */
 export interface MarginalResolutionTally {
+  negativeBinomial: number;
   gaussian: number;
   degenerate: number;
   fallbacks: number;
@@ -122,12 +131,15 @@ export interface MarginalResolutionTally {
 
 /** A fresh, all-zero `MarginalResolutionTally` — for callers that want their own counter rather than sharing `SigmaScoutLayer`'s running one. */
 export function emptyMarginalResolutionTally(): MarginalResolutionTally {
-  return { gaussian: 0, degenerate: 0, fallbacks: 0 };
+  return { negativeBinomial: 0, gaussian: 0, degenerate: 0, fallbacks: 0 };
 }
 
 /** Increments `tally` by one fitted marginal's resolved family and (separately) its fallback status. */
 function accumulateMarginalResolution(tally: MarginalResolutionTally, marginal: FittedMarginal): void {
   switch (marginal.resolved) {
+    case "negative-binomial":
+      tally.negativeBinomial += 1;
+      break;
     case "gaussian":
       tally.gaussian += 1;
       break;
@@ -240,12 +252,34 @@ function familyForClauseSum(
       // the whole precondition; a family without it cannot be fitted from
       // combined moments at all.
       return "gaussian";
+    case "negative-binomial":
+      // THE DESIGN WORKED. This arm exists because the union grew on
+      // 2026-09-12 (quick task 260912-2uz) and the `never` below refused to
+      // compile until someone answered the question it was built to force:
+      // is this family closed under scaled addition? Negative binomial is
+      // NOT. A sum of independent NB variables is NB only when every `p`
+      // matches — nothing here guarantees that — and `X / divisor` is not
+      // even integer-supported, so a divided term has left the family
+      // outright. Fitting the combined moments with an NB would therefore
+      // publish a probability from a distribution the terms do not have.
+      //
+      // THROWING IS THE ONLY CORRECT ANSWER HERE, and specifically a silent
+      // Gaussian fallback is not: that fallback is exactly the hardcode quick
+      // task 260911-w7k removed, whose presence made 24 of 30 cells in plan
+      // 09-06's measurement structurally incapable of responding to a family
+      // change while still reporting as ties. Reintroducing it would make the
+      // same measurement meaningless a second time. A caller that wants NB on
+      // a variable must confine it to clauses of one unscaled term.
+      throw new Error(
+        `analyticRpPmf: season ${season} bonus "${bonusName}" sums scaled terms all declaring "negative-binomial" over variables {${clause.terms.map((term) => term.variable).join(", ")}}, which is not closed under scaled addition — a sum of independent negative binomials is negative binomial only when every p matches, and a divided term is not even integer-supported, so implement that joint explicitly or declare "gaussian" on every variable appearing in a multi-term or divisor-bearing clause`
+      );
     default: {
-      // `never` so a SECOND union member fails to compile here — before it can
+      // `never` so a THIRD union member fails to compile here — before it can
       // fail at runtime on real data. Whoever adds that member gets a type
       // error pointing at this arm, which is the design: they must decide
       // whether their family is closed under scaled addition, not discover the
-      // answer from a wrong published probability.
+      // answer from a wrong published probability. That is not hypothetical —
+      // it is what happened when `"negative-binomial"` was added above.
       const exhaustive: never = family;
       throw new Error(
         `analyticRpPmf: season ${season} bonus "${bonusName}" sums scaled terms all declaring "${String(exhaustive)}", which is not closed under scaled addition — a sum of its scaled terms has no exact closed form in that family, so implement that joint explicitly rather than fitting the combined moments with it`
@@ -822,6 +856,7 @@ export function analyticRpPmf(input: AnalyticRpPmfInput): AnalyticRpPmfResult {
   const redBonus = allianceBonusRpPmf(red, ruleModule, eventType, callTally);
   const blueBonus = allianceBonusRpPmf(blue, ruleModule, eventType, callTally);
   if (tally !== undefined) {
+    tally.negativeBinomial += callTally.negativeBinomial;
     tally.gaussian += callTally.gaussian;
     tally.degenerate += callTally.degenerate;
     tally.fallbacks += callTally.fallbacks;

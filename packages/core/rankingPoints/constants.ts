@@ -77,11 +77,33 @@ import type { CompLevel } from "../algorithms/types.js";
  * site below was worth keeping. The removal changed no published number and
  * re-measured nothing; it changed what a future measurement could reach.
  *
- * THE UNION HAS ONE MEMBER AND THE DECLARATION SITE SURVIVES ANYWAY. D-02
- * locked the per-variable declaration, so a future family extends this union
- * and the variables that want it, rather than reintroducing a global switch.
+ * THE UNION HAS TWO MEMBERS AGAIN (2026-09-12, quick task 260912-2uz). The
+ * 2026-09-11 refusal above was measured on a run whose REACH was a single
+ * predicate shape: `clauseProbability`'s hardcoded Gaussian meant only
+ * `nestedSameVariable` bonuses could respond to a declared family at all, so
+ * 24 of the 30 cells that "tied" were structurally incapable of moving. That
+ * hardcode is gone, and `"negative-binomial"` is restored here so the question
+ * can be RE-MEASURED under the wider reach rather than left resting on a
+ * measurement that could not have detected an effect. The refusal is not
+ * reversed by this restore — it is re-opened.
+ *
+ * The restore is INERT IN PRODUCTION. All 34 threshold-variable declarations
+ * across the ten registered seasons name `"gaussian"` and none of them change;
+ * the re-measurement builds its negative-binomial arm as a VARIANT RULE MODULE
+ * inside `scripts/measureRpCalibration.ts`, never by editing the tree. Both
+ * `analyticPmfGolden.json` and `predictThresholdsGolden.json` are green across
+ * this restore with zero edits, which is what "inert" means here.
+ *
+ * THE DECLARATION SITE IS WHAT MAKES THAT POSSIBLE. D-02 locked the
+ * per-variable declaration, so a second family extends this union and the
+ * variables that want it, rather than reintroducing a global switch — and a
+ * measurement arm is a variant set of declarations rather than a config flag
+ * threaded through production. Note that negative binomial is NOT closed under
+ * scaled addition, so a variable appearing in any multi-term or divisor-bearing
+ * clause cannot declare it; `familyForClauseSum` in `analyticPmf.ts` refuses
+ * that combination loudly rather than silently refitting it as a Gaussian.
  */
-export type MarginalFamily = "gaussian";
+export type MarginalFamily = "negative-binomial" | "gaussian";
 
 /**
  * One named scalar a season's RP rules threshold on, tracked in its own
