@@ -568,8 +568,13 @@ function runBprFold(
       if (redBandVariance !== undefined) bandsProduced++;
       if (blueBandVariance !== undefined) bandsProduced++;
       const fields = rpFieldsFor(result, prediction, redBandVariance, blueBandVariance);
+      // ONE increment per MATCH, not per alliance — `rpFieldsFor`'s gates
+      // (rule module, event eligibility, band presence, partial roster) are
+      // all-or-nothing for a given match: either both alliances get a pmf or
+      // neither does. `stateProbe.test.ts` asserts this counter by EQUALITY
+      // against `folded + upcoming`, so double-counting here would silently
+      // halve the threshold at which a suppressed pmf becomes visible.
       if (fields.redRpPmf !== undefined) rpPmfsProduced++;
-      if (fields.blueRpPmf !== undefined) rpPmfsProduced++;
 
       state = bpr.update(state, result);
       swing.foldMatch(result, prediction);
@@ -599,8 +604,8 @@ function runBprFold(
       if (redBandVariance !== undefined) bandsProduced++;
       if (blueBandVariance !== undefined) bandsProduced++;
       const fields = rpFieldsFor(match, prediction, redBandVariance, blueBandVariance);
+      // Same one-per-match counting rule as the played loop above.
       if (fields.redRpPmf !== undefined) rpPmfsProduced++;
-      if (fields.blueRpPmf !== undefined) rpPmfsProduced++;
       upcomingPriced++;
     }
 
