@@ -14,24 +14,23 @@ import {
   MEASUREMENT_GAP_NOTE,
   ReplayRigResultSchema,
 } from "./replayRig.js";
-import { PIPELINE_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
+import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
 
 // Test 5 (plan 07-16 Task 2, rewritten by plan 07-18 Task 1 after the
-// two-tier collapse; rewritten again by quick task 260912-ivg Stage 1 Task 4,
-// which reopened the split): `replayRig.ts`'s default `--algorithm` list
-// (`values.algorithm ?? PIPELINE_ALGORITHM_IDS.join(",")`, in `parseOptions`,
-// not itself exported/unit-testable without a CLI-args harness) is built
-// directly from `PIPELINE_ALGORITHM_IDS` — the publisher-side WRITE tier, not
-// `PUBLISHED_ALGORITHM_IDS` (the browser-READ tier) — asserted here against
-// the imported constant, never a re-typed array literal, so a future rename
-// of the constant's members is caught here without editing this test.
+// two-tier collapse; rewritten twice more by quick task 260912-ivg — Stage 1
+// Task 4 reopened the split, Stage 5 collapsed it again): `replayRig.ts`'s
+// default `--algorithm` list (`values.algorithm ?? PUBLISHED_ALGORITHM_IDS.join(",")`,
+// in `parseOptions`, not itself exported/unit-testable without a CLI-args
+// harness) is built directly from `PUBLISHED_ALGORITHM_IDS` — asserted here
+// against the imported constant, never a re-typed array literal, so a future
+// rename of the constant's members is caught here without editing this test.
 describe("replayRig's default --algorithm list (plan 07-16/07-18)", () => {
   // VPR left this list on 2026-09-09 (`eae2defb`) and this pin was not
   // updated with it, so it sat red. An equality pin is the right shape here —
   // it fails loudly on a membership change, which is exactly what happened —
   // it just has to be maintained when the membership changes on purpose.
-  it("PIPELINE_ALGORITHM_IDS resolves to the write-tier triple, in publish order", () => {
-    expect([...PIPELINE_ALGORITHM_IDS]).toEqual(["opr", "epa", "spr"]);
+  it("PUBLISHED_ALGORITHM_IDS resolves to the published triple, in publish order", () => {
+    expect([...PUBLISHED_ALGORITHM_IDS]).toEqual(["opr", "epa", "spr"]);
   });
 });
 

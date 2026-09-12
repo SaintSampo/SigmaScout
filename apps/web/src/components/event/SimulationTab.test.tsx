@@ -142,7 +142,7 @@ describe("SimulationTab", () => {
   it("renders the canonical empty state (exact Copywriting Contract strings) for zero qualification matches; a playoff row present does not count as a qualification match", () => {
     const sfRow = { ...playedQualRow({ matchKey: "2024test_sf1m1" }), compLevel: "sf" as const };
     const artifact = baseArtifact({ matches: [sfRow as EventArtifact["matches"][number]] });
-    render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+    render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     expect(screen.getByText(SIMULATION_EMPTY_STATE_HEADING)).toBeDefined();
     expect(screen.getByText(SIMULATION_EMPTY_STATE_BODY)).toBeDefined();
   });
@@ -151,14 +151,14 @@ describe("SimulationTab", () => {
     const artifact = baseArtifact({
       matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
     });
-    render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+    render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     expect(screen.getByText(SIMULATION_UNAVAILABLE_HEADING)).toBeDefined();
     expect(screen.queryByText(SIMULATION_EMPTY_STATE_HEADING)).toBeNull();
   });
 
   it("renders the PRE-RUN state (not an empty state) when pmfs exist on upcoming[] only — proving the predicate reads both arrays", () => {
     const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
-    render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+    render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID)).toBeDefined();
     expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID).textContent).toBe(SIMULATION_PRE_RUN_BODY);
     expect(screen.queryByText(SIMULATION_EMPTY_STATE_HEADING)).toBeNull();
@@ -167,7 +167,7 @@ describe("SimulationTab", () => {
 
   it("renders the PRE-RUN state when pmfs exist on matches[] only — the common post-08-05 shape, mirror of the upcoming-only case", () => {
     const artifact = baseArtifact({ matches: [playedQualRow(BOTH_PMFS)] });
-    render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+    render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID)).toBeDefined();
   });
 
@@ -178,13 +178,13 @@ describe("SimulationTab", () => {
         playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 }),
       ],
     });
-    render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+    render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID)).toBeDefined();
   });
 
   it("the layout stack testid is present and the pre-run paragraph is its descendant — the mount point 08-11/08-13/08-14 each add a child to", () => {
     const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
-    render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+    render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     const stack = screen.getByTestId(SIMULATION_STACK_TESTID);
     const preRun = screen.getByTestId(SIMULATION_PRE_RUN_TESTID);
     expect(stack.contains(preRun)).toBe(true);
@@ -220,7 +220,7 @@ describe("SimulationTabSkeleton", () => {
 describe("08-11: the start-match picker mounts in the layout stack's first position", () => {
   it("the picker's testid is a descendant of the layout stack and precedes the pre-run paragraph in document order", () => {
     const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
-    render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+    render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     const stack = screen.getByTestId(SIMULATION_STACK_TESTID);
     const picker = screen.getByTestId(START_MATCH_PICKER_TESTID);
     const preRun = screen.getByTestId(SIMULATION_PRE_RUN_TESTID);
@@ -234,7 +234,7 @@ describe("08-11: the other two branches render no picker and no caption", () => 
   it("the zero-qm empty state renders no picker and no caption", () => {
     const sfRow = { ...playedQualRow({ matchKey: "2024test_sf1m1" }), compLevel: "sf" as const };
     const artifact = baseArtifact({ matches: [sfRow as EventArtifact["matches"][number]] });
-    render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+    render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     expect(screen.queryByTestId(START_MATCH_PICKER_TESTID)).toBeNull();
   });
 
@@ -242,7 +242,7 @@ describe("08-11: the other two branches render no picker and no caption", () => 
     const artifact = baseArtifact({
       matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
     });
-    render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+    render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     expect(screen.queryByTestId(START_MATCH_PICKER_TESTID)).toBeNull();
   });
 });
@@ -250,14 +250,14 @@ describe("08-11: the other two branches render no picker and no caption", () => 
 describe("08-11: default selection", () => {
   it("defaults to the first genuinely-unplayed qualification match; the hint is absent and the scope line renders", () => {
     const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
-    render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+    render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`).getAttribute("data-selected")).toBe("true");
     expect(screen.queryByText(START_MATCH_PICKER_HINT)).toBeNull();
   });
 
   it("selects the FIRST match on a fully-played event (2026-09-01), so a finished event opens ready to run rather than on an empty picker", () => {
     const artifact = baseArtifact({ matches: [playedQualRow(BOTH_PMFS)] });
-    render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+    render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     // A real selection means the SCOPE line, not the pre-selection hint.
     expect(screen.queryByText(START_MATCH_PICKER_HINT)).toBeNull();
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
@@ -267,21 +267,21 @@ describe("08-11: default selection", () => {
 describe("08-11: selection survives a refetch (PD-06)", () => {
   it("keeps the same selected matchKey when a refetch moves the match from upcoming[] to matches[]", () => {
     const artifact1 = baseArtifact({ upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })] });
-    const { rerender } = render(<SimulationTab artifact={artifact1} algorithmId="bpr" season={2024} />);
+    const { rerender } = render(<SimulationTab artifact={artifact1} algorithmId="spr" season={2024} />);
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
 
     const artifact2 = baseArtifact({ matches: [playedQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })] });
-    rerender(<SimulationTab artifact={artifact2} algorithmId="bpr" season={2024} />);
+    rerender(<SimulationTab artifact={artifact2} algorithmId="spr" season={2024} />);
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
   });
 
   it("a selected key that disappears from a refetched artifact resolves to no selection, never a neighbouring row", () => {
     const artifact1 = baseArtifact({ upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })] });
-    const { rerender } = render(<SimulationTab artifact={artifact1} algorithmId="bpr" season={2024} />);
+    const { rerender } = render(<SimulationTab artifact={artifact1} algorithmId="spr" season={2024} />);
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
 
     const artifact2 = baseArtifact({ upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm99", matchNumber: 99 })] });
-    rerender(<SimulationTab artifact={artifact2} algorithmId="bpr" season={2024} />);
+    rerender(<SimulationTab artifact={artifact2} algorithmId="spr" season={2024} />);
     expect(screen.getByText(START_MATCH_PICKER_HINT)).toBeDefined();
     expect(screen.queryByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`)).toBeNull();
   });
@@ -293,7 +293,7 @@ describe("08-11: selection survives a refetch (PD-06)", () => {
         upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm2", matchNumber: 2 }),
       ],
     });
-    const { rerender } = render(<SimulationTab artifact={artifact1} algorithmId="bpr" season={2024} />);
+    const { rerender } = render(<SimulationTab artifact={artifact1} algorithmId="spr" season={2024} />);
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`).getAttribute("data-selected")).toBe("true");
 
     // The picker is a slider plus a typed match number (2026-09-01), so a
@@ -305,7 +305,7 @@ describe("08-11: selection survives a refetch (PD-06)", () => {
       matches: [playedQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })],
       upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm2", matchNumber: 2 })],
     });
-    rerender(<SimulationTab artifact={artifact2} algorithmId="bpr" season={2024} />);
+    rerender(<SimulationTab artifact={artifact2} algorithmId="spr" season={2024} />);
     expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`).getAttribute("data-selected")).toBe("true");
   });
 });
@@ -329,7 +329,7 @@ describe("08-13: the run control", () => {
       const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
       render(
         <RouterTestHarness>
-          <SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />
+          <SimulationTab artifact={artifact} algorithmId="spr" season={2024} />
         </RouterTestHarness>
       );
       await waitFor(() => expect(screen.getByTestId(START_MATCH_PICKER_TESTID)).toBeDefined());
@@ -350,7 +350,7 @@ describe("08-13: the run control", () => {
     const handle = installMockWorker({ failOnConstruct: new Error("no module workers here") });
     try {
       const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
-      render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+      render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
 
       fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
 
@@ -370,7 +370,7 @@ describe("08-13: the run control", () => {
     const handle = installMockWorker({ script: throwingScript });
     try {
       const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
-      render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+      render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
 
       fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
 
@@ -394,7 +394,7 @@ describe("08-13: the run control", () => {
           upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm3", matchNumber: 3, sortTime: 200 }),
         ],
       });
-      render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+      render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
       expect(screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm2`).getAttribute("data-selected")).toBe("true");
 
       fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
@@ -420,7 +420,7 @@ describe("08-13: the run control", () => {
     const handle = installMockWorker({ script: neverResolvingScript });
     try {
       const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
-      render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+      render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
 
       fireEvent.click(screen.getByRole("button", { name: RUN_LABEL_UPDATE }));
       await waitFor(() => expect(screen.getByRole("progressbar")).toBeDefined());
@@ -434,7 +434,7 @@ describe("08-13: the run control", () => {
   it("I6: pressing nothing constructs nothing — no Worker mock installed for this test, no error thrown, no progressbar", () => {
     const callsBefore = workerConstructorSpy.mock.calls.length;
     const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
-    expect(() => render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />)).not.toThrow();
+    expect(() => render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />)).not.toThrow();
     expect(screen.getByTestId(START_MATCH_PICKER_TESTID)).toBeDefined();
     expect(screen.getByRole("button", { name: RUN_LABEL_UPDATE })).toBeDefined();
     expect(screen.queryByRole("progressbar")).toBeNull();
@@ -456,7 +456,7 @@ describe("08-13: the run control", () => {
       });
       render(
         <RouterTestHarness>
-          <SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />
+          <SimulationTab artifact={artifact} algorithmId="spr" season={2024} />
         </RouterTestHarness>
       );
       await waitFor(() => expect(screen.getByRole("button", { name: RUN_LABEL_UPDATE })).toBeDefined());
@@ -486,7 +486,7 @@ describe("08-14: the rank-distribution table mounts behind a completed result", 
 
   it("with no completed run result, the rank-table position still renders 08-09's pre-run paragraph and no rank table is in the document", () => {
     const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
-    render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />);
+    render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID).textContent).toBe(SIMULATION_PRE_RUN_BODY);
     expect(screen.queryByTestId(RANK_TABLE_SCROLL_TESTID)).toBeNull();
   });
@@ -498,7 +498,7 @@ describe("08-14: the rank-distribution table mounts behind a completed result", 
       const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
       render(
         <RouterTestHarness>
-          <SimulationTab artifact={artifact} algorithmId="bpr" season={2024} />
+          <SimulationTab artifact={artifact} algorithmId="spr" season={2024} />
         </RouterTestHarness>
       );
       await waitFor(() => expect(screen.getByRole("button", { name: RUN_LABEL_UPDATE })).toBeDefined());
@@ -516,7 +516,7 @@ describe("08-14: the rank-distribution table mounts behind a completed result", 
   it("the zero-qm empty state and the no-pmf unavailable state still render with no rank table present — this task did not move either branch", () => {
     const sfRow = { ...playedQualRow({ matchKey: "2024test_sf1m1" }), compLevel: "sf" as const };
     const emptyArtifact = baseArtifact({ matches: [sfRow as EventArtifact["matches"][number]] });
-    const { unmount } = render(<SimulationTab artifact={emptyArtifact} algorithmId="bpr" season={2024} />);
+    const { unmount } = render(<SimulationTab artifact={emptyArtifact} algorithmId="spr" season={2024} />);
     expect(screen.getByText(SIMULATION_EMPTY_STATE_HEADING)).toBeDefined();
     expect(screen.queryByTestId(RANK_TABLE_SCROLL_TESTID)).toBeNull();
     unmount();
@@ -524,7 +524,7 @@ describe("08-14: the rank-distribution table mounts behind a completed result", 
     const unavailableArtifact = baseArtifact({
       matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
     });
-    render(<SimulationTab artifact={unavailableArtifact} algorithmId="bpr" season={2024} />);
+    render(<SimulationTab artifact={unavailableArtifact} algorithmId="spr" season={2024} />);
     expect(screen.getByText(SIMULATION_UNAVAILABLE_HEADING)).toBeDefined();
     expect(screen.queryByTestId(RANK_TABLE_SCROLL_TESTID)).toBeNull();
   });
@@ -553,7 +553,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
     });
     render(
       <RouterTestHarness>
-        <SimulationTab artifact={artifact} algorithmId="bpr" season={2024} preSchedule={preScheduleArtifact()} />
+        <SimulationTab artifact={artifact} algorithmId="spr" season={2024} preSchedule={preScheduleArtifact()} />
       </RouterTestHarness>
     );
 
@@ -568,7 +568,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
     const artifact = baseArtifact({ teams: TWO_TEAM_ROSTER });
     render(
       <RouterTestHarness>
-        <SimulationTab artifact={artifact} algorithmId="bpr" season={2024} preSchedule={preScheduleArtifact()} />
+        <SimulationTab artifact={artifact} algorithmId="spr" season={2024} preSchedule={preScheduleArtifact()} />
       </RouterTestHarness>
     );
 
@@ -583,7 +583,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
     const artifact = baseArtifact({ teams: TWO_TEAM_ROSTER });
     render(
       <RouterTestHarness>
-        <SimulationTab artifact={artifact} algorithmId="bpr" season={2024} preSchedule={preScheduleArtifact()} />
+        <SimulationTab artifact={artifact} algorithmId="spr" season={2024} preSchedule={preScheduleArtifact()} />
       </RouterTestHarness>
     );
 
@@ -613,7 +613,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
     const artifact = baseArtifact({
       matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
     });
-    render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} preSchedule={null} />);
+    render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} preSchedule={null} />);
 
     expect(screen.getByText(SIMULATION_UNAVAILABLE_HEADING)).toBeDefined();
   });
@@ -621,7 +621,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
   it("CR-01: while the sidecar is in flight on a QUALIFICATION-LESS event, the skeleton renders — never an empty state, never a control-less picker", () => {
     const artifact = baseArtifact({ teams: TWO_TEAM_ROSTER });
     render(
-      <SimulationTab artifact={artifact} algorithmId="bpr" season={2024} preSchedule={null} preScheduleIsPending={true} />
+      <SimulationTab artifact={artifact} algorithmId="spr" season={2024} preSchedule={null} preScheduleIsPending={true} />
     );
 
     // Not the empty state (the arriving sidecar could contradict it)...
@@ -639,7 +639,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
       matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
     });
     render(
-      <SimulationTab artifact={artifact} algorithmId="bpr" season={2024} preSchedule={null} preScheduleIsPending={true} />
+      <SimulationTab artifact={artifact} algorithmId="spr" season={2024} preSchedule={null} preScheduleIsPending={true} />
     );
 
     expect(screen.queryByRole("button", { name: RUN_LABEL_UPDATE })).toBeNull();
@@ -652,7 +652,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
       upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })],
     });
     render(
-      <SimulationTab artifact={artifact} algorithmId="bpr" season={2024} preSchedule={null} preScheduleIsPending={true} />
+      <SimulationTab artifact={artifact} algorithmId="spr" season={2024} preSchedule={null} preScheduleIsPending={true} />
     );
 
     expect(screen.getByTestId(SIMULATION_STACK_TESTID)).toBeDefined();
@@ -675,7 +675,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
       // out from under a running simulation when the sidecar resolved.
       const { rerender } = render(
         <RouterTestHarness>
-          <SimulationTab artifact={artifact} algorithmId="bpr" season={2024} preSchedule={null} preScheduleIsPending={true} />
+          <SimulationTab artifact={artifact} algorithmId="spr" season={2024} preSchedule={null} preScheduleIsPending={true} />
         </RouterTestHarness>
       );
 
@@ -687,7 +687,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
         <RouterTestHarness>
           <SimulationTab
             artifact={artifact}
-            algorithmId="bpr"
+            algorithmId="spr"
             season={2024}
             preSchedule={preScheduleArtifact()}
             preScheduleIsPending={false}
@@ -708,7 +708,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
     const artifact = baseArtifact({
       upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })],
     });
-    render(<SimulationTab artifact={artifact} algorithmId="bpr" season={2024} preSchedule={null} />);
+    render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} preSchedule={null} />);
 
     expect(screen.queryByTestId(START_MATCH_PRE_SCHEDULE_TESTID)).toBeNull();
     expect((screen.getByTestId(START_MATCH_SLIDER_TESTID) as HTMLInputElement).min).toBe("1");

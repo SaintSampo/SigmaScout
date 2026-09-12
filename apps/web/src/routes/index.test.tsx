@@ -58,7 +58,7 @@ describe("home page podium", () => {
     expect(screen.getByTestId(HOME_PODIUM_TESTID)).toBeDefined();
 
     // Was "one step per published algorithm", which only held while exactly
-    // three were published. BPR's arrival (quick task 260908-b4t) made that
+    // three were published. SPR's arrival (quick task 260908-b4t) made that
     // false: four algorithms compete for three medals, so the lowest-ranked
     // one is legitimately absent. Derived from the same fixtures the podium
     // reads, so this tracks whichever three actually lead.

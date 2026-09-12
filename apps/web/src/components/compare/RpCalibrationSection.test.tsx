@@ -5,8 +5,8 @@
  * against that same fixture with the REAL emitted `rp-calibration-2026-spr.json`
  * record (renamed from `-bpr.json` by quick task 260912-ivg Stage 1 Task 2 —
  * a filename token, no wire-id meaning; the fixture's own `algorithmId`
- * comparison below stays `"bpr"`, matching `compare-2026.json`'s actual
- * READ-tier content) attached to its bpr/qualification slice (proving the
+ * comparison below stays `"spr"`, matching `compare-2026.json`'s actual
+ * READ-tier content) attached to its spr/qualification slice (proving the
  * populated render), never a hand-built artifact.
  */
 import { describe, expect, it, afterEach } from "vitest";
@@ -31,12 +31,12 @@ afterEach(cleanup);
 const ARTIFACT_2026_NO_RP: CompareArtifact = CompareArtifactSchema.parse(compare2026);
 const RP_RECORD = rpCalibration2026Spr as unknown as CompareRpCalibration;
 
-/** Same fixture, with the REAL emitted record attached to bpr's qualification slice — the shape `buildCompareArtifact`'s `attachRpCalibration` produces. */
+/** Same fixture, with the REAL emitted record attached to spr's qualification slice — the shape `buildCompareArtifact`'s `attachRpCalibration` produces. */
 function artifactWithSprRp(): CompareArtifact {
   return {
     ...ARTIFACT_2026_NO_RP,
     slices: ARTIFACT_2026_NO_RP.slices.map((s) =>
-      s.algorithmId === "bpr" && s.season === DEFAULT_RP_CALIBRATION_YEAR && s.compLevelView === "qualification"
+      s.algorithmId === "spr" && s.season === DEFAULT_RP_CALIBRATION_YEAR && s.compLevelView === "qualification"
         ? { ...s, rpCalibration: RP_RECORD }
         : s
     ),
@@ -69,20 +69,20 @@ describe("RpCalibrationSection — absence is absence (real pre-phase fixture, n
   });
 });
 
-describe("RpCalibrationSection — populated render (real emitted record attached to bpr/2026/qualification)", () => {
-  it("bpr's card renders the fixture-recomputed headline sentence; opr/epa (no record yet) still render absent", () => {
+describe("RpCalibrationSection — populated render (real emitted record attached to spr/2026/qualification)", () => {
+  it("spr's card renders the fixture-recomputed headline sentence; opr/epa (no record yet) still render absent", () => {
     render(<RpCalibrationSection artifactsByYear={new Map([[2026, artifactWithSprRp()]])} />);
     const card = buildRpCalibrationCard(RP_RECORD);
-    expect(screen.getByTestId(rpCalibrationCardSentenceTestId("bpr")).textContent).toContain(
-      rpCardHeadlineSentence(algorithmDisplayLabel("bpr"), card.headline!)
+    expect(screen.getByTestId(rpCalibrationCardSentenceTestId("spr")).textContent).toContain(
+      rpCardHeadlineSentence(algorithmDisplayLabel("spr"), card.headline!)
     );
     expect(screen.getByTestId(rpCalibrationCardSentenceTestId("opr")).textContent).toBe(RP_CALIBRATION_ABSENT_TEXT);
     expect(screen.getByTestId(rpCalibrationCardSentenceTestId("epa")).textContent).toBe(RP_CALIBRATION_ABSENT_TEXT);
   });
 
-  it("bpr's card renders one row per bonus the record carries, in the record's own order", () => {
+  it("spr's card renders one row per bonus the record carries, in the record's own order", () => {
     render(<RpCalibrationSection artifactsByYear={new Map([[2026, artifactWithSprRp()]])} />);
-    const cardEl = screen.getByTestId(rpCalibrationCardTestId("bpr"));
+    const cardEl = screen.getByTestId(rpCalibrationCardTestId("spr"));
     for (const bonus of RP_RECORD.bonuses) {
       expect(cardEl.textContent).toContain(bonus.name);
     }

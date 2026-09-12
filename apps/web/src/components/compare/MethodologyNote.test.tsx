@@ -49,7 +49,7 @@ function realArtifactsByYear(): Map<number, CompareArtifact> {
 
 function vprCombinedSlice(artifact: CompareArtifact, season: number) {
   const slice = artifact.slices.find(
-    (s) => s.algorithmId === "bpr" && s.season === season && s.compLevelView === "combined",
+    (s) => s.algorithmId === "spr" && s.season === season && s.compLevelView === "combined",
   );
   if (slice === undefined) throw new Error(`fixture for ${season} carries no VPR combined slice`);
   return slice;
@@ -68,7 +68,7 @@ function makeMinimalArtifact(
 ): CompareArtifact {
   const { includeSeasonLabel = true } = options;
   const slice: Record<string, unknown> = {
-    algorithmId: "bpr",
+    algorithmId: "spr",
     season,
     headlineEligible: true,
     compLevelView: "combined",
@@ -87,7 +87,7 @@ function makeMinimalArtifact(
     schemaVersion: 1,
     generation: "gen-1",
     computedAt: "2026-08-30T00:00:00.000Z",
-    algorithms: [{ id: "bpr", version: "1.0.0+x", codeVersion: "1.0.0", paramSetName: "x" }],
+    algorithms: [{ id: "spr", version: "1.0.0+x", codeVersion: "1.0.0", paramSetName: "x" }],
     slices: [slice],
   } as CompareArtifact;
 }

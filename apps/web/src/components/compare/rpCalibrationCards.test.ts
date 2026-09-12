@@ -71,7 +71,7 @@ describe("rpCardHeadlineSentence — built entirely from the row's own numbers",
     const card = buildRpCalibrationCard(
       record([{ name: "energized", count: 1234, meanPredicted: 0.6, observedFrequency: 0.7, brierScore: 0.15 }])
     );
-    const sentence = rpCardHeadlineSentence("BPR", card.headline!);
+    const sentence = rpCardHeadlineSentence("SPR", card.headline!);
     expect(sentence).toContain("1,234");
     expect(sentence).toContain("60%");
     expect(sentence).toContain("70%");

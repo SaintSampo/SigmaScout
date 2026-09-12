@@ -63,7 +63,7 @@ function formatWinRate(value: number | null): string {
  *
  * Rendered exactly when the artifact carries a published `sigma` metric entry,
  * which is the same thing as saying "this algorithm publishes Sigma Score" —
- * BPR today, per `SIGMA_SCORE_ALGORITHM_IDS`. There is deliberately NO
+ * SPR today, per `SIGMA_SCORE_ALGORITHM_IDS`. There is deliberately NO
  * algorithm-id check in the browser: the data's presence is the condition, so
  * changing which algorithms carry Sigma needs no web change at all.
  *

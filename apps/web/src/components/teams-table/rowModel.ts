@@ -179,7 +179,7 @@ export function buildTeamRows(artifact: TeamsArtifact, algorithmId: string): Tea
     // SIGMA SCORE, from the published `sigma` metric entry and NOTHING ELSE.
     //
     // The old `?? team.swingFactor` fallback is deliberately GONE. That field
-    // still exists on OPR/EPA rows and on any pre-republish BPR row, and it
+    // still exists on OPR/EPA rows and on any pre-republish SPR row, and it
     // holds a SWING FACTOR — a different estimator on a different scale
     // (Swing prints 1.92 sigma, Sigma prints an honest 1 sigma, so the same
     // robot reads roughly twice as large under Swing). Falling back to it

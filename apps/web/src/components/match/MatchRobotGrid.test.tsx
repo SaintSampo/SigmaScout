@@ -55,7 +55,7 @@ afterAll(() => {
 });
 
 const SEASON = 2024;
-const ALGORITHM: PublishedAlgorithmId = "bpr";
+const ALGORITHM: PublishedAlgorithmId = "spr";
 
 const RED_TEAMS = ["frc254", "frc118", "frc1114"];
 const BLUE_TEAMS = ["frc100", "frc200", "frc300"];
@@ -65,7 +65,7 @@ function artifact(overrides: Partial<TeamSeasonArtifact> = {}): TeamSeasonArtifa
     schemaVersion: 1,
     generation: "gen-1",
     computedAt: "2026-08-24T00:00:00.000Z",
-    algorithmId: "bpr",
+    algorithmId: "spr",
     algorithmVersion: "2.0.0+tuned",
     teamKey: "frc254",
     teamNumber: 254,

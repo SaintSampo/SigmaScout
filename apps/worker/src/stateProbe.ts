@@ -75,12 +75,12 @@
  * runbook, the same-commit ordering rule, and the conditions under which a
  * reported `cpuTime` is not a measurement at all.
  *
- * 260912-ivg Stage 1: this probe reads `PIPELINE_ALGORITHM_IDS` (the
- * WRITE tier — premier id `spr`), not `PUBLISHED_ALGORITHM_IDS`. Until
- * Stage 3's D1 reseed runs, the live database holds no `algorithm_id =
- * 'spr'` rows, so a probe run in that window legitimately reports
- * `NoLeagueRow`/zero rows for the premier algorithm rather than an error —
- * that is the expected, not-yet-seeded state, not a probe failure.
+ * 260912-ivg (Sigma Power Rating rename): this probe reads
+ * `PUBLISHED_ALGORITHM_IDS`, whose premier member is `spr` as of Stage 5.
+ * Between Stage 1 (source rename) and Stage 3 (D1 reseed), a probe run in
+ * that window legitimately reported `NoLeagueRow`/zero rows for the premier
+ * algorithm rather than an error — the expected, not-yet-seeded state, not a
+ * probe failure. That transitional window is closed as of this stage.
  */
 import {
   readScopedState,
@@ -115,12 +115,12 @@ import { opr } from "../../../packages/core/algorithms/opr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
 import { TOTAL_METRIC_KEY, type MatchResult, type UpcomingMatch, type Prediction } from "../../../packages/core/algorithms/types.js";
-import { PIPELINE_ALGORITHM_IDS } from "../../../packages/harness/manifestSchemas.js";
+import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/manifestSchemas.js";
 
-// `opr`/`epa` are imported for their side of `PIPELINE_ALGORITHM_IDS`'
+// `opr`/`epa` are imported for their side of `PUBLISHED_ALGORITHM_IDS`'
 // read-and-deserialize loop below (dispatched by id, never referenced by
 // name directly) — referencing them here keeps them out of an
-// unused-import lint trap while making plain that all three write-tier
+// unused-import lint trap while making plain that all three published
 // algorithms are in this file's graph on purpose.
 void opr;
 void epa;
@@ -416,7 +416,7 @@ async function readAndDeserializeAll(
   let sprRows: StateRow[] | undefined;
   let sprState: SprState | undefined;
 
-  for (const algorithmId of PIPELINE_ALGORITHM_IDS) {
+  for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
     const rowsRead = { league: 0, team: 0, event: 0 };
     let leagueRowPresent = false;
     try {

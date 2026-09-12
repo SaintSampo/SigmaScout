@@ -34,12 +34,12 @@ const KNOWN_SEASONS = new Set<number>(SEASONS);
  * expression below falls through to this value rather than failing — D-05's
  * own safety argument for why the rename reaches the algorithm id at all.
  */
-// BPR is SigmaScout's premier algorithm as of 2026-09-09, replacing VPR, which
+// SPR is SigmaScout's premier algorithm as of 2026-09-09, replacing VPR, which
 // was removed from the published set entirely. A shared link carrying a retired
 // id is not a dead link, for the same reason it never was: a retired id is not
 // a member of `PUBLISHED_ALGORITHM_IDS`, so the
 // `z.enum(...).catch(DEFAULT_ALGORITHM)` expression below lands here.
-const DEFAULT_ALGORITHM: PublishedAlgorithmId = "bpr";
+const DEFAULT_ALGORITHM: PublishedAlgorithmId = "spr";
 
 /**
  * `year`: coerced to an integer and constrained to the known season list

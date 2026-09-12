@@ -468,10 +468,11 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
     expect(manifest.algorithms.map((a) => a.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
     expect(manifest.algorithms.find((a) => a.id === "opr")!.version).toBe(opr.version);
     expect(manifest.algorithms.find((a) => a.id === "epa")!.version).toBe(epa.version);
-    // 260912-ivg Stage 1: this manifest is a READ-tier artifact, so its
-    // premier entry's id stays "bpr" (`buildAlgorithmsManifest`'s override)
-    // even though the underlying module now reports id "spr" internally.
-    expect(manifest.algorithms.find((a) => a.id === "bpr")!.version).toBe(spr.version);
+    // The premier entry's id and version are read straight from the `spr`
+    // module — no override, since 260912-ivg Stage 5 deleted the transitional
+    // id-substitution mapping that existed while `PUBLISHED_ALGORITHM_IDS`
+    // still named the pre-rename premier id.
+    expect(manifest.algorithms.find((a) => a.id === "spr")!.version).toBe(spr.version);
   });
 
   it("carries no tunable params or paramsSeason on any entry, since no published algorithm is promoted-versioned any more", () => {
@@ -488,7 +489,7 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
   });
 });
 
-describe("PUBLISHED_ALGORITHM_IDS — the single tier again (plan 07-16 Task 2 introduced a transitional second tier, collapsed by plan 07-18 Task 1)", () => {
+describe("PUBLISHED_ALGORITHM_IDS — the single tier again (plan 07-16 Task 2 introduced a transitional second tier, collapsed by plan 07-18 Task 1; reopened and re-collapsed again by quick task 260912-ivg)", () => {
   // Test 9 (rewritten from 07-16 Task 2's Test 6, not deleted — that case's
   // own source comment named this plan as the one that makes the two
   // tiers equal; deleting it instead would remove the only test that ever
@@ -497,26 +498,25 @@ describe("PUBLISHED_ALGORITHM_IDS — the single tier again (plan 07-16 Task 2 i
   // the renamed triple in the shipped order.
   it("is the module's only algorithm-id constant, and its members are the published triple in the shipped order", async () => {
     // vpr removed 2026-09-09 on its retirement from the site.
-    // 260912-ivg Stage 1 reopened the two-tier split (mirroring 07-16/07-18):
-    // PUBLISHED_ALGORITHM_IDS (this constant, the READ tier) still reads
-    // "bpr" — the `bpr@` R2 objects are the only ones that exist today.
-    // `publishedAlgorithms.js` now also exports `PIPELINE_ALGORITHM_IDS`
-    // (the WRITE tier, "spr"), so this describe's own title ("the single
-    // tier again") is transiently false until Stage 5 collapses it back.
-    expect(PUBLISHED_ALGORITHM_IDS).toEqual(["opr", "epa", "bpr"]);
-    expect(Object.keys(await import("./publishedAlgorithms.js"))).toEqual(["PUBLISHED_ALGORITHM_IDS", "PIPELINE_ALGORITHM_IDS"]);
+    // 260912-ivg Stage 1 reopened the two-tier split (mirroring 07-16/07-18)
+    // for the bpr -> spr identifier rename; Stage 5 (this test) collapses it
+    // back — `PIPELINE_ALGORITHM_IDS` is gone from `publishedAlgorithms.js`
+    // entirely, and `PUBLISHED_ALGORITHM_IDS` itself now names the renamed id.
+    expect(PUBLISHED_ALGORITHM_IDS).toEqual(["opr", "epa", "spr"]);
+    expect(Object.keys(await import("./publishedAlgorithms.js"))).toEqual(["PUBLISHED_ALGORITHM_IDS"]);
   });
 
   // Test 7 (unchanged claim, now a literal comparison since there is only
   // one tier): the published algorithm sits THIRD — the position the
   // shipped ribbon renders it in (D-03's ordering, re-pinned through the
   // rename).
-  // BPR replaced VPR as SigmaScout's premier algorithm on 2026-09-09 and holds
-  // the same third position the ribbon renders it in.
+  // BPR (renamed to SPR by quick task 260912-ivg) replaced VPR as
+  // SigmaScout's premier algorithm on 2026-09-09 and holds the same third
+  // position the ribbon renders it in.
   it("places the premier algorithm third", () => {
     expect(PUBLISHED_ALGORITHM_IDS[2]).not.toBe(PUBLISHED_ALGORITHM_IDS[0]);
     expect(PUBLISHED_ALGORITHM_IDS[2]).not.toBe(PUBLISHED_ALGORITHM_IDS[1]);
-    expect(PUBLISHED_ALGORITHM_IDS[2]).toBe("bpr");
+    expect(PUBLISHED_ALGORITHM_IDS[2]).toBe("spr");
   });
 });
 

@@ -526,14 +526,13 @@ describe("liveAlgorithmTier — the three decided misconfiguration behaviors", (
     expect(() => parseLiveAlgorithmIds("opr,sigma7")).toThrow(/sigma7/);
   });
 
-  // 260912-ivg Stage 1: parseLiveAlgorithmIds validates against
-  // PIPELINE_ALGORITHM_IDS (the WRITE tier), not PUBLISHED_ALGORITHM_IDS
-  // (the READ tier) — this is the negative half that proves validation
-  // actually MOVED to the write tier rather than widening to accept both.
-  // `spr` (the new write-tier premier id) is accepted; `bpr` (still a
-  // PUBLISHED_ALGORITHM_IDS member, since the deployed browser still reads
-  // `bpr@` objects) is correctly REJECTED here.
-  it("accepts the write-tier premier id (spr) and rejects the retiring published id (bpr)", () => {
+  // 260912-ivg: parseLiveAlgorithmIds validates against
+  // PUBLISHED_ALGORITHM_IDS, the single algorithm-id constant again as of
+  // Stage 5's collapse. `spr` (the renamed premier id) is accepted; `bpr`
+  // (the pre-rename premier id, retired entirely by this task) is correctly
+  // REJECTED here — the negative half that proves the retired id did not
+  // silently come back as a member.
+  it("accepts the current premier id (spr) and rejects the retired premier id (bpr)", () => {
     expect(parseLiveAlgorithmIds("spr")).toEqual(["spr"]);
     expect(() => parseLiveAlgorithmIds("bpr")).toThrow(UnknownLiveAlgorithmIdError);
     expect(() => parseLiveAlgorithmIds("bpr")).toThrow(/bpr/);

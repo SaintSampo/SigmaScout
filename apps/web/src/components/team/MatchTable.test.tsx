@@ -137,7 +137,7 @@ function makeMatch(overrides: Partial<TeamSeasonMatch> = {}): TeamSeasonMatch {
     season: 2024,
     eventKey: "2024casj",
     compLevel: "qm",
-    algorithmId: "bpr",
+    algorithmId: "spr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     predictedWinner: "red",
     pRedWin: 0.63,
@@ -186,12 +186,12 @@ describe("MatchTable", () => {
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
-        algorithm="bpr"
+        algorithm="spr"
       />,
     );
     for (const number of ["118", "1690", "10935", "254", "33", "111"]) {
       const link = screen.getByRole("link", { name: number });
-      expect(link.getAttribute("href")).toBe(`/team/${number}?year=2024&algorithm=bpr&tab=overview`);
+      expect(link.getAttribute("href")).toBe(`/team/${number}?year=2024&algorithm=spr&tab=overview`);
     }
   });
 
@@ -202,7 +202,7 @@ describe("MatchTable", () => {
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
-        algorithm="bpr"
+        algorithm="spr"
       />,
     );
     expect(screen.getByTestId("alliance-mark-m1-red-band")).toBeDefined();
@@ -247,7 +247,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc5199"
           season={2024}
-        algorithm="bpr"
+        algorithm="spr"
         />,
       );
       const resultCell = screen.getByTestId("result-m1");
@@ -271,7 +271,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
-        algorithm="bpr"
+        algorithm="spr"
         />,
       );
       const resultCell = screen.getByTestId("result-m1");
@@ -286,7 +286,7 @@ describe("MatchTable", () => {
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
-        algorithm="bpr"
+        algorithm="spr"
       />,
     );
     const winner = screen.getByTestId("actual-m1-red");
@@ -300,7 +300,7 @@ describe("MatchTable", () => {
     const sortTime = Math.floor(new Date("2026-01-03T18:30:00Z").getTime() / 1000);
     renderWithRouter(<MatchTable matches={[makeMatch({ matchKey: "m1", sortTime })]} domain={DOMAIN} teamKey="frc118"
         season={2024}
-        algorithm="bpr"
+        algorithm="spr"
       />);
 
     expect(screen.getByTestId("alliance-mark-m1-red-band")).toBeDefined();
@@ -341,7 +341,7 @@ describe("MatchTable", () => {
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
-        algorithm="bpr"
+        algorithm="spr"
       />,
     );
     expect(screen.getByTestId("alliance-mark-m1-red-tick")).toBeDefined();
@@ -371,7 +371,7 @@ describe("MatchTable", () => {
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
-        algorithm="bpr"
+        algorithm="spr"
       />,
     );
     for (const matchKey of ["m1", "m2"]) {
@@ -395,7 +395,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
-        algorithm="bpr"
+        algorithm="spr"
         />,
       );
       const row = screen.getByTestId("match-row-m1");
@@ -425,7 +425,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
-        algorithm="bpr"
+        algorithm="spr"
         />,
       );
       const row = screen.getByTestId("match-row-m1");
@@ -450,7 +450,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
-        algorithm="bpr"
+        algorithm="spr"
         />,
       );
       const row = screen.getByTestId("match-row-m1");
@@ -465,7 +465,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc604"
           season={2024}
-        algorithm="bpr"
+        algorithm="spr"
         />,
       );
       const row = screen.getByTestId("match-row-m1");
@@ -492,7 +492,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc5199"
           season={2024}
-        algorithm="bpr"
+        algorithm="spr"
         />,
       );
       const row = screen.getByTestId("match-row-m1");
@@ -508,7 +508,7 @@ describe("MatchTable", () => {
   it("renders the axis header exactly once, with at least two labelled ticks, and never labels the lowest tick 0 for a 180-floor fixture", () => {
     renderWithRouter(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={{ min: 180, max: 300 }} teamKey="frc118"
         season={2024}
-        algorithm="bpr"
+        algorithm="spr"
       />);
     const axes = screen.getAllByTestId("axis-ticks");
     expect(axes).toHaveLength(1);
@@ -520,7 +520,7 @@ describe("MatchTable", () => {
   it("still renders the full labelled axis for a single-match event", () => {
     renderWithRouter(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={DOMAIN} teamKey="frc118"
         season={2024}
-        algorithm="bpr"
+        algorithm="spr"
       />);
     expect(screen.getAllByTestId("axis-tick").length).toBeGreaterThanOrEqual(2);
   });
@@ -532,7 +532,7 @@ describe("MatchTable", () => {
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
-        algorithm="bpr"
+        algorithm="spr"
       />,
     );
     const row1 = screen.getByTestId("match-row-m1");
@@ -560,7 +560,7 @@ describe("MatchTable", () => {
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
-        algorithm="bpr"
+        algorithm="spr"
       />,
     );
     const row1 = screen.getByTestId("match-row-m1");
@@ -577,7 +577,7 @@ describe("MatchTable", () => {
   it("renders the predicted-winner confidence chip in the alliance's own colour tokens, no bare string alone", () => {
     renderWithRouter(<MatchTable matches={[makeMatch({ matchKey: "m1", predictedWinner: "blue" })]} domain={DOMAIN} teamKey="frc118"
         season={2024}
-        algorithm="bpr"
+        algorithm="spr"
       />);
     const confidence = screen.getByTestId("confidence-m1");
     const chip = within(confidence).getByText("Blue");
@@ -591,7 +591,7 @@ describe("MatchTable", () => {
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
-        algorithm="bpr"
+        algorithm="spr"
       />,
     );
     const rows = screen.getAllByTestId(/^match-row-/);
@@ -628,7 +628,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
-        algorithm="bpr"
+        algorithm="spr"
         />,
       );
 
@@ -666,7 +666,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2025}
-        algorithm="bpr"
+        algorithm="spr"
         />,
       );
 
@@ -703,7 +703,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
-        algorithm="bpr"
+        algorithm="spr"
         />,
       );
 
@@ -736,7 +736,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
-        algorithm="bpr"
+        algorithm="spr"
         />,
       );
 
@@ -769,7 +769,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
-        algorithm="bpr"
+        algorithm="spr"
         />,
       );
 
@@ -807,7 +807,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2024}
-        algorithm="bpr"
+        algorithm="spr"
         />,
       );
 
@@ -842,7 +842,7 @@ describe("MatchTable", () => {
           domain={DOMAIN}
           teamKey="frc118"
           season={2026}
-        algorithm="bpr"
+        algorithm="spr"
         />,
       );
 
@@ -867,7 +867,7 @@ describe("Match-column label links to /match/{matchKey} (260909-tiq-PLAN.md Task
         domain={DOMAIN}
         teamKey="frc118"
         season={2024}
-        algorithm="bpr"
+        algorithm="spr"
       />,
     );
     const row = screen.getByTestId("match-row-2024casj_qm1");
@@ -875,12 +875,12 @@ describe("Match-column label links to /match/{matchKey} (260909-tiq-PLAN.md Task
     expect(link).not.toBeNull();
     expect(link?.getAttribute("href")).toContain("2024casj_qm1");
     expect(link?.getAttribute("href")).toContain("year=2024");
-    expect(link?.getAttribute("href")).toContain("algorithm=bpr");
+    expect(link?.getAttribute("href")).toContain("algorithm=spr");
   });
 
   it("an unplayed row's Match label links exactly as a played row's does — a match page exists for both", () => {
     renderWithRouter(
-      <MatchTable matches={[makeMatch({ matchKey: "2024casj_qm2", setNumber: 1, matchNumber: 2 })]} domain={DOMAIN} teamKey="frc118" season={2024} algorithm="bpr" />,
+      <MatchTable matches={[makeMatch({ matchKey: "2024casj_qm2", setNumber: 1, matchNumber: 2 })]} domain={DOMAIN} teamKey="frc118" season={2024} algorithm="spr" />,
     );
     const row = screen.getByTestId("match-row-2024casj_qm2");
     const link = within(row).getByText("Qual 2").closest("a");
@@ -890,7 +890,7 @@ describe("Match-column label links to /match/{matchKey} (260909-tiq-PLAN.md Task
 
   it("the match link does NOT join the .match-alliance-num class family, and the roster-number links beside it still resolve to team pages", () => {
     renderWithRouter(
-      <MatchTable matches={[makeMatch({ matchKey: "2024casj_qm1", setNumber: 1, matchNumber: 1 })]} domain={DOMAIN} teamKey="frc118" season={2024} algorithm="bpr" />,
+      <MatchTable matches={[makeMatch({ matchKey: "2024casj_qm1", setNumber: 1, matchNumber: 1 })]} domain={DOMAIN} teamKey="frc118" season={2024} algorithm="spr" />,
     );
     const row = screen.getByTestId("match-row-2024casj_qm1");
     const matchLink = within(row).getByText("Qual 1").closest("a");

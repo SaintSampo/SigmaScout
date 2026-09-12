@@ -30,7 +30,7 @@ type ExtraParamKeys = Exclude<keyof FetchPreScheduleArtifactParams, "eventKey" |
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _noExtraKeys: ExtraParamKeys extends never ? true : false = true;
 
-const PARAMS: FetchPreScheduleArtifactParams = { eventKey: "2026casj", algorithmId: "bpr", version: "9.0.0+rolling-2026-09c" };
+const PARAMS: FetchPreScheduleArtifactParams = { eventKey: "2026casj", algorithmId: "spr", version: "9.0.0+rolling-2026-09c" };
 
 /**
  * A minimal but genuinely schema-valid sidecar, in the PUBLISHED (post-
@@ -43,7 +43,7 @@ function makeValidArtifact(): PublishedPreScheduleArtifact {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-09-05T00:00:00.000Z",
-    algorithmId: "bpr",
+    algorithmId: "spr",
     algorithmVersion: "9.0.0+rolling-2026-09c",
     eventKey: "2026casj",
     season: 2026,
@@ -66,7 +66,7 @@ function makeLegacyBody(): Record<string, unknown> {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-09-05T00:00:00.000Z",
-    algorithmId: "bpr",
+    algorithmId: "spr",
     algorithmVersion: "9.0.0+rolling-2026-09c",
     eventKey: "2026casj",
     season: 2026,
@@ -150,10 +150,10 @@ describe("fetchPreScheduleArtifact", () => {
 
     await fetchPreScheduleArtifact(PARAMS);
 
-    expect(fetchMock).toHaveBeenCalledWith("https://data.sigmascout.org/v1/presim/2026casj/bpr@9.0.0+rolling-2026-09c.json");
+    expect(fetchMock).toHaveBeenCalledWith("https://data.sigmascout.org/v1/presim/2026casj/spr@9.0.0+rolling-2026-09c.json");
   });
 
   it("preScheduleQueryOptions carries the positional query key eventQueryOptions' convention declares", () => {
-    expect(preScheduleQueryOptions(PARAMS).queryKey).toEqual(["preSchedule", "2026casj", "bpr", "9.0.0+rolling-2026-09c"]);
+    expect(preScheduleQueryOptions(PARAMS).queryKey).toEqual(["preSchedule", "2026casj", "spr", "9.0.0+rolling-2026-09c"]);
   });
 });

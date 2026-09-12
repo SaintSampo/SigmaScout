@@ -126,7 +126,7 @@ describe("/districts route", () => {
       if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
       return new Promise<Response>(() => {}); // detail fetch must never fire
     });
-    renderDistrictsRoute("/districts?algorithm=bpr");
+    renderDistrictsRoute("/districts?algorithm=spr");
 
     await waitFor(() => expect(screen.getByRole("combobox", { name: "District" })).toBeDefined());
     expect(screen.getByText("Pick a district")).toBeDefined();
@@ -139,7 +139,7 @@ describe("/districts route", () => {
       if (url.includes("/v1/district/")) return Promise.resolve(districtDetailResponse("2026fnc"));
       return new Promise<Response>(() => {});
     });
-    const router = renderDistrictsRoute("/districts?algorithm=bpr");
+    const router = renderDistrictsRoute("/districts?algorithm=spr");
 
     await waitFor(() => expect(screen.getByRole("combobox", { name: "District" })).toBeDefined());
     const trigger = screen.getByRole("combobox", { name: "District" });
@@ -159,7 +159,7 @@ describe("/districts route", () => {
       if (url.includes("/v1/district/")) return Promise.resolve(districtDetailResponse("2026fnc"));
       return new Promise<Response>(() => {});
     });
-    renderDistrictsRoute("/districts?algorithm=bpr&district=2026fnc&tab=champ-locks");
+    renderDistrictsRoute("/districts?algorithm=spr&district=2026fnc&tab=champ-locks");
 
     await waitFor(() => expect(screen.getByTestId("champ-locks-panel")).toBeDefined());
     expect(screen.getByTestId("champ-locks-panel").hasAttribute("hidden")).toBe(false);
@@ -173,7 +173,7 @@ describe("/districts route", () => {
       if (url.includes("/v1/district/")) return Promise.resolve(districtDetailResponse("2026fnc"));
       return new Promise<Response>(() => {});
     });
-    renderDistrictsRoute("/districts?algorithm=bpr&district=2026fnc");
+    renderDistrictsRoute("/districts?algorithm=spr&district=2026fnc");
 
     await waitFor(() => expect(screen.getByTestId("district-locks-panel")).toBeDefined());
     expect(screen.getByTestId("district-locks-panel").hasAttribute("hidden")).toBe(false);
@@ -190,7 +190,7 @@ describe("/districts route", () => {
       if (url.includes("/v1/district/")) return Promise.resolve(districtDetailResponse("2026fnc"));
       return new Promise<Response>(() => {});
     });
-    renderDistrictsRoute("/districts?algorithm=bpr&district=2026fnc&tab=insights");
+    renderDistrictsRoute("/districts?algorithm=spr&district=2026fnc&tab=insights");
 
     await waitFor(() => expect(screen.getByTestId("district-locks-panel")).toBeDefined());
     expect(screen.getByTestId("district-locks-panel").hasAttribute("hidden")).toBe(false);

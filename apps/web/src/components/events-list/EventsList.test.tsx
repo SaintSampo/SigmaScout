@@ -67,7 +67,7 @@ function makeRows(events: EventsArtifact["events"]): EventRow[] {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-08-24T00:00:00.000Z",
-    algorithmId: "bpr",
+    algorithmId: "spr",
     algorithmVersion: "2.0.0+tuned-2026-08",
     season: 2025,
     events,
@@ -79,7 +79,7 @@ const noop = () => {};
 /** Every fixed prop `EventsList` needs besides `events`, threaded once. */
 const BASE_PROPS = {
   year: 2025,
-  algorithm: "bpr" as const,
+  algorithm: "spr" as const,
   hasActiveFilter: false,
   onClearFilters: noop,
   onRetry: noop,
@@ -311,7 +311,7 @@ describe("EventsList", () => {
     const events = makeRows([makeRow({ eventKey: "2025alhu", name: "Rocket City Regional" })]);
     render(
       <TestHarness>
-        <EventsList status="success" events={events} {...BASE_PROPS} year={2025} algorithm="bpr" />
+        <EventsList status="success" events={events} {...BASE_PROPS} year={2025} algorithm="spr" />
       </TestHarness>,
     );
 
@@ -319,7 +319,7 @@ describe("EventsList", () => {
     const href = link.getAttribute("href") ?? "";
     expect(href).toContain("/event/2025alhu");
     expect(href).toContain("year=2025");
-    expect(href).toContain("algorithm=bpr");
+    expect(href).toContain("algorithm=spr");
     expect(href).toContain(`tab=${DEFAULT_EVENT_TAB}`);
   });
 

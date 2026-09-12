@@ -151,15 +151,14 @@ export const SIGMA_METRIC_KEY = "sigma";
  * for them. They keep their Swing-derived MATCH BANDS unchanged; only the
  * per-team published figure goes away.
  *
- * 260912-ivg Stage 1 (BPR -> SPR identifier cutover): transitional, both
- * `bpr` (the deployed browser-READ tier — Sigma Score must keep rendering on
- * the live site, which still reads `bpr@` artifacts) and `spr` (the
- * publisher/Worker-WRITE tier, starting with this task) are members, so this
- * predicate answers identically for either name during the split. Stage 5
- * removes `"bpr"` from this set in the same edit that collapses
- * `PUBLISHED_ALGORITHM_IDS` onto `spr`.
+ * 260912-ivg (BPR -> SPR identifier cutover): Stages 1-4 held this as a
+ * transitional two-member set — the deployed browser-READ tier's pre-rename
+ * id, still live at the time, alongside `spr` (the publisher/Worker-WRITE
+ * tier) — so the predicate answered identically for either name during the
+ * split. Stage 5 (this edit) removes the retired pre-rename member in the
+ * same commit that collapses `PUBLISHED_ALGORITHM_IDS` onto `spr`.
  */
-export const SIGMA_SCORE_ALGORITHM_IDS: ReadonlySet<string> = new Set(["bpr", "spr"]);
+export const SIGMA_SCORE_ALGORITHM_IDS: ReadonlySet<string> = new Set(["spr"]);
 
 /** Whether this algorithm publishes Sigma Score rather than a Swing Factor. */
 export function usesSigmaScore(algorithmId: string): boolean {

@@ -37,11 +37,11 @@ describe("/compare redirect", () => {
   });
 
   it("carries the current search params through unchanged", async () => {
-    const router = renderCompareRedirect("/compare?year=2024&algorithm=bpr");
+    const router = renderCompareRedirect("/compare?year=2024&algorithm=spr");
     await waitFor(() => expect(screen.getByText("Methodology Compare page")).toBeDefined());
     const search = router.state.location.search as Record<string, unknown>;
     expect(search.year).toBe(2024);
-    expect(search.algorithm).toBe("bpr");
+    expect(search.algorithm).toBe("spr");
   });
 
   it("replaces the history entry rather than pushing — a browser Back from the moved page does not bounce through /compare again", async () => {

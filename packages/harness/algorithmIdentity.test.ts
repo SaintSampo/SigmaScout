@@ -82,11 +82,14 @@ function isSkippedFile(name: string): boolean {
  * Path-prefix exclusions, seeded with eight entries at 07-16 Task 3 and
  * decremented to SEVEN by plan 07-18 Task 3 (which deleted the
  * client-package exclusion entry once the sigma1 -> vpr rename's browser
- * tier collapsed) — raised back to EIGHT here (quick task 260912-ivg Stage 1
- * Task 4), which reopens exactly that same shape for the SAME reason, one
- * rename later. The length is itself asserted below (T-07-16-06 /
- * prohibition 2), so a further entry added later is a deliberate, reviewed
- * diff, never a quiet way to make a red gate green.
+ * tier collapsed) — raised back to EIGHT by quick task 260912-ivg Stage 1
+ * Task 4, which reopened exactly that same shape for the bpr -> spr rename,
+ * and decremented back to SEVEN here (Stage 5): the client-package
+ * exclusion is deleted again now that the browser reads `spr@` objects, the
+ * same collapse 07-18 performed for the sigma1 -> vpr rename this mirrors.
+ * The length is itself asserted below (T-07-16-06 / prohibition 2), so a
+ * further entry added later is a deliberate, reviewed diff, never a quiet
+ * way to make a red gate green.
  */
 export const IDENTITY_SWEEP_EXCLUSIONS: readonly string[] = [
   ".planning/", // planning history — decisions, plans, summaries recorded under the id in force when they were written
@@ -96,16 +99,6 @@ export const IDENTITY_SWEEP_EXCLUSIONS: readonly string[] = [
   "docs/first-paint-measurement.md", // measurement record
   "docs/publish-budget.md", // measurement record; 07-19 re-measures it against the D-18-enlarged schema
   "data/baselines/", // frozen run fingerprints — committed exactly as measured, never rewritten
-  // 260912-ivg Stage 1 Task 4: the browser-READ tier. `apps/web/` still
-  // legitimately names `bpr` throughout — PUBLISHED_ALGORITHM_IDS, every
-  // compare-20NN.json fixture, searchParams.ts's DEFAULT_ALGORITHM,
-  // metricKeys.ts, MethodologyNote.tsx, columns.tsx — because the `bpr@`
-  // objects it names are the ONLY ones that exist in R2 today; the deployed
-  // browser must keep requesting them until Stage 5's client flip. Stage 5
-  // is what deletes this entry, exactly mirroring the client-package
-  // exclusion plan 07-16 added and 07-18 removed for the sigma1 -> vpr
-  // rename this reopens the same shape for.
-  "apps/web/",
 ];
 
 /**
@@ -167,39 +160,17 @@ export const IDENTITY_SWEEP_EXCLUSIONS: readonly string[] = [
  *     reasoning to this file's own top entry — a sensor is not required to
  *     sense itself, and a tool built to delete a retired id's objects must
  *     be permitted to name that id.
- *   - `packages/harness/sigmaScore.ts` (260912-ivg Stage 1 Task 4):
- *     `SIGMA_SCORE_ALGORITHM_IDS` was made a two-member set by Task 1 --
- *     `new Set(["bpr", "spr"])` -- so the Sigma Score column keeps rendering
- *     on BOTH the deployed (bpr) and about-to-publish (spr) tiers during the
- *     split. A predicate that must answer identically for either name during
- *     a transition is not an unrenamed identity; it is the BOTH-tier shape
- *     this rename's own tier table names. Stage 5 removes the retiring
- *     "bpr" member from that set in the same edit that collapses
- *     PUBLISHED_ALGORITHM_IDS onto `spr`.
- *   - `packages/harness/stateSnapshot.ts` (260912-ivg Stage 1 Task 4):
- *     serializeState/deserializeState's premier-algorithm branch was made
- *     dual-name by Task 1 -- `algorithmId === "spr" || algorithmId ===
- *     "bpr"` -- so a Worker deployed anywhere in the cutover window can
- *     still read D1 rows written under either id. Same BOTH-tier reasoning
- *     as sigmaScore.ts above; Stage 5 removes the "bpr" half of each
- *     dispatch branch.
- *   - `packages/harness/stateSnapshot.test.ts` (260912-ivg Stage 1 Task 4):
- *     its new dual-name-dispatch test proves serializeState/deserializeState
- *     really do treat "bpr" and "spr" identically, which requires literally
- *     calling both with the real pre-rename string -- proof of a dual-name
- *     dispatch requires citing both names, exactly the same reasoning
- *     publish.test.ts's/liveAlgorithmTier.test.ts's own entries above use.
- *   - `packages/harness/manifests.ts` (260912-ivg Stage 1 Task 4):
- *     buildAlgorithmsManifest's `modules` record carries a real `bpr: {
- *     ...spr, id: "bpr" }` override so the READ-tier algorithms.json manifest
- *     keeps reporting id "bpr" (matching what useAlgorithmVersion looks up by
- *     PUBLISHED_ALGORITHM_IDS) even though the underlying module now reports
- *     "spr" internally. This is a real, functionally required string, not a
- *     leftover -- Stage 5 deletes the override in the same edit that moves
- *     PUBLISHED_ALGORITHM_IDS's value.
- *   - `packages/harness/manifests.test.ts` (260912-ivg Stage 1 Task 4): its
- *     tests assert the override above actually produces a manifest entry
- *     with id "bpr" -- proving that requires citing "bpr" literally.
+ *   - `packages/harness/sigmaScore.ts`, `packages/harness/stateSnapshot.ts`,
+ *     `packages/harness/stateSnapshot.test.ts`, `packages/harness/manifests.ts`
+ *     and `packages/harness/manifests.test.ts` briefly carried entries here
+ *     (260912-ivg Stage 1 Task 4): each held a real, functionally required
+ *     BOTH-tier citation of the pre-rename id (a dual-name predicate/dispatch
+ *     branch, or a READ-tier manifest override) during the Stage 1-4
+ *     transition window. Stage 5 removed the retiring id from all five files
+ *     in the same commit that collapsed `PUBLISHED_ALGORITHM_IDS` onto
+ *     `spr`, so none of the five carries an identity-shaped citation of the
+ *     retired id any more — their entries are gone from this list, not
+ *     widened.
  *   - `packages/harness/level1Digest.test.ts` (260912-ivg Stage 1 Task 4):
  *     `data/baselines/level1-digest-2026-09.json` and the
  *     FROZEN_AT_09_01_STREAM_SHA256 pin are FROZEN records that recorded the
@@ -222,11 +193,6 @@ export const STRUCTURAL_EXEMPTIONS: readonly string[] = [
   "apps/worker/test/liveAlgorithmTier.test.ts",
   "scripts/deleteRetiredAlgorithmObjects.ts",
   "scripts/deleteRetiredAlgorithmObjects.test.ts",
-  "packages/harness/sigmaScore.ts",
-  "packages/harness/stateSnapshot.ts",
-  "packages/harness/stateSnapshot.test.ts",
-  "packages/harness/manifests.ts",
-  "packages/harness/manifests.test.ts",
   "packages/harness/level1Digest.test.ts",
   "scripts/measureRpCalibration.ts",
 ];
@@ -262,31 +228,49 @@ export const PRE_RENAME_MARKER = "[pre-rename]";
  * rows/paragraph in `docs/simulation-architecture.md`, and the two
  * deployed-version-verification lines in `docs/worker-operations.md`.
  *
- * The number is 20, not the 26 first committed. That first count was taken
- * while `runSweep` still incremented this counter for EXCLUDED files, so six
- * of the 26 were markers sitting in `.planning/`, `docs/models/` and other
- * excluded paths — places with no violation for a marker to suppress, where a
- * marker is therefore inert. The counter now skips excluded files (see
- * `runSweep`), and 20 is the counted total over the files the sweep actually
- * scans. That distinction is the whole point: counting excluded files made
- * this cap a function of preserved planning prose, which is never rewritten
- * and grows with every task, so a summary that merely QUOTED the marker
- * alongside the retired id turned the gate red on documentation — which is
- * exactly how this was found.
+ * The number was 20, not the 26 first committed at Stage 1 Task 4. That
+ * first count was taken while `runSweep` still incremented this counter for
+ * EXCLUDED files, so six of the 26 were markers sitting in `.planning/`,
+ * `docs/models/` and other excluded paths — places with no violation for a
+ * marker to suppress, where a marker is therefore inert. The counter now
+ * skips excluded files (see `runSweep`), and 20 was the counted total over
+ * the files the sweep scanned AT THAT TIME (with `apps/web/` still
+ * excluded). That distinction is the whole point: counting excluded files
+ * made this cap a function of preserved planning prose, which is never
+ * rewritten and grows with every task, so a summary that merely QUOTED the
+ * marker alongside the retired id turned the gate red on documentation —
+ * which is exactly how this was found.
+ *
+ * Raised again here to 26 by quick task 260912-ivg Stage 5, which removed
+ * the `apps/web/` exclusion entirely (the client-tree collapse this test
+ * file's own header names as the CLIENT third of the standing D-05
+ * assertion). That re-exposed SIX pre-existing `[pre-rename]` markers that
+ * plan 07-18 Task 3 originally counted into the cap of 19 for the SAME
+ * reason (its own re-grep of the newly un-excluded client tree) — Stage 1
+ * Task 4's `apps/web/` exclusion had hidden them again in the meantime, so
+ * this Stage 5 re-grep is simply re-discovering markers this file has
+ * counted before, not six new citations: the three e2e specs'
+ * "confirmed live"/"published under" artifact-key citations
+ * (`apps/web/e2e/*.spec.ts`), one comment in `apps/web/src/lib/query-client.ts`
+ * attributing a config rename to plan 07-16, and two comments in
+ * `apps/web/src/lib/searchParams.ts` explaining where `DEFAULT_ALGORITHM`'s
+ * value moved from — all citing the retired `sigma1` id, not `bpr`.
  *
  * Counted, not a round number chosen with headroom — raised in a visible diff
  * with this reason, never by widening a file exclusion instead.
  */
-const MARKER_CAP = 20;
+const MARKER_CAP = 26;
 
 /**
  * The retired published identity and its four harness-only siblings, plus
  * `bpr` — added by quick task 260912-ivg Stage 1 Task 4, the identifier
  * `packages/core/algorithms/bpr.ts` (now `spr.ts`) carried until this task's
- * Stage 1 renamed it to `spr`. Exported and pinned by an exact-contents
- * assertion below (not merely a length check) so a later edit that silently
- * drops a member fails a test rather than quietly narrowing what this sweep
- * covers.
+ * Stage 1 renamed it to `spr`. `bpr` is now fully retired: Stage 5 collapsed
+ * the transitional write/read-tier split and removed every remaining
+ * identity-shaped citation of it outside the exclusions/exemptions above.
+ * Exported and pinned by an exact-contents assertion below (not merely a
+ * length check) so a later edit that silently drops a member fails a test
+ * rather than quietly narrowing what this sweep covers.
  */
 export const RETIRED_IDS = ["sigma1", "sigma1-defaults", "sigma1-seasonsd", "sigma1-normalcdf", "sigma1-adapt", "bpr"] as const;
 
@@ -474,9 +458,10 @@ describe("algorithmIdentity sweep — standing D-05 assertion, SOURCE half (plan
     // client-package entry — the mechanism that lands the CLIENT third of
     // the standing D-05 assertion (see this file's own header comment).
     // Raised back to 8 by quick task 260912-ivg Stage 1 Task 4, which
-    // reopens the same client-package exclusion for the BPR -> SPR rename;
-    // Stage 5 is what removes it again.
-    expect(IDENTITY_SWEEP_EXCLUSIONS).toHaveLength(8);
+    // reopened the same client-package exclusion for the BPR -> SPR rename;
+    // decremented back to 7 by 260912-ivg Stage 5, which removed it again —
+    // the browser now reads `spr@` objects.
+    expect(IDENTITY_SWEEP_EXCLUSIONS).toHaveLength(7);
   });
 
   it("STRUCTURAL_EXEMPTIONS (a separate, smaller list from the tier exclusions) has exactly the length it was seeded with", () => {
@@ -486,11 +471,15 @@ describe("algorithmIdentity sweep — standing D-05 assertion, SOURCE half (plan
     // 9 -> 16 (quick task 260912-ivg Stage 1 Task 4): sigmaScore.ts and
     // stateSnapshot.ts (the two BOTH-tier files Task 1 made dual-name),
     // stateSnapshot.test.ts (the new dual-name-dispatch test proving it),
-    // manifests.ts and manifests.test.ts (the real "bpr" override that keeps
+    // manifests.ts and manifests.test.ts (the real "bpr" override that kept
     // the READ-tier algorithms.json manifest correct, and the test proving
-    // it), level1Digest.test.ts and measureRpCalibration.ts (both cite a
-    // FROZEN record's own "bpr"-recorded field, tier F).
-    expect(STRUCTURAL_EXEMPTIONS).toHaveLength(16);
+    // it). 16 -> 11 (260912-ivg Stage 5): those same five files lost their
+    // last identity-shaped "bpr" citation when Stage 5 collapsed the
+    // transitional split, so their entries are gone — leaving
+    // level1Digest.test.ts and measureRpCalibration.ts, which cite a FROZEN
+    // record's own "bpr"-recorded field (tier F) and are therefore
+    // permanent, never removed by this or any future stage.
+    expect(STRUCTURAL_EXEMPTIONS).toHaveLength(11);
   });
 
   it("a marker on a NON-comment line does NOT exempt — the mechanical form of prohibition 2", () => {

@@ -58,17 +58,18 @@ const DIGEST_SLICE_FIXTURE_PATH = join("packages", "harness", "fixtures", "diges
 const LEVEL1_BASELINE_PATH = join("data", "baselines", "level1-digest-2026-09.json");
 
 /**
- * 260912-ivg Stage 1: `data/baselines/level1-digest-2026-09.json` and the
+ * 260912-ivg: `data/baselines/level1-digest-2026-09.json` and the
  * `FROZEN_AT_09_01_STREAM_SHA256` pin below are FROZEN measurement records
  * (tier table: untouched by this rename) — both still name the algorithm
- * `"bpr"`, the id in force when they were recorded. `resolvePublishAlgorithms`
- * now resolves the WRITE tier (`PIPELINE_ALGORITHM_IDS`), whose premier
- * member is `"spr"` — the SAME module and the SAME digest-producing code,
- * renamed. This one-entry alias is what lets a frozen `"bpr"` citation keep
+ * under its pre-rename wire id, the id in force when they were recorded.
+ * `resolvePublishAlgorithms` now resolves `PUBLISHED_ALGORITHM_IDS` (the
+ * single algorithm-id constant again as of Stage 5's collapse), whose
+ * premier member is `"spr"` — the SAME module and the SAME digest-producing
+ * code, renamed. This one-entry alias is what lets the frozen citation keep
  * resolving to the live module it has always meant, without rewriting the
- * frozen record itself. Stage 5 (the collapse) does not touch this file —
- * the alias stays valid for as long as `data/baselines/level1-digest-2026-09.json`
- * is read under its recorded id.
+ * frozen record itself. Stage 5 (the collapse) does not touch the alias
+ * itself or the frozen files it resolves — it stays valid for as long as
+ * `data/baselines/level1-digest-2026-09.json` is read under its recorded id.
  */
 const LEGACY_ALGORITHM_ID_ALIASES: Readonly<Record<string, string>> = { bpr: "spr" };
 

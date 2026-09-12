@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { DEMO_TEAM_KEYS, isDemoTeamKey } from "../packages/core/algorithms/demoTeams.js";
-import { PIPELINE_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
+import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
 import {
   buildControlKeys,
   enumerateOrphanedDemoTeamKeys,
@@ -37,14 +37,12 @@ describe("EXPECTED_CANDIDATE_KEY_COUNT", () => {
 });
 
 describe("resolveLiveAlgorithmVersions", () => {
-  // 260912-ivg Stage 1: resolveLiveAlgorithmVersions reproduces
-  // resolvePublishAlgorithms(undefined) — the WRITE tier
-  // (PIPELINE_ALGORITHM_IDS), not the browser-READ tier
-  // (PUBLISHED_ALGORITHM_IDS) — since it exists to track what is actually
-  // BEING WRITTEN right now, for orphan-cleanup purposes.
-  it("resolves exactly the write-tier algorithm ids, each carrying a non-empty version", () => {
+  // resolveLiveAlgorithmVersions reproduces resolvePublishAlgorithms(undefined),
+  // since it exists to track what is actually BEING WRITTEN right now, for
+  // orphan-cleanup purposes.
+  it("resolves exactly the published algorithm ids, each carrying a non-empty version", () => {
     const resolved = resolveLiveAlgorithmVersions();
-    expect(resolved.map((a) => a.id).sort()).toEqual([...PIPELINE_ALGORITHM_IDS].sort());
+    expect(resolved.map((a) => a.id).sort()).toEqual([...PUBLISHED_ALGORITHM_IDS].sort());
     for (const { version } of resolved) {
       expect(version.length).toBeGreaterThan(0);
     }

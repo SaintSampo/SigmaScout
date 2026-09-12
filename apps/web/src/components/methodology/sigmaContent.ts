@@ -1,7 +1,7 @@
 /**
  * Content-as-data for `/methodology/sigma`. Replaces `swingContent.ts`, which
  * explained a number the site stopped showing on 2026-09-10 when Sigma Score
- * shipped for the SPR rating (published under the internal id `bpr`, still
+ * shipped for the SPR rating (published under the internal id `spr`, still
  * unchanged; see `sprContent.ts`).
  *
  * Same discipline as its predecessor and as `epaComparisonContent.ts`: this

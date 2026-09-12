@@ -72,10 +72,7 @@ import { openCorpusReadOnly, selectMatchesChronological, type Corpus } from "../
 import { WalkForwardSimulator, type PredictionRecord } from "../packages/harness/replay.js";
 import { computePredictionStreamDigest } from "../packages/harness/promote.js";
 import { buildAlgorithmsManifest, type AlgorithmsManifest } from "../packages/harness/manifests.js";
-// 260912-ivg Stage 1: this rig's default `--algorithm` list is a
-// publisher-side default, so it reads the WRITE tier (`PIPELINE_ALGORITHM_IDS`),
-// not `PUBLISHED_ALGORITHM_IDS` (the browser-READ tier).
-import { PIPELINE_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
+import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
 import { roundMetric, roundProbability } from "../packages/harness/rounding.js";
 import { artifactKey } from "../packages/harness/pageArtifacts.js";
 import { deleteObject, getObject, putObject } from "../packages/harness/r2Client.js";
@@ -614,7 +611,7 @@ function parseOptions(): RigOptions {
   const fixtureUrl = values["fixture-url"];
   if (!fixtureUrl) throw new Error("--fixture-url is required (the deployed sigmascout-fixture-rig Worker's base URL)");
 
-  const algorithms = (values.algorithm ?? PIPELINE_ALGORITHM_IDS.join(",")).split(",").map((s) => s.trim()).filter(Boolean);
+  const algorithms = (values.algorithm ?? PUBLISHED_ALGORITHM_IDS.join(",")).split(",").map((s) => s.trim()).filter(Boolean);
   // ALWAYS absolute: resetD1State/deployWorker shell out to `wrangler` with
   // `cwd: WORKER_DIR` (apps/worker), so a relative `--out`/`--corpus` path
   // (naturally typed relative to the repo root, where this script is meant

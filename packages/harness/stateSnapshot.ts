@@ -1320,17 +1320,18 @@ export function withRpBeliefs(rows: readonly StateRow[], beliefs: ReadonlyMap<st
  *
  * HAZARD for a future algorithm: the final line is a FALLTHROUGH, not a
  * lookup, so an id with no branch here is silently reinterpreted as
- * Sigma1-shaped rather than rejected. That is how `bpr` (this algorithm's
- * wire id at the time, renamed to `spr` by quick task 260912-ivg) first
- * failed, with "state.componentOrder is not iterable" from deep inside the
- * Sigma1 serializer rather than a message naming the real problem. Add a
+ * Sigma1-shaped rather than rejected. That is how this algorithm (under its
+ * pre-rename wire id at the time — renamed to `spr` by quick task 260912-ivg)
+ * first failed, with "state.componentOrder is not iterable" from deep inside
+ * the Sigma1 serializer rather than a message naming the real problem. Add a
  * branch when adding an algorithm.
  *
- * 260912-ivg Stage 1: the premier branch below is transitionally dual-name
- * (`"bpr"` OR `"spr"`) rather than a single equality check, so a Worker
- * deployed anywhere in the cutover window — reading D1 rows written under
- * either id — still dispatches to the SAME branch. Stage 5 removes the
- * `"bpr"` half once `PUBLISHED_ALGORITHM_IDS` itself moves to `spr`.
+ * 260912-ivg: Stages 1-4 held the premier branch below as transitionally
+ * dual-name (matching either the pre-rename id or `spr`) rather than a
+ * single equality check, so a Worker deployed anywhere in the cutover
+ * window — reading D1 rows written under either id — still dispatched to
+ * the SAME branch. Stage 5 (this edit) removes the retired half of that
+ * dispatch, once `PUBLISHED_ALGORITHM_IDS` itself moved to `spr`.
  */
 export function serializeState(
   algorithmId: string,
@@ -1340,7 +1341,7 @@ export function serializeState(
 ): StateRow[] {
   if (algorithmId === "opr") return serializeOprState(algorithmId, algorithmVersion, state as OprState, stamp);
   if (algorithmId === "epa") return serializeEpaState(algorithmId, algorithmVersion, state as EpaState, stamp);
-  if (algorithmId === "spr" || algorithmId === "bpr") return serializeBprState(algorithmId, algorithmVersion, state as SprState, stamp);
+  if (algorithmId === "spr") return serializeBprState(algorithmId, algorithmVersion, state as SprState, stamp);
   return serializeSigma1State(algorithmId, algorithmVersion, state as Sigma1State, stamp);
 }
 
@@ -1348,7 +1349,7 @@ export function serializeState(
 export function deserializeState(algorithmId: string, rows: readonly StateRow[]): Sigma1State | EpaState | OprState | SprState {
   if (algorithmId === "opr") return deserializeOprState(algorithmId, rows);
   if (algorithmId === "epa") return deserializeEpaState(algorithmId, rows);
-  if (algorithmId === "spr" || algorithmId === "bpr") return deserializeBprState(algorithmId, rows);
+  if (algorithmId === "spr") return deserializeBprState(algorithmId, rows);
   return deserializeSigma1State(algorithmId, rows);
 }
 

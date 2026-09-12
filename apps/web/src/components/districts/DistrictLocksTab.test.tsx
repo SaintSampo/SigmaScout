@@ -30,7 +30,7 @@ function TestHarness({ children }: { children: ReactNode }) {
     const districtsRoute = createRoute({ path: "/districts", getParentRoute: () => rootRoute, component: RouteBody });
     const teamRoute = createRoute({ path: "/team/$teamNumber", getParentRoute: () => rootRoute, validateSearch: TeamSearchSchema, component: () => null });
     const routeTree = rootRoute.addChildren([districtsRoute, teamRoute]);
-    return createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/districts?algorithm=bpr"] }) });
+    return createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/districts?algorithm=spr"] }) });
   });
   return (
     <ChildrenContext.Provider value={children}>
@@ -95,7 +95,7 @@ describe("DistrictLocksTab", () => {
     const t = team({ teamKey: "frc1", teamNumber: 1, rank: 1, districtLock: verdict({ status: "locked", pointsToLock: 0, threatCount: 0 }) });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     expect((await screen.findByTestId("district-district-lock-status")).textContent).toBe("Locked");
@@ -106,7 +106,7 @@ describe("DistrictLocksTab", () => {
     const t = team({ teamKey: "frc2", teamNumber: 2, rank: 2, districtLock: verdict({ status: "contending", pointsToLock: 15, threatCount: 3 }) });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     expect((await screen.findByTestId("district-district-lock-status")).textContent).toBe("Contending");
@@ -117,7 +117,7 @@ describe("DistrictLocksTab", () => {
     const t = team({ teamKey: "frc3", teamNumber: 3, rank: 3, districtLock: verdict({ status: "eliminated", pointsToLock: null, threatCount: 54 }) });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     expect((await screen.findByTestId("district-district-lock-status")).textContent).toBe("Eliminated");
@@ -133,7 +133,7 @@ describe("DistrictLocksTab", () => {
     });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     expect((await screen.findByTestId("district-district-lock-status")).textContent).toBe("Contending");
@@ -144,7 +144,7 @@ describe("DistrictLocksTab", () => {
     const t = team({ teamKey: "frc5", teamNumber: 5, rank: 5, districtLock: verdict({ status: "unknown", pointsToLock: null, threatCount: 0 }) });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t], { dcmpSlots: null })} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t], { dcmpSlots: null })} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     expect((await screen.findByTestId("district-district-lock-status")).textContent).toBe("Capacity not published");
@@ -161,7 +161,7 @@ describe("DistrictLocksTab", () => {
     });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     expect((await screen.findByTestId("district-champ-lock-status")).textContent).toBe("Eliminated");
@@ -170,7 +170,7 @@ describe("DistrictLocksTab", () => {
   it("shows the conservatism caveat, plainly worded", async () => {
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([team()])} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([team()])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     expect(await screen.findByText(/declines, waitlist movement and wildcard slots/)).toBeDefined();
@@ -179,7 +179,7 @@ describe("DistrictLocksTab", () => {
   it("shows the capacity and cut line in the header", async () => {
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([team()])} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([team()])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     expect(await screen.findByText("54")).toBeDefined();
@@ -197,7 +197,7 @@ describe("DistrictLocksTab", () => {
     });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     const statusCell = await screen.findByTestId("district-district-lock-status");
@@ -216,7 +216,7 @@ describe("DistrictLocksTab", () => {
     });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     expect((await screen.findByTestId("district-district-lock-awards")).textContent).toBe("Engineering Inspiration (award-only invite)");
@@ -233,7 +233,7 @@ describe("DistrictLocksTab", () => {
     });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     expect((await screen.findByTestId("district-champ-lock-awards")).textContent).toBe("Engineering Inspiration");
@@ -248,7 +248,7 @@ describe("DistrictLocksTab", () => {
     });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     const statusCell = await screen.findByTestId("district-champ-lock-status");
@@ -265,7 +265,7 @@ describe("DistrictLocksTab", () => {
     });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     const statusCell = await screen.findByTestId("district-district-lock-status");
@@ -281,7 +281,7 @@ describe("DistrictLocksTab", () => {
     });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     const statusCell = await screen.findByTestId("district-district-lock-status");
@@ -292,7 +292,7 @@ describe("DistrictLocksTab", () => {
     const contendingTeam = team({ teamKey: "frc13", teamNumber: 13, rank: 13, districtLock: verdict({ status: "contending" }) });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([contendingTeam])} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([contendingTeam])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     const statusCell = await screen.findByTestId("district-district-lock-status");
@@ -308,7 +308,7 @@ describe("DistrictLocksTab", () => {
     });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     expect((await screen.findByTestId("district-champ-lock-status")).textContent).toBe("Capacity not published");
@@ -325,7 +325,7 @@ describe("DistrictLocksTab", () => {
     });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t1])} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t1])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     const strip = await screen.findByTestId("district-locks-schedule-strip");
@@ -352,7 +352,7 @@ describe("DistrictLocksTab", () => {
     });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t1])} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t1])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     expect((await screen.findByTestId("district-locks-ceiling")).textContent).toBe("0 / 166 per team");
@@ -363,7 +363,7 @@ describe("DistrictLocksTab", () => {
     const t2 = team({ teamKey: "frc19", teamNumber: 19, rank: 19, maxRemainingDistrict: 83 });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t1, t2])} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t1, t2])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     expect((await screen.findByTestId("district-locks-ceiling")).textContent).toBe("83 / 166 per team");
@@ -393,7 +393,7 @@ describe("DistrictLocksTab", () => {
     });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t1, t2, t3])} which="district" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t1, t2, t3])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     const remaining = await screen.findByTestId("district-locks-remaining-estimate");
@@ -405,7 +405,7 @@ describe("DistrictLocksTab", () => {
     const t1 = team({ teamKey: "frc16", teamNumber: 16, rank: 16, maxRemainingChamp: 332 });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t1])} which="champ" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t1])} which="champ" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     const stat = await screen.findByTestId("champ-locks-remaining-district-points");
@@ -416,7 +416,7 @@ describe("DistrictLocksTab", () => {
     const t1 = team({ teamKey: "frc21", teamNumber: 21, rank: 21, maxRemainingChamp: 0 });
     render(
       <TestHarness>
-        <DistrictLocksTab artifact={makeArtifact([t1])} which="champ" algorithm="bpr" season={2026} />
+        <DistrictLocksTab artifact={makeArtifact([t1])} which="champ" algorithm="spr" season={2026} />
       </TestHarness>,
     );
     const stat = await screen.findByTestId("champ-locks-remaining-district-points");
@@ -435,7 +435,7 @@ describe("DistrictLocksTab", () => {
       });
       render(
         <TestHarness>
-          <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="bpr" season={2026} />
+          <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="spr" season={2026} />
         </TestHarness>,
       );
       await screen.findByTestId("district-district-lock-status");
@@ -458,7 +458,7 @@ describe("DistrictLocksTab", () => {
       });
       render(
         <TestHarness>
-          <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="bpr" season={2026} />
+          <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="spr" season={2026} />
         </TestHarness>,
       );
       await screen.findByTestId("district-district-lock-status");
@@ -491,7 +491,7 @@ describe("DistrictLocksTab", () => {
       const absent = team({ teamKey: "frc33", teamNumber: 33, rank: 2, eventPoints: [] });
       render(
         <TestHarness>
-          <DistrictLocksTab artifact={makeArtifact([played, absent])} which="district" algorithm="bpr" season={2026} />
+          <DistrictLocksTab artifact={makeArtifact([played, absent])} which="district" algorithm="spr" season={2026} />
         </TestHarness>,
       );
       await screen.findAllByTestId("district-district-lock-status");
@@ -515,7 +515,7 @@ describe("DistrictLocksTab", () => {
       });
       render(
         <TestHarness>
-          <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="bpr" season={2026} />
+          <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="spr" season={2026} />
         </TestHarness>,
       );
       await screen.findByTestId("district-champ-lock-status");

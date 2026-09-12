@@ -224,7 +224,7 @@ describe("RankCards — links (quick task 260905-ttv)", () => {
       { scope: "state", value: "MI", rank: 1, total: 4 },
     ];
     // 2024 is not CURRENT_SEASON (2026); "opr" is not the default algorithm
-    // (DEFAULT_ALGORITHM is "bpr") -- so a hardcoded default would fail this.
+    // (DEFAULT_ALGORITHM is "spr") -- so a hardcoded default would fail this.
     renderWithRouter(<RankCards ranks={ranks} season={2024} algorithmId="opr" />);
 
     for (const card of screen.getAllByTestId("rank-card")) {

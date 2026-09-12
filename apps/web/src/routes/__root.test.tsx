@@ -31,18 +31,18 @@ describe("RootSearchSchema / TeamsSearchSchema — NAV-05 URL round trip", () =>
   });
 
   it("a year outside the known season list is coerced (never accepted raw) rather than reaching a component", () => {
-    const parsed = RootSearchSchema.parse({ year: "1999", algorithm: "bpr" });
+    const parsed = RootSearchSchema.parse({ year: "1999", algorithm: "spr" });
     expect(parsed.year).toBe(CURRENT_SEASON);
   });
 
   it("an unknown algorithm id is coerced (never accepted raw) rather than reaching a component", () => {
     const parsed = RootSearchSchema.parse({ year: "2024", algorithm: "not-a-real-algorithm" });
-    expect(parsed.algorithm).toBe("bpr");
+    expect(parsed.algorithm).toBe("spr");
   });
 
   it("a missing param takes its declared default", () => {
-    expect(RootSearchSchema.parse({})).toEqual({ year: CURRENT_SEASON, algorithm: "bpr" });
-    expect(TeamsSearchSchema.parse({})).toEqual({ year: CURRENT_SEASON, algorithm: "bpr", sort: undefined, sortDir: "desc" });
+    expect(RootSearchSchema.parse({})).toEqual({ year: CURRENT_SEASON, algorithm: "spr" });
+    expect(TeamsSearchSchema.parse({})).toEqual({ year: CURRENT_SEASON, algorithm: "spr", sort: undefined, sortDir: "desc" });
   });
 
   it("a param carrying scripting- or path-traversal-shaped text is coerced away for the closed-set fields (year/algorithm/sortDir), never reaching a component as the raw attack string", () => {
@@ -50,7 +50,7 @@ describe("RootSearchSchema / TeamsSearchSchema — NAV-05 URL round trip", () =>
       year: "<script>alert(1)</script>",
       algorithm: "../../../etc/passwd",
     });
-    expect(parsed).toEqual({ year: CURRENT_SEASON, algorithm: "bpr" });
+    expect(parsed).toEqual({ year: CURRENT_SEASON, algorithm: "spr" });
 
     const teamsParsed = TeamsSearchSchema.parse({ sortDir: "'; DROP TABLE teams; --" });
     expect(teamsParsed.sortDir).toBe("desc");

@@ -180,7 +180,7 @@ describe("buildRowEmphasis (D-11) — direct, unrendered, on hand-built rows", (
     const row = makeRow(2022, {
       opr: makeCell({ brierScore: 0.2, winnerAccuracy: 0.5, scoredCount: 1000 }),
       epa: makeCell({ brierScore: 0.1, winnerAccuracy: 0.9, scoredCount: 1000 }),
-      bpr: makeCell({ brierScore: 0.3, winnerAccuracy: 0.6, scoredCount: 1000 }),
+      spr: makeCell({ brierScore: 0.3, winnerAccuracy: 0.6, scoredCount: 1000 }),
     });
     const emphasis = buildRowEmphasis(row);
     expect(emphasis.brierLeaders).toEqual(["epa"]);
@@ -190,7 +190,7 @@ describe("buildRowEmphasis (D-11) — direct, unrendered, on hand-built rows", (
   it("a row whose Brier pair is a display tie (real 2022 elimination values) names no Brier leader", () => {
     const row = makeRow(2022, {
       opr: makeCell({ brierScore: 0.14721222242674725, winnerAccuracy: 0.3, scoredCount: 1000 }),
-      bpr: makeCell({ brierScore: 0.14717091997830647, winnerAccuracy: 0.6, scoredCount: 1000 }),
+      spr: makeCell({ brierScore: 0.14717091997830647, winnerAccuracy: 0.6, scoredCount: 1000 }),
     });
     expect(buildRowEmphasis(row).brierLeaders).toEqual([]);
   });
@@ -199,7 +199,7 @@ describe("buildRowEmphasis (D-11) — direct, unrendered, on hand-built rows", (
     const row = makeRow(2022, {
       opr: makeCell({ brierScore: 0.2, winnerAccuracy: 0.7930232558139535, scoredCount: 2613 }),
       epa: makeCell({ brierScore: 0.25, winnerAccuracy: 0.778544061302682, scoredCount: 2613 }),
-      bpr: makeCell({ brierScore: 0.3, winnerAccuracy: 0.782375478927203, scoredCount: 2613 }),
+      spr: makeCell({ brierScore: 0.3, winnerAccuracy: 0.782375478927203, scoredCount: 2613 }),
     });
     const emphasis = buildRowEmphasis(row);
     expect(emphasis.winnerAccuracyLeaders).toEqual([]);
@@ -209,11 +209,11 @@ describe("buildRowEmphasis (D-11) — direct, unrendered, on hand-built rows", (
   it("a row with an exact tie in each metric names BOTH tied algorithms in each", () => {
     const row = makeRow(2022, {
       opr: makeCell({ brierScore: 0.15, winnerAccuracy: 0.7, scoredCount: 1000 }),
-      bpr: makeCell({ brierScore: 0.15, winnerAccuracy: 0.7, scoredCount: 500 }),
+      spr: makeCell({ brierScore: 0.15, winnerAccuracy: 0.7, scoredCount: 500 }),
     });
     const emphasis = buildRowEmphasis(row);
-    expect(emphasis.brierLeaders).toEqual(["opr", "bpr"]);
-    expect(emphasis.winnerAccuracyLeaders).toEqual(["opr", "bpr"]);
+    expect(emphasis.brierLeaders).toEqual(["opr", "spr"]);
+    expect(emphasis.winnerAccuracyLeaders).toEqual(["opr", "spr"]);
   });
 
   it("a row with only one comparable cell per metric names no leader for either metric", () => {
@@ -430,7 +430,7 @@ describe("AccuracyTable — plain weight and no tiering (D-08); D-11 emphasis (0
     const artifact = makeArtifact(season, [
       makeSlice({ algorithmId: "opr", season, brierScore: 0.1, winnerAccuracy: 0.5, scoredCount: 1000 }),
       makeSlice({ algorithmId: "epa", season, brierScore: 0.3, winnerAccuracy: 0.9, scoredCount: 1000 }),
-      makeSlice({ algorithmId: "bpr", season, brierScore: 0.2, winnerAccuracy: 0.6, scoredCount: 1000 }),
+      makeSlice({ algorithmId: "spr", season, brierScore: 0.2, winnerAccuracy: 0.6, scoredCount: 1000 }),
     ]);
     const artifactsByYear = new Map<number, CompareArtifact>([[season, artifact]]);
     render(<AccuracyTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
@@ -452,7 +452,7 @@ describe("AccuracyTable — plain weight and no tiering (D-08); D-11 emphasis (0
     const season = COMPARE_SEASONS[0]!;
     const artifact = makeArtifact(season, [
       makeSlice({ algorithmId: "opr", season, brierScore: 0.1, winnerAccuracy: 0.9, scoredCount: 0 }),
-      makeSlice({ algorithmId: "bpr", season, brierScore: 0.5, winnerAccuracy: 0.1, scoredCount: 1000 }),
+      makeSlice({ algorithmId: "spr", season, brierScore: 0.5, winnerAccuracy: 0.1, scoredCount: 1000 }),
     ]);
     const artifactsByYear = new Map<number, CompareArtifact>([[season, artifact]]);
     const rows = buildAccuracyRows(artifactsByYear, "combined");

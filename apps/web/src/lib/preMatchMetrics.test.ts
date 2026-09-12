@@ -13,7 +13,7 @@ function row(matchKey: string, matchIndex: number, value: number): HistoryRow {
     matchKey,
     season: 2024,
     eventKey: "2024casf",
-    algorithmId: "bpr",
+    algorithmId: "spr",
     teamKey: "frc254",
     matchIndex,
     metrics: { total: { value } },

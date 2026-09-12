@@ -19,7 +19,7 @@
  * Colour only ever through `var(--compare-algo-*)` tokens
  * (`comparePalette.test.ts` enforces the no-raw-hex rule file-wide). Every
  * algorithm label comes from `algorithmDisplayLabel` at run time, never a
- * hardcoded string, so the in-flight BPR/SPR display rename cannot leave
+ * hardcoded string, so the in-flight SPR/SPR display rename cannot leave
  * this section behind.
  */
 import { useState } from "react";

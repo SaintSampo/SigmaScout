@@ -63,7 +63,7 @@ describe("Ribbon", () => {
   // they replace the pair that asserted the toggle's presence on each branch.
   it("renders NO Swing Factor toggle on desktop — Swing Score can never be turned off", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
-    await renderRibbonAt("/teams?year=2024&algorithm=bpr");
+    await renderRibbonAt("/teams?year=2024&algorithm=spr");
 
     expect(screen.queryByRole("button", { name: /swing factor/i })).toBeNull();
   });
@@ -84,7 +84,7 @@ describe("Ribbon", () => {
       }) as MediaQueryList;
 
     try {
-      await renderRibbonAt("/teams?year=2024&algorithm=bpr");
+      await renderRibbonAt("/teams?year=2024&algorithm=spr");
       expect(screen.queryByRole("button", { name: /swing factor/i })).toBeNull();
     } finally {
       window.matchMedia = original;
@@ -93,7 +93,7 @@ describe("Ribbon", () => {
 
   it("renders with NO query client data resolved, proving it is not fetch-gated — the algorithms manifest fetch never resolves during this test", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {})); // never resolves
-    await renderRibbonAt("/teams?year=2024&algorithm=bpr");
+    await renderRibbonAt("/teams?year=2024&algorithm=spr");
 
     // Renders immediately even though the manifest fetch is permanently
     // pending — proving the ribbon itself is never gated on that fetch.
@@ -114,7 +114,7 @@ describe("Ribbon", () => {
 
   it("all four links render in the fixed order Teams, Events, Locks, Methodology (desktop)", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
-    await renderRibbonAt("/events?year=2024&algorithm=bpr");
+    await renderRibbonAt("/events?year=2024&algorithm=spr");
 
     const links = screen.getAllByRole("link");
     expect(links.slice(0, 5).map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Locks", "Methodology"]);
@@ -136,7 +136,7 @@ describe("Ribbon", () => {
       }) as MediaQueryList;
 
     try {
-      await renderRibbonAt("/methodology?year=2024&algorithm=bpr");
+      await renderRibbonAt("/methodology?year=2024&algorithm=spr");
       const links = screen.getAllByRole("link");
       expect(links.slice(0, 5).map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Locks", "Methodology"]);
     } finally {
@@ -146,7 +146,7 @@ describe("Ribbon", () => {
 
   it("the link matching the CURRENT route carries the active indicator and the others do not", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
-    await renderRibbonAt("/teams?year=2024&algorithm=bpr");
+    await renderRibbonAt("/teams?year=2024&algorithm=spr");
 
     const links = screen.getAllByRole("link");
     const teamsLink = links.find((link) => link.textContent === "Teams");
@@ -162,7 +162,7 @@ describe("Ribbon", () => {
 
   it("desktop renders the search box itself (an input), not an icon-only trigger — 05-08-PLAN.md Task 2", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
-    await renderRibbonAt("/teams?year=2024&algorithm=bpr");
+    await renderRibbonAt("/teams?year=2024&algorithm=spr");
 
     expect(screen.getByPlaceholderText("Search teams or events")).toBeDefined();
     expect(screen.queryByRole("button", { name: "Open search" })).toBeNull();
@@ -184,7 +184,7 @@ describe("Ribbon", () => {
       }) as MediaQueryList;
 
     try {
-      await renderRibbonAt("/teams?year=2024&algorithm=bpr");
+      await renderRibbonAt("/teams?year=2024&algorithm=spr");
       const trigger = screen.getByRole("button", { name: "Open search" });
       expect(trigger.className).toContain("tap-target");
     } finally {
@@ -194,7 +194,7 @@ describe("Ribbon", () => {
 
   it("selecting the already-selected YEAR performs no navigation (YearSelect's NAV-02 adjacency edge)", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
-    const { router } = await renderRibbonAt("/teams?year=2024&algorithm=bpr&sort=hubShift1&sortDir=asc");
+    const { router } = await renderRibbonAt("/teams?year=2024&algorithm=spr&sort=hubShift1&sortDir=asc");
     const navigateSpy = vi.spyOn(router, "navigate");
 
     const yearTrigger = screen.getByRole("combobox", { name: "Year" });
@@ -209,7 +209,7 @@ describe("Ribbon", () => {
 
   it("selecting a DIFFERENT year does navigate and preserves sort/sortDir (D-11) — contrast case proving the reselect guard above is not vacuously true", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
-    const { router } = await renderRibbonAt("/teams?year=2024&algorithm=bpr&sort=hubShift1&sortDir=asc");
+    const { router } = await renderRibbonAt("/teams?year=2024&algorithm=spr&sort=hubShift1&sortDir=asc");
 
     const yearTrigger = screen.getByRole("combobox", { name: "Year" });
     fireEvent.pointerDown(yearTrigger, { button: 0, pointerId: 1 });

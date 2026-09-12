@@ -265,17 +265,17 @@ export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions)
   // emitting a short manifest -- a missing entry would make the algorithm
   // invisible to the browser while every test still passed.
   //
-  // 260912-ivg Stage 1: `packages/core/algorithms/spr.ts`'s own module now
-  // reports `id: "spr"` (the WRITE-tier rename, and Stage 1 Task 2's file
-  // move from `.../bpr.ts`), but THIS manifest
-  // (`v1/manifest/algorithms.json`) is a READ-tier artifact —
-  // `useAlgorithmVersion` (`apps/web/src/components/ribbon/AlgorithmSelect.tsx`)
-  // looks its entry up by `PUBLISHED_ALGORITHM_IDS`'s member, still `"bpr"`.
-  // The override below keeps this manifest entry's `id` reading `"bpr"`
-  // (matching the `bpr@` objects that still exist in R2) even though the
-  // underlying module's own id changed — Stage 5 deletes this override in
-  // the same edit that moves `PUBLISHED_ALGORITHM_IDS`'s value to `"spr"`.
-  const modules: Record<string, { id: string; version: string }> = { opr, epa, bpr: { ...spr, id: "bpr" } };
+  // 260912-ivg Stage 1 (Task 1) through Stage 4 briefly carried an explicit
+  // id-substitution override here — `packages/core/algorithms/spr.ts`'s own
+  // module reported the WRITE-tier (renamed) id while this manifest (a
+  // READ-tier artifact) still had to report the pre-rename id, matching the
+  // R2 objects live at the time and what `useAlgorithmVersion`
+  // (`apps/web/src/components/ribbon/AlgorithmSelect.tsx`) looked up by
+  // `PUBLISHED_ALGORITHM_IDS`'s member. Stage 5 (this edit) deletes that
+  // override, once `PUBLISHED_ALGORITHM_IDS` itself moved to the renamed id
+  // in the same commit — the module's own id and the manifest's read-tier
+  // id agree again, so no override is needed.
+  const modules: Record<string, { id: string; version: string }> = { opr, epa, spr };
 
   const algorithms: AlgorithmManifestEntry[] = PUBLISHED_ALGORITHM_IDS.map((id) => {
     const mod = modules[id];

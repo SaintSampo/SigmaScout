@@ -10,15 +10,15 @@ import { DEFAULT_EVENT_TAB, EVENT_TABS, EventSearchSchema, EventsSearchSchema, M
 describe("RootSearchSchema's default algorithm (plan 07-18 Task 1, the cutover)", () => {
   // Test 1 — the default algorithm.
   it("defaults to vpr when algorithm is absent", () => {
-    expect(RootSearchSchema.parse({}).algorithm).toBe("bpr");
+    expect(RootSearchSchema.parse({}).algorithm).toBe("spr");
   });
 
   // Test 2 — the empty-input path on every schema that extends the root.
   it("every schema extending RootSearchSchema resolves the same empty-input algorithm default", () => {
-    expect(TeamsSearchSchema.parse({}).algorithm).toBe("bpr");
-    expect(EventsSearchSchema.parse({}).algorithm).toBe("bpr");
-    expect(TeamSearchSchema.parse({}).algorithm).toBe("bpr");
-    expect(EventSearchSchema.parse({}).algorithm).toBe("bpr");
+    expect(TeamsSearchSchema.parse({}).algorithm).toBe("spr");
+    expect(EventsSearchSchema.parse({}).algorithm).toBe("spr");
+    expect(TeamSearchSchema.parse({}).algorithm).toBe("spr");
+    expect(EventSearchSchema.parse({}).algorithm).toBe("spr");
   });
 
   // Test 3 — the adjacency case, D-05's safety argument made executable: the
@@ -32,13 +32,25 @@ describe("RootSearchSchema's default algorithm (plan 07-18 Task 1, the cutover)"
   // to a path-segment case), and this file carries no exemption of its own.
   it("the retired pre-rename id falls back to vpr via .catch(); the renamed id parses directly", () => {
     const retiredAlgorithmId = "sigma" + "1";
-    expect(RootSearchSchema.parse({ algorithm: retiredAlgorithmId }).algorithm).toBe("bpr");
-    expect(RootSearchSchema.parse({ algorithm: "bpr" }).algorithm).toBe("bpr");
+    expect(RootSearchSchema.parse({ algorithm: retiredAlgorithmId }).algorithm).toBe("spr");
+    expect(RootSearchSchema.parse({ algorithm: "spr" }).algorithm).toBe("spr");
+  });
+
+  // Test 3b (quick task 260912-ivg Stage 5, URL back-compat): a bookmarked
+  // link carrying the algorithm's PREVIOUS wire id (retired by this rename)
+  // must not 404 or blank the page — same adjacency proof as Test 3 above,
+  // for the SAME `z.enum(...).catch(DEFAULT_ALGORITHM)` mechanism, one
+  // rename later. Built from two segments for the identical reason Test 3's
+  // own comment gives: the standing algorithmIdentity sweep matches an EXACT
+  // quoted occurrence of a retired id, and this file carries no exemption.
+  it("the previous premier wire id (retired by quick task 260912-ivg) falls back to the current default via .catch()", () => {
+    const retiredAlgorithmId = "b" + "pr";
+    expect(RootSearchSchema.parse({ algorithm: retiredAlgorithmId }).algorithm).toBe("spr");
   });
 
   // Test 4 — an unrelated garbage value still falls back, unchanged behavior.
   it("a garbage algorithm value falls back to the default", () => {
-    expect(RootSearchSchema.parse({ algorithm: "not-a-real-algorithm" }).algorithm).toBe("bpr");
+    expect(RootSearchSchema.parse({ algorithm: "not-a-real-algorithm" }).algorithm).toBe("spr");
   });
 });
 
@@ -58,7 +70,7 @@ describe("TeamSearchSchema", () => {
   it("still applies RootSearchSchema's own year/algorithm fallbacks unchanged", () => {
     const parsed = TeamSearchSchema.parse({ year: "1899", algorithm: "nope" });
     expect(parsed.year).toBe(CURRENT_SEASON);
-    expect(parsed.algorithm).toBe("bpr");
+    expect(parsed.algorithm).toBe("spr");
   });
 });
 
@@ -99,7 +111,7 @@ describe("EventSearchSchema (07-01-PLAN.md Task 1; default flipped to insights b
   it("still applies RootSearchSchema's own year/algorithm fallbacks unchanged", () => {
     const parsed = EventSearchSchema.parse({ year: "1899", algorithm: "nope" });
     expect(parsed.year).toBe(CURRENT_SEASON);
-    expect(parsed.algorithm).toBe("bpr");
+    expect(parsed.algorithm).toBe("spr");
   });
 
   // New case, 08-09-PLAN.md Task 1: the separation plan 07-18 already
@@ -122,12 +134,12 @@ describe("MatchSearchSchema (260909-tiq-PLAN.md Task 1)", () => {
   it("still applies RootSearchSchema's own year/algorithm fallbacks unchanged", () => {
     const parsed = MatchSearchSchema.parse({ year: "1899", algorithm: "nope" });
     expect(parsed.year).toBe(CURRENT_SEASON);
-    expect(parsed.algorithm).toBe("bpr");
+    expect(parsed.algorithm).toBe("spr");
   });
 
   it("parses an explicit valid year/algorithm pair unchanged", () => {
-    const parsed = MatchSearchSchema.parse({ year: CURRENT_SEASON, algorithm: "bpr" });
+    const parsed = MatchSearchSchema.parse({ year: CURRENT_SEASON, algorithm: "spr" });
     expect(parsed.year).toBe(CURRENT_SEASON);
-    expect(parsed.algorithm).toBe("bpr");
+    expect(parsed.algorithm).toBe("spr");
   });
 });

@@ -129,7 +129,7 @@ describe("DataCoverageTable — cell rendering (published zero vs absent slice)"
     const artifactsByYear = fullYearArtifact({
       opr: { exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 }, tieCount: 0, noCallCount: 0 },
       epa: { exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 }, tieCount: 0, noCallCount: 0 },
-      bpr: { exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 }, tieCount: 0, noCallCount: 0 },
+      spr: { exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 }, tieCount: 0, noCallCount: 0 },
     });
     render(<DataCoverageTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
 
@@ -153,7 +153,7 @@ describe("DataCoverageTable — cell rendering (published zero vs absent slice)"
     expect(candidateCell.textContent).not.toContain("0");
 
     const artifactsByYear = new Map<number, CompareArtifact>();
-    artifactsByYear.set(YEAR, artifactWith([makeSlice({ algorithmId: "bpr", season: YEAR, compLevelView: "combined" })]));
+    artifactsByYear.set(YEAR, artifactWith([makeSlice({ algorithmId: "spr", season: YEAR, compLevelView: "combined" })]));
     cleanup();
     render(<DataCoverageTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
     const oprNoCallCell = screen.getByTestId(coverageCellTestId(YEAR, "noCall:opr"));
@@ -163,7 +163,7 @@ describe("DataCoverageTable — cell rendering (published zero vs absent slice)"
 
   it("a published zero and an absent sibling cell in the same row render differently", () => {
     const artifactsByYear = new Map<number, CompareArtifact>();
-    artifactsByYear.set(YEAR, artifactWith([makeSlice({ algorithmId: "bpr", season: YEAR, compLevelView: "combined", tieCount: 0 })]));
+    artifactsByYear.set(YEAR, artifactWith([makeSlice({ algorithmId: "spr", season: YEAR, compLevelView: "combined", tieCount: 0 })]));
     render(<DataCoverageTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
 
     const tieCell = screen.getByTestId(coverageCellTestId(YEAR, "tieCount"));
@@ -181,7 +181,7 @@ describe("DataCoverageTable — cell rendering (published zero vs absent slice)"
     const artifactsByYear = fullYearArtifact({
       opr: { exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 } },
       epa: { exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 } },
-      bpr: { exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 } },
+      spr: { exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 } },
     });
     render(<DataCoverageTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
 
@@ -199,7 +199,7 @@ describe("DataCoverageTable — cell rendering (published zero vs absent slice)"
     const artifactsByYear = fullYearArtifact({
       opr: { candidateCount: 100 },
       epa: { candidateCount: 101 },
-      bpr: { candidateCount: 102 },
+      spr: { candidateCount: 102 },
     });
     render(<DataCoverageTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
     const cell = screen.getByTestId(coverageCellTestId(YEAR, "candidateCount"));
@@ -311,7 +311,7 @@ describe("DataCoverageTable — no derived column", () => {
         noCallCount: 30,
         exclusionCounts: { offseason: 40, surrogateAffected: 10, missingResult: 20, quarantined: 30 },
       },
-      bpr: {
+      spr: {
         candidateCount: 1000,
         scoredCount: 900,
         tieCount: 20,

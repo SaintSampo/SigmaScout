@@ -236,9 +236,9 @@ export const METRIC_COLUMN_WIDTH_PX = 120;
 export const METRIC_COLUMN_WIDTH_SPREADLESS_PX = 88;
 
 /**
- * Whether `algorithmId` ever publishes a spread on a metric. BPR is the only
+ * Whether `algorithmId` ever publishes a spread on a metric. SPR is the only
  * one that does as of VPR's retirement (2026-09-09) — verified against the live
- * 2026 teams artifacts that day: BPR carries a `total` spread of 36.32 for its
+ * 2026 teams artifacts that day: SPR carries a `total` spread of 36.32 for its
  * first row, EPA and OPR carry a mean only. Exported so
  * `event/AlliancesTab.tsx`'s own D-7 pick/combined column widths derive from
  * this identical predicate rather than a second, independently-typed check.
@@ -246,12 +246,12 @@ export const METRIC_COLUMN_WIDTH_SPREADLESS_PX = 88;
  * NOTE, and it is a real inconsistency rather than a subtlety: this is the
  * ALGORITHM's own spread, which is a different quantity from the SigmaScout
  * Swing Factor the team page now shows on its Total tile. The teams table and
- * the team page can therefore print different `±` for the same team under BPR.
+ * the team page can therefore print different `±` for the same team under SPR.
  * Tracked in `.planning/todos/pending/`'s band/identity notes; not resolved by
  * the VPR removal.
  */
 export function algorithmPublishesSpread(algorithmId: string): boolean {
-  return algorithmId === "bpr";
+  return algorithmId === "spr";
 }
 
 /**

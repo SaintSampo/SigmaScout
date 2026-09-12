@@ -1101,26 +1101,6 @@ describe("deserializeBprState — shape-version guard (quick task 260908-5wd)", 
   });
 });
 
-describe("serializeState/deserializeState — 260912-ivg Stage 1 dual-name dispatch", () => {
-  // Both the WRITE tier (`spr`, starting with this task) and the READ tier
-  // (`bpr`, still live in D1 until Stage 3's reseed) must dispatch to the
-  // SAME branch — a Worker deployed anywhere in the cutover window has to
-  // be able to read rows written under either id.
-  it("serializeState round-trips through deserializeState identically for both algorithmId names", () => {
-    const state = spr.initState(["frc1", "frc2"]);
-    const rowsUnderSpr = serializeState("spr", spr.version, state as any, STAMP);
-    const rowsUnderBpr = serializeState("bpr", spr.version, state as any, STAMP);
-    // Only the algorithmId column should differ between the two — the
-    // stateJson payload itself is identical, since both names describe the
-    // exact same algorithm.
-    expect(rowsUnderSpr.map((r) => ({ ...r, algorithmId: undefined }))).toEqual(
-      rowsUnderBpr.map((r) => ({ ...r, algorithmId: undefined })),
-    );
-    expect(() => deserializeState("spr", rowsUnderSpr)).not.toThrow();
-    expect(() => deserializeState("bpr", rowsUnderBpr)).not.toThrow();
-  });
-});
-
 describe("Sigma Score belief and population persistence (shape 11)", () => {
   const BELIEF = { meanWeight: 3.25, mean: 8.5, varWeight: 2.75, sumSquares: 91.5, talent: 42.25 };
   const POPULATION = { sumSquares: 12345.5, talentSquares: 98765.25, count: 4321 };

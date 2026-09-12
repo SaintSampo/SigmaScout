@@ -154,7 +154,7 @@ import {
   type TeamsArtifact,
 } from "../../../packages/harness/pageArtifacts.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "../../../packages/harness/rounding.js";
-import { PIPELINE_ALGORITHM_IDS, type AlgorithmsManifest, type LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
+import { PUBLISHED_ALGORITHM_IDS, type AlgorithmsManifest, type LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
 import { loadAlgorithmsManifest, loadLiveEventsAt } from "./liveWindows.js";
 import { readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
 import { hasAlreadyFolded, readEventCursor, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
@@ -214,25 +214,25 @@ async function writeTickMeta(db: D1Database, meta: TickMeta, nowIso: string): Pr
  * unset/empty fallback and this file's own regression test
  * (`liveAlgorithmTier.test.ts`) bind to the SAME default rather than a
  * re-typed copy. Renamed to `vpr` by plan 07-16 (D-04/D-05) from its
- * pre-rename value — this value is validated against
- * `PIPELINE_ALGORITHM_IDS` (packages/harness/publishedAlgorithms.ts) as of
- * quick task 260912-ivg Stage 1, NOT `PUBLISHED_ALGORITHM_IDS`: this default
- * is what the Worker WRITES under once deployed (Stage 4), so it must be
- * validated against the write tier, which is exactly the transitional split
- * plan 07-16/07-18 used for the earlier retired-algorithm rename this task
- * reopens the same shape for.
+ * pre-rename value; renamed again on VPR's 2026-09-09 retirement, then to
+ * `spr` by quick task 260912-ivg (2026-09-12, Sigma Power Rating) — this
+ * value is validated against `PUBLISHED_ALGORITHM_IDS`
+ * (packages/harness/publishedAlgorithms.ts), the single algorithm-id
+ * constant again since 260912-ivg Stage 5 collapsed the transitional
+ * write-tier split that plan 07-16/07-18 first used for the earlier
+ * retired-algorithm rename.
  */
-// 2026-09-09: `vpr` -> the id BPR joined the site under, on VPR's retirement,
-// renamed again by quick task 260912-ivg Stage 1 to the write-tier identifier
-// `spr`. A fallback naming a retired id would make an unset LIVE_ALGORITHM_IDS throw
-// UnknownLiveAlgorithmIdError on every tick — the misconfiguration this
-// default exists to avoid.
+// 2026-09-09: `vpr` retired, replaced by this algorithm under its
+// then-current wire id; renamed again by quick task 260912-ivg (2026-09-12)
+// to `spr`. A fallback naming a retired id would make an unset
+// LIVE_ALGORITHM_IDS throw UnknownLiveAlgorithmIdError on every tick — the
+// misconfiguration this default exists to avoid.
 export const DEFAULT_LIVE_ALGORITHM_IDS: readonly string[] = ["spr"];
 
-/** An id in `LIVE_ALGORITHM_IDS` that is not one of `PIPELINE_ALGORITHM_IDS` (260912-ivg Stage 1: the write tier, not `PUBLISHED_ALGORITHM_IDS`) — unambiguously a typo in tracked config, never auto-corrected. */
+/** An id in `LIVE_ALGORITHM_IDS` that is not one of `PUBLISHED_ALGORITHM_IDS` — unambiguously a typo in tracked config, never auto-corrected. */
 export class UnknownLiveAlgorithmIdError extends Error {
   constructor(id: string) {
-    super(`parseLiveAlgorithmIds: "${id}" is not a known write-tier algorithm id (accepted: ${PIPELINE_ALGORITHM_IDS.join(", ")}) — check LIVE_ALGORITHM_IDS in apps/worker/wrangler.toml for a typo.`);
+    super(`parseLiveAlgorithmIds: "${id}" is not a known algorithm id (accepted: ${PUBLISHED_ALGORITHM_IDS.join(", ")}) — check LIVE_ALGORITHM_IDS in apps/worker/wrangler.toml for a typo.`);
     this.name = "UnknownLiveAlgorithmIdError";
   }
 }
@@ -271,11 +271,10 @@ export class EmptyLiveAlgorithmTierError extends Error {
  *    case where a deploy-time `--var` override drops this tracked var).
  *    Falling back is safe; the warn line is what stops it being silent. Only
  *    the ids themselves are logged, never any other binding value.
- *  - An id not in `PIPELINE_ALGORITHM_IDS` (260912-ivg Stage 1: the write
- *    tier) — throws `UnknownLiveAlgorithmIdError`. This is what proves
- *    validation moved to the write tier rather than widening to accept
- *    both: the retiring READ-tier id (BPR's wire id before this task) is
- *    correctly REJECTED here, even though it is still a member of
+ *  - An id not in `PUBLISHED_ALGORITHM_IDS` — throws
+ *    `UnknownLiveAlgorithmIdError`. A retired id (e.g. the wire id this
+ *    algorithm carried before quick task 260912-ivg's rename) is correctly
+ *    REJECTED here, since it is no longer a member of
  *    `PUBLISHED_ALGORITHM_IDS`.
  * Called at the TOP of `runTick`, before the live-windows manifest read, so
  * a misconfigured deploy surfaces on the very next tick — one minute later,
@@ -294,7 +293,7 @@ export function parseLiveAlgorithmIds(raw: string | undefined): string[] {
   }
 
   for (const id of segments) {
-    if (!(PIPELINE_ALGORITHM_IDS as readonly string[]).includes(id)) {
+    if (!(PUBLISHED_ALGORITHM_IDS as readonly string[]).includes(id)) {
       throw new UnknownLiveAlgorithmIdError(id);
     }
   }

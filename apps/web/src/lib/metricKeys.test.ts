@@ -9,7 +9,7 @@ describe("metricKeysFor", () => {
   });
 
   it("EPA and VPR return identical arrays for the same season, since both derive from the same season component map", () => {
-    expect(metricKeysFor("epa", 2022)).toEqual(metricKeysFor("bpr", 2022));
+    expect(metricKeysFor("epa", 2022)).toEqual(metricKeysFor("spr", 2022));
   });
 
   it("EPA 2026 returns strictly more keys than EPA 2022, matching the researched 2026-versus-2022 component counts", () => {
@@ -23,7 +23,7 @@ describe("metricKeysFor", () => {
       ["opr", 2024],
       ["epa", 2022],
       ["epa", 2026],
-      ["bpr", 2024],
+      ["spr", 2024],
     ] as const) {
       const keys = metricKeysFor(algorithmId, season);
       expect(keys[0]).toBe(TOTAL_KEY);
@@ -32,7 +32,7 @@ describe("metricKeysFor", () => {
   });
 
   it("never returns the adjust component for any algorithm or season — it is a scorekeeper correction, not a column (2026-09-05)", () => {
-    for (const algorithmId of ["opr", "epa", "bpr"] as const) {
+    for (const algorithmId of ["opr", "epa", "spr"] as const) {
       for (const season of SEASONS) {
         expect(metricKeysFor(algorithmId, season)).not.toContain("adjust");
       }
@@ -47,13 +47,13 @@ describe("metricKeysFor", () => {
 
 describe("publishesGroupMetrics / hasGroupedTeamsView (D-2, 260904-5zg; publishesGroupMetrics widened to epa by D-3, 260904-7id)", () => {
   it("publishesGroupMetrics is true for vpr AND epa (pipeline now publishes EPA's phase groups too), false for opr", () => {
-    expect(publishesGroupMetrics("bpr")).toBe(true);
+    expect(publishesGroupMetrics("spr")).toBe(true);
     expect(publishesGroupMetrics("epa")).toBe(true);
     expect(publishesGroupMetrics("opr")).toBe(false);
   });
 
   it("hasGroupedTeamsView is true for vpr AND epa, false for opr", () => {
-    expect(hasGroupedTeamsView("bpr")).toBe(true);
+    expect(hasGroupedTeamsView("spr")).toBe(true);
     expect(hasGroupedTeamsView("epa")).toBe(true);
     expect(hasGroupedTeamsView("opr")).toBe(false);
   });

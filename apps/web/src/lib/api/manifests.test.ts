@@ -13,7 +13,7 @@ function makeValidManifest() {
     algorithms: [
       { id: "opr", version: "2.0.0+baseline", codeVersion: "2.0.0", paramSetName: "baseline" },
       { id: "epa", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" },
-      { id: "bpr", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" },
+      { id: "spr", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" },
     ],
   };
 }
@@ -33,7 +33,7 @@ describe("fetchAlgorithmsManifest", () => {
     const result = await fetchAlgorithmsManifest();
 
     expect(result.algorithms).toHaveLength(3);
-    expect(result.algorithms.find((a) => a.id === "bpr")?.version).toBe("2.0.0+tuned-2026-08");
+    expect(result.algorithms.find((a) => a.id === "spr")?.version).toBe("2.0.0+tuned-2026-08");
   });
 
   it("ignores extra keys on an entry rather than validating them (the client's narrow schema, not the harness's full one)", async () => {

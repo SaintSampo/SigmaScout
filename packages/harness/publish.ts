@@ -123,7 +123,6 @@ import {
   type TeamMetricsWithPercentile,
 } from "./percentiles.js";
 import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS } from "./manifests.js";
-import { PIPELINE_ALGORITHM_IDS } from "./publishedAlgorithms.js";
 import {
   emitSeedSql,
   serializeState,
@@ -188,7 +187,7 @@ const PRESIM_SCHEDULE_COUNT = 1000;
  */
 const PRESIM_DRAWS_PER_SCHEDULE = 50;
 
-/** D-03 (rename D-04/D-05, plan 07-16; re-keyed by 260912-ivg Stage 1): the base (untuned/unpromoted) modules for the WRITE-tier ids (`PIPELINE_ALGORITHM_IDS`). `spr` (the module `packages/core/algorithms/spr.ts` exports — wire id and file both renamed from their BPR-era names by quick task 260912-ivg) joined the site on 2026-09-08 and, like `opr`/`epa`, is never overridden by `applyPromotedOverrides` because it carries no tuned parameter file. `resolvePublishAlgorithms` swaps `vpr` for the committed promoted version via `applyPromotedOverrides`, the same rule `manifests.ts`'s `buildAlgorithmsManifest` and `cli.ts`'s harness runs use — never a second, independently-derived resolution (T-04-16). Its own object key and `vpr.id` must agree — they do, because both derive from the same renamed registry export (T-07-16-01). No pre-rename key remains here: the retiring id is a READ-tier-only concern now, validated instead by `PUBLISHED_ALGORITHM_IDS` at the manifest/Worker boundary. */
+/** D-03 (rename D-04/D-05, plan 07-16; re-keyed by quick task 260912-ivg): the base (untuned/unpromoted) modules for `PUBLISHED_ALGORITHM_IDS`. `spr` (the module `packages/core/algorithms/spr.ts` exports — wire id and file both renamed from their BPR-era names by quick task 260912-ivg) joined the site on 2026-09-08 and, like `opr`/`epa`, is never overridden by `applyPromotedOverrides` because it carries no tuned parameter file. `resolvePublishAlgorithms` swaps `vpr` for the committed promoted version via `applyPromotedOverrides`, the same rule `manifests.ts`'s `buildAlgorithmsManifest` and `cli.ts`'s harness runs use — never a second, independently-derived resolution (T-04-16). Its own object key and `vpr.id` must agree — they do, because both derive from the same renamed registry export (T-07-16-01). No pre-rename key remains here: the earlier wire id retired entirely, per `PUBLISHED_ALGORITHM_IDS`. */
 const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa, vpr, spr };
 
 // ---------------------------------------------------------------------------
@@ -3546,14 +3545,14 @@ function deriveSeasonFromEventKey(eventKey: string): number {
   return season;
 }
 
-/** D-03 (rename D-04/D-05, plan 07-16/07-18; re-split by 260912-ivg Stage 1): resolves the requested `--algorithm` ids (default: `PIPELINE_ALGORITHM_IDS` — the publisher/Worker-WRITE tier, deliberately not `PUBLISHED_ALGORITHM_IDS`, the browser-READ tier, while the 260912-ivg BPR -> SPR cutover is mid-transition) against the base modules, then swaps in the promoted VPR the same way `manifests.ts`'s `buildAlgorithmsManifest` (still read-tier) and `cli.ts`'s harness runs do (T-04-16) — never a second, independent resolution. Exported (plan 07-16 Task 2) so the rename's default-set/artifact-key/unknown-id behavior is directly testable rather than only reachable through the CLI entry point. */
+/** D-03 (rename D-04/D-05, plan 07-16/07-18; re-split then re-collapsed by quick task 260912-ivg): resolves the requested `--algorithm` ids (default: `PUBLISHED_ALGORITHM_IDS`, the single algorithm-id constant again as of 260912-ivg Stage 5) against the base modules, then swaps in the promoted VPR the same way `manifests.ts`'s `buildAlgorithmsManifest` (still read-tier) and `cli.ts`'s harness runs do (T-04-16) — never a second, independent resolution. Exported (plan 07-16 Task 2) so the rename's default-set/artifact-key/unknown-id behavior is directly testable rather than only reachable through the CLI entry point. */
 export function resolvePublishAlgorithms(idsCsv: string | undefined): AlgorithmModule<any>[] {
   const ids = idsCsv
     ? idsCsv
         .split(",")
         .map((s) => s.trim())
         .filter((s) => s.length > 0)
-    : [...PIPELINE_ALGORITHM_IDS];
+    : [...PUBLISHED_ALGORITHM_IDS];
   const resolved: AlgorithmModule<any>[] = [];
   for (const id of ids) {
     const base = BASE_PUBLISH_ALGORITHMS[id];

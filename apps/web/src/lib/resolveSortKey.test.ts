@@ -16,11 +16,11 @@ describe("resolveSortKey", () => {
   });
 
   it("treats an absent sort param the same as an invalid one: undefined resolves to the total key", () => {
-    expect(resolveSortKey(undefined, metricKeysFor("bpr", 2024))).toBe(TOTAL_KEY);
+    expect(resolveSortKey(undefined, metricKeysFor("spr", 2024))).toBe(TOTAL_KEY);
   });
 
   it("returns the input unchanged whenever it is present in the set, including when it already is the total key", () => {
-    const validKeys = metricKeysFor("bpr", 2024);
+    const validKeys = metricKeysFor("spr", 2024);
     expect(resolveSortKey(TOTAL_KEY, validKeys)).toBe(TOTAL_KEY);
     expect(resolveSortKey(validKeys[0], validKeys)).toBe(validKeys[0]);
   });
@@ -31,8 +31,8 @@ describe("resolveSortKey", () => {
       ["opr", 2026],
       ["epa", 2022],
       ["epa", 2026],
-      ["bpr", 2022],
-      ["bpr", 2026],
+      ["spr", 2022],
+      ["spr", 2026],
     ];
     const probes = [undefined, "", "hubShift1", "autoCargo", "not-a-real-key", TOTAL_KEY];
     for (const [algorithmId, season] of cases) {

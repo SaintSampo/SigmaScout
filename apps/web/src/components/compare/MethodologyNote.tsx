@@ -68,16 +68,19 @@ export const COLD_START_EXPLANATION =
 
 /**
  * The algorithm this note's Brier list and best-season clause describe —
- * SigmaScout's premier algorithm. The internal id became `bpr` on 2026-09-09
- * when the prior premier rating left the published set, and the label
- * displayed on methodology pages became SPR on 2026-09-10 (quick task
- * 260910-vof); the id itself did not change. Named for its ROLE rather than
- * hardcoded at each use, so the note follows the premier algorithm instead of
+ * SigmaScout's premier algorithm. This algorithm became SigmaScout's premier
+ * rating on 2026-09-09 when the prior premier rating left the published set,
+ * and the label displayed on methodology pages became SPR on 2026-09-10
+ * (quick task 260910-vof); the internal id itself did not change then.
+ * Quick task 260912-ivg renamed the id itself to `spr` (Sigma Power Rating),
+ * matching the display name it had carried since 2026-09-10. Named for its
+ * ROLE rather than hardcoded at each use, so the note follows the premier
+ * algorithm instead of
  * having to be rewritten around it. The compare artifact still carries `vpr`
  * slices for the seasons it was published on; they are simply no longer what
  * this note reads.
  */
-const PREMIER_ALGORITHM_ID = "bpr";
+const PREMIER_ALGORITHM_ID = "spr";
 
 interface SeasonBrier {
   readonly season: number;

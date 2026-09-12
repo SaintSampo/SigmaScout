@@ -11,7 +11,7 @@ export interface DisplayMetric {
   value: number;
   /**
    * The ALGORITHM's own confidence in `value`. Present on the wire for the
-   * algorithms that model it (BPR publishes one on `total` and all three
+   * algorithms that model it (SPR publishes one on `total` and all three
    * phase metrics).
    *
    * DELIBERATELY NOT READ BY THIS COMPONENT, and that is the whole point of

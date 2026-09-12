@@ -20,7 +20,7 @@ import { OFFSEASON_EVENT_TYPE } from "../core/algorithms/eventTypes.js";
 // own `publish.ts` importer now imports the published `vpr` registry entry
 // under its post-rename name.
 import { vpr } from "../core/algorithms/sigma1/index.js";
-import { PUBLISHED_ALGORITHM_IDS, PIPELINE_ALGORITHM_IDS } from "./publishedAlgorithms.js";
+import { PUBLISHED_ALGORITHM_IDS } from "./publishedAlgorithms.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import {
   openCorpus,
@@ -322,21 +322,17 @@ function seedTwoEventSeason(db: Corpus): { earlyEventKey: string; lateEventKey: 
   return { earlyEventKey, lateEventKey, teamKeys };
 }
 
-describe("resolvePublishAlgorithms — D-03/D-04/D-05 rename (plan 07-16 Task 2, repointed at the collapsed single tier by plan 07-18 Task 1)", () => {
+describe("resolvePublishAlgorithms — D-03/D-04/D-05 rename (plan 07-16 Task 2, repointed at the collapsed single tier by plan 07-18 Task 1; re-collapsed again by quick task 260912-ivg Stage 5)", () => {
   // Test 7: the default publish set (an operator who omits `--algorithm`,
   // the path an operator actually takes) resolves to the OPR id, the EPA
-  // id, and `vpr` — read from `PUBLISHED_ALGORITHM_IDS`, the single
-  // algorithm-id constant again as of plan 07-18's collapse.
-  // 260912-ivg Stage 1: resolvePublishAlgorithms's default reads
-  // PIPELINE_ALGORITHM_IDS (the WRITE tier, premier id `spr`), deliberately
-  // NOT PUBLISHED_ALGORITHM_IDS (the READ tier, still `bpr`) — this is the
-  // split's whole safety property, so both constants are asserted here in
-  // the SAME test to make a half-collapse fail loudly rather than silently.
-  it("the default (undefined) publish set resolves to the WRITE tier (opr, epa, spr), while the READ tier stays on the retiring premier id", () => {
+  // id, and the premier algorithm's id — read from `PUBLISHED_ALGORITHM_IDS`,
+  // the single algorithm-id constant again as of 260912-ivg Stage 5's
+  // collapse (mirroring plan 07-18's earlier collapse for the sigma1 -> vpr
+  // rename).
+  it("the default (undefined) publish set resolves to PUBLISHED_ALGORITHM_IDS (opr, epa, spr)", () => {
     const algorithms = resolvePublishAlgorithms(undefined);
-    expect(algorithms.map((a) => a.id)).toEqual([...PIPELINE_ALGORITHM_IDS]);
-    expect(PIPELINE_ALGORITHM_IDS).toEqual(["opr", "epa", "spr"]);
-    expect(PUBLISHED_ALGORITHM_IDS).toEqual(["opr", "epa", "bpr"]);
+    expect(algorithms.map((a) => a.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
+    expect(PUBLISHED_ALGORITHM_IDS).toEqual(["opr", "epa", "spr"]);
   });
 
   // Test 8: every emitted artifact key for the published algorithm carries
@@ -4835,9 +4831,20 @@ describe("data/baselines/rp-calibration-2026-09.json — the committed D-09 'bef
   if (measurement === undefined) {
     it.skip(`skipped: ${RP_CALIBRATION_MEASUREMENT_PATH} does not exist yet — run scripts/measureRpCalibration.ts with --emit-artifact first`, () => {});
   } else {
+    // `data/baselines/rp-calibration-2026-09.json` is a FROZEN record (tier
+    // F, excluded from the algorithmIdentity sweep via `data/baselines/`) —
+    // it was measured under the premier algorithm's wire id in force at the
+    // time (before quick task 260912-ivg's rename), and is never rewritten.
+    // The one-entry alias below is what lets that frozen citation keep
+    // resolving against the live (renamed) `PUBLISHED_ALGORITHM_IDS` member,
+    // the same pattern `level1Digest.test.ts`'s `LEGACY_ALGORITHM_ID_ALIASES`
+    // already uses for an identical frozen-baseline situation.
+    const FROZEN_BASELINE_ALGORITHM_ID_ALIASES: Readonly<Record<string, string>> = { bpr: "spr" };
     it("covers the FULL cross product of every registered RP season and every published algorithm — pinned by set equality, never a loop over a hand-typed list", () => {
       const expected = new Set(Object.keys(RP_RULE_MODULES).flatMap((season) => PUBLISHED_ALGORITHM_IDS.map((a) => `${season}:${a}`)));
-      const actual = new Set(measurement.records.map((r) => `${r.season}:${r.algorithmId}`));
+      const actual = new Set(
+        measurement.records.map((r) => `${r.season}:${FROZEN_BASELINE_ALGORITHM_ID_ALIASES[r.algorithmId] ?? r.algorithmId}`),
+      );
       expect(actual).toEqual(expected);
     });
 

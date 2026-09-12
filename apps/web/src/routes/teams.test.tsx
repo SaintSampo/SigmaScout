@@ -20,7 +20,7 @@ function manifestResponse() {
       schemaVersion: 1,
       generation: "gen-1",
       computedAt: "2026-09-09T00:00:00.000Z",
-      algorithms: [{ id: "bpr", version: "2.0.0+tuned-2026-09", codeVersion: "2.0.0", paramSetName: "tuned-2026-09" }],
+      algorithms: [{ id: "spr", version: "2.0.0+tuned-2026-09", codeVersion: "2.0.0", paramSetName: "tuned-2026-09" }],
     }),
     { status: 200 },
   );
@@ -39,7 +39,7 @@ function teamsArtifactResponse() {
       schemaVersion: 1,
       generation: "gen-1",
       computedAt: "2026-09-09T00:00:00.000Z",
-      algorithmId: "bpr",
+      algorithmId: "spr",
       algorithmVersion: "2.0.0+tuned-2026-09",
       season: 2026,
       teams: [
@@ -179,7 +179,7 @@ describe("/teams route bubble-chart toggle", () => {
 
   it("with no ?chart= param, renders the table and not the chart", async () => {
     global.fetch = stubFetch();
-    renderTeamsRoute("/teams?algorithm=bpr");
+    renderTeamsRoute("/teams?algorithm=spr");
 
     await waitFor(() => expect(screen.getByTestId("teams-table-scroll")).toBeDefined());
     expect(screen.queryByTestId("teams-bubble-chart")).toBeNull();
@@ -187,7 +187,7 @@ describe("/teams route bubble-chart toggle", () => {
 
   it("arriving at /teams?chart=bubble renders the chart and not the table, with no click needed", async () => {
     global.fetch = stubFetch();
-    renderTeamsRoute("/teams?algorithm=bpr&chart=bubble");
+    renderTeamsRoute("/teams?algorithm=spr&chart=bubble");
 
     await waitFor(() => expect(screen.getByTestId("teams-bubble-chart")).toBeDefined());
     expect(screen.queryByTestId("teams-table-scroll")).toBeNull();
@@ -195,7 +195,7 @@ describe("/teams route bubble-chart toggle", () => {
 
   it("?chart= carrying an unrecognised value resolves to the table", async () => {
     global.fetch = stubFetch();
-    renderTeamsRoute("/teams?algorithm=bpr&chart=pie");
+    renderTeamsRoute("/teams?algorithm=spr&chart=pie");
 
     await waitFor(() => expect(screen.getByTestId("teams-table-scroll")).toBeDefined());
     expect(screen.queryByTestId("teams-bubble-chart")).toBeNull();
@@ -203,7 +203,7 @@ describe("/teams route bubble-chart toggle", () => {
 
   it("clicking the toggle writes chart=bubble into the URL and swaps to the chart; clicking again restores the table", async () => {
     global.fetch = stubFetch();
-    const { router } = renderTeamsRoute("/teams?algorithm=bpr");
+    const { router } = renderTeamsRoute("/teams?algorithm=spr");
 
     await waitFor(() => expect(screen.getByTestId("teams-table-scroll")).toBeDefined());
     const toggle = screen.getByRole("button", { name: "Bubble chart" });
@@ -227,7 +227,7 @@ describe("/teams route bubble-chart toggle", () => {
 
   it("with a region filter active, the plotted dot count equals the filtered rows that have both a Total and a Swing Score (D-03)", async () => {
     global.fetch = stubFetch();
-    const { container } = renderTeamsRoute("/teams?algorithm=bpr&chart=bubble&country=USA");
+    const { container } = renderTeamsRoute("/teams?algorithm=spr&chart=bubble&country=USA");
 
     await waitFor(() => expect(screen.getByTestId("teams-bubble-chart")).toBeDefined());
     // Filtered to country=USA: frc1, frc3, frc4 (frc2 is Canada). Of those,
@@ -238,7 +238,7 @@ describe("/teams route bubble-chart toggle", () => {
   it("applyYearChange preserves the chart param across a year change", () => {
     const current: TeamsSearch = {
       year: 2026,
-      algorithm: "bpr",
+      algorithm: "spr",
       sort: undefined,
       sortDir: "desc",
       cols: undefined,
@@ -253,7 +253,7 @@ describe("/teams route bubble-chart toggle", () => {
 
   it("clicking a plotted dot navigates to that team's page path, carrying the same year, algorithm and tab the table's team links carry", async () => {
     global.fetch = stubFetch();
-    const { router, container } = renderTeamsRoute("/teams?algorithm=bpr&chart=bubble&country=USA");
+    const { router, container } = renderTeamsRoute("/teams?algorithm=spr&chart=bubble&country=USA");
 
     await waitFor(() => expect(screen.getByTestId("teams-bubble-chart")).toBeDefined());
     await waitFor(() => expect(countDots(container)).toBe(2));
@@ -272,13 +272,13 @@ describe("/teams route bubble-chart toggle", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/team/1"));
     const search = router.state.location.search as Record<string, unknown>;
     expect(search.year).toBe(2026);
-    expect(search.algorithm).toBe("bpr");
+    expect(search.algorithm).toBe("spr");
     expect(search.tab).toBe("overview");
   });
 
   it("clicking empty plot area on the chart leaves the location unchanged", async () => {
     global.fetch = stubFetch();
-    const { router, container } = renderTeamsRoute("/teams?algorithm=bpr&chart=bubble&country=USA");
+    const { router, container } = renderTeamsRoute("/teams?algorithm=spr&chart=bubble&country=USA");
 
     await waitFor(() => expect(screen.getByTestId("teams-bubble-chart")).toBeDefined());
     await waitFor(() => expect(countDots(container)).toBe(2));

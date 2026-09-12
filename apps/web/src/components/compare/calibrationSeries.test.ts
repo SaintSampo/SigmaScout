@@ -41,7 +41,7 @@ describe("validCalibrationPoints", () => {
   it("keeps sparse bins and drops empty ones — asserted over every committed fixture, and the sparse case is proven to occur", () => {
     // Was pinned to "2024 EPA elimination drops exactly two zero-count bins
     // and keeps both one-match bins". That slice no longer has ANY one-match
-    // bin (quick task 260908-b4t refetched the fixtures after publishing BPR,
+    // bin (quick task 260908-b4t refetched the fixtures after publishing SPR,
     // which also brought newer EPA data), so the pinned numbers described data
     // that had ceased to exist. Re-pinning to another slice would just defer
     // the same breakage to the next publish, so this asserts the INVARIANT

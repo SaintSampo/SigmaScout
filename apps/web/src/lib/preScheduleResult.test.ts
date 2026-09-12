@@ -21,7 +21,7 @@ function makeArtifact(): PublishedPreScheduleArtifact {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-09-05T00:00:00.000Z",
-    algorithmId: "bpr",
+    algorithmId: "spr",
     algorithmVersion: "9.0.0+rolling-2026-09c",
     eventKey: "2026casj",
     season: 2026,

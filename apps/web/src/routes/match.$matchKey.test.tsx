@@ -21,7 +21,7 @@ function manifestResponse() {
       schemaVersion: 1,
       generation: "gen-1",
       computedAt: "2026-08-24T00:00:00.000Z",
-      algorithms: [{ id: "bpr", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" }],
+      algorithms: [{ id: "spr", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" }],
     }),
     { status: 200 },
   );
@@ -33,7 +33,7 @@ function eventArtifactResponse(overrides: Record<string, unknown> = {}) {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
       computedAt: "2026-08-24T00:00:00.000Z",
-      algorithmId: "bpr",
+      algorithmId: "spr",
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
@@ -108,7 +108,7 @@ describe("/match/$matchKey route — invalid match key (260909-tiq-PLAN.md Task 
     const fetchMock = vi.fn((_input: RequestInfo | URL) => Promise.resolve(manifestResponse()));
     global.fetch = fetchMock;
 
-    renderMatchRoute("/match/notamatchkey?algorithm=bpr");
+    renderMatchRoute("/match/notamatchkey?algorithm=spr");
 
     await waitFor(() => expect(screen.getByText('"notamatchkey" is not a valid match key.')).toBeDefined());
     expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/v1/event/"))).toBe(false);
@@ -130,7 +130,7 @@ describe("/match/$matchKey route — states (260909-tiq-PLAN.md Task 1)", () => 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(new Response("not found", { status: 404 }));
     });
-    renderMatchRoute("/match/2024casf_qm1?algorithm=bpr");
+    renderMatchRoute("/match/2024casf_qm1?algorithm=spr");
 
     await waitFor(() => expect(screen.getByText("No published results for 2024casf yet")).toBeDefined());
     expect(screen.queryByRole("button")).toBeNull();
@@ -142,7 +142,7 @@ describe("/match/$matchKey route — states (260909-tiq-PLAN.md Task 1)", () => 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(new Response("boom", { status: 500 }));
     });
-    renderMatchRoute("/match/2024casf_qm1?algorithm=bpr&year=2026");
+    renderMatchRoute("/match/2024casf_qm1?algorithm=spr&year=2026");
 
     await waitFor(() => expect(screen.getByText("Couldn't load match 2024casf_qm1 for 2024.")).toBeDefined());
     expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
@@ -154,7 +154,7 @@ describe("/match/$matchKey route — states (260909-tiq-PLAN.md Task 1)", () => 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderMatchRoute("/match/2024casf_qm1?algorithm=bpr");
+    renderMatchRoute("/match/2024casf_qm1?algorithm=spr");
 
     await waitFor(() => expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0));
     expect(screen.queryByRole("progressbar")).toBeNull();
@@ -166,7 +166,7 @@ describe("/match/$matchKey route — states (260909-tiq-PLAN.md Task 1)", () => 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse({ matches: [PLAYED_MATCH] }));
     });
-    renderMatchRoute("/match/2024casf_qm999?algorithm=bpr");
+    renderMatchRoute("/match/2024casf_qm999?algorithm=spr");
 
     await waitFor(() => expect(screen.getByText("No match 2024casf_qm999 published for this event")).toBeDefined());
   });
@@ -177,7 +177,7 @@ describe("/match/$matchKey route — states (260909-tiq-PLAN.md Task 1)", () => 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse({ matches: [PLAYED_MATCH] }));
     });
-    renderMatchRoute("/match/2024casf_qm1?algorithm=bpr");
+    renderMatchRoute("/match/2024casf_qm1?algorithm=spr");
 
     await waitFor(() => expect(screen.getByTestId("match-row-2024casf_qm1")).toBeDefined());
     // "Qual 1" renders twice by design — once in the heading, once in the
@@ -194,7 +194,7 @@ describe("/match/$matchKey route — states (260909-tiq-PLAN.md Task 1)", () => 
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse({ upcoming: [UPCOMING_MATCH] }));
     });
-    renderMatchRoute("/match/2024casf_qm2?algorithm=bpr");
+    renderMatchRoute("/match/2024casf_qm2?algorithm=spr");
 
     await waitFor(() => expect(screen.getByTestId("match-row-2024casf_qm2")).toBeDefined());
     expect(screen.getAllByText("Qual 2").length).toBeGreaterThanOrEqual(2);
@@ -225,7 +225,7 @@ describe("/match/$matchKey route — the six roster team artifacts (260909-tiq-P
       }
       return Promise.resolve(eventArtifactResponse({ matches: [PLAYED_MATCH] }));
     });
-    renderMatchRoute("/match/2024casf_qm1?algorithm=bpr");
+    renderMatchRoute("/match/2024casf_qm1?algorithm=spr");
 
     // The heading/table paint from the event artifact alone, with the six
     // team-artifact fetches left permanently pending.

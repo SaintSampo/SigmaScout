@@ -6,7 +6,7 @@ type HistoryRow = TeamSeasonArtifact["metricHistory"][number];
 type EventRow = EventsArtifact["events"][number];
 
 function historyRow(eventKey: string, total: number, matchIndex: number): HistoryRow {
-  return { matchKey: `${eventKey}_qm${matchIndex}`, season: 2026, eventKey, algorithmId: "bpr", teamKey: "frc118", matchIndex, metrics: { total: { value: total } } } as HistoryRow;
+  return { matchKey: `${eventKey}_qm${matchIndex}`, season: 2026, eventKey, algorithmId: "spr", teamKey: "frc118", matchIndex, metrics: { total: { value: total } } } as HistoryRow;
 }
 
 function eventRow(eventKey: string, overrides: Partial<EventRow> = {}): EventRow {
