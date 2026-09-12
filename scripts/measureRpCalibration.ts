@@ -84,8 +84,22 @@
  * against that file measures the engine swap, not a modelling change, and must
  * be labelled cross-generation wherever it is reported.
  *
+ * ---------------------------------------------------------------------------
+ * `--marginal-arm` (2026-09-12, quick task 260912-2uz)
+ * ---------------------------------------------------------------------------
+ *
+ * A measurement-only second arm whose ELIGIBLE threshold variables declare
+ * `"negative-binomial"`, re-testing plan 09-06's refusal of that family now
+ * that quick task 260911-w7k has removed the hardcode that made 24 of 30
+ * cells incapable of responding to it. It is NOT the deleted `--arms`
+ * registry: there is one production model and no selectable surface — the arm
+ * is a variant rule module handed to a second `SigmaScoutLayer`, and every
+ * season module still declares `"gaussian"`. See the block above
+ * `assertMarginalArmSliceAllowed` for the full design and for why the
+ * 2023-2026 reporting slice is refused by construction.
+ *
  * Usage:
- *   npx tsx scripts/measureRpCalibration.ts [--seasons 2024-2026] [--algorithm bpr] [--emit-artifact <path>]
+ *   npx tsx scripts/measureRpCalibration.ts [--seasons 2024-2026] [--algorithm bpr] [--emit-artifact <path>] [--marginal-arm]
  */
 
 import { statSync, writeFileSync } from "node:fs";
@@ -94,7 +108,12 @@ import { pathToFileURL } from "node:url";
 import { openCorpusReadOnly } from "../packages/corpus/db.js";
 import { buildSeasonStream, WalkForwardSimulator } from "../packages/harness/replay.js";
 import { SigmaScoutLayer } from "../packages/harness/sigmaScoutLayer.js";
-import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
+import {
+  RP_RULE_MODULES,
+  type BonusPredicate,
+  type RpRuleModule,
+  type RpThresholdClause,
+} from "../packages/core/rankingPoints/rules.js";
 import { actualBonusFlagsForSeason } from "../packages/harness/publish.js";
 import { resolvePublishAlgorithms } from "../packages/harness/publish.js";
 import { loadRpCalibrationMeasurement, RP_CALIBRATION_MEASUREMENT_PATH, RpCalibrationMeasurementSchema, type RpCalibrationRecord } from "../packages/harness/publish.js";
@@ -108,7 +127,12 @@ export interface Observation {
   readonly actual: boolean;
 }
 
-function parseSeasons(spec: string): number[] {
+/**
+ * Exported so the slice guard can be tested against the SAME parse the CLI
+ * performs — a guard tested against a hand-built array would not prove that a
+ * spec like `2016-2026` reaches it with the forbidden seasons still present.
+ */
+export function parseSeasons(spec: string): number[] {
   const seasons: number[] = [];
   for (const part of spec.split(",")) {
     const range = part.split("-").map((n) => Number.parseInt(n.trim(), 10));
@@ -139,6 +163,240 @@ function rate(observations: readonly Observation[]): number {
 function meanPredicted(observations: readonly Observation[]): number {
   if (observations.length === 0) return Number.NaN;
   return observations.reduce((sum, o) => sum + o.predicted, 0) / observations.length;
+}
+
+// ---------------------------------------------------------------------------
+// THE MEASUREMENT-ONLY NEGATIVE-BINOMIAL ARM (2026-09-12, quick task
+// 260912-2uz)
+// ---------------------------------------------------------------------------
+//
+// `--marginal-arm` scores a second arm whose threshold variables declare
+// `"negative-binomial"` instead of `"gaussian"`, to RE-TEST plan 09-06's
+// recorded refusal of that family. That refusal is in doubt for a structural
+// reason, not a numerical one: `clauseProbability` used to refit a clause's
+// combined moments as a hardcoded Gaussian, so 24 of 30 cells could not have
+// responded to a family change while still reporting as ties. Quick task
+// 260911-w7k removed the hardcode; quick task 260912-2uz restored the family.
+// This is what finally asks the question on cells capable of answering it.
+//
+// THREE PROPERTIES THIS SEAM IS BUILT AROUND, each of which has a recorded
+// failure behind it:
+//
+//   1. NO PRODUCTION SURFACE. The arm is a VARIANT RULE MODULE built here and
+//      handed to a second `SigmaScoutLayer` — same class, same two-argument
+//      construction as the publisher. Plan 09-06 deliberately deleted
+//      `RpLayerConfig` and everything that selected between model branches;
+//      nothing here reintroduces a selectable surface, and every season
+//      module in the tree still declares `"gaussian"`.
+//
+//   2. ONE REPLAY, ONE SCORER. The arms multiply LAYERS, never replays: one
+//      `buildSeasonStream` and one `WalkForwardSimulator.runAll` per season,
+//      folded through both layers, and scored by the SAME
+//      `brier`/`rate`/`meanPredicted` helpers the control path uses. See this
+//      file's SAME-SCORER FIX header — a scorer mismatch manufactured a
+//      phantom ~0.003 regression on this exact question once already, and the
+//      two-argument construction is what prevents its band-variance half.
+//
+//   3. THE REPORTING SLICE IS UNSPENDABLE. See
+//      `assertMarginalArmSliceAllowed` below.
+
+/**
+ * The first season of the RESERVED REPORTING SLICE. 2023-2026 was already
+ * spent once on this exact question, on 2026-09-11, and Jacob's recorded
+ * decision of 2026-09-12 forbids spending it again — a second use would
+ * further weaken it as an honest check on anything later.
+ */
+export const RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON = 2023;
+
+/**
+ * Refuses the negative-binomial arm on any season at or above
+ * `RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON`.
+ *
+ * READS THE PARSED SEASON LIST, NOT THE RULE-MODULE-FILTERED ONE, AND IS
+ * CALLED BEFORE THE CORPUS IS OPENED. Both are deliberate. A wide spec like
+ * `--seasons 2016-2026` must be REFUSED rather than silently trimmed to the
+ * allowed part: silent trimming would let someone believe they had asked for
+ * the reporting slice and got it, and would make "did this run touch 2023?" a
+ * question about this function's internals rather than about the command that
+ * was typed. Refusing before the corpus opens means the prohibited run cannot
+ * even begin to produce a figure.
+ *
+ * This is a structural guard, not a warning, a default or a documentation
+ * note, and it has NO override flag by design. The prohibition is the point:
+ * a selection-slice result cannot promote anything on its own — that is what
+ * the slice split is for — so no result, however promising, authorises
+ * reaching for the reporting slice to confirm it. That is a fresh decision for
+ * Jacob to make with the selection-slice magnitude in hand.
+ */
+export function assertMarginalArmSliceAllowed(parsedSeasons: readonly number[]): void {
+  const forbidden = parsedSeasons.filter((s) => s >= RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON);
+  if (forbidden.length === 0) return;
+  throw new Error(
+    `--marginal-arm refuses season(s) ${forbidden.join(", ")}: the ${RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON}-2026 reporting slice was already spent on this question on 2026-09-11, and the recorded decision of 2026-09-12 forbids spending it again. ` +
+      `This arm runs on the SELECTION SLICE only — 2016-2020 plus 2022. A spec that merely spans the reporting slice is refused rather than trimmed, so that asking for it is never quietly answered with something else. There is no override flag, deliberately.`
+  );
+}
+
+/** Why a threshold variable cannot carry a negative-binomial declaration. */
+export interface PoisonedVariable {
+  readonly name: string;
+  readonly reason: string;
+}
+
+/** Whether a bonus can respond to the family swap at all, and why not when it cannot. */
+export interface BonusReach {
+  readonly name: string;
+  readonly canMove: boolean;
+  readonly reason: string;
+}
+
+/** The runtime-derived partition for one season. */
+export interface MarginalArmEligibility {
+  readonly eligible: readonly string[];
+  readonly poisoned: readonly PoisonedVariable[];
+  readonly bonusReach: readonly BonusReach[];
+}
+
+/**
+ * Every clause a predicate contains, as a flat list paired with a label.
+ * Exhaustive over `BonusPredicate`'s seven kinds — the `default` arm is a
+ * `never` check, so an eighth predicate kind fails to COMPILE here rather than
+ * being silently skipped and quietly widening the arm's reach.
+ *
+ * `singleThreshold` contributes one implicit single-term clause over its own
+ * variable. `nestedSameVariable` contributes the same shape, and that is not
+ * an approximation: nested thresholds route through interval enumeration,
+ * which calls `probAtLeast` on the fitted marginal directly and therefore
+ * honours the declared family exactly as a single-term clause does.
+ * `constant` contributes NO clauses — it reads no variable at all.
+ */
+function clausesOf(predicate: BonusPredicate): readonly RpThresholdClause[] {
+  switch (predicate.kind) {
+    case "singleThreshold":
+    case "nestedSameVariable":
+      return [{ terms: [{ variable: predicate.variable }], direction: predicate.direction, threshold: predicate.threshold }];
+    case "linearCombination":
+      return [{ terms: predicate.terms, direction: predicate.direction, threshold: predicate.threshold }];
+    case "conjunctionDistinct":
+      return predicate.clauses;
+    case "countOfIndicators":
+      return predicate.indicators;
+    case "dataDependentMixture":
+      return [predicate.selector, predicate.whenSelectorTrue, predicate.whenSelectorFalse];
+    case "constant":
+      return [];
+    default: {
+      const exhaustive: never = predicate;
+      throw new Error(`measureRpCalibration: unhandled BonusPredicate kind ${JSON.stringify(exhaustive)}`);
+    }
+  }
+}
+
+/** True when a clause is a single term with no divisor (or divisor exactly 1). */
+function isSingleUnscaled(clause: RpThresholdClause): boolean {
+  return clause.terms.length === 1 && (clause.terms[0]!.divisor ?? 1) === 1;
+}
+
+/**
+ * DERIVES the negative-binomial eligibility partition from
+ * `ruleModule.bonusPredicates` at runtime. Never hardcoded from a table: the
+ * season modules are the truth, and a derivation that tracks them cannot drift
+ * from them the way a pasted table would.
+ *
+ * THE RULE IS MATH-FORCED, not a policy choice. Negative binomial is NOT
+ * closed under scaled addition — a sum of independent NBs is NB only when
+ * every `p` matches, and `X / divisor` is not even integer-supported — so
+ * `analyticPmf.ts`'s `familyForClauseSum` THROWS on an NB clause sum rather
+ * than inventing a closure or falling back to a Gaussian. (That fallback is
+ * the exact hardcode whose removal made this re-test possible; reintroducing
+ * it would make the measurement meaningless a second time.)
+ *
+ * So a variable is ELIGIBLE only if EVERY clause it appears in is a single
+ * unscaled term. A variable appearing in ANY multi-term clause or ANY
+ * divisor-bearing term is POISONED and keeps declaring `"gaussian"` —
+ * INCLUDING when it also appears alone in some other clause, because a MIXED
+ * clause throws on `familyForClauseSum`'s distinct-families check instead.
+ *
+ * A bonus CAN MOVE only when every one of its own clauses is a single
+ * unscaled term over an eligible variable. A `constant` predicate has no
+ * clauses at all and is inert by construction — it ties with control as a
+ * structural fact about the predicate, which is never evidence about the
+ * family.
+ */
+export function deriveMarginalArmEligibility(ruleModule: RpRuleModule): MarginalArmEligibility {
+  const poisonReasonByVariable = new Map<string, string>();
+
+  for (const predicate of ruleModule.bonusPredicates) {
+    for (const clause of clausesOf(predicate)) {
+      const single = isSingleUnscaled(clause);
+      for (const term of clause.terms) {
+        if (single) continue;
+        if (poisonReasonByVariable.has(term.variable)) continue;
+        const divisor = term.divisor ?? 1;
+        poisonReasonByVariable.set(
+          term.variable,
+          clause.terms.length > 1
+            ? `appears in a ${clause.terms.length}-term clause of bonus "${predicate.name}" (a scaled sum, and negative binomial is not closed under scaled addition)`
+            : `appears with divisor ${divisor} in bonus "${predicate.name}" (a divided term is not integer-supported)`
+        );
+      }
+    }
+  }
+
+  // Declared variables that no predicate reads are eligible vacuously; they
+  // are also unreachable, so the distinction never shows up in a figure.
+  const eligible = ruleModule.thresholdVariables.map((v) => v.name).filter((name) => !poisonReasonByVariable.has(name));
+  const poisoned = ruleModule.thresholdVariables
+    .map((v) => v.name)
+    .filter((name) => poisonReasonByVariable.has(name))
+    .map((name) => ({ name, reason: poisonReasonByVariable.get(name)! }));
+
+  const eligibleSet = new Set(eligible);
+  const bonusReach = ruleModule.bonusPredicates.map((predicate): BonusReach => {
+    if (predicate.kind === "constant") {
+      return {
+        name: predicate.name,
+        canMove: false,
+        reason: `constant ${String(predicate.value)} predicate — structurally inert, reads no threshold variable at all`,
+      };
+    }
+    const clauses = clausesOf(predicate);
+    const blocking = clauses.find((clause) => !isSingleUnscaled(clause) || !clause.terms.every((t) => eligibleSet.has(t.variable)));
+    if (blocking === undefined) {
+      return { name: predicate.name, canMove: true, reason: `${predicate.kind}, every clause a single unscaled term over an eligible variable` };
+    }
+    return {
+      name: predicate.name,
+      canMove: false,
+      reason: `${predicate.kind}, a clause over {${blocking.terms.map((t) => t.variable).join(", ")}} is a scaled sum or reads a poisoned variable — those variables keep declaring gaussian`,
+    };
+  });
+
+  return { eligible, poisoned, bonusReach };
+}
+
+/**
+ * Builds the NB arm's VARIANT RULE MODULE by spreading the real one and
+ * flipping `marginalFamily` on the ELIGIBLE variables only. The original
+ * module is never mutated, and every poisoned variable keeps declaring
+ * `"gaussian"`.
+ *
+ * An object spread drops the prototype, which is safe here because no season
+ * module's `parse` or `evaluateBonuses` uses `this` — re-verified against HEAD
+ * on 2026-09-12 by grepping every registered season module (the only `this`
+ * occurrences are inside prose comments). If that ever changes, clone
+ * differently rather than abandoning this seam: the seam is what keeps the arm
+ * out of production.
+ */
+export function ruleModuleWithMarginalArm(ruleModule: RpRuleModule, eligible: readonly string[]): RpRuleModule {
+  const eligibleSet = new Set(eligible);
+  return {
+    ...ruleModule,
+    thresholdVariables: ruleModule.thresholdVariables.map((v) => ({
+      ...v,
+      marginalFamily: eligibleSet.has(v.name) ? ("negative-binomial" as const) : v.marginalFamily,
+    })),
+  };
 }
 
 /**
@@ -466,12 +724,25 @@ async function main(): Promise<void> {
   // default. `--algorithm` accepts a comma-separated list.
   const algorithmIdsCsv = args.indexOf("--algorithm") === -1 ? undefined : args[args.indexOf("--algorithm") + 1]!;
   const emitArtifactPath = args.indexOf("--emit-artifact") === -1 ? undefined : args[args.indexOf("--emit-artifact") + 1];
-  const seasons = parseSeasons(seasonsSpec).filter((s) => RP_RULE_MODULES[s] !== undefined);
+  const marginalArm = args.includes("--marginal-arm");
+
+  // THE SLICE GUARD COMES FIRST, and it reads the PARSED list — before the
+  // rule-module filter, before `openCorpusReadOnly`, before any replay. See
+  // `assertMarginalArmSliceAllowed` for why a wide spec is refused rather than
+  // trimmed, and why there is no override.
+  const parsedSeasons = parseSeasons(seasonsSpec);
+  if (marginalArm) assertMarginalArmSliceAllowed(parsedSeasons);
+
+  const seasons = parsedSeasons.filter((s) => RP_RULE_MODULES[s] !== undefined);
   const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
   if (algorithms.length === 0) throw new Error(`no algorithms resolved from "${algorithmIdsCsv ?? "(default)"}"`);
 
   console.log(`RP calibration — algorithms [${algorithms.map((a) => `${a.id}@${a.version}`).join(", ")}], seasons ${seasons.join(", ")}`);
   console.log(`Walk-forward through the same SigmaScoutLayer the publisher runs.\n`);
+  if (marginalArm) {
+    console.log(`NEGATIVE-BINOMIAL ARM ACTIVE (quick task 260912-2uz) — control and NB layers folded from ONE replay per season,`);
+    console.log(`scored by the SAME brier/rate/meanPredicted helpers. Selection slice only; ${RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON}-2026 is refused by construction.\n`);
+  }
 
   const db = openCorpusReadOnly(CORPUS_PATH);
   try {
@@ -482,6 +753,20 @@ async function main(): Promise<void> {
     const allPairsByAlgo = new Map<string, { p1: number; p2: number; a1: boolean; a2: boolean }[]>(algorithms.map((a) => [a.id, []]));
     const emittedRecords: { season: number; algorithmId: string; calibration: RpCalibrationRecord }[] = [];
     const marginalTally = emptyMarginalResolutionTally();
+    // The NB arm's own running tally, kept on its own axis so the control
+    // arm's resolution counts are never contaminated by it.
+    const armTally = emptyMarginalResolutionTally();
+    /** One reachable/unreachable cell of the NB arm's result, accumulated across seasons for the closing report. */
+    const armCells: {
+      season: number;
+      algorithmId: string;
+      bonus: string;
+      canMove: boolean;
+      reason: string;
+      n: number;
+      controlBrier: number;
+      armBrier: number;
+    }[] = [];
 
     for (const season of seasons) {
       const ruleModule = RP_RULE_MODULES[season]!;
@@ -502,13 +787,29 @@ async function main(): Promise<void> {
       const perBonusByAlgo = new Map<string, Observation[][]>(algorithms.map((a) => [a.id, ruleModule.bonusNames.map(() => [])]));
       const pairsByAlgo = new Map<string, { p1: number; p2: number; a1: boolean; a2: boolean }[]>(algorithms.map((a) => [a.id, []]));
 
+      // THE NB ARM MULTIPLIES LAYERS, NEVER REPLAYS. `records` above is the
+      // one and only walk-forward pass for this season; the arm folds the SAME
+      // records through a second layer per algorithm, built from the variant
+      // rule module and constructed with the SAME two arguments the control
+      // layer and the publisher use.
+      const eligibility = marginalArm ? deriveMarginalArmEligibility(ruleModule) : undefined;
+      const armRuleModule = eligibility === undefined ? undefined : ruleModuleWithMarginalArm(ruleModule, eligibility.eligible);
+      const armLayers =
+        armRuleModule === undefined ? undefined : new Map(algorithms.map((a) => [a.id, new SigmaScoutLayer(armRuleModule, a.id)]));
+      const armPerBonusByAlgo =
+        armRuleModule === undefined
+          ? undefined
+          : new Map<string, Observation[][]>(algorithms.map((a) => [a.id, ruleModule.bonusNames.map(() => [])]));
+
       for (const r of records) {
         const layer = layers.get(r.algorithmId)!;
         const enriched = layer.foldPlayed(r.match, r.prediction);
+        const armEnriched = armLayers === undefined ? undefined : armLayers.get(r.algorithmId)!.foldPlayed(r.match, r.prediction);
         const actual = actualFlags.get(r.match.matchKey);
         if (actual === undefined || actual === null) continue;
 
         const perBonus = perBonusByAlgo.get(r.algorithmId)!;
+        const armPerBonus = armPerBonusByAlgo?.get(r.algorithmId);
         const pairs = pairsByAlgo.get(r.algorithmId)!;
         const allMarginal = allMarginalByAlgo.get(r.algorithmId)!;
 
@@ -529,6 +830,20 @@ async function main(): Promise<void> {
           if (predictedBonuses.length >= 2) {
             pairs.push({ p1: predictedBonuses[0]!, p2: predictedBonuses[1]!, a1: actualBonuses[0]!, a2: actualBonuses[1]! });
           }
+
+          // The arm's observations are gated by the CONTROL arm's own
+          // conditions above, so the two arms provably see the same
+          // (match, alliance, bonus) triples — the identical-observation-set
+          // requirement, enforced by construction and then asserted per bonus
+          // after the season.
+          if (armPerBonus !== undefined && armEnriched !== undefined) {
+            const armPredicted = side === "red" ? armEnriched.prediction.redBonusRp : armEnriched.prediction.blueBonusRp;
+            if (armPredicted !== undefined && armPredicted.length === actualBonuses.length) {
+              for (let i = 0; i < armPredicted.length; i++) {
+                armPerBonus[i]!.push({ predicted: armPredicted[i]!, actual: actualBonuses[i]! });
+              }
+            }
+          }
         }
       }
 
@@ -543,9 +858,53 @@ async function main(): Promise<void> {
         // `FittedMarginal.resolved`, never `.declared`, with fallbacks on a
         // separate axis.
         const layerTally = layers.get(algorithm.id)!.rpMarginalResolutionTally;
+        marginalTally.negativeBinomial += layerTally.negativeBinomial;
         marginalTally.gaussian += layerTally.gaussian;
         marginalTally.degenerate += layerTally.degenerate;
         marginalTally.fallbacks += layerTally.fallbacks;
+
+        if (armLayers !== undefined && armPerBonusByAlgo !== undefined && eligibility !== undefined) {
+          const armLayerTally = armLayers.get(algorithm.id)!.rpMarginalResolutionTally;
+          armTally.negativeBinomial += armLayerTally.negativeBinomial;
+          armTally.gaussian += armLayerTally.gaussian;
+          armTally.degenerate += armLayerTally.degenerate;
+          armTally.fallbacks += armLayerTally.fallbacks;
+
+          const armPerBonus = armPerBonusByAlgo.get(algorithm.id)!;
+          const reachByBonus = new Map(eligibility.bonusReach.map((b) => [b.name, b]));
+          for (const [i, name] of ruleModule.bonusNames.entries()) {
+            const controlObservations = perBonus[i]!;
+            const armObservations = armPerBonus[i]!;
+            // THE IDENTICAL-OBSERVATION-SET ASSERTION, in flight. The layer's
+            // eligibility gates run before any family branch, so the counts
+            // cannot legitimately differ; an inequality means the seam is
+            // wrong and the whole comparison is void, so it throws rather than
+            // reporting a number nobody can trust.
+            if (controlObservations.length !== armObservations.length) {
+              throw new Error(
+                `--marginal-arm: season ${season} [${algorithm.id}] bonus "${name}" scored ${controlObservations.length} control observations against ${armObservations.length} arm observations — the two arms must see the identical observation set, so this comparison is void`
+              );
+            }
+            if (controlObservations.length === 0) continue;
+            const reach = reachByBonus.get(name);
+            armCells.push({
+              season,
+              algorithmId: algorithm.id,
+              bonus: name,
+              canMove: reach?.canMove ?? false,
+              reason: reach?.reason ?? "no predicate found for this bonus name",
+              n: controlObservations.length,
+              controlBrier: brier(controlObservations),
+              armBrier: brier(armObservations),
+            });
+          }
+
+          console.log(`── ${season} [${algorithm.id}] NB ARM PARTITION (derived at runtime from bonusPredicates) ──`);
+          console.log(`   eligible variables (declare negative-binomial): ${eligibility.eligible.length > 0 ? eligibility.eligible.join(", ") : "(none)"}`);
+          for (const p of eligibility.poisoned) console.log(`   POISONED ${p.name}: ${p.reason}`);
+          for (const b of eligibility.bonusReach) console.log(`   ${b.canMove ? "CAN MOVE  " : "cannot move"} ${b.name}: ${b.reason}`);
+          console.log("");
+        }
 
         const total = perBonus.reduce((sum, b) => sum + b.length, 0);
         console.log(`── ${season} [${algorithm.id}] ── ${total} (alliance, bonus) observations`);
@@ -632,9 +991,68 @@ async function main(): Promise<void> {
 
     console.log(`═══ MARGINAL RESOLUTION (FittedMarginal.resolved, never .declared) ═══`);
     console.log(
-      `   gaussian=${marginalTally.gaussian}  degenerate=${marginalTally.degenerate}  ` +
+      `   control arm: negativeBinomial=${marginalTally.negativeBinomial}  gaussian=${marginalTally.gaussian}  degenerate=${marginalTally.degenerate}  ` +
         `(fallbacks counted separately: ${marginalTally.fallbacks})\n`
     );
+
+    if (marginalArm) {
+      const armTotal = armTally.negativeBinomial + armTally.gaussian + armTally.degenerate;
+      const nbFraction = armTotal === 0 ? Number.NaN : armTally.negativeBinomial / armTotal;
+      console.log(
+        `   NB arm:      negativeBinomial=${armTally.negativeBinomial}  gaussian=${armTally.gaussian}  degenerate=${armTally.degenerate}  ` +
+          `(fallbacks counted separately: ${armTally.fallbacks})`
+      );
+      console.log(
+        `   NB RESOLUTION FRACTION: ${(nbFraction * 100).toFixed(2)}% of the NB arm's ${armTotal} fits genuinely resolved to negative binomial.`
+      );
+      console.log(
+        `   A run where most fits fell back (non-positive mean, or variance <= mean) is a result about the FIT'S APPLICABILITY, not a verdict on the family.\n`
+      );
+
+      // ---- THE THREE CATEGORIES, NEVER POOLED ----
+      //
+      // Pooling structurally-inert ties with live cells is what made plan
+      // 09-06's verdict worthless: 24 of 30 cells could not have moved, and
+      // their ties were reported as evidence the family does not help.
+      const fmt = (x: number): string => (Number.isFinite(x) ? x.toFixed(6) : "—");
+      const reachable = armCells.filter((c) => c.canMove);
+      const unreachable = armCells.filter((c) => !c.canMove);
+      const moved = reachable.filter((c) => Math.abs(c.armBrier - c.controlBrier) > 1e-12);
+      const fallbackTies = reachable.filter((c) => Math.abs(c.armBrier - c.controlBrier) <= 1e-12);
+
+      console.log(`═══ NEGATIVE-BINOMIAL ARM — THREE CATEGORIES, REPORTED SEPARATELY ═══`);
+      console.log(`\n1. REACHABLE CELLS (${reachable.length} of ${armCells.length}) — the partition says these CAN respond to the family swap.`);
+      console.log(`   The gain or loss is evaluated on these cells and only these.`);
+      for (const c of reachable) {
+        const delta = c.armBrier - c.controlBrier;
+        const verdict = Math.abs(delta) <= 1e-12 ? "TIED" : delta < 0 ? "IMPROVED" : "REGRESSED";
+        console.log(
+          `   ${c.season} [${c.algorithmId}] ${c.bonus}: n=${c.n}  control=${fmt(c.controlBrier)}  nb=${fmt(c.armBrier)}  ` +
+            `delta=${delta >= 0 ? "+" : ""}${fmt(delta)}  ${verdict}`
+        );
+      }
+      const improved = reachable.filter((c) => c.armBrier < c.controlBrier - 1e-12).length;
+      const regressed = reachable.filter((c) => c.armBrier > c.controlBrier + 1e-12).length;
+      console.log(`   -> ${improved} improved / ${regressed} regressed / ${reachable.length - improved - regressed} tied, over ${reachable.length} reachable cells.`);
+
+      console.log(`\n2. STRUCTURALLY UNREACHABLE CELLS (${unreachable.length} of ${armCells.length}) — these TIE WITH CONTROL BY CONSTRUCTION.`);
+      console.log(`   That is a structural fact about the predicate, and is NEVER evidence about the family.`);
+      for (const c of unreachable) {
+        const identical = Math.abs(c.armBrier - c.controlBrier) <= 1e-12;
+        console.log(
+          `   ${c.season} [${c.algorithmId}] ${c.bonus}: n=${c.n}  brier=${fmt(c.controlBrier)}  ` +
+            `${identical ? "identical to control, as predicted" : `UNEXPECTEDLY DIFFERS (${fmt(c.armBrier)}) — investigate, the partition may be wrong`}  — ${c.reason}`
+        );
+      }
+
+      console.log(`\n3. FALLBACK TIES — reachable cells whose Brier did not move at all (${fallbackTies.length} of ${reachable.length} reachable).`);
+      console.log(`   Read these together with the NB RESOLUTION FRACTION above: a reachable cell that tied because its fit fell`);
+      console.log(`   back to Gaussian is a statement about the fit's applicability to that variable, not about the family.`);
+      for (const c of fallbackTies) {
+        console.log(`   ${c.season} [${c.algorithmId}] ${c.bonus}: n=${c.n}  brier=${fmt(c.controlBrier)}  no movement`);
+      }
+      console.log(`   Reachable cells that DID move: ${moved.length}.\n`);
+    }
 
     // ---- Grand-pooled headline, across EVERY algorithm AND season — the
     // single figure 09-01-SUMMARY.md sets beside ranking-points-audit.md
