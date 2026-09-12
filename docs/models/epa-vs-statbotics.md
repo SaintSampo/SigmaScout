@@ -586,7 +586,108 @@ discount's own contribution.
 | 2025 | 0.7839 | 0.7739 | 0.7742 | 0.1537 | 0.1593 | 0.1599 |
 | 2026 | 0.7978 | 0.7953 | 0.7942 | 0.1483 | 0.1430 | 0.1434 |
 
-### Re-measured under `epa@6.0.0+baseline` (quick task 260908-n5o, 2026-09-08) — and this is what the site publishes
+### Re-measured under `epa@10.0.0+baseline` (quick task 260911-r7e, 2026-09-11) — and the 2022 deficit was a MEASUREMENT artifact
+
+**Supersedes every head-to-head figure below.** The `6.0.0` and `5.0.0` tables predate the
+carryover scale anchor (`epa@8.0.0`), the frozen week-1 score SD (`epa@9.0.0`) and the 2024
+component collapse, so they cannot be read as the model's current standing against Statbotics.
+
+This task was asked for one thing: make EPA's accuracy reproduce Statbotics', with as few changes
+as possible. It made **no model change at all.** Two arms were measured and the second one
+explains almost the entire remaining deficit.
+
+#### The finding: the first REPORTED season cold-starts, and 2022 was that season
+
+`epaVsStatbotics.ts` defaulted to `--seasons 2022-2026` and `replayEpaSeasonFinals` carries EPA
+state forward season by season — so every team entered 2022 with no history, while Statbotics
+entered 2022 holding its real 2019/2020 carry-in. The comparison was charging our model for a
+cold start its opponent never paid. `--warmup 2016-2020` (this task's only functional change)
+replays those seasons for carry alone and reports on 2022-2026 as before.
+
+| Season | Statbotics | ours, COLD 2022-start | ours, WARM 2016-warmup | Δ cold | **Δ warm** | warm − cold |
+|--------|------------:|----------------------:|-----------------------:|-------:|-----------:|------------:|
+| 2022 | 0.7815 | 0.7576 | 0.7797 | −2.39 pp | **−0.18 pp** | **+2.21 pp** |
+| 2023 | 0.7647 | 0.7665 | 0.7636 | +0.18 pp | **−0.11 pp** | −0.28 pp |
+| 2024 | 0.7627 | 0.7582 | 0.7578 | −0.45 pp | **−0.49 pp** | −0.05 pp |
+| 2025 | 0.7839 | 0.7815 | 0.7802 | −0.24 pp | **−0.37 pp** | −0.12 pp |
+| 2026 | 0.7978 | 0.7955 | 0.7962 | −0.23 pp | **−0.16 pp** | +0.07 pp |
+
+Brier, same two arms (Statbotics' `metrics.win_prob.season.mse`):
+
+| Season | Statbotics | ours, COLD | ours, WARM | Δ warm |
+|--------|------------:|-----------:|-----------:|-------:|
+| 2022 | 0.1502 | 0.1606 | 0.1550 | +0.0048 |
+| 2023 | 0.1608 | 0.1597 | 0.1612 | +0.0004 |
+| 2024 | 0.1620 | 0.1667 | 0.1667 | +0.0047 |
+| 2025 | 0.1537 | 0.1561 | 0.1565 | +0.0028 |
+| 2026 | 0.1483 | 0.1505 | 0.1506 | +0.0023 |
+
+`scoredCount` is identical between the two arms in every season (14,603 / 16,290 / 16,958 /
+17,815 / 18,337), so this is a controlled A/B on the carried state alone — the warm arm did not
+win by scoring a different population.
+
+**Standing result: the accuracy deficit is −0.11 to −0.49 pp, mean −0.26 pp, across all five
+seasons.** Every season still trails Statbotics on accuracy — 2023's cold-arm lead does not
+survive warming, and that is reported rather than the cold 2023 cell being quoted as a win.
+Brier also trails in all five; 2026's former Brier lead was an artifact of the same cold arm.
+
+#### Production was ALREADY warm — only this page's number was wrong
+
+`publish:seasons` has always replayed `--seasons 2016-2020,2022-2026`, so `v1/compare/{season}.json`
+and every team/event artifact already carried warm figures. The cold arm existed **only** in
+`compare:epa-statbotics`, which feeds `v1/methodology/epa-vs-statbotics.json`. The published
+methodology page has therefore been understating our own 2022 accuracy by ~2.2 pp against a
+correctly-warm Statbotics column. `compare:epa-statbotics` now passes `--warmup 2016-2020`, so the
+next run of it corrects that page.
+
+**Republish debt: `v1/methodology/epa-vs-statbotics.json` is stale as of this task** and still
+carries the cold 2022 figure. This task did not republish.
+
+#### What was measured and REFUTED, reported as found
+
+Offseason inclusion was the leading hypothesis for the residual, on the strength of the per-team
+agreement table above (offseason-excluded moves OLS slope to 0.97-1.01 and Pearson to 0.99+). It
+**does not move accuracy at all**: 0.7576 vs 0.7576 in 2022, and no season moved by more than
+0.03 pp. The reason is structural and settles the question rather than leaving it open —
+**offseason events are post-championship**, so within a season they occur after every official
+match, and `aggregateScores` already excludes offseason matches from scoring in both arms. The
+offseason divergence is real for published *values* at season end and cannot reach *predictions on
+official matches*. The ablation register's `offseason-population` entry can be narrowed from
+`unmeasurable-in-this-harness` to "measured against accuracy, no effect."
+
+#### What was deliberately NOT done, and why
+
+Mechanism 1 (per-season rated component maps) is `GAP` in all nine seasons in
+`epa-statbotics-gap.md`, and closing it was the queued plan. The 2024 tracer in quick task
+260911-pon measured its closure at **−0.036 accuracy points — a loss** — and eight more seasons of
+the same shape were scheduled. Against a total remaining deficit of 0.26 pp, that work cannot pay
+for itself, so this task did not continue it. Mechanism 8 (win-probability scale) is excluded for a
+stronger reason: winner accuracy is `sign(margin)` only, so the probability scale **cannot** move it
+(the ablation's own `epa-winprob-*` arms return verdict `identical`).
+
+#### The one named candidate for the residual, not chased
+
+Our scorer and Statbotics' do not score the same population. `aggregateScores` excludes
+surrogate-affected matches; Statbotics' `matchPopulation` is documented as "all qualification +
+elimination matches." The gap is visible in the counts: Statbotics reports 13,286 matches for 2016
+against our 12,994 (+2.2%). Whether those ~2% move accuracy by the residual 0.2-0.5 pp is
+unmeasured. **It is a measurement-comparability difference, not a model difference** — which is why
+it is named here with its evidence rather than closed by changing the model to chase it.
+
+#### `--check`'s baseline is a COLD-arm artifact
+
+`data/baselines/epa-vs-statbotics-2026-09.json` holds per-team agreement tolerance bands measured
+on the cold arm. `--check` run through the now-warm `compare:epa-statbotics` will compare warm
+statistics against cold bands and can fail for that reason alone. The baseline was deliberately
+**not** re-measured here: moving a tolerance gate is its own decision and must not ride along
+inside a measurement task.
+
+### SUPERSEDED — re-measured under `epa@6.0.0+baseline` (quick task 260908-n5o, 2026-09-08)
+
+**Historical. The "this is what the site publishes" claim this heading used to carry is no longer
+true** — see the `10.0.0+baseline` section above, which also shows that this table's 2022 row
+(0.7602) was measured on a cold 2022 start and understates the model by ~2.2 pp. Kept as
+measurement history.
 
 The three columns above were measured under `2.0.0` and `5.0.0` via
 `packages/harness/cli.ts`. The table below is the `6.0.0+baseline` figure, measured by
@@ -700,5 +801,13 @@ externally-blocked record, with committed evidence:
 
 ---
 
-*Quick task: 260904-4aa*
+### Accuracy standing, added 2026-09-11 (quick task 260911-r7e)
+
+The verdict above is about per-team EPA **value** agreement. On head-to-head **winner accuracy**,
+measured warm under `epa@10.0.0+baseline`, EPA trails Statbotics by **−0.11 to −0.49 pp (mean
+−0.26 pp)** in 2022-2026, and trails on Brier in all five seasons. That is the honest standing and
+it required no model change to reach — the previously-reported 2022 deficit of −2.39 pp was a cold
+2022 start in the comparison script, not the model.
+
+*Quick task: 260904-4aa; accuracy standing re-measured by 260911-r7e (2026-09-11).*
 *Statbotics endpoints re-verified live 2026-09-04.*
