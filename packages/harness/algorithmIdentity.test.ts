@@ -255,17 +255,29 @@ export const PRE_RENAME_MARKER = "[pre-rename]";
  * raised in a visible diff with this reason — not by widening a file
  * exclusion, which prohibition 2 forbids.
  *
- * Raised again here, to 26, by quick task 260912-ivg Stage 1 Task 4's own
- * re-grep, counted after attaching the marker to exactly the genuine
- * measured-figure citations Task 3 left in place: the two presim byte-count
- * comments (`pageArtifacts.ts`, `publish.ts`), the three presim byte-count
- * table rows/paragraph in `docs/simulation-architecture.md`, and the two
- * deployed-version-verification lines in `docs/worker-operations.md`. 26 is
- * the counted total AFTER those markers were added — not a round number
- * chosen with headroom — raised in this visible diff with this reason, never
- * by widening a file exclusion instead.
+ * Raised again here by quick task 260912-ivg Stage 1 Task 4's own re-grep,
+ * counted after attaching the marker to exactly the genuine measured-figure
+ * citations Task 3 left in place: the two presim byte-count comments
+ * (`pageArtifacts.ts`, `publish.ts`), the three presim byte-count table
+ * rows/paragraph in `docs/simulation-architecture.md`, and the two
+ * deployed-version-verification lines in `docs/worker-operations.md`.
+ *
+ * The number is 20, not the 26 first committed. That first count was taken
+ * while `runSweep` still incremented this counter for EXCLUDED files, so six
+ * of the 26 were markers sitting in `.planning/`, `docs/models/` and other
+ * excluded paths — places with no violation for a marker to suppress, where a
+ * marker is therefore inert. The counter now skips excluded files (see
+ * `runSweep`), and 20 is the counted total over the files the sweep actually
+ * scans. That distinction is the whole point: counting excluded files made
+ * this cap a function of preserved planning prose, which is never rewritten
+ * and grows with every task, so a summary that merely QUOTED the marker
+ * alongside the retired id turned the gate red on documentation — which is
+ * exactly how this was found.
+ *
+ * Counted, not a round number chosen with headroom — raised in a visible diff
+ * with this reason, never by widening a file exclusion instead.
  */
-const MARKER_CAP = 26;
+const MARKER_CAP = 20;
 
 /**
  * The retired published identity and its four harness-only siblings, plus
@@ -421,7 +433,15 @@ function runSweep(): SweepResult {
           if (!match) continue;
 
           if (hasMarker) {
-            markerExemptedCount += 1;
+            // An EXCLUDED file has no violation for a marker to suppress, so a
+            // marker there is inert. Counting it made the cap a function of
+            // preserved planning prose — `.planning/` is excluded, is never
+            // rewritten, and grows with every task, so any summary that merely
+            // QUOTED the marker alongside the retired id pushed this counter up
+            // and turned the gate red on documentation. Fixed 260912-ivg Stage 1
+            // Task 4 follow-up: the `excluded` check below used to sit AFTER this
+            // increment, so `excluded` governed violations but not the cap.
+            if (!excluded) markerExemptedCount += 1;
             continue;
           }
           if (excluded) continue;
