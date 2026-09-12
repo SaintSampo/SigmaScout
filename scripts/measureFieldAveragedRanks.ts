@@ -409,7 +409,7 @@ export interface EventMeasurement {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-function uniqueSortedRoster(quals: readonly MatchResult[]): string[] {
+export function uniqueSortedRoster(quals: readonly MatchResult[]): string[] {
   const keys = new Set<string>();
   for (const m of quals) {
     for (const t of m.redTeams) keys.add(t);
@@ -419,7 +419,7 @@ function uniqueSortedRoster(quals: readonly MatchResult[]): string[] {
 }
 
 /** Reads a `SimResult`'s per-team `continuousQuantile` at `p`. ONE quantile helper, called identically for both arms. */
-function quantilesOf(result: SimResult, teamKey: string): { p10: number; median: number; p90: number } {
+export function quantilesOf(result: SimResult, teamKey: string): { p10: number; median: number; p90: number } {
   const dist = result.rankHistograms.get(teamKey);
   if (dist === undefined) {
     throw new Error(`measureFieldAveragedRanks: no rank histogram for team "${teamKey}"`);
@@ -436,7 +436,7 @@ function quantilesOf(result: SimResult, teamKey: string): { p10: number; median:
  * shape `simulateRanks` returns, so BOTH arms reach `continuousQuantile`
  * through one code path.
  */
-function bakedSimResult(roster: readonly string[], histograms: readonly (readonly number[])[], draws: number): SimResult {
+export function bakedSimResult(roster: readonly string[], histograms: readonly (readonly number[])[], draws: number): SimResult {
   const rankHistograms = new Map<string, Int32Array>();
   for (let i = 0; i < roster.length; i++) {
     rankHistograms.set(roster[i]!, Int32Array.from(histograms[i]!));
@@ -462,7 +462,7 @@ function meanAndSd(values: readonly number[]): { mean: number; sd: number; maxAb
 // The per-event driver
 // ---------------------------------------------------------------------------
 
-interface SeasonReplayResult {
+export interface SeasonReplayResult {
   readonly layer: SigmaScoutLayer;
   readonly preEventStateByEvent: ReadonlyMap<string, unknown>;
   readonly preTargetMatchCountByEvent: ReadonlyMap<string, number>;
@@ -478,7 +478,7 @@ interface SeasonReplayResult {
  * and folded over the returned records in chronological order AFTER the
  * replay.
  */
-function replaySeason(
+export function replaySeason(
   db: Corpus,
   algorithm: AlgorithmModule<any>,
   season: number,
@@ -1004,7 +1004,7 @@ export interface SeedNoiseFloor {
   readonly maxAbsMedianDiff: number;
 }
 
-function measureSeedNoiseFloor(
+export function measureSeedNoiseFloor(
   artifact: PreScheduleArtifact,
   draws: number
 ): SeedNoiseFloor {
