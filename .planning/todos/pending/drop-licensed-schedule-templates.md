@@ -39,3 +39,19 @@ in at the current count would ship an unproven change under a passing-looking te
 
 `buildPreScheduleArtifact` already gained an optional `scheduleStructure` field, inert at default,
 during the experiment — that is the seam.
+
+## STATUS 2026-09-12: the generator is now the only path, not one of two
+
+Quick task `260912-0v3` re-ran rung 1 — the field-averaged predictor, which needs no schedule
+structure at all and would have made this todo moot — at a count where the bar resolves. It
+**failed on evidence**: 41.4% against a binding floor of 98.4%, worst team 3.33 ranks against a
+floor of 0.71, with the gap scaling with roster size rather than shrinking with resolution. So the
+cheaper escape from the licensed templates does not exist, and this work is required rather than
+optional.
+
+**One wording caution.** The "What this closes" section above says D-19 evaporates, while
+`09-CONTEXT.md` records that D-19 "remains Jacob's to decide before rung 2 is planned". Both are
+right and they are answering different questions: the rung-2 *result* moots D-19 by removing the
+templates entirely, while the rung-1 re-run — which is what that `09-CONTEXT.md` line is scoped to
+— does not bear on D-19 either way. Jacob has still not been asked the redistribution question
+directly, and it does not need asking if the templates are deleted.
