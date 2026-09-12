@@ -89,6 +89,7 @@ import {
   EventsArtifactSchema,
   PAGE_ARTIFACT_SCHEMA_VERSION,
   preScheduleKey,
+  PublishedPreScheduleArtifactSchema,
   publishedTierForPercentile,
   TeamsArtifactWireSchema,
   TeamSeasonArtifactSchema,
@@ -1915,6 +1916,23 @@ interface PreScheduleSidecarArgs {
  * A `null` from `buildPreScheduleArtifact` means this algorithm does not
  * model ranking points (the ordinary opr/epa answer) — skipped silently, so
  * a full-season publish across three algorithms produces no log spam.
+ *
+ * 260912-2ur: the returned `body` is the PUBLISHED projection of `artifact`,
+ * not `artifact` itself. `buildPreScheduleArtifact` above still returns the
+ * priced `schedules` block in full — `scripts/measureFieldAveragedRanks.ts`
+ * and `scripts/measureGeneratedSchedules.ts` need that block intact as their
+ * rung-1/rung-2 acceptance harness — but this function is the ONE place that
+ * block gets serialized to bytes, and `PublishedPreScheduleArtifactSchema.
+ * parse()` drops it before `JSON.stringify` ever sees it, carrying
+ * `scheduleCount` forward from that block's length instead. Parsing here
+ * (rather than hand-building `{ ...artifact, scheduleCount: ... }`) means the
+ * count can never disagree with what was actually built, and a future raise
+ * of `PRESIM_SCHEDULE_COUNT` needs no edit in this function at all. Measured
+ * basis: a live `v1/presim/2026mrcmp/bpr@3.0.0+baseline.json` object cost
+ * 388,484 B to fetch, of which only 12,275 B (3.2%) was ever read by a
+ * client — the rest was the priced block, discarded on every load. At 1,000
+ * schedules that ratio only gets worse, which is exactly why this drops
+ * before the count is raised rather than after.
  */
 function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: string; body: string } | undefined {
   const label = `publish: presim skip ${args.eventKey} [${args.algorithm.id}]`;
@@ -2010,7 +2028,7 @@ function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: s
   if (artifact === null) return undefined; // RP-less algorithm — silent by design
 
   const key = preScheduleKey({ eventKey: args.eventKey, algorithmId: args.algorithm.id, version: args.algorithm.version });
-  return { key, body: JSON.stringify(artifact) };
+  return { key, body: JSON.stringify(PublishedPreScheduleArtifactSchema.parse(artifact)) };
 }
 
 // ---------------------------------------------------------------------------

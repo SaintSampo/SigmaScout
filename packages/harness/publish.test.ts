@@ -65,7 +65,13 @@ import {
   type PublishedObjectRecord,
   type RpCalibrationMeasurement,
 } from "./publish.js";
-import { artifactKey, decodeTeamsRowMetrics, preScheduleKey, PreScheduleArtifactSchema, TeamsArtifactSchema } from "./pageArtifacts.js";
+import {
+  artifactKey,
+  decodeTeamsRowMetrics,
+  preScheduleKey,
+  PublishedPreScheduleArtifactSchema,
+  TeamsArtifactSchema,
+} from "./pageArtifacts.js";
 import { SWING_METRIC_KEY } from "./swingFactor.js";
 import { compareTeamsByTotal, isRealPublishedTeamKey } from "./teamRanks.js";
 import { roundPmf, roundTo, ROUNDING_RULE } from "./rounding.js";
@@ -3833,17 +3839,36 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
   it("C-06/PD-02/PD-04: the later event's sidecar is priced from the PRE-event walk-forward state (the state after the earlier event's last match), never its post-event state — and the cold-start season's first event gets NO sidecar", async () => {
     seedTwoEventSeason(db);
 
-    // Fixture-vacuity guard FIRST: the pre-event encoding (state after the
-    // early event's two matches, matchCount=2) and the post-event encoding
-    // (after all four matches, matchCount=4) must genuinely differ, or the
-    // equality assertions below prove nothing.
-    const preEventPmf = [0.98, 0.02];
-    const postEventPmf = [0.96, 0.04];
-    expect(preEventPmf, "fixture-vacuity guard: pre- and post-event pmf encodings must differ").not.toEqual(postEventPmf);
+    // 260912-2ur: the published body no longer carries the priced `schedules`
+    // block, so C-06's provenance check can no longer read a match's `rp`
+    // straight out of the published bytes (relocated from the pre-260912-2ur
+    // version of this test, which asserted `artifact.schedules[0].matches[0]
+    // .rp` against `preEventPmf`/`postEventPmf` literals). `fakeRpAlgorithm
+    // .predict` encodes `state.matchCount` into its pmf, so recording every
+    // call's `(matchKey, matchCount)` pair states the SAME fact — which
+    // state priced every synthetic presim match — more directly than the old
+    // byte assertion did, and it does not depend on the block being
+    // published at all.
+    const recordedPredictions: { matchKey: string; matchCount: number }[] = [];
+    const recordingAlgorithm: AlgorithmModule<FakeRpState> = {
+      ...fakeRpAlgorithm,
+      predict: (state, match) => {
+        recordedPredictions.push({ matchKey: match.matchKey, matchCount: state.matchCount });
+        return fakeRpAlgorithm.predict(state, match);
+      },
+    };
+
+    // Fixture-vacuity guard FIRST: the pre-event matchCount (after the early
+    // event's two matches) and the post-event matchCount (after all four
+    // matches across both events) must genuinely differ, or the assertion
+    // below that every presim call saw the pre-event count proves nothing.
+    const preEventMatchCount = 2;
+    const postEventMatchCount = 4;
+    expect(preEventMatchCount, "fixture-vacuity guard: pre- and post-event matchCount must differ").not.toBe(postEventMatchCount);
 
     await publishSeasons(db, {
       seasons: [2026],
-      algorithms: [fakeRpAlgorithm],
+      algorithms: [recordingAlgorithm],
       bucket: "test-bucket",
       dryRun: false,
       skipState: true,
@@ -3854,15 +3879,31 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     expect(call, "expected a v1/presim/2026lat/epa@... putObject call").toBeDefined();
     expect(call![1]).toBe(preScheduleKey({ eventKey: "2026lat", algorithmId: "epa", version: "9.9.9+presim-test" }));
 
-    // The body round-trips through the sidecar schema (publish-boundary
-    // guarantee) and is priced from the PRE-event state.
-    const artifact = PreScheduleArtifactSchema.parse(JSON.parse(call![2] as string));
+    // The proof obligation, on the RAW published bytes, before any schema
+    // parse: no own `schedules` property, and `scheduleCount` is the real
+    // 20 (PRESIM_SCHEDULE_COUNT) — the next task moves both this and the
+    // 20 x 50 = 1,000 draws arithmetic below together.
+    const rawBody = JSON.parse(call![2] as string) as Record<string, unknown>;
+    expect(Object.hasOwn(rawBody, "schedules")).toBe(false);
+    expect(rawBody.scheduleCount).toBe(20);
+
+    // The body round-trips through the published sidecar schema (the
+    // publish-boundary guarantee) and is priced from the PRE-event state.
+    const artifact = PublishedPreScheduleArtifactSchema.parse(rawBody);
     expect(artifact.pricedFrom).toBe("pre-event-walk-forward");
     expect(artifact.roster).toEqual(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
     expect(artifact.baked.draws).toBe(1000); // 20 schedules x 50 draws, matching the client's SIMULATION_DRAWS
-    const firstMatch = artifact.schedules[0]!.matches[0]!;
-    expect(firstMatch.rp).toEqual(preEventPmf);
-    expect(firstMatch.rp, "the sidecar must NOT be priced from the post-event state").not.toEqual(postEventPmf);
+
+    // C-06, restated at the seam that survives the block's removal: every
+    // synthetic presim match for THIS event was priced at the pre-event
+    // matchCount, never the post-event one.
+    const presimRecordings = recordedPredictions.filter((r) => r.matchKey.startsWith("2026lat_presim"));
+    expect(presimRecordings.length, "fixture-vacuity guard: at least one presim call must have been recorded").toBeGreaterThan(0);
+    expect(
+      presimRecordings.every((r) => r.matchCount === preEventMatchCount),
+      "C-06: every synthetic presim match must be priced at the pre-event state, never the post-event state"
+    ).toBe(true);
+    expect(presimRecordings.some((r) => r.matchCount === postEventMatchCount)).toBe(false);
 
     // PD-04: the season's FIRST event has no exposable pre-event state under
     // a cold start — no sidecar, never a fabricated one.
@@ -3940,7 +3981,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
 
     const call = findPresimCall("2026sch", "epa");
     expect(call, "a scheduled-but-unplayed event must still publish a sidecar").toBeDefined();
-    const artifact = PreScheduleArtifactSchema.parse(JSON.parse(call![2] as string));
+    const artifact = PublishedPreScheduleArtifactSchema.parse(JSON.parse(call![2] as string));
     // "Before the event" and "now" are the same state when no match of the
     // event has been played, so `current-state` is the honest label — and
     // it keeps regenerating every publish until the event actually starts.
@@ -4725,19 +4766,44 @@ describe("publishSeasons and --event agree on the presim sidecar (2026-09-09)", 
 
     const seasonsCall = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/presim/${lateEventKey}/${bpr.id}@`));
     expect(seasonsCall, "seasons path writes a presim sidecar for the late event").toBeDefined();
-    type Sidecar = { roster: string[]; schedules: { seed: number; matches: { rp: number[]; bp: number[] }[] }[] };
+    // 260912-2ur: this test's subject is builder determinism across the two
+    // publish paths, and it must survive the published body dropping the
+    // priced `schedules` block — neither path hands back anything BUT a
+    // published body anymore, so the literal `schedules` comparison this
+    // test used before is no longer available from either side. Widened
+    // instead to compare everything the published body now carries.
+    type Sidecar = {
+      roster: string[];
+      pricedFrom: string;
+      matchesPerTeam: number;
+      scheduleCount: number;
+      baked: { draws: number; histograms: number[][] };
+      generation: string;
+      computedAt: string;
+    };
     const fromSeasons = JSON.parse(seasonsCall![2] as string) as Sidecar;
 
     const sidecar = buildSingleEventPublish(db, lateEventKey, bpr).sidecar;
     expect(sidecar, "--event writes a presim sidecar for the same event").toBeDefined();
     const fromEvent = JSON.parse(sidecar!.body) as Sidecar;
 
-    // The synthetic schedule is seeded and deterministic, so the two paths'
-    // schedules are directly comparable. `generation`/`computedAt` are
-    // deliberately excluded — they identify the RUN, not the numbers.
-    expect(fromEvent.roster).toEqual(fromSeasons.roster);
-    expect(fromSeasons.schedules.flatMap((s) => s.matches).length, "the fixture produces matches to compare").toBeGreaterThan(0);
-    expect(fromEvent.schedules).toEqual(fromSeasons.schedules);
+    // Non-vacuity guard: the fixture must actually produce something to
+    // compare, or the `toEqual` below would pass over two empty shells.
+    expect(fromSeasons.scheduleCount, "the fixture produces a real schedule count to compare").toBeGreaterThan(0);
+    const histogramTotal = fromSeasons.baked.histograms.flat().reduce((total, count) => total + count, 0);
+    expect(histogramTotal, "the fixture produces a non-zero baked histogram total to compare").toBeGreaterThan(0);
+
+    // `generation`/`computedAt` are deliberately excluded — they identify the
+    // RUN, not the numbers. Everything else — roster, pricedFrom,
+    // matchesPerTeam, scheduleCount, baked.draws and baked.histograms — is
+    // compared. The histograms are a deterministic function of the priced
+    // schedules under a seeded `mulberry32`, so a divergence in pricing
+    // state or shuffle between the two paths still fails this test even
+    // though the priced schedules themselves are no longer on the wire to
+    // compare directly.
+    const { generation: _seasonsGeneration, computedAt: _seasonsComputedAt, ...seasonsRest } = fromSeasons;
+    const { generation: _eventGeneration, computedAt: _eventComputedAt, ...eventRest } = fromEvent;
+    expect(eventRest).toEqual(seasonsRest);
   });
 });
 
