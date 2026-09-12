@@ -1,0 +1,4195 @@
+{
+  "gridVersion": 1,
+  "generatedFromCommit": "a29970c6c0bee9027d8260f677165ad81b2bf223",
+  "note": "Captured from analyticPmf.ts UNMODIFIED at the commit above, before quick task 260911-w7k changed clauseProbability; regeneration is gated on the grid's own shape changing and never on a red test.",
+  "cells": {
+    "2016|0": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0.7128361434854904,
+          0
+        ],
+        "pmf": [
+          0.2871638565145096,
+          0.7128361434854904,
+          0
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.9999780539003466,
+          0.00002842976775637149
+        ],
+        "pmf": [
+          0.000021945475730930765,
+          0.9999496253804351,
+          0.000028429143833855184
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9999998842855168,
+          0.000036696202558637895
+        ],
+        "pmf": [
+          1.1571023693545094e-7,
+          0.9999631880914507,
+          0.00003669619831235578
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9999999798669847,
+          0.00003211653602834059
+        ],
+        "pmf": [
+          2.0132368652231916e-8,
+          0.9999678633322496,
+          0.00003211653538173788
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999999873945795,
+          0.00003173364399761958
+        ],
+        "pmf": [
+          1.2605020469274961e-8,
+          0.9999682537513819,
+          0.000031733643597603653
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.9999999999999974,
+          1.0066137054803175e-8
+        ],
+        "pmf": [
+          2.5535129309338486e-15,
+          0.9999999899338604,
+          1.0066137054803149e-8
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          0
+        ],
+        "pmf": [
+          0,
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 8,
+          "fallbacks": 8
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          1,
+          0
+        ],
+        "pmf": [
+          0,
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2016|2": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0.7128361434854904,
+          0
+        ],
+        "pmf": [
+          0.2871638565145096,
+          0.7128361434854904,
+          0
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.9999780539003466,
+          0.00002842976775637149
+        ],
+        "pmf": [
+          0.000021945475730930765,
+          0.9999496253804351,
+          0.000028429143833855184
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9999998842855168,
+          0.000036696202558637895
+        ],
+        "pmf": [
+          1.1571023693545094e-7,
+          0.9999631880914507,
+          0.00003669619831235578
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9999999798669847,
+          0.00003211653602834059
+        ],
+        "pmf": [
+          2.0132368652231916e-8,
+          0.9999678633322496,
+          0.00003211653538173788
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999999873945795,
+          0.00003173364399761958
+        ],
+        "pmf": [
+          1.2605020469274961e-8,
+          0.9999682537513819,
+          0.000031733643597603653
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.9999999999999974,
+          1.0066137054803175e-8
+        ],
+        "pmf": [
+          2.5535129309338486e-15,
+          0.9999999899338604,
+          1.0066137054803149e-8
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          0
+        ],
+        "pmf": [
+          0,
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 8,
+          "fallbacks": 8
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          1,
+          0
+        ],
+        "pmf": [
+          0,
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2016|3": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0.7128361434854904,
+          0
+        ],
+        "pmf": [
+          0.2871638565145096,
+          0.7128361434854904,
+          0
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.9999780539003466,
+          0.00002842976775637149
+        ],
+        "pmf": [
+          0.000021945475730930765,
+          0.9999496253804351,
+          0.000028429143833855184
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9999998842855168,
+          0.000036696202558637895
+        ],
+        "pmf": [
+          1.1571023693545094e-7,
+          0.9999631880914507,
+          0.00003669619831235578
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9999999798669847,
+          0.00003211653602834059
+        ],
+        "pmf": [
+          2.0132368652231916e-8,
+          0.9999678633322496,
+          0.00003211653538173788
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999999873945795,
+          0.00003173364399761958
+        ],
+        "pmf": [
+          1.2605020469274961e-8,
+          0.9999682537513819,
+          0.000031733643597603653
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.9999999999999974,
+          1.0066137054803175e-8
+        ],
+        "pmf": [
+          2.5535129309338486e-15,
+          0.9999999899338604,
+          1.0066137054803149e-8
+        ],
+        "tally": {
+          "gaussian": 8,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          0
+        ],
+        "pmf": [
+          0,
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 8,
+          "fallbacks": 8
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          1,
+          0
+        ],
+        "pmf": [
+          0,
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2017|0": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          7.527338841128994e-8,
+          0
+        ],
+        "pmf": [
+          0.9999999247266116,
+          7.527338841128994e-8,
+          0
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9691940292644154,
+          0
+        ],
+        "pmf": [
+          0.030805970735584554,
+          0.9691940292644154,
+          0
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9999969322782706,
+          0.5877273300280963
+        ],
+        "pmf": [
+          0.0000012647378281195154,
+          0.41227320821797686,
+          0.587725527044195
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999999350143718,
+          0.9999188803940955
+        ],
+        "pmf": [
+          5.2716085500145374e-12,
+          0.00008118458098950652,
+          0.9999188154137388
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.09835286950749722,
+          0
+        ],
+        "pmf": [
+          0.9016471304925028,
+          0.09835286950749722,
+          0
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          0
+        ],
+        "pmf": [
+          0,
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 4,
+          "fallbacks": 4
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0.00042911655281607786,
+          0
+        ],
+        "pmf": [
+          0.9995708834471839,
+          0.00042911655281607786,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2017|2": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          7.527338841128994e-8,
+          0
+        ],
+        "pmf": [
+          0.9999999247266116,
+          7.527338841128994e-8,
+          0
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9691940292644154,
+          0
+        ],
+        "pmf": [
+          0.030805970735584554,
+          0.9691940292644154,
+          0
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9999969322782706,
+          0.5877273300280963
+        ],
+        "pmf": [
+          0.0000012647378281195154,
+          0.41227320821797686,
+          0.587725527044195
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999999350143718,
+          0.9999188803940955
+        ],
+        "pmf": [
+          5.2716085500145374e-12,
+          0.00008118458098950652,
+          0.9999188154137388
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.09835286950749722,
+          0
+        ],
+        "pmf": [
+          0.9016471304925028,
+          0.09835286950749722,
+          0
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          0
+        ],
+        "pmf": [
+          0,
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 4,
+          "fallbacks": 4
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0.00042911655281607786,
+          0
+        ],
+        "pmf": [
+          0.9995708834471839,
+          0.00042911655281607786,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2017|3": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          7.527338841128994e-8,
+          0
+        ],
+        "pmf": [
+          0.9999999247266116,
+          7.527338841128994e-8,
+          0
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9691940292644154,
+          0
+        ],
+        "pmf": [
+          0.030805970735584554,
+          0.9691940292644154,
+          0
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9999969322782706,
+          0.5877273300280963
+        ],
+        "pmf": [
+          0.0000012647378281195154,
+          0.41227320821797686,
+          0.587725527044195
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999999350143718,
+          0.9999188803940955
+        ],
+        "pmf": [
+          5.2716085500145374e-12,
+          0.00008118458098950652,
+          0.9999188154137388
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.09835286950749722,
+          0
+        ],
+        "pmf": [
+          0.9016471304925028,
+          0.09835286950749722,
+          0
+        ],
+        "tally": {
+          "gaussian": 4,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          0
+        ],
+        "pmf": [
+          0,
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 4,
+          "fallbacks": 4
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0.00042911655281607786,
+          0
+        ],
+        "pmf": [
+          0.9995708834471839,
+          0.00042911655281607786,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2018|0": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.03164568836087972,
+          0
+        ],
+        "pmf": [
+          0.9683543116391202,
+          0.03164568836087972,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9762240650605873,
+          1.1102230246251565e-15
+        ],
+        "pmf": [
+          0.02377593493941263,
+          0.9762240650605862,
+          1.0838264342234309e-15
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9996216776396982,
+          0.6553039794758784
+        ],
+        "pmf": [
+          0.00013040621207131473,
+          0.34481353046028074,
+          0.6550560633276479
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9998939618882702,
+          0.9974428387807172
+        ],
+        "pmf": [
+          2.711565470814836e-7,
+          0.002662657017918504,
+          0.9973370718255344
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.49999999993975275,
+          0
+        ],
+        "pmf": [
+          0.5000000000602473,
+          0.49999999993975275,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          0
+        ],
+        "pmf": [
+          0,
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 3,
+          "fallbacks": 3
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2018|2": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.03164568836087972,
+          0
+        ],
+        "pmf": [
+          0.9683543116391202,
+          0.03164568836087972,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9762240650605873,
+          1.1102230246251565e-15
+        ],
+        "pmf": [
+          0.02377593493941263,
+          0.9762240650605862,
+          1.0838264342234309e-15
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9996216776396982,
+          0.6553039794758784
+        ],
+        "pmf": [
+          0.00013040621207131473,
+          0.34481353046028074,
+          0.6550560633276479
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9998939618882702,
+          0.9974428387807172
+        ],
+        "pmf": [
+          2.711565470814836e-7,
+          0.002662657017918504,
+          0.9973370718255344
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.49999999993975275,
+          0
+        ],
+        "pmf": [
+          0.5000000000602473,
+          0.49999999993975275,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          0
+        ],
+        "pmf": [
+          0,
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 3,
+          "fallbacks": 3
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2018|3": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.03164568836087972,
+          0
+        ],
+        "pmf": [
+          0.9683543116391202,
+          0.03164568836087972,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9762240650605873,
+          1.1102230246251565e-15
+        ],
+        "pmf": [
+          0.02377593493941263,
+          0.9762240650605862,
+          1.0838264342234309e-15
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9996216776396982,
+          0.6553039794758784
+        ],
+        "pmf": [
+          0.00013040621207131473,
+          0.34481353046028074,
+          0.6550560633276479
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9998939618882702,
+          0.9974428387807172
+        ],
+        "pmf": [
+          2.711565470814836e-7,
+          0.002662657017918504,
+          0.9973370718255344
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.49999999993975275,
+          0
+        ],
+        "pmf": [
+          0.5000000000602473,
+          0.49999999993975275,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          0
+        ],
+        "pmf": [
+          0,
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 3,
+          "fallbacks": 3
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2019|0": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.03165883210473486,
+          0
+        ],
+        "pmf": [
+          0.9683411678952651,
+          0.03165883210473486,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9762859445010539,
+          0
+        ],
+        "pmf": [
+          0.02371405549894612,
+          0.9762859445010539,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9996596558439619,
+          0
+        ],
+        "pmf": [
+          0.0003403441560381193,
+          0.9996596558439619,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999275288800787,
+          0
+        ],
+        "pmf": [
+          0.00007247111992125799,
+          0.9999275288800787,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.5,
+          0
+        ],
+        "pmf": [
+          0.5,
+          0.5,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          0
+        ],
+        "pmf": [
+          0,
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2019|2": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.03165883210473486,
+          0
+        ],
+        "pmf": [
+          0.9683411678952651,
+          0.03165883210473486,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9762859445010539,
+          0
+        ],
+        "pmf": [
+          0.02371405549894612,
+          0.9762859445010539,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9996596558439619,
+          0
+        ],
+        "pmf": [
+          0.0003403441560381193,
+          0.9996596558439619,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999275288800787,
+          0
+        ],
+        "pmf": [
+          0.00007247111992125799,
+          0.9999275288800787,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.5,
+          0
+        ],
+        "pmf": [
+          0.5,
+          0.5,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          0
+        ],
+        "pmf": [
+          0,
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2019|3": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.03165883210473486,
+          0
+        ],
+        "pmf": [
+          0.9683411678952651,
+          0.03165883210473486,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9762859445010539,
+          0
+        ],
+        "pmf": [
+          0.02371405549894612,
+          0.9762859445010539,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9996596558439619,
+          0
+        ],
+        "pmf": [
+          0.0003403441560381193,
+          0.9996596558439619,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999275288800787,
+          0
+        ],
+        "pmf": [
+          0.00007247111992125799,
+          0.9999275288800787,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.5,
+          0
+        ],
+        "pmf": [
+          0.5,
+          0.5,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          0
+        ],
+        "pmf": [
+          0,
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2020|0": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0
+        ],
+        "pmf": [
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0
+        ],
+        "pmf": [
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.0000018683962850207791
+        ],
+        "pmf": [
+          0.999998131603715,
+          0.0000018683962850207791
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9190756609899778
+        ],
+        "pmf": [
+          0.08092433901002216,
+          0.9190756609899778
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9991349474178977
+        ],
+        "pmf": [
+          0.0008650525821023436,
+          0.9991349474178977
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0
+        ],
+        "pmf": [
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          0
+        ],
+        "pmf": [
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0
+        ],
+        "pmf": [
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2020|2": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0
+        ],
+        "pmf": [
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0
+        ],
+        "pmf": [
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.0000018683962850207791
+        ],
+        "pmf": [
+          0.999998131603715,
+          0.0000018683962850207791
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9190756609899778
+        ],
+        "pmf": [
+          0.08092433901002216,
+          0.9190756609899778
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9991349474178977
+        ],
+        "pmf": [
+          0.0008650525821023436,
+          0.9991349474178977
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0
+        ],
+        "pmf": [
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          0
+        ],
+        "pmf": [
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0
+        ],
+        "pmf": [
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2020|3": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0
+        ],
+        "pmf": [
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0
+        ],
+        "pmf": [
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.0000018683962850207791
+        ],
+        "pmf": [
+          0.999998131603715,
+          0.0000018683962850207791
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9190756609899778
+        ],
+        "pmf": [
+          0.08092433901002216,
+          0.9190756609899778
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9991349474178977
+        ],
+        "pmf": [
+          0.0008650525821023436,
+          0.9991349474178977
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0
+        ],
+        "pmf": [
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          0
+        ],
+        "pmf": [
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0
+        ],
+        "pmf": [
+          1,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2022|0": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.0014398836486246961,
+          0.012928747305242627
+        ],
+        "pmf": [
+          0.9856499849379747,
+          0.014331399170183284,
+          0.000018615891842019462
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9436088101488759,
+          0.967864328745764
+        ],
+        "pmf": [
+          0.0018121687386909342,
+          0.08490252362797825,
+          0.9132853076333308
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9994760498828846,
+          0.9996064287734305
+        ],
+        "pmf": [
+          2.0621169025431127e-7,
+          0.0009171089203043265,
+          0.9990826848680054
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999149026325768,
+          0.9999235305620433
+        ],
+        "pmf": [
+          6.5073478584492405e-9,
+          0.00016155379068421438,
+          0.999838439701968
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.11033572241912538,
+          0.9696990787674821
+        ],
+        "pmf": [
+          0.02695764719836305,
+          0.8660499044166665,
+          0.1069924483849705
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          1
+        ],
+        "pmf": [
+          0,
+          0,
+          1
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 3,
+          "fallbacks": 3
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0.999998467662923
+        ],
+        "pmf": [
+          0.0000015323370770037315,
+          0.999998467662923,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2022|2": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.0014398836486246961,
+          0.012928747305242627
+        ],
+        "pmf": [
+          0.9856499849379747,
+          0.014331399170183284,
+          0.000018615891842019462
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9436088101488759,
+          0.967864328745764
+        ],
+        "pmf": [
+          0.0018121687386909342,
+          0.08490252362797825,
+          0.9132853076333308
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9994760498828846,
+          0.9996064287734305
+        ],
+        "pmf": [
+          2.0621169025431127e-7,
+          0.0009171089203043265,
+          0.9990826848680054
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999149026325768,
+          0.9999235305620433
+        ],
+        "pmf": [
+          6.5073478584492405e-9,
+          0.00016155379068421438,
+          0.999838439701968
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.11033572241912538,
+          0.9696990787674821
+        ],
+        "pmf": [
+          0.02695764719836305,
+          0.8660499044166665,
+          0.1069924483849705
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          1
+        ],
+        "pmf": [
+          0,
+          0,
+          1
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 3,
+          "fallbacks": 3
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0.999998467662923
+        ],
+        "pmf": [
+          0.0000015323370770037315,
+          0.999998467662923,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2022|3": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.0014398836486246961,
+          0.012928747305242627
+        ],
+        "pmf": [
+          0.9856499849379747,
+          0.014331399170183284,
+          0.000018615891842019462
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9436088101488759,
+          0.967864328745764
+        ],
+        "pmf": [
+          0.0018121687386909342,
+          0.08490252362797825,
+          0.9132853076333308
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9994760498828846,
+          0.9996064287734305
+        ],
+        "pmf": [
+          2.0621169025431127e-7,
+          0.0009171089203043265,
+          0.9990826848680054
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999149026325768,
+          0.9999235305620433
+        ],
+        "pmf": [
+          6.5073478584492405e-9,
+          0.00016155379068421438,
+          0.999838439701968
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.11033572241912538,
+          0.9696990787674821
+        ],
+        "pmf": [
+          0.02695764719836305,
+          0.8660499044166665,
+          0.1069924483849705
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          1
+        ],
+        "pmf": [
+          0,
+          0,
+          1
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 3,
+          "fallbacks": 3
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0.999998467662923
+        ],
+        "pmf": [
+          0.0000015323370770037315,
+          0.999998467662923,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2023|0": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          1.4105118184559728e-9,
+          1.2707323526761627e-8
+        ],
+        "pmf": [
+          0.9999999858821647,
+          1.4117835309369941e-8,
+          1.792383001544091e-17
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.7014775754218852,
+          0.745635738014463
+        ],
+        "pmf": [
+          0.0759334362139453,
+          0.4010198141357612,
+          0.5230467496502935
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9984498856148183,
+          0.9986393707599739
+        ],
+        "pmf": [
+          0.000002109130957863336,
+          0.0029065253632920966,
+          0.9970913655057501
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9998703737477236,
+          0.9998769443963053
+        ],
+        "pmf": [
+          1.5951236728561514e-8,
+          0.00025264995349770253,
+          0.9997473340952656
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.000003552187340716273,
+          0.04779033205666994
+        ],
+        "pmf": [
+          0.9522062855162019,
+          0.047793544723585574,
+          1.6976021254033003e-7
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          1
+        ],
+        "pmf": [
+          0,
+          0,
+          1
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 2,
+          "fallbacks": 2
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0.9522096679433301
+        ],
+        "pmf": [
+          0.04779033205666994,
+          0.9522096679433301,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2023|2": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          1.4105118184559728e-9,
+          1.2707323526761627e-8
+        ],
+        "pmf": [
+          0.9999999858821647,
+          1.4117835309369941e-8,
+          1.792383001544091e-17
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.7014775754218852,
+          0.745635738014463
+        ],
+        "pmf": [
+          0.0759334362139453,
+          0.4010198141357612,
+          0.5230467496502935
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9984498856148183,
+          0.9986393707599739
+        ],
+        "pmf": [
+          0.000002109130957863336,
+          0.0029065253632920966,
+          0.9970913655057501
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9998703737477236,
+          0.9998769443963053
+        ],
+        "pmf": [
+          1.5951236728561514e-8,
+          0.00025264995349770253,
+          0.9997473340952656
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.000003552187340716273,
+          0.04779033205666994
+        ],
+        "pmf": [
+          0.9522062855162019,
+          0.047793544723585574,
+          1.6976021254033003e-7
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          1
+        ],
+        "pmf": [
+          0,
+          0,
+          1
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 2,
+          "fallbacks": 2
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0.9522096679433301
+        ],
+        "pmf": [
+          0.04779033205666994,
+          0.9522096679433301,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2023|3": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          1.4105118184559728e-9,
+          5.562217353372034e-14
+        ],
+        "pmf": [
+          0.9999999985894326,
+          1.4105674406293498e-9,
+          7.845573313752157e-23
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.7014775754218852,
+          0.5
+        ],
+        "pmf": [
+          0.14926121228905742,
+          0.5,
+          0.3507387877109426
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9984498856148183,
+          0.9974270445129794
+        ],
+        "pmf": [
+          0.0000039883753128629004,
+          0.00411509312157662,
+          0.9958809185031106
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9998703737477236,
+          0.9998406583613848
+        ],
+        "pmf": [
+          2.0654859445270844e-8,
+          0.000288926581172721,
+          0.9997110527639679
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.000003552187340716273,
+          0.00042911655281607786
+        ],
+        "pmf": [
+          0.9995673327841456,
+          0.0004326656915520209,
+          1.5243023866050778e-9
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          1
+        ],
+        "pmf": [
+          0,
+          0,
+          1
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 2,
+          "fallbacks": 2
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0.5
+        ],
+        "pmf": [
+          0.5,
+          0.5,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2024|0": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          8.4695741054657e-9
+        ],
+        "pmf": [
+          0.9999999915304258,
+          8.4695741054657e-9,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.0014836219201841416,
+          0.49925818903990793
+        ],
+        "pmf": [
+          0.49999889943299897,
+          0.49926039017391,
+          0.0007407103930910454
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9436263307152757,
+          0.9957873951771472
+        ],
+        "pmf": [
+          0.0002374799911107381,
+          0.06011131412535563,
+          0.9396512058835337
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9994760622927759,
+          0.9997942201476296
+        ],
+        "pmf": [
+          1.0781582404384789e-7,
+          0.0007295019279464129,
+          0.9992703902562295
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999149030328165,
+          0.9999092314571463
+        ],
+        "pmf": [
+          7.724127712518179e-9,
+          0.0001758500617818069,
+          0.9998241422140904
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.11033574817887593,
+          0.9995708818113858
+        ],
+        "pmf": [
+          0.00038177111221632514,
+          0.8893298277853056,
+          0.110288401102478
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          1
+        ],
+        "pmf": [
+          0,
+          0,
+          1
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 3,
+          "fallbacks": 3
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0.9999999999868451
+        ],
+        "pmf": [
+          1.3154921596481017e-11,
+          0.9999999999868451,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2024|2": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          8.4695741054657e-9
+        ],
+        "pmf": [
+          0.9999999915304258,
+          8.4695741054657e-9,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.000022021883896661265,
+          0.49925818903990793
+        ],
+        "pmf": [
+          0.5007307836820689,
+          0.4992582217120576,
+          0.000010994605873494214
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.8828732362924696,
+          0.9957873951771472
+        ],
+        "pmf": [
+          0.0004934087696794822,
+          0.12035255099102421,
+          0.8791540402392963
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9992042245668596,
+          0.9997942201476296
+        ],
+        "pmf": [
+          1.6375455115158005e-7,
+          0.0010012277764084104,
+          0.9989986084690404
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.99990022896003,
+          0.9999092314571463
+        ],
+        "pmf": [
+          9.056071917082542e-9,
+          0.00019052147067994465,
+          0.9998094694732481
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.007152943317481286,
+          0.9995708818113858
+        ],
+        "pmf": [
+          0.00042604873053458356,
+          0.9924240774100639,
+          0.007149873859401628
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          1
+        ],
+        "pmf": [
+          0,
+          0,
+          1
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 3,
+          "fallbacks": 3
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0.9999999999868451
+        ],
+        "pmf": [
+          1.3154921596481017e-11,
+          0.9999999999868451,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2024|3": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          8.4695741054657e-9
+        ],
+        "pmf": [
+          0.9999999915304258,
+          8.4695741054657e-9,
+          0
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          1.2707323526761627e-8,
+          0.49925818903990793
+        ],
+        "pmf": [
+          0.5007418045970039,
+          0.49925818905876085,
+          6.344235331515226e-9
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.745635738014463,
+          0.9957873951771472
+        ],
+        "pmf": [
+          0.0010715361168016648,
+          0.25643379457478643,
+          0.7424946693084119
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9986393707599739,
+          0.9997942201476296
+        ],
+        "pmf": [
+          2.799900841433658e-7,
+          0.0015658491122281836,
+          0.9984338708976876
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9998769443963053,
+          0.9999092314571463
+        ],
+        "pmf": [
+          1.1169577837357393e-8,
+          0.00021380180739279445,
+          0.9997861870230293
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.00002229032825185051,
+          0.9995708818113858
+        ],
+        "pmf": [
+          0.0004291086234289584,
+          0.9995486106135045,
+          0.00002228076306656746
+        ],
+        "tally": {
+          "gaussian": 3,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          1
+        ],
+        "pmf": [
+          0,
+          0,
+          1
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 3,
+          "fallbacks": 3
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0.9999999999868451
+        ],
+        "pmf": [
+          1.3154921596481017e-11,
+          0.9999999999868451,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2025|0": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0.47260035434770564,
+          0.000009017782740295164,
+          0
+        ],
+        "pmf": [
+          0.5273948896768725,
+          0.47260084851580897,
+          0.0000042618073184941184,
+          0
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.994921942112384,
+          0.8792524417850358,
+          0.06869744670450717
+        ],
+        "pmf": [
+          0.0005710403516796745,
+          0.1160817595816762,
+          0.8232515291796816,
+          0.06009567088696258
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9997570195917425,
+          0.9980954448159444,
+          0.98276886654394
+        ],
+        "pmf": [
+          7.974044671027023e-9,
+          0.00003744331985494494,
+          0.01930375848652925,
+          0.9806587902195711
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9999090925999478,
+          0.9997069754189013,
+          0.9997061260602498
+        ],
+        "pmf": [
+          7.82824422291462e-12,
+          1.3944222198334696e-7,
+          0.000677527012972465,
+          0.9993223335369773
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999288852215521,
+          0.9998321441843423,
+          0.9999313297232182
+        ],
+        "pmf": [
+          8.197190951123563e-13,
+          2.834474682434976e-8,
+          0.0003075841789346097,
+          0.9996923874754988
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.9999995132508328,
+          0.9999767374521146,
+          0.9952390217381873
+        ],
+        "pmf": [
+          5.3908679739609755e-14,
+          1.1308104830063588e-7,
+          0.004784501396606949,
+          0.9952153855222908
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          1,
+          1
+        ],
+        "pmf": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 7,
+          "fallbacks": 7
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          1,
+          0,
+          0.9999999516834976
+        ],
+        "pmf": [
+          0,
+          4.831650235459506e-8,
+          0.9999999516834976,
+          0
+        ],
+        "tally": {
+          "gaussian": 6,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2025|2": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0.47260035434770564,
+          0.000009017782740295164,
+          0
+        ],
+        "pmf": [
+          0.5273948896768725,
+          0.47260084851580897,
+          0.0000042618073184941184,
+          0
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.994921942112384,
+          0.8792524417850358,
+          0.06869744670450717
+        ],
+        "pmf": [
+          0.0005710403516796745,
+          0.1160817595816762,
+          0.8232515291796816,
+          0.06009567088696258
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9997570195917425,
+          0.9980954448159444,
+          0.98276886654394
+        ],
+        "pmf": [
+          7.974044671027023e-9,
+          0.00003744331985494494,
+          0.01930375848652925,
+          0.9806587902195711
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9999090925999478,
+          0.9997069754189013,
+          0.9997061260602498
+        ],
+        "pmf": [
+          7.82824422291462e-12,
+          1.3944222198334696e-7,
+          0.000677527012972465,
+          0.9993223335369773
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999288852215521,
+          0.9998321441843423,
+          0.9999313297232182
+        ],
+        "pmf": [
+          8.197190951123563e-13,
+          2.834474682434976e-8,
+          0.0003075841789346097,
+          0.9996923874754988
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.9999995132508328,
+          0.9999767374521146,
+          0.9952390217381873
+        ],
+        "pmf": [
+          5.3908679739609755e-14,
+          1.1308104830063588e-7,
+          0.004784501396606949,
+          0.9952153855222908
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          1,
+          1
+        ],
+        "pmf": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 7,
+          "fallbacks": 7
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          1,
+          0,
+          0.9999999516834976
+        ],
+        "pmf": [
+          0,
+          4.831650235459506e-8,
+          0.9999999516834976,
+          0
+        ],
+        "tally": {
+          "gaussian": 6,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2025|3": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0.47260035434770564,
+          2.2301698454918033e-13,
+          0
+        ],
+        "pmf": [
+          0.5273996456521767,
+          0.47260035434771785,
+          1.0539790592349942e-13,
+          0
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0.994921942112384,
+          0.5660726532585871,
+          0.012928747305242627
+        ],
+        "pmf": [
+          0.0021750195852536067,
+          0.429008064116956,
+          0.5615354703341134,
+          0.007281445963677008
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0.9997570195917425,
+          0.9952728788303248,
+          0.967864328745764
+        ],
+        "pmf": [
+          3.691096232253603e-8,
+          0.00016075541535332978,
+          0.036784151268575135,
+          0.9630550564051092
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.9999090925999478,
+          0.9995967827197185,
+          0.9996064287734305
+        ],
+        "pmf": [
+          1.4426524358527058e-11,
+          2.3108541155063708e-7,
+          0.000887233692800511,
+          0.9991125352073614
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9999288852215521,
+          0.9998125124733019,
+          0.9999235305620433
+        ],
+        "pmf": [
+          1.0195772572837688e-12,
+          3.310524811992272e-8,
+          0.00033500552954768346,
+          0.9996649613641846
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0.9999995132508328,
+          0.9994376604300849,
+          0.983052633201486
+        ],
+        "pmf": [
+          4.638804723377131e-12,
+          0.000009538683875248962,
+          0.01749111573592947,
+          0.9824993455755564
+        ],
+        "tally": {
+          "gaussian": 7,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          1,
+          1,
+          1
+        ],
+        "pmf": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 7,
+          "fallbacks": 7
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          1,
+          0,
+          0.999998467662923
+        ],
+        "pmf": [
+          0,
+          0.0000015323370770037315,
+          0.999998467662923,
+          0
+        ],
+        "tally": {
+          "gaussian": 6,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2026|0": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0,
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0,
+          0,
+          0.004105464257703861
+        ],
+        "pmf": [
+          0.9958945357422961,
+          0.004105464257703861,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0.5,
+          0,
+          0.9771635171249564
+        ],
+        "pmf": [
+          0.011418241437521792,
+          0.5,
+          0.4885817585624782,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.9961668729863485,
+          0.21187593670219107,
+          0.9995704262909115
+        ],
+        "pmf": [
+          0.0000016466105886614723,
+          0.004168391169566854,
+          0.7840450418496491,
+          0.2117849203701953
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0,
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          0,
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 2,
+          "fallbacks": 2
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0,
+          1.3154921596481017e-11
+        ],
+        "pmf": [
+          0.9999999999868451,
+          1.3154921596481017e-11,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2026|2": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0,
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0,
+          0,
+          0.004105464257703861
+        ],
+        "pmf": [
+          0.9958945357422961,
+          0.004105464257703861,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          1.1027006863173483e-8,
+          0,
+          0.9771635171249564
+        ],
+        "pmf": [
+          0.022836482623225532,
+          0.9771635066015856,
+          1.0775188809779633e-8,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.7881240632978089,
+          0.21187593670219107,
+          0.9995704262909115
+        ],
+        "pmf": [
+          0.00009101633199575433,
+          0.21203246141529228,
+          0.5760916018825166,
+          0.2117849203701953
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0,
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          0,
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 2,
+          "fallbacks": 2
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0,
+          1.3154921596481017e-11
+        ],
+        "pmf": [
+          0.9999999999868451,
+          1.3154921596481017e-11,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ],
+    "2026|3": [
+      {
+        "pattern": "scale-3",
+        "bonusProbabilities": [
+          0,
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-10",
+        "bonusProbabilities": [
+          0,
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-30",
+        "bonusProbabilities": [
+          0,
+          0,
+          0.004105464257703861
+        ],
+        "pmf": [
+          0.9958945357422961,
+          0.004105464257703861,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-100",
+        "bonusProbabilities": [
+          0,
+          0,
+          0.9771635171249564
+        ],
+        "pmf": [
+          0.022836482875043584,
+          0.9771635171249564,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "scale-300",
+        "bonusProbabilities": [
+          0.21187593670219107,
+          0.0038331270136514606,
+          0.9995704262909115
+        ],
+        "pmf": [
+          0.0003385573770927167,
+          0.7878748756421232,
+          0.20795508657772116,
+          0.0038314804030627992
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "asym-30",
+        "bonusProbabilities": [
+          0,
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 2,
+          "degenerate": 0,
+          "fallbacks": 0
+        }
+      },
+      {
+        "pattern": "zero-variance",
+        "bonusProbabilities": [
+          0,
+          0,
+          0
+        ],
+        "pmf": [
+          1,
+          0,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 0,
+          "degenerate": 2,
+          "fallbacks": 2
+        }
+      },
+      {
+        "pattern": "non-finite",
+        "bonusProbabilities": [
+          0,
+          0,
+          1.3154921596481017e-11
+        ],
+        "pmf": [
+          0.9999999999868451,
+          1.3154921596481017e-11,
+          0,
+          0
+        ],
+        "tally": {
+          "gaussian": 1,
+          "degenerate": 1,
+          "fallbacks": 1
+        }
+      }
+    ]
+  }
+}
