@@ -418,6 +418,75 @@ Named suspect for rung 2, measured not assumed: assumption A-FA1's residual is e
 (where it does worst). The additive constant cancels as A-FA1 says; its standard deviation does not.
 
 
+#### Re-measured at a count where the bar resolves — 2026-09-12: NO-SHIP CONFIRMED
+
+**The decision above stands. It is now standing on evidence rather than on a measurement that
+could not resolve the clause it was scored against.** Everything above this sub-block is the dated
+record of what was decided on 2026-09-11 and on the evidence then available; nothing in it has been
+edited.
+
+**Why it was re-run.** The rung-2 experiment subsequently measured the **binding** noise floor at
+the shipped count — the baked construction built twice with fully independent shuffle-and-draw
+streams — and found it at **27.0%**, with a worst team moving **10.61 ranks between two runs of the
+identical construction**. Rung 1 was failed at 32.8% for a worst team of 7.59 ranks. Both of the
+candidate's numbers sat *inside* the measurement's own noise, so the `no-ship` was correct in
+outcome but carried no information: at 20 schedules clause 1 is unreachable by **any** method,
+including the licensed path that ships. The draw-only seed-noise control quoted in consequence 2
+above (68.4%) is the looser floor — it holds the priced schedules fixed while a candidate arm draws
+its own shuffles too, so it understates the ceiling by roughly a factor of two and a half at this
+count.
+
+**What was run.** `scripts/measureFieldAveragedRanks.ts --schedules 4000 --draws 200000
+--write-doc`, on the same six-event panel, through the same imported `simulateRanks` and
+`continuousQuantile`, with `evaluateRungOneCriterion` and every clause constant unchanged. The
+`--schedules` flag was added for this run and its default path is pinned byte-identical by a
+regression table *and* by a real default-flag run that reproduced every figure of the committed
+n=20 record exactly. Nothing shipped: `PRESIM_SCHEDULE_COUNT` and `PRESIM_DRAWS_PER_SCHEDULE` are
+untouched, the predictor is still unwired, and no publish, R2 write, D1 write or manifest bump ran.
+
+**The result, at 4,000 schedules × 50 draws = 200,000 draws per arm:**
+
+| | Candidate (rung 1) | Binding floor at the same count | Bar |
+|---|---|---|---|
+| Clause 1 — teams within 0.5 median ranks | **41.4%** | **98.4%** | ≥ 95% |
+| Clause 1 — worst single team | **3.33 ranks** (`frc9609` at `2025cur`) | **0.71 ranks** | ≤ 1.0, every team |
+| Clause 2 — p10 / p90 within 1 rank | **62.3% / 63.5%** | **100.0% / 100.0%** | ≥ 90% on both |
+| Clause 3 — mean signed median shift | **−0.034 ranks** | — | within ±0.25 |
+
+**This is a real defeat, not a resolution artefact.** Raising the count from 20 to 4,000 moved the
+floor from 27.0% to 98.4% — a 71-point improvement — while it moved the candidate only from 32.8%
+to 41.4%. The 09-09 gap of 5.8 points between candidate and floor is now a gap of **57 points**.
+Clause 1 is comfortably reachable at this count and rung 1 does not reach it; clause 2's floors sit
+at a clean 100%/100% and rung 1 scores 62.3%/63.5%. The candidate's worst team did fall from 7.59
+to 3.33 ranks, which confirms that most of the 09-09 worst-team figure *was* noise — but 3.33 ranks
+against a floor of 0.71 is still more than three times the hard bound the criterion sets for any
+single team.
+
+**Where it fails is where it always failed, and it is structural.** The two small events
+(`2023gaalb` 100.0%, `2026txmca` 94.4%) and `2022on034` (92.9%) are at or near their floors. The
+large ones are not: `2025cur` scores **13.2%** against a floor of 97.4%, and `2026joh` **21.3%**
+against 97.3%. `2024caav` sits between at 60.0% against 100.0%. The disagreement grows with roster
+size and does not shrink with resolution — consistent with the A-FA1 residual *standard deviation*
+named as the suspect above (zero on `2023gaalb`, sd 24.74 on `2026joh`), which the additive constant
+does not cancel.
+
+**Consequences.**
+
+1. **Delta B stays `no-change`, and rung 2's generator remains the path.** The size win (51.6×–79.5×
+   at the shipped count) was real and is still not what failed.
+2. **Consequence 2 above is now discharged for rung 1.** The bar and the draw count were restated
+   together and the re-run was scored against the floor that binds, at a count where clause 1 is
+   demonstrably satisfiable. Consequence 1 (D-19, the schedule-template redistribution licensing
+   question) is **untouched by this** and remains Jacob's to decide before rung 2 is planned.
+3. **The harness is confirmed the same harness, twice, unadjusted.** The default-flag run reproduced
+   the committed n=20 record on every compared figure, and the binding floor computed here
+   reproduces the independently measured rung-2 Phase A row exactly at both counts — 27.0% / worst
+   10.61 / mean 2.039 / 95th pct 6.190 at n=20, and 98.4% / 0.71 / 0.129 / 0.412 at n=4,000.
+
+Record: `docs/models/field-averaged-presim.md`, rewritten by the script from this run and
+self-labelling with its count in the title, the headline, the JSON block and the artifact-size
+caption — the superseded n=20 headline can no longer be read as current.
+
 ### Production window — EXECUTED 2026-09-11, generation `b23d214d-9af0-48f5-a907-3903c2d06f44`
 
 **The hold below was lifted by the developer once the EPA workstream settled** (its gap was priced
