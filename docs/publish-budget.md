@@ -23,7 +23,47 @@ pnpm publish:seasons
 (equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
 directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
 
-**Latest run — 2026-09-10 (~03:53–04:37 ET), the bpr@3.0.0 republish — unattended overnight
+**Latest run — 2026-09-11 (~21:06–21:47 ET), the Phase 9 republish — attended
+(`pnpm publish:seasons`, generation `b23d214d-9af0-48f5-a907-3903c2d06f44`).** 108,820 page
+objects, 4,320,759,778 bytes, **641 presim sidecars**, ~41 min. Ships **two workstreams at once**,
+which is the thing to know about this run.
+
+**(1) Phase 9's analytic ranking-point layer.** `rpPmfForMatch`'s 4,000-draw Monte Carlo is deleted
+and replaced by the exact closed form `analyticRpPmf`. Every event row now carries the RP
+decomposition (`matchOutcomePmf`, `redBonusRpPmf`, `blueBonusRpPmf`) alongside the existing
+`redRpPmf`/`blueRpPmf`, plus a top-level `rpOutcomeRp`; `v1/compare/{year}.json` gains the
+optional `rpCalibration` scorecard block. **Level-1 output is provably unmoved** — D-12's digest
+pins `pRedWin`/`redScore`/`blueScore` bitwise for `opr` and `bpr` against the baseline plan 09-01
+froze before any RP change, and it is green.
+
+**(2) `epa@10.0.0+baseline`** from the concurrent EPA workstream (quick tasks 260911-j2w and
+260911-l2k). **This is why the run is a write-new for `epa`, not an overwrite-in-place**: the
+previous live generation held `epa@7.0.0+baseline`, so roughly **36,000 `epa@7.0.0` objects are now
+orphaned and were deliberately NOT deleted.** The 2026-09-11 approval covered Phase 9's presim
+sidecars and did not extend to retiring an EPA generation, so that pass was not run. R2 therefore
+holds one orphaned generation — the first time since 2026-09-10 that it holds any.
+
+**First run with presim ON** since the `--presim-from-season 9999` sentinel was added in
+`1a759198`. Plan 09-10 found the sentinel **committed in `package.json:43`** — the phase's own
+research had asserted no such literal existed and that re-enabling presim was "a republish command,
+not a code change", which was **false at HEAD**. Following the research literally would have spent
+this whole 45-minute pass and left the pre-schedule stop dark behind a green-looking report. Fixed
+to `2026`; `presim: count=641` across all three published ids, against zero on the last four runs.
+The sidecars carry the **priced-schedule** shape: plan 09-09 built and measured the field-averaged
+rung-1 predictor and it **failed** its pre-committed bar (32.8% of 244 teams within 0.5 median
+ranks against a ≥95% requirement), so it was not shipped.
+
+**Verified by content, not status.** `v1/manifest/algorithms.json` reads back opr 4.0.0 / epa
+10.0.0 / bpr 3.0.0 at this generation; `v1/compare/2026.json` carries it and its slices carry
+`rpCalibration`; a `2026mrcmp` row carries all five RP fields and the artifact carries
+`rpOutcomeRp {win:3,tie:1}`. **`verify:subset` 50 entries, 0 failing, uniformity 1.** Presim
+returns **200 on all three ids** for `2026mrcmp` — so the **F8/F9 cold-start chain does not gate
+presim**, a measured live fact that contradicts the plan's expectation of 404s on opr/epa and is
+worth handing to whoever owns F8/F9. Offseason events (e.g. `2024auwarp`) carry qualification
+matches but no RP pmfs; that is the pre-existing self-reported-breakdown D-05 fallback, not a
+regression — `2024mil` shows **125/125** qm rows with both pmfs and the full decomposition.
+
+**Prior run — 2026-09-10 (~03:53–04:37 ET), the bpr@3.0.0 republish — unattended overnight
 (`pnpm publish:seasons`, generation `e169a4d4-fce9-4da1-9d88-eb9edefcac29`).** 108,820 page
 objects, 4,285,902,355 bytes, zero presim sidecars (flag still on), ~44 min. Ships
 `bpr@3.0.0+baseline`: 260910-4bf's adjustPoints drop from the scoring target (7c88e234) and
@@ -1577,46 +1617,46 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-09-10T19:46:47.679Z",
-  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 9999) -- generation 97342984-f48c-49b7-9811-ab124a246cd8, 108,820 objects, 4,240,958,382 bytes total, zero presim sidecars, ~15:46-16:34 ET 2026-09-10, attended. Ships epa@7.0.0+baseline (quick task 260910-5ym): the win-probability denominator is re-seeded per season instead of pooled across every season replayed, and 2024's component map is grouped at phase granularity. Object count unchanged at 108,820; total bytes fell 44,943,973 (4,285,902,355 -> 4,240,958,382) because 2024 now carries three rated components per team instead of eleven. The `team` max fell 321,657 -> 266,417 B and its largest key moved off 2024 entirely (frc3538/2024/epa@6.0.0 -> frc3538/2025/epa@7.0.0), which is the same regrouping showing up in the payload. Verified by content, not status: v1/manifest/algorithms.json reads back opr 4.0.0 / epa 7.0.0 / bpr 3.0.0 at this generation, and all ten v1/compare/{year}.json carry it. epaVsStatbotics --check PASSED under 7.0.0 so the committed tolerance bands needed no re-measure, and v1/methodology/epa-vs-statbotics.json was republished at 7.0.0+baseline (2,319 bytes, 5 agreement + 5 head-to-head rows). DELETE PASS RUN (pre-authorized): epa@6.0.0+baseline fully removed, 36,832 keys (2016-2020: 17,560; 2022-2026: 19,272), both ranges exit 0, post-census 0/60 on both; a live spot check returns 200 on epa@7.0.0 and 404 on epa@6.0.0 for the same team key. epa@3.0.0, 4.0.0 and 5.0.0 were censused first and were already absent (0/60), so 6.0.0 was the only previous version still in R2 -- R2 again holds no orphaned generations. TAIL COMPLETED BY A FOLLOW-UP SESSION (~20:30 ET): verify:subset 50 entries 0 failing at uniformity 1 (this generation), and D1 re-seeded per file with read-back -- the publish session had left D1 at e169a4d4 with epa 6.0.0 while the site served 7.0.0 pages, a ~4h live/offline divergence now closed; all three algorithms read back at 97342984 with epa 7.0.0+baseline. Sim tab still serves the 641 presim sidecars frozen at 2f1a8885.",
+  "measuredAt": "2026-09-12T01:47:29.000Z",
+  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2026) -- generation b23d214d-9af0-48f5-a907-3903c2d06f44, 108,820 objects, 4,320,759,778 bytes total, 641 presim sidecars, ~21:06-21:47 ET 2026-09-11, attended. THE PHASE 9 REPUBLISH. Ships two workstreams at once. (1) Phase 9's analytic ranking-point layer: rpPmfForMatch's 4,000-draw Monte Carlo is deleted and replaced by the exact closed form analyticRpPmf, every event row now carries the RP decomposition (matchOutcomePmf, redBonusRpPmf, blueBonusRpPmf) plus top-level rpOutcomeRp, and v1/compare/{year}.json gains the optional rpCalibration scorecard block. Level-1 output is provably unmoved: D-12's digest pins pRedWin/redScore/blueScore bitwise for opr and bpr against the baseline 09-01 froze, and it is green. (2) epa@10.0.0+baseline from the concurrent EPA workstream (quick tasks 260911-j2w and 260911-l2k), which is why this is a write-new for epa rather than an overwrite-in-place: the previous live generation held epa@7.0.0+baseline, so roughly 36,000 epa@7.0.0 objects are now ORPHANED and NOT deleted -- the 2026-09-11 approval covered Phase 9's presim sidecars and did not extend to retiring an EPA generation, so that pass was deliberately not run. FIRST RUN WITH PRESIM ON since the --presim-from-season 9999 sentinel was added in 1a759198: plan 09-10 found the sentinel committed in package.json:43 (research had claimed no such literal existed and that re-enabling was a command-line matter, which was false at HEAD) and fixed it to 2026; presim: count=641 across all three published ids, against zero on the last four runs. The sidecars carry the priced-schedule shape, not the field-averaged one -- plan 09-09 measured the field-averaged rung-1 predictor and it FAILED its pre-committed bar (32.8% of 244 teams within 0.5 median ranks against a >=95% requirement), so it was not shipped. Verified by content, not status: v1/manifest/algorithms.json reads back opr 4.0.0 / epa 10.0.0 / bpr 3.0.0 at this generation; v1/compare/2026.json carries it and its slices carry rpCalibration; a 2026mrcmp event row carries all five RP fields and the artifact carries rpOutcomeRp {win:3,tie:1}; presim 200 on all three ids for 2026mrcmp, which means the F8/F9 cold-start chain does NOT gate presim -- a measured live fact, contradicting the plan's expectation of 404s on opr/epa. verify:subset 50 entries, 0 failing, uniformity 1 at this generation. Offseason events (e.g. 2024auwarp) carry qualification matches but no RP pmfs, which is the pre-existing self-reported-breakdown D-05 fallback and not a regression -- 2024mil shows 125/125 qm rows with both pmfs and the full decomposition.",
   "pages": {
     "teams": {
       "count": 30,
-      "medianBytes": 982507,
-      "p95Bytes": 1498107,
-      "maxBytes": 1626019,
+      "medianBytes": 913209,
+      "p95Bytes": 1445501,
+      "maxBytes": 1573854,
       "budgetMaxBytes": 3500000,
-      "largestKey": "v1/teams/2026/epa@7.0.0+baseline.json"
+      "largestKey": "v1/teams/2026/epa@10.0.0+baseline.json"
     },
     "team": {
       "count": 101409,
-      "medianBytes": 30894,
-      "p95Bytes": 87089,
-      "maxBytes": 266417,
+      "medianBytes": 31305,
+      "p95Bytes": 87608,
+      "maxBytes": 267128,
       "budgetMaxBytes": 500000,
-      "largestKey": "v1/team/frc3538/2025/epa@7.0.0+baseline.json"
+      "largestKey": "v1/team/frc3538/2025/epa@10.0.0+baseline.json"
     },
     "events": {
       "count": 30,
-      "medianBytes": 68674,
+      "medianBytes": 68675,
       "p95Bytes": 84108,
-      "maxBytes": 84108,
+      "maxBytes": 84109,
       "budgetMaxBytes": 108000,
-      "largestKey": "v1/events/2025/bpr@3.0.0+baseline.json"
+      "largestKey": "v1/events/2025/epa@10.0.0+baseline.json"
     },
     "event": {
       "count": 7341,
-      "medianBytes": 67510,
-      "p95Bytes": 108141,
-      "maxBytes": 246054,
+      "medianBytes": 75366,
+      "p95Bytes": 119164,
+      "maxBytes": 272530,
       "budgetMaxBytes": 350000,
-      "largestKey": "v1/event/2016micmp/epa@7.0.0+baseline.json"
+      "largestKey": "v1/event/2016micmp/epa@10.0.0+baseline.json"
     },
     "compare": {
       "count": 10,
-      "medianBytes": 14052,
-      "p95Bytes": 14088,
-      "maxBytes": 14088,
+      "medianBytes": 14854,
+      "p95Bytes": 15264,
+      "maxBytes": 15264,
       "budgetMaxBytes": 20000,
       "largestKey": "v1/compare/2026.json"
     }
