@@ -103,7 +103,7 @@ import {
 import { buildTeamRankScopes, deriveTeamRegions, type RankableTeamRow, type TeamRankScope } from "./teamRanks.js";
 import { allianceSwingBandVariance, SWING_METRIC_KEY, type SwingBelief } from "./swingFactor.js";
 import { swingMetricByTeam } from "./swingMetric.js";
-import { SIGMA_METRIC_KEY, usesSigmaScore } from "./sigmaScore.js";
+import { SIGMA_METRIC_KEY, usesSigmaScore, type SigmaBelief, type SigmaPopulation } from "./sigmaScore.js";
 import type { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
 import { analyticRpPmf } from "../core/rankingPoints/analyticPmf.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
@@ -122,7 +122,15 @@ import {
   type TeamMetricsWithPercentile,
 } from "./percentiles.js";
 import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS } from "./manifests.js";
-import { emitSeedSql, serializeState, withRpBeliefs, withSwingBeliefs, type StateStamp } from "./stateSnapshot.js";
+import {
+  emitSeedSql,
+  serializeState,
+  withRpBeliefs,
+  withSigmaBeliefs,
+  withSigmaPopulation,
+  withSwingBeliefs,
+  type StateStamp,
+} from "./stateSnapshot.js";
 import type { RpTeamBeliefs } from "../core/rankingPoints/empiricalMoments.js";
 import type { HarnessPredictionInput, ScoreSlice } from "./score.js";
 import { aggregateScoresForRun } from "./selectionProvenance.js";
@@ -2432,6 +2440,17 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
   let finalSeasonSwing = new Map<string, ReadonlyMap<string, SwingBelief>>();
   /** Shape 15 (plan 09-08): the per-team RP beliefs that ride the SAME seed, from the SAME population, keyed by algorithm id. */
   let finalSeasonRp = new Map<string, ReadonlyMap<string, RpTeamBeliefs>>();
+  /**
+   * Shape 11: the per-team Sigma Score beliefs, and the league-wide talent
+   * population behind them, that ride the SAME seed — keyed by algorithm id.
+   *
+   * Only an algorithm in `SIGMA_SCORE_ALGORITHM_IDS` has either, so both maps
+   * are SPARSE by design: an entry is absent rather than empty for an
+   * algorithm that publishes no Sigma Score, and the seed for such an
+   * algorithm must carry no Sigma key at all.
+   */
+  let finalSeasonSigma = new Map<string, ReadonlyMap<string, SigmaBelief>>();
+  let finalSeasonSigmaPopulation = new Map<string, SigmaPopulation>();
 
   for (const [seasonIdx, season] of seasonsSorted.entries()) {
     const stream = buildSeasonStream(db, season, { includeOffseason });
@@ -3342,6 +3361,23 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     finalSeasonRp = new Map(
       options.algorithms.map((algorithm) => [algorithm.id, layers.get(algorithm.id)!.rpVariableBeliefs()])
     );
+    // Shape 11: the Sigma Score beliefs and their population, read from the
+    // same `layers` map and therefore the same offseason-inclusive population
+    // the two lines above take, for the identical reason — the Worker
+    // continues the real season.
+    //
+    // Both are collected SPARSELY: a non-Sigma algorithm's layer has no Sigma
+    // accumulator, so it contributes no entry rather than an empty one, and
+    // the seed block below then writes it no Sigma key.
+    finalSeasonSigma = new Map();
+    finalSeasonSigmaPopulation = new Map();
+    for (const algorithm of options.algorithms) {
+      const layer = layers.get(algorithm.id)!;
+      if (!layer.usesSigma) continue;
+      finalSeasonSigma.set(algorithm.id, layer.sigmaBeliefs());
+      const population = layer.sigmaPopulation();
+      if (population !== undefined) finalSeasonSigmaPopulation.set(algorithm.id, population);
+    }
   }
 
   // --- Manifests (D-18/D-03) and D-12's state snapshot / D1 seed ---
@@ -3384,13 +3420,33 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       // price the same match from two different histories with both sides
       // looking healthy. Exactly the failure the Swing line it sits beside
       // was written to prevent.
-      const rows = withRpBeliefs(
-        withSwingBeliefs(
-          serializeState(algorithm.id, algorithm.version, state as Sigma1State | EpaState | OprState, stamp),
-          finalSeasonSwing.get(algorithm.id) ?? new Map()
+      // Shape 11: the Sigma passenger chains on in the same place and the same
+      // way, and closes the same gap for the premier published algorithm. A
+      // seeded Worker without it cold-starts BPR's Sigma Score bands from the
+      // flat prior while the artifacts it serves already carry fully warmed
+      // ones — no error, no missing field, just live and offline pricing the
+      // same match from two different histories with both sides looking
+      // healthy.
+      //
+      // MIND THE SCOPE SPLIT, it is not symmetric with the two above:
+      // `withSigmaBeliefs` writes TEAM rows like they do, but
+      // `withSigmaPopulation` writes the LEAGUE row — three numbers that never
+      // scale with team count. Seeding the beliefs without the population is
+      // not half a fix: a resumed accumulator would fall back to the flat
+      // talent prior and compute different bands from the very beliefs it was
+      // just handed.
+      let rows = withRpBeliefs(
+        withSigmaBeliefs(
+          withSwingBeliefs(
+            serializeState(algorithm.id, algorithm.version, state as Sigma1State | EpaState | OprState, stamp),
+            finalSeasonSwing.get(algorithm.id) ?? new Map()
+          ),
+          finalSeasonSigma.get(algorithm.id) ?? new Map()
         ),
         finalSeasonRp.get(algorithm.id) ?? new Map()
       );
+      const sigmaPopulation = finalSeasonSigmaPopulation.get(algorithm.id);
+      if (sigmaPopulation !== undefined) rows = withSigmaPopulation(rows, sigmaPopulation);
       const outPath = join(SEED_OUT_DIR, `seed-${algorithm.id}.sql`);
       emitSeedSql(rows, { algorithmId: algorithm.id, out: outPath });
       seedFiles.push(outPath);

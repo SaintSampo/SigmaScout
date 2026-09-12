@@ -57,7 +57,12 @@ import {
   type MarginalResolutionTally,
 } from "../core/rankingPoints/analyticPmf.js";
 import { allianceSwingBandVariance, SwingFactorAccumulator, type SwingBelief } from "./swingFactor.js";
-import { SigmaScoreAccumulator, usesSigmaScore } from "./sigmaScore.js";
+import {
+  SigmaScoreAccumulator,
+  usesSigmaScore,
+  type SigmaBelief,
+  type SigmaPopulation,
+} from "./sigmaScore.js";
 
 /**
  * A scheduled match with its level-2 fields attached. Structurally the
@@ -193,6 +198,45 @@ export class SigmaScoutLayer {
    */
   rpVariableBeliefs(): ReadonlyMap<string, RpTeamBeliefs> {
     return this.#rp?.beliefsByTeam() ?? new Map();
+  }
+
+  /**
+   * Every team's RAW running Sigma Score state, for the D1 seed the live
+   * Worker resumes from (shape 11).
+   *
+   * The exact counterpart of `swingBeliefs()` above and distinct from
+   * `consistencyByTeam()`, which returns finished Sigma Scores: this is the
+   * raw running state a resumed accumulator needs to CONTINUE this
+   * publisher's history rather than start a second, shorter one. Seed a
+   * Worker without it and every band it computes live is built from one
+   * event's matches while the artifacts it serves carry the whole season's —
+   * both sides look healthy and only the numbers differ.
+   *
+   * EMPTY for an algorithm outside `SIGMA_SCORE_ALGORITHM_IDS`, which is the
+   * honest answer rather than an error: such an algorithm has no Sigma
+   * accumulator at all, so its seed must carry no Sigma key rather than an
+   * empty one. `usesSigma` is the gate for a caller that needs to know which
+   * case it is in.
+   */
+  sigmaBeliefs(): ReadonlyMap<string, SigmaBelief> {
+    return this.#sigma?.beliefsByTeam() ?? new Map();
+  }
+
+  /**
+   * The Sigma talent prior's population statistics, or `undefined` for an
+   * algorithm that publishes no Sigma Score.
+   *
+   * THREE NUMBERS, not per team, so this rides the LEAGUE row rather than the
+   * team rows `sigmaBeliefs()` feeds — see `withSigmaPopulation`. It is not
+   * optional decoration: a resumed accumulator handed beliefs but no
+   * population falls back to the flat prior (`MIN_POPULATION_FOR_TALENT_PRIOR`)
+   * and computes different numbers from the same beliefs.
+   *
+   * `undefined` rather than a zeroed triple on purpose, so a caller cannot
+   * seed a league row claiming a population that was never folded.
+   */
+  sigmaPopulation(): SigmaPopulation | undefined {
+    return this.#sigma?.population();
   }
 
   /** The RP beliefs learned so far, or `undefined` for a season with no registered rules. */
