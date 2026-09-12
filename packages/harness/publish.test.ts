@@ -3881,18 +3881,18 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
 
     // The proof obligation, on the RAW published bytes, before any schema
     // parse: no own `schedules` property, and `scheduleCount` is the real
-    // 20 (PRESIM_SCHEDULE_COUNT) — the next task moves both this and the
-    // 20 x 50 = 1,000 draws arithmetic below together.
+    // 1,000 (PRESIM_SCHEDULE_COUNT, raised from 20 by quick task 260912-5hs)
+    // — this and the 1,000 x 50 = 50,000 draws arithmetic below move together.
     const rawBody = JSON.parse(call![2] as string) as Record<string, unknown>;
     expect(Object.hasOwn(rawBody, "schedules")).toBe(false);
-    expect(rawBody.scheduleCount).toBe(20);
+    expect(rawBody.scheduleCount).toBe(1000);
 
     // The body round-trips through the published sidecar schema (the
     // publish-boundary guarantee) and is priced from the PRE-event state.
     const artifact = PublishedPreScheduleArtifactSchema.parse(rawBody);
     expect(artifact.pricedFrom).toBe("pre-event-walk-forward");
     expect(artifact.roster).toEqual(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
-    expect(artifact.baked.draws).toBe(1000); // 20 schedules x 50 draws, matching the client's SIMULATION_DRAWS
+    expect(artifact.baked.draws).toBe(50000); // 1,000 schedules x 50 draws — deliberately no longer the client's SIMULATION_DRAWS
 
     // C-06, restated at the seam that survives the block's removal: every
     // synthetic presim match for THIS event was priced at the pre-event

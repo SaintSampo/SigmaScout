@@ -150,9 +150,41 @@ const SEED_OUT_DIR = join("reports", "publish");
  * per-event logic hardcodes it.
  */
 const DEFAULT_PRESCHEDULE_FROM_SEASON = 2026;
-/** C-08: K synthetic qualification schedules per covered event. */
-const PRESIM_SCHEDULE_COUNT = 20;
-/** 20 schedules x 50 draws = 1,000 total baked draws — matching the client engine's own `SIMULATION_DRAWS`, so the baked and live results are the same kind of quantity at the same resolution. */
+/**
+ * C-08: K synthetic qualification schedules per covered event.
+ *
+ * Raised 20 -> 1,000 on 2026-09-12 (quick task 260912-5hs), the developer's
+ * decision, recorded in `preschedule-schedule-count-and-acceptance-bar`. At 20
+ * two runs of the IDENTICAL construction disagreed on 73% of teams and moved
+ * the worst team 10.61 ranks, so the published band was mostly sampling noise;
+ * at 1,000 the worst team moves 1.17 and the pooled mean 0.275, below what a
+ * reader can perceive on an integer rank scale. 4,000 was priced and declined —
+ * it buys 1.17 -> 0.71, invisible on that scale, for ~68 more minutes on every
+ * republish.
+ *
+ * This was only affordable once 260912-2ur stopped publishing the priced
+ * `schedules` block: with it, a sidecar here would be ~18 MB and the 641
+ * sidecars a publish writes would want ~11.5 GB against a 10 GB R2 free tier.
+ * Aggregate-only the same object is ~24 KB, so raising the count 50x still
+ * ships SMALLER than the shipped 20 did.
+ */
+const PRESIM_SCHEDULE_COUNT = 1000;
+/**
+ * Draws per schedule, deliberately unchanged at 50.
+ *
+ * Measured 2026-09-12: pricing dominates drawing about 4 to 1 — drawing is
+ * 23.5% of per-schedule cost on a 75-team event and 20.9% on an 18-team one —
+ * so cutting draws to fund more schedules buys only ~1.11x on the binding
+ * noise floor AND costs draw-side resolution. There is nothing to reclaim on
+ * this axis.
+ *
+ * NOTE the baked total is now 1,000 x 50 = 50,000 draws and NO LONGER matches
+ * the client engine's `SIMULATION_DRAWS`. That match used to be the stated
+ * reason for this value; it is intentionally abandoned rather than preserved.
+ * The two are not the same quantity: the baked path estimates a distribution
+ * over ALL schedules a team might get and wants samples accordingly, while the
+ * live path simulates the ONE schedule that actually exists.
+ */
 const PRESIM_DRAWS_PER_SCHEDULE = 50;
 
 /** D-03 (rename D-04/D-05, plan 07-16): the base (untuned/unpromoted) modules for the published ids. `bpr` joined 2026-09-08 and, like `opr`/`epa`, is never overridden by `applyPromotedOverrides` because it carries no tuned parameter file. `resolvePublishAlgorithms` swaps `vpr` for the committed promoted version via `applyPromotedOverrides`, the same rule `manifests.ts`'s `buildAlgorithmsManifest` and `cli.ts`'s harness runs use — never a second, independently-derived resolution (T-04-16). Its own object key and `vpr.id` must agree — they do, because both derive from the same renamed registry export (T-07-16-01). */
