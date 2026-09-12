@@ -500,6 +500,7 @@ describe("--marginal-arm eligibility partition — derived at runtime from bonus
     );
     expect(partition.eligible).toEqual([]);
     expect(partition.bonusReach.every((b) => !b.canMove)).toBe(true);
+    for (const b of partition.bonusReach) expect(b.reason).toContain("no clause honours a declared family");
   });
 
   it("2016: teleopChallengePoints and teleopScalePoints poisoned; the five crossing variables plus attackedTowerEndStrength stay eligible", () => {
@@ -515,11 +516,26 @@ describe("--marginal-arm eligibility partition — derived at runtime from bonus
         "position5crossings",
       ].sort()
     );
-    // breach's indicators are all single unscaled terms; capture has a clause
-    // that is a scaled sum, so it keeps its gaussian declaration.
+    // breach's indicators are all single unscaled terms, so it is FULLY
+    // reachable.
     const reach = new Map(partition.bonusReach.map((b) => [b.name, b]));
     expect(reach.get("breach")!.canMove).toBe(true);
-    expect(reach.get("capture")!.canMove).toBe(false);
+    expect(reach.get("breach")!.reason).toContain("every clause");
+  });
+
+  it("2016 capture is PARTIALLY reachable, not unreachable — its attackedTowerEndStrength clause honours the declaration while its scaled-sum clause does not", () => {
+    // Got wrong first and caught by the measurement's own in-flight
+    // consistency check, which reported capture as an "unreachable" cell whose
+    // Brier had nonetheless moved. A bonus with one reachable clause and one
+    // blocked clause IS reachable; classifying it otherwise understates the
+    // arm's reach and buries a real movement in the tie-by-construction
+    // category.
+    const partition = deriveMarginalArmEligibility(RP_RULE_MODULES[2016]!);
+    const capture = partition.bonusReach.find((b) => b.name === "capture")!;
+    expect(capture.canMove).toBe(true);
+    expect(capture.reason).toContain("PARTIALLY reachable");
+    expect(capture.reason).toContain("attackedTowerEndStrength");
+    expect(capture.reason).toContain("teleopChallengePoints");
   });
 
   it("2019: completeRocket is a constant predicate and is reported as structurally inert, never as a cell the family failed to move", () => {

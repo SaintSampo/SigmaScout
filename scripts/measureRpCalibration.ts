@@ -317,11 +317,23 @@ function isSingleUnscaled(clause: RpThresholdClause): boolean {
  * INCLUDING when it also appears alone in some other clause, because a MIXED
  * clause throws on `familyForClauseSum`'s distinct-families check instead.
  *
- * A bonus CAN MOVE only when every one of its own clauses is a single
- * unscaled term over an eligible variable. A `constant` predicate has no
- * clauses at all and is inert by construction — it ties with control as a
- * structural fact about the predicate, which is never evidence about the
- * family.
+ * A bonus CAN MOVE when AT LEAST ONE of its clauses is a single unscaled term
+ * over an eligible variable — not when ALL of them are. That distinction was
+ * got wrong first and CAUGHT BY THE MEASUREMENT, which is worth recording:
+ * this function originally required every clause to honour the declaration,
+ * and the in-flight consistency check then reported 2016 `capture` as an
+ * "unreachable" cell whose Brier had nonetheless moved. It had. `capture` is a
+ * `conjunctionDistinct` whose FIRST clause is `attackedTowerEndStrength <= T`
+ * — a single unscaled term over an eligible variable, which honours the
+ * declared family through `clauseProbability`'s single-term reuse path — while
+ * its SECOND clause is a scaled sum that derives Gaussian. A bonus made of a
+ * reachable clause AND a blocked one is PARTIALLY reachable, and counting it
+ * as unreachable would have understated the arm's reach and buried a real
+ * movement in the category that is supposed to tie by construction.
+ *
+ * A `constant` predicate has no clauses at all and is inert by construction —
+ * it ties with control as a structural fact about the predicate, which is
+ * never evidence about the family.
  */
 export function deriveMarginalArmEligibility(ruleModule: RpRuleModule): MarginalArmEligibility {
   const poisonReasonByVariable = new Map<string, string>();
@@ -361,14 +373,26 @@ export function deriveMarginalArmEligibility(ruleModule: RpRuleModule): Marginal
       };
     }
     const clauses = clausesOf(predicate);
-    const blocking = clauses.find((clause) => !isSingleUnscaled(clause) || !clause.terms.every((t) => eligibleSet.has(t.variable)));
-    if (blocking === undefined) {
+    const honours = (clause: RpThresholdClause): boolean => isSingleUnscaled(clause) && eligibleSet.has(clause.terms[0]!.variable);
+    const honouring = clauses.filter(honours);
+    const blocked = clauses.filter((clause) => !honours(clause));
+
+    if (honouring.length === 0) {
+      return {
+        name: predicate.name,
+        canMove: false,
+        reason: `${predicate.kind}, no clause honours a declared family — every clause is a scaled sum or reads a poisoned variable, so all of them keep declaring gaussian`,
+      };
+    }
+    if (blocked.length === 0) {
       return { name: predicate.name, canMove: true, reason: `${predicate.kind}, every clause a single unscaled term over an eligible variable` };
     }
     return {
       name: predicate.name,
-      canMove: false,
-      reason: `${predicate.kind}, a clause over {${blocking.terms.map((t) => t.variable).join(", ")}} is a scaled sum or reads a poisoned variable — those variables keep declaring gaussian`,
+      canMove: true,
+      reason:
+        `${predicate.kind}, PARTIALLY reachable — ${honouring.length} of ${clauses.length} clauses honour the declared family ` +
+        `(over {${honouring.map((c) => c.terms[0]!.variable).join(", ")}}), while {${blocked.flatMap((c) => c.terms.map((t) => t.variable)).join(", ")}} stay gaussian as scaled sums or poisoned variables`,
     };
   });
 
