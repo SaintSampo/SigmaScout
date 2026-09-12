@@ -31,8 +31,8 @@ metrics:
   duration: ~50m
   completed: 2026-09-11
 actuals:
-  tasks: 4
-  commits: 3
+  tasks: 5
+  commits: 5
 ---
 
 # Quick Task 260911-r7e — Reproduce Statbotics EPA accuracy, cheaply
@@ -79,6 +79,8 @@ our own 2022 accuracy by ~2.2 pp against a correctly-warm Statbotics column.
 | 1 | `75ab70bb` | `--seasons` accepts a gapped list (2016-2020,2022-2026); 8 tests |
 | 2 | `ef6c651b` | `--warmup`: replay wide, report narrow |
 | 3 | `54560831` | `compare:epa-statbotics` passes `--warmup 2016-2020`; the standing recorded |
+| 4 | `a4168c70` | summary and STATE.md row |
+| 5 | `74f5cde0` | `--score-surrogates` arm measured and refuted; the 2.2% inference corrected |
 
 Why two separate mechanisms were needed: the gapped list exists because
 `componentMapForSeason` has no 2021 map, so a contiguous 2016-2026 range throws. `--warmup` exists
@@ -115,14 +117,30 @@ reach **predictions on official matches**.
 - No republish, no R2 write, no deploy, no network beyond the script's own cached Statbotics
   reference, no BPR/SPR contact, no sealed-holdout spend.
 
-## The one named candidate for the residual, not chased
+## The one named candidate was measured too — also refuted
 
-Our scorer and Statbotics' do not score the same population: `aggregateScores` excludes
-surrogate-affected matches, and Statbotics' documented `matchPopulation` is "all qualification +
-elimination matches." The counts show it — Statbotics reports 13,286 matches for 2016 against our
-12,994, **+2.2%**. Whether those ~2% account for the residual 0.2-0.5 pp is unmeasured. It is a
-measurement-comparability difference, not a model difference, which is why it is named with its
-evidence instead of being chased by changing the model.
+`aggregateScores` excludes surrogate-affected matches; Statbotics' documented `matchPopulation` is
+"all qualification + elimination matches." `--score-surrogates` declares them ordinary for this
+comparison only (`score.ts` untouched, default off).
+
+| Season | Statbotics | warm | warm + surrogates | Δ warm | Δ +surrogates | extra |
+|--------|------------:|-----:|------------------:|-------:|--------------:|------:|
+| 2022 | 0.7815 | 0.7797 | 0.7793 | −0.18 pp | −0.22 pp | +74 |
+| 2023 | 0.7647 | 0.7636 | 0.7635 | −0.11 pp | −0.12 pp | +63 |
+| 2024 | 0.7627 | 0.7578 | 0.7576 | −0.49 pp | −0.51 pp | +71 |
+| 2025 | 0.7839 | 0.7802 | 0.7799 | −0.37 pp | −0.40 pp | +62 |
+| 2026 | 0.7978 | 0.7962 | 0.7959 | −0.16 pp | −0.19 pp | +66 |
+
+Mean −0.261 pp warm, **−0.287 pp with surrogates — slightly worse.** Refuted.
+
+**A wrong inference this task made is corrected rather than left standing.** The +2.2% 2016 count
+discrepancy (Statbotics 13,286 vs our 12,994) was attributed to surrogate exclusion in commit
+`54560831`. Surrogate exclusion is 62-74 matches a season, about **0.4%** — it cannot account for
+2.2%. The remainder is now recorded as unidentified instead of re-attributed to a second guess.
+
+**Both comparability hypotheses are refuted**, so the residual −0.11 to −0.49 pp is genuine small
+model difference spread across mechanisms 2, 3, 6 and 11 — each measured instance of which has so
+far been worth about 0.04 pp or has been a loss. The deficit no longer has a cheap single cause.
 
 ## Handed back
 
@@ -143,7 +161,7 @@ evidence instead of being chased by changing the model.
 ## Self-Check: PASSED
 
 - commits `75ab70bb`, `ef6c651b`, `54560831` — all present in `git log`
-- `npx vitest run scripts/` — 18 files, 370 tests, all passing
+- `npx vitest run scripts/` — 18 files, 374 tests, all passing
 - `npx tsc --noEmit` — clean for every file this task touched (the only errors are
   `scripts/deleteRetiredAlgorithmObjects.{ts,test.ts}`, a CONCURRENT session's uncommitted
   `includePresim` work, untouched and unstaged here)
