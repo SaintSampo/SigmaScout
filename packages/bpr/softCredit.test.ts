@@ -15,13 +15,13 @@
  *  4. PREDICTION IS UNTOUCHED. Only the credit split softens; the alliance's
  *     predicted output must still use the hard rank weights, because that is
  *     where the anti-additivity that earned promotion lives.
- *  5. THE TWO MODULES AGREE. `packages/bpr/model.ts` and
- *     `packages/core/algorithms/bpr.ts` must implement the same thing, which is
+ *  5. THE TWO MODULES AGREE. `packages/spr/model.ts` and
+ *     `packages/core/algorithms/spr.ts` must implement the same thing, which is
  *     what `equivalence.ts` exists to guarantee at the whole-model level.
  */
 import { describe, expect, it } from "vitest";
 import { BprModel, DEFAULTS, type BprParams } from "./model.js";
-import { BPR_PARAMS, BPR_VERSION } from "../core/algorithms/bpr.js";
+import { SPR_PARAMS, SPR_VERSION } from "../core/algorithms/bpr.js";
 
 const YEAR = 2024;
 const RED = ["frc1", "frc2", "frc3"];
@@ -96,10 +96,10 @@ describe("softCredit", () => {
   });
 
   it("is enabled in the shipped live port, and the version reflects it", () => {
-    expect(BPR_PARAMS.softCredit).toBe(true);
+    expect(SPR_PARAMS.softCredit).toBe(true);
     // predict()'s observable output changed (adjust drop + softCredit), so
     // D-13 requires a MAJOR bump rather than reusing 2.0.0.
-    expect(BPR_VERSION).toBe("3.0.0+baseline");
+    expect(SPR_VERSION).toBe("3.0.0+baseline");
   });
 
   it("shipped research params enable it too, so the two modules match", async () => {

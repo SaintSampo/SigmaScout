@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { epa } from "../core/algorithms/epa.js";
 import { opr } from "../core/algorithms/opr.js";
-import { bpr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/bpr.js";
 import { vpr, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import type { EpaState } from "../core/algorithms/epa.js";
 import type { AlgorithmModule, MatchResult, UpcomingMatch } from "../core/algorithms/types.js";
@@ -1057,7 +1057,7 @@ describe("deserializeBprState — shape-version guard (quick task 260908-5wd)", 
   it("throws LeagueRowShapeVersionError for a BPR league row declaring an older shape", () => {
     const rows = [
       {
-        algorithmId: "bpr",
+        algorithmId: "spr",
         algorithmVersion: "1.0.0+baseline",
         generation: "g",
         computedAt: "2026-09-08T00:00:00.000Z",
@@ -1074,13 +1074,13 @@ describe("deserializeBprState — shape-version guard (quick task 260908-5wd)", 
         }),
       },
     ];
-    expect(() => deserializeState("bpr", rows)).toThrow(LeagueRowShapeVersionError);
+    expect(() => deserializeState("spr", rows)).toThrow(LeagueRowShapeVersionError);
   });
 
   it("accepts a BPR league row declaring the current shape", () => {
     const rows = [
       {
-        algorithmId: "bpr",
+        algorithmId: "spr",
         algorithmVersion: "1.0.0+baseline",
         generation: "g",
         computedAt: "2026-09-08T00:00:00.000Z",
@@ -1097,7 +1097,27 @@ describe("deserializeBprState — shape-version guard (quick task 260908-5wd)", 
         }),
       },
     ];
-    expect(() => deserializeState("bpr", rows)).not.toThrow();
+    expect(() => deserializeState("spr", rows)).not.toThrow();
+  });
+});
+
+describe("serializeState/deserializeState — 260912-ivg Stage 1 dual-name dispatch", () => {
+  // Both the WRITE tier (`spr`, starting with this task) and the READ tier
+  // (`bpr`, still live in D1 until Stage 3's reseed) must dispatch to the
+  // SAME branch — a Worker deployed anywhere in the cutover window has to
+  // be able to read rows written under either id.
+  it("serializeState round-trips through deserializeState identically for both algorithmId names", () => {
+    const state = spr.initState(["frc1", "frc2"]);
+    const rowsUnderSpr = serializeState("spr", spr.version, state as any, STAMP);
+    const rowsUnderBpr = serializeState("bpr", spr.version, state as any, STAMP);
+    // Only the algorithmId column should differ between the two — the
+    // stateJson payload itself is identical, since both names describe the
+    // exact same algorithm.
+    expect(rowsUnderSpr.map((r) => ({ ...r, algorithmId: undefined }))).toEqual(
+      rowsUnderBpr.map((r) => ({ ...r, algorithmId: undefined })),
+    );
+    expect(() => deserializeState("spr", rowsUnderSpr)).not.toThrow();
+    expect(() => deserializeState("bpr", rowsUnderBpr)).not.toThrow();
   });
 });
 
@@ -1106,7 +1126,7 @@ describe("Sigma Score belief and population persistence (shape 11)", () => {
   const POPULATION = { sumSquares: 12345.5, talentSquares: 98765.25, count: 4321 };
 
   function teamRows(): StateRow[] {
-    return serializeState("bpr", bpr.version, bpr.initState(["frc1", "frc2"]) as any, STAMP);
+    return serializeState("spr", spr.version, spr.initState(["frc1", "frc2"]) as any, STAMP);
   }
 
   it("round-trips a belief through withSigmaBeliefs and readSigmaBeliefs unchanged", () => {
@@ -1449,7 +1469,7 @@ describe("ranking-point belief persistence (shape 15, plan 09-08)", () => {
   };
 
   function teamRows(): StateRow[] {
-    return serializeState("bpr", bpr.version, bpr.initState(["frc1", "frc2"]) as any, STAMP);
+    return serializeState("spr", spr.version, spr.initState(["frc1", "frc2"]) as any, STAMP);
   }
 
   it("round-trips one team's beliefs across TWO variable names unchanged", () => {

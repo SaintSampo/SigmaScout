@@ -14,13 +14,13 @@ import type { AlgorithmModule, MatchResult, Prediction, TeamMetric, TeamMetrics,
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
-import { bpr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/bpr.js";
 import { OFFSEASON_EVENT_TYPE } from "../core/algorithms/eventTypes.js";
 // Renamed by plan 07-16's full-repo sweep (wave 11, D-04/D-05): this file's
 // own `publish.ts` importer now imports the published `vpr` registry entry
 // under its post-rename name.
 import { vpr } from "../core/algorithms/sigma1/index.js";
-import { PUBLISHED_ALGORITHM_IDS } from "./publishedAlgorithms.js";
+import { PUBLISHED_ALGORITHM_IDS, PIPELINE_ALGORITHM_IDS } from "./publishedAlgorithms.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import {
   openCorpus,
@@ -327,9 +327,16 @@ describe("resolvePublishAlgorithms — D-03/D-04/D-05 rename (plan 07-16 Task 2,
   // the path an operator actually takes) resolves to the OPR id, the EPA
   // id, and `vpr` — read from `PUBLISHED_ALGORITHM_IDS`, the single
   // algorithm-id constant again as of plan 07-18's collapse.
-  it("the default (undefined) publish set resolves to opr, epa, vpr, bpr", () => {
+  // 260912-ivg Stage 1: resolvePublishAlgorithms's default reads
+  // PIPELINE_ALGORITHM_IDS (the WRITE tier, premier id `spr`), deliberately
+  // NOT PUBLISHED_ALGORITHM_IDS (the READ tier, still `bpr`) — this is the
+  // split's whole safety property, so both constants are asserted here in
+  // the SAME test to make a half-collapse fail loudly rather than silently.
+  it("the default (undefined) publish set resolves to the WRITE tier (opr, epa, spr), while the READ tier stays on the retiring premier id", () => {
     const algorithms = resolvePublishAlgorithms(undefined);
-    expect(algorithms.map((a) => a.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
+    expect(algorithms.map((a) => a.id)).toEqual([...PIPELINE_ALGORITHM_IDS]);
+    expect(PIPELINE_ALGORITHM_IDS).toEqual(["opr", "epa", "spr"]);
+    expect(PUBLISHED_ALGORITHM_IDS).toEqual(["opr", "epa", "bpr"]);
   });
 
   // Test 8: every emitted artifact key for the published algorithm carries
@@ -340,7 +347,7 @@ describe("resolvePublishAlgorithms — D-03/D-04/D-05 rename (plan 07-16 Task 2,
   // from the published set. The claim is unchanged in substance: whatever sits
   // in that position, every artifact key carries ITS id, never the long-retired
   // `sigma1@` segment.
-  it("every artifact key built for the premier algorithm carries the bpr@{version} segment, never the retired sigma1@ segment", () => {
+  it("every artifact key built for the premier algorithm carries the spr@{version} segment, never the retired sigma1@ segment", () => {
     const [, , premierModule] = resolvePublishAlgorithms(undefined);
     const module = premierModule!;
     const keys = [
@@ -350,7 +357,7 @@ describe("resolvePublishAlgorithms — D-03/D-04/D-05 rename (plan 07-16 Task 2,
       artifactKey({ page: "event", eventKey: "2026casj", algorithmId: module.id, version: module.version }),
     ];
     for (const key of keys) {
-      expect(key).toContain(`bpr@${module.version}`);
+      expect(key).toContain(`spr@${module.version}`);
       expect(key).not.toContain("sigma1@");
     }
   });
@@ -4090,14 +4097,14 @@ describe("buildCompareArtifact — rpCalibration attachment (F1/D-09/D-11, phase
 
   const MEASUREMENT: RpCalibrationMeasurement = {
     measuredAt: "2026-09-11T00:00:00.000Z",
-    command: "npx tsx scripts/measureRpCalibration.ts --seasons 2026 --algorithm bpr",
+    command: "npx tsx scripts/measureRpCalibration.ts --seasons 2026 --algorithm spr",
     corpusIdentity: "data/corpus.sqlite",
     offseasonIncluded: true,
-    algorithmVersions: { bpr: "3.0.0+baseline" },
+    algorithmVersions: { spr: "3.0.0+baseline" },
     records: [
       {
         season: 2026,
-        algorithmId: "bpr",
+        algorithmId: "spr",
         calibration: {
           scoredCount: 4,
           bonuses: [{ name: "energized", count: 4, meanPredicted: 0.123456789, observedFrequency: 0.987654321, brierScore: 0.111111111 }],
@@ -4108,14 +4115,14 @@ describe("buildCompareArtifact — rpCalibration attachment (F1/D-09/D-11, phase
 
   it("attaches the matching record onto the matching (algorithmId, season, qualification) slice, and onto NO other slice", () => {
     const artifact = buildCompareArtifact({
-      algorithms: [{ id: "bpr", version: "3.0.0+baseline" }, { id: "opr", version: "3.0.0+baseline" }],
-      slices: [sliceFor("bpr", "qualification"), sliceFor("bpr", "elimination"), sliceFor("bpr", "combined"), sliceFor("opr", "qualification")],
+      algorithms: [{ id: "spr", version: "3.0.0+baseline" }, { id: "opr", version: "3.0.0+baseline" }],
+      slices: [sliceFor("spr", "qualification"), sliceFor("spr", "elimination"), sliceFor("spr", "combined"), sliceFor("opr", "qualification")],
       generation: "g1",
       rpCalibration: MEASUREMENT,
     });
-    const bprQual = artifact.slices.find((s) => s.algorithmId === "bpr" && s.compLevelView === "qualification");
-    const bprElim = artifact.slices.find((s) => s.algorithmId === "bpr" && s.compLevelView === "elimination");
-    const bprCombined = artifact.slices.find((s) => s.algorithmId === "bpr" && s.compLevelView === "combined");
+    const bprQual = artifact.slices.find((s) => s.algorithmId === "spr" && s.compLevelView === "qualification");
+    const bprElim = artifact.slices.find((s) => s.algorithmId === "spr" && s.compLevelView === "elimination");
+    const bprCombined = artifact.slices.find((s) => s.algorithmId === "spr" && s.compLevelView === "combined");
     const oprQual = artifact.slices.find((s) => s.algorithmId === "opr" && s.compLevelView === "qualification");
     expect(bprQual?.rpCalibration).toBeDefined();
     expect(bprElim?.rpCalibration).toBeUndefined();
@@ -4125,12 +4132,12 @@ describe("buildCompareArtifact — rpCalibration attachment (F1/D-09/D-11, phase
 
   it("rounds attached figures to six decimal places at the attach boundary — the measurement file itself is untouched", () => {
     const artifact = buildCompareArtifact({
-      algorithms: [{ id: "bpr", version: "3.0.0+baseline" }],
-      slices: [sliceFor("bpr", "qualification")],
+      algorithms: [{ id: "spr", version: "3.0.0+baseline" }],
+      slices: [sliceFor("spr", "qualification")],
       generation: "g1",
       rpCalibration: MEASUREMENT,
     });
-    const attached = artifact.slices.find((s) => s.algorithmId === "bpr" && s.compLevelView === "qualification")?.rpCalibration;
+    const attached = artifact.slices.find((s) => s.algorithmId === "spr" && s.compLevelView === "qualification")?.rpCalibration;
     expect(attached?.bonuses[0]?.meanPredicted).toBe(0.123457);
     expect(attached?.bonuses[0]?.observedFrequency).toBe(0.987654);
     expect(attached?.bonuses[0]?.brierScore).toBe(0.111111);
@@ -4140,8 +4147,8 @@ describe("buildCompareArtifact — rpCalibration attachment (F1/D-09/D-11, phase
 
   it("rpCalibration undefined (no committed baseline yet) is a no-op over every slice", () => {
     const artifact = buildCompareArtifact({
-      algorithms: [{ id: "bpr", version: "3.0.0+baseline" }],
-      slices: [sliceFor("bpr", "qualification")],
+      algorithms: [{ id: "spr", version: "3.0.0+baseline" }],
+      slices: [sliceFor("spr", "qualification")],
       generation: "g1",
     });
     expect(artifact.slices[0]?.rpCalibration).toBeUndefined();
@@ -4184,13 +4191,13 @@ describe("loadRpCalibrationMeasurement (T-09-03)", () => {
         command: "npx tsx scripts/measureRpCalibration.ts",
         corpusIdentity: "data/corpus.sqlite",
         offseasonIncluded: true,
-        algorithmVersions: { bpr: "3.0.0+baseline" },
+        algorithmVersions: { spr: "3.0.0+baseline" },
         records: [],
       }),
       "utf8"
     );
     const loaded = loadRpCalibrationMeasurement(path);
-    expect(loaded?.algorithmVersions).toEqual({ bpr: "3.0.0+baseline" });
+    expect(loaded?.algorithmVersions).toEqual({ spr: "3.0.0+baseline" });
     expect(loaded?.records).toEqual([]);
   });
 });
@@ -4686,19 +4693,19 @@ describe("publishSeasons and --event agree on the SigmaScout layer (2026-09-09)"
 
   it("emits a band at all on the late event — the precondition the parity assertions below rest on", async () => {
     const { lateEventKey } = seedTwoEventSeason(db);
-    await publishSeasons(db, { seasons: [2026], algorithms: [bpr], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
 
-    const fromSeasons = findEventArtifact(lateEventKey, bpr.id);
+    const fromSeasons = findEventArtifact(lateEventKey, spr.id);
     const banded = fromSeasons.matches.filter((m) => m.redSwingBandVariance !== undefined);
     expect(banded.length, "seasons path publishes at least one banded row on the late event").toBeGreaterThan(0);
   });
 
   it("--event publishes the SAME band on every played row as the full seasons publish", async () => {
     const { lateEventKey } = seedTwoEventSeason(db);
-    await publishSeasons(db, { seasons: [2026], algorithms: [bpr], bucket: "test-bucket", dryRun: false, skipState: true });
-    const fromSeasons = findEventArtifact(lateEventKey, bpr.id);
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
+    const fromSeasons = findEventArtifact(lateEventKey, spr.id);
 
-    const fromEvent = JSON.parse(buildSingleEventPublish(db, lateEventKey, bpr).body) as EventArtifact;
+    const fromEvent = JSON.parse(buildSingleEventPublish(db, lateEventKey, spr).body) as EventArtifact;
 
     expect(fromEvent.matches.map((m) => m.matchKey)).toEqual(fromSeasons.matches.map((m) => m.matchKey));
     for (const seasonsRow of fromSeasons.matches) {
@@ -4710,10 +4717,10 @@ describe("publishSeasons and --event agree on the SigmaScout layer (2026-09-09)"
 
   it("--event publishes the same ranking-point fields as the full seasons publish", async () => {
     const { lateEventKey } = seedTwoEventSeason(db);
-    await publishSeasons(db, { seasons: [2026], algorithms: [bpr], bucket: "test-bucket", dryRun: false, skipState: true });
-    const fromSeasons = findEventArtifact(lateEventKey, bpr.id);
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
+    const fromSeasons = findEventArtifact(lateEventKey, spr.id);
 
-    const fromEvent = JSON.parse(buildSingleEventPublish(db, lateEventKey, bpr).body) as EventArtifact;
+    const fromEvent = JSON.parse(buildSingleEventPublish(db, lateEventKey, spr).body) as EventArtifact;
 
     for (const seasonsRow of fromSeasons.matches) {
       const eventRow = fromEvent.matches.find((m) => m.matchKey === seasonsRow.matchKey);
@@ -4762,9 +4769,9 @@ describe("publishSeasons and --event agree on the presim sidecar (2026-09-09)", 
 
   it("both paths write a sidecar carrying ranking points for the same event", async () => {
     const { lateEventKey } = seedTwoEventSeason(db);
-    await publishSeasons(db, { seasons: [2026], algorithms: [bpr], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
 
-    const seasonsCall = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/presim/${lateEventKey}/${bpr.id}@`));
+    const seasonsCall = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/presim/${lateEventKey}/${spr.id}@`));
     expect(seasonsCall, "seasons path writes a presim sidecar for the late event").toBeDefined();
     // 260912-2ur: this test's subject is builder determinism across the two
     // publish paths, and it must survive the published body dropping the
@@ -4783,7 +4790,7 @@ describe("publishSeasons and --event agree on the presim sidecar (2026-09-09)", 
     };
     const fromSeasons = JSON.parse(seasonsCall![2] as string) as Sidecar;
 
-    const sidecar = buildSingleEventPublish(db, lateEventKey, bpr).sidecar;
+    const sidecar = buildSingleEventPublish(db, lateEventKey, spr).sidecar;
     expect(sidecar, "--event writes a presim sidecar for the same event").toBeDefined();
     const fromEvent = JSON.parse(sidecar!.body) as Sidecar;
 

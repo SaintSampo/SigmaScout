@@ -58,7 +58,7 @@ import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { opr, type OprState } from "../core/algorithms/opr.js";
 import { epa, type EpaState } from "../core/algorithms/epa.js";
-import { bpr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/bpr.js";
 import { vpr, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
 import { isOfficialEventType } from "../core/algorithms/eventTypes.js";
@@ -123,6 +123,7 @@ import {
   type TeamMetricsWithPercentile,
 } from "./percentiles.js";
 import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS } from "./manifests.js";
+import { PIPELINE_ALGORITHM_IDS } from "./publishedAlgorithms.js";
 import {
   emitSeedSql,
   serializeState,
@@ -187,8 +188,8 @@ const PRESIM_SCHEDULE_COUNT = 1000;
  */
 const PRESIM_DRAWS_PER_SCHEDULE = 50;
 
-/** D-03 (rename D-04/D-05, plan 07-16): the base (untuned/unpromoted) modules for the published ids. `bpr` joined 2026-09-08 and, like `opr`/`epa`, is never overridden by `applyPromotedOverrides` because it carries no tuned parameter file. `resolvePublishAlgorithms` swaps `vpr` for the committed promoted version via `applyPromotedOverrides`, the same rule `manifests.ts`'s `buildAlgorithmsManifest` and `cli.ts`'s harness runs use — never a second, independently-derived resolution (T-04-16). Its own object key and `vpr.id` must agree — they do, because both derive from the same renamed registry export (T-07-16-01). */
-const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa, vpr, bpr };
+/** D-03 (rename D-04/D-05, plan 07-16; re-keyed by 260912-ivg Stage 1): the base (untuned/unpromoted) modules for the WRITE-tier ids (`PIPELINE_ALGORITHM_IDS`). `spr` (the module `packages/core/algorithms/bpr.ts` exports, wire id renamed from `bpr` on this task) joined 2026-09-08 as `bpr` and, like `opr`/`epa`, is never overridden by `applyPromotedOverrides` because it carries no tuned parameter file. `resolvePublishAlgorithms` swaps `vpr` for the committed promoted version via `applyPromotedOverrides`, the same rule `manifests.ts`'s `buildAlgorithmsManifest` and `cli.ts`'s harness runs use — never a second, independently-derived resolution (T-04-16). Its own object key and `vpr.id` must agree — they do, because both derive from the same renamed registry export (T-07-16-01). No `bpr` key remains here: the retiring id is a READ-tier-only concern now, validated instead by `PUBLISHED_ALGORITHM_IDS` at the manifest/Worker boundary. */
+const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa, vpr, spr };
 
 // ---------------------------------------------------------------------------
 // Small local helpers shared by every assembly function below
@@ -3545,14 +3546,14 @@ function deriveSeasonFromEventKey(eventKey: string): number {
   return season;
 }
 
-/** D-03 (rename D-04/D-05, plan 07-16/07-18): resolves the requested `--algorithm` ids (default: `PUBLISHED_ALGORITHM_IDS` — the single tier again, collapsed by 07-18 once 07-17's write pass made the `vpr@` objects live) against the base modules, then swaps in the promoted VPR the same way `manifests.ts`/`cli.ts` do (T-04-16) — never a second, independent resolution. Exported (plan 07-16 Task 2) so the rename's default-set/artifact-key/unknown-id behavior is directly testable rather than only reachable through the CLI entry point. */
+/** D-03 (rename D-04/D-05, plan 07-16/07-18; re-split by 260912-ivg Stage 1): resolves the requested `--algorithm` ids (default: `PIPELINE_ALGORITHM_IDS` — the publisher/Worker-WRITE tier, deliberately not `PUBLISHED_ALGORITHM_IDS`, the browser-READ tier, while the 260912-ivg BPR -> SPR cutover is mid-transition) against the base modules, then swaps in the promoted VPR the same way `manifests.ts`'s `buildAlgorithmsManifest` (still read-tier) and `cli.ts`'s harness runs do (T-04-16) — never a second, independent resolution. Exported (plan 07-16 Task 2) so the rename's default-set/artifact-key/unknown-id behavior is directly testable rather than only reachable through the CLI entry point. */
 export function resolvePublishAlgorithms(idsCsv: string | undefined): AlgorithmModule<any>[] {
   const ids = idsCsv
     ? idsCsv
         .split(",")
         .map((s) => s.trim())
         .filter((s) => s.length > 0)
-    : [...PUBLISHED_ALGORITHM_IDS];
+    : [...PIPELINE_ALGORITHM_IDS];
   const resolved: AlgorithmModule<any>[] = [];
   for (const id of ids) {
     const base = BASE_PUBLISH_ALGORITHMS[id];

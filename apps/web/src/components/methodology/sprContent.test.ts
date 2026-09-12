@@ -10,16 +10,16 @@
  * FACTS and LIABILITIES are asserted at RUNTIME over the exported string
  * VALUES, never grepped from this file's source text — this module's own
  * header comment (and this file's) legitimately discuss the internal
- * algorithm id `bpr` and the retired 78.05% sealed-holdout figure in prose,
+ * algorithm id `spr` and the retired 78.05% sealed-holdout figure in prose,
  * so a whole-file grep would false-positive on them.
  *
  * The DERIVATION gate recomputes SPR's rank weights independently, from
- * `BPR_PARAMS` directly, rather than importing `sprContent.ts`'s own derived
+ * `SPR_PARAMS` directly, rather than importing `sprContent.ts`'s own derived
  * constants — importing them back would let a broken derivation formula pass
  * against itself.
  */
 import { describe, expect, it } from "vitest";
-import { BPR_PARAMS } from "../../../../../packages/core/algorithms/bpr.js";
+import { SPR_PARAMS } from "../../../../../packages/core/algorithms/bpr.js";
 import { SPR_PAGE_TITLE, SPR_LEAD, SPR_SECTION_IDS, SPR_SECTIONS } from "./sprContent.js";
 
 /**
@@ -116,10 +116,10 @@ describe("liability gate over every exported string value", () => {
 });
 
 describe("derivation gate", () => {
-  it("the rank-weight sentence states the weights recomputed independently from BPR_PARAMS", () => {
-    // Recomputed here, from BPR_PARAMS directly, never by importing
+  it("the rank-weight sentence states the weights recomputed independently from SPR_PARAMS", () => {
+    // Recomputed here, from SPR_PARAMS directly, never by importing
     // sprContent.ts's own derived constants back into this test.
-    const base = [1, BPR_PARAMS.w2, BPR_PARAMS.w3];
+    const base = [1, SPR_PARAMS.w2, SPR_PARAMS.w3];
     const sum = base.reduce((total, weight) => total + weight, 0);
     const norm = sum > 0 ? 3 / sum : 1;
     const [w1, w2, w3] = base.map((weight) => weight * norm);

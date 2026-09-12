@@ -34,7 +34,7 @@ import { SwingFactorAccumulator } from "../../../packages/harness/swingFactor.js
 import { SigmaScoreAccumulator } from "../../../packages/harness/sigmaScore.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
-import { bpr } from "../../../packages/core/algorithms/bpr.js";
+import { spr } from "../../../packages/core/algorithms/bpr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
@@ -192,7 +192,7 @@ describe("stateProbe — Group 2: selection-rule equivalence with the real tick"
   it.each([
     ["opr (the event-scoped case — the one that matters)", "opr", TEAMS],
     ["epa", "epa", TEAMS],
-    ["bpr", "bpr", TEAMS],
+    ["spr", "spr", TEAMS],
     ["empty roster", "opr", []],
   ])("probeSelectionsFor matches the real selectionsFor for %s — stops the probe reading a different row set than a real tick", (_label, algorithmId, teams) => {
     expect(probeSelectionsFor(algorithmId, EVENT_KEY, teams)).toEqual(selectionsFor(algorithmId, EVENT_KEY, teams));
@@ -267,10 +267,10 @@ class FakeD1Database {
 
   executeSelect(sql: string, args: readonly unknown[]): unknown[] {
     // The two discovery queries — scope_key-only, LIMIT-bound, no OR groups.
-    if (sql.includes("FROM algorithm_state") && sql.includes("algorithm_id = 'bpr'") && sql.includes("scope_kind = 'team'")) {
+    if (sql.includes("FROM algorithm_state") && sql.includes("algorithm_id = 'spr'") && sql.includes("scope_kind = 'team'")) {
       const limit = args[0] as number;
       return [...this.algorithmState.values()]
-        .filter((row) => row.algorithm_id === "bpr" && row.scope_kind === "team")
+        .filter((row) => row.algorithm_id === "spr" && row.scope_kind === "team")
         .sort((a, b) => a.scope_key.localeCompare(b.scope_key))
         .slice(0, limit);
     }
@@ -398,7 +398,7 @@ const SEED_MATCHES: readonly MatchResult[] = Array.from({ length: SEED_MATCH_COU
 
 /**
  * Seeds a fresh `FakeD1Database` with REAL rows for all three published
- * algorithms — built via `initState`/`update`/`serializeState` and, for bpr,
+ * algorithms — built via `initState`/`update`/`serializeState` and, for spr,
  * real `SwingFactorAccumulator`/`SigmaScoreAccumulator`/`RpMomentsAccumulator`
  * instances that folded the SAME seed matches — never hand-written JSON.
  *
@@ -416,14 +416,14 @@ function seedAllAlgorithms(db: FakeD1Database): void {
   for (const m of SEED_MATCHES) epaState = epa.update(epaState, m);
   seedRows(db, serializeState("epa", epa.version, epaState, SEED_STAMP));
 
-  let bprState = bpr.initState([...SEED_ROSTER]);
+  let bprState = spr.initState([...SEED_ROSTER]);
   const swing = new SwingFactorAccumulator();
   const sigma = new SigmaScoreAccumulator();
   const rpRuleModule = RP_RULE_MODULES[2026]!;
   const rp = new RpMomentsAccumulator(rpRuleModule);
   for (const m of SEED_MATCHES) {
-    const prediction = bpr.predict(bprState, toLeakProofUpcoming(m));
-    bprState = bpr.update(bprState, m);
+    const prediction = spr.predict(bprState, toLeakProofUpcoming(m));
+    bprState = spr.update(bprState, m);
     swing.foldMatch(m, prediction);
     sigma.foldMatch(m, prediction);
     for (const side of ["red", "blue"] as const) {
@@ -435,13 +435,13 @@ function seedAllAlgorithms(db: FakeD1Database): void {
       }
     }
     const roster = [...m.redTeams, ...m.blueTeams];
-    const metrics = bpr.teamMetrics(bprState, roster);
+    const metrics = spr.teamMetrics(bprState, roster);
     for (const teamKey of roster) {
       const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
       if (total !== undefined) sigma.observeTalent(teamKey, total);
     }
   }
-  let bprRows = withSwingBeliefs(serializeState("bpr", bpr.version, bprState, SEED_STAMP), swing.beliefsByTeam());
+  let bprRows = withSwingBeliefs(serializeState("spr", spr.version, bprState, SEED_STAMP), swing.beliefsByTeam());
   bprRows = withRpBeliefs(bprRows, rp.beliefsByTeam());
   bprRows = withSigmaPopulation(withSigmaBeliefs(bprRows, sigma.beliefsByTeam()), sigma.population());
   seedRows(db, bprRows);
@@ -475,7 +475,7 @@ describe("stateProbe — Group 3: the RP path really runs, and really writes not
 
     expect(body.ok).toBe(true);
 
-    const bprEntry = body.algorithms.find((a) => a.id === "bpr");
+    const bprEntry = body.algorithms.find((a) => a.id === "spr");
     expect(bprEntry?.ok).toBe(true);
     expect(bprEntry?.snapshotShapeVersionObserved).toBe(STATE_SNAPSHOT_SHAPE_VERSION);
 
@@ -503,8 +503,8 @@ describe("stateProbe — Group 4: the shape-mismatch report is readable, not an 
     const db = new FakeD1Database();
     seedAllAlgorithms(db);
 
-    // Re-seed bpr's league row alone at a STALE shape version.
-    const staleKey = "bpr::league::league";
+    // Re-seed spr's league row alone at a STALE shape version.
+    const staleKey = "spr::league::league";
     const existing = db.algorithmState.get(staleKey)!;
     const stale = JSON.parse(existing.state_json) as Record<string, unknown>;
     stale.snapshotShapeVersion = STATE_SNAPSHOT_SHAPE_VERSION - 1;
@@ -521,7 +521,7 @@ describe("stateProbe — Group 4: the shape-mismatch report is readable, not an 
     };
     expect(body.ok).toBe(false);
 
-    const bprEntry = body.algorithms.find((a) => a.id === "bpr");
+    const bprEntry = body.algorithms.find((a) => a.id === "spr");
     expect(bprEntry?.ok).toBe(false);
     expect(bprEntry?.error?.name).toBe("LeagueRowShapeVersionError");
     expect(bprEntry?.error?.message).toContain(String(STATE_SNAPSHOT_SHAPE_VERSION));

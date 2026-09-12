@@ -50,7 +50,7 @@ import { runTick } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
-import { bpr } from "../../../packages/core/algorithms/bpr.js";
+import { spr } from "../../../packages/core/algorithms/bpr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
 import { isOfficialEventType } from "../../../packages/core/algorithms/eventTypes.js";
@@ -281,7 +281,7 @@ function fixture(
  * The PRIOR event — the season history the live event's Worker resumes from.
  * Four matches is enough for every team to clear the Swing Factor's
  * two-observation rule, so the band gate is open for opr/epa as well as for
- * the Sigma-scored bpr by the time the live event starts.
+ * the Sigma-scored spr by the time the live event starts.
  */
 const PRIOR_FIXTURES: readonly MatchFixture[] = [
   fixture(PRIOR_EVENT_KEY, 1, ["frc1", "frc2", "frc3"], ["frc4", "frc5", "frc6"], 120, 95, 140, 90, 42, 28),
@@ -417,7 +417,7 @@ function algorithmsManifestJson(): string {
   const algorithms = [
     { id: "opr", version: "3.0.0+baseline", codeVersion: "3.0.0", paramSetName: "baseline" },
     { id: "epa", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" },
-    { id: "bpr", version: "2.0.0+test", codeVersion: "2.0.0", paramSetName: "test" },
+    { id: "spr", version: "2.0.0+test", codeVersion: "2.0.0", paramSetName: "test" },
   ];
   return JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", algorithms });
 }
@@ -429,14 +429,14 @@ function makeEnv(kv: FakeKvNamespace, d1: FakeD1Database, r2: FakeR2Bucket): Env
     MANIFEST: kv as unknown,
     TBA_API_KEY: "test-key",
     TBA_BASE_URL: "https://tba.example.invalid/api/v3",
-    LIVE_ALGORITHM_IDS: "opr,epa,bpr",
+    LIVE_ALGORITHM_IDS: "opr,epa,spr",
   } as Env;
 }
 
 function buildOfflineModule(id: string): AlgorithmModule<any> {
   if (id === "opr") return opr;
   if (id === "epa") return epa;
-  if (id === "bpr") return bpr;
+  if (id === "spr") return spr;
   throw new Error(`buildOfflineModule: no module for algorithm id "${id}"`);
 }
 
@@ -556,7 +556,7 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
     "a PLAYED qualification row on a live tick carries a well-formed redRpPmf and blueRpPmf",
     async () => {
       const { r2 } = await driveFixture();
-      const rows = await publishedLiveRows(r2, "bpr");
+      const rows = await publishedLiveRows(r2, "spr");
 
       // NON-VACUITY FIRST. A fixture that silently produced no pmf at all
       // would make every assertion below pass while proving nothing.
@@ -582,7 +582,7 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
     async () => {
       const { r2 } = await driveFixture();
 
-      for (const algorithmId of ["opr", "epa", "bpr"] as const) {
+      for (const algorithmId of ["opr", "epa", "spr"] as const) {
         const offline = offlineRpRows(algorithmId);
         // Non-vacuity on the OFFLINE arm too: two empty streams digest
         // identically, so the comparison below would pass on a fixture where
@@ -611,7 +611,7 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
     "09-07's decomposition fields reach live PLAYED rows alongside the totals",
     async () => {
       const { r2 } = await driveFixture();
-      const rows = await publishedLiveRows(r2, "bpr");
+      const rows = await publishedLiveRows(r2, "spr");
       const decomposed = rows.filter((r) => r?.matchOutcomePmf !== undefined);
       expect(
         decomposed.length,
@@ -631,7 +631,7 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
     "the artifact carries this season's own win/tie RP constants once, read off the rule module rather than hardcoded",
     async () => {
       const { r2 } = await driveFixture();
-      const key = artifactKey({ page: "event", eventKey: LIVE_EVENT_KEY, algorithmId: "bpr", version: bpr.version });
+      const key = artifactKey({ page: "event", eventKey: LIVE_EVENT_KEY, algorithmId: "spr", version: spr.version });
       const artifact = JSON.parse(await (await r2.get(key))!.text()) as { rpOutcomeRp?: { win: number; tie: number } };
       expect(artifact.rpOutcomeRp).toEqual({ win: RULES_2026.winRp, tie: RULES_2026.tieRp });
     },
@@ -654,7 +654,7 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
     "an UPCOMING match naming a team this tick never touched emits NO pmf rather than one built from a partial roster",
     async () => {
       const { r2 } = await driveFixture();
-      const key = artifactKey({ page: "event", eventKey: LIVE_EVENT_KEY, algorithmId: "bpr", version: bpr.version });
+      const key = artifactKey({ page: "event", eventKey: LIVE_EVENT_KEY, algorithmId: "spr", version: spr.version });
       const artifact = JSON.parse(await (await r2.get(key))!.text()) as {
         upcoming: { matchKey: string; redTeams: string[]; blueTeams: string[]; redRpPmf?: number[] }[];
       };
@@ -682,7 +682,7 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
 
     // Recorded rather than driven end-to-end: 2021 also has no SCORE-COMPONENT
     // map (`componentMapForSeason` throws for it too), so a 2021 fixture fails
-    // in `bpr` before RP is ever consulted and would prove nothing about this
+    // in `spr` before RP is ever consulted and would prove nothing about this
     // gate. The registered RP seasons and the registered component-map seasons
     // are the same set, so no season can exercise "component map present, RP
     // rules absent" at all — which is exactly why this is asserted here

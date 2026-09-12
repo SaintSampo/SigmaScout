@@ -84,7 +84,7 @@ import {
   type ComponentGroupId,
 } from "./breakdown/index.js";
 
-export interface BprParams {
+export interface SprParams {
   /** Observation noise sd on alliance output, normalized units. */
   readonly obsSd: number;
   /** Process noise (variance) added to the slow component per match played. */
@@ -178,7 +178,7 @@ function displaySdFactor(mu: number): number {
  * `.planning/quick/260908-b4t-fresh-2023-blind-model/DECISION.md`. Design-era
  * accuracy 73.081%; sealed holdout accuracy 78.05%.
  */
-export const BPR_PARAMS: BprParams = {
+export const SPR_PARAMS: SprParams = {
   obsSd: 1,
   qSlow: 0.00002,
   rhoFast: 0.9,
@@ -230,13 +230,13 @@ export const BPR_PARAMS: BprParams = {
  * touches BPR, and `softCredit` is a structural correction rather than a tuned
  * value.
  */
-export const BPR_VERSION = "3.0.0+baseline";
+export const SPR_VERSION = "3.0.0+baseline";
 
 /**
  * The two-timescale state, described by what the FROZEN PARAMETERS actually do
  * rather than by the talent-versus-form story it was designed around. Quick
  * task 260910-25c simulated the filter's own variance recursions under
- * `BPR_PARAMS` and found `qSlow = 0.00002` (the floor of its search grid)
+ * `SPR_PARAMS` and found `qSlow = 0.00002` (the floor of its search grid)
  * against `qFast = 0.015`, a 750x ratio:
  *
  *   at steady state pL = 0.0051 and pS = 0.0624, so 92.5% of every rating
@@ -250,7 +250,7 @@ export const BPR_VERSION = "3.0.0+baseline";
  * exponential form rating (`muS`) that is discarded every winter. The mechanism
  * is real and earned its +1.05pp; only the names were wrong.
  */
-export interface BprTeamState {
+export interface SprTeamState {
   /** Near-frozen per-team offset; re-opened for a short window each season. */
   readonly muL: number;
   readonly pL: number;
@@ -260,17 +260,17 @@ export interface BprTeamState {
 }
 
 /** Per-phase quantities, keyed by the shared `auto`/`teleop`/`endgame` group ids. */
-export type BprPhaseRecord<T> = Readonly<Record<ComponentGroupId, T>>;
+export type SprPhaseRecord<T> = Readonly<Record<ComponentGroupId, T>>;
 
-function phaseRecord<T>(make: (phase: ComponentGroupId) => T): BprPhaseRecord<T> {
+function phaseRecord<T>(make: (phase: ComponentGroupId) => T): SprPhaseRecord<T> {
   const out = {} as Record<ComponentGroupId, T>;
   for (const phase of COMPONENT_GROUP_IDS) out[phase] = make(phase);
   return out;
 }
 
-export interface BprState {
+export interface SprState {
   readonly season: number | null;
-  readonly teams: ReadonlyMap<string, BprTeamState>;
+  readonly teams: ReadonlyMap<string, SprTeamState>;
   /** Log of the online link temperature. */
   readonly logTau: number;
   /** Online estimate of mean foul-adjusted alliance output, in points. */
@@ -290,10 +290,10 @@ export interface BprState {
    * 78.05% stop describing the shipped predictor. See this task's PLAN.md
    * (`.planning/quick/260908-pcm-bpr-display-only-phase-components/`).
    */
-  readonly phaseTeams: BprPhaseRecord<ReadonlyMap<string, BprTeamState>>;
+  readonly phaseTeams: SprPhaseRecord<ReadonlyMap<string, SprTeamState>>;
   /** Each phase's own online point scale — auto and endgame are worth far fewer points than teleop, so they cannot share the total's. */
-  readonly phaseScale: BprPhaseRecord<number>;
-  readonly phaseScaleCount: BprPhaseRecord<number>;
+  readonly phaseScale: SprPhaseRecord<number>;
+  readonly phaseScaleCount: SprPhaseRecord<number>;
 }
 
 const SQRT2PI = Math.sqrt(2 * Math.PI);
@@ -326,7 +326,7 @@ function erf(x: number): number {
  */
 const normCdf = (z: number): number => (z === 0 ? 0.5 : 0.5 * (1 + erf(z / Math.SQRT2)));
 
-function freshTeam(p: BprParams): BprTeamState {
+function freshTeam(p: SprParams): SprTeamState {
   return { muL: p.rookieMean, pL: p.priorVar, muS: 0, pS: p.fastPriorVar };
 }
 
@@ -400,7 +400,7 @@ interface AllianceView {
   mu: number;
   pv: number;
   keys: string[];
-  states: BprTeamState[];
+  states: SprTeamState[];
   /** Weights defining the alliance's predicted output. Always hard-ranked. */
   weights: number[];
   /**
@@ -456,11 +456,11 @@ function interpolateWeight(base: readonly number[], rank: number): number {
  *     the Kalman credit of station 3 on identical evidence.
  */
 function viewOfMap(
-  teams: ReadonlyMap<string, BprTeamState>,
+  teams: ReadonlyMap<string, SprTeamState>,
   keys: readonly string[],
-  p: BprParams,
+  p: SprParams,
 ): AllianceView {
-  const states: BprTeamState[] = [];
+  const states: SprTeamState[] = [];
   const mus: number[] = [];
   const kept: string[] = [];
   for (const k of keys) {
@@ -517,17 +517,17 @@ function viewOfMap(
   return { mu, pv, keys: kept, states, weights, creditWeights };
 }
 
-function freshTeamMap(teams: readonly string[]): Map<string, BprTeamState> {
-  const map = new Map<string, BprTeamState>();
-  for (const t of teams) map.set(t, freshTeam(BPR_PARAMS));
+function freshTeamMap(teams: readonly string[]): Map<string, SprTeamState> {
+  const map = new Map<string, SprTeamState>();
+  for (const t of teams) map.set(t, freshTeam(SPR_PARAMS));
   return map;
 }
 
-function initState(teams: string[]): BprState {
+function initState(teams: string[]): SprState {
   return {
     season: null,
     teams: freshTeamMap(teams),
-    logTau: Math.log(BPR_PARAMS.tau0),
+    logTau: Math.log(SPR_PARAMS.tau0),
     scale: 0,
     scaleCount: 0,
     phaseTeams: phaseRecord(() => freshTeamMap(teams)),
@@ -536,8 +536,8 @@ function initState(teams: string[]): BprState {
   };
 }
 
-function predict(state: BprState, match: UpcomingMatch): Prediction {
-  const p = BPR_PARAMS;
+function predict(state: SprState, match: UpcomingMatch): Prediction {
+  const p = SPR_PARAMS;
   const red = viewOfMap(state.teams, match.redTeams, p);
   const blue = viewOfMap(state.teams, match.blueTeams, p);
 
@@ -583,7 +583,7 @@ function stepScale(
   prevScale: number,
   prevCount: number,
   obsMean: number,
-  p: BprParams,
+  p: SprParams,
 ): { scale: number; count: number } {
   const count = prevCount + 1;
   const seed = prevCount === 0 ? Math.max(obsMean, 1) : prevScale;
@@ -601,16 +601,16 @@ function stepScale(
  * math than the quantity it decomposes.
  */
 function foldRatings(
-  teams: ReadonlyMap<string, BprTeamState>,
+  teams: ReadonlyMap<string, SprTeamState>,
   red: AllianceView,
   blue: AllianceView,
   redOut: number,
   blueOut: number,
   sc: number,
-  p: BprParams,
-): Map<string, BprTeamState> {
+  p: SprParams,
+): Map<string, SprTeamState> {
   const next = new Map(teams);
-  const corrections = new Map<string, BprTeamState>();
+  const corrections = new Map<string, SprTeamState>();
 
   for (const [side, out] of [
     [red, redOut],
@@ -661,7 +661,7 @@ function phaseOutput(components: Readonly<Record<string, number>>, season: numbe
 }
 
 /**
- * DISPLAY ONLY (see `BprState.phaseTeams`). Folds this match into the three
+ * DISPLAY ONLY (see `SprState.phaseTeams`). Folds this match into the three
  * phase filters and returns the replacement phase state.
  *
  * Returns the state UNCHANGED, rather than folding zeros, whenever the phase
@@ -672,10 +672,10 @@ function phaseOutput(components: Readonly<Record<string, number>>, season: numbe
  * measured".
  */
 function foldPhases(
-  state: BprState,
+  state: SprState,
   result: MatchResult,
-  p: BprParams,
-): Pick<BprState, "phaseTeams" | "phaseScale" | "phaseScaleCount"> {
+  p: SprParams,
+): Pick<SprState, "phaseTeams" | "phaseScale" | "phaseScaleCount"> {
   const unchanged = {
     phaseTeams: state.phaseTeams,
     phaseScale: state.phaseScale,
@@ -687,7 +687,7 @@ function foldPhases(
   const parsed = tryParseBreakdownPair(season, result.scoreBreakdownRaw);
   if (parsed.kind !== "parsed") return unchanged;
 
-  const teams: Record<ComponentGroupId, ReadonlyMap<string, BprTeamState>> = { ...state.phaseTeams };
+  const teams: Record<ComponentGroupId, ReadonlyMap<string, SprTeamState>> = { ...state.phaseTeams };
   const scales: Record<ComponentGroupId, number> = { ...state.phaseScale };
   const counts: Record<ComponentGroupId, number> = { ...state.phaseScaleCount };
 
@@ -711,8 +711,8 @@ function foldPhases(
   return { phaseTeams: teams, phaseScale: scales, phaseScaleCount: counts };
 }
 
-function update(state: BprState, result: MatchResult): BprState {
-  const p = BPR_PARAMS;
+function update(state: SprState, result: MatchResult): SprState {
+  const p = SPR_PARAMS;
 
   const { redFoul, blueFoul, redAdjust, blueAdjust } = correctionsOf(result.scoreBreakdownRaw);
   const redOut = result.redScore - redFoul - redAdjust;
@@ -769,8 +769,8 @@ function update(state: BprState, result: MatchResult): BprState {
  * it) - team strength in FRC behaves like a property of the program rather
  * than of the current student roster.
  */
-function carrySeason(state: BprState, boundary: SeasonBoundary): BprState {
-  const p = BPR_PARAMS;
+function carrySeason(state: SprState, boundary: SeasonBoundary): SprState {
+  const p = SPR_PARAMS;
   if (boundary.isColdStart) {
     return {
       season: boundary.toSeason,
@@ -783,8 +783,8 @@ function carrySeason(state: BprState, boundary: SeasonBoundary): BprState {
       phaseScaleCount: phaseRecord(() => 0),
     };
   }
-  const carryTeams = (teams: ReadonlyMap<string, BprTeamState>): Map<string, BprTeamState> => {
-    const out = new Map<string, BprTeamState>();
+  const carryTeams = (teams: ReadonlyMap<string, SprTeamState>): Map<string, SprTeamState> => {
+    const out = new Map<string, SprTeamState>();
     for (const [key, s] of teams) {
       out.set(key, {
         // The slow mean carries UNTOUCHED. A `seasonShrink` knob used to sit
@@ -825,7 +825,7 @@ function carrySeason(state: BprState, boundary: SeasonBoundary): BprState {
   };
 }
 
-function teamMetrics(state: BprState, teams?: readonly string[]): TeamMetrics {
+function teamMetrics(state: SprState, teams?: readonly string[]): TeamMetrics {
   // Points per league-average robot AS OF THIS CALL — a point sample of the
   // rolling global EWMA described in this file's header, not an event-local
   // or season-level constant. Publish calls this per match and keeps each
@@ -867,9 +867,9 @@ function teamMetrics(state: BprState, teams?: readonly string[]): TeamMetrics {
   return out;
 }
 
-export const bpr: AlgorithmModule<BprState> = {
-  id: "bpr",
-  version: BPR_VERSION,
+export const spr: AlgorithmModule<SprState> = {
+  id: "spr",
+  version: SPR_VERSION,
   initState,
   predict,
   update,

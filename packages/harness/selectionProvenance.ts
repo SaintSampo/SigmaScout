@@ -128,8 +128,11 @@ const SELECTED_ON_SEASONS_SOURCES: Readonly<Record<string, (season: number) => r
   // re-tuned per season, so it has no selected-on set for the same reason
   // opr and epa do not. Deliberately NOT the seasons its design used: a
   // selected-on season means "a search picked this parameter set here", and
-  // BPR ran no per-season search.
-  bpr: () => [],
+  // BPR ran no per-season search. Keyed `spr` since quick task 260912-ivg
+  // Stage 1 renamed the WRITE-tier wire id (this registry mirrors
+  // `cli.ts`'s `ALGORITHMS` and `publish.ts`'s `BASE_PUBLISH_ALGORITHMS`,
+  // both of which key on `spr` as of the same task).
+  spr: () => [],
   // Constructed by `makeSigma1` with the versioned DEFAULT parameter set
   // (`packages/core/algorithms/sigma1/index.ts`'s `vprDefaults`/
   // `vprSeasonSd`/`vprNormalCdf` all omit `options.params`, which falls back

@@ -58,7 +58,13 @@ TBA_BASE_URL = "https://www.thebluealliance.com/api/v3"
 # the live Worker keeps running under the pre-rename tier until then, and
 # the deployed browser is still reading the pre-rename artifact prefix until
 # 07-18.
-LIVE_ALGORITHM_IDS = "bpr"
+#
+# 260912-ivg Stage 1: renamed bpr -> spr (the write-tier identifier). This
+# value is INERT until Stage 4 (`260912-ivg-PLAN.md`) runs `pnpm
+# worker:deploy` — the deployed Worker keeps running under the retiring
+# `bpr` tier until then, and the deployed browser keeps reading `bpr@`
+# artifacts until Stage 5.
+LIVE_ALGORITHM_IDS = "spr"
 
 # D-17: fires every minute, YEAR-ROUND — never a season-scoped cron
 # expression. An offseason event runs in the fall and championship dates

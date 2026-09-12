@@ -19,7 +19,7 @@
  * ---------------------------------------------------------------------------
  *
  * Hypothesis: BPR's rank weighting (`w2`/`w3` in
- * `packages/core/algorithms/bpr.ts`) reconstructs a STACKED alliance better
+ * `packages/core/algorithms/spr.ts`) reconstructs a STACKED alliance better
  * than OPR's and EPA's linear-sum assumption can, and Championship play is
  * where stacked alliances live.
  *
@@ -57,7 +57,7 @@
  * values, because a hand-rolled sum would force OPR's linear-sum assumption
  * onto BPR and test the exact opposite of the hypothesis:
  *
- *   - `bpr.predict`   redScore = red.mu * unit, where `red.mu` is the
+ *   - `spr.predict`   redScore = red.mu * unit, where `red.mu` is the
  *                     RANK-WEIGHTED sum from `viewOfMap`. Trained against the
  *                     CORRECTED target.
  *   - `opr.predict`   plain sum of the team's event-scoped rating. RAW points.
@@ -73,7 +73,7 @@
  * ---------------------------------------------------------------------------
  *
  * BPR's training target is `totalPoints - foulPoints - adjustPoints`, computed
- * here by importing `correctionsOf` from `bpr.ts` — the SAME function BPR's
+ * here by importing `correctionsOf` from `spr.ts` — the SAME function BPR's
  * own `update` uses, so the measurement target cannot drift from the training
  * target. OPR and EPA target RAW total points. Every metric is therefore
  * reported against BOTH targets and the mismatch is printed as a named
@@ -96,7 +96,7 @@
  * secrets and must never be run with `--env-file`.
  *
  * Usage:
- *   npx tsx scripts/measureAllianceReconstruction.ts [--seasons 2016-2019,2022-2026] [--algorithms opr,epa,bpr]
+ *   npx tsx scripts/measureAllianceReconstruction.ts [--seasons 2016-2019,2022-2026] [--algorithms opr,epa,spr]
  *   pnpm measure:alliance-reconstruction
  */
 
@@ -256,7 +256,7 @@ export function tierOf(eventType: number): Tier | null {
  * BPR's corrected scoring target for both alliances of one match:
  * `raw - foulPoints - adjustPoints`.
  *
- * A THIN WRAPPER over `correctionsOf`, imported from `bpr.ts`, never a second
+ * A THIN WRAPPER over `correctionsOf`, imported from `spr.ts`, never a second
  * transcription of that arithmetic — the whole point is that this measurement
  * and BPR's `update` read the identical function, so the target cannot drift.
  * `correctionsOf` returns all-zero corrections for a `null` or malformed
@@ -301,7 +301,7 @@ export function emptyCensus(): ExclusionCensus {
  * The MATCH-level exclusion rules, in the order the repo defines them.
  *
  * Surrogate: `redSurrogates.length > 0 || blueSurrogates.length > 0` — the
- * harness's D-07 rule, the same predicate `packages/bpr/data.ts`'s
+ * harness's D-07 rule, the same predicate `packages/spr/data.ts`'s
  * `isSurrogateAffected` applies (restated over the two arrays rather than
  * imported, because that function's parameter is a `BprMatch` and this script
  * holds a `MatchResult`). A surrogate match leaves the SCOREBOARD, never the
@@ -549,7 +549,7 @@ function printNativeTargetNote(): void {
   console.log(`   NATIVE TARGET — WHICH TARGET EACH MODEL ACTUALLY TRAINS ON`);
   console.log(`      opr: RAW total points (fouls included)`);
   console.log(`      epa: RAW total points (it deliberately ADDS the opponent's predicted foulsCommitted)`);
-  console.log(`      bpr: CORRECTED points (raw - foulPoints - adjustPoints, via correctionsOf)`);
+  console.log(`      spr: CORRECTED points (raw - foulPoints - adjustPoints, via correctionsOf)`);
   console.log(
     `      THIS IS A REAL COMPARABILITY FINDING, NOT A NUISANCE. Against the CORRECTED target, OPR's and`
   );
@@ -878,7 +878,7 @@ async function main(): Promise<void> {
 
     // ── PAIRED CONTRASTS, event-blocked ──────────────────────────────────────
     const grouped = groupByAlgorithmAndTier(pooled);
-    const subject = "bpr";
+    const subject = "spr";
     const references = algorithmIds.filter((id) => id !== subject);
     const verdictLines: string[] = [];
 
@@ -902,8 +902,8 @@ async function main(): Promise<void> {
             const referenceStats = statsFor(referenceRows, target);
             verdictLines.push(
               `   ${tier.padEnd(22)} ${describeVerdict(kind, subject, reference)}\n` +
-                `      MAE bpr ${formatStat(subjectStats.mae)} vs epa ${formatStat(referenceStats.mae)};  ` +
-                `SIGNED bpr ${signedStat(subjectStats.signed)} vs epa ${signedStat(referenceStats.signed)}  ` +
+                `      MAE spr ${formatStat(subjectStats.mae)} vs epa ${formatStat(referenceStats.mae)};  ` +
+                `SIGNED spr ${signedStat(subjectStats.signed)} vs epa ${signedStat(referenceStats.signed)}  ` +
                 `(positive = OVER-prediction, which is what the spread-amplifier reading predicts)`
             );
           }
@@ -912,7 +912,7 @@ async function main(): Promise<void> {
     }
     console.log(``);
 
-    console.log(`══ VERDICT — pre-registered, bpr vs epa on the corrected target ══`);
+    console.log(`══ VERDICT — pre-registered, spr vs epa on the corrected target ══`);
     console.log(
       `   Hypothesis: BPR's rank weighting reconstructs a STACKED alliance better than a linear sum can.`
     );

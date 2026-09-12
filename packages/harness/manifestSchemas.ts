@@ -25,7 +25,7 @@
 import { z } from "zod";
 import { Sigma1ParamsSchema } from "../core/algorithms/sigma1/index.js";
 
-export { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "./publishedAlgorithms.js";
+export { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId, PIPELINE_ALGORITHM_IDS, type PipelineAlgorithmId } from "./publishedAlgorithms.js";
 
 /** Shared literal for both manifests — bumped whenever either shape changes in a way the Worker must know about. Independent of `pageArtifacts.ts`'s `PAGE_ARTIFACT_SCHEMA_VERSION` and `artifact.ts`'s `ARTIFACT_SCHEMA_VERSION` (different consumer, different evolution schedule). */
 export const MANIFEST_SCHEMA_VERSION = 1;

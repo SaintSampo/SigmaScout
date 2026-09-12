@@ -32,7 +32,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { z } from "zod";
 import type { EpaState } from "../core/algorithms/epa.js";
-import type { BprPhaseRecord, BprState, BprTeamState } from "../core/algorithms/bpr.js";
+import type { SprPhaseRecord, SprState, SprTeamState } from "../core/algorithms/bpr.js";
 import { COMPONENT_GROUP_IDS, type ComponentGroupId } from "../core/algorithms/breakdown/index.js";
 import type { OprObservation, OprState } from "../core/algorithms/opr.js";
 import type { ElimScoreOffset, Sigma1League, Sigma1State, Sigma1TeamState } from "../core/algorithms/sigma1/index.js";
@@ -974,7 +974,7 @@ interface SerializedBprPhase {
   pS: number;
 }
 
-function serializeBprState(algorithmId: string, algorithmVersion: string, state: BprState, stamp: StateStamp): StateRow[] {
+function serializeBprState(algorithmId: string, algorithmVersion: string, state: SprState, stamp: StateStamp): StateRow[] {
   const leagueJson: SerializedBprLeague = {
     snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION,
     season: state.season,
@@ -1010,7 +1010,7 @@ function serializeBprState(algorithmId: string, algorithmVersion: string, state:
   return rows;
 }
 
-function deserializeBprState(algorithmId: string, rows: readonly StateRow[]): BprState {
+function deserializeBprState(algorithmId: string, rows: readonly StateRow[]): SprState {
   const leagueRow = rows.find((r) => r.scopeKind === "league");
   if (!leagueRow) throw new MissingLeagueRowError(algorithmId);
   const leagueJson = JSON.parse(leagueRow.stateJson) as SerializedBprLeague;
@@ -1023,8 +1023,8 @@ function deserializeBprState(algorithmId: string, rows: readonly StateRow[]): Bp
     throw new LeagueRowShapeVersionError(algorithmId, leagueJson.snapshotShapeVersion);
   }
 
-  const teams = new Map<string, BprTeamState>();
-  const phaseTeams: Record<ComponentGroupId, Map<string, BprTeamState>> = {
+  const teams = new Map<string, SprTeamState>();
+  const phaseTeams: Record<ComponentGroupId, Map<string, SprTeamState>> = {
     auto: new Map(),
     teleop: new Map(),
     endgame: new Map(),
@@ -1040,7 +1040,7 @@ function deserializeBprState(algorithmId: string, rows: readonly StateRow[]): Bp
     }
   }
 
-  const phaseNumbers = (source: Record<string, number> | undefined): BprPhaseRecord<number> => ({
+  const phaseNumbers = (source: Record<string, number> | undefined): SprPhaseRecord<number> => ({
     auto: source?.auto ?? 0,
     teleop: source?.teleop ?? 0,
     endgame: source?.endgame ?? 0,
@@ -1320,28 +1320,35 @@ export function withRpBeliefs(rows: readonly StateRow[], beliefs: ReadonlyMap<st
  *
  * HAZARD for a future algorithm: the final line is a FALLTHROUGH, not a
  * lookup, so an id with no branch here is silently reinterpreted as
- * Sigma1-shaped rather than rejected. That is how `bpr` first failed, with
- * "state.componentOrder is not iterable" from deep inside the Sigma1
- * serializer rather than a message naming the real problem. Add a branch
- * when adding an algorithm.
+ * Sigma1-shaped rather than rejected. That is how `bpr` (this algorithm's
+ * wire id at the time, renamed to `spr` by quick task 260912-ivg) first
+ * failed, with "state.componentOrder is not iterable" from deep inside the
+ * Sigma1 serializer rather than a message naming the real problem. Add a
+ * branch when adding an algorithm.
+ *
+ * 260912-ivg Stage 1: the premier branch below is transitionally dual-name
+ * (`"bpr"` OR `"spr"`) rather than a single equality check, so a Worker
+ * deployed anywhere in the cutover window — reading D1 rows written under
+ * either id — still dispatches to the SAME branch. Stage 5 removes the
+ * `"bpr"` half once `PUBLISHED_ALGORITHM_IDS` itself moves to `spr`.
  */
 export function serializeState(
   algorithmId: string,
   algorithmVersion: string,
-  state: Sigma1State | EpaState | OprState | BprState,
+  state: Sigma1State | EpaState | OprState | SprState,
   stamp: StateStamp
 ): StateRow[] {
   if (algorithmId === "opr") return serializeOprState(algorithmId, algorithmVersion, state as OprState, stamp);
   if (algorithmId === "epa") return serializeEpaState(algorithmId, algorithmVersion, state as EpaState, stamp);
-  if (algorithmId === "bpr") return serializeBprState(algorithmId, algorithmVersion, state as BprState, stamp);
+  if (algorithmId === "spr" || algorithmId === "bpr") return serializeBprState(algorithmId, algorithmVersion, state as SprState, stamp);
   return serializeSigma1State(algorithmId, algorithmVersion, state as Sigma1State, stamp);
 }
 
 /** The inverse of `serializeState` — reconstructs a state whose `predict()`/`update()` behavior is identical to the state it came from, for a matching (possibly partial, D-13) set of rows. Throws `MissingLeagueRowError` when no `scopeKind: "league"` row is present. */
-export function deserializeState(algorithmId: string, rows: readonly StateRow[]): Sigma1State | EpaState | OprState | BprState {
+export function deserializeState(algorithmId: string, rows: readonly StateRow[]): Sigma1State | EpaState | OprState | SprState {
   if (algorithmId === "opr") return deserializeOprState(algorithmId, rows);
   if (algorithmId === "epa") return deserializeEpaState(algorithmId, rows);
-  if (algorithmId === "bpr") return deserializeBprState(algorithmId, rows);
+  if (algorithmId === "spr" || algorithmId === "bpr") return deserializeBprState(algorithmId, rows);
   return deserializeSigma1State(algorithmId, rows);
 }
 

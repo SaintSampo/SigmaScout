@@ -1125,7 +1125,10 @@ function predict(state: Sigma1State, match: UpcomingMatch, linkMode: WinProbMode
   // that learned correlation behind a function whose whole correctness
   // argument depends on its absence would be a real modelling change
   // disguised as a refactor, not a like-for-like engine swap. VPR is
-  // retired and unpublished (`PUBLISHED_ALGORITHM_IDS` is `opr`/`epa`/`bpr`),
+  // retired and unpublished (`PUBLISHED_ALGORITHM_IDS` is `opr`/`epa`/`bpr` —
+  // still true as of quick task 260912-ivg's Stage 1: that constant is the
+  // browser-READ tier, deliberately unmoved while the publisher/Worker-WRITE
+  // tier alone renames to `spr`),
   // and `SigmaScoutLayer.foldPlayed` (`packages/harness/sigmaScoutLayer.ts`)
   // already fills RP for any prediction that arrives without one — so this
   // makes VPR uniform with every other algorithm instead of leaving it the

@@ -44,7 +44,7 @@ import type { AlgorithmModule, MatchResult } from "../core/algorithms/types.js";
 import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
-import { bpr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/bpr.js";
 import {
   vpr,
   vprDefaults,
@@ -110,7 +110,7 @@ export const ALGORITHMS: Record<string, AlgorithmModule<any>> = {
   opr,
   epa,
   vpr,
-  bpr,
+  spr,
   "vpr-defaults": vprDefaults,
   "vpr-seasonsd": vprSeasonSd,
   "vpr-normalcdf": vprNormalCdf,

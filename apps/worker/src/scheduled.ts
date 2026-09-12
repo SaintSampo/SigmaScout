@@ -108,7 +108,7 @@
  * match/alliance record stays visible).
  */
 import { opr } from "../../../packages/core/algorithms/opr.js";
-import { bpr } from "../../../packages/core/algorithms/bpr.js";
+import { spr } from "../../../packages/core/algorithms/bpr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { makeSigma1 } from "../../../packages/core/algorithms/sigma1/index.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
@@ -154,7 +154,7 @@ import {
   type TeamsArtifact,
 } from "../../../packages/harness/pageArtifacts.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "../../../packages/harness/rounding.js";
-import { PUBLISHED_ALGORITHM_IDS, type AlgorithmsManifest, type LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
+import { PIPELINE_ALGORITHM_IDS, type AlgorithmsManifest, type LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
 import { loadAlgorithmsManifest, loadLiveEventsAt } from "./liveWindows.js";
 import { readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
 import { hasAlreadyFolded, readEventCursor, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
@@ -214,21 +214,24 @@ async function writeTickMeta(db: D1Database, meta: TickMeta, nowIso: string): Pr
  * unset/empty fallback and this file's own regression test
  * (`liveAlgorithmTier.test.ts`) bind to the SAME default rather than a
  * re-typed copy. Renamed to `vpr` by plan 07-16 (D-04/D-05) from its
- * pre-rename value — this value is validated against `PUBLISHED_ALGORITHM_IDS`
- * (packages/harness/publishedAlgorithms.ts), the single algorithm-id tier
- * again as of plan 07-18's collapse (07-16's transitional publisher/Worker-
- * write tier existed only through waves 11-12 and no longer exists).
+ * pre-rename value — this value is validated against
+ * `PIPELINE_ALGORITHM_IDS` (packages/harness/publishedAlgorithms.ts) as of
+ * quick task 260912-ivg Stage 1, NOT `PUBLISHED_ALGORITHM_IDS`: this default
+ * is what the Worker WRITES under once deployed (Stage 4), so it must be
+ * validated against the write tier, which is exactly the transitional split
+ * this task reopens (mirroring plan 07-16/07-18's `sigma1` -> `vpr` split).
  */
-// 2026-09-09: `vpr` -> `bpr` on VPR's retirement. A fallback naming a
-// retired id would make an unset LIVE_ALGORITHM_IDS throw
+// 2026-09-09: `vpr` -> `bpr` on VPR's retirement, renamed again by quick task
+// 260912-ivg Stage 1 (`bpr` -> `spr`, the write-tier identifier). A fallback
+// naming a retired id would make an unset LIVE_ALGORITHM_IDS throw
 // UnknownLiveAlgorithmIdError on every tick — the misconfiguration this
 // default exists to avoid.
-export const DEFAULT_LIVE_ALGORITHM_IDS: readonly string[] = ["bpr"];
+export const DEFAULT_LIVE_ALGORITHM_IDS: readonly string[] = ["spr"];
 
-/** An id in `LIVE_ALGORITHM_IDS` that is not one of `PUBLISHED_ALGORITHM_IDS` — unambiguously a typo in tracked config, never auto-corrected. */
+/** An id in `LIVE_ALGORITHM_IDS` that is not one of `PIPELINE_ALGORITHM_IDS` (260912-ivg Stage 1: the write tier, not `PUBLISHED_ALGORITHM_IDS`) — unambiguously a typo in tracked config, never auto-corrected. */
 export class UnknownLiveAlgorithmIdError extends Error {
   constructor(id: string) {
-    super(`parseLiveAlgorithmIds: "${id}" is not a published algorithm id (accepted: ${PUBLISHED_ALGORITHM_IDS.join(", ")}) — check LIVE_ALGORITHM_IDS in apps/worker/wrangler.toml for a typo.`);
+    super(`parseLiveAlgorithmIds: "${id}" is not a known write-tier algorithm id (accepted: ${PIPELINE_ALGORITHM_IDS.join(", ")}) — check LIVE_ALGORITHM_IDS in apps/worker/wrangler.toml for a typo.`);
     this.name = "UnknownLiveAlgorithmIdError";
   }
 }
@@ -267,7 +270,11 @@ export class EmptyLiveAlgorithmTierError extends Error {
  *    case where a deploy-time `--var` override drops this tracked var).
  *    Falling back is safe; the warn line is what stops it being silent. Only
  *    the ids themselves are logged, never any other binding value.
- *  - An id not in `PUBLISHED_ALGORITHM_IDS` — throws `UnknownLiveAlgorithmIdError`.
+ *  - An id not in `PIPELINE_ALGORITHM_IDS` (260912-ivg Stage 1: the write
+ *    tier) — throws `UnknownLiveAlgorithmIdError`. This is what proves
+ *    validation moved to the write tier rather than widening to accept
+ *    both: the retiring `bpr` id is correctly REJECTED here, even though it
+ *    is still a member of `PUBLISHED_ALGORITHM_IDS`.
  * Called at the TOP of `runTick`, before the live-windows manifest read, so
  * a misconfigured deploy surfaces on the very next tick — one minute later,
  * in the tail an operator is already watching — rather than lying dormant
@@ -285,7 +292,7 @@ export function parseLiveAlgorithmIds(raw: string | undefined): string[] {
   }
 
   for (const id of segments) {
-    if (!(PUBLISHED_ALGORITHM_IDS as readonly string[]).includes(id)) {
+    if (!(PIPELINE_ALGORITHM_IDS as readonly string[]).includes(id)) {
       throw new UnknownLiveAlgorithmIdError(id);
     }
   }
@@ -306,8 +313,8 @@ export function buildAlgorithmModules(algorithmsManifest: AlgorithmsManifest, li
       modules.set(entry.id, epa);
       continue;
     }
-    if (entry.id === "bpr") {
-      modules.set(entry.id, bpr);
+    if (entry.id === "spr") {
+      modules.set(entry.id, spr);
       continue;
     }
     // VPR, and ONLY VPR. Every published VPR entry uses the
@@ -317,9 +324,9 @@ export function buildAlgorithmModules(algorithmsManifest: AlgorithmsManifest, li
     // This is an explicit equality test rather than a fallthrough (quick task
     // 260908-5wd). It used to be `else`, which meant any id not named above
     // was constructed as a SIGMA1 MODULE WEARING THAT ID: setting
-    // LIVE_ALGORITHM_IDS to "bpr" would have folded live events with the wrong
+    // LIVE_ALGORITHM_IDS to "spr" would have folded live events with the wrong
     // model and written the results to BPR's artifacts, silently — nothing
-    // would throw, because `serializeState` has a real `bpr` branch and the
+    // would throw, because `serializeState` has a real `spr` branch and the
     // state would round-trip. An unknown id must be loud, not plausible.
     if (entry.id === "vpr") {
       modules.set(entry.id, makeSigma1({ id: entry.id, linkMode: "predictive-variance", params: entry.params, paramSetName: entry.paramSetName }));

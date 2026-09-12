@@ -7,7 +7,7 @@
  *
  *   1. Can the DEPLOYED bundle read the rows now sitting in live D1? The
  *      real `deserializeState` has been run locally over rows pulled
- *      verbatim from live D1 and opr/epa/bpr all deserialize — but that only
+ *      verbatim from live D1 and opr/epa/spr all deserialize — but that only
  *      proves the CODE can do it. Whether the currently-DEPLOYED Worker
  *      bundle can is a deploy-ordering property (which
  *      `STATE_SNAPSHOT_SHAPE_VERSION` it was built against), not a code
@@ -63,7 +63,7 @@
  * `rp-fold-exceeds-worker-cpu-budget` overrun can be MEASURED as the
  * difference between two otherwise-identical runs instead of inferred. Which
  * operations those are was settled from `git log -S`, not from which code
- * reads as RP-shaped — see `runBprFold`'s own comment for the list and the
+ * reads as RP-shaped — see `runSprFold`'s own comment for the list and the
  * commits behind it. `rp` absent is ON and byte-identical to the pre-flag
  * probe, which is what keeps the existing 13 ms p50 / 28 ms p90 numbers
  * comparable.
@@ -74,6 +74,13 @@
  * `docs/worker-operations.md`'s "Pre-event probe" section for the full
  * runbook, the same-commit ordering rule, and the conditions under which a
  * reported `cpuTime` is not a measurement at all.
+ *
+ * 260912-ivg Stage 1: this probe reads `PIPELINE_ALGORITHM_IDS` (the
+ * WRITE tier — premier id `spr`), not `PUBLISHED_ALGORITHM_IDS`. Until
+ * Stage 3's D1 reseed runs, the live database holds no `algorithm_id =
+ * 'spr'` rows, so a probe run in that window legitimately reports
+ * `NoLeagueRow`/zero rows for the premier algorithm rather than an error —
+ * that is the expected, not-yet-seeded state, not a probe failure.
  */
 import {
   readScopedState,
@@ -102,18 +109,18 @@ import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empir
 import { analyticRpPmf } from "../../../packages/core/rankingPoints/analyticPmf.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import { isRpEligibleEventType } from "../../../packages/core/rankingPoints/constants.js";
-import { bpr } from "../../../packages/core/algorithms/bpr.js";
-import type { BprState } from "../../../packages/core/algorithms/bpr.js";
+import { spr } from "../../../packages/core/algorithms/bpr.js";
+import type { SprState } from "../../../packages/core/algorithms/bpr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
 import { TOTAL_METRIC_KEY, type MatchResult, type UpcomingMatch, type Prediction } from "../../../packages/core/algorithms/types.js";
-import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/manifestSchemas.js";
+import { PIPELINE_ALGORITHM_IDS } from "../../../packages/harness/manifestSchemas.js";
 
-// `opr`/`epa` are imported for their side of `PUBLISHED_ALGORITHM_IDS`'
+// `opr`/`epa` are imported for their side of `PIPELINE_ALGORITHM_IDS`'
 // read-and-deserialize loop below (dispatched by id, never referenced by
 // name directly) — referencing them here keeps them out of an
-// unused-import lint trap while making plain that all three published
+// unused-import lint trap while making plain that all three write-tier
 // algorithms are in this file's graph on purpose.
 void opr;
 void epa;
@@ -187,7 +194,7 @@ interface ProbeParams {
   readonly teamCount: number;
   readonly folded: number;
   readonly upcoming: number;
-  /** Ablation arm. True = today's behaviour, byte-identical. False = every operation plan 09-08 (`dc30636e`) added to the tick's Phase A is skipped; see `runBprFold`. */
+  /** Ablation arm. True = today's behaviour, byte-identical. False = every operation plan 09-08 (`dc30636e`) added to the tick's Phase A is skipped; see `runSprFold`. */
   readonly rp: boolean;
   /** The `rp=` value that was neither an on- nor an off-value, if any — surfaced as a warning rather than being silently coerced. */
   readonly rpUnrecognized: string | undefined;
@@ -225,7 +232,7 @@ interface DiscoveryRow {
 async function discoverRoster(db: D1Database, limit: number): Promise<readonly string[]> {
   if (limit <= 0) return [];
   const { results } = await db
-    .prepare(`SELECT scope_kind, scope_key FROM algorithm_state WHERE algorithm_id = 'bpr' AND scope_kind = 'team' ORDER BY scope_key LIMIT ?`)
+    .prepare(`SELECT scope_kind, scope_key FROM algorithm_state WHERE algorithm_id = 'spr' AND scope_kind = 'team' ORDER BY scope_key LIMIT ?`)
     .bind(limit)
     .all<DiscoveryRow>();
   return results.map((r) => r.scope_key);
@@ -363,7 +370,7 @@ interface AlgorithmProbeResult {
 }
 
 interface FoldResult {
-  readonly algorithmId: "bpr";
+  readonly algorithmId: "spr";
   readonly matchesFolded: number;
   readonly upcomingPriced: number;
   readonly bandsProduced: number;
@@ -404,12 +411,12 @@ async function readAndDeserializeAll(
   db: D1Database,
   eventKey: string,
   teamKeys: readonly string[]
-): Promise<{ algorithms: AlgorithmProbeResult[]; bprRows: StateRow[] | undefined; bprState: BprState | undefined }> {
+): Promise<{ algorithms: AlgorithmProbeResult[]; sprRows: StateRow[] | undefined; sprState: SprState | undefined }> {
   const algorithms: AlgorithmProbeResult[] = [];
-  let bprRows: StateRow[] | undefined;
-  let bprState: BprState | undefined;
+  let sprRows: StateRow[] | undefined;
+  let sprState: SprState | undefined;
 
-  for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
+  for (const algorithmId of PIPELINE_ALGORITHM_IDS) {
     const rowsRead = { league: 0, team: 0, event: 0 };
     let leagueRowPresent = false;
     try {
@@ -456,9 +463,9 @@ async function readAndDeserializeAll(
         computedAt: leagueRow.computedAt,
       });
 
-      if (algorithmId === "bpr") {
-        bprRows = rows;
-        bprState = state as BprState;
+      if (algorithmId === "spr") {
+        sprRows = rows;
+        sprState = state as SprState;
       }
     } catch (err) {
       algorithms.push({
@@ -474,11 +481,11 @@ async function readAndDeserializeAll(
     }
   }
 
-  return { algorithms, bprRows, bprState };
+  return { algorithms, sprRows, sprState };
 }
 
 /**
- * The fold, `bpr` ONLY — matching `wrangler.toml`'s tracked
+ * The fold, `spr` ONLY — matching `wrangler.toml`'s tracked
  * `LIVE_ALGORITHM_IDS`. Drives the SAME sequence `scheduled.ts:1080-1300`
  * drives, in the same order: resume Swing/Sigma/RP accumulators from the
  * rows just read, price `folded` played matches (predict, band, RP fields,
@@ -509,12 +516,12 @@ async function readAndDeserializeAll(
  *       two arms — `stateProbe.test.ts` asserts exactly that. Ablating the
  *       bands would credit Phase 9 with work that was already there and
  *       overstate its share of the overrun.
- *     - `bpr.predict`/`bpr.update`, Swing/Sigma folds, the talent read, and
+ *     - `spr.predict`/`spr.update`, Swing/Sigma folds, the talent read, and
  *       `serializeState` + the Swing/Sigma passengers.
  */
-function runBprFold(
-  bprRows: StateRow[],
-  bprState: BprState,
+function runSprFold(
+  sprRows: StateRow[],
+  sprState: SprState,
   eventKey: string,
   eventType: number,
   season: number,
@@ -525,7 +532,7 @@ function runBprFold(
 ): FoldResult {
   if (teamKeys.length === 0) {
     return {
-      algorithmId: "bpr",
+      algorithmId: "spr",
       matchesFolded: 0,
       upcomingPriced: 0,
       bandsProduced: 0,
@@ -540,8 +547,8 @@ function runBprFold(
     // Resumed from the rows just read — a fresh accumulator would price
     // these synthetic matches from nothing, which answers a different
     // question than "what does a REAL tick's resumed fold cost".
-    const swing = SwingFactorAccumulator.fromBeliefs(readSwingBeliefs(bprRows));
-    const sigma = usesSigmaScore("bpr") ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(bprRows), readSigmaPopulation(bprRows)) : undefined;
+    const swing = SwingFactorAccumulator.fromBeliefs(readSwingBeliefs(sprRows));
+    const sigma = usesSigmaScore("spr") ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(sprRows), readSigmaPopulation(sprRows)) : undefined;
     const bandFor = (roster: readonly string[]): number | undefined => (sigma === undefined ? swing.bandVarianceFor(roster) : sigma.bandVarianceFor(roster));
 
     // Indexed lookup, never `rpRuleModuleForSeason` (which throws for an
@@ -555,7 +562,7 @@ function runBprFold(
     // season (2021) trips. Off-arm therefore skips the `readRpBeliefs` JSON
     // walk and the `fromBeliefs` reconstruction too, not merely the pmf call.
     const rpRuleModule = rpEnabled ? RP_RULE_MODULES[season] : undefined;
-    const rpBeliefs = rpEnabled ? readRpBeliefs(bprRows) : undefined;
+    const rpBeliefs = rpEnabled ? readRpBeliefs(sprRows) : undefined;
     const rp = rpRuleModule !== undefined && rpBeliefs !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs) : undefined;
     const rpKnownTeams = new Set(rpBeliefs?.keys() ?? []);
 
@@ -626,12 +633,12 @@ function runBprFold(
       for (const teamKey of [...result.redTeams, ...result.blueTeams]) rpKnownTeams.add(teamKey);
     };
 
-    let state = bprState;
+    let state = sprState;
     let matchesFolded = 0;
     for (let i = 0; i < folded; i++) {
       const roster = rosterAt(teamKeys, i);
       const result = buildPlayedMatch(eventKey, eventType, i + 1, roster.red, roster.blue);
-      const prediction = bpr.predict(state, toLeakProofUpcoming(result));
+      const prediction = spr.predict(state, toLeakProofUpcoming(result));
       const redBandVariance = bandFor(result.redTeams);
       const blueBandVariance = bandFor(result.blueTeams);
       if (redBandVariance !== undefined) bandsProduced++;
@@ -650,7 +657,7 @@ function runBprFold(
       // both arms and destroy the guarantee above.
       if (fields.redRpPmf !== undefined) rpPmfsProduced++;
 
-      state = bpr.update(state, result);
+      state = spr.update(state, result);
       swing.foldMatch(result, prediction);
       sigma?.foldMatch(result, prediction);
       foldObservedRp(result);
@@ -659,7 +666,7 @@ function runBprFold(
       // band/RP reads above, talent read only once the fold has happened).
       if (sigma !== undefined) {
         const roster2 = [...result.redTeams, ...result.blueTeams];
-        const metrics = bpr.teamMetrics(state, roster2);
+        const metrics = spr.teamMetrics(state, roster2);
         for (const teamKey of roster2) {
           const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
           if (total !== undefined) sigma.observeTalent(teamKey, total);
@@ -672,7 +679,7 @@ function runBprFold(
     for (let i = 0; i < upcoming; i++) {
       const roster = rosterAt(teamKeys, folded + i);
       const match = buildUpcomingMatch(eventKey, eventType, folded + i + 1, roster.red, roster.blue);
-      const prediction = bpr.predict(state, match);
+      const prediction = spr.predict(state, match);
       const redBandVariance = bandFor(match.redTeams);
       const blueBandVariance = bandFor(match.blueTeams);
       if (redBandVariance !== undefined) bandsProduced++;
@@ -686,7 +693,7 @@ function runBprFold(
     // Serialize-and-discard: the write payload's construction is part of a
     // real tick's CPU, so this probe pays it too — then throws the rows
     // away rather than calling `writeScopedState` (this file's header).
-    let candidateRows = withSwingBeliefs(serializeState("bpr", bpr.version, state, PROBE_STAMP), swing.beliefsByTeam());
+    let candidateRows = withSwingBeliefs(serializeState("spr", spr.version, state, PROBE_STAMP), swing.beliefsByTeam());
     if (rp !== undefined) candidateRows = withRpBeliefs(candidateRows, rp.beliefsByTeam());
     if (sigma !== undefined) {
       candidateRows = withSigmaPopulation(withSigmaBeliefs(candidateRows, sigma.beliefsByTeam()), sigma.population());
@@ -698,12 +705,12 @@ function runBprFold(
     // importing it does not change what `stateProbe.test.ts`'s Group 1
     // static scan forbids (`writeScopedState`, `writeEventCursor`,
     // `artifactWriter.ts`, `scheduled.ts` stay unreachable either way).
-    const changedRowsDiscarded = selectChangedRows(bprRows, candidateRows).length;
+    const changedRowsDiscarded = selectChangedRows(sprRows, candidateRows).length;
 
-    return { algorithmId: "bpr", matchesFolded, upcomingPriced, bandsProduced, rpPmfsProduced, rpObservedFolds, changedRowsDiscarded };
+    return { algorithmId: "spr", matchesFolded, upcomingPriced, bandsProduced, rpPmfsProduced, rpObservedFolds, changedRowsDiscarded };
   } catch (err) {
     return {
-      algorithmId: "bpr",
+      algorithmId: "spr",
       matchesFolded: 0,
       upcomingPriced: 0,
       bandsProduced: 0,
@@ -781,20 +788,20 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ body: ProbeR
   const eventKey = params.eventOverride ?? discoveredEventKey ?? `${params.season}probe`;
   const teamKeys = (params.teamsOverride ?? discoveredTeamKeys).slice(0, params.teamCount);
 
-  const { algorithms, bprRows, bprState } = await readAndDeserializeAll(env.DB, eventKey, teamKeys);
+  const { algorithms, sprRows, sprState } = await readAndDeserializeAll(env.DB, eventKey, teamKeys);
 
   const fold: FoldResult =
-    bprRows !== undefined && bprState !== undefined
-      ? runBprFold(bprRows, bprState, eventKey, params.eventType, params.season, teamKeys, params.folded, params.upcoming, params.rp)
+    sprRows !== undefined && sprState !== undefined
+      ? runSprFold(sprRows, sprState, eventKey, params.eventType, params.season, teamKeys, params.folded, params.upcoming, params.rp)
       : {
-          algorithmId: "bpr",
+          algorithmId: "spr",
           matchesFolded: 0,
           upcomingPriced: 0,
           bandsProduced: 0,
           rpPmfsProduced: 0,
           rpObservedFolds: 0,
           changedRowsDiscarded: 0,
-          error: { name: "BprNotDeserialized", message: "bpr state was not available — see algorithms[] for the read/deserialize failure; the fold was skipped rather than measuring a fiction" },
+          error: { name: "SprNotDeserialized", message: "spr state was not available — see algorithms[] for the read/deserialize failure; the fold was skipped rather than measuring a fiction" },
         };
 
   const warnings = buildWarnings({

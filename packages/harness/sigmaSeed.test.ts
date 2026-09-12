@@ -34,7 +34,7 @@ import {
 } from "./stateSnapshot.js";
 import { SigmaScoreAccumulator } from "./sigmaScore.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
-import { bpr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/bpr.js";
 import { epa } from "../core/algorithms/epa.js";
 import { opr } from "../core/algorithms/opr.js";
 import type { MatchResult, Prediction } from "../core/algorithms/types.js";
@@ -80,7 +80,7 @@ const TALENT = new Map(ALL_TEAMS.map((teamKey, i) => [teamKey, 20 + i * 3]));
 
 /** A BPR layer with a few matches folded, so its Sigma state is real running state. */
 function foldedLayer(): SigmaScoutLayer {
-  const layer = new SigmaScoutLayer(RULES_2026, "bpr");
+  const layer = new SigmaScoutLayer(RULES_2026, "spr");
   layer.foldPlayed(match(1, 120, 95), prediction(118, 99), TALENT);
   layer.foldPlayed(match(2, 105, 130), prediction(110, 125), TALENT);
   layer.foldPlayed(match(3, 141, 88), prediction(120, 101), TALENT);
@@ -90,7 +90,7 @@ function foldedLayer(): SigmaScoutLayer {
 /** Rows the way `publish.ts` builds them for the seed: team rows, then the two Sigma passengers. */
 function seedRows(layer: SigmaScoutLayer): StateRow[] {
   const rows = withSigmaBeliefs(
-    serializeState("bpr", bpr.version, bpr.initState([...ALL_TEAMS]) as never, STAMP),
+    serializeState("spr", spr.version, spr.initState([...ALL_TEAMS]) as never, STAMP),
     layer.sigmaBeliefs()
   );
   const population = layer.sigmaPopulation();

@@ -21,7 +21,7 @@
 import { readFileSync } from "node:fs";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
-import { bpr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/bpr.js";
 import { warnIfNewerPromotedVpr } from "./cli.js";
 import { PromotedVersionSchema } from "./promote.js";
 import { ALGORITHM_VERSIONS_DIR, PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
@@ -264,7 +264,17 @@ export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions)
   // remember. The lookup throws on an unregistered id instead of silently
   // emitting a short manifest -- a missing entry would make the algorithm
   // invisible to the browser while every test still passed.
-  const modules: Record<string, { id: string; version: string }> = { opr, epa, bpr };
+  //
+  // 260912-ivg Stage 1: `packages/core/algorithms/bpr.ts`'s own module now
+  // reports `id: "spr"` (the WRITE-tier rename), but THIS manifest
+  // (`v1/manifest/algorithms.json`) is a READ-tier artifact —
+  // `useAlgorithmVersion` (`apps/web/src/components/ribbon/AlgorithmSelect.tsx`)
+  // looks its entry up by `PUBLISHED_ALGORITHM_IDS`'s member, still `"bpr"`.
+  // The override below keeps this manifest entry's `id` reading `"bpr"`
+  // (matching the `bpr@` objects that still exist in R2) even though the
+  // underlying module's own id changed — Stage 5 deletes this override in
+  // the same edit that moves `PUBLISHED_ALGORITHM_IDS`'s value to `"spr"`.
+  const modules: Record<string, { id: string; version: string }> = { opr, epa, bpr: { ...spr, id: "bpr" } };
 
   const algorithms: AlgorithmManifestEntry[] = PUBLISHED_ALGORITHM_IDS.map((id) => {
     const mod = modules[id];

@@ -16,17 +16,17 @@
  * NOTE ON THIS COMMENT AND THIS FILE'S OTHER COMMENTS: the gates in
  * `sprContent.test.ts` run at RUNTIME over the exported string VALUES, never
  * as a grep over this file's source text. That is what lets this comment (and
- * others below) discuss the internal algorithm id `bpr` and the retired
+ * others below) discuss the internal algorithm id `spr` and the retired
  * 78.05% sealed-holdout figure in prose, while the page itself, which reads
  * only the exported values, states neither.
  *
- * Every claim below is verified against `packages/core/algorithms/bpr.ts` at
- * HEAD (the module header, `displaySdFactor`, `BPR_PARAMS`, the rank
+ * Every claim below is verified against `packages/core/algorithms/spr.ts` at
+ * HEAD (the module header, `displaySdFactor`, `SPR_PARAMS`, the rank
  * weighting doc comment above `viewOfMap`, `foldRatings`'s credit allocation,
  * and `teamMetrics`), never transcribed from memory or from a prior version
  * of this file.
  */
-import { BPR_PARAMS } from "../../../../../packages/core/algorithms/bpr.js";
+import { SPR_PARAMS } from "../../../../../packages/core/algorithms/bpr.js";
 
 /**
  * The three rank weights `viewOfMap` renormalizes to, recomputed here rather
@@ -35,7 +35,7 @@ import { BPR_PARAMS } from "../../../../../packages/core/algorithms/bpr.js";
  * documents the same never-retype-a-shipping-constant discipline for its
  * figures; this is that discipline applied to prose instead of a drawing.
  */
-const RANK_WEIGHT_BASE = [1, BPR_PARAMS.w2, BPR_PARAMS.w3];
+const RANK_WEIGHT_BASE = [1, SPR_PARAMS.w2, SPR_PARAMS.w3];
 const RANK_WEIGHT_SUM = RANK_WEIGHT_BASE.reduce((sum, weight) => sum + weight, 0);
 const RANK_WEIGHT_NORM = RANK_WEIGHT_SUM > 0 ? 3 / RANK_WEIGHT_SUM : 1;
 const RANK_WEIGHTS = RANK_WEIGHT_BASE.map((weight) => weight * RANK_WEIGHT_NORM) as [number, number, number];

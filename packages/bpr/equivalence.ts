@@ -1,7 +1,7 @@
 /**
  * Does the production port reproduce the research model?
  *
- * `packages/core/algorithms/bpr.ts` is a rewrite of `packages/bpr/model.ts`
+ * `packages/core/algorithms/spr.ts` is a rewrite of `packages/spr/model.ts`
  * against the project's pure `AlgorithmModule` contract. A rewrite that quietly
  * drifted would mean the published algorithm is not the one that scored on the
  * sealed holdout, and nobody would notice. This walks the same corpus through
@@ -20,7 +20,7 @@
  * skips a season accumulates `seasonVar` once per boundary rather than once in
  * total - worth a few thousandths of a variance unit.
  */
-import { bpr, type BprState } from "../core/algorithms/bpr.js";
+import { spr, type SprState } from "../core/algorithms/bpr.js";
 import type { CompLevel, MatchResult } from "../core/algorithms/types.js";
 import { accuracyCall } from "../core/scoring/brier.js";
 import { isSurrogateAffected, loadMatches } from "./data.js";
@@ -45,7 +45,7 @@ const LAST_DESIGN_YEAR = 2022;
 function main(): void {
   const includeHoldout = process.argv.includes("--include-holdout");
   const matches = loadMatches("data/corpus.sqlite");
-  let state: BprState = bpr.initState([]);
+  let state: SprState = spr.initState([]);
   let season = -1;
 
   const per = new Map<number, [number, number]>();
@@ -53,7 +53,7 @@ function main(): void {
   for (const m of matches) {
     if (!includeHoldout && m.year > LAST_DESIGN_YEAR) break;
     if (season !== -1 && m.year !== season) {
-      state = bpr.carrySeason?.(state, {
+      state = spr.carrySeason?.(state, {
         fromSeason: season,
         toSeason: m.year,
         isColdStart: false,
@@ -93,7 +93,7 @@ function main(): void {
       scoreBreakdownRaw,
     };
 
-    const p = bpr.predict(state, result);
+    const p = spr.predict(state, result);
     // Same predicate and same D-07 exclusion `evaluate.ts` scores by, so the
     // port and the research model are compared on ONE convention. The retired
     // inline `(p.pRedWin > 0.5) === (m.winner === "red")` credited an
@@ -105,7 +105,7 @@ function main(): void {
         per.set(m.year, [cell[0] + (call ? 1 : 0), cell[1] + 1]);
       }
     }
-    state = bpr.update(state, result);
+    state = spr.update(state, result);
   }
 
   const agg = (years: number[]): number => {
@@ -120,7 +120,7 @@ function main(): void {
     return n > 0 ? (100 * c) / n : 0;
   };
 
-  console.log("Ported module (packages/core/algorithms/bpr.ts) vs frozen research model");
+  console.log("Ported module (packages/core/algorithms/spr.ts) vs frozen research model");
   console.log(`  scope: ${includeHoldout ? "2016-2026 (HOLDOUT INCLUDED)" : "design era only, halted after 2022"}`);
   console.log("  year      acc%");
   for (const y of [...per.keys()].sort((a, b) => a - b)) {

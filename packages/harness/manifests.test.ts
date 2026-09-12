@@ -13,7 +13,7 @@ import { openCorpus, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
-import { bpr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/bpr.js";
 import { PromotedVersionSchema } from "./promote.js";
 import { PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
 import { LiveWindowsManifestEnvelopeSchema } from "./manifestSchemas.js";
@@ -468,7 +468,10 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
     expect(manifest.algorithms.map((a) => a.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
     expect(manifest.algorithms.find((a) => a.id === "opr")!.version).toBe(opr.version);
     expect(manifest.algorithms.find((a) => a.id === "epa")!.version).toBe(epa.version);
-    expect(manifest.algorithms.find((a) => a.id === "bpr")!.version).toBe(bpr.version);
+    // 260912-ivg Stage 1: this manifest is a READ-tier artifact, so its
+    // premier entry's id stays "bpr" (`buildAlgorithmsManifest`'s override)
+    // even though the underlying module now reports id "spr" internally.
+    expect(manifest.algorithms.find((a) => a.id === "bpr")!.version).toBe(spr.version);
   });
 
   it("carries no tunable params or paramsSeason on any entry, since no published algorithm is promoted-versioned any more", () => {
@@ -494,8 +497,14 @@ describe("PUBLISHED_ALGORITHM_IDS — the single tier again (plan 07-16 Task 2 i
   // the renamed triple in the shipped order.
   it("is the module's only algorithm-id constant, and its members are the published triple in the shipped order", async () => {
     // vpr removed 2026-09-09 on its retirement from the site.
+    // 260912-ivg Stage 1 reopened the two-tier split (mirroring 07-16/07-18):
+    // PUBLISHED_ALGORITHM_IDS (this constant, the READ tier) still reads
+    // "bpr" — the `bpr@` R2 objects are the only ones that exist today.
+    // `publishedAlgorithms.js` now also exports `PIPELINE_ALGORITHM_IDS`
+    // (the WRITE tier, "spr"), so this describe's own title ("the single
+    // tier again") is transiently false until Stage 5 collapses it back.
     expect(PUBLISHED_ALGORITHM_IDS).toEqual(["opr", "epa", "bpr"]);
-    expect(Object.keys(await import("./publishedAlgorithms.js"))).toEqual(["PUBLISHED_ALGORITHM_IDS"]);
+    expect(Object.keys(await import("./publishedAlgorithms.js"))).toEqual(["PUBLISHED_ALGORITHM_IDS", "PIPELINE_ALGORITHM_IDS"]);
   });
 
   // Test 7 (unchanged claim, now a literal comparison since there is only

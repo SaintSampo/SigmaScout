@@ -35,7 +35,7 @@ import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveW
 import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
 import { AlgorithmsManifestSchema } from "../../../packages/harness/manifestSchemas.js";
 import { SIGMA1_CODE_VERSION } from "../../../packages/core/algorithms/sigma1/params.js";
-import { bpr } from "../../../packages/core/algorithms/bpr.js";
+import { spr } from "../../../packages/core/algorithms/bpr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { SubrequestBudget } from "../src/subrequestBudget.js";
@@ -294,20 +294,20 @@ function liveWindowsManifest(windows: readonly WindowFixture[]): string {
 // literal, for exactly the reason the comment above gives — and it must match
 // the module the Worker actually builds, or the artifact keys this test looks
 // for are keys nothing ever wrote.
-const PREMIER_TEST_VERSION = bpr.version;
-const PREMIER_TEST_CODE_VERSION = bpr.version.split("+")[0]!;
-const PREMIER_TEST_PARAM_SET = bpr.version.split("+")[1] ?? "baseline";
+const PREMIER_TEST_VERSION = spr.version;
+const PREMIER_TEST_CODE_VERSION = spr.version.split("+")[0]!;
+const PREMIER_TEST_PARAM_SET = spr.version.split("+")[1] ?? "baseline";
 
 function algorithmsManifest(ids: readonly string[] = ["opr"]): string {
   const algorithms = ids.map((id) => {
     if (id === "opr") return { id: "opr", version: "3.0.0+baseline", codeVersion: "3.0.0", paramSetName: "baseline" };
     if (id === "epa") return { id: "epa", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" };
-    return { id: "bpr", version: PREMIER_TEST_VERSION, codeVersion: PREMIER_TEST_CODE_VERSION, paramSetName: PREMIER_TEST_PARAM_SET };
+    return { id: "spr", version: PREMIER_TEST_VERSION, codeVersion: PREMIER_TEST_CODE_VERSION, paramSetName: PREMIER_TEST_PARAM_SET };
   });
   return JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", algorithms });
 }
 
-function makeKv(windows: readonly WindowFixture[], algorithmIds: readonly string[] = ["opr", "epa", "bpr"]): FakeKvNamespace {
+function makeKv(windows: readonly WindowFixture[], algorithmIds: readonly string[] = ["opr", "epa", "spr"]): FakeKvNamespace {
   return new FakeKvNamespace(
     new Map([
       [LIVE_WINDOWS_MANIFEST_KEY, liveWindowsManifest(windows)],
@@ -448,7 +448,7 @@ describe("liveAlgorithmTier — tracked config's live tier fits the measured bud
 describe("liveAlgorithmTier — the fixed-cost constants are real, not declared", () => {
   it("a tick that considers one live event and finds it unchanged spends exactly TICK_FIXED_SUBREQUEST_COST + EVENT_PREFLIGHT_SUBREQUEST_COST + 1 (the tick-meta write)", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
-    const kv = makeKv([window], ["bpr"]);
+    const kv = makeKv([window], ["spr"]);
     const d1 = new FakeD1Database();
     const r2 = new FakeR2Bucket();
     const fetchMock = vi.fn(async (url: unknown) => {
@@ -459,7 +459,7 @@ describe("liveAlgorithmTier — the fixed-cost constants are real, not declared"
       throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    const env = makeEnv(kv, d1, r2, "bpr");
+    const env = makeEnv(kv, d1, r2, "spr");
 
     const result = await runTick(env, { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
 
@@ -469,14 +469,14 @@ describe("liveAlgorithmTier — the fixed-cost constants are real, not declared"
 });
 
 describe("liveAlgorithmTier — only the live tier folds", () => {
-  it("with a three-entry algorithms manifest and LIVE_ALGORITHM_IDS=bpr, an advancing tick writes only bpr artifacts/state and touches no opr/epa artifact or algorithm_state row", async () => {
+  it("with a three-entry algorithms manifest and LIVE_ALGORITHM_IDS=spr, an advancing tick writes only spr artifacts/state and touches no opr/epa artifact or algorithm_state row", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
-    const kv = makeKv([window], ["opr", "epa", "bpr"]);
+    const kv = makeKv([window], ["opr", "epa", "spr"]);
     const d1 = new FakeD1Database();
     const r2 = new FakeR2Bucket();
     const tbaEvents = new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]]);
     vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents));
-    const env = makeEnv(kv, d1, r2, "bpr");
+    const env = makeEnv(kv, d1, r2, "spr");
 
     const result = await runTick(env, { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
 
@@ -485,19 +485,19 @@ describe("liveAlgorithmTier — only the live tier folds", () => {
 
     // FakeD1Database.algorithmState keys are `${algorithmId}::${scopeKind}::${scopeKey}`.
     const stateAlgorithmIds = new Set([...d1.algorithmState.keys()].map((k) => k.split("::")[0]));
-    expect(stateAlgorithmIds.has("bpr")).toBe(true);
+    expect(stateAlgorithmIds.has("spr")).toBe(true);
     expect(stateAlgorithmIds.has("opr")).toBe(false);
     expect(stateAlgorithmIds.has("epa")).toBe(false);
 
     // artifactKey's shape ends every path segment with `{algorithmId}@{version}.json`.
-    expect(r2.puts.some((p) => p.key.includes("/bpr@"))).toBe(true);
+    expect(r2.puts.some((p) => p.key.includes("/spr@"))).toBe(true);
     expect(r2.puts.some((p) => p.key.includes("/opr@"))).toBe(false);
     expect(r2.puts.some((p) => p.key.includes("/epa@"))).toBe(false);
 
-    const premierEventKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "bpr", version: PREMIER_TEST_VERSION });
+    const premierEventKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "spr", version: PREMIER_TEST_VERSION });
     expect(r2.puts.some((p) => p.key === premierEventKey)).toBe(true);
     for (const teamKey of ALL_TEAMS) {
-      const premierTeamKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "bpr", version: PREMIER_TEST_VERSION });
+      const premierTeamKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "spr", version: PREMIER_TEST_VERSION });
       expect(r2.puts.some((p) => p.key === premierTeamKey)).toBe(true);
     }
   });
@@ -526,6 +526,19 @@ describe("liveAlgorithmTier — the three decided misconfiguration behaviors", (
     expect(() => parseLiveAlgorithmIds("opr,sigma7")).toThrow(/sigma7/);
   });
 
+  // 260912-ivg Stage 1: parseLiveAlgorithmIds validates against
+  // PIPELINE_ALGORITHM_IDS (the WRITE tier), not PUBLISHED_ALGORITHM_IDS
+  // (the READ tier) — this is the negative half that proves validation
+  // actually MOVED to the write tier rather than widening to accept both.
+  // `spr` (the new write-tier premier id) is accepted; `bpr` (still a
+  // PUBLISHED_ALGORITHM_IDS member, since the deployed browser still reads
+  // `bpr@` objects) is correctly REJECTED here.
+  it("accepts the write-tier premier id (spr) and rejects the retiring published id (bpr)", () => {
+    expect(parseLiveAlgorithmIds("spr")).toEqual(["spr"]);
+    expect(() => parseLiveAlgorithmIds("bpr")).toThrow(UnknownLiveAlgorithmIdError);
+    expect(() => parseLiveAlgorithmIds("bpr")).toThrow(/bpr/);
+  });
+
   // Test 10 (plan 07-18 Task 1): the accepted-ids message lists the three ids
   // read from the collapsed PUBLISHED_ALGORITHM_IDS constant, joined at
   // runtime — never a hardcoded sentence — the same assertion shape 07-16
@@ -537,7 +550,7 @@ describe("liveAlgorithmTier — the three decided misconfiguration behaviors", (
     } catch (err) {
       message = (err as Error).message;
     }
-    expect(message).toContain("accepted: opr, epa, bpr");
+    expect(message).toContain("accepted: opr, epa, spr");
   });
 
   // Test 11 (plan 07-18 Task 1): the retired id is still rejected at the
@@ -549,17 +562,17 @@ describe("liveAlgorithmTier — the three decided misconfiguration behaviors", (
 
   it("a live id absent from the algorithms manifest, leaving the filtered module map empty, throws EmptyLiveAlgorithmTierError", () => {
     const manifest = AlgorithmsManifestSchema.parse(JSON.parse(algorithmsManifest(["opr"]))); // manifest publishes ONLY opr
-    expect(() => buildAlgorithmModules(manifest, ["bpr"])).toThrow(EmptyLiveAlgorithmTierError);
+    expect(() => buildAlgorithmModules(manifest, ["spr"])).toThrow(EmptyLiveAlgorithmTierError);
   });
 });
 
 /**
  * Quick task 260908-5wd: `buildAlgorithmModules` used to END in an unguarded
  * `else` that constructed a Sigma1 module for any id it did not recognise.
- * Setting the live tier to `bpr` would therefore have folded live events with
+ * Setting the live tier to `spr` would therefore have folded live events with
  * the WRONG MODEL and written the results to BPR's artifacts — silently,
- * because `serializeState` has a real `bpr` branch so the state round-trips and
- * nothing throws. These pin the two halves of the fix: bpr builds a real BPR
+ * because `serializeState` has a real `spr` branch so the state round-trips and
+ * nothing throws. These pin the two halves of the fix: spr builds a real BPR
  * module, and an unknown id is loud rather than plausible.
  */
 describe("buildAlgorithmModules — no silent Sigma1 fallthrough (quick task 260908-5wd)", () => {
@@ -572,12 +585,12 @@ describe("buildAlgorithmModules — no silent Sigma1 fallthrough (quick task 260
     } as unknown as Parameters<typeof buildAlgorithmModules>[0];
   }
 
-  it("builds a REAL BPR module for a bpr live tier, not a Sigma1 module wearing BPR's id", () => {
-    const modules = buildAlgorithmModules(manifestOf(["bpr"]), ["bpr"]);
-    const module = modules.get("bpr");
+  it("builds a REAL BPR module for a spr live tier, not a Sigma1 module wearing BPR's id", () => {
+    const modules = buildAlgorithmModules(manifestOf(["spr"]), ["spr"]);
+    const module = modules.get("spr");
     expect(module).toBeDefined();
-    expect(module).toBe(bpr);
-    expect(module!.id).toBe("bpr");
+    expect(module).toBe(spr);
+    expect(module!.id).toBe("spr");
   });
 
   it("throws on an id it does not recognise rather than constructing something plausible", () => {
@@ -585,9 +598,9 @@ describe("buildAlgorithmModules — no silent Sigma1 fallthrough (quick task 260
   });
 
   it("still builds opr, epa and vpr as their own modules", () => {
-    const modules = buildAlgorithmModules(manifestOf(["opr", "epa", "bpr"]), ["opr", "epa", "bpr"]);
+    const modules = buildAlgorithmModules(manifestOf(["opr", "epa", "spr"]), ["opr", "epa", "spr"]);
     expect(modules.get("opr")).toBe(opr);
     expect(modules.get("epa")).toBe(epa);
-    expect(modules.get("bpr")?.id).toBe("bpr");
+    expect(modules.get("spr")?.id).toBe("spr");
   });
 });

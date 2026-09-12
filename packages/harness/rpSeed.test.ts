@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
 import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
 import { readRpBeliefs, withRpBeliefs, serializeState } from "./stateSnapshot.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
-import { bpr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/bpr.js";
 import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
 import type { MatchResult, Prediction } from "../core/algorithms/types.js";
 
@@ -74,7 +74,7 @@ function prediction(redScore: number, blueScore: number): Prediction {
 
 /** A layer with a couple of matches folded, so its beliefs are real running state. */
 function foldedLayer(): SigmaScoutLayer {
-  const layer = new SigmaScoutLayer(RULES_2026, "bpr");
+  const layer = new SigmaScoutLayer(RULES_2026, "spr");
   layer.foldPlayed(match(1, 120, 95, breakdown(140, 90, 42, 28)), prediction(118, 99));
   layer.foldPlayed(match(2, 105, 130, breakdown(118, 165, 31, 55)), prediction(110, 125));
   return layer;
@@ -90,7 +90,7 @@ describe("the D1 seed carries the RP beliefs (plan 09-08, D-21)", () => {
     expect(beliefs.size, "the fixture folded no RP beliefs at all").toBeGreaterThan(0);
 
     const rows = withRpBeliefs(
-      serializeState("bpr", bpr.version, bpr.initState([...ALL_TEAMS]) as never, STAMP),
+      serializeState("spr", spr.version, spr.initState([...ALL_TEAMS]) as never, STAMP),
       beliefs
     );
 
@@ -104,7 +104,7 @@ describe("the D1 seed carries the RP beliefs (plan 09-08, D-21)", () => {
   it("the recovered beliefs rebuild an accumulator that prices identically to the layer's own", () => {
     const layer = foldedLayer();
     const rows = withRpBeliefs(
-      serializeState("bpr", bpr.version, bpr.initState([...ALL_TEAMS]) as never, STAMP),
+      serializeState("spr", spr.version, spr.initState([...ALL_TEAMS]) as never, STAMP),
       layer.rpVariableBeliefs()
     );
 
@@ -118,9 +118,9 @@ describe("the D1 seed carries the RP beliefs (plan 09-08, D-21)", () => {
   it("a season with no registered RP rules yields an empty belief map rather than throwing", () => {
     // The feature is ABSENT for such a season, not empty — `publish.ts` must
     // still be able to emit a seed for it.
-    const layer = new SigmaScoutLayer(undefined, "bpr");
+    const layer = new SigmaScoutLayer(undefined, "spr");
     expect(layer.rpVariableBeliefs().size).toBe(0);
-    const rows = serializeState("bpr", bpr.version, bpr.initState([...ALL_TEAMS]) as never, STAMP);
+    const rows = serializeState("spr", spr.version, spr.initState([...ALL_TEAMS]) as never, STAMP);
     expect(() => withRpBeliefs(rows, layer.rpVariableBeliefs())).not.toThrow();
     expect(readRpBeliefs(withRpBeliefs(rows, layer.rpVariableBeliefs())).size).toBe(0);
   });

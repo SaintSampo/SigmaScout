@@ -15,7 +15,7 @@
  * reporting layer and the accuracy rule key off.
  */
 import { describe, expect, it } from "vitest";
-import { bpr, correctionsOf, type BprState, type BprTeamState } from "./bpr.js";
+import { spr, correctionsOf, type SprState, type SprTeamState } from "./bpr.js";
 import { accuracyCall, scoreSet } from "../scoring/brier.js";
 import type { MatchResult, UpcomingMatch } from "./types.js";
 
@@ -54,9 +54,9 @@ function result(overrides: Partial<MatchResult> = {}): MatchResult {
   };
 }
 
-describe("bpr dead-even predictions", () => {
+describe("spr dead-even predictions", () => {
   it("returns exactly 0.5 when both alliances are identically unseen", () => {
-    const prediction = bpr.predict(bpr.initState(SIX), upcoming());
+    const prediction = spr.predict(spr.initState(SIX), upcoming());
 
     // Exact equality is the point of this assertion; toBeCloseTo would pass
     // against the 0.5000000005 this test exists to prevent.
@@ -64,12 +64,12 @@ describe("bpr dead-even predictions", () => {
   });
 
   it("holds at 0.5 for an uneven alliance size, since rank weights renormalize to 3", () => {
-    const prediction = bpr.predict(bpr.initState(SIX), upcoming({ redTeams: ["frc1", "frc2"] }));
+    const prediction = spr.predict(spr.initState(SIX), upcoming({ redTeams: ["frc1", "frc2"] }));
     expect(prediction.pRedWin).toBe(0.5);
   });
 
   it("is counted as a no-call, and as a miss whichever side won", () => {
-    const pRedWin = bpr.predict(bpr.initState(SIX), upcoming()).pRedWin;
+    const pRedWin = spr.predict(spr.initState(SIX), upcoming()).pRedWin;
 
     const scored = scoreSet([
       { pRedWin, actualWinner: "red" },
@@ -85,8 +85,8 @@ describe("bpr dead-even predictions", () => {
   });
 
   it("leaves a genuinely lopsided prediction on the approximation path", () => {
-    const seeded = bpr.update(bpr.initState(SIX), result());
-    const prediction = bpr.predict(seeded, upcoming({ matchKey: "2016test_qm2" }));
+    const seeded = spr.update(spr.initState(SIX), result());
+    const prediction = spr.predict(seeded, upcoming({ matchKey: "2016test_qm2" }));
 
     expect(prediction.pRedWin).not.toBe(0.5);
     expect(prediction.pRedWin).toBeGreaterThan(0.5);
@@ -119,14 +119,14 @@ function breakdown2024Json(red: Record<string, number> = {}, blue: Record<string
 
 // `carrySeason` is optional on AlgorithmModule; BPR implements it, and these
 // tests are meaningless without it, so fail loudly here rather than at a `!`.
-const carrySeason: NonNullable<typeof bpr.carrySeason> = (() => {
-  const fn = bpr.carrySeason;
-  if (fn === undefined) throw new Error("bpr must implement carrySeason");
+const carrySeason: NonNullable<typeof spr.carrySeason> = (() => {
+  const fn = spr.carrySeason;
+  if (fn === undefined) throw new Error("spr must implement carrySeason");
   return fn;
 })();
 
-function season2024(teams: readonly string[]): BprState {
-  return carrySeason(bpr.initState([...teams]), {
+function season2024(teams: readonly string[]): SprState {
+  return carrySeason(spr.initState([...teams]), {
     fromSeason: 2024,
     toSeason: 2024,
     isColdStart: true,
@@ -134,11 +134,11 @@ function season2024(teams: readonly string[]): BprState {
 }
 
 /** Replaces every phase rating with nonsense, leaving the predictor half untouched. */
-function scramblePhases(state: BprState): BprState {
-  const junk = (i: number): BprTeamState => ({ muL: 100 * i, pL: 7 * i + 1, muS: -50 * i, pS: 3 * i + 1 });
+function scramblePhases(state: SprState): SprState {
+  const junk = (i: number): SprTeamState => ({ muL: 100 * i, pL: 7 * i + 1, muS: -50 * i, pS: 3 * i + 1 });
   const scrambled = { auto: new Map(), teleop: new Map(), endgame: new Map() } as Record<
     "auto" | "teleop" | "endgame",
-    Map<string, BprTeamState>
+    Map<string, SprTeamState>
   >;
   let i = 1;
   for (const phase of ["auto", "teleop", "endgame"] as const) {
@@ -152,7 +152,7 @@ function scramblePhases(state: BprState): BprState {
   };
 }
 
-describe("bpr phase components are display-only", () => {
+describe("spr phase components are display-only", () => {
   const played = (n: number, red: Record<string, number>, blue: Record<string, number>): MatchResult =>
     result({
       matchKey: `2024test_qm${n}`,
@@ -163,10 +163,10 @@ describe("bpr phase components are display-only", () => {
       scoreBreakdownRaw: breakdown2024Json(red, blue),
     });
 
-  const drive = (): BprState => {
+  const drive = (): SprState => {
     let state = season2024(SIX);
     for (let n = 1; n <= 6; n += 1) {
-      state = bpr.update(
+      state = spr.update(
         state,
         played(
           n,
@@ -182,13 +182,13 @@ describe("bpr phase components are display-only", () => {
     const state = drive();
     const match = upcoming({ matchKey: "2024test_qm99" });
 
-    expect(bpr.predict(scramblePhases(state), match)).toEqual(bpr.predict(state, match));
+    expect(spr.predict(scramblePhases(state), match)).toEqual(spr.predict(state, match));
   });
 
   it("keeps the predictor half of update identical under scrambled phase state", () => {
     const state = drive();
-    const next = bpr.update(state, played(7, { teleopSpeakerNotePoints: 55 }, { teleopSpeakerNotePoints: 20 }));
-    const nextScrambled = bpr.update(scramblePhases(state), played(7, { teleopSpeakerNotePoints: 55 }, { teleopSpeakerNotePoints: 20 }));
+    const next = spr.update(state, played(7, { teleopSpeakerNotePoints: 55 }, { teleopSpeakerNotePoints: 20 }));
+    const nextScrambled = spr.update(scramblePhases(state), played(7, { teleopSpeakerNotePoints: 55 }, { teleopSpeakerNotePoints: 20 }));
 
     expect(nextScrambled.logTau).toBe(next.logTau);
     expect(nextScrambled.scale).toBe(next.scale);
@@ -199,7 +199,7 @@ describe("bpr phase components are display-only", () => {
   it("emits no phase metric at all before any breakdown has been folded", () => {
     // initState, not season2024: a cold-start carrySeason empties the team
     // map, and this test needs a team that exists but has folded no breakdown.
-    const metrics = bpr.teamMetrics(bpr.initState(SIX), ["frc1"])["frc1"];
+    const metrics = spr.teamMetrics(spr.initState(SIX), ["frc1"])["frc1"];
 
     // Absent, never 0 — "not measured" and "scores nothing in auto" are
     // different claims and must not be published as the same number.
@@ -210,7 +210,7 @@ describe("bpr phase components are display-only", () => {
   });
 
   it("emits all three phases once real breakdowns have been folded", () => {
-    const metrics = bpr.teamMetrics(drive(), ["frc1"])["frc1"];
+    const metrics = spr.teamMetrics(drive(), ["frc1"])["frc1"];
 
     expect(metrics).toHaveProperty("phaseAuto");
     expect(metrics).toHaveProperty("phaseTeleop");
@@ -223,7 +223,7 @@ describe("bpr phase components are display-only", () => {
 
   it("leaves phase state untouched when a match carries no breakdown", () => {
     const state = drive();
-    const next = bpr.update(state, result({ matchKey: "2024test_qm8", scoreBreakdownRaw: null }));
+    const next = spr.update(state, result({ matchKey: "2024test_qm8", scoreBreakdownRaw: null }));
 
     expect(next.phaseScaleCount).toEqual(state.phaseScaleCount);
     expect([...next.phaseTeams.teleop.entries()]).toEqual([...state.phaseTeams.teleop.entries()]);
@@ -231,7 +231,7 @@ describe("bpr phase components are display-only", () => {
 
   it("leaves phase state untouched when a breakdown fails its season schema", () => {
     const state = drive();
-    const next = bpr.update(
+    const next = spr.update(
       state,
       result({ matchKey: "2024test_qm9", scoreBreakdownRaw: '{"red":{"autoLeavePoints":1},"blue":{}}' }),
     );
@@ -253,18 +253,18 @@ describe("bpr phase components are display-only", () => {
  * BIT-IDENTICAL before and after, while sd(z) on the emitted variance moved
  * 0.7052 -> 0.9987. See `.planning/quick/260910-2pt-.../verify-{before,after}.txt`.
  */
-describe("bpr display-variance calibration", () => {
-  const seeded = (): BprState => {
-    let state: BprState = bpr.initState(SIX);
+describe("spr display-variance calibration", () => {
+  const seeded = (): SprState => {
+    let state: SprState = spr.initState(SIX);
     for (let i = 0; i < 12; i += 1) {
-      state = bpr.update(state, result({ matchKey: `2016test_qm${i + 1}`, redScore: 80 + i, blueScore: 45 + i }));
+      state = spr.update(state, result({ matchKey: `2016test_qm${i + 1}`, redScore: 80 + i, blueScore: 45 + i }));
     }
     return state;
   };
 
   it("narrows the emitted interval without moving the win probability", () => {
     const state = seeded();
-    const p = bpr.predict(state, upcoming());
+    const p = spr.predict(state, upcoming());
 
     // The margin variance is exactly the sum of the two calibrated alliance
     // variances — the model's independence assumption, measured at
@@ -283,7 +283,7 @@ describe("bpr display-variance calibration", () => {
 
   it("emits a strictly narrower interval than the raw filter variance", () => {
     const state = seeded();
-    const p = bpr.predict(state, upcoming());
+    const p = spr.predict(state, upcoming());
     const unit = state.scale / 3;
 
     // Reconstruct the RAW alliance variance the filter carries, independently of
@@ -291,14 +291,14 @@ describe("bpr display-variance calibration", () => {
     const rawOwn = (keys: string[]): number => {
       let pv = 0;
       const mus = keys.map((k) => {
-        const s = state.teams.get(k) as BprTeamState;
+        const s = state.teams.get(k) as SprTeamState;
         return s.muL + s.muS;
       });
       const base = [1, 0.7, 0.5];
       const norm = 3 / (base[0]! + base[1]! + base[2]!);
       const order = mus.map((_, i) => i).sort((a, b) => (mus[b] ?? 0) - (mus[a] ?? 0) || a - b);
       order.forEach((idx, rank) => {
-        const s = state.teams.get(keys[idx]!) as BprTeamState;
+        const s = state.teams.get(keys[idx]!) as SprTeamState;
         const w = base[Math.min(rank, 2)]! * norm;
         pv += w * w * (s.pL + s.pS);
       });
@@ -315,7 +315,7 @@ describe("bpr display-variance calibration", () => {
   it("still reports zero interval before any match has been folded", () => {
     // The scale is unknown at cold start and 0 is the honest answer; the
     // calibration must not manufacture a nonzero interval out of it.
-    const p = bpr.predict(bpr.initState(SIX), upcoming());
+    const p = spr.predict(spr.initState(SIX), upcoming());
     expect(p.redScoreVarianceOwn).toBe(0);
     expect(p.blueScoreVarianceOwn).toBe(0);
     expect(p.variance).toBe(0);
@@ -339,13 +339,13 @@ function breakdownJson(
   });
 }
 
-const sortedTeams = (state: BprState): [string, BprTeamState][] =>
+const sortedTeams = (state: SprState): [string, SprTeamState][] =>
   [...state.teams.entries()].sort(([a], [b]) => a.localeCompare(b));
 
-describe("bpr scoring target excludes adjustPoints from the target (requirement a)", () => {
-  const runOnce = (redScore: number, adjustPoints: number): BprState =>
-    bpr.update(
-      bpr.initState(SIX),
+describe("spr scoring target excludes adjustPoints from the target (requirement a)", () => {
+  const runOnce = (redScore: number, adjustPoints: number): SprState =>
+    spr.update(
+      spr.initState(SIX),
       result({
         redScore,
         blueScore: 50,
@@ -365,7 +365,7 @@ describe("bpr scoring target excludes adjustPoints from the target (requirement 
       const b = runOnce(redB, adjB);
 
       // Compared by sorted entry arrays, since Map identity is not what is
-      // being asserted -- both start from the SAME bpr.initState(SIX), so
+      // being asserted -- both start from the SAME spr.initState(SIX), so
       // the comparison isolates the target.
       expect(sortedTeams(a)).toEqual(sortedTeams(b));
       expect(a.scale).toBe(b.scale);
@@ -375,7 +375,7 @@ describe("bpr scoring target excludes adjustPoints from the target (requirement 
   );
 });
 
-describe("bpr scoring target: malformed breakdown yields adjust = 0, never skips the update (requirement b, port half)", () => {
+describe("spr scoring target: malformed breakdown yields adjust = 0, never skips the update (requirement b, port half)", () => {
   const MALFORMED: readonly (string | null)[] = [
     null,
     "{not json",
@@ -391,9 +391,9 @@ describe("bpr scoring target: malformed breakdown yields adjust = 0, never skips
       expect(correctionsOf(raw)).toEqual({ redFoul: 0, blueFoul: 0, redAdjust: 0, blueAdjust: 0 });
     });
 
-    it(`raw=${JSON.stringify(raw)}: bpr.update folds the match rather than skipping it`, () => {
-      const before = bpr.initState(SIX);
-      const next = bpr.update(before, result({ scoreBreakdownRaw: raw, hasScoreBreakdown: raw !== null }));
+    it(`raw=${JSON.stringify(raw)}: spr.update folds the match rather than skipping it`, () => {
+      const before = spr.initState(SIX);
+      const next = spr.update(before, result({ scoreBreakdownRaw: raw, hasScoreBreakdown: raw !== null }));
 
       // The update was folded at adjust = 0, not skipped: ratings move and
       // the scale counter increments.

@@ -6,7 +6,7 @@
  * per tick — then independently replays the identical match slice offline
  * through `packages/harness`'s `WalkForwardSimulator` from a cold start, and
  * asserts the two prediction streams' digests agree for every published
- * algorithm (`opr`, `epa`, `bpr`).
+ * algorithm (`opr`, `epa`, `spr`).
  *
  * THIS TEST vs. `scripts/replayRig.ts`'s deployed-Worker rig — both are
  * required and they prove DIFFERENT things (recorded here so a future editor
@@ -26,7 +26,7 @@ import { runTick } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
-import { bpr } from "../../../packages/core/algorithms/bpr.js";
+import { spr } from "../../../packages/core/algorithms/bpr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { makeSigma1 } from "../../../packages/core/algorithms/sigma1/index.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
@@ -251,10 +251,10 @@ class FakeKvNamespace {
 
 // Quick task 260822-wqt: this test asserts D-14's equivalence property
 // across ALL THREE published algorithms, so its live tier is deliberately
-// left at all three rather than narrowed to bpr — it already overrides
+// left at all three rather than narrowed to spr — it already overrides
 // the subrequest budget (`subrequestCap: 1000, subrequestReserve: 0`) below
 // precisely because it tests the equivalence property, not the deferral
-// mechanism `scheduled.test.ts` covers directly. Narrowing this to bpr
+// mechanism `scheduled.test.ts` covers directly. Narrowing this to spr
 // would silently drop opr/epa fold-equivalence coverage while the suite
 // stayed green.
 function makeEnv(kv: FakeKvNamespace, d1: FakeD1Database, r2: FakeR2Bucket): Env {
@@ -264,7 +264,7 @@ function makeEnv(kv: FakeKvNamespace, d1: FakeD1Database, r2: FakeR2Bucket): Env
     MANIFEST: kv as unknown,
     TBA_API_KEY: "test-key",
     TBA_BASE_URL: "https://tba.example.invalid/api/v3",
-    LIVE_ALGORITHM_IDS: "opr,epa,bpr",
+    LIVE_ALGORITHM_IDS: "opr,epa,spr",
   } as Env;
 }
 
@@ -272,13 +272,13 @@ function liveWindowsManifest(windows: readonly { eventKey: string; season: numbe
   return JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", windows: windows.map((w) => ({ ...w, inferred: false })) });
 }
 
-const ALGORITHM_IDS = ["opr", "epa", "bpr"] as const;
+const ALGORITHM_IDS = ["opr", "epa", "spr"] as const;
 
 function algorithmsManifestJson(): string {
   const algorithms = [
     { id: "opr", version: "3.0.0+baseline", codeVersion: "3.0.0", paramSetName: "baseline" },
     { id: "epa", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" },
-    { id: "bpr", version: "2.0.0+test", codeVersion: "2.0.0", paramSetName: "test" },
+    { id: "spr", version: "2.0.0+test", codeVersion: "2.0.0", paramSetName: "test" },
   ];
   return JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", algorithms });
 }
@@ -287,7 +287,7 @@ function algorithmsManifestJson(): string {
 function buildOfflineModule(id: string): AlgorithmModule<any> {
   if (id === "opr") return opr;
   if (id === "epa") return epa;
-  if (id === "bpr") return bpr;
+  if (id === "spr") return spr;
   // Explicit, and NOT a fallthrough to makeSigma1 (2026-09-09). This helper had
   // the same defect the Worker's own `buildAlgorithmModules` did: an unknown id
   // silently became a Sigma1 module wearing that id, so the offline half of
@@ -441,7 +441,7 @@ afterEach(() => {
 
 describe("scheduled.replay — offline equivalence (D-14)", () => {
   it(
-    "drives runTick over a recorded fixture slice, one match per tick, and matches an independent offline WalkForwardSimulator replay's prediction-stream digest for opr/epa/bpr",
+    "drives runTick over a recorded fixture slice, one match per tick, and matches an independent offline WalkForwardSimulator replay's prediction-stream digest for opr/epa/spr",
     async () => {
       const window = { eventKey: EVENT_KEY, season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
       const kv = new FakeKvNamespace(new Map([[LIVE_WINDOWS_MANIFEST_KEY, liveWindowsManifest([window])], [ALGORITHMS_MANIFEST_KEY, algorithmsManifestJson()]]));
