@@ -137,6 +137,17 @@ import {
   formatDcmpCensus,
   loadDistrictCuts,
   measureDcmpPremise,
+  STRATUM_GRANULARITY_INSTANCES,
+  compareOnStratumBand,
+  dcmpBerthVerdict,
+  dcmpStratumRows,
+  formatDcmpBerthAnswer,
+  formatDcmpSection,
+  instanceGranularity,
+  stratumBand,
+  stratumBandGloss,
+  stratumSumMismatches,
+  toJsonDcmp,
   type AwardInstance,
   type DcmpDistrictJoinRow,
   type DcmpPremise,
@@ -3027,5 +3038,406 @@ describe("the DCMP census header", () => {
   it("prints the null-cmp_slots and no-rankings counts rather than throwing on them", () => {
     expect(text).toContain("NULL cmp_slots");
     expect(text).toContain("NO rankings rows");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRAIN WIDE, SCORE NARROW — the stratum cells (quick task 260912-l8t T2)
+// ---------------------------------------------------------------------------
+
+const DCMP_POOL = ["frc1", "frc2", "frc3", "frc4", "frc9"] as const;
+
+/**
+ * A world where HALF the events are DCMP events and the winners deliberately
+ * span all three strata:
+ *
+ *   frc1 ranks 1 of a 2-slot cut  -> INSIDE
+ *   frc3 ranks 3 of a 2-slot cut  -> OUTSIDE
+ *   frc9 is absent from the rankings entirely -> UNKNOWN
+ *
+ * `cutSeasons` builds the cuts from a SUBSET of the seasons, which is what lets
+ * the leak test put later seasons beyond the cut lookup entirely.
+ */
+function dcmpWorld(
+  seasons: readonly number[],
+  perSeason: number,
+  awardType: number,
+  cutSeasons: readonly number[] = seasons
+) {
+  const instances: AwardInstance[] = [];
+  const poolsByEvent = new Map<string, string[]>();
+  const ratingsByEvent = new Map<string, ReadonlyMap<string, number>>();
+  const joined: DcmpDistrictJoinRow[] = [];
+  const rankings: DistrictRankingRow[] = [];
+  const dcmpEventKeys: string[] = [];
+
+  for (const year of seasons) {
+    const districtKey = `${year}dd`;
+    if (cutSeasons.includes(year)) {
+      rankings.push(
+        { districtKey, teamKey: "frc1", rank: 1 },
+        { districtKey, teamKey: "frc2", rank: 2 },
+        { districtKey, teamKey: "frc3", rank: 3 },
+        { districtKey, teamKey: "frc4", rank: 4 }
+        // frc9 is deliberately NOT ranked -> UNKNOWN, never INSIDE.
+      );
+    }
+    for (let i = 0; i < perSeason; i += 1) {
+      const eventKey = `${year}e${i}`;
+      const winner = i % 6 === 2 ? "frc3" : i % 6 === 4 ? "frc9" : "frc1";
+      instances.push(inst(year, eventKey, awardType, [winner]));
+      poolsByEvent.set(eventKey, [...DCMP_POOL]);
+      ratingsByEvent.set(eventKey, new Map(DCMP_POOL.map((t, k) => [t, k])));
+      if (i % 2 === 0 && cutSeasons.includes(year)) {
+        dcmpEventKeys.push(eventKey);
+        joined.push({ eventKey, districtKey, year, abbreviation: "dd", cmpSlots: 2 });
+      }
+    }
+  }
+  const cuts = buildDistrictCuts({ dcmpEventKeys, joined, rankings, minJoinedEvents: 1 });
+  return { instances, poolsByEvent, ratingsByEvent, cuts };
+}
+
+function runDcmp(
+  world: ReturnType<typeof dcmpWorld>,
+  cuts?: DistrictCuts,
+  onFit?: (
+    awardType: number,
+    season: number,
+    weights: readonly number[] | null,
+    ageWeights: readonly number[] | null
+  ) => void
+) {
+  return runExperiment({
+    instances: world.instances,
+    census: emptyCensusFixture(),
+    poolsByEvent: world.poolsByEvent,
+    ratingsByEvent: world.ratingsByEvent,
+    awardNames: new Map(),
+    ...(cuts === undefined ? {} : { districtCuts: cuts }),
+    ...(onFit === undefined ? {} : { onFit }),
+    command: "test",
+    fitIterations: 60,
+  });
+}
+
+describe("TRAIN WIDE: the cuts change no weight, to the last bit", () => {
+  it("fits identical weights per (awardType, season) with and without --dcmp", () => {
+    const world = dcmpWorld([2000, 2001, 2002], 40, 0);
+    const capture = (cuts?: DistrictCuts): string[] => {
+      const fits: string[] = [];
+      runDcmp(world, cuts, (t, s, w, aw) =>
+        // JSON round-trips an IEEE-754 double exactly, so string equality here
+        // IS bit equality — not a tolerance dressed up as one.
+        fits.push(`${t}|${s}|${JSON.stringify(w)}|${JSON.stringify(aw)}`)
+      );
+      return fits;
+    };
+    const plain = capture();
+    const dcmp = capture(world.cuts);
+    expect(plain.length).toBeGreaterThan(0);
+    // At least one season really fit, rather than every one falling back to the
+    // thin-prior heuristic and making the comparison vacuous.
+    expect(plain.some((f) => !f.includes("|null|null"))).toBe(true);
+    // THE SINGLE MOST DANGEROUS LINE IN THE TASK, pinned: filtering
+    // `input.instances` instead of the fan-out list would quietly redefine prior
+    // decoration as "prior DCMP decoration" — a different model wearing this
+    // one's name — and would move exactly these numbers.
+    expect(dcmp).toEqual(plain);
+  });
+
+  it("scores the identical pooled and per-season cells with and without the cuts", () => {
+    const world = dcmpWorld([2000, 2001, 2002], 40, 0);
+    const plain = runDcmp(world);
+    const dcmp = runDcmp(world, world.cuts);
+    expect(dcmp.byType[0]?.pooled).toEqual(plain.byType[0]?.pooled);
+    expect(dcmp.byType[0]?.perSeason).toEqual(plain.byType[0]?.perSeason);
+  });
+
+  it("adds NOTHING to the report without the cuts — no byStratum, no dcmp section", () => {
+    const report = runDcmp(dcmpWorld([2000, 2001], 40, 0));
+    expect(report.dcmp).toBeUndefined();
+    for (const r of report.byType) expect(r.byStratum).toBeUndefined();
+    expect(formatDcmpSection(report)).toEqual([]);
+    expect(formatReport(report)).not.toContain(DCMP_ALL);
+  });
+});
+
+describe("SCORE NARROW: the stratum cells", () => {
+  const world = dcmpWorld([2000, 2001], 60, 0);
+  const report = runDcmp(world, world.cuts);
+  const byStratum = report.byType[0]?.byStratum;
+
+  it("creates the map only when a stratum was actually assigned", () => {
+    expect(byStratum).toBeDefined();
+    expect([...(byStratum?.keys() ?? [])].sort()).toEqual(
+      ["DCMP-ALL", "INSIDE", "OUTSIDE", "UNKNOWN"].sort()
+    );
+  });
+
+  it("DCMP-ALL equals OUTSIDE + INSIDE + UNKNOWN on n and on every hit count", () => {
+    expect(byStratum).toBeDefined();
+    if (byStratum === undefined) return;
+    expect(stratumSumMismatches(byStratum)).toEqual([]);
+    const all = byStratum.get(DCMP_ALL);
+    const sum = STRATA.reduce((acc, s) => acc + (byStratum.get(s)?.n ?? 0), 0);
+    expect(all?.n).toBe(sum);
+    expect(all?.n).toBeGreaterThan(0);
+  });
+
+  it("a DCMP instance lands in EXACTLY ONE stratum cell, plus DCMP-ALL", () => {
+    // 60 events per season, every even one a DCMP event, one scored season.
+    expect(byStratum?.get(DCMP_ALL)?.n).toBe(30);
+    // ...and the pooled cell still carries EVERY instance, DCMP or not.
+    expect(report.byType[0]?.pooled.n).toBe(60);
+  });
+
+  it("a NON-DCMP instance contributes to no stratum cell at all", () => {
+    const all = byStratum?.get(DCMP_ALL)?.n ?? 0;
+    const pooled = report.byType[0]?.pooled.n ?? 0;
+    expect(pooled - all).toBe(30);
+  });
+
+  it("routes each winner to the stratum its rank earns", () => {
+    // Of the 30 scored DCMP events (i even): i%6===0 -> frc1 INSIDE (10),
+    // i%6===2 -> frc3 OUTSIDE (10), i%6===4 -> frc9 UNKNOWN (10).
+    expect(byStratum?.get("INSIDE")?.n).toBe(10);
+    expect(byStratum?.get("OUTSIDE")?.n).toBe(10);
+    expect(byStratum?.get("UNKNOWN")?.n).toBe(10);
+  });
+
+  it("THE K=1 CONTROL HOLDS INSIDE EVERY STRATUM CELL", () => {
+    expect(byStratum).toBeDefined();
+    if (byStratum === undefined) return;
+    const predictors: Predictor[] = ["model", "ageModel", "b1", "b2", "rb1", "rb2"];
+    for (const key of STRATUM_ROWS) {
+      const c = byStratum.get(key);
+      if (c === undefined || c.n === 0) continue;
+      for (const which of predictors) {
+        expect(cellRecallAt(c, which, 0)).toBeCloseTo(cellAccuracy(c, which), 12);
+      }
+    }
+  });
+
+  it("carries the premise census over EVERY season, scored or not", () => {
+    // 60 events per season, half of them DCMP, over BOTH seasons — including
+    // 2000, which is training-only and never scored. The census counts the
+    // opportunity; the scored cells count what could be measured.
+    expect(report.dcmp?.premise.instances).toBe(60);
+    expect(report.dcmp?.premise.recipients).toBe(60);
+    expect(report.dcmp?.premise.instancesByStratum).toEqual({
+      OUTSIDE: 20,
+      INSIDE: 20,
+      UNKNOWN: 20,
+    });
+  });
+});
+
+describe("the stratum state never reaches the feature path (leak guard)", () => {
+  it("scores season Y's strata identically whether or not later seasons exist", () => {
+    const short = dcmpWorld([2000, 2001], 40, 0);
+    // The SAME cuts, but the long world carries two further seasons that the cut
+    // lookup has never heard of. Ranks and cmp_slots are END-OF-SEASON district
+    // facts, so this is a real check that the stratum is read only at
+    // accumulation and never as a feature.
+    const long = dcmpWorld([2000, 2001, 2002, 2003], 40, 0, [2000, 2001]);
+    const a = runDcmp(short, short.cuts).byType[0]?.byStratum;
+    const b = runDcmp(long, short.cuts).byType[0]?.byStratum;
+    expect(a).toBeDefined();
+    expect(b).toBeDefined();
+    for (const key of STRATUM_ROWS) {
+      expect(b?.get(key)).toEqual(a?.get(key));
+    }
+  });
+});
+
+describe("stratumBand — the small-n floor the measured bands do not cover", () => {
+  it("returns the MEASURED band when the sample is large", () => {
+    // 2 instances at n = 10,000 is 0.02pp, far under the measured 0.77pp.
+    expect(stratumBand("R@1", 10000)).toBeCloseTo(0.77, 10);
+    expect(stratumBand("R@3", 10000)).toBeCloseTo(1.5, 10);
+  });
+
+  it("FLOORS at two instances when the sample is small", () => {
+    // At n = 75 one instance is 1.333pp, so two are 2.667pp — wider than both
+    // the R@1 band (0.77pp) and the R@3 band (1.50pp).
+    expect(stratumBand("R@1", 75)).toBeCloseTo(200 / 75, 10);
+    expect(stratumBand("R@3", 75)).toBeCloseTo(200 / 75, 10);
+    expect(stratumBand("R@3", 75)).toBeGreaterThan(1.5);
+  });
+
+  it("crosses over exactly where two instances equals the measured band", () => {
+    // R@3: 200/n === 1.5 at n = 133.33, so n = 133 floors and n = 134 does not.
+    expect(stratumBand("R@3", 133)).toBeGreaterThan(1.5);
+    expect(stratumBand("R@3", 134)).toBeCloseTo(1.5, 10);
+  });
+
+  it("uses the metric's OWN unit — MRR is absolute, not percentage points", () => {
+    expect(stratumBand("MRR", 75)).toBeCloseTo(2 / 75, 10);
+    expect(stratumBand("MRR", 10000)).toBeCloseTo(0.0046, 10);
+  });
+
+  it("A NULL BAND STAYS NULL — a floor is not a band", () => {
+    for (const metric of ["R@5", "R@10", "meanRank", "medRank", "brierSkill"] as const) {
+      expect(RANK_NOISE_BANDS[metric].band).toBeNull();
+      expect(stratumBand(metric, 3)).toBeNull();
+      expect(stratumBand(metric, 100000)).toBeNull();
+    }
+  });
+
+  it("leaves compareOnBand and the measured bands completely untouched", () => {
+    // The floor applies ONLY inside the DCMP block.
+    expect(compareOnBand("R@3", 0.52, 0.5).verdict).toBe("better");
+    expect(compareOnStratumBand("R@3", 0.52, 0.5, 75).verdict).toBe("no difference");
+    expect(RANK_NOISE_BANDS["R@3"].band).toBeCloseTo(1.5, 10);
+  });
+
+  it("one instance is the granularity the floor is built from", () => {
+    expect(instanceGranularity("R@1", 75)).toBeCloseTo(100 / 75, 10);
+    expect(instanceGranularity("MRR", 75)).toBeCloseTo(1 / 75, 10);
+    expect(STRATUM_GRANULARITY_INSTANCES).toBe(2);
+  });
+
+  it("never reads a gap inside the floored band as 'slightly better'", () => {
+    const gloss = stratumBandGloss("R@3", compareOnStratumBand("R@3", 0.52, 0.5, 75), 75);
+    expect(gloss).toContain("NO DIFFERENCE");
+    expect(gloss).not.toContain("slightly");
+    expect(gloss).toContain("2 instances at n=75");
+  });
+
+  it("an unmeasured metric still says CANNOT BE SCORED, never borrowing the floor", () => {
+    const gloss = stratumBandGloss("R@5", compareOnStratumBand("R@5", 0.9, 0.1, 7), 7);
+    expect(gloss).toContain("CANNOT BE SCORED");
+    expect(gloss).toContain("a small-n floor is NOT a substitute");
+  });
+});
+
+describe("the pre-committed DCMP berth verdict", () => {
+  function cellWith(n: number, modelR3: number, refR3: number, b0R3: number): Cell {
+    const c = emptyCell();
+    c.n = n;
+    c.rank.model.recallAt[1] = modelR3;
+    c.rank.b1.recallAt[1] = refR3;
+    c.rank.b0.recallAt[1] = b0R3;
+    return c;
+  }
+
+  it("scores against THAT STRATUM'S OWN B0, not a pooled one", () => {
+    const v = dcmpBerthVerdict(cellWith(100, 40, 30, 12), 0);
+    expect(v.reference).toBe("b1");
+    expect(v.best).toBe("model");
+    expect(v.b0R3).toBeCloseTo(0.12, 10);
+    expect(v.predictable).toBe(true);
+  });
+
+  it("takes the BETTER of the model and the reference ordering", () => {
+    const v = dcmpBerthVerdict(cellWith(100, 20, 45, 12), 0);
+    expect(v.best).toBe("b1");
+    expect(v.bestR3).toBeCloseTo(0.45, 10);
+  });
+
+  it("refuses a verdict on a THIN-n stratum, in either direction", () => {
+    const v = dcmpBerthVerdict(cellWith(7, 7, 1, 0), 0);
+    expect(v.thin).toBe(true);
+    expect(v.predictable).toBe(false);
+  });
+
+  it("a gap inside the floored band is NOT predictable", () => {
+    // n = 50 -> band 4pp. 2pp over B0 is one instance's worth.
+    const v = dcmpBerthVerdict(cellWith(50, 7, 7, 6), 0);
+    expect(v.comparison.verdict).toBe("no difference");
+    expect(v.predictable).toBe(false);
+  });
+
+  it("reads a ROOKIE type against RB1/RB2 and never against B1/B2", () => {
+    const c = cellWith(100, 40, 90, 10);
+    c.rank.rb1.recallAt[1] = 55;
+    c.rank.rb1.recallAt[0] = 30;
+    c.rank.rb2.recallAt[0] = 10;
+    const v = dcmpBerthVerdict(c, 10);
+    expect(v.reference).toBe("rb1");
+    expect(BERTH_AWARD_TYPES).toContain(10);
+    expect(ROOKIE_AWARD_TYPES).toContain(10);
+  });
+});
+
+describe("THE POOLED ROW CANNOT BE PRINTED WITHOUT THE STRATA", () => {
+  const world = dcmpWorld([2000, 2001], 60, 0);
+  const report = runDcmp(world, world.cuts);
+  const text = formatDcmpSection(report).join("\n");
+
+  it("every output containing DCMP-ALL also contains OUTSIDE and INSIDE", () => {
+    expect(text).toContain(DCMP_ALL);
+    expect(text).toContain("OUTSIDE");
+    expect(text).toContain("INSIDE");
+    // One function emits all four rows, so the pooled row is structurally
+    // impossible to emit alone — asserted here, not asserted in prose.
+    const byStratum = report.byType[0]?.byStratum;
+    expect(byStratum).toBeDefined();
+    if (byStratum === undefined) return;
+    const rows = dcmpStratumRows(byStratum, 0);
+    const joined = rows.join("\n");
+    expect(joined).toContain("DCMP-ALL");
+    expect(joined).toContain("OUTSIDE");
+    expect(joined).toContain("INSIDE");
+    expect(joined).toContain("UNKNOWN");
+  });
+
+  it("prints OUTSIDE FIRST, because OUTSIDE is the answer", () => {
+    const byStratum = report.byType[0]?.byStratum;
+    if (byStratum === undefined) throw new Error("no strata");
+    const rows = dcmpStratumRows(byStratum, 0);
+    const labels = rows.slice(1).map((l) => l.trim().split(/\s+/)[0]);
+    expect(labels).toEqual(["OUTSIDE", "INSIDE", "UNKNOWN", "DCMP-ALL"]);
+  });
+
+  it("prints a raw count beside every percentage", () => {
+    expect(text).toMatch(/\d+\.\d% \(\d+ of \d+\)/);
+  });
+
+  it("prints each stratum's OWN B0 and its OWN mean pool size", () => {
+    expect(text).toContain("B0 R@1");
+    expect(text).toContain("B0 R@3");
+    expect(text).toContain("mean pool");
+    expect(text).toContain("A CHANGED BASELINE IS NOT A CHANGED MODEL");
+  });
+
+  it("carries the approximate-cut caveat and the THIN-n rule in the block header", () => {
+    expect(text).toContain("APPROXIMATE cut");
+    expect(text).toContain("CONSERVATIVE");
+    expect(text).toContain("NO CONCLUSION MAY BE DRAWN FROM ONE");
+  });
+
+  it("confirms the structural invariant in the output rather than only in a test", () => {
+    expect(text).toContain("DCMP-ALL = OUTSIDE + INSIDE + UNKNOWN verified");
+    expect(text).not.toContain("STRUCTURAL INVARIANT BROKEN");
+  });
+
+  it("prints the berth answer with OUTSIDE first and INSIDE as context", () => {
+    const answer = formatDcmpBerthAnswer(report).join("\n");
+    expect(answer).toContain("DCMP BERTH ANSWER");
+    expect(answer.indexOf("OUTSIDE the points cut")).toBeLessThan(
+      answer.indexOf("INSIDE the cut")
+    );
+    expect(answer).toContain("NO PROBABILITY measured anywhere in this script");
+  });
+
+  it("keeps the DCMP block out of the report body when the flag is absent", () => {
+    const plain = runDcmp(world);
+    expect(formatReport(plain)).not.toContain("DCMP BERTH ANSWER");
+    expect(formatReport(report)).toContain("DCMP BERTH ANSWER");
+  });
+});
+
+describe("toJsonDcmp", () => {
+  it("replaces the Maps and Sets JSON.stringify would render as {}", () => {
+    const world = dcmpWorld([2000, 2001], 40, 0);
+    const report = runDcmp(world, world.cuts);
+    expect(report.dcmp).toBeDefined();
+    if (report.dcmp === undefined) return;
+    const json = JSON.parse(JSON.stringify(toJsonDcmp(report.dcmp))) as Record<string, unknown>;
+    expect(json["cutBasis"]).toContain("APPROXIMATE");
+    expect(json["census"]).toMatchObject({ dcmpEventsJoined: report.dcmp.cuts.dcmpEventsJoined });
+    expect(json["premise"]).toMatchObject({ instances: report.dcmp.premise.instances });
   });
 });

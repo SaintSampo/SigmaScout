@@ -1768,6 +1768,26 @@ export interface AwardTypeReport {
   name: string;
   pooled: Cell;
   perSeason: Map<number, Cell>;
+  /**
+   * THE DCMP STRATUM CELLS (quick task 260912-l8t T2). OPTIONAL, and ABSENT
+   * entirely without `--dcmp`: the map is created lazily on the first instance
+   * that is actually assigned a stratum, which can only happen when
+   * `runExperiment` was handed a `districtCuts`. No flag, no map, no DCMP block,
+   * and a byte-identical default run.
+   */
+  byStratum?: Map<StratumRow, Cell>;
+}
+
+/**
+ * The DCMP section of the report. ABSENT without `--dcmp`.
+ *
+ * Carries the cut census and the premise control so the block can print both
+ * before any result — a reader must meet the approximate-cut caveat and the
+ * two denominators BEFORE the numbers, not after them.
+ */
+export interface DcmpSection {
+  readonly cuts: DistrictCuts;
+  readonly premise: DcmpPremise;
 }
 
 export interface ExperimentReport {
@@ -1787,6 +1807,8 @@ export interface ExperimentReport {
    * left for the reader to infer from a flat delta column.
    */
   rookieYearsKnown: number;
+  /** The DCMP stratification (quick task 260912-l8t). ABSENT without `--dcmp`. */
+  dcmp?: DcmpSection;
 }
 
 /** The two fitted arms. */
@@ -2160,6 +2182,192 @@ function addCell(
   accumulateB0Rank(target.rank.b0, poolSize, recipInPool);
 }
 
+// ---------------------------------------------------------------------------
+// SCORE NARROW: the stratum cells, and the small-n floor under the bands
+// (quick task 260912-l8t T2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The stratum cell for one award type, created on first use.
+ *
+ * `byStratum` stays UNDEFINED unless a stratum was actually assigned, which only
+ * happens when `runExperiment` was handed a `districtCuts`. That is what keeps
+ * the default run byte-identical: with no cuts there is no stratum, with no
+ * stratum there is no map, and with no map the DCMP block is not printed.
+ */
+export function stratumCellOf(report: AwardTypeReport, key: StratumRow): Cell {
+  let map = report.byStratum;
+  if (map === undefined) {
+    map = new Map<StratumRow, Cell>();
+    report.byStratum = map;
+  }
+  let cell = map.get(key);
+  if (cell === undefined) {
+    cell = emptyCell();
+    map.set(key, cell);
+  }
+  return cell;
+}
+
+/**
+ * The number of instances the stratum band floors at.
+ *
+ * ONE instance, not two, would be the raw granularity — but a band that equals
+ * exactly one instance would score a one-instance difference as a result, which
+ * is precisely the reading this floor exists to refuse.
+ */
+export const STRATUM_GRANULARITY_INSTANCES = 2;
+
+/**
+ * ONE INSTANCE'S WORTH of a metric at sample size `n`, in the metric's own band
+ * unit. For a fraction read as a percentage that is `100/n` pp; for MRR, whose
+ * every instance contributes at most `1/n` to the mean, it is `1/n`.
+ */
+export function instanceGranularity(metric: RankMetric, n: number): number {
+  if (n <= 0) return Number.POSITIVE_INFINITY;
+  return (RANK_NOISE_BANDS[metric].unit === "pp" ? 100 : 1) / n;
+}
+
+/**
+ * THE BAND TO SCORE A STRATUM ON: `max(measured band, two instances)`.
+ *
+ * `RANK_NOISE_BANDS` was measured as OPTIMIZER variance across the FULL
+ * instance set of each award type — typically 1,100 to 1,500 instances. A DCMP
+ * stratum has 75. At n = 75 a SINGLE INSTANCE moves R@1 or R@3 by 1.3pp, which
+ * is comparable to or larger than the measured R@3 band of 1.50pp: the measured
+ * band simply does not cover the quantization of a small sample, and scoring a
+ * 75-instance stratum against it would report a two-instance difference as a
+ * result.
+ *
+ * `null` STAYS `null`. A floor is not a band. R@5, R@10, meanRank, medRank and
+ * the Brier skill score were never measured and still print CANNOT BE SCORED —
+ * borrowing a granularity floor as if it were a noise band would be exactly the
+ * fabrication the `null` entries exist to refuse, wearing a smaller number.
+ *
+ * `compareOnBand`, `bandGloss` and every existing output are UNTOUCHED: this
+ * floor applies ONLY inside the DCMP block.
+ */
+export function stratumBand(metric: RankMetric, n: number): number | null {
+  const spec = RANK_NOISE_BANDS[metric];
+  if (spec.band === null) return null;
+  if (n <= 0) return spec.band;
+  return Math.max(spec.band, STRATUM_GRANULARITY_INSTANCES * instanceGranularity(metric, n));
+}
+
+/** `compareOnBand`, scored against `stratumBand(metric, n)` instead of the raw band. */
+export function compareOnStratumBand(
+  metric: RankMetric,
+  subject: number,
+  reference: number,
+  n: number
+): BandComparison {
+  const spec = RANK_NOISE_BANDS[metric];
+  const delta = (spec.unit === "pp" ? 100 : 1) * (subject - reference);
+  const band = stratumBand(metric, n);
+  if (band === null) return { delta, verdict: "band not measured" };
+  const oriented = spec.higherIsBetter ? delta : -delta;
+  if (oriented > band) return { delta, verdict: "better" };
+  if (oriented < -band) return { delta, verdict: "worse" };
+  return { delta, verdict: "no difference" };
+}
+
+/**
+ * How a stratum comparison reads. Never "slightly better" — a gap inside the
+ * floored band is NO DIFFERENCE, and the floor is named so a reader can see the
+ * measured band was widened rather than replaced.
+ */
+export function stratumBandGloss(metric: RankMetric, cmp: BandComparison, n: number): string {
+  const spec = RANK_NOISE_BANDS[metric];
+  const unit = spec.unit === "pp" ? "pp" : "";
+  const digits = spec.unit === "pp" ? 1 : 4;
+  const shown = `${cmp.delta >= 0 ? "+" : ""}${cmp.delta.toFixed(digits)}${unit}`;
+  const band = stratumBand(metric, n);
+  if (band === null || spec.band === null) {
+    return (
+      `${shown}  CANNOT BE SCORED — no band measured for ${metric}, so this gap is neither a ` +
+      `result nor noise, and a small-n floor is NOT a substitute for one`
+    );
+  }
+  const floored = band > spec.band;
+  const bandText =
+    `${band.toFixed(digits)}${unit} stratum band` +
+    (floored
+      ? ` = ${STRATUM_GRANULARITY_INSTANCES} instances at n=${n}, which is WIDER than the measured ` +
+        `${spec.band.toFixed(digits)}${unit}`
+      : ` = the measured ${spec.band.toFixed(digits)}${unit}, wider than ` +
+        `${STRATUM_GRANULARITY_INSTANCES} instances at n=${n}`) +
+    (spec.higherIsBetter ? "" : ", LOWER IS BETTER");
+  if (cmp.verdict === "no difference") return `${shown}  NO DIFFERENCE (inside the ${bandText})`;
+  return `${shown}  ${cmp.verdict === "better" ? "BETTER" : "WORSE"} (outside the ${bandText})`;
+}
+
+/**
+ * How far the B0 expectation sums may differ before it counts as a mismatch.
+ *
+ * Chosen far below any real accumulation error and far above IEEE-754 addition
+ * reordering on sums of a few hundred probabilities, which lands around 1e-14.
+ */
+export const B0_SUM_TOLERANCE = 1e-9;
+
+/** The scalar `Cell` counters `DCMP-ALL` must equal the sum of the three strata on. */
+export const STRATUM_SUM_FIELDS = [
+  "n",
+  "modelHits",
+  "ageModelHits",
+  "b1Hits",
+  "b2Hits",
+  "rb1Hits",
+  "rb2Hits",
+  "rb1Abstentions",
+  "rb2Abstentions",
+  "unreachable",
+  "thinPriorRows",
+  "smallPoolInstances",
+] as const;
+
+/**
+ * THE STRUCTURAL INVARIANT, CHECKED RATHER THAN ASSERTED IN PROSE.
+ *
+ * Every DCMP instance lands in EXACTLY ONE stratum cell and in `DCMP-ALL`, from
+ * ONE accumulation pass, so `DCMP-ALL` must equal `OUTSIDE + INSIDE + UNKNOWN`
+ * exactly — on `n` and on every hit count. Returns the list of fields where it
+ * does not. An empty list is the pass, and the report prints the result either
+ * way rather than leaving it to a test nobody reruns.
+ */
+export function stratumSumMismatches(byStratum: ReadonlyMap<StratumRow, Cell>): string[] {
+  const all = byStratum.get(DCMP_ALL);
+  if (all === undefined) return [];
+  const out: string[] = [];
+  for (const field of STRATUM_SUM_FIELDS) {
+    let sum = 0;
+    for (const s of STRATA) sum += byStratum.get(s)?.[field] ?? 0;
+    if (sum !== all[field]) {
+      out.push(`${field}: OUTSIDE+INSIDE+UNKNOWN = ${sum} but DCMP-ALL = ${all[field]}`);
+    }
+  }
+  for (const which of RANK_PREDICTORS) {
+    for (let ki = 0; ki < K_VALUES.length; ki += 1) {
+      let sum = 0;
+      for (const s of STRATA) sum += byStratum.get(s)?.rank[which].recallAt[ki] ?? 0;
+      const ref = all.rank[which].recallAt[ki] ?? 0;
+      // B0 IS AN EXPECTATION, NOT A COUNT. `accumulateB0Rank` adds a
+      // PROBABILITY per instance, so its `recallAt` is a float and summing the
+      // same instances in two different orders (three stratum cells, then one
+      // pooled cell) differs in the last bit or two of IEEE-754 addition. That
+      // is float associativity, NOT a broken invariant, and comparing it
+      // exactly would print a false alarm on a correct implementation. Every
+      // OTHER predictor accumulates integer hits and IS compared exactly.
+      const exact = which === "b0" ? Math.abs(sum - ref) <= B0_SUM_TOLERANCE : sum === ref;
+      if (!exact) {
+        out.push(
+          `recall@${K_VALUES[ki]} ${which}: OUTSIDE+INSIDE+UNKNOWN = ${sum} but DCMP-ALL = ${ref}`
+        );
+      }
+    }
+  }
+  return out;
+}
+
 interface PreparedInstance {
   readonly instance: AwardInstance;
   readonly candidates: readonly string[];
@@ -2176,6 +2384,15 @@ interface PreparedInstance {
   readonly train: TrainInstance;
   readonly ageTrain: TrainInstance;
   readonly ageKnownFraction: number;
+  /**
+   * SCORE NARROW. `null` on the default run and on every non-DCMP instance.
+   *
+   * It travels WITH the instance but is READ ONLY AT ACCUMULATION. It never
+   * reaches `features`, `ageFeatures`, `train`, `ageTrain` or
+   * `buildPriorHistory` — those are the TRAIN WIDE half, and a test asserts the
+   * fitted weights are bit-identical with and without the cuts.
+   */
+  readonly stratum: Stratum | null;
 }
 
 /**
@@ -2196,6 +2413,33 @@ export function runExperiment(input: {
    * backfilled.
    */
   rookieYearByTeam?: ReadonlyMap<string, number>;
+  /**
+   * THE DISTRICT CUTS (quick task 260912-l8t T2). Omitted, NOTHING about this
+   * run changes: no stratum is assigned, no stratum cell is created, no DCMP
+   * section is returned and the printed report is byte-identical.
+   *
+   * TRAIN WIDE, SCORE NARROW, AND THE REASON IS NOT CONVENIENCE. DCMP instances
+   * are thin — roughly 170 per award type across 9 scored seasons. Restricting
+   * TRAINING to DCMP would drop below `THIN_PRIOR_INSTANCES` in the early
+   * seasons, collapse both arms into the B1 fallback and MEASURE THE FALLBACK
+   * INSTEAD OF THE MODEL. Worse, it would quietly redefine prior decoration as
+   * "prior DCMP decoration" — a different model wearing this one's name. So
+   * `instances`, `buildPriorHistory`, `trainPool`, both `fitConditionalLogit`
+   * calls and `isThinPrior` are COMPLETELY UNTOUCHED by this option.
+   */
+  districtCuts?: DistrictCuts;
+  /**
+   * TEST-ONLY OBSERVER, called once per `(awardType, season)` with the fitted
+   * weight vectors. It is an observer and nothing else: it cannot influence the
+   * fit, and its only purpose is to let a test assert that `districtCuts`
+   * changes no weight to the last bit.
+   */
+  onFit?: (
+    awardType: number,
+    season: number,
+    weights: readonly number[] | null,
+    ageWeights: readonly number[] | null
+  ) => void;
   command: string;
   fitIterations?: number;
 }): ExperimentReport {
@@ -2253,6 +2497,10 @@ export function runExperiment(input: {
       train: toTrainInstance(features, winnerIdx),
       ageTrain: toTrainInstance(ageFeatures, winnerIdx),
       ageKnownFraction: knownAgeFraction(candidates, rookieYears),
+      stratum:
+        input.districtCuts === undefined
+          ? null
+          : assignStratum(instance.eventKey, instance.recipients, input.districtCuts),
     });
   }
 
@@ -2300,6 +2548,8 @@ export function runExperiment(input: {
             trainPool.map((p) => p.ageTrain),
             { iterations: fitIterations }
           );
+
+      input.onFit?.(awardType, season, weights, ageWeights);
 
       let cell = report.perSeason.get(season);
       if (cell === undefined) {
@@ -2366,7 +2616,23 @@ export function runExperiment(input: {
           rb2: rb2Order,
         };
 
-        for (const target of [cell, report.pooled]) {
+        // THE FAN-OUT LIST IS THE SINGLE HOOK THIS NARROWING NEEDS, and
+        // extending it rather than adding a second filtered pass is the whole
+        // design. Consequences, all of which are the point:
+        //   - ONE pass, ONE fit, shared by every stratum BY CONSTRUCTION rather
+        //     than by assertion. Three filtered `runExperiment` runs would have
+        //     cost 3x and turned that guarantee into a test.
+        //   - EVERY existing accumulator — hits, RankStats, CalibrationStats,
+        //     poolSum, unreachable, thinPriorRows, the exact B0 — works on a
+        //     stratum cell with ZERO new accumulation code.
+        //   - DCMP-ALL = INSIDE + OUTSIDE + UNKNOWN EXACTLY, on `n` and on every
+        //     hit count, because each instance appends exactly one stratum cell
+        //     and exactly one pooled cell here.
+        const targets: Cell[] = [cell, report.pooled];
+        if (p.stratum !== null) {
+          targets.push(stratumCellOf(report, p.stratum), stratumCellOf(report, DCMP_ALL));
+        }
+        for (const target of targets) {
           addCell(
             target,
             p.candidates.length,
@@ -2433,6 +2699,14 @@ export function runExperiment(input: {
     byType,
     fitIterations,
     rookieYearsKnown: rookieYears.size,
+    ...(input.districtCuts === undefined
+      ? {}
+      : {
+          dcmp: {
+            cuts: input.districtCuts,
+            premise: measureDcmpPremise(input.instances, input.districtCuts),
+          },
+        }),
   };
 }
 
@@ -3727,6 +4001,401 @@ export function formatPracticalAnswer(report: ExperimentReport): string[] {
   return lines;
 }
 
+// ---------------------------------------------------------------------------
+// THE DCMP BLOCK — printed only under `--dcmp`, after the existing output
+// (quick task 260912-l8t T2)
+// ---------------------------------------------------------------------------
+
+/** `41.2% (31 of 75)`. A bare percentage at n around 75 invites over-reading. */
+export function pctOfCount(hits: number, n: number): string {
+  return `${n === 0 ? "0.0%" : pct(hits / n)} (${hits} of ${n})`;
+}
+
+/** The raw recall@k hit COUNT behind a stratum's percentage. */
+export function recallCount(c: Cell, which: RankPredictor, kIndex: number): number {
+  return c.rank[which].recallAt[kIndex] ?? 0;
+}
+
+const STRATUM_HEADER =
+  `    ${"stratum".padEnd(9)}${"n".padStart(6)}${"pool".padStart(8)}${"unreach".padStart(8)}` +
+  `${"no-age R@1".padStart(20)}${"no-age R@3".padStart(20)}${"ref".padStart(5)}` +
+  `${"ref R@1".padStart(20)}${"ref R@3".padStart(20)}${"B0 R@1".padStart(8)}` +
+  `${"B0 R@3".padStart(8)}  flags`;
+
+function stratumLine(label: string, c: Cell, reference: RankPredictor): string {
+  const flags: string[] = [];
+  if (c.n > 0 && c.n < THIN_PRIOR_INSTANCES) flags.push(`THIN-n(${c.n})`);
+  if (c.thinPriorRows > 0) flags.push(`thin-prior:${c.thinPriorRows}`);
+  return (
+    `    ${label.padEnd(9)}${String(c.n).padStart(6)}` +
+    `${(c.poolSum / Math.max(1, c.n)).toFixed(1).padStart(8)}` +
+    `${String(c.unreachable).padStart(8)}` +
+    `${pctOfCount(recallCount(c, "model", 0), c.n).padStart(20)}` +
+    `${pctOfCount(recallCount(c, "model", 1), c.n).padStart(20)}` +
+    `${RANK_LABEL[reference].padStart(5)}` +
+    `${pctOfCount(recallCount(c, reference, 0), c.n).padStart(20)}` +
+    `${pctOfCount(recallCount(c, reference, 1), c.n).padStart(20)}` +
+    `${pct(cellRecallAt(c, "b0", 0)).padStart(8)}` +
+    `${pct(cellRecallAt(c, "b0", 1)).padStart(8)}  ` +
+    flags.join(" ")
+  );
+}
+
+/**
+ * THE FOUR ROWS, EMITTED BY ONE FUNCTION.
+ *
+ * The load-bearing requirement of quick task 260912-l8t enforced in code rather
+ * than in prose: there is no code path that produces the `DCMP-ALL` row without
+ * producing `OUTSIDE` and `INSIDE` beside it, so a pooled DCMP headline cannot
+ * be printed alone. A test asserts that any output containing `DCMP-ALL` also
+ * contains both strata.
+ *
+ * OUTSIDE IS PRINTED FIRST BECAUSE OUTSIDE IS THE ANSWER.
+ */
+export function dcmpStratumRows(
+  byStratum: ReadonlyMap<StratumRow, Cell>,
+  awardType: number
+): string[] {
+  const all = byStratum.get(DCMP_ALL) ?? emptyCell();
+  const reference = rankReferencePredictor(awardType, all);
+  const lines: string[] = [STRATUM_HEADER];
+  for (const key of STRATUM_ROWS) {
+    lines.push(stratumLine(key, byStratum.get(key) ?? emptyCell(), reference));
+  }
+  return lines;
+}
+
+/** The rank metrics the per-stratum READING scores, in print order. */
+export const STRATUM_READING_METRICS: readonly Exclude<RankMetric, "brierSkill">[] = [
+  "R@1",
+  "R@3",
+  "R@5",
+  "R@10",
+  "MRR",
+  "norm%",
+];
+
+/**
+ * One stratum's READING: the no-age arm against the ordering it has to beat AND
+ * against its own stratum's exact random null, every metric scored on the
+ * FLOORED band.
+ */
+export function dcmpStratumReading(
+  label: StratumRow,
+  c: Cell,
+  awardType: number,
+  reference: RankPredictor,
+  note: string
+): string[] {
+  const lines: string[] = [];
+  const gran = c.n === 0 ? 0 : instanceGranularity("R@1", c.n);
+  lines.push(
+    `    READING — ${label} ${note}  n=${c.n}, mean pool ${(c.poolSum / Math.max(1, c.n)).toFixed(1)}, ` +
+      `1 instance = ${gran.toFixed(2)}pp`
+  );
+  if (c.n === 0) {
+    lines.push("      no instances in this stratum — nothing to read, and nothing is inferred from it.");
+    return lines;
+  }
+  if (c.n < THIN_PRIOR_INSTANCES) {
+    lines.push(
+      `      THIN-n: ${c.n} instances is below the ${THIN_PRIOR_INSTANCES}-instance floor. ` +
+        `NO CONCLUSION MAY BE DRAWN FROM THIS STRATUM, in either direction.`
+    );
+  }
+  for (const metric of STRATUM_READING_METRICS) {
+    const subject = rankMetricValue(c, "model", metric);
+    const ref = rankMetricValue(c, reference, metric);
+    const head =
+      `      ${metric.padEnd(6)}no-age ${rankMetricFormat(metric, subject).padStart(7)} vs ` +
+      `${RANK_LABEL[reference]} ${rankMetricFormat(metric, ref).padStart(7)}  =  `;
+    if (!isMetricComparable(metric, reference)) {
+      lines.push(
+        `${head}NOT COMPARABLE — ${RANK_LABEL[reference]}'s ${metric} is over the ROOKIE BLOCK and ` +
+          `the model's is over the POOL. Different denominators, so this is not scored at all.`
+      );
+      continue;
+    }
+    lines.push(
+      `${head}${stratumBandGloss(metric, compareOnStratumBand(metric, subject, ref, c.n), c.n)}`
+    );
+  }
+  // B0 is the EXACT random null for THIS stratum's own pool sizes. A lower
+  // baseline at a bigger pool is not a win, which is why it is scored here
+  // rather than admired in the table above.
+  for (const metric of ["R@1", "R@3"] as const) {
+    const subject = rankMetricValue(c, "model", metric);
+    const b0 = rankMetricValue(c, "b0", metric);
+    lines.push(
+      `      ${metric.padEnd(6)}no-age ${rankMetricFormat(metric, subject).padStart(7)} vs ` +
+        `B0 ${rankMetricFormat(metric, b0).padStart(7)}  =  ` +
+        `${stratumBandGloss(metric, compareOnStratumBand(metric, subject, b0, c.n), c.n)}`
+    );
+  }
+  return lines;
+}
+
+/** The pre-committed DCMP verdict for one stratum cell. */
+export interface DcmpBerthVerdict {
+  readonly reference: RankPredictor;
+  /** Whichever of the no-age arm and the reference ordering ranks better on R@3. */
+  readonly best: RankPredictor;
+  readonly bestR3: number;
+  readonly b0R3: number;
+  readonly comparison: BandComparison;
+  readonly thin: boolean;
+  readonly predictable: boolean;
+}
+
+/**
+ * PRE-COMMITTED READING 2 of quick task 260912-l8t, in one function.
+ *
+ * A berth award is PREDICTABLE on a stratum only if the better of {the no-age
+ * arm, the reference ordering} beats THAT STRATUM'S OWN exact random null on
+ * R@3 by more than `stratumBand("R@3", n)`, with `n >= THIN_PRIOR_INSTANCES`.
+ *
+ * B0 is the stratum's own — a lower baseline at a bigger pool is NOT a win, and
+ * DCMP pools are much bigger than district-event pools.
+ */
+export function dcmpBerthVerdict(c: Cell, awardType: number): DcmpBerthVerdict {
+  const reference = rankReferencePredictor(awardType, c);
+  const modelR3 = rankMetricValue(c, "model", "R@3");
+  const refR3 = rankMetricValue(c, reference, "R@3");
+  const best: RankPredictor = refR3 > modelR3 ? reference : "model";
+  const bestR3 = Math.max(modelR3, refR3);
+  const b0R3 = rankMetricValue(c, "b0", "R@3");
+  const comparison = compareOnStratumBand("R@3", bestR3, b0R3, c.n);
+  const thin = c.n < THIN_PRIOR_INSTANCES;
+  return {
+    reference,
+    best,
+    bestR3,
+    b0R3,
+    comparison,
+    thin,
+    predictable: !thin && c.n > 0 && comparison.verdict === "better",
+  };
+}
+
+function dcmpTypeBlock(r: AwardTypeReport): string[] {
+  const byStratum = r.byStratum;
+  if (byStratum === undefined) return [];
+  const all = byStratum.get(DCMP_ALL) ?? emptyCell();
+  const reference = rankReferencePredictor(r.awardType, all);
+  const berth = BERTH_AWARD_TYPES.includes(r.awardType);
+  const lines: string[] = [];
+  lines.push(
+    `  type ${String(r.awardType).padStart(3)}  ${r.name}` +
+      (berth ? "   <-- AUTOMATIC WORLDS BERTH" : "   (context only — carries no automatic berth)")
+  );
+  if (ROOKIE_AWARD_TYPES.includes(r.awardType)) {
+    lines.push(
+      `    ROOKIE TYPE: read against RB1/RB2, NEVER against B1/B2 — both are structurally ` +
+        `near-bottom rankers here (260912-7bp).`
+    );
+  }
+  lines.push(...dcmpStratumRows(byStratum, r.awardType));
+  const mismatches = stratumSumMismatches(byStratum);
+  lines.push(
+    mismatches.length === 0
+      ? `    DCMP-ALL = OUTSIDE + INSIDE + UNKNOWN verified on n and on every hit count.`
+      : `    *** STRUCTURAL INVARIANT BROKEN: ${mismatches.join("; ")} — DIAGNOSE, DO NOT EXPLAIN.`
+  );
+  lines.push("");
+  for (const key of STRATA) {
+    const note =
+      key === "OUTSIDE"
+        ? "(THE ANSWER — the award DECIDED a Worlds berth)"
+        : key === "INSIDE"
+          ? "(CONTEXT — every winner was already qualified on points)"
+          : "(CANNOT TELL — never folded into either answer)";
+    lines.push(...dcmpStratumReading(key, byStratum.get(key) ?? emptyCell(), r.awardType, reference, note));
+    lines.push("");
+  }
+  return lines;
+}
+
+/**
+ * The plain-language answer, PRINTED BY THE SCRIPT so it cannot drift from the
+ * numbers above it. One sentence per berth award type, OUTSIDE FIRST.
+ */
+export function formatDcmpBerthAnswer(report: ExperimentReport): string[] {
+  const lines: string[] = [];
+  lines.push("===========================================================================");
+  lines.push("DCMP BERTH ANSWER — can we predict the awards that DECIDE a Worlds berth?");
+  lines.push("===========================================================================");
+  lines.push("");
+  lines.push("  PRE-COMMITTED, BEFORE ANY NUMBER WAS SEEN:");
+  lines.push("  1. OUTSIDE is the answer; INSIDE is context. A pooled DCMP number quoted without");
+  lines.push("     both strata beside it is a failed reading whatever the numbers say.");
+  lines.push("  2. PREDICTABLE = the better of {no-age arm, reference ordering} beats THAT");
+  lines.push("     STRATUM'S OWN exact random null B0 on R@3 by more than the stratum band.");
+  lines.push("  3. If OUTSIDE is at or near random while INSIDE is strong, the finding is");
+  lines.push('     "we can predict DCMP awards, but only the ones that do not matter" — stated');
+  lines.push("     in exactly that register, as flatly as a success would be.");
+  lines.push("  4. A gap inside the stratum band is NO DIFFERENCE, never 'slightly better'.");
+  lines.push("  5. The cut is APPROXIMATE and CONSERVATIVE; every OUTSIDE share carries that.");
+  lines.push("  6. NO PROBABILITY measured anywhere in this script may be stated to a user.");
+  lines.push("     Both arms came out NEEDS RECALIBRATION in 260912-i13 and nothing here changed");
+  lines.push("     that. This block reports ORDERING only.");
+  lines.push("");
+
+  for (const awardType of BERTH_AWARD_TYPES) {
+    const r = report.byType.find((x) => x.awardType === awardType);
+    const byStratum = r?.byStratum;
+    if (r === undefined || byStratum === undefined) {
+      lines.push(`  type ${awardType}: NO DCMP instances scored — nothing to answer.`);
+      lines.push("");
+      continue;
+    }
+    const outside = byStratum.get("OUTSIDE") ?? emptyCell();
+    const inside = byStratum.get("INSIDE") ?? emptyCell();
+    const unknown = byStratum.get("UNKNOWN") ?? emptyCell();
+    const vOut = dcmpBerthVerdict(outside, r.awardType);
+    const vIn = dcmpBerthVerdict(inside, r.awardType);
+    const pool = (outside.poolSum / Math.max(1, outside.n)).toFixed(0);
+
+    lines.push(`  type ${awardType} ${r.name}`);
+    lines.push(
+      `    OUTSIDE the points cut (n=${outside.n}): the berth-winning team is in the TOP 3 of a ` +
+        `~${pool}-team DCMP field`
+    );
+    lines.push(
+      `    ${pctOfCount(recallCount(outside, "model", 1), outside.n)} of the time — ` +
+        `reference ${RANK_LABEL[vOut.reference]} ` +
+        `${pctOfCount(recallCount(outside, vOut.reference, 1), outside.n)}, ` +
+        `random ${pct(rankMetricValue(outside, "b0", "R@3"))}.`
+    );
+    lines.push(
+      `    Top-1: ${pctOfCount(recallCount(outside, "model", 0), outside.n)}; ` +
+        `top-5 ${pctOfCount(recallCount(outside, "model", 2), outside.n)}; ` +
+        `top-10 ${pctOfCount(recallCount(outside, "model", 3), outside.n)} ` +
+        `(R@5 and R@10 have NO measured band and CANNOT BE SCORED — read them as description).`
+    );
+    lines.push(
+      `    VERDICT: best of {no-age, ${RANK_LABEL[vOut.reference]}} R@3 ${pct(vOut.bestR3)} vs B0 ` +
+        `${pct(vOut.b0R3)} = ${stratumBandGloss("R@3", vOut.comparison, outside.n)}`
+    );
+    lines.push(
+      `             -> ${vOut.thin ? "THIN-n, NO CONCLUSION PERMITTED" : vOut.predictable ? "PREDICTABLE on the berth-deciding stratum" : "NOT DEMONSTRATED on the berth-deciding stratum"}`
+    );
+    lines.push(
+      `    INSIDE the cut (n=${inside.n}, context): top-3 ` +
+        `${pctOfCount(recallCount(inside, "model", 1), inside.n)}, top-1 ` +
+        `${pctOfCount(recallCount(inside, "model", 0), inside.n)}, random R@3 ` +
+        `${pct(rankMetricValue(inside, "b0", "R@3"))} -> ` +
+        `${vIn.thin ? "THIN-n, no conclusion" : vIn.predictable ? "PREDICTABLE" : "NOT DEMONSTRATED"}`
+    );
+    if (unknown.n > 0) {
+      lines.push(
+        `    UNKNOWN (n=${unknown.n}): the cut could not be computed for these. Counted, never ` +
+          `folded into either answer.`
+      );
+    }
+    if (!vOut.predictable && vIn.predictable && !vOut.thin) {
+      lines.push(
+        `    >>> THE FINDING FOR THIS TYPE: we can predict DCMP ${r.name} awards, BUT ONLY THE ONES`
+      );
+      lines.push(
+        `        THAT DO NOT MATTER. The stratum that decides a berth is not demonstrated.`
+      );
+    }
+    lines.push("");
+  }
+
+  lines.push("  Every OUTSIDE share above rests on an APPROXIMATE points cut");
+  lines.push(`  (${DISTRICT_CUT_BASIS})`);
+  lines.push("");
+  return lines;
+}
+
+/** The whole DCMP section. Absent entirely without `--dcmp`. */
+export function formatDcmpSection(report: ExperimentReport): string[] {
+  const dcmp = report.dcmp;
+  if (dcmp === undefined) return [];
+  const lines: string[] = [];
+  lines.push("===========================================================================");
+  lines.push("DCMP AUTOMATIC-BERTH AWARDS — stratified by the district points cut");
+  lines.push("===========================================================================");
+  lines.push("");
+  lines.push(...formatDcmpCensus(dcmp.cuts, dcmp.premise, report.seasons));
+  lines.push("  HOW TO READ THIS BLOCK — every line here stops a specific misreading:");
+  lines.push("");
+  lines.push("    OUTSIDE IS THE ANSWER, INSIDE IS CONTEXT. OUTSIDE is the set of awards whose");
+  lines.push("    winner sat BELOW the points cut, so the award was the entire reason that team");
+  lines.push("    reached Worlds. The dangerous failure mode this stratification exists to expose");
+  lines.push("    is a model that predicts only the awards going to already-qualified powerhouses");
+  lines.push("    and is useless on exactly the ones that decide a berth. A pooled DCMP number");
+  lines.push("    would hide that completely, which is why DCMP-ALL is never printed alone.");
+  lines.push("");
+  lines.push("    A CHANGED BASELINE IS NOT A CHANGED MODEL. DCMP pools are much larger than");
+  lines.push("    district-event pools (FiM 160+ against ~40) and are already filtered to a");
+  lines.push("    district's best, so the random baseline B0 is LOWER and prior decoration is LESS");
+  lines.push("    discriminating — everyone in the room is decorated. Every recall number below is");
+  lines.push("    printed next to ITS OWN stratum's B0 and its own mean pool size for that reason.");
+  lines.push("");
+  lines.push("    RAW COUNTS BESIDE EVERY PERCENTAGE. At n around 75 a bare percentage over-reads.");
+  lines.push("");
+  lines.push(
+    `    THE BANDS ARE FLOORED AT ${STRATUM_GRANULARITY_INSTANCES} INSTANCES. RANK_NOISE_BANDS measured OPTIMIZER variance`
+  );
+  lines.push("    over 1,100-1,500 instances per award type; a stratum here has far fewer, where a");
+  lines.push("    SINGLE instance can move R@1 or R@3 by more than the measured band. This block");
+  lines.push(
+    `    scores on max(measured band, ${STRATUM_GRANULARITY_INSTANCES} instances). A NULL BAND STAYS NULL — a floor is not a`
+  );
+  lines.push("    band, so R@5, R@10, meanRank, medRank and Brier skill still print CANNOT BE");
+  lines.push("    SCORED. compareOnBand and every existing output above are untouched.");
+  lines.push("");
+  lines.push(
+    `    THIN-n ON ANY STRATUM WITH n < ${THIN_PRIOR_INSTANCES}, AND NO CONCLUSION MAY BE DRAWN FROM ONE.`
+  );
+  lines.push("");
+  lines.push("    TYPE 10 ROOKIE ALL STAR IS READ AGAINST RB1/RB2, NEVER B1/B2 — both are");
+  lines.push("    structurally near-bottom rankers there, and a 'win' over them is 260912-7bp's");
+  lines.push("    artifact in a fourth outfit. Types 0 and 9 are read against B1.");
+  lines.push("");
+  lines.push("    TRAIN WIDE, SCORE NARROW. The fit, the prior-decoration counts and the training");
+  lines.push("    pool are IDENTICAL to the default run — every event type, every event. Only the");
+  lines.push("    ACCUMULATION is narrowed, in the same single pass, so every stratum shares one");
+  lines.push("    fit BY CONSTRUCTION rather than by assertion. Restricting TRAINING to DCMP would");
+  lines.push(
+    `    fall below THIN_PRIOR_INSTANCES=${THIN_PRIOR_INSTANCES} in the early seasons and measure the FALLBACK.`
+  );
+  lines.push("");
+  lines.push("    Award types 1 (Winner) and 2 (Finalist) are the on-field elimination result and");
+  lines.push("    headline nothing; they keep their own REFERENCE ONLY section above and are not");
+  lines.push("    repeated here.");
+  lines.push("");
+
+  const withStrata = report.byType.filter(
+    (r) => r.byStratum !== undefined && !REFERENCE_ONLY_AWARD_TYPES.has(r.awardType)
+  );
+  const berth = BERTH_AWARD_TYPES.map((t) => withStrata.find((r) => r.awardType === t)).filter(
+    (r): r is AwardTypeReport => r !== undefined
+  );
+  const others = withStrata
+    .filter((r) => !BERTH_AWARD_TYPES.includes(r.awardType))
+    .sort((a, b) => (b.byStratum?.get(DCMP_ALL)?.n ?? 0) - (a.byStratum?.get(DCMP_ALL)?.n ?? 0));
+
+  lines.push("---------------------------------------------------------------------------");
+  lines.push("THE THREE BERTH AWARDS — Impact (0), Engineering Inspiration (9), Rookie All Star (10)");
+  lines.push("---------------------------------------------------------------------------");
+  lines.push("");
+  for (const r of berth) lines.push(...dcmpTypeBlock(r));
+
+  if (others.length > 0) {
+    lines.push("---------------------------------------------------------------------------");
+    lines.push("OTHER JUDGED AWARDS AT DCMP EVENTS — context only, no automatic berth");
+    lines.push("---------------------------------------------------------------------------");
+    lines.push("");
+    for (const r of others) lines.push(...dcmpTypeBlock(r));
+  }
+
+  lines.push(...formatDcmpBerthAnswer(report));
+  return lines;
+}
+
 export function formatReport(report: ExperimentReport): string {
   const lines: string[] = [];
   lines.push("AWARD PREDICTABILITY — walk-forward top-1, two arms side by side");
@@ -3912,6 +4581,10 @@ export function formatReport(report: ExperimentReport): string {
   lines.push("  reported that the fit lost to B1 on the flagship judged awards.");
   lines.push("");
   lines.push(...formatPracticalAnswer(report));
+  // ABSENT ENTIRELY WITHOUT `--dcmp`: `formatDcmpSection` returns an empty array
+  // when `report.dcmp` is undefined, and an empty spread pushes nothing. That is
+  // what keeps the default output byte-identical rather than merely similar.
+  lines.push(...formatDcmpSection(report));
   return lines.join("\n");
 }
 
@@ -3943,6 +4616,28 @@ export function toJsonCell(c: Cell): Record<string, unknown> {
   return { ...c, rank };
 }
 
+/**
+ * The DCMP section reshaped for `--json`.
+ *
+ * `DistrictCuts` carries a `Set` and two levels of `Map`, all of which
+ * `JSON.stringify` renders as `{}` — an empty object where the census should
+ * be. This projects the scalars a consumer can actually read and drops the
+ * lookup structures, which carry no fact the counts do not.
+ */
+export function toJsonDcmp(d: DcmpSection): Record<string, unknown> {
+  return {
+    cutBasis: DISTRICT_CUT_BASIS,
+    census: {
+      dcmpEvents: d.cuts.dcmpEvents,
+      dcmpEventsJoined: d.cuts.dcmpEventsJoined,
+      districtSeasons: d.cuts.districtSeasons,
+      districtSeasonsNullCmpSlots: d.cuts.districtSeasonsNullCmpSlots,
+      districtSeasonsNoRankings: d.cuts.districtSeasonsNoRankings,
+    },
+    premise: d.premise,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -3950,9 +4645,12 @@ export function toJsonCell(c: Cell): Record<string, unknown> {
 function main(): void {
   const args = process.argv.slice(2);
   const emitJson = args.includes("--json");
+  const wantDcmp = args.includes("--dcmp");
   const iterIdx = args.indexOf("--iterations");
   const fitIterations = iterIdx >= 0 ? Number.parseInt(args[iterIdx + 1] ?? "200", 10) : 200;
-  const command = `npx tsx scripts/measureAwardPredictability.ts${emitJson ? " --json" : ""}`;
+  const command =
+    `npx tsx scripts/measureAwardPredictability.ts` +
+    `${wantDcmp ? " --dcmp" : ""}${emitJson ? " --json" : ""}`;
 
   const db = openCorpusReadOnly(CORPUS_PATH);
   let report: ExperimentReport;
@@ -3961,6 +4659,15 @@ function main(): void {
     const rows = loadAwardRows(db);
     const awardNames = modalAwardNames(rows);
     const { instances, census } = buildAwardInstances(rows, eventsByKey);
+
+    // THE PREMISE CONTROL RUNS BEFORE ANY RESULT IS COMPUTED, and it THROWS.
+    // If the census has moved, the join or the cut is wrong and every
+    // stratified number printed after it would be confidently wrong. Failing
+    // here costs 60 seconds; not failing here costs a believed answer.
+    const districtCuts = wantDcmp ? loadDistrictCuts(db) : undefined;
+    if (districtCuts !== undefined) {
+      checkDcmpPremise(measureDcmpPremise(instances, districtCuts));
+    }
 
     const eventKeys = [...new Set(instances.map((i) => i.eventKey))].sort();
     const rosters = selectEventTeamsForEvents(db, eventKeys);
@@ -3985,6 +4692,7 @@ function main(): void {
       ratingsByEvent,
       awardNames,
       rookieYearByTeam,
+      ...(districtCuts === undefined ? {} : { districtCuts }),
       command,
       fitIterations,
     });
@@ -4005,7 +4713,18 @@ function main(): void {
             perSeason: Object.fromEntries(
               [...r.perSeason].map(([season, cell]) => [season, toJsonCell(cell)])
             ),
+            ...(r.byStratum === undefined
+              ? {}
+              : {
+                  byStratum: Object.fromEntries(
+                    [...r.byStratum].map(([key, cell]) => [key, toJsonCell(cell)])
+                  ),
+                }),
           })),
+          // `...report` above would serialize `dcmp`'s Maps and Sets as `{}`.
+          // This key comes AFTER it on purpose and replaces them with the
+          // scalar census the JSON consumer can actually read.
+          ...(report.dcmp === undefined ? {} : { dcmp: toJsonDcmp(report.dcmp) }),
         },
         null,
         2
