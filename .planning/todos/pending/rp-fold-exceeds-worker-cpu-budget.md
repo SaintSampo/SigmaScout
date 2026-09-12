@@ -58,6 +58,58 @@ where every tick died `exceededCpu` for days.
 
 Nothing is live right now, so nothing is currently failing. The first real event is when this bites.
 
+## THE ABLATION IS TAKEN — Phase 9's share is a number now, not an inference (2026-09-12)
+
+Measured with the probe's new `rp` flag (quick task `260912-iur`), probe version `c0405758`,
+against live D1. 53 invocations per arm at `folded=2&upcoming=60&teamCount=21`, **interleaved**
+so both arms share any platform drift, after warm-up. Zero non-`ok` outcomes.
+
+| Arm | n | p50 | p75 | p90 | max | mean | % of ticks over 10 ms |
+|---|---|---|---|---|---|---|---|
+| `rp=1` — as deployed | 53 | **13 ms** | 17 | **28 ms** | 53 | 14.8 | **62%** |
+| `rp=0` — Phase 9's RP work ablated | 53 | **6 ms** | 8 | 19 ms | 32 | 8.6 | **13%** |
+| delta | | **7 ms** | 9 | 9 ms | | 6.2 | |
+
+**The `rp=1` arm independently reproduces the figure that opened this todo** — 13 ms p50 / 28 ms p90,
+measured on a different probe version on a different day. The instrument agrees with itself.
+
+### What this settles
+
+**Phase 9's RP fold is the dominant controllable term: ~54% of p50, ~42% of mean.** The question
+this ablation existed to answer is answered, and it answers the other way from a reasonable prior —
+the pre-existing upcoming-repricing loop is real but is *not* what puts the tick over budget.
+
+**It converts an occasionally-spiky tick into a consistently-over-budget one, which is the
+distinction that matters.** Termination follows from hitting the limit *consistently*, not from one
+expensive tick. Ablated, **13%** of ticks exceed 10 ms — spikes the isolate's flexibility absorbs.
+As deployed, **62%** do. That is the 2026-08-28 condition.
+
+### What it does NOT say
+
+- **Not "revert Phase 9".** The ablated arm still shows p90 19 ms and 13% over budget, so the
+  pre-existing loop is not free either. Removing RP buys headroom, not safety.
+- **Not a clean subtraction.** `dc30636e` *also* made Phase A cheaper — it hoisted the band calls,
+  halving band evaluations from four per match to two, in both loops. So `on − off` is a **net**
+  figure and any sum-of-added-operations arithmetic would have been wrong in an unknown direction.
+  This is the strongest argument for having measured rather than reasoned.
+- **`bandFor` is not Phase 9's** and runs in both arms — it landed `63596da3` (2026-09-09), two days
+  before Phase 9 began. It sits beside `rpFieldsFor` and feeds its band-presence gate, which is
+  exactly why it reads as RP work and is not. Ablating it would have billed Phase 9 for pre-existing
+  cost. Confirmed by `bandsProduced == 124` in **both** arms; if that ever differs between runs, the
+  runs are not comparable and the numbers must be discarded.
+
+### Consequence for the directions below
+
+The dominant term is the RP work on the **upcoming** path, so the two directions that target it
+specifically — cheapening `analyticRpPmf` on the upcoming path, and moving upcoming-match RP pricing
+offline — are now the ones worth pricing first. Rotation and tick-splitting bound a cost that is
+mostly not where the cost is.
+
+**Reproduce with:**
+`https://sigmascout-state-probe.jrw4561.workers.dev/?season=2026&teamCount=21&folded=2&upcoming=60&rp={1|0}`
+— `params.rp` states the arm, the ablated arm self-labels in `warnings`, and an unrecognised `rp`
+value runs **enabled** and says so, so a typo cannot silently measure the wrong arm.
+
 ## Directions worth pricing (none chosen)
 
 - **Stop repricing every upcoming match every tick.** The predictions for match 57 do not change
