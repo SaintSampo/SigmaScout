@@ -62,11 +62,53 @@ Blocked on neither a decision nor a measurement — just on someone doing it bef
 
 Related: [[live-match-updates-swing-and-lossy-merge]], [[00-sigmascout-layer-roadmap]].
 
-## Status — 2026-09-12
+## CLOSED — 2026-09-12
 
-The instrument now exists (quick task 260912-3e6): `apps/worker/src/stateProbe.ts`,
-`apps/worker/wrangler.probe.toml`, and `docs/worker-operations.md`'s "Pre-event probe" section. It
-has NOT yet been deployed or run against live D1 — no network in the executor sandbox that built it.
-This item stays **open**, and stays in `pending/`, until the probe has actually been deployed and run
-against live D1 with a recorded `cpuTime` across several consecutive invocations (see
-`docs/worker-operations.md`'s "Pre-event probe" section for the exact procedure).
+Settled by deliberate probe (option 1 above), not by waiting for an event. Both questions this item
+raised now have answers; they are different answers, which is why only one of them closes here.
+
+### The shape question: answered, clean
+
+Four independent facts, in increasing order of strength:
+
+1. Live D1's three league rows (`opr`, `epa`, `bpr`) are all at `snapshotShapeVersion` **15**,
+   generation `b23d214d`, `computedAt 2026-09-12T01:06:14Z` — the same generation the published
+   live-windows manifest carries, so seed and publish came from one run.
+2. The Worker deploy at `2026-09-12T01:54:28Z` came **after** that seed and after the shape-15 commit
+   `dc30636e` (2026-09-11T23:40Z). Seed-first-deploy-second held.
+3. `packages/harness/stateSnapshot.ts` and `apps/worker/src` were untouched in git between that
+   deploy and HEAD, and a build of HEAD carries `STATE_SNAPSHOT_SHAPE_VERSION = 15`. The Worker was
+   then **redeployed from a clean HEAD** as version `267a226b`, so "the running bundle is shape 15" is
+   now true by construction rather than by inference from a timestamp.
+4. **The real `deserializeState` actually ran, in the deployed Workers runtime, against live rows.**
+   Probe `318caa2f` (same commit as the Worker) reported `ok: true` for all three algorithms,
+   `snapshotShapeVersionObserved: 15`, `warnings: []`, across 60+ invocations.
+
+Point 4 is the one this item was asking for. The note above that the `SEED FIRST, DEPLOY SECOND`
+comment in `packages/core/algorithms/epa.ts:1601` still says "shape 14" remains accurate and
+uncorrected — the rule is right, the number in the comment is not.
+
+Also corrected for the record: this item said the 2026-09-12 publish "wrote fresh seed SQL" and
+implied the seed might not have been applied. It was applied — live D1 carries it.
+
+### The CPU question: answered, and the answer is a problem
+
+Measured, same probe, 60 invocations at 15 per load level: a realistic mid-event tick (2 newly-folded
+matches, 60 still upcoming) costs **p50 13 ms, p90 28 ms** in **Phase A alone**, against a 10 ms
+sustained budget — before Phase B, TBA polling, the manifest read, the global rebuild, or a second
+concurrent event. The upcoming-match repricing loop is the dominant term.
+
+That does not belong in this item's scope and is filed as its own:
+[[rp-fold-exceeds-worker-cpu-budget]]. **Closing this item is not a statement that live folding is
+safe.** It is a statement that the shape mismatch this item was about cannot happen, and that the
+instrument to ask both questions before every event now exists and has been used once.
+
+### What exists now
+
+- `apps/worker/src/stateProbe.ts` + `apps/worker/wrangler.probe.toml` — a separate, write-binding-free
+  Worker, deployed and left deployed as `sigmascout-state-probe`.
+- `apps/worker/test/stateProbe.test.ts` — 26 tests holding the no-write property.
+- `docs/worker-operations.md`'s "Pre-event probe" section, carrying the procedure, the rule that it is
+  run before every event, and this run's numbers.
+
+Built and measured under quick task `260912-3e6`.

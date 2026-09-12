@@ -560,6 +560,44 @@ not a config guarantee.
 
 **The rule: run it before every event.**
 
+### First real run — 2026-09-12, probe version `318caa2f`, Worker version `267a226b`
+
+Both built from the same commit (`e4ba00c1`), against live D1 at generation `b23d214d`.
+
+**The shape question is answered, and the answer is good.** All three published algorithms
+deserialized from live rows in the real Workers runtime: `opr` 4.0.0+baseline, `epa` 10.0.0+baseline,
+`bpr` 3.0.0+baseline, every one reporting `snapshotShapeVersionObserved: 15` against the deployed
+bundle's own expected 15, `ok: true`, `warnings: []`. `deserializeState` has now actually run against
+the rows the 2026-09-12 seed wrote, in the deployed runtime — not merely been inferred safe from a
+deploy timestamp.
+
+**The CPU question is answered, and the answer is bad.** 60 invocations, 15 at each load level, read
+off `wrangler tail`:
+
+| Load | p50 | p90 | max |
+|---|---|---|---|
+| 0 folded / 0 upcoming (three deserializations + 2 discovery queries) | 4 ms | 7 ms | 7 ms |
+| 2 folded / 0 upcoming | 6 ms | 14 ms | 17 ms |
+| 2 folded / 15 upcoming | 8 ms | 13 ms | 14 ms |
+| **2 folded / 60 upcoming** (a realistic mid-event tick) | **13 ms** | **28 ms** | **29 ms** |
+
+Phase A alone, for ONE event, is over the 10 ms sustained budget at p50 on the common path — before
+Phase B, TBA polling, the manifest read or the global rebuild, and before a second concurrent event.
+The upcoming loop is confirmed as the dominant term: holding folds at 2 and going 0 → 60 upcoming
+adds ~7 ms at p50 and ~14 ms at p90.
+
+Two things make the real figure *somewhat* smaller than the table and neither closes the gap: the
+probe deserializes all three algorithms where a live tick folds only `bpr` (worth ~2–3 ms of that
+4 ms baseline), and it spends 2 discovery queries a tick does not. A tick-shaped estimate is still
+~10–11 ms p50 and ~25 ms p90.
+
+Also seen, and not a measurement error: `rpPmfsProduced` was 43 of a possible 62 on every run — 19
+matches had their RP pmf suppressed by the gates, reproducibly. That means the table above prices a
+fold in which roughly a third of the RP work did **not** happen, so it is if anything an
+under-estimate.
+
+Tracked as its own item: `.planning/todos/pending/rp-fold-exceeds-worker-cpu-budget.md`.
+
 ---
 
 ## Watching it
