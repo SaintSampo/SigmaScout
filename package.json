@@ -36,6 +36,7 @@
     "measure:swing-skill": "tsx scripts/measureSwingSkill.ts",
     "measure:alliance-reconstruction": "tsx scripts/measureAllianceReconstruction.ts",
     "measure:epa-deviations": "tsx scripts/measureEpaDeviations.ts",
+    "measure:award-predictability": "tsx scripts/measureAwardPredictability.ts",
     "compare:sigma-score": "tsx scripts/compareSigmaScore.ts",
     "fetch:schedule-templates": "tsx scripts/fetchScheduleTemplates.ts",
     "reparam:equivalence": "tsx scripts/reparamEquivalence.ts",
