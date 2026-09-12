@@ -16,6 +16,67 @@ was changed by the task that wrote it.**
 
 ---
 
+## STANDING RESULT 2026-09-11 — the remaining prize is 0.26 pp, and the first cell closed LOST
+
+**Read this before opening any stage below. It does not retract the matrix; it prices it.**
+
+This document is a map of *what* differs between the two EPAs, and it is a good one. What it did
+not say, until now, is *what closing a cell is worth*. The answer was measured on 2026-09-11 by
+quick task 260911-r7e, and it is small.
+
+### The whole remaining deficit, measured
+
+Winner accuracy, SigmaScout against Statbotics, under `epa@10.0.0+baseline`, warm arm
+(`--warmup 2016-2020`):
+
+| Season | Statbotics | ours | Δ |
+|--------|------------:|-----:|-------:|
+| 2022 | 0.7815 | 0.7797 | −0.18 pp |
+| 2023 | 0.7647 | 0.7636 | −0.11 pp |
+| 2024 | 0.7627 | 0.7578 | −0.49 pp |
+| 2025 | 0.7839 | 0.7802 | −0.37 pp |
+| 2026 | 0.7978 | 0.7962 | −0.16 pp |
+
+**Mean deficit: −0.26 pp.** That is the entire prize for burning down all 35 `GAP` cells — not
+per cell, in total. The previously-cited ~2.4 pp 2022 deficit was a **cold-start artifact of the
+comparison script**, not a model defect: `compare:epa-statbotics` cold-started every team in 2022
+while the Statbotics column it was differenced against held its real 2019/2020 carry-in. Production
+artifacts were never affected — `publish:seasons` has always replayed `2016-2020,2022-2026`.
+
+### The one cell that was actually closed and measured came in NEGATIVE
+
+Mechanism 1's 2024 component-map cell was closed by quick task 260911-pon and measured at
+**−0.036 accuracy points — a loss.** Eight more seasons of the same shape were queued behind it in
+stages 5-7. That is the direct evidence that the per-season map work should not be continued, and
+it is why those stages are not being run.
+
+### Two mechanisms cannot pay, structurally
+
+- **Mechanism 8 (win-probability scale) cannot move winner accuracy at all.** Accuracy is
+  `sign(margin)`; a monotone rescale of the win-probability curve cannot change any sign. It moves
+  Brier only.
+- **Both cheap comparability hypotheses are measured and refuted.** `offseason-population` is
+  structurally incapable of reaching predictions on official matches (offseason events are
+  post-championship, and `aggregateScores` already excludes them from scoring in both arms);
+  measured 0.7576 vs 0.7576 in 2022, no season moving more than 0.03 pp. The surrogate-population
+  hypothesis was likewise refuted. **The residual has no known cheap cause.**
+
+### What this does and does not change
+
+- **Nothing below is renumbered, deleted, or re-verdicted.** All 35 `GAP` cells stand as written.
+  The matrix remains the reference for *what* differs.
+- The locked requirement — *"I NEED to be able to reproduce statbotics EPA perfectly"* — is
+  unchanged. This block prices the work; it does not overrule the developer's stated goal. If exact
+  reproduction is pursued, pursue it knowing it buys ≤0.26 pp of accuracy and that the one measured
+  attempt cost 0.036.
+- **Do not resume stages 5, 6 or 7 on the strength of this document alone.** Raise the measured
+  standing above with the developer first.
+
+Full detail, including the per-season method and the arm definitions:
+`docs/models/epa-vs-statbotics.md`, the `epa@10.0.0+baseline` section.
+
+---
+
 ## CORRECTION 2026-09-11 — they are WEEK 1 aggregates, not season-final
 
 **This document says "season-final" in several places below. That is wrong, and it overstates the
@@ -929,6 +990,13 @@ RP slot or a season aggregate feeds something that affects a SCORE or a WIN PROB
 ---
 
 ## Recommended stage sequence
+
+> **STOP — priced 2026-09-11. Stages 5, 6 and 7 are NOT being run.** The total remaining accuracy
+> prize across all 35 `GAP` cells is **−0.26 pp mean**, and the one cell actually closed and
+> measured (mechanism 1, 2024, quick task 260911-pon) came in at **−0.036 — a loss**. See
+> **STANDING RESULT 2026-09-11** at the top of this file before starting any stage below. The
+> sequence is preserved as a record of what the work would be, not as an instruction to do it.
+
 
 Each stage is sized as its own quick task: one coherent change, independently verifiable. The order
 is most-foundational-and-riskiest first, and each entry states WHY it sits where it does.

@@ -82,3 +82,25 @@ fix belongs with the band digest rather than the RP one.
 precisely the event that takes this from latent to live. If a seed is happening anyway, this is
 cheap to fix first — and plan 09-08's Task 4 checkpoint briefing surfaces it for exactly that
 reason.
+
+---
+
+## RESOLVED 2026-09-11
+
+Fixed in commits `af09b23d` (wiring) and `062bb36e` (tests), during Phase 9 — surfaced by plan
+09-08, which filed it rather than fixing it inline, and then authorized by the developer ahead of
+the pending D1 seed-and-deploy.
+
+`SigmaScoutLayer.sigmaBeliefs()` / `.sigmaPopulation()` now expose what `SigmaScoreAccumulator`
+already held (`beliefsByTeam()` existed at `sigmaScore.ts:507` and was simply unreachable from the
+layer), and `publish.ts` chains `withSigmaBeliefs` into the team rows and `withSigmaPopulation`
+into the league row beside the existing Swing and RP passengers.
+
+No shape-version change — both keys pre-existed; shape stays 15.
+
+**Proven non-vacuous by three mutations**, each restored. The load-bearing one: forcing
+`sigmaPopulation()` to return `undefined` produced *different bands from the same beliefs* — the
+live/offline divergence this todo describes, reproduced in miniature.
+
+Without it, a Worker resumed from a fresh seed would have cold-started BPR's bands from the flat
+prior while serving fully-warmed artifacts, with both sides looking healthy.

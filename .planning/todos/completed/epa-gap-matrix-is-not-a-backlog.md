@@ -51,3 +51,28 @@ cells as they are.
 because the gap document and `scripts/measureEpaDeviations.ts` both cite section numbers by hand and
 renumbering would silently break those citations. Needs its own task that updates every citation in
 the same change.
+
+---
+
+## RESOLVED 2026-09-11
+
+Standing-result block added at the top of `docs/models/epa-statbotics-gap.md`
+(`## STANDING RESULT 2026-09-11`), plus a STOP banner on `## Recommended stage sequence` — the
+section that actually triggers resumption, so a fresh agent meets the price at the point of action
+as well as at the top of the file.
+
+Carries: the measured per-season deficit table and the −0.26 pp mean under `epa@10.0.0+baseline`;
+mechanism 1's 2024 result (−0.036, a loss) as the stated reason stages 5-7 are not being run;
+mechanism 8's structural inability to move winner accuracy (`sign(margin)` only); both refuted
+comparability hypotheses; and a pointer to `docs/models/epa-vs-statbotics.md`.
+
+**Verified non-destructive:** `git diff --numstat` reported **68 additions, 0 deletions**. All 35
+`GAP` cells stand unrenumbered and unre-verdicted. The +3 `GAP` string occurrences (81→84) are the
+three inside the new block itself.
+
+The locked developer requirement ("I NEED to be able to reproduce statbotics EPA perfectly") is
+explicitly preserved in the block — it prices the work, it does not overrule the goal.
+
+**Still open, carried forward:** `docs/models/statbotics-breakdown-reference.md` has two sections
+numbered 20. Not fixed here — renumbering must update every hand-written citation in
+`epa-statbotics-gap.md` and `scripts/measureEpaDeviations.ts` in the same change.
