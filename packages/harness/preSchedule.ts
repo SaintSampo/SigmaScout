@@ -34,7 +34,7 @@ import {
 } from "../core/rankingPoints/fieldAveraged.js";
 import type { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
-import { loadScheduleTemplate } from "./scheduleTemplates.js";
+import { loadScheduleTemplate, type ScheduleTemplateMatch } from "./scheduleTemplates.js";
 import { roundPmf } from "./rounding.js";
 import {
   mulberry32,
@@ -127,6 +127,26 @@ export interface PreScheduleBuildParams {
   readonly computedAt: string;
   /** The C-04 seam: already bound to the right walk-forward state by the caller. Pure per the algorithm contract, so calling it is side-effect-free. */
   readonly predict: (match: UpcomingMatch) => Prediction;
+  /**
+   * THE PAIRING STRUCTURE, INJECTED. Omitted in production and in every
+   * shipped call site, where the licensed `loadScheduleTemplate(rosterSize,
+   * matchesPerTeam)` grid supplies it exactly as before — this field is
+   * INERT AT DEFAULT and changes nothing about what `publish.ts` writes.
+   *
+   * It exists so an EXPERIMENT can substitute a differently-derived pairing
+   * structure (plan: the rung-2 rules-based generator,
+   * `scripts/measureGeneratedSchedules.ts`) and have it priced, shuffled,
+   * rounded, surrogate-excluded and baked by THIS function rather than by a
+   * second copy of it. Comparing two schedule structures through two builders
+   * is how a scorer mismatch gets manufactured; comparing them through one
+   * builder with one injected difference is how it does not.
+   *
+   * The structure is consumed EXACTLY as a loaded template is: `red`/`blue`
+   * are zero-based slot indices into the shuffled roster and the surrogate
+   * flags are positional. Nothing here validates it — an invalid structure is
+   * an experiment's own bug, and production never reaches this path.
+   */
+  readonly scheduleStructure?: readonly ScheduleTemplateMatch[];
 }
 
 /**
@@ -193,7 +213,7 @@ interface SyntheticMatch {
 function buildScheduleMatches(
   params: PreScheduleBuildParams,
   sortedRoster: readonly string[],
-  template: ReturnType<typeof loadScheduleTemplate>,
+  template: readonly ScheduleTemplateMatch[],
   k: number,
   slots: readonly number[]
 ): SyntheticMatch[] {
@@ -242,7 +262,9 @@ export function buildPreScheduleArtifact(params: PreScheduleBuildParams): PreSch
   // published roster and defines the index space for every `r`/`b` array
   // and every baked histogram.
   const sortedRoster = [...params.roster].sort();
-  const template = loadScheduleTemplate(sortedRoster.length, params.matchesPerTeam);
+  // The licensed grid unless an experiment injected a structure (see
+  // `scheduleStructure`) — production always takes the left branch.
+  const template = params.scheduleStructure ?? loadScheduleTemplate(sortedRoster.length, params.matchesPerTeam);
 
   // Probe the FIRST synthetic match only, before building the rest: an
   // absent pmf here means "this algorithm does not model ranking points" —
