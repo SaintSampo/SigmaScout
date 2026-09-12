@@ -8,7 +8,7 @@
  * `backend/src/data/avg.py` computes EVERY season-level `Year` aggregate
  * Statbotics reads — `score_mean`, `score_sd`, `no_foul_mean`, `foul_mean`,
  * and all ten `comp_*_mean` slots — from one filtered list
- * (`docs/models/statbotics-breakdown-reference.md` §20, verbatim):
+ * (`docs/models/statbotics-breakdown-reference.md` §21, verbatim):
  *
  *     week_one_matches = [
  *         m for m in matches if m.week == 1 and m.status == MatchStatus.COMPLETED
@@ -52,7 +52,7 @@
  * week-2-or-later match therefore reads nothing that has not already been
  * played, which is what narrows this whole class of divergence from a
  * season-wide problem to a one-week one
- * (`docs/models/statbotics-breakdown-reference.md` §20).
+ * (`docs/models/statbotics-breakdown-reference.md` §21).
  *
  * Matches stream in chronological order, so the FIRST match carrying a numeric
  * week greater than 0 proves every week-1 match has already passed. That is the
@@ -123,7 +123,7 @@ export interface EpaWeekOneAggregate {
  *
  * `avg.py` writes both `year.foul_mean` and `year.no_foul_mean` from the SAME
  * `week_one_matches` list that writes `score_sd`
- * (`docs/models/statbotics-breakdown-reference.md` section 20), so this record
+ * (`docs/models/statbotics-breakdown-reference.md` section 21), so this record
  * is frozen by the same seal, at the same moment, from the same population.
  *
  * `noFoulMean` is kept BESIDE the rate rather than discarded because the two

@@ -2331,7 +2331,7 @@ Both are now false. That file is section 17, and the identity is section 2, verb
 
 ---
 
-## 20. `backend/src/data/avg.py` — where every `Year` aggregate is WRITTEN (added 2026-09-11)
+## 21. `backend/src/data/avg.py` — where every `Year` aggregate is WRITTEN (added 2026-09-11)
 
 **Provenance: VERBATIM.** `curl`'d 2026-09-11 from
 `raw.githubusercontent.com/avgupta456/statbotics/master/backend/src/data/avg.py` (2,969 bytes).

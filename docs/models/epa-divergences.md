@@ -100,7 +100,7 @@ the rate is live-estimated during week 1 (L-01, register R3 item 3).
 
 ### NARROWED 2026-09-11 (quick task 260911-j2w): the Statbotics constant is a WEEK-1 number, and SigmaScout now adopts it
 
-**Everything below this block was written when this section believed Statbotics' `year_obj.score_sd` was a SEASON-FINAL constant. It is not.** `backend/src/data/avg.py` (`docs/models/statbotics-breakdown-reference.md` section 20, verbatim) opens `process_year` with
+**Everything below this block was written when this section believed Statbotics' `year_obj.score_sd` was a SEASON-FINAL constant. It is not.** `backend/src/data/avg.py` (`docs/models/statbotics-breakdown-reference.md` section 21, verbatim) opens `process_year` with
 
 ```python
     week_one_matches = [

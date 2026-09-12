@@ -280,7 +280,7 @@ describe("sealWeekOneIfPast", () => {
 // ---------------------------------------------------------------------------
 //
 // `avg.py` writes `year.foul_mean` and `year.no_foul_mean` from the SAME
-// week-1 list that writes `score_sd` (reference section 20), and
+// week-1 list that writes `score_sd` (reference section 21), and
 // `get_foul_rate()` is their ratio (`year.py:176-177`). These cases pin the
 // accumulator, the ratio's guards, and the seal that freezes it — all of it
 // corpus-independent, because none of it depends on a real match.

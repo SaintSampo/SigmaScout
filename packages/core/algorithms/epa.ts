@@ -388,7 +388,7 @@ export interface EpaState extends BreakdownParseTelemetry {
    * aggregate from week-1 matches alone, so its `year.score_sd` (the
    * win-probability denominator) and its `year.score_mean`/`no_foul_mean` (the
    * `get_constants` scale anchor) are WEEK-1 numbers, not season-final ones
-   * (`docs/models/statbotics-breakdown-reference.md` section 20). A week-1
+   * (`docs/models/statbotics-breakdown-reference.md` section 21). A week-1
    * aggregate is knowable the moment week 1 ends, so reading it from week 2
    * onward costs no walk-forward legitimacy at all.
    *
@@ -1343,7 +1343,7 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary, toSeasonMap?: Se
     // season to the next, and a rules change can move the rate outright.
     // Carrying last season's across the boundary would be a prior-season leak
     // into a constant Statbotics derives from the INCOMING season's own week 1
-    // and nothing else (`avg.py`, reference section 20). The incoming season
+    // and nothing else (`avg.py`, reference section 21). The incoming season
     // therefore starts with no foul information at all and publishes plain
     // no-foul totals (`EPA_FALLBACK_FOUL_RATE`) until its own play supplies
     // some — which is the honest state, not a degradation.
@@ -1611,7 +1611,7 @@ export const epa = {
   //
   // WHY THIS IS WALK-FORWARD LEGAL, stated at the version rather than buried:
   // `backend/src/data/avg.py` computes every `Year` aggregate from week-1
-  // matches alone (`docs/models/statbotics-breakdown-reference.md` section 20),
+  // matches alone (`docs/models/statbotics-breakdown-reference.md` section 21),
   // and a week-1 aggregate is knowable the moment week 1 ends. The freeze
   // triggers on the first match carrying a numeric week greater than 0, which
   // in a chronological stream PROVES every week-1 match has already been

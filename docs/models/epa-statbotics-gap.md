@@ -648,7 +648,7 @@ variance into a Week 1 prediction. Each of those is retracted below and replaced
 **What Statbotics' denominator actually is.** `self.year_obj.score_sd` — read point 3 of reference
 section 19, `models/epa/main.py:125` — is **a WEEK-1 aggregate**. `backend/src/data/avg.py`'s
 `process_year` filters to `week_one_matches` and derives every `Year` column from that list alone
-(reference section 20; see also the correction block at the top of this file). It is the SD of
+(reference section 21; see also the correction block at the top of this file). It is the SD of
 week-1 ALLIANCE SCORES with fouls INCLUDED — the raw score, not the no-foul total — which is
 exactly the quantity `epa.ts:update` already folds, so it is an EXACT target rather than a named
 neighbour.
@@ -884,7 +884,7 @@ The terms stay inside `predictCore` and reach no artifact, no API surface and no
 and 2 ADOPTED for weeks 2 onward. Then by quick task 260911-l2k (`epa@10.0.0+baseline`): item 3
 ADOPTED on the same terms, and residual gap 1 below CLOSED. **Items 4 and 5 are UNTOUCHED and
 remain fully open** — this register entry is partly closed, not closed. They are WEEK-1 aggregates, not season-final ones (reference
-section 20, `avg.py` verbatim), and a week-1 aggregate is knowable the moment week 1 ends. So
+section 21, `avg.py` verbatim), and a week-1 aggregate is knowable the moment week 1 ends. So
 reading it from week 2 onward is not a walk-forward violation at all. `epaWeekOne.ts` freezes the
 week-1 aggregate on the first match carrying a numeric week greater than 0 — which in a
 chronological stream PROVES every week-1 match has already been played — and `epa.ts` reads the
@@ -930,7 +930,7 @@ than undocumented divergences:**
    walk-forward rather than offline.
 
 **Mechanism:** Statbotics reads 21 distinct season-level `Year` columns through 7 read points
-(reference section 19). Every one is a WEEK-1 number (reference section 20; this line previously
+(reference section 19). Every one is a WEEK-1 number (reference section 21; this line previously
 said "season-final", which was the overstatement the 2026-09-11 correction block at the top of
 this file retracts).
 
@@ -1194,7 +1194,7 @@ still touches work above; the other was closed and is struck below** (quick task
   the estimate "would be aimed at a plausible neighbour of Statbotics' quantity rather than at the
   quantity itself" and called this "the single most valuable remaining fetch". Both statements were
   true when written and are no longer: `backend/src/data/avg.py` HAS been fetched and is
-  transcribed verbatim at reference section 20, it answers the question outright — every `Year`
+  transcribed verbatim at reference section 21, it answers the question outright — every `Year`
   aggregate is computed from `week_one_matches` alone — and the correction block at the top of
   this document already records the consequence. Nothing here is blocked on that fetch. Residual
   gap 3 below is the only surviving fetch-shaped item in this section.
