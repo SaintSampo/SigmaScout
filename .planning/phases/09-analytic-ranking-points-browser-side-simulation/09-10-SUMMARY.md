@@ -515,3 +515,13 @@ Then update the ROADMAP's Phase 9 row. **Commit with explicit paths only** (`git
 ## Known stubs
 
 None. No stub, placeholder, TODO, or unwired component was introduced. No test was skipped and no `<verify>` went unrun within this executor's sandbox; the four network-bound tasks are handed over in full above rather than stubbed or faked.
+
+## Self-Check: PASSED
+
+All six modified source/doc files verified present on disk, plus both dry-run logs
+(`reports/` is gitignored — local only, as intended).
+
+All four commits verified in `git log`: `503cddd5`, `1cd79da6`, `1c1badde`, `ea580d16`.
+
+`git status --short` is clean after committing — nothing unintended swept in from the
+concurrent session sharing this checkout, and nothing of this plan's left uncommitted.
