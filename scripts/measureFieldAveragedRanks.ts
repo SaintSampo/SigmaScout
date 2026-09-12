@@ -128,6 +128,54 @@ export const DEFAULT_TARGET_EVENTS: readonly TargetEvent[] = [
 /** The baked arm's own product (`PRESIM_SCHEDULE_COUNT * PRESIM_DRAWS_PER_SCHEDULE`, publish.ts) — both arms rank over the same number of draws. */
 export const DEFAULT_DRAWS = 1000;
 
+/**
+ * The measurement's DEFAULT schedule count, and the value every figure in the
+ * committed n=20 record was produced at.
+ *
+ * It MIRRORS the shipped `PRESIM_SCHEDULE_COUNT` (`packages/harness/publish.ts`)
+ * — READ from it conceptually, NEVER written back to it, exactly the read-only
+ * framing `SHIPPED_SCHEDULE_COUNT` carries in `measureGeneratedSchedules.ts`.
+ * Nothing in this script may change what the publisher ships; a measurement
+ * that edits the thing it is measuring is not a measurement.
+ *
+ * `--schedules` overrides it for a RUN. The override never reaches publish.ts.
+ */
+export const DEFAULT_SCHEDULE_COUNT = 20;
+
+/** The resolved pair `measureEvent` hands `buildPreScheduleArtifact`. */
+export interface ScheduleSplit {
+  readonly scheduleCount: number;
+  readonly drawsPerSchedule: number;
+}
+
+/**
+ * Splits a TOTAL draw count across schedules. `--draws` stays the total and
+ * draws-per-schedule stays derived, which is the relationship the two numbers
+ * have always had here — `--schedules` only changes what the total is divided
+ * by.
+ *
+ * The derivation is the EXPRESSION THAT WAS INLINE in `measureEvent`, copied
+ * rather than rewritten, so the default path cannot drift: at
+ * `scheduleCount = DEFAULT_SCHEDULE_COUNT` this returns byte-identical values
+ * to the code that produced the committed n=20 record.
+ * `measureFieldAveragedRanks.test.ts` pins that over a table of draw counts.
+ *
+ * A count that is not a finite positive integer THROWS, in the loud house
+ * style the corpus re-assertions above use. It does not clamp: a silently
+ * clamped count would produce a real-looking measurement at a count nobody
+ * asked for, and the whole point of this flag is that the count a figure was
+ * measured at is knowable from the figure.
+ */
+export function resolveScheduleSplit(draws: number, scheduleCount?: number): ScheduleSplit {
+  const resolved = scheduleCount ?? DEFAULT_SCHEDULE_COUNT;
+  if (typeof resolved !== "number" || !Number.isInteger(resolved) || resolved <= 0) {
+    throw new Error(
+      `measureFieldAveragedRanks: the schedule count must be a finite positive integer, but got ${String(resolved)} (type ${typeof resolved}). Pass --schedules <n> with a whole number greater than zero, or omit it for the default ${DEFAULT_SCHEDULE_COUNT}.`
+    );
+  }
+  return { scheduleCount: resolved, drawsPerSchedule: Math.max(1, Math.round(draws / resolved)) };
+}
+
 /** BPR is the premier published algorithm and the only one carrying a Sigma Score consistency figure for every team it has seen. */
 export const DEFAULT_ALGORITHM_ID = "bpr";
 
@@ -568,6 +616,11 @@ export interface MeasureOptions {
   readonly draws: number;
   readonly algorithmId: string;
   readonly replayFrom?: number;
+  /**
+   * OPTIONAL on purpose. Every existing caller of `measureEvent` keeps today's
+   * behaviour structurally — by the type, not by remembering to pass a value.
+   */
+  readonly scheduleCount?: number;
 }
 
 export function measureEvent(
@@ -622,8 +675,7 @@ export function measureEvent(
   }
 
   // --- Arm `baked`: the REAL publisher path, through the REAL closure. ---
-  const scheduleCount = 20;
-  const drawsPerSchedule = Math.max(1, Math.round(options.draws / scheduleCount));
+  const { scheduleCount, drawsPerSchedule } = resolveScheduleSplit(options.draws, options.scheduleCount);
   const bakedArtifact = buildPreScheduleArtifact({
     eventKey: target.eventKey,
     season: target.season,
@@ -876,6 +928,7 @@ export async function main(argv: readonly string[]): Promise<void> {
       "replay-from": { type: "string" },
       algorithm: { type: "string" },
       draws: { type: "string" },
+      schedules: { type: "string" },
       seed: { type: "string" },
       "write-doc": { type: "boolean", default: false },
     },
@@ -900,9 +953,16 @@ export async function main(argv: readonly string[]): Promise<void> {
   const algorithm = ALGORITHMS[algorithmId];
   if (algorithm === undefined) throw new Error(`measureFieldAveragedRanks: unknown algorithm "${algorithmId}"`);
   const replayFromOpt = values["replay-from"] === undefined ? undefined : Number(values["replay-from"]);
+  const scheduleCount = values.schedules === undefined ? undefined : Number(values.schedules);
 
-  console.log("measureFieldAveragedRanks — D-16/D-17 rung 1 vs the 20-schedule baked path");
-  console.log(`algorithm=${algorithm.id}@${algorithm.version}  draws=${draws}  events=${targets.map((t) => t.eventKey).join(", ")}`);
+  // Resolved HERE as well as inside `measureEvent`, so an invalid --schedules
+  // throws before a single season is replayed rather than minutes in.
+  const split = resolveScheduleSplit(draws, scheduleCount);
+
+  console.log("measureFieldAveragedRanks — D-16/D-17 rung 1 vs the BAKED path, at the schedule count printed below");
+  console.log(
+    `algorithm=${algorithm.id}@${algorithm.version}  draws=${draws} total  schedules=${split.scheduleCount}  drawsPerSchedule=${split.drawsPerSchedule}  events=${targets.map((t) => t.eventKey).join(", ")}`
+  );
   console.log("Both arms pass through the SAME imported simulateRanks and the SAME imported continuousQuantile. The arms differ only in the pmf inputs.");
 
   const db: Corpus = openCorpusReadOnly(CORPUS_PATH);
@@ -919,7 +979,7 @@ export async function main(argv: readonly string[]): Promise<void> {
       console.log(`\nmeasureFieldAveragedRanks: replaying season ${season} (from ${replayFrom})...`);
       const replay = replaySeason(db, algorithm, season, replayFrom, new Set(seasonTargets.map((t) => t.eventKey)));
       for (const target of seasonTargets) {
-        const m = measureEvent(db, algorithm, target, replay, { draws, algorithmId: algorithm.id, replayFrom });
+        const m = measureEvent(db, algorithm, target, replay, { draws, algorithmId: algorithm.id, replayFrom, scheduleCount });
         measurements.push(m);
         printEvent(m);
       }
