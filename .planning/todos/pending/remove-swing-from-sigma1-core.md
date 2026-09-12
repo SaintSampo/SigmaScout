@@ -66,3 +66,54 @@ alliance-observations, including the record of the FIRST attempt that was circul
 this module is deleted, **move that evidence into the web module's own comment** rather than
 letting it die with the file — otherwise the site ships two measured constants with no surviving
 account of where they came from, which is exactly the failure the project's own log names.
+
+---
+
+## DECIDED 2026-09-12 by Jacob (D3) — OPR and EPA stop drawing a match band entirely
+
+**This is a decision record, not an implementation. No source file was changed when it was
+written.** Whoever implements it does so as its own task. Recorded here because this todo was one of
+three blocked on the same open question.
+
+### The decision
+
+The question was whether OPR and EPA's consistency estimator should be **extended to Sigma Score**,
+**recalibrated per algorithm** against the shared `SWING_FACTOR_SCALE = 1.92`, or **dropped**.
+
+**Dropped.** OPR and EPA stop drawing a match band. Their consistency figure was already
+deliberately stripped on 2026-09-10; a band that is ~1.8x too wide and contains the result 88–91%
+of the time, on a site whose methodology page publishes *"Sigma lands at 67.0%"*
+(`sigmaContent.ts:213`), is worse than no band at all.
+
+### Why it matters to this file
+
+This todo's stated trigger is **"the next Sigma1 params major"**, and that trigger has become
+unreachable on its own terms: VPR is retired, so no Sigma1 params major is going to happen, and a
+todo that can only fire on an event that will never occur is a todo that never fires. That is a
+separate problem from D3 and it is **not** solved by this decision — it is noted so the next reader
+does not mistake a recorded decision for a cleared path.
+
+What D3 does change here is the **surviving justification for keeping `sigma1/swing.ts` around as a
+reference.** One reason not to delete it was that its two measured constants — the walk-forward
+half-life sweep over 275,172 team-matches, and the non-circular scale regression over 86,844
+alliance-observations that produced 1.92 — still described a construction the site drew for OPR and
+EPA. After D3 they describe nothing the site draws for those two algorithms.
+
+**That makes the "One thing to preserve when deleting" section MORE urgent, not less.** Read it
+together with two corrections:
+
+1. `swing-score-audit`'s **F8** records that this file's evidence-preservation clause points at
+   `apps/web/src/lib/swingFactor.ts`, **which no longer exists** — the browser module was reverted
+   when Swing became a published metric (260909-tgf). The evidence has no surviving destination
+   named anywhere. That is exactly how measured constants lose their provenance, which is the
+   failure this clause was written to prevent, happening to the clause itself.
+2. The live constant is `SWING_FACTOR_SCALE = 1.92` in `packages/harness/swingFactor.ts:149`, whose
+   own header carries the measurement (and the record of the first, circular attempt that returned
+   ~1.0). **Re-point the preservation clause there**, or at whatever module survives, before anyone
+   deletes `sigma1/swing.ts`.
+
+### What this decision does NOT say
+
+It does not say to delete anything here now, it does not create a trigger, and it says nothing about
+D6 (whether `swing.ts` goes alone or all of `packages/core/algorithms/sigma1/` goes at once). D6 is
+still open.

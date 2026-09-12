@@ -78,3 +78,57 @@ when written and been changed since, or the inference may not have held.
 Separately confirmed as pre-existing and unrelated: offseason events (e.g. `2024auwarp`) carry
 qualification matches but no RP pmfs. That is the self-reported-breakdown D-05 fallback, not a
 cold-start effect — `2024mil` shows 125/125 qm rows with both pmfs and the full decomposition.
+
+---
+
+## DECIDED 2026-09-12 by Jacob (D3) — OPR and EPA stop drawing a match band entirely
+
+**This is a decision record, not an implementation. No source file was changed when it was
+written.** Whoever implements it does so as its own task. Recorded here because this todo was one of
+three blocked on the same open question.
+
+### The decision
+
+The question was whether OPR and EPA's consistency estimator should be **extended to Sigma Score**,
+**recalibrated per algorithm** against the shared `SWING_FACTOR_SCALE = 1.92`, or **dropped**.
+
+**Dropped.** OPR and EPA stop drawing a match band. Their consistency figure was already
+deliberately stripped on 2026-09-10; a band that is ~1.8x too wide and contains the result 88–91%
+of the time (`swing-score-audit` §3.1: opr 89.91%, epa 90.96%), on a site whose methodology page
+publishes *"Sigma lands at 67.0%"* (`sigmaContent.ts:213`), is worse than no band at all.
+
+### THE DISTINCTION THIS TODO EXISTS TO PROTECT — read before implementing D3
+
+**D3 is about DRAWING a band. It is not about COMPUTING the band variance.** This file documents
+precisely why those cannot be collapsed:
+
+> `packages/harness/sigmaScoutLayer.ts:197–199` — `#rpFieldsFor` returns `{}` (no pmf) when either
+> alliance's band variance is `undefined`.
+
+and the blast radius above: the same `swingByTeam` map gates **played-row pmfs**, **upcoming-row
+pmfs**, and **the presim sidecar wholesale** (`publish.ts:692` — one team without a Swing Score
+means no sidecar for the entire event, and the Simulation tab goes dark).
+
+So an implementation of D3 that removes the band *variance* for OPR and EPA — rather than removing
+its *rendering* — would take ranking points and the rank simulation down for two of the three
+published algorithms. That is a strictly larger regression than the cosmetic problem D3 was decided
+to fix, and it would undo the thing `00-sigmascout-layer-roadmap` recorded as the point of moving RP
+out of the algorithm in the first place: **OPR models no ranking points and never will; it gets them
+from the SigmaScout layer.**
+
+**Implement D3 at the display layer. Keep `bandVarianceFor` feeding `#rpFieldsFor` for every
+algorithm.**
+
+### What it changes about re-deriving this todo's measurement
+
+The measurement above needs re-deriving anyway — see the 2026-09-12 contradiction below it, where
+presim served 200 on all three algorithm ids and emitted 641 sidecars, which the cold-start
+reasoning here says should not have happened. D3 narrows the *display* half of the blast radius to
+BPR but leaves the pmf and presim halves untouched at all three. **So the re-derivation is
+unchanged in scope**: it is about which matches get a pmf, and that question is the same after D3 as
+before it.
+
+If anything D3 raises the stakes: with OPR and EPA no longer drawing a band, their band variance
+becomes a **purely internal** quantity whose only consumer is the RP layer. A defect in it would
+then have no visible symptom on a page at all — nothing to notice — and would surface only as
+missing pmfs and a dark Simulation tab. Note that when the re-derivation is planned.

@@ -421,3 +421,60 @@ F8 noted that `match-band-calibration-...` needed a status line for its closed "
 file has been cut and retitled; the closure is recorded in it. **F8's first bullet is still open** —
 `remove-swing-from-sigma1-core.md` still points its evidence-preservation clause at
 `apps/web/src/lib/swingFactor.ts`, which does not exist.
+
+---
+
+## DECIDED 2026-09-12 by Jacob (D3) — stop drawing the match band for OPR and EPA entirely
+
+**This is a decision record, not an implementation. No source file was changed when it was
+written.** Whoever implements it does so as its own task.
+
+### The question that was open
+
+Three options were on the table for OPR and EPA's consistency estimator, and this audit's F5, F6 and
+R5 are all written against them being undecided:
+
+1. extend Sigma Score to OPR and EPA;
+2. recalibrate the **1.92** scale per algorithm (R5's proposal, unblocked once `measure:swing-skill`
+   existed);
+3. stop drawing their match band entirely.
+
+### The decision: option 3
+
+**OPR and EPA stop drawing a match band. Not option 1, not option 2.**
+
+### The reasoning, recorded because it is the part that transfers
+
+- **Their consistency figure was already deliberately stripped on 2026-09-10.** Removing the band
+  finishes a removal that was started on purpose, rather than reversing it.
+- **A band that is ~1.8x too wide is worse than no band.** §3.1's coverage table measures the
+  per-team band containing the result **89.91% (opr) / 90.96% (epa)** where "one standard deviation"
+  claims 68.3% — and the methodology page publishes a specific competing number: *"Sigma lands at
+  **67.0%**"* (`sigmaContent.ts:213`, pinned by `sigmaContent.test.ts`). So the site currently
+  states 67.0% on one page and delivers 88–91% on another, under the same visual grammar. That is
+  not conservatism a reader can discount; it is a published claim the drawing does not meet.
+- **It is a non-default algorithm surface.** The band is not load-bearing for OPR or EPA.
+
+### What this closes in this audit
+
+- **F5** (Swing is not comparable across algorithms, and the algorithm picker is a dropdown) —
+  closed for the band. If only the premier algorithm draws one, a reader cannot be shown three
+  different bands for the same robot by flipping a view toggle.
+- **F6** ("one standard deviation" is claimed and not delivered) — closed for OPR and EPA. **Still
+  open for BPR**, whose Sigma Score is the number 67.0% describes; this decision does not touch it.
+- **R5** (revisit per-algorithm scale) — **rejected**, not deferred. It was option 2. Do not reopen
+  it for OPR/EPA on the grounds that the harness now exists; that argument was heard and the answer
+  was to remove the surface instead of calibrating it.
+- **R4's re-caption item** narrows to BPR only.
+
+### What it does NOT decide, and must not be read as deciding
+
+- **It is about DRAWING, not computing.** The alliance band variance is also the input the RP pmf
+  and the rank simulation draw from (`sigmaScoutLayer.ts`'s `#rpFieldsFor`). Removing the band from
+  OPR and EPA's *display* must not remove that input, or ranking points and the Simulation tab go
+  dark for two of the three published algorithms. See
+  `cold-start-chain-gates-rp-pmfs-measured`, where the same distinction is recorded.
+- **It does not decide R2** (shrinkage toward the rating-local prior). R2 remains the priority here,
+  it is about BPR's own estimator, and this decision reduces its blast radius rather than removing
+  it.
+- **It does not decide the team-page tile.** The decision as recorded is about the match band.
