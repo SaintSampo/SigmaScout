@@ -133,6 +133,18 @@ export const FEATURE_COUNT = 4;
 /** f1..f7. The AGE arm: the same four, plus the three age numbers. */
 export const AGE_FEATURE_COUNT = 7;
 
+/**
+ * The cutoffs `recall@k` is reported at (quick task 260912-i13).
+ *
+ * `k = 1` is not decoration: because an unreachable or abstaining instance stays
+ * in the recall denominator and scores 0, `recall@1` is BY CONSTRUCTION identical
+ * to the top-1 accuracy the same predictor already reported. That identity is the
+ * control for the whole ranking extension — it is asserted as a test, and if it
+ * ever fails the ranking work has moved the fit and nothing downstream is
+ * trustworthy.
+ */
+export const K_VALUES = [1, 3, 5, 10] as const;
+
 // ---------------------------------------------------------------------------
 // Inputs
 // ---------------------------------------------------------------------------
@@ -777,22 +789,104 @@ export function argmaxIndex(values: readonly number[]): number {
 }
 
 /**
- * The model's top-1 pick: argmax of x·beta over the pool.
+ * The model's UTILITY VECTOR: `u_i = x_i · beta` for EVERY candidate in the
+ * pool (quick task 260912-i13).
+ *
+ * This loop is 5n8's, lifted verbatim out of `pickByWeights` rather than
+ * written beside it. That is the structural point: `pickByWeights` is now
+ * DEFINED as the argmax of this vector, so the ranking and the top-1 pick
+ * cannot disagree — the k=1 control reproduces the existing accuracy
+ * mechanically rather than by assertion.
  *
  * The dot product runs over `weights.length`, not a module constant, so the
  * same function scores a 4-wide no-age vector and a 7-wide age vector without
  * either arm being able to read the other's width.
  */
-export function pickByWeights(
+export function scoreByWeights(
   weights: readonly number[],
   features: readonly (readonly number[])[]
-): number {
-  const u = features.map((row) => {
+): number[] {
+  return features.map((row) => {
     let s = 0;
     for (let d = 0; d < weights.length; d += 1) s += (weights[d] ?? 0) * (row[d] ?? 0);
     return s;
   });
-  return argmaxIndex(u);
+}
+
+/**
+ * The model's top-1 pick: argmax of x·beta over the pool. Derived from
+ * `scoreByWeights`, never computed separately.
+ */
+export function pickByWeights(
+  weights: readonly number[],
+  features: readonly (readonly number[])[]
+): number {
+  return argmaxIndex(scoreByWeights(weights, features));
+}
+
+// ---------------------------------------------------------------------------
+// Orderings: the ranking that was already being computed and thrown away
+// ---------------------------------------------------------------------------
+
+/** NaN is not an ordering position. It sorts with the unrated, at the bottom. */
+function orderable(x: number | undefined): number {
+  return x === undefined || Number.isNaN(x) ? Number.NEGATIVE_INFINITY : x;
+}
+
+/**
+ * Candidate indices sorted by `(value desc, candidate index asc)`.
+ *
+ * That second key is the SAME total order `argmaxIndex`'s first-wins tie-break
+ * already implies, which is what makes `rank(i) === 1` equivalent to
+ * "`argmaxIndex` returned `i`" for any vector of finite utilities. The
+ * comparison is written as `a > b ? -1 : 1` rather than `b - a` so two
+ * `-Infinity` entries compare EQUAL and fall through to the index key instead
+ * of producing `NaN`.
+ */
+export function orderByScores(values: readonly number[]): number[] {
+  const idx: number[] = [];
+  for (let i = 0; i < values.length; i += 1) idx.push(i);
+  idx.sort((a, b) => {
+    const va = orderable(values[a]);
+    const vb = orderable(values[b]);
+    if (va !== vb) return va > vb ? -1 : 1;
+    return a - b;
+  });
+  return idx;
+}
+
+/** 1-based rank by position in the ordering. Absent index = not ranked at all. */
+export function ranksFromOrder(order: readonly number[]): Map<number, number> {
+  const out = new Map<number, number>();
+  for (let pos = 0; pos < order.length; pos += 1) {
+    const i = order[pos];
+    if (i !== undefined && !out.has(i)) out.set(i, pos + 1);
+  }
+  return out;
+}
+
+/**
+ * THE WINNER'S RANK UNDER AN ORDERING = the BEST (minimum) rank among the
+ * recipients that appear in it. `null` when no recipient appears at all.
+ *
+ * Winner and Finalist carry 3-4 recipients, so "the winner's rank" is otherwise
+ * ambiguous. The minimum is the natural choice and it is also the GENEROUS one:
+ * `recall@k` is MECHANICALLY INFLATED for a multi-recipient award, because more
+ * recipients means more chances to land inside k. That is one more reason types
+ * 1 and 2 stay in the reference-only section and headline nothing.
+ */
+export function winnerRank(
+  order: readonly number[],
+  candidates: readonly string[],
+  recipients: ReadonlySet<string>
+): number | null {
+  for (let pos = 0; pos < order.length; pos += 1) {
+    const i = order[pos];
+    if (i === undefined) continue;
+    const team = candidates[i];
+    if (team !== undefined && recipients.has(team)) return pos + 1;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -819,29 +913,55 @@ export function randomExpectedTop1(poolSize: number, recipientsInPool: number): 
  * beat either feature alone?" reading would quietly stop meaning anything. The
  * signature takes no ratings argument so the mistake cannot be made.
  */
+export function orderMostDecorated(
+  candidates: readonly string[],
+  awardType: number,
+  history: PriorHistory
+): number[] {
+  const idx: number[] = [];
+  for (let i = 0; i < candidates.length; i += 1) if (candidates[i] !== undefined) idx.push(i);
+  idx.sort((a, b) => compareDecoration(candidates, awardType, history, a, b));
+  return idx;
+}
+
+/**
+ * The comparator `pickMostDecorated` has always implemented — prior wins of
+ * THIS type desc, prior wins of ANY type desc, team number asc — plus
+ * CANDIDATE INDEX asc as a final key.
+ *
+ * That last key is not cosmetic. `teamNumber` returns `+Infinity` for an
+ * unparseable key, so two unparseable keys TIE under `compareTeamKeys`' numeric
+ * half; without an index key the ordering would not be total and the sort's
+ * behaviour on those two would be an implementation detail rather than a
+ * defined one.
+ */
+function compareDecoration(
+  candidates: readonly string[],
+  awardType: number,
+  history: PriorHistory,
+  a: number,
+  b: number
+): number {
+  const ta = candidates[a] ?? "";
+  const tb = candidates[b] ?? "";
+  const ca = priorTypeCount(history, ta, awardType);
+  const cb = priorTypeCount(history, tb, awardType);
+  if (ca !== cb) return cb - ca;
+  const aa = priorAnyCount(history, ta);
+  const ab = priorAnyCount(history, tb);
+  if (aa !== ab) return ab - aa;
+  const na = teamNumber(ta);
+  const nb = teamNumber(tb);
+  if (na !== nb) return na < nb ? -1 : 1;
+  return a - b;
+}
+
 export function pickMostDecorated(
   candidates: readonly string[],
   awardType: number,
   history: PriorHistory
 ): number {
-  let best = -1;
-  let bestType = -1;
-  let bestAny = -1;
-  let bestNum = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < candidates.length; i += 1) {
-    const team = candidates[i];
-    if (team === undefined) continue;
-    const t = priorTypeCount(history, team, awardType);
-    const a = priorAnyCount(history, team);
-    const n = teamNumber(team);
-    if (t > bestType || (t === bestType && (a > bestAny || (a === bestAny && n < bestNum)))) {
-      best = i;
-      bestType = t;
-      bestAny = a;
-      bestNum = n;
-    }
-  }
-  return best;
+  return orderMostDecorated(candidates, awardType, history)[0] ?? -1;
 }
 
 /**
@@ -850,26 +970,51 @@ export function pickMostDecorated(
  * whether the fit beats either selected feature used by itself. An unrated
  * candidate ranks last rather than being handed a fabricated rating.
  */
+export function orderStrongest(
+  candidates: readonly string[],
+  ratings: ReadonlyMap<string, number>
+): number[] {
+  const idx: number[] = [];
+  for (let i = 0; i < candidates.length; i += 1) if (candidates[i] !== undefined) idx.push(i);
+  idx.sort((a, b) => compareStrength(candidates, ratings, a, b));
+  return idx;
+}
+
+/**
+ * `pickStrongest`'s comparator — pre-event BPR desc, UNRATED LAST (never a
+ * fabricated rating), team number asc — with candidate index asc as the final
+ * key, for the same totality reason as `compareDecoration`.
+ *
+ * An unrated candidate is `-Infinity`, so two unrated candidates compare EQUAL
+ * and fall through to team number rather than producing `NaN` from a
+ * subtraction.
+ */
+function compareStrength(
+  candidates: readonly string[],
+  ratings: ReadonlyMap<string, number>,
+  a: number,
+  b: number
+): number {
+  const ta = candidates[a] ?? "";
+  const tb = candidates[b] ?? "";
+  const ra = ratingOrLast(ratings.get(ta));
+  const rb = ratingOrLast(ratings.get(tb));
+  if (ra !== rb) return ra > rb ? -1 : 1;
+  const na = teamNumber(ta);
+  const nb = teamNumber(tb);
+  if (na !== nb) return na < nb ? -1 : 1;
+  return a - b;
+}
+
+function ratingOrLast(r: number | undefined): number {
+  return r === undefined || !Number.isFinite(r) ? Number.NEGATIVE_INFINITY : r;
+}
+
 export function pickStrongest(
   candidates: readonly string[],
   ratings: ReadonlyMap<string, number>
 ): number {
-  let best = -1;
-  let bestR = Number.NEGATIVE_INFINITY;
-  let bestNum = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < candidates.length; i += 1) {
-    const team = candidates[i];
-    if (team === undefined) continue;
-    const r = ratings.get(team);
-    const v = r === undefined || !Number.isFinite(r) ? Number.NEGATIVE_INFINITY : r;
-    const n = teamNumber(team);
-    if (best === -1 || v > bestR || (v === bestR && n < bestNum)) {
-      best = i;
-      bestR = v;
-      bestNum = n;
-    }
-  }
-  return best;
+  return orderStrongest(candidates, ratings)[0] ?? -1;
 }
 
 /**
@@ -920,6 +1065,29 @@ export function knownRookieIndices(
  * Like `pickMostDecorated`, it takes NO ratings argument, so the "silently
  * becomes a two-feature model" mistake is unavailable at the signature level.
  */
+/**
+ * RB1's ordering: `compareDecoration` restricted to the known-rookie block.
+ *
+ * ITS LENGTH IS THE BLOCK SIZE, NOT THE POOL SIZE. No tail of non-rookies is
+ * invented below the rookies — RB1 does not rank a veteran at all, and an
+ * ordering that quietly appended them would hand RB1 rank positions it never
+ * claimed and make its normalized percentile look like the model's. An empty
+ * block is the existing abstention, expressed as an empty ordering.
+ */
+export function orderMostDecoratedRookie(
+  candidates: readonly string[],
+  awardType: number,
+  year: number,
+  history: PriorHistory,
+  rookieYears: ReadonlyMap<string, number>
+): number[] {
+  const idx = knownRookieIndices(candidates, year, rookieYears).filter(
+    (i) => candidates[i] !== undefined
+  );
+  idx.sort((a, b) => compareDecoration(candidates, awardType, history, a, b));
+  return idx;
+}
+
 export function pickMostDecoratedRookie(
   candidates: readonly string[],
   awardType: number,
@@ -927,24 +1095,7 @@ export function pickMostDecoratedRookie(
   history: PriorHistory,
   rookieYears: ReadonlyMap<string, number>
 ): number {
-  let best = ABSTAIN;
-  let bestType = -1;
-  let bestAny = -1;
-  let bestNum = Number.POSITIVE_INFINITY;
-  for (const i of knownRookieIndices(candidates, year, rookieYears)) {
-    const team = candidates[i];
-    if (team === undefined) continue;
-    const t = priorTypeCount(history, team, awardType);
-    const a = priorAnyCount(history, team);
-    const n = teamNumber(team);
-    if (t > bestType || (t === bestType && (a > bestAny || (a === bestAny && n < bestNum)))) {
-      best = i;
-      bestType = t;
-      bestAny = a;
-      bestNum = n;
-    }
-  }
-  return best;
+  return orderMostDecoratedRookie(candidates, awardType, year, history, rookieYears)[0] ?? ABSTAIN;
 }
 
 /**
@@ -957,28 +1108,27 @@ export function pickMostDecoratedRookie(
  * pre-event BPR at its second event, so the two baselines genuinely disagree
  * wherever a rookie has taken the field before.
  */
+/** RB2's ordering: `compareStrength` restricted to the known-rookie block, block-length. */
+export function orderStrongestRookie(
+  candidates: readonly string[],
+  year: number,
+  ratings: ReadonlyMap<string, number>,
+  rookieYears: ReadonlyMap<string, number>
+): number[] {
+  const idx = knownRookieIndices(candidates, year, rookieYears).filter(
+    (i) => candidates[i] !== undefined
+  );
+  idx.sort((a, b) => compareStrength(candidates, ratings, a, b));
+  return idx;
+}
+
 export function pickStrongestRookie(
   candidates: readonly string[],
   year: number,
   ratings: ReadonlyMap<string, number>,
   rookieYears: ReadonlyMap<string, number>
 ): number {
-  let best = ABSTAIN;
-  let bestR = Number.NEGATIVE_INFINITY;
-  let bestNum = Number.POSITIVE_INFINITY;
-  for (const i of knownRookieIndices(candidates, year, rookieYears)) {
-    const team = candidates[i];
-    if (team === undefined) continue;
-    const r = ratings.get(team);
-    const v = r === undefined || !Number.isFinite(r) ? Number.NEGATIVE_INFINITY : r;
-    const n = teamNumber(team);
-    if (best === ABSTAIN || v > bestR || (v === bestR && n < bestNum)) {
-      best = i;
-      bestR = v;
-      bestNum = n;
-    }
-  }
-  return best;
+  return orderStrongestRookie(candidates, year, ratings, rookieYears)[0] ?? ABSTAIN;
 }
 
 /**
@@ -1005,6 +1155,196 @@ export function isTop1Hit(
 
 export function isThinPrior(priorInstanceCount: number): boolean {
   return priorInstanceCount < THIN_PRIOR_INSTANCES;
+}
+
+// ---------------------------------------------------------------------------
+// Rank metrics, and THE TWO DENOMINATORS (quick task 260912-i13)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE TWO DENOMINATORS, STATED ONCE AND APPLIED TO ALL SEVEN PREDICTORS.
+ * Getting this wrong is what would silently break the k=1 control.
+ *
+ *   recall@k, MRR          -> denominator is EVERY scored instance (`n`).
+ *                             An instance with no reachable recipient, or one a
+ *                             rookie baseline abstained on, STAYS IN and scores
+ *                             0. That is what makes `recall@1` identical to the
+ *                             predictor's existing top-1 accuracy.
+ *   mean / median rank,    -> denominator is `rankDefined` only. An instance
+ *   normalized percentile     with no recipient in the ordering is EXCLUDED and
+ *                             COUNTED, because "the winner ranked 37th" and
+ *                             "the winner was not in the list at all" are
+ *                             different facts and averaging them would invent a
+ *                             rank that was never assigned.
+ *
+ * `rankDefined` = instances where at least one recipient appears in THAT
+ * predictor's ordering. For the two model arms, B1 and B2 that is
+ * `n - unreachable`. For RB1/RB2 it is instances whose rookie block is
+ * non-empty AND contains a recipient.
+ */
+export interface RankStats {
+  /** Instances where at least one recipient appeared in this predictor's ordering. */
+  rankDefined: number;
+  /** Parallel to `K_VALUES`. Counts over ALL `n`, so an unranked instance scores 0. */
+  recallAt: number[];
+  /** Σ 1/rank over ALL `n`; an unranked instance contributes 0. */
+  reciprocalRankSum: number;
+  /** Σ rank over `rankDefined` only. */
+  rankSum: number;
+  /** Σ rank/orderingLength over `rankDefined` only. */
+  normalizedRankSum: number;
+  /**
+   * Every defined winner rank, for an EXACT median rather than an interpolated
+   * one. The `--json` emitter replaces this array with the computed median and
+   * its count — see `toJsonCell`.
+   */
+  ranks: number[];
+}
+
+export const emptyRankStats = (): RankStats => ({
+  rankDefined: 0,
+  recallAt: K_VALUES.map(() => 0),
+  reciprocalRankSum: 0,
+  rankSum: 0,
+  normalizedRankSum: 0,
+  ranks: [],
+});
+
+/**
+ * Folds one instance into a predictor's rank stats.
+ *
+ * `rank === null` (no recipient in the ordering) or an empty ordering (a rookie
+ * baseline's abstention) scores 0 at every k and contributes 0 to the MRR sum,
+ * while staying in the `n` denominator — and is excluded from every
+ * `rankDefined` accumulator.
+ */
+export function accumulateRank(
+  stats: RankStats,
+  rank: number | null,
+  orderingLength: number
+): void {
+  if (rank === null || orderingLength <= 0) return;
+  stats.rankDefined += 1;
+  for (let ki = 0; ki < K_VALUES.length; ki += 1) {
+    if (rank <= (K_VALUES[ki] ?? 0)) stats.recallAt[ki] = (stats.recallAt[ki] ?? 0) + 1;
+  }
+  stats.reciprocalRankSum += 1 / rank;
+  stats.rankSum += rank;
+  stats.normalizedRankSum += rank / orderingLength;
+  stats.ranks.push(rank);
+}
+
+/**
+ * B0 — THE RANDOM NULL ORDERING, COMPUTED EXACTLY AND NEVER SAMPLED.
+ *
+ * No RNG, no seed, no run-to-run drift: two runs of this script produce the
+ * same B0 to the last digit, so a B0 movement can never be mistaken for a
+ * model movement.
+ *
+ * `S(m)` is the probability that ALL `r` recipients rank strictly worse than
+ * `m` under a uniformly random ordering of `N` candidates —
+ * `Π_{j=0}^{r-1} (N−m−j)/(N−j)`, i.e. `C(N−m, r) / C(N, r)`, clamped at 0. With
+ * `r = 0` the empty product is 1, which is the right answer: a random ordering
+ * can never hit a recipient that is not in the pool.
+ */
+export function b0Survival(poolSize: number, recipientsInPool: number, m: number): number {
+  if (recipientsInPool <= 0) return 1;
+  let s = 1;
+  for (let j = 0; j < recipientsInPool; j += 1) {
+    const den = poolSize - j;
+    const num = poolSize - m - j;
+    if (den <= 0) return 0;
+    if (num <= 0) return 0;
+    s *= num / den;
+  }
+  return s;
+}
+
+/** The closed forms this script's B0 row is built from. Proved against brute force in the tests. */
+export interface B0Exact {
+  /** Parallel to `K_VALUES`: `1 − S(k)`, and 1 once `k >= N`. */
+  recallAt: number[];
+  /** `Σ_{m=1}^{N−r+1} (1/m)·(S(m−1) − S(m))`. */
+  reciprocalRank: number;
+  /** `(N+1)/(r+1)` — the exact expectation of the minimum of `r` draws from `N`. */
+  meanRank: number;
+  /** The smallest `m` with `S(m) <= 0.5`. */
+  medianRank: number;
+  /** `meanRank / N`. */
+  normalizedRank: number;
+  /** False when no recipient is in the pool — B0 has no rank there either. */
+  defined: boolean;
+}
+
+export function b0Exact(poolSize: number, recipientsInPool: number): B0Exact {
+  const N = poolSize;
+  const r = recipientsInPool;
+  if (N <= 0 || r <= 0) {
+    return {
+      recallAt: K_VALUES.map(() => 0),
+      reciprocalRank: 0,
+      meanRank: 0,
+      medianRank: 0,
+      normalizedRank: 0,
+      defined: false,
+    };
+  }
+  const recallAt = K_VALUES.map((k) => (k >= N ? 1 : 1 - b0Survival(N, r, k)));
+  let reciprocalRank = 0;
+  let prev = b0Survival(N, r, 0); // = 1
+  for (let m = 1; m <= N - r + 1; m += 1) {
+    const s = b0Survival(N, r, m);
+    reciprocalRank += (prev - s) / m;
+    prev = s;
+  }
+  let medianRank = N - r + 1;
+  for (let m = 1; m <= N - r + 1; m += 1) {
+    if (b0Survival(N, r, m) <= 0.5) {
+      medianRank = m;
+      break;
+    }
+  }
+  const meanRank = (N + 1) / (r + 1);
+  return {
+    recallAt,
+    reciprocalRank,
+    meanRank,
+    medianRank,
+    normalizedRank: meanRank / N,
+    defined: true,
+  };
+}
+
+/**
+ * Folds B0's exact expectations into a `RankStats`, so the reference row and
+ * the six real predictors share one shape and one printer.
+ *
+ * Its `recallAt` entries are EXPECTED counts (fractional) rather than integer
+ * hit counts, over the identical `n` denominator — so dividing by `n` yields
+ * the exact expected recall, which is what the column means for every row.
+ * `ranks` holds one exact per-instance MEDIAN, so the pooled `medRank` column
+ * is the median of the instance-wise medians.
+ */
+export function accumulateB0Rank(stats: RankStats, poolSize: number, recipientsInPool: number): void {
+  const e = b0Exact(poolSize, recipientsInPool);
+  if (!e.defined) return;
+  stats.rankDefined += 1;
+  for (let ki = 0; ki < K_VALUES.length; ki += 1) {
+    stats.recallAt[ki] = (stats.recallAt[ki] ?? 0) + (e.recallAt[ki] ?? 0);
+  }
+  stats.reciprocalRankSum += e.reciprocalRank;
+  stats.rankSum += e.meanRank;
+  stats.normalizedRankSum += e.normalizedRank;
+  stats.ranks.push(e.medianRank);
+}
+
+/** Exact median of an unsorted sample; the mean of the two middles on an even count. */
+export function medianOf(values: readonly number[]): number {
+  if (values.length === 0) return 0;
+  const s = [...values].sort((a, b) => a - b);
+  const mid = s.length >> 1;
+  if (s.length % 2 === 1) return s[mid] ?? 0;
+  return ((s[mid - 1] ?? 0) + (s[mid] ?? 0)) / 2;
 }
 
 // ---------------------------------------------------------------------------
@@ -1047,6 +1387,18 @@ export interface Cell {
   unreachable: number;
   /** Instances scored by the thin-prior decoration fallback rather than a fit. */
   thinPriorRows: number;
+  /**
+   * Instances whose candidate pool holds fewer than 10 teams. Printed because
+   * `recall@10` on a 6-team pool is trivially 100% and a reader must be able to
+   * see how much of the column is that rather than a result.
+   */
+  smallPoolInstances: number;
+  /**
+   * ONE `RankStats` PER PREDICTOR, not a scatter of fields (quick task
+   * 260912-i13). Both arms still share this one cell and therefore one
+   * denominator, exactly as the accuracy columns do.
+   */
+  rank: Record<RankPredictor, RankStats>;
 }
 
 export const emptyCell = (): Cell => ({
@@ -1065,6 +1417,16 @@ export const emptyCell = (): Cell => ({
   ageKnownSum: 0,
   unreachable: 0,
   thinPriorRows: 0,
+  smallPoolInstances: 0,
+  rank: {
+    model: emptyRankStats(),
+    ageModel: emptyRankStats(),
+    b1: emptyRankStats(),
+    b2: emptyRankStats(),
+    rb1: emptyRankStats(),
+    rb2: emptyRankStats(),
+    b0: emptyRankStats(),
+  },
 });
 
 export interface AwardTypeReport {
@@ -1099,6 +1461,29 @@ export type Arm = "model" | "ageModel";
 /** Every scoreable predictor in the report. */
 export type Predictor = Arm | "b1" | "b2" | "rb1" | "rb2";
 
+/**
+ * The six scoreable predictors plus the exact random null. B0 is a REFERENCE
+ * ROW, never a verdict participant — the bar is still the best of B1/B2/RB1/RB2.
+ */
+export type RankPredictor = Predictor | "b0";
+
+/**
+ * Print order for the rank block. B1 is listed IMMEDIATELY beside the two arms
+ * by design: the load-bearing requirement of 260912-i13 is that a model
+ * ordering is never shown without the decoration ordering next to it, because a
+ * ranking compared only against random would look spectacular everywhere and
+ * mean nothing. That is 7bp's structural-zero lesson in rank form.
+ */
+export const RANK_PREDICTORS: readonly RankPredictor[] = [
+  "model",
+  "ageModel",
+  "b1",
+  "b2",
+  "rb1",
+  "rb2",
+  "b0",
+];
+
 /** `acc(cell)` helpers, so the printer and the JSON never disagree. */
 export function cellAccuracy(c: Cell, which: Predictor): number {
   if (c.n === 0) return 0;
@@ -1119,6 +1504,45 @@ export function cellAccuracy(c: Cell, which: Predictor): number {
 
 export function cellRandom(c: Cell): number {
   return c.n === 0 ? 0 : c.b0Expected / c.n;
+}
+
+// --- rank accessors: one place, so the printer and the JSON never disagree ---
+
+/** `recall@K_VALUES[kIndex]`. Denominator is ALL `n` — see `RankStats`. */
+export function cellRecallAt(c: Cell, which: RankPredictor, kIndex: number): number {
+  if (c.n === 0) return 0;
+  return (c.rank[which].recallAt[kIndex] ?? 0) / c.n;
+}
+
+/** Mean reciprocal rank. Denominator is ALL `n`; an unranked instance contributes 0. */
+export function cellMrr(c: Cell, which: RankPredictor): number {
+  return c.n === 0 ? 0 : c.rank[which].reciprocalRankSum / c.n;
+}
+
+/** Mean winner rank over `rankDefined` only. */
+export function cellMeanRank(c: Cell, which: RankPredictor): number {
+  const s = c.rank[which];
+  return s.rankDefined === 0 ? 0 : s.rankSum / s.rankDefined;
+}
+
+/** Exact median winner rank over `rankDefined` only. */
+export function cellMedianRank(c: Cell, which: RankPredictor): number {
+  return medianOf(c.rank[which].ranks);
+}
+
+/**
+ * Mean of `winnerRank / orderingLength` over `rankDefined` only.
+ *
+ * Pools average ~40 teams but vary widely by event, so a raw rank is not
+ * comparable across events and this is the form that is. FOR RB1/RB2 THE
+ * DIVISOR IS THE ROOKIE-BLOCK SIZE, NOT THE POOL SIZE — a different
+ * denominator, printed in its own column with the denominator named in the
+ * header, because it is NOT comparable to the model's and the output must not
+ * let a reader assume it is.
+ */
+export function cellNormalizedRank(c: Cell, which: RankPredictor): number {
+  const s = c.rank[which];
+  return s.rankDefined === 0 ? 0 : s.normalizedRankSum / s.rankDefined;
 }
 
 /** Mean fraction of the candidate pool whose `rookie_year` is known. */
@@ -1216,6 +1640,8 @@ function addCell(
   target.b0Expected += randomExpectedTop1(poolSize, recipInPool);
   target.ageKnownSum += ageKnownFraction;
   if (recipInPool === 0) target.unreachable += 1;
+  if (poolSize < 10) target.smallPoolInstances += 1;
+  accumulateB0Rank(target.rank.b0, poolSize, recipInPool);
 }
 
 interface PreparedInstance {
@@ -1369,24 +1795,48 @@ export function runExperiment(input: {
         // is really B1 wearing the model's name would make the comparison
         // meaningless — and a DELTA computed between two copies of B1 is a
         // guaranteed, meaningless zero.
-        const b1Pick = pickMostDecorated(p.candidates, awardType, p.history);
-        const modelPick = weights === null ? b1Pick : pickByWeights(weights, p.features);
-        const ageModelPick =
-          ageWeights === null ? b1Pick : pickByWeights(ageWeights, p.ageFeatures);
-        const b2Pick = pickStrongest(p.candidates, p.ratings);
-        const rb1Pick = pickMostDecoratedRookie(
+        //
+        // EVERY PICK IS THE HEAD OF AN ORDERING, never computed beside one.
+        // That is what makes `recall@1` reproduce the existing accuracy column
+        // mechanically rather than by assertion (quick task 260912-i13). In the
+        // thin-prior case the model's ORDERING is B1's ordering too, for the
+        // same reason its pick is B1's pick — anything else would make the k=1
+        // control disagree with the accuracy it is meant to reproduce.
+        const b1Order = orderMostDecorated(p.candidates, awardType, p.history);
+        const b2Order = orderStrongest(p.candidates, p.ratings);
+        const rb1Order = orderMostDecoratedRookie(
           p.candidates,
           awardType,
           p.instance.year,
           p.history,
           rookieYears
         );
-        const rb2Pick = pickStrongestRookie(
+        const rb2Order = orderStrongestRookie(
           p.candidates,
           p.instance.year,
           p.ratings,
           rookieYears
         );
+        const modelScores = weights === null ? null : scoreByWeights(weights, p.features);
+        const ageScores = ageWeights === null ? null : scoreByWeights(ageWeights, p.ageFeatures);
+        const modelOrder = modelScores === null ? b1Order : orderByScores(modelScores);
+        const ageModelOrder = ageScores === null ? b1Order : orderByScores(ageScores);
+
+        const b1Pick = b1Order[0] ?? -1;
+        const b2Pick = b2Order[0] ?? -1;
+        const rb1Pick = rb1Order[0] ?? ABSTAIN;
+        const rb2Pick = rb2Order[0] ?? ABSTAIN;
+        const modelPick = modelScores === null ? b1Pick : argmaxIndex(modelScores);
+        const ageModelPick = ageScores === null ? b1Pick : argmaxIndex(ageScores);
+
+        const orders: Record<Predictor, readonly number[]> = {
+          model: modelOrder,
+          ageModel: ageModelOrder,
+          b1: b1Order,
+          b2: b2Order,
+          rb1: rb1Order,
+          rb2: rb2Order,
+        };
 
         for (const target of [cell, report.pooled]) {
           addCell(
@@ -1408,6 +1858,18 @@ export function runExperiment(input: {
           if (rb2Pick === ABSTAIN) target.rb2Abstentions += 1;
           else if (isTop1Hit(p.candidates, rb2Pick, p.recipientSet)) target.rb2Hits += 1;
           if (thin) target.thinPriorRows += 1;
+
+          // The ranking that used to be discarded at `argmaxIndex`. B0 was
+          // already folded in by `addCell`, exactly and without an RNG.
+          for (const which of RANK_PREDICTORS) {
+            if (which === "b0") continue;
+            const order = orders[which];
+            accumulateRank(
+              target.rank[which],
+              winnerRank(order, p.candidates, p.recipientSet),
+              order.length
+            );
+          }
         }
       }
     }
@@ -1609,6 +2071,65 @@ const HEADER =
   `${"B1".padStart(8)}${"B2".padStart(8)}${"RB1".padStart(8)}${"RB2".padStart(8)}` +
   `${"ageKn".padStart(9)}${"unreach".padStart(9)}  flags`;
 
+const RANK_LABEL: Record<RankPredictor, string> = {
+  model: "no-age",
+  ageModel: "+age",
+  b1: "B1",
+  b2: "B2",
+  rb1: "RB1",
+  rb2: "RB2",
+  b0: "B0",
+};
+
+/**
+ * Built from the same `padStart` widths the rank rows use, for the same reason
+ * `HEADER` is.
+ */
+const RANK_HEADER =
+  `    ${"pred".padEnd(8)}` +
+  K_VALUES.map((k) => `R@${k}`.padStart(8)).join("") +
+  `${"MRR".padStart(8)}${"meanRank".padStart(9)}${"medRank".padStart(8)}` +
+  `${"norm%".padStart(8)}${"rankDef".padStart(9)}  notes`;
+
+function rankLine(which: RankPredictor, c: Cell): string {
+  const notes: string[] = [];
+  if (which === "rb1" || which === "rb2") notes.push("norm% is of the ROOKIE BLOCK, not the pool");
+  if (which === "b0") notes.push("exact expectation, never sampled — reference row, not a verdict");
+  return (
+    `    ${RANK_LABEL[which].padEnd(8)}` +
+    K_VALUES.map((_, ki) => pct(cellRecallAt(c, which, ki)).padStart(8)).join("") +
+    `${cellMrr(c, which).toFixed(3).padStart(8)}` +
+    `${cellMeanRank(c, which).toFixed(1).padStart(9)}` +
+    `${cellMedianRank(c, which).toFixed(1).padStart(8)}` +
+    `${pct(cellNormalizedRank(c, which)).padStart(8)}` +
+    `${String(c.rank[which].rankDefined).padStart(9)}  ` +
+    notes.join(" ")
+  );
+}
+
+/**
+ * The RANK block: pooled only. Per-season rank rows would be seven predictors
+ * times ten seasons per award type and would drown the output.
+ */
+function printRankBlock(c: Cell): string[] {
+  const lines: string[] = [];
+  lines.push(
+    `    RANK (pooled). recall/MRR denominator = every scored instance (n=${c.n});` +
+      ` meanRank/medRank/norm% denominator = rankDef.`
+  );
+  lines.push(
+    `    ${c.unreachable} unreachable instance(s) score 0 at every k and are EXCLUDED from rankDef;` +
+      ` an RB abstention is the same.`
+  );
+  lines.push(
+    `    ${c.smallPoolInstances}/${c.n} instance(s) have a pool under 10 teams — R@10 is trivially` +
+      ` 100% on those, so read that column against this count.`
+  );
+  lines.push(RANK_HEADER);
+  for (const which of RANK_PREDICTORS) lines.push(rankLine(which, c));
+  return lines;
+}
+
 function printTypeBlock(r: AwardTypeReport): string[] {
   const lines: string[] = [];
   lines.push(`  type ${String(r.awardType).padStart(3)}  ${r.name}`);
@@ -1632,6 +2153,8 @@ function printTypeBlock(r: AwardTypeReport): string[] {
     `    rookie baselines: RB1 abstained on ${c.rb1Abstentions}/${c.n} instances, ` +
       `RB2 on ${c.rb2Abstentions}/${c.n}; mean pool age coverage ${pct(cellAgeKnownFraction(c))}`
   );
+  lines.push("");
+  lines.push(...printRankBlock(c));
   lines.push("");
   return lines;
 }
@@ -1664,6 +2187,21 @@ export function formatReport(report: ExperimentReport): string {
   );
   lines.push("Top-1 rule: one predicted team; correct iff it is in the actual recipient set.");
   lines.push("");
+  lines.push("RANK BLOCK (quick task 260912-i13) — the ordering the model already computed:");
+  lines.push("  Every ordering is DERIVED from the pick that was already being made, never built");
+  lines.push("  beside it, so R@1 is by construction the same number as the accuracy column above");
+  lines.push("  it. If those two ever disagree, the ranking work has moved the fit and NOTHING");
+  lines.push("  downstream is trustworthy — diagnose, do not explain.");
+  lines.push("  B1's FULL ORDERING is printed beside the model's on every rank metric. A model");
+  lines.push("  ranking compared only against random is not a result: random loses everywhere.");
+  lines.push("  The two denominators: recall@k and MRR keep every instance and score an");
+  lines.push("  unreachable or abstained one 0; meanRank/medRank/norm% exclude it and count it.");
+  lines.push("  norm% = winnerRank / orderingLength. For RB1/RB2 the divisor is the ROOKIE BLOCK,");
+  lines.push("  a different denominator that is NOT comparable to the model's.");
+  lines.push("  THE ROOKIE TYPES (10, 14, 15) ARE READ AGAINST RB1/RB2, NEVER B1/B2 — B1 and B2");
+  lines.push("  are structurally near-bottom rankers there for the same reason they are pinned at");
+  lines.push("  0.0% on top-1, and a rank 'win' over them is 260912-7bp's artifact in new clothes.");
+  lines.push("");
   lines.push("Census");
   lines.push(`  award rows read:                       ${report.census.totalRows}`);
   lines.push(`  rows dropped — offseason/preseason:    ${report.census.rowsDroppedOffseasonPreseason}`);
@@ -1695,6 +2233,11 @@ export function formatReport(report: ExperimentReport): string {
   lines.push("These are the on-field elimination result and already the match predictors'");
   lines.push("domain. They carry 3-4 recipients per instance and they score high. They are");
   lines.push("a sanity check that the rig works, NOT a judged-award claim.");
+  lines.push("");
+  lines.push("AND THEIR RANK METRICS ARE MECHANICALLY INFLATED ON TOP OF THAT. Winner rank is");
+  lines.push("the BEST rank among 3-4 recipients, so recall@k has three or four chances to land");
+  lines.push("inside k where a judged award has one. That is a second, independent reason these");
+  lines.push("two types headline nothing.");
   lines.push("===========================================================================");
   lines.push("");
   for (const r of reference) lines.push(...printTypeBlock(r));
@@ -1777,6 +2320,34 @@ export function formatReport(report: ExperimentReport): string {
   return lines.join("\n");
 }
 
+/**
+ * A `Cell` reshaped for `--json`.
+ *
+ * `RankStats.ranks` is REPLACED by its computed median and its count. Kept raw,
+ * the pooled arrays carry roughly 366,000 integers across every award type and
+ * predictor, which would make the `--json` output unreadable and effectively
+ * unusable — and they carry no fact the median and the count do not, because
+ * every other rank metric is already a sum accumulated beside them. The median
+ * is computed HERE from the full sample rather than estimated downstream, so
+ * dropping the array loses nothing.
+ */
+export function toJsonCell(c: Cell): Record<string, unknown> {
+  const rank: Record<string, unknown> = {};
+  for (const which of RANK_PREDICTORS) {
+    const s = c.rank[which];
+    rank[which] = {
+      rankDefined: s.rankDefined,
+      recallAt: s.recallAt,
+      reciprocalRankSum: s.reciprocalRankSum,
+      rankSum: s.rankSum,
+      normalizedRankSum: s.normalizedRankSum,
+      medianRank: medianOf(s.ranks),
+      rankCount: s.ranks.length,
+    };
+  }
+  return { ...c, rank };
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -1835,8 +2406,10 @@ function main(): void {
           byType: report.byType.map((r) => ({
             awardType: r.awardType,
             name: r.name,
-            pooled: r.pooled,
-            perSeason: Object.fromEntries(r.perSeason),
+            pooled: toJsonCell(r.pooled),
+            perSeason: Object.fromEntries(
+              [...r.perSeason].map(([season, cell]) => [season, toJsonCell(cell)])
+            ),
           })),
         },
         null,

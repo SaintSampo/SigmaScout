@@ -22,11 +22,17 @@ import {
   ABSTAIN,
   AGE_FEATURE_COUNT,
   FEATURE_COUNT,
+  K_VALUES,
+  RANK_PREDICTORS,
   THIN_PRIOR_INSTANCES,
+  accumulateB0Rank,
+  accumulateRank,
   ageDeltaPp,
   ageFeatureTriple,
   ageVerdict,
   argmaxIndex,
+  b0Exact,
+  b0Survival,
   bestBaseline,
   buildAgeFeatures,
   buildAwardInstances,
@@ -35,16 +41,28 @@ import {
   buildPriorHistory,
   cellAccuracy,
   cellAgeKnownFraction,
+  cellMeanRank,
+  cellMedianRank,
+  cellMrr,
+  cellNormalizedRank,
+  cellRecallAt,
   compareTeamKeys,
   emptyCell,
+  emptyRankStats,
   fitConditionalLogit,
   isPredictable,
   isThinPrior,
   isTop1Hit,
   knownAgeFraction,
   knownRookieIndices,
+  medianOf,
   modalAwardNames,
   NOISE_MARGIN_PP,
+  orderByScores,
+  orderMostDecorated,
+  orderMostDecoratedRookie,
+  orderStrongest,
+  orderStrongestRookie,
   pickByWeights,
   pickMostDecorated,
   pickMostDecoratedRookie,
@@ -55,17 +73,22 @@ import {
   priorTypeCount,
   priorTypeLastYear,
   randomExpectedTop1,
+  ranksFromOrder,
   replayPreEventRatings,
   runExperiment,
+  scoreByWeights,
   selectPriorInstances,
   teamAge,
   teamNumber,
+  toJsonCell,
   toTrainInstance,
   verdictMarginPp,
+  winnerRank,
   type AwardInstance,
   type AwardRowInput,
   type Cell,
   type EventMetaInput,
+  type Predictor,
   type ReplayMatch,
   type ReplayModel,
 } from "./measureAwardPredictability.js";
@@ -1189,5 +1212,587 @@ describe("fitConditionalLogit width handling", () => {
     expect(toTrainInstance([[1, 2, 3, 4, 5, 6, 7]], [0]).featureCount).toBe(AGE_FEATURE_COUNT);
     // No rows at all: falls back to the no-age width rather than 0.
     expect(toTrainInstance([], []).featureCount).toBe(FEATURE_COUNT);
+  });
+});
+
+// ===========================================================================
+// QUICK TASK 260912-i13 — the ranking that was being discarded
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Every pick is the HEAD of an ordering — the structural claim, asserted
+// ---------------------------------------------------------------------------
+
+describe("orderings derive the picks, rather than sitting beside them", () => {
+  const hist = (wins: readonly AwardInstance[]) => buildPriorHistory(wins, 3000);
+
+  it("rank 1 under the model ordering IS what pickByWeights returns", () => {
+    const weights = [1, 0, 0, 0];
+    const features = [[0.5], [2.0], [1.25], [-3]].map((r) => [r[0] ?? 0, 0, 0, 0]);
+    const order = orderByScores(scoreByWeights(weights, features));
+    const ranks = ranksFromOrder(order);
+    const pick = pickByWeights(weights, features);
+    expect(pick).toBe(1);
+    expect(ranks.get(pick)).toBe(1);
+    for (let i = 0; i < features.length; i += 1) {
+      expect(ranks.get(i) === 1).toBe(pick === i);
+    }
+  });
+
+  it("breaks an EXACT utility tie the same way argmax does — toward the first candidate", () => {
+    // Identical rows: `argmaxIndex` keeps the first, so the ordering must too,
+    // or R@1 would stop reproducing the accuracy column on every tied instance.
+    const weights = [1, 1, 1, 1];
+    const features = [
+      [1, 0, 0, 0],
+      [0, 1, 0, 0],
+      [0, 0, 1, 0],
+    ];
+    const u = scoreByWeights(weights, features);
+    expect(u).toEqual([1, 1, 1]);
+    expect(orderByScores(u)).toEqual([0, 1, 2]);
+    expect(ranksFromOrder(orderByScores(u)).get(pickByWeights(weights, features))).toBe(1);
+  });
+
+  it("scoreByWeights is the loop pickByWeights used to own, over the full pool", () => {
+    const weights = [2, -1];
+    const features = [
+      [1, 0],
+      [0, 1],
+      [3, 3],
+    ];
+    expect(scoreByWeights(weights, features)).toEqual([2, -1, 3]);
+    expect(scoreByWeights(weights, features)).toHaveLength(features.length);
+    expect(pickByWeights(weights, features)).toBe(argmaxIndex(scoreByWeights(weights, features)));
+  });
+
+  it("B1's pick is exactly its ordering's head at every tie-break level", () => {
+    const history = hist([
+      inst(1000, "a", 7, ["frc50"]),
+      inst(1001, "a", 7, ["frc50"]),
+      inst(1002, "b", 9, ["frc60"]),
+      inst(1003, "c", 9, ["frc70"]),
+    ]);
+    // level 1: prior wins of THIS type
+    const byType = ["frc70", "frc50", "frc60"];
+    expect(orderMostDecorated(byType, 7, history)[0]).toBe(1);
+    expect(pickMostDecorated(byType, 7, history)).toBe(orderMostDecorated(byType, 7, history)[0]);
+    // level 2: prior wins of ANY type (nobody has won type 21)
+    const byAny = ["frc70", "frc50", "frc99"];
+    expect(orderMostDecorated(byAny, 21, history)).toEqual([1, 0, 2]);
+    expect(pickMostDecorated(byAny, 21, history)).toBe(1);
+    // level 3: ascending team number among the equally undecorated
+    const byNumber = ["frc300", "frc9", "frc80"];
+    expect(orderMostDecorated(byNumber, 21, history)).toEqual([1, 2, 0]);
+    expect(pickMostDecorated(byNumber, 21, history)).toBe(1);
+  });
+
+  it("separates two UNPARSEABLE team keys by candidate index, so the order is total", () => {
+    // `teamNumber` returns +Infinity for both, so without the index key these
+    // two would tie and their relative order would be a sort implementation
+    // detail rather than a defined one.
+    const history = hist([]);
+    const pool = ["not-a-key", "also-not-a-key"];
+    expect(teamNumber(pool[0] ?? "")).toBe(Number.POSITIVE_INFINITY);
+    expect(teamNumber(pool[1] ?? "")).toBe(Number.POSITIVE_INFINITY);
+    expect(orderMostDecorated(pool, 7, history)).toEqual([0, 1]);
+    expect(pickMostDecorated(pool, 7, history)).toBe(0);
+    expect(orderStrongest(pool, new Map())).toEqual([0, 1]);
+    expect(pickStrongest(pool, new Map())).toBe(0);
+  });
+
+  it("B2's pick is its ordering's head, and an unrated team ranks LAST, not average", () => {
+    const pool = ["frc1", "frc2", "frc3"];
+    const ratings = new Map([
+      ["frc1", 5],
+      ["frc3", 9],
+    ]);
+    expect(orderStrongest(pool, ratings)).toEqual([2, 0, 1]);
+    expect(pickStrongest(pool, ratings)).toBe(2);
+    // Two unrated candidates compare EQUAL (both -Infinity) and fall through to
+    // team number rather than producing NaN from a subtraction.
+    expect(orderStrongest(["frc9", "frc4"], new Map())).toEqual([1, 0]);
+  });
+
+  it("B1's ordering NEVER consults BPR — a ratings reshuffle cannot move any position", () => {
+    const history = hist([inst(1000, "a", 7, ["frc50"])]);
+    const pool = ["frc10", "frc50", "frc90"];
+    const before = orderMostDecorated(pool, 7, history);
+    // The signature takes no ratings argument at all; this asserts the same
+    // guarantee behaviourally, so it cannot be lost to a future refactor.
+    const after = orderMostDecorated(pool, 7, buildPriorHistory([inst(1000, "a", 7, ["frc50"])], 3000));
+    expect(after).toEqual(before);
+    expect(before).toEqual([1, 0, 2]);
+  });
+
+  it("the RB orderings hold ONLY known rookies, and are block-length not pool-length", () => {
+    const history = hist([]);
+    const pool = ["frc1", "frc2", "frc3", "frc4"];
+    // frc2 and frc4 are known rookies; frc1 is a known veteran; frc3 is unknown.
+    const rookieYears = new Map([
+      ["frc1", 1990],
+      ["frc2", 2001],
+      ["frc4", 2001],
+    ]);
+    const block = knownRookieIndices(pool, 2001, rookieYears);
+    expect(block).toEqual([1, 3]);
+
+    const rb1 = orderMostDecoratedRookie(pool, 7, 2001, history, rookieYears);
+    const rb2 = orderStrongestRookie(pool, 2001, new Map([["frc4", 10]]), rookieYears);
+    expect(rb1).toHaveLength(block.length);
+    expect(rb2).toHaveLength(block.length);
+    expect([...rb1].sort((a, b) => a - b)).toEqual(block);
+    expect([...rb2].sort((a, b) => a - b)).toEqual(block);
+    expect(rb1).not.toContain(0);
+    expect(rb2).not.toContain(2);
+    expect(pickMostDecoratedRookie(pool, 7, 2001, history, rookieYears)).toBe(rb1[0]);
+    expect(pickStrongestRookie(pool, 2001, new Map([["frc4", 10]]), rookieYears)).toBe(rb2[0]);
+    // frc4 is the only rated rookie, so RB2 takes it over the lower team number.
+    expect(rb2[0]).toBe(3);
+  });
+
+  it("an empty rookie block is an EMPTY ordering and the existing abstention", () => {
+    const history = hist([]);
+    const pool = ["frc1", "frc2"];
+    expect(orderMostDecoratedRookie(pool, 7, 2001, history, new Map())).toEqual([]);
+    expect(orderStrongestRookie(pool, 2001, new Map(), new Map())).toEqual([]);
+    expect(pickMostDecoratedRookie(pool, 7, 2001, history, new Map())).toBe(ABSTAIN);
+    expect(pickStrongestRookie(pool, 2001, new Map(), new Map())).toBe(ABSTAIN);
+  });
+
+  it("an empty pool yields an empty ordering and the existing -1, not a throw", () => {
+    expect(orderMostDecorated([], 7, hist([]))).toEqual([]);
+    expect(pickMostDecorated([], 7, hist([]))).toBe(-1);
+    expect(orderStrongest([], new Map())).toEqual([]);
+    expect(pickStrongest([], new Map())).toBe(-1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Winner rank, including the multi-recipient rule
+// ---------------------------------------------------------------------------
+
+describe("winnerRank", () => {
+  const pool = ["frcA", "frcB", "frcC", "frcD"];
+
+  it("is the 1-based position of the recipient in the ordering", () => {
+    expect(winnerRank([2, 0, 3, 1], pool, new Set(["frcD"]))).toBe(3);
+    expect(winnerRank([2, 0, 3, 1], pool, new Set(["frcC"]))).toBe(1);
+  });
+
+  it("takes the BEST (minimum) rank over a multi-recipient set, not the first listed", () => {
+    // frcB ranks 4th and frcD ranks 3rd: the winner rank is 3, the minimum.
+    expect(winnerRank([2, 0, 3, 1], pool, new Set(["frcB", "frcD"]))).toBe(3);
+    // Order of the recipient set must not matter.
+    expect(winnerRank([2, 0, 3, 1], pool, new Set(["frcD", "frcB"]))).toBe(3);
+  });
+
+  it("is null — not 0 and not a fabricated tail rank — when no recipient is ranked", () => {
+    expect(winnerRank([2, 0, 3, 1], pool, new Set(["frcZ"]))).toBeNull();
+    expect(winnerRank([], pool, new Set(["frcA"]))).toBeNull();
+  });
+
+  it("only ranks recipients the ordering actually contains (the RB block case)", () => {
+    // A rookie-block ordering of [1, 3]: frcA is a recipient but is not ranked.
+    expect(winnerRank([1, 3], pool, new Set(["frcA"]))).toBeNull();
+    expect(winnerRank([1, 3], pool, new Set(["frcA", "frcD"]))).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// B0 — proved against brute force, not trusted from the algebra
+// ---------------------------------------------------------------------------
+
+/** Enumerates every C(N, r) placement and measures the minimum rank directly. */
+function bruteForceB0(N: number, r: number) {
+  const combos: number[][] = [];
+  const walk = (start: number, acc: number[]): void => {
+    if (acc.length === r) {
+      combos.push([...acc]);
+      return;
+    }
+    for (let i = start; i < N; i += 1) {
+      acc.push(i);
+      walk(i + 1, acc);
+      acc.pop();
+    }
+  };
+  walk(0, []);
+  const minRanks = combos.map((c) => Math.min(...c) + 1);
+  const total = minRanks.length;
+  const survival = (m: number): number => minRanks.filter((x) => x > m).length / total;
+  let medianRank = N;
+  for (let m = 1; m <= N; m += 1) {
+    if (survival(m) <= 0.5) {
+      medianRank = m;
+      break;
+    }
+  }
+  return {
+    total,
+    survival,
+    recallAt: K_VALUES.map((k) => minRanks.filter((m) => m <= k).length / total),
+    reciprocalRank: minRanks.reduce((s, m) => s + 1 / m, 0) / total,
+    meanRank: minRanks.reduce((s, m) => s + m, 0) / total,
+    medianRank,
+  };
+}
+
+describe("B0, the exact random null ordering", () => {
+  const cases: readonly (readonly [number, number])[] = [
+    [6, 2],
+    [6, 1],
+    [6, 3],
+    [5, 4],
+    [12, 3],
+  ];
+
+  it("matches a brute-force enumeration of every placement on recall@k, MRR, mean and median", () => {
+    for (const [N, r] of cases) {
+      const brute = bruteForceB0(N, r);
+      const exact = b0Exact(N, r);
+      for (let ki = 0; ki < K_VALUES.length; ki += 1) {
+        expect(exact.recallAt[ki] ?? -1).toBeCloseTo(brute.recallAt[ki] ?? -2, 10);
+      }
+      expect(exact.reciprocalRank).toBeCloseTo(brute.reciprocalRank, 10);
+      expect(exact.meanRank).toBeCloseTo(brute.meanRank, 10);
+      expect(exact.medianRank).toBe(brute.medianRank);
+      expect(exact.normalizedRank).toBeCloseTo(brute.meanRank / N, 10);
+      expect(exact.defined).toBe(true);
+    }
+  });
+
+  it("has the survival function the closed form claims, at every cutoff", () => {
+    for (const [N, r] of cases) {
+      const brute = bruteForceB0(N, r);
+      for (let m = 0; m <= N; m += 1) {
+        expect(b0Survival(N, r, m)).toBeCloseTo(brute.survival(m), 10);
+      }
+    }
+  });
+
+  it("uses the (N+1)/(r+1) expectation rather than an approximation", () => {
+    expect(b0Exact(40, 1).meanRank).toBeCloseTo(20.5, 12);
+    expect(b0Exact(40, 4).meanRank).toBeCloseTo(8.2, 12);
+  });
+
+  it("is UNDEFINED, not zero-ranked, when no recipient is in the pool", () => {
+    const e = b0Exact(40, 0);
+    expect(e.defined).toBe(false);
+    expect(e.recallAt).toEqual(K_VALUES.map(() => 0));
+    expect(e.reciprocalRank).toBe(0);
+    // And it therefore contributes NOTHING to rankDefined.
+    const stats = emptyRankStats();
+    accumulateB0Rank(stats, 40, 0);
+    expect(stats.rankDefined).toBe(0);
+    expect(stats.recallAt).toEqual(K_VALUES.map(() => 0));
+  });
+
+  it("saturates at 100% recall once k reaches the pool size", () => {
+    const e = b0Exact(4, 1);
+    // K_VALUES = [1, 3, 5, 10]: k = 5 and k = 10 both exceed a 4-team pool.
+    expect(e.recallAt[0] ?? 0).toBeCloseTo(0.25, 12);
+    expect(e.recallAt[2] ?? 0).toBe(1);
+    expect(e.recallAt[3] ?? 0).toBe(1);
+  });
+
+  it("is deterministic: no RNG, no seed, no run-to-run drift", () => {
+    expect(b0Exact(37, 2)).toEqual(b0Exact(37, 2));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The two denominators
+// ---------------------------------------------------------------------------
+
+describe("accumulateRank and the two-denominator rule", () => {
+  it("keeps an unranked instance in the recall/MRR denominator and out of rankDefined", () => {
+    const s = emptyRankStats();
+    accumulateRank(s, 2, 40); // ranked 2nd of 40
+    accumulateRank(s, null, 40); // unreachable
+    accumulateRank(s, 1, 0); // abstained: an empty ordering
+    expect(s.rankDefined).toBe(1);
+    expect(s.ranks).toEqual([2]);
+    expect(s.rankSum).toBe(2);
+    expect(s.reciprocalRankSum).toBeCloseTo(0.5, 12);
+    // recall counts stay at 1 hit: the two unranked instances scored 0, they
+    // did not vanish.
+    expect(s.recallAt).toEqual([0, 1, 1, 1]);
+    // n = 3 is the recall denominator; rankDefined = 1 is the rank denominator.
+    expect(s.recallAt[1] ?? 0).toBe(1);
+    expect(s.rankSum / s.rankDefined).toBe(2);
+  });
+
+  it("counts a rank at exactly k as inside k, at every cutoff", () => {
+    for (const k of K_VALUES) {
+      const s = emptyRankStats();
+      accumulateRank(s, k, 40);
+      const ki = K_VALUES.indexOf(k);
+      expect(s.recallAt[ki] ?? 0).toBe(1);
+      if (ki > 0) expect(s.recallAt[ki - 1] ?? 0).toBe(0);
+    }
+  });
+
+  it("normalizes by the ordering's OWN length, which is the rookie block for RB", () => {
+    const s = emptyRankStats();
+    accumulateRank(s, 2, 4); // 2nd of a 4-team rookie block
+    expect(s.normalizedRankSum).toBeCloseTo(0.5, 12);
+  });
+});
+
+describe("medianOf", () => {
+  it("is exact, not interpolated, on an odd sample", () => {
+    expect(medianOf([5, 1, 3])).toBe(3);
+  });
+  it("averages the two middles on an even sample", () => {
+    expect(medianOf([1, 2, 3, 10])).toBe(2.5);
+  });
+  it("is 0 on an empty sample rather than NaN", () => {
+    expect(medianOf([])).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE K=1 CONTROL — the load-bearing test of the whole task
+// ---------------------------------------------------------------------------
+
+/**
+ * A world built to exercise every predictor at once: four different winners so
+ * no predictor is degenerate, an unrated candidate, a known rookie in one
+ * season but not the next (so RB1/RB2 both score AND abstain inside one pooled
+ * cell), and one instance whose recipient is outside the pool.
+ */
+function mixedWorld() {
+  const instances: AwardInstance[] = [];
+  const poolsByEvent = new Map<string, string[]>();
+  const ratingsByEvent = new Map<string, ReadonlyMap<string, number>>();
+  const pool = ["frc2", "frc3", "frc7", "frc11", "frc19"];
+  // frc19 is the rookie AND wins a quarter of the time, so RB1/RB2 have
+  // genuinely defined ranks rather than only abstentions.
+  const winners = ["frc7", "frc2", "frc11", "frc19"];
+  for (const year of [2000, 2001, 2002]) {
+    for (let i = 0; i < 40; i += 1) {
+      const eventKey = `${year}e${i}`;
+      instances.push(inst(year, eventKey, 7, [winners[i % winners.length] ?? "frc7"]));
+      poolsByEvent.set(eventKey, [...pool]);
+      ratingsByEvent.set(
+        eventKey,
+        new Map([
+          ["frc2", 5],
+          ["frc3", 4],
+          ["frc7", 3],
+          ["frc11", 2],
+          // frc19 is deliberately UNRATED.
+        ])
+      );
+    }
+  }
+  // One unreachable instance: the recipient is not in the pool at all.
+  instances.push(inst(2002, "2002unreach", 7, ["frc999"]));
+  poolsByEvent.set("2002unreach", [...pool]);
+  ratingsByEvent.set("2002unreach", new Map([["frc2", 5]]));
+  return { instances, poolsByEvent, ratingsByEvent };
+}
+
+/** frc19 is a 2001 rookie: a known rookie in 2001, a 1-year-old in 2002. */
+const MIXED_ROOKIE_YEARS = new Map([
+  ["frc2", 1995],
+  ["frc3", 1996],
+  ["frc7", 1997],
+  ["frc11", 1998],
+  ["frc19", 2001],
+]);
+
+describe("THE K=1 CONTROL — recall@1 reproduces top-1 for all six predictors", () => {
+  const report = run(mixedWorld(), 120, MIXED_ROOKIE_YEARS);
+  const pooled = report.byType[0]?.pooled;
+
+  it("built a fixture that actually exercises every predictor", () => {
+    expect(pooled).toBeDefined();
+    const c = pooled as Cell;
+    expect(c.n).toBe(81); // 40 in 2001 + 40 + 1 unreachable in 2002
+    expect(c.unreachable).toBe(1);
+    expect(c.modelHits).toBeGreaterThan(0);
+    expect(c.b1Hits).toBeGreaterThan(0);
+    expect(c.b2Hits).toBeGreaterThan(0);
+    // RB1/RB2 find frc19 in 2001 and abstain in 2002 — both halves inside one cell.
+    expect(c.rb1Abstentions).toBeGreaterThan(0);
+    expect(c.rb1Abstentions).toBeLessThan(c.n);
+    expect(c.rb2Abstentions).toBe(c.rb1Abstentions);
+  });
+
+  it("recallAt[0] EQUALS the hit count, for every predictor", () => {
+    const c = pooled as Cell;
+    const hits: Record<Predictor, number> = {
+      model: c.modelHits,
+      ageModel: c.ageModelHits,
+      b1: c.b1Hits,
+      b2: c.b2Hits,
+      rb1: c.rb1Hits,
+      rb2: c.rb2Hits,
+    };
+    for (const which of RANK_PREDICTORS) {
+      if (which === "b0") continue;
+      expect([which, c.rank[which].recallAt[0]]).toEqual([which, hits[which]]);
+      expect(cellRecallAt(c, which, 0)).toBeCloseTo(cellAccuracy(c, which), 12);
+    }
+  });
+
+  it("holds per season as well as pooled, so no season can cancel another out", () => {
+    for (const season of [2001, 2002]) {
+      const c = report.byType[0]?.perSeason.get(season);
+      expect(c).toBeDefined();
+      const cell = c as Cell;
+      expect(cell.rank.model.recallAt[0]).toBe(cell.modelHits);
+      expect(cell.rank.ageModel.recallAt[0]).toBe(cell.ageModelHits);
+      expect(cell.rank.b1.recallAt[0]).toBe(cell.b1Hits);
+      expect(cell.rank.b2.recallAt[0]).toBe(cell.b2Hits);
+      expect(cell.rank.rb1.recallAt[0]).toBe(cell.rb1Hits);
+      expect(cell.rank.rb2.recallAt[0]).toBe(cell.rb2Hits);
+    }
+  });
+
+  it("scores the unreachable instance 0 at EVERY k while keeping it in the denominator", () => {
+    const c = pooled as Cell;
+    // Pool size 5, so k = 5 and k = 10 cover the whole pool: every REACHABLE
+    // instance must be a hit there, and only the unreachable one is missing.
+    expect(c.rank.model.recallAt[2]).toBe(c.n - c.unreachable);
+    expect(c.rank.model.recallAt[3]).toBe(c.n - c.unreachable);
+    expect(c.rank.b1.recallAt[3]).toBe(c.n - c.unreachable);
+    expect(cellRecallAt(c, "model", 3)).toBeCloseTo((c.n - c.unreachable) / c.n, 12);
+  });
+
+  it("excludes the unreachable instance from rankDefined and counts it", () => {
+    const c = pooled as Cell;
+    for (const which of ["model", "ageModel", "b1", "b2", "b0"] as const) {
+      expect([which, c.rank[which].rankDefined]).toEqual([which, c.n - c.unreachable]);
+    }
+    // RB's rankDefined is smaller again: it loses every abstained instance AND
+    // every instance whose rookie block held no recipient. Both are real
+    // exclusions, and both are counted rather than averaged into a rank.
+    expect(c.rank.rb1.rankDefined).toBeGreaterThan(0);
+    expect(c.rank.rb1.rankDefined).toBeLessThanOrEqual(
+      c.n - c.unreachable - c.rb1Abstentions
+    );
+  });
+
+  it("the mean/median/normalized columns use rankDefined, never n", () => {
+    const c = pooled as Cell;
+    const s = c.rank.model;
+    expect(cellMeanRank(c, "model")).toBeCloseTo(s.rankSum / s.rankDefined, 12);
+    expect(cellNormalizedRank(c, "model")).toBeCloseTo(s.normalizedRankSum / s.rankDefined, 12);
+    expect(cellMedianRank(c, "model")).toBe(medianOf(s.ranks));
+    expect(s.ranks).toHaveLength(s.rankDefined);
+    // MRR, by contrast, divides by n.
+    expect(cellMrr(c, "model")).toBeCloseTo(s.reciprocalRankSum / c.n, 12);
+  });
+
+  it("normalizes RB by the ROOKIE BLOCK, which is a different denominator", () => {
+    const c = pooled as Cell;
+    // The block is exactly one team (frc19) wherever it is non-empty, so every
+    // defined RB rank is 1 of 1 — a normalized 100%, which is emphatically NOT
+    // comparable to the model's 1-of-5 scale. That is why it prints in its own
+    // column with the denominator named.
+    expect(cellNormalizedRank(c, "rb1")).toBeCloseTo(1, 12);
+    expect(cellMeanRank(c, "rb1")).toBeCloseTo(1, 12);
+  });
+
+  it("counts the small-pool instances so R@10 cannot be read as a result", () => {
+    const c = pooled as Cell;
+    expect(c.smallPoolInstances).toBe(c.n); // every pool here is 5 teams
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The JSON emitter
+// ---------------------------------------------------------------------------
+
+describe("toJsonCell", () => {
+  it("replaces the raw ranks array with its median and count", () => {
+    const c = run(mixedWorld(), 60, MIXED_ROOKIE_YEARS).byType[0]?.pooled as Cell;
+    const json = toJsonCell(c);
+    const model = (json["rank"] as Record<string, Record<string, unknown>>)["model"];
+    expect(model).toBeDefined();
+    expect(model?.["ranks"]).toBeUndefined();
+    expect(model?.["medianRank"]).toBe(medianOf(c.rank.model.ranks));
+    expect(model?.["rankCount"]).toBe(c.rank.model.ranks.length);
+    // Every accumulator the printer reads survives the reshaping.
+    expect(model?.["rankDefined"]).toBe(c.rank.model.rankDefined);
+    expect(model?.["recallAt"]).toEqual(c.rank.model.recallAt);
+    expect(JSON.stringify(json)).not.toContain("\"ranks\"");
+  });
+
+  it("emits all seven predictors, B0 included", () => {
+    const json = toJsonCell(emptyCell());
+    expect(Object.keys(json["rank"] as object).sort()).toEqual([...RANK_PREDICTORS].sort());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LEAK TEST 3 — the rank metrics are walk-forward too
+// ---------------------------------------------------------------------------
+
+describe("walk-forward leak guard (rank metrics)", () => {
+  it("scores season Y's RANK metrics identically whether or not later seasons exist", () => {
+    const short = syntheticWorld([2000, 2001], 40, 7);
+    const long = syntheticWorld([2000, 2001, 2002, 2003], 40, 7);
+    const a = run(short).byType[0]?.perSeason.get(2001);
+    const b = run(long).byType[0]?.perSeason.get(2001);
+    expect(a?.rank).toBeDefined();
+    // Named explicitly rather than relying on the whole-cell toEqual above, so
+    // a future refactor that drops `rank` from the cell cannot silently drop
+    // this guard with it.
+    for (const which of RANK_PREDICTORS) {
+      expect([which, a?.rank[which]]).toEqual([which, b?.rank[which]]);
+    }
+  });
+
+  it("catches a leak on a fixture where leaking WOULD move the rank metrics", () => {
+    // A pool whose ordering is driven by prior-win counts: leaking the scored
+    // season's own wins changes who is ranked first, so the metrics move.
+    const instances = [
+      inst(1999, "1999a", 7, ["frc1"]),
+      inst(2000, "2000a", 7, ["frc2"]),
+      inst(2000, "2000b", 7, ["frc2"]),
+      inst(2000, "2000c", 7, ["frc2"]),
+    ];
+    const pool = ["frc1", "frc2", "frc3"];
+    const honest = buildPriorHistory(instances, 2000);
+    const leaked = buildPriorHistory(instances, 2001);
+    const honestOrder = orderMostDecorated(pool, 7, honest);
+    const leakedOrder = orderMostDecorated(pool, 7, leaked);
+    expect(honestOrder[0]).toBe(0); // frc1: the only prior winner as of 2000
+    expect(leakedOrder[0]).toBe(1); // frc2: only if 2000's own wins leak in
+    expect(winnerRank(honestOrder, pool, new Set(["frc2"]))).toBe(2);
+    expect(winnerRank(leakedOrder, pool, new Set(["frc2"]))).toBe(1);
+  });
+
+  it("derives the model ORDERING from the leak-bounded features, not a wider history", () => {
+    const instances = [
+      inst(1999, "1999a", 7, ["frc1"]),
+      inst(2000, "2000a", 7, ["frc1"]),
+      inst(2000, "2000b", 7, ["frc1"]),
+      inst(2001, "2001a", 7, ["frc1"]),
+    ];
+    const pool = ["frc1", "frc2"];
+    const weights = [1, 0, 0, 0];
+    const honest = scoreByWeights(weights, buildFeatures(pool, 7, 2000, buildPriorHistory(instances, 2000), new Map()));
+    const leaked = scoreByWeights(weights, buildFeatures(pool, 7, 2000, buildPriorHistory(instances, 2002), new Map()));
+    expect(honest[0] ?? 0).toBeCloseTo(Math.log1p(1), 12);
+    expect(leaked[0] ?? 0).toBeCloseTo(Math.log1p(4), 12);
+    expect(orderByScores(honest)).toEqual([0, 1]);
+    // Same ordering, different utilities — the point is that the ORDERING is a
+    // pure function of the leak-bounded feature matrix and of nothing else.
+    expect(honest[0]).not.toBe(leaked[0]);
+  });
+
+  it("still scores the rank metrics over the SEVEN-feature vector without widening history", () => {
+    const rookieYears = new Map([["frc1", 1997]]);
+    const short = syntheticWorld([2000, 2001], 40, 7);
+    const long = syntheticWorld([2000, 2001, 2002], 40, 7);
+    const a = run(short, 60, rookieYears).byType[0]?.perSeason.get(2001);
+    const b = run(long, 60, rookieYears).byType[0]?.perSeason.get(2001);
+    expect(a?.rank.ageModel).toEqual(b?.rank.ageModel);
+    expect(a?.rank.rb1).toEqual(b?.rank.rb1);
   });
 });
