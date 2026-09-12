@@ -27,6 +27,27 @@ a *shorter* worst idle gap (19.3 vs 24.0). Credited appearances and surrogate co
 reaching rung 2 with licensed templates. It no longer is. No licence file has been read or reasoned
 about by any agent, and none now needs to be.
 
+> **CORRECTION 2026-09-12 — the paragraph immediately above is WRONG. D-19 is LIVE.**
+>
+> `09-CONTEXT.md:156-158` makes D-19 conditional in the opposite direction from what that paragraph
+> assumes: *"It only needs answering if rung 1 fails and rung 2 is chosen. If rung 1 holds, the
+> question evaporates because nothing template-derived is published."* **Rung 1 failed**
+> (`260912-0v3`, 41.4% against a 98.4% binding floor), so rung 2 is the path, and
+> `09-CONTEXT.md:402` states the consequence directly: *"D-19 is LIVE. Advancing the ladder to rung
+> 2 makes the schedule-template redistribution licensing question live for the first time."*
+>
+> **Why "delete the templates" does not moot it.** The generator's rules were derived by reading the
+> licensed grid structurally — its own Rule 1 describes the appearance-count convention as *"the
+> licensed grid's own convention, read off it structurally rather than re-invented."* Whether
+> something derived that way may be published is exactly the judgement D-19 names, and deleting the
+> source files afterwards does not answer it. That judgement is **the developer's and was never
+> delegated to an agent**; no agent on this phase has read or reasoned about the licence, and none
+> should.
+>
+> This correction also supersedes the "One wording caution" note below, which claimed
+> `09-CONTEXT.md`'s line was narrowly scoped to the rung-1 re-run. It is not — line 402 is scoped to
+> rung 2 being chosen, which is what happened. Caught by Phase 9 verification (`3b0d248c`).
+
 ## The work
 
 Wire the generator into `buildPreScheduleArtifact` in place of `loadScheduleTemplate`, retire
@@ -49,9 +70,8 @@ floor of 0.71, with the gap scaling with roster size rather than shrinking with 
 cheaper escape from the licensed templates does not exist, and this work is required rather than
 optional.
 
-**One wording caution.** The "What this closes" section above says D-19 evaporates, while
-`09-CONTEXT.md` records that D-19 "remains Jacob's to decide before rung 2 is planned". Both are
-right and they are answering different questions: the rung-2 *result* moots D-19 by removing the
-templates entirely, while the rung-1 re-run — which is what that `09-CONTEXT.md` line is scoped to
-— does not bear on D-19 either way. Jacob has still not been asked the redistribution question
-directly, and it does not need asking if the templates are deleted.
+**~~One wording caution.~~ RETRACTED 2026-09-12 — see the correction block above.** This paragraph
+claimed the rung-2 result moots D-19 and that `09-CONTEXT.md`'s line was scoped only to the rung-1
+re-run. Both halves are false. `09-CONTEXT.md:402` is scoped to rung 2 being chosen, which is
+exactly what happened, and it says D-19 is live. **This work is blocked on that judgement**, not
+merely on the schedule count.
