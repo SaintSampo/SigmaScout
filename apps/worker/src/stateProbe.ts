@@ -58,6 +58,16 @@
  * file carries its own `probeSelectionsFor`, a deliberate duplicate pinned
  * equal to the real one by `stateProbe.test.ts`'s own equivalence test.
  *
+ * ARMS (quick task 260912-iur): `?rp=0` ablates exactly the operations plan
+ * 09-08 added to the live tick's Phase A, so Phase 9's share of the
+ * `rp-fold-exceeds-worker-cpu-budget` overrun can be MEASURED as the
+ * difference between two otherwise-identical runs instead of inferred. Which
+ * operations those are was settled from `git log -S`, not from which code
+ * reads as RP-shaped — see `runBprFold`'s own comment for the list and the
+ * commits behind it. `rp` absent is ON and byte-identical to the pre-flag
+ * probe, which is what keeps the existing 13 ms p50 / 28 ms p90 numbers
+ * comparable.
+ *
  * SCOPE: this probe prices Phase A only (state read, fold, serialize,
  * discard) — never Phase B (artifact merge, R2 reads/writes), TBA polling,
  * the KV manifest read, or the global rebuild. See
@@ -143,6 +153,23 @@ function clampInt(raw: string | null, fallback: number, min: number, max: number
   return Math.min(max, Math.max(min, parseIntParam(raw, fallback)));
 }
 
+/**
+ * `rp` — THE ABLATION ARM SELECTOR (quick task 260912-iur). Recognized values
+ * only; anything else is ON *and warned about*, so a typo'd arm can never be
+ * silently measured as the other one. Absent/empty is ON, which is what keeps
+ * the existing 13 ms p50 / 28 ms p90 measurements comparable.
+ */
+const RP_ON_VALUES = new Set(["1", "on", "true", "yes"]);
+const RP_OFF_VALUES = new Set(["0", "off", "false", "no"]);
+
+function parseRpParam(raw: string | null): { enabled: boolean; unrecognized: string | undefined } {
+  if (raw === null || raw.trim() === "") return { enabled: true, unrecognized: undefined };
+  const v = raw.trim().toLowerCase();
+  if (RP_OFF_VALUES.has(v)) return { enabled: false, unrecognized: undefined };
+  if (RP_ON_VALUES.has(v)) return { enabled: true, unrecognized: undefined };
+  return { enabled: true, unrecognized: raw.trim() };
+}
+
 function parseTeamsParam(raw: string | null): readonly string[] | undefined {
   if (raw === null || raw.trim() === "") return undefined;
   const keys = raw
@@ -160,6 +187,10 @@ interface ProbeParams {
   readonly teamCount: number;
   readonly folded: number;
   readonly upcoming: number;
+  /** Ablation arm. True = today's behaviour, byte-identical. False = every operation plan 09-08 (`dc30636e`) added to the tick's Phase A is skipped; see `runBprFold`. */
+  readonly rp: boolean;
+  /** The `rp=` value that was neither an on- nor an off-value, if any — surfaced as a warning rather than being silently coerced. */
+  readonly rpUnrecognized: string | undefined;
 }
 
 function parseParams(url: URL): ProbeParams {
@@ -174,7 +205,8 @@ function parseParams(url: URL): ProbeParams {
   if (folded + upcoming > MAX_FOLDED_PLUS_UPCOMING) {
     upcoming = Math.max(0, MAX_FOLDED_PLUS_UPCOMING - folded);
   }
-  return { season, eventType, eventOverride, teamsOverride, teamCount, folded, upcoming };
+  const rp = parseRpParam(search.get("rp"));
+  return { season, eventType, eventOverride, teamsOverride, teamCount, folded, upcoming, rp: rp.enabled, rpUnrecognized: rp.unrecognized };
 }
 
 // ---------------------------------------------------------------------------
@@ -352,6 +384,8 @@ interface ProbeResponseBody {
     readonly teamCount: number;
     readonly folded: number;
     readonly upcoming: number;
+    /** Which ablation arm produced this body. Echoed so a `cpuTime` read off `wrangler tail` can never be attributed to the wrong arm. */
+    readonly rp: boolean;
   };
   readonly discovery: {
     readonly teamKeysFound: number;
@@ -450,6 +484,33 @@ async function readAndDeserializeAll(
  * rows just read, price `folded` played matches (predict, band, RP fields,
  * update, fold), then price `upcoming` still-upcoming matches (predict,
  * band, RP fields — read-only), then serialize-and-discard.
+ *
+ * THE `rpEnabled` ABLATION ARM (quick task 260912-iur). `false` skips exactly
+ * the operations plan 09-08 (`dc30636e`, 2026-09-11) added to `processEvent`'s
+ * Phase A, established from `git log -S` rather than from which code looks
+ * RP-shaped:
+ *
+ *   SKIPPED when off — all four are `+` lines in `dc30636e`:
+ *     1. the accumulator resume: `RP_RULE_MODULES[season]`, `readRpBeliefs`,
+ *        `RpMomentsAccumulator.fromBeliefs`, and the `rpKnownTeams` set
+ *     2. `rpFieldsFor` — the `analyticRpPmf` call, its four gates, and 09-07's
+ *        decomposition — in BOTH the played and the upcoming loop
+ *     3. `foldObservedRp` — the per-side `rpRuleModule.parse` + `rp.fold`
+ *     4. `withRpBeliefs` on the serialize-and-discard path
+ *
+ *   KEPT in BOTH arms — these PREDATE Phase 9 and are not its cost to bear:
+ *     - the whole upcoming-repricing loop, `dabe9acd` (04-06, 2026-08-22).
+ *       Phase 9 added `analyticRpPmf` INTO an already-costly loop; it did not
+ *       create the loop.
+ *     - every `bandFor` call in both loops: `63596da3` (2026-09-09) as
+ *       `swing.bandVarianceFor`, then `447395a1` (2026-09-10) as the
+ *       Sigma-dispatching `bandFor` closure. Both land BEFORE Phase 9's first
+ *       commit (2026-09-11), so `bandsProduced` must come out IDENTICAL in the
+ *       two arms — `stateProbe.test.ts` asserts exactly that. Ablating the
+ *       bands would credit Phase 9 with work that was already there and
+ *       overstate its share of the overrun.
+ *     - `bpr.predict`/`bpr.update`, Swing/Sigma folds, the talent read, and
+ *       `serializeState` + the Swing/Sigma passengers.
  */
 function runBprFold(
   bprRows: StateRow[],
@@ -459,7 +520,8 @@ function runBprFold(
   season: number,
   teamKeys: readonly string[],
   folded: number,
-  upcoming: number
+  upcoming: number,
+  rpEnabled: boolean
 ): FoldResult {
   if (teamKeys.length === 0) {
     return {
@@ -485,10 +547,17 @@ function runBprFold(
     // Indexed lookup, never `rpRuleModuleForSeason` (which throws for an
     // unmapped season) — an unregistered season yields no accumulator and a
     // named warning at the response level, never a failed probe.
-    const rpRuleModule = RP_RULE_MODULES[season];
-    const rpBeliefs = readRpBeliefs(bprRows);
-    const rp = rpRuleModule !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs) : undefined;
-    const rpKnownTeams = new Set(rpBeliefs.keys());
+    //
+    // OPERATION 1 of the ablation set. Gating the module lookup and the
+    // belief read here is what makes operations 2-4 fall out: `rpFieldsFor`,
+    // `foldObservedRp` and the `withRpBeliefs` call below are ALL already
+    // guarded on `rp === undefined`, which is the same guard an unregistered
+    // season (2021) trips. Off-arm therefore skips the `readRpBeliefs` JSON
+    // walk and the `fromBeliefs` reconstruction too, not merely the pmf call.
+    const rpRuleModule = rpEnabled ? RP_RULE_MODULES[season] : undefined;
+    const rpBeliefs = rpEnabled ? readRpBeliefs(bprRows) : undefined;
+    const rp = rpRuleModule !== undefined && rpBeliefs !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs) : undefined;
+    const rpKnownTeams = new Set(rpBeliefs?.keys() ?? []);
 
     let bandsProduced = 0;
     let rpPmfsProduced = 0;
@@ -574,6 +643,11 @@ function runBprFold(
       // neither does. `stateProbe.test.ts` asserts this counter by EQUALITY
       // against `folded + upcoming`, so double-counting here would silently
       // halve the threshold at which a suppressed pmf becomes visible.
+      //
+      // With `rp=0` this is 0 BY CONSTRUCTION, which is why the test pins the
+      // two arms as two equalities (`=== folded + upcoming` and `=== 0`)
+      // rather than relaxing to `>= 0` — an inequality would pass vacuously in
+      // both arms and destroy the guarantee above.
       if (fields.redRpPmf !== undefined) rpPmfsProduced++;
 
       state = bpr.update(state, result);
@@ -651,10 +725,22 @@ function buildWarnings(params: {
   requestedTeamCount: number;
   resolvedTeamCount: number;
   fold: FoldResult;
+  rpEnabled: boolean;
+  rpUnrecognized: string | undefined;
 }): string[] {
   const warnings: string[] = [];
-  const { season, folded, upcoming, eventOverrideSupplied, discoveredEventKey, resolvedEventKey, requestedTeamCount, resolvedTeamCount, fold } = params;
+  const { season, folded, upcoming, eventOverrideSupplied, discoveredEventKey, resolvedEventKey, requestedTeamCount, resolvedTeamCount, fold, rpEnabled, rpUnrecognized } = params;
 
+  if (rpUnrecognized !== undefined) {
+    warnings.push(
+      `rp="${rpUnrecognized}" is not a recognized value (on: 1/on/true/yes; off: 0/off/false/no) — the RP path ran ENABLED; re-run with rp=0 if the ablated arm was intended`
+    );
+  }
+  if (!rpEnabled) {
+    warnings.push(
+      `rp=0 — ABLATED ARM: plan 09-08's four additions (the RpMomentsAccumulator resume, rpFieldsFor, foldObservedRp, and the withRpBeliefs passenger) were all skipped. Bands, both predict loops and the Swing/Sigma folds still ran, because they predate Phase 9. Compare this cpuTime against an otherwise-identical rp=1 run; it is not a measurement of the tick as deployed`
+    );
+  }
   if (!eventOverrideSupplied && discoveredEventKey === undefined) {
     warnings.push(
       `no discovered opr event-scoped row found; falling back to event key "${resolvedEventKey}", which carries no accumulated OPR history for this event`
@@ -668,7 +754,11 @@ function buildWarnings(params: {
   if (resolvedTeamCount < requestedTeamCount) {
     warnings.push(`roster smaller than requested: found/used ${resolvedTeamCount} team(s) against a requested teamCount of ${requestedTeamCount} — the fold below prices a smaller roster than a real tick's peak`);
   }
-  if (fold.error === undefined && folded + upcoming > 0 && fold.rpPmfsProduced === 0) {
+  // Gated on `rpEnabled`: in the ablated arm a 0 here is the REQUESTED
+  // outcome, and this warning's list of causes (partial-roster gate,
+  // ineligible event type, no rule module) would name three things that did
+  // not happen. The `rp=0` warning above already says what did.
+  if (rpEnabled && fold.error === undefined && folded + upcoming > 0 && fold.rpPmfsProduced === 0) {
     warnings.push(`rpPmfsProduced is 0 — every RP pmf was suppressed (the partial-roster gate, an ineligible event type, or no registered rule module); the reported cpuTime is NOT evidence about the RP path`);
   }
   if (fold.error === undefined && folded + upcoming > 0 && fold.bandsProduced === 0) {
@@ -695,7 +785,7 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ body: ProbeR
 
   const fold: FoldResult =
     bprRows !== undefined && bprState !== undefined
-      ? runBprFold(bprRows, bprState, eventKey, params.eventType, params.season, teamKeys, params.folded, params.upcoming)
+      ? runBprFold(bprRows, bprState, eventKey, params.eventType, params.season, teamKeys, params.folded, params.upcoming, params.rp)
       : {
           algorithmId: "bpr",
           matchesFolded: 0,
@@ -717,6 +807,8 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ body: ProbeR
     requestedTeamCount: params.teamCount,
     resolvedTeamCount: teamKeys.length,
     fold,
+    rpEnabled: params.rp,
+    rpUnrecognized: params.rpUnrecognized,
   });
 
   const ok = algorithms.every((a) => a.ok) && fold.error === undefined;
@@ -732,6 +824,7 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ body: ProbeR
       teamCount: params.teamCount,
       folded: params.folded,
       upcoming: params.upcoming,
+      rp: params.rp,
     },
     discovery: {
       teamKeysFound: discoveredTeamKeys.length,

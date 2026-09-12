@@ -533,3 +533,148 @@ describe("stateProbe — Group 4: the shape-mismatch report is readable, not an 
     expect(db.writeStatementCount).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Group 5 — quick task 260912-iur. The `rp` ablation arm.
+//
+// Group 3 above is deliberately LEFT UNTOUCHED by that task: it was written
+// before the flag existed, passes no `rp` param, and still asserts
+// `rpPmfsProduced === 7` and `warnings === []`. That it still passes verbatim
+// is the default-ON regression proof — the thing that keeps the existing
+// 13 ms p50 / 28 ms p90 measurements comparable.
+//
+// The load-bearing assertion in THIS group is `bandsProduced`, pinned EQUAL
+// across the two arms. Task 1 established from `git log -S` that the band
+// calls predate Phase 9 (`63596da3` 2026-09-09, `447395a1` 2026-09-10, both
+// before Phase 9's first commit on 2026-09-11) while `rpFieldsFor`,
+// `foldObservedRp`, the `RpMomentsAccumulator` resume and `withRpBeliefs` are
+// all `+` lines in `dc30636e`. An ablation that also dropped the bands would
+// silently bill Phase 9 for work that was already there, and the arm
+// difference would overstate its share of the overrun. This assertion is what
+// makes that a test failure rather than a wrong number in a runbook.
+// ---------------------------------------------------------------------------
+
+interface ArmBody {
+  ok: boolean;
+  params: { folded: number; upcoming: number; rp: boolean };
+  fold: {
+    matchesFolded: number;
+    upcomingPriced: number;
+    bandsProduced: number;
+    rpPmfsProduced: number;
+    rpObservedFolds: number;
+    changedRowsDiscarded: number;
+    error?: { name: string; message: string };
+  };
+  warnings: string[];
+}
+
+const ARM_FOLDED = 2;
+const ARM_UPCOMING = 5;
+const ARM_QUERY = `folded=${ARM_FOLDED}&upcoming=${ARM_UPCOMING}&season=2026`;
+
+async function runArm(query: string): Promise<{ body: ArmBody; text: string; status: number; writes: number }> {
+  const db = new FakeD1Database();
+  seedAllAlgorithms(db);
+  const response = await stateProbe.fetch(new Request(`https://probe/?${query}`), { DB: db as unknown as D1Database });
+  const text = await response.text();
+  return { body: JSON.parse(text) as ArmBody, text, status: response.status, writes: db.writeStatementCount };
+}
+
+describe("stateProbe — Group 5: the rp ablation arm", () => {
+  it("defaults ON: an absent rp= produces a byte-identical response to rp=1", async () => {
+    const absent = await runArm(ARM_QUERY);
+    const explicit = await runArm(`${ARM_QUERY}&rp=1`);
+
+    // Byte-identical, not merely deep-equal. The whole point of the default
+    // is that adding the flag changed nothing for anyone who does not pass it.
+    expect(absent.text).toBe(explicit.text);
+    expect(absent.status).toBe(200);
+    expect(absent.body.params.rp).toBe(true);
+    expect(absent.body.warnings).toEqual([]);
+  });
+
+  it("pins BOTH arms by equality — never an inequality, which would pass vacuously", async () => {
+    const on = await runArm(`${ARM_QUERY}&rp=1`);
+    const off = await runArm(`${ARM_QUERY}&rp=0`);
+
+    expect(on.status).toBe(200);
+    expect(off.status).toBe(200);
+    expect(on.body.ok).toBe(true);
+    expect(off.body.ok).toBe(true);
+    expect(on.body.fold.error).toBeUndefined();
+    expect(off.body.fold.error).toBeUndefined();
+
+    // The arm is stated in the response, so a cpuTime read off `wrangler
+    // tail` can never be attributed to the wrong run.
+    expect(on.body.params.rp).toBe(true);
+    expect(off.body.params.rp).toBe(false);
+
+    // ON arm: every match gets a pmf. EQUALITY against folded + upcoming,
+    // exactly as Group 3 asserts it.
+    expect(on.body.fold.rpPmfsProduced).toBe(ARM_FOLDED + ARM_UPCOMING);
+    expect(on.body.fold.rpObservedFolds).toBeGreaterThan(0);
+
+    // OFF arm: 0 BY CONSTRUCTION, pinned as its own equality. `>= 0` here
+    // would pass in both arms and prove nothing at all.
+    expect(off.body.fold.rpPmfsProduced).toBe(0);
+    expect(off.body.fold.rpObservedFolds).toBe(0);
+
+    // Non-vacuity: the two arms genuinely differ. Without this, a bug that
+    // made BOTH arms produce 0 would satisfy the off-arm equality above.
+    expect(on.body.fold.rpPmfsProduced).not.toBe(off.body.fold.rpPmfsProduced);
+
+    // Both loops still run in both arms — the upcoming-repricing loop is
+    // `dabe9acd` (04-06), not Phase 9's, so ablating RP must not shorten it.
+    expect(off.body.fold.matchesFolded).toBe(on.body.fold.matchesFolded);
+    expect(off.body.fold.upcomingPriced).toBe(on.body.fold.upcomingPriced);
+    expect(off.body.fold.matchesFolded).toBe(ARM_FOLDED);
+    expect(off.body.fold.upcomingPriced).toBe(ARM_UPCOMING);
+
+    // THE TASK 1 ASSERTION. Bands predate Phase 9 and are billed to neither
+    // arm differently. Two alliances per match, every roster banded.
+    expect(off.body.fold.bandsProduced).toBe(on.body.fold.bandsProduced);
+    expect(on.body.fold.bandsProduced).toBe(2 * (ARM_FOLDED + ARM_UPCOMING));
+
+    // Serialize-and-discard still happens in the off arm; only the
+    // `withRpBeliefs` passenger is missing from the candidate rows.
+    expect(off.body.fold.changedRowsDiscarded).toBeGreaterThan(0);
+
+    // The probe's no-write property holds in the ablated arm too.
+    expect(on.writes).toBe(0);
+    expect(off.writes).toBe(0);
+  });
+
+  it("names the ablated arm in warnings, and warns nothing extra in the ON arm", async () => {
+    const on = await runArm(`${ARM_QUERY}&rp=1`);
+    const off = await runArm(`${ARM_QUERY}&rp=0`);
+
+    expect(on.body.warnings).toEqual([]);
+    expect(off.body.warnings).toHaveLength(1);
+    expect(off.body.warnings[0]).toContain("rp=0");
+    expect(off.body.warnings[0]).toContain("ABLATED ARM");
+
+    // The off arm must NOT inherit the "every RP pmf was suppressed" warning,
+    // whose three named causes (partial-roster gate, ineligible event type,
+    // no registered rule module) are all things that did not happen here.
+    expect(off.body.warnings.join(" ")).not.toContain("partial-roster gate");
+  });
+
+  it("treats an unrecognized rp= value as ON and says so, rather than silently picking an arm", async () => {
+    const typo = await runArm(`${ARM_QUERY}&rp=fasle`);
+
+    expect(typo.body.params.rp).toBe(true);
+    expect(typo.body.fold.rpPmfsProduced).toBe(ARM_FOLDED + ARM_UPCOMING);
+    expect(typo.body.warnings).toHaveLength(1);
+    expect(typo.body.warnings[0]).toContain('rp="fasle"');
+    expect(typo.body.warnings[0]).toContain("ENABLED");
+  });
+
+  it("accepts the spelled-out off values, so a runbook reader cannot miss the arm", async () => {
+    for (const value of ["0", "off", "false", "no", "OFF", "False"]) {
+      const arm = await runArm(`${ARM_QUERY}&rp=${value}`);
+      expect(arm.body.params.rp, `rp=${value} should ablate`).toBe(false);
+      expect(arm.body.fold.rpPmfsProduced, `rp=${value} should produce no pmfs`).toBe(0);
+    }
+  });
+});
