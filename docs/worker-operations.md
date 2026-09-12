@@ -466,6 +466,102 @@ corpus, not that anything is broken.
 
 ---
 
+## Pre-event probe
+
+**A green idle tick proves nothing about whether a live event will fold correctly.** With
+`windows: []` (the normal out-of-season state, and the state right up until the check above shows a
+non-zero count), `processEvent` returns at its `newlyFolded.length === 0` check
+(`apps/worker/src/scheduled.ts:1002`) **before a single league row is read**. Every green tick since
+the 2026-09-12 seed (live D1 rows at `snapshotShapeVersion` 15, generation `b23d214d`) is green for a
+reason that has nothing to do with whether the deployed bundle can actually read those rows or fold
+the ranking-point path. A `cpuTime` of 1 ms on an idle tick is not headroom — it is silence. Read
+["How the CPU budget is actually enforced"](#how-the-cpu-budget-is-actually-enforced--corrected-2026-08-29)
+before drawing any conclusion from a single tick's `cpuTime`, idle or otherwise.
+
+The pre-event probe (`apps/worker/src/stateProbe.ts`, a separate deployment configured by
+`wrangler.probe.toml`) answers the two questions an idle tick cannot: does the **deployed** bundle
+read the rows now in live D1, and what does Phase A (state read → fold → serialize) cost in real
+Workers CPU time once the ranking-point path actually runs.
+
+**The ordering rule.** The probe is evidence about the deployed Worker **only if both were built from
+the same commit**. Deploy the Worker, deploy the probe from the same commit, then run the probe. A
+probe built from a different commit than the live Worker answers a different question than the one
+you're asking.
+
+**Deploy** (leave it deployed — no cron, no writes, no cost while idle; redeploy before each event so
+it tracks the Worker's current commit):
+
+```bash
+cd apps/worker
+npx wrangler deploy --config wrangler.probe.toml   # or: pnpm --filter worker run deploy:probe
+```
+
+**Run it**, taking the URL from the deploy output:
+
+```bash
+curl -s "https://sigmascout-state-probe.<subdomain>.workers.dev/?folded=2&upcoming=60" | head -c 2000
+```
+
+| Param | Default | Meaning |
+|---|---|---|
+| `season` | `2026` | Indexes the RP rule module and the synthetic score-breakdown shape |
+| `eventType` | `0` (Regional) | RP-eligibility tier for the synthetic matches |
+| `event` | discovered opr event-scoped key, else `"{season}probe"` | Which event-scoped OPR row to resume |
+| `teams` | discovered (up to `teamCount`) | Comma-separated override of the roster to fold |
+| `teamCount` | `21` | Peak realistic tick roster size — clamped under `MAX_SCOPE_KEYS_PER_READ` |
+| `folded` | `2` | Synthetic *played* matches priced (predict, band, RP fields, update, fold) |
+| `upcoming` | `60` | Synthetic *still-upcoming* matches priced (predict, band, RP fields — read only) |
+
+`upcoming` defaults to 60, not a small number, because **the upcoming loop is where the CPU goes** —
+`processEvent` prices every still-upcoming match at the event, and early in a qual schedule that is
+60+ matches. Pricing only the folded matches under-states a real tick's cost by more than an order of
+magnitude.
+
+**Read `cpuTime`**, in a second terminal, and run the probe **several consecutive times** — never
+conclude from one invocation:
+
+```bash
+npx wrangler tail sigmascout-state-probe --format json
+```
+
+Production has already shown the same bundle version return `ok` at `cpuTime: 38` and then be killed,
+pinned at `10`, sixty seconds later with no code change (see "How the CPU budget is actually
+enforced" above). Budget for the *sustained* cost of the common path, never for one healthy tick.
+
+**When the number is not a measurement.** Read the response body's counters before trusting its
+`cpuTime`:
+
+| Condition | What it means |
+|---|---|
+| `rpPmfsProduced: 0` | Every RP pmf was suppressed — the partial-roster gate tripped, the event type is RP-ineligible, or the season has no registered rule module. The reported `cpuTime` never touched `analyticRpPmf`. |
+| `bandsProduced: 0` | No Sigma/Swing band was produced for any roster, so the RP path's own band-presence gate never opened. |
+| Any `algorithms[].ok: false` | That algorithm never deserialized (see its `error`), so nothing downstream of it was priced. |
+| A non-empty `warnings` array | The probe itself is naming a reason its own run under-states a real tick — read each line. |
+
+In every one of these cases, the reported `cpuTime` is an **under-estimate** of a real tick's cost and
+must not be read as headroom.
+
+**What it does not measure.** Phase A only — state read, fold, serialize, discard. Never Phase B
+(artifact merge, R2 reads/writes), TBA polling, the KV manifest read, or the global rebuild. A
+Phase-A number read as a whole-tick number is an under-estimate.
+
+**What it cannot write, and what it merely does not write.** The write guarantee is two layers, and
+they are not equally strong:
+
+| Surface | What stops a write | Strength |
+|---|---|---|
+| R2 (`ARTIFACTS`) | Binding absent from `wrangler.probe.toml` — `env.ARTIFACTS` does not exist | Structural — no code change can write an artifact |
+| KV (`MANIFEST`) | Binding absent — `env.MANIFEST` does not exist | Structural |
+| D1 (`DB`) | The probe never calls a write helper, and no write helper is in its import graph | **Test-enforced only** (`apps/worker/test/stateProbe.test.ts`) |
+
+Workers has no read-only D1 binding, so `DB` above is bound read-write like any other D1 binding.
+Anyone editing `apps/worker/src/stateProbe.ts` is editing something whose D1 safety is a test away,
+not a config guarantee.
+
+**The rule: run it before every event.**
+
+---
+
 ## Watching it
 
 ```bash
@@ -514,6 +610,7 @@ above. An observation your model says is impossible is the most valuable one you
 | `opr` or `epa` metrics look stale mid-event while `vpr` updates | Expected — only `vpr` folds live (see "Live folding tier" above) | `LIVE_ALGORITHM_IDS` in `apps/worker/wrangler.toml`; refresh via a re-baseline (above) |
 | A `live-tier-defaulted` warn line in the tail | `LIVE_ALGORITHM_IDS` did not reach the deployed Worker (e.g. a `--var` deploy that did not carry tracked vars through) | Redeploy from tracked config with `pnpm worker:deploy` and confirm the deploy output lists both `TBA_BASE_URL` and `LIVE_ALGORITHM_IDS` |
 | `outcome: "exceededCpu"` with an empty `logs` array on **every** tick | The tick is *consistently* over the 10 ms CPU budget. It is reaching the handler and dying before its final log line — it is **not** dying in module init (that is a separate 1-second budget) | `eventsConsidered` on any tick that does survive. If non-zero, fetch `https://data.sigmascout.org/v1/manifest/live-windows.json` and see what the Worker thinks is live — **read the manifest, never the calendar**. Read "How the CPU budget is actually enforced" above before drawing any conclusion from a single high `cpuTime` |
+| About to run an event; unsure the deployed bundle can read the rows in D1 | Untested since the last seed — a green idle tick does not exercise it | Run the pre-event probe (above) before the event starts, not during it |
 
 ---
 

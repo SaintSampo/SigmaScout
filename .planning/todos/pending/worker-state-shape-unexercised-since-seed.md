@@ -61,3 +61,12 @@ Either is fine; the first is cheaper.
 Blocked on neither a decision nor a measurement — just on someone doing it before an event starts.
 
 Related: [[live-match-updates-swing-and-lossy-merge]], [[00-sigmascout-layer-roadmap]].
+
+## Status — 2026-09-12
+
+The instrument now exists (quick task 260912-3e6): `apps/worker/src/stateProbe.ts`,
+`apps/worker/wrangler.probe.toml`, and `docs/worker-operations.md`'s "Pre-event probe" section. It
+has NOT yet been deployed or run against live D1 — no network in the executor sandbox that built it.
+This item stays **open**, and stays in `pending/`, until the probe has actually been deployed and run
+against live D1 with a recorded `cpuTime` across several consecutive invocations (see
+`docs/worker-operations.md`'s "Pre-event probe" section for the exact procedure).
