@@ -78,6 +78,33 @@
  * reference material here.
  *
  * ---------------------------------------------------------------------------
+ * EVERY METRIC CARRIES ITS OWN MEASURED NOISE BAND (quick task 260912-i13 T3)
+ * ---------------------------------------------------------------------------
+ *
+ * `NOISE_MARGIN_PP = 1` was measured for TOP-1 ACCURACY ONLY, and there was no
+ * reason it transferred to a recall cutoff, an MRR or a rank percentile. So it
+ * was not assumed: running this script at `--iterations 200` and at
+ * `--iterations 1500` — same data, same features, same walk-forward, only the
+ * optimizer budget differs — and taking the maximum absolute movement per
+ * metric across judged types with pooled `n >= 30` gives, measured 2026-09-12:
+ *
+ *     R@1 0.77pp     R@3 1.50pp     MRR 0.0046     norm% 0.17pp
+ *
+ * THE INHERITED CONSTANT IS TOO TIGHT FOR R@3. A 1.2pp R@3 gap scored against
+ * 1.0pp would have read as a result and been optimizer noise. `RANK_NOISE_BANDS`
+ * therefore holds one band PER METRIC, and holds `null` for the five metrics
+ * that were not measured (R@5, R@10, meanRank, medRank, Brier skill) — those
+ * print "CANNOT BE SCORED" rather than borrowing a number measured on something
+ * else.
+ *
+ * The report ends with a generated `PRACTICAL ANSWER` block that states, per
+ * flagship judged award type, the ORDERING result and the CALIBRATION result
+ * TOGETHER. Together is the whole design: the ordering is genuinely useful and
+ * the stated probability is not, and an answer that gave only the first half
+ * would leave a reader believing a probability could be printed beside a team's
+ * name on a page.
+ *
+ * ---------------------------------------------------------------------------
  * CREDENTIAL-FREE AND OFFLINE
  * ---------------------------------------------------------------------------
  *
@@ -1909,6 +1936,188 @@ export function verdictMarginPp(c: Cell, arm: Arm = "model"): number {
 /** Below this margin, a PREDICTABLE verdict is optimizer noise and says so in the output. */
 export const NOISE_MARGIN_PP = 1;
 
+// ---------------------------------------------------------------------------
+// The measured per-metric noise bands (quick task 260912-i13 T3)
+// ---------------------------------------------------------------------------
+
+/** Every rank or calibration metric the report compares two predictors on. */
+export type RankMetric =
+  | "R@1"
+  | "R@3"
+  | "R@5"
+  | "R@10"
+  | "MRR"
+  | "meanRank"
+  | "medRank"
+  | "norm%"
+  | "brierSkill";
+
+/**
+ * One metric's noise band.
+ *
+ * `band === null` means NO BAND WAS MEASURED FOR THIS METRIC. That is not a
+ * licence to fall back on `NOISE_MARGIN_PP`: an unmeasured metric cannot
+ * distinguish a result from optimizer noise at all, and the report says exactly
+ * that rather than borrowing a number measured on something else.
+ *
+ * `unit` is the unit the band is STATED in — `"pp"` for a metric stored as a
+ * fraction and read as a percentage, `"abs"` for one already in its own units
+ * (MRR, a rank). Carrying the unit on the constant is what stops a 0.0046 MRR
+ * band being compared against a percentage-point difference.
+ *
+ * `higherIsBetter` is false for the rank metrics where a SMALLER number is the
+ * better predictor (`meanRank`, `medRank`, `norm%`). Orientation lives on the
+ * constant for the same reason the unit does.
+ *
+ * `perOrderingLength` is true for the three metrics whose SCALE IS SET BY EACH
+ * ORDERING'S OWN LENGTH — `norm%` divides by it outright, and a raw `meanRank` /
+ * `medRank` of 3 means something entirely different in a 6-team ordering than in
+ * a 40-team one. None of the three can be compared against RB1/RB2, whose
+ * ordering is the rookie block rather than the pool. See `isMetricComparable`,
+ * which is the only thing standing between that mismatch and a printed verdict.
+ */
+export interface RankNoiseBand {
+  readonly band: number | null;
+  readonly unit: "pp" | "abs";
+  readonly higherIsBetter: boolean;
+  readonly perOrderingLength: boolean;
+}
+
+/**
+ * THE MEASURED NOISE BANDS. Measured 2026-09-12 by running this script at
+ * `--iterations 200` and `--iterations 1500` and taking, per metric, the MAXIMUM
+ * ABSOLUTE MOVEMENT between the two runs across every judged award type with
+ * pooled `n >= 30`. Both runs are the SAME data, the SAME features and the SAME
+ * walk-forward sequencing — the only difference is how far the gradient ascent
+ * was allowed to run — so whatever moves between them is the optimizer talking,
+ * not the model.
+ *
+ * A difference between two predictors that is INSIDE its metric's band prints as
+ * "no difference", never as "slightly better". That is the same discipline 5n8
+ * and 7bp applied to top-1 accuracy, extended to metrics that had never had it.
+ *
+ *   R@1    0.77pp
+ *   R@3    1.50pp   <-- WIDER THAN `NOISE_MARGIN_PP`
+ *   MRR    0.0046
+ *   norm%  0.17pp   <-- by far the most stable metric measured
+ *
+ * THE CONSEQUENCE, WHICH IS ITSELF A FINDING: the inherited `NOISE_MARGIN_PP = 1`
+ * IS TOO TIGHT FOR R@3. R@3 moves up to 1.50pp on a fit that is already
+ * converged, so a 1.2pp R@3 "win" scored against the inherited 1.0pp constant
+ * would have been reported as a result and been noise. Each metric needs its own
+ * band; one shared constant cannot serve them all, and the fact that the
+ * constant happens to be conservative for R@1 (0.77pp < 1.0pp) does not make it
+ * safe anywhere else.
+ *
+ * Only one award type moved more than 0.9pp on either recall metric: type 4
+ * FIRST Dean's List Finalist (model R@1 0.75pp / R@3 1.22pp, age arm R@1 0.75pp
+ * / R@3 1.50pp). It is the single instance that sets the R@3 band.
+ *
+ * The normalized rank percentile is the most stable metric in the set by a
+ * factor of four or more, which makes it the most trustworthy one for comparing
+ * predictors — with the caveat, already printed beside every RB row, that the
+ * rookie baselines' percentile is taken over a DIFFERENT denominator.
+ *
+ * R@5, R@10, meanRank, medRank and the Brier skill score were NOT measured and
+ * are `null` here on purpose. Inventing a band for them would be exactly the
+ * fabrication the thin-prior exclusion already refuses elsewhere in this script.
+ */
+export const RANK_NOISE_BANDS: Readonly<Record<RankMetric, RankNoiseBand>> = {
+  "R@1": { band: 0.77, unit: "pp", higherIsBetter: true, perOrderingLength: false },
+  "R@3": { band: 1.5, unit: "pp", higherIsBetter: true, perOrderingLength: false },
+  "R@5": { band: null, unit: "pp", higherIsBetter: true, perOrderingLength: false },
+  "R@10": { band: null, unit: "pp", higherIsBetter: true, perOrderingLength: false },
+  MRR: { band: 0.0046, unit: "abs", higherIsBetter: true, perOrderingLength: false },
+  meanRank: { band: null, unit: "abs", higherIsBetter: false, perOrderingLength: true },
+  medRank: { band: null, unit: "abs", higherIsBetter: false, perOrderingLength: true },
+  "norm%": { band: 0.17, unit: "pp", higherIsBetter: false, perOrderingLength: true },
+  brierSkill: { band: null, unit: "abs", higherIsBetter: true, perOrderingLength: false },
+};
+
+/** The date `RANK_NOISE_BANDS` was measured, printed in the report header. */
+export const RANK_NOISE_BANDS_MEASURED = "2026-09-12";
+
+/**
+ * `"band not measured"` is NOT a synonym for `"no difference"`. It means the
+ * comparison cannot be scored at all, and the report prints it that way so no
+ * reader converts an unscoreable gap into a win.
+ */
+export type BandVerdict = "better" | "worse" | "no difference" | "band not measured";
+
+export interface BandComparison {
+  /** `subject - reference`, converted into the band's own unit. Sign is RAW, not oriented. */
+  readonly delta: number;
+  readonly verdict: BandVerdict;
+}
+
+/**
+ * Compares one predictor against another on one metric, against THAT METRIC'S
+ * OWN measured band.
+ *
+ * `subject` and `reference` are passed in the metric's STORAGE form (a fraction
+ * for the recall and percentile metrics, absolute for MRR and the ranks); the
+ * conversion into the band's unit happens here, once, so no caller can compare a
+ * fraction against a percentage-point band.
+ */
+export function compareOnBand(
+  metric: RankMetric,
+  subject: number,
+  reference: number
+): BandComparison {
+  const spec = RANK_NOISE_BANDS[metric];
+  const delta = (spec.unit === "pp" ? 100 : 1) * (subject - reference);
+  if (spec.band === null) return { delta, verdict: "band not measured" };
+  const oriented = spec.higherIsBetter ? delta : -delta;
+  if (oriented > spec.band) return { delta, verdict: "better" };
+  if (oriented < -spec.band) return { delta, verdict: "worse" };
+  return { delta, verdict: "no difference" };
+}
+
+/** How a `BandComparison` reads in the report. Never "slightly better". */
+export function bandGloss(metric: RankMetric, cmp: BandComparison): string {
+  const spec = RANK_NOISE_BANDS[metric];
+  const unit = spec.unit === "pp" ? "pp" : "";
+  const shown = `${cmp.delta >= 0 ? "+" : ""}${cmp.delta.toFixed(spec.unit === "pp" ? 1 : 4)}${unit}`;
+  if (spec.band === null) {
+    return `${shown}  CANNOT BE SCORED — no band measured for ${metric}, so this gap is neither a result nor noise`;
+  }
+  const band =
+    `${spec.unit === "pp" ? spec.band.toFixed(2) : String(spec.band)}${unit} band` +
+    `${spec.higherIsBetter ? "" : ", LOWER IS BETTER"}`;
+  if (cmp.verdict === "no difference") return `${shown}  NO DIFFERENCE (inside the measured ${band})`;
+  return `${shown}  ${cmp.verdict === "better" ? "BETTER" : "WORSE"} (outside the measured ${band})`;
+}
+
+/**
+ * The three ROOKIE award types, read against RB1/RB2 and NEVER against B1/B2.
+ *
+ * Pre-committed reading 3 of quick task 260912-i13, and it is 7bp's lesson in
+ * rank form: B1 and B2 are structurally near-bottom rankers here for exactly the
+ * same reason they are pinned at 0.0% on top-1, so a rank "win" over them would
+ * be the identical artifact wearing new clothes.
+ */
+export const ROOKIE_AWARD_TYPES: readonly number[] = [10, 14, 15];
+
+/**
+ * The predictor a given award type's ordering is scored AGAINST. For the rookie
+ * types it is whichever of RB1/RB2 orders better on R@3; for everything else it
+ * is B1, the decoration ordering.
+ *
+ * This is the load-bearing requirement of 260912-i13 in one function: a model
+ * ordering is never reported without the ordering it has to beat beside it.
+ */
+export function rankReferencePredictor(awardType: number, c: Cell): RankPredictor {
+  if (!ROOKIE_AWARD_TYPES.includes(awardType)) return "b1";
+  return cellRecallAt(c, "rb2", 1) > cellRecallAt(c, "rb1", 1) ? "rb2" : "rb1";
+}
+
+/**
+ * The flagship judged award types the PRACTICAL ANSWER block speaks to. These
+ * are the five the whole award chain has been about: the two Chairman's-family
+ * awards, the two technical ones and Safety.
+ */
+export const FLAGSHIP_JUDGED_AWARD_TYPES: readonly number[] = [0, 9, 18, 21, 71];
+
 /**
  * What adding the age family bought on this cell, in percentage points. THIS IS
  * THE DELIVERABLE — a new absolute accuracy with nothing to subtract from would
@@ -2444,10 +2653,133 @@ function rankLine(which: RankPredictor, c: Cell): string {
 }
 
 /**
+ * The metrics the per-type READING block scores, in print order. `meanRank` and
+ * `medRank` are deliberately absent: neither has a measured band, so a reading
+ * line for them could say nothing but "cannot be scored" — they stay in the
+ * table above, where they are descriptive rather than comparative.
+ */
+export const RANK_READING_METRICS: readonly Exclude<RankMetric, "brierSkill">[] = [
+  "R@1",
+  "R@3",
+  "R@5",
+  "R@10",
+  "MRR",
+  "norm%",
+];
+
+/**
+ * One predictor's value for one rank metric. One place, so the table, the
+ * readings and the PRACTICAL ANSWER can never quote three different numbers for
+ * the same fact.
+ */
+export function rankMetricValue(
+  c: Cell,
+  which: RankPredictor,
+  metric: Exclude<RankMetric, "brierSkill">
+): number {
+  switch (metric) {
+    case "R@1":
+      return cellRecallAt(c, which, 0);
+    case "R@3":
+      return cellRecallAt(c, which, 1);
+    case "R@5":
+      return cellRecallAt(c, which, 2);
+    case "R@10":
+      return cellRecallAt(c, which, 3);
+    case "MRR":
+      return cellMrr(c, which);
+    case "meanRank":
+      return cellMeanRank(c, which);
+    case "medRank":
+      return cellMedianRank(c, which);
+    case "norm%":
+      return cellNormalizedRank(c, which);
+  }
+}
+
+/** How a metric's value prints in a reading line. */
+function rankMetricFormat(metric: Exclude<RankMetric, "brierSkill">, v: number): string {
+  if (RANK_NOISE_BANDS[metric].unit === "pp") return pct(v);
+  return metric === "MRR" ? v.toFixed(3) : v.toFixed(1);
+}
+
+/**
+ * Whether a metric can be compared BETWEEN these two predictors at all.
+ *
+ * `norm%`, `meanRank` and `medRank` are taken over each ordering's OWN length,
+ * and RB1/RB2's ordering is the ROOKIE BLOCK — typically six teams, not the
+ * ~40-team pool. So the model's "the winner sits in the top 18% of the pool" and
+ * RB2's "the winner sits in the top 64% of the rookie block" are two different
+ * measurements, and scoring one against the other produces a verdict with no
+ * meaning: on the rookie types it would read "BETTER" for the model on a 46pp
+ * gap that is purely the denominator.
+ *
+ * That is 260912-7bp's structural-zero artifact wearing yet another set of
+ * clothes, and this function is where it is refused. `recall@k` and MRR are
+ * unaffected: both keep every scored instance as their denominator, so an
+ * abstaining RB scores 0 and stays in, and the two predictors really are
+ * measured over the same population.
+ */
+export function isMetricComparable(
+  metric: Exclude<RankMetric, "brierSkill">,
+  reference: RankPredictor
+): boolean {
+  if (!RANK_NOISE_BANDS[metric].perOrderingLength) return true;
+  return reference !== "rb1" && reference !== "rb2";
+}
+
+/**
+ * The per-type READING block: the no-age arm against the ordering it actually
+ * has to beat, metric by metric, EACH AGAINST ITS OWN MEASURED BAND.
+ *
+ * This is where 260912-i13's load-bearing requirement stops being a comment. A
+ * model ordering compared only against random looks spectacular everywhere and
+ * means nothing, so every line here names the reference predictor it was scored
+ * against — B1 for a judged award, the better of RB1/RB2 for a rookie one.
+ */
+function printRankReadings(c: Cell, awardType: number): string[] {
+  const reference = rankReferencePredictor(awardType, c);
+  const lines: string[] = [];
+  lines.push(
+    `    READING (pre-committed; each metric against its OWN band measured ` +
+      `${RANK_NOISE_BANDS_MEASURED}, never one shared constant):`
+  );
+  lines.push(
+    `      reference ordering = ${RANK_LABEL[reference]}` +
+      (reference === "b1"
+        ? " (prior decoration). A model ordering not compared against it is not a result."
+        : " (the better rookie ordering). B1/B2 are structurally near-bottom here and are NOT the bar.")
+  );
+  for (const metric of RANK_READING_METRICS) {
+    const subject = rankMetricValue(c, "model", metric);
+    const ref = rankMetricValue(c, reference, metric);
+    const head =
+      `      ${metric.padEnd(6)}no-age ${rankMetricFormat(metric, subject).padStart(7)} vs ` +
+      `${RANK_LABEL[reference]} ${rankMetricFormat(metric, ref).padStart(7)}  =  `;
+    if (!isMetricComparable(metric, reference)) {
+      lines.push(
+        `${head}NOT COMPARABLE — ${RANK_LABEL[reference]}'s ${metric} is over the ROOKIE BLOCK and`
+      );
+      lines.push(
+        `            the model's is over the POOL. Different denominators, so this is not scored at all.`
+      );
+      continue;
+    }
+    lines.push(`${head}${bandGloss(metric, compareOnBand(metric, subject, ref))}`);
+  }
+  const arms = compareOnBand("R@3", rankMetricValue(c, "ageModel", "R@3"), rankMetricValue(c, "model", "R@3"));
+  lines.push(
+    `      arms  +age R@3 ${pct(rankMetricValue(c, "ageModel", "R@3")).padStart(7)} vs ` +
+      `no-age ${pct(rankMetricValue(c, "model", "R@3")).padStart(7)}  =  ${bandGloss("R@3", arms)}`
+  );
+  return lines;
+}
+
+/**
  * The RANK block: pooled only. Per-season rank rows would be seven predictors
  * times ten seasons per award type and would drown the output.
  */
-function printRankBlock(c: Cell): string[] {
+function printRankBlock(c: Cell, awardType: number): string[] {
   const lines: string[] = [];
   lines.push(
     `    RANK (pooled). recall/MRR denominator = every scored instance (n=${c.n});` +
@@ -2463,6 +2795,8 @@ function printRankBlock(c: Cell): string[] {
   );
   lines.push(RANK_HEADER);
   for (const which of RANK_PREDICTORS) lines.push(rankLine(which, c));
+  lines.push("");
+  lines.push(...printRankReadings(c, awardType));
   return lines;
 }
 
@@ -2537,7 +2871,7 @@ function printTypeBlock(r: AwardTypeReport): string[] {
       `RB2 on ${c.rb2Abstentions}/${c.n}; mean pool age coverage ${pct(cellAgeKnownFraction(c))}`
   );
   lines.push("");
-  lines.push(...printRankBlock(c));
+  lines.push(...printRankBlock(c, r.awardType));
   lines.push("");
   lines.push(...printCalibrationLines(c));
   lines.push("");
@@ -2637,6 +2971,184 @@ function printReliabilitySection(judged: readonly AwardTypeReport[]): string[] {
   return lines;
 }
 
+/**
+ * Which ordering actually orders better on this type — the fitted model, the
+ * reference ordering, or neither, scored against the MEASURED R@3 band.
+ *
+ * `"tie"` is a real answer and the most likely one to be misreported. A 0.4pp
+ * R@3 gap is two fits disagreeing, and calling it a win for either side is the
+ * mistake this whole band machinery exists to prevent.
+ */
+export function orderingWinner(
+  c: Cell,
+  reference: RankPredictor
+): { winner: "model" | "reference" | "tie"; cmp: BandComparison } {
+  const cmp = compareOnBand("R@3", rankMetricValue(c, "model", "R@3"), rankMetricValue(c, reference, "R@3"));
+  const winner =
+    cmp.verdict === "better" ? "model" : cmp.verdict === "worse" ? "reference" : "tie";
+  return { winner, cmp };
+}
+
+/**
+ * THE PRACTICAL ANSWER BLOCK (quick task 260912-i13 T3).
+ *
+ * Answers the question the whole award chain was asked — "for each award, can we
+ * rank each team at an event for how likely they are to win it?" — in plain
+ * language, GENERATED from the cells above so it cannot drift from them.
+ *
+ * EVERY ENTRY STATES BOTH HALVES: the ordering result AND the calibration
+ * result. That is not formatting preference. The honest answer to the question
+ * is "the ORDER is useful and the NUMBER is not", and an entry that reported
+ * only the recall figures would leave a reader believing a probability could be
+ * printed next to a team's name on a page. It cannot. So the two halves are
+ * emitted together, per type, by construction, and the block says so in its own
+ * header rather than trusting the reader to notice.
+ */
+export function formatPracticalAnswer(report: ExperimentReport): string[] {
+  const lines: string[] = [];
+  lines.push("===========================================================================");
+  lines.push(`PRACTICAL ANSWER — "for each award, can we rank each team at an event for how`);
+  lines.push(`likely they are to win it?"`);
+  lines.push("===========================================================================");
+  lines.push("");
+  lines.push("THE ANSWER HAS TWO HALVES AND BOTH OF THEM ARE THE ANSWER. Every entry below");
+  lines.push("states the ORDER and the NUMBER together, on purpose. A reader who takes only");
+  lines.push("the ordering result away has been misled about what could go on a page: the");
+  lines.push("ordering is genuinely useful and the stated probability is not.");
+  lines.push("");
+  lines.push("Generated from the cells above, never hand-written, so it cannot drift from the");
+  lines.push("numbers it describes. Every comparison is scored against its OWN band, measured");
+  lines.push(`${RANK_NOISE_BANDS_MEASURED}:`);
+  lines.push("  R@1 0.77pp   R@3 1.50pp   MRR 0.0046   norm% 0.17pp   (R@5, R@10, meanRank,");
+  lines.push("  medRank and the Brier skill score have NO measured band and are not scored.)");
+  lines.push("");
+
+  let modelWins = 0;
+  let referenceWins = 0;
+  let ties = 0;
+  let calibrationFails = 0;
+  let flagshipCount = 0;
+  let minTop3 = 1;
+  let maxTop3 = 0;
+
+  for (const type of FLAGSHIP_JUDGED_AWARD_TYPES) {
+    const r = report.byType.find((x) => x.awardType === type);
+    if (r === undefined) continue;
+    const c = r.pooled;
+    if (c.n === 0) continue;
+    flagshipCount += 1;
+    const pool = c.poolSum / c.n;
+    const reference = rankReferencePredictor(type, c);
+    const { winner, cmp } = orderingWinner(c, reference);
+    const best: RankPredictor = winner === "reference" ? reference : "model";
+    if (winner === "model") modelWins += 1;
+    else if (winner === "reference") referenceWins += 1;
+    else ties += 1;
+
+    const top1 = rankMetricValue(c, best, "R@1");
+    const top3 = rankMetricValue(c, best, "R@3");
+    const top10 = rankMetricValue(c, best, "R@10");
+    minTop3 = Math.min(minTop3, top3);
+    maxTop3 = Math.max(maxTop3, top3);
+    const med = cellMedianRank(c, best);
+    const norm = cellNormalizedRank(c, best);
+    const informative =
+      norm < 0.25
+        ? "the ordering BELOW the top pick carries real information: this is a"
+        : "the ordering below the top pick is weak: the top-1 number was";
+    const informativeTail =
+      norm < 0.25
+        ? "different and more useful capability than the top-1 number alone."
+        : "most of the story after all.";
+
+    lines.push(`  [type ${type}] ${r.name} — n=${c.n} instances, pool ~${pool.toFixed(0)} teams`);
+    lines.push(
+      `    ORDER : YES. Best ordering is ${RANK_LABEL[best]}` +
+        (best === "model" || best === "ageModel"
+          ? " (the fitted model)"
+          : " (a sort over prior decoration, not a fit)") +
+        `. The winner is in its`
+    );
+    lines.push(
+      `            top 3 ${pct(top3)} of the time and its top 10 ${pct(top10)}; median winner rank ` +
+        `${med.toFixed(0)} of ~${pool.toFixed(0)},`
+    );
+    lines.push(
+      `            i.e. the winner sits in the top ${pct(norm)} of the pool on average. Random ordering:`
+    );
+    lines.push(
+      `            top 3 ${pct(rankMetricValue(c, "b0", "R@3"))}, top 10 ${pct(rankMetricValue(c, "b0", "R@10"))}, ` +
+        `median rank ${cellMedianRank(c, "b0").toFixed(0)}.`
+    );
+    lines.push(
+      `            Top-3 is ${(top3 / Math.max(top1, 1e-9)).toFixed(1)}x its own top-1 of ${pct(top1)} — ${informative}`
+    );
+    lines.push(`            ${informativeTail}`);
+    lines.push(
+      `            Model vs ${RANK_LABEL[reference]} on R@3: ${bandGloss("R@3", cmp)}.`
+    );
+
+    const s = c.calibration.model;
+    const verdict = calibrationVerdict(s);
+    if (verdict === "PROBABILITIES NEED RECALIBRATION") calibrationFails += 1;
+    if (s.topInstances === 0) {
+      lines.push(
+        `    NUMBER: NONE EXISTS. Every instance was excluded from calibration ` +
+          `(${s.excludedThinPrior} thin-prior, ${s.excludedMultiRecipient} multi-recipient),`
+      );
+      lines.push(`            so this type states no probability that could be checked at all.`);
+    } else {
+      const gapPp = 100 * (statedTop1(s) - observedTop1(s));
+      lines.push(
+        `    NUMBER: ${verdict === "PROBABILITIES USABLE AS STATED" ? "USABLE AS STATED" : "NO — NEEDS RECALIBRATION"}. ` +
+          `The fitted model states its top pick wins ${pct(statedTop1(s))};`
+      );
+      lines.push(
+        `            that pick actually wins ${pct(observedTop1(s))} (${signedPp(gapPp)} ` +
+          `${gapPp > 0 ? "OVERCONFIDENT" : "underconfident"}), Brier skill ${brierSkill(s).toFixed(4)}.`
+      );
+      if (best !== "model" && best !== "ageModel") {
+        lines.push(
+          `            And ${RANK_LABEL[best]}, the better ordering here, states NO probability at`
+        );
+        lines.push(`            all — it is a sort, not a model.`);
+      }
+      for (const f of calibrationFailures(s)) lines.push(`            because: ${f}`);
+    }
+    const arms = compareOnBand(
+      "R@3",
+      rankMetricValue(c, "ageModel", "R@3"),
+      rankMetricValue(c, "model", "R@3")
+    );
+    lines.push(`    ARMS  : +age vs no-age on R@3: ${bandGloss("R@3", arms)}.`);
+    lines.push("");
+  }
+
+  lines.push("  ---------------------------------------------------------------------------");
+  lines.push(
+    `  IN ONE SENTENCE: across the ${flagshipCount} flagship judged award types the winner lands in`
+  );
+  lines.push(
+    `  a top-3 of ~40 teams between ${pct(minTop3)} and ${pct(maxTop3)} of the time against a random ~8%, so`
+  );
+  lines.push(
+    `  the ORDER is a real capability; the plain decoration ordering still orders better`
+  );
+  lines.push(
+    `  than the fit on ${referenceWins} of them, the fit orders better on ${modelWins}, and ${ties} are a tie inside`
+  );
+  lines.push(
+    `  the measured band; but on ${calibrationFails} of ${flagshipCount} the stated probability FAILS the`
+  );
+  lines.push(`  pre-committed calibration rule, so the NUMBER is not shippable as stated.`);
+  lines.push("");
+  lines.push("  OWED, NOT DONE HERE: a 'most likely to win award X at this event' surface is a real");
+  lines.push("  design task with its own artifact and publish-budget cost, and it cannot state a");
+  lines.push("  probability to a user until the recalibration above is done. This script measures;");
+  lines.push("  it does not authorize either one.");
+  return lines;
+}
+
 export function formatReport(report: ExperimentReport): string {
   const lines: string[] = [];
   lines.push("AWARD PREDICTABILITY — walk-forward top-1, two arms side by side");
@@ -2679,6 +3191,29 @@ export function formatReport(report: ExperimentReport): string {
   lines.push("  THE ROOKIE TYPES (10, 14, 15) ARE READ AGAINST RB1/RB2, NEVER B1/B2 — B1 and B2");
   lines.push("  are structurally near-bottom rankers there for the same reason they are pinned at");
   lines.push("  0.0% on top-1, and a rank 'win' over them is 260912-7bp's artifact in new clothes.");
+  lines.push("");
+  lines.push(
+    `THE NOISE BANDS ARE MEASURED PER METRIC, NOT INHERITED (measured ${RANK_NOISE_BANDS_MEASURED}):`
+  );
+  lines.push("  Running this script at --iterations 200 and at --iterations 1500 changes nothing but");
+  lines.push("  how far the gradient ascent runs, so whatever moves between the two runs is the");
+  lines.push("  optimizer talking. The maximum absolute movement across judged types with pooled");
+  lines.push("  n >= 30 is that metric's noise band:");
+  lines.push("    R@1 0.77pp    R@3 1.50pp    MRR 0.0046    norm% 0.17pp");
+  lines.push(
+    `  THE INHERITED NOISE_MARGIN_PP = ${NOISE_MARGIN_PP.toFixed(1)} IS TOO TIGHT FOR R@3, and that is itself a finding:`
+  );
+  lines.push("  R@3 moves up to 1.50pp on an already-converged fit, so a 1.2pp R@3 'win' scored");
+  lines.push("  against the inherited constant would have been reported as a result and been noise.");
+  lines.push("  Each metric gets its own band; one constant cannot serve them all, and the constant");
+  lines.push("  being conservative for R@1 (0.77pp < 1.0pp) does not make it safe anywhere else.");
+  lines.push("  Only ONE award type moved more than 0.9pp on either recall metric — type 4 FIRST");
+  lines.push("  Dean's List Finalist (R@1 0.75pp, R@3 up to 1.50pp) — and it alone sets the R@3 band.");
+  lines.push("  norm% is the most stable metric measured by a factor of four, which makes it the");
+  lines.push("  most trustworthy one for comparing predictors (RB1/RB2's different denominator aside).");
+  lines.push("  R@5, R@10, meanRank, medRank and the Brier skill score were NOT measured. They print");
+  lines.push("  'CANNOT BE SCORED' rather than borrowing a band measured on something else — an");
+  lines.push("  unmeasured metric cannot tell a result from noise, and saying so is the honest output.");
   lines.push("");
   lines.push("Census");
   lines.push(`  award rows read:                       ${report.census.totalRows}`);
@@ -2797,6 +3332,8 @@ export function formatReport(report: ExperimentReport): string {
   lines.push("");
   lines.push("  If RB1 beats either arm on those types, THAT is the result — exactly the way 5n8");
   lines.push("  reported that the fit lost to B1 on the flagship judged awards.");
+  lines.push("");
+  lines.push(...formatPracticalAnswer(report));
   return lines.join("\n");
 }
 

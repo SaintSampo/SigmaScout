@@ -73,6 +73,19 @@ import {
   mergeCalibration,
   modalAwardNames,
   NOISE_MARGIN_PP,
+  FLAGSHIP_JUDGED_AWARD_TYPES,
+  RANK_NOISE_BANDS,
+  RANK_NOISE_BANDS_MEASURED,
+  RANK_READING_METRICS,
+  ROOKIE_AWARD_TYPES,
+  bandGloss,
+  isMetricComparable,
+  compareOnBand,
+  formatPracticalAnswer,
+  formatReport,
+  orderingWinner,
+  rankMetricValue,
+  rankReferencePredictor,
   observedTop1,
   orderByScores,
   orderMostDecorated,
@@ -109,7 +122,9 @@ import {
   type CalibrationStats,
   type Cell,
   type EventMetaInput,
+  type ExperimentReport,
   type Predictor,
+  type RankPredictor,
   type ReplayMatch,
   type ReplayModel,
 } from "./measureAwardPredictability.js";
@@ -2122,5 +2137,519 @@ describe("calibration exclusions, end to end", () => {
     expect(c.calibration.ageModel.excludedMultiRecipient).toBe(
       c.calibration.model.excludedMultiRecipient
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE MEASURED PER-METRIC NOISE BANDS, AND THE PRACTICAL ANSWER
+// (quick task 260912-i13 T3)
+// ---------------------------------------------------------------------------
+
+/** Fills one predictor's `RankStats` from the metrics the report actually prints. */
+function setRank(
+  c: Cell,
+  which: RankPredictor,
+  opts: {
+    r1: number;
+    r3: number;
+    r5?: number;
+    r10?: number;
+    mrr?: number;
+    norm?: number;
+    ranks?: number[];
+  }
+): void {
+  const s = c.rank[which];
+  s.rankDefined = c.n;
+  s.recallAt = [
+    opts.r1 * c.n,
+    opts.r3 * c.n,
+    (opts.r5 ?? opts.r3) * c.n,
+    (opts.r10 ?? opts.r3) * c.n,
+  ];
+  s.reciprocalRankSum = (opts.mrr ?? opts.r1) * c.n;
+  s.rankSum = 5 * c.n;
+  s.normalizedRankSum = (opts.norm ?? 0.15) * c.n;
+  s.ranks = opts.ranks ?? [4];
+}
+
+/** A calibration cell built from the two facts the PRACTICAL ANSWER quotes. */
+function setCalibration(
+  c: Cell,
+  arm: "model" | "ageModel",
+  opts: { stated: number; observed: number; instances: number; skillPositive?: boolean }
+): void {
+  const s = c.calibration[arm];
+  s.instances = opts.instances;
+  s.topInstances = opts.instances;
+  s.topPredictedSum = opts.stated * opts.instances;
+  s.topHits = opts.observed * opts.instances;
+  s.slots = 40 * opts.instances;
+  s.uniformBrierSum = 0.025 * s.slots;
+  // Skill = 1 − BS/BS_uniform, so a smaller Brier is a positive skill.
+  s.brierSum = (opts.skillPositive === false ? 0.03 : 0.02) * s.slots;
+}
+
+function flagshipCell(opts: {
+  n: number;
+  pool: number;
+  modelR3: number;
+  b1R3: number;
+  stated: number;
+  observed: number;
+  norm?: number;
+  ranks?: number[];
+}): Cell {
+  const c = emptyCell();
+  c.n = opts.n;
+  c.poolSum = opts.pool * opts.n;
+  c.recipSum = opts.n;
+  setRank(c, "model", {
+    r1: opts.modelR3 / 2,
+    r3: opts.modelR3,
+    r10: Math.min(1, opts.modelR3 * 1.7),
+    norm: opts.norm ?? 0.16,
+    ranks: opts.ranks ?? [4],
+  });
+  setRank(c, "ageModel", { r1: opts.modelR3 / 2, r3: opts.modelR3, norm: opts.norm ?? 0.16 });
+  setRank(c, "b1", {
+    r1: opts.b1R3 / 2,
+    r3: opts.b1R3,
+    r10: Math.min(1, opts.b1R3 * 1.7),
+    norm: 0.14,
+    ranks: [3],
+  });
+  setRank(c, "b2", { r1: 0.05, r3: 0.15, norm: 0.3 });
+  setRank(c, "b0", { r1: 1 / opts.pool, r3: 3 / opts.pool, r10: 10 / opts.pool, norm: 0.5, ranks: [20] });
+  setCalibration(c, "model", { stated: opts.stated, observed: opts.observed, instances: opts.n });
+  setCalibration(c, "ageModel", { stated: opts.stated, observed: opts.observed, instances: opts.n });
+  return c;
+}
+
+function flagshipReport(byType: readonly { awardType: number; name: string; pooled: Cell }[]): ExperimentReport {
+  return {
+    command: "test",
+    census: {
+      totalRows: 0,
+      rowsDroppedOffseasonPreseason: 0,
+      rowsDroppedUnknownEvent: 0,
+      rowsDroppedPersonOnly: 0,
+      instancesDroppedNoTeamRecipient: 0,
+      instancesBuilt: 0,
+    },
+    instancesDroppedEmptyPool: 0,
+    seasons: [2019, 2020],
+    scoredSeasons: [2020],
+    byType: byType.map((r) => ({ ...r, perSeason: new Map<number, Cell>() })),
+    fitIterations: 200,
+    rookieYearsKnown: 10,
+  };
+}
+
+describe("the measured per-metric noise bands", () => {
+  it("carries exactly the four bands that were measured 2026-09-12, in their own units", () => {
+    expect(RANK_NOISE_BANDS["R@1"].band).toBe(0.77);
+    expect(RANK_NOISE_BANDS["R@1"].unit).toBe("pp");
+    expect(RANK_NOISE_BANDS["R@3"].band).toBe(1.5);
+    expect(RANK_NOISE_BANDS["R@3"].unit).toBe("pp");
+    expect(RANK_NOISE_BANDS.MRR.band).toBe(0.0046);
+    expect(RANK_NOISE_BANDS.MRR.unit).toBe("abs");
+    expect(RANK_NOISE_BANDS["norm%"].band).toBe(0.17);
+    expect(RANK_NOISE_BANDS["norm%"].unit).toBe("pp");
+    expect(RANK_NOISE_BANDS_MEASURED).toBe("2026-09-12");
+  });
+
+  it("holds null for every metric that was NOT measured, rather than inheriting a band", () => {
+    // Inventing a band for these would be the same fabrication the thin-prior
+    // exclusion refuses elsewhere in this script.
+    for (const metric of ["R@5", "R@10", "meanRank", "medRank", "brierSkill"] as const) {
+      expect(RANK_NOISE_BANDS[metric].band).toBeNull();
+    }
+  });
+
+  it("orients the three lower-is-better metrics and nothing else", () => {
+    for (const metric of ["meanRank", "medRank", "norm%"] as const) {
+      expect(RANK_NOISE_BANDS[metric].higherIsBetter).toBe(false);
+    }
+    for (const metric of ["R@1", "R@3", "R@5", "R@10", "MRR", "brierSkill"] as const) {
+      expect(RANK_NOISE_BANDS[metric].higherIsBetter).toBe(true);
+    }
+  });
+
+  it("pins THE FINDING: R@3's measured band is WIDER than the inherited accuracy constant", () => {
+    // The whole reason each metric gets its own band. A 1.2pp R@3 gap scored
+    // against NOISE_MARGIN_PP would have been reported as a result and been
+    // optimizer noise. If this ever stops being true, the header prose that
+    // says so has to change with it.
+    expect(RANK_NOISE_BANDS["R@3"].band).not.toBeNull();
+    expect(RANK_NOISE_BANDS["R@3"].band ?? 0).toBeGreaterThan(NOISE_MARGIN_PP);
+    // And R@1 — which IS the accuracy column — is tighter, so the inherited
+    // constant is conservative there rather than wrong.
+    expect(RANK_NOISE_BANDS["R@1"].band ?? 0).toBeLessThan(NOISE_MARGIN_PP);
+  });
+});
+
+describe("isMetricComparable — the RB denominator mismatch", () => {
+  it("refuses to score norm%, meanRank or medRank against a rookie baseline", () => {
+    // Caught while running T3: without this, type 14's reading line scored the
+    // model's 18.0% (of a ~40-team pool) against RB2's 64.3% (of a ~6-team
+    // rookie block) and printed "BETTER" on a 46pp gap that is purely the
+    // denominator — 260912-7bp's structural-zero artifact in a third outfit.
+    for (const metric of ["norm%", "meanRank", "medRank"] as const) {
+      expect(isMetricComparable(metric, "rb1")).toBe(false);
+      expect(isMetricComparable(metric, "rb2")).toBe(false);
+      expect(isMetricComparable(metric, "b1")).toBe(true);
+      expect(isMetricComparable(metric, "b2")).toBe(true);
+      expect(RANK_NOISE_BANDS[metric].perOrderingLength).toBe(true);
+    }
+  });
+
+  it("leaves recall@k and MRR comparable against anything — they share a denominator", () => {
+    // An abstaining RB scores 0 and stays in the recall denominator, which is
+    // exactly what makes those columns a fair comparison.
+    for (const metric of ["R@1", "R@3", "R@5", "R@10", "MRR"] as const) {
+      expect(RANK_NOISE_BANDS[metric].perOrderingLength).toBe(false);
+      for (const ref of RANK_PREDICTORS) expect(isMetricComparable(metric, ref)).toBe(true);
+    }
+  });
+
+  it("keeps the flagship set clear of the rookie types, so its norm% is always poolwide", () => {
+    for (const type of FLAGSHIP_JUDGED_AWARD_TYPES) {
+      expect(ROOKIE_AWARD_TYPES).not.toContain(type);
+    }
+  });
+});
+
+describe("compareOnBand", () => {
+  it("converts a fraction into percentage points for a pp-unit metric", () => {
+    expect(compareOnBand("R@3", 0.5, 0.48).delta).toBeCloseTo(2, 9);
+  });
+
+  it("leaves an abs-unit metric in its own units", () => {
+    expect(compareOnBand("MRR", 0.43, 0.403).delta).toBeCloseTo(0.027, 9);
+  });
+
+  it("calls a difference inside the band NO DIFFERENCE, never 'slightly better'", () => {
+    expect(compareOnBand("R@3", 0.488, 0.484).verdict).toBe("no difference");
+    expect(compareOnBand("R@1", 0.221, 0.216).verdict).toBe("no difference");
+    expect(compareOnBand("MRR", 0.4030, 0.4010).verdict).toBe("no difference");
+  });
+
+  it("treats a difference sitting exactly ON the band as inside it", () => {
+    expect(compareOnBand("R@3", 0.5015, 0.5).verdict).toBe("no difference");
+    expect(compareOnBand("R@3", 0.4985, 0.5).verdict).toBe("no difference");
+  });
+
+  it("calls a difference outside the band better or worse", () => {
+    expect(compareOnBand("R@3", 0.484, 0.511).verdict).toBe("worse");
+    expect(compareOnBand("R@3", 0.338, 0.261).verdict).toBe("better");
+  });
+
+  it("orients norm% so a LOWER percentile is the better predictor", () => {
+    // 14.4% vs 16.4%: the smaller number is the better ordering.
+    expect(compareOnBand("norm%", 0.144, 0.164).verdict).toBe("better");
+    expect(compareOnBand("norm%", 0.164, 0.144).verdict).toBe("worse");
+    expect(compareOnBand("norm%", 0.1605, 0.16).verdict).toBe("no difference");
+  });
+
+  it("returns 'band not measured' for an unmeasured metric, NEVER 'no difference'", () => {
+    // These are different claims. "No difference" says the gap was measured and
+    // found to be noise; "band not measured" says it cannot be scored at all.
+    for (const metric of ["R@5", "R@10", "brierSkill"] as const) {
+      expect(compareOnBand(metric, 0.9, 0.1).verdict).toBe("band not measured");
+      expect(compareOnBand(metric, 0.1, 0.1).verdict).toBe("band not measured");
+    }
+  });
+});
+
+describe("bandGloss", () => {
+  it("names the measured band and never says 'slightly'", () => {
+    const g = bandGloss("R@3", compareOnBand("R@3", 0.484, 0.511));
+    expect(g).toContain("WORSE");
+    expect(g).toContain("1.50pp band");
+    expect(g).toContain("-2.7pp");
+    expect(g.toLowerCase()).not.toContain("slightly");
+  });
+
+  it("says CANNOT BE SCORED, not 'no difference', for an unmeasured metric", () => {
+    const g = bandGloss("R@5", compareOnBand("R@5", 0.633, 0.668));
+    expect(g).toContain("CANNOT BE SCORED");
+    expect(g).toContain("no band measured");
+    expect(g).not.toContain("NO DIFFERENCE");
+  });
+
+  it("says LOWER IS BETTER on the inverted metric so the sign cannot be misread", () => {
+    expect(bandGloss("norm%", compareOnBand("norm%", 0.144, 0.164))).toContain("LOWER IS BETTER");
+  });
+});
+
+describe("rankReferencePredictor", () => {
+  it("reads every non-rookie type against B1, the decoration ordering", () => {
+    const c = emptyCell();
+    for (const type of [0, 9, 18, 21, 71, 1, 2]) {
+      expect(rankReferencePredictor(type, c)).toBe("b1");
+    }
+  });
+
+  it("reads the three rookie types against RB, never against B1", () => {
+    // 260912-7bp's lesson in rank form: B1/B2 are structurally near-bottom
+    // rankers on these types, so a rank win over them is the same artifact.
+    const c = emptyCell();
+    c.n = 100;
+    setRank(c, "rb1", { r1: 0.4, r3: 0.6 });
+    setRank(c, "rb2", { r1: 0.3, r3: 0.5 });
+    for (const type of ROOKIE_AWARD_TYPES) {
+      expect(rankReferencePredictor(type, c)).toBe("rb1");
+    }
+  });
+
+  it("picks whichever rookie baseline actually orders better on R@3", () => {
+    const c = emptyCell();
+    c.n = 100;
+    setRank(c, "rb1", { r1: 0.4, r3: 0.5 });
+    setRank(c, "rb2", { r1: 0.3, r3: 0.62 });
+    expect(rankReferencePredictor(14, c)).toBe("rb2");
+  });
+
+  it("pins the rookie set at exactly 10, 14 and 15", () => {
+    expect([...ROOKIE_AWARD_TYPES].sort((a, b) => a - b)).toEqual([10, 14, 15]);
+  });
+});
+
+describe("rankMetricValue", () => {
+  it("reads the same numbers the rank table prints, for every metric", () => {
+    const c = emptyCell();
+    c.n = 200;
+    setRank(c, "model", { r1: 0.2, r3: 0.45, r5: 0.6, r10: 0.8, mrr: 0.33, norm: 0.17 });
+    expect(rankMetricValue(c, "model", "R@1")).toBeCloseTo(cellRecallAt(c, "model", 0), 12);
+    expect(rankMetricValue(c, "model", "R@3")).toBeCloseTo(cellRecallAt(c, "model", 1), 12);
+    expect(rankMetricValue(c, "model", "R@5")).toBeCloseTo(cellRecallAt(c, "model", 2), 12);
+    expect(rankMetricValue(c, "model", "R@10")).toBeCloseTo(cellRecallAt(c, "model", 3), 12);
+    expect(rankMetricValue(c, "model", "MRR")).toBeCloseTo(cellMrr(c, "model"), 12);
+    expect(rankMetricValue(c, "model", "meanRank")).toBeCloseTo(cellMeanRank(c, "model"), 12);
+    expect(rankMetricValue(c, "model", "medRank")).toBeCloseTo(cellMedianRank(c, "model"), 12);
+    expect(rankMetricValue(c, "model", "norm%")).toBeCloseTo(cellNormalizedRank(c, "model"), 12);
+  });
+
+  it("omits meanRank and medRank from the reading block, because neither has a band", () => {
+    for (const metric of RANK_READING_METRICS) {
+      expect(RANK_NOISE_BANDS[metric].band === null || metric !== "meanRank").toBe(true);
+    }
+    expect(RANK_READING_METRICS).not.toContain("meanRank");
+    expect(RANK_READING_METRICS).not.toContain("medRank");
+  });
+});
+
+describe("orderingWinner", () => {
+  it("is a TIE inside the R@3 band even when one side is numerically ahead", () => {
+    const c = flagshipCell({ n: 1000, pool: 40, modelR3: 0.488, b1R3: 0.484, stated: 0.3, observed: 0.21 });
+    expect(orderingWinner(c, "b1").winner).toBe("tie");
+  });
+
+  it("names the model only when it is outside the band", () => {
+    const c = flagshipCell({ n: 1000, pool: 40, modelR3: 0.338, b1R3: 0.261, stated: 0.19, observed: 0.14 });
+    expect(orderingWinner(c, "b1").winner).toBe("model");
+  });
+
+  it("names the reference when the decoration ordering wins by more than the band", () => {
+    const c = flagshipCell({ n: 1000, pool: 40, modelR3: 0.484, b1R3: 0.511, stated: 0.3, observed: 0.21 });
+    expect(orderingWinner(c, "b1").winner).toBe("reference");
+  });
+});
+
+describe("the PRACTICAL ANSWER block", () => {
+  const build = (): ExperimentReport =>
+    flagshipReport([
+      {
+        awardType: 0,
+        name: "Impact",
+        pooled: flagshipCell({
+          n: 1538,
+          pool: 39,
+          modelR3: 0.484,
+          b1R3: 0.511,
+          stated: 0.299,
+          observed: 0.212,
+        }),
+      },
+      {
+        awardType: 21,
+        name: "Excellence in Engineering",
+        pooled: flagshipCell({
+          n: 1492,
+          pool: 41,
+          modelR3: 0.338,
+          b1R3: 0.261,
+          stated: 0.189,
+          observed: 0.143,
+        }),
+      },
+    ]);
+
+  it("states the ORDER and the NUMBER for every type — never one without the other", () => {
+    // The load-bearing property of this block. A reader who takes only the
+    // ordering half away has been misled about what could go on a page.
+    const text = formatPracticalAnswer(build()).join("\n");
+    expect(text.match(/^\s+ORDER :/gm)?.length).toBe(2);
+    expect(text.match(/^\s+NUMBER:/gm)?.length).toBe(2);
+  });
+
+  it("says in its own header that both halves are the answer", () => {
+    const text = formatPracticalAnswer(build()).join("\n");
+    expect(text).toContain("TWO HALVES");
+    expect(text).toContain("misled");
+  });
+
+  it("is GENERATED: moving the stated probability moves the text", () => {
+    const before = formatPracticalAnswer(build()).join("\n");
+    expect(before).toContain("states its top pick wins 29.9%");
+    expect(before).toContain("actually wins 21.2%");
+
+    const moved = build();
+    const c = moved.byType[0]?.pooled;
+    expect(c).toBeDefined();
+    if (c !== undefined) setCalibration(c, "model", { stated: 0.5, observed: 0.1, instances: 1538 });
+    const after = formatPracticalAnswer(moved).join("\n");
+    expect(after).toContain("states its top pick wins 50.0%");
+    expect(after).not.toContain("states its top pick wins 29.9%");
+  });
+
+  it("names the decoration ordering as stating NO probability when it is the better ranker", () => {
+    const text = formatPracticalAnswer(build()).join("\n");
+    expect(text).toContain("Best ordering is B1");
+    expect(text).toContain("states NO probability at");
+    expect(text).toContain("it is a sort, not a model");
+  });
+
+  it("reports the fit's own ordering where the fit wins, with no such caveat", () => {
+    const only = flagshipReport([
+      {
+        awardType: 21,
+        name: "Excellence in Engineering",
+        pooled: flagshipCell({
+          n: 1492,
+          pool: 41,
+          modelR3: 0.338,
+          b1R3: 0.261,
+          stated: 0.189,
+          observed: 0.143,
+        }),
+      },
+    ]);
+    const text = formatPracticalAnswer(only).join("\n");
+    expect(text).toContain("Best ordering is no-age (the fitted model)");
+    expect(text).not.toContain("states NO probability at");
+  });
+
+  it("calls the ordering below the top pick WEAK when the winner sits mid-pool", () => {
+    const weak = flagshipReport([
+      {
+        awardType: 0,
+        name: "Impact",
+        pooled: flagshipCell({
+          n: 1538,
+          pool: 39,
+          modelR3: 0.1,
+          b1R3: 0.09,
+          stated: 0.1,
+          observed: 0.09,
+          norm: 0.44,
+          ranks: [17],
+        }),
+      },
+    ]);
+    const text = formatPracticalAnswer(weak).join("\n");
+    expect(text).toContain("the ordering below the top pick is weak");
+    expect(text).toContain("most of the story after all");
+  });
+
+  it("says NEEDS RECALIBRATION when the top-1 gap is outside the pre-committed +/-5pp", () => {
+    const text = formatPracticalAnswer(build()).join("\n");
+    expect(text).toContain("NO — NEEDS RECALIBRATION");
+    expect(text).toContain("OVERCONFIDENT");
+  });
+
+  it("says USABLE AS STATED when the same pre-committed rule is actually met", () => {
+    // The verdict is generated, not asserted: a calibrated fixture must be able
+    // to pass, or the block would be printing a foregone conclusion.
+    const ok = flagshipReport([
+      {
+        awardType: 71,
+        name: "Autonomous",
+        pooled: flagshipCell({
+          n: 1000,
+          pool: 40,
+          modelR3: 0.42,
+          b1R3: 0.36,
+          stated: 0.22,
+          observed: 0.21,
+        }),
+      },
+    ]);
+    const text = formatPracticalAnswer(ok).join("\n");
+    expect(text).toContain("USABLE AS STATED");
+    expect(text).not.toContain("NEEDS RECALIBRATION");
+  });
+
+  it("counts the ordering and calibration outcomes in its closing sentence", () => {
+    const text = formatPracticalAnswer(build()).join("\n");
+    expect(text).toContain("across the 2 flagship judged award types");
+    expect(text).toContain("than the fit on 1 of them, the fit orders better on 1, and 0 are a tie");
+    // 1 of 2, not 2 of 2: the Excellence fixture's +4.6pp top-1 gap is inside
+    // the pre-committed +/-5pp, so it passes. The verdict is GENERATED, and a
+    // fixture that could never pass would prove nothing about the rule.
+    expect(text).toContain("but on 1 of 2 the stated probability FAILS");
+  });
+
+  it("names the surface it is NOT authorizing", () => {
+    const text = formatPracticalAnswer(build()).join("\n");
+    expect(text).toContain("OWED, NOT DONE HERE");
+    expect(text).toContain("it does not authorize");
+  });
+
+  it("skips a flagship type that is absent or empty rather than printing a zero row", () => {
+    const empty = emptyCell();
+    const text = formatPracticalAnswer(
+      flagshipReport([{ awardType: 0, name: "Impact", pooled: empty }])
+    ).join("\n");
+    expect(text).not.toContain("ORDER :");
+    expect(text).toContain("across the 0 flagship judged award types");
+  });
+});
+
+describe("the full report carries the T3 output", () => {
+  const report = flagshipReport([
+    {
+      awardType: 0,
+      name: "Impact",
+      pooled: flagshipCell({
+        n: 1538,
+        pool: 39,
+        modelR3: 0.484,
+        b1R3: 0.511,
+        stated: 0.299,
+        observed: 0.212,
+      }),
+    },
+  ]);
+
+  it("prints the measured bands, their provenance and the too-tight finding in the header", () => {
+    const text = formatReport(report);
+    expect(text).toContain("THE NOISE BANDS ARE MEASURED PER METRIC, NOT INHERITED");
+    expect(text).toContain("--iterations 200 and at --iterations 1500");
+    expect(text).toContain("R@1 0.77pp    R@3 1.50pp    MRR 0.0046    norm% 0.17pp");
+    expect(text).toContain("IS TOO TIGHT FOR R@3");
+    expect(text).toContain("R@5, R@10, meanRank, medRank and the Brier skill score were NOT measured");
+  });
+
+  it("prints the per-type READING block against the reference ordering", () => {
+    const text = formatReport(report);
+    expect(text).toContain("reference ordering = B1");
+    expect(text).toContain("A model ordering not compared against it is not a result.");
+    expect(text).toContain("CANNOT BE SCORED");
+  });
+
+  it("ends with the PRACTICAL ANSWER", () => {
+    expect(formatReport(report)).toContain("PRACTICAL ANSWER");
   });
 });
