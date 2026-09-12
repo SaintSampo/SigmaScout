@@ -109,15 +109,26 @@ season. It is a **manual operation run before and after an event weekend** — s
 [`publish-budget.md`](publish-budget.md) for why it is manual rather than scheduled.
 
 ```bash
-# Load credentials WITHOUT rendering them. Never cat, echo, or Read .env.
-set -a; . ./.env; set +a
-
+# Credentials are read BY THE TOOL, never loaded into the shell.
+# Never cat, echo, source, or Read .env.
 pnpm publish:seasons
-npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-opr.sql
-npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-epa.sql
-npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-bpr.sql
+npx wrangler d1 execute sigmascout-state --remote --env-file .env --file reports/publish/seed-opr.sql
+npx wrangler d1 execute sigmascout-state --remote --env-file .env --file reports/publish/seed-epa.sql
+npx wrangler d1 execute sigmascout-state --remote --env-file .env --file reports/publish/seed-bpr.sql
 pnpm worker:deploy
 ```
+
+**Corrected 2026-09-12.** This block used to open with `set -a; . ./.env; set +a`. That is blocked
+in agent environments — correctly, because it is a mechanism for loading secrets into a shell — so
+the runbook prescribed a command that could not run, and the 2026-09-12 republish hit it. `wrangler`
+takes `--env-file`, which has the tool read the file itself and matches the project's own
+`tsx --env-file=.env` convention everywhere else. `pnpm publish:seasons` needs no preamble at all:
+its `package.json` entry already carries `tsx --env-file=.env`.
+
+**Row-write budget.** A full three-file seed writes about **66k rows** (measured 2026-09-12:
+opr 15,888 / epa 25,140 / bpr 25,256). The D1 free tier allows 100k row-writes per day, so **one
+seed pass per day is comfortable and two is not** — plan a re-baseline accordingly, and never
+re-seed casually during an event weekend.
 As of plan 07-17, `pnpm publish:seasons` includes offseason and preseason events (`--include-offseason`) in both the published set and the walk-forward stream — an operator running this command is entitled to know its scope changed.
 
 Each seed file's name follows the algorithm's own registry id (`publish.ts`'s
