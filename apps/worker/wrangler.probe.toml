@@ -1,0 +1,47 @@
+# The read-only pre-event state probe (quick task 260912-3e6). A SEPARATE
+# deployment from the production `sigmascout-worker` (`wrangler.toml`) and
+# from the replay rig (`wrangler.fixture.toml`) — this config exists ONLY so
+# an operator can, before an event starts, ask the DEPLOYED Worker two
+# questions no live tick answers on its own: can the deployed bundle read the
+# rows now in D1, and what does a tick that actually folds the ranking-point
+# path cost in real Workers CPU time. See `docs/worker-operations.md`'s
+# "Pre-event probe" section for the full runbook and the same-commit
+# ordering rule (this probe is evidence about the deployed Worker only if
+# both were built from the same commit).
+#
+# THE WRITE GUARANTEE IS TWO LAYERS, NOT ONE, AND THEY ARE NOT EQUALLY
+# STRONG:
+#   - R2 and KV: STRUCTURAL. Neither `[[r2_buckets]]` nor `[[kv_namespaces]]`
+#     appears below, so `env.ARTIFACTS`/`env.MANIFEST` do not exist in this
+#     deployment at all — no code change in `src/stateProbe.ts` could write
+#     an artifact or bump the manifest even if it tried.
+#   - D1: TEST-ENFORCED ONLY. Workers has no read-only D1 binding, so `DB`
+#     below is bound read-write like any other D1 binding. What stops a
+#     write is that `src/stateProbe.ts` never calls `writeScopedState` (or
+#     any other write helper) and never imports `src/scheduled.ts` at all —
+#     a property held by `apps/worker/test/stateProbe.test.ts` (static
+#     import-graph walk + comment-stripped source scan + a fake-D1
+#     write-count assertion), NOT by anything in this file. Anyone editing
+#     `src/stateProbe.ts` is editing something whose safety is a test away.
+name = "sigmascout-state-probe"
+main = "src/stateProbe.ts"
+compatibility_date = "2026-08-22"
+# Required, not optional — see `wrangler.toml`'s own comment on this flag for
+# the full reasoning (this probe reaches `packages/harness/stateSnapshot.ts`,
+# which imports `node:fs`/`node:path` at module top level for the
+# offline-only `emitSeedSql`; ESM imports are file-scoped, so that import
+# line is pulled into this bundle's graph too).
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1.0
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sigmascout-state"
+database_id = "8c1cee63-0567-4faa-ad74-a7721728a956"
+
+# No [[r2_buckets]], no [[kv_namespaces]], no [triggers], no [vars], no
+# secrets — deliberately. This deployment idles at zero cost until an
+# operator curls it by hand before an event.

@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "deploy:fixture": "wrangler deploy --config wrangler.fixture.toml"
+    "deploy:fixture": "wrangler deploy --config wrangler.fixture.toml",
+    "deploy:probe": "wrangler deploy --config wrangler.probe.toml"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260822.1",
