@@ -33,6 +33,22 @@ import type { AlgorithmModule, MatchResult } from "../packages/core/algorithms/t
 import { WalkForwardSimulator } from "../packages/harness/replay.js";
 import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
+
+/**
+ * The frozen baselines under `data/baselines/` record the premier algorithm under
+ * the id it carried WHEN THE MEASUREMENT RAN. Quick task 260912-ivg renamed the live
+ * id to `spr` and deliberately did NOT rewrite those files — they are a
+ * record of what was measured and when, and rewriting them would falsify the audit
+ * trail the sealed 2016-2022 / 2023-2026 holdout rests on.
+ *
+ * So the id is resolved on READ, exactly as `publish.test.ts`'s
+ * `FROZEN_BASELINE_ALGORITHM_ID_ALIASES` already does. The cross-product pins below
+ * stay derived from the LIVE `PUBLISHED_ALGORITHM_IDS` — a newly-published algorithm
+ * must still widen them rather than slip past — while a frozen record's older name
+ * for the same algorithm resolves to its current one.
+ */
+const FROZEN_BASELINE_ALGORITHM_ID_ALIASES: Readonly<Record<string, string>> = { bpr: "spr" };
+const liveAlgorithmId = (frozenId: string): string => FROZEN_BASELINE_ALGORITHM_ID_ALIASES[frozenId] ?? frozenId;
 import { RpCalibrationMeasurementSchema } from "../packages/harness/publish.js";
 import {
   assertMarginalArmSliceAllowed,
@@ -276,14 +292,14 @@ describe("data/baselines/rp-attribution-2026-09.json — the committed record ou
         }
       }
     }
-    expect(new Set(allCells.map((c) => `${c.arm}|${c.algorithmId}|${c.season}`))).toEqual(expected);
+    expect(new Set(allCells.map((c) => `${c.arm}|${liveAlgorithmId(c.algorithmId)}|${c.season}`))).toEqual(expected);
   });
 
   it("keeps every season's bonuses in the season module's own positional order", () => {
     for (const arm of Object.keys(record.armConfigs)) {
       for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
         for (const season of Object.keys(RP_RULE_MODULES).map(Number)) {
-          const mine = allCells.filter((c) => c.arm === arm && c.algorithmId === algorithmId && c.season === season);
+          const mine = allCells.filter((c) => c.arm === arm && liveAlgorithmId(c.algorithmId) === algorithmId && c.season === season);
           expect(mine.map((c) => c.bonusName)).toEqual([...RP_RULE_MODULES[season]!.bonusNames]);
         }
       }
@@ -416,7 +432,7 @@ describe("data/baselines/rp-calibration-2026-09b.json — re-emitted from the co
     for (const season of Object.keys(RP_RULE_MODULES).map(Number)) {
       for (const algorithmId of PUBLISHED_ALGORITHM_IDS) expected.add(`${season}|${algorithmId}`);
     }
-    expect(new Set(REEMITTED.records.map((r) => `${r.season}|${r.algorithmId}`))).toEqual(expected);
+    expect(new Set(REEMITTED.records.map((r) => `${r.season}|${liveAlgorithmId(r.algorithmId)}`))).toEqual(expected);
   });
 
   it("records the shipped combination as a LABEL, now that the config object that described it is gone (D-05 after D-06)", () => {
