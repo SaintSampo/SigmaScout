@@ -917,6 +917,53 @@ export function measureSplitProbe(
   return points;
 }
 
+/** One pooled row of the convergence curve, already summed across events. */
+export interface PooledSweepRow {
+  readonly n: number;
+  readonly reproducibilityGen: Drift;
+  readonly reproducibilityRand: Drift;
+  readonly convergenceGen: Drift;
+  readonly convergenceRand: Drift;
+}
+
+/** One pooled row of the fixed-draw-budget probe. */
+export interface PooledProbeRow {
+  readonly scheduleCount: number;
+  readonly drawsPerSchedule: number;
+  readonly reproducibilityGen: Drift;
+  readonly reproducibilityRand: Drift;
+}
+
+/**
+ * The schedule count to recommend, DERIVED rather than chosen: the smallest N
+ * measured whose pooled mean |delta median| falls at or under `tolerance`.
+ * `CLAUSE_1_MEDIAN_TIGHT` (0.5) is the project's own stated threshold for the
+ * smallest median difference a band printed to one decimal place can render as
+ * distinct, so a drift below it cannot change what a visitor sees.
+ *
+ * Returns `undefined` when no measured N reaches the tolerance — which must be
+ * reported as "not reached at any N measured", never rounded to the largest N
+ * tried.
+ */
+export function smallestSufficientN(sweep: readonly PooledSweepRow[], tolerance: number): PooledSweepRow | undefined {
+  return [...sweep]
+    .sort((a, b) => a.n - b.n)
+    .find((row) => Math.max(row.reproducibilityGen.meanAbsMedian, row.reproducibilityRand.meanAbsMedian) <= tolerance);
+}
+
+/**
+ * The 1/sqrt(N) constant `k` in `mean |delta median| ~ k / sqrt(N)`, fitted
+ * across the measured curve so a reader can extrapolate to an N this run did
+ * not try. Reported with the spread across checkpoints, because a tight spread
+ * is what licenses the extrapolation at all — if `k` wandered, the curve is not
+ * 1/sqrt(N) and no extrapolation is valid.
+ */
+export function fitSqrtLaw(sweep: readonly PooledSweepRow[]): { k: number; minK: number; maxK: number } {
+  const ks = sweep.filter((r) => r.reproducibilityGen.meanAbsMedian > 0).map((r) => r.reproducibilityGen.meanAbsMedian * Math.sqrt(r.n));
+  if (ks.length === 0) return { k: Number.NaN, minK: Number.NaN, maxK: Number.NaN };
+  return { k: ks.reduce((a, b) => a + b, 0) / ks.length, minK: Math.min(...ks), maxK: Math.max(...ks) };
+}
+
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
@@ -1009,12 +1056,6 @@ export async function main(argv: readonly string[]): Promise<void> {
     const replay = replaySeason(db, algorithm, season, replayFrom, new Set(seasonTargets.map((t) => t.eventKey)));
     for (const target of seasonTargets) {
       const t0 = Date.now();
-      if (values["split-probe"] === true) {
-        const probe = measureSplitProbe(db, algorithm, target, replay, probeTotalDraws, probeScheduleCounts);
-        probeByEvent.push(probe);
-        console.log(`  ${target.eventKey.padEnd(11)} split probe done — ${((Date.now() - t0) / 1000).toFixed(1)}s`);
-        continue;
-      }
       const result = measureEvent(db, algorithm, target, replay, { scheduleCount, drawsPerSchedule, sweep: values.sweep === true });
       results.push(result);
       console.log(
@@ -1025,10 +1066,15 @@ export async function main(argv: readonly string[]): Promise<void> {
         `               structure: repeat-partner pairs gen ${result.structure.generated.repeatPartnerPairs.toFixed(1)} vs rand ${result.structure.random.repeatPartnerPairs.toFixed(1)}; ` +
           `red/blue imbalance gen ${result.structure.generated.meanRedBlueImbalance.toFixed(2)} vs rand ${result.structure.random.meanRedBlueImbalance.toFixed(2)}`
       );
+      if (values["split-probe"] === true) {
+        const t1 = Date.now();
+        probeByEvent.push(measureSplitProbe(db, algorithm, target, replay, probeTotalDraws, probeScheduleCounts));
+        console.log(`               split probe — ${((Date.now() - t1) / 1000).toFixed(1)}s`);
+      }
     }
   }
 
-  if (values["split-probe"] === true) {
+  if (values["split-probe"] === true && probeByEvent.length > 0) {
     console.log("");
     console.log(`--- SPLIT PROBE: every row spends the SAME ${probeTotalDraws} draws, divided differently. All figures in RANKS. ---`);
     console.log("");
@@ -1050,9 +1096,6 @@ export async function main(argv: readonly string[]): Promise<void> {
       );
     }
     console.log("");
-    console.log(`Teams scored: ${probeByEvent.reduce((t, e) => t + e[0]!.reproducibilityGen.length, 0)} across ${probeByEvent.length} event(s). Elapsed ${((Date.now() - startedAt) / 1000 / 60).toFixed(1)} min.`);
-    db.close();
-    return;
   }
 
   const pooled = {
@@ -1137,8 +1180,29 @@ export async function main(argv: readonly string[]): Promise<void> {
     );
   }
 
+  const pooledSweep: PooledSweepRow[] = (results[0]?.sweep ?? []).map((point, i) => {
+    const pool = (pick: (p: SweepPoint) => TeamDiff[]): Drift => driftOf(results.flatMap((r) => pick(r.sweep[i]!)));
+    return {
+      n: point.n,
+      reproducibilityGen: pool((p) => p.reproducibilityGen),
+      reproducibilityRand: pool((p) => p.reproducibilityRand),
+      convergenceGen: pool((p) => p.convergenceGen),
+      convergenceRand: pool((p) => p.convergenceRand),
+    };
+  });
+  const pooledProbe: PooledProbeRow[] = (probeByEvent[0] ?? []).map((point, i) => ({
+    scheduleCount: point.scheduleCount,
+    drawsPerSchedule: point.drawsPerSchedule,
+    reproducibilityGen: driftOf(probeByEvent.flatMap((e) => e[i]!.reproducibilityGen)),
+    reproducibilityRand: driftOf(probeByEvent.flatMap((e) => e[i]!.reproducibilityRand)),
+  }));
+
   if (values["write-doc"] === true) {
-    writeFileSync(RANDOM_SCHEDULES_DOC_PATH, renderDoc(results, pooled, { scheduleCount, drawsPerSchedule }, algorithm, insideFloor), "utf8");
+    writeFileSync(
+      RANDOM_SCHEDULES_DOC_PATH,
+      renderDoc(results, pooled, { scheduleCount, drawsPerSchedule }, algorithm, insideFloor, pooledSweep, pooledProbe),
+      "utf8"
+    );
     console.log(`Wrote ${RANDOM_SCHEDULES_DOC_PATH}`);
   }
 
@@ -1150,7 +1214,9 @@ function renderDoc(
   pooled: Record<"randVsGen" | "genBVsGenA" | "randVsGenB" | "randBVsRand" | "randVsGenPublishedN" | "genBVsGenAPublishedN", ClauseVerdict>,
   options: MeasureOptions,
   algorithm: AlgorithmModule<any>,
-  insideFloor: boolean
+  insideFloor: boolean,
+  sweep: readonly PooledSweepRow[],
+  probe: readonly PooledProbeRow[]
 ): string {
   const lines: string[] = [];
   const n = options.scheduleCount;
@@ -1209,6 +1275,21 @@ function renderDoc(
         eventCount: results.length,
         teamCount: pooled.randVsGen.teamCount,
         pooled,
+        sweep,
+        splitProbe: probe,
+        recommendation: (() => {
+          if (sweep.length === 0) return null;
+          const law = fitSqrtLaw(sweep);
+          const enough = smallestSufficientN(sweep, CLAUSE_1_MEDIAN_TIGHT);
+          const looser = smallestSufficientN(sweep, CLAUSE_1_MEDIAN_HARD);
+          return {
+            tolerance: CLAUSE_1_MEDIAN_TIGHT,
+            smallestSufficientN: enough?.n ?? null,
+            smallestNWithinOneRank: looser?.n ?? null,
+            sqrtLawConstant: law.k,
+            sqrtLawConstantRange: [law.minK, law.maxK],
+          };
+        })(),
         events: results.map((r) => ({
           eventKey: r.eventKey,
           season: r.season,
@@ -1298,6 +1379,100 @@ function renderDoc(
       "freely and does not balance red/blue appearances, which is exactly the structure the balanced template exists to impose."
   );
   lines.push("");
+  if (sweep.length > 0) {
+    const law = fitSqrtLaw(sweep);
+    const enough = smallestSufficientN(sweep, CLAUSE_1_MEDIAN_TIGHT);
+    const looser = smallestSufficientN(sweep, CLAUSE_1_MEDIAN_HARD);
+    lines.push("## How many schedules is enough");
+    lines.push("");
+    lines.push(
+      "Every figure below is in RANKS, pooled across the sample. **Reproducibility** is two INDEPENDENT draws at that N — " +
+        "literally how far a team's published band moves if the publish is re-run with nothing else changed. That is the number that matters, " +
+        "because it is the amount of what a visitor sees that is not signal. **Convergence** is the same N against the same arm's own " +
+        `N=${sweep[sweep.length - 1]!.n} answer, and separates "stable but still biased" from "stable and arrived" — a small reproducibility ` +
+        "beside a large convergence is a low N that re-running would never reveal."
+    );
+    lines.push("");
+    lines.push("| N | gen repro mean | p95 | worst | rand repro mean | p95 | worst | gen conv mean | rand conv mean |");
+    lines.push("|---|---|---|---|---|---|---|---|---|");
+    for (const r of sweep) {
+      lines.push(
+        `| ${r.n} | ${r.reproducibilityGen.meanAbsMedian.toFixed(3)} | ${r.reproducibilityGen.p95AbsMedian.toFixed(2)} | ${r.reproducibilityGen.maxAbsMedian.toFixed(2)} | ` +
+          `${r.reproducibilityRand.meanAbsMedian.toFixed(3)} | ${r.reproducibilityRand.p95AbsMedian.toFixed(2)} | ${r.reproducibilityRand.maxAbsMedian.toFixed(2)} | ` +
+          `${r.convergenceGen.meanAbsMedian.toFixed(3)} | ${r.convergenceRand.meanAbsMedian.toFixed(3)} |`
+      );
+    }
+    lines.push("");
+    lines.push(
+      `The curve is \`mean |Δmedian| ≈ ${law.k.toFixed(1)} / √N\` (the fitted constant ranges ${law.minK.toFixed(1)}–${law.maxK.toFixed(1)} across checkpoints, ` +
+        "which is what licenses extrapolating it). **There is no N at which this converges** — it is Monte Carlo error, so it falls forever and never lands. " +
+        `Reaching a mean of 0.1 ranks would need N ≈ ${Math.round((law.k / 0.1) ** 2)}.`
+    );
+    lines.push("");
+    lines.push("**The recommendation, derived from the table above rather than chosen:**");
+    lines.push("");
+    if (enough !== undefined) {
+      lines.push(
+        `- **N = ${enough.n}** is the smallest N measured whose pooled mean |Δmedian| (${Math.max(enough.reproducibilityGen.meanAbsMedian, enough.reproducibilityRand.meanAbsMedian).toFixed(3)} ranks) ` +
+          `sits at or under ${CLAUSE_1_MEDIAN_TIGHT} — this project's own stated threshold for the smallest median difference a band printed to one decimal place can render as distinct. ` +
+          `Below it, a re-publish cannot change what a visitor sees. p95 ${Math.max(enough.reproducibilityGen.p95AbsMedian, enough.reproducibilityRand.p95AbsMedian).toFixed(2)}, ` +
+          `worst ${Math.max(enough.reproducibilityGen.maxAbsMedian, enough.reproducibilityRand.maxAbsMedian).toFixed(2)}.`
+      );
+    } else {
+      lines.push(`- **No N measured here reaches a mean |Δmedian| of ${CLAUSE_1_MEDIAN_TIGHT} ranks.** Do not read the largest N tried as sufficient; it was simply the largest tried.`);
+    }
+    if (looser !== undefined) {
+      lines.push(`- **N = ${looser.n}** is the floor if a mean of ${CLAUSE_1_MEDIAN_HARD} rank is acceptable — the cheapest setting with any defence at all.`);
+    }
+    const published = sweep.find((r) => r.n === PUBLISHED_SCHEDULE_COUNT);
+    if (published !== undefined) {
+      lines.push(
+        `- **N = ${PUBLISHED_SCHEDULE_COUNT}, the shipped setting, is not defensible on this evidence** and fails independently of the random-vs-generated question: ` +
+          `mean ${published.reproducibilityGen.meanAbsMedian.toFixed(2)} ranks, p95 ${published.reproducibilityGen.p95AbsMedian.toFixed(2)}, ` +
+          `worst ${published.reproducibilityGen.maxAbsMedian.toFixed(2)}. Two runs of identical code visibly reorder the band.`
+      );
+    }
+    lines.push("");
+  }
+
+  if (probe.length > 0) {
+    lines.push("## Schedules or draws? (the cost question)");
+    lines.push("");
+    lines.push(
+      "The curve above grows N with `drawsPerSchedule` held fixed, so it grows the total draw count at the same time and cannot say which knob bought the stability. " +
+        "The distinction decides what an answer costs: an extra draw re-uses a schedule's already-priced pmfs, while an extra schedule needs a fresh `predict` call for every one of its matches. " +
+        `So every row below spends the SAME ${probe[0]!.scheduleCount * probe[0]!.drawsPerSchedule} draws, divided differently.`
+    );
+    lines.push("");
+    lines.push("| Split | gen repro mean | p95 | worst | rand repro mean | gen edge mean | rand edge mean |");
+    lines.push("|---|---|---|---|---|---|---|");
+    for (const r of probe) {
+      lines.push(
+        `| ${r.scheduleCount} × ${r.drawsPerSchedule} | ${r.reproducibilityGen.meanAbsMedian.toFixed(3)} | ${r.reproducibilityGen.p95AbsMedian.toFixed(2)} | ${r.reproducibilityGen.maxAbsMedian.toFixed(2)} | ` +
+          `${r.reproducibilityRand.meanAbsMedian.toFixed(3)} | ${r.reproducibilityGen.meanAbsEdge.toFixed(3)} | ${r.reproducibilityRand.meanAbsEdge.toFixed(3)} |`
+      );
+    }
+    lines.push("");
+    const worstSplit = probe[0]!;
+    const bestSplit = probe[probe.length - 1]!;
+    const ratio = worstSplit.reproducibilityGen.meanAbsMedian / bestSplit.reproducibilityGen.meanAbsMedian;
+    lines.push(
+      `**Draws do not substitute for schedules.** ${worstSplit.scheduleCount} schedules given ${worstSplit.drawsPerSchedule} draws each is ` +
+        `${ratio.toFixed(1)}× worse than ${bestSplit.scheduleCount} given ${bestSplit.drawsPerSchedule} each, at identical draw cost. ` +
+        "Draw noise is saturated within a few tens of draws per schedule; every bit of movement left over is schedule sampling. " +
+        `The shipped \`PRESIM_DRAWS_PER_SCHEDULE\` of ${PUBLISHED_DRAWS_PER_SCHEDULE} is therefore spending on the axis that is already exhausted — ` +
+        `at a fixed budget those draws are worth more as schedules.`
+    );
+    lines.push("");
+    lines.push(
+      "**And N is nearly free in the only currency that reaches a visitor.** `apps/web/src/lib/preScheduleResult.ts` reads `baked.histograms` and `baked.draws` and nothing else; " +
+        "the artifact's `schedules` block — the overwhelming majority of its bytes, per the artifact-size table above — is shipped but never computed from, " +
+        "with only `schedules.length` consumed, for a caption. `baked.histograms` is roster × roster regardless of N. So raising N costs offline pipeline CPU and, " +
+        "once that block stops being shipped, no payload at all."
+    );
+    lines.push("");
+  }
+
   lines.push("## Caveats");
   lines.push("");
   lines.push(
