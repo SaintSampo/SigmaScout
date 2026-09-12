@@ -24,7 +24,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 06.1: Match and event data enrichment** (INSERTED) - Per-bonus RP, per-event rank, and per-event rarity tiers backed by real published data (completed 2026-08-26)
 - [x] **Phase 7: Event Pages** - Insights, Breakdown, Quals, Alliances, and Elims tabs (completed 2026-08-30)
 - [x] **Phase 8: Simulation & Compare** - 1000-run rank simulation and the published per-algorithm accuracy table (completed 2026-08-31)
-- [ ] **Phase 9: Analytic Ranking Points & Browser-Side Simulation** - Exact closed-form RP replacing the Monte Carlo draw, a published RP accuracy scorecard, live-Worker RP, and the pre-schedule stop live with its construction settled (clause 4 amended 2026-09-12; verification `3b0d248c` — clause 3 still open on production evidence)
+- [x] **Phase 9: Analytic Ranking Points & Browser-Side Simulation** - Exact closed-form RP replacing the Monte Carlo draw, a published RP accuracy scorecard, live-Worker RP, and the pre-schedule stop live with its construction settled (completed 2026-09-12; clauses 3 and 4 amended at the seal — see the two amendment notes under Phase 9 below; verification `3b0d248c`; UAT test 2 outstanding, and a pre-season CPU gate in `docs/worker-operations.md` carries clause 3's unproven half)
 
 ## Phase Details
 
@@ -613,6 +613,34 @@ All 38 v1 requirements map to exactly one phase. No orphans, no duplicates.
 >
 > **The dropped ambition is tracked, not vanished:**
 > `.planning/todos/pending/price-the-preschedule-simulation-in-the-browser.md`.
+
+> **Clause 3 AMENDED 2026-09-12, at the seal, by Jacob's decision.** The third clause read verbatim:
+> *"the live Worker stops stripping them."* It is preserved here rather than overwritten, for the
+> same reason clause 4's original is.
+>
+> **What is proven, without an event.** The stripping defect is structurally fixed and held by a
+> **non-vacuous live-vs-offline digest parity test** — it digests the live tick's pmf stream against
+> an independent offline `SigmaScoutLayer` replay for all three algorithms, with non-vacuity guards
+> on both arms. The deployed bundle **deserialized live shape-15 rows across 60+ invocations** of the
+> read-only state probe (quick task `260912-3e6`), warnings empty. `buildEventMatchRow` emits
+> `redRpPmf`/`blueRpPmf`; it no longer omits them.
+>
+> **What is not proven, and where it went.** That the path *runs* in production, and what it costs
+> when it does. It cannot be proven here: `v1/manifest/live-windows.json` returns `"windows":[]`, so
+> every tick since the seed returns before reading a league row. **A phase may not be gated on the
+> FRC calendar** — that is a container problem, not an engineering one, and leaving it open was
+> collecting unrelated spillover for days.
+>
+> The production observation is **re-homed to a standing gate, not dropped**: `docs/worker-operations.md`,
+> "PRE-SEASON GATE", forbids opening any live window until
+> `.planning/todos/pending/rp-fold-exceeds-worker-cpu-budget.md` closes. A realistic mid-quals tick
+> measures 13 ms p50 / 28 ms p90 in Phase A alone against a 10 ms sustained budget. **That gate, not
+> this amendment, is what makes the seal honest.** It is recorded as UAT test 1, waived with the gate
+> as its condition, in `09-UAT.md`.
+>
+> **The CPU work becomes its own phase**, timed against the pre-season. It needs a decision among
+> four unpriced fix directions and restructures a 1,693-line tick handler under live/offline parity
+> invariants — real and dangerous, but never a Phase 9 deliverable.
 
 **Requirements**: Post-v1.0. No v1 requirement IDs (all 38 map to Phases 1-8). Scope derives from two read-only audits: `.planning/todos/pending/ranking-points-audit.md` (13 findings, F1-F13) and `docs/simulation-architecture.md`.
 

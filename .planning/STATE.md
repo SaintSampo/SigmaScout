@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 08
+current_phase: 09
 status: completed
-stopped_at: "Completed quick task 260911-j2w: retracted the one-number-per-alliance claim on all three surfaces, then shipped epa@9.0.0+baseline reading Statbotics' FROZEN WEEK-1 SD and mean from week 2 on (pooled Brier -0.00153, accuracy +0.00021, 2016 Brier regressed and is reported as found); STATE_SNAPSHOT_SHAPE_VERSION 13, SEED FIRST DEPLOY SECOND; a REPUBLISH IS OWED for this AND for the still-unpublished 8.0.0"
+stopped_at: "Phase 9 SEALED 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved in ROADMAP.md). Two things outstanding and neither blocks the seal: 09-UAT.md test 2, two minutes of human eyes on /methodology/compare; and a PRE-SEASON GATE in docs/worker-operations.md forbidding any live window until rp-fold-exceeds-worker-cpu-budget closes, which carries clause 3's unproven half. A REPUBLISH IS OWED: PRESIM_SCHEDULE_COUNT is 1,000 at HEAD and the priced schedules block is gone, but every presim object on R2 still carries the old count and shape, so visitors still see an n=20 band."
 last_updated: "2026-09-12T08:50:33.755Z"
 last_activity: 2026-09-12
 last_activity_desc: "Completed quick task 260912-5n8: measured whether FRC awards can be predicted. Widened the award ingest to every award type and every event type via an additive event_awards_all table (41,869 rows, 28-33 types per season, 10 seasons) plus a 100 percent roster backfill, then ran a walk-forward top-1 test on 30,516 instances. Judged awards land at 10-28 percent against a 2.5-3 percent random baseline, but the fitted model LOSES to pick-the-most-decorated-team-present on Impact and Engineering Inspiration; only Excellence in Engineering and Autonomous beat it, by about 1.2pp. Nothing published."
@@ -13,7 +13,7 @@ progress:
   completed_phases: 12
   total_plans: 109
   completed_plans: 109
-current_phase_name: simulation-compare
+current_phase_name: analytic-ranking-points-browser-side-simulation
 ---
 
 # Project State
@@ -57,6 +57,7 @@ Progress: [██████████] 100%
 | 06.1 | 8 | - | - |
 | 07 | 20 | - | - |
 | 08 | 15 | - | - |
+| 09 | 10 | - | - |
 
 **Recent Trend:**
 
@@ -335,7 +336,21 @@ Recent decisions affecting current work:
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
-**`.planning/todos/pending/` is the source of truth — 24 files as of 2026-09-12.** This section said
+**`.planning/todos/pending/` is the source of truth — 16 files as of 2026-09-12**, down from 25 in a
+single triage pass. A 30-agent sweep verified every one of the 25 against HEAD individually and
+found **14 stale, 4 already shipped with nobody closing the file, 1 duplicate, and 3 live** — one
+high-priority entry had sat at the top of the list for four days describing work that landed on
+09-10. The pruning is `.planning/triage-2026-09-12.md`, which is marked perishable and should be
+deleted once executed.
+
+**Three rules adopted 2026-09-12 to stop this recurring.** (1) *A todo is perishable* — any pending
+todo untouched for 7 days is stale by default and may not be acted on until re-verified against
+HEAD; if re-verifying costs more than rewriting, delete it, because git history is the archive.
+(2) *WIP limit 3* — three items in flight, everything else explicitly frozen and unmaintained.
+(3) *No index files* — a document whose content summarises other documents is a liability with a
+maintenance bill; `ROADMAP.md` and `STATE.md` are the index and nothing else may be one. The
+retired `00-sigmascout-layer-roadmap` was the case in point: 269 commits stale, wrong in ten
+specific places, and the first file a fresh session opened. This section said
 "None yet." until 2026-09-11, which had been wrong for some time; it is not re-enumerated in full
 here, because a hand-maintained copy of a directory listing goes stale silently. `ls
 .planning/todos/pending/` is the list.

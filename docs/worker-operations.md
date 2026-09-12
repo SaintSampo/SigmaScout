@@ -424,6 +424,36 @@ the fix. It rides along with the republish already queued for the demo-team excl
 
 ---
 
+## PRE-SEASON GATE: do not open a live window until the RP fold fits the CPU budget
+
+**In force 2026-09-12. This gate is the condition on which Phase 9 sealed without live proof — see
+`.planning/phases/09-analytic-ranking-points-browser-side-simulation/09-UAT.md` test 1.**
+
+**Do not open a live window — do not ingest an in-progress event, do not let a window appear in
+`v1/manifest/live-windows.json` — until `.planning/todos/pending/rp-fold-exceeds-worker-cpu-budget.md`
+is closed.**
+
+The measurement, from the pre-event probe's first real run (`318caa2f` against live D1, 2026-09-12,
+recorded in full below under "First real run"): a realistic mid-quals tick — 2 newly folded matches,
+60 still upcoming — costs **13 ms p50 / 28 ms p90 in Phase A alone**, against a **10 ms sustained**
+budget. That excludes Phase B, the TBA poll, the KV manifest read and the global rebuild, and it is
+for **one** event and **one** algorithm; a regional weekend runs several events concurrently, and
+the subrequest budget has a deferral valve while CPU has none.
+
+**Why this is a gate and not a warning.** The budget is not a flat per-invocation ceiling —
+termination follows from hitting it *consistently*, which is exactly what a sustained p50 above
+budget for a whole event weekend describes. The precedent is 2026-08-28: every tick died
+`exceededCpu` for days, and nothing on the site said so. A visitor reads confidently stale numbers
+all weekend with no signal. See ["How the CPU budget is actually enforced"](#how-the-cpu-budget-is-actually-enforced--corrected-2026-08-29).
+
+**One measurement is still owed and is cheap.** `stateProbe.ts` takes `folded`/`upcoming` counts but
+has no RP on/off flag. The expensive upcoming-repricing loop **predates Phase 9** (`dabe9acd`) —
+Phase 9 added `analyticRpPmf` into an already-costly loop — so Phase 9's own share of the overrun is
+currently an *inference*. Run an RP-ablated probe before choosing a fix direction, so the fix is
+aimed at the real dominant term rather than the assumed one.
+
+---
+
 ## Before an event: ingest it, or it will not live-fold
 
 **Operational contract, in force since 2026-08-29.** An event must be in the corpus with at least
