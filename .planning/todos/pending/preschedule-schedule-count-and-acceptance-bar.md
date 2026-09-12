@@ -95,3 +95,34 @@ the full measurement; the four figures above are the whole quotation budget here
 
 Consequence for this document: the count question above is **LIVE** rather than possibly moot,
 and the rung-2 generator is the path.
+
+## DECIDED 2026-09-12 by Jacob — ship at 1,000, measure at 4,000
+
+**Ship count: `PRESIM_SCHEDULE_COUNT` = 1,000.** At that count a team's displayed rank moves about
+**1.2 ranks** between two runs of the identical construction (worst team; pooled mean 0.275), which
+is below what a reader can perceive given ranks are integers. Cost is about **23 minutes** added to
+a publish, taking it from roughly 41 to 64 minutes. 4,000 was considered and declined: it buys
+1.2 ranks down to 0.71 — invisible on an integer scale — for another hour on every future
+republish.
+
+**Measurement count: 4,000.** The acceptance bar is stated against measurements taken at 4,000,
+where the binding floor is 98.4% and clause 1 is demonstrably satisfiable. This runs offline on the
+six-event panel in about six minutes and never touches a publish.
+
+**The bar restated, together with the count, as decision item 2 required.** Clause 1 is unchanged —
+at least 95% of teams within 0.5 median ranks, every team within 1.0. What is now pinned is *what
+it is measured against and at what resolution*: the **binding (resampling) floor** — the same
+construction built twice with independent shuffle-and-draw streams — at **n=4,000**. The draw-only
+seed-noise floor is a labelled diagnostic and may never be quoted as the ceiling.
+
+**Why ship and measure counts may legitimately differ.** The count is not part of what is being
+compared; it is the shared precision knob both arms are measured at. Two constructions are compared
+at 4,000 because that is where the measurement can resolve half a rank. The winner then ships at
+whatever count is affordable, because the count changes precision, not which construction is
+better.
+
+**Decision item 3 (rebalance schedules against draws) is closed above: `drawsPerSchedule` stays
+at 50.** So the shipped configuration is 1,000 x 50 = 50,000 baked draws.
+
+This unblocks `drop-licensed-schedule-templates`, which was gated on this decision, and answers
+option 1 of `live-preschedule-band-is-mostly-sampling-noise`.

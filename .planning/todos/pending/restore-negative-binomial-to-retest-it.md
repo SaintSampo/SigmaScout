@@ -44,3 +44,25 @@ Consider whether the choice can be made on the selection slice alone this time.
 Both guards the fix added are unreachable from real data under a one-member union, and are currently
 reached in test only through an explicit cast carrying a comment saying so. Restoring the family
 makes them live.
+
+## DECIDED 2026-09-12 by Jacob — selection slice only, do NOT spend the reporting slice
+
+**Run the comparison on the selection slice (2016-2020 + 2022) alone.** The 2023-2026 reporting
+slice stays unspent; it was already used once for this question on 2026-09-11 and a second use
+would further weaken it as an honest check on anything later.
+
+**How to read the result under that constraint.** A selection-slice result cannot promote anything
+on its own — that is what the slice split is for. It can do two things, and only these:
+
+- **If the alternative shows no real gain there, drop the question.** That is a legitimate close: a
+  family that cannot beat the incumbent on the data it was chosen against is not going to be
+  rescued by the reporting slice.
+- **If it does show a real gain, stop and come back.** Do not reach for 2023-2026 to confirm it.
+  Re-spending the reporting slice becomes a fresh decision for Jacob, made with the selection-slice
+  magnitude in hand rather than in the abstract.
+
+An agent may not spend the reporting slice under this decision for any reason, including a
+promising selection-slice result. That is the whole point of recording it here.
+
+Everything else above still binds — D-11's same-scorer rule especially, since the last time this
+question was touched a scorer mismatch manufactured a phantom ~0.003 regression.
