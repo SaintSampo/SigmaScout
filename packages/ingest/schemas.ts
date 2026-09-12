@@ -19,6 +19,12 @@ export const tbaTeamSchema = z.object({
   key: z.string(),
   team_number: z.number(),
   nickname: z.string().nullable(),
+  // quick task 260912-7bp: TBA has always sent `rookie_year` on this shape
+  // and zod was silently stripping it as an unknown key. `nullish` (not
+  // required) for the same reason tbaEventSchema's week/country/state_prov
+  // are: TBA legitimately reports null for some teams, so this describes
+  // TBA's real contract rather than coercing a value that isn't there.
+  rookie_year: z.number().int().nullish(),
 });
 export type TbaTeam = z.infer<typeof tbaTeamSchema>;
 export const tbaTeamListSchema = z.array(tbaTeamSchema);

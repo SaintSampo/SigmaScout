@@ -17,6 +17,7 @@
     "ingest:awards": "tsx --env-file=.env packages/ingest/cli.ts --awards-only",
     "ingest:awards-all": "tsx --env-file=.env packages/ingest/cli.ts --awards-all-only",
     "ingest:event-teams": "tsx --env-file=.env packages/ingest/cli.ts --event-teams-only",
+    "ingest:teams": "tsx --env-file=.env packages/ingest/cli.ts --teams-only",
     "harness": "tsx --env-file=.env packages/harness/cli.ts",
     "identifiability": "tsx packages/harness/identifiability.ts",
     "event-scope-diagnostic": "tsx packages/harness/eventScopeDiagnostic.ts",

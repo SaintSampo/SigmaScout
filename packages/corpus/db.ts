@@ -201,6 +201,27 @@ export function hasMatchVideoColumn(db: Corpus): boolean {
   return MATCH_VIDEO_COLUMNS.every(([name]) => existing.has(name));
 }
 
+/**
+ * The single `teams.rookie_year` column added by quick task 260912-7bp,
+ * paired with the SQL type used when adding it via `ALTER TABLE ... ADD
+ * COLUMN` below — a one-entry list purely to mirror `MATCH_VIDEO_COLUMNS`'s
+ * shape exactly rather than special-casing a single-column migration.
+ */
+const TEAM_ROOKIE_YEAR_COLUMNS: readonly [string, string][] = [["rookie_year", "INTEGER"]];
+
+/**
+ * True when the given handle's `teams` table already carries the
+ * `rookie_year` column (quick task 260912-7bp) — the `PRAGMA table_info`
+ * predicate `openCorpus`'s additive-migration guard and `db.test.ts`'s
+ * migration test both read, so the two cannot drift, mirroring
+ * `hasMatchVideoColumn`'s exact shape.
+ */
+export function hasTeamRookieYearColumn(db: Corpus): boolean {
+  const columns = db.prepare(`PRAGMA table_info(teams)`).all() as { name: string }[];
+  const existing = new Set(columns.map((column) => column.name));
+  return TEAM_ROOKIE_YEAR_COLUMNS.every(([name]) => existing.has(name));
+}
+
 export function openCorpus(path: string): Corpus {
   mkdirSync(dirname(path), { recursive: true });
   const lockPath = `${path}.lock`;
@@ -322,6 +343,36 @@ export function openCorpus(path: string): Corpus {
     }
   }
 
+  // quick task 260912-7bp: the same additive-nullable-column exception as
+  // the blocks above, applied to teams.rookie_year — a new SOURCE fact
+  // (TBA's own rookie_year, which the ingest schema was silently stripping
+  // until this task widened it), not a derived one, so an existing row's
+  // NULL is already correct rather than stale and is filled by the
+  // --teams-only refresh. This takes the hasMatchVideoColumn treatment,
+  // NOT hasWinnerImputedColumn's rebuild guard: the live corpus is
+  // gitignored, large, and must not be rebuilt by this migration. Without
+  // this block the widened upsertTeam would throw `no such column:
+  // rookie_year` on its first write against the existing corpus, because
+  // schema.sql is applied with CREATE TABLE IF NOT EXISTS.
+  if (!hasTeamRookieYearColumn(db)) {
+    const columns = db.prepare(`PRAGMA table_info(teams)`).all() as { name: string }[];
+    const existing = new Set(columns.map((column) => column.name));
+    for (const [name, sqlType] of TEAM_ROOKIE_YEAR_COLUMNS) {
+      if (!existing.has(name)) {
+        db.exec(`ALTER TABLE teams ADD COLUMN ${name} ${sqlType}`);
+      }
+    }
+    if (!hasTeamRookieYearColumn(db)) {
+      // Unreachable in practice — guards against a bug in the ALTER loop
+      // itself, not TBA drift, so a named error is appropriate here too.
+      db.close();
+      throw new Error(
+        `Additive migration for teams table rookie_year column at ${path} did not complete — ` +
+          `hasTeamRookieYearColumn still returns false after running every missing ALTER TABLE.`
+      );
+    }
+  }
+
   return db;
 }
 
@@ -343,16 +394,32 @@ export interface CorpusTeam {
   teamKey: string;
   teamNumber: number;
   nickname: string | null;
+  /**
+   * TBA's own `rookie_year` (quick task 260912-7bp). Optional, not
+   * required: TBA reports null for some teams, and existing call sites that
+   * legitimately have no rookie year to offer must keep compiling — an
+   * omitted field stores NULL, which is this column's honest value for "not
+   * refetched yet".
+   */
+  rookieYear?: number | null;
 }
 
 export function upsertTeam(db: Corpus, team: CorpusTeam): void {
   db.prepare(
-    `INSERT INTO teams (team_key, team_number, nickname)
-     VALUES (@teamKey, @teamNumber, @nickname)
+    `INSERT INTO teams (team_key, team_number, nickname, rookie_year)
+     VALUES (@teamKey, @teamNumber, @nickname, @rookieYear)
      ON CONFLICT(team_key) DO UPDATE SET
        team_number = excluded.team_number,
-       nickname = excluded.nickname`
-  ).run({ teamKey: team.teamKey, teamNumber: team.teamNumber, nickname: team.nickname });
+       nickname = excluded.nickname,
+       -- Plain assignment, never COALESCE: a team TBA now reports as null
+       -- must read back null rather than silently retaining a stale value.
+       rookie_year = excluded.rookie_year`
+  ).run({
+    teamKey: team.teamKey,
+    teamNumber: team.teamNumber,
+    nickname: team.nickname,
+    rookieYear: team.rookieYear ?? null,
+  });
 }
 
 export function upsertEvent(db: Corpus, event: CorpusEvent): void {

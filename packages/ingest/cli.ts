@@ -73,6 +73,14 @@
  *     (/event/{key}/awards#all) so a key already cached by --awards-only
  *     cannot 304 this mode into storing nothing. Reads the event-key set
  *     from the corpus's own `events` table; never re-fetches /events/{year}.)
+ *   pnpm ingest:teams --years 2022-2026   (quick task 260912-7bp T1: refreshes
+ *     ONLY the `teams` table — no events, no matches — via
+ *     /teams/{year}/{page}, which is how teams.rookie_year gets filled on an
+ *     already-ingested corpus. No --force flag: that endpoint is
+ *     un-conditional by design and sends no ETag, so there is no cache to
+ *     bypass. Prints, per season, teams upserted and how many carried a null
+ *     rookie_year. --years only accepts one contiguous range; the 2021 gap
+ *     requires a separate invocation.)
  *
  * Drives the Task 2 client's capability helpers through the corpus:
  * checks TBA's status once, fetches each season's teams and events, then
@@ -173,6 +181,8 @@ interface CliOptions {
   awardsOnly: boolean;
   /** quick task 260905-tll Task 3 (C-16): resolve/refresh ONLY event_teams for the requested season range, for EVERY official event — the districts loop populated it for district events alone, which left regionals/championships with no registered-team roster and made the pre-schedule (scheduleless-event) publish path nearly inert. */
   eventTeamsOnly: boolean;
+  /** quick task 260912-7bp T1: refresh ONLY the `teams` table for the requested season range — the one mode that fills teams.rookie_year without also re-ingesting every event and match in the season. */
+  teamsOnly: boolean;
   /** quick task 260912-5n8 T1: resolve/refresh ONLY event_awards_all — EVERY award type at EVERY event (including offseason/preseason) — for the requested season range. Additive to --awards-only, which stays narrow (four award types, district events) because packages/core/districts/qualification.ts throws on any other type. */
   awardsAllOnly: boolean;
 }
@@ -205,6 +215,7 @@ function parseCliOptions(): CliOptions {
       "awards-only": { type: "boolean", default: false },
       "event-teams-only": { type: "boolean", default: false },
       "awards-all-only": { type: "boolean", default: false },
+      "teams-only": { type: "boolean", default: false },
     },
   });
   const eventsOnly = values["events-only"] ?? false;
@@ -215,6 +226,7 @@ function parseCliOptions(): CliOptions {
   const awardsOnly = values["awards-only"] ?? false;
   const eventTeamsOnly = values["event-teams-only"] ?? false;
   const awardsAllOnly = values["awards-all-only"] ?? false;
+  const teamsOnly = values["teams-only"] ?? false;
 
   if (values.event) {
     return {
@@ -230,6 +242,7 @@ function parseCliOptions(): CliOptions {
       awardsOnly,
       eventTeamsOnly,
       awardsAllOnly,
+      teamsOnly,
     };
   }
   if (values.years) {
@@ -247,6 +260,7 @@ function parseCliOptions(): CliOptions {
       awardsOnly,
       eventTeamsOnly,
       awardsAllOnly,
+      teamsOnly,
     };
   }
   if (values.year) {
@@ -265,6 +279,7 @@ function parseCliOptions(): CliOptions {
       awardsOnly,
       eventTeamsOnly,
       awardsAllOnly,
+      teamsOnly,
     };
   }
   throw new Error("One of --years, --year, or --event is required");
@@ -301,6 +316,40 @@ async function ingestEvent(
   if (result.etag) writeEtag(db, matchesUrl, result.etag);
 }
 
+/**
+ * Fetches every `/teams/{year}/{page}` page for one season and upserts each
+ * team, returning how many rows were written and how many of those carried a
+ * null `rookie_year` (quick task 260912-7bp). The null count is the single
+ * number that says whether the field actually arrived: a run that upserts
+ * thousands of rows with 100% nulls is the one failure mode that otherwise
+ * looks exactly like success. Shared by the full `ingestSeason` and the
+ * standalone `--teams-only` mode so the two cannot drift.
+ */
+async function upsertSeasonTeams(
+  db: Corpus,
+  ctx: TbaClientContext,
+  year: number
+): Promise<{ upserted: number; nullRookieYear: number }> {
+  const teamPages = await fetchAllTeams(ctx, year);
+  let upserted = 0;
+  let nullRookieYear = 0;
+  for (const page of teamPages) {
+    const rawTeams = tbaTeamListSchema.parse(page.body);
+    for (const rawTeam of rawTeams) {
+      const rookieYear = rawTeam.rookie_year ?? null;
+      upsertTeam(db, {
+        teamKey: rawTeam.key,
+        teamNumber: rawTeam.team_number,
+        nickname: rawTeam.nickname,
+        rookieYear,
+      });
+      upserted++;
+      if (rookieYear === null) nullRookieYear++;
+    }
+  }
+  return { upserted, nullRookieYear };
+}
+
 async function ingestSeason(
   db: Corpus,
   ctx: TbaClientContext,
@@ -308,14 +357,11 @@ async function ingestSeason(
   force: boolean
 ): Promise<void> {
   console.log(`Season ${year}: fetching teams...`);
-  const teamPages = await fetchAllTeams(ctx, year);
-  for (const page of teamPages) {
-    const rawTeams = tbaTeamListSchema.parse(page.body);
-    for (const rawTeam of rawTeams) {
-      upsertTeam(db, { teamKey: rawTeam.key, teamNumber: rawTeam.team_number, nickname: rawTeam.nickname });
-    }
-  }
-  console.log(`Season ${year}: ${teamPages.reduce((n, p) => n + p.body.length, 0)} teams upserted`);
+  const teamCounts = await upsertSeasonTeams(db, ctx, year);
+  console.log(
+    `Season ${year}: ${teamCounts.upserted} teams upserted ` +
+      `(${teamCounts.nullRookieYear} with a null rookie_year)`
+  );
 
   const eventsUrl = `/events/${year}`;
   const eventsResult = await fetchEventsList(ctx, year, cachedEtagFor(db, eventsUrl, force));
@@ -349,6 +395,27 @@ async function ingestSeason(
  * bypass `--force` performs in `ingestSeason`): a cached 304 carries no
  * body, and a body is exactly what's needed to read the new fields.
  */
+/**
+ * quick task 260912-7bp: refreshes only the `teams` table for one season —
+ * no events, no matches — so filling the new `rookie_year` column costs a
+ * handful of requests per season rather than a full multi-season match
+ * re-ingest. None of the other `*-only` modes touches `teams` at all; the
+ * teams loop otherwise lives only inside `ingestSeason`, which also fetches
+ * the season's full event list and every event's matches.
+ *
+ * Takes no `force` parameter, deliberately: `fetchAllTeams` is
+ * un-conditional by design (it sends no ETag, because a 304 carries no body
+ * and pagination cannot detect the terminal empty page from a cache hit), so
+ * a `--force` flag here would be a lie about what the mode does.
+ */
+async function ingestSeasonTeamsOnly(db: Corpus, ctx: TbaClientContext, year: number): Promise<void> {
+  const { upserted, nullRookieYear } = await upsertSeasonTeams(db, ctx, year);
+  console.log(
+    `Season ${year}: ${upserted} teams upserted ` +
+      `(${nullRookieYear} with a null rookie_year) (teams-only refresh)`
+  );
+}
+
 async function ingestSeasonEventsOnly(db: Corpus, ctx: TbaClientContext, year: number): Promise<void> {
   const eventsUrl = `/events/${year}`;
   const eventsResult = await fetchEventsList(ctx, year, undefined);
@@ -1240,6 +1307,20 @@ async function main(): Promise<void> {
     } else if (options.awardsAllOnly) {
       for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
         await ingestSeasonAwardsAllOnly(db, ctx, year, options.force);
+        recordIngestRun(db, {
+          runId,
+          startedAt,
+          finishedAt: null,
+          seasonStart: options.seasonStart,
+          seasonEnd: options.seasonEnd,
+          requestCount: counter.total,
+          cacheHitCount: counter.cacheHits,
+          completed: false,
+        });
+      }
+    } else if (options.teamsOnly) {
+      for (let year = options.seasonStart; year <= options.seasonEnd; year++) {
+        await ingestSeasonTeamsOnly(db, ctx, year);
         recordIngestRun(db, {
           runId,
           startedAt,

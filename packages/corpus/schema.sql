@@ -5,7 +5,13 @@
 CREATE TABLE IF NOT EXISTS teams (
   team_key TEXT PRIMARY KEY,        -- e.g. "frc254"
   team_number INTEGER NOT NULL,
-  nickname TEXT
+  nickname TEXT,
+  -- quick task 260912-7bp: TBA's own rookie_year, nullable. NULL both
+  -- because TBA reports null for some teams and because a row ingested
+  -- before this column existed is honestly unknown until the
+  -- --teams-only refresh refetches it -- see db.ts's openCorpus additive
+  -- migration for why this is an ALTER, not a rebuild guard.
+  rookie_year INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS events (

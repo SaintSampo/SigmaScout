@@ -15,6 +15,7 @@ import {
   findIncompleteIngestRuns,
   hasEventRankingRecordColumns,
   hasMatchVideoColumn,
+  hasTeamRookieYearColumn,
   openCorpus,
   parseAllianceRecord,
   recordIngestRun,
@@ -1361,5 +1362,138 @@ describe("matches.video_key — additive migration (quick task 260906-7eu)", () 
       { match_key: "2024casj_qm1", video_key: "abc123XYZ90" },
       { match_key: "2024casj_qm2", video_key: null },
     ]);
+  });
+});
+
+describe("teams.rookie_year — additive migration (quick task 260912-7bp)", () => {
+  it("hasTeamRookieYearColumn is true on a freshly-opened corpus", () => {
+    expect(hasTeamRookieYearColumn(db)).toBe(true);
+  });
+
+  it("a legacy corpus predating rookie_year gains the column on the next openCorpus, with every pre-existing row's other columns and row count unchanged", () => {
+    // This is the failure mode the migration exists to prevent: the live
+    // corpus already exists, schema.sql is applied with CREATE TABLE IF NOT
+    // EXISTS, so without the ALTER the widened upsertTeam would throw
+    // `no such column: rookie_year` on its very first write.
+    const legacyDir = mkdtempSync(join(tmpdir(), "sigmascout-rookie-year-migrate-"));
+    const legacyPath = join(legacyDir, "legacy.sqlite");
+    try {
+      const rawDb = openCorpus(legacyPath);
+      upsertTeam(rawDb, { teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rookieYear: 1999 });
+      upsertTeam(rawDb, { teamKey: "frc1", teamNumber: 1, nickname: null });
+      rawDb.exec(`ALTER TABLE teams DROP COLUMN rookie_year`);
+      expect(hasTeamRookieYearColumn(rawDb)).toBe(false);
+      // Proof the pre-migration state really is broken for writes, so the
+      // passing post-migration assertions below cannot be vacuous.
+      expect(() => upsertTeam(rawDb, { teamKey: "frc2", teamNumber: 2, nickname: null })).toThrow(
+        /rookie_year/
+      );
+      rawDb.close();
+
+      const migrated = openCorpus(legacyPath);
+      try {
+        expect(hasTeamRookieYearColumn(migrated)).toBe(true);
+        const count = migrated.prepare(`SELECT COUNT(*) as n FROM teams`).get() as { n: number };
+        expect(count.n).toBe(2);
+        const rows = migrated
+          .prepare(`SELECT team_key, team_number, nickname, rookie_year FROM teams ORDER BY team_key`)
+          .all() as { team_key: string; team_number: number; nickname: string | null; rookie_year: number | null }[];
+        expect(rows).toEqual([
+          { team_key: "frc1", team_number: 1, nickname: null, rookie_year: null },
+          { team_key: "frc254", team_number: 254, nickname: "The Cheesy Poofs", rookie_year: null },
+        ]);
+        // And the widened upsert works against the migrated handle.
+        expect(() =>
+          upsertTeam(migrated, { teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rookieYear: 1999 })
+        ).not.toThrow();
+        const refreshed = migrated
+          .prepare(`SELECT rookie_year FROM teams WHERE team_key = 'frc254'`)
+          .get() as { rookie_year: number | null };
+        expect(refreshed.rookie_year).toBe(1999);
+      } finally {
+        migrated.close();
+      }
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
+    }
+  });
+
+  it("a fresh corpus and a legacy-migrated corpus end with identical PRAGMA table_info(teams) column-name sets of length 4", () => {
+    const legacyDir = mkdtempSync(join(tmpdir(), "sigmascout-rookie-year-fresh-vs-migrated-legacy-"));
+    const legacyPath = join(legacyDir, "legacy.sqlite");
+    const freshDir = mkdtempSync(join(tmpdir(), "sigmascout-rookie-year-fresh-vs-migrated-fresh-"));
+    const freshPath = join(freshDir, "fresh.sqlite");
+    try {
+      const rawDb = openCorpus(legacyPath);
+      rawDb.exec(`ALTER TABLE teams DROP COLUMN rookie_year`);
+      rawDb.close();
+
+      const migrated = openCorpus(legacyPath);
+      const fresh = openCorpus(freshPath);
+      try {
+        const migratedNames = (migrated.prepare(`PRAGMA table_info(teams)`).all() as { name: string }[])
+          .map((c) => c.name)
+          .sort();
+        const freshNames = (fresh.prepare(`PRAGMA table_info(teams)`).all() as { name: string }[])
+          .map((c) => c.name)
+          .sort();
+        expect(migratedNames).toEqual(freshNames);
+        expect(freshNames).toEqual(["nickname", "rookie_year", "team_key", "team_number"]);
+      } finally {
+        migrated.close();
+        fresh.close();
+      }
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
+      rmSync(freshDir, { recursive: true, force: true });
+    }
+  });
+
+  it("re-opening an already-migrated corpus runs no ALTER and throws nothing", () => {
+    const legacyDir = mkdtempSync(join(tmpdir(), "sigmascout-rookie-year-reopen-"));
+    const legacyPath = join(legacyDir, "legacy.sqlite");
+    try {
+      const rawDb = openCorpus(legacyPath);
+      rawDb.exec(`ALTER TABLE teams DROP COLUMN rookie_year`);
+      rawDb.close();
+
+      const first = openCorpus(legacyPath);
+      expect(hasTeamRookieYearColumn(first)).toBe(true);
+      first.close();
+
+      expect(() => {
+        const second = openCorpus(legacyPath);
+        second.close();
+      }).not.toThrow();
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
+    }
+  });
+
+  it("upsertTeam round-trips a real rookieYear, stores null when given null, and stores null when the field is OMITTED entirely", () => {
+    upsertTeam(db, { teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rookieYear: 1999 });
+    upsertTeam(db, { teamKey: "frc9999", teamNumber: 9999, nickname: null, rookieYear: null });
+    // The omitted-field case is what keeps existing call sites compiling and
+    // writing a correct NULL rather than failing.
+    upsertTeam(db, { teamKey: "frc1", teamNumber: 1, nickname: null });
+
+    const rows = db
+      .prepare(`SELECT team_key, rookie_year FROM teams ORDER BY team_key`)
+      .all() as { team_key: string; rookie_year: number | null }[];
+    expect(rows).toEqual([
+      { team_key: "frc1", rookie_year: null },
+      { team_key: "frc254", rookie_year: 1999 },
+      { team_key: "frc9999", rookie_year: null },
+    ]);
+  });
+
+  it("ON CONFLICT overwrites rookie_year by plain assignment — a team TBA now reports as null reads back null, never a stale value", () => {
+    upsertTeam(db, { teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rookieYear: 1999 });
+    upsertTeam(db, { teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rookieYear: null });
+
+    const row = db
+      .prepare(`SELECT rookie_year FROM teams WHERE team_key = 'frc254'`)
+      .get() as { rookie_year: number | null };
+    expect(row.rookie_year).toBeNull();
   });
 });
