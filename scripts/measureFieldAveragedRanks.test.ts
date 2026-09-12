@@ -22,6 +22,8 @@ import {
   InsufficientSampleError,
   MINIMUM_EVENT_COUNT,
   evaluateRungOneCriterion,
+  DEFAULT_SCHEDULE_COUNT,
+  resolveScheduleSplit,
   type TeamQuantileRow,
 } from "./measureFieldAveragedRanks.js";
 
@@ -260,5 +262,76 @@ describe("evaluateRungOneCriterion — the verdict carries every input to every 
     expect(verdict.clause3.meanSignedMedianDiff).toBeCloseTo((59 * 0.1 + 1.4) / 60, 12);
     expect(verdict.perEvent).toHaveLength(MINIMUM_EVENT_COUNT);
     for (const e of verdict.perEvent) expect(e.teamCount).toBe(10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The schedule-count split (`--schedules`)
+// ---------------------------------------------------------------------------
+
+describe("resolveScheduleSplit — the DEFAULT path, pinned as a regression on unchanged behaviour", () => {
+  /**
+   * THIS TABLE IS A REGRESSION PIN, NOT A NEW SPECIFICATION. Every expectation
+   * below is the expression that was inline in `measureEvent` before
+   * `--schedules` existed — `20` schedules and
+   * `Math.max(1, Math.round(draws / 20))` draws each. If one of these moves,
+   * the default path changed, and every figure in the committed n=20 record
+   * stops being reproducible.
+   */
+  const DEFAULT_TABLE: readonly number[] = [1, 19, 20, 21, 999, 1000, 200000];
+
+  it.each(DEFAULT_TABLE)(
+    "with no schedule count and draws=%i, returns 20 schedules and exactly Math.max(1, Math.round(draws / 20)) draws each — a pin on today's behaviour",
+    (draws) => {
+      const split = resolveScheduleSplit(draws);
+      expect(split.scheduleCount).toBe(DEFAULT_SCHEDULE_COUNT);
+      expect(split.scheduleCount).toBe(20);
+      expect(split.drawsPerSchedule).toBe(Math.max(1, Math.round(draws / 20)));
+    }
+  );
+
+  it("pins the shipped pairing by its literal values: draws=1000 is 20 schedules of 50 draws", () => {
+    expect(resolveScheduleSplit(1000)).toEqual({ scheduleCount: 20, drawsPerSchedule: 50 });
+  });
+
+  it("clamps to at least ONE draw per schedule at draws=1, rather than 0 — the max(1, ...) half of the pinned expression", () => {
+    expect(resolveScheduleSplit(1).drawsPerSchedule).toBe(1);
+  });
+
+  it("rounds rather than truncates on either side of the shipped count: draws=19 and draws=21 both give 1", () => {
+    expect(resolveScheduleSplit(19).drawsPerSchedule).toBe(1);
+    expect(resolveScheduleSplit(21).drawsPerSchedule).toBe(1);
+  });
+
+  it("an explicit count equal to the default is indistinguishable from omitting it", () => {
+    expect(resolveScheduleSplit(1000, DEFAULT_SCHEDULE_COUNT)).toEqual(resolveScheduleSplit(1000));
+  });
+});
+
+describe("resolveScheduleSplit — the re-measurement count", () => {
+  it("at --schedules 4000 --draws 200000, holds draws-per-schedule at the shipped 50", () => {
+    expect(resolveScheduleSplit(200000, 4000)).toEqual({ scheduleCount: 4000, drawsPerSchedule: 50 });
+  });
+});
+
+describe("resolveScheduleSplit — an invalid count THROWS, naming the script and the value; none of them silently clamps", () => {
+  const INVALID: readonly (readonly [string, number])[] = [
+    ["zero", 0],
+    ["negative", -20],
+    ["fractional", 19.5],
+    ["a non-numeric string, already through Number()", Number("twenty")],
+  ];
+
+  it.each(INVALID)("throws on %s", (_label, value) => {
+    expect(() => resolveScheduleSplit(1000, value)).toThrow(/measureFieldAveragedRanks/);
+    expect(() => resolveScheduleSplit(1000, value)).toThrow(String(value));
+  });
+
+  it("throws on a raw string that never went through Number() — a string must not slip through as a count", () => {
+    expect(() => resolveScheduleSplit(1000, "20" as unknown as number)).toThrow(/measureFieldAveragedRanks/);
+  });
+
+  it("throws on Infinity", () => {
+    expect(() => resolveScheduleSplit(1000, Number.POSITIVE_INFINITY)).toThrow(/measureFieldAveragedRanks/);
   });
 });
