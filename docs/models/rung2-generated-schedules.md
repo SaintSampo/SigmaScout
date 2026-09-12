@@ -6,6 +6,16 @@
 
 Algorithm: `bpr@3.0.0+baseline`. Sample: plan 09-09's six real finished events, re-asserted against `data/corpus.sqlite` at run time.
 
+## Verdict
+
+**At the schedule count where the acceptance bar is usable at all, the rules-based generator is indistinguishable from the licensed grid.** Compared at the SAME count n=4,000, the generated structure agrees with the licensed one on **97.1%** of teams within half a median rank (clause 1 needs 95%), with **every** team inside one rank, **100.0% / 99.6%** at the band edges, and a mean signed shift of -0.0018 ranks. **All three clauses pass.**
+
+That 97.1% sits against a same-construction ceiling of **98.4%** at the same count — the licensed grid measured against its own replicate. The generator is therefore within **1.2pp** of the best any method could score, which is another way of saying the remaining disagreement is not distinguishable from resampling noise.
+
+**Against what ships today the generated arm scores 39.3% and fails — and so does the licensed grid, by the same amount.** The control (licensed structure at the same high count, differing from the shipped arm in the count and nothing else) scores 39.3%. The failure belongs entirely to the shipped 20-schedule arm's resolution, which Phase A measures directly, and not to the generator.
+
+**What this does and does not license.** It says a generated structure reproduces the licensed one's rank bands to within the measurement's own noise, and that the artifact-size objection to a high schedule count dissolves if only the aggregate is baked. It does NOT say the shipped default should change, it does not touch the licensing question, and it is not a validation of either arm against realised rankings.
+
 ## Phase A — the seed-noise ceiling, and what it does to the acceptance bar
 
 The rung-1 criterion's clause 1 asks that at least 95% of teams agree within 0.5 median ranks. Before any candidate arm can be judged against that, there is a prior question: **can the measurement itself resolve half a rank?** Phase A answers it by running the **licensed** construction against **itself** and reading how far it disagrees with its own replicate. Nothing about a candidate enters, so whatever rate comes back is a **ceiling** every arm shares, including the one currently shipping.
@@ -62,55 +72,115 @@ Measured on the real artifacts by serialising them twice: once whole, once with 
 
 | Event | Teams | n | Full bytes | `schedules` block | Aggregate-only bytes | `schedules` share |
 |---|---|---|---|---|---|---|
-| `2022on034` | 14 | 20 | 52,816 | 51,283 | 1,535 | 97.1% |
-| `2022on034` | 14 | 150 | 386,194 | 384,661 | 1,535 | 99.6% |
-| `2022on034` | 14 | 300 | 770,842 | 769,309 | 1,535 | 99.8% |
-| `2022on034` | 14 | 600 | 1,540,187 | 1,538,654 | 1,535 | 99.9% |
-| `2022on034` | 14 | 1000 | 2,565,749 | 2,564,216 | 1,535 | 99.9% |
-| `2022on034` | 14 | 2000 | 5,129,984 | 5,128,451 | 1,535 | 100.0% |
-| `2022on034` | 14 | 4000 | 10,258,798 | 10,257,265 | 1,535 | 100.0% |
-| `2023gaalb` | 21 | 20 | 105,973 | 103,030 | 2,945 | 97.2% |
-| `2023gaalb` | 21 | 150 | 775,819 | 772,876 | 2,945 | 99.6% |
-| `2023gaalb` | 21 | 300 | 1,548,827 | 1,545,884 | 2,945 | 99.8% |
-| `2023gaalb` | 21 | 600 | 3,094,108 | 3,091,165 | 2,945 | 99.9% |
-| `2023gaalb` | 21 | 1000 | 5,154,542 | 5,151,599 | 2,945 | 99.9% |
-| `2023gaalb` | 21 | 2000 | 10,306,354 | 10,303,411 | 2,945 | 100.0% |
-| `2023gaalb` | 21 | 4000 | 20,609,385 | 20,606,442 | 2,945 | 100.0% |
-| `2024caav` | 40 | 20 | 189,592 | 181,209 | 8,385 | 95.6% |
-| `2024caav` | 40 | 150 | 1,368,367 | 1,359,984 | 8,385 | 99.4% |
-| `2024caav` | 40 | 300 | 2,728,383 | 2,720,000 | 8,385 | 99.7% |
-| `2024caav` | 40 | 600 | 5,448,226 | 5,439,843 | 8,385 | 99.8% |
-| `2024caav` | 40 | 1000 | 9,074,818 | 9,066,435 | 8,385 | 99.9% |
-| `2024caav` | 40 | 2000 | 18,141,102 | 18,132,719 | 8,385 | 100.0% |
-| `2024caav` | 40 | 4000 | 36,275,314 | 36,266,931 | 8,385 | 100.0% |
-| `2025cur` | 76 | 20 | 422,815 | 394,597 | 28,220 | 93.3% |
-| `2025cur` | 76 | 150 | 2,987,863 | 2,959,645 | 28,220 | 99.1% |
-| `2025cur` | 76 | 300 | 5,947,057 | 5,918,839 | 28,220 | 99.5% |
-| `2025cur` | 76 | 600 | 11,866,661 | 11,838,443 | 28,220 | 99.8% |
-| `2025cur` | 76 | 1000 | 19,757,614 | 19,729,396 | 28,220 | 99.9% |
-| `2025cur` | 76 | 2000 | 39,487,635 | 39,459,417 | 28,220 | 99.9% |
-| `2025cur` | 76 | 4000 | 78,942,585 | 78,914,367 | 28,220 | 100.0% |
-| `2026joh` | 75 | 20 | 386,423 | 359,121 | 27,304 | 92.9% |
-| `2026joh` | 75 | 150 | 2,721,651 | 2,694,349 | 27,304 | 99.0% |
-| `2026joh` | 75 | 300 | 5,415,899 | 5,388,597 | 27,304 | 99.5% |
-| `2026joh` | 75 | 600 | 10,805,210 | 10,777,908 | 27,304 | 99.7% |
-| `2026joh` | 75 | 1000 | 17,991,406 | 17,964,104 | 27,304 | 99.8% |
-| `2026joh` | 75 | 2000 | 35,955,003 | 35,927,701 | 27,304 | 99.9% |
-| `2026joh` | 75 | 4000 | 71,883,380 | 71,856,078 | 27,304 | 100.0% |
-| `2026txmca` | 18 | 20 | 104,632 | 102,296 | 2,338 | 97.8% |
-| `2026txmca` | 18 | 150 | 768,152 | 765,816 | 2,338 | 99.7% |
-| `2026txmca` | 18 | 300 | 1,533,343 | 1,531,007 | 2,338 | 99.8% |
-| `2026txmca` | 18 | 600 | 3,064,694 | 3,062,358 | 2,338 | 99.9% |
-| `2026txmca` | 18 | 1000 | 5,105,467 | 5,103,131 | 2,338 | 100.0% |
-| `2026txmca` | 18 | 2000 | 10,209,502 | 10,207,166 | 2,338 | 100.0% |
-| `2026txmca` | 18 | 4000 | 20,415,674 | 20,413,338 | 2,338 | 100.0% |
+| `2022on034` | 14 | 20 | 52,351 | 51,283 | 1,070 | 98.0% |
+| `2022on034` | 14 | 150 | 385,870 | 384,661 | 1,211 | 99.7% |
+| `2022on034` | 14 | 300 | 770,625 | 769,309 | 1,318 | 99.8% |
+| `2022on034` | 14 | 600 | 1,540,016 | 1,538,654 | 1,364 | 99.9% |
+| `2022on034` | 14 | 1000 | 2,565,600 | 2,564,216 | 1,386 | 99.9% |
+| `2022on034` | 14 | 2000 | 5,129,887 | 5,128,451 | 1,438 | 100.0% |
+| `2022on034` | 14 | 4000 | 10,258,597 | 10,257,062 | 1,537 | 100.0% |
+| `2023gaalb` | 21 | 20 | 104,902 | 103,030 | 1,874 | 98.2% |
+| `2023gaalb` | 21 | 150 | 775,183 | 772,876 | 2,309 | 99.7% |
+| `2023gaalb` | 21 | 300 | 1,548,234 | 1,545,884 | 2,352 | 99.8% |
+| `2023gaalb` | 21 | 600 | 3,093,847 | 3,091,165 | 2,684 | 99.9% |
+| `2023gaalb` | 21 | 1000 | 5,154,336 | 5,151,599 | 2,739 | 99.9% |
+| `2023gaalb` | 21 | 2000 | 10,306,167 | 10,303,411 | 2,758 | 100.0% |
+| `2023gaalb` | 21 | 4000 | 20,609,276 | 20,606,330 | 2,948 | 100.0% |
+| `2024caav` | 40 | 20 | 186,301 | 181,209 | 5,094 | 97.3% |
+| `2024caav` | 40 | 150 | 1,366,406 | 1,359,984 | 6,424 | 99.5% |
+| `2024caav` | 40 | 300 | 2,726,674 | 2,720,000 | 6,676 | 99.8% |
+| `2024caav` | 40 | 600 | 5,447,164 | 5,439,843 | 7,323 | 99.9% |
+| `2024caav` | 40 | 1000 | 9,074,182 | 9,066,435 | 7,749 | 99.9% |
+| `2024caav` | 40 | 2000 | 18,140,799 | 18,132,719 | 8,082 | 100.0% |
+| `2024caav` | 40 | 4000 | 36,274,934 | 36,266,518 | 8,418 | 100.0% |
+| `2025cur` | 76 | 20 | 410,707 | 394,597 | 16,112 | 96.1% |
+| `2025cur` | 76 | 150 | 2,980,309 | 2,959,645 | 20,666 | 99.3% |
+| `2025cur` | 76 | 300 | 5,940,908 | 5,918,839 | 22,071 | 99.6% |
+| `2025cur` | 76 | 600 | 11,861,514 | 11,838,443 | 23,073 | 99.8% |
+| `2025cur` | 76 | 1000 | 19,753,700 | 19,729,396 | 24,306 | 99.9% |
+| `2025cur` | 76 | 2000 | 39,486,455 | 39,459,417 | 27,040 | 99.9% |
+| `2025cur` | 76 | 4000 | 78,939,118 | 78,910,886 | 28,234 | 100.0% |
+| `2026joh` | 75 | 20 | 374,772 | 359,121 | 15,653 | 95.8% |
+| `2026joh` | 75 | 150 | 2,714,412 | 2,694,349 | 20,065 | 99.3% |
+| `2026joh` | 75 | 300 | 5,410,015 | 5,388,597 | 21,420 | 99.6% |
+| `2026joh` | 75 | 600 | 10,800,253 | 10,777,908 | 22,347 | 99.8% |
+| `2026joh` | 75 | 1000 | 17,987,845 | 17,964,104 | 23,743 | 99.9% |
+| `2026joh` | 75 | 2000 | 35,953,897 | 35,927,701 | 26,198 | 99.9% |
+| `2026joh` | 75 | 4000 | 71,885,864 | 71,858,544 | 27,322 | 100.0% |
+| `2026txmca` | 18 | 20 | 103,776 | 102,296 | 1,482 | 98.6% |
+| `2026txmca` | 18 | 150 | 767,611 | 765,816 | 1,797 | 99.8% |
+| `2026txmca` | 18 | 300 | 1,532,889 | 1,531,007 | 1,884 | 99.9% |
+| `2026txmca` | 18 | 600 | 3,064,443 | 3,062,358 | 2,087 | 99.9% |
+| `2026txmca` | 18 | 1000 | 5,105,242 | 5,103,131 | 2,113 | 100.0% |
+| `2026txmca` | 18 | 2000 | 10,209,296 | 10,207,166 | 2,132 | 100.0% |
+| `2026txmca` | 18 | 4000 | 20,414,282 | 20,411,943 | 2,341 | 100.0% |
 
-**The aggregate-only size does not depend on the schedule count at all** — it is one roster-length x roster-length histogram block, identical whether it was accumulated over 20 schedules or 1000. That is the finding with the most leverage in this document: raising the schedule count is what closes the seed-noise gap in Phase A, and if only the aggregate is baked, raising it is **free on the wire**.
+**The aggregate-only size grows only logarithmically in the schedule count, while the full artifact grows linearly.** The aggregate is one roster-length x roster-length histogram block; raising the count does not add entries to it, only digits inside them. Measured on `2025cur`: 16,112 bytes at the shipped n=20 against 28,234 bytes at n=4000 — a 200x increase in schedules for a 1.75x increase in bytes, while the whole artifact goes from 411 KB to 79 MB over the same range.
+
+That is the finding with the most leverage in this document. Phase A shows the acceptance bar only becomes usable at a high schedule count, and a high schedule count is unshippable if the priced schedules are baked. If only the aggregate is baked, the count is **nearly free on the wire** — and the artifact gets smaller than what ships today, not larger.
+
+## Phase B — the generator's balance, side by side with the licensed structure
+
+The generator's rules, fixed before measurement (`packages/harness/generatedSchedules.ts`):
+
+1. **Exact appearance count.** `ceil(numTeams * matchesPerTeam / 6)` matches; every team gets exactly `matchesPerTeam` ranking-credited appearances; the leftover slots become surrogate appearances on that many distinct teams — the licensed grid's own convention, read off it structurally rather than re-invented.
+2. **No team twice in a match**, by construction.
+3. **Minimise repeats**, under the stated objective `3 * excessPartnerPairs + 1 * excessOpponentPairs + 1 * backToBackCount`. Partners are weighted heaviest because same-alliance outcomes are coupled far more tightly than opposing ones.
+4. **Spread**, via a per-candidate recency penalty toward the natural spacing `matchCount / matchesPerTeam`.
+
+Greedy randomised construction with restarts; best-of-`restarts` by the objective above. `generated` rows are the **mean over 20 independently seeded generated structures** per event.
+
+| Event | Structure | Matches | Credited/team | Surrogates | Repeat-partner rate | Repeat-opponent rate | Back-to-back rate | Mean gap | Min gap | Max idle gap |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `2022on034` | licensed | 21 | 9-9 | 0 | 28.6% | 52.4% | 24.1% | 2.32 | 1 | 5.0 |
+| `2022on034` | generated (mean of 20) | 21 | 9-9 | 0 | 29.8% | 52.3% | 22.7% | 2.32 | 1 | 4.5 |
+| `2023gaalb` | licensed | 42 | 12-12 | 0 | 19.8% | 47.6% | 0.0% | 3.49 | 2 | 7.0 |
+| `2023gaalb` | generated (mean of 20) | 42 | 12-12 | 0 | 23.1% | 45.3% | 9.4% | 3.49 | 1 | 7.5 |
+| `2024caav` | licensed | 74 | 11-11 | 4 | 0.0% | 13.4% | 0.0% | 6.65 | 3 | 12.0 |
+| `2024caav` | generated (mean of 20) | 74 | 11-11 | 4 | 2.5% | 15.0% | 0.3% | 6.64 | 1.2 | 13.6 |
+| `2025cur` | licensed | 127 | 10-10 | 2 | 0.0% | 0.1% | 0.0% | 12.65 | 6 | 24.0 |
+| `2025cur` | generated (mean of 20) | 127 | 10-10 | 2 | 0.1% | 3.3% | 0.0% | 12.63 | 6.55 | 19.3 |
+| `2026joh` | licensed | 125 | 10-10 | 0 | 0.0% | 0.0% | 0.0% | 12.50 | 6 | 24.0 |
+| `2026joh` | generated (mean of 20) | 125 | 10-10 | 0 | 0.1% | 3.4% | 0.0% | 12.46 | 6.4 | 19.1 |
+| `2026txmca` | licensed | 36 | 12-12 | 0 | 29.6% | 54.0% | 0.0% | 3.00 | 2 | 5.0 |
+| `2026txmca` | generated (mean of 20) | 36 | 12-12 | 0 | 31.6% | 53.0% | 12.0% | 3.00 | 1 | 6.5 |
+
+### Generated vs licensed at the SAME schedule count
+
+Both arms built at the same count, through the same `buildPreScheduleArtifact`, the same bound `predict`, the same rounding and the same per-schedule seeding convention. **The only surviving difference is the pairing structure**, which is what makes this a measurement of generator quality rather than of draw count. Scored by the unchanged rung-1 criterion.
+
+| Comparison | Clause 1 (median, >=95% within 0.5 and every team within 1.0) | Clause 2 (edges, >=90% within 1.0) | Clause 3 (mean signed shift, +/-0.25) | Overall |
+|---|---|---|---|---|
+| generated n=1000 vs licensed n=1000 | FAIL — 75.8%; every team within 1.0: false (worst 1.85) | PASS — p10 95.5%, p90 95.1% | PASS — -0.0013 | **FAIL** |
+| generated n=4000 vs licensed n=4000 | PASS — 97.1%; every team within 1.0: true (worst 0.77) | PASS — p10 100.0%, p90 99.6% | PASS — -0.0018 | **PASS** |
+
+## Phase C — the ship test
+
+The generated arm at n=4000 against **what is shipping today** (licensed structure, 20 schedules x 50 draws), scored by the same unchanged criterion. This comparison necessarily carries the shipped arm's own seed noise, quantified in Phase A.
+
+| Comparison | Clause 1 (median, >=95% within 0.5 and every team within 1.0) | Clause 2 (edges, >=90% within 1.0) | Clause 3 (mean signed shift, +/-0.25) | Overall |
+|---|---|---|---|---|
+| generated n=4000 vs SHIPPED licensed n=20 | FAIL — 39.3%; every team within 1.0: false (worst 6.26) | FAIL — p10 57.0%, p90 59.0% | PASS — -0.0255 | **FAIL** |
+| **CONTROL** — licensed n=4000 vs SHIPPED licensed n=20 (count change only) | FAIL — 39.3%; every team within 1.0: false (worst 6.15) | FAIL — p10 57.8%, p90 57.4% | PASS — -0.0237 | **FAIL** |
+
+**Attribution.** Phase A measured that the shipped arm disagrees with its own replicate on 73.0% of teams, so any comparison against it is dominated by *its* resolution rather than by anything about the candidate. The control row differs from the shipped arm in the schedule count and **nothing else** — same licensed structure, same builder, same scorer. The candidate scores 39.3% on clause 1 and the control scores 39.3%, so **the generator can be responsible for at most 0.0pp** of the difference from what ships today. The rest is the shipped count.
+
+Per event:
+
+| Event | Teams | Clause-1 rate | p10 rate | p90 rate | Mean signed median shift |
+|---|---|---|---|---|---|
+| `2022on034` | 14 | 78.6% | 100.0% | 100.0% | -0.050 |
+| `2023gaalb` | 21 | 95.2% | 100.0% | 100.0% | -0.050 |
+| `2024caav` | 40 | 35.0% | 65.0% | 65.0% | 0.002 |
+| `2025cur` | 76 | 15.8% | 40.8% | 42.1% | -0.016 |
+| `2026joh` | 75 | 29.3% | 38.7% | 44.0% | -0.044 |
+| `2026txmca` | 18 | 94.4% | 100.0% | 100.0% | -0.005 |
 
 ## Caveats
 
 - **Neither arm is validated against realised rankings.** Every number here measures agreement between two forecasts, not the accuracy of either. The rewind-honesty question is `docs/models/rewind-overconfidence-gap.md`'s.
 - **The seed-noise ceiling is a diagnostic and may never overrule the criterion.** It says what a rate would look like if two arms were identical and only the draw stream differed; it does not lower a threshold.
 - **The licensing judgement is not made here.** This document measures whether a generated structure can stand in for the licensed one; whether it should is the developer's call alone, and no licence text was read or reasoned about in producing it.
-- **Phase B and C build each schedule as its own single-schedule artifact**, so a schedule at index k takes seed `...|shuffle|0` rather than `...|shuffle|k`. That changes which random stream each schedule draws, never how — and the size of that effect is exactly what Phase A reports.
+- **Phase B and C assemble each arm one schedule at a time**, calling `buildPreScheduleArtifact` with `scheduleCount: 1` so the pairing structure can differ between schedules. The per-schedule shuffle stream is preserved by suffixing `algorithmVersion`, which feeds the seed hashes and nothing else, and the assembler asserts it got as many distinct shuffle seeds as it built schedules — without that, every schedule in an arm would share one shuffle and the arm would do no shuffle averaging at all.
+- **The generator's balance is measured over 20 sampled structures per event, not over all 4,000.** The reported rates are stable to the decimal place across those 20, but they are a sample.
 
