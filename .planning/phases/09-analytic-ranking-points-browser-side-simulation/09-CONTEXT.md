@@ -417,6 +417,50 @@ Named suspect for rung 2, measured not assumed: assumption A-FA1's residual is e
 `2023gaalb` (where rung 1 does best) and mean **40.14** / sd **24.74** / max **148.21** on `2026joh`
 (where it does worst). The additive constant cancels as A-FA1 says; its standard deviation does not.
 
+
+### Production window — HELD, 2026-09-11
+
+**Decided by Jacob after the 09-10 dry run.** All ten plans' code is complete, committed and green.
+**Nothing has been published.** Phase 9 is code-complete and deliberately unpublished.
+
+**Why the hold.** The dry run found the republish is no longer an overwrite-in-place. A concurrent
+session's quick tasks moved EPA **7.0.0 -> 10.0.0** in this shared checkout (`3f36e582`,
+`57cef7a7`), so a republish today would:
+
+1. **ship that other workstream's EPA model change to production** alongside Phase 9's RP layer, and
+2. **write-new roughly 36,000 objects**, orphaning the live `epa@7.0.0+baseline` generation.
+
+The 2026-09-11 approval covers Phase 9's presim sidecars and says nothing about an EPA generation,
+which was not a question when it was given. **Decision: hold the republish until the EPA workstream
+is at a version Jacob actually wants live**, then do one deliberate pass that ships both.
+
+**What the dry run measured (no projections):** `compare` **15,264 / 20,000** (the 189-byte headroom
+warning from 09-06 does NOT reproduce), `event` **272,530 / 350,000** (+26,476 from 09-07's pmf
+arrays) — **no ceiling moved and no event-kind overrun**, so the stop-and-report branch on payload
+budget did not fire. `presim: count=641` across all three published ids.
+
+**Still outstanding, all network-bound, none started:**
+
+- The republish itself (~45 min, **artifacts before manifest, always** — for `epa` a premature
+  manifest would advertise 10.0.0 while no 10.0.0 object exists: a 404 on every EPA page site-wide)
+- The D1 seed and Worker deploy (**seed first, deploy second**). Live D1 and the deployed Worker are
+  at **shape 11**; HEAD is at **shape 15** — four bumps outstanding, all closing in one pass.
+- `docs/publish-budget.md` must be transcribed **by hand** after any republish — `publish:seasons`
+  prints the summary but does not write it, and the budget tests stay red until it is transcribed.
+- The orphaned `vpr` presim sidecar delete (pre-authorized)
+- The orphaned `epa@7.0.0+baseline` generation delete (**separately authorized — Jacob's, not covered
+  by the 2026-09-11 approval**)
+
+Runbooks with exact commands, expected output and content-based verification are in
+`09-08-SUMMARY.md` and `09-10-SUMMARY.md` under `## Operational steps for the orchestrator`.
+**Verify live surfaces by CONTENT, never by HTTP status.**
+
+**Seed prerequisite — now CLOSED.** Jacob directed that the Sigma Score seed gap be fixed before any
+D1 seed. Done: `af09b23d` + `062bb36e` wire `withSigmaBeliefs`/`withSigmaPopulation` into the seed
+path (the gap 09-08 filed), proven non-vacuous by three mutations. Without it a seeded Worker would
+have cold-started BPR's bands from the flat prior while serving fully-warmed artifacts, with both
+sides looking healthy.
+
 </approvals>
 
 ---
