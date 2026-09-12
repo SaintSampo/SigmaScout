@@ -10,8 +10,16 @@ priority: medium
 
 `ranking-points-audit.md` records finding **F1** as CLOSED — "calibration scorecard live on the
 Compare page, `rpCalibration` in every compare slice". The data side of that is verified. **The
-rendering was never seen by a human or a browser**, because no browser was available in the session
-that shipped it, and it has not been checked since.
+rendering was never seen by a human or a browser**, because no browser was available to plan 09-01
+when it shipped, and it has not been checked since.
+
+**The exact surface**, since "the Compare page" is ambiguous — there are two routes and only one of
+them is this:
+
+- Route: **`/methodology/compare`** (`apps/web/src/routes/methodology.compare.tsx`) — not
+  `apps/web/src/routes/compare.tsx`, which has no `rpCalibration` reference at all.
+- Component: `apps/web/src/components/compare/RpCalibrationSection.tsx`, fed by
+  `apps/web/src/components/compare/rpCalibrationCards.ts`.
 
 So the closure of F1 rests on the artifact containing the right numbers, not on the page showing
 them correctly. Those are different claims.

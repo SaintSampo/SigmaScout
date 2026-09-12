@@ -32,6 +32,13 @@ The 2026-09-12 publish wrote fresh seed SQL. No live event has run since. So the
 never executed against a real tick, and a green publish says nothing about it — the publish writes
 the rows, it does not read them back through the Worker.
 
+**And the cron ticking is not evidence either.** The live-windows manifest currently reads
+`"windows":[]` (verified against the live origin 2026-09-12, generation `b23d214d`, same
+`computedAt` as the publish). With no window open the tick returns **before it ever reads a league
+row**, so it exercises none of this. Every minute of green cron history since the seed is green for
+a reason that has nothing to do with the question. That is precisely why this cannot close on
+observation alone and needs either a deliberate probe or a real event.
+
 ## The second, separate question
 
 The Worker's CPU budget is **10 ms sustained**, and the RP work added in Phase 9 has never been

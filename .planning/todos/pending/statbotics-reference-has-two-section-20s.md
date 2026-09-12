@@ -19,9 +19,13 @@ The second 20 was appended on 2026-09-11 and took the number already in use.
 
 ## The work
 
-Renumber the appended section to 21, and check whether anything cross-references "section 20" of
-this document — a stale pointer into the wrong section is the only way this becomes more than
-cosmetic.
+Renumber the appended section to 21.
+
+**Every hand-written citation of a section number in this document must be updated in the same
+change, not as a follow-up.** That is the only part of this that is not cosmetic: the numbers are
+written by hand, nothing validates them, and a renumber that leaves a citation pointing at the old
+number converts a visible duplicate into an invisible wrong reference. Sweep the whole document —
+and anything citing into it — before committing, rather than fixing the heading alone.
 
 Trivial, but it has now been carried verbally across three sessions without being written down,
 which is the actual reason this file exists.
