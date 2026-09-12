@@ -58,7 +58,7 @@
  * never fed to any candidate.
  *
  * Usage:
- *   npx tsx scripts/compareSigmaScore.ts [--seasons 2024-2025] [--algorithms opr,epa,bpr]
+ *   npx tsx scripts/compareSigmaScore.ts [--seasons 2024-2025] [--algorithms opr,epa,spr]
  *   pnpm compare:sigma-score
  */
 

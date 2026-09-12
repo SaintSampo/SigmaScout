@@ -49,7 +49,7 @@
  * Usage:
  *   pnpm tsx scripts/measureRandomSchedules.ts [--events k1,k2] [--schedules 1000]
  *                                              [--draws-per-schedule 20]
- *                                              [--algorithm bpr] [--replay-from YYYY]
+ *                                              [--algorithm spr] [--replay-from YYYY]
  *                                              [--write-doc]
  */
 import { writeFileSync } from "node:fs";

@@ -416,14 +416,14 @@ function seedAllAlgorithms(db: FakeD1Database): void {
   for (const m of SEED_MATCHES) epaState = epa.update(epaState, m);
   seedRows(db, serializeState("epa", epa.version, epaState, SEED_STAMP));
 
-  let bprState = spr.initState([...SEED_ROSTER]);
+  let sprState = spr.initState([...SEED_ROSTER]);
   const swing = new SwingFactorAccumulator();
   const sigma = new SigmaScoreAccumulator();
   const rpRuleModule = RP_RULE_MODULES[2026]!;
   const rp = new RpMomentsAccumulator(rpRuleModule);
   for (const m of SEED_MATCHES) {
-    const prediction = spr.predict(bprState, toLeakProofUpcoming(m));
-    bprState = spr.update(bprState, m);
+    const prediction = spr.predict(sprState, toLeakProofUpcoming(m));
+    sprState = spr.update(sprState, m);
     swing.foldMatch(m, prediction);
     sigma.foldMatch(m, prediction);
     for (const side of ["red", "blue"] as const) {
@@ -435,16 +435,16 @@ function seedAllAlgorithms(db: FakeD1Database): void {
       }
     }
     const roster = [...m.redTeams, ...m.blueTeams];
-    const metrics = spr.teamMetrics(bprState, roster);
+    const metrics = spr.teamMetrics(sprState, roster);
     for (const teamKey of roster) {
       const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
       if (total !== undefined) sigma.observeTalent(teamKey, total);
     }
   }
-  let bprRows = withSwingBeliefs(serializeState("spr", spr.version, bprState, SEED_STAMP), swing.beliefsByTeam());
-  bprRows = withRpBeliefs(bprRows, rp.beliefsByTeam());
-  bprRows = withSigmaPopulation(withSigmaBeliefs(bprRows, sigma.beliefsByTeam()), sigma.population());
-  seedRows(db, bprRows);
+  let sprRows = withSwingBeliefs(serializeState("spr", spr.version, sprState, SEED_STAMP), swing.beliefsByTeam());
+  sprRows = withRpBeliefs(sprRows, rp.beliefsByTeam());
+  sprRows = withSigmaPopulation(withSigmaBeliefs(sprRows, sigma.beliefsByTeam()), sigma.population());
+  seedRows(db, sprRows);
 }
 
 describe("stateProbe — Group 3: the RP path really runs, and really writes nothing", () => {
@@ -475,9 +475,9 @@ describe("stateProbe — Group 3: the RP path really runs, and really writes not
 
     expect(body.ok).toBe(true);
 
-    const bprEntry = body.algorithms.find((a) => a.id === "spr");
-    expect(bprEntry?.ok).toBe(true);
-    expect(bprEntry?.snapshotShapeVersionObserved).toBe(STATE_SNAPSHOT_SHAPE_VERSION);
+    const sprEntry = body.algorithms.find((a) => a.id === "spr");
+    expect(sprEntry?.ok).toBe(true);
+    expect(sprEntry?.snapshotShapeVersionObserved).toBe(STATE_SNAPSHOT_SHAPE_VERSION);
 
     expect(body.fold.matchesFolded).toBe(2);
     expect(body.fold.upcomingPriced).toBe(5);
@@ -521,11 +521,11 @@ describe("stateProbe — Group 4: the shape-mismatch report is readable, not an 
     };
     expect(body.ok).toBe(false);
 
-    const bprEntry = body.algorithms.find((a) => a.id === "spr");
-    expect(bprEntry?.ok).toBe(false);
-    expect(bprEntry?.error?.name).toBe("LeagueRowShapeVersionError");
-    expect(bprEntry?.error?.message).toContain(String(STATE_SNAPSHOT_SHAPE_VERSION));
-    expect(bprEntry?.error?.message).toContain(String(STATE_SNAPSHOT_SHAPE_VERSION - 1));
+    const sprEntry = body.algorithms.find((a) => a.id === "spr");
+    expect(sprEntry?.ok).toBe(false);
+    expect(sprEntry?.error?.name).toBe("LeagueRowShapeVersionError");
+    expect(sprEntry?.error?.message).toContain(String(STATE_SNAPSHOT_SHAPE_VERSION));
+    expect(sprEntry?.error?.message).toContain(String(STATE_SNAPSHOT_SHAPE_VERSION - 1));
 
     // Still zero writes even on a failing run — the shape check trips before
     // anything downstream of it, but no write helper exists in this file's

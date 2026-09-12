@@ -74,7 +74,7 @@
  *      more than in per-team variation.
  *
  * Usage:
- *   npx tsx scripts/measureSwingSkill.ts [--seasons 2024-2026] [--algorithms opr,epa,bpr] [--include-offseason]
+ *   npx tsx scripts/measureSwingSkill.ts [--seasons 2024-2026] [--algorithms opr,epa,spr] [--include-offseason]
  *   pnpm measure:swing-skill
  */
 
