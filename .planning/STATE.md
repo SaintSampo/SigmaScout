@@ -335,7 +335,19 @@ Recent decisions affecting current work:
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
-None yet.
+**`.planning/todos/pending/` is the source of truth — 22 files as of 2026-09-11.** This section said
+"None yet." until 2026-09-11, which had been wrong for some time; it is not re-enumerated in full
+here, because a hand-maintained copy of a directory listing goes stale silently. `ls
+.planning/todos/pending/` is the list.
+
+Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
+
+| todo | priority | one-line |
+|---|---|---|
+| `republish-epa-vs-statbotics-methodology-page` | medium | the published page understates our own 2022 accuracy by ~2.2 pp; code is fixed, artifact is behind |
+| `epa-gap-matrix-is-not-a-backlog` | medium | `epa-statbotics-gap.md` reads as a 35-cell backlog worth ~0.26 pp total; a fresh agent will resume it |
+| `epa-statbotics-check-baseline-is-cold-arm` | medium | `--check` compares warm statistics against cold tolerance bands and can false-fail |
+| `narrow-offseason-population-ablation-entry` | low | the register calls measured-and-refuted "unmeasurable"; needs an ablation regen to fix in step |
 
 ### Blockers/Concerns
 
