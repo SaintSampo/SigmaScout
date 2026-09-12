@@ -1,34 +1,55 @@
 /**
- * Unit tests for `measureAwardPredictability.ts` (quick task 260912-5n8 T3).
- * Synthetic fixtures only — no test here opens the corpus, and no test here
- * touches the network.
+ * Unit tests for `measureAwardPredictability.ts` (quick tasks 260912-5n8 T3 and
+ * 260912-7bp T3). Synthetic fixtures only — no test here opens the corpus, and
+ * no test here touches the network.
  *
  * THE LEAK TESTS ARE THE LOAD-BEARING ONES. This whole probe is worthless if a
  * scored season's fit or features can see that season's own data: an in-sample
  * number would look like an answer and be none. Two independent leak tests
  * pin it — one on the feature builder's input set directly, one end-to-end
  * through `runExperiment` — because this project's failure log already records
- * what a missing evaluation guard costs.
+ * what a missing evaluation guard costs. 7bp extends both over the seven-feature
+ * age vector: `rookie_year` is a static historical fact and therefore legal, but
+ * "it is legal" is an argument, not a substitute for the check.
+ *
+ * THE SECOND LOAD-BEARING GROUP IS THE ROOKIE BASELINES. An age feature added
+ * while B1 and B2 stay structurally pinned at 0.0% on the rookie award types
+ * would manufacture a fake win, so RB1/RB2 and the max-of-four verdict rule are
+ * pinned here rather than left to the report's prose.
  */
 import { describe, expect, it } from "vitest";
 import {
+  ABSTAIN,
+  AGE_FEATURE_COUNT,
   FEATURE_COUNT,
   THIN_PRIOR_INSTANCES,
+  ageDeltaPp,
+  ageFeatureTriple,
+  ageVerdict,
   argmaxIndex,
+  bestBaseline,
+  buildAgeFeatures,
   buildAwardInstances,
   buildCandidatePools,
   buildFeatures,
   buildPriorHistory,
+  cellAccuracy,
+  cellAgeKnownFraction,
   compareTeamKeys,
+  emptyCell,
   fitConditionalLogit,
   isPredictable,
   isThinPrior,
   isTop1Hit,
+  knownAgeFraction,
+  knownRookieIndices,
   modalAwardNames,
   NOISE_MARGIN_PP,
   pickByWeights,
   pickMostDecorated,
+  pickMostDecoratedRookie,
   pickStrongest,
+  pickStrongestRookie,
   priorAnyCount,
   priorInstancesOfType,
   priorTypeCount,
@@ -37,11 +58,13 @@ import {
   replayPreEventRatings,
   runExperiment,
   selectPriorInstances,
+  teamAge,
   teamNumber,
   toTrainInstance,
   verdictMarginPp,
   type AwardInstance,
   type AwardRowInput,
+  type Cell,
   type EventMetaInput,
   type ReplayMatch,
   type ReplayModel,
@@ -604,13 +627,18 @@ function emptyCensusFixture() {
   };
 }
 
-function run(world: ReturnType<typeof syntheticWorld>, fitIterations = 60) {
+function run(
+  world: ReturnType<typeof syntheticWorld>,
+  fitIterations = 60,
+  rookieYearByTeam?: ReadonlyMap<string, number>
+) {
   return runExperiment({
     instances: world.instances,
     census: emptyCensusFixture(),
     poolsByEvent: world.poolsByEvent,
     ratingsByEvent: world.ratingsByEvent,
     awardNames: new Map(),
+    ...(rookieYearByTeam === undefined ? {} : { rookieYearByTeam }),
     command: "test",
     fitIterations,
   });
@@ -686,16 +714,26 @@ describe("thin-prior fallback", () => {
 // ---------------------------------------------------------------------------
 
 describe("isPredictable", () => {
-  const cell = (n: number, model: number, b1: number, b2: number) => ({
+  // Spread over `emptyCell()` rather than spelled out field by field, so a
+  // future column added to `Cell` cannot silently default to whatever a literal
+  // happened to omit.
+  const cell = (
+    n: number,
+    model: number,
+    b1: number,
+    b2: number,
+    extra: Partial<Cell> = {}
+  ): Cell => ({
+    ...emptyCell(),
     n,
     poolSum: n * 40,
     recipSum: n,
     modelHits: model,
+    ageModelHits: model,
     b1Hits: b1,
     b2Hits: b2,
     b0Expected: n / 40,
-    unreachable: 0,
-    thinPriorRows: 0,
+    ...extra,
   });
 
   it("requires beating BOTH baselines", () => {
@@ -750,5 +788,406 @@ describe("the rookie baselines are structurally pinned at zero", () => {
     // Negative weights therefore single the rookie out — an age detector built
     // from the ABSENCE of the two selected features, not from a third one.
     expect(pickByWeights([-1, -1, -1, -1], f)).toBe(2);
+  });
+
+  // ---- and this is 7bp's fix: baselines that are NOT pinned there ---------
+
+  it("RB1 and RB2 CAN pick the rookie the pinned baselines never could", () => {
+    const rookieYears = new Map([["frc9999", 2020]]);
+    expect(candidates[pickMostDecoratedRookie(candidates, 10, 2020, history, rookieYears)]).toBe(
+      "frc9999"
+    );
+    expect(candidates[pickStrongestRookie(candidates, 2020, ratings, rookieYears)]).toBe("frc9999");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Feature family (c): team age — quick task 260912-7bp
+// ---------------------------------------------------------------------------
+
+describe("teamAge", () => {
+  it("is relative to the EVENT'S season, not an absolute constant", () => {
+    // One team, two events in different seasons, two different ages.
+    expect(teamAge(2018, 2019)).toBe(1);
+    expect(teamAge(2018, 2026)).toBe(8);
+  });
+
+  it("returns null — not 0 — for an unknown rookie year", () => {
+    expect(teamAge(null, 2020)).toBeNull();
+    expect(teamAge(undefined, 2020)).toBeNull();
+    expect(teamAge(Number.NaN, 2020)).toBeNull();
+  });
+
+  it("clamps a negative raw age to 0 rather than emitting a negative or NaN log", () => {
+    // A rookie year after the event's season is a data error, not a condition
+    // the feature should propagate: log1p(-11) is NaN and would poison the fit.
+    expect(teamAge(2031, 2020)).toBe(0);
+    const triple = ageFeatureTriple(teamAge(2031, 2020));
+    expect(triple[1]).toBe(0);
+    expect(Number.isNaN(triple[1])).toBe(false);
+    for (const v of triple) expect(Number.isFinite(v)).toBe(true);
+  });
+});
+
+describe("ageFeatureTriple", () => {
+  it("keeps unknown, rookie and one-year-old mutually distinguishable", () => {
+    expect(ageFeatureTriple(null)).toEqual([0, 0, 0]);
+    expect(ageFeatureTriple(0)).toEqual([1, 0, 1]);
+    const one = ageFeatureTriple(1);
+    expect(one[0]).toBe(0);
+    expect(one[1]).toBeCloseTo(Math.log(2), 12);
+    expect(one[2]).toBe(1);
+  });
+
+  it("compresses veteran-ness so a 30-year veteran does not dominate a 5-year one 6x", () => {
+    const five = ageFeatureTriple(5)[1];
+    const thirty = ageFeatureTriple(30)[1];
+    expect(thirty).toBeGreaterThan(five);
+    expect(thirty / five).toBeLessThan(2);
+  });
+});
+
+describe("buildAgeFeatures", () => {
+  const history = buildPriorHistory([inst(2018, "e1", 5, ["frc1"])], 2020);
+
+  it("emits exactly seven numbers whose first four ARE the no-age arm's", () => {
+    const ratings = new Map([
+      ["frc1", 10],
+      ["frc2", 30],
+    ]);
+    const rookieYears = new Map([["frc2", 2020]]);
+    const base = buildFeatures(["frc1", "frc2"], 5, 2020, history, ratings);
+    const aged = buildAgeFeatures(["frc1", "frc2"], 5, 2020, history, ratings, rookieYears);
+    expect(aged[0]).toHaveLength(AGE_FEATURE_COUNT);
+    expect(AGE_FEATURE_COUNT).toBe(FEATURE_COUNT + 3);
+    // Bit-identical shared prefix: the delta between the arms is only meaningful
+    // if f1-f4 cannot drift between them.
+    expect(aged[0]?.slice(0, FEATURE_COUNT)).toEqual(base[0]);
+    expect(aged[1]?.slice(0, FEATURE_COUNT)).toEqual(base[1]);
+    expect(aged[0]?.slice(FEATURE_COUNT)).toEqual([0, 0, 0]); // frc1: unknown age
+    expect(aged[1]?.slice(FEATURE_COUNT)).toEqual([1, 0, 1]); // frc2: known rookie
+  });
+
+  it("computes age as of the event's season, so one team scores two ages", () => {
+    const rookieYears = new Map([["frc1", 2018]]);
+    const y2019 = buildAgeFeatures(["frc1"], 5, 2019, history, new Map(), rookieYears);
+    const y2026 = buildAgeFeatures(["frc1"], 5, 2026, history, new Map(), rookieYears);
+    expect(y2019[0]?.[5]).toBeCloseTo(Math.log1p(1), 12);
+    expect(y2026[0]?.[5]).toBeCloseTo(Math.log1p(8), 12);
+  });
+
+  it("NEVER encodes an unknown rookie year as a rookie — on a fixture where that flips the pick", () => {
+    // frc2's rookie year is unknown; frc1's is known and makes it a rookie.
+    // The unknown team is FIRST, so under the wrong encoding the first-wins
+    // argmax tie-break would hand it the pick.
+    const candidates = ["frc2", "frc1"];
+    const rookieYears = new Map([["frc1", 2020]]);
+    const f = buildAgeFeatures(candidates, 5, 2020, history, new Map(), rookieYears);
+    const isRookieColumn = f.map((row) => row[FEATURE_COUNT]);
+    expect(isRookieColumn).toEqual([0, 1]);
+
+    // A weight vector that cares only about f5 must pick the KNOWN rookie.
+    const weights = [0, 0, 0, 0, 1, 0, 0];
+    expect(candidates[pickByWeights(weights, f)]).toBe("frc1");
+
+    // And the wrong encoding really would flip it: with the unknown team also
+    // marked isRookie, the tie-break hands the pick to the wrong team.
+    const wrong = f.map((row, i) => (i === 0 ? [...row.slice(0, FEATURE_COUNT), 1, 0, 1] : row));
+    expect(candidates[pickByWeights(weights, wrong)]).toBe("frc2");
+  });
+
+  it("reports pool age coverage as a fraction, and 0 for an empty pool", () => {
+    const rookieYears = new Map([["frc1", 2020]]);
+    expect(knownAgeFraction(["frc1", "frc2", "frc3", "frc4"], rookieYears)).toBeCloseTo(0.25, 12);
+    expect(knownAgeFraction([], rookieYears)).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LEAK TEST 1b — the SEVEN-feature vector (quick task 260912-7bp)
+// ---------------------------------------------------------------------------
+
+describe("walk-forward leak guard (age arm)", () => {
+  const instances = [
+    inst(1999, "1999a", 7, ["frc1"]),
+    inst(2000, "2000a", 7, ["frc1"]),
+    inst(2000, "2000b", 7, ["frc1"]),
+    inst(2001, "2001a", 7, ["frc1"]),
+  ];
+  const rookieYears = new Map([["frc1", 1997]]);
+
+  it("still sees zero input rows from the scored season or later", () => {
+    // The same assertion as the four-feature leak test, re-run over the
+    // SEVEN-feature builder: adding a legal static feature must not be allowed
+    // to quietly widen what the history is built from.
+    const prior = selectPriorInstances(instances, 2000);
+    expect(prior.every((i) => i.year < 2000)).toBe(true);
+
+    const honest = buildAgeFeatures(["frc1"], 7, 2000, buildPriorHistory(instances, 2000), new Map(), rookieYears);
+    const leaked = buildAgeFeatures(["frc1"], 7, 2000, buildPriorHistory(instances, 2002), new Map(), rookieYears);
+    expect(honest[0]).toHaveLength(AGE_FEATURE_COUNT);
+    expect(honest[0]?.[0]).toBeCloseTo(Math.log1p(1), 12);
+    expect(leaked[0]?.[0]).toBeCloseTo(Math.log1p(4), 12);
+    expect(honest[0]?.[0]).not.toBeCloseTo(leaked[0]?.[0] ?? 0, 6);
+  });
+
+  it("treats rookie_year as a static fact: the age columns are untouched by the leak boundary", () => {
+    // `rookie_year` is known before any event the team ever plays, so it carries
+    // no look-ahead and must read identically on both sides of the boundary.
+    // That is WHY the feature is legal — asserted, not assumed.
+    const honest = buildAgeFeatures(["frc1"], 7, 2000, buildPriorHistory(instances, 2000), new Map(), rookieYears);
+    const leaked = buildAgeFeatures(["frc1"], 7, 2000, buildPriorHistory(instances, 2002), new Map(), rookieYears);
+    expect(honest[0]?.slice(FEATURE_COUNT)).toEqual(leaked[0]?.slice(FEATURE_COUNT));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The rookie-aware baselines — the load-bearing half of 260912-7bp
+// ---------------------------------------------------------------------------
+
+describe("rookie baselines RB1 / RB2", () => {
+  // frc1 and frc2 are decorated, rated veterans. frc7 and frc5 are known
+  // rookies; frc5 already played an earlier event this season so it carries a
+  // rating, frc7 does not. frc8's rookie year is UNKNOWN.
+  const candidates = ["frc1", "frc2", "frc5", "frc7", "frc8"];
+  const history = buildPriorHistory(
+    [inst(2018, "e1", 10, ["frc1"]), inst(2019, "e2", 10, ["frc2"])],
+    2020
+  );
+  const ratings = new Map([
+    ["frc1", 5],
+    ["frc2", 8],
+    ["frc5", 1],
+  ]);
+  const rookieYears = new Map([
+    ["frc1", 2001],
+    ["frc2", 2004],
+    ["frc5", 2020],
+    ["frc7", 2020],
+  ]);
+
+  it("considers only KNOWN-age-0 candidates, never an unknown-age one", () => {
+    expect(knownRookieIndices(candidates, 2020, rookieYears)).toEqual([2, 3]);
+    // frc8 has no rookie year at all and must never be treated as a rookie.
+    expect(knownRookieIndices(["frc8"], 2020, rookieYears)).toEqual([]);
+  });
+
+  it("RB1 picks a rookie, never the decorated veteran B1 would take", () => {
+    expect(candidates[pickMostDecorated(candidates, 10, history)]).toBe("frc1");
+    // No rookie has any prior wins, so RB1 falls to the lowest team number.
+    expect(candidates[pickMostDecoratedRookie(candidates, 10, 2020, history, rookieYears)]).toBe(
+      "frc5"
+    );
+  });
+
+  it("RB2 picks the strongest rookie, which is not always RB1's pick", () => {
+    // frc5 has a rating; frc7 does not and therefore ranks last.
+    expect(candidates[pickStrongestRookie(candidates, 2020, ratings, rookieYears)]).toBe("frc5");
+    const flipped = new Map([...ratings, ["frc7", 99]]);
+    expect(candidates[pickStrongestRookie(candidates, 2020, flipped, rookieYears)]).toBe("frc7");
+  });
+
+  it("RB1 never consults BPR — a ratings reshuffle cannot move its pick", () => {
+    // Structural, exactly as for B1: `pickMostDecoratedRookie` has no parameter
+    // to pass a rating to, so it cannot silently become a two-feature model.
+    const reshuffled = new Map([
+      ["frc5", -99],
+      ["frc7", 99],
+    ]);
+    expect(candidates[pickStrongestRookie(candidates, 2020, reshuffled, rookieYears)]).toBe("frc7");
+    expect(candidates[pickMostDecoratedRookie(candidates, 10, 2020, history, rookieYears)]).toBe(
+      "frc5"
+    );
+  });
+
+  it("both ABSTAIN on a rookie-free pool rather than picking a veteran", () => {
+    const veterans = ["frc1", "frc2"];
+    expect(pickMostDecoratedRookie(veterans, 10, 2020, history, rookieYears)).toBe(ABSTAIN);
+    expect(pickStrongestRookie(veterans, 2020, ratings, rookieYears)).toBe(ABSTAIN);
+    // An abstention scores as a miss, never as a throw and never as a hit.
+    expect(isTop1Hit(veterans, ABSTAIN, new Set(["frc1"]))).toBe(false);
+  });
+
+  it("abstains when every candidate's age is UNKNOWN, rather than guessing", () => {
+    expect(pickMostDecoratedRookie(["frc8"], 10, 2020, history, new Map())).toBe(ABSTAIN);
+    expect(pickStrongestRookie(["frc8"], 2020, ratings, new Map())).toBe(ABSTAIN);
+  });
+
+  it("ages the pool as of the EVENT'S season — yesterday's rookie is not today's", () => {
+    // frc5/frc7 are rookies in 2020 and veterans in 2021.
+    expect(knownRookieIndices(candidates, 2021, rookieYears)).toEqual([]);
+    expect(pickMostDecoratedRookie(candidates, 10, 2021, history, rookieYears)).toBe(ABSTAIN);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Both arms in one pass, and the widened verdict rule
+// ---------------------------------------------------------------------------
+
+describe("the two arms", () => {
+  const world = () => syntheticWorld([2000, 2001], 40, 7);
+  // frc1 is the serial winner AND a 2001 rookie in this fixture.
+  const rookieYears = new Map([["frc1", 2001]]);
+
+  it("leaves the no-age arm's numbers untouched by the presence of the age arm", () => {
+    const without = run(world()).byType[0]?.perSeason.get(2001);
+    const with_ = run(world(), 60, rookieYears).byType[0]?.perSeason.get(2001);
+    expect(without?.modelHits).toBe(with_?.modelHits);
+    expect(without?.b1Hits).toBe(with_?.b1Hits);
+    expect(without?.b2Hits).toBe(with_?.b2Hits);
+    expect(without?.n).toBe(with_?.n);
+  });
+
+  it("scores both arms over the identical instance set, so the delta is a feature effect", () => {
+    const cell = run(world(), 60, rookieYears).byType[0]?.perSeason.get(2001);
+    expect(cell?.n).toBe(40);
+    expect(cell?.ageModelHits).toBeGreaterThanOrEqual(0);
+    expect(cell?.ageModelHits).toBeLessThanOrEqual(cell?.n ?? 0);
+    expect(ageDeltaPp(cell ?? emptyCell())).toBeCloseTo(
+      100 * (((cell?.ageModelHits ?? 0) - (cell?.modelHits ?? 0)) / (cell?.n ?? 1)),
+      12
+    );
+  });
+
+  it("collapses the age arm onto the no-age arm when no rookie year is known at all", () => {
+    // f5 = f6 = f7 = 0 for every candidate: the seven-feature fit has three
+    // dead columns and must reproduce the four-feature answer exactly.
+    const cell = run(world()).byType[0]?.perSeason.get(2001);
+    expect(cell?.ageModelHits).toBe(cell?.modelHits);
+    expect(cellAgeKnownFraction(cell ?? emptyCell())).toBe(0);
+  });
+
+  it("counts rookie-baseline abstentions instead of silently scoring them as misses", () => {
+    const blind = run(world()).byType[0]?.perSeason.get(2001);
+    expect(blind?.rb1Abstentions).toBe(40);
+    expect(blind?.rb2Abstentions).toBe(40);
+    expect(blind?.rb1Hits).toBe(0);
+    expect(blind?.rb2Hits).toBe(0);
+
+    const sighted = run(world(), 60, rookieYears).byType[0]?.perSeason.get(2001);
+    expect(sighted?.rb1Abstentions).toBe(0);
+    expect(sighted?.rb2Abstentions).toBe(0);
+    // frc1 is the only known rookie AND the winner, so both rookie baselines
+    // score 100% — the structural 0.0% is gone.
+    expect(sighted?.rb1Hits).toBe(40);
+    expect(sighted?.rb2Hits).toBe(40);
+    expect(cellAgeKnownFraction(sighted ?? emptyCell())).toBeCloseTo(0.25, 12);
+  });
+
+  it("records mean pool age coverage so a weak rookie baseline reads as a DATA fact", () => {
+    const pooled = run(world(), 60, rookieYears).byType[0]?.pooled;
+    expect(cellAgeKnownFraction(pooled ?? emptyCell())).toBeCloseTo(0.25, 12);
+  });
+});
+
+describe("the widened verdict rule (max of B1, B2, RB1, RB2)", () => {
+  const base = (over: Partial<Cell>): Cell => ({ ...emptyCell(), n: 100, ...over });
+
+  it("takes the best of ALL FOUR baselines as the bar", () => {
+    expect(bestBaseline(base({ b1Hits: 10, b2Hits: 20, rb1Hits: 55, rb2Hits: 30 }))).toBeCloseTo(
+      0.55,
+      12
+    );
+  });
+
+  it("refuses a model that beats B1 and B2 but LOSES to RB1", () => {
+    // This is the exact shape of the rookie-award artifact 7bp exists to kill:
+    // under 5n8's "beats B1 and B2" rule this cell was PREDICTABLE.
+    const c = base({ modelHits: 40, ageModelHits: 45, b1Hits: 0, b2Hits: 0, rb1Hits: 60 });
+    expect(cellAccuracy(c, "model")).toBeGreaterThan(cellAccuracy(c, "b1"));
+    expect(cellAccuracy(c, "model")).toBeGreaterThan(cellAccuracy(c, "b2"));
+    expect(isPredictable(c, "model")).toBe(false);
+    expect(isPredictable(c, "ageModel")).toBe(false);
+    expect(verdictMarginPp(c, "model")).toBeCloseTo(-20, 10);
+    expect(verdictMarginPp(c, "ageModel")).toBeCloseTo(-15, 10);
+  });
+
+  it("applies the same rule to both arms, so one can pass while the other fails", () => {
+    const c = base({ modelHits: 40, ageModelHits: 60, b1Hits: 0, b2Hits: 0, rb1Hits: 50 });
+    expect(isPredictable(c, "model")).toBe(false);
+    expect(isPredictable(c, "ageModel")).toBe(true);
+  });
+
+  it("still refuses a thin sample no matter which arm or baseline is involved", () => {
+    expect(isPredictable(base({ n: 29, modelHits: 29 }), "model")).toBe(false);
+    expect(isPredictable(base({ n: 29, ageModelHits: 29 }), "ageModel")).toBe(false);
+  });
+});
+
+describe("the pre-committed age-delta rule", () => {
+  const c = (model: number, age: number): Cell => ({
+    ...emptyCell(),
+    n: 1000,
+    modelHits: model,
+    ageModelHits: age,
+  });
+
+  it("calls a sub-1.0pp improvement NO CHANGE, not a win", () => {
+    expect(ageDeltaPp(c(500, 509))).toBeCloseTo(0.9, 10);
+    expect(ageVerdict(c(500, 509))).toBe("no change");
+    expect(NOISE_MARGIN_PP).toBe(1);
+  });
+
+  it("calls a >= 1.0pp improvement HELPS", () => {
+    expect(ageVerdict(c(500, 510))).toBe("helps");
+    expect(ageDeltaPp(c(500, 510))).toBeCloseTo(1, 10);
+  });
+
+  it("calls a >= 1.0pp regression HURTS, and a small one NO CHANGE", () => {
+    expect(ageVerdict(c(500, 490))).toBe("hurts");
+    expect(ageVerdict(c(500, 495))).toBe("no change");
+  });
+
+  it("treats an exactly-zero delta as no change", () => {
+    expect(ageVerdict(c(500, 500))).toBe("no change");
+    expect(ageDeltaPp(c(500, 500))).toBe(0);
+  });
+});
+
+describe("fitConditionalLogit width handling", () => {
+  it("fits a seven-wide training set without reading the four-wide constant", () => {
+    const train = [];
+    for (let i = 0; i < 30; i += 1) {
+      train.push(
+        toTrainInstance(
+          [
+            [0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 1, 0, 1],
+          ],
+          [1]
+        )
+      );
+    }
+    const beta = fitConditionalLogit(train, { iterations: 200 });
+    expect(beta).toHaveLength(AGE_FEATURE_COUNT);
+    expect(beta[4]).toBeGreaterThan(0.2);
+  });
+
+  it("THROWS rather than quietly fitting a training set of mixed widths", () => {
+    expect(() =>
+      fitConditionalLogit([
+        toTrainInstance(
+          [
+            [0, 0, 0, 0],
+            [1, 0, 0, 0],
+          ],
+          [1]
+        ),
+        toTrainInstance(
+          [
+            [0, 0, 0, 0, 0, 0, 0],
+            [1, 0, 0, 0, 0, 0, 0],
+          ],
+          [1]
+        ),
+      ])
+    ).toThrow(/mixed feature widths/);
+  });
+
+  it("carries the row width on the instance rather than assuming one", () => {
+    expect(toTrainInstance([[1, 2, 3, 4]], [0]).featureCount).toBe(FEATURE_COUNT);
+    expect(toTrainInstance([[1, 2, 3, 4, 5, 6, 7]], [0]).featureCount).toBe(AGE_FEATURE_COUNT);
+    // No rows at all: falls back to the no-age width rather than 0.
+    expect(toTrainInstance([], []).featureCount).toBe(FEATURE_COUNT);
   });
 });

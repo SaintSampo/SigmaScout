@@ -6,8 +6,11 @@
  * is promoted, nothing renders, nothing is tuned.
  *
  * ---------------------------------------------------------------------------
- * EXACTLY TWO FEATURE FAMILIES
+ * TWO ARMS, RUN IN ONE PASS, PRINTED SIDE BY SIDE (quick task 260912-7bp)
  * ---------------------------------------------------------------------------
+ *
+ * The NO-AGE ARM is 5n8's original four features, unchanged — same encodings,
+ * same fit, same defaults — over exactly two families:
  *
  *   (a) PRIOR AWARD HISTORY — how often and how recently this team has won
  *       this award before, plus how decorated it is overall. PRIOR SEASONS
@@ -15,15 +18,34 @@
  *   (b) PRE-EVENT ON-FIELD STRENGTH — the team's BPR rating going into the
  *       event.
  *
- * Team age / veteran status and event context were considered and DELIBERATELY
- * NOT SELECTED. They must not be added, and must not be smuggled back in as a
- * derived quantity ("seasons since first appearance", event week/district/
- * country). The direct consequence is that Rookie All Star (type 10), Rookie
- * Inspiration (15) and Highest Rookie Seed (14) are HANDICAPPED: without an age
- * feature the model cannot see which candidates are rookies, so it is being
- * asked to pick a rookie out of a pool in which rookies are invisible. That
- * handicap showing up in the result IS the finding. Do not special-case those
- * types, do not exclude them, do not add `rookie_year` "just for them".
+ * The AGE ARM adds ONE further family and nothing else:
+ *
+ *   (c) TEAM AGE AS OF THE EVENT'S SEASON — `eventYear - rookie_year`, as
+ *       `isRookie`, `log1p(age)` and an explicit `ageKnown` flag.
+ *
+ * Event context (week / district / country) remains DELIBERATELY NOT SELECTED
+ * and must not be smuggled in. The deliverable of this script is the DELTA
+ * between the two arms per award type, which is why the no-age arm is kept
+ * intact rather than "upgraded": a new absolute number with nothing to subtract
+ * from answers a different question.
+ *
+ * ---------------------------------------------------------------------------
+ * THE ROOKIE-AWARD ARTIFACT, AND THE BASELINES THAT KILL IT
+ * ---------------------------------------------------------------------------
+ *
+ * In 5n8 the three rookie award types (10 Rookie All Star, 14 Highest Rookie
+ * Seed, 15 Rookie Inspiration) showed large apparent model wins. All three were
+ * ARTIFACTS: B1 cannot pick a team with no prior wins and B2 cannot pick a team
+ * with no rating, so BOTH baselines are STRUCTURALLY PINNED at exactly 0.0%
+ * there and beating them proves nothing.
+ *
+ * Handing the model an explicit age feature while leaving those baselines at
+ * zero would repeat the identical fallacy in reverse and manufacture a much
+ * LARGER fake win. So the age feature never ships alone: RB1
+ * (`pickMostDecoratedRookie`) and RB2 (`pickStrongestRookie`) land beside it,
+ * and the pre-committed verdict rule is "beats the BEST of B1, B2, RB1, RB2"
+ * — applied to BOTH arms, so one rule scores both and the comparison means
+ * something. A rookie award can no longer be won against a structural zero.
  *
  * ---------------------------------------------------------------------------
  * WALK-FORWARD IS MANDATORY AND IS THE WHOLE POINT
@@ -105,8 +127,11 @@ export const REFERENCE_ONLY_AWARD_TYPES: ReadonlySet<number> = new Set([1, 2]);
  */
 export const THIN_PRIOR_INSTANCES = 30;
 
-/** f1..f4. Four numbers, two families, nothing else. */
+/** f1..f4. The NO-AGE arm: four numbers, two families, nothing else. */
 export const FEATURE_COUNT = 4;
+
+/** f1..f7. The AGE arm: the same four, plus the three age numbers. */
+export const AGE_FEATURE_COUNT = 7;
 
 // ---------------------------------------------------------------------------
 // Inputs
@@ -458,13 +483,16 @@ export function replayPreEventRatings<P>(
  * IMPLICIT AGE DETECTOR assembled from the ABSENCE of the two selected
  * features rather than from a third feature.
  *
- * That is why type 10 / 14 / 15 score 12-18% here against baselines of exactly
- * 0.0%: B1 can never pick a rookie (no prior wins) and B2 can never pick one
- * (no rating, ranked last), so those two baselines are structurally pinned at
- * zero and beating them proves nothing. No age feature was added — the plan's
- * prohibition is honoured literally — but the handicap the plan expected to
- * see is NOT what these numbers measure, and they must not be read as "the
- * model predicts rookie awards".
+ * That is why type 10 / 14 / 15 scored 12-18% in 5n8 against baselines of
+ * exactly 0.0%: B1 can never pick a rookie (no prior wins) and B2 can never
+ * pick one (no rating, ranked last), so those two baselines are structurally
+ * pinned at zero and beating them proves nothing.
+ *
+ * 260912-7bp does NOT fix that by deleting the hazard — this function is
+ * unchanged. It fixes it by adding baselines that are NOT pinned at zero
+ * (`pickMostDecoratedRookie`, `pickStrongestRookie`) and scoring both arms
+ * against the best of all four. The all-zero vector is still findable; it just
+ * no longer wins by default.
  *
  * Returns one row per candidate, in the order candidates were supplied.
  */
@@ -509,6 +537,97 @@ export function buildFeatures(
 }
 
 // ---------------------------------------------------------------------------
+// Feature family (c): team age AS OF THE EVENT'S SEASON (quick task 260912-7bp)
+// ---------------------------------------------------------------------------
+
+/**
+ * Age in seasons at the time of the event: `eventYear - rookieYear`, clamped at
+ * zero.
+ *
+ * RELATIVE TO THE EVENT'S SEASON, NEVER ABSOLUTE. A 2019 event and a 2026 event
+ * must see different ages for the same team, and a feature built from the
+ * team's age *today* would be a look-ahead dressed as a constant.
+ *
+ * Returns `null` — not 0, and not a guess — when the rookie year is unknown.
+ * `null` is the input that makes `ageKnown` false downstream; conflating it
+ * with 0 would encode every unknown team as a rookie, which is the single most
+ * dangerous error available here.
+ *
+ * The clamp at 0 exists for data errors only (a rookie year after the event's
+ * season). A negative age would otherwise produce `log1p` of a negative number
+ * — `NaN` for age < -1 — and silently poison the whole fit.
+ */
+export function teamAge(
+  rookieYear: number | null | undefined,
+  eventYear: number
+): number | null {
+  if (rookieYear === null || rookieYear === undefined || !Number.isFinite(rookieYear)) return null;
+  return Math.max(0, eventYear - rookieYear);
+}
+
+/**
+ * f5  isRookie   — 1 if the age is KNOWN and equals 0, else 0
+ * f6  log1p(age) — monotone veteran-ness, compressed so a 30-year veteran does
+ *                  not dominate a 5-year one by six times
+ * f7  ageKnown   — 1 if `rookie_year` is non-null, else 0
+ *
+ * THE THREE ENCODINGS ARE MUTUALLY DISAMBIGUATING, WHICH IS THE WHOLE POINT:
+ *
+ *   unknown age       -> [0, 0,       0]
+ *   known rookie      -> [1, 0,       1]
+ *   known 1-year-old  -> [0, log 2,   1]
+ *
+ * `f7` is not decoration. Without it, an unknown-age team and a known rookie
+ * would BOTH read `[0, 0]` on f5/f6 in every respect the fit can see except the
+ * one that matters, and the unknowns would inflate exactly the rookie rows this
+ * task exists to de-flatter.
+ */
+export function ageFeatureTriple(age: number | null): [number, number, number] {
+  if (age === null) return [0, 0, 0];
+  return [age === 0 ? 1 : 0, Math.log1p(age), 1];
+}
+
+/**
+ * The AGE ARM's seven-number vector: `buildFeatures`' four, then f5-f7.
+ *
+ * Built by CALLING `buildFeatures` rather than by reimplementing it, so the two
+ * arms can never drift apart on f1-f4 — the delta between them is this script's
+ * deliverable, and it is only meaningful if the shared prefix is bit-identical.
+ *
+ * `rookieYears` holds ONLY teams whose `rookie_year` is non-null; an absent key
+ * means "unknown", never "rookie".
+ */
+export function buildAgeFeatures(
+  candidates: readonly string[],
+  awardType: number,
+  year: number,
+  history: PriorHistory,
+  ratings: ReadonlyMap<string, number>,
+  rookieYears: ReadonlyMap<string, number>
+): number[][] {
+  const base = buildFeatures(candidates, awardType, year, history, ratings);
+  const out: number[][] = [];
+  for (let i = 0; i < candidates.length; i += 1) {
+    const team = candidates[i];
+    const row = base[i] ?? [0, 0, 0, 0];
+    const age = teamAge(team === undefined ? null : rookieYears.get(team), year);
+    out.push([...row, ...ageFeatureTriple(age)]);
+  }
+  return out;
+}
+
+/** Fraction of the candidate pool whose `rookie_year` is known. */
+export function knownAgeFraction(
+  candidates: readonly string[],
+  rookieYears: ReadonlyMap<string, number>
+): number {
+  if (candidates.length === 0) return 0;
+  let known = 0;
+  for (const team of candidates) if (rookieYears.get(team) !== undefined) known += 1;
+  return known / candidates.length;
+}
+
+// ---------------------------------------------------------------------------
 // The model: a per-award-type conditional logit over the event's pool
 // ---------------------------------------------------------------------------
 
@@ -517,9 +636,19 @@ export function buildFeatures(
  * pool plus the indices of the candidates that actually won.
  */
 export interface TrainInstance {
-  /** Row-major, length `candidateCount * FEATURE_COUNT`. */
+  /** Row-major, length `candidateCount * featureCount`. */
   readonly features: readonly number[];
   readonly candidateCount: number;
+  /**
+   * Width of one row: 4 in the no-age arm, 7 in the age arm.
+   *
+   * Carried ON THE INSTANCE rather than read from a module constant, because
+   * both arms are now fit in the SAME pass. A module-level width would make it
+   * possible for one arm's fit to silently read the other's dimension and
+   * truncate or zero-pad its features without failing — which would look like a
+   * measured result and be none.
+   */
+  readonly featureCount: number;
   /** Indices into the candidate pool. Multi-recipient awards carry several. */
   readonly winnerIdx: readonly number[];
 }
@@ -528,11 +657,17 @@ export function toTrainInstance(
   features: readonly (readonly number[])[],
   winnerIdx: readonly number[]
 ): TrainInstance {
+  const featureCount = features[0]?.length ?? FEATURE_COUNT;
   const flat: number[] = [];
   for (const row of features) {
-    for (let d = 0; d < FEATURE_COUNT; d += 1) flat.push(row[d] ?? 0);
+    for (let d = 0; d < featureCount; d += 1) flat.push(row[d] ?? 0);
   }
-  return { features: flat, candidateCount: features.length, winnerIdx: [...winnerIdx] };
+  return {
+    features: flat,
+    candidateCount: features.length,
+    featureCount,
+    winnerIdx: [...winnerIdx],
+  };
 }
 
 export interface FitOptions {
@@ -560,12 +695,25 @@ export function fitConditionalLogit(
   const iterations = opts.iterations ?? 200;
   const lr = opts.learningRate ?? 0.5;
   const l2 = opts.l2 ?? 1;
-  const beta = new Array<number>(FEATURE_COUNT).fill(0);
+  // The width comes from the training set itself, so the no-age and age arms
+  // can be fit by the same function in the same pass. Mixing widths in one
+  // training set is a programming error, not a data condition, so it THROWS
+  // rather than quietly fitting the narrower of the two.
+  const featureCount = train[0]?.featureCount ?? FEATURE_COUNT;
+  for (const t of train) {
+    if (t.featureCount !== featureCount) {
+      throw new Error(
+        `fitConditionalLogit: mixed feature widths (${featureCount} vs ${t.featureCount}) — ` +
+          `the no-age and age arms must never share a training set`
+      );
+    }
+  }
+  const beta = new Array<number>(featureCount).fill(0);
 
   const usable = train.filter((t) => t.candidateCount >= 2 && t.winnerIdx.length > 0);
   if (usable.length === 0) return beta;
 
-  const grad = new Array<number>(FEATURE_COUNT).fill(0);
+  const grad = new Array<number>(featureCount).fill(0);
   const scale = 1 / usable.length;
   const probs: number[] = [];
 
@@ -578,8 +726,8 @@ export function fitConditionalLogit(
       let max = Number.NEGATIVE_INFINITY;
       for (let j = 0; j < k; j += 1) {
         let u = 0;
-        const base = j * FEATURE_COUNT;
-        for (let d = 0; d < FEATURE_COUNT; d += 1) u += (beta[d] ?? 0) * (f[base + d] ?? 0);
+        const base = j * featureCount;
+        for (let d = 0; d < featureCount; d += 1) u += (beta[d] ?? 0) * (f[base + d] ?? 0);
         probs[j] = u;
         if (u > max) max = u;
       }
@@ -592,21 +740,21 @@ export function fitConditionalLogit(
       const invSum = sum > 0 ? 1 / sum : 0;
       const invW = 1 / inst.winnerIdx.length;
       for (const wi of inst.winnerIdx) {
-        const base = wi * FEATURE_COUNT;
-        for (let d = 0; d < FEATURE_COUNT; d += 1) {
+        const base = wi * featureCount;
+        for (let d = 0; d < featureCount; d += 1) {
           grad[d] = (grad[d] ?? 0) + invW * (f[base + d] ?? 0);
         }
       }
       for (let j = 0; j < k; j += 1) {
         const p = (probs[j] ?? 0) * invSum;
         if (p === 0) continue;
-        const base = j * FEATURE_COUNT;
-        for (let d = 0; d < FEATURE_COUNT; d += 1) {
+        const base = j * featureCount;
+        for (let d = 0; d < featureCount; d += 1) {
           grad[d] = (grad[d] ?? 0) - p * (f[base + d] ?? 0);
         }
       }
     }
-    for (let d = 0; d < FEATURE_COUNT; d += 1) {
+    for (let d = 0; d < featureCount; d += 1) {
       const b = beta[d] ?? 0;
       beta[d] = b + lr * ((grad[d] ?? 0) * scale - l2 * scale * b);
     }
@@ -628,14 +776,20 @@ export function argmaxIndex(values: readonly number[]): number {
   return best;
 }
 
-/** The model's top-1 pick: argmax of x·beta over the pool. */
+/**
+ * The model's top-1 pick: argmax of x·beta over the pool.
+ *
+ * The dot product runs over `weights.length`, not a module constant, so the
+ * same function scores a 4-wide no-age vector and a 7-wide age vector without
+ * either arm being able to read the other's width.
+ */
 export function pickByWeights(
   weights: readonly number[],
   features: readonly (readonly number[])[]
 ): number {
   const u = features.map((row) => {
     let s = 0;
-    for (let d = 0; d < FEATURE_COUNT; d += 1) s += (weights[d] ?? 0) * (row[d] ?? 0);
+    for (let d = 0; d < weights.length; d += 1) s += (weights[d] ?? 0) * (row[d] ?? 0);
     return s;
   });
   return argmaxIndex(u);
@@ -719,6 +873,115 @@ export function pickStrongest(
 }
 
 /**
+ * ABSTENTION. A rookie baseline returns this when the pool contains no team
+ * whose age is KNOWN to be 0 — there is no rookie for it to point at, so it
+ * points at nobody.
+ *
+ * `isTop1Hit` already scores a negative index as a miss, so an abstention costs
+ * the baseline the instance in the numerator while staying in the denominator
+ * alongside every other predictor. It is ALSO counted separately, because "this
+ * baseline abstained on 90% of instances" and "this baseline guessed wrong on
+ * 90% of instances" are different facts about the world and must not average
+ * into one number that reads as the second.
+ */
+export const ABSTAIN = -1;
+
+/**
+ * Indices of the candidates whose age is KNOWN and equal to 0 at this event's
+ * season. Unknown age is never included — encoding an unknown as a rookie is
+ * exactly the error that would inflate the rows these baselines exist to score
+ * honestly.
+ */
+export function knownRookieIndices(
+  candidates: readonly string[],
+  year: number,
+  rookieYears: ReadonlyMap<string, number>
+): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < candidates.length; i += 1) {
+    const team = candidates[i];
+    if (team === undefined) continue;
+    if (teamAge(rookieYears.get(team), year) === 0) out.push(i);
+  }
+  return out;
+}
+
+/**
+ * RB1 MOST-DECORATED ROOKIE PRESENT — B1 restricted to the known-rookie subset:
+ * rank by prior wins of THIS award type, then prior wins of any type, then
+ * ascending team number. Abstains when the pool holds no known rookie.
+ *
+ * THIS IS THE BASELINE THAT KILLS THE ROOKIE ARTIFACT. B1 is structurally
+ * pinned at 0.0% on award types 10/14/15 because it can never pick a team with
+ * no prior wins; RB1 is not, because it only ever considers teams that HAVE no
+ * prior wins. A model that beats B1 there has beaten a zero; a model that beats
+ * RB1 there has beaten a real predictor.
+ *
+ * Like `pickMostDecorated`, it takes NO ratings argument, so the "silently
+ * becomes a two-feature model" mistake is unavailable at the signature level.
+ */
+export function pickMostDecoratedRookie(
+  candidates: readonly string[],
+  awardType: number,
+  year: number,
+  history: PriorHistory,
+  rookieYears: ReadonlyMap<string, number>
+): number {
+  let best = ABSTAIN;
+  let bestType = -1;
+  let bestAny = -1;
+  let bestNum = Number.POSITIVE_INFINITY;
+  for (const i of knownRookieIndices(candidates, year, rookieYears)) {
+    const team = candidates[i];
+    if (team === undefined) continue;
+    const t = priorTypeCount(history, team, awardType);
+    const a = priorAnyCount(history, team);
+    const n = teamNumber(team);
+    if (t > bestType || (t === bestType && (a > bestAny || (a === bestAny && n < bestNum)))) {
+      best = i;
+      bestType = t;
+      bestAny = a;
+      bestNum = n;
+    }
+  }
+  return best;
+}
+
+/**
+ * RB2 STRONGEST ROOKIE PRESENT — B2 restricted to the known-rookie subset:
+ * rank by pre-event BPR alone, ascending team number on ties, an unrated
+ * candidate last. Abstains when the pool holds no known rookie.
+ *
+ * Not redundant with RB1 even though most rookies carry no history: a rookie
+ * that already played an earlier event in its rookie season DOES carry a
+ * pre-event BPR at its second event, so the two baselines genuinely disagree
+ * wherever a rookie has taken the field before.
+ */
+export function pickStrongestRookie(
+  candidates: readonly string[],
+  year: number,
+  ratings: ReadonlyMap<string, number>,
+  rookieYears: ReadonlyMap<string, number>
+): number {
+  let best = ABSTAIN;
+  let bestR = Number.NEGATIVE_INFINITY;
+  let bestNum = Number.POSITIVE_INFINITY;
+  for (const i of knownRookieIndices(candidates, year, rookieYears)) {
+    const team = candidates[i];
+    if (team === undefined) continue;
+    const r = ratings.get(team);
+    const v = r === undefined || !Number.isFinite(r) ? Number.NEGATIVE_INFINITY : r;
+    const n = teamNumber(team);
+    if (best === ABSTAIN || v > bestR || (v === bestR && n < bestNum)) {
+      best = i;
+      bestR = v;
+      bestNum = n;
+    }
+  }
+  return best;
+}
+
+/**
  * TOP-1 SCORING RULE, stated once and applied everywhere:
  *
  *   A predictor emits exactly ONE team from the event's candidate pool. The
@@ -748,28 +1011,58 @@ export function isThinPrior(priorInstanceCount: number): boolean {
 // The experiment
 // ---------------------------------------------------------------------------
 
+/**
+ * One (award type, season) or pooled tally. BOTH ARMS SHARE ONE CELL, so they
+ * share one denominator `n` and are scored over the identical instance set —
+ * the delta between `modelHits` and `ageModelHits` is therefore a pure feature
+ * effect and never a population difference.
+ */
 export interface Cell {
   n: number;
   poolSum: number;
   recipSum: number;
+  /** NO-AGE arm (f1-f4) top-1 hits — 5n8's model, unchanged. */
   modelHits: number;
+  /** AGE arm (f1-f7) top-1 hits. */
+  ageModelHits: number;
   b1Hits: number;
   b2Hits: number;
+  /** RB1 most-decorated-rookie-present. An abstention is a miss here. */
+  rb1Hits: number;
+  /** RB2 strongest-rookie-present. An abstention is a miss here. */
+  rb2Hits: number;
+  /** Instances where RB1 found no known rookie in the pool at all. */
+  rb1Abstentions: number;
+  /** Instances where RB2 found no known rookie in the pool at all. */
+  rb2Abstentions: number;
   b0Expected: number;
+  /**
+   * Sum over instances of the fraction of the candidate pool with a KNOWN
+   * `rookie_year`. Divided by `n` it is the mean age coverage — printed so a
+   * weak rookie baseline can be read as a DATA problem rather than mistaken for
+   * a modelling one.
+   */
+  ageKnownSum: number;
   /** Instances where NO recipient was in the candidate pool — unhittable. */
   unreachable: number;
   /** Instances scored by the thin-prior decoration fallback rather than a fit. */
   thinPriorRows: number;
 }
 
-const emptyCell = (): Cell => ({
+export const emptyCell = (): Cell => ({
   n: 0,
   poolSum: 0,
   recipSum: 0,
   modelHits: 0,
+  ageModelHits: 0,
   b1Hits: 0,
   b2Hits: 0,
+  rb1Hits: 0,
+  rb2Hits: 0,
+  rb1Abstentions: 0,
+  rb2Abstentions: 0,
   b0Expected: 0,
+  ageKnownSum: 0,
   unreachable: 0,
   thinPriorRows: 0,
 });
@@ -792,12 +1085,35 @@ export interface ExperimentReport {
   scoredSeasons: number[];
   byType: AwardTypeReport[];
   fitIterations: number;
+  /**
+   * Teams with a non-null `rookie_year` in the corpus. Zero here means the age
+   * arm is a no-op wearing a seven-feature name, so it is reported rather than
+   * left for the reader to infer from a flat delta column.
+   */
+  rookieYearsKnown: number;
 }
 
+/** The two fitted arms. */
+export type Arm = "model" | "ageModel";
+
+/** Every scoreable predictor in the report. */
+export type Predictor = Arm | "b1" | "b2" | "rb1" | "rb2";
+
 /** `acc(cell)` helpers, so the printer and the JSON never disagree. */
-export function cellAccuracy(c: Cell, which: "model" | "b1" | "b2"): number {
+export function cellAccuracy(c: Cell, which: Predictor): number {
   if (c.n === 0) return 0;
-  const hits = which === "model" ? c.modelHits : which === "b1" ? c.b1Hits : c.b2Hits;
+  const hits =
+    which === "model"
+      ? c.modelHits
+      : which === "ageModel"
+        ? c.ageModelHits
+        : which === "b1"
+          ? c.b1Hits
+          : which === "b2"
+            ? c.b2Hits
+            : which === "rb1"
+              ? c.rb1Hits
+              : c.rb2Hits;
   return hits / c.n;
 }
 
@@ -805,18 +1121,42 @@ export function cellRandom(c: Cell): number {
   return c.n === 0 ? 0 : c.b0Expected / c.n;
 }
 
+/** Mean fraction of the candidate pool whose `rookie_year` is known. */
+export function cellAgeKnownFraction(c: Cell): number {
+  return c.n === 0 ? 0 : c.ageKnownSum / c.n;
+}
+
+/**
+ * The bar BOTH arms have to clear: the best of the four baselines.
+ *
+ * Taking the MAX over all four — not over B1 and B2 alone — is the single
+ * change that makes a rookie-award verdict mean anything, because RB1 and RB2
+ * are not structurally pinned at zero there.
+ */
+export function bestBaseline(c: Cell): number {
+  return Math.max(
+    cellAccuracy(c, "b1"),
+    cellAccuracy(c, "b2"),
+    cellAccuracy(c, "rb1"),
+    cellAccuracy(c, "rb2")
+  );
+}
+
 /**
  * The pre-committed verdict rule, written down before any number was seen: an
- * award type counts as PREDICTABLE only if the model's pooled top-1 beats BOTH
- * B1 and B2 with pooled n >= 30. Anything else is "not demonstrated" — not
- * "promising", not "directionally positive".
+ * award type counts as PREDICTABLE only if the named arm's pooled top-1 beats
+ * the BEST OF ALL FOUR baselines (B1, B2, RB1, RB2) with pooled n >= 30.
+ * Anything else is "not demonstrated" — not "promising", not "directionally
+ * positive".
+ *
+ * 5n8's rule was "beats B1 and B2". 7bp widened it to all four and applies the
+ * widened rule to BOTH arms, so the no-age and age numbers are scored by one
+ * rule and their comparison means something. This is what stops a rookie award
+ * being "won" against two baselines that are structurally incapable of scoring
+ * above zero there.
  */
-export function isPredictable(c: Cell): boolean {
-  return (
-    c.n >= THIN_PRIOR_INSTANCES &&
-    cellAccuracy(c, "model") > cellAccuracy(c, "b1") &&
-    cellAccuracy(c, "model") > cellAccuracy(c, "b2")
-  );
+export function isPredictable(c: Cell, arm: Arm = "model"): boolean {
+  return c.n >= THIN_PRIOR_INSTANCES && cellAccuracy(c, arm) > bestBaseline(c);
 }
 
 /**
@@ -831,18 +1171,50 @@ export function isPredictable(c: Cell): boolean {
  * read as a result. Anything under about 1pp here is a coin flip, not a
  * finding, whichever side of the inequality it happens to land on.
  */
-export function verdictMarginPp(c: Cell): number {
-  return 100 * (cellAccuracy(c, "model") - Math.max(cellAccuracy(c, "b1"), cellAccuracy(c, "b2")));
+export function verdictMarginPp(c: Cell, arm: Arm = "model"): number {
+  return 100 * (cellAccuracy(c, arm) - bestBaseline(c));
 }
 
 /** Below this margin, a PREDICTABLE verdict is optimizer noise and says so in the output. */
 export const NOISE_MARGIN_PP = 1;
 
-function addCell(target: Cell, poolSize: number, recipInPool: number, recipTotal: number): void {
+/**
+ * What adding the age family bought on this cell, in percentage points. THIS IS
+ * THE DELIVERABLE — a new absolute accuracy with nothing to subtract from would
+ * be answering a different question.
+ */
+export function ageDeltaPp(c: Cell): number {
+  return 100 * (cellAccuracy(c, "ageModel") - cellAccuracy(c, "model"));
+}
+
+/**
+ * The pre-committed reading of that delta. The SAME noise discipline 5n8 applied
+ * to verdict margins applies here: raising `--iterations` from 200 to 1500 moves
+ * pooled accuracy by up to 0.6pp, so a sub-1.0pp difference between two fits is
+ * optimizer noise, not a feature effect.
+ *
+ * A delta inside the band prints as "no change" — never as "promising", never as
+ * "directionally positive". That is the whole point of pre-committing it.
+ */
+export function ageVerdict(c: Cell): "helps" | "hurts" | "no change" {
+  const d = ageDeltaPp(c);
+  if (d >= NOISE_MARGIN_PP) return "helps";
+  if (d <= -NOISE_MARGIN_PP) return "hurts";
+  return "no change";
+}
+
+function addCell(
+  target: Cell,
+  poolSize: number,
+  recipInPool: number,
+  recipTotal: number,
+  ageKnownFraction: number
+): void {
   target.n += 1;
   target.poolSum += poolSize;
   target.recipSum += recipTotal;
   target.b0Expected += randomExpectedTop1(poolSize, recipInPool);
+  target.ageKnownSum += ageKnownFraction;
   if (recipInPool === 0) target.unreachable += 1;
 }
 
@@ -851,10 +1223,15 @@ interface PreparedInstance {
   readonly candidates: readonly string[];
   readonly recipientSet: ReadonlySet<string>;
   readonly recipientsInPool: number;
+  /** NO-AGE arm, 4 wide. */
   readonly features: number[][];
+  /** AGE arm, 7 wide, sharing f1-f4 with `features` by construction. */
+  readonly ageFeatures: number[][];
   readonly ratings: ReadonlyMap<string, number>;
   readonly history: PriorHistory;
   readonly train: TrainInstance;
+  readonly ageTrain: TrainInstance;
+  readonly ageKnownFraction: number;
 }
 
 /**
@@ -867,10 +1244,19 @@ export function runExperiment(input: {
   poolsByEvent: ReadonlyMap<string, readonly string[]>;
   ratingsByEvent: ReadonlyMap<string, ReadonlyMap<string, number>>;
   awardNames: ReadonlyMap<number, string>;
+  /**
+   * teamKey -> TBA's `rookie_year`, NON-NULL ENTRIES ONLY. An absent key means
+   * "unknown age", never "rookie". Optional: omitted, the age arm sees
+   * `f5 = f6 = f7 = 0` for every candidate and collapses onto the no-age arm,
+   * which is the honest degenerate behaviour for a corpus that has not been
+   * backfilled.
+   */
+  rookieYearByTeam?: ReadonlyMap<string, number>;
   command: string;
   fitIterations?: number;
 }): ExperimentReport {
   const fitIterations = input.fitIterations ?? 200;
+  const rookieYears = input.rookieYearByTeam ?? new Map<string, number>();
   const seasons = [...new Set(input.instances.map((i) => i.year))].sort((a, b) => a - b);
   const scoredSeasons = seasons.slice(1);
 
@@ -896,6 +1282,14 @@ export function runExperiment(input: {
     if (history === undefined) continue;
     const ratings = input.ratingsByEvent.get(instance.eventKey) ?? new Map<string, number>();
     const features = buildFeatures(candidates, instance.awardType, instance.year, history, ratings);
+    const ageFeatures = buildAgeFeatures(
+      candidates,
+      instance.awardType,
+      instance.year,
+      history,
+      ratings,
+      rookieYears
+    );
     const recipientSet = new Set(instance.recipients);
     const winnerIdx: number[] = [];
     for (let i = 0; i < candidates.length; i += 1) {
@@ -908,9 +1302,12 @@ export function runExperiment(input: {
       recipientSet,
       recipientsInPool: winnerIdx.length,
       features,
+      ageFeatures,
       ratings,
       history,
       train: toTrainInstance(features, winnerIdx),
+      ageTrain: toTrainInstance(ageFeatures, winnerIdx),
+      ageKnownFraction: knownAgeFraction(candidates, rookieYears),
     });
   }
 
@@ -942,10 +1339,20 @@ export function runExperiment(input: {
       const trainPool = list.filter((p) => p.instance.year < season);
       const priorInstances = trainPool.length;
       const thin = isThinPrior(priorInstances);
+      // BOTH ARMS ARE FIT ON THE SAME TRAINING POOL, in the same pass, with the
+      // same iteration count and the same untouched defaults. The only thing
+      // that differs between them is the width of the feature vector — which is
+      // what makes the delta attributable to the age family and to nothing else.
       const weights = thin
         ? null
         : fitConditionalLogit(
             trainPool.map((p) => p.train),
+            { iterations: fitIterations }
+          );
+      const ageWeights = thin
+        ? null
+        : fitConditionalLogit(
+            trainPool.map((p) => p.ageTrain),
             { iterations: fitIterations }
           );
 
@@ -956,22 +1363,50 @@ export function runExperiment(input: {
       }
 
       for (const p of scored) {
-        // THIN-PRIOR FALLBACK: below 30 prior instances the conditional logit
-        // is not fit at all and the decoration heuristic stands in. Every row
-        // it produced is flagged, because a "model" number that is really B1
-        // wearing the model's name would make the comparison meaningless.
-        const modelPick =
-          weights === null
-            ? pickMostDecorated(p.candidates, awardType, p.history)
-            : pickByWeights(weights, p.features);
+        // THIN-PRIOR FALLBACK: below 30 prior instances neither conditional
+        // logit is fit at all and the decoration heuristic stands in for both
+        // arms. Every row it produced is flagged, because a "model" number that
+        // is really B1 wearing the model's name would make the comparison
+        // meaningless — and a DELTA computed between two copies of B1 is a
+        // guaranteed, meaningless zero.
         const b1Pick = pickMostDecorated(p.candidates, awardType, p.history);
+        const modelPick = weights === null ? b1Pick : pickByWeights(weights, p.features);
+        const ageModelPick =
+          ageWeights === null ? b1Pick : pickByWeights(ageWeights, p.ageFeatures);
         const b2Pick = pickStrongest(p.candidates, p.ratings);
+        const rb1Pick = pickMostDecoratedRookie(
+          p.candidates,
+          awardType,
+          p.instance.year,
+          p.history,
+          rookieYears
+        );
+        const rb2Pick = pickStrongestRookie(
+          p.candidates,
+          p.instance.year,
+          p.ratings,
+          rookieYears
+        );
 
         for (const target of [cell, report.pooled]) {
-          addCell(target, p.candidates.length, p.recipientsInPool, p.instance.recipients.length);
+          addCell(
+            target,
+            p.candidates.length,
+            p.recipientsInPool,
+            p.instance.recipients.length,
+            p.ageKnownFraction
+          );
           if (isTop1Hit(p.candidates, modelPick, p.recipientSet)) target.modelHits += 1;
+          if (isTop1Hit(p.candidates, ageModelPick, p.recipientSet)) target.ageModelHits += 1;
           if (isTop1Hit(p.candidates, b1Pick, p.recipientSet)) target.b1Hits += 1;
           if (isTop1Hit(p.candidates, b2Pick, p.recipientSet)) target.b2Hits += 1;
+          // An abstention scores as a miss (isTop1Hit rejects a negative index)
+          // AND is counted, so "never had a rookie to point at" is never read as
+          // "pointed at the wrong team".
+          if (rb1Pick === ABSTAIN) target.rb1Abstentions += 1;
+          else if (isTop1Hit(p.candidates, rb1Pick, p.recipientSet)) target.rb1Hits += 1;
+          if (rb2Pick === ABSTAIN) target.rb2Abstentions += 1;
+          else if (isTop1Hit(p.candidates, rb2Pick, p.recipientSet)) target.rb2Hits += 1;
           if (thin) target.thinPriorRows += 1;
         }
       }
@@ -990,6 +1425,7 @@ export function runExperiment(input: {
     scoredSeasons,
     byType,
     fitIterations,
+    rookieYearsKnown: rookieYears.size,
   };
 }
 
@@ -1014,6 +1450,39 @@ export function loadEventMeta(db: Corpus): Map<string, EventMetaInput> {
   const out = new Map<string, EventMetaInput>();
   for (const r of rows) {
     out.set(r.event_key, { eventKey: r.event_key, year: r.year, eventType: r.event_type });
+  }
+  return out;
+}
+
+interface RookieYearRow {
+  team_key: string;
+  rookie_year: number | null;
+}
+
+/**
+ * teamKey -> `rookie_year`, NON-NULL ROWS ONLY (quick task 260912-7bp).
+ *
+ * A team TBA reports no rookie year for is ABSENT from the map rather than
+ * present with a fabricated value. Absence is what `teamAge` turns into `null`
+ * and `ageFeatureTriple` turns into `f7 = 0` — the unknown encoding. Storing a
+ * placeholder here would encode every unknown team as a rookie, which is the
+ * one error that would inflate exactly the rows this task exists to de-flatter.
+ *
+ * `rookie_year` is a STATIC HISTORICAL FACT, known before any event a team ever
+ * plays, so reading the whole table at once introduces no look-ahead: there is
+ * no season in which a 1997 rookie's rookie year was not already 1997. That is
+ * why this one load is not partitioned by season the way `buildPriorHistory` is
+ * — and the leak test still runs over the seven-feature vector, because "it is
+ * legal" is an argument, not a substitute for the check.
+ */
+export function loadRookieYears(db: Corpus): Map<string, number> {
+  const rows = db
+    .prepare(`SELECT team_key, rookie_year FROM teams`)
+    .all() as RookieYearRow[];
+  const out = new Map<string, number>();
+  for (const r of rows) {
+    if (r.rookie_year === null || !Number.isFinite(r.rookie_year)) continue;
+    out.set(r.team_key, r.rookie_year);
   }
   return out;
 }
@@ -1104,27 +1573,41 @@ export function loadBprParams(path: string): BprParams {
 // ---------------------------------------------------------------------------
 
 const pct = (x: number): string => `${(100 * x).toFixed(1)}%`;
+const signedPp = (x: number): string => `${x >= 0 ? "+" : ""}${x.toFixed(1)}pp`;
 
 function cellLine(label: string, c: Cell, pooled: boolean): string {
   const flags: string[] = [];
   if (pooled && c.n < THIN_PRIOR_INSTANCES) flags.push("THIN-n");
   if (c.thinPriorRows > 0) flags.push(`thin-prior:${c.thinPriorRows}`);
-  if (pooled && isPredictable(c)) flags.push("PREDICTABLE");
+  if (pooled && isPredictable(c, "model")) flags.push("PREDICTABLE(no-age)");
+  if (pooled && isPredictable(c, "ageModel")) flags.push("PREDICTABLE(+age)");
   return (
     `    ${label.padEnd(8)}${String(c.n).padStart(6)}` +
     `${(c.poolSum / Math.max(1, c.n)).toFixed(1).padStart(7)}` +
     `${(c.recipSum / Math.max(1, c.n)).toFixed(2).padStart(7)}` +
     `${pct(cellAccuracy(c, "model")).padStart(9)}` +
+    `${pct(cellAccuracy(c, "ageModel")).padStart(8)}` +
+    `${signedPp(ageDeltaPp(c)).padStart(9)}` +
     `${pct(cellRandom(c)).padStart(8)}` +
     `${pct(cellAccuracy(c, "b1")).padStart(8)}` +
     `${pct(cellAccuracy(c, "b2")).padStart(8)}` +
-    `${String(c.unreachable).padStart(8)}  ` +
+    `${pct(cellAccuracy(c, "rb1")).padStart(8)}` +
+    `${pct(cellAccuracy(c, "rb2")).padStart(8)}` +
+    `${pct(cellAgeKnownFraction(c)).padStart(8)}` +
+    `${String(c.unreachable).padStart(9)}  ` +
     flags.join(" ")
   );
 }
 
+/**
+ * Built from the same `padStart` widths the rows use rather than hand-aligned,
+ * so a column can never silently drift out from under its own header.
+ */
 const HEADER =
-  "    season       n   pool  recip    model      B0      B1      B2  unreach  flags";
+  `    ${"season".padEnd(8)}${"n".padStart(6)}${"pool".padStart(7)}${"recip".padStart(7)}` +
+  `${"no-age".padStart(9)}${"+age".padStart(8)}${"delta".padStart(9)}${"B0".padStart(8)}` +
+  `${"B1".padStart(8)}${"B2".padStart(8)}${"RB1".padStart(8)}${"RB2".padStart(8)}` +
+  `${"ageKn".padStart(9)}${"unreach".padStart(9)}  flags`;
 
 function printTypeBlock(r: AwardTypeReport): string[] {
   const lines: string[] = [];
@@ -1136,20 +1619,48 @@ function printTypeBlock(r: AwardTypeReport): string[] {
     lines.push(cellLine(String(season), c, false));
   }
   lines.push(cellLine("POOLED", r.pooled, true));
+  const c = r.pooled;
+  const verdict = ageVerdict(c);
+  const gloss =
+    verdict === "no change"
+      ? `NO CHANGE (inside the ${NOISE_MARGIN_PP.toFixed(1)}pp noise band)`
+      : verdict === "helps"
+        ? "AGE HELPS"
+        : "AGE HURTS";
+  lines.push(`    age effect (pooled): ${signedPp(ageDeltaPp(c))} — ${gloss}`);
+  lines.push(
+    `    rookie baselines: RB1 abstained on ${c.rb1Abstentions}/${c.n} instances, ` +
+      `RB2 on ${c.rb2Abstentions}/${c.n}; mean pool age coverage ${pct(cellAgeKnownFraction(c))}`
+  );
   lines.push("");
   return lines;
 }
 
 export function formatReport(report: ExperimentReport): string {
   const lines: string[] = [];
-  lines.push("AWARD PREDICTABILITY — walk-forward top-1, two feature families only");
+  lines.push("AWARD PREDICTABILITY — walk-forward top-1, two arms side by side");
   lines.push(`  ${report.command}`);
   lines.push("");
-  lines.push("Features: f1 log1p(prior wins of this type), f2 recency of last win of this type,");
-  lines.push("          f3 log1p(prior wins of any type), f4 pre-event BPR z-scored within pool.");
+  lines.push("NO-AGE arm (f1-f4, unchanged from 260912-5n8):");
+  lines.push("  f1 log1p(prior wins of this type), f2 recency of last win of this type,");
+  lines.push("  f3 log1p(prior wins of any type), f4 pre-event BPR z-scored within pool.");
+  lines.push("AGE arm (f1-f7) adds, with age = eventYear - rookie_year clamped at 0:");
+  lines.push("  f5 isRookie (known age == 0), f6 log1p(age), f7 ageKnown.");
+  lines.push("  Unknown rookie_year is [0,0,0] on f5-f7 — NEVER encoded as a rookie.");
   lines.push("Walk-forward: season Y's fit and every prior count come from seasons < Y only.");
+  lines.push("  Both arms are fit on the same pool, same iterations, same defaults; the only");
+  lines.push("  difference is the feature width, so the delta is the age family and nothing else.");
+  lines.push("");
+  lines.push("Baselines:  B1 most-decorated present     B2 strongest present (pre-event BPR)");
+  lines.push("           RB1 most-decorated ROOKIE     RB2 strongest ROOKIE   (both may abstain)");
   lines.push(
-    `Verdict rule (pre-committed): PREDICTABLE = pooled model beats BOTH B1 and B2 with n >= ${THIN_PRIOR_INSTANCES}.`
+    `Verdict rule (pre-committed): PREDICTABLE = pooled arm beats the BEST of B1, B2, RB1, RB2`
+  );
+  lines.push(
+    `  with n >= ${THIN_PRIOR_INSTANCES}. RB1/RB2 exist so a rookie award cannot be "won" against a structural 0.0%.`
+  );
+  lines.push(
+    `Age rule (pre-committed): age HELPS only at >= ${NOISE_MARGIN_PP.toFixed(1)}pp. Under that is NO CHANGE, not "promising".`
   );
   lines.push("Top-1 rule: one predicted team; correct iff it is in the actual recipient set.");
   lines.push("");
@@ -1166,6 +1677,7 @@ export function formatReport(report: ExperimentReport): string {
     `  seasons scored:                        ${report.scoredSeasons.join(", ")}  (first season is prior-only)`
   );
   lines.push(`  gradient-ascent iterations per fit:     ${report.fitIterations}`);
+  lines.push(`  teams with a known rookie_year:        ${report.rookieYearsKnown}`);
   lines.push("");
 
   const judged = report.byType.filter((r) => !REFERENCE_ONLY_AWARD_TYPES.has(r.awardType));
@@ -1187,44 +1699,81 @@ export function formatReport(report: ExperimentReport): string {
   lines.push("");
   for (const r of reference) lines.push(...printTypeBlock(r));
 
-  const verdict = judged.filter((r) => isPredictable(r.pooled));
+  const verdictLine = (r: AwardTypeReport, arm: Arm): string => {
+    const margin = verdictMarginPp(r.pooled, arm);
+    const noise = margin < NOISE_MARGIN_PP ? "  <-- MARGIN IS NOISE" : "";
+    return (
+      `  PREDICTABLE  type ${r.awardType} ${r.name}: ${arm === "model" ? "no-age" : "+age"} ` +
+      `${pct(cellAccuracy(r.pooled, arm))} vs best baseline ${pct(bestBaseline(r.pooled))} ` +
+      `(B1 ${pct(cellAccuracy(r.pooled, "b1"))} / B2 ${pct(cellAccuracy(r.pooled, "b2"))} / ` +
+      `RB1 ${pct(cellAccuracy(r.pooled, "rb1"))} / RB2 ${pct(cellAccuracy(r.pooled, "rb2"))}) ` +
+      `on n=${r.pooled.n}, margin ${signedPp(margin)}${noise}`
+    );
+  };
+
   lines.push("===========================================================================");
-  lines.push("VERDICT (judged awards only, pre-committed rule)");
+  lines.push("VERDICT (judged awards only, pre-committed rule: beat the BEST of all four)");
   lines.push("===========================================================================");
-  if (verdict.length === 0) {
-    lines.push("  NOT DEMONSTRATED for every judged award type.");
-  } else {
-    for (const r of verdict) {
-      const margin = verdictMarginPp(r.pooled);
-      const noise = margin < NOISE_MARGIN_PP ? "  <-- MARGIN IS NOISE" : "";
+  for (const arm of ["model", "ageModel"] as const) {
+    const verdict = judged.filter((r) => isPredictable(r.pooled, arm));
+    lines.push("");
+    lines.push(`  ${arm === "model" ? "NO-AGE ARM (f1-f4)" : "AGE ARM (f1-f7)"}`);
+    if (verdict.length === 0) {
+      lines.push("    NOT DEMONSTRATED for every judged award type.");
+    } else {
+      for (const r of verdict) lines.push(verdictLine(r, arm));
       lines.push(
-        `  PREDICTABLE  type ${r.awardType} ${r.name}: model ${pct(cellAccuracy(r.pooled, "model"))} ` +
-          `vs B1 ${pct(cellAccuracy(r.pooled, "b1"))} / B2 ${pct(cellAccuracy(r.pooled, "b2"))} ` +
-          `/ B0 ${pct(cellRandom(r.pooled))} on n=${r.pooled.n}, margin ${margin >= 0 ? "+" : ""}${margin.toFixed(1)}pp${noise}`
+        `    Every other judged type is NOT DEMONSTRATED — not "promising", not "directionally positive".`
       );
     }
-    lines.push("");
+  }
+
+  lines.push("");
+  lines.push("===========================================================================");
+  lines.push("WHAT AGE BOUGHT (the deliverable: +age minus no-age, per judged award type)");
+  lines.push("===========================================================================");
+  const helped = judged.filter((r) => ageVerdict(r.pooled) === "helps");
+  const hurt = judged.filter((r) => ageVerdict(r.pooled) === "hurts");
+  const flat = judged.filter((r) => ageVerdict(r.pooled) === "no change");
+  for (const r of [...helped, ...hurt].sort((a, b) => ageDeltaPp(b.pooled) - ageDeltaPp(a.pooled))) {
     lines.push(
-      `  Every other judged type is NOT DEMONSTRATED — not "promising", not "directionally positive".`
+      `  ${ageVerdict(r.pooled) === "helps" ? "HELPS " : "HURTS "} type ${r.awardType} ${r.name}: ` +
+        `${pct(cellAccuracy(r.pooled, "model"))} -> ${pct(cellAccuracy(r.pooled, "ageModel"))} ` +
+        `(${signedPp(ageDeltaPp(r.pooled))}) on n=${r.pooled.n}`
+    );
+  }
+  lines.push(
+    `  NO CHANGE on ${flat.length} of ${judged.length} judged types (delta inside the ` +
+      `${NOISE_MARGIN_PP.toFixed(1)}pp noise band): ${flat.map((r) => r.awardType).join(", ")}`
+  );
+  lines.push("");
+  lines.push(
+    `  A margin — or an age delta — under ${NOISE_MARGIN_PP.toFixed(1)}pp is OPTIMIZER NOISE, not a result.`
+  );
+  lines.push("  Raising --iterations from 200 to 1500 moves pooled accuracy by at most 0.6pp (the fit");
+  lines.push("  is converged) and that is still enough to flip anything sitting inside that band, in");
+  lines.push("  either direction. The same band therefore governs the age delta: an age arm that beats");
+  lines.push(`  the no-age arm by under ${NOISE_MARGIN_PP.toFixed(1)}pp is two fits disagreeing, not a feature working.`);
+  lines.push("");
+  lines.push("  THE ROOKIE TYPES — 10 Rookie All Star, 14 Highest Rookie Seed, 15 Rookie Inspiration.");
+  lines.push("  In 5n8 both baselines were STRUCTURALLY PINNED AT 0.0% there: B1 cannot pick a team");
+  lines.push("  with no prior wins, B2 cannot pick a team with no rating. Beating a structural zero");
+  lines.push("  proved nothing, and the apparent wins were artifacts of the all-zero feature vector.");
+  lines.push("  RB1 and RB2 are not pinned there, so those rows now carry a baseline that can score:");
+  for (const type of [10, 14, 15]) {
+    const r = report.byType.find((x) => x.awardType === type);
+    if (r === undefined) continue;
+    const c = r.pooled;
+    lines.push(
+      `    type ${type} ${r.name}: no-age ${pct(cellAccuracy(c, "model"))} / +age ` +
+        `${pct(cellAccuracy(c, "ageModel"))} vs B1 ${pct(cellAccuracy(c, "b1"))} / ` +
+        `B2 ${pct(cellAccuracy(c, "b2"))} / RB1 ${pct(cellAccuracy(c, "rb1"))} / ` +
+        `RB2 ${pct(cellAccuracy(c, "rb2"))} on n=${c.n}`
     );
   }
   lines.push("");
-  lines.push(
-    `  A margin under ${NOISE_MARGIN_PP.toFixed(1)}pp is OPTIMIZER NOISE, not a result. Raising --iterations`
-  );
-  lines.push("  from 200 to 1500 moves pooled accuracy by at most 0.6pp (the fit is converged) and");
-  lines.push("  that is still enough to flip any verdict sitting inside that band, in either direction.");
-  lines.push("");
-  lines.push("  Rookie All Star (10), Rookie Inspiration (15) and Highest Rookie Seed (14) are");
-  lines.push("  HANDICAPPED BY DESIGN: no team-age feature was selected. Their numbers are reported");
-  lines.push("  with the handicap named and are not retried with an age feature.");
-  lines.push("");
-  lines.push("  But do NOT read their PREDICTABLE verdicts as a result. Both baselines are");
-  lines.push("  STRUCTURALLY PINNED AT 0.0% there — B1 cannot pick a team with no prior wins, and");
-  lines.push("  B2 cannot pick a team with no rating — so beating them proves nothing. What the fit");
-  lines.push("  found is the all-zero feature vector that only a never-played, never-decorated team");
-  lines.push("  can hold: an age detector assembled from the ABSENCE of the two selected features.");
-  lines.push("  See `buildFeatures`' interpretive-hazard note.");
+  lines.push("  If RB1 beats either arm on those types, THAT is the result — exactly the way 5n8");
+  lines.push("  reported that the fit lost to B1 on the flagship judged awards.");
   return lines.join("\n");
 }
 
@@ -1261,12 +1810,15 @@ function main(): void {
     const model = new BprModel(loadBprParams(BPR_PARAMS_PATH));
     const ratingsByEvent = replayPreEventRatings(matches, model, wanted);
 
+    const rookieYearByTeam = loadRookieYears(db);
+
     report = runExperiment({
       instances,
       census,
       poolsByEvent,
       ratingsByEvent,
       awardNames,
+      rookieYearByTeam,
       command,
       fitIterations,
     });
