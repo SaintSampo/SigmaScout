@@ -105,6 +105,13 @@ specifically — cheapening `analyticRpPmf` on the upcoming path, and moving upc
 offline — are now the ones worth pricing first. Rotation and tick-splitting bound a cost that is
 mostly not where the cost is.
 
+**The probe is LEFT DEPLOYED** as `sigmascout-state-probe`, version `c0405758`, so the next fix
+direction can be priced against the same instrument rather than a rebuilt one. It is read-only by
+construction: its only binding is D1, with **no R2 and no KV at all** (verified in the deploy
+output), and `apps/worker/test/stateProbe.test.ts` holds that it never reaches `scheduled.ts` or any
+write helper. It has no cron trigger, so it costs nothing until something requests it. Delete it
+with `wrangler delete --config apps/worker/wrangler.probe.toml` once this todo closes.
+
 **Reproduce with:**
 `https://sigmascout-state-probe.jrw4561.workers.dev/?season=2026&teamCount=21&folded=2&upcoming=60&rp={1|0}`
 — `params.rp` states the arm, the ablated arm self-labels in `warnings`, and an unrecognised `rp`
