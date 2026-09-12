@@ -57,3 +57,32 @@ Expected published values after the republish (measured under `epa@10.0.0+baseli
 - Must be run from a context with network access. Executor subagents' sandbox denies network Bash.
 
 See `docs/models/epa-vs-statbotics.md`, section "Re-measured under `epa@10.0.0+baseline`".
+
+---
+
+## Page-copy check DONE 2026-09-11 — no copy change is needed
+
+Checked ahead of the republish, since this todo warns that republishing alone would leave the page
+contradicting its own table. **It would not.** The contradiction risk is already engineered out:
+
+- **The head-to-head summary sentence is derived, not hardcoded.** `headToHeadSummarySentence()`
+  (`epaComparisonContent.ts:151`) computes from `statboticsAheadCount` / `totalSeasons` off the
+  artifact's own rows, and carries a doc comment stating the count is "ALWAYS derived from the
+  artifact's own head-to-head rows (never a hardcoded number) — the page must not go stale against
+  its own table." Under the warm figures it will render *"Statbotics had the higher winner accuracy
+  in all 5 measured seasons."*
+- **There is no hardcoded Brier claim anywhere.** `Brier` appears only as two `TableHead` labels and
+  one neutral explanatory sentence (`epaComparisonContent.ts:140`); every Brier cell renders from
+  data via `formatFourDecimals`.
+- **The only hardcoded percentages are 73.5 / 75.2 / 74.0** (`epaComparisonContent.ts:121`). Those
+  are quick task 260910-4x0's **2024 partition ablation** — eleven vs three vs one rated pieces —
+  not the Statbotics head-to-head, and warming the comparison does not touch them.
+
+**So the republish is a clean two-command operation** with no accompanying copy edit.
+
+**One editorial consequence to expect, and it is the honest direction.** The page will move from
+its current cold reading to *"Statbotics had the higher winner accuracy in all 5 measured seasons"*
+— slightly worse-sounding for SigmaScout, because all five warm deltas are negative (−0.11 to
+−0.49 pp). What improves dramatically is the magnitude: 2022 goes from **−2.39 pp to −0.18 pp**. The
+page stops overstating our deficit by ~2.2 pp in exchange for losing a season-count talking point
+that was an artifact of the cold arm and was never real.
