@@ -114,9 +114,15 @@ season. It is a **manual operation run before and after an event weekend** — s
 pnpm publish:seasons
 npx wrangler d1 execute sigmascout-state --remote --env-file .env --file reports/publish/seed-opr.sql
 npx wrangler d1 execute sigmascout-state --remote --env-file .env --file reports/publish/seed-epa.sql
-npx wrangler d1 execute sigmascout-state --remote --env-file .env --file reports/publish/seed-bpr.sql
+npx wrangler d1 execute sigmascout-state --remote --env-file .env --file reports/publish/seed-spr.sql
 pnpm worker:deploy
 ```
+
+**As of quick task 260912-ivg Stage 1 (2026-09-12): the third seed file's name is
+`seed-spr.sql`, not `seed-bpr.sql`.** Do not run this three-line block as a routine
+re-baseline until Stage 3 (D1 reseed) is the intended operation — see the "Quick task
+260912-ivg, Stage 1" note above for why running it earlier writes live D1 rows and
+redeploys the Worker ahead of the client (Stage 5) that is meant to be reading them.
 
 **Corrected 2026-09-12.** This block used to open with `set -a; . ./.env; set +a`. That is blocked
 in agent environments — correctly, because it is a mechanism for loading secrets into a shell — so
@@ -132,12 +138,31 @@ re-seed casually during an event weekend.
 As of plan 07-17, `pnpm publish:seasons` includes offseason and preseason events (`--include-offseason`) in both the published set and the walk-forward stream — an operator running this command is entitled to know its scope changed.
 
 Each seed file's name follows the algorithm's own registry id (`publish.ts`'s
-`seed-${algorithm.id}.sql`), so the three files track `PUBLISHED_ALGORITHM_IDS` — today
-`opr`, `epa`, `bpr`. **The third file was `seed-vpr.sql` in this runbook until 2026-09-11
-and is now `seed-bpr.sql`**: VPR is retired and no publish run produces a `vpr` seed any
+`seed-${algorithm.id}.sql`), so the three files track the algorithm id `resolvePublishAlgorithms`
+resolves for the run that generated them. **The third file was `seed-vpr.sql` in this runbook until
+2026-09-11 and became `seed-bpr.sql`**: VPR is retired and no publish run produces a `vpr` seed any
 more. Called out rather than silently swapped, so an operator who remembers the old name
-knows it was retired rather than mistyped. (BPR is *displayed* as "SPR" on the site since
-2026-09-10; the registry id, the seed filename and every command here are still `bpr`.)
+knows it was retired rather than mistyped.
+
+**Quick task 260912-ivg, Stage 1, reopened the same shape for the SAME reason (BPR -> SPR):**
+`packages/harness/publishedAlgorithms.ts` now carries TWO id constants rather than one, and this
+runbook's commands split across them by which tier they belong to:
+
+- The **`--file`/`wrangler d1 execute` seeding commands below** run against whatever
+  `pnpm publish:seasons` (or `pnpm harness`) most recently generated — the WRITE tier
+  (`PIPELINE_ALGORITHM_IDS`). As of this task, that means the third seed file is named
+  **`seed-spr.sql`**, not `seed-bpr.sql`.
+- **The deployed Worker and the deployed browser** still read the READ tier
+  (`PUBLISHED_ALGORITHM_IDS`, unchanged, still `bpr`) until Stages 3-5 run. Concretely: the live
+  D1 database holds `algorithm_id = 'bpr'` rows, not `'spr'`, until Stage 3's reseed — a seed pass
+  run under this task lands `seed-spr.sql` in the generated-file directory (never tracked in git),
+  but does NOT itself write to live D1 until an operator runs the `wrangler d1 execute` command
+  against it, which is Stage 3, not Stage 1.
+
+Until Stage 3, running the commands below against a freshly generated `seed-spr.sql` is exactly
+Stage 3 — do not do it as part of routine re-seeding while Stage 1's source-only change is the only
+thing that has landed, or the live D1 will carry `spr` rows before the Worker (Stage 4) or the
+client (Stage 5) is ready to read them under that name.
 
 ### Secrets, in this runbook's own voice
 
