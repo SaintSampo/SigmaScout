@@ -271,3 +271,58 @@ CREATE TABLE IF NOT EXISTS event_awards (
   fetched_at TEXT NOT NULL,
   PRIMARY KEY (event_key, award_type, team_key)
 );
+
+-- Award recipients, UNFILTERED (quick task 260912-5n8 T1). Exists ALONGSIDE
+-- event_awards above, additively, and deliberately does NOT replace it:
+-- event_awards keeps its four-type contract (0/1/9/10) forever, because
+-- packages/core/districts/qualification.ts:94 THROWS on any award_type
+-- outside that set ("no declared display label for award_type ...") and that
+-- is a shipped surface with four test files behind it. Widening event_awards
+-- in place would break it; hence a second table, a second normalize function
+-- (packages/ingest/awardsAll.ts's normalizeEventAwardsAll) and a second
+-- ingest mode (--awards-all-only), none of which the district path reads.
+--
+-- This table's purpose is research: answering "can FRC awards be predicted"
+-- requires every judged award type at every event type, which event_awards
+-- has never held (6,170 rows, four types, district events only). So:
+--   * NO award_type filter -- every type TBA has ever enumerated is stored.
+--   * NO null-team-key skip -- a person-only recipient (Woodie Flowers,
+--     Volunteer of the Year) is a real award with a real name, and dropping
+--     it would silently shrink the denominator of any award-count question.
+--     BOTH team_key and awardee are therefore nullable, matching TBA's own
+--     recipient_list shape (packages/ingest/schemas.ts's
+--     tbaAwardRecipientSchema), and the reader must handle either being null.
+--   * `name` and `awardee` are stored, which event_awards discards: a
+--     research table without the award's human-readable name is painful to
+--     read, and both fields are already parsed and then thrown away today.
+--
+-- The primary key is POSITIONAL: award_index is the award's position in the
+-- /event/{key}/awards response array, recipient_index its position within
+-- that award's recipient_list. Positional keys are what make a same-type,
+-- same-event pair of awards (e.g. two Volunteer of the Year recipients, or
+-- two distinct awards sharing a type) storable at all. Because the key is
+-- positional, writes MUST be delete-then-insert per event inside one
+-- transaction (packages/corpus/db.ts's replaceEventAwardsAll) and never a
+-- bare upsert -- an award list that SHRINKS between fetches would otherwise
+-- leave stale high-index rows behind, and those rows would read as real
+-- awards forever.
+--
+-- Carries NO REFERENCES teams(team_key), mirroring event_awards /
+-- district_rankings / event_alliances.picks above. `year` is denormalized
+-- alongside event_key for the same reason event_awards denormalizes it: a
+-- walk-forward scan selects by season with no join, and walk-forward
+-- correctness is exactly what this table is being built to test.
+CREATE TABLE IF NOT EXISTS event_awards_all (
+  event_key TEXT NOT NULL REFERENCES events(event_key),
+  award_type INTEGER NOT NULL,
+  award_index INTEGER NOT NULL,
+  recipient_index INTEGER NOT NULL,
+  team_key TEXT,
+  awardee TEXT,
+  name TEXT NOT NULL,
+  year INTEGER NOT NULL,
+  fetched_at TEXT NOT NULL,
+  PRIMARY KEY (event_key, award_type, award_index, recipient_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_awards_all_year ON event_awards_all(year);

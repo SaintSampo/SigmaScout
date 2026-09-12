@@ -1491,6 +1491,121 @@ export function selectEventAwardsForEvents(db: Corpus, eventKeys: string[]): Map
   return result;
 }
 
+/**
+ * One stored row of `event_awards_all` (quick task 260912-5n8 T1) — the
+ * UNFILTERED award table that lives alongside `CorpusEventAward` above and
+ * does not replace it. `teamKey` and `awardee` are BOTH nullable because
+ * TBA's own `recipient_list` entry is (`tbaAwardRecipientSchema`): a
+ * person-only award carries `team_key: null`, a team-only award carries
+ * `awardee: null`, and this table stores both rather than dropping either.
+ * `awardIndex`/`recipientIndex` are positional — see `schema.sql`'s table
+ * comment for why that forces delete-then-insert writes.
+ */
+export interface CorpusEventAwardAll {
+  eventKey: string;
+  awardType: number;
+  awardIndex: number;
+  recipientIndex: number;
+  teamKey: string | null;
+  awardee: string | null;
+  name: string;
+  year: number;
+  fetchedAt: string;
+}
+
+/**
+ * Replaces every `event_awards_all` row for ONE event, in a single
+ * transaction: DELETE by `event_key`, then INSERT each supplied row (quick
+ * task 260912-5n8 T1).
+ *
+ * This is deliberately NOT an upsert, unlike `upsertEventAward` above. The
+ * table's primary key is positional (`award_index`, `recipient_index`), so
+ * an award list that shrinks between two fetches — an award withdrawn, a
+ * recipient removed, a duplicate entry corrected — would leave the stale
+ * high-index rows behind under an upsert, and nothing downstream could tell
+ * those apart from awards that were really given. Delete-then-insert makes
+ * the stored set exactly the fetched set, every time.
+ *
+ * Wrapped in a better-sqlite3 transaction so an interruption mid-loop can
+ * never leave the event with its old rows deleted and its new rows only
+ * partly written — the one state in which the table would silently
+ * under-report.
+ *
+ * Rows are supplied WITHOUT their `eventKey`: the event key is the
+ * function's own parameter and the DELETE's predicate, so there is no way
+ * for a row to be inserted under a different event than the one just
+ * cleared.
+ */
+export function replaceEventAwardsAll(
+  db: Corpus,
+  eventKey: string,
+  rows: readonly Omit<CorpusEventAwardAll, "eventKey">[]
+): void {
+  const deleteStmt = db.prepare(`DELETE FROM event_awards_all WHERE event_key = ?`);
+  const insertStmt = db.prepare(
+    `INSERT INTO event_awards_all
+       (event_key, award_type, award_index, recipient_index, team_key, awardee, name, year, fetched_at)
+     VALUES (@eventKey, @awardType, @awardIndex, @recipientIndex, @teamKey, @awardee, @name, @year, @fetchedAt)`
+  );
+  const replace = db.transaction((toInsert: readonly Omit<CorpusEventAwardAll, "eventKey">[]) => {
+    deleteStmt.run(eventKey);
+    for (const row of toInsert) {
+      insertStmt.run({
+        eventKey,
+        awardType: row.awardType,
+        awardIndex: row.awardIndex,
+        recipientIndex: row.recipientIndex,
+        teamKey: row.teamKey,
+        awardee: row.awardee,
+        name: row.name,
+        year: row.year,
+        fetchedAt: row.fetchedAt,
+      });
+    }
+  });
+  replace(rows);
+}
+
+interface EventAwardAllRow {
+  event_key: string;
+  award_type: number;
+  award_index: number;
+  recipient_index: number;
+  team_key: string | null;
+  awardee: string | null;
+  name: string;
+  year: number;
+  fetched_at: string;
+}
+
+/**
+ * Every stored `event_awards_all` row for one season, ordered
+ * deterministically by (event_key, award_index, recipient_index) — quick
+ * task 260912-5n8 T1. Selects on the denormalized `year` column so a
+ * walk-forward scan ("every award strictly before season Y") needs no join
+ * to `events`, which is the whole reason that column is denormalized.
+ */
+export function selectEventAwardsAllForYear(db: Corpus, year: number): CorpusEventAwardAll[] {
+  const rows = db
+    .prepare(
+      `SELECT event_key, award_type, award_index, recipient_index, team_key, awardee, name, year, fetched_at
+       FROM event_awards_all WHERE year = ?
+       ORDER BY event_key ASC, award_index ASC, recipient_index ASC`
+    )
+    .all(year) as EventAwardAllRow[];
+  return rows.map((row) => ({
+    eventKey: row.event_key,
+    awardType: row.award_type,
+    awardIndex: row.award_index,
+    recipientIndex: row.recipient_index,
+    teamKey: row.team_key,
+    awardee: row.awardee,
+    name: row.name,
+    year: row.year,
+    fetchedAt: row.fetched_at,
+  }));
+}
+
 export function selectCorpusSeasons(db: Corpus): number[] {
   const rows = db
     .prepare(
