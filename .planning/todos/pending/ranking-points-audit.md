@@ -483,3 +483,29 @@ Purge the orphaned presim sidecar and work out why `bpr`/`epa` generate none; gi
 - Did not audit district point models or alliance-selection RP — only match ranking points.
 - Did not re-derive the Swing Band itself. See the separate Swing Score audit
   (`swing-score-audit.md`); F6 and F8 both depend on it.
+
+---
+
+## STATUS 2026-09-12 — Phase 9 executed against this audit; here is what each finding now is
+
+Phase 9 (`.planning/phases/09-analytic-ranking-points-browser-side-simulation/`) took its whole
+scope from this file. Ten plans shipped, published at generation `b23d214d`.
+
+| Finding | State |
+|---|---|
+| **F1** RP accuracy never reported | **CLOSED** — calibration scorecard live on the Compare page, `rpCalibration` in every compare slice |
+| **F2 / F3** bonus probabilities under-predict | **MEASURED, FIXES REVERTED, VERDICT IN DOUBT** — see `rp-bonus-probabilities-are-severely-under-predicted`. F3's deficit survives restriction to fully-warm 3/3 rosters (33 of 34 season-variables, magnitude 10.4% to 8.0%) |
+| **F4** dependence between threshold variables | **STILL OPEN** — deliberately out of Phase 9's scope |
+| **F5** live Worker strips RP | **CLOSED** — Worker computes RP, played rows carry the pmfs, state shape 11 to 15 seeded and deployed. **Not yet exercised in production** (no live events in September) |
+| **F6** pmf-implied win probability diverges from published | **CLOSED in mechanism, REVERTED in ship** — the fix drives the gap to exactly 0 but was refused by a bar that cannot see it |
+| **F7** tie branch can never fire | **same as F6** — discrete-margin model returns 0.008239 against an observed 0.010928, refused by the same blind bar |
+| **F8 / F9** OPR and EPA cold-start gate | **STILL OPEN.** But see `cold-start-chain-gates-rp-pmfs-measured` — a live measurement contradicts the claim that this chain gates presim |
+| **F10** bonus-dot display threshold | upstream cause closed; the **display** threshold is still open |
+| **F11** presim sidecars keyed to retired vpr | **CLOSED** — re-keyed to published ids, 318 orphans deleted, post-census 0/60 |
+| **F12** 2019 completeRocket always-false | **STILL OPEN** — declared as the `constant` mechanism class, deliberately not fixed |
+| **F13** | **STILL OPEN** — out of scope |
+
+The Monte Carlo is gone: `analyticRpPmf` computes the pmf in closed form and level-1 output is
+byte-identical (D-12 green). **Four findings remain open (F4, F8/F9, F12, F13) plus F10's display
+half**, and F2/F3's verdict is unsupported pending
+`restore-negative-binomial-to-retest-it`. This todo should stay open until those are dispositioned.

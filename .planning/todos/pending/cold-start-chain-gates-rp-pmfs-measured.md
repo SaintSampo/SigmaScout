@@ -60,3 +60,21 @@ one input heals all three surfaces at once. The constraint to respect: the
 all-or-nothing band rule exists because a partial variance produced 7–10σ
 misses (sketch 003, swingFactor.ts:283–286) — a fallback must be wide by
 design, not merely present.
+
+---
+
+## CONTRADICTED LIVE 2026-09-12 — presim is not gated by the cold-start chain
+
+Measured against production after the Phase 9 republish (generation `b23d214d`): `v1/presim/2026mrcmp/`
+returns **200 for all three published algorithm ids** (`opr@4.0.0`, `epa@10.0.0`, `bpr@3.0.0`), and
+the run emitted **641 sidecars across all three** (213/214/214). Plan 09-10 expected 404s on
+`opr`/`epa` on exactly the reasoning in this todo, and **no skip anywhere in the publish log cites a
+cold-start gate.**
+
+So whatever the cold-start chain gates, it is **not** presim sidecar production. This todo's
+measurement needs re-deriving against current code before it is relied on — it may have been true
+when written and been changed since, or the inference may not have held.
+
+Separately confirmed as pre-existing and unrelated: offseason events (e.g. `2024auwarp`) carry
+qualification matches but no RP pmfs. That is the self-reported-breakdown D-05 fallback, not a
+cold-start effect — `2024mil` shows 125/125 qm rows with both pmfs and the full decomposition.

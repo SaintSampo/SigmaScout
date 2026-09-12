@@ -121,3 +121,11 @@ persisted alongside that state, with its own shape bump and migration. Worth doi
 on bands during a live event; not worth rushing into a live-serving component.
 
 </details>
+
+---
+
+## CLOSED 2026-09-12
+
+Body already recorded this as done (generation `40e7277d`). Superseded several times since; the live
+generation is now `b23d214d` (Phase 9 republish, 2026-09-11). Moving to `completed/` — it has been
+sitting in `pending/` marked DONE.

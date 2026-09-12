@@ -120,3 +120,32 @@ algorithm (level 1), not from this layer. The scope is bonus RP and anything der
 
 Re-run `npx tsx scripts/measureRpCalibration.ts --seasons 2016-2020,2022-2026` after each and
 compare against `reports/rp/calibration-bpr-all-seasons.txt`.
+
+---
+
+## STATUS 2026-09-12 — measured in Phase 9, all three fixes REVERTED, and the verdict is now in doubt
+
+Phase 9 built and measured all three candidate fixes as independently selectable config branches
+(plan 09-05), then scored them through the one published scorer against a pre-committed per-bonus
+Brier bar (plan 09-06). **All three reverted:** win source 0 improved / 0 regressed / 30 tied, tie
+model 0/0/30, marginal family 3/3/24. The toggles were collapsed and the losing branches deleted.
+
+**Two findings that change how this todo should be read:**
+
+1. **Win source and tie model are structurally invisible to a per-bonus Brier.** They move only the
+   outcome half. They were refused for moving nothing the bar reads, **not** for causing harm. Their
+   real effects are real and measured: the win source drives the pmf-vs-published win-probability
+   gap to exactly 0 (from 0.036968), and the tie model replaces an identically-zero tie probability
+   with 0.008239 against an observed 0.010928.
+
+2. **The marginal arm's 24 ties are a bug, not a result.** `clauseProbability` refit combined
+   moments as a hardcoded Gaussian and discarded the declared family, so 24 of 30 cells were
+   structurally incapable of responding. Fixed by quick task 260911-w7k — but the family itself was
+   already deleted, so re-testing needs
+   `restore-negative-binomial-to-retest-it`. **The verdict "negative-binomial does not help" is
+   unsupported, not disproven.**
+
+Also note the headline multiplier in this todo predates plan 09-01's same-scorer fix:
+`measureRpCalibration.ts` was constructing `SigmaScoutLayer` with one argument while the publisher
+used two, so every bpr bonus probability it reported came from a band the publisher does not use.
+The frozen post-fix baseline is `data/baselines/rp-calibration-2026-09.json`.

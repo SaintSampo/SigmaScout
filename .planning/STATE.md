@@ -335,7 +335,7 @@ Recent decisions affecting current work:
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
-**`.planning/todos/pending/` is the source of truth — 18 files as of 2026-09-11.** This section said
+**`.planning/todos/pending/` is the source of truth — 23 files as of 2026-09-12.** This section said
 "None yet." until 2026-09-11, which had been wrong for some time; it is not re-enumerated in full
 here, because a hand-maintained copy of a directory listing goes stale silently. `ls
 .planning/todos/pending/` is the list.
