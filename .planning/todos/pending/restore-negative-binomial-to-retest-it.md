@@ -66,3 +66,60 @@ promising selection-slice result. That is the whole point of recording it here.
 
 Everything else above still binds — D-11's same-scorer rule especially, since the last time this
 question was touched a scorer mismatch manufactured a phantom ~0.003 regression.
+
+## STATUS 2026-09-12 — MEASURED. STAYS PENDING: this is the "real gain, stop and come back" case.
+
+Quick task `260912-2uz` restored the family, built the measurement seam, and ran the comparison on
+the selection slice. **The result is a real gain, so by the decision above this todo does NOT
+close** — it is Jacob's to decide what happens next, with the magnitude now in hand.
+
+**What ran.** 2016-2020 plus 2022, across all three published algorithms (opr, epa, bpr). One
+`WalkForwardSimulator` replay per season folded through a control layer and a negative-binomial
+layer, both constructed with two arguments, both scored by the one set of `brier`/`rate`/
+`meanPredicted` helpers. Per-bonus observation counts asserted equal across arms in flight. **No
+2023-2026 figure was produced**, and the guard that makes it impossible is in the script:
+`assertMarginalArmSliceAllowed` throws on any parsed season at or above 2023, before the corpus is
+opened, with no override flag.
+
+**Reach: 24 of 33 cells, against the 09-06 run's 0.** That is the headline structural change and the
+whole reason this re-test was worth running.
+
+| Category | Cells | Result |
+|---|---|---|
+| REACHABLE | 24 | 21 improved / 3 regressed / 0 tied |
+| STRUCTURALLY UNREACHABLE | 9 | all exactly identical to control, as predicted |
+| FALLBACK TIES | 0 | every reachable cell moved |
+
+**Magnitude, observation-weighted over reachable cells only:**
+
+| Algorithm | n | control Brier | NB Brier | delta |
+|---|---|---|---|---|
+| opr | 162,072 | 0.245071 | 0.242080 | **-0.002991** |
+| epa | 162,072 | 0.245071 | 0.242080 | **-0.002991** |
+| bpr | 186,694 | 0.236809 | 0.234074 | **-0.002735** |
+| all three | 510,838 | 0.242052 | 0.239154 | **-0.002898** (-1.20% relative) |
+
+Per-bonus (bpr): 2018 `autoQuest` -0.009615, 2016 `capture` -0.006863, 2019 `habDocking` -0.002489,
+2020 `shieldOperational` -0.001945, 2018 `faceTheBoss` -0.001372, 2016 `breach` -0.000898,
+2022 `cargoBonus` -0.000312, and **2022 `hangarBonus` +0.002864 — the one regression, and it
+regresses consistently on all three algorithms.**
+
+**35.78%** of the NB arm's 1,295,666 fits genuinely resolved to negative binomial; the rest fell
+back to Gaussian on non-positive mean or under-dispersion. So this gain is produced by roughly a
+third of the fits, which is a fact about the fit's applicability that belongs beside the Brier
+numbers, not behind them.
+
+**Nothing was promoted.** All 34 season-module declarations still say `"gaussian"`, both goldens are
+green with zero edits, `data/baselines/rp-attribution-2026-09.json` is untouched, and
+`docs/models/rp-attribution.md` still carries its 09-06 verdict unedited. The restored family and
+the `--marginal-arm` seam are both in the tree, so this is re-runnable as-is:
+
+```
+npx tsx scripts/measureRpCalibration.ts --marginal-arm --seasons 2016,2017,2018,2019,2020,2022
+```
+
+**The open decision for Jacob.** A selection-slice result cannot promote anything on its own. The
+09-06 bar admitted no regression at any magnitude, and `hangarBonus` regresses — so this would still
+fail that bar as written. The live questions are whether the bar should be reconsidered given the
+reach was never what it claimed to be, and whether the 2023-2026 reporting slice is worth
+re-spending to confirm a -0.0029 pooled gain. **Neither is an agent's call.**
