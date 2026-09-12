@@ -504,6 +504,11 @@ class BandAccumulator {
     this.scheduleCount++;
   }
 
+  /** Schedules folded in so far — the N a `bands()` snapshot is "at". */
+  get count(): number {
+    return this.scheduleCount;
+  }
+
   bands(): Bands {
     const draws = this.scheduleCount * this.drawsPerSchedule;
     if (draws === 0) throw new Error("measureRandomSchedules: BandAccumulator read before any schedule was added");
@@ -513,6 +518,52 @@ class BandAccumulator {
       p90: this.totals.map((h) => continuousQuantile(h, 0.9, draws)),
     };
   }
+}
+
+/**
+ * The N values a sweep reports. Nested PREFIXES of one stream, deliberately:
+ * checkpoint 100's schedules are checkpoint 50's plus fifty more, so the curve
+ * shows one arm converging rather than five unrelated arms disagreeing by
+ * different amounts.
+ */
+export function sweepCheckpoints(scheduleCount: number): number[] {
+  const candidates = [10, 20, 30, 50, 75, 100, 150, 200, 300, 500, 750, scheduleCount];
+  return [...new Set(candidates.filter((n) => n <= scheduleCount && n >= 1))].sort((a, b) => a - b);
+}
+
+/**
+ * How far a band moves, in ranks. Reported instead of a pass-rate because the
+ * decision "how many schedules is enough" needs a magnitude the reader can put
+ * their own tolerance against — a pass-rate hides whether the failures missed
+ * by a hair or by five ranks.
+ */
+export interface Drift {
+  readonly meanAbsMedian: number;
+  readonly p95AbsMedian: number;
+  readonly maxAbsMedian: number;
+  readonly meanAbsEdge: number;
+  readonly p95AbsEdge: number;
+  readonly maxAbsEdge: number;
+}
+
+function p95(sorted: readonly number[]): number {
+  if (sorted.length === 0) return 0;
+  const idx = Math.min(sorted.length - 1, Math.ceil(0.95 * sorted.length) - 1);
+  return sorted[Math.max(0, idx)]!;
+}
+
+export function driftOf(diffs: readonly TeamDiff[]): Drift {
+  const medians = diffs.map((d) => Math.abs(d.medianDiff)).sort((a, b) => a - b);
+  const edges = diffs.flatMap((d) => [Math.abs(d.p10Diff), Math.abs(d.p90Diff)]).sort((a, b) => a - b);
+  const mean = (xs: readonly number[]): number => (xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length);
+  return {
+    meanAbsMedian: mean(medians),
+    p95AbsMedian: p95(medians),
+    maxAbsMedian: medians.length === 0 ? 0 : medians[medians.length - 1]!,
+    meanAbsEdge: mean(edges),
+    p95AbsEdge: p95(edges),
+    maxAbsEdge: edges.length === 0 ? 0 : edges[edges.length - 1]!,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -603,20 +654,63 @@ export interface EventResult {
   /** The same two comparisons at the PUBLISHED N=20 / 50-draw configuration. */
   readonly randVsGenPublishedN: TeamDiff[];
   readonly genBVsGenAPublishedN: TeamDiff[];
+  /** Per-checkpoint reproducibility and convergence, keyed by N. Empty unless `--sweep`. */
+  readonly sweep: SweepPoint[];
+}
+
+/**
+ * One N on the convergence curve.
+ *
+ * `reproducibility` is the decision-relevant number: two INDEPENDENT draws of
+ * the same construction at this N, which is exactly how much the published
+ * band would move if the publish were re-run. `convergence` is the companion
+ * question — how far this N still sits from the same arm's own high-N answer —
+ * and separates "stable but wrong" from "stable and converged". A small
+ * reproducibility with a large convergence means N is too low in a way that
+ * re-running would NOT reveal.
+ */
+export interface SweepPoint {
+  readonly n: number;
+  /** Raw per-team diffs, not a summary: the curve is POOLED across events at print time, and pooling pre-averaged per-event summaries would weight a 14-team event equally with a 76-team one. */
+  readonly reproducibilityGen: TeamDiff[];
+  readonly reproducibilityRand: TeamDiff[];
+  readonly convergenceGen: TeamDiff[];
+  readonly convergenceRand: TeamDiff[];
+  readonly crossConstruction: TeamDiff[];
 }
 
 export interface MeasureOptions {
   readonly scheduleCount: number;
   readonly drawsPerSchedule: number;
+  readonly sweep?: boolean;
 }
 
-export function measureEvent(
+/**
+ * Everything both the comparison and the split probe need, derived once:
+ * the re-asserted corpus facts, the roster that IS the index space, the
+ * template and its shape, and the pricing closure bound to this event's
+ * PRE-EVENT walk-forward state. Extracted so the two callers cannot drift into
+ * pricing the same event two slightly different ways — the exact failure mode
+ * that manufactures a scorer mismatch.
+ */
+interface EventContext {
+  readonly eventKey: string;
+  readonly eventType: number;
+  readonly week: number | null;
+  readonly roster: string[];
+  readonly quals: ReturnType<typeof selectMatchesChronological>;
+  readonly matchesPerTeam: number;
+  readonly template: readonly ScheduleTemplateMatch[];
+  readonly shape: RandomScheduleShape;
+  readonly predict: (match: UpcomingMatch) => Prediction;
+}
+
+function prepareEvent(
   db: Corpus,
   algorithm: AlgorithmModule<any>,
   target: TargetEvent,
-  replay: SeasonReplayResult,
-  options: MeasureOptions
-): EventResult {
+  replay: SeasonReplayResult
+): EventContext {
   const quals = selectMatchesChronological(db, { eventKey: target.eventKey }).filter((m) => m.compLevel === "qm");
   if (quals.length !== target.expectedQuals) {
     throw new Error(
@@ -653,6 +747,19 @@ export function measureEvent(
   const template = loadScheduleTemplate(roster.length, matchesPerTeam);
   const shape = shapeOfTemplate(template, roster.length);
 
+  return { eventKey: target.eventKey, eventType, week, roster, quals, matchesPerTeam, template, shape, predict };
+}
+
+export function measureEvent(
+  db: Corpus,
+  algorithm: AlgorithmModule<any>,
+  target: TargetEvent,
+  replay: SeasonReplayResult,
+  options: MeasureOptions
+): EventResult {
+  const { eventKey, eventType, week, roster, quals, matchesPerTeam, template, shape, predict } = prepareEvent(db, algorithm, target, replay);
+  void eventKey;
+
   // One arm at a time, one schedule at a time: build it, price it, feed both
   // accumulators, drop it. Nothing about an arm's construction reads any other
   // arm's output, and no arm's priced matches outlive the schedule they came
@@ -662,11 +769,20 @@ export function measureEvent(
   const sampleSize = Math.min(20, options.scheduleCount);
   let duplicateRowsTotal = 0;
 
+  // Checkpoint snapshots, taken from the SAME streaming accumulator the final
+  // bands come from — so checkpoint N is literally the first N schedules of
+  // the run, not a separate shorter run.
+  const checkpoints = options.sweep === true ? sweepCheckpoints(options.scheduleCount) : [];
+  const checkpointSet = new Set(checkpoints);
+  const snapshots = new Map<ArmKey, Map<number, Bands>>();
+
   for (const armKey of ARM_KEYS) {
     const salt = `${target.eventKey}|${algorithm.version}|${armKey}`;
     const full = new BandAccumulator(roster, options.drawsPerSchedule, `${salt}|full`);
     const published = new BandAccumulator(roster, PUBLISHED_DRAWS_PER_SCHEDULE, `${salt}|published`);
     const samples: ScheduleTemplateMatch[][] = [];
+    const armSnapshots = new Map<number, Bands>();
+    snapshots.set(armKey, armSnapshots);
     for (let k = 0; k < options.scheduleCount; k++) {
       const rng = mulberry32(fnv1a32(`${salt}|shuffle|${k}`));
       let schedule: ScheduleTemplateMatch[];
@@ -681,6 +797,7 @@ export function measureEvent(
       const priced = priceSchedule(schedule, roster, { eventKey: target.eventKey, eventType, week, armKey, scheduleIndex: k }, predict);
       full.add(priced.inputs, k);
       if (k < PUBLISHED_SCHEDULE_COUNT) published.add(priced.inputs, k);
+      if (checkpointSet.has(full.count)) armSnapshots.set(full.count, full.bands());
     }
     bands.set(armKey, { full: full.bands(), published: published.bands() });
     structureSamples.set(armKey, samples);
@@ -690,6 +807,23 @@ export function measureEvent(
   const genB = bands.get("genB")!;
   const rand = bands.get("rand")!;
   const randB = bands.get("randB")!;
+
+  const sweep: SweepPoint[] = checkpoints.map((n) => {
+    const at = (armKey: ArmKey): Bands => {
+      const found = snapshots.get(armKey)!.get(n);
+      if (found === undefined) throw new Error(`measureRandomSchedules: no ${armKey} snapshot at N=${n}`);
+      return found;
+    };
+    const ref = (armKey: ArmKey): Bands => bands.get(armKey)!.full;
+    return {
+      n,
+      reproducibilityGen: diffsBetween(target.eventKey, roster, at("genB"), at("genA")),
+      reproducibilityRand: diffsBetween(target.eventKey, roster, at("randB"), at("rand")),
+      convergenceGen: diffsBetween(target.eventKey, roster, at("genA"), ref("genA")),
+      convergenceRand: diffsBetween(target.eventKey, roster, at("rand"), ref("rand")),
+      crossConstruction: diffsBetween(target.eventKey, roster, at("rand"), at("genA")),
+    };
+  });
 
   // The structural diagnostic only needs a sample; 20 schedules per arm is
   // plenty to show whether the two constructions differ at all.
@@ -713,7 +847,74 @@ export function measureEvent(
     randBVsRand: diffsBetween(target.eventKey, roster, randB.full, rand.full),
     randVsGenPublishedN: diffsBetween(target.eventKey, roster, rand.published, genA.published),
     genBVsGenAPublishedN: diffsBetween(target.eventKey, roster, genB.published, genA.published),
+    sweep,
   };
+}
+
+// ---------------------------------------------------------------------------
+// The split probe — is it the SCHEDULES that buy stability, or just the DRAWS?
+// ---------------------------------------------------------------------------
+
+/**
+ * `--sweep` grows N with `drawsPerSchedule` held fixed, so it grows the total
+ * draw count at the same time and cannot say WHICH knob bought the stability.
+ * That distinction decides the cost of an answer: an extra draw re-uses a
+ * schedule's already-priced pmfs, while an extra schedule needs a fresh
+ * `predict` call for every one of its ~127 matches. If the two are
+ * interchangeable, "how few schedules" has a much smaller answer than the
+ * sweep suggests.
+ *
+ * So: hold the TOTAL draw budget constant and spend it different ways.
+ * `20 x 1000`, `100 x 200` and `1000 x 20` are all 20,000 draws. If
+ * reproducibility is flat across them, schedule count is not what matters and
+ * a handful of schedules will do. If it improves with N, the schedule sample
+ * is the binding constraint and draws cannot substitute for it.
+ */
+export interface SplitProbePoint {
+  readonly scheduleCount: number;
+  readonly drawsPerSchedule: number;
+  readonly reproducibilityGen: TeamDiff[];
+  readonly reproducibilityRand: TeamDiff[];
+}
+
+export function measureSplitProbe(
+  db: Corpus,
+  algorithm: AlgorithmModule<any>,
+  target: TargetEvent,
+  replay: SeasonReplayResult,
+  totalDraws: number,
+  scheduleCounts: readonly number[]
+): SplitProbePoint[] {
+  const context = prepareEvent(db, algorithm, target, replay);
+  const points: SplitProbePoint[] = [];
+  for (const scheduleCount of scheduleCounts) {
+    if (totalDraws % scheduleCount !== 0) {
+      throw new Error(
+        `measureRandomSchedules: --total-draws ${totalDraws} is not divisible by schedule count ${scheduleCount}, so this configuration would not spend the same draw budget as the others.`
+      );
+    }
+    const drawsPerSchedule = totalDraws / scheduleCount;
+    const bandsFor = (armKey: ArmKey): Bands => {
+      const salt = `${context.eventKey}|${algorithm.version}|${armKey}|probe${scheduleCount}x${drawsPerSchedule}`;
+      const acc = new BandAccumulator(context.roster, drawsPerSchedule, salt);
+      for (let k = 0; k < scheduleCount; k++) {
+        const rng = mulberry32(fnv1a32(`${salt}|shuffle|${k}`));
+        const schedule =
+          armKey === "rand" || armKey === "randB"
+            ? randomSchedule(context.shape, rng).matches
+            : generatedSchedule(context.template, seededShuffle(context.roster.length, rng));
+        acc.add(priceSchedule(schedule, context.roster, { ...context, armKey, scheduleIndex: k }, context.predict).inputs, k);
+      }
+      return acc.bands();
+    };
+    points.push({
+      scheduleCount,
+      drawsPerSchedule,
+      reproducibilityGen: diffsBetween(context.eventKey, context.roster, bandsFor("genB"), bandsFor("genA")),
+      reproducibilityRand: diffsBetween(context.eventKey, context.roster, bandsFor("randB"), bandsFor("rand")),
+    });
+  }
+  return points;
 }
 
 // ---------------------------------------------------------------------------
@@ -747,6 +948,10 @@ export async function main(argv: readonly string[]): Promise<void> {
       algorithm: { type: "string" },
       "replay-from": { type: "string" },
       "write-doc": { type: "boolean" },
+      sweep: { type: "boolean" },
+      "split-probe": { type: "boolean" },
+      "total-draws": { type: "string" },
+      "probe-schedules": { type: "string" },
     },
   });
 
@@ -774,8 +979,18 @@ export async function main(argv: readonly string[]): Promise<void> {
   const algorithm = ALGORITHMS[algorithmId];
   if (algorithm === undefined) throw new Error(`measureRandomSchedules: unknown algorithm "${algorithmId}"`);
 
+  const probeTotalDraws = values["total-draws"] === undefined ? 20000 : Number(values["total-draws"]);
+  const probeScheduleCounts = (values["probe-schedules"] ?? "20,50,100,250,500,1000").split(",").map((x) => Number(x.trim()));
+  if (values["split-probe"] === true) {
+    if (!Number.isInteger(probeTotalDraws) || probeTotalDraws < 1) throw new Error("measureRandomSchedules: --total-draws must be a positive integer.");
+    for (const n of probeScheduleCounts) {
+      if (!Number.isInteger(n) || n < 1) throw new Error(`measureRandomSchedules: --probe-schedules entry "${n}" is not a positive integer.`);
+    }
+  }
+
   const db: Corpus = openCorpusReadOnly("data/corpus.sqlite");
   const results: EventResult[] = [];
+  const probeByEvent: SplitProbePoint[][] = [];
   const startedAt = Date.now();
 
   console.log(`measureRandomSchedules — D-17 rung 2 at N=${scheduleCount} per arm (${scheduleCount * drawsPerSchedule} draws), ${algorithm.id}@${algorithm.version}`);
@@ -794,7 +1009,13 @@ export async function main(argv: readonly string[]): Promise<void> {
     const replay = replaySeason(db, algorithm, season, replayFrom, new Set(seasonTargets.map((t) => t.eventKey)));
     for (const target of seasonTargets) {
       const t0 = Date.now();
-      const result = measureEvent(db, algorithm, target, replay, { scheduleCount, drawsPerSchedule });
+      if (values["split-probe"] === true) {
+        const probe = measureSplitProbe(db, algorithm, target, replay, probeTotalDraws, probeScheduleCounts);
+        probeByEvent.push(probe);
+        console.log(`  ${target.eventKey.padEnd(11)} split probe done — ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+        continue;
+      }
+      const result = measureEvent(db, algorithm, target, replay, { scheduleCount, drawsPerSchedule, sweep: values.sweep === true });
       results.push(result);
       console.log(
         `  ${target.eventKey.padEnd(11)} ${String(result.teams).padStart(3)} teams, ${String(result.quals).padStart(3)} quals, mpt ${result.matchesPerTeam}, ` +
@@ -805,6 +1026,33 @@ export async function main(argv: readonly string[]): Promise<void> {
           `red/blue imbalance gen ${result.structure.generated.meanRedBlueImbalance.toFixed(2)} vs rand ${result.structure.random.meanRedBlueImbalance.toFixed(2)}`
       );
     }
+  }
+
+  if (values["split-probe"] === true) {
+    console.log("");
+    console.log(`--- SPLIT PROBE: every row spends the SAME ${probeTotalDraws} draws, divided differently. All figures in RANKS. ---`);
+    console.log("");
+    console.log("  If these rows are flat, draws substitute for schedules and a few schedules suffice.");
+    console.log("  If they improve with N, the SCHEDULE sample is the binding constraint and draws cannot buy it.");
+    console.log("");
+    console.log(
+      `${"N".padStart(6)} x ${"draws".padStart(6)} | ${"gen median mean".padStart(15)} ${"p95".padStart(6)} ${"max".padStart(6)} | ` +
+        `${"rand median mean".padStart(16)} ${"p95".padStart(6)} ${"max".padStart(6)} | ${"gen edge mean".padStart(13)} ${"rand edge mean".padStart(14)}`
+    );
+    for (const [i, first] of probeByEvent[0]!.entries()) {
+      const g = driftOf(probeByEvent.flatMap((e) => e[i]!.reproducibilityGen));
+      const r = driftOf(probeByEvent.flatMap((e) => e[i]!.reproducibilityRand));
+      console.log(
+        `${String(first.scheduleCount).padStart(6)} x ${String(first.drawsPerSchedule).padStart(6)} | ` +
+          `${g.meanAbsMedian.toFixed(3).padStart(15)} ${g.p95AbsMedian.toFixed(2).padStart(6)} ${g.maxAbsMedian.toFixed(2).padStart(6)} | ` +
+          `${r.meanAbsMedian.toFixed(3).padStart(16)} ${r.p95AbsMedian.toFixed(2).padStart(6)} ${r.maxAbsMedian.toFixed(2).padStart(6)} | ` +
+          `${g.meanAbsEdge.toFixed(3).padStart(13)} ${r.meanAbsEdge.toFixed(3).padStart(14)}`
+      );
+    }
+    console.log("");
+    console.log(`Teams scored: ${probeByEvent.reduce((t, e) => t + e[0]!.reproducibilityGen.length, 0)} across ${probeByEvent.length} event(s). Elapsed ${((Date.now() - startedAt) / 1000 / 60).toFixed(1)} min.`);
+    db.close();
+    return;
   }
 
   const pooled = {
@@ -827,6 +1075,43 @@ export async function main(argv: readonly string[]): Promise<void> {
   console.log(verdictRow(`rand vs gen  @N=${PUBLISHED_SCHEDULE_COUNT}`, pooled.randVsGenPublishedN));
   console.log(verdictRow(`gen vs gen   @N=${PUBLISHED_SCHEDULE_COUNT}   (FLOOR)`, pooled.genBVsGenAPublishedN));
   console.log("");
+
+  if (values.sweep === true && results[0]!.sweep.length > 0) {
+    console.log("--- HOW MANY SCHEDULES IS ENOUGH: pooled convergence curve, all figures in RANKS ---");
+    console.log("");
+    console.log("  reproducibility = two INDEPENDENT draws at this N (how much a re-publish moves the band)");
+    console.log("  convergence     = this N against the same arm's own N=" + String(scheduleCount) + " answer (how much is still bias)");
+    console.log("");
+    console.log(
+      `${"N".padStart(5)} | ${"gen repro mean".padStart(14)} ${"p95".padStart(6)} ${"max".padStart(6)} | ` +
+        `${"rand repro mean".padStart(15)} ${"p95".padStart(6)} ${"max".padStart(6)} | ` +
+        `${"gen conv mean".padStart(13)} ${"p95".padStart(6)} | ${"rand conv mean".padStart(14)} ${"p95".padStart(6)}`
+    );
+    for (const [i, point] of results[0]!.sweep.entries()) {
+      const pool = (pick: (p: SweepPoint) => TeamDiff[]): Drift => driftOf(results.flatMap((r) => pick(r.sweep[i]!)));
+      const gr = pool((p) => p.reproducibilityGen);
+      const rr = pool((p) => p.reproducibilityRand);
+      const gc = pool((p) => p.convergenceGen);
+      const rc = pool((p) => p.convergenceRand);
+      console.log(
+        `${String(point.n).padStart(5)} | ${gr.meanAbsMedian.toFixed(3).padStart(14)} ${gr.p95AbsMedian.toFixed(2).padStart(6)} ${gr.maxAbsMedian.toFixed(2).padStart(6)} | ` +
+          `${rr.meanAbsMedian.toFixed(3).padStart(15)} ${rr.p95AbsMedian.toFixed(2).padStart(6)} ${rr.maxAbsMedian.toFixed(2).padStart(6)} | ` +
+          `${gc.meanAbsMedian.toFixed(3).padStart(13)} ${gc.p95AbsMedian.toFixed(2).padStart(6)} | ${rc.meanAbsMedian.toFixed(3).padStart(14)} ${rc.p95AbsMedian.toFixed(2).padStart(6)}`
+      );
+    }
+    console.log("");
+    console.log("Band EDGES (p10/p90), the harder quantity — same layout, mean/p95/max |delta| in ranks:");
+    for (const [i, point] of results[0]!.sweep.entries()) {
+      const pool = (pick: (p: SweepPoint) => TeamDiff[]): Drift => driftOf(results.flatMap((r) => pick(r.sweep[i]!)));
+      const gr = pool((p) => p.reproducibilityGen);
+      const rr = pool((p) => p.reproducibilityRand);
+      console.log(
+        `${String(point.n).padStart(5)} | gen repro ${gr.meanAbsEdge.toFixed(3)} / ${gr.p95AbsEdge.toFixed(2)} / ${gr.maxAbsEdge.toFixed(2)}` +
+          `   rand repro ${rr.meanAbsEdge.toFixed(3)} / ${rr.p95AbsEdge.toFixed(2)} / ${rr.maxAbsEdge.toFixed(2)}`
+      );
+    }
+    console.log("");
+  }
 
   const duplicateRows = results.reduce((t, r) => t + r.duplicateRowsTotal, 0);
   console.log(`Random-arm rows the duplicate repair could not fix: ${duplicateRows} (of ${results.reduce((t, r) => t + r.templateRows * scheduleCount, 0)} generated rows)`);
