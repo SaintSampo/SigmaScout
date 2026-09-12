@@ -118,11 +118,23 @@ npx wrangler d1 execute sigmascout-state --remote --env-file .env --file reports
 pnpm worker:deploy
 ```
 
-**As of quick task 260912-ivg Stage 1 (2026-09-12): the third seed file's name is
-`seed-spr.sql`, not `seed-bpr.sql`.** Do not run this three-line block as a routine
-re-baseline until Stage 3 (D1 reseed) is the intended operation — see the "Quick task
-260912-ivg, Stage 1" note above for why running it earlier writes live D1 rows and
-redeploys the Worker ahead of the client (Stage 5) that is meant to be reading them.
+**As of quick task 260912-ivg (2026-09-12): the third seed file's name is
+`seed-spr.sql`, not `seed-bpr.sql`.** The BPR -> SPR cutover is COMPLETE — this block is
+once again an ordinary re-baseline, with no transitional caveat attached to it.
+
+**Row-write cost, measured on that run rather than estimated:** applying `seed-spr.sql`
+alone reported 61 queries, 6,314 rows read and **25,256 rows written** — the written figure
+is roughly 4x the row count because the file leads with a `DELETE ... WHERE algorithm_id`
+and D1 counts index maintenance. Budget against the 100k/day cap using the WRITTEN number,
+not the row count: three seed files cost on the order of 75k writes, so **one full
+three-file pass per day is affordable and a second is not**.
+
+**One wrinkle worth knowing before you retry a failed seed.** `--file` uploads the file and
+then imports it as two separate steps. A first invocation can fail during import while
+having already uploaded — the output ends in an account-permissions dump rather than an
+obvious error. Re-running then prints `File already uploaded. Processing.` and succeeds.
+So a seed that appears to have failed may simply need re-running, and **the only proof it
+landed is a `GROUP BY algorithm_id` read-back**, never the command's own exit.
 
 **Corrected 2026-09-12.** This block used to open with `set -a; . ./.env; set +a`. That is blocked
 in agent environments — correctly, because it is a mechanism for loading secrets into a shell — so
@@ -152,13 +164,14 @@ runbook's commands split across them by which tier they belong to:
   `pnpm publish:seasons` (or `pnpm harness`) most recently generated — the WRITE tier
   (`PIPELINE_ALGORITHM_IDS`). As of this task, that means the third seed file is named
   **`seed-spr.sql`**, not `seed-bpr.sql`.
-- **The deployed Worker and the deployed browser** still read the READ tier
-  (`PUBLISHED_ALGORITHM_IDS`, unchanged, still naming the pre-rename premier id) until Stages 3-5
-  run. Concretely: the live D1 database holds rows keyed to the pre-rename algorithm id, not
-  `spr`, until Stage 3's reseed — a seed pass run under this task lands `seed-spr.sql` in the
-  generated-file directory (never tracked in git),
-  but does NOT itself write to live D1 until an operator runs the `wrangler d1 execute` command
-  against it, which is Stage 3, not Stage 1.
+- **The cutover finished on 2026-09-12 and nothing here is transitional any more.**
+  `PUBLISHED_ALGORITHM_IDS` names `spr`, the deployed browser bundle contains zero occurrences
+  of the retired id, live D1 holds 6,314 `spr` rows at `3.0.0+baseline` and none under the old
+  id, and R2 holds zero objects under it. `verifySubsetPublish` reports 50 entries checked, 0
+  failing, with generation uniformity 1 at
+  `2c22394b-de85-44f5-b80a-bfdca523ee98`. A seed pass still only lands `seed-spr.sql` in the
+  generated-file directory (never tracked in git) and does NOT write live D1 until an operator
+  runs `wrangler d1 execute` against it.
 
 Until Stage 3, running the commands below against a freshly generated `seed-spr.sql` is exactly
 Stage 3 — do not do it as part of routine re-seeding while Stage 1's source-only change is the only

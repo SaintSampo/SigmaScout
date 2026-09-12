@@ -59,11 +59,13 @@ TBA_BASE_URL = "https://www.thebluealliance.com/api/v3"
 # the deployed browser is still reading the pre-rename artifact prefix until
 # 07-18.
 #
-# 260912-ivg Stage 1: renamed bpr -> spr (the write-tier identifier). This
-# value is INERT until Stage 4 (260912-ivg-PLAN.md) runs pnpm
-# worker:deploy -- the deployed Worker keeps running under the retiring
-# pre-rename tier until then, and the deployed browser keeps reading the
-# pre-rename artifact prefix until Stage 5.
+# 260912-ivg: renamed to spr for the Sigma Power Rating cutover, and LIVE as of
+# 2026-09-12 -- the Worker was redeployed onto this tier (version
+# aeb6dd86-8112-4d02-a0ba-e6943af9507b, its bindings echoing
+# LIVE_ALGORITHM_IDS ("spr")) after D1 had been reseeded with 6,314 spr rows at
+# 3.0.0+baseline, so the tier this names and the state it folds agree. This
+# value is no longer inert and no longer transitional: the retiring id's rows
+# were deleted from D1 and all of its objects from R2 the same day.
 LIVE_ALGORITHM_IDS = "spr"
 
 # D-17: fires every minute, YEAR-ROUND — never a season-scoped cron

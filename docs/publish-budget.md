@@ -23,7 +23,67 @@ pnpm publish:seasons
 (equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
 directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
 
-**Latest run — 2026-09-11 (~21:06–21:47 ET), the Phase 9 republish — attended
+**Latest run — 2026-09-12 (19:44:42–21:31:09 UTC, ~1h46m), the BPR -> SPR cutover republish —
+attended (`tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026
+--include-offseason --presim-from-season 2026`, generation
+`2c22394b-de85-44f5-b80a-bfdca523ee98`).** 108,979 page objects, 4,321,867,353 bytes, 641 presim
+sidecars.
+
+```
+teams:   count=30      median=913,209B  p95=1,445,501B  max=1,573,854B
+events:  count=30      median=68,675B   p95=84,108B     max=84,109B
+event:   count=7,500   median=74,611B   p95=118,498B    max=272,530B
+team:    count=101,409 median=31,305B   p95=87,608B     max=267,128B
+compare: count=10      median=14,583B   p95=14,878B     max=14,878B
+presim:  count=641     median=7,229B    p95=16,068B     max=23,963B
+```
+
+**This run renamed the premier algorithm's WIRE ID, not the algorithm.** Quick task 260912-ivg
+renamed BPR to SPR (Sigma Power Rating) through the source tree, the published object keys, the
+manifest, D1 and the URL. `packages/core/algorithms/spr.ts` differs from its pre-rename self by 44
+insertions and 44 deletions, every changed line a name, and the five sealed research files plus
+`frozen-params.json` are byte-identical — so **no measured figure in this document moved because of
+the rename**, and every measurement recorded here under the earlier name still applies.
+
+**Presim is 52x smaller per sidecar than the run below** (median 7,229B against 376,211B of
+priced-schedule block in the 2026-09-11 shape). That is quick task 260912-2ur landing, not a
+regression: the priced-schedules block was dropped from the published bytes while surviving in
+memory for the acceptance harness. It is also what made 260912-5hs's raise of
+`PRESIM_SCHEDULE_COUNT` from 20 to 1,000 affordable — at the old shape those 641 sidecars would
+have wanted roughly 11.5 GB against a 10 GB R2 free tier. **This run discharges the republish
+that STATE.md row 131 recorded as OWED.**
+
+**Storage was exactly neutral.** A full bucket census before and after: 337,828 objects / 16.56 GB
+-> (publish adds 36,537 `spr@` objects) -> (cleanup deletes 36,537 `bpr@3.0.0+baseline` page
+objects, 2,825 presim keys, and 214 stragglers at `bpr@1.0.0+baseline`) -> 337,614 objects /
+16.52 GB. Zero objects remain under the retired id.
+
+**A caveat this document should carry about its own bucket.** That 16.52 GB is **over the 10 GB R2
+free tier**, and roughly 12 GB of it is dead weight unrelated to this run: five retired VPR
+generations (`11.0.0+rolling-2026-09g/e`, `10.0.0+rolling-2026-09e/d`, `8.0.0+rolling-2026-09b`,
+`5.0.0+tuned-2026-08`, `2.1.0+tuned-2026-08`, ~8.1 GB) plus superseded `epa@1.1.0`, `epa@5.0.0`,
+`epa@6.0.0` and `opr@3.1.0` sets. VPR was retired from the site on 2026-09-09 and its objects were
+never deleted. Deleting them would bring the bucket to roughly 4.3 GB, comfortably inside the free
+tier. Filed, not done — it is out of scope for a rename.
+
+**Verified by content, not status.** `v1/manifest/algorithms.json` reads back opr 4.0.0 / epa
+10.0.0 / **spr 3.0.0** at this generation; `v1/compare/2026.json` carries slice ids
+`['epa','opr','spr']`; the deployed browser bundle contains 34 occurrences of the new id and zero
+of the old. **`verify:subset` 50 entries, 0 failing, generation uniformity 1.** Live D1 holds
+6,314 `spr` rows at `3.0.0+baseline` and none under the retired id.
+
+**The manifest was flipped in two steps on purpose, and the site never went down.** Publishing
+artifacts under a new id while the deployed browser still reads the old one is safe; flipping the
+manifest is not, because whichever of "manifest" and "client deploy" moves first leaves the other
+looking for an id its counterpart no longer carries. So the manifest was written TRANSITIONALLY
+first, carrying all four ids (`opr`, `epa`, `spr`, and the retiring one copied verbatim from the
+manifest already live), which satisfies both clients at once — the array has no length pin and the
+client resolves its entry with `.find()`, so a surplus entry is simply ignored. The push and Pages
+deploy then landed, and only afterwards was the manifest rewritten to its final three entries.
+
+---
+
+**Previous run — 2026-09-11 (~21:06–21:47 ET), the Phase 9 republish — attended
 (`pnpm publish:seasons`, generation `b23d214d-9af0-48f5-a907-3903c2d06f44`).** 108,820 page
 objects, 4,320,759,778 bytes, **641 presim sidecars**, ~41 min. Ships **two workstreams at once**,
 which is the thing to know about this run.

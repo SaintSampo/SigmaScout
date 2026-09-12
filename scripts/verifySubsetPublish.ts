@@ -66,8 +66,20 @@ import {
  * (`retire-vpr-*-generation-r2`) — vpr-key ABSENCE entries (PD-05 style,
  * like the fifteen `sigma1` ones) become assertable only after that pass,
  * and are deliberately not added here yet.
+ *
+ * 2026-09-12 (quick task 260912-ivg): renamed again, to `spr` — the same
+ * algorithm under a new wire id, not a new algorithm. The full cutover ran the
+ * same day: every `spr@` artifact was published (generation
+ * 2c22394b-de85-44f5-b80a-bfdca523ee98), the manifest was flipped last, D1 was
+ * reseeded, the Worker redeployed onto the renamed live tier, and every
+ * `bpr@` object was deleted from R2 — 36,537 page objects at `3.0.0+baseline`
+ * plus 2,825 presim keys, and a further 214 presim sidecars left behind at the
+ * earlier `1.0.0+baseline`. A full bucket census taken afterwards reports ZERO
+ * objects under the retired id, which is why the pre-rename id needs no
+ * absence entries of its own here: there is no partially-deleted state left to
+ * assert against, unlike the `vpr@*` case above.
  */
-const RENAMED_ALGORITHM_ID = "bpr";
+const RENAMED_ALGORITHM_ID = "spr";
 
 // ---------------------------------------------------------------------------
 // Constants
