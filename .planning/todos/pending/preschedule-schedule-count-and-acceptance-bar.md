@@ -43,8 +43,55 @@ dominate draws: one session measured 20x1000 as **5.7x worse** than 1000x20.
 2. **Restate the bar together with the count**, as the developer decided on 2026-09-11. A tolerance
    in rank units is only meaningful against the measurement's own resolution. Record which floor it
    is stated against — the binding one, not the draw-only one.
-3. **Rebalance schedules against draws** rather than leaving `drawsPerSchedule` at 50 by inertia.
+3. **CLOSED 2026-09-12 — the draw/schedule split.** ~~Rebalance schedules against draws~~ rather
+   than leaving `drawsPerSchedule` at 50 by inertia.
+
+   Measured: schedule count held fixed at 200 while `drawsPerSchedule` was varied over 1, 5, 25,
+   50, 100 and 200, and a cost model `cost(d) = pricing + d * simPerDraw` was fitted to the
+   result.
+
+   | event | size | pricing | drawing at d=50 | drawing share |
+   |---|---|---|---|---|
+   | `2026joh` | 75 teams, 125 quals | 3.0775 ms/schedule | 0.9466 ms | 23.5% |
+   | `2026txmca` | 18 teams | 0.9164 ms/schedule | 0.2425 ms | 20.9% |
+
+   Pricing dominates drawing roughly 4:1. Cutting `d` from 50 to 10 frees only about 20% of
+   per-schedule cost, which funds 1.23x the schedules — worth `sqrt(1.23)` ~ 1.11x on the binding
+   floor. And it is not free: total draws would fall from 50,000 to about 12,000, where the
+   draw-only floor slips from 100% to about 96%. **CONCLUSION: leave `drawsPerSchedule` at 50.**
+
+   This does **not** contradict the earlier 5.7x finding directly above ("one session measured
+   20x1000 as 5.7x worse than 1000x20"). That finding was about statistical value per draw; this
+   one is about wall-clock cost per schedule. They answer different questions and both stand — a
+   reader who sees "schedules dominate draws" next to "leave draws at 50" without this sentence
+   will think one of them is wrong.
 
 **Caveat to carry:** the binding floor scales as the inverse square root of n with **no plateau**
 across every count measured. There is no converged N, only precision bought. Whatever count is
 chosen is a cost decision, not a correctness one.
+
+## Cost basis corrected (2026-09-12)
+
+Earlier publish-cost estimates in this todo's lineage were derived by **differencing whole Phase
+A runs**, which include `measureResamplingFloor`'s quantile work that a real publish never pays —
+making them about **1.8x too high**.
+
+Corrected method: time `buildPreScheduleArtifact` directly. That gives **3.8 ms/schedule** on
+`2026joh` at d=50, i.e. **0.0306 ms per schedule per match**. Against the 641 sidecars the
+2026-09-12 publish actually wrote, added publish time is about **14 min at 600 schedules, about
+23 min at 1,000, and about 91 min at 4,000**.
+
+Operational fact that makes those numbers wall-clock rather than CPU-seconds: the build runs
+**synchronously** inside `publish.ts`'s per-event loop at line 3166, so none of it parallelizes —
+`DEFAULT_CONCURRENCY` governs uploads only.
+
+## Rung-1 branch CLOSED (2026-09-12)
+
+Quick task `260912-0v3` confirmed the NO-SHIP on evidence at n=4,000: candidate **41.4%** against
+a binding floor of **98.4%**, worst team **3.33 ranks** against a floor of **0.71 ranks** —
+failing structurally and scaling with roster size. See
+`.planning/quick/260912-0v3-re-run-rung-1-at-n-4000-schedules-agains/260912-0v3-SUMMARY.md` for
+the full measurement; the four figures above are the whole quotation budget here.
+
+Consequence for this document: the count question above is **LIVE** rather than possibly moot,
+and the rung-2 generator is the path.
