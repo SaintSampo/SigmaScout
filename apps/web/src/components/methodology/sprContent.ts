@@ -26,7 +26,7 @@
  * and `teamMetrics`), never transcribed from memory or from a prior version
  * of this file.
  */
-import { SPR_PARAMS } from "../../../../../packages/core/algorithms/bpr.js";
+import { SPR_PARAMS } from "../../../../../packages/core/algorithms/spr.js";
 
 /**
  * The three rank weights `viewOfMap` renormalizes to, recomputed here rather

@@ -13,7 +13,7 @@ import { openCorpus, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
-import { spr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/spr.js";
 import { PromotedVersionSchema } from "./promote.js";
 import { PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
 import { LiveWindowsManifestEnvelopeSchema } from "./manifestSchemas.js";

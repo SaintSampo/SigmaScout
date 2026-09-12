@@ -1658,7 +1658,7 @@ const CompareRpCalibrationSchema = z.object({
  * needing to validate one (`publish.ts`'s `RpCalibrationMeasurementSchema`)
  * declares a structurally-identical schema of its own rather than importing
  * this one, and both are exercised against the SAME real emitted record
- * fixture (`apps/web/src/routes/__fixtures__/rp-calibration-2026-bpr.json`)
+ * fixture (`apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json`)
  * in their respective test files, which is what keeps them from silently
  * drifting apart.
  */

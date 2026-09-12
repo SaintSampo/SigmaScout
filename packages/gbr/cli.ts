@@ -10,7 +10,7 @@
  *
  * This file is imported by `evaluate.ts`/`tune.ts` for `DESIGN_YEARS` only.
  * `main()` below is guarded by the entry check at the bottom (the
- * `packages/bpr/cli.ts:66-69` precedent) so importing this module for its
+ * `packages/spr/cli.ts:66-69` precedent) so importing this module for its
  * exports never triggers a run.
  */
 import { pathToFileURL } from "node:url";

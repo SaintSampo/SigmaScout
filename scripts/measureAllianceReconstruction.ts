@@ -106,7 +106,7 @@ import { openCorpusReadOnly } from "../packages/corpus/db.js";
 import { buildSeasonStream, WalkForwardSimulator } from "../packages/harness/replay.js";
 import { corpusColdStartIndex } from "../packages/harness/corpusColdStart.js";
 import { resolvePublishAlgorithms } from "../packages/harness/publish.js";
-import { correctionsOf } from "../packages/core/algorithms/bpr.js";
+import { correctionsOf } from "../packages/core/algorithms/spr.js";
 import { isFullyDemoAlliance } from "../packages/core/algorithms/demoTeams.js";
 import { isFullyDqZeroScoreAlliance } from "../packages/core/algorithms/dq.js";
 import { seasonBoundaryFor } from "../packages/harness/seasonBoundary.js";

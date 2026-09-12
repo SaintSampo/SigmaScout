@@ -93,7 +93,7 @@ function runAt(
 }
 
 function main(): void {
-  const paramsPath = process.argv[2] ?? "packages/bpr/frozen-params.json";
+  const paramsPath = process.argv[2] ?? "packages/spr/frozen-params.json";
   const raw = JSON.parse(readFileSync(paramsPath, "utf8")) as { params?: BprParams };
   const base: BprParams = { ...DEFAULTS, ...(raw.params ?? (raw as unknown as BprParams)) };
   const matches = loadMatches("data/corpus.sqlite");

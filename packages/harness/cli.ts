@@ -44,7 +44,7 @@ import type { AlgorithmModule, MatchResult } from "../core/algorithms/types.js";
 import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
-import { spr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/spr.js";
 import {
   vpr,
   vprDefaults,

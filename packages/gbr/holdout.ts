@@ -7,7 +7,7 @@
  *
  * Refuses to run unless (a) invoked with `--break-seal`, AND (b) the frozen
  * parameter file exists, is tracked at `HEAD`, and has a clean working tree
- * for that path — `packages/bpr/holdout.ts:17-39`'s `assertCommitted` is the
+ * for that path — `packages/spr/holdout.ts:17-39`'s `assertCommitted` is the
  * precedent this follows, in shape and in error message.
  */
 import { execFileSync } from "node:child_process";

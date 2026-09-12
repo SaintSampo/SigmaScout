@@ -21,7 +21,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { BprModel, DEFAULTS, type BprParams } from "./model.js";
-import { SPR_PARAMS, SPR_VERSION } from "../core/algorithms/bpr.js";
+import { SPR_PARAMS, SPR_VERSION } from "../core/algorithms/spr.js";
 
 const YEAR = 2024;
 const RED = ["frc1", "frc2", "frc3"];

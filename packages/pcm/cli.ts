@@ -147,7 +147,7 @@ function main(): void {
 
 // Only run when invoked directly, so `holdout.ts` and the tests can import the
 // year sets and `evalYears` without silently burning a full evaluation on
-// import -- the same guard, for the same reason, as `packages/bpr/cli.ts`.
+// import -- the same guard, for the same reason, as `packages/spr/cli.ts`.
 const entry = process.argv[1];
 if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
   main();

@@ -15,7 +15,7 @@
  *     ]
  *
  * Its filter is `week == 1`. **This corpus stores TBA's week 0-INDEXED**:
- * `packages/corpus/schema.sql` and `packages/bpr/data.ts` both record that
+ * `packages/corpus/schema.sql` and `packages/spr/data.ts` both record that
  * corpus week 0 is competition "Week 1", and the corpus itself confirms it —
  * 2024's `week = 0` events run 2024-02-24 to 2024-03-03, which is FRC's own
  * Week 1, while `week = 1` events do not begin until 2024-03-05.

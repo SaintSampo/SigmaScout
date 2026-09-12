@@ -20,7 +20,7 @@
  * skips a season accumulates `seasonVar` once per boundary rather than once in
  * total - worth a few thousandths of a variance unit.
  */
-import { spr, type SprState } from "../core/algorithms/bpr.js";
+import { spr, type SprState } from "../core/algorithms/spr.js";
 import type { CompLevel, MatchResult } from "../core/algorithms/types.js";
 import { accuracyCall } from "../core/scoring/brier.js";
 import { isSurrogateAffected, loadMatches } from "./data.js";

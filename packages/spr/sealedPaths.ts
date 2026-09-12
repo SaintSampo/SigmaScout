@@ -12,6 +12,17 @@
  * plus whichever parameter files a run names. `assertSealed` returns a blob sha
  * for each so the run's own output is self-documenting: a reader can check the
  * header line by line against the repository rather than trusting a claim.
+ *
+ * 260912-ivg Stage 1 Task 2: this list was repointed from `packages/bpr/` to
+ * `packages/spr/` (and the ported module from `packages/core/algorithms/bpr.ts`
+ * to `.../spr.ts`) by a pure `git mv` — every path's blob sha is byte-identical
+ * across the move commit (verified, not asserted). The measured numbers this
+ * seal attests to (the sealed 2016-2022 design, the 2023-2026 holdout) are
+ * therefore still attributable to the exact same content; only its address
+ * changed. `assertSealed` resolves these strings against the CURRENT tree at
+ * run time, so leaving them pointing at the old, now-nonexistent `packages/bpr/`
+ * paths would have DISABLED the seal (every holdout/pcm run refusing to start
+ * on a path error), not preserved it.
  */
 
 /**
@@ -21,11 +32,11 @@
  * from either module.
  */
 export const SEALED_CODE_PATHS: readonly string[] = [
-  "packages/bpr/model.ts",
-  "packages/bpr/evaluate.ts",
-  "packages/bpr/data.ts",
-  "packages/bpr/cli.ts",
-  "packages/core/algorithms/bpr.ts",
+  "packages/spr/model.ts",
+  "packages/spr/evaluate.ts",
+  "packages/spr/data.ts",
+  "packages/spr/cli.ts",
+  "packages/core/algorithms/spr.ts",
 ];
 
 /**

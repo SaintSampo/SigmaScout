@@ -35,7 +35,7 @@ import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveW
 import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
 import { AlgorithmsManifestSchema } from "../../../packages/harness/manifestSchemas.js";
 import { SIGMA1_CODE_VERSION } from "../../../packages/core/algorithms/sigma1/params.js";
-import { spr } from "../../../packages/core/algorithms/bpr.js";
+import { spr } from "../../../packages/core/algorithms/spr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { SubrequestBudget } from "../src/subrequestBudget.js";

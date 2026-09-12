@@ -18,7 +18,7 @@ Identical rows in every arm.
 
 The committed run in `8728f4be` reported PCM beating BPR by +0.177pp accuracy
 and −0.00222 Brier, and printed `RULE A: PCM improves BOTH`. That comparison was
-against `packages/bpr/model.ts`'s `DEFAULTS`, which is **the all-knobs-inert
+against `packages/spr/model.ts`'s `DEFAULTS`, which is **the all-knobs-inert
 starting point for the tuner, not the model that ships**. Against the actually
 frozen parameter set, PCM is −0.093pp on accuracy and −0.00002 on Brier — level
 at best.
@@ -79,7 +79,7 @@ conclusion stands.
 
 ## A number not to compare against
 
-`packages/bpr/frozen-params.json` records `_design_accuracy_2016_2022: 0.73081`.
+`packages/spr/frozen-params.json` records `_design_accuracy_2016_2022: 0.73081`.
 That is on the **retired** scorer, which gave half credit for a `pRed === 0.5`
 no-call. The same parameters score **72.91%** on the current scorer. The
 difference is a scoring-convention change, not a regression.

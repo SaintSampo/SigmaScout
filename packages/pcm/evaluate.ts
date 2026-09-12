@@ -23,13 +23,13 @@
  * prediction in either.
  *
  * `pcm.test.ts` pins the baseline arm produced by THIS loop against
- * `packages/bpr/evaluate.ts`'s sealed `runEval` on the same years. That test is
+ * `packages/spr/evaluate.ts`'s sealed `runEval` on the same years. That test is
  * the only thing standing between this file and a silently divergent baseline,
  * which would make every comparison it prints meaningless.
  */
 import { accuracyCall, outcomeTarget } from "../core/scoring/brier.js";
-import { isSurrogateAffected } from "../bpr/data.js";
-import { BprModel, DEFAULTS as BPR_DEFAULTS, type BprParams } from "../bpr/model.js";
+import { isSurrogateAffected } from "../spr/data.js";
+import { BprModel, DEFAULTS as BPR_DEFAULTS, type BprParams } from "../spr/model.js";
 import { eventBlockedBootstrap } from "../harness/eventBootstrap.js";
 import { PcmModel, PCM_DEFAULTS, type PcmParams } from "./model.js";
 import type { PcmMatch } from "./data.js";
@@ -308,7 +308,7 @@ function armLines(r: ArmResult, label: string): string[] {
  */
 export function formatPaired(res: PairedResult, delta: PairedDelta, label: string): string {
   const lines: string[] = [`=== ${label} ===`, ""];
-  lines.push(...armLines(res.baseline, "BPR baseline (packages/bpr/model.ts DEFAULTS)"));
+  lines.push(...armLines(res.baseline, "BPR baseline (packages/spr/model.ts DEFAULTS)"));
   lines.push("");
   lines.push(...armLines(res.pcm, "PCM (phase-component sum)"));
   lines.push("");

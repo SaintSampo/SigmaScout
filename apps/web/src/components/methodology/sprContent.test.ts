@@ -19,7 +19,7 @@
  * against itself.
  */
 import { describe, expect, it } from "vitest";
-import { SPR_PARAMS } from "../../../../../packages/core/algorithms/bpr.js";
+import { SPR_PARAMS } from "../../../../../packages/core/algorithms/spr.js";
 import { SPR_PAGE_TITLE, SPR_LEAD, SPR_SECTION_IDS, SPR_SECTIONS } from "./sprContent.js";
 
 /**

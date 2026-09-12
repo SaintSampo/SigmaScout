@@ -8,7 +8,7 @@
  * is improving while its auto is flat), PCM should win. If the extra
  * parameters just split the same evidence three ways, it should lose.
  *
- * WHY THIS IS NOT A CHANGE TO BPR. `packages/core/algorithms/bpr.ts` already
+ * WHY THIS IS NOT A CHANGE TO BPR. `packages/core/algorithms/spr.ts` already
  * runs three phase filters, but deliberately keeps them DISPLAY-ONLY and out of
  * `predict`, because a component split has to read per-season `score_breakdown`
  * field names and 2023-2026 was holdout schema. PCM is the same idea moved into
@@ -43,7 +43,7 @@
  *    equicorrelation; at 0 it reproduces independence exactly, so the knob is
  *    inert at its default and has to earn promotion on the design years.
  */
-import { BprModel, DEFAULTS as BPR_DEFAULTS, type BprParams, type Prediction } from "../bpr/model.js";
+import { BprModel, DEFAULTS as BPR_DEFAULTS, type BprParams, type Prediction } from "../spr/model.js";
 import {
   COMPONENT_GROUP_IDS,
   type ComponentGroupId,
@@ -150,7 +150,7 @@ function erf(x: number): number {
  * is numerically irrelevant to Brier but NOT to reporting: a no-call is
  * detected by exact equality with 0.5, so without this guard a genuinely even
  * prediction is silently recorded as a confident red pick. Same guard, same
- * reason, as `packages/core/algorithms/bpr.ts`.
+ * reason, as `packages/core/algorithms/spr.ts`.
  */
 const normCdf = (z: number): number => (z === 0 ? 0.5 : 0.5 * (1 + erf(z / Math.SQRT2)));
 
@@ -385,7 +385,7 @@ export class PcmModel {
 
     const bias = this.bias[isElim ? 1 : 0] ?? 0;
     const marginPoints = red.points - blue.points + bias * unit;
-    // Alliance variances are summed. `packages/core/algorithms/bpr.ts` measured
+    // Alliance variances are summed. `packages/core/algorithms/spr.ts` measured
     // corr(z_red, z_blue) = 0.011 on the design years, so independence between
     // the two alliances is the established assumption here, unlike independence
     // between PHASES, which is the thing `phaseCorr` exists to question.

@@ -40,21 +40,21 @@ describe("assertSealed", () => {
   it("covers the model and the shipped port, not just the parameter file (F-15)", () => {
     // The whole point of the rewrite: model.ts changed twice after the sealed
     // holdout ran, unchecked, because the seal only looked at the params.
-    expect(SEALED_CODE_PATHS).toContain("packages/bpr/model.ts");
-    expect(SEALED_CODE_PATHS).toContain("packages/core/algorithms/bpr.ts");
-    expect(SEALED_CODE_PATHS).toContain("packages/bpr/data.ts");
-    expect(SEALED_CODE_PATHS).toContain("packages/bpr/evaluate.ts");
+    expect(SEALED_CODE_PATHS).toContain("packages/spr/model.ts");
+    expect(SEALED_CODE_PATHS).toContain("packages/core/algorithms/spr.ts");
+    expect(SEALED_CODE_PATHS).toContain("packages/spr/data.ts");
+    expect(SEALED_CODE_PATHS).toContain("packages/spr/evaluate.ts");
   });
 
   it("refuses when ANY sealed path is dirty, naming the offending path", () => {
-    const runner = cleanRunner({ "status:packages/bpr/model.ts": " M packages/bpr/model.ts" });
+    const runner = cleanRunner({ "status:packages/spr/model.ts": " M packages/spr/model.ts" });
     expect(() => assertSealed(SEALED_CODE_PATHS, runner)).toThrow(
-      /packages\/bpr\/model\.ts has uncommitted changes/,
+      /packages\/spr\/model\.ts has uncommitted changes/,
     );
   });
 
   it("refuses when a sealed path is untracked at HEAD", () => {
-    const runner = cleanRunner({ "missing:packages/bpr/cli.ts": "1" });
+    const runner = cleanRunner({ "missing:packages/spr/cli.ts": "1" });
     expect(() => assertSealed(SEALED_CODE_PATHS, runner)).toThrow(/not tracked at HEAD/);
   });
 
@@ -66,9 +66,9 @@ describe("assertSealed", () => {
   });
 
   it("seals a named parameter file alongside the code paths", () => {
-    const paths = [...SEALED_CODE_PATHS, "packages/bpr/frozen-params.json"];
+    const paths = [...SEALED_CODE_PATHS, "packages/spr/frozen-params.json"];
     const result = assertSealed(paths, cleanRunner());
-    expect(result.paths.map((p) => p.path)).toContain("packages/bpr/frozen-params.json");
+    expect(result.paths.map((p) => p.path)).toContain("packages/spr/frozen-params.json");
   });
 });
 

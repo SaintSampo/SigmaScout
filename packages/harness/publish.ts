@@ -58,7 +58,7 @@ import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { opr, type OprState } from "../core/algorithms/opr.js";
 import { epa, type EpaState } from "../core/algorithms/epa.js";
-import { spr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/spr.js";
 import { vpr, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
 import { isOfficialEventType } from "../core/algorithms/eventTypes.js";
@@ -188,7 +188,7 @@ const PRESIM_SCHEDULE_COUNT = 1000;
  */
 const PRESIM_DRAWS_PER_SCHEDULE = 50;
 
-/** D-03 (rename D-04/D-05, plan 07-16; re-keyed by 260912-ivg Stage 1): the base (untuned/unpromoted) modules for the WRITE-tier ids (`PIPELINE_ALGORITHM_IDS`). `spr` (the module `packages/core/algorithms/bpr.ts` exports, wire id renamed from `bpr` on this task) joined 2026-09-08 as `bpr` and, like `opr`/`epa`, is never overridden by `applyPromotedOverrides` because it carries no tuned parameter file. `resolvePublishAlgorithms` swaps `vpr` for the committed promoted version via `applyPromotedOverrides`, the same rule `manifests.ts`'s `buildAlgorithmsManifest` and `cli.ts`'s harness runs use — never a second, independently-derived resolution (T-04-16). Its own object key and `vpr.id` must agree — they do, because both derive from the same renamed registry export (T-07-16-01). No `bpr` key remains here: the retiring id is a READ-tier-only concern now, validated instead by `PUBLISHED_ALGORITHM_IDS` at the manifest/Worker boundary. */
+/** D-03 (rename D-04/D-05, plan 07-16; re-keyed by 260912-ivg Stage 1): the base (untuned/unpromoted) modules for the WRITE-tier ids (`PIPELINE_ALGORITHM_IDS`). `spr` (the module `packages/core/algorithms/spr.ts` exports, wire id renamed from `bpr` and the file itself moved from `.../bpr.ts` by the same task) joined 2026-09-08 as `bpr` and, like `opr`/`epa`, is never overridden by `applyPromotedOverrides` because it carries no tuned parameter file. `resolvePublishAlgorithms` swaps `vpr` for the committed promoted version via `applyPromotedOverrides`, the same rule `manifests.ts`'s `buildAlgorithmsManifest` and `cli.ts`'s harness runs use — never a second, independently-derived resolution (T-04-16). Its own object key and `vpr.id` must agree — they do, because both derive from the same renamed registry export (T-07-16-01). No `bpr` key remains here: the retiring id is a READ-tier-only concern now, validated instead by `PUBLISHED_ALGORITHM_IDS` at the manifest/Worker boundary. */
 const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa, vpr, spr };
 
 // ---------------------------------------------------------------------------
@@ -1558,7 +1558,7 @@ const RpCalibrationBonusSchema = z.object({
  * silently drifting apart; `scripts/measureRpCalibration.test.ts` and
  * `packages/harness/pageArtifacts.test.ts` both additionally exercise this
  * SAME real emitted record fixture
- * (`apps/web/src/routes/__fixtures__/rp-calibration-2026-bpr.json`) as a
+ * (`apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json`) as a
  * runtime cross-check.
  *
  * Task 2 Step 5: no `reliabilityBins` field — dropped from the wire shape

@@ -2,14 +2,17 @@
  * `RpCalibrationSection` — Task 1's tracer slice rendered end to end. Cases
  * run against the REAL committed `compare-2026.json` fixture (proving
  * "absence is absence" — it carries no `rpCalibration` key on any slice) and
- * against that same fixture with the REAL emitted `rp-calibration-2026-bpr.json`
- * record attached to its bpr/qualification slice (proving the populated
- * render), never a hand-built artifact.
+ * against that same fixture with the REAL emitted `rp-calibration-2026-spr.json`
+ * record (renamed from `-bpr.json` by quick task 260912-ivg Stage 1 Task 2 —
+ * a filename token, no wire-id meaning; the fixture's own `algorithmId`
+ * comparison below stays `"bpr"`, matching `compare-2026.json`'s actual
+ * READ-tier content) attached to its bpr/qualification slice (proving the
+ * populated render), never a hand-built artifact.
  */
 import { describe, expect, it, afterEach } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import compare2026 from "../../routes/__fixtures__/compare-2026.json";
-import rpCalibration2026Bpr from "../../routes/__fixtures__/rp-calibration-2026-bpr.json";
+import rpCalibration2026Spr from "../../routes/__fixtures__/rp-calibration-2026-spr.json";
 import { CompareArtifactSchema, type CompareArtifact, type CompareRpCalibration } from "../../../../../packages/harness/pageArtifacts.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { algorithmDisplayLabel } from "../ribbon/AlgorithmSelect.js";
@@ -26,10 +29,10 @@ import {
 afterEach(cleanup);
 
 const ARTIFACT_2026_NO_RP: CompareArtifact = CompareArtifactSchema.parse(compare2026);
-const RP_RECORD = rpCalibration2026Bpr as unknown as CompareRpCalibration;
+const RP_RECORD = rpCalibration2026Spr as unknown as CompareRpCalibration;
 
 /** Same fixture, with the REAL emitted record attached to bpr's qualification slice — the shape `buildCompareArtifact`'s `attachRpCalibration` produces. */
-function artifactWithBprRp(): CompareArtifact {
+function artifactWithSprRp(): CompareArtifact {
   return {
     ...ARTIFACT_2026_NO_RP,
     slices: ARTIFACT_2026_NO_RP.slices.map((s) =>
@@ -68,7 +71,7 @@ describe("RpCalibrationSection — absence is absence (real pre-phase fixture, n
 
 describe("RpCalibrationSection — populated render (real emitted record attached to bpr/2026/qualification)", () => {
   it("bpr's card renders the fixture-recomputed headline sentence; opr/epa (no record yet) still render absent", () => {
-    render(<RpCalibrationSection artifactsByYear={new Map([[2026, artifactWithBprRp()]])} />);
+    render(<RpCalibrationSection artifactsByYear={new Map([[2026, artifactWithSprRp()]])} />);
     const card = buildRpCalibrationCard(RP_RECORD);
     expect(screen.getByTestId(rpCalibrationCardSentenceTestId("bpr")).textContent).toContain(
       rpCardHeadlineSentence(algorithmDisplayLabel("bpr"), card.headline!)
@@ -78,7 +81,7 @@ describe("RpCalibrationSection — populated render (real emitted record attache
   });
 
   it("bpr's card renders one row per bonus the record carries, in the record's own order", () => {
-    render(<RpCalibrationSection artifactsByYear={new Map([[2026, artifactWithBprRp()]])} />);
+    render(<RpCalibrationSection artifactsByYear={new Map([[2026, artifactWithSprRp()]])} />);
     const cardEl = screen.getByTestId(rpCalibrationCardTestId("bpr"));
     for (const bonus of RP_RECORD.bonuses) {
       expect(cardEl.textContent).toContain(bonus.name);

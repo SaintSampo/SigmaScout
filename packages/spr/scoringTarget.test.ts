@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { correctionsOf as correctionsOfData } from "./data.js";
-import { correctionsOf as correctionsOfPort } from "../core/algorithms/bpr.js";
+import { correctionsOf as correctionsOfPort } from "../core/algorithms/spr.js";
 import {
   ADJUST_COMPONENT,
   BREAKDOWN_REGISTERED_SEASONS,

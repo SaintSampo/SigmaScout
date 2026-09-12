@@ -20,7 +20,7 @@ import { describe, expect, it } from "vitest";
 import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
 import { readRpBeliefs, withRpBeliefs, serializeState } from "./stateSnapshot.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
-import { spr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/spr.js";
 import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
 import type { MatchResult, Prediction } from "../core/algorithms/types.js";
 

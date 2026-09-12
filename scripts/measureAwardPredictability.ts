@@ -70,7 +70,7 @@
  * ---------------------------------------------------------------------------
  *
  * `replayPreEventRatings` below is this script's OWN chronological loop. It
- * mirrors `packages/bpr/evaluate.ts`'s `runEval` sequencing exactly — predict
+ * mirrors `packages/spr/evaluate.ts`'s `runEval` sequencing exactly — predict
  * strictly before update, every match in the shared total order, no exclusions
  * from the state stream (a surrogate-affected match leaves the SCOREBOARD, not
  * the state) — but `runEval` is a scoring function and this is not scoring
@@ -130,12 +130,12 @@ import {
   selectEventTeamsForEvents,
   type Corpus,
 } from "../packages/corpus/db.js";
-import { loadMatches } from "../packages/bpr/data.js";
-import { BprModel, DEFAULTS, type BprParams } from "../packages/bpr/model.js";
+import { loadMatches } from "../packages/spr/data.js";
+import { BprModel, DEFAULTS, type BprParams } from "../packages/spr/model.js";
 import { isOfficialEventType } from "../packages/core/algorithms/eventTypes.js";
 
 export const CORPUS_PATH = "data/corpus.sqlite";
-export const BPR_PARAMS_PATH = "packages/bpr/frozen-params.json";
+export const SPR_PARAMS_PATH = "packages/spr/frozen-params.json";
 
 /**
  * Award types printed in their own REFERENCE-ONLY section: 1 Winner and
@@ -440,7 +440,7 @@ export interface ReplayModel<P> {
 
 /**
  * One chronological pass over the whole match stream, mirroring
- * `packages/bpr/evaluate.ts`'s `runEval` sequencing: predict strictly before
+ * `packages/spr/evaluate.ts`'s `runEval` sequencing: predict strictly before
  * update, every match, no exclusion from the state stream.
  *
  * At the FIRST match of each wanted event — before that match's `update` — the
@@ -2570,7 +2570,7 @@ export function buildCandidatePools(
   return out;
 }
 
-export function loadBprParams(path: string): BprParams {
+export function loadSprParams(path: string): BprParams {
   const raw = JSON.parse(readFileSync(path, "utf8")) as { params?: BprParams };
   return { ...DEFAULTS, ...(raw.params ?? (raw as unknown as BprParams)) };
 }
@@ -3395,7 +3395,7 @@ function main(): void {
     const wanted = new Map<string, ReadonlySet<string>>();
     for (const [key, pool] of poolsByEvent) wanted.set(key, new Set(pool));
 
-    const model = new BprModel(loadBprParams(BPR_PARAMS_PATH));
+    const model = new BprModel(loadSprParams(SPR_PARAMS_PATH));
     const ratingsByEvent = replayPreEventRatings(matches, model, wanted);
 
     const rookieYearByTeam = loadRookieYears(db);

@@ -109,8 +109,8 @@ import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empir
 import { analyticRpPmf } from "../../../packages/core/rankingPoints/analyticPmf.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import { isRpEligibleEventType } from "../../../packages/core/rankingPoints/constants.js";
-import { spr } from "../../../packages/core/algorithms/bpr.js";
-import type { SprState } from "../../../packages/core/algorithms/bpr.js";
+import { spr } from "../../../packages/core/algorithms/spr.js";
+import type { SprState } from "../../../packages/core/algorithms/spr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";

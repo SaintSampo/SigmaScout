@@ -34,7 +34,7 @@ import { SwingFactorAccumulator } from "../../../packages/harness/swingFactor.js
 import { SigmaScoreAccumulator } from "../../../packages/harness/sigmaScore.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
-import { spr } from "../../../packages/core/algorithms/bpr.js";
+import { spr } from "../../../packages/core/algorithms/spr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";

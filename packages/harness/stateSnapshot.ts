@@ -32,7 +32,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { z } from "zod";
 import type { EpaState } from "../core/algorithms/epa.js";
-import type { SprPhaseRecord, SprState, SprTeamState } from "../core/algorithms/bpr.js";
+import type { SprPhaseRecord, SprState, SprTeamState } from "../core/algorithms/spr.js";
 import { COMPONENT_GROUP_IDS, type ComponentGroupId } from "../core/algorithms/breakdown/index.js";
 import type { OprObservation, OprState } from "../core/algorithms/opr.js";
 import type { ElimScoreOffset, Sigma1League, Sigma1State, Sigma1TeamState } from "../core/algorithms/sigma1/index.js";
@@ -983,7 +983,7 @@ function serializeBprState(algorithmId: string, algorithmVersion: string, state:
     // the point level that BPR's scale-free ratings are denominated against —
     // a ~100-match trailing EWMA over the globally interleaved stream, NOT a
     // season-level constant (corrected 2026-09-10; see
-    // `packages/core/algorithms/bpr.ts`'s header). `scaleCount` is what pins
+    // `packages/core/algorithms/spr.ts`'s header). `scaleCount` is what pins
     // that learning rate at its `scaleMinLr` floor, so it is load-bearing
     // state and not a diagnostic counter. Dropping any of them would silently
     // reset a resumed model.

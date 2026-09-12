@@ -117,8 +117,8 @@ describe("THE SEAL - the holdout is unreachable from the model path", () => {
       "packages/pcm/evaluate.ts",
       "packages/pcm/cli.ts",
       "packages/pcm/holdout.ts",
-      "packages/bpr/model.ts",
-      "packages/bpr/data.ts",
+      "packages/spr/model.ts",
+      "packages/spr/data.ts",
       "packages/core/algorithms/breakdown/groups.ts",
     ]) {
       expect(SEALED_CODE_PATHS).toContain(p);

@@ -1,5 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { PUBLISHED_ALGORITHM_IDS } from "./publishedAlgorithms.js";
+import { PIPELINE_ALGORITHM_IDS } from "./publishedAlgorithms.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -81,10 +81,13 @@ describe("selectedOnSeasonsFor", () => {
   // harness's own tuning runs (`applyPromotedOverrides` in `cli.ts`), which is
   // a different consumer — what this now pins is that the two are genuinely
   // separated: publishing must NOT resurrect a retired id from that file.
+  // 260912-ivg Stage 1: resolvePublishAlgorithms(undefined) resolves the
+  // WRITE tier (PIPELINE_ALGORITHM_IDS), not PUBLISHED_ALGORITHM_IDS (the
+  // browser-READ tier, still `bpr`) — the split's whole point.
   it("no longer resolves vpr for publishing — the retired id must not come back through the promoted-version file", () => {
     const resolved = resolvePublishAlgorithms(undefined);
     expect(resolved.some((m) => m.id === "vpr")).toBe(false);
-    expect(resolved.map((m) => m.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
+    expect(resolved.map((m) => m.id)).toEqual([...PIPELINE_ALGORITHM_IDS]);
   });
 
   /**

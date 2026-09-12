@@ -7,7 +7,7 @@
  * the total directly, which is what BPR does today?
  *
  * THE POPULATION IS BPR'S, BY CONSTRUCTION. This file does not run its own
- * match query. It calls `packages/bpr/data.ts`'s `loadMatches` -- a SEALED path
+ * match query. It calls `packages/spr/data.ts`'s `loadMatches` -- a SEALED path
  * it must never modify -- and attaches phase outputs to those exact rows by
  * match key. Re-deriving the row set here would risk the precise divergence
  * quick task 260908-vqr already found once (a private BPR query that dropped
@@ -20,7 +20,7 @@
  * phase split is a per-season `score_breakdown` field read.
  */
 import { openCorpusReadOnly } from "../corpus/db.js";
-import { loadMatches, type BprMatch } from "../bpr/data.js";
+import { loadMatches, type BprMatch } from "../spr/data.js";
 import {
   COMPONENT_GROUP_IDS,
   componentGroupsForSeason,

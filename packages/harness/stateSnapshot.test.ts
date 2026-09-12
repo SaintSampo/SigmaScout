@@ -14,7 +14,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { epa } from "../core/algorithms/epa.js";
 import { opr } from "../core/algorithms/opr.js";
-import { spr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/spr.js";
 import { vpr, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import type { EpaState } from "../core/algorithms/epa.js";
 import type { AlgorithmModule, MatchResult, UpcomingMatch } from "../core/algorithms/types.js";

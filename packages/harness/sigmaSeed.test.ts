@@ -34,7 +34,7 @@ import {
 } from "./stateSnapshot.js";
 import { SigmaScoreAccumulator } from "./sigmaScore.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
-import { spr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/spr.js";
 import { epa } from "../core/algorithms/epa.js";
 import { opr } from "../core/algorithms/opr.js";
 import type { MatchResult, Prediction } from "../core/algorithms/types.js";

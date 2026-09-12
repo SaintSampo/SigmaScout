@@ -36,7 +36,7 @@
  * Copied byte-for-byte from `packages/core/algorithms/sigma1/linkFunctions.ts:41-49`
  * (Abramowitz-Stegun formula 7.1.26, max absolute error under 1.5e-7). Four
  * copies of this formula exist in the tree already
- * (`packages/core/algorithms/bpr.ts:303`, `packages/bpr/model.ts:215`,
+ * (`packages/core/algorithms/spr.ts:303`, `packages/spr/model.ts:215`,
  * `packages/pcm/model.ts:135`, and `linkFunctions.ts` itself);
  * `linkFunctions.ts` is the copy source because it is the only one inside
  * `packages/core`, so copying it — rather than importing across the package

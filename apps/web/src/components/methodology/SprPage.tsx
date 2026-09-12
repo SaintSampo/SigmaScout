@@ -25,7 +25,7 @@ const SECTION_LINKS: Partial<Record<SprSectionId, { readonly to: "/methodology/s
 /**
  * The `/methodology/spr` page body (quick task 260910-vof). Prose only, no
  * SVG figures — every claim on this page traces to
- * `packages/core/algorithms/bpr.ts` at HEAD, verified rather than
+ * `packages/core/algorithms/spr.ts` at HEAD, verified rather than
  * transcribed from memory (see `sprContent.ts`'s own header for the
  * discipline that keeps it that way).
  *

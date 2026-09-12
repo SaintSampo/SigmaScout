@@ -35,7 +35,7 @@
 import { deserializeState, type StateRow, type StateRowScopeKind } from "../../../packages/harness/stateSnapshot.js";
 import type { EpaState } from "../../../packages/core/algorithms/epa.js";
 import type { OprState } from "../../../packages/core/algorithms/opr.js";
-import type { SprState } from "../../../packages/core/algorithms/bpr.js";
+import type { SprState } from "../../../packages/core/algorithms/spr.js";
 import type { Sigma1State } from "../../../packages/core/algorithms/sigma1/index.js";
 
 export type { StateRow, StateRowScopeKind } from "../../../packages/harness/stateSnapshot.js";

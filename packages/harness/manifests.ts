@@ -21,7 +21,7 @@
 import { readFileSync } from "node:fs";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
-import { spr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/spr.js";
 import { warnIfNewerPromotedVpr } from "./cli.js";
 import { PromotedVersionSchema } from "./promote.js";
 import { ALGORITHM_VERSIONS_DIR, PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
@@ -265,8 +265,9 @@ export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions)
   // emitting a short manifest -- a missing entry would make the algorithm
   // invisible to the browser while every test still passed.
   //
-  // 260912-ivg Stage 1: `packages/core/algorithms/bpr.ts`'s own module now
-  // reports `id: "spr"` (the WRITE-tier rename), but THIS manifest
+  // 260912-ivg Stage 1: `packages/core/algorithms/spr.ts`'s own module now
+  // reports `id: "spr"` (the WRITE-tier rename, and Stage 1 Task 2's file
+  // move from `.../bpr.ts`), but THIS manifest
   // (`v1/manifest/algorithms.json`) is a READ-tier artifact —
   // `useAlgorithmVersion` (`apps/web/src/components/ribbon/AlgorithmSelect.tsx`)
   // looks its entry up by `PUBLISHED_ALGORITHM_IDS`'s member, still `"bpr"`.

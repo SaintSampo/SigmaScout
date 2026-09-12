@@ -3,7 +3,7 @@
  *
  * The load-bearing one is "baseline arm reproduces the sealed runEval". Every
  * number this package prints is a DIFFERENCE between two arms, so a baseline
- * that has silently drifted from `packages/bpr/evaluate.ts` makes the whole
+ * that has silently drifted from `packages/spr/evaluate.ts` makes the whole
  * comparison meaningless while still looking perfectly plausible. That test is
  * the only thing standing between this package and that failure.
  *
@@ -14,8 +14,8 @@
  */
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { runEval } from "../bpr/evaluate.js";
-import { DEFAULTS as BPR_DEFAULTS } from "../bpr/model.js";
+import { runEval } from "../spr/evaluate.js";
+import { DEFAULTS as BPR_DEFAULTS } from "../spr/model.js";
 import { loadPcmMatches, hasPhases, phaseDiagnostics, type PcmMatch } from "./data.js";
 import { runPaired } from "./evaluate.js";
 import { PcmModel, PCM_DEFAULTS } from "./model.js";
@@ -239,7 +239,7 @@ describe("PcmModel mechanics", () => {
 // --- corpus-dependent -------------------------------------------------------
 
 describe.skipIf(!hasCorpus)("PCM against the real corpus", () => {
-  it("baseline arm reproduces packages/bpr/evaluate.ts's sealed runEval exactly", () => {
+  it("baseline arm reproduces packages/spr/evaluate.ts's sealed runEval exactly", () => {
     const ms = loadPcmMatches(CORPUS_PATH);
     const scoreYears = new Set([2016, 2017, 2018]);
     const stopAfterYear = 2018;

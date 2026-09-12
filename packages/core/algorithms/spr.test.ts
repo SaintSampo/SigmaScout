@@ -15,7 +15,7 @@
  * reporting layer and the accuracy rule key off.
  */
 import { describe, expect, it } from "vitest";
-import { spr, correctionsOf, type SprState, type SprTeamState } from "./bpr.js";
+import { spr, correctionsOf, type SprState, type SprTeamState } from "./spr.js";
 import { accuracyCall, scoreSet } from "../scoring/brier.js";
 import type { MatchResult, UpcomingMatch } from "./types.js";
 

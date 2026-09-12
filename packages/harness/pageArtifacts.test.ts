@@ -388,9 +388,9 @@ describe("D-04 stamp — generation is required on all five schemas", () => {
 });
 
 describe("CompareSliceSchema.rpCalibration (F1/D-09/D-11, phase 09 plan 09-01)", () => {
-  it("a slice carrying the REAL emitted rp-calibration-2026-bpr.json record parses, and rpCalibration round-trips unchanged", () => {
+  it("a slice carrying the REAL emitted rp-calibration-2026-spr.json record parses, and rpCalibration round-trips unchanged", () => {
     const record: unknown = JSON.parse(
-      readFileSync(new URL("../../apps/web/src/routes/__fixtures__/rp-calibration-2026-bpr.json", import.meta.url), "utf8")
+      readFileSync(new URL("../../apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json", import.meta.url), "utf8")
     );
     const fixture = { ...validCompareFixture() };
     const withRp = { ...fixture, slices: [{ ...fixture.slices[0]!, compLevelView: "qualification" as const, rpCalibration: record }] };

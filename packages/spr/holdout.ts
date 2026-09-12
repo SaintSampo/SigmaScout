@@ -58,7 +58,7 @@ export function resolveYears(csv: string | undefined): {
     if (!Number.isFinite(y)) throw new Error(`holdout: bad year in "${csv}"`);
     if (!HOLDOUT_YEARS.has(y)) {
       throw new Error(
-        `holdout: ${y} is not a holdout year - use packages/bpr/score.ts for design years (2016-2022)`,
+        `holdout: ${y} is not a holdout year - use packages/spr/score.ts for design years (2016-2022)`,
       );
     }
     years.add(y);

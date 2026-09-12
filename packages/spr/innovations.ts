@@ -32,7 +32,7 @@ function stats(zs: number[]): { n: number; mean: number; sd: number } {
 }
 
 function main(): void {
-  const paramsPath = process.argv[2] ?? "packages/bpr/frozen-params.json";
+  const paramsPath = process.argv[2] ?? "packages/spr/frozen-params.json";
   const year = Number(process.argv[3] ?? "2023");
   const weeks = new Set((process.argv[4] ?? "0,1").split(",").map((s) => Number(s.trim())));
   const allowHoldout = process.argv.includes("--allow-holdout");

@@ -14,7 +14,7 @@ import type { AlgorithmModule, MatchResult, Prediction, TeamMetric, TeamMetrics,
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
-import { spr } from "../core/algorithms/bpr.js";
+import { spr } from "../core/algorithms/spr.js";
 import { OFFSEASON_EVENT_TYPE } from "../core/algorithms/eventTypes.js";
 // Renamed by plan 07-16's full-repo sweep (wave 11, D-04/D-05): this file's
 // own `publish.ts` importer now imports the published `vpr` registry entry

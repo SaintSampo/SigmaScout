@@ -29,7 +29,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
-import { assertSealed, type CommandRunner } from "../bpr/sealedPaths.js";
+import { assertSealed, type CommandRunner } from "../spr/sealedPaths.js";
 import { evalYears, HOLDOUT_YEARS, RESERVED_YEARS } from "./cli.js";
 import { formatPaired } from "./evaluate.js";
 import { PCM_DEFAULTS, type PcmParams } from "./model.js";
@@ -52,8 +52,8 @@ export const SEALED_CODE_PATHS: readonly string[] = [
   "packages/pcm/evaluate.ts",
   "packages/pcm/cli.ts",
   "packages/pcm/holdout.ts",
-  "packages/bpr/model.ts",
-  "packages/bpr/data.ts",
+  "packages/spr/model.ts",
+  "packages/spr/data.ts",
   "packages/core/algorithms/breakdown/groups.ts",
 ];
 

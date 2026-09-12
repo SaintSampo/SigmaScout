@@ -87,10 +87,10 @@ function table(title: string, groups: Array<[string, Rec[]]>): void {
 }
 
 function main(): void {
-  const paramsPath = process.argv[2] ?? "packages/bpr/frozen-params.json";
+  const paramsPath = process.argv[2] ?? "packages/spr/frozen-params.json";
   // Defaults to a DESIGN year, and a holdout season needs an explicit override
   // — the same guard `innovations.ts` already carries. This used to default to
-  // 2023, so the bare command `npx tsx packages/bpr/slice.ts` read the holdout
+  // 2023, so the bare command `npx tsx packages/spr/slice.ts` read the holdout
   // (quick task 260909-03b, T-03b-01).
   const year = Number(process.argv[3] ?? "2022");
   const allowHoldout = process.argv.includes("--allow-holdout");

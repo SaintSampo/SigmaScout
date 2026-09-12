@@ -108,9 +108,13 @@ describe("THE SEAL — the source scan is proven to bite (hazard 9)", () => {
 // --- forbidden-import scan (no corpus needed) -------------------------------
 
 describe("THE SEAL — import firewall", () => {
-  const FORBIDDEN = [/harness/, /algorithms\/opr/, /algorithms\/epa/, /algorithms\/bpr/, /algorithms\/sigma1/];
+  // 260912-ivg Stage 1 Task 2: `algorithms/bpr.js` was renamed to
+  // `algorithms/spr.js` — the forbidden-import pattern is repointed to the
+  // renamed path so this guard keeps catching the same violation rather
+  // than silently stopping to fire against a path that no longer exists.
+  const FORBIDDEN = [/harness/, /algorithms\/opr/, /algorithms\/epa/, /algorithms\/spr/, /algorithms\/sigma1/];
 
-  it("no packages/gbr/*.ts file imports harness or opr/epa/bpr/sigma1 model internals", () => {
+  it("no packages/gbr/*.ts file imports harness or opr/epa/spr/sigma1 model internals", () => {
     const files = readdirSync(GBR_DIR).filter((f) => f.endsWith(".ts"));
     expect(files.length).toBeGreaterThan(0);
 

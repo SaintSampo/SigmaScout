@@ -108,7 +108,7 @@
  * match/alliance record stays visible).
  */
 import { opr } from "../../../packages/core/algorithms/opr.js";
-import { spr } from "../../../packages/core/algorithms/bpr.js";
+import { spr } from "../../../packages/core/algorithms/spr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { makeSigma1 } from "../../../packages/core/algorithms/sigma1/index.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
@@ -219,7 +219,8 @@ async function writeTickMeta(db: D1Database, meta: TickMeta, nowIso: string): Pr
  * quick task 260912-ivg Stage 1, NOT `PUBLISHED_ALGORITHM_IDS`: this default
  * is what the Worker WRITES under once deployed (Stage 4), so it must be
  * validated against the write tier, which is exactly the transitional split
- * this task reopens (mirroring plan 07-16/07-18's `sigma1` -> `vpr` split).
+ * plan 07-16/07-18 used for the earlier retired-algorithm rename this task
+ * reopens the same shape for.
  */
 // 2026-09-09: `vpr` -> `bpr` on VPR's retirement, renamed again by quick task
 // 260912-ivg Stage 1 (`bpr` -> `spr`, the write-tier identifier). A fallback

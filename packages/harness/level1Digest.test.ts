@@ -57,6 +57,28 @@ const CORPUS_PATH = "data/corpus.sqlite";
 const DIGEST_SLICE_FIXTURE_PATH = join("packages", "harness", "fixtures", "digest-slice.json");
 const LEVEL1_BASELINE_PATH = join("data", "baselines", "level1-digest-2026-09.json");
 
+/**
+ * 260912-ivg Stage 1: `data/baselines/level1-digest-2026-09.json` and the
+ * `FROZEN_AT_09_01_STREAM_SHA256` pin below are FROZEN measurement records
+ * (tier table: untouched by this rename) — both still name the algorithm
+ * `"bpr"`, the id in force when they were recorded. `resolvePublishAlgorithms`
+ * now resolves the WRITE tier (`PIPELINE_ALGORITHM_IDS`), whose premier
+ * member is `"spr"` — the SAME module and the SAME digest-producing code,
+ * renamed. This one-entry alias is what lets a frozen `"bpr"` citation keep
+ * resolving to the live module it has always meant, without rewriting the
+ * frozen record itself. Stage 5 (the collapse) does not touch this file —
+ * the alias stays valid for as long as `data/baselines/level1-digest-2026-09.json`
+ * is read under its recorded id.
+ */
+const LEGACY_ALGORITHM_ID_ALIASES: Readonly<Record<string, string>> = { bpr: "spr" };
+
+function resolveByBaselineId<T extends { readonly id: string }>(resolved: readonly T[], baselineAlgorithmId: string): T | undefined {
+  return (
+    resolved.find((a) => a.id === baselineAlgorithmId) ??
+    resolved.find((a) => a.id === LEGACY_ALGORITHM_ID_ALIASES[baselineAlgorithmId])
+  );
+}
+
 const CORPUS_AVAILABLE = existsSync(CORPUS_PATH);
 const FIXTURE_AVAILABLE = existsSync(DIGEST_SLICE_FIXTURE_PATH);
 
@@ -137,12 +159,11 @@ describe("level-1 output byte-identity gate (D-12, phase 09 plan 09-01)", () => 
         expect(ruleModule, `RP_RULE_MODULES must have a registered module for season ${baseline.sliceSeason}`).toBeDefined();
 
         const resolved = resolvePublishAlgorithms(undefined);
-        const resolvedById = new Map(resolved.map((a) => [a.id, a]));
 
         let anyRpPmf = false;
 
         for (const entry of baseline.entries) {
-          const algorithm = resolvedById.get(entry.algorithmId);
+          const algorithm = resolveByBaselineId(resolved, entry.algorithmId);
           expect(algorithm, `baseline entry "${entry.algorithmId}" is not among the currently resolved published algorithms`).toBeDefined();
 
           // Version check FIRST — a deliberate version bump reads as "the
@@ -198,7 +219,7 @@ describe("the gate's failure mode, demonstrated rather than asserted (this task'
 
       const ruleModule = RP_RULE_MODULES[baseline.sliceSeason]!;
       const entry = baseline.entries[0]!;
-      const algorithm = resolvePublishAlgorithms(undefined).find((a) => a.id === entry.algorithmId)!;
+      const algorithm = resolveByBaselineId(resolvePublishAlgorithms(undefined), entry.algorithmId)!;
       const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
 
       const simulator = new WalkForwardSimulator(stream);
@@ -293,7 +314,7 @@ describe("D-12 across the whole phase: the algorithms Phase 9 did not touch neve
       const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
 
       for (const [algorithmId, frozenSha] of Object.entries(FROZEN_AT_09_01_STREAM_SHA256)) {
-        const algorithm = resolvePublishAlgorithms(undefined).find((a) => a.id === algorithmId);
+        const algorithm = resolveByBaselineId(resolvePublishAlgorithms(undefined), algorithmId);
         expect(algorithm, `${algorithmId} must still be a published algorithm`).toBeDefined();
 
         const simulator = new WalkForwardSimulator(stream);
@@ -315,9 +336,12 @@ describe("D-12 across the whole phase: the algorithms Phase 9 did not touch neve
 
     it("the pin is live, not decorative: it is checked against algorithms that are still published and still in the baseline", () => {
       const baseline = loadBaseline();
-      const publishedIds = resolvePublishAlgorithms(undefined).map((a) => a.id);
+      const resolved = resolvePublishAlgorithms(undefined);
       for (const algorithmId of Object.keys(FROZEN_AT_09_01_STREAM_SHA256)) {
-        expect(publishedIds, `${algorithmId} left the published set — this pin needs re-deciding, not deleting`).toContain(algorithmId);
+        expect(
+          resolveByBaselineId(resolved, algorithmId),
+          `${algorithmId} left the published set — this pin needs re-deciding, not deleting`
+        ).toBeDefined();
         expect(
           baseline.entries.some((e) => e.algorithmId === algorithmId),
           `${algorithmId} is no longer in the baseline file`
