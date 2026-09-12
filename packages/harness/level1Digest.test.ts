@@ -221,3 +221,108 @@ describe("the gate's failure mode, demonstrated rather than asserted (this task'
     });
   }
 });
+
+// ---------------------------------------------------------------------------
+// The CROSS-PHASE pin (plan 09-10 Task 7). Added because the obvious proxy
+// for "D-12 held across the whole phase" turned out to be unusable, and
+// silently so.
+// ---------------------------------------------------------------------------
+
+/**
+ * The stream digests as 09-01 FROZE them, hardcoded here rather than read
+ * from `data/baselines/level1-digest-2026-09.json`. That duplication is the
+ * entire point: this pin must survive a legitimate re-freeze of that file.
+ *
+ * 09-10 planned to close the phase by asserting the baseline file was
+ * byte-unchanged since 09-01 — `git log -- data/baselines/level1-digest-2026-09.json`
+ * showing exactly one commit. At HEAD it shows THREE, and the extra two are
+ * not a violation of anything:
+ *
+ *   47df877d  test(09-01)            opr 223a3e0d  epa 2f723c89  bpr ee9acfec
+ *   3f36e582  quick-260911-j2w       opr 223a3e0d  epa 2f723c89  bpr ee9acfec
+ *   57cef7a7  quick-260911-l2k       opr 223a3e0d  epa b30d7aa5  bpr ee9acfec
+ *
+ * Both mutations come from a CONCURRENT SESSION's quick tasks on the EPA
+ * foul model — a different workstream that shares this checkout — and they
+ * are two genuinely different things that the file-immutability proxy would
+ * have reported identically:
+ *
+ *   - `3f36e582` moved EPA's VERSION 8.0.0 -> 9.0.0 and left the stream hash
+ *     untouched. Benign by inspection: the version string is metadata, the
+ *     prediction stream is the claim, and the claim did not move.
+ *   - `57cef7a7` moved EPA's version 9.0.0 -> 10.0.0 AND the stream hash
+ *     2f723c89 -> b30d7aa5. Level-1 output really did change — deliberately,
+ *     by a named non-Phase-9 commit ("the foul term becomes a
+ *     post-win-probability scalar") that re-froze this baseline in the SAME
+ *     commit, which is the correct discipline for an intentional level-1
+ *     change.
+ *
+ * So the file-immutability check cannot distinguish a cross-level leak from a
+ * deliberate foreign change, and at HEAD it would fail for a reason that has
+ * nothing to do with Phase 9. This pin replaces it with the assertion that
+ * actually carries D-12's meaning: **the RP layer moved no level-1 output.**
+ * `opr` and `bpr` are untouched by the EPA workstream, so their streams must
+ * be bitwise what 09-01 froze — across the ENTIRE phase, through every
+ * re-freeze of the baseline file. If a Phase 9 change ever leaks into level 1,
+ * these two hashes move and this pin fails even if the baseline file was
+ * re-frozen in the same breath.
+ *
+ * `epa` is deliberately NOT pinned to a literal: its stream legitimately
+ * moved once, in a commit that is not this phase's. The main gate above still
+ * checks it against whatever the baseline currently records, which is the
+ * right check for an algorithm another workstream is actively changing.
+ */
+const FROZEN_AT_09_01_STREAM_SHA256 = {
+  opr: "223a3e0da5a81edff384367e67da2805cda502237336914386853967f66ff324",
+  bpr: "ee9acfec85ae0a72c3bbd53ea82092efe1e706352f2be9512798be72551ede49",
+} as const;
+
+describe("D-12 across the whole phase: the algorithms Phase 9 did not touch never moved (plan 09-10 Task 7)", () => {
+  if (!CORPUS_AVAILABLE && !FIXTURE_AVAILABLE) {
+    it.skip(`skipped: neither ${CORPUS_PATH} nor ${DIGEST_SLICE_FIXTURE_PATH} was found`, () => {});
+  } else if (!existsSync(LEVEL1_BASELINE_PATH)) {
+    it.skip(`skipped: ${LEVEL1_BASELINE_PATH} does not exist yet`, () => {});
+  } else {
+    it("opr and bpr reproduce the digests 09-01 froze, bitwise — independent of how many times the baseline file has since been re-frozen", () => {
+      const baseline = loadBaseline();
+      const { fromCorpus, fromFixture } = resolveSliceMatches(baseline);
+      const stream = fromCorpus ?? fromFixture;
+      if (!stream) return;
+
+      const ruleModule = RP_RULE_MODULES[baseline.sliceSeason]!;
+      const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
+
+      for (const [algorithmId, frozenSha] of Object.entries(FROZEN_AT_09_01_STREAM_SHA256)) {
+        const algorithm = resolvePublishAlgorithms(undefined).find((a) => a.id === algorithmId);
+        expect(algorithm, `${algorithmId} must still be a published algorithm`).toBeDefined();
+
+        const simulator = new WalkForwardSimulator(stream);
+        const raw = simulator.run(algorithm!, teams);
+        const layer = new SigmaScoutLayer(ruleModule, algorithm!.id);
+        const folded: PredictionRecord[] = raw.map((r) => layer.foldPlayed(r.match, r.prediction));
+
+        expect(
+          computePredictionStreamDigest(folded),
+          `${algorithmId}'s level-1 prediction stream (pRedWin/redScore/blueScore) no longer reproduces the digest ` +
+            `frozen by 09-01 at commit 47df877d. Phase 9's RP layer has no code path back into level 1 — ` +
+            `SigmaScoutLayer.foldPlayed ATTACHES level-2 fields to the prediction it is handed and never mutates ` +
+            `those three — so this is a REAL CROSS-LEVEL LEAK, not a tolerance question and not a baseline to ` +
+            `refresh. Do NOT update FROZEN_AT_09_01_STREAM_SHA256 to make this pass: that would delete the only ` +
+            `evidence that the leak happened. Find the write path into level 1 instead.`
+        ).toBe(frozenSha);
+      }
+    });
+
+    it("the pin is live, not decorative: it is checked against algorithms that are still published and still in the baseline", () => {
+      const baseline = loadBaseline();
+      const publishedIds = resolvePublishAlgorithms(undefined).map((a) => a.id);
+      for (const algorithmId of Object.keys(FROZEN_AT_09_01_STREAM_SHA256)) {
+        expect(publishedIds, `${algorithmId} left the published set — this pin needs re-deciding, not deleting`).toContain(algorithmId);
+        expect(
+          baseline.entries.some((e) => e.algorithmId === algorithmId),
+          `${algorithmId} is no longer in the baseline file`
+        ).toBe(true);
+      }
+    });
+  }
+});
