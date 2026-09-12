@@ -23,9 +23,21 @@ import {
   MINIMUM_EVENT_COUNT,
   evaluateRungOneCriterion,
   DEFAULT_SCHEDULE_COUNT,
+  measureSeedNoiseFloor,
   resolveScheduleSplit,
+  rosterWeighted,
   type TeamQuantileRow,
 } from "./measureFieldAveragedRanks.js";
+// Imported SECOND and on purpose: `measureFieldAveragedRanks.js` above pulls
+// `measureGeneratedSchedules.js` in as part of its own import graph, and that
+// module imports back. The assertions in the cycle-load block below read these
+// bindings to prove the cycle still initialises.
+import {
+  DRAWS_PER_SCHEDULE,
+  REPLICATE_SUFFIX,
+  measureEdgeNoiseFloor,
+  measureResamplingFloor,
+} from "./measureGeneratedSchedules.js";
 
 /** Six synthetic event keys — the criterion's own minimum, so every table below is evaluable. */
 const EVENT_KEYS = ["evA", "evB", "evC", "evD", "evE", "evF"] as const;
@@ -333,5 +345,58 @@ describe("resolveScheduleSplit — an invalid count THROWS, naming the script an
 
   it("throws on Infinity", () => {
     expect(() => resolveScheduleSplit(1000, Number.POSITIVE_INFINITY)).toThrow(/measureFieldAveragedRanks/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The module cycle between the two measurement scripts
+// ---------------------------------------------------------------------------
+
+describe("the measureFieldAveragedRanks <-> measureGeneratedSchedules module cycle still initialises", () => {
+  /**
+   * `measureGeneratedSchedules.ts` imports this module, and this module now
+   * imports back for the BINDING noise floors. An ES module cycle resolves by
+   * handing the partially-initialised namespace to whichever side evaluates
+   * second, which is safe here ONLY because neither module reads an imported
+   * binding during top-level evaluation.
+   *
+   * These assertions are what makes that a checked property rather than a
+   * comment. A later edit that adds top-level work touching an imported
+   * binding breaks the cycle and one side silently sees `undefined` — this
+   * fails in a second, instead of ten minutes into a run that has already
+   * replayed five seasons.
+   */
+  it("resolves every binding the floors are computed from, rather than handing back undefined", () => {
+    expect(typeof measureResamplingFloor).toBe("function");
+    expect(typeof measureEdgeNoiseFloor).toBe("function");
+    expect(typeof REPLICATE_SUFFIX).toBe("string");
+    expect(REPLICATE_SUFFIX.length).toBeGreaterThan(0);
+  });
+
+  it("DRAWS_PER_SCHEDULE loads as 50 — the shipped pairing the binding floor derives its own draw count from", () => {
+    expect(DRAWS_PER_SCHEDULE).toBe(50);
+    // The same number the default split produces, which is what makes the
+    // default run comparable against the floor at all.
+    expect(resolveScheduleSplit(1000).drawsPerSchedule).toBe(DRAWS_PER_SCHEDULE);
+  });
+
+  it("resolves the OTHER direction of the cycle too — this module's own exports are not half-initialised", () => {
+    expect(typeof evaluateRungOneCriterion).toBe("function");
+    expect(typeof resolveScheduleSplit).toBe("function");
+    expect(DEFAULT_SCHEDULE_COUNT).toBe(20);
+  });
+
+  it("keeps the DRAW-ONLY seed-noise diagnostic exported — the binding floors were ADDED beside it, not in place of it", () => {
+    expect(typeof measureSeedNoiseFloor).toBe("function");
+  });
+});
+
+describe("rosterWeighted — pooling is by team, not by event", () => {
+  it("weights a 76-team event above a 14-team one, recovering the pooled team fraction rather than the mean of the rates", () => {
+    const fake = [
+      { rosterSize: 90, value: 1 },
+      { rosterSize: 10, value: 0 },
+    ].map((x) => ({ rosterSize: x.rosterSize, resampling: { withinTightRate: x.value } })) as never;
+    expect(rosterWeighted(fake, (m) => m.resampling.withinTightRate)).toBeCloseTo(0.9, 12);
   });
 });
