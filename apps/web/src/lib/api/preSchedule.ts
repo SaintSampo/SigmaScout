@@ -33,7 +33,11 @@
  * would be a silent, permanent 404 that no test on either side would catch
  * alone.
  */
-import { preScheduleKey, PreScheduleArtifactSchema, type PreScheduleArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import {
+  preScheduleKey,
+  PublishedPreScheduleArtifactSchema,
+  type PublishedPreScheduleArtifact,
+} from "../../../../../packages/harness/pageArtifacts.js";
 import { artifactUrl } from "../artifactOrigin.js";
 import { seasonFromEventKey } from "../eventKey.js";
 import { ArtifactFetchError, ArtifactValidationError } from "./errors.js";
@@ -52,7 +56,7 @@ export async function fetchPreScheduleArtifact({
   eventKey,
   algorithmId,
   version,
-}: FetchPreScheduleArtifactParams): Promise<PreScheduleArtifact | null> {
+}: FetchPreScheduleArtifactParams): Promise<PublishedPreScheduleArtifact | null> {
   const key = preScheduleKey({ eventKey, algorithmId, version });
   const res = await fetch(artifactUrl(key));
   // The recorded divergence — see this module's doc comment. Checked BEFORE
@@ -66,7 +70,7 @@ export async function fetchPreScheduleArtifact({
   }
   const body: unknown = await res.json();
   try {
-    return PreScheduleArtifactSchema.parse(body);
+    return PublishedPreScheduleArtifactSchema.parse(body);
   } catch (err) {
     throw new ArtifactValidationError(PRE_SCHEDULE_RESOURCE, seasonFromEventKey(eventKey), err);
   }

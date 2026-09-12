@@ -1,4 +1,4 @@
-import type { EventArtifact, PreScheduleArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventArtifact, PublishedPreScheduleArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
  * The Simulation tab's shared hand-written `EventArtifact` fixture builders
@@ -77,18 +77,25 @@ export function upcomingQualRow(overrides: Record<string, unknown> = {}) {
 export const BOTH_PMFS = { redRpPmf: [0.2, 0.3, 0.5], blueRpPmf: [0.4, 0.3, 0.3] };
 
 /**
- * A minimal but SCHEMA-VALID pre-schedule sidecar (quick task 260905-tll):
- * a two-team roster, one synthetic schedule, and baked histograms that
- * satisfy every refinement `PreScheduleArtifactSchema` enforces — each
- * histogram is `roster.length` long and sums to exactly `baked.draws`.
+ * A minimal but SCHEMA-VALID pre-schedule sidecar (quick task 260905-tll;
+ * updated 260912-2ur to the published shape): a two-team roster, a
+ * `scheduleCount` scalar (no priced `schedules` block — that block never
+ * reaches the published bytes as of 260912-2ur), and baked histograms that
+ * satisfy every shared invariant `PublishedPreScheduleArtifactSchema`
+ * enforces — each histogram is `roster.length` long and sums to exactly
+ * `baked.draws`.
  *
- * Built to the real schema rather than cast past it, because those two
+ * `scheduleCount: 17` is deliberately neither `0` nor `baked.draws` (100):
+ * a test asserting on the RENDERED count can't pass by coincidentally
+ * matching a fixture value that also appears elsewhere.
+ *
+ * Built to the real schema rather than cast past it, because the shared
  * invariants are precisely what makes `rankRows.ts`'s
  * `MalformedRankHistogramError` unreachable in front of a reader; a fixture
  * that quietly violated them would let a test pass over a shape the
  * publisher can never emit.
  */
-export function preScheduleArtifact(overrides: Record<string, unknown> = {}): PreScheduleArtifact {
+export function preScheduleArtifact(overrides: Record<string, unknown> = {}): PublishedPreScheduleArtifact {
   return {
     ...BASE_PREAMBLE,
     eventKey: "2024test",
@@ -96,7 +103,7 @@ export function preScheduleArtifact(overrides: Record<string, unknown> = {}): Pr
     pricedFrom: "current-state" as const,
     matchesPerTeam: 12,
     roster: ["frc1", "frc2"],
-    schedules: [{ seed: 1, matches: [{ r: [0], b: [1], rp: [0.5, 0.5], bp: [0.5, 0.5] }] }],
+    scheduleCount: 17,
     baked: {
       draws: 100,
       // frc1 finishes first in 70 of 100 draws, frc2 in 30 — a genuine,
@@ -108,5 +115,5 @@ export function preScheduleArtifact(overrides: Record<string, unknown> = {}): Pr
       ],
     },
     ...overrides,
-  } as PreScheduleArtifact;
+  } as PublishedPreScheduleArtifact;
 }

@@ -9,7 +9,7 @@ import { buildRankDistributionRows } from "./rankRows.js";
 import { decodePreScheduleResult } from "../../lib/preScheduleResult.js";
 import { buildQualRows, buildSimulationInputs, defaultStartMatchKey } from "../../lib/simulationInputs.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-import type { EventArtifact, PreScheduleArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventArtifact, PublishedPreScheduleArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
  * The Simulation tab shell (EVNT-07, D-01…D-07, 08-09-PLAN.md, 08-11-PLAN.md
@@ -50,7 +50,7 @@ export interface SimulationTabProps {
    * predates the sidecar keeps compiling and keeps its current behaviour:
    * an omitted prop is exactly the "this event has no baked result" case.
    */
-  preSchedule?: PreScheduleArtifact | null;
+  preSchedule?: PublishedPreScheduleArtifact | null;
   /**
    * True only while the sidecar query is genuinely in flight — the route
    * conjoins its own `enabled` gate before passing this, because a DISABLED
@@ -405,7 +405,7 @@ export function SimulationTab({ artifact, algorithmId, season, preSchedule = nul
         selection={resolvedSelection}
         onSelect={setSelection}
         hasPreScheduleStop={hasPreSchedule}
-        preScheduleScheduleCount={preSchedule?.schedules.length}
+        preScheduleScheduleCount={preSchedule?.scheduleCount}
         preScheduleDraws={preSchedule?.baked.draws}
         inputs={simulationInputs}
         startMatchNumber={startMatchNumber}

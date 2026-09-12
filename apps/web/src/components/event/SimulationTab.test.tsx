@@ -579,6 +579,36 @@ describe("260905-tll: the baked pre-schedule result", () => {
     expect(workerConstructorSpy).not.toHaveBeenCalled();
   });
 
+  it("260912-2ur: the pre-schedule disclosure renders the sidecar's REAL scheduleCount, not the `?? 0` fall-through", async () => {
+    const artifact = baseArtifact({ teams: TWO_TEAM_ROSTER });
+    render(
+      <RouterTestHarness>
+        <SimulationTab artifact={artifact} algorithmId="bpr" season={2024} preSchedule={preScheduleArtifact()} />
+      </RouterTestHarness>
+    );
+
+    await waitFor(() => expect(screen.getByTestId(START_MATCH_PRE_SCHEDULE_TESTID)).toBeDefined());
+    // Defensive: the scheduleless fixture already defaults to the
+    // pre-schedule stop (C-01/C-15), but click it if a future change ever
+    // stops defaulting it, so this test does not silently start reading the
+    // wrong disclosure line.
+    if (screen.getByTestId(START_MATCH_PRE_SCHEDULE_TESTID).getAttribute("data-selected") !== "true") {
+      fireEvent.click(screen.getByTestId(START_MATCH_PRE_SCHEDULE_TESTID));
+    }
+
+    const expectedCount = preScheduleArtifact().scheduleCount;
+    // Vacuity guard: if `PublishedPreScheduleArtifactSchema` or the client
+    // ever regressed to reading a missing count as `?? 0`, this fixture's
+    // real 17 would still make that regression pass an assertion that only
+    // checked "not null" — asserting the real number, and that it is not 0,
+    // is what actually catches the fall-through named in this test's title.
+    expect(expectedCount).toBe(17);
+    expect(expectedCount).not.toBe(0);
+    const disclosure = screen.getByTestId("start-match-scope");
+    expect(disclosure.textContent).toContain(`across ${expectedCount} randomly generated schedules`);
+    expect(disclosure.textContent).toContain("100 draws in total");
+  });
+
   it("an offseason-shaped event with NO sidecar still renders the unavailable state — the widened guard did not swallow it", () => {
     const artifact = baseArtifact({
       matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],

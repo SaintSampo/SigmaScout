@@ -15,8 +15,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   PAGE_ARTIFACT_SCHEMA_VERSION,
-  PreScheduleArtifactSchema,
-  type PreScheduleArtifact,
+  PublishedPreScheduleArtifactSchema,
+  type PublishedPreScheduleArtifact,
 } from "../../../../../packages/harness/pageArtifacts.js";
 import { fetchPreScheduleArtifact, preScheduleQueryOptions, type FetchPreScheduleArtifactParams } from "./preSchedule.js";
 import { ArtifactFetchError, ArtifactValidationError } from "./errors.js";
@@ -32,9 +32,14 @@ const _noExtraKeys: ExtraParamKeys extends never ? true : false = true;
 
 const PARAMS: FetchPreScheduleArtifactParams = { eventKey: "2026casj", algorithmId: "bpr", version: "9.0.0+rolling-2026-09c" };
 
-/** A minimal but genuinely schema-valid sidecar: three roster teams, one schedule, one match, a baked block whose histograms satisfy all four refinements. */
-function makeValidArtifact(): PreScheduleArtifact {
-  return PreScheduleArtifactSchema.parse({
+/**
+ * A minimal but genuinely schema-valid sidecar, in the PUBLISHED (post-
+ * 260912-2ur) shape: three roster teams, a `scheduleCount` scalar (no
+ * priced `schedules` block), and a baked block whose histograms satisfy
+ * every shared refinement.
+ */
+function makeValidArtifact(): PublishedPreScheduleArtifact {
+  return PublishedPreScheduleArtifactSchema.parse({
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-09-05T00:00:00.000Z",
@@ -45,9 +50,36 @@ function makeValidArtifact(): PreScheduleArtifact {
     pricedFrom: "current-state",
     matchesPerTeam: 12,
     roster: ["frc111", "frc222", "frc333"],
-    schedules: [{ seed: 12345, matches: [{ r: [0, 1, 2], b: [2, 1, 0], rp: [0.25, 0.75], bp: [0.5, 0.5] }] }],
+    scheduleCount: 12345,
     baked: { draws: 6, histograms: [[3, 2, 1], [2, 3, 1], [1, 1, 4]] },
   });
+}
+
+/**
+ * The legacy (pre-260912-2ur) shape still on every sidecar in R2 today: a
+ * priced `schedules` block and no `scheduleCount`. This task's no-flag-day
+ * guarantee rests on the fetch boundary still resolving this shape into a
+ * real `scheduleCount` — see the dedicated test below.
+ */
+function makeLegacyBody(): Record<string, unknown> {
+  return {
+    schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+    generation: "gen-1",
+    computedAt: "2026-09-05T00:00:00.000Z",
+    algorithmId: "bpr",
+    algorithmVersion: "9.0.0+rolling-2026-09c",
+    eventKey: "2026casj",
+    season: 2026,
+    pricedFrom: "current-state",
+    matchesPerTeam: 12,
+    roster: ["frc111", "frc222", "frc333"],
+    schedules: [
+      { seed: 1, matches: [{ r: [0, 1, 2], b: [2, 1, 0], rp: [0.25, 0.75], bp: [0.5, 0.5] }] },
+      { seed: 2, matches: [{ r: [0, 1, 2], b: [2, 1, 0], rp: [0.25, 0.75], bp: [0.5, 0.5] }] },
+      { seed: 3, matches: [{ r: [0, 1, 2], b: [2, 1, 0], rp: [0.25, 0.75], bp: [0.5, 0.5] }] },
+    ],
+    baked: { draws: 6, histograms: [[3, 2, 1], [2, 3, 1], [1, 1, 4]] },
+  };
 }
 
 describe("fetchPreScheduleArtifact", () => {
@@ -74,6 +106,18 @@ describe("fetchPreScheduleArtifact", () => {
     global.fetch = vi.fn().mockResolvedValue(new Response("not found", { status: 404 }));
 
     await expect(fetchPreScheduleArtifact(PARAMS)).resolves.toBeNull();
+  });
+
+  it("resolves a legacy 200 body (schedules present, no scheduleCount) — the no-flag-day guarantee at the fetch boundary", async () => {
+    const legacyBody = makeLegacyBody();
+    global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(legacyBody), { status: 200 }));
+
+    const result = await fetchPreScheduleArtifact(PARAMS);
+
+    expect(result).not.toBeNull();
+    expect((legacyBody.schedules as unknown[]).length).toBe(3);
+    expect(result!.scheduleCount).toBe(3);
+    expect((result as unknown as Record<string, unknown>).schedules).toBeUndefined();
   });
 
   it("still throws ArtifactFetchError on a 500 — an outage must stay distinguishable from an uncovered event", async () => {

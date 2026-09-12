@@ -10,14 +10,14 @@
 import { describe, expect, it } from "vitest";
 import {
   PAGE_ARTIFACT_SCHEMA_VERSION,
-  PreScheduleArtifactSchema,
-  type PreScheduleArtifact,
+  PublishedPreScheduleArtifactSchema,
+  type PublishedPreScheduleArtifact,
 } from "../../../../packages/harness/pageArtifacts.js";
 import { decodePreScheduleResult } from "./preScheduleResult.js";
 import { buildRankDistributionRows } from "../components/event/rankRows.js";
 
-function makeArtifact(): PreScheduleArtifact {
-  return PreScheduleArtifactSchema.parse({
+function makeArtifact(): PublishedPreScheduleArtifact {
+  return PublishedPreScheduleArtifactSchema.parse({
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
     computedAt: "2026-09-05T00:00:00.000Z",
@@ -28,7 +28,7 @@ function makeArtifact(): PreScheduleArtifact {
     pricedFrom: "pre-event-walk-forward",
     matchesPerTeam: 12,
     roster: ["frc111", "frc222", "frc333"],
-    schedules: [{ seed: 7, matches: [{ r: [0, 1, 2], b: [2, 1, 0], rp: [0.25, 0.75], bp: [0.5, 0.5] }] }],
+    scheduleCount: 1,
     baked: { draws: 6, histograms: [[3, 2, 1], [2, 3, 1], [1, 1, 4]] },
   });
 }
