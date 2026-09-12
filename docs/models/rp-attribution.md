@@ -10,6 +10,23 @@
 | Tie model (`discrete-margin`, D-14) | 0 | 0 | 30 | no | **revert** |
 | Marginal family (`negative-binomial`, D-01) | 3 | 3 | 24 | no | **revert** |
 
+> **THE MARGINAL-FAMILY ROW WAS RE-TESTED ON 2026-09-12 AND ITS VERDICT DOES NOT MEAN WHAT IT
+> SAYS.** Every figure in this document is left exactly as measured — nothing below is edited — but
+> the `negative-binomial` row above was produced by a run whose REACH WAS ZERO on the selection
+> slice and six of thirty cells on the reporting slice, because `clauseProbability` refit combined
+> moments as a hardcoded Gaussian (see "Why the marginal arm's reach is far narrower than its
+> label" below). Quick task `260911-w7k` removed that hardcode and `260912-2uz` restored the family
+> and re-ran the comparison **on the selection slice only** — 24 of 33 cells reachable instead of 0,
+> and negative binomial IMPROVED pooled bonus-RP Brier by -0.002898 over 510,838 observations
+> (21 improved / 3 regressed / 0 tied). **Negative binomial helps; this table's "revert" was not a
+> finding about the family.** Jacob closed the question on 2026-09-12 anyway, declining the cost
+> rather than the result — the gain is ~1.2% on bonus RP alone, only 35.78% of fits resolved to NB,
+> and confirming it would have cost the 2023-2026 reporting slice, which remains UNSPENT. Figures
+> and reasoning: `.planning/todos/completed/restore-negative-binomial-to-retest-it.md`.
+>
+> The `win` and `tie` rows are unaffected by this — they moved nothing for a different and still
+> valid reason, recorded below.
+
 The bar requires a majority of the 30 scored bonus cells to improve on Brier **and not one to get
 worse**. No single-change arm met it, so no combination was evaluated — that is the rule's own
 floor, not a shortcut.

@@ -4,6 +4,8 @@ created: 2026-09-12
 source: quick task 260911-w7k fixed clauseProbability's Gaussian hardcode, but the family it would honour was already deleted
 resolves_phase: 9
 priority: medium
+completed: 2026-09-12
+outcome: not pursued — the family DOES help, measurably; Jacob declined the cost, not the result
 ---
 
 # The marginal-family refit bug is fixed, but `MarginalFamily` is a one-member union — nothing can exercise it
@@ -123,3 +125,50 @@ npx tsx scripts/measureRpCalibration.ts --marginal-arm --seasons 2016,2017,2018,
 fail that bar as written. The live questions are whether the bar should be reconsidered given the
 reach was never what it claimed to be, and whether the 2023-2026 reporting slice is worth
 re-spending to confirm a -0.0029 pooled gain. **Neither is an agent's call.**
+
+---
+
+## CLOSED 2026-09-12 by Jacob — NOT PURSUED. Read the next paragraph before citing this.
+
+**Do not record this as "negative binomial does not help." It does help.** That was the false
+conclusion this whole todo existed to correct, and closing the question is not the same as
+reaching that conclusion a second time.
+
+The measured result stands: on the selection slice, across 24 reachable cells, negative binomial
+improved pooled bonus-RP Brier by **-0.002898 over 510,838 observations (-1.20% relative)** — 21
+cells improved, 3 regressed, none tied. Full figures in the STATUS section above.
+
+**What Jacob declined was the cost, not the result:**
+
+- The gain is ~1.2% on **bonus-RP probabilities only**. It does not touch winner prediction or
+  match Brier at all.
+- Only **35.78%** of the NB arm's fits genuinely resolved to negative binomial; the rest fell back
+  to Gaussian. The gain rides on about a third of the fits.
+- Confirming it would mean spending the 2023-2026 reporting slice — already spent once on this
+  question — and promoting it would then mean flipping declarations and a full republish.
+- The dominant error in this same area is still open and worth far more: the diagonal covariance
+  block (cause 1 of `rp-bonus-probabilities-are-severely-under-predicted`), where the model implies
+  a joint of 0.0222 against an observed 0.1179. That is where the effort belongs.
+
+**The 2023-2026 reporting slice was NOT spent.** It remains at one prior use, and
+`assertMarginalArmSliceAllowed` in `scripts/measureRpCalibration.ts` now refuses any season >= 2023
+before the corpus opens, with no override flag.
+
+**Nothing was promoted and nothing shipped.** All 34 season-module declarations still say
+`"gaussian"`; both goldens are green with zero edits; `docs/models/rp-attribution.md` and
+`data/baselines/rp-attribution-2026-09.json` are untouched. Production behaviour is identical
+before and after.
+
+**What stays in the tree, and why.** The restored family, its tests, and the `--marginal-arm` seam
+are all committed and inert. Reopening this costs one command, not a re-restore:
+
+```
+npx tsx scripts/measureRpCalibration.ts --marginal-arm --seasons 2016,2017,2018,2019,2020,2022
+```
+
+**If you reopen it, the two live questions are unchanged:** whether 09-06's
+no-regression-at-any-magnitude bar should stand given its reach on this slice was 0, and whether
+2023-2026 is worth re-spending. 2022 `hangarBonus` regresses +0.002864 consistently on all three
+algorithms — a real property of that variable, not noise — so the result fails that bar as written.
+
+Closed by quick task `260912-2uz`. See its SUMMARY for the per-cell tables and the verification.
