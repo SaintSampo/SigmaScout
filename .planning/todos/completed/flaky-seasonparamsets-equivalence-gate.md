@@ -86,3 +86,36 @@ during a run.
 Concurrent sessions are the likeliest cause, since this repo is routinely worked by several at once.
 **Do not treat a full-run failure here as a code defect without first re-running the file in
 isolation.**
+
+---
+
+## CLOSED 2026-09-12 — both halves resolved, and the second one moved out rather than closed
+
+Closed as part of the 2026-09-12 backlog triage (`.planning/triage-2026-09-12.md` §3), which
+verified every pending todo against HEAD.
+
+**The `seasonParamSets` D-4 Leg B flake: FIXED.** `1a7bd4c1` ("test: green the suite — a stale VPR
+pin and two 5s timeouts") gave this file and `algorithmIdentity.test.ts` explicit timeouts; the
+diagnosis recorded there is hypothesis (2) above, not (1): these tests were never wrong, only slow,
+and only under full-suite parallel load. `4bdb7717` then **generalised the fix repo-wide** —
+`vitest.config.ts:33` now sets `testTimeout: 30_000` for the whole node project, with a comment
+saying explicitly that patching whichever test lost the race is whack-a-mole and the 5s default is
+simply wrong for this repo's node half. Verified at HEAD: `STATE`/config read directly, one
+`testTimeout` in the tree, value `30_000`.
+
+Consequence for this file's "First steps" section: it is retired. Per `1a7bd4c1`'s own record, the
+"re-run in isolation before treating a full-run failure as a defect" workaround no longer applies —
+**treat a full-run failure as a defect.**
+
+**The second half — `algorithmIdentity.test.ts` reading the whole repo — did NOT close here; it
+moved.** That concern (the sweep walks the repo root with `readdirSync` and can read files another
+concurrent session is writing) lives on as its own pending todo,
+`algorithm-identity-sweep-reads-all-of-data`. Note when picking that one up that it argues against a
+5s timeout that no longer exists — it needs its urgency rewritten against the 30s default before it
+is acted on.
+
+**Note the contradiction this file leaves in git history, deliberately.** Its 2026-09-08 section says
+"do not treat a full-run failure here as a code defect without first re-running the file in
+isolation." `1a7bd4c1` (2026-09-09) retires exactly that workaround. The later record wins; the
+earlier one is preserved above as written rather than edited, because the drift between them is the
+reason this triage happened.

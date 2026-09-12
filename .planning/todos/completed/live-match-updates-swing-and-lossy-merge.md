@@ -189,3 +189,34 @@ The shape bump is the expensive step, so everything that needs a re-seed should 
   takes live folding down until the seed runs. Seed first, deploy second.
 - **Do not put the accumulator in the league row.** It scales with team count and would breach
   `MAX_LEAGUE_ROW_BYTES`.
+
+---
+
+## CLOSED 2026-09-12 — all three defects shipped; the STATUS block above is three shape bumps stale
+
+Closed as part of the 2026-09-12 backlog triage (`.planning/triage-2026-09-12.md` §3).
+
+**Read the STATUS block at the top of this file as a historical snapshot, not as status.** It says
+defect 2 "is the only part left" and names shape bump 9 → 10. Both statements were true on
+2026-09-09 and are false now.
+
+| Defect | Shipped in |
+|---|---|
+| 1 — the live merge silently strips optional published fields | `94b4ccd3` "fix(worker): stop live ticks deleting offline-published fields" |
+| 3 — `buildAlgorithmModules` falls through to Sigma1, and `deserializeBprState` has no shape guard | `e50bacd5` "fix(worker): no silent Sigma1 fallthrough, and give BPR the shape guard it lacked" |
+| 2 — the Worker's swing accumulator and the emitted band | `7c685676` "refactor(swing): one arithmetic path — West's incremental form" then `63596da3` "feat(worker): live matches carry the Match Band (state shape 9 → 10)" |
+
+The sequencing this document prescribed was followed in order, including the recommendation that
+offline move onto the SAME incremental accumulator first so the live/offline contract stays
+bit-equal by construction rather than by agreement — that is `7c685676`, and it landed before the
+emission (`63596da3`), exactly as the "Sequencing" section asked.
+
+**The shape version is now 15, not 10.** Verified at HEAD:
+`packages/harness/stateSnapshot.ts:389` reads `export const STATE_SNAPSHOT_SHAPE_VERSION = 15;`.
+Phase 9 took it 11 → 15 when the Worker gained real RP state. Anyone reading this file for the
+current seed shape will be five versions wrong; read `stateSnapshot.ts` instead.
+
+**What did NOT close with it, and is not this todo's to hold:** the fold path has still never been
+exercised in production. There were no live windows in September and there will be none before the
+season. That observation is re-homed to the Phase 9 clause-3 amendment and its standing pre-season
+gate — it is not a defect in the work above, which is proven in code, tested, seeded and deployed.

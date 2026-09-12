@@ -73,3 +73,27 @@ node -e "(async()=>{const l=await (await fetch('https://data.sigmascout.org/v1/t
 ```
 
 Prints two different numbers today. It should print one number when this is closed.
+
+---
+
+## CLOSED 2026-09-12 — shipped as option 3 then option 1, in that order
+
+Closed as part of the 2026-09-12 backlog triage (`.planning/triage-2026-09-12.md` §3).
+
+Both of this file's recommended options shipped, and the cheap one landed first exactly as the
+"Options" section suggested it should:
+
+- **`0afefc78`** "feat(260908-wpo): add `seasonStats.metricsBasis` to the team artifact schema" —
+  option 3. The artifact now records which basis `seasonStats.metrics` carries, mirroring the
+  `basis: "last-official-match"` field the EPA comparison artifact already had. This closed the
+  "silently wrong" half with no data migration.
+- **`4fc2225d`** "fix(260908-wpo): publish `seasonStats.metrics` as the last-official-match
+  snapshot" — option 1, the clean end state. One number everywhere.
+
+This file's own verification recipe is the test: it fetched the teams-list value and the team-page
+`seasonStats.metrics.total` and printed two different numbers for `frc7769`. It now prints one
+number for all six named teams.
+
+**One thing to carry forward if that recipe is re-run.** The URLs in it are pinned to
+`epa@6.0.0+baseline`, a generation that no longer exists in R2. Re-point them at whatever the live
+manifest serves (`epa@10.0.0+baseline` as of 2026-09-12) before reading a 404 as a regression.

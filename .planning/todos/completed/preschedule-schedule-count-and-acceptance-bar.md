@@ -148,3 +148,29 @@ Raising the count touches neither; it only changes what the builder is asked for
 **The published bytes do not change until a republish.** Every presim object on R2 still carries the
 old shape, which the published schema deliberately still parses, so there is no deploy/republish
 ordering constraint either way.
+
+---
+
+## CLOSED 2026-09-12 — decided, applied, and test-pinned
+
+Closed as part of the 2026-09-12 backlog triage (`.planning/triage-2026-09-12.md` §3).
+
+All three decision items this file existed to force are answered above, by Jacob, and the answers
+are now in code rather than only in prose:
+
+| Item | Answer | Where it lives at HEAD |
+|---|---|---|
+| 1 — set the count | 1,000 schedules | `ea84a0da` "feat(260912-5hs): PRESIM_SCHEDULE_COUNT 20 -> 1,000", applied in `packages/harness/publish.ts` |
+| 2 — restate the bar with the count | clause 1 unchanged, measured against the **binding (resampling)** floor at n=4,000 | the "DECIDED 2026-09-12 by Jacob" section above |
+| 3 — rebalance schedules against draws | no: `drawsPerSchedule` stays at 50 | the "CLOSED 2026-09-12 — the draw/schedule split" section above |
+
+Shipped configuration: **1,000 x 50 = 50,000 baked draws**, test-pinned at those two values.
+
+**The one thing this closure does NOT assert: that the published bytes have changed.** Every presim
+object on R2 still carries the pre-`ea84a0da` shape — 20 schedules, `baked.draws: 1000`, no
+`scheduleCount`. The constant is applied at HEAD; the artifacts catch up on the next
+`pnpm publish:seasons`. That republish is the open item, tracked as the next action in
+`.planning/triage-2026-09-12.md` §2, not as a decision owed here.
+
+`live-preschedule-band-is-mostly-sampling-noise` is closed alongside this one for the same reason:
+its option 1 is what was chosen, and what remains is an operational publish rather than a decision.
