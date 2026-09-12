@@ -86,3 +86,35 @@ its current cold reading to *"Statbotics had the higher winner accuracy in all 5
 −0.49 pp). What improves dramatically is the magnitude: 2022 goes from **−2.39 pp to −0.18 pp**. The
 page stops overstating our deficit by ~2.2 pp in exchange for losing a season-count talking point
 that was an artifact of the cold arm and was never real.
+
+---
+
+## RESOLVED 2026-09-11
+
+Republished in the Phase 9 production window. `v1/methodology/epa-vs-statbotics.json` is live at
+2,317 bytes, `epaVersion 10.0.0+baseline`, 5 agreement + 5 head-to-head rows.
+
+Measured live by content, matching this todo's predicted table to the basis point:
+
+| Season | Statbotics | ours | Δ |
+|--------|------------:|-----:|-------:|
+| 2022 | 0.7815 | 0.7797 | −0.18 pp |
+| 2023 | 0.7647 | 0.7636 | −0.11 pp |
+| 2024 | 0.7627 | 0.7578 | −0.49 pp |
+| 2025 | 0.7839 | 0.7802 | −0.37 pp |
+| 2026 | 0.7978 | 0.7962 | −0.16 pp |
+
+2022 moves from **−2.39 pp to −0.18 pp** — the page no longer overstates our own deficit by ~2.2 pp.
+
+**No page-copy edit was needed**, contrary to this todo's warning. Checked before publishing:
+`headToHeadSummarySentence()` derives the season counts from the artifact's own rows and documents
+itself as never hardcoding them; there is no hardcoded Brier claim anywhere; and the only hardcoded
+percentages (73.5/75.2/74.0) belong to a 2024 partition ablation, not the head-to-head.
+
+Note the honest editorial consequence, now live: the caption reads *"Statbotics had the higher
+winner accuracy in all 5 measured seasons"* — Statbotics leads on both accuracy and Brier in all
+five. The season-count talking point the cold arm produced was never real.
+
+Invocation note: `pnpm publish:epa-comparison` alone fails (`--report` is required), and
+`pnpm ... -- --report <path>` forwards the `--` literally. Call it through tsx directly:
+`npx tsx --env-file=.env scripts/publishEpaComparison.ts --report reports/epa-vs-statbotics/epa-vs-statbotics.json`.

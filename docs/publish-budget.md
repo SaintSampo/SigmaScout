@@ -63,6 +63,51 @@ worth handing to whoever owns F8/F9. Offseason events (e.g. `2024auwarp`) carry 
 matches but no RP pmfs; that is the pre-existing self-reported-breakdown D-05 fallback, not a
 regression — `2024mil` shows **125/125** qm rows with both pmfs and the full decomposition.
 
+**Tail (same session).** Manifest published and read-back verified (3 entries, opr/epa/bpr).
+`verify:subset` **50 entries, 0 failing**, uniformity 1 at `b23d214d`. **D1 seeded** — one
+`wrangler d1 execute --remote --env-file .env` per algorithm, **66,284 rows written total** (opr
+15,888 / epa 25,140 / bpr 25,256), ~66% of the 100k daily cap in one pass. **Worker deployed**
+(version `404d2fec`, upload 1140.29 KiB / gzip 206.22 KiB, exactly the dry-run measurement,
+`env.LIVE_ALGORITHM_IDS ("bpr")` bound). Seed-then-deploy in that order; **this closed FOUR
+outstanding shape bumps at once (11→15)**, not one. D1 read-back by content confirms the passengers:
+bpr carries `sigmascoutSigma` ×3,751 and `sigmascoutSigmaPopulation` ×1, epa and opr carry neither
+(correctly absent, not empty — only bpr is a `SIGMA_SCORE_ALGORITHM_IDS` member), `sigmascoutRp` on
+all three, and the retired VPR `rpBeliefs` key on **none**. That is the Sigma-seed fix (`af09b23d`)
+proven in production data rather than in tests.
+
+**Worker shape-15 path is NOT yet exercised.** `v1/manifest/live-windows.json` reads `windows: []`
+— no live events in September — so the tick returns before it reads a league row, and
+`wrangler tail` produced no output across several cron ticks. A `LeagueRowShapeVersionError` could
+not have surfaced here either way. **This remains `09-VALIDATION.md`'s manual-only verification and
+closes during a real event, not now.** The same applies to the sustained `cpuTime` budget.
+
+**Delete pass (pre-authorized) — the first pass ever to cover presim sidecars.** Earlier passes
+structurally could not: `deleteRetiredAlgorithmObjects.ts` built every key through `artifactKey`,
+and the presim sidecar is deliberately not a `PageKind` — it has its own `preScheduleKey`. That is
+why the 2026-09-10 entry could report every orphaned `vpr` *page* object removed while the sim tab
+still served 641 `vpr` sidecars. Plan 09-10 extended the tool under its existing guards.
+Removed: **`vpr@10.0.0+rolling-2026-09d`**, `--include-presim --seasons 2026`, **318 keys
+enumerated and deleted** (band [100, 20000]). Pre-census **41 present of 60 sampled**, all at the
+retired generation `7a2e4e5b`; post-census **0 present, 60 absent of 60**. Live spot check by
+content: the orphan 404s and its published-id replacement 200s at `b23d214d`. Probed first for
+orphans under other `vpr` versions (9.0.0+rolling-2026-09c, 8.0.0+rolling-2026-09b,
+7.0.0+rolling-2026-09, 10.0.0+baseline) on two events — **all 404**, so one version covered it and
+the runbook's multi-version concern did not apply.
+
+**`epa@7.0.0+baseline` was NOT deleted and is orphaned by design.** The 2026-09-11 approval covered
+presim sidecars; retiring an EPA generation was a separate question and was not authorized. Roughly
+36,000 objects remain at that version, costing only storage against the 10 GB free tier. **R2 now
+holds exactly one orphaned generation** — the first time since 2026-09-10 that it holds any. The
+retirement pass is two `--supersedes-live` invocations whenever it is authorized.
+
+**Methodology page republished in the same window** (`v1/methodology/epa-vs-statbotics.json`, 2,317
+bytes, `epaVersion 10.0.0+baseline`, 5 agreement + 5 head-to-head rows). This closes the todo
+`republish-epa-vs-statbotics-methodology-page`: the page had been serving COLD-arm figures that
+understated **our own** 2022 accuracy by ~2.2 pp (0.7576 published against 0.7797 actual). Live now
+reads 2022 −0.18 pp, 2023 −0.11, 2024 −0.49, 2025 −0.37, 2026 −0.16 against Statbotics. No page-copy
+edit was needed — the head-to-head caption is derived from the artifact's own rows, and there is no
+hardcoded Brier claim.
+
 **Prior run — 2026-09-10 (~03:53–04:37 ET), the bpr@3.0.0 republish — unattended overnight
 (`pnpm publish:seasons`, generation `e169a4d4-fce9-4da1-9d88-eb9edefcac29`).** 108,820 page
 objects, 4,285,902,355 bytes, zero presim sidecars (flag still on), ~44 min. Ships

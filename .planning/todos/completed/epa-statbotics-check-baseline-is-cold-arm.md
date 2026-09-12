@@ -43,3 +43,29 @@ which is what let this drift go unnoticed.
 
 - Not in CI: `grep -n "epaVsStatbotics\|compare:epa" .github/workflows/*.yml` returns nothing.
 - `npx vitest run scripts/` passes (374 tests) regardless — no test depends on `--check`.
+
+---
+
+## RESOLVED 2026-09-11 — option 1, re-baselined onto the warm arm
+
+Decided by the developer. `data/baselines/epa-vs-statbotics-2026-09.json` is regenerated from the
+warm arm (`--warmup 2016-2020`), which is how `compare:epa-statbotics` actually invokes the script,
+so the gate and the npm script can no longer describe different arms.
+
+**The file now names its own arm as data, not prose** — the omission that let the drift go unnoticed.
+Added `arm: "warm"`, `armDescription`, and `warmupSeasons: [2016..2020]`. `algorithmVersion` also
+corrected from a three-versions-stale `epa@5.0.0+baseline` to `epa@10.0.0+baseline`.
+
+**Half-width formula unchanged** from the 2026-09-04 bands: slope/pearson ±0.05,
+meanAbsoluteDifference ±1.0, both standard deviations ±max(1.5, 10% of measured). No half-width grew.
+Still gated on the `minMatchesFiltered` (≥12) arm.
+
+**One correction to this todo's framing, measured rather than assumed.** `--check` was run against
+the OLD cold bands under the warm arm **and it PASSED**. The cold bands were wide enough to absorb
+the arm change, so this was a **latent mislabel, not an active false-fail**. The re-baseline was
+still right — the file named the wrong arm and carried a stale version stamp — but no gate was
+firing, and a later reader should not infer a regression that never happened.
+
+Verified after: `--check` PASSES against the new bands; `baselineFingerprint.test.ts` and the
+`scripts/` suite are green (19 files, 389 tests). That fingerprint test excludes this file by name,
+so the tolerance record is not pinned by a hash and needed no companion update.
