@@ -269,12 +269,20 @@ model replaced an identically-zero tie probability with 0.008239 against a measu
 those quantities.
 
 **The marginal swap's reach was far narrower than this document's "34 declarations" table implies.**
-`clauseProbability` refits a clause's combined moments as a hardcoded Gaussian, so only
-`nestedSameVariable` bonuses ever honored a declared family at all — one season has any, and its two
-bonuses across three algorithms are exactly the six cells that moved. The resolved-family tally
-reported a 69.62% negative-binomial share for an arm whose published output was Gaussian-derived in
-24 of its 30 cells, because it counts fits PERFORMED rather than fits USED. That is a real limitation
-of the observability mechanism this document describes, and it is recorded rather than quietly fixed.
+At the time of this measurement `clauseProbability` refitted a clause's combined moments as a hardcoded
+Gaussian, so only `nestedSameVariable` bonuses ever honored a declared family at all — one season
+has any, and its two bonuses across three algorithms are exactly the six cells that moved. The
+resolved-family tally reported a 69.62% negative-binomial share for an arm whose published output was
+Gaussian-derived in 24 of its 30 cells, because it counts fits PERFORMED rather than fits USED. That is
+a real limitation of the observability mechanism this document describes.
+
+It was recorded here rather than quietly fixed mid-measurement — and it was fixed AFTERWARDS,
+loudly, in its own commit, on 2026-09-11 by quick task 260911-w7k, with this measurement left standing.
+A clause now derives its family from its terms' declarations and refuses a combination with no exact
+closed form. **The fix moved no number above.** Every declaration in the tree is Gaussian, which is
+closed under scaled addition, pinned by `packages/core/rankingPoints/analyticPmfGolden.json` captured
+before the change and green after it. The 69.62% share, the 24-of-30 figure and the refusal itself are
+exactly what was measured and are unchanged; what changed is what a future measurement could reach.
 
 ## What this document does not say
 

@@ -62,11 +62,20 @@ import type { CompLevel } from "../algorithms/types.js";
  * and its discrete CDF were deleted.
  *
  * The measurement also found that the swap's REACH was far narrower than its
- * label: `clauseProbability` refits a clause's combined moments as a hardcoded
- * Gaussian, so only `nestedSameVariable` bonuses ever honored a declared
- * family at all. `docs/models/rp-attribution.md` carries the figures and that
- * finding; the evidence above for right-skew and overdispersion is unaffected
- * by the refusal and is left standing for whoever revisits this.
+ * label: `clauseProbability` refitted a clause's combined moments as a
+ * hardcoded Gaussian, so only `nestedSameVariable` bonuses ever honored a
+ * declared family at all. `docs/models/rp-attribution.md` carries the figures
+ * and that finding; the evidence above for right-skew and overdispersion is
+ * unaffected by the refusal and is left standing for whoever revisits this.
+ *
+ * THAT HARDCODE WAS REMOVED on 2026-09-11 (quick task 260911-w7k). A clause now
+ * derives its family from its terms' own declarations, reuses a single unscaled
+ * term's fitted marginal verbatim, and is refused loudly where a combination
+ * has no exact closed form — so a future second family added to this union
+ * reaches every predicate shape whose terms declare it, rather than the one
+ * shape `nestedSameVariable` covers. That is the reason the D-02 declaration
+ * site below was worth keeping. The removal changed no published number and
+ * re-measured nothing; it changed what a future measurement could reach.
  *
  * THE UNION HAS ONE MEMBER AND THE DECLARATION SITE SURVIVES ANYWAY. D-02
  * locked the per-variable declaration, so a future family extends this union

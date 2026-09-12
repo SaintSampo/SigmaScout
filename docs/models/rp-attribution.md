@@ -153,6 +153,17 @@ hardcoded Gaussian**, discarding the declared and resolved family entirely. Only
 predicate is `nestedSameVariable` bypass it — those route through the interval enumeration, which
 calls `probAtLeast` on the fitted marginal directly and therefore does honour the family.
 
+**Superseded as a statement about the code, 2026-09-11.** The hardcoded Gaussian was removed by quick
+task 260911-w7k. A clause now derives its marginal family from its terms' own declarations, reuses a
+single unscaled term's fitted marginal verbatim, and refuses loudly when a combination of declared
+families has no exact closed form. **That removal moved no number in this document.** Every
+declaration in the tree is Gaussian, which is closed under scaled addition, so the derived family
+equals the literal it replaced — pinned by
+`packages/core/rankingPoints/analyticPmfGolden.json`, captured from `analyticPmf.ts` before the change
+and green after it with exact equality across 240 rows. The paragraph above stands as the
+measurement-time record of what this measurement found; what the removal changes is what a FUTURE
+measurement could reach, which is a different sentence.
+
 Counting `nestedSameVariable` predicates per season gives the whole picture: every season has zero
 except the last, which has two. Those two bonuses, across three algorithms, are exactly the six cells
 that moved.
@@ -168,6 +179,11 @@ This is recorded as a finding and **was not acted on here**. Changing `clausePro
 re-specification of the model, not an attribution measurement, and it would change what `control`
 means mid-flight — the same reason `probAtLeast`'s Gaussian branch carries its own warning against
 adding a continuity correction.
+
+It was acted on separately afterwards, as a structural change with no measurement attached (quick task
+260911-w7k, 2026-09-11), for exactly the reason this paragraph gives: changing `clauseProbability`
+during the attribution measurement would have changed what `control` meant mid-flight, and changing it
+afterwards does not.
 
 ## The bar, and why it has no effect-size floor
 
@@ -342,9 +358,12 @@ Three things were kept deliberately, each with its reason written at the site:
   from the reporting slice alone, and the two are kept under separate headings above with a test that
   checks no season appears under the wrong one.
 - **No claim that negative binomial is the wrong distribution for ranking-point thresholds.** What was
-  measured is this implementation's reach, which `clauseProbability` limits to one predicate shape.
-  A future attempt that fixed that first would be measuring a different thing, and would need a fresh
-  reporting slice.
+  measured is this implementation's reach AS IT STOOD WHEN IT WAS MEASURED, which `clauseProbability`
+  then limited to one predicate shape. That limit was removed on 2026-09-11 by quick task 260911-w7k,
+  which moved no number in this document — pinned by
+  `packages/core/rankingPoints/analyticPmfGolden.json`, captured before the change and green after it
+  with exact equality. Nothing above was re-measured and nothing above is any less refused. A future
+  attempt would still be measuring a different thing, and would still need a fresh reporting slice.
 
 ## Machine-readable record
 
