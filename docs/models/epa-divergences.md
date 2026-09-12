@@ -96,6 +96,61 @@ the rate is live-estimated during week 1 (L-01, register R3 item 3).
 
 **Still unmeasured, and why.** `scripts/measureEpaDeviations.ts` could not build an arm for this: the sigmoid's exact FORM was never transcribed into this repo. D-13, `02-CONTEXT.md` and `02-RESEARCH.md` all NAME it (and list `zero_sigmoid`/`unit_sigmoid` among the functions fetched during 2026-08-13's research session) but no transcription of either body survives. Implementing a guessed sigmoid would measure an invention rather than the divergence, so the harness reports `unmeasurable-no-reference` instead of approximating. Closing this means re-fetching Statbotics' `backend/src/models/epa/{math,breakdown}.py` — a research step, not a harness step.
 
+### 2018's zero-sum Scale — the structural measurements, and the standing decision NOT to port the sigmoid (2026-09-12)
+
+Salvaged here from the `2018-anti-additivity-treatment` todo when that todo was deleted. It named
+this document as the proper home for both halves ("this project's stated discipline is measured
+divergence, and `docs/models/epa-divergences.md` is where such a decision would have to be argued
+and recorded"), and the todo itself was retired because the deficit it existed to close is gone:
+on live `bpr@3.0.0` 2018 now runs **+0.02pp** (74.37% vs Statbotics' 74.35%), where the VPR-era
+measurement it was written against recorded -2.59pp.
+
+**The decision, restated as a standing one.** Do not port Statbotics' 2018 switch/scale sigmoid on
+the grounds that they have one. That is the general policy in the section above, and 2018 is the
+season where it is most tempting to make an exception, so it is recorded specifically. Two
+independent reasons:
+
+1. **The evidence never supported it.** Across the ten-season walk-forward replay, 2018 — the one
+   season that structurally violates the additivity assumption every one of these models rests on —
+   had the **4th-smallest** deficit of ten, measured against a competitor that *has* the
+   2018-specific correction we lack. If the missing sigmoid were costing us, 2018 should sit at the
+   wrong end of that table. It did not then, and at +0.02pp it does not now.
+2. **A per-season treatment is a season-conditional branch**, which this codebase has deliberately
+   avoided. §3 above is the standing precedent for not adding one.
+
+**Three structural measurements about 2018, kept because they are real and would be expensive to
+re-derive.** Measured 2026-09-06 over full-season official quals:
+
+| measurement | value |
+|---|---|
+| `corr(red totalPoints, blue totalPoints)`, all points | **-0.4567** |
+| the same, with Scale-derived points removed | **-0.0642** (additivity essentially restored) |
+| `teleopScaleOwnershipSec` red-vs-blue correlation | **-0.9109** (near-perfectly zero-sum) |
+| `teleopSwitchOwnershipSec` red-vs-blue correlation | -0.1362 (ordinary) |
+| Scale-derived points per alliance-side | 65.5 mean, an **18.8%** share of an alliance's own total |
+
+So the anti-additivity is real, large, and localised to exactly one component pair. What does not
+exist is any evidence that treating it would help.
+
+**What was done for 2018, and what that is not.** `breakdown/2018.ts` SPLITS the Scale from the
+Switch in both auto and teleop — seven own components, not the five a naive port would give — a
+locked user decision of 2026-09-07, reconstructing TBA's own fused halves exactly (0 mismatches in
+28,312 official qual alliance-sides). **That is a data-shape decision that keeps a treatment
+reachable; it is not itself a treatment.** Verified 2026-09-08: `autoScaleOwnership` and
+`teleopScaleOwnership` appear nowhere outside `breakdown/2018.ts` and `groups.ts`'s display
+buckets. No algorithm treats them differently from any other component.
+
+**The bar, if anyone ever reopens this.** Rule A on 2018 — improves both winner accuracy and Brier —
+*and* no other season degrades.
+
+**One open ablation, deliberately NOT run.** The corpus-extension job flagged that parameters
+selected on a window containing 2018 may transfer worse to normal seasons, and proposed comparing
+origin-2022 parameters selected with and without 2018. **Do not run it.** Two reasons, and the
+second is decisive: BPR's parameters were frozen on a 2016-2022 window that contains 2018 and spent
+once against a sealed 2023-2026 holdout, which is a direct answer to the exact transfer risk the
+ablation was written to probe; and running it means re-tuning BPR, which Jacob has barred outright
+(2026-09-09). It is recorded as declined, not as pending.
+
 ## 4. Win-probability scale — NARROWED as of `epa@9.0.0+baseline`: a FROZEN WEEK-1 SD from week 2 on, the expanding-window SD during week 1
 
 ### NARROWED 2026-09-11 (quick task 260911-j2w): the Statbotics constant is a WEEK-1 number, and SigmaScout now adopts it
@@ -305,3 +360,4 @@ The label the artifact and the code both carry for this is `approximation: "clos
 *Statbotics source citations verified 2026-08-13 (`.planning/phases/02-prediction-models-epa-sigma1/02-RESEARCH.md`).*
 *§7 added and the header's version status updated by quick task 260908-615, 2026-09-08; Statbotics' offseason absence re-verified live the same day.*
 *§8 added and the header's version status updated by quick task 260911-3kc, 2026-09-11 (measurement: quick task 260910-x09; landed as `epa@8.0.0+baseline`).*
+*§3's 2018 subsection salvaged from the deleted `2018-anti-additivity-treatment` todo by the 2026-09-12 backlog triage; the measurements it carries date to 2026-09-06 and 2026-09-08, the deficit figure to live `bpr@3.0.0`.*
