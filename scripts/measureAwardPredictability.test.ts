@@ -22,10 +22,16 @@ import {
   ABSTAIN,
   AGE_FEATURE_COUNT,
   FEATURE_COUNT,
+  BUCKET_GAP_TOLERANCE,
   K_VALUES,
   RANK_PREDICTORS,
+  RELIABILITY_EDGES,
+  THIN_BUCKET_SLOTS,
   THIN_PRIOR_INSTANCES,
+  TOP1_GAP_TOLERANCE,
   accumulateB0Rank,
+  accumulateCalibration,
+  accumulateMultiRecipient,
   accumulateRank,
   ageDeltaPp,
   ageFeatureTriple,
@@ -34,11 +40,18 @@ import {
   b0Exact,
   b0Survival,
   bestBaseline,
+  brierSkill,
+  bucketMeanPredicted,
+  bucketObserved,
   buildAgeFeatures,
   buildAwardInstances,
   buildCandidatePools,
   buildFeatures,
   buildPriorHistory,
+  calibrationBrier,
+  calibrationFailures,
+  calibrationUniformBrier,
+  calibrationVerdict,
   cellAccuracy,
   cellAgeKnownFraction,
   cellMeanRank,
@@ -47,6 +60,7 @@ import {
   cellNormalizedRank,
   cellRecallAt,
   compareTeamKeys,
+  emptyCalibrationStats,
   emptyCell,
   emptyRankStats,
   fitConditionalLogit,
@@ -56,8 +70,10 @@ import {
   knownAgeFraction,
   knownRookieIndices,
   medianOf,
+  mergeCalibration,
   modalAwardNames,
   NOISE_MARGIN_PP,
+  observedTop1,
   orderByScores,
   orderMostDecorated,
   orderMostDecoratedRookie,
@@ -68,16 +84,20 @@ import {
   pickMostDecoratedRookie,
   pickStrongest,
   pickStrongestRookie,
+  pooledCalibration,
   priorAnyCount,
   priorInstancesOfType,
   priorTypeCount,
   priorTypeLastYear,
   randomExpectedTop1,
   ranksFromOrder,
+  reliabilityBucket,
   replayPreEventRatings,
   runExperiment,
   scoreByWeights,
   selectPriorInstances,
+  softmax,
+  statedTop1,
   teamAge,
   teamNumber,
   toJsonCell,
@@ -86,6 +106,7 @@ import {
   winnerRank,
   type AwardInstance,
   type AwardRowInput,
+  type CalibrationStats,
   type Cell,
   type EventMetaInput,
   type Predictor,
@@ -1794,5 +1815,312 @@ describe("walk-forward leak guard (rank metrics)", () => {
     const b = run(long, 60, rookieYears).byType[0]?.perSeason.get(2001);
     expect(a?.rank.ageModel).toEqual(b?.rank.ageModel);
     expect(a?.rank.rb1).toEqual(b?.rank.rb1);
+  });
+
+  it("scores season Y's CALIBRATION identically whether or not later seasons exist", () => {
+    const short = syntheticWorld([2000, 2001], 40, 7);
+    const long = syntheticWorld([2000, 2001, 2002, 2003], 40, 7);
+    const a = run(short).byType[0]?.perSeason.get(2001);
+    const b = run(long).byType[0]?.perSeason.get(2001);
+    expect(a?.calibration).toBeDefined();
+    expect(a?.calibration.model).toEqual(b?.calibration.model);
+    expect(a?.calibration.ageModel).toEqual(b?.calibration.ageModel);
+  });
+});
+
+// ===========================================================================
+// QUICK TASK 260912-i13 T2 — are the stated probabilities honest?
+// ===========================================================================
+
+describe("softmax", () => {
+  it("sums to 1 across the pool", () => {
+    const p = softmax([1, -2, 0.5, 3]);
+    expect(p.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+    expect(p.every((x) => x > 0)).toBe(true);
+  });
+
+  it("is INVARIANT to adding a constant to every utility — the stabiliser is correct", () => {
+    // Not merely "a max subtraction is present": the numbers it produces must
+    // be the ones the unshifted maths implies.
+    const base = [1, -2, 0.5, 3];
+    const shifted = base.map((u) => u + 1000);
+    const a = softmax(base);
+    const b = softmax(shifted);
+    for (let i = 0; i < a.length; i += 1) expect(a[i] ?? 0).toBeCloseTo(b[i] ?? -1, 12);
+    // And it does not overflow where a naive exp() would.
+    expect(softmax([800, 800]).every((x) => Number.isFinite(x))).toBe(true);
+    expect(softmax([800, 800])).toEqual([0.5, 0.5]);
+  });
+
+  it("preserves the ranking it came from", () => {
+    const u = [1, -2, 0.5, 3];
+    expect(orderByScores(softmax(u))).toEqual(orderByScores(u));
+  });
+
+  it("is uniform on an all-equal utility vector, and empty on an empty pool", () => {
+    expect(softmax([0, 0, 0, 0])).toEqual([0.25, 0.25, 0.25, 0.25]);
+    expect(softmax([])).toEqual([]);
+  });
+});
+
+describe("reliability buckets", () => {
+  it("is closed below and open above at EVERY edge, with the top closed at 1.0", () => {
+    for (let i = 0; i < RELIABILITY_EDGES.length - 1; i += 1) {
+      const edge = RELIABILITY_EDGES[i] ?? 0;
+      expect([edge, reliabilityBucket(edge)]).toEqual([edge, i]);
+    }
+    // Open above: a hair under an edge belongs to the bucket BELOW it.
+    expect(reliabilityBucket(0.05 - 1e-12)).toBe(2);
+    expect(reliabilityBucket(0.5 - 1e-12)).toBe(6);
+    // The top bucket is closed at 1.0 rather than dropping a certainty.
+    expect(reliabilityBucket(1)).toBe(RELIABILITY_EDGES.length - 2);
+    expect(reliabilityBucket(0.999)).toBe(RELIABILITY_EDGES.length - 2);
+  });
+
+  it("drops nothing and double-counts nothing", () => {
+    const s = emptyCalibrationStats();
+    const probs = [...RELIABILITY_EDGES, 0.0005, 0.34999, 0.7];
+    accumulateCalibration(s, probs, new Set([0]), 0);
+    expect(s.buckets.reduce((a, b) => a + b.slots, 0)).toBe(probs.length);
+    expect(s.slots).toBe(probs.length);
+  });
+});
+
+describe("the calibration scorer", () => {
+  it("matches a hand-computed Brier", () => {
+    const s = emptyCalibrationStats();
+    accumulateCalibration(s, [0.5, 0.3, 0.2], new Set([0]), 0);
+    // (0.5-1)^2 + (0.3-0)^2 + (0.2-0)^2 = 0.25 + 0.09 + 0.04 = 0.38
+    expect(s.brierSum).toBeCloseTo(0.38, 12);
+    expect(s.slots).toBe(3);
+    expect(calibrationBrier(s)).toBeCloseTo(0.38 / 3, 12);
+  });
+
+  it("computes BS_uniform as the analytic (N-1)/N^2 on a single-recipient instance", () => {
+    // (1 - 1/N)^2/N + (N-1)/N^3 collapses to (N-1)/N^2 — asserted directly on
+    // the accumulator rather than restated as a comment.
+    for (const N of [2, 3, 5, 40]) {
+      const s = emptyCalibrationStats();
+      accumulateCalibration(s, new Array<number>(N).fill(1 / N), new Set([0]), 0);
+      expect(calibrationUniformBrier(s)).toBeCloseTo((N - 1) / N ** 2, 15);
+    }
+    // The number the report's "uninterpretable alone" warning refers to.
+    expect(39 / 40 ** 2).toBeCloseTo(0.024375, 12);
+  });
+
+  it("scores skill EXACTLY 0 when the model IS uniform", () => {
+    const s = emptyCalibrationStats();
+    accumulateCalibration(s, [1 / 3, 1 / 3, 1 / 3], new Set([1]), 1);
+    expect(calibrationBrier(s)).toBe(calibrationUniformBrier(s));
+    expect(brierSkill(s)).toBe(0);
+  });
+
+  it("scores positive skill for a model that concentrates mass on the winner", () => {
+    const s = emptyCalibrationStats();
+    accumulateCalibration(s, [0.9, 0.05, 0.05], new Set([0]), 0);
+    expect(brierSkill(s)).toBeGreaterThan(0);
+    const bad = emptyCalibrationStats();
+    accumulateCalibration(bad, [0.05, 0.05, 0.9], new Set([0]), 0);
+    expect(brierSkill(bad)).toBeLessThan(0);
+  });
+
+  it("records the top pick's STATED probability next to its OBSERVED outcome", () => {
+    const s = emptyCalibrationStats();
+    accumulateCalibration(s, [0.6, 0.4], new Set([0]), 0); // stated 0.6, hit
+    accumulateCalibration(s, [0.6, 0.4], new Set([1]), 0); // stated 0.6, miss
+    expect(s.topInstances).toBe(2);
+    expect(statedTop1(s)).toBeCloseTo(0.6, 12);
+    expect(observedTop1(s)).toBeCloseTo(0.5, 12);
+  });
+
+  it("counts a multi-recipient instance separately and folds it into NO headline number", () => {
+    const s = emptyCalibrationStats();
+    accumulateMultiRecipient(s, [0.5, 0.3, 0.2], new Set([0, 1]));
+    expect(s.excludedMultiRecipient).toBe(1);
+    expect(s.instances).toBe(0);
+    expect(s.slots).toBe(0);
+    expect(s.brierSum).toBe(0);
+    expect(s.buckets.every((b) => b.slots === 0)).toBe(true);
+    // But it IS summarised, so the excluded set is visible rather than hidden.
+    expect(s.multiSlots).toBe(3);
+    expect(s.multiPredictedSum).toBeCloseTo(1, 12);
+    expect(s.multiObservedSum).toBe(2);
+  });
+
+  it("merges cleanly across award types, buckets included", () => {
+    const a = emptyCalibrationStats();
+    const b = emptyCalibrationStats();
+    accumulateCalibration(a, [0.6, 0.4], new Set([0]), 0);
+    accumulateCalibration(b, [0.6, 0.4], new Set([1]), 0);
+    const both = emptyCalibrationStats();
+    mergeCalibration(both, a);
+    mergeCalibration(both, b);
+    expect(both.instances).toBe(2);
+    expect(both.slots).toBe(4);
+    expect(both.brierSum).toBeCloseTo(a.brierSum + b.brierSum, 12);
+    expect(both.buckets.reduce((x, y) => x + y.slots, 0)).toBe(4);
+    expect(observedTop1(both)).toBeCloseTo(0.5, 12);
+  });
+});
+
+describe("the PRE-COMMITTED usable/needs-recalibration rule", () => {
+  /** A stats object that passes all three clauses, to perturb one at a time. */
+  const passing = (over: Partial<CalibrationStats> = {}): CalibrationStats => ({
+    ...emptyCalibrationStats(),
+    instances: 100,
+    slots: 1000,
+    brierSum: 50,
+    uniformBrierSum: 100, // skill = 1 - 0.05/0.1 = +0.5
+    topInstances: 100,
+    topPredictedSum: 30,
+    topHits: 28, // stated 30.0% vs observed 28.0% — a 2pp gap
+    ...over,
+  });
+
+  it("says USABLE only when all three clauses hold", () => {
+    const s = passing();
+    expect(brierSkill(s)).toBeCloseTo(0.5, 12);
+    expect(calibrationFailures(s)).toEqual([]);
+    expect(calibrationVerdict(s)).toBe("PROBABILITIES USABLE AS STATED");
+  });
+
+  it("fires on clause 1: a non-positive Brier skill score", () => {
+    expect(calibrationVerdict(passing({ brierSum: 100 }))).toBe(
+      "PROBABILITIES NEED RECALIBRATION"
+    );
+    expect(calibrationVerdict(passing({ brierSum: 150 }))).toBe(
+      "PROBABILITIES NEED RECALIBRATION"
+    );
+    expect(calibrationFailures(passing({ brierSum: 150 }))[0]).toMatch(/skill score/);
+    // Exactly zero skill is NOT positive, so it fails rather than squeaking by.
+    expect(brierSkill(passing({ brierSum: 100 }))).toBe(0);
+  });
+
+  it("fires on clause 2: a top-1 stated-vs-observed gap outside +/-5pp", () => {
+    // 30.0% stated vs 20.0% observed — the "says 31%, actually 22%" failure.
+    const over = passing({ topHits: 20 });
+    expect(calibrationVerdict(over)).toBe("PROBABILITIES NEED RECALIBRATION");
+    expect(calibrationFailures(over).some((f) => f.includes("top-1"))).toBe(true);
+    // And it is symmetric: UNDER-confidence fails the same way.
+    expect(calibrationVerdict(passing({ topHits: 40 }))).toBe(
+      "PROBABILITIES NEED RECALIBRATION"
+    );
+    // A gap exactly at the tolerance passes; a hair beyond it does not.
+    expect(100 * TOP1_GAP_TOLERANCE).toBe(5);
+    expect(calibrationVerdict(passing({ topHits: 25 }))).toBe(
+      "PROBABILITIES USABLE AS STATED"
+    );
+    expect(calibrationVerdict(passing({ topPredictedSum: 30.1, topHits: 25 }))).toBe(
+      "PROBABILITIES NEED RECALIBRATION"
+    );
+  });
+
+  it("fires on clause 3: a NON-THIN bucket off by more than 10pp", () => {
+    const withBucket = (slots: number): CalibrationStats => {
+      const s = passing();
+      const b = s.buckets[5];
+      if (b !== undefined) {
+        b.slots = slots;
+        b.predictedSum = slots * 0.3;
+        b.observed = slots * 0.1; // a 20pp gap
+      }
+      return s;
+    };
+    const fat = withBucket(THIN_BUCKET_SLOTS + 10);
+    expect(bucketMeanPredicted(fat.buckets[5] as never)).toBeCloseTo(0.3, 12);
+    expect(bucketObserved(fat.buckets[5] as never)).toBeCloseTo(0.1, 12);
+    expect(calibrationVerdict(fat)).toBe("PROBABILITIES NEED RECALIBRATION");
+    expect(calibrationFailures(fat).some((f) => f.includes("bucket"))).toBe(true);
+
+    // The SAME gap on a thin bucket draws no conclusion at all — that is the
+    // whole reason the THIN flag exists rather than being a footnote.
+    const thin = withBucket(THIN_BUCKET_SLOTS - 1);
+    expect(calibrationVerdict(thin)).toBe("PROBABILITIES USABLE AS STATED");
+    // And a non-thin bucket inside the tolerance passes.
+    expect(100 * BUCKET_GAP_TOLERANCE).toBe(10);
+  });
+
+  it("refuses to call an EMPTY measurement usable", () => {
+    const s = emptyCalibrationStats();
+    expect(calibrationVerdict(s)).toBe("PROBABILITIES NEED RECALIBRATION");
+    expect(calibrationFailures(s)[0]).toMatch(/nothing was measured/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The two exclusions, end to end through runExperiment
+// ---------------------------------------------------------------------------
+
+describe("calibration exclusions, end to end", () => {
+  it("a THIN-PRIOR row contributes to no accumulator and is counted", () => {
+    // 5 prior instances < 30: neither arm is fit, the B1 heuristic stands in,
+    // and a heuristic emits NO probability.
+    const cell = run(syntheticWorld([2000, 2001], 5, 7)).byType[0]?.perSeason.get(2001);
+    expect(cell?.thinPriorRows).toBe(5);
+    for (const arm of ["model", "ageModel"] as const) {
+      const s = cell?.calibration[arm];
+      expect([arm, s?.excludedThinPrior]).toEqual([arm, 5]);
+      expect([arm, s?.instances]).toEqual([arm, 0]);
+      expect([arm, s?.slots]).toEqual([arm, 0]);
+      expect([arm, s?.brierSum]).toEqual([arm, 0]);
+      expect([arm, s?.topInstances]).toEqual([arm, 0]);
+      expect([arm, s?.buckets.every((b) => b.slots === 0)]).toEqual([arm, true]);
+    }
+    // No fabricated probability was assigned in its place.
+    expect(cell?.calibration.model.multiSlots).toBe(0);
+  });
+
+  it("a MULTI-RECIPIENT instance is excluded from the headline table and counted", () => {
+    const world = syntheticWorld([2000, 2001], 40, 7);
+    for (let i = 0; i < 20; i += 1) {
+      const at = world.instances.findIndex((x) => x.eventKey === `2001e${i}`);
+      world.instances[at] = inst(2001, `2001e${i}`, 7, ["frc1", "frc2"]);
+    }
+    const cell = run(world).byType[0]?.perSeason.get(2001);
+    expect(cell?.n).toBe(40);
+    const s = cell?.calibration.model as CalibrationStats;
+    expect(s.excludedMultiRecipient).toBe(20);
+    expect(s.instances).toBe(20); // the single-recipient half only
+    expect(s.slots).toBe(20 * 4); // pool of four
+    expect(s.multiSlots).toBe(20 * 4);
+    // Two winners against a total mass of 1: the excluded set's observed rate
+    // is DOUBLE its predicted, which is exactly the fake under-confidence the
+    // exclusion exists to keep out of the headline.
+    expect(s.multiObservedSum).toBe(40);
+    expect(s.multiPredictedSum).toBeCloseTo(20, 10);
+    // Every included instance is single-recipient, so slots/instances = pool.
+    expect(s.slots / s.instances).toBe(4);
+  });
+
+  it("an UNREACHABLE instance is retained on purpose — not a third exclusion", () => {
+    const c = run(mixedWorld(), 120, MIXED_ROOKIE_YEARS).byType[0]?.pooled as Cell;
+    expect(c.unreachable).toBe(1);
+    const s = c.calibration.model;
+    // n minus the thin-prior rows, with nothing further removed: the model
+    // really did put a mass of 1 on a pool with no winner in it, and that is
+    // genuine overconfidence rather than an encoding artifact.
+    expect(s.instances).toBe(c.n - s.excludedThinPrior - s.excludedMultiRecipient);
+    expect(s.excludedMultiRecipient).toBe(0);
+  });
+
+  it("pools calibration across judged award types, buckets and all", () => {
+    const report = run(mixedWorld(), 120, MIXED_ROOKIE_YEARS);
+    const pooled = pooledCalibration(report.byType, "model");
+    const single = report.byType[0]?.pooled.calibration.model as CalibrationStats;
+    expect(report.byType).toHaveLength(1);
+    expect(pooled.instances).toBe(single.instances);
+    expect(pooled.slots).toBe(single.slots);
+    expect(pooled.brierSum).toBeCloseTo(single.brierSum, 12);
+    expect(pooled.buckets.reduce((a, b) => a + b.slots, 0)).toBe(pooled.slots);
+  });
+
+  it("keeps both arms on the identical included set, so the age delta stays a feature effect", () => {
+    const c = run(mixedWorld(), 120, MIXED_ROOKIE_YEARS).byType[0]?.pooled as Cell;
+    expect(c.calibration.ageModel.instances).toBe(c.calibration.model.instances);
+    expect(c.calibration.ageModel.slots).toBe(c.calibration.model.slots);
+    expect(c.calibration.ageModel.excludedThinPrior).toBe(c.calibration.model.excludedThinPrior);
+    expect(c.calibration.ageModel.excludedMultiRecipient).toBe(
+      c.calibration.model.excludedMultiRecipient
+    );
   });
 });

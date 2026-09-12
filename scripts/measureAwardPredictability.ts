@@ -1348,6 +1348,302 @@ export function medianOf(values: readonly number[]): number {
 }
 
 // ---------------------------------------------------------------------------
+// Calibration: are the stated probabilities honest? (quick task 260912-i13 T2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The pool's implied win probabilities: a softmax of the utility vector,
+ * stabilised by the SAME `max` subtraction `fitConditionalLogit` already uses.
+ * Sums to 1 across the event by construction.
+ *
+ * The project's stated core value is "honest uncertainty". A ranking that
+ * cannot be trusted as a probability is half an answer, which is why this is
+ * measured rather than assumed.
+ *
+ * `packages/core/scoring/brier.ts` is NOT reused here and must not be. It
+ * scores a MATCH, with a tie concept and a no-call rule; the unit here is a
+ * POOL CANDIDATE, where no ties exist, "no-call" is meaningless and the outcome
+ * is membership in a recipient set. Reusing it would silently import a contract
+ * built for a different question — and for the same reason NO NUMBER PRODUCED
+ * HERE IS COMPARABLE TO ANY PUBLISHED BRIER.
+ */
+export function softmax(utilities: readonly number[]): number[] {
+  if (utilities.length === 0) return [];
+  let max = Number.NEGATIVE_INFINITY;
+  for (const u of utilities) if (u > max) max = u;
+  if (!Number.isFinite(max)) return utilities.map(() => 1 / utilities.length);
+  const exps = utilities.map((u) => Math.exp(u - max));
+  let sum = 0;
+  for (const e of exps) sum += e;
+  if (!(sum > 0)) return utilities.map(() => 1 / utilities.length);
+  return exps.map((e) => e / sum);
+}
+
+/**
+ * FIXED reliability bucket edges, so the two arms — and any future run — stay
+ * comparable. Uniform-width deciles would put ~97% of the mass in one bucket,
+ * because with ~40 candidates the base rate is ~0.025.
+ */
+export const RELIABILITY_EDGES = [0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.35, 0.5, 1.0] as const;
+
+/** Below this many candidate slots, a bucket supports NO conclusion and says so. */
+export const THIN_BUCKET_SLOTS = 50;
+
+/** The top-1 stated-vs-observed gap the pre-committed rule tolerates. */
+export const TOP1_GAP_TOLERANCE = 0.05;
+
+/** The per-bucket gap the pre-committed rule tolerates, on buckets that are not thin. */
+export const BUCKET_GAP_TOLERANCE = 0.1;
+
+/**
+ * Closed below, open above, with the TOP bucket closed at 1.0 — so no
+ * probability is dropped and none is double-counted. Asserted on probabilities
+ * sitting exactly on every edge.
+ */
+export function reliabilityBucket(p: number): number {
+  const last = RELIABILITY_EDGES.length - 2;
+  if (!Number.isFinite(p) || p <= 0) return 0;
+  if (p >= 1) return last;
+  for (let i = 0; i < last; i += 1) {
+    if (p < (RELIABILITY_EDGES[i + 1] ?? 1)) return i;
+  }
+  return last;
+}
+
+export interface ReliabilityBucket {
+  /** Candidate slots, not instances. */
+  slots: number;
+  predictedSum: number;
+  /** Slots that actually won. */
+  observed: number;
+}
+
+/**
+ * TWO EXCLUSIONS, EACH COUNTED AND PRINTED, NEITHER PAPERED OVER:
+ *
+ * 1. THIN-PRIOR ROWS HAVE NO PROBABILITY. Below `THIN_PRIOR_INSTANCES` neither
+ *    arm is fit and the B1 heuristic stands in. A heuristic emits no
+ *    probability, so those rows are excluded and counted. A fabricated
+ *    probability would be the dishonest option and is not taken.
+ *
+ * 2. MULTI-RECIPIENT INSTANCES BREAK THE SUM-TO-1 PREMISE. A softmax models
+ *    "exactly one winner"; where more than one pool member wins there is more
+ *    than one positive against a total mass of 1, which pushes observed rates
+ *    ABOVE predicted and manufactures a fake under-confidence. They are
+ *    excluded from the headline table and Brier, counted, and their mean
+ *    predicted vs mean observed rate is printed as one extra line so the set is
+ *    visible rather than hidden.
+ *
+ * An UNREACHABLE instance (no pool member won at all) is NOT a third exclusion.
+ * It is retained: the model really did put a total mass of 1 on a pool that
+ * contained no winner, and that is genuine overconfidence rather than an
+ * artifact of the encoding. The count is printed beside the table so the effect
+ * is legible.
+ */
+export interface CalibrationStats {
+  /** Included instances (single-recipient-in-pool or unreachable, and fit). */
+  instances: number;
+  /** Included candidate slots = Σ pool size over included instances. */
+  slots: number;
+  /** Σ (p − y)² over slots. */
+  brierSum: number;
+  /** Σ (1/N − y)² over the same slots — B0's Brier, unified with it. */
+  uniformBrierSum: number;
+  buckets: ReliabilityBucket[];
+  /** Instances whose top-1 pick was in range; the denominator of the stated-vs-observed line. */
+  topInstances: number;
+  topPredictedSum: number;
+  topHits: number;
+  excludedThinPrior: number;
+  excludedMultiRecipient: number;
+  multiSlots: number;
+  multiPredictedSum: number;
+  multiObservedSum: number;
+}
+
+export const emptyCalibrationStats = (): CalibrationStats => ({
+  instances: 0,
+  slots: 0,
+  brierSum: 0,
+  uniformBrierSum: 0,
+  buckets: RELIABILITY_EDGES.slice(0, -1).map(() => ({
+    slots: 0,
+    predictedSum: 0,
+    observed: 0,
+  })),
+  topInstances: 0,
+  topPredictedSum: 0,
+  topHits: 0,
+  excludedThinPrior: 0,
+  excludedMultiRecipient: 0,
+  multiSlots: 0,
+  multiPredictedSum: 0,
+  multiObservedSum: 0,
+});
+
+export function accumulateCalibration(
+  stats: CalibrationStats,
+  probs: readonly number[],
+  recipientIndices: ReadonlySet<number>,
+  topPick: number
+): void {
+  const N = probs.length;
+  if (N === 0) return;
+  const uniform = 1 / N;
+  stats.instances += 1;
+  for (let i = 0; i < N; i += 1) {
+    const p = probs[i] ?? 0;
+    const y = recipientIndices.has(i) ? 1 : 0;
+    stats.slots += 1;
+    stats.brierSum += (p - y) ** 2;
+    stats.uniformBrierSum += (uniform - y) ** 2;
+    const b = stats.buckets[reliabilityBucket(p)];
+    if (b !== undefined) {
+      b.slots += 1;
+      b.predictedSum += p;
+      b.observed += y;
+    }
+  }
+  if (topPick >= 0 && topPick < N) {
+    stats.topInstances += 1;
+    stats.topPredictedSum += probs[topPick] ?? 0;
+    if (recipientIndices.has(topPick)) stats.topHits += 1;
+  }
+}
+
+/** Exclusion 2: counted and summarised, never folded into the headline numbers. */
+export function accumulateMultiRecipient(
+  stats: CalibrationStats,
+  probs: readonly number[],
+  recipientIndices: ReadonlySet<number>
+): void {
+  stats.excludedMultiRecipient += 1;
+  for (let i = 0; i < probs.length; i += 1) {
+    stats.multiSlots += 1;
+    stats.multiPredictedSum += probs[i] ?? 0;
+    stats.multiObservedSum += recipientIndices.has(i) ? 1 : 0;
+  }
+}
+
+/** Pools one award type's calibration into another's, for the cross-type table. */
+export function mergeCalibration(target: CalibrationStats, src: CalibrationStats): void {
+  target.instances += src.instances;
+  target.slots += src.slots;
+  target.brierSum += src.brierSum;
+  target.uniformBrierSum += src.uniformBrierSum;
+  target.topInstances += src.topInstances;
+  target.topPredictedSum += src.topPredictedSum;
+  target.topHits += src.topHits;
+  target.excludedThinPrior += src.excludedThinPrior;
+  target.excludedMultiRecipient += src.excludedMultiRecipient;
+  target.multiSlots += src.multiSlots;
+  target.multiPredictedSum += src.multiPredictedSum;
+  target.multiObservedSum += src.multiObservedSum;
+  for (let i = 0; i < target.buckets.length; i += 1) {
+    const t = target.buckets[i];
+    const s = src.buckets[i];
+    if (t === undefined || s === undefined) continue;
+    t.slots += s.slots;
+    t.predictedSum += s.predictedSum;
+    t.observed += s.observed;
+  }
+}
+
+/** Mean `(p − y)²` per candidate slot. NEVER printed alone — see `brierSkill`. */
+export function calibrationBrier(s: CalibrationStats): number {
+  return s.slots === 0 ? 0 : s.brierSum / s.slots;
+}
+
+/**
+ * The same score for `p = 1/N` — the "everyone is equally likely" predictor,
+ * which is exactly B0. On a single-recipient instance this is `(N−1)/N²`, so a
+ * ~40-team pool already scores ≈0.024 with no information whatsoever. That is
+ * why a raw multiclass Brier is uninterpretable on its own.
+ */
+export function calibrationUniformBrier(s: CalibrationStats): number {
+  return s.slots === 0 ? 0 : s.uniformBrierSum / s.slots;
+}
+
+/**
+ * THE HONEST HEADLINE: `1 − BS_model / BS_uniform`. Positive means the
+ * probabilities carry information beyond "everyone is equally likely";
+ * zero or negative means they do not.
+ */
+export function brierSkill(s: CalibrationStats): number {
+  const u = calibrationUniformBrier(s);
+  return u === 0 ? 0 : 1 - calibrationBrier(s) / u;
+}
+
+/** What the model SAYS its top pick's chance is. */
+export function statedTop1(s: CalibrationStats): number {
+  return s.topInstances === 0 ? 0 : s.topPredictedSum / s.topInstances;
+}
+
+/** What that pick's chance ACTUALLY was, over the same included instances. */
+export function observedTop1(s: CalibrationStats): number {
+  return s.topInstances === 0 ? 0 : s.topHits / s.topInstances;
+}
+
+export function bucketMeanPredicted(b: ReliabilityBucket): number {
+  return b.slots === 0 ? 0 : b.predictedSum / b.slots;
+}
+
+export function bucketObserved(b: ReliabilityBucket): number {
+  return b.slots === 0 ? 0 : b.observed / b.slots;
+}
+
+/**
+ * THE PRE-COMMITTED CALIBRATION RULE, written down before any number was seen:
+ *
+ *   Probabilities are USABLE AS STATED iff the Brier skill score is POSITIVE,
+ *   AND the top-1 stated-vs-observed gap is within ±5pp, AND no bucket holding
+ *   at least 50 slots is off by more than 10pp.
+ *
+ * Anything else is NEEDS RECALIBRATION. Not "roughly calibrated", not
+ * "directionally fine". Returns the failing clauses so the output can say WHICH
+ * one failed rather than only that something did.
+ */
+export function calibrationFailures(s: CalibrationStats): string[] {
+  const out: string[] = [];
+  if (s.slots === 0) {
+    out.push("nothing was measured — every instance was excluded");
+    return out;
+  }
+  const skill = brierSkill(s);
+  if (!(skill > 0)) {
+    out.push(`Brier skill score ${skill.toFixed(4)} is not positive`);
+  }
+  const gap = statedTop1(s) - observedTop1(s);
+  if (Math.abs(gap) > TOP1_GAP_TOLERANCE) {
+    out.push(
+      `top-1 stated ${(100 * statedTop1(s)).toFixed(1)}% vs observed ` +
+        `${(100 * observedTop1(s)).toFixed(1)}% — a ${(100 * gap).toFixed(1)}pp gap, ` +
+        `outside +/-${(100 * TOP1_GAP_TOLERANCE).toFixed(0)}pp`
+    );
+  }
+  for (let i = 0; i < s.buckets.length; i += 1) {
+    const b = s.buckets[i];
+    if (b === undefined || b.slots < THIN_BUCKET_SLOTS) continue;
+    const d = bucketMeanPredicted(b) - bucketObserved(b);
+    if (Math.abs(d) > BUCKET_GAP_TOLERANCE) {
+      out.push(
+        `bucket [${RELIABILITY_EDGES[i] ?? 0}, ${RELIABILITY_EDGES[i + 1] ?? 1}) is off by ` +
+          `${(100 * d).toFixed(1)}pp on ${b.slots} slots`
+      );
+    }
+  }
+  return out;
+}
+
+export type CalibrationVerdict = "PROBABILITIES USABLE AS STATED" | "PROBABILITIES NEED RECALIBRATION";
+
+export function calibrationVerdict(s: CalibrationStats): CalibrationVerdict {
+  return calibrationFailures(s).length === 0
+    ? "PROBABILITIES USABLE AS STATED"
+    : "PROBABILITIES NEED RECALIBRATION";
+}
+
+// ---------------------------------------------------------------------------
 // The experiment
 // ---------------------------------------------------------------------------
 
@@ -1399,6 +1695,13 @@ export interface Cell {
    * denominator, exactly as the accuracy columns do.
    */
   rank: Record<RankPredictor, RankStats>;
+  /**
+   * ONE `CalibrationStats` PER FITTED ARM (quick task 260912-i13 T2). Only the
+   * two arms: B1/B2/RB1/RB2 are heuristics and emit no probability, and
+   * inventing one for them would be the same fabrication the thin-prior
+   * exclusion exists to refuse.
+   */
+  calibration: Record<Arm, CalibrationStats>;
 }
 
 export const emptyCell = (): Cell => ({
@@ -1426,6 +1729,10 @@ export const emptyCell = (): Cell => ({
     rb1: emptyRankStats(),
     rb2: emptyRankStats(),
     b0: emptyRankStats(),
+  },
+  calibration: {
+    model: emptyCalibrationStats(),
+    ageModel: emptyCalibrationStats(),
   },
 });
 
@@ -1648,6 +1955,8 @@ interface PreparedInstance {
   readonly instance: AwardInstance;
   readonly candidates: readonly string[];
   readonly recipientSet: ReadonlySet<string>;
+  /** Candidate INDICES that won — the `y` vector the calibration scorer needs. */
+  readonly recipientIndices: ReadonlySet<number>;
   readonly recipientsInPool: number;
   /** NO-AGE arm, 4 wide. */
   readonly features: number[][];
@@ -1726,6 +2035,7 @@ export function runExperiment(input: {
       instance,
       candidates,
       recipientSet,
+      recipientIndices: new Set(winnerIdx),
       recipientsInPool: winnerIdx.length,
       features,
       ageFeatures,
@@ -1829,6 +2139,15 @@ export function runExperiment(input: {
         const modelPick = modelScores === null ? b1Pick : argmaxIndex(modelScores);
         const ageModelPick = ageScores === null ? b1Pick : argmaxIndex(ageScores);
 
+        // The stated probabilities: a softmax over each arm's own utility
+        // vector. `null` in the thin-prior case, where a HEURISTIC stood in and
+        // there is no probability to state.
+        const probsByArm: Record<Arm, number[] | null> = {
+          model: modelScores === null ? null : softmax(modelScores),
+          ageModel: ageScores === null ? null : softmax(ageScores),
+        };
+        const pickByArm: Record<Arm, number> = { model: modelPick, ageModel: ageModelPick };
+
         const orders: Record<Predictor, readonly number[]> = {
           model: modelOrder,
           ageModel: ageModelOrder,
@@ -1869,6 +2188,23 @@ export function runExperiment(input: {
               winnerRank(order, p.candidates, p.recipientSet),
               order.length
             );
+          }
+
+          // Calibration, with its two exclusions each counted rather than
+          // papered over. An UNREACHABLE instance is deliberately NOT a third
+          // exclusion — see `CalibrationStats`.
+          for (const arm of ["model", "ageModel"] as const) {
+            const stats = target.calibration[arm];
+            const probs = probsByArm[arm];
+            if (probs === null) {
+              stats.excludedThinPrior += 1;
+              continue;
+            }
+            if (p.recipientsInPool > 1) {
+              accumulateMultiRecipient(stats, probs, p.recipientIndices);
+              continue;
+            }
+            accumulateCalibration(stats, probs, p.recipientIndices, pickByArm[arm]);
           }
         }
       }
@@ -2130,6 +2466,53 @@ function printRankBlock(c: Cell): string[] {
   return lines;
 }
 
+const ARM_LABEL: Record<Arm, string> = { model: "no-age", ageModel: "+age" };
+
+/**
+ * The per-award-type calibration lines. Two per arm, plus the exclusions — NOT
+ * a second table; the pooled reliability table lives once, at the end.
+ *
+ * The stated-vs-observed line is the single most legible calibration fact in
+ * the whole report: "the model says its top pick wins 31% of the time; it
+ * actually wins 22%" is the sentence a reader understands immediately, and it
+ * is the one that says whether the number on a hypothetical page would be a
+ * lie.
+ */
+function printCalibrationLines(c: Cell): string[] {
+  const lines: string[] = [];
+  for (const arm of ["model", "ageModel"] as const) {
+    const s = c.calibration[arm];
+    if (s.instances === 0) {
+      lines.push(
+        `    calibration ${ARM_LABEL[arm].padEnd(6)}: no included instance ` +
+          `(thin-prior ${s.excludedThinPrior}, multi-recipient ${s.excludedMultiRecipient})`
+      );
+      continue;
+    }
+    lines.push(
+      `    calibration ${ARM_LABEL[arm].padEnd(6)}: Brier ${calibrationBrier(s).toFixed(5)} vs ` +
+        `BS_uniform ${calibrationUniformBrier(s).toFixed(5)} -> skill ${brierSkill(s).toFixed(4)} ` +
+        `on ${s.slots} slots / ${s.instances} instances`
+    );
+    lines.push(
+      `      top-1 STATED ${pct(statedTop1(s))} vs OBSERVED ${pct(observedTop1(s))} ` +
+        `(${signedPp(100 * (statedTop1(s) - observedTop1(s)))}) on ${s.topInstances} instances` +
+        ` — not the accuracy column above, which keeps the excluded rows`
+    );
+    const excluded: string[] = [];
+    if (s.excludedThinPrior > 0) excluded.push(`${s.excludedThinPrior} thin-prior (no probability)`);
+    if (s.excludedMultiRecipient > 0) {
+      excluded.push(
+        `${s.excludedMultiRecipient} multi-recipient (mean predicted ` +
+          `${pct(s.multiSlots === 0 ? 0 : s.multiPredictedSum / s.multiSlots)} vs mean observed ` +
+          `${pct(s.multiSlots === 0 ? 0 : s.multiObservedSum / s.multiSlots)})`
+      );
+    }
+    if (excluded.length > 0) lines.push(`      excluded: ${excluded.join("; ")}`);
+  }
+  return lines;
+}
+
 function printTypeBlock(r: AwardTypeReport): string[] {
   const lines: string[] = [];
   lines.push(`  type ${String(r.awardType).padStart(3)}  ${r.name}`);
@@ -2156,6 +2539,101 @@ function printTypeBlock(r: AwardTypeReport): string[] {
   lines.push("");
   lines.push(...printRankBlock(c));
   lines.push("");
+  lines.push(...printCalibrationLines(c));
+  lines.push("");
+  return lines;
+}
+
+/**
+ * Pools one arm's calibration across every JUDGED award type. Per-type
+ * reliability would be far too thin to read — the whole point of fixed bucket
+ * edges is that one table serves both arms and every future run.
+ */
+export function pooledCalibration(
+  judged: readonly AwardTypeReport[],
+  arm: Arm
+): CalibrationStats {
+  const out = emptyCalibrationStats();
+  for (const r of judged) mergeCalibration(out, r.pooled.calibration[arm]);
+  return out;
+}
+
+const RELIABILITY_HEADER =
+  `    ${"bucket".padEnd(16)}${"slots".padStart(9)}${"meanPred".padStart(10)}` +
+  `${"observed".padStart(10)}${"gap".padStart(10)}  flags`;
+
+function printReliabilitySection(judged: readonly AwardTypeReport[]): string[] {
+  const lines: string[] = [];
+  lines.push("===========================================================================");
+  lines.push("ARE THE STATED PROBABILITIES HONEST? (softmax over the pool, per arm)");
+  lines.push("===========================================================================");
+  lines.push("");
+  lines.push("Pooled across every JUDGED award type. Fixed bucket edges, so the two arms and");
+  lines.push("any future run stay comparable; uniform deciles would put ~97% of the mass in one");
+  lines.push("bucket, because with ~40 candidates the base rate is ~2.5%.");
+  lines.push("");
+  lines.push(
+    `A BUCKET WITH FEWER THAN ${THIN_BUCKET_SLOTS} SLOTS IS FLAGGED 'THIN' AND SUPPORTS NO CONCLUSION AT ALL.`
+  );
+  lines.push("A raw multiclass Brier here is uninterpretable alone — p = 1/N already scores");
+  lines.push("about 0.024 on a 40-team pool — so it never prints without BS_uniform and the");
+  lines.push("skill score beside it. BS_uniform IS B0's Brier; they are the same number.");
+  lines.push("NONE of these numbers is comparable to any published Brier: different unit");
+  lines.push("(a pool candidate, not a match), different denominator, no tie and no no-call.");
+  lines.push("");
+  lines.push("PRE-COMMITTED RULE, written before any number was seen:");
+  lines.push(
+    `  USABLE AS STATED iff skill > 0 AND the top-1 stated-vs-observed gap is within ` +
+      `+/-${(100 * TOP1_GAP_TOLERANCE).toFixed(0)}pp`
+  );
+  lines.push(
+    `  AND no bucket with >= ${THIN_BUCKET_SLOTS} slots is off by more than ` +
+      `${(100 * BUCKET_GAP_TOLERANCE).toFixed(0)}pp. Anything else NEEDS RECALIBRATION —`
+  );
+  lines.push(`  not "roughly calibrated", not "directionally fine".`);
+
+  for (const arm of ["model", "ageModel"] as const) {
+    const s = pooledCalibration(judged, arm);
+    lines.push("");
+    lines.push(`  ${arm === "model" ? "NO-AGE ARM (f1-f4)" : "AGE ARM (f1-f7)"}`);
+    lines.push(
+      `    included ${s.instances} instances / ${s.slots} candidate slots; excluded ` +
+        `${s.excludedThinPrior} thin-prior and ${s.excludedMultiRecipient} multi-recipient`
+    );
+    if (s.excludedMultiRecipient > 0) {
+      lines.push(
+        `    multi-recipient set (excluded from everything above): mean predicted ` +
+          `${pct(s.multiSlots === 0 ? 0 : s.multiPredictedSum / s.multiSlots)} vs mean observed ` +
+          `${pct(s.multiSlots === 0 ? 0 : s.multiObservedSum / s.multiSlots)} on ${s.multiSlots} slots`
+      );
+    }
+    lines.push(
+      `    Brier ${calibrationBrier(s).toFixed(5)}   BS_uniform ${calibrationUniformBrier(s).toFixed(5)}` +
+        `   SKILL ${brierSkill(s).toFixed(4)}`
+    );
+    lines.push(
+      `    top-1 STATED ${pct(statedTop1(s))} vs OBSERVED ${pct(observedTop1(s))} ` +
+        `(${signedPp(100 * (statedTop1(s) - observedTop1(s)))}) on ${s.topInstances} instances`
+    );
+    lines.push(RELIABILITY_HEADER);
+    for (let i = 0; i < s.buckets.length; i += 1) {
+      const b = s.buckets[i];
+      if (b === undefined) continue;
+      const label = `[${RELIABILITY_EDGES[i] ?? 0}, ${RELIABILITY_EDGES[i + 1] ?? 1})`;
+      const gap = bucketMeanPredicted(b) - bucketObserved(b);
+      const flags: string[] = [];
+      if (b.slots < THIN_BUCKET_SLOTS) flags.push("THIN — no conclusion");
+      else if (Math.abs(gap) > BUCKET_GAP_TOLERANCE) flags.push("OFF BY MORE THAN 10pp");
+      lines.push(
+        `    ${label.padEnd(16)}${String(b.slots).padStart(9)}` +
+          `${pct(bucketMeanPredicted(b)).padStart(10)}${pct(bucketObserved(b)).padStart(10)}` +
+          `${signedPp(100 * gap).padStart(10)}  ${flags.join(" ")}`
+      );
+    }
+    const failures = calibrationFailures(s);
+    lines.push(`    VERDICT: ${calibrationVerdict(s)}`);
+    for (const f of failures) lines.push(`      because: ${f}`);
+  }
   return lines;
 }
 
@@ -2289,6 +2767,8 @@ export function formatReport(report: ExperimentReport): string {
     `  NO CHANGE on ${flat.length} of ${judged.length} judged types (delta inside the ` +
       `${NOISE_MARGIN_PP.toFixed(1)}pp noise band): ${flat.map((r) => r.awardType).join(", ")}`
   );
+  lines.push("");
+  lines.push(...printReliabilitySection(judged));
   lines.push("");
   lines.push(
     `  A margin — or an age delta — under ${NOISE_MARGIN_PP.toFixed(1)}pp is OPTIMIZER NOISE, not a result.`
