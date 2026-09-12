@@ -5,6 +5,10 @@ Written to answer three questions: what are the simulation tab's inputs, what ar
 outputs, and what would it take to move the pre-schedule simulation out of the published
 sidecar and into the browser.
 
+**Re-verified 2026-09-12** against `https://data.sigmascout.org`: sections 1, 3, 4, and section
+5's first settle-first item. Sections 2, 5 (Options A/B/C, the cost estimate, the
+recommendation) and 6 otherwise still carry the 2026-09-10 audit.
+
 ---
 
 ## 1. There is one tab and two engines
@@ -15,7 +19,7 @@ shapes (`StartMatchPicker.tsx:63`).
 
 | Selection | Engine | Where the draws happen | Cost to the visitor |
 |---|---|---|---|
-| `{ kind: "preSchedule" }` — the picker's "Before schedule release" stop | **Baked** | Offline, in `pnpm publish:seasons` | Zero compute; one ~139–266 KB fetch |
+| `{ kind: "preSchedule" }` — the picker's "Before schedule release" stop | **Baked** | Offline, in `pnpm publish:seasons` | Zero compute; one ~139–266 KB fetch (2026-09-06 generation's range; the live 2026-09-12 point measured on a 66-team event is ~388–394 KB, see section 3 — no new median or range across all sidecars was measured) |
 | `{ kind: "match", matchKey }` — any qualification row | **Live** | Browser Web Worker, on Run press | ~97 ms end-to-end (measured) |
 
 Both engines call the **same** function — `simulateRanks` in
@@ -146,7 +150,11 @@ event, RP-less algorithm). Every other non-OK status still throws.
 `decodePreScheduleResult` then rebuilds `{rankHistograms, draws}` from `baked` alone. **The 20
 priced schedules are downloaded and never read by the client.**
 
-### Measured size (`2026mrcmp`, 66 teams, vpr@10.0.0, fetched live today)
+### Measured size — HISTORICAL: `2026mrcmp`, 66 teams, vpr@10.0.0, fetched 2026-09-06 generation
+
+This table is a superseded vpr-keyed measurement. The vpr sidecars it describes were retired
+from the published set on 2026-09-09 (section 4) and are no longer reachable under any key the
+client requests.
 
 | Component | Bytes | Share |
 |---|---:|---:|
@@ -155,48 +163,81 @@ priced schedules are downloaded and never read by the client.**
 | `roster` | 641 | 0.2% |
 | **Total** | **265,617** | |
 
-`docs/publish-budget.md`'s presim table (from the 2026-09-06 retune republish, the same
-generation still serving): 216 sidecars, median 138,710 B, p95 243,647 B, max 265,617 B.
+`docs/publish-budget.md`'s presim table (from the 2026-09-06 retune republish): 216 sidecars,
+median 138,710 B, p95 243,647 B, max 265,617 B. That generation is superseded by the 2026-09-12
+publish (section 4); this document does not transcribe replacement budget statistics for it.
+
+### Measured size — LIVE, 2026-09-12 (`2026mrcmp`, 66 teams, all three published algorithms)
+
+Method: unauthenticated GET against `https://data.sigmascout.org`, response body parsed as
+JSON, fields counted — not a status-only check.
+
+| key | bytes | roster | schedules | baked.draws | histograms |
+|---|---:|---:|---:|---:|---:|
+| `v1/presim/2026mrcmp/opr@4.0.0+baseline.json` | 393,507 | 66 | 20 | 1000 | 66 |
+| `v1/presim/2026mrcmp/epa@10.0.0+baseline.json` | 392,566 | 66 | 20 | 1000 | 66 |
+| `v1/presim/2026mrcmp/bpr@3.0.0+baseline.json` | 388,484 | 66 | 20 | 1000 | 66 |
+
+Component split measured live on `bpr@3.0.0+baseline`, same method: 388,484 B fetched against
+12,275 B actually read by the client (`roster` + `baked`), leaving `388,484 - 12,275` = 376,209 B
+downloaded and discarded — 96.8% of the object.
 
 ---
 
-## 4. Live status: the pre-schedule stop is currently dark
+## 4. Live status: the pre-schedule stop is live on all three published algorithms
 
-Verified against production today:
+Verified against production on 2026-09-12, by unauthenticated GET against
+`https://data.sigmascout.org`, with the response body **parsed as JSON and its fields counted**
+— not by reading an HTTP status alone. That distinction matters here: a status-only check has
+misled on this project before (see the sentinel incident below), and a reader of this section
+needs to know which kind of check this was.
 
-```
-v1/presim/2026mrcmp/bpr@3.0.0.json                     -> 404
-v1/presim/2026mrcmp/epa@7.0.0+baseline.json            -> 404
-v1/presim/2026mrcmp/vpr@10.0.0+rolling-2026-09d.json   -> 200  (265,617 B, generation 7a2e4e5b, computed 2026-09-06)
-manifest algorithms                                     -> opr 4.0.0 / epa 7.0.0 / bpr 3.0.0
-```
+| key | bytes | roster | schedules | baked.draws | histograms |
+|---|---:|---:|---:|---:|---:|
+| `v1/presim/2026mrcmp/opr@4.0.0+baseline.json` | 393,507 | 66 | 20 | 1000 | 66 |
+| `v1/presim/2026mrcmp/epa@10.0.0+baseline.json` | 392,566 | 66 | 20 | 1000 | 66 |
+| `v1/presim/2026mrcmp/bpr@3.0.0+baseline.json` | 388,484 | 66 | 20 | 1000 | 66 |
 
-Two independent reasons:
+All three carry `pricedFrom` = `pre-event-walk-forward` and `computedAt` =
+`2026-09-12T01:06:14.953Z`. The live algorithms manifest resolves `opr 4.0.0+baseline`,
+`epa 10.0.0+baseline`, `bpr 3.0.0+baseline` — the same triple these three sidecars are keyed
+under — so every sidecar is reachable under the client's **own** key. State that explicitly:
+reachability-under-the-client's-own-key is the property that was broken before (below), not mere
+existence somewhere in the bucket.
 
-1. **Every sidecar in R2 is keyed to `vpr`**, which was retired from the published set on
-   2026-09-09. The client only ever requests `{selected algorithm}@{manifest version}`, so
-   those objects are unreachable orphans.
-2. **Generation was off from 2026-09-10 until 2026-09-11**, when plan 09-10 re-enabled it.
-   `publish:seasons` ran with `--presim-from-season 9999` — a far-future sentinel added by commit
-   `1a759198` while the simulation/swing rethink iterated — and a cutoff above every season in the
-   corpus makes `publish.ts`'s `season >= preScheduleFromSeason` gate false for *every* season, so
-   the last three republishes wrote zero sidecars. **The sentinel was committed, in `package.json`'s
-   `publish:seasons` script — not a per-run CLI override.** That distinction is load-bearing and was
-   got wrong in `09-RESEARCH.md`'s Pitfall 1, which asserted no such literal existed in the tree and
-   that re-enabling was "a republish command, not a code change"; following that reading would have
-   spent a full forty-five-minute R2 write pass, printed no `presim:` line, and left this stop dark
-   with a green-looking run report. 09-10 changed the argument to `2026` (the current-season scope
-   presim has always had — `DEFAULT_PRESCHEDULE_FROM_SEASON` is already `2026`, so the explicit value
-   changes no behaviour relative to the default but records the decision) and added a drift tripwire
-   in `packages/harness/publish.test.ts` that fails loudly if the cutoff is ever parked past the
-   latest season the same script publishes.
+(The epa version this section named before this re-verification is superseded: the published epa
+is `10.0.0` now, not `7.0.0`.)
 
-So today the tab opens on `defaultStartMatchKey` (first unplayed row, or `qm1` on a finished
-event) and only the live engine can produce anything.
+### How it was dark, and why that is worth keeping
 
-The live engine itself **does** work on current bytes — spot-checked: `2026mrcmp` carries
-132/132 qual rows with pmfs; `2024casf` carries 57/72, the 15 gaps being exactly `qm1`–`qm15`
-(the Swing-Factor cold-start chain, already measured under quick task 260910-kco).
+The stop being live today does not erase why it was dark from 2026-09-09 through 2026-09-11.
+Both reasons are kept here, labelled as history, because deleting them to make this page read
+cleanly would trade one stale record for a lost lesson.
+
+1. **The vpr-keyed orphans.** Every sidecar in R2 belonged to `vpr`, retired from the published
+   set on 2026-09-09, so the objects existed but were unreachable under any key the client would
+   request. This is exactly the failure the reachability sentence above rules out for the current
+   generation, which is why the two belong on the same page.
+2. **The `--presim-from-season 9999` sentinel.** The sentinel was **committed** in
+   `package.json`'s `publish:seasons` script — not passed as a per-run CLI override. A cutoff
+   above every season in the corpus made the `season >= preScheduleFromSeason` gate false for
+   every season, so three republishes wrote zero sidecars. `09-RESEARCH.md`'s Pitfall 1 asserted
+   no such literal existed in the tree and that re-enabling was a republish rather than a code
+   change; following that reading would have spent a full forty-five-minute R2 write pass and
+   printed no `presim:` line while looking green. The 09-10 remediation changed the argument to
+   `2026` (matching `DEFAULT_PRESCHEDULE_FROM_SEASON`) and added a drift tripwire in
+   `packages/harness/publish.test.ts` that fails loudly if the cutoff is ever parked past the
+   latest season the same script publishes. The transferable lesson: **a run that exits clean and
+   prints nothing about the artifact class it was supposed to write is not evidence that it wrote
+   anything.**
+
+The tab's pre-schedule stop now resolves for the selected algorithm on a 2026 event, and the
+live per-match engine continues to work alongside it.
+
+The live engine itself **does** work on current bytes — spot-checked as of the 2026-09-10 audit
+(not re-verified today): `2026mrcmp` carries 132/132 qual rows with pmfs; `2024casf` carries
+57/72, the 15 gaps being exactly `qm1`–`qm15` (the Swing-Factor cold-start chain, already
+measured under quick task 260910-kco).
 
 ---
 
@@ -268,7 +309,7 @@ path to a genuinely small payload, and it needs a modelling decision first.
 Whichever way this goes, two things should be settled first, because both currently block the
 feature regardless of where it runs:
 
-1. **Re-key or regenerate the sidecars.** Every one in R2 belongs to a retired algorithm.
+1. **Re-key or regenerate the sidecars.** DONE as of the 2026-09-12 publish — see section 4.
 2. **Decide the cold-start gate.** The measured fix filed under 260910-kco — one wide fallback
    variance for sub-two-observation teams — heals played rows, upcoming rows and the whole
    presim gate at once.
