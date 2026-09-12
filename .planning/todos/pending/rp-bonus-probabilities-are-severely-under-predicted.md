@@ -145,6 +145,20 @@ model 0/0/30, marginal family 3/3/24. The toggles were collapsed and the losing 
    `restore-negative-binomial-to-retest-it`. **The verdict "negative-binomial does not help" is
    unsupported, not disproven.**
 
+   **RESOLVED 2026-09-12 (quick task `260912-2uz`).** The retest ran on the selection slice and the
+   old verdict is now positively **wrong**, not merely unsupported: negative binomial **helps** —
+   pooled bonus-RP Brier **-0.002898** over 510,838 observations, **21 cells improved, 3 regressed,
+   0 tied**, across a reach of 24 of 33 cells (the reach itself was corrected upward from 21 in
+   `7cab6632`, where the eligibility rule had wrongly demanded every clause of a bonus honour the
+   declared family rather than at least one). It was **declined on cost** — about 1.2% on bonus RP
+   alone, only 35.78% of fits resolving to NB, and confirming it would have spent the 2023-2026
+   reporting slice, which remains unspent. The family and the `--marginal-arm` seam stay in the tree
+   and inert, so reopening is one command.
+
+   For this todo specifically: negative binomial is **not** the fix for the under-prediction this
+   document is about. A Brier improvement of 0.0029 is not a 2.75x calibration error being closed.
+   The two are separate problems and the retest does not touch this one.
+
 Also note the headline multiplier in this todo predates plan 09-01's same-scorer fix:
 `measureRpCalibration.ts` was constructing `SigmaScoutLayer` with one argument while the publisher
 used two, so every bpr bonus probability it reported came from a band the publisher does not use.

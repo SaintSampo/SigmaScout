@@ -509,3 +509,29 @@ The Monte Carlo is gone: `analyticRpPmf` computes the pmf in closed form and lev
 byte-identical (D-12 green). **Four findings remain open (F4, F8/F9, F12, F13) plus F10's display
 half**, and F2/F3's verdict is unsupported pending
 `restore-negative-binomial-to-retest-it`. This todo should stay open until those are dispositioned.
+
+### F2/F3 dispositioned 2026-09-12 — measured, then declined on cost
+
+`restore-negative-binomial-to-retest-it` is **closed** (quick task `260912-2uz`). The retest ran on
+the selection slice, which is what the sentence above was waiting for, so F2/F3's verdict is no
+longer unsupported — but it did not resolve the way the old wording implies.
+
+**Negative binomial helps.** Pooled bonus-RP Brier **-0.002898** over 510,838 observations across
+24 reachable cells: **21 improved, 3 regressed, 0 tied.** The 24 ties that produced the original
+"does not help" reading were the `clauseProbability` hardcode, exactly as suspected.
+
+Two things the run established that the old text could not:
+
+- **Reach is 24 of 33 cells, not 21.** `deriveMarginalArmEligibility` required *every* clause of a
+  bonus to honour the declared family; the correct condition is that **at least one** does. Fixed in
+  `7cab6632`. The old rule buried three genuinely-moving cells — including 2016 `capture`, the
+  largest per-bonus improvement in that season — inside the category that ties by construction,
+  which is the same pooling error that made the 09-06 verdict worthless.
+- **It was declined on cost, not on result.** ~1.2% on bonus RP alone, only 35.78% of fits resolving
+  to NB, and a confirmation would have spent the 2023-2026 reporting slice. Jacob's call. The slice
+  stays unspent and the restored family plus the `--marginal-arm` seam stay in the tree, inert, so
+  reopening costs one command.
+
+So F2/F3 read: **the mechanism is real and measured; pursuing it was declined.** That is a closed
+disposition, not an open question. The four findings above (F4, F8/F9, F12, F13) plus F10's display
+half are what still hold this todo open.

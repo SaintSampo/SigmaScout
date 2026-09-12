@@ -68,7 +68,13 @@ Nothing is live right now, so nothing is currently failing. The first real event
 - **Cheapen `analyticRpPmf` on the upcoming path** specifically — the folded path needs full
   fidelity, the upcoming path may not.
 - **Move upcoming-match RP pricing offline** into the presim sidecar machinery that already exists
-  for the pre-schedule case.
+  for the pre-schedule case. If this one is priced, note that the sidecar's shape changed on
+  2026-09-12 (`260912-2ur`): the published object no longer carries the priced `schedules` block at
+  all, only the pooled `baked` histograms and a `scheduleCount` scalar. Per-match pmfs survive in
+  the **in-memory** builder shape but are no longer on the wire, so this direction would mean
+  publishing something the sidecar deliberately stopped publishing — not reusing what is already
+  there. That is a cost, not a blocker, but it is not the freebie the phrase "already exists"
+  suggests.
 
 Measure before choosing: the probe takes `folded` and `upcoming` counts, so any of these can be
 priced against the same instrument before a line of tick code changes.

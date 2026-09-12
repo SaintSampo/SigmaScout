@@ -126,3 +126,25 @@ at 50.** So the shipped configuration is 1,000 x 50 = 50,000 baked draws.
 
 This unblocks `drop-licensed-schedule-templates`, which was gated on this decision, and answers
 option 1 of `live-preschedule-band-is-mostly-sampling-noise`.
+
+## Step 1 has LANDED — raising the count is now safe (2026-09-12)
+
+`stop-baking-preschedule-schedules` is **closed** (quick task `260912-2ur`, commits `5cd916e8`,
+`43e79b30`, `efb0c24f`). The prerequisite this document depended on is done: the published sidecar
+no longer carries the priced `schedules` block and carries a `scheduleCount` scalar instead.
+
+**What that means for the count.** The blocker was size, and it is gone. With the block baked, a
+sidecar at 1,000 schedules would have been about 18 MB — roughly 11.5 GB of presim across the 641
+sidecars a publish writes, against a 10 GB R2 free tier. Aggregate-only it is about 24 KB. So
+setting `PRESIM_SCHEDULE_COUNT` to 1,000 is now a one-constant change plus the tests that pin 20,
+and the artifact still ships **smaller than it does today**.
+
+**One thing to know when doing it.** `schedules` survives in the in-memory shape on purpose — both
+measurement scripts read it and are the rung-1/rung-2 acceptance harness. `pageArtifacts.ts` now
+carries two schemas: `PreScheduleArtifactSchema` (strict, required `schedules`, all five
+refinements) for the builder and the scripts, and `PublishedPreScheduleArtifactSchema` for the wire.
+Raising the count touches neither; it only changes what the builder is asked for.
+
+**The published bytes do not change until a republish.** Every presim object on R2 still carries the
+old shape, which the published schema deliberately still parses, so there is no deploy/republish
+ordering constraint either way.
