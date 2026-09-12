@@ -1,6 +1,10 @@
-# Field-averaged pre-schedule prediction — rung 1 measured against the 20-schedule baked path
+# Field-averaged pre-schedule prediction — rung 1 measured against the 4,000-schedule baked path
 
-**FAIL.** Across 6 real finished events (244 teams, every team of every event scored, roster sizes 14-76), the field-averaged predictor's rank bands agree with the 20-schedule baked path's on 32.8% of teams within half a rank of median (clause 1 needs 95.0%), on 55.7%/52.0% of teams within one rank at the p10/p90 band edges (clause 2 needs 90.0%), with a mean signed median shift of -0.046 ranks (clause 3 allows ±0.25).
+**Measured at 4,000 schedules × 50 draws = 200,000 total draws per arm.** Every figure in this document is a figure AT THAT COUNT and at no other. A rank tolerance is only meaningful relative to the measurement's own resolution, so the binding noise floor at the same count is quoted beside every candidate rate below rather than left to be looked up.
+
+**FAIL.** Across 6 real finished events (244 teams, every team of every event scored, roster sizes 14-76), the field-averaged predictor's rank bands agree with the 4,000-schedule baked path's on 41.4% of teams within half a rank of median — **against a binding floor of 98.4% at the same count** — where clause 1 needs 95.0%; on 62.3%/63.5% of teams within one rank at the p10/p90 band edges — **against binding floors of 100.0%/100.0%** — where clause 2 needs 90.0%; with a mean signed median shift of -0.034 ranks (clause 3 allows ±0.25). Worst single team: candidate 3.33 ranks against a floor whose own worst team moves 0.71 ranks between two runs of the IDENTICAL construction.
+
+**The binding floor is the baked construction built TWICE**, with fully independent shuffle-and-draw streams at 4,000 schedules, obtained by salting `algorithmVersion` — which `buildPreScheduleArtifact` uses for seed hashing and nothing else. Pricing is the same bound `predict` closure on both sides. It is the ceiling **any** method faces at this count, including the one that ships. A candidate scored against a clause the measurement itself cannot resolve is scoring noise, which is why this document quotes the two together. Like every floor on this project it is a **diagnostic**: it may explain a verdict, never overrule one. The criterion's thresholds are unchanged and were fixed before any measurement existed.
 
 **This document is WRITTEN BY `scripts/measureFieldAveragedRanks.ts --write-doc`, not transcribed from its terminal output.** That is deliberate: on this project `publish:seasons` prints a payload-budget summary it does not write, and the budget tests stay red until a human copies the numbers across. This record does not reproduce that trap.
 
@@ -8,72 +12,75 @@
 {
   "verdict": "FAIL",
   "algorithm": "bpr@3.0.0+baseline",
+  "scheduleCount": 4000,
+  "drawsPerSchedule": 50,
+  "totalDraws": 200000,
   "eventCount": 6,
   "teamCount": 244,
   "minRosterSize": 14,
   "maxRosterSize": 76,
   "clause1": {
     "pass": false,
-    "tightRate": 0.3279,
+    "tightRate": 0.4139,
     "requiredTightRate": 0.95,
     "everyTeamWithinHard": false,
-    "worstAbsMedianDiff": 7.594,
-    "worstTeamKey": "frc11269",
-    "worstEventKey": "2026joh"
+    "worstAbsMedianDiff": 3.33,
+    "worstTeamKey": "frc9609",
+    "worstEventKey": "2025cur"
   },
   "clause2": {
     "pass": false,
-    "p10Rate": 0.5574,
-    "p90Rate": 0.5205,
+    "p10Rate": 0.623,
+    "p90Rate": 0.6352,
     "requiredRate": 0.9
   },
   "clause3": {
     "pass": true,
-    "meanSignedMedianDiff": -0.0465,
+    "meanSignedMedianDiff": -0.034,
     "tolerance": 0.25
   },
   "bytes": [
     {
       "eventKey": "2022on034",
-      "baked": 52351,
-      "fieldAveraged": 1014,
-      "ratio": 51.6,
-      "bakedSchedulesFraction": 0.9796
+      "baked": 10258798,
+      "fieldAveraged": 1016,
+      "ratio": 10097.2,
+      "bakedSchedulesFraction": 0.9999
     },
     {
       "eventKey": "2023gaalb",
-      "baked": 104902,
-      "fieldAveraged": 1368,
-      "ratio": 76.7,
-      "bakedSchedulesFraction": 0.9822
+      "baked": 20609385,
+      "fieldAveraged": 1370,
+      "ratio": 15043.3,
+      "bakedSchedulesFraction": 0.9999
     },
     {
       "eventKey": "2024caav",
-      "baked": 186301,
-      "fieldAveraged": 2344,
-      "ratio": 79.5,
-      "bakedSchedulesFraction": 0.9727
+      "baked": 36275314,
+      "fieldAveraged": 2346,
+      "ratio": 15462.6,
+      "bakedSchedulesFraction": 0.9998
     },
     {
       "eventKey": "2025cur",
-      "baked": 410707,
-      "fieldAveraged": 5393,
-      "ratio": 76.2,
-      "bakedSchedulesFraction": 0.9608
+      "baked": 78942585,
+      "fieldAveraged": 5395,
+      "ratio": 14632.5,
+      "bakedSchedulesFraction": 0.9996
     },
     {
       "eventKey": "2026joh",
-      "baked": 374772,
-      "fieldAveraged": 4877,
-      "ratio": 76.8,
-      "bakedSchedulesFraction": 0.9582
+      "baked": 71883380,
+      "fieldAveraged": 4879,
+      "ratio": 14733.2,
+      "bakedSchedulesFraction": 0.9996
     },
     {
       "eventKey": "2026txmca",
-      "baked": 103776,
-      "fieldAveraged": 1392,
-      "ratio": 74.6,
-      "bakedSchedulesFraction": 0.9857
+      "baked": 20415674,
+      "fieldAveraged": 1394,
+      "ratio": 14645.4,
+      "bakedSchedulesFraction": 0.9999
     }
   ],
   "additivityResidualAFA1": [
@@ -120,38 +127,148 @@
       "asFractionOfScoreUncertainty": 0.055709
     }
   ],
-  "seedNoiseFloor": [
-    {
-      "eventKey": "2022on034",
-      "withinTightRate": 1,
-      "meanAbsMedianDiff": 0.106
-    },
-    {
-      "eventKey": "2023gaalb",
-      "withinTightRate": 0.8571,
-      "meanAbsMedianDiff": 0.285
-    },
-    {
-      "eventKey": "2024caav",
-      "withinTightRate": 0.675,
-      "meanAbsMedianDiff": 0.457
-    },
-    {
-      "eventKey": "2025cur",
-      "withinTightRate": 0.5526,
-      "meanAbsMedianDiff": 0.634
-    },
-    {
-      "eventKey": "2026joh",
-      "withinTightRate": 0.64,
-      "meanAbsMedianDiff": 0.528
-    },
-    {
-      "eventKey": "2026txmca",
-      "withinTightRate": 1,
-      "meanAbsMedianDiff": 0.174
-    }
-  ]
+  "bindingResamplingFloor": {
+    "pooledWithinTightRate": 0.9836,
+    "pooledP10WithinRate": 1,
+    "pooledP90WithinRate": 1,
+    "pooledMeanAbsMedianDiff": 0.129,
+    "pooled95thPctAbsMedianDiff": 0.412,
+    "worstTeamAbsMedianDiff": 0.712,
+    "perEvent": [
+      {
+        "eventKey": "2022on034",
+        "withinTightRate": 1,
+        "meanAbsMedianDiff": 0.025,
+        "maxAbsMedianDiff": 0.065,
+        "p10WithinRate": 1,
+        "p90WithinRate": 1
+      },
+      {
+        "eventKey": "2023gaalb",
+        "withinTightRate": 1,
+        "meanAbsMedianDiff": 0.027,
+        "maxAbsMedianDiff": 0.081,
+        "p10WithinRate": 1,
+        "p90WithinRate": 1
+      },
+      {
+        "eventKey": "2024caav",
+        "withinTightRate": 1,
+        "meanAbsMedianDiff": 0.076,
+        "maxAbsMedianDiff": 0.31,
+        "p10WithinRate": 1,
+        "p90WithinRate": 1
+      },
+      {
+        "eventKey": "2025cur",
+        "withinTightRate": 0.9737,
+        "meanAbsMedianDiff": 0.2,
+        "maxAbsMedianDiff": 0.712,
+        "p10WithinRate": 1,
+        "p90WithinRate": 1
+      },
+      {
+        "eventKey": "2026joh",
+        "withinTightRate": 0.9733,
+        "meanAbsMedianDiff": 0.159,
+        "maxAbsMedianDiff": 0.65,
+        "p10WithinRate": 1,
+        "p90WithinRate": 1
+      },
+      {
+        "eventKey": "2026txmca",
+        "withinTightRate": 1,
+        "meanAbsMedianDiff": 0.023,
+        "maxAbsMedianDiff": 0.07,
+        "p10WithinRate": 1,
+        "p90WithinRate": 1
+      }
+    ]
+  },
+  "edgeNoiseFloor": {
+    "pooledP10WithinRate": 1,
+    "pooledP90WithinRate": 1,
+    "perEvent": [
+      {
+        "eventKey": "2022on034",
+        "p10WithinRate": 1,
+        "p90WithinRate": 1,
+        "meanAbsP10Diff": 0.009,
+        "meanAbsP90Diff": 0.007
+      },
+      {
+        "eventKey": "2023gaalb",
+        "p10WithinRate": 1,
+        "p90WithinRate": 1,
+        "meanAbsP10Diff": 0.012,
+        "meanAbsP90Diff": 0.02
+      },
+      {
+        "eventKey": "2024caav",
+        "p10WithinRate": 1,
+        "p90WithinRate": 1,
+        "meanAbsP10Diff": 0.035,
+        "meanAbsP90Diff": 0.027
+      },
+      {
+        "eventKey": "2025cur",
+        "p10WithinRate": 1,
+        "p90WithinRate": 1,
+        "meanAbsP10Diff": 0.057,
+        "meanAbsP90Diff": 0.055
+      },
+      {
+        "eventKey": "2026joh",
+        "p10WithinRate": 1,
+        "p90WithinRate": 1,
+        "meanAbsP10Diff": 0.043,
+        "meanAbsP90Diff": 0.049
+      },
+      {
+        "eventKey": "2026txmca",
+        "p10WithinRate": 1,
+        "p90WithinRate": 1,
+        "meanAbsP10Diff": 0.01,
+        "meanAbsP90Diff": 0.016
+      }
+    ]
+  },
+  "seedNoiseFloor": {
+    "pooledWithinTightRate": 1,
+    "binds": false,
+    "perEvent": [
+      {
+        "eventKey": "2022on034",
+        "withinTightRate": 1,
+        "meanAbsMedianDiff": 0.012
+      },
+      {
+        "eventKey": "2023gaalb",
+        "withinTightRate": 1,
+        "meanAbsMedianDiff": 0.023
+      },
+      {
+        "eventKey": "2024caav",
+        "withinTightRate": 1,
+        "meanAbsMedianDiff": 0.027
+      },
+      {
+        "eventKey": "2025cur",
+        "withinTightRate": 1,
+        "meanAbsMedianDiff": 0.048
+      },
+      {
+        "eventKey": "2026joh",
+        "withinTightRate": 1,
+        "meanAbsMedianDiff": 0.048
+      },
+      {
+        "eventKey": "2026txmca",
+        "withinTightRate": 1,
+        "meanAbsMedianDiff": 0.018
+      }
+    ]
+  }
 }
 ```
 
@@ -169,35 +286,39 @@ Both arms were produced by the **same imported `simulateRanks`** and the **same 
 
 ## Verdict
 
-| Clause | Outcome | Achieved | Required |
-|---|---|---|---|
-| 1 — median rank | FAIL | 32.8% within 0.5; every team within 1: false | ≥ 95.0% and every team |
-| 2 — band edges | FAIL | p10 55.7%, p90 52.0% | ≥ 90.0% on both |
-| 3 — systematic shift | PASS | -0.046 ranks | within ±0.25 |
+| Clause | Outcome | Achieved | **Binding floor at 4,000 schedules** | Required |
+|---|---|---|---|---|
+| 1 — median rank | FAIL | 41.4% within 0.5; every team within 1: false | **98.4%** | ≥ 95.0% and every team |
+| 2 — band edges | FAIL | p10 62.3%, p90 63.5% | **100.0% / 100.0%** | ≥ 90.0% on both |
+| 3 — systematic shift | PASS | -0.034 ranks | — (a signed mean has no same-construction ceiling of this form) | within ±0.25 |
 
-Worst single team: **frc11269** at **2026joh**, median difference 7.59 ranks.
+Worst single team: **frc9609** at **2025cur**, median difference 3.33 ranks. The binding floor's own worst team moves **0.71** ranks between two runs of the identical construction, with a pooled mean `|Δmedian|` of 0.129 and a pooled 95th percentile of 0.412 ranks (clause 1 is satisfiable exactly when that 95th percentile falls to 0.5).
 
 ## Per event
 
+Each rate is read **candidate / binding floor** at the same schedule count, so the gap between a verdict and the measurement's own resolution can be attributed by reading one row.
+
 | Event | Season | Teams | Quals | Matches/team | Replay | Clause-1 rate | p10 rate | p90 rate | Mean signed median shift |
 |---|---|---|---|---|---|---|---|---|---|
-| `2022on034` | 2022 | 14 | 21 | 9 | cold (target season 2022 only, assumption A-FA3) | 50.0% | 85.7% | 78.6% | -0.075 |
-| `2023gaalb` | 2023 | 21 | 42 | 12 | cold (target season 2023 only, assumption A-FA3) | 66.7% | 100.0% | 100.0% | -0.058 |
-| `2024caav` | 2024 | 40 | 74 | 11 | cold (target season 2024 only, assumption A-FA3) | 42.5% | 67.5% | 57.5% | 0.007 |
-| `2025cur` | 2025 | 76 | 127 | 10 | cold (target season 2025 only, assumption A-FA3) | 19.7% | 39.5% | 35.5% | -0.020 |
-| `2026joh` | 2026 | 75 | 125 | 10 | cold (target season 2026 only, assumption A-FA3) | 17.3% | 37.3% | 37.3% | -0.103 |
-| `2026txmca` | 2026 | 18 | 36 | 12 | cold (target season 2026 only, assumption A-FA3) | 77.8% | 100.0% | 94.4% | -0.004 |
+| `2022on034` | 2022 | 14 | 21 | 9 | cold (target season 2022 only, assumption A-FA3) | 92.9% / **100.0%** | 100.0% / **100.0%** | 78.6% / **100.0%** | -0.012 |
+| `2023gaalb` | 2023 | 21 | 42 | 12 | cold (target season 2023 only, assumption A-FA3) | 100.0% / **100.0%** | 100.0% / **100.0%** | 100.0% / **100.0%** | -0.006 |
+| `2024caav` | 2024 | 40 | 74 | 11 | cold (target season 2024 only, assumption A-FA3) | 60.0% / **100.0%** | 67.5% / **100.0%** | 75.0% / **100.0%** | -0.002 |
+| `2025cur` | 2025 | 76 | 127 | 10 | cold (target season 2025 only, assumption A-FA3) | 13.2% / **97.4%** | 42.1% / **100.0%** | 43.4% / **100.0%** | -0.047 |
+| `2026joh` | 2026 | 75 | 125 | 10 | cold (target season 2026 only, assumption A-FA3) | 21.3% / **97.3%** | 53.3% / **100.0%** | 57.3% / **100.0%** | -0.056 |
+| `2026txmca` | 2026 | 18 | 36 | 12 | cold (target season 2026 only, assumption A-FA3) | 94.4% / **100.0%** | 100.0% / **100.0%** | 94.4% / **100.0%** | -0.008 |
 
 ## Artifact size
 
+**Measured at 4,000 schedules, which is NOT the shipped count (20). The baked column below is therefore roughly 200× the size of the artifact that actually ships, because the priced `schedules` block scales with the count. Read the RATIO as an artefact of this measurement's count, not as a shipping figure.** The field-averaged column does not depend on the schedule count at all — it carries no schedules — so it is the same artifact at every count.
+
 | Event | Baked bytes | Field-averaged bytes | Ratio | Field bytes/team | Baked `schedules` block |
 |---|---|---|---|---|---|
-| `2022on034` | 52,351 | 1,014 | 51.6× | 72.4 | 98.0% |
-| `2023gaalb` | 104,902 | 1,368 | 76.7× | 65.1 | 98.2% |
-| `2024caav` | 186,301 | 2,344 | 79.5× | 58.6 | 97.3% |
-| `2025cur` | 410,707 | 5,393 | 76.2× | 71.0 | 96.1% |
-| `2026joh` | 374,772 | 4,877 | 76.8× | 65.0 | 95.8% |
-| `2026txmca` | 103,776 | 1,392 | 74.6× | 77.3 | 98.6% |
+| `2022on034` | 10,258,798 | 1,016 | 10097.2× | 72.6 | 100.0% |
+| `2023gaalb` | 20,609,385 | 1,370 | 15043.3× | 65.2 | 100.0% |
+| `2024caav` | 36,275,314 | 2,346 | 15462.6× | 58.6 | 100.0% |
+| `2025cur` | 78,942,585 | 5,395 | 14632.5× | 71.0 | 100.0% |
+| `2026joh` | 71,883,380 | 4,879 | 14733.2× | 65.1 | 100.0% |
+| `2026txmca` | 20,415,674 | 1,394 | 14645.4× | 77.4 | 100.0% |
 
 The `schedules` fraction is **computed from the artifacts measured here**, not quoted from `docs/simulation-architecture.md`'s recorded 95.4%.
 
@@ -216,21 +337,24 @@ The score half of the field-averaged construction rests on `allianceScore = Σ m
 
 ## Diagnostics (not part of the criterion, and never used to overrule it)
 
-| Event | Mean season RP/team (baked) | (field-avg) | Mean band width (baked) | (field-avg) | Seed-noise floor: teams within 0.5 | mean \|Δmedian\| |
-|---|---|---|---|---|---|---|
-| `2022on034` | 16.95 | 17.03 | 7.62 | 8.34 | 100.0% | 0.11 |
-| `2023gaalb` | 18.59 | 18.55 | 15.73 | 15.55 | 85.7% | 0.29 |
-| `2024caav` | 16.07 | 16.01 | 20.28 | 21.53 | 67.5% | 0.46 |
-| `2025cur` | 26.15 | 26.09 | 40.59 | 41.89 | 55.3% | 0.63 |
-| `2026joh` | 22.21 | 22.14 | 40.27 | 40.70 | 64.0% | 0.53 |
-| `2026txmca` | 28.78 | 28.70 | 12.81 | 13.09 | 100.0% | 0.17 |
+**Two floors, and only one of them binds.** The **binding** floor (the one every rate above is quoted against) builds the baked construction TWICE with independent shuffle-and-draw streams: a candidate arm draws its own K shuffles, so the disagreement it has to survive includes *which K shuffles each side happened to draw*. The **draw-only** floor holds the priced schedules fixed and varies only the draw stream. Holding the shuffles fixed understates the ceiling — visibly so in the columns below — which is why the draw-only column is retained as a diagnostic and is **not** what any verdict is read against. Neither may overrule the criterion.
 
-A systematic season-RP difference points at the moments construction; a systematic band-width difference points at the composition-spread terms. The **seed-noise floor** is a same-arm control: the baked arm's own priced schedules re-simulated at two seeds, neither of them the published one, compared to each other. It is what a clause-1 rate would look like if the two arms were IDENTICAL and only the draw stream differed.
+| Event | Mean season RP/team (baked) | (field-avg) | Mean band width (baked) | (field-avg) | **Binding floor: teams within 0.5** | binding mean \|Δmedian\| | binding worst team | Draw-only floor (does not bind) |
+|---|---|---|---|---|---|---|---|---|
+| `2022on034` | 16.95 | 17.03 | 7.75 | 8.40 | **100.0%** | 0.025 | 0.07 | 100.0% (mean 0.01) |
+| `2023gaalb` | 18.59 | 18.55 | 15.77 | 15.63 | **100.0%** | 0.027 | 0.08 | 100.0% (mean 0.02) |
+| `2024caav` | 16.07 | 16.01 | 20.39 | 21.47 | **100.0%** | 0.076 | 0.31 | 100.0% (mean 0.03) |
+| `2025cur` | 26.16 | 26.09 | 41.98 | 41.92 | **97.4%** | 0.200 | 0.71 | 100.0% (mean 0.05) |
+| `2026joh` | 22.21 | 22.14 | 40.62 | 40.78 | **97.3%** | 0.159 | 0.65 | 100.0% (mean 0.05) |
+| `2026txmca` | 28.78 | 28.70 | 12.82 | 13.03 | **100.0%** | 0.023 | 0.07 | 100.0% (mean 0.02) |
+| **POOLED** (roster-weighted) | — | — | — | — | **98.4%** | 0.129 | 0.71 | 100.0% |
+
+A systematic season-RP difference points at the moments construction; a systematic band-width difference points at the composition-spread terms. Clause 2 has its own **edge-noise** control, because the p10/p90 band edges are estimated from the tails of the same finite draw count and carry different noise than the median: pooled **100.0% / 100.0%** (draw-only), against the binding floor's **100.0% / 100.0%**.
 
 ## Caveats
 
 - **A team's matches are assumed near-independent.** Partners differ each match, which is what makes the assumption reasonable, but the matches of one event are not literally independent draws.
-- **Coupling from teams that share specific matches is washed out** — two teams scheduled against each other have correlated outcomes and nothing in the field-averaged form represents that. **And the 20-schedule arm washes that same coupling out by design**, averaging over 20 independent shuffles precisely so no particular pairing survives into the published band. It is a shared property of both forms, not a defect unique to the new one.
+- **Coupling from teams that share specific matches is washed out** — two teams scheduled against each other have correlated outcomes and nothing in the field-averaged form represents that. **And the baked arm washes that same coupling out by design**, averaging over 4,000 independent shuffles precisely so no particular pairing survives into the published band. It is a shared property of both forms, not a defect unique to the new one.
 - **The composition-induced spread is treated as Gaussian** — the same approximation class used elsewhere in this pipeline, and the one D-16 names and accepts. The exact mixture over all partner pairs crossed with all opposing triples is computable and is deliberately not computed: roughly 5.7 million `analyticRpPmf` calls per team on a 40-team roster.
 - **Assumption A-FA1 (additivity)** is measured above rather than asserted. A large residual standard deviation is the first thing to examine if clause 2 or clause 3 fails.
 - **Assumption A-FA3 (replay mode).** Each event's season was replayed in the mode printed in the per-event table above. Both arms read the SAME state, so the comparison stays internally valid either way; the mode is recorded because a cold replay makes the baked arm non-identical to the production sidecar.
