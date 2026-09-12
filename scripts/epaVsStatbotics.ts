@@ -109,6 +109,8 @@ interface CliOptions {
    * season, and a warmup season has no reason to spend that request.
    */
   readonly warmupSeasons: readonly number[];
+  /** Quick task 260911-r7e: score surrogate-affected matches too, to match Statbotics' documented match population. A comparability arm; default false. */
+  readonly scoreSurrogates: boolean;
   readonly outDir: string;
   readonly check: boolean;
 }
@@ -173,6 +175,7 @@ function parseCliOptions(): CliOptions {
       "min-matches": { type: "string" },
       "no-offseason": { type: "boolean" },
       warmup: { type: "string" },
+      "score-surrogates": { type: "boolean" },
       out: { type: "string" },
       check: { type: "boolean" },
     },
@@ -183,6 +186,7 @@ function parseCliOptions(): CliOptions {
     minMatches: values["min-matches"] ? Number.parseInt(values["min-matches"], 10) : DEFAULT_MIN_MATCHES,
     includeOffseason: !(values["no-offseason"] ?? false),
     warmupSeasons: values.warmup ? parseSeasonRange(values.warmup) : [],
+    scoreSurrogates: values["score-surrogates"] ?? false,
     outDir: values.out ?? DEFAULT_OUT_DIR,
     check: values.check ?? false,
   };
@@ -320,7 +324,8 @@ function replayEpaSeasonFinals(seasons: readonly number[], includeOffseason: boo
  */
 export function mapRecordsToHarnessPredictionInput(
   records: readonly MultiAlgorithmPredictionRecord[],
-  season: number
+  season: number,
+  options: { readonly scoreSurrogates?: boolean } = {}
 ): HarnessPredictionInput[] {
   return records.map((r) => ({
     matchKey: r.match.matchKey,
@@ -333,7 +338,18 @@ export function mapRecordsToHarnessPredictionInput(
     predictedBlueScore: r.prediction.blueScore,
     actualWinner: r.match.winner,
     isOffseason: r.match.eventType === OFFSEASON_EVENT_TYPE,
-    isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
+    // Quick task 260911-r7e: `scoreSurrogates` declares a surrogate-affected
+    // match as ordinary so `aggregateScores` scores it, which is a
+    // COMPARABILITY arm and nothing else. Statbotics' documented
+    // `matchPopulation` is "all qualification + elimination matches" and ours
+    // excludes surrogate-affected ones, a difference visible in the counts
+    // (Statbotics reports 13,286 matches for 2016 against our 12,994, +2.2%).
+    // Default OFF, so every other caller and the published path keep the
+    // exclusion. This deliberately does NOT touch `score.ts` — the exclusion
+    // rule there is correct for SigmaScout's own reporting and is not being
+    // relitigated; only what this one comparison declares about its own
+    // records changes.
+    isSurrogateAffected: options.scoreSurrogates === true ? false : r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
     // Quick task 260909-t5q: read off the record's own stamp, same as every
     // other producer — this script's `WalkForwardSimulator` construction is
     // deliberately left on the default (no-op) cold-start index, so this is
@@ -559,7 +575,7 @@ async function main(): Promise<void> {
   const allPredictions: HarnessPredictionInput[] = options.seasons.flatMap((season) => {
     const replayed = replayResultsBySeason.get(season);
     if (!replayed) throw new Error(`epaVsStatbotics: no replayed records for season ${season}`);
-    return mapRecordsToHarnessPredictionInput(replayed.records, season);
+    return mapRecordsToHarnessPredictionInput(replayed.records, season, { scoreSurrogates: options.scoreSurrogates });
   });
   const slices = aggregateScores(allPredictions, {
     corpusSeasons: options.seasons,

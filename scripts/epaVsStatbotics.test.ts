@@ -121,6 +121,34 @@ describe("mapRecordsToHarnessPredictionInput", () => {
     const [input] = mapRecordsToHarnessPredictionInput([record], 2026);
     expect(input!.isSurrogateAffected).toBe(true);
   });
+
+  // Quick task 260911-r7e: the comparability arm. Default OFF is pinned
+  // separately from the opt-in, so a future refactor cannot flip the default
+  // and quietly widen the published path's scored population.
+  it("keeps the surrogate flag by default, with no options argument at all", () => {
+    const record = buildRecord({ redSurrogates: ["frc254"] });
+    const [input] = mapRecordsToHarnessPredictionInput([record], 2026);
+    expect(input!.isSurrogateAffected).toBe(true);
+  });
+
+  it("keeps the surrogate flag when scoreSurrogates is explicitly false", () => {
+    const record = buildRecord({ blueSurrogates: ["frc604"] });
+    const [input] = mapRecordsToHarnessPredictionInput([record], 2026, { scoreSurrogates: false });
+    expect(input!.isSurrogateAffected).toBe(true);
+  });
+
+  it("declares a surrogate-affected match ordinary when scoreSurrogates is true", () => {
+    const record = buildRecord({ redSurrogates: ["frc254"], blueSurrogates: ["frc604"] });
+    const [input] = mapRecordsToHarnessPredictionInput([record], 2026, { scoreSurrogates: true });
+    expect(input!.isSurrogateAffected).toBe(false);
+  });
+
+  it("leaves every other field untouched when scoreSurrogates is true", () => {
+    const record = buildRecord({ redSurrogates: ["frc254"], eventType: 99 });
+    const [plain] = mapRecordsToHarnessPredictionInput([record], 2026);
+    const [arm] = mapRecordsToHarnessPredictionInput([record], 2026, { scoreSurrogates: true });
+    expect({ ...arm, isSurrogateAffected: plain!.isSurrogateAffected }).toEqual(plain);
+  });
 });
 
 describe("selectCombinedSlice", () => {

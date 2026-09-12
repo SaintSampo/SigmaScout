@@ -593,8 +593,8 @@ carryover scale anchor (`epa@8.0.0`), the frozen week-1 score SD (`epa@9.0.0`) a
 component collapse, so they cannot be read as the model's current standing against Statbotics.
 
 This task was asked for one thing: make EPA's accuracy reproduce Statbotics', with as few changes
-as possible. It made **no model change at all.** Two arms were measured and the second one
-explains almost the entire remaining deficit.
+as possible. It made **no model change at all.** Three arms were measured: one explains almost the
+entire deficit, and two are refuted.
 
 #### The finding: the first REPORTED season cold-starts, and 2022 was that season
 
@@ -665,14 +665,35 @@ for itself, so this task did not continue it. Mechanism 8 (win-probability scale
 stronger reason: winner accuracy is `sign(margin)` only, so the probability scale **cannot** move it
 (the ablation's own `epa-winprob-*` arms return verdict `identical`).
 
-#### The one named candidate for the residual, not chased
+#### The one named candidate was MEASURED, and it is refuted too
 
-Our scorer and Statbotics' do not score the same population. `aggregateScores` excludes
-surrogate-affected matches; Statbotics' `matchPopulation` is documented as "all qualification +
-elimination matches." The gap is visible in the counts: Statbotics reports 13,286 matches for 2016
-against our 12,994 (+2.2%). Whether those ~2% move accuracy by the residual 0.2-0.5 pp is
-unmeasured. **It is a measurement-comparability difference, not a model difference** — which is why
-it is named here with its evidence rather than closed by changing the model to chase it.
+Our scorer and Statbotics' do not score the same population: `aggregateScores` excludes
+surrogate-affected matches, and Statbotics' documented `matchPopulation` is "all qualification +
+elimination matches." `--score-surrogates` declares those matches ordinary for this comparison
+only (a local arm in `epaVsStatbotics.ts` — `score.ts` is untouched, and the default is off) so
+they get scored.
+
+| Season | Statbotics | warm | warm + surrogates | Δ warm | Δ +surrogates | extra matches |
+|--------|------------:|-----:|------------------:|-------:|--------------:|--------------:|
+| 2022 | 0.7815 | 0.7797 | 0.7793 | −0.18 pp | −0.22 pp | +74 |
+| 2023 | 0.7647 | 0.7636 | 0.7635 | −0.11 pp | −0.12 pp | +63 |
+| 2024 | 0.7627 | 0.7578 | 0.7576 | −0.49 pp | −0.51 pp | +71 |
+| 2025 | 0.7839 | 0.7802 | 0.7799 | −0.37 pp | −0.40 pp | +62 |
+| 2026 | 0.7978 | 0.7962 | 0.7959 | −0.16 pp | −0.19 pp | +66 |
+
+Mean deficit −0.261 pp warm, **−0.287 pp with surrogates included — slightly WORSE, not better.**
+
+It also corrects an inference made while this section was first drafted. The +2.2% count
+discrepancy for 2016 (Statbotics 13,286 against our 12,994) was attributed to surrogate exclusion.
+**That was wrong:** surrogate exclusion is only 62-74 matches a season, about **0.4%**, so it
+cannot account for a 2.2% difference. Whatever else makes up that 2016 gap is unidentified, and it
+is recorded here as unidentified rather than re-attributed to a second guess.
+
+**Both comparability hypotheses are now refuted.** The residual −0.11 to −0.49 pp is not offseason
+population and not surrogate population, so the honest reading is that it is genuine small
+model difference — spread across mechanisms 2, 3, 6 and 11 of `epa-statbotics-gap.md`, each of
+whose measured instances so far has been worth about 0.04 pp or has been a loss. Nothing here
+argues those are worth closing; it argues the deficit no longer has a cheap single cause.
 
 #### `--check`'s baseline is a COLD-arm artifact
 
