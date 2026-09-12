@@ -24,7 +24,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 06.1: Match and event data enrichment** (INSERTED) - Per-bonus RP, per-event rank, and per-event rarity tiers backed by real published data (completed 2026-08-26)
 - [x] **Phase 7: Event Pages** - Insights, Breakdown, Quals, Alliances, and Elims tabs (completed 2026-08-30)
 - [x] **Phase 8: Simulation & Compare** - 1000-run rank simulation and the published per-algorithm accuracy table (completed 2026-08-31)
-- [x] **Phase 9: Analytic Ranking Points & Browser-Side Simulation** - Exact closed-form RP replacing the Monte Carlo draw, a published RP accuracy scorecard, live-Worker RP, and the pre-schedule stop live with its construction settled (completed 2026-09-12; clauses 3 and 4 amended at the seal — see the two amendment notes under Phase 9 below; verification `3b0d248c`; UAT test 2 outstanding, and a pre-season CPU gate in `docs/worker-operations.md` carries clause 3's unproven half)
+- [x] **Phase 9: Analytic Ranking Points & Browser-Side Simulation** - Exact closed-form RP replacing the Monte Carlo draw, a published RP accuracy scorecard, live-Worker RP, and the pre-schedule stop live with its construction settled (completed 2026-09-12; clauses 3 and 4 amended at the seal — see the two amendment notes under Phase 9 below; verification `3b0d248c`; UAT complete — test 1 waived against a standing gate, test 2 passed on desktop and phone; a pre-season CPU gate in `docs/worker-operations.md` carries clause 3's unproven half and forbids opening any live window until it closes)
 
 ## Phase Details
 
