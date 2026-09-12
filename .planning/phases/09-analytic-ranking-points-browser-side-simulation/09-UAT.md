@@ -1,5 +1,5 @@
 ---
-status: pending
+status: complete
 phase: 09-analytic-ranking-points-browser-side-simulation
 source: [09-VERIFICATION.md]
 started: 2026-09-12
@@ -8,7 +8,7 @@ updated: 2026-09-12
 
 ## Current Test
 
-Test 2 — one human looking at `/methodology/compare`. Test 1 is waived by decision, below.
+[testing complete]
 
 ## Tests
 
@@ -20,11 +20,13 @@ result: **WAIVED 2026-09-12 by Jacob.** A phase may not be gated on the FRC cale
 ### 2. The RP calibration scorecard, on real glass — /methodology/compare, desktop and phone, ~2 minutes
 expected: The RP calibration section renders; predicted-vs-observed reads as an honest self-assessment rather than a scoreboard; no axis clips; no band renders inverted; a difference too small to call reads as a tie rather than a defeat; labels survive ~400px width; contrast holds in both themes. Live 2019 `completeRocket` should read predicted 0.000 against observed 0.047 — if that embarrassing pair is visible and legible, the surface is doing its job.
 why_human: This shipped in plan 09-01 with no browser available, so F1's closure currently rests on the artifact carrying the right numbers, not on the page showing them. Those are different claims. The e2e suite cannot substitute: 19 of 20 spec files navigate with `?algorithm=vpr`, which `searchParams.ts:66` silently catches to the default — so they assert against a different algorithm than they name, and `compare-narrow-legibility.spec.ts:137` asserts a `compare-calibration-card-vpr` that cannot exist. The harness is dead, not merely stale (reviving it is its own board item).
-result: (pending — Jacob)
+result: **passed — Jacob, 2026-09-12, desktop and phone.** Reported as perfect on both. F1's closure now rests on the rendering as well as the artifact, which is what it claimed all along.
 
 ## Notes
 
-Phase 9 is sealed with test 2 outstanding. That is deliberate and it is recorded here rather than
-in `STATE.md`, because a STATE seal line freezes at seal time while this frontmatter stays true.
-Test 2 gates nothing else; it is a confirmation that a shipped surface reads correctly, and holding
-a phase seal on two minutes of someone's attention is the drag pattern this seal exists to stop.
+Phase 9 sealed 2026-09-12 with test 2 outstanding, deliberately — holding a seal on two minutes of
+someone's attention is the drag pattern the seal existed to stop. Test 2 cleared the same day.
+
+Both entries are now resolved: test 1 waived with a standing pre-season gate as its condition, test
+2 passed on real glass. Recorded here rather than in `STATE.md`, because a STATE seal line freezes
+at seal time while this frontmatter stays true.
