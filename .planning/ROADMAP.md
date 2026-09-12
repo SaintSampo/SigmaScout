@@ -24,7 +24,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 06.1: Match and event data enrichment** (INSERTED) - Per-bonus RP, per-event rank, and per-event rarity tiers backed by real published data (completed 2026-08-26)
 - [x] **Phase 7: Event Pages** - Insights, Breakdown, Quals, Alliances, and Elims tabs (completed 2026-08-30)
 - [x] **Phase 8: Simulation & Compare** - 1000-run rank simulation and the published per-algorithm accuracy table (completed 2026-08-31)
-- [ ] **Phase 9: Analytic Ranking Points & Browser-Side Simulation** - Exact closed-form RP replacing the Monte Carlo draw, a published RP accuracy scorecard, live-Worker RP, and pre-schedule simulation priced in the browser
+- [ ] **Phase 9: Analytic Ranking Points & Browser-Side Simulation** - Exact closed-form RP replacing the Monte Carlo draw, a published RP accuracy scorecard, live-Worker RP, and the pre-schedule stop live with its construction settled (clause 4 amended 2026-09-12; verification `3b0d248c` — clause 3 still open on production evidence)
 
 ## Phase Details
 
@@ -589,7 +589,30 @@ All 38 v1 requirements map to exactly one phase. No orphans, no duplicates.
 
 ### Phase 9: Analytic Ranking Points & Browser-Side Simulation
 
-**Goal:** Ranking points are predicted by an exact closed form instead of a 4000-draw Monte Carlo, their accuracy is published rather than merely computed, the live Worker stops stripping them, and the pre-schedule simulation is priced in the visitor's browser.
+**Goal:** Ranking points are predicted by an exact closed form instead of a 4000-draw Monte Carlo, their accuracy is published rather than merely computed, the live Worker stops stripping them, and the pre-schedule simulation stop is live with its construction settled by measurement.
+
+> **Clause 4 AMENDED 2026-09-12, after verification (`3b0d248c`), by Jacob's delegation.** The
+> original fourth clause read verbatim: *"and the pre-schedule simulation is priced in the visitor's
+> browser."* It is preserved here rather than overwritten, because amending a goal to match what was
+> built is how a roadmap stops meaning anything.
+>
+> **Why it was not achievable in this phase.** `docs/simulation-architecture.md` §5 gave three routes
+> to browser-side pricing. Route A — ship the priced schedules and let the browser draw — is
+> **foreclosed by licence**: `data/schedule-templates/LICENSE` (Team 254, 2014) permits redistribution
+> only for contributing upstream, and forbids redistributing modifications without permission. That
+> was discovered on 2026-09-12, after the phase executed; no plan in this phase could have taken
+> route A. Routes B and C both depended on the construction ladder resolving, and it resolved the
+> slow way: rung 1 no-shipped on evidence (`260912-0v3`, 41.4% against a 98.4% binding floor) and
+> rung 2 landed as a proven-but-unwired generator.
+>
+> **What the amended clause claims, and it is real.** The stop went from **dark to serving**: every
+> sidecar in R2 belonged to retired `vpr` and generation was off behind a committed
+> `--presim-from-season 9999` sentinel; both were fixed, and all three published algorithms now serve
+> content-verified sidecars. The RP module became browser-safe (D-08), which is the precondition
+> route B or C needs. And the construction question is **settled by measurement** rather than open.
+>
+> **The dropped ambition is tracked, not vanished:**
+> `.planning/todos/pending/price-the-preschedule-simulation-in-the-browser.md`.
 
 **Requirements**: Post-v1.0. No v1 requirement IDs (all 38 map to Phases 1-8). Scope derives from two read-only audits: `.planning/todos/pending/ranking-points-audit.md` (13 findings, F1-F13) and `docs/simulation-architecture.md`.
 

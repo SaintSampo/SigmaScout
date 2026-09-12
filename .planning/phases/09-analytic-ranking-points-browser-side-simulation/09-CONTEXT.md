@@ -157,6 +157,27 @@ levels would need Genz quadrature); 2019 `completeRocket`'s always-false branch;
   if rung 1 fails and rung 2 is chosen. If rung 1 holds, the question evaporates because nothing
   template-derived is published. The licence judgement is the developer's, not an agent's.
 
+  > **ANSWERED 2026-09-12 by Jacob: NO — a generated schedule does not violate the licence.**
+  > Rung 1 failed, so this became live exactly as this decision anticipated, and it was put to Jacob
+  > directly.
+  >
+  > **The licence, read for the first time on this project** (`data/schedule-templates/LICENSE`,
+  > Team 254, 2014): use is unrestricted for testing, scrimmages, off-season events and evaluation;
+  > modifications **may not be redistributed** without Team 254's permission; redistribution is
+  > permitted only for contributing back upstream.
+  >
+  > **Two distinct questions, and they resolve differently.**
+  > 1. *May a generated structure be published?* **Yes.** Nothing of theirs is copied or
+  >    redistributed — the generator emits its own pairings from stated combinatorial objectives.
+  >    The convention it follows (`ceil(teams * matchesPerTeam / 6)`, surrogates on leftover slots)
+  >    is FRC game-manual behaviour, not Team 254's expression. **`drop-licensed-schedule-templates`
+  >    is unblocked.**
+  > 2. *May the licensed grids themselves be shipped to browsers?* **No.** Nothing in the licence
+  >    permits general redistribution. This retires `docs/simulation-architecture.md` §5's route A
+  >    permanently — it was never available, which no plan in this phase knew.
+  >
+  > Recorded as Jacob's judgement on the licence text. No agent made this call.
+
 ### Housekeeping (from the roadmap, unchanged by discussion)
 - **D-20:** Presim sidecars must be re-keyed/regenerated — every one in R2 belongs to retired `vpr`
   — and presim generation re-enabled (currently off via `--presim-from-season 9999`), or the
