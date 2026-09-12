@@ -418,6 +418,42 @@ Named suspect for rung 2, measured not assumed: assumption A-FA1's residual is e
 (where it does worst). The additive constant cancels as A-FA1 says; its standard deviation does not.
 
 
+### Production window — EXECUTED 2026-09-11, generation `b23d214d-9af0-48f5-a907-3903c2d06f44`
+
+**The hold below was lifted by the developer once the EPA workstream settled** (its gap was priced
+at −0.26 pp and its backlog closed negative). The window ran end to end.
+
+| Step | Result |
+|---|---|
+| Publish (~41 min) | 108,820 objects, **641 presim sidecars** (first run with presim on since the `9999` sentinel), all five page kinds under ceiling, no ceiling moved |
+| Manifest | opr 4.0.0 / **epa 10.0.0** / bpr 3.0.0, read-back verified |
+| Content verification | `rpCalibration` live in compare slices; a 2026 event row carries all five RP fields plus top-level `rpOutcomeRp` — **09-07's window is closed** |
+| `verify:subset` | 50 entries, **0 failing**, uniformity 1 |
+| Budget | transcribed by hand; `payloadBudget.test.ts` green |
+| D1 seed → Worker deploy | 66,284 rows; Worker `404d2fec`; **four shape bumps closed at once (11→15)** |
+| `vpr` sidecar delete | 318 keys, post-census **0 of 60**, orphan 404s and replacement 200s |
+| Methodology page | republished warm; 2022 −2.39 pp → **−0.18 pp** |
+| D-12 | **green** — level-1 output byte-identical across the whole phase |
+
+**Two things deliberately NOT done, both recorded rather than silently skipped:**
+
+1. **`epa@7.0.0+baseline` is orphaned and was not deleted.** The 2026-09-11 approval covered
+   Phase 9's presim sidecars; retiring an EPA generation was a separate question and was never
+   authorized. ~36,000 objects remain, costing only storage against the 10 GB free tier. R2 now
+   holds exactly one orphaned generation.
+2. **The Worker's shape-15 path is not yet exercised.** `live-windows.json` reads `windows: []` —
+   no live events in September — so the tick returns before reading a league row, and `wrangler
+   tail` logged nothing across several cron ticks. A `LeagueRowShapeVersionError` could not have
+   surfaced either way. This and the sustained `cpuTime` budget remain `09-VALIDATION.md`'s
+   manual-only verification and **close during a real event, not here.**
+
+The Sigma-seed fix is proven in production data, not only in tests: D1 read-back shows `bpr`
+carrying `sigmascoutSigma` ×3,751 and `sigmascoutSigmaPopulation` ×1, with `epa`/`opr` carrying
+neither (correctly absent, not empty — only `bpr` is a `SIGMA_SCORE_ALGORITHM_IDS` member) and the
+retired VPR `rpBeliefs` key on none.
+
+---
+
 ### Production window — HELD, 2026-09-11
 
 **Decided by Jacob after the 09-10 dry run.** All ten plans' code is complete, committed and green.
