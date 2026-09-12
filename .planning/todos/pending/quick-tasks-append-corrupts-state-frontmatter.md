@@ -27,6 +27,20 @@ A later append, immediately after `4bdad2fa`, reset `current_phase` from the cor
 enough to make it worth re-checking. **Nothing in the append output says the frontmatter was
 touched.**
 
+## Incident 3 — it ate the opening `---` (destructive again, same day)
+
+A third append, hours later, **overwrote line 1** — the frontmatter's opening delimiter — with its
+own quick-task row. The file was left with one `---` instead of two, so the entire frontmatter block
+was no longer frontmatter at all: it parsed as body text, and row 136 sat orphaned above it.
+
+That is incident 1's failure mode with a different landing spot: the helper writes its row at the
+top of the file instead of into the table, and whatever was on line 1 loses.
+
+**Three occurrences in one day, two of them destructive.** The pattern is stable enough to name:
+*the append writes to the head of the file, not the tail of the table, whenever something about its
+anchor lookup fails.* Finding why that lookup fails is the fix; the frontmatter rewrite is a
+second, separate bug on top of it.
+
 ## Why this matters more than it looks
 
 `STATE.md` is one of the two files the project has designated as its index — the 2026-09-12 triage
