@@ -94,11 +94,16 @@ orphans under other `vpr` versions (9.0.0+rolling-2026-09c, 8.0.0+rolling-2026-0
 7.0.0+rolling-2026-09, 10.0.0+baseline) on two events — **all 404**, so one version covered it and
 the runbook's multi-version concern did not apply.
 
-**`epa@7.0.0+baseline` was NOT deleted and is orphaned by design.** The 2026-09-11 approval covered
-presim sidecars; retiring an EPA generation was a separate question and was not authorized. Roughly
-36,000 objects remain at that version, costing only storage against the 10 GB free tier. **R2 now
-holds exactly one orphaned generation** — the first time since 2026-09-10 that it holds any. The
-retirement pass is two `--supersedes-live` invocations whenever it is authorized.
+**`epa@7.0.0+baseline` RETIRED — authorized separately by the developer later the same session.**
+The republish had orphaned it (the window shipped `epa@10.0.0+baseline`), and the 2026-09-11
+presim approval did not cover an EPA generation, so it was left in place pending its own decision.
+Once authorized: two `--supersedes-live` passes, **36,832 keys enumerated and deleted** (2016-2020:
+17,560; 2022-2026: 19,272), both exit 0, **post-census 0 present / 60 absent on BOTH ranges**. Live
+spot check by content on one team key: `epa@7.0.0` **404s** and `epa@10.0.0` **200s**. Key counts
+match the 2026-09-10 `epa@6.0.0` retirement exactly (17,560 / 19,272 / 36,832), which is the
+expected shape for one EPA generation. `--supersedes-live` fetches the live manifest at run time and
+fails closed, so it could not have run before the manifest stopped naming 7.0.0. **R2 again holds no
+orphaned generations.**
 
 **Methodology page republished in the same window** (`v1/methodology/epa-vs-statbotics.json`, 2,317
 bytes, `epaVersion 10.0.0+baseline`, 5 agreement + 5 head-to-head rows). This closes the todo
