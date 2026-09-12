@@ -71,3 +71,31 @@ project's stated top UX priority — page load speed — this is the Simulation 
 payload that is 96.8% waste on a real event.
 
 This todo should still land first or alongside `preschedule-schedule-count-and-acceptance-bar`.
+
+## Resolved (2026-09-12, quick task 260912-2ur)
+
+Landed via `260912-2ur`. Commits: `5cd916e8` (the published wire schema), `43e79b30` (the client
+reads `scheduleCount`), `efb0c24f` (the publisher stops writing the block).
+
+**One deviation from this todo's "real work" list, deliberate:** the schema was **split**, not
+stripped. This todo's list said "Drop it from `PreScheduleArtifactSchema`, INCLUDING its two
+`schedules` refinements at `packages/harness/pageArtifacts.ts:2010` and `:2015`." The plan that
+executed this todo rejected that after reading the call sites: `PreScheduleArtifact` is that
+schema's *inferred* type, so dropping `schedules` (or making it optional) there would have pushed
+possibly-`undefined` reads into `scripts/measureFieldAveragedRanks.ts` and
+`scripts/measureGeneratedSchedules.ts`, which read it directly as their rung-1/rung-2 acceptance
+harness and were explicitly out of scope for this task.
+
+What actually shipped: `PreScheduleArtifactSchema` (the builder's in-memory shape) is **unchanged**
+— `schedules` stays required, both original refinements intact. A new
+`PublishedPreScheduleArtifactSchema` (the R2 wire shape) carries `scheduleCount` instead, tolerant
+of the legacy shape already on R2 (`scheduleCount ?? schedules.length`) so no flag day is required.
+`publish.ts`'s `buildPreScheduleSidecarForEvent` — the single serialization point — now parses the
+built artifact through the published schema before writing it, which is where the block actually
+stops reaching R2.
+
+The rest of the "real work" list landed as described: the client reads `scheduleCount` off
+`SimulationTab.tsx:408` in place of `preSchedule?.schedules.length`, and the affected tests were
+updated — `publish.ts`/`pageArtifacts.ts` tests as listed; `preSchedule.test.ts` (the builder-level
+one, indexing into `buildPreScheduleArtifact`'s unchanged in-memory return) was correctly left
+untouched, since that return shape did not change.
