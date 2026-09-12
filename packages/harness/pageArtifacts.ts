@@ -1972,16 +1972,17 @@ const PreScheduleMatchSchema = z.object({
 });
 
 /**
- * The pre-schedule rank-simulation sidecar (C-04/C-08/C-09): K synthetic
- * qualification schedules priced by the exact joint-covariance RP model,
- * plus the baked default rank distribution the Simulation tab renders on
- * first paint with zero client compute. The four refinements below are the
- * publish-boundary guarantee that makes `MalformedRankHistogramError` in
- * `apps/web/src/components/event/rankRows.ts` unreachable in front of a
- * visitor — the client deliberately does NOT re-derive these bounds
- * (T-tll-02/T-tll-03).
+ * The preamble every pre-schedule sidecar shares regardless of whether it
+ * carries the priced-schedule block: `eventKey`/`season`/`pricedFrom`/
+ * `matchesPerTeam`/`roster` identify what was priced, and `baked` is the
+ * default rank distribution the Simulation tab renders on first paint with
+ * zero client compute. Split out (260912-2ur) so `PreScheduleArtifactSchema`
+ * (the builder's in-memory shape, `schedules` required) and
+ * `PublishedPreScheduleArtifactSchema` (the R2 wire shape, `schedules`
+ * dropped) share one field list and one set of reader-protecting
+ * invariants instead of two copies that could drift apart.
  */
-export const PreScheduleArtifactSchema = AlgorithmScopedPreambleSchema.extend({
+const PreScheduleArtifactBaseSchema = AlgorithmScopedPreambleSchema.extend({
   eventKey: z.string().min(1),
   season: z.number().int(),
   /** How this sidecar was priced (PD-02): walk-forward pre-event state when the corpus shows the event's schedule has landed, current (season-final) state when it has not. */
@@ -1989,6 +1990,71 @@ export const PreScheduleArtifactSchema = AlgorithmScopedPreambleSchema.extend({
   matchesPerTeam: z.number().int().positive(),
   /** The team keys that define the index space for every `r`/`b` array and every baked histogram below — sorted ascending by the builder, so republishes are byte-stable regardless of corpus row order. */
   roster: z.array(z.string().min(1)).min(1),
+  baked: z.object({
+    /** Total simulated draws across all schedules (`scheduleCount * drawsPerSchedule`) — every histogram below sums to exactly this. */
+    draws: z.number().int().positive(),
+    /** One per-rank draw-count histogram per roster team, in roster order, each of length `roster.length` — index `rank - 1` holds the count of draws finishing at that rank. */
+    histograms: z.array(z.array(z.number().int())).min(1),
+  }),
+});
+
+type PreScheduleBaseShape = { roster: readonly string[]; baked: { draws: number; histograms: readonly number[][] } };
+
+/**
+ * WR-01: a duplicate roster key collapses two entries into one in the
+ * client's roster-keyed `Map`, so `rankHistograms.size` comes out below
+ * `roster.length` and every histogram then fails `rankRows.ts`'s length
+ * check — in front of a reader. Today's writers happen not to emit
+ * duplicates; this refinement is what makes that a guarantee instead of a
+ * coincidence. Shared by both schemas below so neither can relax it alone.
+ */
+function hasNoDuplicateRosterKeys(artifact: PreScheduleBaseShape): boolean {
+  return new Set(artifact.roster).size === artifact.roster.length;
+}
+const DUPLICATE_ROSTER_KEYS_MESSAGE =
+  "`roster` must not contain duplicate team keys — the client indexes baked histograms by team key";
+
+/** Shared invariant: exactly one baked histogram per roster team. */
+function hasOneHistogramPerRosterTeam(artifact: PreScheduleBaseShape): boolean {
+  return artifact.baked.histograms.length === artifact.roster.length;
+}
+const HISTOGRAM_COUNT_MESSAGE =
+  "`baked.histograms` must carry exactly one histogram per roster team (histograms.length === roster.length)";
+
+/**
+ * Shared invariant: every baked histogram has length `roster.length` and
+ * sums exactly to `baked.draws` — the guarantee that makes
+ * `rankRows.ts`'s `MalformedRankHistogramError` unreachable in front of a
+ * visitor.
+ */
+function everyHistogramMatchesLengthAndSum(artifact: PreScheduleBaseShape): boolean {
+  return artifact.baked.histograms.every(
+    (histogram) =>
+      histogram.length === artifact.roster.length &&
+      histogram.reduce((total, count) => total + count, 0) === artifact.baked.draws
+  );
+}
+const HISTOGRAM_LENGTH_AND_SUM_MESSAGE =
+  "every baked histogram must have length roster.length and sum exactly to baked.draws — the guarantee that makes rankRows.ts's MalformedRankHistogramError unreachable";
+
+/**
+ * The pre-schedule rank-simulation sidecar, BUILDER SHAPE (C-04/C-08/C-09):
+ * K synthetic qualification schedules priced by the exact joint-covariance
+ * RP model, plus the baked default rank distribution described on
+ * `PreScheduleArtifactBaseSchema` above. This is `buildPreScheduleArtifact`'s
+ * IN-MEMORY return type — `schedules` stays required here (260912-2ur)
+ * because `scripts/measureFieldAveragedRanks.ts` and
+ * `scripts/measureGeneratedSchedules.ts` read it directly as their
+ * rung-1/rung-2 acceptance harness; making it optional would push
+ * possibly-`undefined` reads into both scripts under `strict`. The bytes
+ * this schema describes are never what reaches R2 — see
+ * `PublishedPreScheduleArtifactSchema` below for that. The five refinements
+ * below are the guarantee that makes `MalformedRankHistogramError` in
+ * `apps/web/src/components/event/rankRows.ts` unreachable in front of a
+ * visitor — the client deliberately does NOT re-derive these bounds
+ * (T-tll-02/T-tll-03).
+ */
+export const PreScheduleArtifactSchema = PreScheduleArtifactBaseSchema.extend({
   schedules: z
     .array(
       z.object({
@@ -1998,12 +2064,6 @@ export const PreScheduleArtifactSchema = AlgorithmScopedPreambleSchema.extend({
       })
     )
     .min(1),
-  baked: z.object({
-    /** Total simulated draws across all schedules (`scheduleCount * drawsPerSchedule`) — every histogram below sums to exactly this. */
-    draws: z.number().int().positive(),
-    /** One per-rank draw-count histogram per roster team, in roster order, each of length `roster.length` — index `rank - 1` holds the count of draws finishing at that rank. */
-    histograms: z.array(z.array(z.number().int())).min(1),
-  }),
 })
   .refine(
     (artifact) =>
@@ -2019,34 +2079,72 @@ export const PreScheduleArtifactSchema = AlgorithmScopedPreambleSchema.extend({
       ),
     { message: "every roster index in every `r`/`b` must lie in [0, roster.length)" }
   )
-  .refine((artifact) => new Set(artifact.roster).size === artifact.roster.length, {
-    // Without this, the "makes MalformedRankHistogramError unreachable"
-    // guarantee below is FALSE rather than merely unenforced: the client
-    // decodes the roster into a Map keyed by team key, so a duplicate
-    // collapses two entries into one, `rankHistograms.size` comes out below
-    // `roster.length`, and every histogram then fails rankRows.ts's
-    // length check — in front of a reader. Today's writers happen not to
-    // emit duplicates; this is what makes that a guarantee instead of a
-    // coincidence.
-    message: "`roster` must not contain duplicate team keys — the client indexes baked histograms by team key",
-  })
-  .refine((artifact) => artifact.baked.histograms.length === artifact.roster.length, {
-    message: "`baked.histograms` must carry exactly one histogram per roster team (histograms.length === roster.length)",
-  })
-  .refine(
-    (artifact) =>
-      artifact.baked.histograms.every(
-        (histogram) =>
-          histogram.length === artifact.roster.length &&
-          histogram.reduce((total, count) => total + count, 0) === artifact.baked.draws
-      ),
-    {
-      message:
-        "every baked histogram must have length roster.length and sum exactly to baked.draws — the guarantee that makes rankRows.ts's MalformedRankHistogramError unreachable",
-    }
-  );
+  .refine(hasNoDuplicateRosterKeys, { message: DUPLICATE_ROSTER_KEYS_MESSAGE })
+  .refine(hasOneHistogramPerRosterTeam, { message: HISTOGRAM_COUNT_MESSAGE })
+  .refine(everyHistogramMatchesLengthAndSum, { message: HISTOGRAM_LENGTH_AND_SUM_MESSAGE });
 
 export type PreScheduleArtifact = z.infer<typeof PreScheduleArtifactSchema>;
+
+/**
+ * The pre-schedule rank-simulation sidecar, PUBLISHED SHAPE (260912-2ur).
+ * This is what `publish.ts` actually writes to R2 and what
+ * `apps/web/src/lib/api/preSchedule.ts` actually parses — the priced
+ * `schedules` block above is a builder-internal, in-memory artifact that
+ * never leaves the pipeline process. Measured on a live object: fetching
+ * `v1/presim/2026mrcmp/bpr@3.0.0+baseline.json` cost 388,484 B, of which
+ * only 12,275 B (3.2%) was ever read — the rest was the priced block. At
+ * 1,000 schedules (the next task's `PRESIM_SCHEDULE_COUNT` raise) that
+ * ratio gets far worse, not better.
+ *
+ * `scheduleCount` replaces the block as the one fact a reader actually
+ * needs (how many schedules were averaged into `baked`). It is declared
+ * optional and `schedules` is kept as an optional, untyped legacy remnant
+ * — not because a freshly-published object should ever omit
+ * `scheduleCount`, but because every presim object on R2 TODAY carries
+ * `schedules` and no `scheduleCount`, and this task runs no publish. A
+ * required `scheduleCount` would fail `parse` on every existing sidecar
+ * the moment this schema shipped, rendering an error to visitors with no
+ * republish having happened yet. The refinement below resolves the count
+ * from whichever source is present (`scheduleCount ?? schedules.length`)
+ * and rejects an object carrying neither, and the `.transform()` then
+ * drops `schedules` from the decoded value entirely — so every consumer
+ * of `PublishedPreScheduleArtifact` sees exactly one shape regardless of
+ * which era wrote the bytes. `schedules` is `z.array(z.unknown())`
+ * (untyped) rather than the strict per-match shape: only its length is
+ * ever read, and its contents were already validated at build time by
+ * `PreScheduleArtifactSchema`'s five refinements — re-validating an array
+ * this transform is about to discard buys nothing.
+ *
+ * The three roster/baked-histogram invariants stay required and unchanged
+ * from the builder schema, because they are what makes `rankRows.ts`'s
+ * `MalformedRankHistogramError` unreachable in front of a reader — that
+ * guarantee has nothing to do with whether the priced block is present.
+ */
+export const PublishedPreScheduleArtifactSchema = PreScheduleArtifactBaseSchema.extend({
+  scheduleCount: z.number().int().positive().optional(),
+  /** Legacy remnant: present (and read only for its length) on any sidecar published before 260912-2ur; absent on anything published after. */
+  schedules: z.array(z.unknown()).optional(),
+})
+  .refine(hasNoDuplicateRosterKeys, { message: DUPLICATE_ROSTER_KEYS_MESSAGE })
+  .refine(hasOneHistogramPerRosterTeam, { message: HISTOGRAM_COUNT_MESSAGE })
+  .refine(everyHistogramMatchesLengthAndSum, { message: HISTOGRAM_LENGTH_AND_SUM_MESSAGE })
+  .refine(
+    (artifact) => {
+      const count = artifact.scheduleCount ?? artifact.schedules?.length;
+      return typeof count === "number" && count > 0;
+    },
+    { message: "a published pre-schedule sidecar must carry either `scheduleCount` or a non-empty legacy `schedules` block" }
+  )
+  .transform(({ schedules, scheduleCount, ...artifact }) => ({
+    ...artifact,
+    // Guaranteed to resolve to a positive number by the refinement
+    // immediately above (mirrors `decodeTeamsTableRow`'s `metricKeys!`
+    // precedent): if `scheduleCount` is undefined here, that refinement
+    // already required `schedules` to be defined with a positive length.
+    scheduleCount: scheduleCount ?? schedules!.length,
+  }));
+
+export type PublishedPreScheduleArtifact = z.infer<typeof PublishedPreScheduleArtifactSchema>;
 
 /**
  * THE FIELD-AVERAGED pre-schedule sidecar (plan 09-09 rung 1; D-16, D-17).

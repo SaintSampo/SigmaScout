@@ -27,6 +27,7 @@ import {
   PAGE_ARTIFACT_SCHEMA_VERSION,
   preScheduleKey,
   PreScheduleArtifactSchema,
+  PublishedPreScheduleArtifactSchema,
   FieldAveragedPreScheduleArtifactSchema,
   TeamsArtifactSchema,
   TeamsArtifactWireSchema,
@@ -1649,6 +1650,57 @@ describe("PreScheduleArtifactSchema (quick task 260905-tll Task 1)", () => {
     const fixture = validPreScheduleFixture();
     fixture.baked.histograms[2] = [499, 100, 100, 100, 100, 100]; // sums to 999, draws is 1000
     expect(() => PreScheduleArtifactSchema.parse(fixture)).toThrow(/sum exactly to baked\.draws/);
+  });
+});
+
+describe("PublishedPreScheduleArtifactSchema (260912-2ur — drop the priced block, publish scheduleCount)", () => {
+  /** The new (post-260912-2ur) published shape: no `schedules`, a `scheduleCount` scalar instead. */
+  function publishedPreScheduleFixture() {
+    const { schedules: _schedules, ...rest } = validPreScheduleFixture();
+    return { ...rest, scheduleCount: 20 };
+  }
+
+  it("parses the new shape (no `schedules`) and resolves scheduleCount from the field", () => {
+    const parsed = PublishedPreScheduleArtifactSchema.parse(publishedPreScheduleFixture());
+    expect(parsed.scheduleCount).toBe(20);
+  });
+
+  it("parses the legacy shape (`schedules` present, no `scheduleCount`) and resolves scheduleCount from schedules.length", () => {
+    const parsed = PublishedPreScheduleArtifactSchema.parse(validPreScheduleFixture());
+    expect(parsed.scheduleCount).toBe(1);
+  });
+
+  it("the proof obligation: serializing the parsed legacy fixture carries no own `schedules` property and does carry `scheduleCount`", () => {
+    const parsed = PublishedPreScheduleArtifactSchema.parse(validPreScheduleFixture());
+    const roundTripped = JSON.parse(JSON.stringify(parsed)) as Record<string, unknown>;
+    expect(Object.hasOwn(roundTripped, "schedules")).toBe(false);
+    expect(Object.hasOwn(roundTripped, "scheduleCount")).toBe(true);
+    expect(roundTripped.scheduleCount).toBe(1);
+  });
+
+  it("rejects an object carrying neither `scheduleCount` nor `schedules`", () => {
+    const { schedules: _schedules, ...rest } = validPreScheduleFixture();
+    expect(() => PublishedPreScheduleArtifactSchema.parse(rest)).toThrow(
+      /must carry either `scheduleCount` or a non-empty legacy `schedules` block/
+    );
+  });
+
+  it("rejects a roster carrying a duplicate team key (shared invariant, published schema side)", () => {
+    const fixture = publishedPreScheduleFixture();
+    fixture.roster[1] = fixture.roster[0]!;
+    expect(() => PublishedPreScheduleArtifactSchema.parse(fixture)).toThrow(/duplicate team keys/);
+  });
+
+  it("rejects a histogram count that disagrees with the roster length (shared invariant, published schema side)", () => {
+    const fixture = publishedPreScheduleFixture();
+    fixture.baked.histograms = fixture.baked.histograms.slice(0, 5);
+    expect(() => PublishedPreScheduleArtifactSchema.parse(fixture)).toThrow(/one histogram per roster team/);
+  });
+
+  it("rejects a histogram that sums to one less than draws (shared invariant, published schema side)", () => {
+    const fixture = publishedPreScheduleFixture();
+    fixture.baked.histograms[2] = [499, 100, 100, 100, 100, 100]; // sums to 999, draws is 1000
+    expect(() => PublishedPreScheduleArtifactSchema.parse(fixture)).toThrow(/sum exactly to baked\.draws/);
   });
 });
 
