@@ -135,7 +135,7 @@ export interface Prediction {
    * TREAT THIS AS A DISPLAY QUANTITY, NOT AS A WIN-PROBABILITY DENOMINATOR.
    * This comment used to call it "the win-probability denominator", and for
    * Sigma1 it still coincides with one. It does NOT for `spr` (wire id
-   * renamed from `bpr` by quick task 260912-ivg) as of
+   * renamed by quick task 260912-ivg from the id BPR carried before it) as of
    * `2.0.0+baseline`: BPR's filter states about twice the score variance it
    * realizes (quick task 260910-25c measured sd(z) = 0.7062 over the design
    * era), so BPR calibrates what it EMITS while computing `pRedWin` from the

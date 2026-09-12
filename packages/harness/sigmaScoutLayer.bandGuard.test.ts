@@ -50,7 +50,7 @@ describe("#rpFieldsFor's alliance band guard (F8/F9 — out of scope, and delibe
   it("produces NO RP fields when the alliances have no band yet — a cold roster gets no pmf rather than a guessed one", () => {
     // A layer that has folded nothing has no consistency figure for any team,
     // so both alliance bands are undefined.
-    const layer = new SigmaScoutLayer(RP_RULE_MODULES[2026], "bpr");
+    const layer = new SigmaScoutLayer(RP_RULE_MODULES[2026], "spr");
     const enriched = layer.enrichUpcoming(upcomingMatch(), { winner: "red", redScore: 100, blueScore: 90, pRedWin: 0.6 });
 
     expect(enriched.prediction.redRpPmf).toBeUndefined();
@@ -67,7 +67,7 @@ describe("#rpFieldsFor's alliance band guard (F8/F9 — out of scope, and delibe
   });
 
   it("the prediction is otherwise passed through untouched — the guard withholds RP, it does not blank the row", () => {
-    const layer = new SigmaScoutLayer(RP_RULE_MODULES[2026], "bpr");
+    const layer = new SigmaScoutLayer(RP_RULE_MODULES[2026], "spr");
     const enriched = layer.enrichUpcoming(upcomingMatch(), { winner: "red", redScore: 100, blueScore: 90, pRedWin: 0.6 });
 
     expect(enriched.prediction.redScore).toBe(100);

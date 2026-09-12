@@ -222,9 +222,9 @@ async function writeTickMeta(db: D1Database, meta: TickMeta, nowIso: string): Pr
  * plan 07-16/07-18 used for the earlier retired-algorithm rename this task
  * reopens the same shape for.
  */
-// 2026-09-09: `vpr` -> `bpr` on VPR's retirement, renamed again by quick task
-// 260912-ivg Stage 1 (`bpr` -> `spr`, the write-tier identifier). A fallback
-// naming a retired id would make an unset LIVE_ALGORITHM_IDS throw
+// 2026-09-09: `vpr` -> the id BPR joined the site under, on VPR's retirement,
+// renamed again by quick task 260912-ivg Stage 1 to the write-tier identifier
+// `spr`. A fallback naming a retired id would make an unset LIVE_ALGORITHM_IDS throw
 // UnknownLiveAlgorithmIdError on every tick — the misconfiguration this
 // default exists to avoid.
 export const DEFAULT_LIVE_ALGORITHM_IDS: readonly string[] = ["spr"];
@@ -274,8 +274,9 @@ export class EmptyLiveAlgorithmTierError extends Error {
  *  - An id not in `PIPELINE_ALGORITHM_IDS` (260912-ivg Stage 1: the write
  *    tier) — throws `UnknownLiveAlgorithmIdError`. This is what proves
  *    validation moved to the write tier rather than widening to accept
- *    both: the retiring `bpr` id is correctly REJECTED here, even though it
- *    is still a member of `PUBLISHED_ALGORITHM_IDS`.
+ *    both: the retiring READ-tier id (BPR's wire id before this task) is
+ *    correctly REJECTED here, even though it is still a member of
+ *    `PUBLISHED_ALGORITHM_IDS`.
  * Called at the TOP of `runTick`, before the live-windows manifest read, so
  * a misconfigured deploy surfaces on the very next tick — one minute later,
  * in the tail an operator is already watching — rather than lying dormant

@@ -334,7 +334,7 @@ describe("buildFieldAveragedPreScheduleArtifact (plan 09-09 Task 2)", () => {
       eventKey: "2023gaalb",
       season: 2023,
       eventType: FA_REGIONAL_EVENT_TYPE,
-      algorithmId: "bpr",
+      algorithmId: "spr",
       algorithmVersion: "3.0.0+baseline",
       matchesPerTeam: 12,
       pricedFrom: "pre-event-walk-forward",
@@ -361,7 +361,7 @@ describe("buildFieldAveragedPreScheduleArtifact (plan 09-09 Task 2)", () => {
     expect(Number.isInteger(artifact.seed)).toBe(true);
     expect(artifact.generation).toBe("gen-test");
     expect(artifact.computedAt).toBe("2026-09-11T00:00:00.000Z");
-    expect(artifact.algorithmId).toBe("bpr");
+    expect(artifact.algorithmId).toBe("spr");
     expect(artifact.algorithmVersion).toBe("3.0.0+baseline");
     expect(artifact.eventKey).toBe("2023gaalb");
     expect(artifact.season).toBe(2023);

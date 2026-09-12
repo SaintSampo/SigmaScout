@@ -83,7 +83,8 @@ describe("selectedOnSeasonsFor", () => {
   // separated: publishing must NOT resurrect a retired id from that file.
   // 260912-ivg Stage 1: resolvePublishAlgorithms(undefined) resolves the
   // WRITE tier (PIPELINE_ALGORITHM_IDS), not PUBLISHED_ALGORITHM_IDS (the
-  // browser-READ tier, still `bpr`) — the split's whole point.
+  // browser-READ tier, still naming the pre-rename premier id) — the
+  // split's whole point.
   it("no longer resolves vpr for publishing — the retired id must not come back through the promoted-version file", () => {
     const resolved = resolvePublishAlgorithms(undefined);
     expect(resolved.some((m) => m.id === "vpr")).toBe(false);

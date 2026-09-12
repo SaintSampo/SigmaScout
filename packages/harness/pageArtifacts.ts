@@ -2091,7 +2091,7 @@ export type PreScheduleArtifact = z.infer<typeof PreScheduleArtifactSchema>;
  * `apps/web/src/lib/api/preSchedule.ts` actually parses — the priced
  * `schedules` block above is a builder-internal, in-memory artifact that
  * never leaves the pipeline process. Measured on a live object: fetching
- * `v1/presim/2026mrcmp/bpr@3.0.0+baseline.json` cost 388,484 B, of which
+ * `v1/presim/2026mrcmp/bpr@3.0.0+baseline.json` [pre-rename] cost 388,484 B, of which
  * only 12,275 B (3.2%) was ever read — the rest was the priced block. At
  * 1,000 schedules (the next task's `PRESIM_SCHEDULE_COUNT` raise) that
  * ratio gets far worse, not better.

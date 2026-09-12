@@ -165,7 +165,7 @@ function paramsWith(structure: PreScheduleBuildParams["scheduleStructure"]): Pre
     season: 2026,
     eventType: 0,
     week: null,
-    algorithmId: "bpr",
+    algorithmId: "spr",
     algorithmVersion: "3.0.0+baseline",
     roster: ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6", "frc7", "frc8", "frc9", "frc10", "frc11", "frc12"],
     matchesPerTeam: 6,

@@ -1725,7 +1725,7 @@ describe("FieldAveragedPreScheduleArtifactSchema (plan 09-09 Task 2; D-16, D-17)
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-test",
       computedAt: "2026-09-11T00:00:00.000Z",
-      algorithmId: "bpr",
+      algorithmId: "spr",
       algorithmVersion: "3.0.0+baseline",
       eventKey: "2023gaalb",
       season: 2023,
@@ -1788,9 +1788,9 @@ describe("FieldAveragedPreScheduleArtifactSchema (plan 09-09 Task 2; D-16, D-17)
     expect(() => FieldAveragedPreScheduleArtifactSchema.parse(fixture)).toThrow();
   });
 
-  it("preScheduleKey is UNCHANGED by this plan — an equality pin on the exact literal key string for a bpr artifact (Delta A is plan 09-10's, not this plan's)", () => {
-    expect(preScheduleKey({ eventKey: "2023gaalb", algorithmId: "bpr", version: "3.0.0+baseline" })).toBe(
-      "v1/presim/2023gaalb/bpr@3.0.0+baseline.json"
+  it("preScheduleKey is UNCHANGED by this plan — an equality pin on the exact literal key string for a spr artifact (Delta A is plan 09-10's, not this plan's)", () => {
+    expect(preScheduleKey({ eventKey: "2023gaalb", algorithmId: "spr", version: "3.0.0+baseline" })).toBe(
+      "v1/presim/2023gaalb/spr@3.0.0+baseline.json"
     );
   });
 });

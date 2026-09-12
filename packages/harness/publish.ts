@@ -188,7 +188,7 @@ const PRESIM_SCHEDULE_COUNT = 1000;
  */
 const PRESIM_DRAWS_PER_SCHEDULE = 50;
 
-/** D-03 (rename D-04/D-05, plan 07-16; re-keyed by 260912-ivg Stage 1): the base (untuned/unpromoted) modules for the WRITE-tier ids (`PIPELINE_ALGORITHM_IDS`). `spr` (the module `packages/core/algorithms/spr.ts` exports, wire id renamed from `bpr` and the file itself moved from `.../bpr.ts` by the same task) joined 2026-09-08 as `bpr` and, like `opr`/`epa`, is never overridden by `applyPromotedOverrides` because it carries no tuned parameter file. `resolvePublishAlgorithms` swaps `vpr` for the committed promoted version via `applyPromotedOverrides`, the same rule `manifests.ts`'s `buildAlgorithmsManifest` and `cli.ts`'s harness runs use — never a second, independently-derived resolution (T-04-16). Its own object key and `vpr.id` must agree — they do, because both derive from the same renamed registry export (T-07-16-01). No `bpr` key remains here: the retiring id is a READ-tier-only concern now, validated instead by `PUBLISHED_ALGORITHM_IDS` at the manifest/Worker boundary. */
+/** D-03 (rename D-04/D-05, plan 07-16; re-keyed by 260912-ivg Stage 1): the base (untuned/unpromoted) modules for the WRITE-tier ids (`PIPELINE_ALGORITHM_IDS`). `spr` (the module `packages/core/algorithms/spr.ts` exports — wire id and file both renamed from their BPR-era names by quick task 260912-ivg) joined the site on 2026-09-08 and, like `opr`/`epa`, is never overridden by `applyPromotedOverrides` because it carries no tuned parameter file. `resolvePublishAlgorithms` swaps `vpr` for the committed promoted version via `applyPromotedOverrides`, the same rule `manifests.ts`'s `buildAlgorithmsManifest` and `cli.ts`'s harness runs use — never a second, independently-derived resolution (T-04-16). Its own object key and `vpr.id` must agree — they do, because both derive from the same renamed registry export (T-07-16-01). No pre-rename key remains here: the retiring id is a READ-tier-only concern now, validated instead by `PUBLISHED_ALGORITHM_IDS` at the manifest/Worker boundary. */
 const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa, vpr, spr };
 
 // ---------------------------------------------------------------------------
@@ -1961,7 +1961,7 @@ interface PreScheduleSidecarArgs {
  * (rather than hand-building `{ ...artifact, scheduleCount: ... }`) means the
  * count can never disagree with what was actually built, and a future raise
  * of `PRESIM_SCHEDULE_COUNT` needs no edit in this function at all. Measured
- * basis: a live `v1/presim/2026mrcmp/bpr@3.0.0+baseline.json` object cost
+ * basis: a live `v1/presim/2026mrcmp/bpr@3.0.0+baseline.json` [pre-rename] object cost
  * 388,484 B to fetch, of which only 12,275 B (3.2%) was ever read by a
  * client — the rest was the priced block, discarded on every load. At 1,000
  * schedules that ratio only gets worse, which is exactly why this drops

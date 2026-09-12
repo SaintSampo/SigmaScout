@@ -176,9 +176,9 @@ JSON, fields counted — not a status-only check.
 |---|---:|---:|---:|---:|---:|
 | `v1/presim/2026mrcmp/opr@4.0.0+baseline.json` | 393,507 | 66 | 20 | 1000 | 66 |
 | `v1/presim/2026mrcmp/epa@10.0.0+baseline.json` | 392,566 | 66 | 20 | 1000 | 66 |
-| `v1/presim/2026mrcmp/bpr@3.0.0+baseline.json` | 388,484 | 66 | 20 | 1000 | 66 |
+| `v1/presim/2026mrcmp/bpr@3.0.0+baseline.json` [pre-rename] | 388,484 | 66 | 20 | 1000 | 66 |
 
-Component split measured live on `bpr@3.0.0+baseline`, same method: 388,484 B fetched against
+Component split measured live on `bpr@3.0.0+baseline` [pre-rename], same method: 388,484 B fetched against
 12,275 B actually read by the client (`roster` + `baked`), leaving `388,484 - 12,275` = 376,209 B
 downloaded and discarded — 96.8% of the object.
 
@@ -196,7 +196,7 @@ needs to know which kind of check this was.
 |---|---:|---:|---:|---:|---:|
 | `v1/presim/2026mrcmp/opr@4.0.0+baseline.json` | 393,507 | 66 | 20 | 1000 | 66 |
 | `v1/presim/2026mrcmp/epa@10.0.0+baseline.json` | 392,566 | 66 | 20 | 1000 | 66 |
-| `v1/presim/2026mrcmp/bpr@3.0.0+baseline.json` | 388,484 | 66 | 20 | 1000 | 66 |
+| `v1/presim/2026mrcmp/bpr@3.0.0+baseline.json` [pre-rename] | 388,484 | 66 | 20 | 1000 | 66 |
 
 All three carry `pricedFrom` = `pre-event-walk-forward` and `computedAt` =
 `2026-09-12T01:06:14.953Z`. The live algorithms manifest resolves `opr 4.0.0+baseline`,

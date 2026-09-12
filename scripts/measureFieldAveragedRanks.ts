@@ -205,8 +205,8 @@ export function resolveScheduleSplit(draws: number, scheduleCount?: number): Sch
   return { scheduleCount: resolved, drawsPerSchedule: Math.max(1, Math.round(draws / resolved)) };
 }
 
-/** BPR is the premier published algorithm and the only one carrying a Sigma Score consistency figure for every team it has seen. */
-export const DEFAULT_ALGORITHM_ID = "bpr";
+/** SPR (wire id renamed by quick task 260912-ivg from the id it carried before) is the premier published algorithm and the only one carrying a Sigma Score consistency figure for every team it has seen. */
+export const DEFAULT_ALGORITHM_ID = "spr";
 
 export const FIELD_AVERAGED_DOC_PATH = join("docs", "models", "field-averaged-presim.md");
 

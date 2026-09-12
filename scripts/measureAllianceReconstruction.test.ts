@@ -200,15 +200,15 @@ function obs(partial: Partial<Observation> & Pick<Observation, "matchKey" | "alg
 
 describe("errorsOf / statsFor", () => {
   it("signs the error as predicted - actual, so POSITIVE means the model OVER-predicted", () => {
-    const rows = [obs({ matchKey: "m1", algorithmId: "bpr", predicted: 150, actualCorrected: 100, actualRaw: 120 })];
+    const rows = [obs({ matchKey: "m1", algorithmId: "spr", predicted: 150, actualCorrected: 100, actualRaw: 120 })];
     expect(errorsOf(rows, "corrected")).toEqual([50]);
     expect(errorsOf(rows, "raw")).toEqual([30]);
   });
 
   it("reports mean predicted and mean actual beside the errors, per target", () => {
     const rows = [
-      obs({ matchKey: "m1", algorithmId: "bpr", predicted: 150, actualCorrected: 100, actualRaw: 120 }),
-      obs({ matchKey: "m2", algorithmId: "bpr", predicted: 50, actualCorrected: 100, actualRaw: 120 }),
+      obs({ matchKey: "m1", algorithmId: "spr", predicted: 150, actualCorrected: 100, actualRaw: 120 }),
+      obs({ matchKey: "m2", algorithmId: "spr", predicted: 50, actualCorrected: 100, actualRaw: 120 }),
     ];
     const s = statsFor(rows, "corrected");
     expect(s.n).toBe(2);
@@ -221,7 +221,7 @@ describe("errorsOf / statsFor", () => {
 
 describe("pairedAbsErrorDiffs", () => {
   it("pairs on (matchKey, side) and differences the ABSOLUTE errors", () => {
-    const a = [obs({ matchKey: "m1", side: "red", algorithmId: "bpr", predicted: 130, actualCorrected: 100 })];
+    const a = [obs({ matchKey: "m1", side: "red", algorithmId: "spr", predicted: 130, actualCorrected: 100 })];
     const b = [obs({ matchKey: "m1", side: "red", algorithmId: "epa", predicted: 90, actualCorrected: 100 })];
     const units = pairedAbsErrorDiffs(a, b, "corrected");
     expect(units).toHaveLength(1);
@@ -230,7 +230,7 @@ describe("pairedAbsErrorDiffs", () => {
   });
 
   it("never pairs red against blue — the same matchKey on the other side is NOT a counterpart", () => {
-    const a = [obs({ matchKey: "m1", side: "red", algorithmId: "bpr", predicted: 130, actualCorrected: 100 })];
+    const a = [obs({ matchKey: "m1", side: "red", algorithmId: "spr", predicted: 130, actualCorrected: 100 })];
     const b = [obs({ matchKey: "m1", side: "blue", algorithmId: "epa", predicted: 90, actualCorrected: 100 })];
     expect(pairedAbsErrorDiffs(a, b, "corrected")).toHaveLength(0);
   });
@@ -240,8 +240,8 @@ describe("pairedAbsErrorDiffs", () => {
     // contrast toward zero and manufactures a false "indistinguishable" — the
     // one silent failure that would let this script report no finding at all.
     const a = [
-      obs({ matchKey: "m1", algorithmId: "bpr", predicted: 130, actualCorrected: 100 }),
-      obs({ matchKey: "m2", algorithmId: "bpr", predicted: 130, actualCorrected: 100 }),
+      obs({ matchKey: "m1", algorithmId: "spr", predicted: 130, actualCorrected: 100 }),
+      obs({ matchKey: "m2", algorithmId: "spr", predicted: 130, actualCorrected: 100 }),
     ];
     const b = [obs({ matchKey: "m1", algorithmId: "epa", predicted: 100, actualCorrected: 100 })];
     const units = pairedAbsErrorDiffs(a, b, "corrected");
@@ -286,7 +286,7 @@ describe("strengthBucketIndex", () => {
     // naively that is 12 rows into 2 buckets of 6; deduplicated it is 4 rows
     // into 2 buckets of 2, which is the only edge set every algorithm shares.
     const rows: Observation[] = [];
-    for (const algorithmId of ["opr", "epa", "bpr"]) {
+    for (const algorithmId of ["opr", "epa", "spr"]) {
       for (const [i, strengthRef] of [10, 20, 30, 40].entries()) {
         rows.push(obs({ matchKey: `m${i}`, algorithmId, strengthRef }));
       }
@@ -300,7 +300,7 @@ describe("strengthBucketIndex", () => {
   });
 
   it("assigns every match-side to exactly one bucket, dropping none", () => {
-    const rows = Array.from({ length: 17 }, (_, i) => obs({ matchKey: `m${i}`, algorithmId: "bpr", strengthRef: i }));
+    const rows = Array.from({ length: 17 }, (_, i) => obs({ matchKey: `m${i}`, algorithmId: "spr", strengthRef: i }));
     const assignment = strengthBucketIndex(rows, 5);
     expect(assignment.size).toBe(17);
   });

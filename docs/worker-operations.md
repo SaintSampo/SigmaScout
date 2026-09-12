@@ -153,9 +153,10 @@ runbook's commands split across them by which tier they belong to:
   (`PIPELINE_ALGORITHM_IDS`). As of this task, that means the third seed file is named
   **`seed-spr.sql`**, not `seed-bpr.sql`.
 - **The deployed Worker and the deployed browser** still read the READ tier
-  (`PUBLISHED_ALGORITHM_IDS`, unchanged, still `bpr`) until Stages 3-5 run. Concretely: the live
-  D1 database holds `algorithm_id = 'bpr'` rows, not `'spr'`, until Stage 3's reseed — a seed pass
-  run under this task lands `seed-spr.sql` in the generated-file directory (never tracked in git),
+  (`PUBLISHED_ALGORITHM_IDS`, unchanged, still naming the pre-rename premier id) until Stages 3-5
+  run. Concretely: the live D1 database holds rows keyed to the pre-rename algorithm id, not
+  `spr`, until Stage 3's reseed — a seed pass run under this task lands `seed-spr.sql` in the
+  generated-file directory (never tracked in git),
   but does NOT itself write to live D1 until an operator runs the `wrangler d1 execute` command
   against it, which is Stage 3, not Stage 1.
 
@@ -632,7 +633,7 @@ Both built from the same commit (`e4ba00c1`), against live D1 at generation `b23
 
 **The shape question is answered, and the answer is good.** All three published algorithms
 deserialized from live rows in the real Workers runtime: `opr` 4.0.0+baseline, `epa` 10.0.0+baseline,
-`bpr` 3.0.0+baseline, every one reporting `snapshotShapeVersionObserved: 15` against the deployed
+`bpr` 3.0.0+baseline [pre-rename], every one reporting `snapshotShapeVersionObserved: 15` against the deployed
 bundle's own expected 15, `ok: true`, `warnings: []`. `deserializeState` has now actually run against
 the rows the 2026-09-12 seed wrote, in the deployed runtime — not merely been inferred safe from a
 deploy timestamp.
@@ -653,7 +654,7 @@ The upcoming loop is confirmed as the dominant term: holding folds at 2 and goin
 adds ~7 ms at p50 and ~14 ms at p90.
 
 Two things make the real figure *somewhat* smaller than the table and neither closes the gap: the
-probe deserializes all three algorithms where a live tick folds only `bpr` (worth ~2–3 ms of that
+probe deserializes all three algorithms where a live tick folds only `bpr` [pre-rename] (worth ~2–3 ms of that
 4 ms baseline), and it spends 2 discovery queries a tick does not. A tick-shaped estimate is still
 ~10–11 ms p50 and ~25 ms p90.
 
