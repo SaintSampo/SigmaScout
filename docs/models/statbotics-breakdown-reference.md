@@ -2302,7 +2302,8 @@ percentile columns and the `epa_*_acc`/`epa_*_mse` metric columns declared in
 any of them appears anywhere in the EPA model path.
 
 **Where these 21 columns are COMPUTED is NOT in the eight files** — `db/models/year.py` declares
-them and reads them, and nothing in the fetched set writes them. See section 20.
+them and reads them, and nothing in the ORIGINAL eight writes them. The writer was fetched
+separately and is section 21: `backend/src/data/avg.py`, which computes all 21 from WEEK 1 ALONE.
 
 ## 20. Residual gaps — named, not guessed
 
@@ -2312,7 +2313,7 @@ document's claim.
 
 | # | what is missing | upstream file that would answer it | why it matters |
 |---|---|---|---|
-| 1 | **How the 21 `Year` aggregate columns are computed** — over which match population (quals only? elims included? offseason included?), and at what point in the season | not `db/models/year.py` (it only declares and reads them); the writer was not fetched and this task cannot name it without guessing | L-01 makes SigmaScout live-estimate all 21. Knowing the exact population Statbotics averages over would let the live estimate target the same quantity instead of a plausible neighbour. **This is the single most valuable remaining fetch.** |
+| 1 | ~~**How the 21 `Year` aggregate columns are computed**~~ **CLOSED 2026-09-11 — see section 21.** | `backend/src/data/avg.py`, now fetched and transcribed verbatim as section 21 | Answered outright: `process_year` filters to `week_one_matches` and derives every `Year` column from that list alone. The population is WEEK 1 ONLY. This row's former claim that the writer "was not fetched" and was "the single most valuable remaining fetch" is withdrawn. |
 | 2 | `TeamYear.norm_epa` — how a season's final rating becomes the normalized carry input | `backend/src/db/models/team_year.py`, plus whatever writes it | `get_init_epa` reads it for both prior seasons. SigmaScout's `carryover.ts` has its own derivation; whether the two agree is unverifiable without this. |
 | 3 | The match loop ORDER — where `predict_match`, `attribute_match`, `update_team` and `record_match` are called relative to each other, and where `self.num_teams`/`self.year_obj`/`self.year_num` are set | `backend/src/models/template.py` | This is the predict-before-update sequencing the project's own methodology constraint turns on. The four methods are transcribed; the loop that calls them is not. |
 | 4 | `r()` — the rounding helper applied to `epa_start`, `win_prob` and both predicted scores | `backend/src/utils/utils.py` | `record_match` rounds `win_prob` to 4 places and scores to 2. Whether `r()` is plain `round()`, half-even, or None-tolerant is not established, and it affects the last digit of every published figure. |
