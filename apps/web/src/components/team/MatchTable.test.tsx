@@ -576,11 +576,14 @@ describe("MatchTable", () => {
     const row2 = screen.getByTestId("match-row-m2");
     expect(row1.className).toContain("match-row-untinted");
     expect(row2.className).toContain("match-row-tint");
+  });
 
-    const stickyCell1 = within(row1).getByText(matchLabel(makeMatch({ matchKey: "m1" }))).closest("td")!;
-    const stickyCell2 = within(row2).getByText(matchLabel(makeMatch({ matchKey: "m2" }))).closest("td")!;
-    expect(stickyCell1.className).toContain("match-row-untinted");
-    expect(stickyCell2.className).toContain("match-row-tint");
+  it("has no sticky column anywhere, header or body (2026-09-13)", () => {
+    const { container } = renderWithRouter(
+      <MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={DOMAIN} teamKey="frc118" season={2024} algorithm="spr" />,
+    );
+    expect(container.querySelectorAll("th, td").length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('[class*="sticky"]')).toHaveLength(0);
   });
 
   it("renders the predicted-winner confidence chip in the alliance's own colour tokens, no bare string alone", () => {

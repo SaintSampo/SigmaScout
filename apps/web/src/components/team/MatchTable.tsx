@@ -312,7 +312,7 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
           `teamOnRoster` gate below the final arm of this chain fell through
           unguarded and rendered a confident "Loss" for a match the team
           never played (WR-02, `260902-post-phase08-ungoverned-ui/REVIEW.md`). */}
-      <td data-testid={`result-${match.matchKey}`} className={cn("sticky left-0 z-[1] w-[64px] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", tinted ? "match-row-tint" : "match-row-untinted")}>
+      <td data-testid={`result-${match.matchKey}`} className="w-[64px] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         {played &&
           teamOnRoster &&
           (match.actualWinner === "tie" ? (
@@ -323,7 +323,7 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
             <span className="result-chip result-chip--loss">Loss</span>
           ))}
       </td>
-      <td className={cn("sticky left-[64px] z-[1] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", tinted ? "match-row-tint" : "match-row-untinted")}>
+      <td className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         <div className="flex min-w-0 flex-col gap-[1px]">
           {/* 260909-tiq-PLAN.md Task 3: the Match-column label is now a link
               to that match's own page, carrying the reader's current
@@ -484,13 +484,13 @@ export function MatchTable({ matches, domain, teamKey, season, algorithm }: Matc
       <thead>
         <tr>
           {/* Result (2026-09-01, user request): leftmost W/L/T chip for THIS
-              team. Sticky alongside Match so both identity columns hold
-              during horizontal pans; Match keeps its own stickiness at this
-              column's declared 64px offset. */}
-          <th className="sticky left-0 z-[2] w-[64px] bg-[var(--color-bg-surface)] p-[var(--spacing-sm)] text-left">
+              team. No column in this table is sticky (2026-09-13, user
+              request): Result and Match used to pin during horizontal pans,
+              and now scroll with the rest of the row. */}
+          <th className="w-[64px] p-[var(--spacing-sm)] text-left">
             <span className="text-role-label text-[var(--color-text-muted)]">Result</span>
           </th>
-          <th className="sticky left-[64px] z-[2] bg-[var(--color-bg-surface)] p-[var(--spacing-sm)] text-left">
+          <th className="p-[var(--spacing-sm)] text-left">
             <span className="text-role-label text-[var(--color-text-muted)]">Match</span>
           </th>
           <th className="p-[var(--spacing-sm)] text-left">
