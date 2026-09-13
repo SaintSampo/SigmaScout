@@ -295,7 +295,7 @@ describe("percentileForRank (quick task 260905-ttv)", () => {
     expect(percentileForRank(3481, 3481)).toBeLessThan(50);
   });
 
-  it("agrees with percentileRanks for the r-th-best member of a strictly-ordered pool of n", () => {
+  it("agrees EXACTLY with percentileRanks for the r-th-best member of a strictly-ordered pool of n (rounded identically since quick task 260912-tnk)", () => {
     const n = 20;
     // A strictly-ordered pool: values n, n-1, ..., 1 (all distinct, no ties),
     // so percentileRanks's mid-rank formula reduces to the same computation
@@ -304,8 +304,19 @@ describe("percentileForRank (quick task 260905-ttv)", () => {
     const ranks = percentileRanks(values);
     for (let rank = 1; rank <= n; rank++) {
       // values[rank - 1] is the rank-th-best (largest-first) value.
-      expect(percentileForRank(rank, n)).toBeCloseTo(ranks[rank - 1]!, 10);
+      expect(percentileForRank(rank, n)).toBe(ranks[rank - 1]!);
     }
+    // A pool size whose raw percentiles repeat, so rounding is really exercised.
+    const m = 2500;
+    const bigRanks = percentileRanks(Array.from({ length: m }, (_, i) => m - i));
+    for (const rank of [1, 2, 126, 127, 625, 626, 1250, 1251, 2499, 2500]) {
+      expect(percentileForRank(rank, m), `rank ${rank} of ${m}`).toBe(bigRanks[rank - 1]!);
+    }
+  });
+
+  it("rounds to ROUNDING_RULE.percentile like a published percentile: rank 126 of 2500 is 94.98 raw and exactly 95 rounded (quick task 260912-tnk)", () => {
+    expect(percentileForRank(126, 2500)).toBe(95);
+    expect(percentileForRank(127, 2500)).toBe(94.9);
   });
 
   it("rank 1 of 1 yields exactly 50 -- a deliberate, tested outcome: a pool of one carries no information about whether its single member is good, so it lands mid-band rather than Legendary", () => {

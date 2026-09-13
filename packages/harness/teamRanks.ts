@@ -15,8 +15,9 @@
  * incapable of disagreeing, by construction rather than by convention.
  *
  * It imports only `isOfficialEventType`/`OFFSEASON_EVENT_TYPE`/
- * `PRESEASON_EVENT_TYPE` from `../core/algorithms/eventTypes.js` and
- * `TOTAL_METRIC_KEY` from `../core/algorithms/types.js` — both of those
+ * `PRESEASON_EVENT_TYPE` from `../core/algorithms/eventTypes.js`,
+ * `TOTAL_METRIC_KEY` from `../core/algorithms/types.js`, and (quick task
+ * 260912-tnk) `roundTo`/`ROUNDING_RULE` from `./rounding.js` — all three
  * files are themselves import-nothing/framework-agnostic leaves (see their
  * own header comments), so this module stays safe to bundle into the
  * browser. `packages/harness/browserSafeSchemas.test.ts` enforces this with
@@ -24,6 +25,7 @@
  */
 import { isOfficialEventType, OFFSEASON_EVENT_TYPE, PRESEASON_EVENT_TYPE } from "../core/algorithms/eventTypes.js";
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
+import { roundTo, ROUNDING_RULE } from "./rounding.js";
 
 // Re-exported so a caller that only needs the event-type constants this
 // module already depends on does not need a second import line. Not part of
@@ -261,15 +263,27 @@ export interface BuildTeamRankScopesParams {
  * beside it would be the same class of drift this project's failure log
  * names.
  *
- * Deliberately NOT rounded. `roundTo`/`ROUNDING_RULE` are not imported here
- * (this module is dependency-free by contract, enforced by
- * `browserSafeSchemas.test.ts`), and rounding would serve no reader: the
- * value is never displayed, only compared against `tierForPercentile`'s
- * cuts, where rounding could only ever move a borderline card into a tier
- * its exact position does not occupy.
+ * Rounded to `ROUNDING_RULE.percentile` (quick task 260912-tnk), exactly as
+ * `percentileRanks` rounds, so a regional card resolves a borderline position
+ * exactly as a metric tile does — rank 126 of 2,500 is 94.98 raw, 95.0
+ * rounded, and Legendary on both. It now agrees EXACTLY with
+ * `percentileRanks` for the r-th-best member of a strictly ordered pool.
+ * `./rounding.js` has no imports of its own, so the module stays
+ * browser-safe (`browserSafeSchemas.test.ts` checks it for Node built-ins).
+ *
+ * Serves the REGIONAL scopes only (country, district, state). The World card
+ * is tiered by the team's published Total percentile instead
+ * (`RankCards.tsx`), because the whole season field already has one.
+ *
+ * One residual, recorded honestly: rank pools strictly order equal totals by
+ * team number (`compareTeamsByTotal`), so two tied teams in one region get
+ * adjacent percentiles where mid-rank would give them one. That matches the
+ * distinct ranks the cards print. A row without a Total cannot enter a
+ * regional pool at all, because `deriveTeamRegions` votes only official
+ * events and every algorithm guarantees a Total for a team with official play.
  */
 export function percentileForRank(rank: number, total: number): number {
-  return ((total - rank + 0.5) / total) * 100;
+  return roundTo(((total - rank + 0.5) / total) * 100, ROUNDING_RULE.percentile);
 }
 
 /** Sorts `pool` by `compareTeamsByTotal` and returns the target's 1-based rank and the pool's total size, or `undefined` when the target is not a member of `pool`. */

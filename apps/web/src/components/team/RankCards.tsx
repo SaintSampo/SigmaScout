@@ -13,6 +13,14 @@ export interface RankCardsProps {
   season: number;
   /** The algorithm the page is currently showing — every card's link carries this. */
   algorithmId: PublishedAlgorithmId;
+  /**
+   * Quick task 260912-tnk: the team's published Total percentile
+   * (`seasonStats.metrics.total.percentile`) — the exact number its Teams-list
+   * Total tier is stamped from. The World card's tier comes from this, never
+   * from its rank. Absent (a live-merged or pre-percentile artifact) renders
+   * the World card with no tier modifier at all.
+   */
+  worldPercentile?: number;
 }
 
 type RankScopeEntry = NonNullable<TeamSeasonArtifact["ranks"]>[number];
@@ -88,9 +96,18 @@ function scopeSearch(entry: RankScopeEntry, season: number, algorithmId: Publish
  * Rewritten for quick task 260905-ttv from the 260905-ldu original: cards
  * now mount inside `SeasonHeader`'s identity row rather than as a standalone
  * row below it (`OverviewTab.tsx` no longer renders this component itself),
- * carry a fixed shared width regardless of label length, are coloured by the
- * rarity tier their OWN rank/total falls in, and each links to `/teams`
- * filtered to that exact scope.
+ * carry a fixed shared width regardless of label length, are coloured by a
+ * rarity tier, and each links to `/teams` filtered to that exact scope.
+ *
+ * Tier source (quick task 260912-tnk). The World scope is the whole season
+ * field, which the published season ranking pool already ranks, so the World
+ * card's tier is the team's published Total tier from a single source: `worldPercentile`, the same `seasonStats` Total percentile
+ * the Teams list stamps its Total tier from. A World card can therefore never
+ * read Epic beside a Legendary Teams-list Total. Regional pools (country,
+ * district, state) are subsets no published percentile covers, so those
+ * cards use `percentileForRank`'s rank-specialised mid-rank convention,
+ * rounded exactly as a published percentile is — they differ from the Total
+ * tier only by pool.
  *
  * The basis caption (`data-testid="rank-cards-basis"`, "Ranked by total,
  * official play only") is DELETED, not merely hidden — removing it does not
@@ -105,14 +122,14 @@ function scopeSearch(entry: RankScopeEntry, season: number, algorithmId: Publish
  * label naming the ranks specifically. Accepted per the user's explicit
  * request to remove the caption.
  */
-export function RankCards({ ranks, season, algorithmId }: RankCardsProps) {
+export function RankCards({ ranks, season, algorithmId, worldPercentile }: RankCardsProps) {
   if (ranks === undefined || ranks.length === 0) return null;
 
   return (
     <div data-testid="rank-cards" className="flex flex-wrap gap-[var(--spacing-sm)]">
       {ranks.map((entry) => {
         const label = scopeLabel(entry);
-        const tier = tierForPercentile(percentileForRank(entry.rank, entry.total));
+        const tier = tierForPercentile(entry.scope === "world" ? worldPercentile : percentileForRank(entry.rank, entry.total));
         return (
           <Link
             key={entry.scope}

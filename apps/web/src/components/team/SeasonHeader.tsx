@@ -112,9 +112,10 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   const { record } = artifact.seasonStats;
   // 2026-09-01 (user request): tiles read the last-OFFICIAL-match snapshot
   // when the route could derive one; season-final otherwise. Each snapshot
-  // metric carries its own published percentile (the D-06.1-A discipline —
-  // an as-of-then value tiered against the season-final pool), so the tier
-  // boxes stay honest either way.
+  // metric carries its own published percentile, ranked against the ONE
+  // season ranking pool (every team's last official match, quick task
+  // 260912-tnk) that the Teams list and seasonStats use, so a tile and the
+  // Teams list cannot disagree about a tier.
   // Widened with any derivable group entries this algorithm/season supports
   // (D-3, 260904-5zg) BEFORE the tiles read it. As of quick task 260904-7id
   // the pipeline now publishes EPA's own group metrics too, so a real
@@ -265,7 +266,14 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
             </div>
           </div>
         </div>
-        <RankCards ranks={ranks} season={season} algorithmId={algorithmId} />
+        {/*
+          Quick task 260912-tnk: the World card is tiered by the published
+          seasonStats Total percentile — deliberately NOT the resolved
+          `metricsOverride` row. seasonStats is the record measured equal to
+          the Teams list; before a republish, history rows still carry the old
+          season-final-pool percentile. After a republish the two are identical.
+        */}
+        <RankCards ranks={ranks} season={season} algorithmId={algorithmId} worldPercentile={artifact.seasonStats.metrics[TOTAL_KEY]?.percentile} />
       </div>
 
       <div className="flex flex-col gap-[var(--spacing-sm)]">

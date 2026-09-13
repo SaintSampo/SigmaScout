@@ -132,32 +132,52 @@ describe("RankCards — fixed width and label truncation (quick task 260905-ttv)
   });
 });
 
-describe("RankCards — tier colour (quick task 260905-ttv)", () => {
-  it("rank 1 of 3481 carries the Legendary modifier class", () => {
-    const ranks: Ranks = [{ scope: "world", rank: 1, total: 3481 }];
+describe("RankCards — tier colour (quick task 260905-ttv; World card by Total percentile since 260912-tnk)", () => {
+  it("a regional card at rank 1 of 3481 carries the Legendary modifier class", () => {
+    const ranks: Ranks = [{ scope: "country", value: "USA", rank: 1, total: 3481 }];
     renderWithRouter(<RankCards ranks={ranks} {...DEFAULT_PROPS} />);
     expect(screen.getByTestId("rank-card").className).toContain("rank-card--legendary");
   });
 
-  it("rank 3481 of 3481 (last place) carries the Common modifier class", () => {
-    const ranks: Ranks = [{ scope: "world", rank: 3481, total: 3481 }];
+  it("a regional card in last place (rank 3481 of 3481) carries the Common modifier class", () => {
+    const ranks: Ranks = [{ scope: "country", value: "USA", rank: 3481, total: 3481 }];
     renderWithRouter(<RankCards ranks={ranks} {...DEFAULT_PROPS} />);
     expect(screen.getByTestId("rank-card").className).toContain("rank-card--common");
   });
 
-  it("a mid-pool rank carries the band tierForPercentile puts its percentileForRank value in (rank 500 of 1000 -> Rare)", () => {
-    // percentileForRank(500, 1000) = ((1000-500)+0.5)/1000*100 = 50.05 -> Rare [50,75).
-    const ranks: Ranks = [{ scope: "world", rank: 500, total: 1000 }];
+  it("a mid-pool regional rank carries the band tierForPercentile puts its percentileForRank value in (rank 500 of 1000 -> Rare)", () => {
+    // percentileForRank(500, 1000) = ((1000-500)+0.5)/1000*100 = 50.05 -> 50.1 rounded -> Rare [50,75).
+    const ranks: Ranks = [{ scope: "district", value: "fim", rank: 500, total: 1000 }];
     renderWithRouter(<RankCards ranks={ranks} {...DEFAULT_PROPS} />);
     expect(screen.getByTestId("rank-card").className).toContain("rank-card--rare");
   });
 
-  it("the tier is derived per card from that card's OWN rank/total -- four cards on one team page can carry different tiers", () => {
+  it("the World card carries the tier of worldPercentile, NOT of its rank: rank 1 of 3481 with a published Total percentile of 94.9 is Epic", () => {
+    const ranks: Ranks = [{ scope: "world", rank: 1, total: 3481 }];
+    renderWithRouter(<RankCards ranks={ranks} {...DEFAULT_PROPS} worldPercentile={94.9} />);
+    const className = screen.getByTestId("rank-card").className;
+    expect(className).toContain("rank-card--epic");
+    expect(className).not.toContain("rank-card--legendary");
+  });
+
+  it("with worldPercentile absent the World card carries no tier modifier at all -- never a rank-derived fallback", () => {
+    const ranks: Ranks = [{ scope: "world", rank: 1, total: 3481 }];
+    renderWithRouter(<RankCards ranks={ranks} {...DEFAULT_PROPS} />);
+    expect(screen.getByTestId("rank-card").className).not.toMatch(/rank-card--/);
+  });
+
+  it("a regional card uses the ROUNDED rank percentile: rank 126 of 2500 (94.98 raw, 95.0 rounded) is Legendary", () => {
+    const ranks: Ranks = [{ scope: "country", value: "USA", rank: 126, total: 2500 }];
+    renderWithRouter(<RankCards ranks={ranks} {...DEFAULT_PROPS} />);
+    expect(screen.getByTestId("rank-card").className).toContain("rank-card--legendary");
+  });
+
+  it("the tier is derived per card -- four cards on one team page can carry different tiers", () => {
     const ranks: Ranks = [
-      { scope: "world", rank: 3481, total: 3481 }, // Common
+      { scope: "world", rank: 3481, total: 3481 }, // Common, from worldPercentile
       { scope: "district", value: "fim", rank: 1, total: 60 }, // Legendary
     ];
-    renderWithRouter(<RankCards ranks={ranks} {...DEFAULT_PROPS} />);
+    renderWithRouter(<RankCards ranks={ranks} {...DEFAULT_PROPS} worldPercentile={10} />);
     const cards = screen.getAllByTestId("rank-card");
     expect(cards[0]?.className).toContain("rank-card--common");
     expect(cards[1]?.className).toContain("rank-card--legendary");

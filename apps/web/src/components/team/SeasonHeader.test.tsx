@@ -539,6 +539,27 @@ describe("SeasonHeader — rank cards render inside the header (quick task 26090
     expect(screen.getByTestId("rank-card").textContent).toContain("World");
   });
 
+  it("tiers the World card by seasonStats' Total percentile, even when metricsOverride carries a different one (quick task 260912-tnk)", () => {
+    const ranks: NonNullable<TeamSeasonArtifact["ranks"]> = [{ scope: "world", rank: 1, total: 3481 }];
+    const artifact = baseArtifact({
+      seasonStats: { record: { wins: 35, losses: 28, ties: 0 }, metrics: { total: { value: 189.71, percentile: 94.9 } } },
+    });
+    renderWithRouter(
+      <SeasonHeader
+        artifact={artifact}
+        algorithmId="spr"
+        season={2026}
+        teamNumber={1114}
+        ranks={ranks}
+        metricsOverride={{ total: { value: 189.71, percentile: 100 } }}
+      />
+    );
+
+    const className = screen.getByTestId("rank-card").className;
+    expect(className).toContain("rank-card--epic");
+    expect(className).not.toContain("rank-card--legendary");
+  });
+
   it("renders nothing extra when ranks is absent -- no rank-cards element, and every other assertion in this file is unaffected", () => {
     render(<SeasonHeader artifact={baseArtifact()} algorithmId="spr" season={2026} teamNumber={1114} />);
 

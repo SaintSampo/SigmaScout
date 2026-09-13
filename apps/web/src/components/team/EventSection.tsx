@@ -126,10 +126,13 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
                   history row's own published percentile
                   (`MetricValueSchema.percentile`, plan 06.1-03/06.1-05) —
                   which ranks this as-of-this-event value against the
-                  SEASON-FINAL field for that metric — never from the team's
-                  season-final `TeamMetricSchema.percentile`/`tier`. That
-                  substitution (an as-of-then value tiered by an as-of-then
-                  rank) is exactly the defect F-06-3 was filed to prevent.
+                  season's last-official-match field for that metric (quick
+                  task 260912-tnk: the ONE pool the Teams list and the season
+                  header rank against, so an equal value carries an equal
+                  tier on all three) — never from the team's own
+                  `TeamMetricSchema.percentile`/`tier`, which describes a
+                  different value. That substitution is exactly the defect
+                  F-06-3 was filed to prevent.
 
                   G-06.1-28 (plan 06.1-08, Task 1, option-a): the caption that
                   used to state this basis on every event card was removed
