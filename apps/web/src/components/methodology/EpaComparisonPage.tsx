@@ -12,6 +12,7 @@ import {
   EPA_SAME_ITEMS,
   EPA_SAME_SECTION_HEADING,
   headToHeadSummarySentence,
+  statboticsPulledSentence,
   type EpaDifferenceCardId,
 } from "./epaComparisonContent.js";
 import type { EpaComparisonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -41,6 +42,7 @@ const DIFFERENCE_CARDS_TESTID = "epa-comparison-difference-cards";
 const HEAD_TO_HEAD_TABLE_TESTID = "epa-comparison-head-to-head-table";
 const HEAD_TO_HEAD_SUMMARY_TESTID = "epa-comparison-head-to-head-summary";
 const PROVENANCE_TESTID = "epa-comparison-provenance";
+const STATBOTICS_PULLED_TESTID = "epa-comparison-statbotics-pulled";
 
 export function epaDifferenceCardTestId(id: EpaDifferenceCardId): string {
   return `epa-difference-card-${id}`;
@@ -127,6 +129,7 @@ export function EpaHeadToHeadResults({ artifact }: EpaHeadToHeadResultsProps) {
   const statboticsAheadCount = comparableRows.filter(
     (row) => row.statboticsWinnerAccuracy > (row.ourWinnerAccuracy as number),
   ).length;
+  const pulledSentence = statboticsPulledSentence(headToHeadRows.map((row) => row.statboticsCapturedAt));
 
   return (
     <>
@@ -157,19 +160,18 @@ export function EpaHeadToHeadResults({ artifact }: EpaHeadToHeadResultsProps) {
                 <TableCell className="numeric-cell">{row.season}</TableCell>
                 <TableCell className="numeric-cell border-l">{formatFourDecimals(row.ourWinnerAccuracy)}</TableCell>
                 <TableCell className="numeric-cell">{formatFourDecimals(row.ourBrierScore)}</TableCell>
-                <TableCell className="numeric-cell border-l">
-                  {formatFourDecimals(row.statboticsWinnerAccuracy)}
-                  {!row.statboticsFetched && <span className="text-[var(--color-text-muted)]"> (dated)</span>}
-                </TableCell>
-                <TableCell className="numeric-cell">
-                  {formatFourDecimals(row.statboticsBrierScore)}
-                  {!row.statboticsFetched && <span className="text-[var(--color-text-muted)]"> (dated)</span>}
-                </TableCell>
+                <TableCell className="numeric-cell border-l">{formatFourDecimals(row.statboticsWinnerAccuracy)}</TableCell>
+                <TableCell className="numeric-cell">{formatFourDecimals(row.statboticsBrierScore)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
         </table>
       </div>
+      {pulledSentence !== "" && (
+        <p data-testid={STATBOTICS_PULLED_TESTID} className="max-w-[72ch] text-role-body text-[var(--color-text-muted)]">
+          {pulledSentence}
+        </p>
+      )}
       <p data-testid={HEAD_TO_HEAD_SUMMARY_TESTID} className="max-w-[72ch] text-role-body text-[var(--color-text-primary)]">
         {headToHeadSummarySentence(statboticsAheadCount, comparableRows.length)}
       </p>
@@ -200,4 +202,5 @@ export {
   HEAD_TO_HEAD_TABLE_TESTID as EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID,
   HEAD_TO_HEAD_SUMMARY_TESTID as EPA_COMPARISON_HEAD_TO_HEAD_SUMMARY_TESTID,
   PROVENANCE_TESTID as EPA_COMPARISON_PROVENANCE_TESTID,
+  STATBOTICS_PULLED_TESTID as EPA_COMPARISON_STATBOTICS_PULLED_TESTID,
 };

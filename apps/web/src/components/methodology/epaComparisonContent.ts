@@ -219,3 +219,30 @@ export function headToHeadSummarySentence(statboticsAheadCount: number, totalSea
   }
   return `Statbotics had the higher winner accuracy in ${statboticsAheadCount} of ${totalSeasons} measured seasons.`;
 }
+
+/** Long-form UTC date, so an ISO calendar date never shifts a day across the viewer's timezone. */
+const PULLED_DATE = new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
+
+function formatPulledDate(isoDate: string): string {
+  const parsed = new Date(`${isoDate.slice(0, 10)}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) ? isoDate : PULLED_DATE.format(parsed);
+}
+
+/**
+ * The line under the head-to-head table naming when the Statbotics column was
+ * last pulled from the Statbotics API. Built from the artifact's per-season
+ * `statboticsCapturedAt`, never a typed date, so it cannot go stale against the
+ * table. One date when every season shares it; the oldest and newest when they
+ * differ, so no season's age is hidden. Empty input returns an empty string and
+ * the page renders nothing.
+ */
+export function statboticsPulledSentence(capturedDates: readonly string[]): string {
+  const days = [...new Set(capturedDates.map((date) => date.slice(0, 10)))].sort();
+  if (days.length === 0) return "";
+  const oldest = formatPulledDate(days[0] as string);
+  if (days.length === 1) {
+    return `Statbotics numbers were last pulled from the Statbotics API on ${oldest}.`;
+  }
+  const newest = formatPulledDate(days[days.length - 1] as string);
+  return `Statbotics numbers were last pulled from the Statbotics API between ${oldest} and ${newest}.`;
+}

@@ -28,6 +28,7 @@ import {
   EPA_SAME_ITEMS,
   EPA_SAME_SECTION_HEADING,
   headToHeadSummarySentence,
+  statboticsPulledSentence,
   type EpaNoteLabel,
 } from "./epaComparisonContent.js";
 
@@ -107,6 +108,9 @@ function collectStrings(): StringRecord[] {
       where: `headToHeadSummarySentence(${aheadCount}, ${total})`,
       text: headToHeadSummarySentence(aheadCount, total),
     });
+  }
+  for (const dates of [["2026-09-04"], ["2026-09-07", "2026-09-04"]]) {
+    records.push({ where: `statboticsPulledSentence(${dates.join(", ")})`, text: statboticsPulledSentence(dates) });
   }
   return records;
 }
@@ -287,5 +291,27 @@ describe("headToHeadSummarySentence", () => {
 
   it("credits SigmaScout when Statbotics leads none", () => {
     expect(headToHeadSummarySentence(0, 5)).toMatch(/matched or beat/);
+  });
+});
+
+describe("statboticsPulledSentence", () => {
+  it("names the one exact date when every season shares it", () => {
+    expect(statboticsPulledSentence(["2026-09-04", "2026-09-04", "2026-09-04"])).toBe(
+      "Statbotics numbers were last pulled from the Statbotics API on September 4, 2026."
+    );
+  });
+
+  it("names the oldest and newest dates when seasons differ, whatever order they arrive in", () => {
+    expect(statboticsPulledSentence(["2026-09-07", "2026-09-04", "2026-09-05"])).toBe(
+      "Statbotics numbers were last pulled from the Statbotics API between September 4, 2026 and September 7, 2026."
+    );
+  });
+
+  it("never shifts the calendar day across timezones, and reads a full timestamp by its date", () => {
+    expect(statboticsPulledSentence(["2026-01-01T23:30:00.000Z"])).toContain("January 1, 2026");
+  });
+
+  it("returns an empty string for no dates, so the page renders no line", () => {
+    expect(statboticsPulledSentence([])).toBe("");
   });
 });

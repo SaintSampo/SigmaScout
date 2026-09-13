@@ -21,6 +21,7 @@ import {
   EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID,
   EPA_COMPARISON_PROVENANCE_TESTID,
   EPA_COMPARISON_SAME_LIST_TESTID,
+  EPA_COMPARISON_STATBOTICS_PULLED_TESTID,
   epaDifferenceCardTestId,
 } from "../components/methodology/EpaComparisonPage.js";
 import { EPA_DIFFERENCE_CARD_IDS, EPA_SAME_ITEMS } from "../components/methodology/epaComparisonContent.js";
@@ -138,6 +139,22 @@ describe("/methodology/epa-vs-statbotics route", () => {
       await screen.findByTestId(EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID);
       const summary = screen.getByTestId(EPA_COMPARISON_HEAD_TO_HEAD_SUMMARY_TESTID);
       expect(summary.textContent).toContain("3 of 5");
+    });
+
+    it("renders no (dated) marker, even for a season whose Statbotics figures were not live-fetched", async () => {
+      mockFetch();
+      renderEpaComparisonRoute();
+      const table = await screen.findByTestId(EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID);
+      expect(table.textContent).not.toContain("dated");
+    });
+
+    it("renders the exact Statbotics pull date, from the fixture's statboticsCapturedAt, directly under the table", async () => {
+      mockFetch();
+      renderEpaComparisonRoute();
+      const table = await screen.findByTestId(EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID);
+      const pulled = screen.getByTestId(EPA_COMPARISON_STATBOTICS_PULLED_TESTID);
+      expect(pulled.textContent).toBe("Statbotics numbers were last pulled from the Statbotics API on September 4, 2026.");
+      expect(table.nextElementSibling).toBe(pulled);
     });
 
     it("the provenance line contains the fixture's epaVersion", async () => {
