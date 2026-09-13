@@ -25,11 +25,11 @@ import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFea
 import { useMemo } from "react";
 import { Link } from "@tanstack/react-router";
 import { InfoIcon } from "lucide-react";
-import { MetricValue, type DisplayMetric } from "@/components/MetricValue";
+import type { DisplayMetric } from "@/components/MetricValue";
+import { TotalSigmaValue } from "@/components/TotalSigmaValue";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SkeletonRows } from "@/components/Skeletons";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
-import { algorithmPublishesSpread } from "@/components/teams-table/columns";
 import { useIsMobile } from "@/lib/breakpoints";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { teamNumberFromKey } from "@/lib/teamKey";
@@ -37,6 +37,7 @@ import { tierForPercentile } from "@/lib/tiers";
 import { buildTeamValuePercentilePoints, estimateCombinedTier, type AllianceApproxTier } from "@/lib/allianceTierApproximation";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
+import { allianceSigmaBandVariance, sigmaMatchBandVariance, SIGMA_METRIC_KEY, usesSigmaScore } from "../../../../../packages/harness/sigmaScore.js";
 
 type EventTeam = EventArtifact["teams"][number];
 type EventAlliance = NonNullable<EventArtifact["alliances"]>[number];
@@ -62,6 +63,17 @@ interface AlliancePickTotal extends DisplayMetric {
 }
 
 /**
+ * One pick's own published Sigma Score, quick task 260913-jkp — the same
+ * `{value, percentile}` shape `AlliancePickTotal` carries, read from the
+ * team's own `SIGMA_METRIC_KEY` metrics entry. `undefined` for every OPR/EPA
+ * pick and for an SPR pick this event's artifact does not resolve one for.
+ */
+interface AlliancePickSigma {
+  value: number;
+  percentile?: number;
+}
+
+/**
  * One alliance pick, as rendered — identity fields never invented, `total`
  * left `undefined` when the artifact does not resolve one. G-8 drops
  * `nickname` entirely (team numbers only, developer decision from
@@ -72,6 +84,8 @@ export interface AlliancePick {
   teamKey: string;
   teamNumber: number;
   total: AlliancePickTotal | undefined;
+  /** Quick task 260913-jkp: this pick's own Sigma Score, rendered as the right half of its total's split pill (`TotalSigmaValue`). */
+  sigma: AlliancePickSigma | undefined;
 }
 
 /** One alliance's row model. `combinable` mirrors whether `combined` is defined — one fact, not two independently-consulted ones (07-11's own discriminant precedent). */
@@ -88,6 +102,19 @@ export interface AllianceRow {
    * comment for the full method and why one cannot be published instead.
    */
   combinedApproxTier: AllianceApproxTier | undefined;
+  /**
+   * Quick task 260913-jkp, CONTEXT "Alliances Combined Total": the neutral,
+   * untiered `±` for the Combined Total pill's Sigma half — `sqrt(3 * (a^2 +
+   * b^2 + c^2))` over the first three picks' own Sigma Scores, the SAME
+   * Match Band formula every SPR match row draws, computed through the
+   * shipping `allianceSigmaBandVariance`/`sigmaMatchBandVariance` helpers
+   * (never re-typed arithmetic). ALL OR NOTHING, like `combined` itself:
+   * `undefined` unless `combined` is defined AND every one of the first
+   * `ALLIANCE_COMBINED_PICK_COUNT` picks carries a `sigma` entry — a partial
+   * band would understate the alliance's true miss the same way a partial
+   * `combined` sum would.
+   */
+  combinedSigma: number | undefined;
   /**
    * TBA's own reported playoff win-loss-tie record for this alliance (G-8),
    * sourced from `EventAllianceSchema.record`. `undefined` for an honest
@@ -184,12 +211,11 @@ export function combineAlliancePicks(totals: readonly (DisplayMetric | undefined
   // (2026-09-09): spread must never reach the screen in any form.
   //
   // The right replacement is built from the three picks' SIGMA SCORES, the
-  // same per-team terms the Match Band drawn on every SPR match row sums. It
-  // is not wired here yet because an alliance's
-  // picks are team keys and this component has no per-team Sigma Score to hand
-  // — the same per-surface gap the phase tiles have. Until then the combined
-  // total renders as a bare value, which is honest: we are not showing a
-  // narrower number, we are showing no uncertainty claim at all.
+  // same per-team terms the Match Band drawn on every SPR match row sums —
+  // wired at `buildAllianceRows`'s own `combinedSigma` field (quick task
+  // 260913-jkp), not here: this function stays the pure value sum, and the
+  // Combined Total's neutral band rides alongside it on `AllianceRow` rather
+  // than folding into this return type.
   return { value };
 }
 
@@ -214,6 +240,10 @@ function pickFromTeamKey(teamKey: string, teams: readonly EventTeam[]): Alliance
     teamKey,
     teamNumber,
     total: teamRow?.metrics[TOTAL_KEY],
+    // Quick task 260913-jkp: read straight off the same team row's own
+    // published `sigma` metrics entry — the event artifact's own standings
+    // (publish.ts's `buildEventTeamsStanding`), never a second lookup.
+    sigma: teamRow?.metrics[SIGMA_METRIC_KEY],
   };
 }
 
@@ -227,6 +257,25 @@ function pickFromTeamKey(teamKey: string, teams: readonly EventTeam[]): Alliance
  * just this alliance's three picks — `estimateCombinedTier`'s own contract)
  * and carries the alliance's published playoff record straight through.
  */
+/**
+ * Quick task 260913-jkp: the Combined Total's neutral band, all or nothing
+ * over the first `ALLIANCE_COMBINED_PICK_COUNT` picks — `undefined` unless
+ * every one of them carries a `sigma` entry. Built entirely from the
+ * shipping `allianceSigmaBandVariance`/`sigmaMatchBandVariance` helpers
+ * (the SAME two functions the Match Band drawn on every SPR match row
+ * composes), never a re-typed sum of squares.
+ */
+function combinedSigmaBand(picks: readonly AlliancePick[]): number | undefined {
+  const leading = picks.slice(0, ALLIANCE_COMBINED_PICK_COUNT);
+  if (leading.length !== ALLIANCE_COMBINED_PICK_COUNT || leading.some((pick) => pick.sigma === undefined)) {
+    return undefined;
+  }
+  const roster = leading.map((pick) => pick.teamKey);
+  const byTeam = new Map(leading.map((pick) => [pick.teamKey, (pick.sigma as AlliancePickSigma).value]));
+  const variance = sigmaMatchBandVariance(ALLIANCE_COMBINED_PICK_COUNT, allianceSigmaBandVariance(roster, byTeam));
+  return variance === undefined ? undefined : Math.sqrt(variance);
+}
+
 export function buildAllianceRows(artifact: EventArtifact, algorithmId: string): AllianceRow[] {
   void algorithmId; // reserved for signature symmetry with the column builder; the row model does not vary by algorithm beyond which metrics the artifact already carries
   const alliances = artifact.alliances ?? [];
@@ -242,6 +291,7 @@ export function buildAllianceRows(artifact: EventArtifact, algorithmId: string):
       combined,
       combinable: combined !== undefined,
       combinedApproxTier: combined !== undefined ? estimateCombinedTier(combined.value, tierPoints) : undefined,
+      combinedSigma: combined !== undefined ? combinedSigmaBand(picks) : undefined,
       record: alliance.record,
     };
   });
@@ -314,8 +364,23 @@ export function formatAllianceRecord(record: { wins: number; losses: number; tie
  * correctness fix, not cosmetics. "Backup" is renamed "Pick 3" (the backup
  * robot is FRC's third overall pick) — the column id `pickBackup` is
  * unchanged (external e2e tests key off it), only its header label moves.
+ *
+ * Quick task 260913-jkp: index 5 (Combined Total) now varies by algorithm —
+ * "Combined Total ± Sigma" under a Sigma-enabled algorithm, "Combined Total"
+ * otherwise — so this is a FUNCTION of `algorithmId`, read by both the live
+ * table and the skeleton, rather than a static tuple either could drift from.
  */
-const ALLIANCES_COLUMN_HEADERS = ["Alliance #", "Captain", "Pick 1", "Pick 2", "Pick 3", "Combined Total", "Record"] as const;
+function alliancesColumnHeaders(algorithmId: string): readonly [string, string, string, string, string, string, string] {
+  return [
+    "Alliance #",
+    "Captain",
+    "Pick 1",
+    "Pick 2",
+    "Pick 3",
+    usesSigmaScore(algorithmId) ? "Combined Total ± Sigma" : "Combined Total",
+    "Record",
+  ];
+}
 
 /**
  * D-7 pick-column widths (2026-09-04, quick task 260904-5zg), measured live
@@ -325,66 +390,76 @@ const ALLIANCES_COLUMN_HEADERS = ["Alliance #", "Captain", "Pick 1", "Pick 2", "
  * `teamNumber` + the widened `--spacing-sm` gap (8px, see `PickCell`'s own
  * comment) + the pick's tiered total.
  *
- * `PICK_COLUMN_WIDTH_PX` (190, spread-carrying — VPR): the real worst case
- * across the full 2026 corpus is a 5-digit team number ("10428", 51.88px)
- * plus VPR's own widest published `value ± spread` string ("295.08 ±
- * 105.31", 107.44px boxed — both figures real, drawn from the actual
- * deployed artifact, not invented). 51.88 + 8 (gap) + 107.44 = 167.32px
- * content + 16px `TableCell` `p-2` padding + 6px cross-browser font-hinting
- * buffer = 189.32, rounded up to 190 — this is UNCHANGED from the
- * pre-existing value: the measurement decided VPR's column genuinely cannot
- * shrink further without either clipping a real outlier value or reverting
- * the gap widening.
+ * Quick task 260913-jkp RETIRES the VPR-era spread gate
+ * (`algorithmPublishesSpread`) in favour of `usesSigmaScore`: the pick cell
+ * now renders the split pill (`TotalSigmaValue`), whose width is what needs
+ * headroom, not a per-metric algorithm spread (which no algorithm has
+ * published since VPR's 2026-09-09 retirement). `PICK_COLUMN_WIDTH_SIGMA_PX`
+ * (214) replaces the old spread-carrying `PICK_COLUMN_WIDTH_PX` (190): a
+ * pick cell's content is `teamNumber` (51.88px) + the 8px gap + the pill
+ * itself (130.31px, `TotalSigmaValue.tsx`'s own measurement block, worst
+ * case "425.67" | "±92.00"). 51.88 + 8 + 130.31 = 190.19px content + 16px
+ * `TableCell` `p-2` padding + 6px cross-browser font-hinting buffer =
+ * 212.19, rounded up to 214.
  *
- * `PICK_COLUMN_WIDTH_SPREADLESS_PX` (150, spread-less — EPA/OPR): the same
- * 5-digit team-number worst case, but EPA/OPR never publish a spread
- * (`columns.tsx`'s `algorithmPublishesSpread`), so the metric is a bare
- * boxed value at 65.16px (the same measured width `METRIC_COLUMN_WIDTH_SPREADLESS_PX`
- * derives from). 51.88 + 8 + 65.16 = 125.04px content + 16px padding + 6px
- * buffer = 147.04, rounded up to 150 — a real, measured reduction from 190,
- * not a cosmetic relabeling.
+ * `PICK_COLUMN_WIDTH_SPREADLESS_PX` (150, unchanged — EPA/OPR): neither
+ * publishes Sigma, so the pick cell stays a bare boxed value at 65.16px (the
+ * same measured width `METRIC_COLUMN_WIDTH_SPREADLESS_PX` derives from).
+ * 51.88 + 8 + 65.16 = 125.04px content + 16px padding + 6px buffer = 147.04,
+ * rounded up to 150.
  */
-export const PICK_COLUMN_WIDTH_PX = 190;
+export const PICK_COLUMN_WIDTH_SIGMA_PX = 214;
 export const PICK_COLUMN_WIDTH_SPREADLESS_PX = 150;
 
 function pickColumnWidth(algorithmId: string): number {
-  return algorithmPublishesSpread(algorithmId) ? PICK_COLUMN_WIDTH_PX : PICK_COLUMN_WIDTH_SPREADLESS_PX;
+  return usesSigmaScore(algorithmId) ? PICK_COLUMN_WIDTH_SIGMA_PX : PICK_COLUMN_WIDTH_SPREADLESS_PX;
 }
 
 /**
  * D-7 Combined Total column widths, same measurement pass as the pick
  * columns above. `CombinedCell` carries no team-number span — it is a
- * single `MetricValue`, so its content is exactly one metric's rendered
+ * single `TotalSigmaValue`, so its content is exactly one pill's rendered
  * width, no gap to add.
  *
- * `COMBINED_COLUMN_WIDTH_PX` (130, spread-carrying — VPR): the real
- * worst-case combined value across a full sweep of every 2026 event's
- * published alliances (248 events carrying alliance data) — "852.23 ±
- * 276.88" — measures identically to a single pick's widest string (107.44px
- * boxed; tabular-nums makes width a function of character count, and both
- * strings are the same 6-digit-value/6-digit-spread shape). 107.44 + 16
- * padding + 6 buffer = 129.44, rounded up to 130 — down from the
- * pre-existing 160. The "COMBINED TOTAL" header itself needs only 123.53px
- * (measured against the real `.th-cell-label` uppercase treatment,
- * including its own padding), so the VALUE is still the binding constraint
- * here.
+ * Quick task 260913-jkp: `COMBINED_COLUMN_WIDTH_SIGMA_PX` (180) replaces the
+ * old spread-carrying `COMBINED_COLUMN_WIDTH_PX` (130) — the combined cell
+ * now renders the split pill too, with the neutral Sigma band as its right
+ * half. The real worst case is `TotalSigmaValue.tsx`'s own measured "1024.22"
+ * | "±235.26" pill, 148.47px boxed. The "COMBINED TOTAL ± SIGMA" header needs
+ * 178.34px (measured against the real `.th-cell-label` uppercase treatment,
+ * including its own padding) and binds ahead of the value's own 148.47 + 16 +
+ * 6 = 170.47px — 178.34 rounded up to 180.
  *
- * `COMBINED_COLUMN_WIDTH_SPREADLESS_PX` (128, spread-less — EPA/OPR): here
- * the HEADER is the binding constraint, not the value — the real worst-case
- * EPA combined value ("847.90", no spread) needs only
- * `METRIC_COLUMN_WIDTH_SPREADLESS_PX`'s own 65.16px boxed-6-character
- * content (87.16px with padding+buffer), but the live-measured "COMBINED
- * TOTAL" header text needs 123.53px including its own padding — a real
- * regression caught by re-rendering the "after" screenshot this task's own
- * process requires (D-1's reduced value width does not, by itself,
- * guarantee the header still fits). 123.53 rounded up with a small margin
- * = 128.
+ * `COMBINED_COLUMN_WIDTH_SPREADLESS_PX` (128, unchanged — EPA/OPR): neither
+ * publishes Sigma, so the combined cell stays a bare boxed value, and the
+ * live-measured "COMBINED TOTAL" header (123.53px including its own padding)
+ * remains the binding constraint, unchanged from before this task.
  */
-export const COMBINED_COLUMN_WIDTH_PX = 130;
+export const COMBINED_COLUMN_WIDTH_SIGMA_PX = 180;
 export const COMBINED_COLUMN_WIDTH_SPREADLESS_PX = 128;
 
 function combinedColumnWidth(algorithmId: string): number {
-  return algorithmPublishesSpread(algorithmId) ? COMBINED_COLUMN_WIDTH_PX : COMBINED_COLUMN_WIDTH_SPREADLESS_PX;
+  return usesSigmaScore(algorithmId) ? COMBINED_COLUMN_WIDTH_SIGMA_PX : COMBINED_COLUMN_WIDTH_SPREADLESS_PX;
+}
+
+/**
+ * Quick task 260913-jkp: the backup ("Pick 3"/`pickBackup`) column's width
+ * also now gates on `usesSigmaScore` rather than the retired spread
+ * predicate — `BackupCell` renders the same split pill `PickCell` does.
+ * `BACKUP_COLUMN_WIDTH_SIGMA_PX` (274): `teamNumber` (51.88px) + the 8px gap
+ * + the pill (130.31px) + the 8px gap + the "(backup)" label (52.11px,
+ * measured live at 12px/600 weight) = 242.30px content + 16px padding + 6px
+ * buffer = 264.30 — measured for the ONE-backup-per-row case (the width
+ * case; more than one backup wraps, as it did before this task), rounded up
+ * to 274 for a clean number with a couple of spare pixels. The other
+ * algorithms' backup width (240, unchanged) never carried a Sigma pill and
+ * needs no re-derivation.
+ */
+export const BACKUP_COLUMN_WIDTH_SIGMA_PX = 274;
+export const BACKUP_COLUMN_WIDTH_PX = 240;
+
+function backupColumnWidth(algorithmId: string): number {
+  return usesSigmaScore(algorithmId) ? BACKUP_COLUMN_WIDTH_SIGMA_PX : BACKUP_COLUMN_WIDTH_PX;
 }
 
 /**
@@ -412,8 +487,14 @@ const columnHelper = createColumnHelper<typeof features, AllianceRow>();
  * user's own complaint — "EPA is too close to team number" — was a real,
  * measured 4px gap; live-measured against the deployed 2026mrcmp EPA/VPR
  * rosters, doubling it to 8px gives the number and its metric deliberate
- * separation without threatening `PICK_COLUMN_WIDTH_PX`'s own measured
+ * separation without threatening `PICK_COLUMN_WIDTH_SIGMA_PX`'s own measured
  * budget (that constant's own doc comment accounts for this exact gap).
+ *
+ * Quick task 260913-jkp: the pick's own total renders through
+ * `TotalSigmaValue`, tiered on its own percentile, with its own published
+ * Sigma Score (`pick.sigma`) as the pill's right half — degrading to a plain
+ * tier-boxed value, unchanged, whenever `pick.sigma` is `undefined` (every
+ * OPR/EPA pick, and an SPR pick this event has none for).
  */
 function PickCell({ pick, season, algorithm }: { pick: AlliancePick | undefined; season: number; algorithm: PublishedAlgorithmId }) {
   if (pick === undefined) {
@@ -427,7 +508,11 @@ function PickCell({ pick, season, algorithm }: { pick: AlliancePick | undefined;
       className="flex items-center gap-[var(--spacing-sm)]"
     >
       <span className="numeric-cell">{pick.teamNumber}</span>
-      <MetricValue metric={pick.total} tier={tierForPercentile(pick.total?.percentile)} />
+      <TotalSigmaValue
+        total={pick.total}
+        totalTier={tierForPercentile(pick.total?.percentile)}
+        sigma={pick.sigma !== undefined ? { value: pick.sigma.value, tier: tierForPercentile(pick.sigma.percentile) } : undefined}
+      />
     </Link>
   );
 }
@@ -439,7 +524,8 @@ function PickCell({ pick, season, algorithm }: { pick: AlliancePick | undefined;
  * erase a real team from the only published account of this event's
  * alliance selection. G-8 adds the same tiered total metric `PickCell`
  * renders, dropping the nickname this cell never carried in the first
- * place.
+ * place. Quick task 260913-jkp: the same `TotalSigmaValue` pill as
+ * `PickCell`, same degrade rule.
  */
 function BackupCell({ picks, season, algorithm }: { picks: AlliancePick[]; season: number; algorithm: PublishedAlgorithmId }) {
   if (picks.length === 0) {
@@ -457,7 +543,11 @@ function BackupCell({ picks, season, algorithm }: { picks: AlliancePick[]; seaso
           className="flex items-center gap-[var(--spacing-sm)]"
         >
           <span className="numeric-cell">{pick.teamNumber}</span>
-          <MetricValue metric={pick.total} tier={tierForPercentile(pick.total?.percentile)} />
+          <TotalSigmaValue
+            total={pick.total}
+            totalTier={tierForPercentile(pick.total?.percentile)}
+            sigma={pick.sigma !== undefined ? { value: pick.sigma.value, tier: tierForPercentile(pick.sigma.percentile) } : undefined}
+          />
           <span className="text-role-label text-[var(--color-text-muted)]">{"(backup)"}</span>
         </Link>
       ))}
@@ -467,21 +557,28 @@ function BackupCell({ picks, season, algorithm }: { picks: AlliancePick[]; seaso
 
 /**
  * The Combined Total cell (G-8; widened quick task 260904-7rt, sketch 008
- * winner C): the published `√(Σσ²)` value/spread through `MetricValue`,
- * tiered by the 3x heuristic's APPROXIMATE percentile when one is
- * available, plus a small, quiet marker disclosing the approximation —
- * never a loud banner, matching the sketch-findings skill's "serious tool,
- * more alive" direction. The disclosure attaches whenever a tier BOX is
- * actually drawn. Before 260904-7rt, Common drew no box at all, so there
- * was nothing to qualify there; post-260904-7rt a Common combined total now
- * draws the hairline ring too, and its tier is just as approximate as any
- * other, so it is disclosed on the same terms — the rule ("disclose
- * whenever a box is drawn") did not change, only which tiers draw one. It
- * carries `role="group"` plus `title` and `aria-label` so it reaches a
- * mouse-hover reader and a screen-reader user alike (mirrors
- * `BonusRpDots.tsx`'s own role+title+aria-label trio).
+ * winner C): the published `√(Σσ²)` value through `TotalSigmaValue`, tiered
+ * by the 3x heuristic's APPROXIMATE percentile when one is available, plus
+ * a small, quiet marker disclosing the approximation — never a loud banner,
+ * matching the sketch-findings skill's "serious tool, more alive" direction.
+ * The disclosure attaches whenever a tier BOX is actually drawn. Before
+ * 260904-7rt, Common drew no box at all, so there was nothing to qualify
+ * there; post-260904-7rt a Common combined total now draws the hairline
+ * ring too, and its tier is just as approximate as any other, so it is
+ * disclosed on the same terms — the rule ("disclose whenever a box is
+ * drawn") did not change, only which tiers draw one. It carries
+ * `role="group"` plus `title` and `aria-label` so it reaches a mouse-hover
+ * reader and a screen-reader user alike (mirrors `BonusRpDots.tsx`'s own
+ * role+title+aria-label trio).
+ *
+ * Quick task 260913-jkp, CONTEXT "Alliances Combined Total": `sigma` is the
+ * ROW's `combinedSigma` (`buildAllianceRows`'s all-or-nothing `√(3 * ΣSigma²)`
+ * band), passed with `neutral: true` — there is no percentile for a
+ * three-team band, so `TotalSigmaValue` gives it the untiered slate half
+ * rather than inventing a tier. `undefined` degrades the cell to today's
+ * plain `TotalSigmaValue` no-sigma path, byte-identical to before this task.
  */
-function CombinedCell({ metric, approx }: { metric: DisplayMetric | undefined; approx: AllianceApproxTier | undefined }) {
+function CombinedCell({ metric, approx, sigma }: { metric: DisplayMetric | undefined; approx: AllianceApproxTier | undefined; sigma: number | undefined }) {
   const boxed = approx !== undefined;
   // 2026-09-01 (user request): the visible "≈" glyph is gone. The tier is
   // still a 3x-heuristic APPROXIMATION (see `@/lib/allianceTierApproximation`),
@@ -505,7 +602,7 @@ function CombinedCell({ metric, approx }: { metric: DisplayMetric | undefined; a
       title={boxed ? ALLIANCE_APPROX_TIER_DISCLOSURE : undefined}
       aria-label={boxed ? ALLIANCE_APPROX_TIER_DISCLOSURE : undefined}
     >
-      <MetricValue metric={metric} tier={approx?.tier} />
+      <TotalSigmaValue total={metric} totalTier={approx?.tier} sigma={sigma !== undefined ? { value: sigma, neutral: true } : undefined} />
     </span>
   );
 }
@@ -530,11 +627,12 @@ function buildAllianceColumns(algorithmId: string, season: number, showBackupCol
   // escape hatch every sibling tab already uses for a value the type system
   // widened to plain `string` crossing a component-prop boundary.
   const algorithm = algorithmId as PublishedAlgorithmId;
+  const headers = alliancesColumnHeaders(algorithmId);
 
   return columnHelper.columns([
     columnHelper.accessor("allianceNumber", {
       id: "allianceNumber",
-      header: ALLIANCES_COLUMN_HEADERS[0],
+      header: headers[0],
       // 88 (Task 3, 260902-ixg), not 112 and not the 84 that truncated (the
       // 2026-09-01 report that produced 112): the uppercase 11px
       // "ALLIANCE #" header's own intrinsic text is 72px plus 16px cell
@@ -545,7 +643,7 @@ function buildAllianceColumns(algorithmId: string, season: number, showBackupCol
     }),
     columnHelper.accessor((row) => row.picks[0], {
       id: "pick0",
-      header: ALLIANCES_COLUMN_HEADERS[1],
+      header: headers[1],
       // D-1's `metricColumnWidth` predicate, reused here (`pickColumnWidth`,
       // 260904-5zg) — see that constant's own doc comment for the measured
       // derivation.
@@ -554,13 +652,13 @@ function buildAllianceColumns(algorithmId: string, season: number, showBackupCol
     }),
     columnHelper.accessor((row) => row.picks[1], {
       id: "pick1",
-      header: ALLIANCES_COLUMN_HEADERS[2],
+      header: headers[2],
       size: pickColumnWidth(algorithmId),
       cell: (info) => <PickCell pick={info.getValue()} season={season} algorithm={algorithm} />,
     }),
     columnHelper.accessor((row) => row.picks[2], {
       id: "pick2",
-      header: ALLIANCES_COLUMN_HEADERS[3],
+      header: headers[3],
       size: pickColumnWidth(algorithmId),
       cell: (info) => <PickCell pick={info.getValue()} season={season} algorithm={algorithm} />,
     }),
@@ -571,23 +669,25 @@ function buildAllianceColumns(algorithmId: string, season: number, showBackupCol
       ? [
           columnHelper.accessor((row) => row.picks.slice(ALLIANCE_COMBINED_PICK_COUNT), {
             id: "pickBackup",
-            header: ALLIANCES_COLUMN_HEADERS[4],
-            size: 240,
+            header: headers[4],
+            // Quick task 260913-jkp: `backupColumnWidth` gates on `usesSigmaScore`
+            // — see that function's own doc comment.
+            size: backupColumnWidth(algorithmId),
             cell: (info) => <BackupCell picks={info.getValue()} season={season} algorithm={algorithm} />,
           }),
         ]
       : []),
     columnHelper.accessor("combined", {
       id: "combined",
-      header: ALLIANCES_COLUMN_HEADERS[5],
+      header: headers[5],
       // D-7 (260904-5zg): down from the pre-existing 160 — `combinedColumnWidth`'s
       // own doc comment has the full-corpus measured derivation.
       size: combinedColumnWidth(algorithmId),
-      cell: (info) => <CombinedCell metric={info.getValue()} approx={info.row.original.combinedApproxTier} />,
+      cell: (info) => <CombinedCell metric={info.getValue()} approx={info.row.original.combinedApproxTier} sigma={info.row.original.combinedSigma} />,
     }),
     columnHelper.accessor("record", {
       id: "record",
-      header: ALLIANCES_COLUMN_HEADERS[6],
+      header: headers[6],
       // 72 (Task 3, 260902-ixg), not 100: header "RECORD" needs 66px,
       // widest content ("4-3-0" etc.) needs 62px — 72 covers both with cell
       // padding to spare. Re-measured for D-7 (260904-5zg) against a
@@ -618,14 +718,18 @@ export const ALLIANCES_SKELETON_ROW_COUNT = 6;
  * count lands. Rendering all seven every time is one layout shift, not two.
  */
 export function AlliancesTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
-  void algorithmId;
   void season;
+  // Quick task 260913-jkp: the Combined Total header now varies by
+  // algorithm too (`alliancesColumnHeaders`, the same derivation the live
+  // table uses), so nothing shifts once real data lands under a
+  // Sigma-enabled algorithm.
+  const headers = alliancesColumnHeaders(algorithmId);
   return (
     <div data-testid="alliances-table-scroll" className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
       <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0 }}>
         <TableHeader>
           <TableRow>
-            {ALLIANCES_COLUMN_HEADERS.map((label) => (
+            {headers.map((label) => (
               <TableHead key={label} className="text-role-label truncate">
                 {label}
               </TableHead>
@@ -633,7 +737,7 @@ export function AlliancesTabSkeleton({ algorithmId, season }: { algorithmId: str
           </TableRow>
         </TableHeader>
         <TableBody>
-          <SkeletonRows rows={ALLIANCES_SKELETON_ROW_COUNT} columns={ALLIANCES_COLUMN_HEADERS.length} />
+          <SkeletonRows rows={ALLIANCES_SKELETON_ROW_COUNT} columns={headers.length} />
         </TableBody>
       </table>
     </div>
@@ -679,8 +783,11 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
           real flex/`min-width:0` truncation gap underneath. G-8 (2026-08-30,
           real-device UAT) drops the nickname entirely, which removes the
           reason `auto` was chosen: every pick cell now renders only a team
-          number plus a `MetricValue` whose width is bounded by CSS
-          (`.metric-tier`'s own `min-width: 80px`, never free-growing text).
+          number plus a bounded metric cell (`MetricValue`, or, since quick
+          task 260913-jkp under a Sigma-enabled algorithm, `TotalSigmaValue`'s
+          pill) whose width is bounded by CSS (`.metric-tier`'s own
+          `min-width: 80px`, `.metric-pill`'s own halves, never free-growing
+          text).
           Re-evaluated and switched to `table-layout: fixed` here, matching
           every other event table (Insights/Breakdown/TeamsTable, G-1's own
           fix). Since 07-UI-REVIEW fix 2 this table pins `Alliance #` below

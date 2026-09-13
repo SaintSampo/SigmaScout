@@ -19,8 +19,10 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Router
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { allianceSigmaBandVariance, SIGMA_METRIC_KEY, sigmaMatchBandVariance } from "../../../../../packages/harness/sigmaScore.js";
 import {
   ALLIANCE_APPROX_TIER_DISCLOSURE,
+  ALLIANCE_COMBINED_PICK_COUNT,
   AlliancesTab,
   alliancesIncompleteNotice,
   buildAllianceRows,
@@ -112,8 +114,10 @@ describe("combineAlliancePicks — D-15 combination arithmetic (EVNT-05)", () =>
   // 2026-09-09: this pair used to pin the quadrature COMBINATION of the picks'
   // `spread`. That combination is gone — spread is the algorithm's own
   // confidence and must never reach the screen in any form, including summed.
-  // The values still sum; the alliance simply makes no uncertainty claim until
-  // per-team Sigma Scores are available on this surface.
+  // The values still sum, and this function itself makes no uncertainty claim
+  // (unchanged). Quick task 260913-jkp wires the real replacement alongside
+  // this function, at `buildAllianceRows`'s own `combinedSigma` field — see
+  // the "Combined Total renders the neutral Sigma band" describe block below.
   it("sums the picks' values and returns NO combined ± — the spread-derived one was removed", () => {
     const totals = [
       { value: 10, spread: 10 },
@@ -179,7 +183,7 @@ describe("buildAllianceRows — ordering (EVNT-05 ordering)", () => {
 });
 
 describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G-8)", () => {
-  it("renders exactly SIX column headers (no Pick 3) for a vpr/2024 fixture where no alliance has a backup pick (Task 2, 260902-ixg: measured on 2026iscmp, pickBackup was 240px and empty in all 8 of 8 rows)", async () => {
+  it("renders exactly SIX column headers (no Pick 3) for a spr/2024 fixture where no alliance has a backup pick (Task 2, 260902-ixg: measured on 2026iscmp, pickBackup was 240px and empty in all 8 of 8 rows); Combined Total reads 'Combined Total ± Sigma' under a Sigma-enabled algorithm (quick task 260913-jkp)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]), "spr", 2024);
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(6));
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
@@ -187,7 +191,7 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
       "Captain",
       "Pick 1",
       "Pick 2",
-      "Combined Total",
+      "Combined Total ± Sigma",
       "Record",
     ]);
   });
@@ -221,15 +225,15 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     ]);
   });
 
-  it("Alliance # is 88px wide and Record is 72px wide (Task 3, 260902-ixg) — for a spread-carrying (VPR) fixture the pick columns stay at their content-bound 190px (D-7, 260904-5zg re-measured this and found VPR genuinely cannot shrink further) while Combined Total is now 130px (down from 160, same D-7 pass)", async () => {
+  it("Alliance # is 88px wide and Record is 72px wide (Task 3, 260902-ixg) — for a Sigma-enabled (SPR) fixture the pick columns now hold the split pill at 214px and Combined Total is 180px (quick task 260913-jkp, replacing the retired VPR-era spread-carrying widths)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]));
     const allianceHeader = await screen.findByTestId("alliances-header-allianceNumber");
     const recordHeader = await screen.findByTestId("alliances-header-record");
     expect(allianceHeader.style.width).toBe("88px");
     expect(recordHeader.style.width).toBe("72px");
-    // Spot-check the untouched/D-7-updated columns landed where expected.
-    expect((await screen.findByTestId("alliances-header-pick0")).style.width).toBe("190px");
-    expect((await screen.findByTestId("alliances-header-combined")).style.width).toBe("130px");
+    // Spot-check the Sigma-widened columns landed where expected.
+    expect((await screen.findByTestId("alliances-header-pick0")).style.width).toBe("214px");
+    expect((await screen.findByTestId("alliances-header-combined")).style.width).toBe("180px");
   });
 
   it("D-7 (260904-5zg): for a spread-less (EPA) fixture the pick columns shrink to 150px and Combined Total to 128px (header-bound, not value-bound — see COMBINED_COLUMN_WIDTH_SPREADLESS_PX's own doc comment) — the measured, algorithm-dependent reduction VPR's own worst case does not allow", async () => {
@@ -241,11 +245,11 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     expect((await screen.findByTestId("alliances-header-combined")).style.width).toBe("128px");
   });
 
-  it("the table itself is pinned to the sum of its own column sizes (860px on this no-backup fixture, down from 890 pre-D-7), not stretched to `100%` of its container (Task 3, 260902-ixg: live-measured — `width:100%` was silently undoing the column tightening the moment the column sum fell below the page's available width, table-layout:fixed then redistributing the freed space proportionally back across every column)", async () => {
+  it("the table itself is pinned to the sum of its own column sizes (982px on this no-backup SPR fixture, up from 860 pre-260913-jkp: 3 * 214 pick columns + 180 combined + 88 alliance # + 72 record), not stretched to `100%` of its container (Task 3, 260902-ixg: live-measured — `width:100%` was silently undoing the column tightening the moment the column sum fell below the page's available width, table-layout:fixed then redistributing the freed space proportionally back across every column)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]));
     const scrollRegion = await screen.findByTestId("alliances-table-scroll");
     const table = scrollRegion.querySelector("table");
-    expect(table?.style.width).toBe("860px");
+    expect(table?.style.width).toBe("982px");
   });
 
   it("a fourth pick renders in the Backup cell with a (backup) suffix, and its total is excluded from the combined value", async () => {
@@ -641,5 +645,138 @@ describe("hasAllianceData — D-17's collapse of two distinguishable absences (E
   it("returns true for an artifact with one alliance", () => {
     const artifact = makeArtifact(FOUR_TEAMS, [alliance()]);
     expect(hasAllianceData(artifact)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quick task 260913-jkp — each pick's own Sigma Score renders as the right
+// half of its total's split pill, and the Combined Total carries the
+// all-or-nothing neutral √(3 * ΣSigma²) band.
+// ---------------------------------------------------------------------------
+
+/** A team fixture carrying both a published total and a published Sigma Score entry. */
+function teamWithSigma(overrides: Partial<ArtifactTeam> & { total: number; sigma: number; sigmaPercentile?: number }): ArtifactTeam {
+  const { total, sigma, sigmaPercentile, ...rest } = overrides;
+  return team({
+    ...rest,
+    metrics: { [TOTAL_KEY]: { value: total }, [SIGMA_METRIC_KEY]: { value: sigma, ...(sigmaPercentile === undefined ? {} : { percentile: sigmaPercentile }) } },
+  });
+}
+
+describe("AlliancesTab — each pick's own Sigma Score pill (quick task 260913-jkp)", () => {
+  it("a pick whose team row publishes a sigma entry renders the split pill with that pick's own value and tier", async () => {
+    const teams = [
+      teamWithSigma({ teamKey: "frc1", teamNumber: 1, total: 74.76, sigma: 8.42, sigmaPercentile: 97 }),
+      team({ teamKey: "frc2", teamNumber: 2 }),
+      team({ teamKey: "frc3", teamNumber: 3 }),
+    ];
+    renderAlliances(makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    const captainCell = await screen.findByTestId("alliances-cell-pick0");
+    const pill = within(captainCell).getByTestId("total-sigma-pill");
+    expect(pill.textContent).toContain("74.76");
+    expect(pill.textContent).toContain("±8.42");
+    expect(pill.querySelector(".metric-tier--legendary")).not.toBeNull();
+  });
+
+  it("a pick whose team row publishes no sigma entry renders one plain tiered value, no pill", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    const captainCell = await screen.findByTestId("alliances-cell-pick0");
+    expect(within(captainCell).queryByTestId("total-sigma-pill")).toBeNull();
+  });
+
+  it("under opr, no pick renders a pill — opr's own artifacts never carry a sigma entry at all", async () => {
+    const artifact = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })], { algorithmId: "opr", algorithmVersion: "2.0.0+baseline" });
+    renderAlliances(artifact, "opr", 2024);
+    const captainCell = await screen.findByTestId("alliances-cell-pick0");
+    expect(within(captainCell).queryByTestId("total-sigma-pill")).toBeNull();
+  });
+
+  it("a fourth (backup) pick's own sigma entry renders the same split pill BackupCell shares with PickCell", async () => {
+    const teams = [
+      team({ teamKey: "frc1", teamNumber: 1, nickname: "Alpha" }),
+      team({ teamKey: "frc2", teamNumber: 2, nickname: "Beta" }),
+      team({ teamKey: "frc3", teamNumber: 3, nickname: "Gamma" }),
+      teamWithSigma({ teamKey: "frc4", teamNumber: 4, nickname: "Delta", total: 30, sigma: 12, sigmaPercentile: 60 }),
+    ];
+    renderAlliances(makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4"] })]));
+    const backupCell = await screen.findByTestId("alliances-cell-pickBackup");
+    const pill = within(backupCell).getByTestId("total-sigma-pill");
+    expect(pill.textContent).toContain("30.00");
+    expect(pill.textContent).toContain("±12.00");
+    expect(backupCell.textContent).toContain("(backup)");
+  });
+});
+
+describe("AlliancesTab — Combined Total's neutral Sigma band (quick task 260913-jkp, CONTEXT \"Alliances Combined Total\")", () => {
+  /** Recomputes the expected band through the SAME shipping helpers `buildAllianceRows` composes, never a re-typed sum of squares. */
+  function expectedBand(sigmas: readonly number[]): number {
+    const roster = sigmas.map((_, index) => `frcBand${index}`);
+    const byTeam = new Map(roster.map((key, index) => [key, sigmas[index] as number]));
+    const variance = sigmaMatchBandVariance(ALLIANCE_COMBINED_PICK_COUNT, allianceSigmaBandVariance(roster, byTeam));
+    if (variance === undefined) throw new Error("expected a defined band for a full three-team roster");
+    return Math.sqrt(variance);
+  }
+
+  it("all three first picks carry Sigma: the Combined Total cell renders the neutral band, computed by the shipping helper", async () => {
+    const teams = [
+      teamWithSigma({ teamKey: "frc1", teamNumber: 1, total: 10, sigma: 6 }),
+      teamWithSigma({ teamKey: "frc2", teamNumber: 2, total: 10, sigma: 6 }),
+      teamWithSigma({ teamKey: "frc3", teamNumber: 3, total: 10, sigma: 18 }),
+    ];
+    renderAlliances(makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    const cell = await screen.findByTestId("alliances-cell-combined");
+    const pill = within(cell).getByTestId("total-sigma-pill");
+    const expected = expectedBand([6, 6, 18]);
+    expect(pill.textContent).toContain("30.00"); // 10 + 10 + 10
+    expect(pill.textContent).toContain(`±${expected.toFixed(2)}`);
+    // Neutral, not tiered: no metric-tier class on the sigma half.
+    const sigmaHalf = pill.querySelector(".metric-pill__sigma");
+    expect(sigmaHalf?.className).toContain("metric-pill__sigma--neutral");
+    expect(sigmaHalf?.className).not.toMatch(/metric-tier--/);
+  });
+
+  it("one of the first three picks carries no Sigma: the Combined Total is a bare box, no band, all or nothing", async () => {
+    const teams = [
+      teamWithSigma({ teamKey: "frc1", teamNumber: 1, total: 10, sigma: 6 }),
+      teamWithSigma({ teamKey: "frc2", teamNumber: 2, total: 10, sigma: 6 }),
+      team({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 10 } } }), // no sigma entry
+    ];
+    renderAlliances(makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    const cell = await screen.findByTestId("alliances-cell-combined");
+    expect(within(cell).queryByTestId("total-sigma-pill")).toBeNull();
+    expect(cell.textContent).toContain("30.00");
+  });
+
+  it("a fourth (backup) pick's Sigma never enters the band — only the first three picks count", async () => {
+    const teams = [
+      teamWithSigma({ teamKey: "frc1", teamNumber: 1, total: 10, sigma: 6 }),
+      teamWithSigma({ teamKey: "frc2", teamNumber: 2, total: 10, sigma: 6 }),
+      teamWithSigma({ teamKey: "frc3", teamNumber: 3, total: 10, sigma: 6 }),
+      teamWithSigma({ teamKey: "frc4", teamNumber: 4, nickname: "Delta", total: 999, sigma: 999 }),
+    ];
+    renderAlliances(makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4"] })]));
+    const cell = await screen.findByTestId("alliances-cell-combined");
+    const pill = within(cell).getByTestId("total-sigma-pill");
+    const expectedAllSteady = expectedBand([6, 6, 6]);
+    expect(pill.textContent).toContain(`±${expectedAllSteady.toFixed(2)}`);
+    expect(pill.textContent).not.toContain("999.00");
+  });
+
+  it("under opr, the Combined Total never renders a band — opr's own artifacts never carry a sigma entry at all", async () => {
+    const artifact = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })], { algorithmId: "opr", algorithmVersion: "2.0.0+baseline" });
+    renderAlliances(artifact, "opr", 2024);
+    const cell = await screen.findByTestId("alliances-cell-combined");
+    expect(within(cell).queryByTestId("total-sigma-pill")).toBeNull();
+  });
+
+  it("buildAllianceRows: combinedSigma is undefined whenever combined itself is undefined, even with three Sigma-carrying picks", () => {
+    const teams = [
+      teamWithSigma({ teamKey: "frc1", teamNumber: 1, total: 10, sigma: 6 }),
+      teamWithSigma({ teamKey: "frc2", teamNumber: 2, total: 10, sigma: 6 }),
+      // frc9 is never in the teams array — combined cannot resolve.
+    ];
+    const rows = buildAllianceRows(makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc9"] })]), "spr");
+    expect(rows[0]?.combined).toBeUndefined();
+    expect(rows[0]?.combinedSigma).toBeUndefined();
   });
 });
