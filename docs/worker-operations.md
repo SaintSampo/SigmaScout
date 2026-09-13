@@ -355,7 +355,7 @@ one live-windows manifest and returns before touching D1 or any algorithm state 
 `runTick`'s "Step 1" comment in `apps/worker/src/scheduled.ts`), and no event was live during
 either observation window. The most likely explanation, offered here as an unconfirmed hypothesis
 rather than a diagnosis: this Worker's bundle (which statically imports all of
-`packages/core/algorithms/sigma1`, several thousand lines grown across Phase 3) has had its
+the Sigma1 core, several thousand lines grown across Phase 3, since deleted by quick task 260913-it4) has had its
 cold-start CPU cost creep upward across Phase 7's accumulated commits, and an isolate evicted after
 several idle hours now cold-starts consistently over the 10 ms budget, where the 2026-08-22
 baseline measured only an occasional 13–14 ms cold start (itself already close to the limit, and

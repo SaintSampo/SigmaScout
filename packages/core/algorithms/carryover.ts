@@ -59,8 +59,8 @@
  * `EPA_CARRY_PRIOR_YEAR_WEIGHT` are FROZEN at Statbotics' own published
  * values — they are the baseline SC-3's "beats EPA" claim is measured
  * against, and "beats EPA" has to mean "beats what Statbotics actually
- * ships." Sigma1's OWN tunable copy of this carry math lives in
- * `sigma1/carryover.ts` (`sigma1Carryover`), which imports
+ * ships." Sigma1's OWN tunable copy of this carry math lived in
+ * the retired Sigma1 core (deleted by quick task 260913-it4) (`sigma1Carryover`), which imported
  * `EPA_NORM_MEAN`/`EPA_NORM_SD`/`EPA_INIT_PENALTY`/`EPA_ROOKIE_BASELINE`/
  * `populationMeanSd`/`normalizedFromPoints`/`normalizedToSeasonUnits` from
  * THIS module unchanged, but substitutes its OWN tunable parameter set's
@@ -180,7 +180,7 @@ export function normalizedToSeasonUnits(normalized: number, seasonScoreMean: num
 /**
  * Population mean/sd (matches `expandingStats.ts`'s population convention,
  * not sample). Exported (pure widening, no behaviour change) so
- * `sigma1/carryover.ts` can reuse this exact scale-conversion math rather
+ * the retired Sigma1 core could reuse this exact scale-conversion math rather
  * than re-deriving it — two copies of a scale conversion is exactly the
  * drift this project's failure log (REBUILD_SPEC.md) warns about.
  */

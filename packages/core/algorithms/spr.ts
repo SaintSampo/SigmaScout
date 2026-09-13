@@ -199,8 +199,9 @@ export const SPR_PARAMS: SprParams = {
  * D-13 requires a `{codeVersion}+{paramSetName}` shape, because the paramSetName
  * half becomes part of every published artifact key. `baseline` is the same
  * suffix `opr` (4.0.0+baseline) and `epa` (5.0.0+baseline) carry, and it is the
- * honest one here: BPR has no tuned parameter file and is never touched by
- * `applyPromotedOverrides`. Its constants were frozen once, on 2016-2022
+ * honest one here: BPR has no tuned parameter file and was never touched by
+ * the retired Sigma1 core's promoted-version override (deleted by quick task
+ * 260913-it4). Its constants were frozen once, on 2016-2022
  * evidence, and are not re-tuned per season.
  *
  * Bumped 1.0.0 -> 2.0.0 (quick task 260910-2pt): `predict()`'s observable output
@@ -226,8 +227,8 @@ export const SPR_PARAMS: SprParams = {
  * interval spanning zero, and softCredit measured +0.014pp likewise. Both are
  * correctness arguments, not performance ones.
  *
- * The paramSetName stays `baseline`: `applyPromotedOverrides` still never
- * touches BPR, and `softCredit` is a structural correction rather than a tuned
+ * The paramSetName stays `baseline`: no promoted-version override ever
+ * touched BPR, and `softCredit` is a structural correction rather than a tuned
  * value.
  */
 export const SPR_VERSION = "3.0.0+baseline";
@@ -321,8 +322,8 @@ function erf(x: number): number {
  * no-call by exact equality with 0.5, so without this line a genuinely even
  * prediction is silently recorded as a confident red pick. That hid all 275 of
  * BPR's dead-even cold-start matches (274 in 2016, 1 in 2017) from the
- * published no-call count. Mirrors the same guard `sigma1/linkFunctions.ts`
- * already applies to its own erf-based CDF.
+ * published no-call count. Mirrors the same guard the retired Sigma1 core's
+ * link functions applied to their own erf-based CDF.
  */
 const normCdf = (z: number): number => (z === 0 ? 0.5 : 0.5 * (1 + erf(z / Math.SQRT2)));
 

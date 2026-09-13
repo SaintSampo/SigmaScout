@@ -34,7 +34,6 @@ import {
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
 import { AlgorithmsManifestSchema } from "../../../packages/harness/manifestSchemas.js";
-import { SIGMA1_CODE_VERSION } from "../../../packages/core/algorithms/sigma1/params.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
@@ -274,26 +273,11 @@ function liveWindowsManifest(windows: readonly WindowFixture[]): string {
   });
 }
 
-/**
- * The VPR param-set label this fixture's manifest entry carries. The Worker
- * builds its module via `makeSigma1({ paramSetName })`, whose version identity
- * is `${SIGMA1_CODE_VERSION}+${paramSetName}` — the RUNNING CODE's version,
- * never the manifest's own `version` string. That is D-13 working as intended:
- * a manifest cannot make the Worker mislabel which code produced an artifact.
- *
- * So the artifact-key assertions below must DERIVE the expected version from
- * `SIGMA1_CODE_VERSION` rather than hardcode it. They used to hardcode
- * `"2.1.0+test"`, which passed only because `SIGMA1_CODE_VERSION` happened to
- * be `"2.1.0"` at the time; quick task 260901-is2 bumped it to `"3.0.0"`
- * (D-Q2) and the literal silently became wrong, failing this test for a reason
- * that had nothing to do with the live-tier behaviour it exists to pin.
- * Deriving means the next code bump cannot rot it again.
- */
-// 2026-09-09: the premier algorithm is BPR, whose version comes off its own
-// module rather than being composed from Sigma1's code version. Derived, not
-// literal, for exactly the reason the comment above gives — and it must match
-// the module the Worker actually builds, or the artifact keys this test looks
-// for are keys nothing ever wrote.
+// The premier algorithm's version comes off its own module. Derived, not
+// literal: an earlier hardcoded version string here silently went stale on a
+// code-version bump and failed this test for a reason unrelated to the
+// live-tier behaviour it pins. It must match the module the Worker actually
+// builds, or the artifact keys this test looks for are keys nothing ever wrote.
 const PREMIER_TEST_VERSION = spr.version;
 const PREMIER_TEST_CODE_VERSION = spr.version.split("+")[0]!;
 const PREMIER_TEST_PARAM_SET = spr.version.split("+")[1] ?? "baseline";
@@ -504,7 +488,7 @@ describe("liveAlgorithmTier — only the live tier folds", () => {
 });
 
 describe("liveAlgorithmTier — the three decided misconfiguration behaviors", () => {
-  it("unset or empty defaults to vpr and emits a structured live-tier-defaulted warn line", () => {
+  it("unset or empty defaults to spr and emits a structured live-tier-defaulted warn line", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       expect(parseLiveAlgorithmIds(undefined)).toEqual([...DEFAULT_LIVE_ALGORITHM_IDS]);
@@ -596,7 +580,13 @@ describe("buildAlgorithmModules — no silent Sigma1 fallthrough (quick task 260
     expect(() => buildAlgorithmModules(manifestOf(["mystery"]), ["mystery"])).toThrow(UnknownLiveAlgorithmIdError);
   });
 
-  it("still builds opr, epa and vpr as their own modules", () => {
+  // Quick task 260913-it4 deleted the retired Sigma1 core and the Worker's
+  // branch for it, so a manifest still naming the retired id must throw.
+  it("throws on the retired vpr id rather than building any module for it", () => {
+    expect(() => buildAlgorithmModules(manifestOf(["vpr"]), ["vpr"])).toThrow(UnknownLiveAlgorithmIdError);
+  });
+
+  it("still builds opr, epa and spr as their own modules", () => {
     const modules = buildAlgorithmModules(manifestOf(["opr", "epa", "spr"]), ["opr", "epa", "spr"]);
     expect(modules.get("opr")).toBe(opr);
     expect(modules.get("epa")).toBe(epa);

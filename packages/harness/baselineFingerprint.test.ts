@@ -127,16 +127,12 @@ describe("readSeasonRecordsBySidecar", () => {
 });
 
 const BASELINES_DIR = join("data", "baselines");
-const ALGORITHM_VERSIONS_DIR = join("data", "algorithm-versions");
 
 /**
- * Task 3 (03.2-RESEARCH.md Pitfall 1): proves the two committed OPR
- * fingerprints' placement does not break `digest.test.ts`'s
- * `listVersionFiles()` glob-scan of `data/algorithm-versions/`, which
- * parses every file there against the Sigma1-shaped `PromotedVersionSchema`
- * — a bare OPR fingerprint placed there would fail that scan with an opaque
- * Zod error about a missing `params` field instead of living in a directory
- * built for its own shape.
+ * Task 3 (03.2-RESEARCH.md Pitfall 1): the committed OPR fingerprints live in
+ * `data/baselines/`, a directory built for their own shape. The promoted
+ * version directory they were kept out of was deleted with the retired Sigma1
+ * core by quick task 260913-it4.
  */
 const EVENT_SCOPED_FINGERPRINT_FILE = "opr-event-scoped-2026-08.json";
 
@@ -269,121 +265,6 @@ describe("committed baseline fingerprints", () => {
       const raw: unknown = JSON.parse(readFileSync(join(BASELINES_DIR, file), "utf8"));
       expect(() => BaselineFingerprintSchema.parse(raw)).not.toThrow();
     }
-  });
-
-  it("data/algorithm-versions/ contains exactly the 5 committed Sigma1 promoted versions (RESEARCH.md Pitfall 1) — never a stray baseline fingerprint", () => {
-    // The 2026-09-04 re-tune (under code version 8.0.0, --incumbent-gated
-    // against the live rolling-2026-09 set) added the fourth:
-    // `vpr@8.0.0+rolling-2026-09b.json` — origin 2022's off-arm winner
-    // replacing 2022's set, every other season carried forward.
-    //
-    // Quick task 260904-100 (Task 6) added the third: `vpr@7.0.0+rolling-2026-09.json`,
-    // the rolling-origin per-season promotion — a real, deliberate committed
-    // version, not a stray file. This test's job is to catch the OTHER kind
-    // of drift (a baseline fingerprint dropped in the wrong directory), so it
-    // asserts the exact expected SET, not merely a count that would pass just
-    // as well for three wrong files as for three right ones.
-    //
-    // Quick task 260904-6a1 (Task 3): all three `vpr@7.0.0+*` files were
-    // retired and re-promoted as `vpr@8.0.0+*` under `SIGMA1_CODE_VERSION`'s
-    // 7.0.0 -> 8.0.0 bump — unlike `data/baselines/`'s frozen historical
-    // fingerprints (below), `data/algorithm-versions/` holds the LIVE
-    // committed set `digest.test.ts` re-promotes and gates, so this
-    // assertion tracks the current names rather than a historical record.
-    const files = readdirSync(ALGORITHM_VERSIONS_DIR).filter((name) => name.endsWith(".json"));
-    expect(
-      [...files].sort(),
-      `data/algorithm-versions/ is glob-scanned and Sigma1-schema-parsed by digest.test.ts — baseline fingerprints ` +
-        `belong in ${BASELINES_DIR}, never in ${ALGORITHM_VERSIONS_DIR}. Found: ${JSON.stringify(files)}`
-    // The 2026-09-05 Rule-A promotion (see params.ts's 9.0.0 entry) added the
-    // fifth: `vpr@9.0.0+rolling-2026-09c.json` — 2025/2026 take the Stage 2
-    // carryVarianceFactor tune's on-arm winners under the operator-adopted
-    // Rule A (accuracy AND Brier both improved; the D-T7 bar itself was
-    // keep-incumbent), every other season carried from rolling-2026-09b. All
-    // four `vpr@8.0.0+*` files were retired and re-promoted as `vpr@9.0.0+*`
-    // in the same change, the same precedent as the 7.0.0 -> 8.0.0 bump.
-    // 2026-09-06 (SIGMA1_CODE_VERSION 10.0.0, quick tasks 260906-8i1 /
-    // 260906-7fj): all five `vpr@9.0.0+*` files were retired and re-promoted
-    // as `vpr@10.0.0+*`, the same precedent as both bumps named above. The
-    // COUNT is unchanged at five — this bump adds two provably-inert
-    // parameters, it does not add or remove a promoted set. The three
-    // per-season `rolling-*` files were re-promoted with `--per-season
-    // "<seasons>=version:<9.0.0 file>"` rather than `--from-version`, which
-    // only reads a legacy single-`params` source; every season's values
-    // carried forward unchanged (2025 keeps its 0.8448855225401831
-    // carryVarianceFactor), with the two new fields filling in at their
-    // schema defaults of 0 and 1.
-    // The 2026-09-06 re-tune (this same session, one phase later) added the
-    // sixth: `vpr@10.0.0+rolling-2026-09d.json`. Origin 2022 was the ONLY one
-    // of five to clear Rule A — on both arms, the `on` arm winning the
-    // tie-break on the larger accuracy margin (+0.010397 vs +0.010328) — so
-    // 2022 takes that search winner and every other season carries
-    // rolling-2026-09c forward untouched. The census COUNT goes 5 -> 6 here,
-    // which is the ordinary shape of a promotion; the 5 -> 5 above was the
-    // unusual case, because a code-version bump retires the generation it
-    // replaces while a promotion adds to it.
-    // 2026-09-07 (quick task 260907-203) added the seventh:
-    // `vpr@10.0.0+rolling-2026-09e.json`. This one is NOT a re-tune — every
-    // season's `params` is bitwise identical to `rolling-2026-09d`'s and the
-    // recorded `digest` block is byte-for-byte the same. What it adds is
-    // COVERAGE: `paramSetsBySeason` entries for 2016/2017/2018 (the backward
-    // corpus extension), carrying the same tuned-2026-08-derived set 2019,
-    // 2020, 2023 and 2024 already run. The census COUNT goes 6 -> 7: a
-    // promotion adds to this directory whether or not it moves any number,
-    // so a coverage-only promotion is counted here exactly like a re-tune.
-    // 2026-09-07 (quick task 260907-v1s, SIGMA1_CODE_VERSION 11.0.0) is the
-    // FIRST entry here that makes the count go DOWN, 7 -> 3, and the reason is
-    // worth stating because every note above describes an addition.
-    //
-    // 11.0.0 DELETES seven `Sigma1Params` fields, and `Sigma1ParamsSchema` is
-    // strict, so a 10.0.0 file no longer parses. Three files migrated forward.
-    // The other four — `rolling-2026-09`, `09b`, `09c`, `09d` — were RETIRED
-    // rather than migrated, and not for tidiness: the corpus gained seasons
-    // 2016/2017/2018 on 2026-09-07, and `--per-season` refuses a map that
-    // does not cover every corpus season. Those four predate that ingest, so
-    // migrating them would have meant INVENTING 2016-2018 coverage they never
-    // had. `rolling-2026-09e` already carries exactly that coverage and
-    // supersedes all four, so the honest move was to drop them rather than
-    // fabricate provenance.
-    // 2026-09-08 (quick task 260907-v1s) adds the fourth,
-    // `vpr@11.0.0+rolling-2026-09f.json`, and it is a DE-CONTAMINATION rather
-    // than a re-tune in the usual sense. The 2023 and 2024 parameter sets in
-    // `09e` were selected on 2022/2023/2024 — a window CONTAINING both origins
-    // — so every blinded candidate on those seasons had been scored against an
-    // incumbent that already saw the answers. `09f` replaces exactly those two
-    // seasons with sets selected on 2019/2020/2022 and 2020/2022/2023
-    // respectively; the other eight seasons are carried from `09e` untouched.
-    //
-    // 2024's set was promoted DESPITE scoring lower out-of-sample (-0.0044),
-    // because a contaminated fit has no valid claim to the pin regardless of
-    // the number it posts — see the task's RESULTS.md. `09e` is retained
-    // rather than retired: it is the last pin the live site was published
-    // from, so deleting it would break the record of what R2 currently serves.
-    // 2026-09-08 adds the fifth, `vpr@11.0.0+rolling-2026-09g.json`, and it
-    // completes what `09f` started. `09f` re-fitted 2023 and 2024, the two
-    // seasons whose parameters had been selected IN-SAMPLE; `09g` re-fits the
-    // remaining three acceptance origins, which were blind but had been fitted
-    // to machinery 11.0.0 deleted — 2022 with a `maxTeamKalmanGain` selected
-    // jointly alongside its `attributionShrinkage`, 2025 and 2026 with
-    // adaptation enabled.
-    //
-    // 2022 is the substantive one: re-fitting without the deleted cap moved
-    // its shrinkage 0.844 -> 0.566 and gained +0.0172 accuracy at 6.1 sigma,
-    // Brier also better. 2025 and 2026 accepted on gains of 0.51 and 0.32
-    // sigma — statistically empty, and promoted for CONSISTENCY (every origin
-    // fitted to the model that actually ships) rather than for accuracy. Rule
-    // A has no magnitude requirement, so an empty gain passes it; saying so
-    // here keeps the census from reading as three wins.
-    //
-    // After `09g`, all five acceptance origins are blind (gate 5 reports
-    // inSample=false for 2022-2026) AND fitted under 11.0.0.
-    ).toEqual([
-      "vpr@11.0.0+rolling-2026-09e.json",
-      "vpr@11.0.0+rolling-2026-09f.json",
-      "vpr@11.0.0+rolling-2026-09g.json",
-      "vpr@11.0.0+tracer-check.json",
-      "vpr@11.0.0+tuned-2026-08.json",
-    ]);
   });
 
   it("both retired-implementation fingerprints record OPR's own pre-rewrite id/version, not anything later", () => {

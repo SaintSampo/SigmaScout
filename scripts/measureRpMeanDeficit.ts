@@ -32,7 +32,7 @@
  * Both arms are produced by driving ONE `RpMomentsAccumulator` instance
  * chronologically through ONE walk-forward pass per season and differ by a
  * roster filter applied to the SAME (predicted mean, observed value) pair —
- * never by a second computation. This is `measureRewindGap.ts`'s two-named-
+ * never by a second computation. This is the retired rewind-gap script's two-named-
  * arms convention (D-11's same-scorer discipline) applied one level down.
  *
  * ---------------------------------------------------------------------------
@@ -65,7 +65,7 @@
  * This script reads the corpus READ-ONLY and touches NO credential of any
  * kind: no network request, no R2 client, no environment variable, and its
  * `package.json` entry deliberately omits the environment-file flag, placing
- * it with `tune`, `promote`, `identifiability` and `measure:rewind-gap` — the
+ * it with `identifiability` and the other corpus-only measurement scripts — the
  * corpus-only offline scripts — rather than with the credentialed ones.
  * `.env` is never read, printed, copied or interpolated.
  *

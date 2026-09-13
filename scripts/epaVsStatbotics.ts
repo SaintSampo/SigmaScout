@@ -7,7 +7,7 @@
  * ad-hoc, un-re-runnable measurement (see `packages/core/algorithms/epa.ts`'s
  * file header) with a committed, re-runnable comparison.
  *
- * Season-loop shape mirrors `scripts/measureRewindGap.ts`: `openCorpusReadOnly`,
+ * Season-loop shape mirrors the retired rewind-gap script (deleted by quick task 260913-it4): `openCorpusReadOnly`,
  * `buildSeasonStream`, `seasonBoundaryFor` (cold-starting positionally at
  * the first season in the requested range), `carrySeason` threading between
  * seasons. Statistics live in `packages/harness/epaStatboticsCompare.ts` — a

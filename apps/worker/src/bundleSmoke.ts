@@ -76,7 +76,7 @@ const playedMatch: MatchResult = {
   scoreBreakdownRaw: null,
 };
 
-/** A hand-built, DIAGONAL `AllianceRpMoments` fixture, zero cross-covariance — `analyticRpPmf`'s independence precondition (D-08) requires exactly this shape, and a real algorithm's own moments (e.g. `predictAllianceRpMoments`, `sigma1/rp/state.ts`) is a DIFFERENT thing this smoke test does not need; SOME valid moments are enough to prove the closed form runs inside the Workers runtime. */
+/** A hand-built, DIAGONAL `AllianceRpMoments` fixture, zero cross-covariance — `analyticRpPmf`'s independence precondition (D-08) requires exactly this shape, and a real algorithm's own moments (e.g. `packages/core/rankingPoints/moments.ts`) is a DIFFERENT thing this smoke test does not need; SOME valid moments are enough to prove the closed form runs inside the Workers runtime. */
 function fixtureAllianceRpMoments(variableNames: readonly string[], scoreMean: number, scoreVariance: number): AllianceRpMoments {
   const T = variableNames.length;
   return {

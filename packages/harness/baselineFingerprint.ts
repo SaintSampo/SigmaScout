@@ -3,7 +3,7 @@
  * retired baseline as a small, committed, schema-validated fingerprint —
  * per-season Brier/winner-accuracy plus a hash over the algorithm's full
  * prediction stream, mirroring 03-CONTEXT D-15's existing digest
- * convention (`packages/harness/promote.ts`'s `computePredictionStreamDigest`).
+ * convention (`packages/harness/predictionStreamDigest.ts`'s `computePredictionStreamDigest`).
  *
  * This is a standalone, POST-HOC reader: it never runs a replay itself. It
  * reads one completed harness run directory (`--run-dir`) — the
@@ -15,14 +15,11 @@
  * run of the season-pooled implementation (Task 2) — see each task's
  * committed `sourceNote` for which is which.
  *
- * Deliberately writes to `data/baselines/`, NOT `data/algorithm-versions/`
- * (03.2-RESEARCH.md Pitfall 1 / this plan's Task 3): `digest.test.ts`'s
- * `listVersionFiles()` glob-scans `data/algorithm-versions/` and parses
- * every file there against `PromotedVersionSchema`, which requires a
- * non-optional Sigma1-shaped `params` field OPR has no equivalent of. A
- * bare OPR fingerprint placed in that directory would break that CI gate
- * with an opaque Zod error rather than living in a directory built for its
- * own shape.
+ * Deliberately writes to `data/baselines/` (03.2-RESEARCH.md Pitfall 1 /
+ * this plan's Task 3), a directory built for its own shape, rather than the
+ * retired Sigma1 core's promoted-version directory, whose strict schema an
+ * OPR fingerprint could never have parsed. That directory and its CI scan
+ * were deleted with the core by quick task 260913-it4.
  *
  * `buildBaselineFingerprint` is the pure, testable core — it takes an
  * already-parsed artifact subset and already-read per-season prediction
@@ -59,7 +56,7 @@ import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
-import { computePredictionStreamDigest } from "./promote.js";
+import { computePredictionStreamDigest } from "./predictionStreamDigest.js";
 import type { PredictionRecord } from "./replay.js";
 
 /** One prediction, reduced to exactly the fields `computePredictionStreamDigest` reads. */

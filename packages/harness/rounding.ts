@@ -6,7 +6,7 @@
  * (`packages/harness/pageArtifacts.ts`). It is never called from the
  * scoring path (`packages/harness/score.ts`), the prediction sidecars
  * (`packages/harness/predictions.ts`), or anything a committed digest
- * hashes. In particular, `packages/harness/promote.ts`'s
+ * hashes. In particular, `packages/harness/predictionStreamDigest.ts`'s
  * `computePredictionStreamDigest` states outright that its input must stay
  * "never rounded, `toFixed`'d, or truncated" — a promoted version's digest
  * is the record that a run reproduces bitwise, and applying display

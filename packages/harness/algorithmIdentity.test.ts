@@ -295,7 +295,7 @@ function startsWithCommentOpener(line: string): boolean {
  * `sigma1@2.0.0...`); the id as the value of an `algorithm=` query
  * parameter; and the id as the right-hand side of an `algorithm_id`
  * SQL/JS comparison or assignment. Deliberately does NOT match a bare
- * occurrence inside a filesystem path segment (`.../sigma1/index.ts`) —
+ * occurrence inside a filesystem path segment (a `sigma1` directory name) —
  * under PD-02 the implementation module keeps its directory name, and a
  * pattern that matched it would fail on every import line in the repository.
  */
@@ -503,6 +503,6 @@ describe("algorithmIdentity sweep — standing D-05 assertion, SOURCE half (plan
     walk(REPO_ROOT, files);
     const relPaths = files.map((f) => f.slice(REPO_ROOT.length + 1).replace(/\\/g, "/"));
     expect(relPaths).toContain("packages/harness/algorithmIdentity.test.ts");
-    expect(relPaths).toContain("packages/core/algorithms/sigma1/index.ts");
+    expect(relPaths).toContain("packages/core/algorithms/spr.ts");
   });
 });

@@ -135,7 +135,7 @@ export type BreakdownParsePairOutcome =
 /**
  * T-03-18b: the guarded replacement for calling `parseBreakdown` twice (once
  * per side) at the two call sites this closes
- * (`sigma1/index.ts`/`epa.ts`, both formerly `:735-736`/`:432-433`).
+ * (the retired Sigma1 core (deleted by quick task 260913-it4) and `epa.ts`, formerly `:735-736`/`:432-433`).
  * Precedent: `identifiability.ts:239-249`'s bare `catch` around the same
  * `parseBreakdown` calls, generalized here into a shared, directly-tested
  * helper both algorithms use instead of each duplicating the narrowing

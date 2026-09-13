@@ -4,7 +4,7 @@
  * 04-04 Task 1 into the full offline publisher). Two modes:
  *
  *   pnpm publish:artifacts --event <event_key> --algorithm opr [--bucket <name>] [--dry-run]
- *   pnpm publish:artifacts --seasons 2022-2026 [--algorithm opr,epa,vpr] [--bucket <name>]
+ *   pnpm publish:artifacts --seasons 2022-2026 [--algorithm opr,epa,spr] [--bucket <name>]
  *     [--concurrency 16] [--dry-run] [--skip-state] [--include-offseason]
  *
  * `--event` is the single-event republish path (how a live-event artifact is
@@ -59,12 +59,10 @@ import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { opr, type OprState } from "../core/algorithms/opr.js";
 import { epa, type EpaState } from "../core/algorithms/epa.js";
 import { spr } from "../core/algorithms/spr.js";
-import { vpr, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
 import { isOfficialEventType } from "../core/algorithms/eventTypes.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
 import { isBonusRpCompLevel, isRpEligibleEventType } from "../core/rankingPoints/constants.js";
-import { applyPromotedOverrides } from "./cli.js";
 import {
   openCorpusReadOnly,
   selectEventAlliancesForSeason,
@@ -187,8 +185,8 @@ const PRESIM_SCHEDULE_COUNT = 1000;
  */
 const PRESIM_DRAWS_PER_SCHEDULE = 50;
 
-/** D-03 (rename D-04/D-05, plan 07-16; re-keyed by quick task 260912-ivg): the base (untuned/unpromoted) modules for `PUBLISHED_ALGORITHM_IDS`. `spr` (the module `packages/core/algorithms/spr.ts` exports — wire id and file both renamed from their BPR-era names by quick task 260912-ivg) joined the site on 2026-09-08 and, like `opr`/`epa`, is never overridden by `applyPromotedOverrides` because it carries no tuned parameter file. `resolvePublishAlgorithms` swaps `vpr` for the committed promoted version via `applyPromotedOverrides`, the same rule `manifests.ts`'s `buildAlgorithmsManifest` and `cli.ts`'s harness runs use — never a second, independently-derived resolution (T-04-16). Its own object key and `vpr.id` must agree — they do, because both derive from the same renamed registry export (T-07-16-01). No pre-rename key remains here: the earlier wire id retired entirely, per `PUBLISHED_ALGORITHM_IDS`. */
-const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa, vpr, spr };
+/** D-03 (re-keyed by quick task 260912-ivg): the modules for `PUBLISHED_ALGORITHM_IDS`. `spr` (the module `packages/core/algorithms/spr.ts` exports — wire id and file both renamed from their BPR-era names by quick task 260912-ivg) joined the site on 2026-09-08. None of the three carries a tuned parameter file, so `resolvePublishAlgorithms` returns these modules directly; the retired Sigma1 core and its promoted-version override were deleted by quick task 260913-it4. Each object key and its module's `id` must agree (T-07-16-01). No pre-rename key remains here: the earlier wire ids retired entirely, per `PUBLISHED_ALGORITHM_IDS`. */
+const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa, spr };
 
 // ---------------------------------------------------------------------------
 // Small local helpers shared by every assembly function below
@@ -711,7 +709,7 @@ function eventMatchBonusRpFields(
 /**
  * Exported (plan 09-09 Task 1) so `scripts/measureFieldAveragedRanks.ts`'s
  * BAKED arm is the arm the publisher actually builds, rather than a
- * re-creation of it — the `measureRewindGap.ts` same-scorer convention,
+ * re-creation of it — the retired rewind-gap script's same-scorer convention,
  * applied to the pricing closure. No behaviour change.
  */
 export function makeRankingPointFiller(
@@ -1171,12 +1169,12 @@ export interface ActualBonusFlags {
  * breakdown throws for any reason (malformed JSON, a schema mismatch on
  * self-reported data — T-06.1-19: caught here so ONE bad match cannot abort
  * a whole publish run). These are the SAME two predicates
- * `packages/core/algorithms/sigma1/index.ts`'s `update()` already uses to
+ * the retired Sigma1 core (deleted by quick task 260913-it4)'s `update()` used to
  * decide whether to fold a match's RP observation at all (its `usedFallback
  * || !isRpEligibleEventType(...)` skip condition) — so a match whose RP
  * fold Sigma1 skips is EXACTLY a match whose actual flags this function
  * publishes as `null`. Two independently-drifting eligibility rules is the
- * exact failure mode `sigma1/index.ts`'s own comment there warns against;
+ * exact failure mode that core's own comment there warned against;
  * this correspondence is documented, not merely coincidental.
  *
  * A successfully-parsed match's boolean array is built by mapping the rule
@@ -2559,7 +2557,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // below — since the raw score breakdown and this season's RP rule
     // module describe the match, not a prediction. See
     // `actualBonusFlagsForSeason`'s own doc comment for the full null
-    // contract and its exact correspondence with `sigma1/index.ts`'s
+    // contract and its exact correspondence with the retired Sigma1 core's
     // `update()` RP-fold skip predicate.
     const actualBonusFlagsByMatchKey = actualBonusFlagsForSeason(stream, season);
 
@@ -3403,7 +3401,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       let rows = withRpBeliefs(
         withSigmaBeliefs(
           withSwingBeliefs(
-            serializeState(algorithm.id, algorithm.version, state as Sigma1State | EpaState | OprState, stamp),
+            serializeState(algorithm.id, algorithm.version, state as EpaState | OprState, stamp),
             finalSeasonSwing.get(algorithm.id) ?? new Map()
           ),
           finalSeasonSigma.get(algorithm.id) ?? new Map()
@@ -3476,7 +3474,7 @@ export function resolvePublishAlgorithms(idsCsv: string | undefined): AlgorithmM
     }
     resolved.push(base);
   }
-  return applyPromotedOverrides(resolved);
+  return resolved;
 }
 
 /**

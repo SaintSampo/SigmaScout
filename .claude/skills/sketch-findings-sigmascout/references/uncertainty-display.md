@@ -141,7 +141,7 @@ visible when it lands on top of the band it belongs to.
 ## Data dependency (not yet satisfied)
 
 **Match-level predictive variance is published on the team artifact, not yet on the event artifact.**
-The harness uses D-10's `P + Q + R` in `packages/core/algorithms/sigma1/linkFunctions.ts` to produce
+The harness used D-10's `P + Q + R` in the retired Sigma1 core's link functions (deleted by quick task 260913-it4) to produce
 `pRedWin`; the per-match `redScoreVarianceOwn`/`blueScoreVarianceOwn` values it also computes have
 carried through to `TeamSeasonMatchSchema` since Phase 6 D-01, so a team page's own match table can
 already draw a real band. `EventMatchSchema` in `packages/harness/pageArtifacts.ts` does not yet

@@ -9,7 +9,7 @@
  * not an achievement: it is the best correlation ANY estimator of that shape
  * could reach against a team's next-match deviation, swept over 275,172
  * team-matches. It was measured against the PRE-CENTRING, about-zero estimator
- * (`sigma1/swing.ts`, quick task 260903-750).
+ * (in the retired Sigma1 core (deleted by quick task 260913-it4), quick task 260903-750).
  *
  * Everything that defines today's estimator landed afterwards: centring on the
  * team's own running mean, the below-two-observations rule, the demo and

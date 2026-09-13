@@ -4,7 +4,7 @@
  *
  * This is the adapter VPR's retirement left missing. `distribution.ts` needs an
  * `AllianceRpMoments` per alliance; Sigma1 produced one from its own Kalman
- * state (`sigma1/rp/state.ts`), which is exactly why ranking points died with
+ * state (in the retired Sigma1 core, since deleted), which is exactly why ranking points died with
  * it. This module produces the same contract from NOTHING BUT PAST RESULTS —
  * no model state, no per-team rating, no algorithm import — so every algorithm
  * gets ranking points, including OPR and EPA, which model no uncertainty at

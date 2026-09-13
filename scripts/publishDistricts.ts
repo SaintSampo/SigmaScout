@@ -110,7 +110,7 @@ const EventPointsEntrySchema = z.object({
 
 const EventPointsArraySchema = z.array(EventPointsEntrySchema);
 
-/** TBA `event_type` -> this model's two-tier vocabulary. `2`=District Championship, `5`=District Championship Division map to `"dcmp"` (mirrors `packages/core/algorithms/sigma1/rp/constants.ts`'s `EVENT_TYPE_TIERS`); every other value observed in a district's own event list is `"district"`. */
+/** TBA `event_type` -> this model's two-tier vocabulary. `2`=District Championship, `5`=District Championship Division map to `"dcmp"` (mirrors `packages/core/rankingPoints/constants.ts`'s `EVENT_TYPE_TIERS`); every other value observed in a district's own event list is `"district"`. */
 function districtTierForEventType(eventType: number): DistrictTier {
   return eventType === 2 || eventType === 5 ? "dcmp" : "district";
 }

@@ -36,7 +36,6 @@ import { deserializeState, type StateRow, type StateRowScopeKind } from "../../.
 import type { EpaState } from "../../../packages/core/algorithms/epa.js";
 import type { OprState } from "../../../packages/core/algorithms/opr.js";
 import type { SprState } from "../../../packages/core/algorithms/spr.js";
-import type { Sigma1State } from "../../../packages/core/algorithms/sigma1/index.js";
 
 export type { StateRow, StateRowScopeKind } from "../../../packages/harness/stateSnapshot.js";
 
@@ -162,7 +161,7 @@ export async function readAndDeserializeScopedState(
   db: D1Database,
   algorithmId: string,
   selections: readonly ScopeSelection[]
-): Promise<Sigma1State | EpaState | OprState | SprState> {
+): Promise<EpaState | OprState | SprState> {
   const rows = await readScopedState(db, algorithmId, selections);
   return deserializeState(algorithmId, rows);
 }

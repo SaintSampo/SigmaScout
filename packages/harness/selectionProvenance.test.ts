@@ -1,179 +1,53 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { PUBLISHED_ALGORITHM_IDS } from "./publishedAlgorithms.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_SIGMA1_PARAMS, SIGMA1_CODE_VERSION } from "../core/algorithms/sigma1/params.js";
 import { openCorpus, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
-import { ALGORITHMS, applyPromotedOverrides } from "./cli.js";
-import { PromotedVersionSchema } from "./promote.js";
-import { PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
+import { ALGORITHMS } from "./cli.js";
 import { resolvePublishAlgorithms } from "./publish.js";
 import type { HarnessPredictionInput } from "./score.js";
-import { aggregateScoresForRun, selectedOnSeasonsFor, vprSelectedOnSeasonsFromPath } from "./selectionProvenance.js";
-
-/**
- * Read independently of `selectionProvenance.ts`'s own path construction —
- * this is what actually proves the module reads the SAME committed file
- * `cli.ts`/`publish.ts` load for `vpr`, rather than merely asserting a value
- * this test also computed the same (wrong) way. This is the ONE place in the
- * repo that keeps a hand-typed literal after the pin's collapse to
- * `promotedVersionPath.ts` (quick task 260904-2i9) — importing the shared
- * constant here instead would make the agreement assertion below tautological
- * and delete the only independent witness that the pin actually moved.
- */
-const INDEPENDENTLY_RESOLVED_VPR_VERSION_PATH = join(
-  "data",
-  "algorithm-versions",
-  `vpr@${SIGMA1_CODE_VERSION}+rolling-2026-09g.json`
-);
-
-// The single agreement pin (quick task 260904-2i9): if `promotedVersionPath.ts`
-// is ever re-pinned without this file's independent literal following it,
-// this goes red naming both values — the collapse's whole protection depends
-// on this witness staying independent AND checked.
-it("the independently-typed literal above agrees with the shared PROMOTED_VPR_VERSION_PATH constant", () => {
-  expect(INDEPENDENTLY_RESOLVED_VPR_VERSION_PATH).toBe(PROMOTED_VPR_VERSION_PATH);
-});
-
-function readCommittedVprProvenance() {
-  const raw: unknown = JSON.parse(readFileSync(INDEPENDENTLY_RESOLVED_VPR_VERSION_PATH, "utf8"));
-  return PromotedVersionSchema.parse(raw);
-}
+import { aggregateScoresForRun, selectedOnSeasonsFor } from "./selectionProvenance.js";
 
 describe("selectedOnSeasonsFor", () => {
-  it("vpr's selected-on seasons are read PER SEASON from the committed file's own paramSetsBySeason map, and differ across seasons", () => {
-    const committed = readCommittedVprProvenance();
-    const bySeason = committed.paramSetsBySeason;
-    if (!bySeason) throw new Error("expected the committed rolling-2026-09 file to carry paramSetsBySeason");
-
-    const result = selectedOnSeasonsFor(["vpr"]);
-    const season2019Expected = bySeason["2019"]?.selectedOnSeasons;
-    const season2026Expected = bySeason["2026"]?.selectedOnSeasons;
-    if (!season2019Expected || !season2026Expected) {
-      throw new Error("expected the committed file's paramSetsBySeason map to cover both 2019 and 2026");
-    }
-
-    expect(result.vpr!(2019)).toEqual(season2019Expected);
-    expect(result.vpr!(2026)).toEqual(season2026Expected);
-    // A per-season file's whole point is that one flat list can no longer
-    // stand in for every season — only a differing pair proves
-    // `selectedOnSeasonsFor` is resolving per season rather than returning
-    // one set for all of them.
-    expect(season2019Expected).not.toEqual(season2026Expected);
-  });
-
-  it("opr, epa, and vpr-defaults — never-tuned baselines — come back with an explicit empty array each, not an omission", () => {
-    const result = selectedOnSeasonsFor(["opr", "epa", "vpr-defaults"]);
+  it("opr, epa, and spr — never-tuned algorithms — come back with an explicit empty array each, not an omission", () => {
+    const result = selectedOnSeasonsFor(["opr", "epa", "spr"]);
     expect(result.opr!(2024)).toEqual([]);
     expect(result.epa!(2024)).toEqual([]);
-    expect(result["vpr-defaults"]!(2024)).toEqual([]);
+    expect(result.spr!(2024)).toEqual([]);
+  });
+
+  it("registers a source for exactly the harness registry's ids", () => {
+    expect(Object.keys(ALGORITHMS)).toEqual(["opr", "epa", "spr"]);
+    expect(Object.keys(selectedOnSeasonsFor(Object.keys(ALGORITHMS)))).toEqual(["opr", "epa", "spr"]);
   });
 
   it("an unregistered algorithm id throws, naming the id", () => {
     expect(() => selectedOnSeasonsFor(["not-a-real-algorithm"])).toThrow(/not-a-real-algorithm/);
   });
 
-  // 2026-09-09: VPR was retired from the published set, so the PUBLISH path no
-  // longer resolves it at all and there is no second resolution left to drift
-  // from. The committed provenance file still exists and is still read by the
-  // harness's own tuning runs (`applyPromotedOverrides` in `cli.ts`), which is
-  // a different consumer — what this now pins is that the two are genuinely
-  // separated: publishing must NOT resurrect a retired id from that file.
-  it("no longer resolves vpr for publishing — the retired id must not come back through the promoted-version file", () => {
+  // Quick task 260913-it4 deleted the retired Sigma1 core together with its
+  // registry entries, so its retired id must now be unregistered rather than
+  // silently answering [].
+  it("the retired vpr id is unregistered and throws, naming the id", () => {
+    expect(() => selectedOnSeasonsFor(["vpr"])).toThrow(/"vpr"/);
+  });
+
+  it("publishing resolves exactly the published ids and never the retired vpr id", () => {
     const resolved = resolvePublishAlgorithms(undefined);
     expect(resolved.some((m) => m.id === "vpr")).toBe(false);
     expect(resolved.map((m) => m.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
-  });
-
-  /**
-   * F-2 (quick task 260903-tk6): the `vpr-adapt` case that has never
-   * existed. Written so it holds BOTH on a developer machine with a stale
-   * `reports/tune-joint-on.json` (this checkout, 2026-09-03: the file
-   * exists but its winner's params fail this code version's schema) AND in
-   * CI where `reports/` is empty — it asserts the STRUCTURAL equivalence
-   * `resolveOnSearchWinner`'s sharing guarantees, never a gitignored file's
-   * presence.
-   */
-  // The `vpr-adapt` selected-on case was deleted at 11.0.0 (quick task
-  // 260907-v1s): the module is deregistered along with the adaptation
-  // mechanism, so there is no search-winner arm left for it to resolve.
-});
-
-describe("vprSelectedOnSeasonsFromPath — per-season provenance (D-1/D-2, quick task 260904-100)", () => {
-  const tempDirs: string[] = [];
-
-  function writeVersion(body: unknown): string {
-    const dir = mkdtempSync(join(tmpdir(), "selection-provenance-per-season-"));
-    tempDirs.push(dir);
-    const path = join(dir, "version.json");
-    writeFileSync(path, JSON.stringify(body), "utf8");
-    return path;
-  }
-
-  afterEach(() => {
-    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-  });
-
-  function perSeasonFixture(): unknown {
-    return {
-      id: "vpr",
-      codeVersion: "9.9.9",
-      paramSetName: "fixture",
-      version: "9.9.9+fixture",
-      paramSetsBySeason: {
-        "2022": {
-          params: DEFAULT_SIGMA1_PARAMS,
-          selectedOnSeasons: [2019, 2020],
-          sourceKind: "search-winner",
-          sourceArtifact: "reports/tune-joint-on-origin2022.json",
-        },
-        "2023": {
-          params: DEFAULT_SIGMA1_PARAMS,
-          selectedOnSeasons: [2022, 2023, 2024],
-          sourceKind: "carried-version",
-          sourceArtifact: "reports/tune-joint-off.json",
-        },
-      },
-      provenance: {
-        corpusIdentity: "data/corpus.sqlite",
-        promotedAt: "2026-09-04T00:00:00.000Z",
-      },
-      digest: {
-        sliceSeason: 2022,
-        sliceEventKeys: ["2022alhu"],
-        sliceMatchCount: 1,
-        predictionStreamSha256: "c".repeat(64),
-        headlineMetrics: [],
-      },
-    };
-  }
-
-  it("resolves each covered season to its OWN selectedOnSeasons — never a single flat list for both", () => {
-    const path = writeVersion(perSeasonFixture());
-    expect(vprSelectedOnSeasonsFromPath(path, 2022)).toEqual([2019, 2020]);
-    expect(vprSelectedOnSeasonsFromPath(path, 2023)).toEqual([2022, 2023, 2024]);
-  });
-
-  it("throws, naming the season, for a season the per-season map does not cover — never []", () => {
-    const path = writeVersion(perSeasonFixture());
-    expect(() => vprSelectedOnSeasonsFromPath(path, 2026)).toThrow(/2026/);
-  });
-
-  it("returns [] for a missing file, mirroring applyPromotedOverrides' own fallback — the same condition, not a second one", () => {
-    expect(vprSelectedOnSeasonsFromPath(join(tmpdir(), "definitely-does-not-exist-260904-100.json"), 2022)).toEqual([]);
   });
 });
 
 /**
  * F-1 (quick task 260903-tk6): direct coverage of `aggregateScoresForRun` —
- * the single derivation `cli.ts:777` and `publish.ts:1517/1998` used to
- * independently rebuild. Both assertions below live in ONE test so a single
- * command demonstrates the two reverts this task's SUMMARY records as
- * observed RED: narrowing the corpus-season source to the seasons the run
- * happens to be scoring (reddens the opr assertion), and replacing the
- * selected-on source with an all-empty map (reddens the vpr assertion).
+ * the single derivation `cli.ts` and `publish.ts` used to independently
+ * rebuild. The corpus-season assertion reddens if the corpus-season source is
+ * narrowed to the seasons the run happens to be scoring; the unregistered-id
+ * assertion reddens if the selected-on source stops being this module's
+ * registry.
  */
 describe("aggregateScoresForRun", () => {
   let dir: string;
@@ -249,7 +123,7 @@ describe("aggregateScoresForRun", () => {
     };
   }
 
-  it("corpusSeasons comes from the corpus (2022/2023 priors), not from the seasons the run scores; selectedOnSeasons comes from the registry, not a hand-built map — opr eligible, vpr ineligible on 2024", () => {
+  it("corpusSeasons comes from the corpus (2022/2023 priors), not from the seasons the run scores; selectedOnSeasons comes from the registry, not a hand-built map", () => {
     upsertEvent(db, event({ eventKey: "2022prior", year: 2022 }));
     upsertMatch(db, match({ matchKey: "2022prior_qm1", eventKey: "2022prior" }));
     upsertEvent(db, event({ eventKey: "2023prior", year: 2023 }));
@@ -261,32 +135,22 @@ describe("aggregateScoresForRun", () => {
     // corpus as priors but are never scored by this call.
     const predictions: HarnessPredictionInput[] = [
       prediction({ matchKey: "2024casj_qm1", season: 2024, algorithmId: "opr" }),
-      prediction({ matchKey: "2024casj_qm1", season: 2024, algorithmId: "vpr" }),
+      prediction({ matchKey: "2024casj_qm1", season: 2024, algorithmId: "spr" }),
     ];
 
-    const slices = aggregateScoresForRun(db, predictions, ["opr", "vpr"]);
+    const slices = aggregateScoresForRun(db, predictions, ["opr", "spr"]);
     const combined = slices.filter((s) => s.compLevelView === "combined");
 
-    const oprSlice = combined.find((s) => s.algorithmId === "opr" && s.season === 2024);
-    const vprSlice = combined.find((s) => s.algorithmId === "vpr" && s.season === 2024);
-
-    // opr: never tuned (selectedOn = []), and the CORPUS supplies two priors
+    // Never tuned (selectedOn = []), and the CORPUS supplies two priors
     // (2022, 2023) even though the run scored one season — reddens if the
     // corpus-season source is narrowed to the run's own scored seasons.
-    expect(oprSlice?.headlineEligible).toBe(true);
-    // vpr on 2024 flipped false -> TRUE on 2026-09-08 (quick task 260907-v1s):
-    // its 2024 parameters were re-fitted from the contaminated 2022/2023/2024
-    // window onto a strictly-prior 2020/2022/2023 one, so 2024 is no longer
-    // inside its own selected-on set.
-    //
-    // NOTE what this costs the test, stated rather than glossed: with both
-    // algorithms now eligible, this assertion no longer distinguishes "the
-    // selected-on source is the registry" from "the selected-on source is an
-    // all-empty map" — an all-empty map would produce eligible-for-both too.
-    // The guard is preserved instead by asserting the resolved set DIRECTLY
-    // below, which an all-empty map fails outright.
-    expect(vprSlice?.headlineEligible).toBe(true);
-    const vprSelectedOn = selectedOnSeasonsFor(["vpr"])["vpr"]?.(2024) ?? [];
-    expect(vprSelectedOn).toEqual([2020, 2022, 2023]);
+    expect(combined.find((s) => s.algorithmId === "opr" && s.season === 2024)?.headlineEligible).toBe(true);
+    expect(combined.find((s) => s.algorithmId === "spr" && s.season === 2024)?.headlineEligible).toBe(true);
+
+    // The selected-on source is the registry: an id it does not register
+    // throws, naming the id, where a hand-built all-empty map would pass.
+    expect(() =>
+      aggregateScoresForRun(db, [prediction({ matchKey: "2024casj_qm1", season: 2024, algorithmId: "not-registered" })], ["not-registered"])
+    ).toThrow(/not-registered/);
   });
 });

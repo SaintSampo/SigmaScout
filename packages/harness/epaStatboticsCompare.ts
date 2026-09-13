@@ -259,7 +259,7 @@ export interface SpotCheckOptions {
  * SC-2's "spot-checked teams" — the top `topCount` (default 15) teams by
  * Statbotics value, plus a deterministic sample of `sampleCount` (default
  * 15) more drawn from the remainder via a fixed-seed Fisher-Yates shuffle
- * (`mulberry32`, the same PRNG `scripts/measureRewindGap.ts` already uses),
+ * (`mulberry32`, the same PRNG the retired rewind-gap script used),
  * so re-running this script prints the identical named rows every time.
  */
 export function selectSpotCheckTeams(pairs: readonly TeamPair[], options: SpotCheckOptions): TeamPair[] {

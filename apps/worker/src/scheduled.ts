@@ -118,7 +118,6 @@
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
-import { makeSigma1 } from "../../../packages/core/algorithms/sigma1/index.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
 import { isOfficialEventType } from "../../../packages/core/algorithms/eventTypes.js";
 import type { AlgorithmModule, MatchResult, Prediction, TeamMetric, UpcomingMatch } from "../../../packages/core/algorithms/types.js";
@@ -326,21 +325,11 @@ export function buildAlgorithmModules(algorithmsManifest: AlgorithmsManifest, li
       modules.set(entry.id, spr);
       continue;
     }
-    // VPR, and ONLY VPR. Every published VPR entry uses the
-    // "predictive-variance" link mode (the `vpr` id's own default — the
-    // manifest schema rejects the four harness-only link-mode ids by name).
-    //
-    // This is an explicit equality test rather than a fallthrough (quick task
-    // 260908-5wd). It used to be `else`, which meant any id not named above
-    // was constructed as a SIGMA1 MODULE WEARING THAT ID: setting
-    // LIVE_ALGORITHM_IDS to "spr" would have folded live events with the wrong
-    // model and written the results to BPR's artifacts, silently — nothing
-    // would throw, because `serializeState` has a real `spr` branch and the
-    // state would round-trip. An unknown id must be loud, not plausible.
-    if (entry.id === "vpr") {
-      modules.set(entry.id, makeSigma1({ id: entry.id, linkMode: "predictive-variance", params: entry.params, paramSetName: entry.paramSetName }));
-      continue;
-    }
+    // Any other id throws (quick task 260908-5wd). A default branch once built
+    // an unknown id as a different model wearing that id, which would fold
+    // live events with the wrong model silently; an unknown id must be loud,
+    // not plausible. The retired Sigma1 core's branch was deleted with that
+    // core by quick task 260913-it4.
     throw new UnknownLiveAlgorithmIdError(entry.id);
   }
   if (modules.size === 0) {
@@ -353,19 +342,16 @@ export function buildAlgorithmModules(algorithmsManifest: AlgorithmsManifest, li
  * D-09: which algorithms keep EVENT-SCOPED state, and therefore need this
  * event's own row loaded before a tick may fold into it.
  *
- * OPR has since plan 04-08 (per-event observations/ratings). Every VPR module
- * has since quick task 260902-varopr (D-V1/D-V3): `Sigma1State.perEventVariance`
- * holds the per-team variance decomposition's accumulated normal equations,
- * one accumulator per event. EPA is team-scoped only.
+ * OPR has since plan 04-08 (per-event observations/ratings). EPA and SPR are
+ * team-scoped only.
  *
  * A SET rather than a chain of `if`s so a fourth event-scoped algorithm is one
  * entry, not a fourth branch that could be forgotten — the forgetting is the
  * failure mode this constant exists to make hard (see `selectionsFor`).
  */
-// D-Y3 (quick task 260903-750): "vpr" was REMOVED. Sigma1 no longer writes
-// `scopeKind: "event"` rows — its published `±` became one running number per
-// team, which rides the team rows — so loading event rows for it would fetch
-// nothing and cost a subrequest per tick.
+// D-Y3 (quick task 260903-750): "vpr" was removed from this set when it stopped
+// writing event rows; the retired Sigma1 core itself was deleted by quick task
+// 260913-it4.
 export const EVENT_SCOPED_ALGORITHM_IDS = new Set(["opr"]);
 
 /**
@@ -1618,7 +1604,7 @@ export const GLOBAL_REBUILD_INTERVAL_MS = 10 * 60 * 1000;
 export interface RunTickDeps {
   readonly nowMs?: number;
   readonly globalRebuildIntervalMs?: number;
-  /** Test-only injection point (defaults to the real `buildAlgorithmModules`) — lets a test wrap it with a call counter to assert modules are constructed ONCE per tick, never once per event (Pitfall 4), without mocking the whole `packages/core/algorithms/sigma1` module. */
+  /** Test-only injection point (defaults to the real `buildAlgorithmModules`) — lets a test wrap it with a call counter to assert modules are constructed ONCE per tick, never once per event (Pitfall 4), without mocking the algorithm modules themselves. */
   readonly buildAlgorithmModules?: (algorithmsManifest: AlgorithmsManifest, liveAlgorithmIds: readonly string[]) => Map<string, AlgorithmModule<any>>;
   /** Test-only override of `SubrequestBudget`'s constructor args — lets a test drive the deferral/no-starvation and budget-exhausted-global-rebuild paths deterministically without depending on this tick's exact real subrequest-cost arithmetic. Defaults to `SUBREQUEST_CAP`/`SUBREQUEST_RESERVE` (the real production values) when omitted. */
   readonly subrequestCap?: number;

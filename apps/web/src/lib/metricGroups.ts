@@ -17,7 +17,7 @@ import {
  * per-team component covariance restricted to the group's indices — the
  * off-diagonal Cov(auto_i, auto_j) terms are not published, so a client sum
  * cannot reproduce it. Both are computed where the covariance actually
- * lives (`sigma1/index.ts`'s `teamMetrics`, via `covariance.ts`'s
+ * lived (the retired Sigma1 core (deleted by quick task 260913-it4)'s `teamMetrics`, via its
  * `subsetVariance`).
  *
  * As of quick task 260904-7id (D-1/D-3), EPA's pipeline ALSO publishes the

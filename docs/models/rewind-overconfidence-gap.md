@@ -1,5 +1,7 @@
 # Rewind-overconfidence gap (D-02's control run, 2026-08-31)
 
+*2026-09-13: the code this record measured was deleted by quick task 260913-it4, restorable from the commit recorded in that task's SUMMARY.*
+
 This is the single narrative home for D-02's required measurement: how much narrower the
 Simulation tab's rank distribution comes out when its rewind start match is already played,
 compared to an honest from-here forecast at the same match. D-01 lets the tab rewind into an

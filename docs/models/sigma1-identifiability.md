@@ -1,5 +1,7 @@
 # Sigma1 identifiability (SC-3)
 
+*2026-09-13: the code this record measured was deleted by quick task 260913-it4, restorable from the commit recorded in that task's SUMMARY.*
+
 This is the check the failure log demands before a variance-carrying model ships: REBUILD_SPEC.md's failure log records an unidentifiable 4D offense/defense/time-allocation model that collapsed — given only alliance-level 3-vs-3 sum observations, the optimizer had more free parameters per team than the data could pin down, and parameters drifted arbitrarily between runs rather than converging. D-06's response was structural: Sigma1 estimates offense only, no defense latent, no cross-team covariance. This document is the check that the response actually works, run against the real corpus (`data/corpus.sqlite`) rather than argued on paper — every number below is quoted from `reports/identifiability.json`, produced by `packages/harness/identifiability.ts` (`pnpm identifiability --seasons 2022-2026`).
 
 **Corrected 2026-08-21 (Phase 3.2):** this document's description of `opr.ts` below (Sections 1
@@ -12,7 +14,7 @@ measurement, not an OPR figure, and is left exactly as originally measured — t
 re-run this check. See `docs/models/opr-baseline-change.md` for the full baseline-change
 narrative.
 
-**Not re-run after the CR-01/WR-01 code review fixes (2026-08-14):** `identifiability.ts` imports `parseBreakdown`/`componentMapForSeason` directly (the real-`score_breakdown` parse path) and does not import `epa.ts`, `sigma1/index.ts`, or `distributeResidual` at all — it builds its design matrix purely from real, parsed breakdowns, never through either algorithm's `update()`/D-05 fallback path. CR-01 (fallback cross-alliance foul misattribution) and WR-01 (EPA's finite-value gate) are both isolated to that fallback path, so this document's inputs are unaffected; it was not re-run.
+**Not re-run after the CR-01/WR-01 code review fixes (2026-08-14):** `identifiability.ts` imports `parseBreakdown`/`componentMapForSeason` directly (the real-`score_breakdown` parse path) and does not import `epa.ts`, the Sigma1 core, or `distributeResidual` at all — it builds its design matrix purely from real, parsed breakdowns, never through either algorithm's `update()`/D-05 fallback path. CR-01 (fallback cross-alliance foul misattribution) and WR-01 (EPA's finite-value gate) are both isolated to that fallback path, so this document's inputs are unaffected; it was not re-run.
 
 ## 1. What Sigma1 estimates — every state dimension, per season
 

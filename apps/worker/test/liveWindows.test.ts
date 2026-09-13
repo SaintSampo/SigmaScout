@@ -124,14 +124,6 @@ describe("loadAlgorithmsManifest", () => {
     expect(kv.getCallCount).toBe(1);
     expect(manifest.algorithms).toHaveLength(3);
   });
-
-  it("rejects a harness-only algorithm id (D-03)", async () => {
-    const bad = validAlgorithmsManifest() as { algorithms: unknown[] };
-    bad.algorithms.push({ id: "vpr-adapt", version: "2.0.0+x", codeVersion: "2.0.0", paramSetName: "x" });
-    const kvValues = new Map([[ALGORITHMS_MANIFEST_KEY, JSON.stringify(bad)]]);
-    const { env } = makeEnv(kvValues);
-    await expect(loadAlgorithmsManifest(env)).rejects.toBeInstanceOf(ManifestValidationError);
-  });
 });
 
 describe("loadManifests", () => {

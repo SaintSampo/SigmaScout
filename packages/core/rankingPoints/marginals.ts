@@ -33,7 +33,7 @@
  * erf — SAME-PACKAGE VERBATIM COPY, cited rather than imported or re-derived
  * ---------------------------------------------------------------------------
  *
- * Copied byte-for-byte from `packages/core/algorithms/sigma1/linkFunctions.ts:41-49`
+ * Copied byte-for-byte from the retired Sigma1 core (deleted by quick task 260913-it4)'s link functions
  * (Abramowitz-Stegun formula 7.1.26, max absolute error under 1.5e-7). Four
  * copies of this formula exist in the tree already
  * (`packages/core/algorithms/spr.ts:303`, `packages/spr/model.ts:215`,

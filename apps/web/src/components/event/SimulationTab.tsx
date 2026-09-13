@@ -165,8 +165,8 @@ export const SIMULATION_SKELETON_PICKER_HEIGHT_PX = 320;
  * model for nobody.
  *
  * Mechanism this predicate is detecting, recorded here so the next reader
- * does not have to rediscover it: `packages/core/algorithms/sigma1/index.ts`
- * (~line 748) gates pmf production on `isRpEligibleEventType(match.eventType)`;
+ * does not have to rediscover it: the retired Sigma1 core (deleted by quick task 260913-it4)
+ * gated pmf production on `isRpEligibleEventType(match.eventType)`;
  * TBA event type `99` (Offseason) is deliberately absent from
  * `EVENT_TYPE_TIERS` (`packages/core/rankingPoints/constants.ts`,
  * ~line 54); and the publisher's conditional spread then OMITS the

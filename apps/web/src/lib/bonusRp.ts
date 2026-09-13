@@ -8,7 +8,7 @@
  * be a third rendering of the same fact.
  *
  * This table is a COPY of each season's `BONUS_NAMES` in
- * `packages/core/algorithms/sigma1/rp/{season}.ts`, not a derivation. The
+ * `packages/core/rankingPoints/{season}.ts`, not a derivation. The
  * alternative — importing `RP_RULE_MODULES` — would pull the whole
  * ten-season RP rule implementation (every season's zod schema and
  * threshold-parsing code) into the client bundle to read a handful of
@@ -112,7 +112,7 @@ export type BonusRpState = "earned" | "missed" | "unknown";
  * probability drives that binary. The exact boundary (a probability of
  * exactly one half) resolves to `earned`, matching this codebase's existing
  * half-away-from-zero rounding convention (`packages/harness/rounding.ts`)
- * and VPR's own tie handling (`sigma1/index.ts`), where a win probability of
+ * and VPR's own tie handling (the retired Sigma1 core (deleted by quick task 260913-it4)), where a win probability of
  * exactly 0.5 resolves to red. The dot's own tooltip/accessible label
  * (`bonusDotLabel`) carries the real probability as a percentage, so the
  * reader is never left with only the binary — the visual is a summary, not

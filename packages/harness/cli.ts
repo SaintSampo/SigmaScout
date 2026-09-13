@@ -4,7 +4,7 @@
  *   pnpm harness --event <event_key> --algorithm opr [--out <dir>]
  *   pnpm harness --season <year> --algorithm opr [--out <dir>] [--include-offseason]
  *   pnpm harness --seasons <start>-<end> --algorithm opr [--out <dir>] [--include-offseason] [--cold-start-season <year>]
- *   pnpm harness --seasons 2016-2020,2022-2026 --algorithm vpr   (gapped list — the real corpus, 2021 excluded)
+ *   pnpm harness --seasons 2016-2020,2022-2026 --algorithm spr   (gapped list — the real corpus, 2021 excluded)
  *
  * --event fetches one event from TBA (conditional requests via tbaClient),
  * Zod-validates the response, normalizes and stores it in the SQLite
@@ -34,8 +34,8 @@
  * carry-forward note); this flag is that measurement, opt-in so an ordinary
  * scoring run pays zero timing overhead.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { performance } from "node:perf_hooks";
@@ -45,14 +45,6 @@ import { seasonBoundaryFor } from "./seasonBoundary.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
 import { spr } from "../core/algorithms/spr.js";
-import {
-  vpr,
-  vprDefaults,
-  vprNormalCdf,
-  vprSeasonSd,
-  makeSigma1,
-  DEFAULT_SIGMA1_PARAMS,
-} from "../core/algorithms/sigma1/index.js";
 import {
   openCorpus,
   openCorpusReadOnly,
@@ -80,205 +72,25 @@ import {
   writePredictionLine,
   type PredictionsWriterHandle,
 } from "./predictions.js";
-import { PromotedVersionSchema, type PromotedVersion } from "./promote.js";
 import { renderHtmlReport } from "./report.js";
-import { makeSeasonalSigma1 } from "./seasonParamSets.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
 import { corpusColdStartIndex } from "./corpusColdStart.js";
 import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "./score.js";
 import { aggregateScoresForRun } from "./selectionProvenance.js";
-import { ON_SEARCH_ARTIFACT_PATH, resolveOnSearchWinner } from "./searchWinner.js";
 import { statboticsReference, type StatboticsReference } from "./statbotics.js";
-import { ALGORITHM_VERSIONS_DIR, PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
 
 // `any` here: this registry maps CLI strings to modules with different
-// (incompatible) state types S; each entry is internally type-safe. D-12's
-// three VPR link modes share one update path (sigma1/index.ts's
-// makeSigma1 — the implementation module keeps its pre-rename directory
-// name and factory name, D-04/D-05/PD-02, plan 07-16) but are registered as
-// three distinct entries so one harness run scores all three side by side
-// (plan 02-05). D-05/D-06 (plan 03-04 Task 2): `vpr-adapt` is the SAME shape
-// applied to the adaptation-on/off question — `pnpm harness --algorithm
-// vpr,vpr-adapt` scores both variants in one pass over one shared match
-// stream, so any difference is the adaptation and nothing else.
-// `vpr-defaults` (plan 03-06) is the Phase-2-reproducing untuned baseline,
-// registered explicitly so a run can show `vpr` (the currently-promoted,
-// potentially tuned version, see `applyPromotedOverrides` below) alongside
-// it — this is what makes "what did tuning buy" legible in one artifact
-// rather than implied.
+// (incompatible) state types S; each entry is internally type-safe. The
+// retired Sigma1 core's entries were removed with it by quick task
+// 260913-it4; its identities stay retired (see `publishedAlgorithms.ts`).
 export const ALGORITHMS: Record<string, AlgorithmModule<any>> = {
   opr,
   epa,
-  vpr,
   spr,
-  "vpr-defaults": vprDefaults,
-  "vpr-seasonsd": vprSeasonSd,
-  "vpr-normalcdf": vprNormalCdf,
 };
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const STATBOTICS_CACHE_PATH = join("data", "statbotics-cache.json");
-/**
- * D-13/D-14 (plan 03-06): once a version is promoted, `--algorithm vpr`
- * should mean THAT shipped version, not the Phase-2-reproducing defaults
- * `ALGORITHMS.vpr` above still is — `vpr-defaults` above is what keeps
- * the untuned baseline available for comparison. Read LAZILY, inside
- * `applyPromotedOverrides` (called only from `main()`, at CLI-entry time,
- * never at this module's top-level import) — `data/algorithm-versions/*.json`
- * IS committed (`.gitignore`'s `data/*` + negation), so this file always
- * exists once promoted, but resolving it eagerly at import time would still
- * be surprising for any other module (e.g. `cli.season-carry.test.ts`) that
- * imports this file only for `runSeasons` and never invokes `main()`.
- */
-// Quick task 260904-2i9: `PROMOTED_VPR_VERSION_PATH`/`ALGORITHM_VERSIONS_DIR`
-// moved to `./promotedVersionPath.js` — that module is now the SINGLE place
-// a promoted-version re-pin is edited (its own header carries the full
-// re-pin history moved from here, plus why the collapse is safe). Import
-// them rather than redeclaring.
-
-// 03-REVIEW IN-01: the former `TuneSearchOutputForOverride` cast interfaces
-// are replaced by `TuneSearchOutputMinimalSchema` (promote.ts) — validation
-// at the read boundary, shared with `promote.ts`'s own reader.
-
-/** Builds a VPR module from a committed, promoted version file — `undefined` if the file does not exist, so the caller can fall back to the plain untuned default. */
-export function loadPromotedVpr(id: string, versionPath: string): AlgorithmModule<any> | undefined {
-  if (!existsSync(versionPath)) return undefined;
-  const raw: unknown = JSON.parse(readFileSync(versionPath, "utf8"));
-  const promoted = PromotedVersionSchema.parse(raw);
-  // D-2 (quick task 260904-100): routed through the per-season facade rather
-  // than a bare `makeSigma1({ params: promoted.params, ... })` — `params` is
-  // schema-optional (undefined for a `paramSetsBySeason` file), and
-  // `Sigma1Options.params` is ALSO optional, so a bare `makeSigma1` call
-  // would silently fall back to `DEFAULT_SIGMA1_PARAMS` for a per-season
-  // file instead of throwing or resolving the right season's set — `tsc`
-  // does not catch this because both sides of the assignment are already
-  // optional.
-  return makeSeasonalSigma1(promoted, { id, linkMode: "predictive-variance" });
-}
-
-/**
- * Builds a VPR module from a `tune.ts --stage joint` search artifact's own
- * winning candidate — restoring `rpMonteCarloDraws` to the versioned default
- * the same way `promote.ts` does for a promoted winner (the search fixes it
- * to 0 for speed). `undefined` if the artifact does not exist, if
- * `winnerIndex` names no candidate, or if the winner's params fail this code
- * version's schema (with a loud warning) — see `searchWinner.ts`'s
- * `resolveOnSearchWinner`'s own doc comment for the full five-gate list.
- *
- * F-2 (quick task 260903-tk6): this is now a THIN WRAPPER over
- * `resolveOnSearchWinner` — the same resolution
- * `selectionProvenance.ts`'s `vprAdaptSelectedOnSeasons` reads for its
- * provenance answer, so "what runs" and "what the flag claims" can never
- * disagree. `ON_SEARCH_ARTIFACT_PATH` is imported from `searchWinner.ts`
- * rather than declared here, for the same reason. This function's exported
- * signature and behavior are unchanged — `promotedOverrides.test.ts` passes
- * with no edit to its existing cases.
- */
-export function loadSearchWinnerVpr(id: string, searchArtifactPath: string, paramSetName: string): AlgorithmModule<any> | undefined {
-  const resolved = resolveOnSearchWinner(searchArtifactPath);
-  if (!resolved) return undefined;
-  const params = { ...resolved.params, rpMonteCarloDraws: DEFAULT_SIGMA1_PARAMS.rpMonteCarloDraws };
-  return makeSigma1({ id, linkMode: "predictive-variance", params, paramSetName });
-}
-
-/**
- * D-12 / 03-REVIEW WR-03: makes a newer committed VPR version file LOUD
- * at load time while keeping `PROMOTED_VPR_VERSION_PATH` the explicit,
- * pinned path that is actually loaded — never a bypass of the pin.
- *
- * Two alternatives were considered and rejected (both recorded in
- * `03.1-CONTEXT.md`'s D-12):
- *   - Globbing `versionsDir` for the newest file and loading THAT instead of
- *     the pinned constant was rejected because Phase 3's D-13 makes version
- *     identity load-bearing for Phase 4's precomputed artifacts, the
- *     Phase 5 algorithm dropdown, and the Phase 8 Compare page — an
- *     explicit pin is a reproducibility feature, not an oversight to paper
- *     over with auto-selection.
- *   - Hard-failing (throwing) when a newer file exists was rejected because
- *     deliberately scoring an OLDER version to compare it against a newer
- *     one is legitimate work this check must not block.
- *
- * Reads every `.json` file in `versionsDir`, parses each through
- * `PromotedVersionSchema`, and compares each survivor's own
- * `provenance.promotedAt` against the pinned file's — never throws, and
- * never changes which file is actually loaded: a missing `versionsDir` or a
- * missing `pinnedPath`, or a stray unparseable file anywhere in
- * `versionsDir`, is treated as "nothing to warn about," exactly like
- * `loadPromotedVpr`'s own existing missing-file fallback.
- */
-export function warnIfNewerPromotedVpr(versionsDir: string, pinnedPath: string): void {
-  if (!existsSync(pinnedPath)) return;
-  let pinned: PromotedVersion;
-  try {
-    pinned = PromotedVersionSchema.parse(JSON.parse(readFileSync(pinnedPath, "utf8")));
-  } catch {
-    return;
-  }
-  const pinnedTime = Date.parse(pinned.provenance.promotedAt);
-  if (!Number.isFinite(pinnedTime)) return;
-
-  if (!existsSync(versionsDir)) return;
-  let fileNames: string[];
-  try {
-    fileNames = readdirSync(versionsDir).filter((name) => name.endsWith(".json"));
-  } catch {
-    return;
-  }
-
-  const pinnedFileName = basename(pinnedPath);
-  let newestFileName: string | undefined;
-  let newestTime = pinnedTime;
-
-  for (const fileName of fileNames) {
-    if (fileName === pinnedFileName) continue;
-    let candidate: PromotedVersion;
-    try {
-      candidate = PromotedVersionSchema.parse(JSON.parse(readFileSync(join(versionsDir, fileName), "utf8")));
-    } catch {
-      // A stray/malformed file in the versions directory must never abort a
-      // harness run (T-03.1-20) — skip it rather than throw.
-      continue;
-    }
-    if (candidate.id !== pinned.id) continue;
-    const candidateTime = Date.parse(candidate.provenance.promotedAt);
-    if (!Number.isFinite(candidateTime) || candidateTime <= newestTime) continue;
-    newestTime = candidateTime;
-    newestFileName = fileName;
-  }
-
-  if (newestFileName === undefined) return;
-
-  console.log(
-    `WARNING [warnIfNewerPromotedVpr]: a newer promoted "${pinned.id}" version exists — ` +
-      `pinned=${pinnedFileName} (promoted ${pinned.provenance.promotedAt}), newest=${newestFileName} ` +
-      `(promoted ${new Date(newestTime).toISOString()}). The pin is deliberate (D-12: Phase 3's D-13 makes ` +
-      `version identity load-bearing for Phase 4's artifacts, the Phase 5 dropdown, and the Phase 8 Compare ` +
-      `page) — to score the newer version, edit PROMOTED_VPR_VERSION_PATH in packages/harness/promotedVersionPath.ts.`
-  );
-}
-
-/**
- * Plan 03-06 (renamed 07-16): swaps the static `vpr`/`vpr-adapt` registry
- * entries for the currently-promoted version / the on-search's own winner
- * when their source files are present, leaving every other algorithm (and
- * either of these two when their file is absent) exactly as
- * `resolveAlgorithms` returned it. Applied once in `main()`, never inside
- * the static `ALGORITHMS` registry itself (see the file-presence comments
- * above).
- */
-export function applyPromotedOverrides(algorithms: AlgorithmModule<any>[]): AlgorithmModule<any>[] {
-  return algorithms.map((algorithm) => {
-    if (algorithm.id === "vpr") {
-      // D-12 / 03-REVIEW WR-03: the committed-version pin, not the
-      // gitignored `reports/` search artifact this branch never reads — the
-      // adaptation branch below reads a search artifact instead and is
-      // deliberately excluded from this staleness check.
-      warnIfNewerPromotedVpr(ALGORITHM_VERSIONS_DIR, PROMOTED_VPR_VERSION_PATH);
-      return loadPromotedVpr("vpr", PROMOTED_VPR_VERSION_PATH) ?? algorithm;
-    }
-    return algorithm;
-  });
-}
 const DEFAULT_OUT_DIR = "reports";
 
 function tbaApiKey(): string {
@@ -985,12 +797,7 @@ async function main(): Promise<void> {
     },
   });
 
-  // Plan 03-06 (renamed 07-16): swaps in the currently-promoted `vpr`
-  // version and the adaptation-on search's own winner for `vpr-adapt`, when
-  // their source files exist — see `applyPromotedOverrides`'s own doc
-  // comment. A no-op for every other algorithm id and for either of these
-  // two when its source file is absent.
-  const algorithms = applyPromotedOverrides(resolveAlgorithms(values.algorithm));
+  const algorithms = resolveAlgorithms(values.algorithm);
   const outDir = values.out ?? DEFAULT_OUT_DIR;
   const includeOffseason = values["include-offseason"] === true;
   const coldStartSeason = parseColdStartSeason(values["cold-start-season"]);

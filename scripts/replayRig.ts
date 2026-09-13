@@ -13,7 +13,7 @@
  *   2. EQUIVALENCE (D-14): the SAME event, replayed offline from the SAME
  *      cold-start baseline through `packages/harness`'s `WalkForwardSimulator`
  *      — compared against the deployed Worker's own published output via a
- *      prediction-stream digest (`packages/harness/promote.ts`'s
+ *      prediction-stream digest (`packages/harness/predictionStreamDigest.ts`'s
  *      `computePredictionStreamDigest`, unchanged) and a full published
  *      event-artifact comparison excluding exactly `generation`/`computedAt`.
  *
@@ -66,11 +66,11 @@ import { createRequire } from "node:module";
 import { z } from "zod";
 import { opr } from "../packages/core/algorithms/opr.js";
 import { epa } from "../packages/core/algorithms/epa.js";
-import { makeSigma1 } from "../packages/core/algorithms/sigma1/index.js";
+import { spr } from "../packages/core/algorithms/spr.js";
 import type { AlgorithmModule, MatchResult, Prediction, TeamMetric } from "../packages/core/algorithms/types.js";
 import { openCorpusReadOnly, selectMatchesChronological, type Corpus } from "../packages/corpus/db.js";
 import { WalkForwardSimulator, type PredictionRecord } from "../packages/harness/replay.js";
-import { computePredictionStreamDigest } from "../packages/harness/promote.js";
+import { computePredictionStreamDigest } from "../packages/harness/predictionStreamDigest.js";
 import { buildAlgorithmsManifest, type AlgorithmsManifest } from "../packages/harness/manifests.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
 import { roundMetric, roundProbability } from "../packages/harness/rounding.js";
@@ -237,7 +237,12 @@ function buildAlgorithmModulesLocal(algorithmsManifest: AlgorithmsManifest): Map
       modules.set(entry.id, epa);
       continue;
     }
-    modules.set(entry.id, makeSigma1({ id: entry.id, linkMode: "predictive-variance", params: entry.params, paramSetName: entry.paramSetName }));
+    if (entry.id === "spr") {
+      modules.set(entry.id, spr);
+      continue;
+    }
+    // Any other manifest id throws, the same rule the Worker applies.
+    throw new Error(`replayRig: "${entry.id}" is not a known algorithm id (known: opr, epa, spr)`);
   }
   return modules;
 }

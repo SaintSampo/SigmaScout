@@ -1,5 +1,7 @@
 # Sigma1 tuning results, holdout head-to-head, and phase verdicts
 
+*2026-09-13: the code this record measured was deleted by quick task 260913-it4, restorable from the commit recorded in that task's SUMMARY.*
+
 **Scheme retirement (2026-09-04): everything below was measured under the now-RETIRED fixed
 tune/holdout split.** The shipped scheme is rolling-origin selection (D-T5, quick task
 `260901-trz`): hyperparameters for a scored season are selected only on seasons strictly before
@@ -316,7 +318,7 @@ than made.
 
 ## Ranking-Point Prediction (ALGO-08)
 
-**Reconciliation, per season** (`packages/core/algorithms/sigma1/rp/reconciliation.test.ts`,
+**Reconciliation, per season** (the Sigma1 core's own RP reconciliation test,
 `03-02-SUMMARY.md`): every season's recomputed bonus flags and summed RP reproduce TBA's own
 recorded values across the full played-match population, with four named, measured exceptions —
 never hidden, never silently absorbed into a wider tolerance:

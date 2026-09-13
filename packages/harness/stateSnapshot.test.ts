@@ -15,14 +15,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { epa } from "../core/algorithms/epa.js";
 import { opr } from "../core/algorithms/opr.js";
 import { spr } from "../core/algorithms/spr.js";
-import { vpr, type Sigma1State } from "../core/algorithms/sigma1/index.js";
 import type { EpaState } from "../core/algorithms/epa.js";
 import type { AlgorithmModule, MatchResult, UpcomingMatch } from "../core/algorithms/types.js";
 import { emptyExpandingStats } from "../core/scoring/expandingStats.js";
 import { openCorpus, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import { buildSeasonStream, WalkForwardSimulator } from "./replay.js";
-import { computePredictionStreamDigest } from "./promote.js";
+import { computePredictionStreamDigest } from "./predictionStreamDigest.js";
 import {
   LeagueRowShapeVersionError,
   MAX_LEAGUE_ROW_BYTES,
@@ -30,6 +29,7 @@ import {
   SeedRowTooLargeError,
   STATE_SNAPSHOT_SHAPE_VERSION,
   StateRowSchema,
+  UnknownStateAlgorithmError,
   deserializeState,
   emitSeedSql,
   readSigmaBeliefs,
@@ -224,7 +224,7 @@ function toDigestInputs(records: readonly { match: MatchResult; prediction: unkn
 // ---------------------------------------------------------------------------
 
 describe("serializeState/deserializeState — round-trip losslessness (continuation-replay digest)", () => {
-  const algorithms: AlgorithmModule<any>[] = [opr, epa, vpr];
+  const algorithms: AlgorithmModule<any>[] = [opr, epa, spr];
 
   for (const algorithm of algorithms) {
     it(`${algorithm.id}: a continuation replay from the reconstructed state matches the original state's digest`, () => {
@@ -291,42 +291,6 @@ describe("serializeState — D-09 scope shape", () => {
     expect(teamRows.map((r) => r.scopeKey).sort()).toEqual([...finalState.lastEventByTeam.keys()].sort());
   });
 
-  it("Sigma1State emits one 'league' row and one 'team' row per entry in state.teams, and NO 'event' row at all (D-Y3)", () => {
-    // THE RULE REVERSED HERE at shape version 7. Between quick task
-    // 260902-varopr and 260903-750 Sigma1 was event-scoped too, because the
-    // published `±` was an event-wide solve whose normal equations had to be
-    // stored per event. D-Y3 replaced that with ONE RUNNING NUMBER PER TEAM
-    // PER METRIC KEY, which rides the team rows a Worker already loads — so
-    // there is nothing left for an event row to carry.
-    //
-    // Asserted as an explicit ZERO rather than by omitting the check, because
-    // an event row emitted here would be a silent cost: `scheduled.ts`'s
-    // `EVENT_SCOPED_ALGORITHM_IDS` dropped "vpr" in the same task, so a
-    // re-added row would be WRITTEN by the pipeline and never READ by a live
-    // tick — a divergence that leaves both halves looking healthy.
-    seedFixtureSeason(db);
-    const allMatches = buildSeasonStream(db, 2024);
-    const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
-    const sim = new WalkForwardSimulator(allMatches);
-    const run = sim.runAll([vpr], allTeams);
-    const finalState = run.finalStates.get(vpr.id) as Sigma1State;
-
-    const rows = serializeState(vpr.id, vpr.version, finalState, STAMP);
-    const teamRows = rows.filter((r) => r.scopeKind === "team");
-    const leagueRows = rows.filter((r) => r.scopeKind === "league");
-    const eventRows = rows.filter((r) => r.scopeKind === "event");
-
-    expect(leagueRows).toHaveLength(1);
-    expect(teamRows).toHaveLength(finalState.teams.size);
-    expect(eventRows).toHaveLength(0);
-    expect(rows).toHaveLength(finalState.teams.size + 1);
-    // Non-vacuity: the fixture really did fold multiple events, so "no event
-    // rows" is a statement about the SHAPE rather than about an empty run.
-    expect(new Set([...finalState.teams.values()].map((t) => t.lastEventKey)).size).toBeGreaterThan(1);
-    // And the swing that replaced them is genuinely present on the team rows —
-    // the row set did not merely shrink, the state moved.
-    expect(teamRows.filter((r) => r.stateJson.includes("swing")).length).toBe(teamRows.length);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -334,26 +298,6 @@ describe("serializeState — D-09 scope shape", () => {
 // ---------------------------------------------------------------------------
 
 describe("serializeState — stability (unchanged state produces identical stateJson)", () => {
-  it("serialize -> deserialize -> serialize produces byte-identical stateJson strings for every row (vpr)", () => {
-    seedFixtureSeason(db);
-    const allMatches = buildSeasonStream(db, 2024);
-    const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
-    const sim = new WalkForwardSimulator(allMatches);
-    const run = sim.runAll([vpr], allTeams);
-    const finalState = run.finalStates.get(vpr.id);
-
-    const rowsA = serializeState(vpr.id, vpr.version, finalState as any, STAMP);
-    const reconstructed = deserializeState(vpr.id, rowsA);
-    const rowsB = serializeState(vpr.id, vpr.version, reconstructed as any, STAMP);
-
-    const byKeyA = new Map(rowsA.map((r) => [`${r.scopeKind}:${r.scopeKey}`, r.stateJson]));
-    const byKeyB = new Map(rowsB.map((r) => [`${r.scopeKind}:${r.scopeKey}`, r.stateJson]));
-    expect(byKeyB.size).toBe(byKeyA.size);
-    for (const [key, jsonA] of byKeyA) {
-      expect(byKeyB.get(key)).toBe(jsonA);
-    }
-  });
-
   it("serialize -> deserialize -> serialize produces byte-identical stateJson strings for every row (opr)", () => {
     seedFixtureSeason(db);
     const allMatches = buildSeasonStream(db, 2024);
@@ -380,57 +324,25 @@ describe("serializeState — stability (unchanged state produces identical state
 // for a match between exactly those two teams
 // ---------------------------------------------------------------------------
 
-describe("deserializeState — partial load (D-13)", () => {
-  it("a league row plus two team rows predicts correctly for a match between exactly those two teams", () => {
-    seedFixtureSeason(db);
-    const allMatches = buildSeasonStream(db, 2024);
-    const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
-    const sim = new WalkForwardSimulator(allMatches);
-    const run = sim.runAll([vpr], allTeams);
-    const fullState = run.finalStates.get(vpr.id) as Sigma1State;
-
-    const [teamA, teamB] = ["frc1", "frc4"];
-    expect(fullState.teams.has(teamA)).toBe(true);
-    expect(fullState.teams.has(teamB)).toBe(true);
-
-    const fullRows = serializeState(vpr.id, vpr.version, fullState, STAMP);
-    const leagueRow = fullRows.find((r) => r.scopeKind === "league")!;
-    const teamRowA = fullRows.find((r) => r.scopeKind === "team" && r.scopeKey === teamA)!;
-    const teamRowB = fullRows.find((r) => r.scopeKind === "team" && r.scopeKey === teamB)!;
-
-    const partialRows: StateRow[] = [leagueRow, teamRowA, teamRowB];
-    const partialState = deserializeState(vpr.id, partialRows) as Sigma1State;
-    expect(partialState.teams.size).toBe(2);
-
-    // Filler teams that were NEVER part of the fixture corpus — cold-start
-    // and identical (zero-contribution) whether the caller holds the full
-    // state or the partial one, per sigma1/index.ts's `predictedComponentTotals`
-    // / `allianceComponentPredictions` ("a team not in state.teams
-    // contributes exactly 0", never a league-mean fallback).
-    const syntheticMatch: UpcomingMatch = {
-      matchKey: "synthetic_qm1",
-      eventKey: "2024evta",
-      compLevel: "qm",
-      setNumber: 1,
-      matchNumber: 99,
-      redTeams: [teamA, "frcNEVER1", "frcNEVER2"],
-      blueTeams: [teamB, "frcNEVER3", "frcNEVER4"],
-      redSurrogates: [],
-      blueSurrogates: [],
-      eventType: 0,
-      week: null,
-    };
-
-    const fullPrediction = vpr.predict(fullState, syntheticMatch);
-    const partialPrediction = vpr.predict(partialState, syntheticMatch);
-
-    expect(partialPrediction).toEqual(fullPrediction);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Missing league row
 // ---------------------------------------------------------------------------
+
+describe("serializeState/deserializeState — unknown algorithm id", () => {
+  // Quick task 260913-it4: both used to fall through to the retired Sigma1
+  // core's shape for any id without its own branch.
+  it("serializeState throws UnknownStateAlgorithmError naming an unknown id such as the retired vpr", () => {
+    expect(() => serializeState("vpr", "11.0.0+retired", spr.initState(["frc1", "frc2"]) as any, STAMP)).toThrow(UnknownStateAlgorithmError);
+    expect(() => serializeState("vpr", "11.0.0+retired", spr.initState(["frc1", "frc2"]) as any, STAMP)).toThrow(/"vpr"/);
+  });
+
+  it("deserializeState throws UnknownStateAlgorithmError naming an unknown id, even for rows that would parse under a known id", () => {
+    const rows = serializeState("spr", spr.version, spr.initState(["frc1", "frc2"]) as any, STAMP);
+    expect(() => deserializeState("spr", rows)).not.toThrow();
+    expect(() => deserializeState("vpr", rows)).toThrow(UnknownStateAlgorithmError);
+    expect(() => deserializeState("vpr", rows)).toThrow(/"vpr"/);
+  });
+});
 
 describe("deserializeState — missing league row", () => {
   it("throws MissingLeagueRowError when no scopeKind:'league' row is present", () => {
@@ -568,15 +480,15 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     expect(staleVersions.at(-1)).toBe(STATE_SNAPSHOT_SHAPE_VERSION - 1);
     for (const staleVersion of staleVersions) {
       const staleRow: StateRow = StateRowSchema.parse({
-        algorithmId: "vpr",
-        algorithmVersion: vpr.version,
+        algorithmId: "spr",
+        algorithmVersion: spr.version,
         scopeKind: "league",
         scopeKey: "league",
         stateJson: JSON.stringify({ snapshotShapeVersion: staleVersion }),
         generation: STAMP.generation,
         computedAt: STAMP.computedAt,
       });
-      expect(() => deserializeState("vpr", [staleRow]), `shape ${staleVersion}`).toThrow(LeagueRowShapeVersionError);
+      expect(() => deserializeState("spr", [staleRow]), `shape ${staleVersion}`).toThrow(LeagueRowShapeVersionError);
     }
   });
 });
@@ -605,29 +517,6 @@ function expandMap<V>(source: ReadonlyMap<string, V>, targetCount: number, keyPr
 }
 
 describe("serializeState — league row byte size is independent of team count (D-13, plan 04-08)", () => {
-  it("vpr: league row byte length is identical at N teams and 10N teams, and at/under MAX_LEAGUE_ROW_BYTES", () => {
-    seedFixtureSeason(db);
-    const allMatches = buildSeasonStream(db, 2024);
-    const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
-    const sim = new WalkForwardSimulator(allMatches);
-    const baseState = sim.runAll([vpr], allTeams).finalStates.get(vpr.id) as Sigma1State;
-
-    const smallTeams = expandMap(baseState.teams, 5, "frcSmall");
-    const largeTeams = expandMap(baseState.teams, 50, "frcLarge");
-    const priorSource = new Map([...baseState.teams.keys()].map((k) => [k, 1500] as const));
-    const smallPrior = expandMap(priorSource, 5, "frcSmallPrior");
-    const largePrior = expandMap(priorSource, 50, "frcLargePrior");
-
-    const smallState: Sigma1State = { ...baseState, teams: smallTeams, priorSeasonRatings: { lastSeason: smallPrior, yearBefore: new Map() } };
-    const largeState: Sigma1State = { ...baseState, teams: largeTeams, priorSeasonRatings: { lastSeason: largePrior, yearBefore: new Map() } };
-
-    const smallLeague = leagueRowOf(serializeState(vpr.id, vpr.version, smallState, STAMP));
-    const largeLeague = leagueRowOf(serializeState(vpr.id, vpr.version, largeState, STAMP));
-
-    expect(Buffer.byteLength(largeLeague.stateJson)).toBe(Buffer.byteLength(smallLeague.stateJson));
-    expect(Buffer.byteLength(smallLeague.stateJson)).toBeLessThanOrEqual(MAX_LEAGUE_ROW_BYTES);
-  });
-
   it("epa: league row byte length is identical at N teams and 10N teams, and at/under MAX_LEAGUE_ROW_BYTES", () => {
     seedFixtureSeason(db);
     const allMatches = buildSeasonStream(db, 2024);
@@ -731,36 +620,6 @@ describe("serializeState/deserializeState — Map members survive by size", () =
     expect(JSON.parse(frc3Row.stateJson)).not.toHaveProperty("current");
   });
 
-  it("Sigma1State's priorSeasonRatings round-trips including a team present ONLY in priorSeasonRatings (no current-season state) — plan 04-08, D-13", () => {
-    seedFixtureSeason(db);
-    const allMatches = buildSeasonStream(db, 2024);
-    const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
-    const sim = new WalkForwardSimulator(allMatches);
-    const baseState = sim.runAll([vpr], allTeams).finalStates.get(vpr.id) as Sigma1State;
-    expect(baseState.teams.has("frcGHOST")).toBe(false);
-
-    const stateWithGhost: Sigma1State = {
-      ...baseState,
-      priorSeasonRatings: {
-        lastSeason: new Map([...baseState.priorSeasonRatings.lastSeason, ["frcGHOST", 1234.5]]),
-        yearBefore: new Map([...baseState.priorSeasonRatings.yearBefore, ["frcGHOST", 1200.5]]),
-      },
-    };
-
-    const rows = serializeState(vpr.id, vpr.version, stateWithGhost, STAMP);
-    const ghostRow = rows.find((r) => r.scopeKind === "team" && r.scopeKey === "frcGHOST");
-    expect(ghostRow).toBeDefined();
-    expect(JSON.parse(ghostRow!.stateJson)).not.toHaveProperty("current");
-
-    const reconstructed = deserializeState(vpr.id, rows) as Sigma1State;
-    expect(reconstructed.teams.has("frcGHOST")).toBe(false);
-    expect(reconstructed.teams.size).toBe(baseState.teams.size);
-    expect(reconstructed.priorSeasonRatings.lastSeason.size).toBe(stateWithGhost.priorSeasonRatings.lastSeason.size);
-    expect(reconstructed.priorSeasonRatings.yearBefore.size).toBe(stateWithGhost.priorSeasonRatings.yearBefore.size);
-    expect(reconstructed.priorSeasonRatings.lastSeason.get("frcGHOST")).toBe(1234.5);
-    expect(reconstructed.priorSeasonRatings.yearBefore.get("frcGHOST")).toBe(1200.5);
-  });
-
   it("OprState's lastEventByTeam round-trips with identical size and entries (plan 04-08, D-13)", () => {
     seedFixtureSeason(db);
     const allMatches = buildSeasonStream(db, 2024);
@@ -796,29 +655,6 @@ describe("serializeState/deserializeState — Map members survive by size", () =
     expect(reconstructed.allianceScoreStats.m2).toBe(finalState.allianceScoreStats.m2);
   });
 
-  it("no retired contribution field survives anywhere in a serialized Sigma1 team row (D-V1, quick task 260902-varopr)", () => {
-    // The 4 -> 5 bump exists because the team payload's field set SHRANK.
-    // Asserting the absence is what stops a partial revert — a re-added field
-    // on `Sigma1TeamState` that `sigma1TeamStateToJson` still copies — from
-    // reintroducing the retired estimator's state one commit at a time while
-    // every other test stays green.
-    seedFixtureSeason(db);
-    const allMatches = buildSeasonStream(db, 2024);
-    const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
-    const sim = new WalkForwardSimulator(allMatches);
-    const finalState = sim.runAll([vpr], allTeams).finalStates.get(vpr.id) as Sigma1State;
-
-    // Non-vacuity: an empty team set would satisfy the loop below trivially.
-    expect(finalState.teams.size).toBeGreaterThan(0);
-
-    const rows = serializeState(vpr.id, vpr.version, finalState, STAMP);
-    const teamRows = rows.filter((r) => r.scopeKind === "team");
-    expect(teamRows.length).toBeGreaterThan(0);
-    for (const row of teamRows) {
-      expect(row.stateJson, `${row.scopeKey} carries no contributionStats`).not.toContain("contributionStats");
-      expect(row.stateJson, `${row.scopeKey} carries no lastContribution`).not.toContain("lastContribution");
-    }
-  });
 });
 
 describe("StateRowSchema", () => {
@@ -894,20 +730,11 @@ describe("emitSeedSql", () => {
   // epa 246.0 KB league rows). This asserts none of the three published
   // algorithms hits that at REALISTIC season scale — 04-CONTEXT.md's own
   // measured team-count ceiling (3,787 in 2025), not a token handful of rows.
-  it("serializing a realistic season-scale sigma1/epa/opr state and passing rows to emitSeedSql raises no SeedRowTooLargeError (D-13)", () => {
+  it("serializing a realistic season-scale epa/opr state and passing rows to emitSeedSql raises no SeedRowTooLargeError (D-13)", () => {
     seedFixtureSeason(db);
     const allMatches = buildSeasonStream(db, 2024);
     const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
     const REALISTIC_TEAM_COUNT = 3800; // 04-CONTEXT.md's measured 2025 peak (3,787)
-
-    const vprBase = new WalkForwardSimulator(allMatches).runAll([vpr], allTeams).finalStates.get(vpr.id) as Sigma1State;
-    const vprPriorSource = new Map([...vprBase.teams.keys()].map((k) => [k, 1500] as const));
-    const vprScaled: Sigma1State = {
-      ...vprBase,
-      teams: expandMap(vprBase.teams, REALISTIC_TEAM_COUNT, "frcS1_"),
-      priorSeasonRatings: { lastSeason: expandMap(vprPriorSource, REALISTIC_TEAM_COUNT, "frcS1_"), yearBefore: new Map() },
-    };
-    expect(() => emitSeedSql(serializeState(vpr.id, vpr.version, vprScaled, STAMP), { algorithmId: "vpr", out: outPath })).not.toThrow();
 
     const epaBase = new WalkForwardSimulator(allMatches).runAll([epa], allTeams).finalStates.get(epa.id) as EpaState;
     const epaPriorSource = new Map([...epaBase.teamComponents.keys()].map((k) => [k, 1500] as const));

@@ -1,5 +1,7 @@
 # Sigma1 scale-relative reparameterization — the measurement record
 
+*2026-09-13: the code this record measured was deleted by quick task 260913-it4, restorable from the commit recorded in that task's SUMMARY.*
+
 Quick task `260901-trz`, D-T1/D-T2. This document exists so the claim "the
 parameter reshape was a reparameterization, not an accidental retune" is
 something a reader can CHECK rather than something they have to take on
@@ -44,7 +46,7 @@ was taken.
 
 `SIGMA1_REFERENCE_SCORE_VARIANCE` is defined as the **match-count-weighted
 mean of the realized expanding alliance-score variance over every tune-season
-match** (2022–2024), folded exactly the way `sigma1/index.ts`'s `update()`
+match** (2022–2024), folded exactly the way the Sigma1 core's `update()`
 folds it: both alliances per match, a whole-alliance-DQ zero excluded via the
 shared `isFullyDqZeroScoreAlliance` predicate, a fully-demo match skipped
 whole, and the statistic **never reset at a season boundary**.
@@ -270,7 +272,7 @@ Bound and measurement side by side. **Every gate PASSES.**
 | | tune pool | | **−0.141** (−2.001 → −2.142) | ✅ PASS |
 | **D. scale-equivariance** | synthetic | EXACT (bitwise) at factor 4 | **bitwise identical `pRedWin`, exactly 4x predicted scores** | ✅ PASS |
 
-Gate D is proven by `packages/core/algorithms/sigma1/scale.test.ts`, not by this
+Gate D was proven by the Sigma1 core's own scale test, not by this
 document's instrument: a synthetic stream replayed at scores `s` with
 `fallbackScoreSd = f` and at `4s` with `4f` produces bitwise-identical win
 probabilities and exactly-4x predicted scores. 4 is a power of two, so IEEE-754

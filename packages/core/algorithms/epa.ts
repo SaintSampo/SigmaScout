@@ -105,8 +105,8 @@
  *       `update` folds. The component is still rated per team exactly as
  *       before.
  *
- *     `sigma1/index.ts` still implements the ORIGINAL D-04 handling and was
- *     deliberately not changed by that task — see its own D-04 comment.
+ *     the retired Sigma1 core (deleted by quick task 260913-it4) still implemented the ORIGINAL D-04 handling and was
+ *     deliberately not changed by that task.
  *     WINDOWS.md entry 3 tracked the pre-D-04 behaviour as a bug.
  *   - D-08 CLOSED as of `5.0.0+baseline` (D-05, quick task 260904-5px):
  *     elimination matches used to be learned from normally — full weight,
@@ -1008,7 +1008,7 @@ function updateCore(state: EpaState, result: MatchResult, componentMap?: SeasonC
   // non-finite value (surviving the Zod parse boundary, or produced by
   // distributeResidual's degenerate branch off a non-finite
   // result.redScore/blueScore) silently poison this team's EWMA state for
-  // the rest of the season — mirrors sigma1/index.ts's identical second
+  // the rest of the season — mirrors the retired Sigma1 core's identical second
   // gate (T-02-01) for the same scenario.
   assertFiniteComponents(redObserved, `red observation, match ${result.matchKey}`);
   assertFiniteComponents(blueObserved, `blue observation, match ${result.matchKey}`);
@@ -1220,8 +1220,8 @@ function teamMetrics(state: EpaState, teams?: readonly string[]): TeamMetrics {
 
     // Phase groups (Auto/Teleop/Endgame), published as first-class metrics
     // (D-1, quick task 260904-7id — see this function's own doc comment
-    // above). Mirrors sigma1/index.ts's own group block (`teamMetrics`,
-    // ~:1587-1614) in structure, skipping only its spread lookup: EPA
+    // above). Mirrors the retired Sigma1 core's own group block (`teamMetrics`)
+    // in structure, skipping only its spread lookup: EPA
     // publishes a MEAN ONLY everywhere, so there is nothing to attach here.
     // Reads the SAME single grouping source (`componentGroupsForSeason`)
     // `apps/web/src/lib/metricGroups.ts` already reads client-side for its

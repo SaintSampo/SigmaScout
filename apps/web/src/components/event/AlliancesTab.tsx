@@ -6,7 +6,7 @@
  * one — the authority is D-15, not convenience. It is legitimate here
  * (while 07-01 forbids the identical move on Breakdown) because an
  * alliance's cross-team covariance is zero by the model's own construction
- * — `packages/core/algorithms/sigma1/covariance.ts`'s header states the
+ * — the retired Sigma1 core (deleted by quick task 260913-it4)'s covariance module header stated the
  * model's covariance is between a single team's own components and never
  * between teams — whereas a component group's off-diagonal terms are real
  * and unpublished (D-11's `phaseAuto`/`phaseTeleop`/`phaseEndgame`
@@ -132,8 +132,8 @@ export interface AllianceRow {
  * 2026-08-30): this `√(Σσ²)` combination assumes ZERO covariance between
  * the three picks' own variances — a cross-team correlation term is never
  * added, only each team's own variance, squared and summed. This is not an
- * incidental gap in this one function: `packages/core/algorithms/sigma1/
- * covariance.ts`'s own header states the model computes covariance only
+ * incidental gap in this one function: the retired Sigma1 core's covariance
+ * module header stated the model computes covariance only
  * among a SINGLE team's own components (`covEwmaAlpha`/`covShrinkage`
  * govern that per-team fold) and never between teammates — D-06 of Phase 2
  * rules out a cross-team latent structure entirely, so there is no existing

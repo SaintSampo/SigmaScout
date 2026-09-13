@@ -15,7 +15,7 @@
  * Deliberately lives in `packages/harness`, not `packages/core` — this is a
  * TUNING/EVALUATION concern, and `packages/core` must stay free of anything
  * that is not Worker-importable prediction logic (the same argument
- * `searchSpace.ts`'s own header makes for search bounds).
+ * the retired Sigma1 tuner's search-bounds module made for search bounds).
  *
  * ## The generic `statistic` parameter IS the design
  *
@@ -85,7 +85,7 @@ export interface EventBootstrapOptions {
 /**
  * Deterministic PRNG (Mulberry32), the same construction
  * `packages/harness/identifiability.ts`'s `mulberry32`,
- * `packages/harness/tune.ts`'s private copy, and
+ * the retired Sigma1 tuner's private copy, and
  * `packages/core/rankingPoints/distribution.ts`'s copy all use, cited
  * there to the same source. Copied rather than imported: `identifiability.ts`
  * is a standalone diagnostic script whose module body does real work on

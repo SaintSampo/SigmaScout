@@ -1,7 +1,7 @@
 /**
  * Corpus-wide district-points reconciliation (quick task 260905-lic Task 2)
  * -- the test that makes the word "guaranteed" true. Mirrors
- * `packages/core/algorithms/sigma1/rp/reconciliation.test.ts`'s shape
+ * `packages/core/rankingPoints/reconciliation.test.ts`'s shape
  * (`existsSync` corpus guard, `openCorpusReadOnly` with `try/finally` close,
  * `describe.each`, an explicit skip message rather than a silent pass) but
  * proves a different invariant: every one of the four district point

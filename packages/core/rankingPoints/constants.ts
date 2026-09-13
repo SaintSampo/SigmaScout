@@ -185,7 +185,7 @@ export function eventTierFor(eventType: number): EventTier {
  *
  * `eventTierFor` is correct to throw for its own callers (every per-season
  * `parse()`/`predictThresholds()`, which have no sensible fallback once
- * invoked), but Sigma1's own live `update()`/`predict()` in `sigma1/index.ts`
+ * invoked), but Sigma1's own live `update()`/`predict()` in the retired Sigma1 core (deleted by quick task 260913-it4)
  * were the one place in the codebase relying on every caller remembering to
  * filter offseason/unmapped matches out upstream — every OTHER caller
  * already applies this exclusion structurally at its own boundary

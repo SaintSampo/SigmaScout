@@ -1,8 +1,9 @@
 /**
  * Node-free, dependency-free leaf carrying the published-algorithm id list,
  * split out of `manifestSchemas.ts` (plan 05-01 Task 3). `manifestSchemas.ts`
- * itself imports `Sigma1ParamsSchema` from the Sigma1 barrel, which
- * transitively reaches the whole algorithm implementation — fine for the
+ * then imported the retired Sigma1 core's parameter schema (the core was
+ * deleted by quick task 260913-it4), which transitively reached the whole
+ * algorithm implementation — fine for the
  * Worker (`apps/worker/src/liveWindows.ts` already imports it), but wrong
  * for a browser bundle that only needs to know which algorithm ids are
  * published. This file has zero imports, so it is safe on the browser's
@@ -46,7 +47,7 @@
  * `vpr` was REMOVED from the published set on 2026-09-09 (developer decision):
  * it is no longer offered anywhere on the site, no longer folds live, and no
  * longer appears in the methodology. The model code under
- * `packages/core/algorithms/sigma1/` is left in place for now — this list is
+ * the retired Sigma1 core was left in place until quick task 260913-it4 deleted it — this list is
  * what the site reads, so dropping the id here is what retires it — and the
  * already-published `vpr@` objects in R2 are simply left unreferenced rather
  * than deleted.

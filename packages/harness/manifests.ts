@@ -8,8 +8,8 @@
  *
  * The schemas/predicate/constants themselves live in `./manifestSchemas.js`
  * (plan 04-06 Task 1, Rule 3 blocking fix) — see that file's header for why:
- * this module imports `node:fs`/`node:path` and `./cli.js` (which pulls in
- * the corpus/`better-sqlite3`) directly, so it must never be imported by the
+ * this module imports the corpus types and the offline algorithm modules
+ * directly, so it must never be imported by the
  * Worker, but `apps/worker/src/liveWindows.ts` genuinely needs the SAME
  * schemas/`isLiveAt` this file's builders validate against (one definition,
  * shared, never redefined). This file re-exports every symbol
@@ -18,19 +18,13 @@
  * file is still where the OFFLINE builders (`buildLiveWindowsManifest`,
  * `buildAlgorithmsManifest`) live; only the pure schema half moved.
  */
-import { readFileSync } from "node:fs";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
 import { spr } from "../core/algorithms/spr.js";
-import { warnIfNewerPromotedVpr } from "./cli.js";
-import { PromotedVersionSchema } from "./promote.js";
-import { ALGORITHM_VERSIONS_DIR, PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
-import { resolveParamSets } from "./seasonParamSets.js";
 import type { Corpus } from "../corpus/db.js";
 import {
   AlgorithmManifestEntrySchema,
   AlgorithmsManifestSchema,
-  HARNESS_ONLY_ALGORITHM_IDS,
   isLiveAt,
   LIVE_WINDOW_PAD_MS,
   LiveWindowEntrySchema,
@@ -48,7 +42,6 @@ import {
 export {
   AlgorithmManifestEntrySchema,
   AlgorithmsManifestSchema,
-  HARNESS_ONLY_ALGORITHM_IDS,
   isLiveAt,
   LIVE_WINDOW_PAD_MS,
   LiveWindowEntrySchema,
@@ -206,18 +199,6 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
 // D-03: the algorithms manifest (offline builder only — schema in manifestSchemas.ts)
 // ---------------------------------------------------------------------------
 
-// Quick task 260904-2i9: `PROMOTED_VPR_VERSION_PATH`/`ALGORITHM_VERSIONS_DIR`
-// now IMPORTED from `./promotedVersionPath.js` rather than reimplemented.
-// The old comment here justified duplication on the grounds that `cli.ts`'s
-// copies were module-private (not exported) — that premise no longer holds:
-// both constants now live in a shared leaf module neither `cli.ts` nor this
-// file owns. Keeping this import identical to every other call site's is
-// what keeps this manifest and `applyPromotedOverrides` naming the SAME
-// promoted version (T-04-16) — `warnIfNewerPromotedVpr`, imported from
-// `cli.ts` unchanged, is called before reading it, exactly as
-// `applyPromotedOverrides` does, so a newer committed version file is
-// exactly as loud here as it is in a harness run.
-
 export interface BuildAlgorithmsManifestOptions {
   /** D-04: a short opaque string identifying the publish run that produced this manifest. */
   readonly generation: string;
@@ -233,31 +214,17 @@ export interface BuildAlgorithmsManifestOptions {
 }
 
 /**
- * D-03 (rename D-04/D-05, plan 07-16): the three published entries — `opr`
- * and `epa` read their `id` and `version` straight from the modules
- * themselves (never a guessed/hardcoded string), and the third (published)
- * entry's `id` is read from the committed promoted version file
- * `applyPromotedOverrides` (`cli.ts`) pins — currently `vpr` — so this
- * manifest and the harness's own promoted-version resolution can never name
- * two different versions (T-04-16, and, since the rename, T-07-16-01: the
- * manifest id and the artifact-key id segment cannot disagree without the
- * version file disagreeing with itself).
+ * D-03: the three published entries, each reading its `id` and `version`
+ * straight from its own module (never a guessed/hardcoded string), so the
+ * manifest id and the artifact-key id segment cannot disagree (T-07-16-01).
  */
 export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions): AlgorithmsManifest {
   const { generation, computedAt, paramsSeason } = options;
 
   // VPR's retirement (2026-09-09) removed the ONE promoted-version entry this
-  // builder had. Every published algorithm now carries its version on its own
-  // module, so the whole pinned-file path — `warnIfNewerPromotedVpr`, the
-  // `PROMOTED_VPR_VERSION_PATH` read, `PromotedVersionSchema.parse` and the
-  // per-season `resolveParamSets` resolution — is gone from here rather than
-  // left reading a retired algorithm's file on every publish. It was not
-  // merely dead: a `readFileSync` on a file nothing else needs any more would
-  // have taken manifest building down the day that file was tidied away.
-  //
-  // `applyPromotedOverrides` in `cli.ts` still owns that machinery for the
-  // harness's own tuning runs, which are a different consumer with a different
-  // lifetime; this function no longer shares it.
+  // builder had, and quick task 260913-it4 deleted the retired Sigma1 core's
+  // promoted-version machinery outright. Every published algorithm carries its
+  // version on its own module.
   //
   // Derived from PUBLISHED_ALGORITHM_IDS rather than written out, so adding an
   // algorithm is a registry edit rather than an edit here that someone has to

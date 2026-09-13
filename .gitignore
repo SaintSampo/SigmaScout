@@ -7,7 +7,6 @@ dist/
 !.env.example
 .DS_Store
 data/*
-!data/algorithm-versions/
 !data/baselines/
 !data/diagnostics/
 reports/

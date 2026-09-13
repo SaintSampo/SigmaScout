@@ -62,7 +62,7 @@ import { MetricHistoryRowSchema } from "./metricHistorySchema.js";
  * misinterpreting a value; this one has no reader to misinterpret anything
  * at all. The per-alliance-per-match component predictions themselves are
  * unchanged in the model (`packages/core/algorithms/types.ts`'s
- * `ComponentPrediction`, still returned by `sigma1/index.ts` and `epa.ts`'s
+ * `ComponentPrediction`, still returned by `epa.ts`'s
  * `predict()`) — only the published artifact stopped carrying them.
  */
 export const PAGE_ARTIFACT_SCHEMA_VERSION = 1;

@@ -4,11 +4,11 @@
  *
  * `AlgorithmsManifestClientSchema` deliberately declares its OWN narrow
  * schema rather than importing the harness's own full manifest-schema
- * module's `AlgorithmsManifestSchema`: that module imports `Sigma1ParamsSchema` from
- * the Sigma1 algorithm barrel, which transitively reaches the whole Sigma1
- * implementation (including its matrix-library dependency) — fine for
- * `apps/worker` (already pays that cost), wrong for a browser bundle that
- * only needs three id strings and their version labels. This file declares
+ * module's `AlgorithmsManifestSchema`: when this was written, that module
+ * imported the retired Sigma1 core's parameter schema (the core was deleted by
+ * quick task 260913-it4), which transitively reached the whole implementation
+ * — fine for `apps/worker`, wrong for a browser bundle that only needs three
+ * id strings and their version labels. This file declares
  * only the preamble fields plus an array of entries carrying `id`,
  * `version`, `codeVersion` and `paramSetName`; any other key on a real
  * manifest entry (e.g. the real schema's optional `params`) is silently

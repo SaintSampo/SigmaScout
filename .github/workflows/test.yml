@@ -46,14 +46,14 @@ jobs:
 
 # ── What is expected to RUN here, and what is expected to SKIP ──
 #
-# RUN: packages/harness/digest.test.ts (D-15/SC-5) — every committed
-# data/algorithm-versions/*.json version is re-run on its own recorded slice
-# and must reproduce its committed prediction-stream digest and headline
-# metrics bitwise. data/corpus.sqlite (351MB, gitignored) never exists on
-# this runner, so this test replays from the committed
+# RUN: packages/harness/level1Digest.test.ts (D-15/SC-5) — every published
+# algorithm is re-run on the slice recorded in
+# data/baselines/level1-digest-2026-09.json and must reproduce its committed
+# prediction-stream digest bitwise. data/corpus.sqlite (gitignored) never
+# exists on this runner, so this test replays from the committed
 # packages/harness/fixtures/digest-slice.json fixture instead — this is the
 # one gate this workflow exists to make real; if it skips here, something
-# is wrong (a missing fixture or a missing version file), not a healthy
+# is wrong (a missing fixture or a missing baseline file), not a healthy
 # no-op.
 #
 # RUN: packages/harness/publish.test.ts — its `publishSeasons` suites build a

@@ -16,10 +16,6 @@ import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
 import { spr } from "../core/algorithms/spr.js";
 import { OFFSEASON_EVENT_TYPE } from "../core/algorithms/eventTypes.js";
-// Renamed by plan 07-16's full-repo sweep (wave 11, D-04/D-05): this file's
-// own `publish.ts` importer now imports the published `vpr` registry entry
-// under its post-rename name.
-import { vpr } from "../core/algorithms/sigma1/index.js";
 import { PUBLISHED_ALGORITHM_IDS } from "./publishedAlgorithms.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import {
@@ -374,7 +370,7 @@ describe("resolvePublishAlgorithms — D-03/D-04/D-05 rename (plan 07-16 Task 2,
     } catch (err) {
       expect((err as Error).message).toContain("opr");
       expect((err as Error).message).toContain("epa");
-      expect((err as Error).message).toContain("vpr");
+      expect((err as Error).message).toContain("spr");
     }
   });
 });
@@ -500,14 +496,14 @@ describe("buildEventArtifact — D-18 item 3 own predicted-score variance and D-
   it("Test 6 (PD-09): the published value traces to predict()'s own output on the record it built the row from, never a recomputation", () => {
     const teams = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
     const match = fixtureMatch();
-    const records = new WalkForwardSimulator([match]).run(vpr, teams);
+    const records = new WalkForwardSimulator([match]).run(spr, teams);
     const record = records[0]!;
     expect(record.prediction.redScoreVarianceOwn).toBeDefined();
     const artifact = buildEventArtifact({
       eventKey: match.eventKey,
       season: 2026,
-      algorithmId: vpr.id,
-      algorithmVersion: vpr.version,
+      algorithmId: spr.id,
+      algorithmVersion: spr.version,
       predictions: records,
       generation: "g-test6",
     });
@@ -873,13 +869,13 @@ describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criteri
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("Test 7: a real publishSeasons run with vpr publishes a finite redScoreVarianceOwn and the seeded sortTime on a played event row", async () => {
+  it("Test 7: a real publishSeasons run with spr publishes a finite redScoreVarianceOwn and the seeded sortTime on a played event row", async () => {
     upsertEvent(db, seasonEvent({ eventKey: "2026casj" }));
     upsertMatch(db, seasonMatch({ sortTime: 12_345 }));
 
-    await publishSeasons(db, { seasons: [2026], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
 
-    const artifact = findEventArtifact("2026casj", vpr.id);
+    const artifact = findEventArtifact("2026casj", spr.id);
     const row = artifact.matches.find((m) => m.matchKey === "2026casj_qm1");
     expect(row).toBeDefined();
     expect(Number.isFinite(row?.redScoreVarianceOwn)).toBe(true);
@@ -936,10 +932,10 @@ describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criteri
       })
     );
 
-    await publishSeasons(db, { seasons: [2024], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2024], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
 
     const teamArtifact = findTeamArtifact("frc1", 2024);
-    const eventArtifact = findEventArtifact("2024casj", vpr.id);
+    const eventArtifact = findEventArtifact("2024casj", spr.id);
 
     const teamCasjEvent = teamArtifact.events.find((e) => e.eventKey === "2024casj");
     const qmTeamRow = teamCasjEvent?.matches.find((m) => m.matchKey === "2024casj_qm1") as object;
@@ -1150,9 +1146,9 @@ describe("buildEventArtifact — D-18 items 7/8, end-to-end (plan 07-08 Task 2)"
       fetchedAt: "2026-01-01T00:00:00.000Z",
     });
 
-    await publishSeasons(db, { seasons: [2026], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
 
-    const artifact = findEventArtifact("2026casj", vpr.id);
+    const artifact = findEventArtifact("2026casj", spr.id);
     expect(artifact.name).toBe("Sacramento Regional");
     expect(artifact.startDate).toBe("2026-03-01");
     expect(artifact.location).toBe("CA, USA");
@@ -1166,9 +1162,9 @@ describe("buildEventArtifact — D-18 items 7/8, end-to-end (plan 07-08 Task 2)"
     upsertEvent(db, seasonEvent({ eventKey: "2026noselect" }));
     upsertMatch(db, seasonMatch({ matchKey: "2026noselect_qm1", eventKey: "2026noselect" }));
 
-    await publishSeasons(db, { seasons: [2026], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
 
-    const artifact = findEventArtifact("2026noselect", vpr.id);
+    const artifact = findEventArtifact("2026noselect", spr.id);
     expect(artifact.alliances).toEqual([]);
   });
 
@@ -1194,9 +1190,9 @@ describe("buildEventArtifact — D-18 items 7/8, end-to-end (plan 07-08 Task 2)"
       fetchedAt: "2026-01-01T00:00:00.000Z",
     });
 
-    await publishSeasons(db, { seasons: [2026], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
 
-    const artifact = findEventArtifact("2026casj2", vpr.id);
+    const artifact = findEventArtifact("2026casj2", spr.id);
     expect(artifact.alliances?.[0]?.record).toEqual({ wins: 4, losses: 3, ties: 0 });
     expect(artifact.alliances?.[1]).not.toHaveProperty("record");
   });
@@ -1337,9 +1333,9 @@ describe("buildEventArtifact — D-18 item 6, end-to-end (plan 07-08 Task 3)", (
       rankingScore: 2.71,
     });
 
-    await publishSeasons(db, { seasons: [2026], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
 
-    const artifact = findEventArtifact("2026casj", vpr.id);
+    const artifact = findEventArtifact("2026casj", spr.id);
     const row = artifact.teams.find((t) => t.teamKey === "frc1");
     expect(row?.rank).toBe(2);
     expect(row?.record).toEqual({ wins: 5, losses: 2, ties: 0 });
@@ -1350,9 +1346,9 @@ describe("buildEventArtifact — D-18 item 6, end-to-end (plan 07-08 Task 3)", (
     upsertEvent(db, seasonEvent({ eventKey: "2026norank" }));
     upsertMatch(db, seasonMatch({ matchKey: "2026norank_qm1", eventKey: "2026norank" }));
 
-    await publishSeasons(db, { seasons: [2026], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
 
-    const artifact = findEventArtifact("2026norank", vpr.id);
+    const artifact = findEventArtifact("2026norank", spr.id);
     for (const row of artifact.teams) {
       const r = row as object;
       expect(r).not.toHaveProperty("rank");
@@ -2643,79 +2639,6 @@ describe("publishSeasons — compare artifact eligibility sources the CORPUS, no
     //      empty record `{}`: `opr` is absent from that map, so
     //      `aggregateScores` throws naming it (D-2's missing-entry guard)
     //      and this `await publishSeasons(...)` call itself rejects.
-  });
-
-  /**
-   * F-3 (quick task 260903-tk6): the prior version of this describe block
-   * only ever published `algorithms: [opr]`, and `opr`'s registry entry is
-   * a hardcoded `() => []` — so `selectedOnSeasonsFor(["opr"])` and a
-   * hand-built `{opr: []}` are byte-identical on that path, and deleting
-   * `selectionProvenance.ts`'s entire contribution kept the old test green.
-   * `vpr` is the first algorithm in this file whose registry entry is a
-   * REAL provenance read (the committed version file's
-   * `provenance.tuneSeasons`), so this is the first assertion anywhere in
-   * the repo that a published `compare/{year}.json`'s `vpr` eligibility
-   * matches the real matrix on BOTH sides of the selected-on boundary.
-   *
-   * This expectation is PINNED to the committed version file's PER-SEASON
-   * `paramSetsBySeason` map (quick task 260904-2i9; the flat
-   * `provenance.tuneSeasons` read this comment used to describe no longer
-   * exists on the live pin) — both 2024's and 2025's governing param sets in
-   * `data/algorithm-versions/vpr@{SIGMA1_CODE_VERSION}+rolling-2026-09.json`
-   * record `selectedOnSeasons` of `[2022, 2023, 2024]`, so "2024 NOT
-   * headline-eligible, 2025 IS" still holds. A future re-tune that promotes
-   * a different selected-on set for either season is SUPPOSED to redden this
-   * test — a headline-eligibility matrix change must be a deliberate,
-   * visible edit, never a silent side effect of a re-promotion.
-   */
-  it("2024 and 2025 are BOTH headline-eligible now that no season sits inside vpr's own selected-on set", async () => {
-    upsertEvent(db, seasonEvent({ eventKey: "2022prior", year: 2022 }));
-    upsertMatch(db, seasonMatch({ matchKey: "2022prior_qm1", eventKey: "2022prior" }));
-
-    upsertEvent(db, seasonEvent({ eventKey: "2023prior", year: 2023 }));
-    upsertMatch(db, seasonMatch({ matchKey: "2023prior_qm1", eventKey: "2023prior" }));
-
-    upsertEvent(db, seasonEvent({ eventKey: "2024casj", year: 2024 }));
-    upsertMatch(db, seasonMatch({ matchKey: "2024casj_qm1", eventKey: "2024casj" }));
-
-    upsertEvent(db, seasonEvent({ eventKey: "2025casj", year: 2025 }));
-    upsertMatch(db, seasonMatch({ matchKey: "2025casj_qm1", eventKey: "2025casj" }));
-
-    await publishSeasons(db, { seasons: [2024, 2025], algorithms: [vpr], bucket: "test-bucket", dryRun: false, skipState: true });
-
-    const artifact2024 = findCompareArtifact(2024);
-    const vprCombined2024 = artifact2024.slices.find(
-      (s) => s.algorithmId === vpr.id && s.season === 2024 && s.compLevelView === "combined"
-    );
-    expect(vprCombined2024).toBeDefined();
-    // CHANGED 2026-09-08 (quick task 260907-v1s, gate 5 de-contamination), and
-    // the change is the RESULT rather than an accommodation of one. This
-    // asserted `false` because vpr's 2024 parameters were selected on
-    // 2022/2023/2024 — a window CONTAINING 2024 — so the season was excluded
-    // from headline comparison on the grounds that the model had seen it.
-    // Those parameters were re-fitted on 2020/2022/2023, strictly prior, so
-    // 2024 is now a season vpr can honestly be headline-scored on for the
-    // first time. After that re-fit NO season sits inside its own selected-on
-    // set (verified across 2022-2026), which is why this test no longer has an
-    // ineligible case to contrast against.
-    //
-    // The ineligible BRANCH is still covered, directly and at unit level, by
-    // `score.test.ts`'s `isHeadlineEligible(2020, [2019, 2020], [])` — so
-    // flipping this expectation loses no coverage of the mechanism itself.
-    expect(vprCombined2024?.headlineEligible).toBe(true);
-
-    const artifact2025 = findCompareArtifact(2025);
-    const vprCombined2025 = artifact2025.slices.find(
-      (s) => s.algorithmId === vpr.id && s.season === 2025 && s.compLevelView === "combined"
-    );
-    expect(vprCombined2025).toBeDefined();
-    expect(vprCombined2025?.headlineEligible).toBe(true);
-
-    // Mutation this test is standing guard over (confirmed to redden it —
-    // recorded in the SUMMARY): replacing the registry call inside
-    // `aggregateScoresForRun` (`selectionProvenance.ts`) with a map of
-    // every requested id to an empty array flips 2024 to eligible, since
-    // `vpr` would then read as never selected on anything.
   });
 });
 

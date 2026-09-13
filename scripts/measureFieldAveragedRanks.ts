@@ -24,7 +24,7 @@
  * imported `continuousQuantile` (`apps/web/src/lib/simQuantile.ts`) — never
  * reimplemented, wrapped, or approximated here. The arms differ ONLY in the
  * pmf inputs handed to the simulator, never in the scorer. That is
- * `measureRewindGap.ts`'s own convention and the same-scorer discipline D-11
+ * the retired rewind-gap script's own convention and the same-scorer discipline D-11
  * imposes on the RP side, and it is not ceremony: a scorer mismatch has
  * previously manufactured a ~0.003 phantom regression on this project.
  *
@@ -41,13 +41,13 @@
  * This script reads `data/corpus.sqlite` READ-ONLY and touches NO credential
  * of any kind: no network request, no R2 client, no D1 access, no environment
  * variable read, and its `package.json` entry deliberately omits the
- * environment-file flag, placing it with `tune`, `promote`, `fingerprint`,
- * `identifiability` and `measure:rewind-gap` — the corpus-only offline
+ * environment-file flag, placing it with `fingerprint` and
+ * `identifiability` — the corpus-only offline
  * scripts. `.env` is never read, printed, copied or interpolated, not even to
  * confirm a key is set. No R2 object is read, written, listed or deleted; no
  * manifest is bumped; no publish command of any kind runs.
  *
- * Standalone-script shape matching `scripts/measureRewindGap.ts`: a long
+ * Standalone-script shape matching the retired rewind-gap script (deleted by quick task 260913-it4): a long
  * explanatory header, `parseArgs`, `async function main()`, an entry-point
  * guard, deep relative imports with explicit `.js` suffixes.
  */
@@ -132,7 +132,7 @@ export interface TargetEvent {
 /**
  * The measurement sample (plan 09-09 `## The measurement sample`). Six real
  * finished events, every one verified against `data/corpus.sqlite` at planning
- * time and RE-ASSERTED at run time — `measureRewindGap.ts`'s own
+ * time and RE-ASSERTED at run time — the retired rewind-gap script's own
  * `DEFAULT_TARGET_EVENTS` discipline, so a re-ingest that moved one of these
  * numbers is LOUD rather than silently producing a different measurement under
  * the same document.
@@ -331,7 +331,7 @@ export interface RungOneVerdict {
  * >
  * > Both arms must be produced by the **same imported `simulateRanks`** and
  * > the same quantile helper — the arms differ only in the pmf inputs, never
- * > in the scorer (the `measureRewindGap.ts` convention, and the same-scorer
+ * > in the scorer (the retired rewind-gap script's convention, and the same-scorer
  * > discipline D-11 imposes on the RP side).
  *
  * WHY THESE NUMBERS (outline, same section, reproduced so nobody
@@ -1232,7 +1232,7 @@ wrote ${FIELD_AVERAGED_DOC_PATH}`);
  * every other property — same pmfs, same rows, same draw count, same
  * surrogate treatment — so the whole difference is the draw stream.
  *
- * `measureRewindGap.ts` carries the same idea in its
+ * The retired rewind-gap script carried the same idea in its
  * `NOISE_CONTROL_SEED_OFFSET`. This number may NEVER be used to overrule the
  * criterion, which was fixed before any measurement existed (T-09-09-09); it
  * exists so a reader can tell what a measured difference means.

@@ -15,10 +15,12 @@
  * real query string, can.
  *
  * Reproduced live (quick task 260822-wqt, Task 2's own deployment
- * verification): with `opr`/`epa` seeded and `vpr` cold-started (no
- * league row of its own yet), the deployed Worker deterministically
- * deserialized OPR's league row as vpr's own, throwing `TypeError:
- * state.componentOrder is not iterable` in `predict()` on every tick.
+ * verification): with `opr`/`epa` seeded and the then-premier algorithm
+ * cold-started (no league row of its own yet), the deployed Worker
+ * deterministically deserialized OPR's league row as that algorithm's own,
+ * throwing `TypeError: state.componentOrder is not iterable` in `predict()`
+ * on every tick. The fixtures below use `spr` as the querying algorithm's id;
+ * the id is only a row label to the SQL under test.
  */
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -79,7 +81,7 @@ describe("readScopedState — real SQL engine (regression: algorithm_id must sco
   });
 
   it("an algorithm with NO league row of its own returns NO league-scoped row, even when OTHER algorithms' league rows exist and were inserted first", async () => {
-    // Insertion order deliberately puts opr/epa BEFORE vpr — a plain table
+    // Insertion order deliberately puts opr/epa BEFORE spr — a plain table
     // scan (what SQLite falls back to for the unindexable `OR scope_kind =
     // 'league'` branch the pre-fix SQL produced) visits rows in roughly this
     // order, which is exactly the shape that silently "worked" whenever the
@@ -87,11 +89,11 @@ describe("readScopedState — real SQL engine (regression: algorithm_id must sco
     // broke the moment it did not — reproduced here on purpose.
     insertRow(sqlite, { algorithmId: "opr", algorithmVersion: "3.0.0+baseline", scopeKind: "league", scopeKey: "league", stateJson: '{"snapshotShapeVersion":2,"opr":true}' });
     insertRow(sqlite, { algorithmId: "epa", algorithmVersion: "1.0.0+baseline", scopeKind: "league", scopeKey: "league", stateJson: '{"snapshotShapeVersion":2,"epa":true}' });
-    // vpr has team rows (from a prior season) but genuinely NO league row
+    // spr has team rows (from a prior season) but genuinely NO league row
     // of its own yet — the exact cold-start shape the live rig hit.
-    insertRow(sqlite, { algorithmId: "vpr", algorithmVersion: "2.0.0+test", scopeKind: "team", scopeKey: "frc254", stateJson: '{"matchCount":3}' });
+    insertRow(sqlite, { algorithmId: "spr", algorithmVersion: "2.0.0+test", scopeKind: "team", scopeKey: "frc254", stateJson: '{"matchCount":3}' });
 
-    const rows = await readScopedState(db, "vpr", [{ scopeKind: "team", scopeKeys: ["frc254"] }]);
+    const rows = await readScopedState(db, "spr", [{ scopeKind: "team", scopeKeys: ["frc254"] }]);
 
     expect(rows.some((r) => r.scopeKind === "league")).toBe(false);
     expect(rows.map((r) => r.scopeKey)).toEqual(["frc254"]);
@@ -99,14 +101,14 @@ describe("readScopedState — real SQL engine (regression: algorithm_id must sco
 
   it("an algorithm WITH its own league row gets exactly that row back — never a different algorithm's, even when the other algorithm's row was inserted first", async () => {
     insertRow(sqlite, { algorithmId: "opr", algorithmVersion: "3.0.0+baseline", scopeKind: "league", scopeKey: "league", stateJson: '{"snapshotShapeVersion":2,"opr":true}' });
-    insertRow(sqlite, { algorithmId: "vpr", algorithmVersion: "2.0.0+test", scopeKind: "league", scopeKey: "league", stateJson: '{"snapshotShapeVersion":2,"vpr":true}' });
+    insertRow(sqlite, { algorithmId: "spr", algorithmVersion: "2.0.0+test", scopeKind: "league", scopeKey: "league", stateJson: '{"snapshotShapeVersion":2,"spr":true}' });
 
-    const rows = await readScopedState(db, "vpr", [{ scopeKind: "team", scopeKeys: ["frc254"] }]);
+    const rows = await readScopedState(db, "spr", [{ scopeKind: "team", scopeKeys: ["frc254"] }]);
 
     const leagueRows = rows.filter((r) => r.scopeKind === "league");
     expect(leagueRows).toHaveLength(1);
     expect(leagueRows[0]!.algorithmVersion).toBe("2.0.0+test");
-    expect(JSON.parse(leagueRows[0]!.stateJson)).toMatchObject({ vpr: true });
+    expect(JSON.parse(leagueRows[0]!.stateJson)).toMatchObject({ spr: true });
   });
 
   it("a multi-selection read (OPR-shaped: event + team) still scopes the league fallback to algorithmId, never another algorithm's row", async () => {

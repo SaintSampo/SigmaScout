@@ -10,7 +10,7 @@ import type { SeasonBoundary } from "../core/algorithms/types.js";
  * `SeasonBoundary.fromSeason` had zero read sites anywhere in production code
  * (verified 2026-09-03) — nothing downstream could notice it was a nominal
  * label rather than an observed season. Quick task 260903-3bv's `carrySeason`
- * (`packages/core/algorithms/sigma1/index.ts`) became the FIRST production
+ * (in the retired Sigma1 core (deleted by quick task 260913-it4)) became the FIRST production
  * reader of `fromSeason`, computing `gap = toSeason - fromSeason` from it —
  * which turns three independent inline copies into three independent chances
  * to silently pin `gap` at one year forever, even once a non-contiguous

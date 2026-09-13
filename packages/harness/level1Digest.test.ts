@@ -50,7 +50,7 @@ import type { MatchResult } from "../core/algorithms/types.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
 import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
 import { WalkForwardSimulator, type PredictionRecord } from "./replay.js";
-import { computePredictionStreamDigest } from "./promote.js";
+import { computePredictionStreamDigest } from "./predictionStreamDigest.js";
 import { resolvePublishAlgorithms } from "./publish.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";

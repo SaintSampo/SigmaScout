@@ -85,7 +85,7 @@ export const OPR_SCALE_DIVISOR_K = 1.1;
  * before we have measured one?"). It is declared here rather than imported
  * because `epa.ts` already imports `ratingEligibleTeams` from this module, so
  * importing back would create a module cycle — the same reasoning
- * `sigma1/params.ts`'s header records for its own duplicated constants.
+ * the retired Sigma1 core's parameter module header recorded for its own duplicated constants.
  * `opr.test.ts` pins the two to equality so they cannot silently drift.
  */
 export const OPR_FALLBACK_SCORE_SD = 25;
@@ -163,8 +163,8 @@ export interface OprState {
  * identity, so the design matrix stays balanced and the demo robot's real
  * contribution to the alliance's real score is never silently reattributed
  * to its real teammates. This is the ONE choke point every one of this
- * project's three algorithms routes team identity through (`epa.ts`,
- * `sigma1/index.ts` both call this same function), so the remap applies
+ * project's three algorithms routes team identity through (`epa.ts` and
+ * `spr.ts` call this same function), so the remap applies
  * everywhere team eligibility is decided, without a second call site per
  * algorithm.
  */
@@ -405,7 +405,7 @@ export const opr: AlgorithmModule<OprState> = {
     // very same DQ predicates the rows above are built from — a
     // whole-alliance-DQ zero is a ruling, not an observed score, and folding
     // it would drag this season's scale toward zero for no real reason
-    // (the identical `dq.ts` exclusion `epa.ts` and `sigma1/index.ts` apply).
+    // (the identical `dq.ts` exclusion `epa.ts` applies).
     //
     // Placement is load-bearing, and this is the mistake to avoid: the fold
     // sits ABOVE the `newRows.length === 0` early return, and that path

@@ -102,7 +102,7 @@ export const ELIGIBILITY_NOT_CLAIMED = "eligibility-not-claimed" as const;
  * type for every id, with no union and no branch, so the "flat list" shape
  * this replaced cannot drift back in. A parameter set's selected-on seasons
  * are a property of whichever set GOVERNS the season being scored, which
- * can differ season to season under a per-season map (`seasonParamSets.ts`)
+ * can differ season to season under a per-season parameter map (the retired Sigma1 core's)
  * — a single flat list would be wrong for at least one season the moment an
  * algorithm's promoted file carries more than one governing set. A
  * never-tuned baseline still states its fact explicitly, just as a function

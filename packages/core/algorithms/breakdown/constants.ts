@@ -69,8 +69,8 @@ export const ADJUST_COMPONENT = "adjust";
  * finite-value gate, but a value that survives parsing can still be
  * produced by `fallback.ts`'s `distributeResidual` degenerate branch — e.g.
  * a non-finite `result.redScore`/`blueScore` from an upstream corpus
- * anomaly — and bypass that first gate entirely. Both `epa.ts` and
- * `sigma1/index.ts` call this immediately before folding an observed
+ * anomaly — and bypass that first gate entirely. `epa.ts` (and, until
+ * quick task 260913-it4 deleted it, the retired Sigma1 core) calls this immediately before folding an observed
  * component vector into their own state, so a single non-finite value
  * throws here instead of silently propagating NaN/Infinity through every
  * subsequent update for the rest of a team's season (RESEARCH.md

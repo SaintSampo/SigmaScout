@@ -13,8 +13,7 @@
  *     offseason bracket bye. A real alliance "beating" three placeholders is
  *     not evidence of anything, so callers drop the WHOLE MATCH from rating
  *     updates when either alliance is fully demo (never just the demo side's
- *     own row) — see `update()` call sites in `opr.ts`/`epa.ts`/
- *     `sigma1/index.ts`.
+ *     own row) — see `update()` call sites in `opr.ts`/`epa.ts`/`spr.ts`.
  *   - `remapDemoTeams` (case 2, 7,684 mixed alliances): a demo robot filling
  *     ONE slot beside two real robots. The match IS real evidence about
  *     those two real teammates, and the demo robot's own contribution to the

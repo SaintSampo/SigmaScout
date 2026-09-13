@@ -35,7 +35,6 @@ import type { EpaState } from "../core/algorithms/epa.js";
 import type { SprPhaseRecord, SprState, SprTeamState } from "../core/algorithms/spr.js";
 import { COMPONENT_GROUP_IDS, type ComponentGroupId } from "../core/algorithms/breakdown/index.js";
 import type { OprObservation, OprState } from "../core/algorithms/opr.js";
-import type { ElimScoreOffset, Sigma1League, Sigma1State, Sigma1TeamState } from "../core/algorithms/sigma1/index.js";
 import type { ExpandingStats } from "../core/scoring/expandingStats.js";
 import type { SwingBelief } from "./swingFactor.js";
 import type { SigmaBelief, SigmaPopulation } from "./sigmaScore.js";
@@ -80,6 +79,14 @@ export class MissingLeagueRowError extends Error {
   }
 }
 
+/** Thrown when `serializeState` or `deserializeState` is given an algorithm id with no branch of its own. */
+export class UnknownStateAlgorithmError extends Error {
+  constructor(algorithmId: string) {
+    super(`serializeState/deserializeState: unknown algorithm id "${algorithmId}" (known: opr, epa, spr)`);
+    this.name = "UnknownStateAlgorithmError";
+  }
+}
+
 /**
  * Plan 04-08 (D-13): the current shape every `scopeKind: "league"` payload
  * must declare (`snapshotShapeVersion`). Bumped whenever a league payload's
@@ -104,7 +111,7 @@ export class MissingLeagueRowError extends Error {
  *
  * Bumped 3 -> 4 (quick task 260902-disp, commit 96e38754): every Sigma1 team
  * payload gained `contributionStats` and `lastContribution`, a per-match
- * inferred contribution series (`sigma1/contribution.ts`).
+ * inferred contribution series (in the retired Sigma1 core (deleted by quick task 260913-it4)).
  *
  * WHAT SHAPE 4 ACTUALLY SHIPPED — corrected here rather than deleted, because
  * a reader tracing a shape-4 seed row needs this sentence to exist. This
@@ -132,7 +139,7 @@ export class MissingLeagueRowError extends Error {
  * Bumped 5 -> 6 (D-V1/D-V3, quick task 260902-varopr): Sigma1 emitted
  * `scopeKind: "event"` rows of its own — one per event, carrying that event's
  * variance-decomposition normal equations (`{ rowCount, teamOrder, gram,
- * targets, vBarSums }`, the since-deleted `sigma1/varianceOpr.ts`). Until that
+ * targets, vBarSums }`, from a since-deleted variance-decomposition module). Until that
  * version only OPR had event-scoped state.
  *
  * The load-bearing reason, which is the same one both bumps above give and is
@@ -146,7 +153,7 @@ export class MissingLeagueRowError extends Error {
  * Bumped 6 -> 7 (D-Y1/D-Y3, quick task 260903-750): that event row is GONE
  * again, one version after arriving, and each TEAM row gains a `swing` object —
  * the recency-weighted accumulator (`{ weightedSquares, weight }` per metric
- * key, `sigma1/swing.ts`) that replaced the decomposition as the source of
+ * key, in the retired Sigma1 core) that replaced the decomposition as the source of
  * every published `±`. Sigma1 is team-scoped only once more, and
  * `apps/worker/src/scheduled.ts`'s `EVENT_SCOPED_ALGORITHM_IDS` dropped "vpr"
  * in the same task.
@@ -161,7 +168,7 @@ export class MissingLeagueRowError extends Error {
  * shape check is the only thing standing between that and a live tick.
  *
  * Bumped 7 -> 8 (ELIM-OFF, quick task 260904-v9n): the league row gains
- * `elimScoreOffset` (`{ value, count }`, `sigma1/elim.ts`), the within-season
+ * `elimScoreOffset` (`{ value, count }`, in the retired Sigma1 core), the within-season
  * learned additive elim score correction's EWMA accumulator.
  *
  * BE HONEST ABOUT HOW THIS BUMP DIFFERS FROM THE FOUR ABOVE IT, in this same
@@ -470,210 +477,6 @@ function makeRow(
 }
 
 // ---------------------------------------------------------------------------
-// Sigma1 (and its four harness-only link-mode/adaptation siblings, which
-// share IDENTICAL Sigma1State shape — makeSigma1's prebuilt modules differ
-// only in predict()'s link mode, never in what update() accumulates)
-// ---------------------------------------------------------------------------
-
-/**
- * Restores a component-keyed record to the runtime's canonical key order.
- *
- * `makeRow` writes every payload with `stableStringify`, so a row's JSON has
- * ALPHABETICAL keys by design — that canonical form is what makes a snapshot
- * byte-comparable. The runtime's own order is different: sigma1 builds every
- * component-keyed record by iterating `componentOrder`. Reading a snapshot
- * back therefore used to hand the algorithm records in a different key order
- * than the live state had, and since floating-point addition is not
- * associative, an alliance total summed over those keys differed in its last
- * bits — enough to change `pRedWin` and break the continuation-replay digest
- * equality `stateSnapshot.test.ts` asserts.
- *
- * Keys absent from `componentOrder` are appended in sorted order rather than
- * dropped, so this can never silently lose a field. Quick task 260910-5ym.
- */
-function inComponentOrder<T>(record: Readonly<Record<string, T>>, componentOrder: readonly string[]): Record<string, T> {
-  const out: Record<string, T> = {};
-  for (const name of componentOrder) {
-    if (Object.prototype.hasOwnProperty.call(record, name)) out[name] = record[name]!;
-  }
-  for (const name of Object.keys(record).sort()) {
-    if (!Object.prototype.hasOwnProperty.call(out, name)) out[name] = record[name]!;
-  }
-  return out;
-}
-
-interface SerializedSigma1TeamState {
-  beliefs: Sigma1TeamState["beliefs"];
-  covariance: number[][];
-  consistency: Record<string, number>;
-  matchCount: number;
-  lastEventKey: string | null;
-  rpBeliefs: Sigma1TeamState["rpBeliefs"];
-  rpCovariance: number[][];
-  rpCrossCovariance: number[][];
-  /** D-Y3 (quick task 260903-750): the recency-weighted swing behind the published `±`. It rides the TEAM row because it is a property of the robot; the `scopeKind: "event"` rows the retired decomposition needed are gone. */
-  swing: Sigma1TeamState["swing"];
-}
-
-interface SerializedSigma1League {
-  snapshotShapeVersion: number;
-  season: number | null;
-  componentOrder: string[];
-  league: {
-    componentMean: Sigma1League["componentMean"];
-    componentConsistency: Sigma1League["componentConsistency"];
-    rpVariableMean: Sigma1League["rpVariableMean"];
-  };
-  allianceScoreStats: ExpandingStats;
-  rpSkippedMatchCount: number;
-  breakdownParseFailureCount: number;
-  /** ELIM-OFF (quick task 260904-v9n): the league-level learned elim score offset's EWMA accumulator — shape 8. */
-  elimScoreOffset: ElimScoreOffset;
-}
-
-/**
- * Plan 04-08 (D-13): a `scopeKind: "team"` row's payload for sigma1/epa is a
- * UNION — a team may have current-season state, a prior-season rating (from
- * `priorSeasonRatings.lastSeason`/`.yearBefore`), or both. `current` is
- * omitted entirely for a team with no current-season entry (a team known
- * only via a prior-season rating) — never a placeholder/empty object, so the
- * shape a reader sees on the wire matches exactly what was actually there
- * (this project's "raw numbers only, no fabricated placeholders" discipline
- * applied to row presence itself).
- */
-interface SerializedSigma1TeamRow {
-  current?: SerializedSigma1TeamState;
-  priorSeasonLastSeason?: number;
-  priorSeasonYearBefore?: number;
-}
-
-/**
- * D-V1/D-V3 (quick task 260902-varopr): one event's variance-decomposition
- * normal equations, in the SAME `scopeKind: "event"` shape
- * `serializeOprState` already uses for its own per-event rows — the mechanism
- * this task deliberately reuses rather than inventing a per-team-pair sparse
- * one (which would additionally have to survive `SeedRowTooLargeError`'s
- * 90,000-byte budget at ~3,500 season-scoped teams; `X'X` there is 12M
- * entries and is not close).
- *
- * `gram` is dense `teamOrder x teamOrder` small integers and dominates the row.
- * Its measured size at the corpus's widest real event is asserted by
- * `stateSnapshot.test.ts`. If a future season pushes it over the budget, the
- * named fallback is an upper-triangular sparse record of CO-APPEARING PAIRS
- * only (a team co-appears with ~50 others, roughly a 3x reduction) — never
- * rounding the target sums, which would trade a size problem for a
- * reproducibility one.
- */
-
-function sigma1TeamStateToJson(team: Sigma1TeamState): SerializedSigma1TeamState {
-  return {
-    beliefs: team.beliefs,
-    covariance: team.covariance,
-    consistency: team.consistency,
-    matchCount: team.matchCount,
-    lastEventKey: team.lastEventKey,
-    rpBeliefs: team.rpBeliefs,
-    rpCovariance: team.rpCovariance,
-    rpCrossCovariance: team.rpCrossCovariance,
-    swing: team.swing,
-  };
-}
-
-function serializeSigma1State(algorithmId: string, algorithmVersion: string, state: Sigma1State, stamp: StateStamp): StateRow[] {
-  const leagueJson: SerializedSigma1League = {
-    snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION,
-    season: state.season,
-    componentOrder: [...state.componentOrder],
-    league: {
-      componentMean: state.league.componentMean,
-      componentConsistency: state.league.componentConsistency,
-      rpVariableMean: state.league.rpVariableMean,
-    },
-    allianceScoreStats: state.allianceScoreStats,
-    rpSkippedMatchCount: state.rpSkippedMatchCount,
-    breakdownParseFailureCount: state.breakdownParseFailureCount,
-    elimScoreOffset: state.elimScoreOffset,
-  };
-
-  const rows: StateRow[] = [makeRow(algorithmId, algorithmVersion, "league", "league", leagueJson, stamp)];
-
-  // D-13: the UNION of every map's keys — a team present only in
-  // `priorSeasonRatings.lastSeason`/`.yearBefore` (no current-season entry
-  // at all) must still get its own row, never silently dropped.
-  const teamKeys = new Set<string>([
-    ...state.teams.keys(),
-    ...state.priorSeasonRatings.lastSeason.keys(),
-    ...state.priorSeasonRatings.yearBefore.keys(),
-  ]);
-  for (const teamKey of [...teamKeys].sort()) {
-    const current = state.teams.get(teamKey);
-    const priorSeasonLastSeason = state.priorSeasonRatings.lastSeason.get(teamKey);
-    const priorSeasonYearBefore = state.priorSeasonRatings.yearBefore.get(teamKey);
-    const teamJson: SerializedSigma1TeamRow = {
-      ...(current !== undefined ? { current: sigma1TeamStateToJson(current) } : {}),
-      ...(priorSeasonLastSeason !== undefined ? { priorSeasonLastSeason } : {}),
-      ...(priorSeasonYearBefore !== undefined ? { priorSeasonYearBefore } : {}),
-    };
-    rows.push(makeRow(algorithmId, algorithmVersion, "team", teamKey, teamJson, stamp));
-  }
-
-  // D-Y3 (quick task 260903-750): Sigma1 emits NO `scopeKind: "event"` rows any
-  // more. The published `±` moved from an event-wide decomposition to one
-  // running number per team (`Sigma1TeamState.swing`), which rides the existing
-  // team rows, so there is no event-granular Sigma1 state left to persist.
-  // `apps/worker/src/scheduled.ts`'s `EVENT_SCOPED_ALGORITHM_IDS` dropped "vpr"
-  // in the same change; leaving it there would have made the Worker load event
-  // rows that are never written.
-  return rows;
-}
-
-function deserializeSigma1State(algorithmId: string, rows: readonly StateRow[]): Sigma1State {
-  const leagueRow = rows.find((r) => r.scopeKind === "league");
-  if (!leagueRow) throw new MissingLeagueRowError(algorithmId);
-  const leagueJson = JSON.parse(leagueRow.stateJson) as SerializedSigma1League;
-  if (leagueJson.snapshotShapeVersion !== STATE_SNAPSHOT_SHAPE_VERSION) {
-    throw new LeagueRowShapeVersionError(algorithmId, leagueJson.snapshotShapeVersion);
-  }
-
-  const teams = new Map<string, Sigma1TeamState>();
-  const lastSeason = new Map<string, number>();
-  const yearBefore = new Map<string, number>();
-  for (const row of rows) {
-    // D-Y3: a Sigma1 `scopeKind: "event"` row can only be a pre-7 leftover.
-    // The shape-version gate on the league row above is what actually rejects
-    // such a snapshot; this skip keeps the loop total rather than relying on
-    // that gate having already thrown.
-    if (row.scopeKind !== "team") continue;
-    const teamJson = JSON.parse(row.stateJson) as SerializedSigma1TeamRow;
-    if (teamJson.current !== undefined) {
-      teams.set(row.scopeKey, {
-        ...teamJson.current,
-        beliefs: inComponentOrder(teamJson.current.beliefs, leagueJson.componentOrder),
-        consistency: inComponentOrder(teamJson.current.consistency, leagueJson.componentOrder),
-      });
-    }
-    if (teamJson.priorSeasonLastSeason !== undefined) lastSeason.set(row.scopeKey, teamJson.priorSeasonLastSeason);
-    if (teamJson.priorSeasonYearBefore !== undefined) yearBefore.set(row.scopeKey, teamJson.priorSeasonYearBefore);
-  }
-
-  return {
-    season: leagueJson.season,
-    componentOrder: leagueJson.componentOrder,
-    teams,
-    league: {
-      ...leagueJson.league,
-      componentMean: inComponentOrder(leagueJson.league.componentMean, leagueJson.componentOrder),
-      componentConsistency: inComponentOrder(leagueJson.league.componentConsistency, leagueJson.componentOrder),
-    },
-    allianceScoreStats: leagueJson.allianceScoreStats,
-    priorSeasonRatings: { lastSeason, yearBefore },
-    rpSkippedMatchCount: leagueJson.rpSkippedMatchCount,
-    breakdownParseFailureCount: leagueJson.breakdownParseFailureCount,
-    elimScoreOffset: leagueJson.elimScoreOffset,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // EPA
 // ---------------------------------------------------------------------------
 
@@ -731,7 +534,14 @@ interface SerializedEpaWeekOne {
   sealed: boolean;
 }
 
-/** D-13: same union shape as sigma1's `SerializedSigma1TeamRow` — see that interface's doc comment. */
+/**
+ * Plan 04-08 (D-13): a `scopeKind: "team"` row's payload for epa is a UNION —
+ * a team may have current-season state, a prior-season rating (from
+ * `priorSeasonRatings.lastSeason`/`.yearBefore`), or both. `current` is
+ * omitted entirely for a team with no current-season entry (a team known
+ * only via a prior-season rating) — never a placeholder/empty object, so the
+ * shape a reader sees on the wire matches exactly what was actually there.
+ */
 interface SerializedEpaTeamRow {
   current?: SerializedEpaTeamState;
   priorSeasonLastSeason?: number;
@@ -1224,11 +1034,11 @@ export function withSigmaPopulation(rows: readonly StateRow[], population: Sigma
  * `sigmascout{Feature}` prefix says out loud that this is a level-2 passenger
  * rather than part of any model.
  *
- * MUST NOT be confused with the retired VPR `rpBeliefs` field that lives
- * inside this same file's Sigma1 team-state serializer. That one is typed
- * `Sigma1TeamState["rpBeliefs"]` — the retired algorithm's own Kalman state,
- * a different thing that happens to share a word. D-21 prohibits reusing it,
- * and it is equally not ours to rename or delete.
+ * MUST NOT be confused with the retired VPR `rpBeliefs` field that the retired
+ * Sigma1 core (deleted by quick task 260913-it4) serialized in this file — that
+ * algorithm's own Kalman state, a different thing that happened to share a
+ * word. D-21 prohibited reusing the name, and legacy rows that still carry it
+ * are simply never read.
  */
 const RP_BELIEF_KEY = "sigmascoutRp";
 
@@ -1314,17 +1124,11 @@ export function withRpBeliefs(rows: readonly StateRow[], beliefs: ReadonlyMap<st
 /**
  * D-12/D-13: converts one algorithm's in-memory state into `StateRow`s ready
  * for a D1 seed (`emitSeedSql`). Dispatches on `algorithmId`: `"opr"` is
- * event-scoped (D-09), `"epa"` is team-scoped, and every other id (`vpr`
- * and its four harness-only siblings, renamed by plan 07-16, D-04/D-05)
- * shares Sigma1State's exact shape.
+ * event-scoped (D-09), `"epa"` and `"spr"` are team-scoped.
  *
- * HAZARD for a future algorithm: the final line is a FALLTHROUGH, not a
- * lookup, so an id with no branch here is silently reinterpreted as
- * Sigma1-shaped rather than rejected. That is how this algorithm (under its
- * pre-rename wire id at the time — renamed to `spr` by quick task 260912-ivg)
- * first failed, with "state.componentOrder is not iterable" from deep inside
- * the Sigma1 serializer rather than a message naming the real problem. Add a
- * branch when adding an algorithm.
+ * Any other id throws `UnknownStateAlgorithmError`, because a silent default
+ * branch once reinterpreted an unbranched algorithm's state as another model's
+ * shape and crashed deep inside the wrong serializer instead of naming the id.
  *
  * 260912-ivg: Stages 1-4 held the premier branch below as transitionally
  * dual-name (matching either the pre-rename id or `spr`) rather than a
@@ -1336,21 +1140,21 @@ export function withRpBeliefs(rows: readonly StateRow[], beliefs: ReadonlyMap<st
 export function serializeState(
   algorithmId: string,
   algorithmVersion: string,
-  state: Sigma1State | EpaState | OprState | SprState,
+  state: EpaState | OprState | SprState,
   stamp: StateStamp
 ): StateRow[] {
   if (algorithmId === "opr") return serializeOprState(algorithmId, algorithmVersion, state as OprState, stamp);
   if (algorithmId === "epa") return serializeEpaState(algorithmId, algorithmVersion, state as EpaState, stamp);
   if (algorithmId === "spr") return serializeBprState(algorithmId, algorithmVersion, state as SprState, stamp);
-  return serializeSigma1State(algorithmId, algorithmVersion, state as Sigma1State, stamp);
+  throw new UnknownStateAlgorithmError(algorithmId);
 }
 
 /** The inverse of `serializeState` — reconstructs a state whose `predict()`/`update()` behavior is identical to the state it came from, for a matching (possibly partial, D-13) set of rows. Throws `MissingLeagueRowError` when no `scopeKind: "league"` row is present. */
-export function deserializeState(algorithmId: string, rows: readonly StateRow[]): Sigma1State | EpaState | OprState | SprState {
+export function deserializeState(algorithmId: string, rows: readonly StateRow[]): EpaState | OprState | SprState {
   if (algorithmId === "opr") return deserializeOprState(algorithmId, rows);
   if (algorithmId === "epa") return deserializeEpaState(algorithmId, rows);
   if (algorithmId === "spr") return deserializeBprState(algorithmId, rows);
-  return deserializeSigma1State(algorithmId, rows);
+  throw new UnknownStateAlgorithmError(algorithmId);
 }
 
 // ---------------------------------------------------------------------------

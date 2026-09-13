@@ -37,7 +37,7 @@
  * bytes, not only against well-ranked events).
  *
  * Standalone-script shape matching `scripts/replayRig.ts`/
- * `scripts/measureRewindGap.ts`: a long explanatory header, `parseArgs`, an
+ * the retired rewind-gap script: a long explanatory header, `parseArgs`, an
  * `async function main()`, an entry-point guard, deep relative imports with
  * explicit `.js` suffixes.
  */
@@ -60,7 +60,7 @@ import { buildRankDistributionRows, histBarHeight, rankBandLabel, type RankDistr
 /**
  * The mock-run's fixed Monte Carlo seed — reproducible run to run, matching
  * this project's other committed-measurement scripts' own seeded-determinism
- * convention (`measureRewindGap.ts`'s `DEFAULT_SEED`).
+ * convention (the retired rewind-gap script's `DEFAULT_SEED`).
  */
 export const MOCK_SEED = 20260831;
 
@@ -371,7 +371,7 @@ export async function measureEvent(origin: string, eventKey: string, algorithmVe
     const measurement: RankMockEventMeasurement = {
       eventKey,
       canRunDrawLoop: false,
-      cannotRunReason: "no qm row (played or scheduled) carries both redRpPmf and blueRpPmf — the usual reason (08-05's ledger) is an RP-ineligible event type (e.g. offseason, TBA event_type 99), which sigma1/index.ts's isRpEligibleEventType excludes from pmf production",
+      cannotRunReason: "no qm row (played or scheduled) carries both redRpPmf and blueRpPmf — the usual reason (08-05's ledger) is an RP-ineligible event type (e.g. offseason, TBA event_type 99), which isRpEligibleEventType (packages/core/rankingPoints/constants.ts) excludes from pmf production",
       rosterSize: artifact.teams.length,
       playedQmCount: playedQm.length,
       scheduledQmCount: scheduledQm.length,

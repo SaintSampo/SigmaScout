@@ -76,7 +76,7 @@ for (const key of Object.values(COMPONENT_GROUP_METRIC_KEYS)) {
   DIRECTION_BY_METRIC_NAME.set(key, "higher-is-better");
 }
 /**
- * THE D2 OVERRIDE. `packages/core/algorithms/sigma1/swing.ts` documents the
+ * THE D2 OVERRIDE. the retired Sigma1 core (deleted by quick task 260913-it4) documented the
  * OPPOSITE framing — its user stories 1 and 2 say Alliance 1 wants the LOWER
  * swing and Alliance 8 deliberately WANTS the higher swing, making the
  * underlying quantity two-sided (a strong, wildly-swingy robot can still be

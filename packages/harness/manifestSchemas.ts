@@ -6,8 +6,7 @@
  * fix) for the exact reason `packages/core/algorithms/leakProof.ts`'s own
  * header already documents for the identical situation: `manifests.ts`
  * imports `readFileSync`/`join` from `node:fs`/`node:path` directly (used by
- * `buildAlgorithmsManifest`) AND imports `warnIfNewerPromotedVpr` (plan
- * 07-16's rename of `warnIfNewerPromotedSigma1`) from `./cli.js`, which
+ * `buildAlgorithmsManifest`) and at the time also imported `./cli.js`, which
  * itself imports the corpus (`better-sqlite3`) at module top level — since
  * ES module imports are FILE-scoped, not export-scoped, importing even a
  * single schema from `manifests.ts` would drag that entire transitive graph
@@ -23,7 +22,6 @@
  * constraint `packages/core/algorithms/types.ts`'s own header states.
  */
 import { z } from "zod";
-import { Sigma1ParamsSchema } from "../core/algorithms/sigma1/index.js";
 
 export { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "./publishedAlgorithms.js";
 
@@ -94,52 +92,31 @@ export function isLiveAt(window: Pick<LiveWindowEntry, "startMs" | "endMs">, epo
 // D-03: the algorithms manifest
 // ---------------------------------------------------------------------------
 
-/** D-03: the four Phase-2/Phase-3 experiment ids that exist to answer harness questions and must never appear in a user-facing manifest. Renamed with the published algorithm (plan 07-16, D-04/D-05/PD-03) so the registry never carries two names for one model — every membership test below is EXACT string equality (`Set.has`), never a prefix/substring test, which is what keeps `vpr` itself from being swept into this set by its own name. */
-export const HARNESS_ONLY_ALGORITHM_IDS = new Set(["vpr-defaults", "vpr-seasonsd", "vpr-normalcdf", "vpr-adapt"]);
-
 export const AlgorithmManifestEntrySchema = z.object({
   id: z.string().min(1),
   /** `{codeVersion}+{paramSetName}` — D-13's version identity. */
   version: z.string().min(1),
   codeVersion: z.string().min(1),
   paramSetName: z.string().min(1),
-  /** Present only for the VPR entry (`Sigma1ParamsSchema` — the implementation's own parameter type, not renamed per PD-02) — a Worker rebuilds the module with `makeSigma1({ params, ... })`; OPR/EPA carry no tunable parameter set. */
-  params: Sigma1ParamsSchema.optional(),
   /**
-   * D-2 (quick task 260904-100): the season whose set `params` carries.
-   * OPTIONAL so every already-published manifest keeps validating — added
-   * additively, no `MANIFEST_SCHEMA_VERSION` bump, since the Worker only
-   * ever runs the LIVE season and needs exactly one season's set (never the
-   * full `paramSetsBySeason` map, which would widen the published manifest
-   * shape for no gain). Present whenever `params` is.
+   * D-2 (quick task 260904-100): the season whose tuned parameter set an
+   * entry carried. OPTIONAL and never written by any published algorithm since
+   * the retired Sigma1 core (deleted by quick task 260913-it4), whose
+   * `params` field was removed from this schema with it. The schema is
+   * non-strict, so a legacy `params` key on an already-published manifest is
+   * stripped on parse rather than rejected; no `MANIFEST_SCHEMA_VERSION` bump.
    */
   paramsSeason: z.number().int().optional(),
 });
 
 export type AlgorithmManifestEntry = z.infer<typeof AlgorithmManifestEntrySchema>;
 
-export const AlgorithmsManifestSchema = z
-  .object({
-    schemaVersion: z.literal(MANIFEST_SCHEMA_VERSION),
-    generation: z.string().min(1),
-    computedAt: z.string().min(1),
-    algorithms: z.array(AlgorithmManifestEntrySchema),
-  })
-  .check((ctx) => {
-    for (const entry of ctx.value.algorithms) {
-      if (HARNESS_ONLY_ALGORITHM_IDS.has(entry.id)) {
-        ctx.issues.push({
-          code: "custom",
-          message:
-            `D-03: algorithm id "${entry.id}" is harness-only (one of vpr-defaults/vpr-seasonsd/` +
-            `vpr-normalcdf/vpr-adapt) and must never appear in the published algorithms manifest — ` +
-            `it exists to answer a Phase 2/3 harness question, not a Phase 5 dropdown choice`,
-          path: ["algorithms"],
-          input: ctx.value,
-        });
-      }
-    }
-  });
+export const AlgorithmsManifestSchema = z.object({
+  schemaVersion: z.literal(MANIFEST_SCHEMA_VERSION),
+  generation: z.string().min(1),
+  computedAt: z.string().min(1),
+  algorithms: z.array(AlgorithmManifestEntrySchema),
+});
 
 export type AlgorithmsManifest = z.infer<typeof AlgorithmsManifestSchema>;
 

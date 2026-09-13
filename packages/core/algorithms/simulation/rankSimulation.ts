@@ -6,8 +6,9 @@
  *
  * A browser-safe leaf module: zero runtime imports, no DOM, no Node
  * built-in. It has exactly TWO callers — 08-07's browser Web Worker (the
- * live/2027 case) and 08-08's Node `measureRewindGap.ts` control-run script
- * (the D-02 rewind-honesty measurement). Having ONE implementation is what
+ * live/2027 case) and 08-08's Node rewind-gap control-run script (the D-02
+ * rewind-honesty measurement, deleted with the retired Sigma1 core by quick
+ * task 260913-it4). Having ONE implementation is what
  * makes 08-08's measured rewind-overconfidence figure describe the same
  * math the visitor's browser actually runs — a second, hand-synced copy
  * would silently turn that figure into a comparison between two

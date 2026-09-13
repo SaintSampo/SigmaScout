@@ -791,7 +791,7 @@ object count, matching the same D-01…D-05 invariant the 2026-08-25 run itself 
 **This run also carries two Phase-6 (not 06.1) commits that landed *after* the 2026-08-25 run above
 and were never republished until now** — `06f468ad` ("publish phase-group metrics with real spread
 and percentile": `phaseAuto`/`phaseTeleop`/`phaseEndgame` group metrics, computed in
-`packages/core/algorithms/sigma1/covariance.ts`'s `subsetVariance`, added to every algorithm's
+the retired Sigma1 core's `subsetVariance` (deleted by quick task 260913-it4), added to every algorithm's
 `teamMetrics()` output) and `bf1e3228` ("publish rarity tier on the teams artifact"): a per-metric
 `tier` field on the `teams/{year}` artifact. Both commit messages state outright "Not yet visible on
 the site — requires an artifact republish." Because this run is the *first* republish since those

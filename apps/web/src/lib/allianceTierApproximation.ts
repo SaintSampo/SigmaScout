@@ -10,7 +10,7 @@ import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.j
  * be derived, since a sum's rank is not a function of its parts' ranks."
  * When the identical problem arose for the Auto/Teleop/Endgame phase tiles,
  * the pipeline was widened to compute a true quadratic-form percentile
- * there (`sigma1/index.ts`'s `teamMetrics`, via `covariance.ts`'s
+ * there (the retired Sigma1 core (deleted by quick task 260913-it4)'s `teamMetrics`, via its
  * `subsetVariance`). The developer chose the lighter client-side
  * APPROXIMATION here instead, accepting the trade rather than funding that
  * pipeline work for this one column — so this module's output is always an

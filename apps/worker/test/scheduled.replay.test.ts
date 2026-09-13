@@ -28,7 +28,6 @@ import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
-import { makeSigma1 } from "../../../packages/core/algorithms/sigma1/index.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
 import { roundMetric, roundProbability, roundTo, ROUNDING_RULE } from "../../../packages/harness/rounding.js";
 import { SigmaScoutLayer } from "../../../packages/harness/sigmaScoutLayer.js";
@@ -40,7 +39,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 
 /**
  * `packages/harness/replay.ts` (`WalkForwardSimulator`) and
- * `packages/harness/promote.ts` (`computePredictionStreamDigest`) both
+ * `packages/harness/predictionStreamDigest.ts` (`computePredictionStreamDigest`) both
  * import `packages/corpus/db.ts` at module top level for unrelated exports
  * (`buildSeasonStream`/`selectMatchesChronological`), which pulls in
  * `better-sqlite3` and triggers the exact `URL` ambient-type collision
@@ -69,7 +68,7 @@ function runOfflineWalkForward(matches: readonly MatchResult[], algorithm: Algor
   return predictions;
 }
 
-/** Byte-for-byte identical to `packages/harness/promote.ts`'s `computePredictionStreamDigest` — see this file's import-boundary comment above for why it is reimplemented rather than imported. */
+/** Byte-for-byte identical to `packages/harness/predictionStreamDigest.ts`'s `computePredictionStreamDigest` — see this file's import-boundary comment above for why it is reimplemented rather than imported. */
 function computePredictionStreamDigestLocal(records: readonly OfflinePredictionRecord[]): string {
   const lines = records.map((r) => JSON.stringify([r.match.matchKey, r.prediction.pRedWin, r.prediction.redScore, r.prediction.blueScore]));
   return createHash("sha256").update(lines.join("\n")).digest("hex");
@@ -80,7 +79,7 @@ function computePredictionStreamDigestLocal(records: readonly OfflinePredictionR
  * The SigmaScout-layer counterpart of the prediction digest above (shape 10).
  *
  * Kept SEPARATE rather than folded into `computePredictionStreamDigestLocal`,
- * which is pinned byte-for-byte to `promote.ts`'s own function and must not
+ * which is pinned byte-for-byte to `predictionStreamDigest.ts`'s own function and must not
  * drift from it. This one exists because the prediction digest covers only
  * `pRedWin`/`redScore`/`blueScore` and would therefore not notice a live/offline
  * divergence in the Match Band AT ALL — the field the whole shape-10 bump was
@@ -289,11 +288,12 @@ function buildOfflineModule(id: string): AlgorithmModule<any> {
   if (id === "opr") return opr;
   if (id === "epa") return epa;
   if (id === "spr") return spr;
-  // Explicit, and NOT a fallthrough to makeSigma1 (2026-09-09). This helper had
-  // the same defect the Worker's own `buildAlgorithmModules` did: an unknown id
-  // silently became a Sigma1 module wearing that id, so the offline half of
-  // this equivalence test would have compared BPR's live output against
-  // Sigma1's — the exact live/offline split this test exists to catch, hidden
+  // Explicit, and NOT a default branch (2026-09-09). This helper had the same
+  // defect the Worker's own `buildAlgorithmModules` did: an unknown id silently
+  // became a module of the since-retired Sigma1 core (deleted by quick task
+  // 260913-it4) wearing that id, so the offline half of this equivalence test
+  // would have compared the premier algorithm's live output against another
+  // model's — the exact live/offline split this test exists to catch, hidden
   // inside the test itself.
   throw new Error(`buildOfflineModule: no module for algorithm id "${id}"`);
 }

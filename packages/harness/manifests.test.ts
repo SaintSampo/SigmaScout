@@ -2,10 +2,10 @@
  * Coverage for the two offline-published manifests (D-18/D-03, plan 04-03
  * Task 1): the live-windows half-open-interval contract, the corpus-derived
  * window builder (including the zero-match inferred fallback), and the
- * algorithms manifest's harness-only-id rejection and VPR-version
- * agreement with the committed promoted file.
+ * algorithms manifest built from each published module, and legacy manifest
+ * keys stripped on parse.
  */
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -14,8 +14,6 @@ import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
 import { spr } from "../core/algorithms/spr.js";
-import { PromotedVersionSchema } from "./promote.js";
-import { PROMOTED_VPR_VERSION_PATH } from "./promotedVersionPath.js";
 import { LiveWindowsManifestEnvelopeSchema } from "./manifestSchemas.js";
 import {
   AlgorithmsManifestSchema,
@@ -26,16 +24,6 @@ import {
   buildLiveWindowsManifest,
   isLiveAt,
 } from "./manifests.js";
-
-// Imported from the shared `promotedVersionPath.ts` leaf (quick task
-// 260904-2i9), not derived here. What this file's assertions actually
-// defend — that the manifest's id and version are READ from the committed
-// file rather than written as literals at the construction site — is
-// unaffected by where the path itself comes from. The independent-witness
-// job (proving the path resolves the SAME file the harness loads, without
-// trusting this import) belongs to `selectionProvenance.test.ts`'s
-// `INDEPENDENTLY_RESOLVED_VPR_VERSION_PATH` alone — do not reintroduce a
-// second mirror here thinking this one was lost by accident.
 
 let dir: string;
 let corpusPath: string;
@@ -382,7 +370,7 @@ describe("LiveWindowsManifestSchema — preamble required", () => {
   });
 });
 
-describe("AlgorithmsManifestSchema — D-03 harness-only rejection", () => {
+describe("AlgorithmsManifestSchema — legacy keys", () => {
   function baseManifest(algorithmId: string) {
     return {
       schemaVersion: 1,
@@ -392,26 +380,15 @@ describe("AlgorithmsManifestSchema — D-03 harness-only rejection", () => {
     };
   }
 
-  it("rejects a manifest naming vpr-adapt, with a message naming D-03", () => {
-    expect(() => AlgorithmsManifestSchema.parse(baseManifest("vpr-adapt"))).toThrow(/D-03/);
-  });
-
-  it("rejects each of the four harness-only ids", () => {
-    for (const id of ["vpr-defaults", "vpr-seasonsd", "vpr-normalcdf", "vpr-adapt"]) {
-      expect(() => AlgorithmsManifestSchema.parse(baseManifest(id))).toThrow();
-    }
-  });
-
-  // Test 10 (plan 07-16 Task 1, T-07-16-05): the published id itself is
-  // ACCEPTED in the same file that rejects all four harness-only variants —
-  // the case that would fail under any prefix/substring test, since `vpr`
-  // is a literal prefix of `vpr-adapt` etc. HARNESS_ONLY_ALGORITHM_IDS.has
-  // is exact-equality Set membership, never `startsWith`/`includes`.
-  it("accepts the published id vpr while rejecting all four harness-only variants", () => {
-    expect(() => AlgorithmsManifestSchema.parse(baseManifest("vpr"))).not.toThrow();
-    for (const id of ["vpr-defaults", "vpr-seasonsd", "vpr-normalcdf", "vpr-adapt"]) {
-      expect(() => AlgorithmsManifestSchema.parse(baseManifest(id))).toThrow();
-    }
+  // Quick task 260913-it4 removed the entry schema's tuned-parameter field with
+  // the retired Sigma1 core. Already-published manifests may still carry that
+  // key, so it must be stripped on parse, never rejected.
+  it("strips a legacy params key from an already-published entry instead of rejecting it", () => {
+    const legacy = baseManifest("spr");
+    const withParams = { ...legacy, algorithms: [{ ...legacy.algorithms[0]!, params: { anything: 1 } }] };
+    const parsed = AlgorithmsManifestSchema.parse(withParams);
+    expect(parsed).toEqual(AlgorithmsManifestSchema.parse(legacy));
+    expect(Object.keys(parsed.algorithms[0]!)).not.toContain("params");
   });
 
   it("fails to parse when generation is absent", () => {
@@ -447,8 +424,8 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
     const epaEntry = manifest.algorithms.find((a) => a.id === "epa")!;
     expect(oprEntry.version).toBe(opr.version);
     expect(epaEntry.version).toBe(epa.version);
-    expect(oprEntry.params).toBeUndefined();
-    expect(epaEntry.params).toBeUndefined();
+    expect(Object.keys(oprEntry)).not.toContain("params");
+    expect(Object.keys(epaEntry)).not.toContain("params");
   });
 
   // Test 2 (plan 07-16 Task 1): the manifest id is READ from the committed
@@ -478,7 +455,7 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
   it("carries no tunable params or paramsSeason on any entry, since no published algorithm is promoted-versioned any more", () => {
     const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2023 });
     for (const entry of manifest.algorithms) {
-      expect(entry.params, `${entry.id} must carry no params`).toBeUndefined();
+      expect(Object.keys(entry), `${entry.id} must carry no params`).not.toContain("params");
       expect(entry.paramsSeason, `${entry.id} must carry no paramsSeason`).toBeUndefined();
     }
   });

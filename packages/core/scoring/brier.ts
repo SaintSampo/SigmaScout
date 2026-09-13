@@ -82,7 +82,7 @@ export function outcomeTarget(actualWinner: MatchOutcome): number {
 
 /**
  * The winner-accuracy correctness rule for ONE prediction, extracted so
- * `scoreSet` below and `packages/harness/tune.ts`'s own per-event accuracy
+ * `scoreSet` below and the retired Sigma1 tuner's own per-event accuracy
  * blocks (quick task 260904-oiu, OBJ-RANK) share the EXACT SAME rule and
  * cannot drift apart — a private re-derivation in the tuner is exactly the
  * failure mode this predicate exists to close.

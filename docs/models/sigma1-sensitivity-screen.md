@@ -1,5 +1,7 @@
 # Sigma1 sensitivity screen (D-03a)
 
+*2026-09-13: the code this record measured was deleted by quick task 260913-it4, restorable from the commit recorded in that task's SUMMARY.*
+
 This is the committed answer to "which of Sigma1's Phase-3 hyperparameters can the tune-season
 data actually distinguish" — the direct application of the failure log's unidentifiable-model
 lesson (REBUILD_SPEC.md): before a joint search spends its budget on 20 dimensions, find out

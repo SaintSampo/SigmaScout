@@ -13,7 +13,7 @@
  * the numbers below gets ranking points, per-bonus probabilities and the rank
  * simulation for free, for every season already registered.
  *
- * Extracted from `sigma1/rp/state.ts` on 2026-09-09, when VPR was retired and
+ * Extracted from the retired Sigma1 core's RP state on 2026-09-09, when VPR was retired and
  * the universal 84% of that work was pulled out of a dying algorithm's
  * directory. Sigma1's `buildAllianceRpMoments` remains ONE implementation of
  * this contract; it is not the contract.

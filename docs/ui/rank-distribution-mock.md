@@ -247,7 +247,7 @@ implement — see that function's own doc comment once it lands):
 rows) carry both `redRpPmf` and `blueRpPmf` — measured directly against the live artifact, matching
 08-05's own ledger exactly (`playedQmBothPmfCount: 0`). The usual reason (08-05's ledger, confirmed
 here structurally rather than assumed) is that TBA event type 99 (Offseason) is excluded from
-`isRpEligibleEventType`, so `sigma1/index.ts` never produces a pmf for this event's matches. This
+`isRpEligibleEventType`, so the Sigma1 core (since deleted by quick task 260913-it4) never produced a pmf for this event's matches. This
 answers RESEARCH's flagged assumption directly: with zero pmf-bearing rows, `2024auwarp`'s Simulation
 tab would render 08-09's unavailable state in production, never this table — the fallback baseline
 computation below is therefore reachable in production ONLY through the per-team case, not the
