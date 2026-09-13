@@ -87,3 +87,44 @@ Repaired in `1d624515` (delimiter restored, row re-homed as 137). The helper is 
 (`readModifyWriteStateMd`) and `appendQuickTaskRow`'s own table-local logic looks sound, so the
 likeliest suspect is the splice of the section body back into the whole file — worth checking
 `collectSection`'s offsets against this file's mixed LF/CRLF line endings first.
+
+## Attribution correction — incidents 1, 3 and 4 were NOT `quick-tasks-append` (2026-09-12, session that ran 5n8/7bp/i13/l8t)
+
+**The "row written over line 1" failure in incidents 1, 3 and 4 came from a hand-written append
+script in the award-prediction session, not from `gsd-tools quick-tasks-append`.** That session
+stopped using the helper after its first run and appended every later row with an inline `node -e`
+script. Those are exactly the three commits that went bad:
+
+| incident | commit | what the blob shows |
+|---|---|---|
+| 1 | `88cac8f5` (260912-7bp) | line 1 blank, own row on line 2, opening `---` gone |
+| 3 | `17b6c2b0` (260912-i13) | line 1 blank, row 136 on line 2, opening `---` gone |
+| 4 | `a103ec69` (260912-l8t) | line 1 blank, row 137 on line 2, opening `---` gone |
+
+**The mechanism, reproduced against the clean parent blob `21a15b5a`:** the script anchored on the
+previous row with a template-literal regex whose source was `^\\| ${n} \\|.*$` (flag `m`). The `\|` escapes were lost to shell
+quoting, so the pattern became `^| 136 |.*$` — an **alternation** whose branches match at the head
+of the file. Reproduced: the match lands at **char index 0**. `s.replace(re, m => m + "\n" + row)`
+therefore wrote the row at the top, over the `---`. The script's `if (!re.test(s)) exit` guard could
+not catch it — a broken alternation always matches, so the guard passed *because* the regex was
+broken.
+
+**The LF/CRLF lead in incident 4 is a red herring for these.** Measured with `node` (Git Bash
+`grep $'\r$'` and `cat -A` disagree with each other on this machine and should not be trusted for
+this): the working copy, `HEAD`, and every blob above are **pure LF**, 0 CRLF.
+
+**What this does and does not settle.**
+- It settles incidents 3 and 4, and the row-placement part of incident 1.
+- It does **not** establish incident 1's duplicated-frontmatter / stale `current_phase: 08` detail,
+  or incident 2's phase-pointer reset. Those may be the helper.
+- **The helper does have a real, separate bug**, observed first-hand in the same session: its first
+  run mis-parsed named flags and wrote `| 132 | --id | 2026-09-12 | f8311707 | — |`, and it overwrote
+  `last_activity_desc` with a *different, concurrent* session's task description. So the ban is not
+  wrong — but "the helper writes its row at the head of the file" is not yet shown to be one of its
+  bugs.
+
+**The practical lesson for the CLAUDE.md recipe:** "append with a small script" is what caused three
+of the four corruptions, so the script is not the safeguard — **the four checks are**. Checking that
+both `---` delimiters are present would have caught every one of these before commit. Anchor on
+lines with plain string comparison (`line.startsWith("| " + n + " |")`), never a regex containing
+`|`.
