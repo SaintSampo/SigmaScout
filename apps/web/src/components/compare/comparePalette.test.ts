@@ -5,7 +5,7 @@
  * `theme.css` values with the dataviz skill's `validate_palette.js
  * --pairs all` (light mode, both `--surface #F8FAFC` and `#F1F5F9`):
  *
- *  - The trio ALONE (`--compare-algo-opr` #EA580C, `-epa` #7C3AED, `-vpr`
+ *  - The trio ALONE (`--compare-algo-opr` #EA580C, `-epa` #7C3AED, `-spr`
  *    #0D9488) passes every check on both surfaces: worst all-pairs ΔE 13.8
  *    protan / 13.6 tritan / 28.8 normal vision.
  *  - The trio PLUS the three `--tier-*-fg` tokens (`--tier-rare-fg` #0369A1,
@@ -33,6 +33,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { PUBLISHED_ALGORITHM_IDS } from "../../../../../packages/harness/publishedAlgorithms.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const THEME_CSS_PATH = resolve(HERE, "..", "..", "styles", "theme.css");
@@ -43,7 +44,7 @@ const THIS_FILE_PATH = resolve(HERE, "comparePalette.test.ts");
 const EXPECTED_TOKENS: Readonly<Record<string, string>> = {
   "--compare-algo-opr": "#EA580C",
   "--compare-algo-epa": "#7C3AED",
-  "--compare-algo-vpr": "#0D9488",
+  "--compare-algo-spr": "#0D9488",
 };
 
 function readThemeCss(): string {
@@ -63,6 +64,23 @@ describe("comparePalette — theme.css token pinning (Task 1 acceptance)", () =>
       const actual = declaredValue(css, propertyName);
       expect(actual, `expected ${propertyName} to be declared in theme.css`).toBeDefined();
       expect(actual!.toLowerCase()).toBe(expectedHex.toLowerCase());
+    }
+  });
+
+  /**
+   * Audit bug F2 (260913-nvn): the compare surface reads
+   * `var(--compare-algo-${algorithmId})` for every id in
+   * `PUBLISHED_ALGORITHM_IDS`, dynamically — a hardcoded token map like
+   * `EXPECTED_TOKENS` above cannot catch a published algorithm id with no
+   * matching token declared. This loop guards that class of bug directly: it
+   * fails loudly the day a new published algorithm id ships with no
+   * `--compare-algo-*` colour behind it.
+   */
+  it("declares a --compare-algo-* token for every PUBLISHED_ALGORITHM_IDS entry", () => {
+    const css = readThemeCss();
+    for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
+      const actual = declaredValue(css, `--compare-algo-${algorithmId}`);
+      expect(actual, `expected --compare-algo-${algorithmId} to be declared in theme.css`).toBeDefined();
     }
   });
 });

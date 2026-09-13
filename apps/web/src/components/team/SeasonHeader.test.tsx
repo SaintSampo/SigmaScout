@@ -490,20 +490,6 @@ describe("SeasonHeader — Total renders the split pill with Sigma (quick task 2
     expect(screen.queryByTestId("total-sigma-pill")).toBeNull();
   });
 
-  it("renders no plus-minus superscript anywhere in the header -- MetricValue has no plus-minus render path since 260913-g66", () => {
-    const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
-      total: { value: 60.5, percentile: 96 },
-      sigma: { value: 8.42, percentile: 97 },
-    };
-    const artifact = baseArtifact({
-      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics },
-      events: [],
-    });
-
-    render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
-
-    expect(document.querySelectorAll(".metric-spread-superscript")).toHaveLength(0);
-  });
 });
 
 describe("SeasonHeader — rank cards render inside the header (quick task 260905-ttv)", () => {

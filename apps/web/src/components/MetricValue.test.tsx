@@ -65,7 +65,6 @@ describe("MetricValue", () => {
   it("renders no plus-minus superscript element at all (260913-g66)", () => {
     const { container } = render(<MetricValue metric={{ value: 88.2, spread: 3.1 }} tier="epic" />);
 
-    expect(container.querySelector(".metric-spread-superscript")).toBeNull();
     expect(container.textContent).not.toContain("±");
   });
 

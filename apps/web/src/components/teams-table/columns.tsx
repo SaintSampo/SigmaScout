@@ -201,84 +201,33 @@ const columnHelper = createColumnHelper<typeof features, TeamRow>();
 export type TeamsTableView = "grouped" | "components";
 
 /**
- * The WIDE-viewport (at/above `MOBILE_BREAKPOINT_PX`) per-metric-column
- * width for a spread-carrying algorithm (VPR) — UNCHANGED at 120, the value
- * this file has always used. Below the breakpoint every algorithm still
- * uses the literal `120` directly at `buildColumns`'s own call site
- * (G-2/G-11's own arithmetic — `128 (pinned) + 90 (nickname) + 120
- * (metric) = 338px` — depends on that literal and needs no
- * re-derivation); this constant and `METRIC_COLUMN_WIDTH_SPREADLESS_PX`
- * below are for the at/above-breakpoint case only.
+ * The WIDE-viewport (at/above `MOBILE_BREAKPOINT_PX`) per-metric-column width
+ * for every algorithm — 88px. Measured live against the deployed 2026
+ * EPA/OPR/SPR artifacts: `.numeric-cell`'s `font-feature-settings: "tnum"`
+ * makes rendered width a pure function of character count, not the specific
+ * digits, and 65.16px content + 16px `TableCell` `p-2` padding + a 6px
+ * cross-browser font-hinting buffer (the same margin
+ * `RANK_COLUMN_WIDTH_NARROW_PX` uses) rounds up to 88. Below the breakpoint
+ * every algorithm uses the literal `120` directly at `buildColumns`'s own
+ * call site (G-2/G-11's own arithmetic — `128 (pinned) + 90 (nickname) + 120
+ * (metric) = 338px` — depends on that literal and needs no re-derivation);
+ * this constant is for the at/above-breakpoint case only.
  */
-export const METRIC_COLUMN_WIDTH_PX = 120;
+export const METRIC_COLUMN_WIDTH_PX = 88;
 
 /**
- * The WIDE-viewport per-metric-column width for a SPREAD-LESS algorithm
- * (D-1, 2026-09-04, quick task 260904-5zg — confirming, not assuming, the
- * plan's own leading hypothesis that 120 was sized for VPR's `value ±
- * spread` string and left every EPA column carrying a fixed surplus).
- *
- * Measured live against the deployed 2026 EPA/OPR artifacts (a throwaway
- * measurement script, deleted before this task's commit, drove a real
- * rendered page): EPA/OPR never publish a spread on any metric
- * (`packages/core/algorithms/epa.ts`'s/`opr.ts`'s own `teamMetrics` — a
- * mean only), so every cell is a bare `value.toFixed(2)` string, tier-boxed
- * or not. `.numeric-cell`'s `font-feature-settings: "tnum"` makes rendered
- * width a pure function of CHARACTER COUNT, not the specific digits —
- * confirmed by measuring "415.98" (OPR's real 2026 worst-case Total,
- * boxed) and "-22.50" (an equal-length negative) at the identical 65.16px.
- * That is the real worst case across both cell shapes this width covers: a
- * boxed Total ("415.98"/OPR's real "-38.48", both 6 chars) and a bare
- * derived group value ("241.96", 2026 EPA's own real Teleop worst case, 6
- * chars, 49.16px — smaller, so the boxed case is binding). 65.16px content
- * + 16px `TableCell` `p-2` padding + a 6px cross-browser font-hinting
- * buffer (the same small numeric-column margin
- * `RANK_COLUMN_WIDTH_NARROW_PX` uses) = 87.16, rounded up to 88.
- */
-export const METRIC_COLUMN_WIDTH_SPREADLESS_PX = 88;
-
-/**
- * Whether `algorithmId` ever publishes a spread on a metric. SPR is the only
- * one that does as of VPR's retirement (2026-09-09) — verified against the live
- * 2026 teams artifacts that day: SPR carries a `total` spread of 36.32 for its
- * first row, EPA and OPR carry a mean only. Exported so
- * `event/AlliancesTab.tsx`'s own D-7 pick/combined column widths derive from
- * this identical predicate rather than a second, independently-typed check.
- *
- * NOTE, and it is a real inconsistency rather than a subtlety: this is the
- * ALGORITHM's own spread, which is a different quantity from the SigmaScout
- * per-robot consistency figure the team page shows on its Total tile. The teams table and
- * the team page can therefore print different `±` for the same team under SPR.
- * Tracked in `.planning/todos/pending/`'s band/identity notes; not resolved by
- * the VPR removal.
- */
-export function algorithmPublishesSpread(algorithmId: string): boolean {
-  return algorithmId === "spr";
-}
-
-/**
- * The metric column's WIDE-viewport width for `algorithmId` (D-1) — the one
- * derivation `buildColumns` below reads, so a later width change to either
- * constant above needs no second call-site edit.
- */
-export function metricColumnWidth(algorithmId: string): number {
-  return algorithmPublishesSpread(algorithmId) ? METRIC_COLUMN_WIDTH_PX : METRIC_COLUMN_WIDTH_SPREADLESS_PX;
-}
-
-/**
- * Quick task 260913-jkp: the Total column's own width, which now depends on
- * whether it renders the split pill, not just whether the algorithm publishes
- * a spread. `TOTAL_SIGMA_COLUMN_WIDTH_PX` (154, `TotalSigmaValue.tsx`'s own
- * measurement block) applies in BOTH narrow and wide modes when
- * `usesSigmaScore(algorithmId)` — the pill needs headroom the narrow literal
- * 120 does not give it. Every other metric column (and Total itself under a
- * non Sigma algorithm) keeps the pre-existing narrow/wide derivation
- * unchanged: the literal 120 below the breakpoint, `metricColumnWidth` above
- * it.
+ * Quick task 260913-jkp: the Total column's own width, which depends on
+ * whether it renders the split pill. `TOTAL_SIGMA_COLUMN_WIDTH_PX` (154,
+ * `TotalSigmaValue.tsx`'s own measurement block) applies in BOTH narrow and
+ * wide modes when `usesSigmaScore(algorithmId)` — the pill needs headroom
+ * the narrow literal 120 does not give it. Every other metric column (and
+ * Total itself under a non-Sigma algorithm) keeps the pre-existing
+ * narrow/wide derivation unchanged: the literal 120 below the breakpoint,
+ * `METRIC_COLUMN_WIDTH_PX` above it.
  */
 function metricColumnWidthFor(key: string, algorithmId: string, isNarrow: boolean): number {
   if (key === TOTAL_KEY && usesSigmaScore(algorithmId)) return TOTAL_SIGMA_COLUMN_WIDTH_PX;
-  return isNarrow ? 120 : metricColumnWidth(algorithmId);
+  return isNarrow ? 120 : METRIC_COLUMN_WIDTH_PX;
 }
 
 /** Total's header reads "Total ± Sigma" under a Sigma-enabled algorithm (`TotalSigmaValue.tsx`'s `totalColumnHeader`); every other metric column keeps its ordinary friendly label. */

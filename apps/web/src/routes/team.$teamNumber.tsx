@@ -3,7 +3,6 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { eventsQueryOptions } from "../lib/api/events.js";
 import { officialSnapshotRow } from "../lib/officialSnapshot.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { TeamSeasonArtifact } from "../../../../packages/harness/pageArtifacts.js";
 import { TEAM_TABS, TeamSearchSchema } from "../lib/searchParams.js";
 import { toTeamKey } from "../lib/teamKey.js";
 import { teamQueryOptions } from "../lib/api/team.js";
@@ -34,19 +33,6 @@ const TEAM_NUMBER_PATTERN = /^\d+$/;
 const PENDING_EVENT_SECTION_SKELETON_COUNT = 3;
 
 type TeamTab = (typeof TEAM_TABS)[number];
-
-/**
- * D-05's `activeYears` is published only once plan 06-02's schema wave
- * lands; this worktree's copy of `pageArtifacts.ts` predates it (both plans
- * run in the same wave with no `depends_on` between them, per 06-01-PLAN.md's
- * frontmatter). This local, optional-field intersection is the same
- * "loose cast + graceful fallback" escape hatch `YearSelect.tsx`/
- * `AlgorithmSelect.tsx` already use for a cross-route search cast — it reads
- * correctly once the real field lands (an optional field intersected onto a
- * type that later gains it is a no-op) and degrades to `undefined` (the
- * schema's own "unknown" case, per D-05's bootstrap wrinkle) until then.
- */
-type TeamSeasonArtifactWithActiveYears = TeamSeasonArtifact & { activeYears?: readonly number[] };
 
 function TeamPage() {
   const { teamNumber: teamNumberParam } = Route.useParams();
@@ -148,8 +134,7 @@ function TeamPage() {
     }
 
     if (data.events.length === 0) {
-      const artifact = data as TeamSeasonArtifactWithActiveYears;
-      const activeYears = artifact.activeYears;
+      const activeYears = data.activeYears;
       const yearMismatch = activeYears !== undefined && !activeYears.includes(year);
 
       return (

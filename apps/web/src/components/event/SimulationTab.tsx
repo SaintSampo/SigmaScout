@@ -62,46 +62,6 @@ export interface SimulationTabProps {
 }
 
 /**
- * D-04's one spelling of "which algorithm this tab needs" — the route
- * imports this for its disabled boolean (`!SIMULATION_AVAILABLE`)
- * rather than hardcoding the string `"vpr"` a second time. This component
- * does not use `algorithmId` to decide reachability itself (PD-03) — Radix
- * keeps this panel mounted-but-hidden on every event page regardless of the
- * active algorithm, and re-deriving D-04's rule here a second time would
- * give the rule two homes that could drift; the route is the only place
- * that decides reachability. `season` (08-14, Task 3) and `algorithmId`
- * (08-14, typecheck fix) ARE now read and threaded straight through to
- * `RankDistributionTable`'s own Team #/Nickname links, which need both for
- * their `TeamSearchSchema` search params — the selected `algorithmId` is
- * carried rather than assumed, the same discipline `InsightsTab.tsx` and
- * `BreakdownTab.tsx` already apply.
- */
-/**
- * Whether ANY published algorithm can drive the rank simulation.
- *
- * Was `SIMULATION_ALGORITHM_ID = "vpr"` until 2026-09-09, when VPR left the
- * published set and took ranking points with it — the tab went dark for every
- * algorithm. It is a CAPABILITY question rather than an identity one, which is
- * what let it come back for everyone at once rather than for a favoured id.
- *
- * TRUE, with a scope set on 2026-09-13 (quick task 260913-it4): ranking-point
- * odds are a SigmaScout-layer feature (`packages/core/rankingPoints/`),
- * computed at publish time for Sigma algorithms only — SPR today — on played
- * rows, upcoming rows and the pre-schedule sidecar alike. They need a
- * per-robot score variance, and only a Sigma algorithm carries one. OPR and
- * EPA artifacts carry no pmfs, so `hasSimulatableRankInputs` returns false
- * for them and the existing unavailable state renders; no new UI state exists
- * for that case.
- *
- * Still a constant rather than an inlined `true`: it is the one place to flip
- * if RP ever stops being published, and the per-event/per-algorithm question
- * ("does THIS artifact carry pmfs?") is answered separately and honestly by
- * `hasSimulatableRankInputs` below, which reads the artifact rather than
- * assuming.
- */
-export const SIMULATION_AVAILABLE = true;
-
-/**
  * 08-UI-SPEC.md's Copywriting Contract, verbatim — the event genuinely has
  * zero published `qm` matches (rare; same population class as Phase 7's
  * Quals-tab empty case).

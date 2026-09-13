@@ -68,47 +68,6 @@ export function metricKeysFor(algorithmId: string, season: number): readonly str
 export const GROUP_METRIC_KEYS: readonly string[] = COMPONENT_GROUP_IDS.map((id) => COMPONENT_GROUP_METRIC_KEYS[id]);
 
 /**
- * Whether the TEAMS-LIST artifact for this algorithm PUBLISHES the
- * phase-group metrics as first-class entries (their own spread and/or
- * percentile, not just a value). Verified against the live 2026 artifacts
- * (2026-09-01): VPR publishes all three groups per row with a spread. As of
- * quick task 260904-7id (D-1), the pipeline also publishes EPA's three
- * group metrics — `epa.ts`'s `teamMetrics()` now emits `phaseAuto`/
- * `phaseTeleop`/`phaseEndgame` as value-only entries, and the existing
- * percentile/tier pass (generic over metric names) attaches a season-wide
- * percentile/tier to them with no pipeline change. OPR still does not
- * publish groups — it has no components to group at all. Derived from the
- * algorithm id, never from inspecting fetched rows — the same column-set
- * discipline `metricKeysFor` states above.
- *
- * Split from `hasGroupedTeamsView` (2026-09-04, quick task 260904-5zg,
- * D-2): this predicate answers "does the pipeline publish the group", which
- * used to be a narrower question than "can the grouped view show real
- * values" back when only VPR published groups and EPA's grouped view relied
- * entirely on `lib/metricGroups.ts`'s `withDerivedGroupMetrics` to derive an
- * honest, value-only group entry client-side. That narrower-vs-broader gap
- * has closed for EPA as of 260904-7id — a published EPA group entry now
- * wins over the derived one at `withDerivedGroupMetrics`'s own
- * published-wins merge — but `withDerivedGroupMetrics` still matters as the
- * STALE-ARTIFACT fallback: a browser holding a cached pre-republish EPA
- * artifact has no published group entry to read yet, and must render an
- * honest, tier-less value rather than nothing (see that module's own header
- * for the full picture). Surfaces that need to know whether a cell is
- * PUBLISHED (and therefore may carry a spread/tier) rather than DERIVED
- * (value only) read this function; surfaces that only need to know whether
- * the grouped view has anything real to show read `hasGroupedTeamsView`
- * below.
- */
-export function publishesGroupMetrics(algorithmId: string): boolean {
-  // 2026-09-09: `vpr` retired, replaced by this algorithm under its
-  // then-current wire id (renamed to `spr` by quick task 260912-ivg).
-  // Verified against the live 2026 teams artifacts that day: the premier
-  // algorithm and EPA publish `phaseAuto`/`phaseTeleop`/`phaseEndgame`, OPR
-  // does not.
-  return algorithmId === "spr" || algorithmId === "epa";
-}
-
-/**
  * Whether this algorithm's EVENT artifacts publish per-team component
  * metrics (the season components, including `foulsCommitted`) that the
  * event Breakdown tab can expand a phase into. True for EPA; false for SPR,
@@ -137,9 +96,7 @@ export function publishesComponentMetrics(algorithmId: string): boolean {
  * Widened (2026-09-04, quick task 260904-5zg, D-2) from "publishes the
  * group metrics" (VPR only) to this broader question, now that
  * `lib/metricGroups.ts`'s `withDerivedGroupMetrics` can produce an honest,
- * value-only group entry for EPA from its published components. See
- * `publishesGroupMetrics` above for the narrower "did the pipeline publish
- * this" question this function no longer answers.
+ * value-only group entry for EPA from its published components.
  */
 export function hasGroupedTeamsView(algorithmId: string): boolean {
   return algorithmId !== "opr";

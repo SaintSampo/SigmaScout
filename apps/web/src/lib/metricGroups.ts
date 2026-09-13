@@ -79,11 +79,6 @@ export const METRIC_GROUPS: readonly MetricGroup[] = COMPONENT_GROUP_IDS.map((id
   label: LABELS[id],
 }));
 
-/** The published metric key for one group — e.g. `"phaseAuto"`. */
-export function groupMetricKey(group: ComponentGroupId): string {
-  return COMPONENT_GROUP_METRIC_KEYS[group];
-}
-
 /**
  * A derived group entry — value only, deliberately not the full published
  * metric shape. See this module's header for why: EPA publishes no spread

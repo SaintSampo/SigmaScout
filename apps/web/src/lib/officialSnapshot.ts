@@ -36,12 +36,12 @@ function isOfficialEvent(row: EventRows[number]): boolean {
 }
 
 /**
- * The snapshot ROW, not just its metrics — the same last-official-match row
- * `officialSnapshotMetrics` has always resolved, exposed whole (quick task
- * 260908-5wd) because the row's `matchKey` is what bounds the browser-computed
- * per-robot consistency figure's observation window to the same span the snapshot's own values
- * describe. Without it the header would print an as-of-then value beside a
- * whole-season `±`, which is the two-as-of-instants defect IN-01 names.
+ * The snapshot ROW, not just its metrics — the last-official-match row,
+ * exposed whole (quick task 260908-5wd) because the row's `matchKey` is what
+ * bounds the browser-computed per-robot consistency figure's observation
+ * window to the same span the snapshot's own values describe. Without it the
+ * header would print an as-of-then value beside a whole-season `±`, which is
+ * the two-as-of-instants defect IN-01 names.
  */
 export function officialSnapshotRow(
   metricHistory: MetricHistoryRows,
@@ -53,11 +53,4 @@ export function officialSnapshotRow(
     if (officialKeys.has(row.eventKey)) last = row;
   }
   return last;
-}
-
-export function officialSnapshotMetrics(
-  metricHistory: MetricHistoryRows,
-  eventRows: EventRows,
-): MetricHistoryRows[number]["metrics"] | undefined {
-  return officialSnapshotRow(metricHistory, eventRows)?.metrics;
 }

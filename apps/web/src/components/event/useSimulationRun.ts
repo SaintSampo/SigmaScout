@@ -23,8 +23,6 @@ import type { SimMatchInput, SimResult, SimTeamBaseline } from "../../../../../p
 /** The elapsed timer's tick cadence — one order finer than the one-decimal display (`RunControl.tsx`'s `formatElapsedSeconds`). */
 export const SIMULATION_TICK_INTERVAL_MS = 100;
 
-export type SimulationRunStatus = "idle" | "running" | "complete" | "error";
-
 export interface SimulationRunIdleState {
   readonly status: "idle";
 }

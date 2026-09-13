@@ -1,14 +1,10 @@
 import { QueryClient } from "@tanstack/react-query";
 
 /**
- * Finished-season artifacts change at most once per manual re-baseline
- * (`opr`/`epa`) or once per live tick (`vpr`) — a 5-minute `staleTime` is
- * correct and cheap for browsing pages. A future live-event page (Team/Event
- * detail, Phase 6/7) overrides this per-query with `refetchInterval`, scoped
- * only to `vpr` pages, matching the Worker's `LIVE_ALGORITHM_IDS=vpr` scoping
- * (the live-fold-tier pattern quick task 260822-wqt introduced in Phase 4,
- * renamed from `sigma1` [pre-rename] by plan 07-16) — Phase 5's Teams/Events
- * pages are not live-tick targets.
+ * Artifacts change at most once per publish or, during a live event, once per
+ * Worker tick. The 5-minute `staleTime` keeps ordinary browsing cheap — no
+ * query in apps/web sets `refetchInterval` (audit F3), so a live page's data
+ * only refreshes when this `staleTime` lapses, not on any shorter cadence.
  */
 export const queryClient = new QueryClient({
   defaultOptions: {

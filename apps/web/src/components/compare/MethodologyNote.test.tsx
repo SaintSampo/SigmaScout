@@ -3,7 +3,6 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import {
   MethodologyNote,
   buildMethodologyFigures,
-  formatSeasonList,
   NEAR_TIE_CAPTION,
   COLD_START_EXPLANATION,
   METHODOLOGY_NOTE_TESTID,
@@ -91,28 +90,6 @@ function makeMinimalArtifact(
     slices: [slice],
   } as CompareArtifact;
 }
-
-describe("formatSeasonList", () => {
-  it("one season renders as the bare year", () => {
-    expect(formatSeasonList([2026])).toBe("2026");
-  });
-
-  it("two seasons render as the pair joined by the word 'and'", () => {
-    expect(formatSeasonList([2025, 2026])).toBe("2025 and 2026");
-  });
-
-  it("three contiguous seasons render as an en-dashed range", () => {
-    expect(formatSeasonList([2022, 2023, 2024])).toBe("2022–2024");
-  });
-
-  it("four contiguous seasons also render as an en-dashed range (boundary above three)", () => {
-    expect(formatSeasonList([2022, 2023, 2024, 2025])).toBe("2022–2025");
-  });
-
-  it("three-or-more non-contiguous seasons render as a comma-separated list with the word 'and' before the last", () => {
-    expect(formatSeasonList([2022, 2024, 2026])).toBe("2022, 2024 and 2026");
-  });
-});
 
 describe("buildMethodologyFigures", () => {
   it("reads only VPR's combined-view slice for each season in COMPARE_SEASONS and formats every Brier through the shared formatter", () => {

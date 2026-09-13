@@ -240,8 +240,8 @@ function cellClassName(columnId: string): string {
 const WRAPPING_HEADER_CLASS_NAME = "h-auto min-h-10 py-2 align-top whitespace-normal break-words text-role-label";
 
 /**
- * 07-UAT.md G-10: the per-metric column width, post metric-cell redesign
- * (`MetricValue.tsx`'s `.metric-spread-superscript`). Two sizes, not one:
+ * 07-UAT.md G-10: the per-metric column width, post metric-cell redesign.
+ * Two sizes, not one:
  * `TOTAL_KEY`'s own value can run to six digits ("284.89", the real worst
  * case measured live against the deployed 2026alhu VPR artifact, 48 teams),
  * so it keeps its own, slightly wider size rather than forcing every other

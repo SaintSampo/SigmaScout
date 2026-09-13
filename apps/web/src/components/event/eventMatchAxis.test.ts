@@ -291,8 +291,8 @@ describe("Adjacency", () => {
 
   it("computeEventAxisDomain over two rows whose predicted bands exactly touch spans both, dropping neither extent", () => {
     const rows: EventMatchRow[] = [
-      rowFor({ matchKey: "a", predictedRedScore: 100, predictedBlueScore: 100, redScoreVarianceOwn: 100, blueScoreVarianceOwn: 100 }), // band [90,110]
-      rowFor({ matchKey: "b", predictedRedScore: 130, predictedBlueScore: 130, redScoreVarianceOwn: 400, blueScoreVarianceOwn: 400 }), // band [110,150]
+      rowFor({ matchKey: "a", predictedRedScore: 100, predictedBlueScore: 100, redMatchBandVariance: 100, blueMatchBandVariance: 100 }), // band [90,110]
+      rowFor({ matchKey: "b", predictedRedScore: 130, predictedBlueScore: 130, redMatchBandVariance: 400, blueMatchBandVariance: 400 }), // band [110,150]
     ];
     const domain = computeEventAxisDomain(rows);
     expect(domain.min).toBeLessThanOrEqual(90);
@@ -300,7 +300,7 @@ describe("Adjacency", () => {
   });
 
   it("a row whose variance fields are both exactly 0 contributes its predicted scores and no wider extent", () => {
-    const rows: EventMatchRow[] = [rowFor({ matchKey: "a", predictedRedScore: 100, predictedBlueScore: 120, redScoreVarianceOwn: 0, blueScoreVarianceOwn: 0 })];
+    const rows: EventMatchRow[] = [rowFor({ matchKey: "a", predictedRedScore: 100, predictedBlueScore: 120, redMatchBandVariance: 0, blueMatchBandVariance: 0 })];
     const domain = computeEventAxisDomain(rows);
     expect(domain.min).toBeLessThanOrEqual(100);
     expect(domain.max).toBeGreaterThanOrEqual(120);
@@ -342,8 +342,8 @@ describe("Empty and single", () => {
       matchKey: "a",
       predictedRedScore: 100,
       predictedBlueScore: 120,
-      redScoreVarianceOwn: undefined,
-      blueScoreVarianceOwn: undefined,
+      redMatchBandVariance: undefined,
+      blueMatchBandVariance: undefined,
       played: true,
       actualRedScore: 105,
       actualBlueScore: 115,
@@ -354,13 +354,13 @@ describe("Empty and single", () => {
     expect(domain.max).toBeGreaterThanOrEqual(120);
   });
 
-  it("a row carrying only redScoreVarianceOwn contributes red's band extents and blue's point value", () => {
+  it("a row carrying only redMatchBandVariance contributes red's band extents and blue's point value", () => {
     const row = rowFor({
       matchKey: "a",
       predictedRedScore: 100,
       predictedBlueScore: 100,
-      redScoreVarianceOwn: 400,
-      blueScoreVarianceOwn: undefined,
+      redMatchBandVariance: 400,
+      blueMatchBandVariance: undefined,
     });
     const domain = computeEventAxisDomain([row]);
     expect(domain.max).toBeGreaterThanOrEqual(120); // 100 + sqrt(400)

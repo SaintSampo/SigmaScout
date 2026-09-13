@@ -389,11 +389,11 @@ function alliancesColumnHeaders(algorithmId: string): readonly [string, string, 
  * `teamNumber` + the widened `--spacing-sm` gap (8px, see `PickCell`'s own
  * comment) + the pick's tiered total.
  *
- * Quick task 260913-jkp RETIRES the VPR-era spread gate
- * (`algorithmPublishesSpread`) in favour of `usesSigmaScore`: the pick cell
- * now renders the split pill (`TotalSigmaValue`), whose width is what needs
- * headroom, not a per-metric algorithm spread (which no algorithm has
- * published since VPR's 2026-09-09 retirement). `PICK_COLUMN_WIDTH_SIGMA_PX`
+ * Quick task 260913-jkp RETIRES the VPR-era spread gate in favour of
+ * `usesSigmaScore`: the pick cell now renders the split pill
+ * (`TotalSigmaValue`), whose width is what needs headroom, not a per-metric
+ * algorithm spread (which no algorithm has published since VPR's 2026-09-09
+ * retirement). `PICK_COLUMN_WIDTH_SIGMA_PX`
  * (214) replaces the old spread-carrying `PICK_COLUMN_WIDTH_PX` (190): a
  * pick cell's content is `teamNumber` (51.88px) + the 8px gap + the pill
  * itself (130.31px, `TotalSigmaValue.tsx`'s own measurement block, worst
@@ -403,7 +403,7 @@ function alliancesColumnHeaders(algorithmId: string): readonly [string, string, 
  *
  * `PICK_COLUMN_WIDTH_SPREADLESS_PX` (150, unchanged — EPA/OPR): neither
  * publishes Sigma, so the pick cell stays a bare boxed value at 65.16px (the
- * same measured width `METRIC_COLUMN_WIDTH_SPREADLESS_PX` derives from).
+ * same measured width `METRIC_COLUMN_WIDTH_PX` derives from).
  * 51.88 + 8 + 65.16 = 125.04px content + 16px padding + 6px buffer = 147.04,
  * rounded up to 150.
  */
@@ -634,7 +634,7 @@ function buildAllianceColumns(algorithmId: string, season: number, showBackupCol
     columnHelper.accessor((row) => row.picks[0], {
       id: "pick0",
       header: headers[1],
-      // D-1's `metricColumnWidth` predicate, reused here (`pickColumnWidth`,
+      // D-1's per-metric-column width pattern, reused here (`pickColumnWidth`,
       // 260904-5zg) — see that constant's own doc comment for the measured
       // derivation.
       size: pickColumnWidth(algorithmId),

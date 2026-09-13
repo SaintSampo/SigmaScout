@@ -59,9 +59,6 @@ export const SIGMA_LEAD =
  */
 export const SIGMA_ALLIANCE_EXAMPLE_SIGMAS: readonly number[] = [6, 6, 18];
 
-/** The all steady comparison alliance quoted beside the example above, in points. */
-export const SIGMA_STEADY_ALLIANCE_EXAMPLE_SIGMAS: readonly number[] = [6, 6, 6];
-
 export const SIGMA_FIGURE_IDS = [
   "even-split",
   "level-and-sigma",

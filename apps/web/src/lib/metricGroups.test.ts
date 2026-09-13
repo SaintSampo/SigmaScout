@@ -3,7 +3,7 @@ import { COMPONENT_GROUP_METRIC_KEYS } from "../../../../packages/core/algorithm
 import { epa, type EpaState } from "../../../../packages/core/algorithms/epa.js";
 import { emptyExpandingStats } from "../../../../packages/core/scoring/expandingStats.js";
 import { emptyEpaWeekOneState } from "../../../../packages/core/algorithms/epaWeekOne.js";
-import { groupMetricKey, METRIC_GROUPS, withDerivedGroupMetrics } from "./metricGroups.js";
+import { METRIC_GROUPS, withDerivedGroupMetrics } from "./metricGroups.js";
 
 /**
  * The grouping itself is tested in core
@@ -20,7 +20,6 @@ describe("metricGroups display adapter", () => {
   it("names the same published metric keys core emits — never a local copy", () => {
     for (const group of METRIC_GROUPS) {
       expect(group.metricKey).toBe(COMPONENT_GROUP_METRIC_KEYS[group.id]);
-      expect(groupMetricKey(group.id)).toBe(COMPONENT_GROUP_METRIC_KEYS[group.id]);
     }
   });
 
@@ -30,7 +29,6 @@ describe("metricGroups display adapter", () => {
     for (const group of METRIC_GROUPS) {
       expect(Object.keys(group).sort()).toEqual(["id", "label", "metricKey"]);
     }
-    expect(groupMetricKey.length).toBe(1);
   });
 });
 

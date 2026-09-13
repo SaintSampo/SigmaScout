@@ -263,8 +263,6 @@ export const EventsSearchSchema = RootSearchSchema.extend({
   eventSortDir: z.enum(["asc", "desc"]).catch("asc"),
 });
 
-export type EventsSearch = z.infer<typeof EventsSearchSchema>;
-
 /**
  * The team page's two tabs (D-16, 06-CONTEXT.md) — Overview and Metric
  * History. `?tab=` is the shareable, back/forward-navigable URL state; the
@@ -330,7 +328,6 @@ export const EventSearchSchema = RootSearchSchema.extend({
   tab: z.enum(EVENT_TABS).catch(DEFAULT_EVENT_TAB),
 });
 
-export type EventSearch = z.infer<typeof EventSearchSchema>;
 export type EventTab = (typeof EVENT_TABS)[number];
 
 /**
@@ -360,7 +357,6 @@ export const DistrictsSearchSchema = RootSearchSchema.extend({
   tab: z.enum(DISTRICT_TABS).catch(DEFAULT_DISTRICT_TAB),
 });
 
-export type DistrictsSearch = z.infer<typeof DistrictsSearchSchema>;
 export type DistrictTab = (typeof DISTRICT_TABS)[number];
 
 /**
@@ -378,5 +374,3 @@ export type DistrictTab = (typeof DISTRICT_TABS)[number];
  * column set it renders.
  */
 export const MatchSearchSchema = RootSearchSchema;
-
-export type MatchSearch = RootSearch;

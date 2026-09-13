@@ -20,10 +20,10 @@ export type EventCompLevel = EventMatch["compLevel"];
  * `EventUpcomingMatch` (07-12-PLAN.md Decision 1). `played` is set from
  * WHICH SOURCE ARRAY the row came from — the fact that is actually known —
  * and never inferred from the presence of an actual score. The optional
- * `redScoreVarianceOwn`/`blueScoreVarianceOwn` pair carries the exact two
- * field names `EventMatchSchema` and `TeamSeasonMatchSchema` both use, so
- * the event band and the team band are one quantity under one name (D-18
- * item 3, D-01). `sortTime` carries the published epoch-seconds key
+ * `redMatchBandVariance`/`blueMatchBandVariance` pair carries the published
+ * Match Band variance directly (260913-nvn) — the row reads it verbatim
+ * rather than relabelling it into a second field name. `sortTime` carries
+ * the published epoch-seconds key
  * verbatim, optional because 07-07 declared it optional for the
  * pre-republish window, and is NEVER defaulted, coerced or synthesized at
  * any point (07-08's T-07-08-13) — this type is where a well-meaning
@@ -40,8 +40,6 @@ export interface EventMatchRow {
   pRedWin: number;
   predictedRedScore: number;
   predictedBlueScore: number;
-  redScoreVarianceOwn?: number;
-  blueScoreVarianceOwn?: number;
   /**
    * The published Match Band variance (quick task 260913-g66): the number of
    * robots on the alliance times the sum of their squared Sigma Scores. Sigma
@@ -187,8 +185,6 @@ function toRow(match: EventMatch | EventUpcomingMatch, played: boolean): EventMa
     pRedWin: match.pRedWin,
     predictedRedScore: match.predictedRedScore,
     predictedBlueScore: match.predictedBlueScore,
-    redScoreVarianceOwn: match.redScoreVarianceOwn,
-    blueScoreVarianceOwn: match.blueScoreVarianceOwn,
     redMatchBandVariance: match.redMatchBandVariance,
     blueMatchBandVariance: match.blueMatchBandVariance,
     sortTime: match.sortTime,
@@ -253,16 +249,8 @@ export function mergeEventMatches(
   // It is published for Sigma algorithms (SPR) ONLY. OPR and EPA rows carry no
   // band and draw none. Only the new keys are read, with no fallback to the
   // retired pre-rename band keys, so a stale artifact renders no band rather
-  // than an old, too-narrow one. `redScoreVarianceOwn` from the artifact is
-  // deliberately NOT consulted as a fallback either: it is the ALGORITHM's own
-  // predictive variance, a different quantity at a different level.
-  const rows = [...byMatchKey.values()].map((row) => ({
-    ...row,
-    redScoreVarianceOwn: row.redMatchBandVariance,
-    blueScoreVarianceOwn: row.blueMatchBandVariance,
-  }));
-
-  return rows.sort(compareEventMatchRows);
+  // than an old, too-narrow one.
+  return [...byMatchKey.values()].sort(compareEventMatchRows);
 }
 
 /**
@@ -294,8 +282,8 @@ export function computeEventAxisDomain(rows: readonly EventMatchRow[]): AxisDoma
     consider(row.predictedRedScore);
     consider(row.predictedBlueScore);
 
-    const redSd = row.redScoreVarianceOwn !== undefined ? Math.sqrt(Math.max(0, row.redScoreVarianceOwn)) : 0;
-    const blueSd = row.blueScoreVarianceOwn !== undefined ? Math.sqrt(Math.max(0, row.blueScoreVarianceOwn)) : 0;
+    const redSd = row.redMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, row.redMatchBandVariance)) : 0;
+    const blueSd = row.blueMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, row.blueMatchBandVariance)) : 0;
     consider(row.predictedRedScore - redSd);
     consider(row.predictedRedScore + redSd);
     consider(row.predictedBlueScore - blueSd);

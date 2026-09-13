@@ -53,10 +53,10 @@ export interface DisplayMetric {
  * presentation-only in every case — it may never change a digit.
  *
  * Quick task 260913-g66 removed the optional per-cell plus-minus prop this
- * component used to carry, together with its `.metric-spread-superscript`
- * render branch: that prop printed a per-team consistency figure beside a
- * value, no production caller passed it any more, and the site no longer
- * names that figure anywhere. A metric cell is now the value alone.
+ * component used to carry, along with its superscript render branch: that
+ * prop printed a per-team consistency figure beside a value, no production
+ * caller passed it any more, and the site no longer names that figure
+ * anywhere. A metric cell is now the value alone.
  *
  * Quick task 260913-jkp: wherever Sigma Score is published (SPR only), it
  * renders as the right half of `TotalSigmaValue`'s split pill, joined onto

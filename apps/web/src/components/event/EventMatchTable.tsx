@@ -303,7 +303,7 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
             matchKey={row.matchKey}
             side="red"
             predicted={row.predictedRedScore}
-            sd={row.redScoreVarianceOwn !== undefined ? Math.sqrt(Math.max(0, row.redScoreVarianceOwn)) : undefined}
+            sd={row.redMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, row.redMatchBandVariance)) : undefined}
             actual={row.actualRedScore}
             played={row.played}
             yBand={MATCH_GEOMETRY.Y_RED}
@@ -315,7 +315,7 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
             matchKey={row.matchKey}
             side="blue"
             predicted={row.predictedBlueScore}
-            sd={row.blueScoreVarianceOwn !== undefined ? Math.sqrt(Math.max(0, row.blueScoreVarianceOwn)) : undefined}
+            sd={row.blueMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, row.blueMatchBandVariance)) : undefined}
             actual={row.actualBlueScore}
             played={row.played}
             yBand={MATCH_GEOMETRY.Y_BLUE}
@@ -333,8 +333,8 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
       </td>
       <td data-testid={`predicted-score-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         <div className="flex flex-col gap-[2px]">
-          <EventPredictedScoreLine matchKey={row.matchKey} side="red" score={row.predictedRedScore} variance={row.redScoreVarianceOwn} season={season} bonusRp={row.redBonusRp} compLevel={row.compLevel} />
-          <EventPredictedScoreLine matchKey={row.matchKey} side="blue" score={row.predictedBlueScore} variance={row.blueScoreVarianceOwn} season={season} bonusRp={row.blueBonusRp} compLevel={row.compLevel} />
+          <EventPredictedScoreLine matchKey={row.matchKey} side="red" score={row.predictedRedScore} variance={row.redMatchBandVariance} season={season} bonusRp={row.redBonusRp} compLevel={row.compLevel} />
+          <EventPredictedScoreLine matchKey={row.matchKey} side="blue" score={row.predictedBlueScore} variance={row.blueMatchBandVariance} season={season} bonusRp={row.blueBonusRp} compLevel={row.compLevel} />
         </div>
       </td>
       <td data-testid={`actual-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">

@@ -926,7 +926,7 @@ describe("/event/$eventKey route — the identity header (07-15-PLAN.md Task 1)"
   });
 });
 
-describe("/event/$eventKey route — the Simulation tab registered, D-04 disabled trigger (08-09-PLAN.md Task 3)", () => {
+describe("/event/$eventKey route — the Simulation tab, SPR-gated (D-04, 260913-nvn)", () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
@@ -935,58 +935,73 @@ describe("/event/$eventKey route — the Simulation tab registered, D-04 disable
     vi.restoreAllMocks();
   });
 
-  // 2026-09-09: ranking points became a SigmaScout-layer feature computed for
-  // EVERY algorithm, so `SIMULATION_AVAILABLE` is true again and the trigger is
-  // enabled for all of them — not for one favoured id, which is what it was
-  // before VPR's retirement turned it off entirely. The "resolves before any
-  // data does" half of the original claim is unchanged and still pinned here.
-  it("with the artifact fetch left permanently pending, EVERY algorithm renders an ENABLED Simulation trigger — the boolean still resolves before any data does", async () => {
-    for (const algorithm of ["spr", "epa", "opr"]) {
+  // 260913-nvn: `isSimulationDisabled` is `!usesSigmaScore(algorithm)`, so the
+  // trigger is enabled for SPR and disabled for OPR/EPA — the boolean still
+  // resolves before any data does.
+  it("with the artifact fetch left permanently pending, the Simulation trigger is enabled for spr and disabled for epa and opr", async () => {
+    for (const [algorithm, expectedDisabled] of [
+      ["spr", false],
+      ["epa", true],
+      ["opr", true],
+    ] as const) {
       global.fetch = vi.fn((input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("manifest")) return Promise.resolve(manifestResponse());
         return new Promise<Response>(() => {});
       });
       renderEventRoute(`/event/2024casf?algorithm=${algorithm}`);
-      await waitFor(() => expect(screen.getByRole("tab", { name: "Simulation" }).hasAttribute("disabled")).toBe(false));
+      await waitFor(() => expect(screen.getByRole("tab", { name: "Simulation" }).hasAttribute("disabled")).toBe(expectedDisabled));
       cleanup();
     }
   });
 
-  it("the enabled Simulation trigger has no title, no aria-label and no aria-describedby, and its textContent is exactly 'Simulation'", async () => {
+  it("the enabled spr trigger has no title, no aria-label and no aria-describedby, and its textContent is exactly 'Simulation'; for opr the wrapper span's title is the SPR-only sentence", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return new Promise<Response>(() => {});
     });
-    renderEventRoute("/event/2024casf?algorithm=opr");
+    renderEventRoute("/event/2024casf?algorithm=spr");
     const trigger = await screen.findByRole("tab", { name: "Simulation" });
     await waitFor(() => expect(trigger.hasAttribute("disabled")).toBe(false));
     expect(trigger.textContent).toBe("Simulation");
     expect(trigger.hasAttribute("title")).toBe(false);
     expect(trigger.hasAttribute("aria-label")).toBe(false);
     expect(trigger.hasAttribute("aria-describedby")).toBe(false);
+    cleanup();
+
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return new Promise<Response>(() => {});
+    });
+    renderEventRoute("/event/2024casf?algorithm=opr");
+    const oprTrigger = await screen.findByRole("tab", { name: "Simulation" });
+    await waitFor(() => expect(oprTrigger.hasAttribute("disabled")).toBe(true));
+    expect(oprTrigger.parentElement?.getAttribute("title")).toBe("Simulation is only available on SPR. Switch the algorithm selector to SPR.");
   });
 
-  // 2026-09-09: this used to pin that `tab=simulation` RESOLVED AWAY to
-  // Insights, because the trigger was disabled for every algorithm but the
-  // premier one. Ranking points are computed for all of them now, so the tab is
-  // reachable and the panel is the visible one — for OPR, which models no RP of
-  // its own and gets it from the SigmaScout layer. The resolve-only half of the
-  // original claim is what survives and is still pinned: the URL's `tab` search
-  // param is never rewritten.
-  it("?algorithm=opr&tab=simulation renders the Simulation panel as the visible one, and the URL's tab search param still reads 'simulation' (resolve-only, never rewritten)", async () => {
+  it("?algorithm=opr&tab=simulation shows the Insights panel while the URL's tab search param still reads 'simulation' (resolve-only, never rewritten); ?algorithm=spr&tab=simulation shows the Simulation panel", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
       return Promise.resolve(eventArtifactResponse());
     });
-    const router = renderEventRoute("/event/2024casf?algorithm=opr&tab=simulation");
+    const oprRouter = renderEventRoute("/event/2024casf?algorithm=opr&tab=simulation");
+
+    await waitFor(() => expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(false));
+    expect(screen.getByTestId("simulation-panel").hasAttribute("hidden")).toBe(true);
+    expect((oprRouter.state.location.search as Record<string, unknown>).tab).toBe("simulation");
+    cleanup();
+
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(eventArtifactResponse());
+    });
+    renderEventRoute("/event/2024casf?algorithm=spr&tab=simulation");
 
     await waitFor(() => expect(screen.getByTestId("simulation-panel").hasAttribute("hidden")).toBe(false));
     expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(true);
-    expect((router.state.location.search as Record<string, unknown>).tab).toBe("simulation");
   });
-
-
 });

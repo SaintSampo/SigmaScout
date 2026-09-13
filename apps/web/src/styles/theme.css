@@ -255,7 +255,7 @@
    */
   --compare-algo-opr: #EA580C;
   --compare-algo-epa: #7C3AED;
-  --compare-algo-vpr: #0D9488;
+  --compare-algo-spr: #0D9488;
 
   /*
    * Rank-distribution plot cell marks (08-04, UI-SPEC's Color section,
@@ -928,47 +928,6 @@ body {
 }
 
 /*
- * The ± glyph and spread number (07-UAT.md G-10) — the developer's own
- * verbatim design direction: "make the glyph and the spread smaller, make
- * them grey, and make them like a superscript, top aligned with the value
- * number." The VALUE stays at `.text-role-body`'s full 14px/400 — only this
- * suffix shrinks, greys (via the caller's `text-muted-foreground`, same
- * `--color-text-muted` token `.text-role-spread-suffix` already relies on —
- * this rule sets no colour of its own, same discipline as every other
- * `.text-role-*` role), and rises.
- *
- * A SEPARATE class from `.text-role-spread-suffix`, not a redefinition of
- * it: that class is also consumed by `EventMatchTable.tsx` and
- * `MatchTable.tsx`'s own inline match-row sd suffix (a different surface —
- * match predictions, not the tier-boxed metric cell) — restyling it in
- * place would silently reshape two surfaces this fix never measured or
- * screenshotted. `MetricValue.tsx` is this fix's entire blast radius.
- *
- * `position: relative; top` is used DELIBERATELY instead of `vertical-align:
- * super`/`<sup>`'s own default styling (both explicitly warned against — a
- * baseline/line-height shift from either can grow row height across a
- * 130-row table). `position: relative` paints the element offset from where
- * it would otherwise sit, but the element KEEPS its original in-flow box for
- * layout purposes — the line box's height, and therefore the row's height,
- * is computed exactly as if this rule set no `top` at all. Verified live:
- * row height is byte-identical with and without this rule (07-UAT.md G-10).
- *
- * The raise amount is not eyeballed: at Inter's ~0.7em cap-height, the
- * value's 14px cap-height sits ~9.8px above the shared baseline and this
- * suffix's own (unraised) 9px cap-height sits ~6.3px above it — raising by
- * the ~3.5px difference brings the two cap-height TOPS level, which is what
- * "top aligned with the value number" means for two different-sized glyphs
- * sharing one baseline.
- */
-.metric-spread-superscript {
-  font-size: 9px;
-  font-weight: 400;
-  line-height: 1;
-  position: relative;
-  top: -3.5px;
-}
-
-/*
  * Polish pass (06-09-PLAN.md Task 3, folded todo `ui-polish-pass.md`
  * question 1 — "depth within the current system," permitted today and
  * unexplored). Every rule below is ADDITIVE ONLY: new classes built
@@ -1252,8 +1211,8 @@ body {
 .compare-algo-epa {
   color: var(--compare-algo-epa);
 }
-.compare-algo-vpr {
-  color: var(--compare-algo-vpr);
+.compare-algo-spr {
+  color: var(--compare-algo-spr);
 }
 
 /*

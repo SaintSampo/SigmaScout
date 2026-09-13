@@ -15,8 +15,9 @@ import { InsightsTab, InsightsTabSkeleton } from "../components/event/InsightsTa
 import { QualsTab, QualsTabSkeleton } from "../components/event/QualsTab.js";
 import { AlliancesTab, AlliancesTabSkeleton, hasAllianceData } from "../components/event/AlliancesTab.js";
 import { ElimsTab, ElimsTabSkeleton } from "../components/event/ElimsTab.js";
-import { SimulationTab, SimulationTabSkeleton, SIMULATION_AVAILABLE } from "../components/event/SimulationTab.js";
+import { SimulationTab, SimulationTabSkeleton } from "../components/event/SimulationTab.js";
 import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
+import { usesSigmaScore } from "../../../../packages/harness/sigmaScore.js";
 
 /**
  * The `/event/{eventKey}` route (07-01-PLAN.md). Task 1's tracer proved the
@@ -46,9 +47,9 @@ export const Route = createFileRoute("/event/$eventKey")({
  *
  * 08-09: registering an id here is no longer the ONLY reachability rule on
  * this page. `simulation` is registered (has a trigger and a panel) but
- * still conditionally UNREACHABLE — D-04's VPR-only rule plain-disables its
- * trigger on OPR/EPA (see `isSimulationDisabled` below), a second narrowing
- * this array cannot express on its own.
+ * still conditionally UNREACHABLE — D-04's Sigma-algorithm-only rule
+ * plain-disables its trigger on OPR/EPA (see `isSimulationDisabled` below), a
+ * second narrowing this array cannot express on its own.
  */
 const REGISTERED_EVENT_TABS: readonly EventTab[] = ["insights", "breakdown", "quals", "alliances", "elims", "simulation"];
 
@@ -180,7 +181,7 @@ function EventPage() {
   // published id set before this component ever reads it. Gating it on
   // query state would make a nav element's state wait on a fetch for no
   // reason, and would blur two genuinely different rules into one shape.
-  const isSimulationDisabled = !SIMULATION_AVAILABLE;
+  const isSimulationDisabled = !usesSigmaScore(algorithm);
   const activeTab = resolveActiveTab(tab, { isAlliancesDisabled, isSimulationDisabled });
 
   /**
@@ -199,10 +200,11 @@ function EventPage() {
    * lazy-construction rule already avoids.
    *
    * `!isSimulationDisabled` is part of the gate because D-04 makes the tab
-   * VPR-only: on OPR/EPA the trigger is disabled, `resolveActiveTab` sends
-   * `?tab=simulation` back to the default tab, and no sidecar exists for
-   * those algorithms anyway (they model no ranking points, so
-   * `buildPreScheduleArtifact` returns `null` and publishes nothing).
+   * Sigma-algorithm-only: on OPR/EPA the trigger is disabled,
+   * `resolveActiveTab` sends `?tab=simulation` back to the default tab, and
+   * no sidecar exists for those algorithms anyway (they model no ranking
+   * points, so `buildPreScheduleArtifact` returns `null` and publishes
+   * nothing).
    */
   const isPreScheduleEnabled = isValidKey && version !== undefined && !isSimulationDisabled && activeTab === "simulation";
   const { data: preSchedule, isPending: isPreScheduleQueryPending } = useQuery({

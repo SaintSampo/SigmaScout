@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasGroupedTeamsView, metricKeysFor, publishesComponentMetrics, publishesGroupMetrics, teamsSortKeyUniverse, TOTAL_KEY } from "./metricKeys.js";
+import { hasGroupedTeamsView, metricKeysFor, publishesComponentMetrics, teamsSortKeyUniverse, TOTAL_KEY } from "./metricKeys.js";
 import { CURRENT_SEASON, EXCLUDED_SEASONS, FIRST_SEASON, SEASONS } from "./seasons.js";
 import { componentMapForSeason } from "../../../../packages/core/algorithms/breakdown/index.js";
 
@@ -45,13 +45,7 @@ describe("metricKeysFor", () => {
   });
 });
 
-describe("publishesGroupMetrics / hasGroupedTeamsView (D-2, 260904-5zg; publishesGroupMetrics widened to epa by D-3, 260904-7id)", () => {
-  it("publishesGroupMetrics is true for vpr AND epa (pipeline now publishes EPA's phase groups too), false for opr", () => {
-    expect(publishesGroupMetrics("spr")).toBe(true);
-    expect(publishesGroupMetrics("epa")).toBe(true);
-    expect(publishesGroupMetrics("opr")).toBe(false);
-  });
-
+describe("hasGroupedTeamsView (D-2, 260904-5zg)", () => {
   it("hasGroupedTeamsView is true for vpr AND epa, false for opr", () => {
     expect(hasGroupedTeamsView("spr")).toBe(true);
     expect(hasGroupedTeamsView("epa")).toBe(true);

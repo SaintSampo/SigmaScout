@@ -31,9 +31,6 @@
  */
 import type { CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
-/** One `CompareSliceSchema`'s `calibrationBins[number]` element — the raw published shape this module reads and never re-exports. */
-export type CompareCalibrationBin = CompareArtifact["slices"][number]["calibrationBins"][number];
-
 /** One `CompareArtifact`'s `slices[number]` element — a single algorithm/season/compLevel slice. */
 export type CompareSlice = CompareArtifact["slices"][number];
 

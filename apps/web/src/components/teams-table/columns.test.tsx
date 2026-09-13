@@ -17,8 +17,6 @@ import { TeamsTable } from "./TeamsTable";
 import {
   buildColumns,
   METRIC_COLUMN_WIDTH_PX,
-  METRIC_COLUMN_WIDTH_SPREADLESS_PX,
-  metricColumnWidth,
   MOBILE_PINNED_COLUMN_IDS,
   PINNED_COLUMN_IDS,
   rankColumnAccessibleLabel,
@@ -213,31 +211,21 @@ describe("buildColumns — 260902-rax's narrow-mode rank header text", () => {
 });
 
 // ---------------------------------------------------------------------------
-// D-1 (260904-5zg) — metric column width varies by algorithm at/above the
-// breakpoint, so a later edit cannot silently collapse it back to one number.
+// 260913-nvn — every algorithm now shares one wide-viewport non-Total metric
+// column width (the VPR-era spread-carrying/spread-less split is gone); a
+// later edit cannot silently reintroduce a per-algorithm difference.
 // ---------------------------------------------------------------------------
-describe("metricColumnWidth — D-1 spread-carrying vs spread-less", () => {
-  it("VPR (spread-carrying) keeps the original, measured-safe 120px width", () => {
-    expect(metricColumnWidth("spr")).toBe(METRIC_COLUMN_WIDTH_PX);
-    expect(metricColumnWidth("spr")).toBe(120);
-  });
-
-  it("EPA and OPR (spread-less) get the smaller, measured width — strictly less than VPR's", () => {
-    expect(metricColumnWidth("epa")).toBe(METRIC_COLUMN_WIDTH_SPREADLESS_PX);
-    expect(metricColumnWidth("opr")).toBe(METRIC_COLUMN_WIDTH_SPREADLESS_PX);
-    expect(metricColumnWidth("epa")).toBeLessThan(metricColumnWidth("spr"));
-  });
-
-  it("buildColumns applies metricColumnWidth at/above the breakpoint to a NON-Total metric column, and the pre-existing literal 120 unchanged below it (G-2/G-11); Total's own width is now quick task 260913-jkp's business, covered in its own describe block below", () => {
+describe("buildColumns — one wide-viewport metric column width for every algorithm", () => {
+  it("buildColumns applies METRIC_COLUMN_WIDTH_PX at/above the breakpoint to a NON-Total metric column for both spr and epa, and the pre-existing literal 120 unchanged below it (G-2/G-11); Total's own width is now quick task 260913-jkp's business, covered in its own describe block below", () => {
     const wideEpa = buildColumns("epa", 2026, false) as { id?: string; size: number }[];
-    const wideVpr = buildColumns("spr", 2026, false) as { id?: string; size: number }[];
+    const wideSpr = buildColumns("spr", 2026, false) as { id?: string; size: number }[];
     // opr has no phase-group column at all, so a non-Total metric key exists
     // only for epa/spr here — the same reason this comparison always used
     // those two algorithms.
     const epaPhase = wideEpa.find((c) => c.id === "phaseAuto")!;
-    const vprPhase = wideVpr.find((c) => c.id === "phaseAuto")!;
-    expect(epaPhase.size).toBe(METRIC_COLUMN_WIDTH_SPREADLESS_PX);
-    expect(vprPhase.size).toBe(METRIC_COLUMN_WIDTH_PX);
+    const sprPhase = wideSpr.find((c) => c.id === "phaseAuto")!;
+    expect(epaPhase.size).toBe(METRIC_COLUMN_WIDTH_PX);
+    expect(sprPhase.size).toBe(METRIC_COLUMN_WIDTH_PX);
 
     const narrowEpa = buildColumns("epa", 2026, true) as { id?: string; size: number }[];
     const narrowPhase = narrowEpa.find((c) => c.id === "phaseAuto")!;
@@ -286,7 +274,7 @@ describe("buildColumns — Sigma column removed, Total renders the split pill (q
       expect(columns.map((c) => c.id)).not.toContain("sigmaScore");
       const total = columns.find((c) => c.id === "total")!;
       expect(total.header).toBe("Total");
-      expect(total.size).toBe(metricColumnWidth(algorithmId));
+      expect(total.size).toBe(METRIC_COLUMN_WIDTH_PX);
     }
   });
 

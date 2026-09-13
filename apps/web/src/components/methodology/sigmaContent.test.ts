@@ -32,7 +32,6 @@ import {
   SIGMA_PAGE_TITLE,
   SIGMA_SECTION_IDS,
   SIGMA_SECTIONS,
-  SIGMA_STEADY_ALLIANCE_EXAMPLE_SIGMAS,
 } from "./sigmaContent.js";
 
 /** The three banned characters, named so a failure message reads clearly. */
@@ -272,21 +271,13 @@ describe("the three robots section quotes the shipping helper's answer", () => {
     expect(figure?.title).toContain(expected);
   });
 
-  it("quotes the all steady alliance's band, which equals adding them straight up", () => {
-    const steady = allianceBand(SIGMA_STEADY_ALLIANCE_EXAMPLE_SIGMAS);
-    const straight = SIGMA_STEADY_ALLIANCE_EXAMPLE_SIGMAS.reduce((sum, value) => sum + value, 0);
-    expect(steady).toBeCloseTo(straight, 10);
-    expect(section?.paragraphs.join(" ")).toContain(`±${Number(steady.toFixed(2))}`);
-  });
-
   it("quotes the erratic alliance's straight sum as the narrower comparison", () => {
     const straight = SIGMA_ALLIANCE_EXAMPLE_SIGMAS.reduce((sum, value) => sum + value, 0);
     expect(allianceBand(SIGMA_ALLIANCE_EXAMPLE_SIGMAS)).toBeGreaterThan(straight);
     expect(section?.paragraphs.join(" ")).toContain(`±${straight}`);
   });
 
-  it("the example arrays are a full three robot roster each", () => {
+  it("the example array is a full three robot roster", () => {
     expect(SIGMA_ALLIANCE_EXAMPLE_SIGMAS).toHaveLength(3);
-    expect(SIGMA_STEADY_ALLIANCE_EXAMPLE_SIGMAS).toHaveLength(3);
   });
 });

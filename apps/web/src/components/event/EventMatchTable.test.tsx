@@ -18,8 +18,8 @@ function makeRow(overrides: Partial<EventMatchRow> = {}): EventMatchRow {
     pRedWin: 0.62,
     predictedRedScore: 250,
     predictedBlueScore: 220,
-    redScoreVarianceOwn: 100,
-    blueScoreVarianceOwn: 64,
+    redMatchBandVariance: 100,
+    blueMatchBandVariance: 64,
     played: false,
     ...overrides,
   };
@@ -196,7 +196,7 @@ describe("Played rows", () => {
   });
 
   it("the Predicted Score cell rounds each alliance's score with a plus-minus suffix equal to the rounded sqrt of its variance", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", predictedRedScore: 250.4, redScoreVarianceOwn: 100, predictedBlueScore: 220.6, blueScoreVarianceOwn: 64 })]} domain={DOMAIN} season={2024} algorithm="spr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", predictedRedScore: 250.4, redMatchBandVariance: 100, predictedBlueScore: 220.6, blueMatchBandVariance: 64 })]} domain={DOMAIN} season={2024} algorithm="spr" />);
     const red = screen.getByTestId("predicted-score-m1-red");
     const blue = screen.getByTestId("predicted-score-m1-blue");
     expect(red.textContent).toContain("250");
@@ -241,14 +241,14 @@ describe("Unplayed rows", () => {
   });
 
   it("the Predicted Score cell renders normally for an unplayed row", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", played: false, predictedRedScore: 240, redScoreVarianceOwn: 81 })]} domain={DOMAIN} season={2024} algorithm="spr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", played: false, predictedRedScore: 240, redMatchBandVariance: 81 })]} domain={DOMAIN} season={2024} algorithm="spr" />);
     expect(screen.getByTestId("predicted-score-m1-red").textContent).toContain("240");
   });
 });
 
 describe("Absent variance (OPR/EPA and pre-republish state)", () => {
   it("a row with neither variance field renders both ticks and no band, and a bare predicted score with no suffix", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", redScoreVarianceOwn: undefined, blueScoreVarianceOwn: undefined })]} domain={DOMAIN} season={2024} algorithm="spr" />);
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", redMatchBandVariance: undefined, blueMatchBandVariance: undefined })]} domain={DOMAIN} season={2024} algorithm="spr" />);
     expect(screen.getByTestId("alliance-mark-m1-red-tick")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-m1-blue-tick")).toBeDefined();
     expect(screen.queryByTestId("alliance-mark-m1-red-band")).toBeNull();
@@ -256,8 +256,8 @@ describe("Absent variance (OPR/EPA and pre-republish state)", () => {
     expect(screen.getByTestId("predicted-score-m1-red").textContent).not.toContain("±");
   });
 
-  it("a row with only redScoreVarianceOwn renders a red band and no blue band, and a suffix on red only", () => {
-    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", redScoreVarianceOwn: 100, blueScoreVarianceOwn: undefined })]} domain={DOMAIN} season={2024} algorithm="spr" />);
+  it("a row with only redMatchBandVariance renders a red band and no blue band, and a suffix on red only", () => {
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1", redMatchBandVariance: 100, blueMatchBandVariance: undefined })]} domain={DOMAIN} season={2024} algorithm="spr" />);
     expect(screen.getByTestId("alliance-mark-m1-red-band")).toBeDefined();
     expect(screen.queryByTestId("alliance-mark-m1-blue-band")).toBeNull();
     expect(screen.getByTestId("predicted-score-m1-red").textContent).toContain("±");
@@ -404,8 +404,8 @@ describe("Row count conservation", () => {
         actualWinner: i % 3 === 0 ? "red" : undefined,
         actualRedScore: i % 3 === 0 ? 260 : undefined,
         actualBlueScore: i % 3 === 0 ? 200 : undefined,
-        redScoreVarianceOwn: i % 2 === 0 ? 100 : undefined,
-        blueScoreVarianceOwn: i % 2 === 0 ? 64 : undefined,
+        redMatchBandVariance: i % 2 === 0 ? 100 : undefined,
+        blueMatchBandVariance: i % 2 === 0 ? 64 : undefined,
       }),
     );
     renderWithRouter(<EventMatchTable rows={rows} domain={DOMAIN} season={2024} algorithm="spr" />);

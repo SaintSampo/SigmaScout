@@ -28,15 +28,6 @@ export const START_MATCH_STATUS_PLAYED = "Played";
 /** 08-UI-SPEC.md's Copywriting Contract, verbatim. */
 export const START_MATCH_STATUS_UPCOMING = "Upcoming";
 
-/**
- * `SimulationTabSkeleton`'s placeholder footprint (08-09) is grounded in the
- * same geometry this real picker renders at. 2026-09-01: the picker is no
- * longer a bounded 320px scrolling list of every qualification match — it is
- * a slider plus a typed match number plus one summary of the selected match
- * (user request), which is far shorter, so this height came down with it.
- */
-export const START_MATCH_PICKER_MAX_H_PX = 132;
-
 export const START_MATCH_PICKER_TESTID = "start-match-picker";
 /**
  * Identifies the ONE match the picker is currently showing. Before

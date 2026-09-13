@@ -106,26 +106,6 @@ export interface MethodologyFiguresComplete extends MethodologyFiguresBase {
 export type MethodologyFigures = MethodologyFiguresComplete | MethodologyFiguresIncomplete;
 
 /**
- * Four shapes, per UI-SPEC's methodology-note prose:
- *  - one season: the bare year
- *  - two seasons: joined by the word "and"
- *  - three-or-more CONTIGUOUS seasons: an en-dashed range
- *  - three-or-more NON-contiguous seasons: comma-separated, "and" before the last
- */
-export function formatSeasonList(seasons: readonly number[]): string {
-  const sorted = [...seasons].sort((a, b) => a - b);
-  if (sorted.length === 0) return "";
-  if (sorted.length === 1) return String(sorted[0]);
-  if (sorted.length === 2) return `${sorted[0]} and ${sorted[1]}`;
-
-  const isContiguous = sorted.every((season, index) => index === 0 || season === sorted[index - 1]! + 1);
-  if (isContiguous) return `${sorted[0]}–${sorted[sorted.length - 1]}`;
-
-  const allButLast = sorted.slice(0, -1).join(", ");
-  return `${allButLast} and ${sorted[sorted.length - 1]}`;
-}
-
-/**
  * For each season in `COMPARE_SEASONS` ascending, selects VPR's own
  * combined-view slice from that season's fetched artifact — never another
  * algorithm's, never another view's. Returns the COMPLETE form only when
@@ -189,7 +169,7 @@ function numberWord(n: number): string {
   return SMALL_NUMBER_WORDS[n] ?? String(n);
 }
 
-/** One clause per displayed season's Brier score, in the same ascending order `formatSeasonList` uses. */
+/** One clause per displayed season's Brier score, ascending by season. */
 function buildBrierListSentence(seasonBriers: readonly SeasonBrier[]): string {
   const parts = seasonBriers.map((b) => `${b.season} ${b.text}`).join(", ");
   return `Brier by season: ${parts}.`;
