@@ -105,13 +105,23 @@ function makeUnvalidatedArtifact(teams: ArtifactTeam[]): EventArtifact {
   } as unknown as EventArtifact;
 }
 
-/** A metrics record carrying every vpr/2024 declared key, so the column-set tests have real data behind every column. */
-function fullVPRMetrics2024(): ArtifactTeam["metrics"] {
+/** A metrics record carrying every EPA 2024 declared key — the shape EPA's event artifacts publish. */
+function fullEpaMetrics2024(): ArtifactTeam["metrics"] {
   const record: ArtifactTeam["metrics"] = {};
-  for (const key of metricKeysFor("spr", 2024)) {
+  for (const key of metricKeysFor("epa", 2024)) {
     record[key] = { value: 10, spread: 1 };
   }
   return record;
+}
+
+/** The per-team metric set SPR's event artifacts publish: Total plus the three published phase columns. Sigma is omitted here — the 260913-jkp describe below covers the Total split pill. */
+function sprMetrics2024(): ArtifactTeam["metrics"] {
+  return {
+    [TOTAL_KEY]: { value: 10, spread: 1 },
+    phaseAuto: { value: 10, spread: 1 },
+    phaseTeleop: { value: 10, spread: 1 },
+    phaseEndgame: { value: 10, spread: 1 },
+  };
 }
 
 function renderBreakdown(artifact: EventArtifact, algorithmId = "spr", season = 2024) {
@@ -133,17 +143,35 @@ function headerIds(): string[] {
 }
 
 describe("BreakdownTab — column set (EVNT-03, collapsed default per sketch 009-A)", () => {
-  it("vpr/2024 lands collapsed: Team #, Team Name, Total, the three phase columns, then Fouls Committed — no Rank column, no wall of components", async () => {
-    const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
+  it("spr/2024: Team #, Team Name, Total and the three phase columns only, with no group band row and no phase toggles, still sortable", async () => {
+    const artifact = makeArtifact([team({ metrics: sprMetrics2024() })]);
     renderBreakdown(artifact, "spr", 2024);
 
     await waitFor(() => expect(screen.getAllByTestId(/^breakdown-header-/).length).toBeGreaterThan(0));
-    expect(headerIds()).toEqual(["teamNumber", "nickname", TOTAL_KEY, "phaseAuto", "phaseTeleop", "phaseEndgame", "foulsCommitted"]);
+    expect(headerIds()).toEqual(["teamNumber", "nickname", TOTAL_KEY, "phaseAuto", "phaseTeleop", "phaseEndgame"]);
     // Same set through the exported derivation the columns are actually built from.
     expect(headerIds()).toEqual(["teamNumber", "nickname", ...visibleMetricKeys("spr", 2024, NO_GROUPS_EXPANDED)]);
+    expect(screen.queryByTestId("breakdown-group-row")).toBeNull();
+    expect(screen.queryAllByTestId(/^breakdown-group-toggle-/)).toHaveLength(0);
     expect(screen.queryByRole("columnheader", { name: "Rank" })).toBeNull();
+    expect(screen.getByTestId(`breakdown-header-${TOTAL_KEY}`).getAttribute("aria-sort")).toBe("descending");
+    const phaseAutoHeader = screen.getByTestId("breakdown-header-phaseAuto");
+    expect(within(phaseAutoHeader).getByRole("button")).toBeDefined();
+    expect(phaseAutoHeader.getAttribute("aria-sort")).toBe("none");
     // Phase headers read through the sitewide label map — "Auto", never the raw "phaseAuto".
-    expect(screen.getByTestId("breakdown-header-phaseAuto").textContent).toContain(metricLabel("phaseAuto"));
+    expect(phaseAutoHeader.textContent).toContain(metricLabel("phaseAuto"));
+  });
+
+  it("epa/2024 lands collapsed: Team #, Team Name, Total, the three phase columns, then Fouls Committed, with one toggle per phase", async () => {
+    const artifact = makeArtifact([team({ metrics: fullEpaMetrics2024() })], { algorithmId: "epa" });
+    renderBreakdown(artifact, "epa", 2024);
+
+    await waitFor(() => expect(screen.getAllByTestId(/^breakdown-header-/).length).toBeGreaterThan(0));
+    expect(headerIds()).toEqual(["teamNumber", "nickname", TOTAL_KEY, "phaseAuto", "phaseTeleop", "phaseEndgame", "foulsCommitted"]);
+    expect(screen.getByTestId("breakdown-group-row")).toBeDefined();
+    for (const groupId of ["auto", "teleop", "endgame"]) {
+      expect(screen.getByTestId(`breakdown-group-toggle-${groupId}`).getAttribute("aria-expanded")).toBe("false");
+    }
   });
 
   it("opr/2024: exactly Team #, Team Name, Total — no group row, no sort affordance; OPR is deliberately unchanged (user decision 2026-09-05)", async () => {
@@ -159,8 +187,8 @@ describe("BreakdownTab — column set (EVNT-03, collapsed default per sketch 009
   });
 
   it("clicking a phase toggle swaps that phase's column for its component columns in place; clicking again collapses it back", async () => {
-    const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
-    renderBreakdown(artifact, "spr", 2024);
+    const artifact = makeArtifact([team({ metrics: fullEpaMetrics2024() })], { algorithmId: "epa" });
+    renderBreakdown(artifact, "epa", 2024);
 
     const toggle = await screen.findByTestId("breakdown-group-toggle-teleop");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
@@ -196,12 +224,29 @@ describe("BreakdownTab — column set (EVNT-03, collapsed default per sketch 009
   });
 });
 
+describe("visibleMetricKeys: three shapes (unit)", () => {
+  it("spr returns Total plus the three phase columns regardless of expansion state or season", () => {
+    const fourKeys = [TOTAL_KEY, "phaseAuto", "phaseTeleop", "phaseEndgame"];
+    expect(visibleMetricKeys("spr", 2024, { auto: true, teleop: true, endgame: true })).toEqual(fourKeys);
+    expect(visibleMetricKeys("spr", 2026, { auto: true, teleop: true, endgame: true })).toEqual(fourKeys);
+    expect(visibleMetricKeys("spr", 2026, NO_GROUPS_EXPANDED)).toEqual(fourKeys);
+  });
+
+  it("opr returns Total alone", () => {
+    expect(visibleMetricKeys("opr", 2024, { auto: true, teleop: true, endgame: true })).toEqual([TOTAL_KEY]);
+  });
+
+  it("epa collapsed returns Total, the three phase columns, then Fouls Committed", () => {
+    expect(visibleMetricKeys("epa", 2024, NO_GROUPS_EXPANDED)).toEqual([TOTAL_KEY, "phaseAuto", "phaseTeleop", "phaseEndgame", "foulsCommitted"]);
+  });
+});
+
 describe("BreakdownTab — partial data (EVNT-03)", () => {
   it("a team missing one declared component key renders a blank cell once its group is expanded; the column header for that key stays present", async () => {
-    const metrics = fullVPRMetrics2024();
+    const metrics = fullEpaMetrics2024();
     delete metrics.endgame;
-    const artifact = makeArtifact([team({ metrics })]);
-    renderBreakdown(artifact, "spr", 2024);
+    const artifact = makeArtifact([team({ metrics })], { algorithmId: "epa" });
+    renderBreakdown(artifact, "epa", 2024);
 
     fireEvent.click(await screen.findByTestId("breakdown-group-toggle-endgame"));
     await waitFor(() => expect(screen.getByTestId("breakdown-header-endgame")).toBeDefined());
@@ -309,14 +354,14 @@ describe("BreakdownTab — empty and zero-one-many (EVNT-03 empty)", () => {
   });
 
   it("a one-team artifact renders the same header row and exactly one body row, same table path as a many-team artifact", async () => {
-    const oneTeamArtifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
+    const oneTeamArtifact = makeArtifact([team({ metrics: fullEpaMetrics2024() })]);
     const { unmount } = renderBreakdown(oneTeamArtifact, "spr", 2024);
     await waitFor(() => expect(screen.getAllByTestId("breakdown-row")).toHaveLength(1));
     const oneTeamHeaders = screen.getAllByRole("columnheader").map((el) => el.textContent);
     unmount();
 
     const manyTeams = Array.from({ length: 43 }, (_, index) =>
-      team({ teamKey: `frc${index + 1}`, teamNumber: index + 1, nickname: `Team ${index + 1}`, metrics: fullVPRMetrics2024() }),
+      team({ teamKey: `frc${index + 1}`, teamNumber: index + 1, nickname: `Team ${index + 1}`, metrics: fullEpaMetrics2024() }),
     );
     const manyTeamsArtifact = makeArtifact(manyTeams);
     renderBreakdown(manyTeamsArtifact, "spr", 2024);
@@ -375,8 +420,8 @@ describe("BreakdownTab — no sticky columns (2026-09-13)", () => {
   }
 
   it("wide layout: no sticky column anywhere, including the group-band row's leading spacer cells", async () => {
-    const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
-    renderBreakdown(artifact, "spr", 2024);
+    const artifact = makeArtifact([team({ metrics: fullEpaMetrics2024() })], { algorithmId: "epa" });
+    renderBreakdown(artifact, "epa", 2024);
     await waitFor(() => expect(screen.getByTestId("breakdown-header-teamNumber")).toBeDefined());
     assertNoStickyColumns();
   });
@@ -384,8 +429,8 @@ describe("BreakdownTab — no sticky columns (2026-09-13)", () => {
   it("narrow layout: no sticky column anywhere, including the group-band row's leading spacer cells", async () => {
     const restoreMatchMedia = mockNarrowViewport();
     try {
-      const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
-      renderBreakdown(artifact, "spr", 2024);
+      const artifact = makeArtifact([team({ metrics: fullEpaMetrics2024() })], { algorithmId: "epa" });
+      renderBreakdown(artifact, "epa", 2024);
       await waitFor(() => expect(screen.getByTestId("breakdown-header-teamNumber")).toBeDefined());
       assertNoStickyColumns();
     } finally {
@@ -396,8 +441,8 @@ describe("BreakdownTab — no sticky columns (2026-09-13)", () => {
 
 describe("BreakdownTab — derived phase fallback (stale pre-260904-7id cache shape)", () => {
   it("a row with components but no published phase entries renders an honest value-only phase cell: summed value, no ±, no tier box", async () => {
-    const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
-    renderBreakdown(artifact, "spr", 2024);
+    const artifact = makeArtifact([team({ metrics: fullEpaMetrics2024() })], { algorithmId: "epa" });
+    renderBreakdown(artifact, "epa", 2024);
 
     const cell = await screen.findByTestId("breakdown-cell-phaseAuto");
     // 2024's `auto` group holds the single collapsed `auto` component (quick
@@ -407,10 +452,10 @@ describe("BreakdownTab — derived phase fallback (stale pre-260904-7id cache sh
   });
 
   it("a published phase entry wins over the derived sum and keeps its tier, and never renders its spread", async () => {
-    const metrics = fullVPRMetrics2024();
+    const metrics = fullEpaMetrics2024();
     metrics.phaseAuto = { value: 28.5, spread: 2.1, percentile: 80 };
-    const artifact = makeArtifact([team({ metrics })]);
-    renderBreakdown(artifact, "spr", 2024);
+    const artifact = makeArtifact([team({ metrics })], { algorithmId: "epa" });
+    renderBreakdown(artifact, "epa", 2024);
 
     const cell = await screen.findByTestId("breakdown-cell-phaseAuto");
     expect(cell.textContent).toContain("28.50");
@@ -452,11 +497,14 @@ describe("BreakdownTab — sorting (260905-3rq, sketch 009-B folded in)", () => 
   });
 
   it("collapsing the group that owns the active sort key resets the sort to Total descending", async () => {
-    const artifact = makeArtifact([
-      team({ teamKey: "frc1", teamNumber: 1, nickname: "One", metrics: { [TOTAL_KEY]: { value: 30 }, teleop: { value: 1 } } }),
-      team({ teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: { [TOTAL_KEY]: { value: 20 }, teleop: { value: 9 } } }),
-    ]);
-    renderBreakdown(artifact, "spr", 2024);
+    const artifact = makeArtifact(
+      [
+        team({ teamKey: "frc1", teamNumber: 1, nickname: "One", metrics: { [TOTAL_KEY]: { value: 30 }, teleop: { value: 1 } } }),
+        team({ teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: { [TOTAL_KEY]: { value: 20 }, teleop: { value: 9 } } }),
+      ],
+      { algorithmId: "epa" },
+    );
+    renderBreakdown(artifact, "epa", 2024);
 
     fireEvent.click(await screen.findByTestId("breakdown-group-toggle-teleop"));
     const header = await screen.findByTestId("breakdown-header-teleop");
