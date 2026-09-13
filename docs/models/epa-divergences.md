@@ -278,7 +278,7 @@ Unlike §§1-6, this is not a rating-mechanics divergence at all: it is a differ
 
 **Statbotics:** its published team-year EPA reflects the OFFICIAL season only, through championships. Verified live 2026-09-08: `/v3/events?year=2025` returns 203 events, **none** flagged offseason, and `team_year` carries no offseason field. Statbotics does not ingest offseason matches at any layer — no event pages, no rating updates, no predictions, no accuracy scoring.
 
-**This project:** production publishes with `--include-offseason`, so offseason matches are replayed and DO move ratings within the season they occur in. Scoring has always excluded them on both sides, so the published accuracy comparison was never affected by this.
+**This project:** production publishes with `--include-offseason`, so offseason matches are replayed and DO move ratings within the season they occur in. Scoring has always excluded them on both sides, so the published accuracy comparison was never affected by this. Measured directly by quick task 260911-r7e: the offseason-inclusive and offseason-excluded streams score 0.7576 vs 0.7576 winner accuracy in 2022, and no season moves by more than 0.03 pp. Offseason events are post-championship, so they cannot reach a prediction on an official match in the same season.
 
 ### What quick task 260908-615 changed (2026-09-08)
 

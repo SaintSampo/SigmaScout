@@ -264,15 +264,32 @@
       "id": "offseason-population",
       "title": "Offseason play is replayed and moves ratings; Statbotics ingests none of it",
       "class": "stream-population",
-      "status": "unmeasurable-in-this-harness",
+      "status": "measured",
       "shippable": null,
       "predictionAffecting": true,
       "docSection": "§7",
       "summary": "Production publishes with --include-offseason, so offseason matches are replayed and do move ratings inside the season they occur in. NARROWED at epa@6.0.0+baseline: the cross-season carry is now taken at the season's last OFFICIAL match, so exhibition play can no longer seed the following February.",
-      "reason": "It changes WHICH MATCHES ARE IN THE STREAM, not the model, so it cannot ride the one shared pass every other arm rides — the whole design that makes an inter-arm difference attributable to the arm is that all arms see the identical match objects. Measuring it needs its own stream and its own run, which is a different script's job (see docs/models/offseason-inclusion-remeasurement.md, which already did exactly that once).",
+      "reason": "Measured outside this harness, because it changes WHICH MATCHES ARE IN THE STREAM rather than the model, so it cannot ride the one shared pass every arm here rides. Quick task 260911-r7e ran the two streams as a controlled A/B over the same scored population: no effect on winner accuracy. The reason is structural. Offseason events are post-championship, so within a season they occur after every official match and cannot influence a prediction made earlier that season, and aggregateScores excludes offseason matches from scoring in both arms. The divergence is real for published season-end VALUES and does not reach predictions on official matches.",
       "approximation": null,
       "armIds": [],
-      "priorMeasurement": null
+      "priorMeasurement": {
+        "provenance": "prior-measurement",
+        "source": "quick task 260911-r7e (scripts/epaVsStatbotics.ts, offseason-inclusive vs offseason-excluded streams, epa@10.0.0+baseline); see docs/models/epa-vs-statbotics.md 'What was measured and REFUTED'",
+        "season": null,
+        "population": "official matches only, scored by aggregateScores in both arms",
+        "metric": "winnerAccuracy",
+        "values": [
+          {
+            "label": "2022, offseason-inclusive stream",
+            "value": 0.7576
+          },
+          {
+            "label": "2022, offseason-excluded stream",
+            "value": 0.7576
+          }
+        ],
+        "note": "No season moved by more than 0.03 percentage points between the two streams. HAND-EDITED 2026-09-13: this entry previously read unmeasurable-in-this-harness with priorMeasurement null. The generator (scripts/measureEpaDeviations.ts) was deleted in quick task 260913-nvn, so the entry was corrected in place rather than regenerated. Every other field in this file is unchanged generator output."
+      }
     }
   ],
   "arms": [

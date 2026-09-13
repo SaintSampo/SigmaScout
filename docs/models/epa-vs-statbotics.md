@@ -658,8 +658,9 @@ agreement table above (offseason-excluded moves OLS slope to 0.97-1.01 and Pears
 **offseason events are post-championship**, so within a season they occur after every official
 match, and `aggregateScores` already excludes offseason matches from scoring in both arms. The
 offseason divergence is real for published *values* at season end and cannot reach *predictions on
-official matches*. The ablation register's `offseason-population` entry can be narrowed from
-`unmeasurable-in-this-harness` to "measured against accuracy, no effect."
+official matches*. The ablation register's `offseason-population` entry in
+`data/diagnostics/epa-deviation-ablation.json` now reads `measured`, citing this result (corrected
+in place 2026-09-13, since its generator was deleted in quick task 260913-nvn).
 
 #### What was deliberately NOT done, and why
 

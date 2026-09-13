@@ -53,3 +53,14 @@ record: its `offseason-population` entry still reads `unmeasurable-in-this-harne
 status predates — and is superseded by — the 260911-r7e measurement recorded above (no effect on
 winner accuracy, for the structural reason this file already gives). A reader relying on the
 committed JSON's own `status` field alone would see a stale answer; this note is the correction.
+
+## RESOLVED 2026-09-13 — the frozen JSON now carries the correction itself
+
+The note above left the correction living only in this file. With the generator gone there is no
+stale-against-its-generator risk left, so the entry was corrected in place:
+`data/diagnostics/epa-deviation-ablation.json`'s `offseason-population` now reads `status: "measured"`,
+with a `priorMeasurement` block citing 260911-r7e (0.7576 vs 0.7576 in 2022, no season moving more
+than 0.03 pp), the structural reason, and a HAND-EDITED note naming the date and the deleted
+generator. Every other field in the file is untouched generator output. `docs/models/epa-vs-statbotics.md`
+no longer says the entry "can be narrowed", and `docs/models/epa-divergences.md` §7 now records the
+measurement.
