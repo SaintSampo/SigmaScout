@@ -283,6 +283,13 @@ are untouched by this. They refresh only at the manual pre/post-event-weekend re
 **not** on the cron. During an event weekend their numbers are as of the last re-baseline — that is
 expected behavior, not a bug.
 
+**SPR-only is permanent — decided 2026-09-13 (quick task 260913-ppk).** OPR and EPA will not be
+rotated into the live tick. The Worker cannot yet sustain even SPR alone inside the CPU budget (see
+the PRE-SEASON GATE below), and the per-event cursor and the TBA ETag are shared across algorithms,
+so an algorithm left out of a tick would have its matches skipped rather than caught up later. The
+full reasoning, and the design premise any reopening must start from, is in
+`.planning/todos/completed/vpr-retirement-make-features-algorithm-agnostic.md`.
+
 **Adding a second id to `LIVE_ALGORITHM_IDS` is gated** by
 `apps/worker/test/liveAlgorithmTier.test.ts`, which recomputes the same budget arithmetic
 `processEvent` uses. Re-measure on a deployed Worker before changing the tracked value; do not
@@ -722,7 +729,7 @@ above. An observation your model says is impossible is the most valuable one you
 | `eventsDeferred` climbing every tick | Subrequest budget saturated; events are being pushed to later ticks | Expected under load and self-correcting — the rotation offset guarantees a deferred event is attempted earlier next tick. If it never drains, more events are live than one tick can serve |
 | Predictions look wrong but ticks are healthy | Live state has drifted from the offline authority | Re-baseline (above). The offline snapshot always wins; never hand-edit D1 rows |
 | No logs at all in `wrangler tail` | Either nothing is firing, or a version without logging is deployed | `wrangler deployments list` — confirm the current version is at or after `0210df9e`'s deploy. Before that commit the Worker logged nothing, and a silent tail meant nothing either way |
-| `opr` or `epa` metrics look stale mid-event while `vpr` updates | Expected — only `vpr` folds live (see "Live folding tier" above) | `LIVE_ALGORITHM_IDS` in `apps/worker/wrangler.toml`; refresh via a re-baseline (above) |
+| `opr` or `epa` metrics look stale mid-event while `spr` updates | Expected — only `spr` folds live (see "Live folding tier" above) | `LIVE_ALGORITHM_IDS` in `apps/worker/wrangler.toml`; refresh via a re-baseline (above) |
 | A `live-tier-defaulted` warn line in the tail | `LIVE_ALGORITHM_IDS` did not reach the deployed Worker (e.g. a `--var` deploy that did not carry tracked vars through) | Redeploy from tracked config with `pnpm worker:deploy` and confirm the deploy output lists both `TBA_BASE_URL` and `LIVE_ALGORITHM_IDS` |
 | `outcome: "exceededCpu"` with an empty `logs` array on **every** tick | The tick is *consistently* over the 10 ms CPU budget. It is reaching the handler and dying before its final log line — it is **not** dying in module init (that is a separate 1-second budget) | `eventsConsidered` on any tick that does survive. If non-zero, fetch `https://data.sigmascout.org/v1/manifest/live-windows.json` and see what the Worker thinks is live — **read the manifest, never the calendar**. Read "How the CPU budget is actually enforced" above before drawing any conclusion from a single high `cpuTime` |
 | About to run an event; unsure the deployed bundle can read the rows in D1 | Untested since the last seed — a green idle tick does not exercise it | Run the pre-event probe (above) before the event starts, not during it |

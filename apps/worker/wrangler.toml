@@ -33,7 +33,7 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 TBA_BASE_URL = "https://www.thebluealliance.com/api/v3"
 
-# Quick task 260822-wqt: only the published VPR algorithm folds LIVE, per
+# Quick task 260822-wqt: only the published SPR algorithm folds LIVE, per
 # tick. Measured on the deployed Worker during plan 04-07 (this mechanism was
 # built and measured under the pre-rename id `sigma1` [pre-rename]) —
 # docs/publish-budget.md's "Worker runtime budget" section: processEvent's
@@ -42,7 +42,7 @@ TBA_BASE_URL = "https://www.thebluealliance.com/api/v3"
 # against ~41 subrequests actually available per tick (SUBREQUEST_CAP 50,
 # SUBREQUEST_RESERVE 4, minus ~5 fixed tick costs) — with all three live the
 # event defers every tick, forever. This narrows ONLY what folds LIVE — the
-# published set (D-03) is unchanged: opr, epa and vpr all keep being
+# published set (D-03) is unchanged: opr, epa and spr all keep being
 # published, and opr/epa refresh at the manual pre/post-event-weekend
 # re-baseline (D-12) instead of per tick. See docs/worker-operations.md's
 # live-folding-tier section before changing this value; a second id here is

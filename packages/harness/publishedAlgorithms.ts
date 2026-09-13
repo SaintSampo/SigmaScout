@@ -52,16 +52,16 @@
  * already-published `vpr@` objects in R2 are simply left unreferenced rather
  * than deleted.
  *
- * TWO CAPABILITIES LEAVE WITH IT, and neither is replaced yet, because VPR was
- * the only algorithm that modelled ranking points:
- *   - the rank SIMULATION (needs `redRpPmf`/`blueRpPmf`; SPR — then still named
- *     `bpr` — emitted none, and no `v1/presim/…/bpr@…` sidecar existed —
- *     measured 404 on 2026-09-09 against VPR's 200), so the Simulation tab
- *     was unreachable for every algorithm at the time this note was written;
- *   - the per-bonus RP dots in the match tables (`redBonusRp`/`blueBonusRp`).
- * Both degrade to their existing absent-data states rather than breaking. See
- * `.planning/todos/pending/vpr-retirement-make-features-algorithm-agnostic.md`
- * for the plan to rebuild ranking points as a SigmaScout-layer feature.
+ * VPR was the only algorithm that modelled ranking points when it left, so
+ * the rank SIMULATION and the per-bonus RP dots in the match tables
+ * (`redBonusRp`/`blueBonusRp`) lost their source with it. Both are back, for
+ * SPR only: ranking-point odds are now built at the SigmaScout layer
+ * (`packages/core/rankingPoints/`) and, by quick task 260913-it4's
+ * 2026-09-13 decision, attached to SPR's predictions alone. OPR and EPA
+ * publish no ranking-point odds (`094667e9`), and the Simulation tab works
+ * under SPR only (`bcc929cb`). SPR is also the only algorithm that folds
+ * live, a permanent choice (quick task 260913-ppk); see
+ * `.planning/todos/completed/vpr-retirement-make-features-algorithm-agnostic.md`.
  */
 export const PUBLISHED_ALGORITHM_IDS = ["opr", "epa", "spr"] as const;
 

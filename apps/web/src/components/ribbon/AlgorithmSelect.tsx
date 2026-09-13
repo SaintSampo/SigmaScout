@@ -185,7 +185,7 @@ type CrossRouteNavigate = (opts: { search: (prev: YearChangeableSearch) => YearC
  * holds position: same route, same filters, same sort DIRECTION, with the
  * sort KEY re-resolved through `resolveSortKey` against the new pair's key
  * set (D-13) — only the values change. No colour, dot or badge indicates
- * freshness anywhere in this component (only VPR folds live, and this
+ * freshness anywhere in this component (only SPR folds live, and this
  * phase does not surface per-algorithm freshness at all).
  */
 export function AlgorithmSelect() {
