@@ -21,7 +21,7 @@
  * (the arithmetic itself is UNCHANGED), and added the published playoff
  * Record column. See that gap's write-up for the full before/after.
  */
-import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
+import { columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { useMemo } from "react";
 import { Link } from "@tanstack/react-router";
 import { InfoIcon } from "lucide-react";
@@ -30,7 +30,6 @@ import { TotalSigmaValue } from "@/components/TotalSigmaValue";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SkeletonRows } from "@/components/Skeletons";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
-import { useIsMobile } from "@/lib/breakpoints";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { teamNumberFromKey } from "@/lib/teamKey";
 import { tierForPercentile } from "@/lib/tiers";
@@ -463,20 +462,11 @@ function backupColumnWidth(algorithmId: string): number {
 }
 
 /**
- * Registered once, module-level (05-04-SUMMARY.md's v9 API note, restated by
- * every sibling tab's own header comment): pinning offsets require
- * `columnSizingFeature` registered alongside `columnPinningFeature`, or
- * `getStart`/`getSize` do not exist at all. At/above the breakpoint nothing
- * is pinned — at seven columns there is no leading group worth freezing.
- * Below `MOBILE_BREAKPOINT_PX` the single `Alliance #` column pins
- * (07-UI-REVIEW priority fix 2): this tab's own stated purpose — "which
- * alliance is strongest" — requires reading Combined Total, which sits four
- * columns past a 390px viewport's edge with nothing anchoring which row the
- * reader is on. One 84px 2-digit column is cheap, and mirrors the
- * identity-pinning pattern already proven safe on Insights/Breakdown/Teams
- * (G-1/G-2/G-11).
+ * Registered once, module-level: only column sizing is registered. No
+ * column is frozen at any width (2026-09-13, user request) — this supersedes
+ * the narrow-viewport `Alliance #` pin 07-UI-REVIEW priority fix 2 added.
  */
-const features = tableFeatures({ columnPinningFeature, columnSizingFeature });
+const features = tableFeatures({ columnSizingFeature });
 const columnHelper = createColumnHelper<typeof features, AllianceRow>();
 
 /**
@@ -764,12 +754,7 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
   const showBackupColumn = useMemo(() => hasAnyBackupPick(rows), [rows]);
   const columns = useMemo(() => buildAllianceColumns(algorithmId, season, showBackupColumn), [algorithmId, season, showBackupColumn]);
 
-  // 07-UI-REVIEW priority fix 2: pin the identity column below the sitewide
-  // breakpoint only — see the `features` doc comment above for the rationale.
-  const isNarrow = useIsMobile();
-  const columnPinning = useMemo(() => ({ start: isNarrow ? ["allianceNumber"] : [], end: [] }), [isNarrow]);
-
-  const table = useTable({ features, columns, data: rows, state: { columnPinning } });
+  const table = useTable({ features, columns, data: rows });
 
   const incompleteCount = rows.filter((row) => !row.combinable).length;
 
@@ -790,10 +775,7 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
           text).
           Re-evaluated and switched to `table-layout: fixed` here, matching
           every other event table (Insights/Breakdown/TeamsTable, G-1's own
-          fix). Since 07-UI-REVIEW fix 2 this table pins `Alliance #` below
-          the breakpoint, so `fixed` is now load-bearing the same way it is
-          on Insights: it keeps the pinned column's sticky `left` offset in
-          sync with where its neighbour actually renders (G-1's own lesson).
+          fix).
 
           Task 3 (260902-ixg): `width` is the EXACT sum of the column sizes
           (`table.getTotalSize()`), never `100%`. Live-measured regression:
@@ -814,49 +796,30 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => {
-                  const pinned = header.column.getIsPinned() === "start";
-                  return (
-                    <TableHead
-                      key={header.id}
-                      data-testid={`alliances-header-${header.column.id}`}
-                      className="text-role-label truncate"
-                      style={{
-                        width: header.getSize(),
-                        position: pinned ? "sticky" : undefined,
-                        left: pinned ? header.getStart("start") : undefined,
-                        zIndex: pinned ? 4 : 3,
-                        background: "var(--color-bg-surface)",
-                      }}
-                    >
-                      <table.FlexRender header={header} />
-                    </TableHead>
-                  );
-                })}
+                {headerGroup.headers.map((header) => (
+                  <TableHead
+                    key={header.id}
+                    data-testid={`alliances-header-${header.column.id}`}
+                    className="text-role-label truncate"
+                    style={{
+                      width: header.getSize(),
+                      background: "var(--color-bg-surface)",
+                    }}
+                  >
+                    <table.FlexRender header={header} />
+                  </TableHead>
+                ))}
               </TableRow>
             ))}
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows.map((row) => (
               <TableRow key={row.id} data-testid="alliances-row" data-alliance-number={row.original.allianceNumber}>
-                {row.getAllCells().map((cell) => {
-                  const pinned = cell.column.getIsPinned() === "start";
-                  return (
-                    <TableCell
-                      key={cell.id}
-                      data-testid={`alliances-cell-${cell.column.id}`}
-                      className="text-role-body"
-                      style={{
-                        position: pinned ? "sticky" : undefined,
-                        left: pinned ? cell.column.getStart("start") : undefined,
-                        zIndex: pinned ? 1 : undefined,
-                        background: pinned ? "var(--color-bg-surface)" : undefined,
-                      }}
-                    >
-                      <table.FlexRender cell={cell} />
-                    </TableCell>
-                  );
-                })}
+                {row.getAllCells().map((cell) => (
+                  <TableCell key={cell.id} data-testid={`alliances-cell-${cell.column.id}`} className="text-role-body">
+                    <table.FlexRender cell={cell} />
+                  </TableCell>
+                ))}
               </TableRow>
             ))}
           </TableBody>

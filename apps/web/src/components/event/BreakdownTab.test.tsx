@@ -339,20 +339,57 @@ describe("BreakdownTab — long text (EVNT-03/UI-SPEC E4 long-text)", () => {
   });
 });
 
-describe("BreakdownTab — pinning (UI-SPEC E4 overflow, structural half)", () => {
-  it("Team # and Team Name header and body cells carry data-pinned=true; every metric column carries data-pinned=false", async () => {
+/** Local copy of `TeamsTable.test.tsx`'s `mockNarrowViewport` — stubs `window.matchMedia` to always match, giving the narrow layout. Always restored in a `finally`. */
+function mockNarrowViewport(): () => void {
+  const original = window.matchMedia;
+  window.matchMedia = (query: string) =>
+    ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList;
+  return () => {
+    window.matchMedia = original;
+  };
+}
+
+describe("BreakdownTab — no sticky columns (2026-09-13)", () => {
+  function assertNoStickyColumns() {
+    const region = screen.getByTestId("breakdown-table-scroll");
+    const cells = within(region).getByRole("table").querySelectorAll("th, td");
+    expect(cells.length).toBeGreaterThan(0);
+    for (const cell of cells) {
+      expect((cell as HTMLElement).style.position).not.toBe("sticky");
+      expect((cell as HTMLElement).style.left).toBe("");
+      expect(cell.getAttribute("data-pinned")).toBeNull();
+    }
+
+    expect(screen.getByTestId("breakdown-header-teamNumber").getAttribute("aria-sort")).toBeNull();
+    expect(screen.getByTestId("breakdown-header-nickname").getAttribute("aria-sort")).toBeNull();
+    expect(screen.getByTestId(`breakdown-header-${TOTAL_KEY}`).getAttribute("aria-sort")).not.toBeNull();
+  }
+
+  it("wide layout: no sticky column anywhere, including the group-band row's leading spacer cells", async () => {
     const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
     renderBreakdown(artifact, "spr", 2024);
-
     await waitFor(() => expect(screen.getByTestId("breakdown-header-teamNumber")).toBeDefined());
-    expect(screen.getByTestId("breakdown-header-teamNumber").getAttribute("data-pinned")).toBe("true");
-    expect(screen.getByTestId("breakdown-header-nickname").getAttribute("data-pinned")).toBe("true");
-    expect(screen.getByTestId("breakdown-cell-teamNumber").getAttribute("data-pinned")).toBe("true");
-    expect(screen.getByTestId("breakdown-cell-nickname").getAttribute("data-pinned")).toBe("true");
+    assertNoStickyColumns();
+  });
 
-    for (const key of visibleMetricKeys("spr", 2024, NO_GROUPS_EXPANDED)) {
-      expect(screen.getByTestId(`breakdown-header-${key}`).getAttribute("data-pinned")).toBe("false");
-      expect(screen.getByTestId(`breakdown-cell-${key}`).getAttribute("data-pinned")).toBe("false");
+  it("narrow layout: no sticky column anywhere, including the group-band row's leading spacer cells", async () => {
+    const restoreMatchMedia = mockNarrowViewport();
+    try {
+      const artifact = makeArtifact([team({ metrics: fullVPRMetrics2024() })]);
+      renderBreakdown(artifact, "spr", 2024);
+      await waitFor(() => expect(screen.getByTestId("breakdown-header-teamNumber")).toBeDefined());
+      assertNoStickyColumns();
+    } finally {
+      restoreMatchMedia();
     }
   });
 });

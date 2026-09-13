@@ -780,3 +780,57 @@ describe("AlliancesTab — Combined Total's neutral Sigma band (quick task 26091
     expect(rows[0]?.combinedSigma).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// 2026-09-13 (user request): no column on any event-page table stays frozen
+// during horizontal scroll — see EventMatchTable.test.tsx's identical assertion.
+// ---------------------------------------------------------------------------
+
+/** Local copy of `TeamsTable.test.tsx`'s `mockNarrowViewport` — stubs `window.matchMedia` to always match, giving the narrow layout. Always restored in a `finally`. */
+function mockNarrowViewport(): () => void {
+  const original = window.matchMedia;
+  window.matchMedia = (query: string) =>
+    ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList;
+  return () => {
+    window.matchMedia = original;
+  };
+}
+
+describe("AlliancesTab — no sticky columns (2026-09-13)", () => {
+  function assertNoStickyColumns() {
+    const region = screen.getByTestId("alliances-table-scroll");
+    const cells = within(region).getByRole("table").querySelectorAll("th, td");
+    expect(cells.length).toBeGreaterThan(0);
+    for (const cell of cells) {
+      expect((cell as HTMLElement).style.position).not.toBe("sticky");
+      expect((cell as HTMLElement).style.left).toBe("");
+      expect(cell.getAttribute("data-pinned")).toBeNull();
+    }
+  }
+
+  it("wide layout: Alliance # is not sticky", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]));
+    await screen.findByTestId("alliances-header-allianceNumber");
+    assertNoStickyColumns();
+  });
+
+  it("narrow layout: Alliance # is not sticky", async () => {
+    const restoreMatchMedia = mockNarrowViewport();
+    try {
+      renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]));
+      await screen.findByTestId("alliances-header-allianceNumber");
+      assertNoStickyColumns();
+    } finally {
+      restoreMatchMedia();
+    }
+  });
+});

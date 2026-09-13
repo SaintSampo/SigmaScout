@@ -28,12 +28,12 @@
  * false for it, and it renders the same flat single-header-row table it did
  * before this redesign — no group row, no sort buttons, Total only.
  *
- * Pins the `teamNumber`/`nickname` leading columns via
- * `@tanstack/react-table@9.1.2`'s `columnPinningFeature`+`columnSizingFeature`
- * — the same construction `teams-table/columns.tsx`/`TeamsTable.tsx` already
- * ship, registered LOCALLY here (not imported across the `teams-table`
- * module boundary) because the column helper must be typed against this
- * module's own `BreakdownRow` type.
+ * Columns are sized via `@tanstack/react-table@9.1.2`'s
+ * `columnSizingFeature`, registered LOCALLY here (not imported across the
+ * `teams-table` module boundary) because the column helper must be typed
+ * against this module's own `BreakdownRow` type. The `teamNumber`/`nickname`
+ * identity columns lead the column set in definition order; no column is
+ * frozen during horizontal scroll (2026-09-13, user request).
  *
  * Deliberately does NOT reuse `TeamsTable.tsx`'s row virtualizer or its
  * `useLayoutEffect` viewport-height measurement: an event roster is 20-60
@@ -44,7 +44,7 @@
  * 07-01 — plans 07-11/07-12/07-13/07-14 built their own tabs against the
  * identical shape.
  */
-import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
+import { columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { MetricValue } from "@/components/MetricValue";
@@ -76,20 +76,8 @@ type EventTeamMetrics = EventTeam["metrics"];
  */
 export type BreakdownMetricEntry = EventTeamMetrics[string] | DerivedGroupMetric;
 
-/** The Breakdown tab's leading, frozen columns — two ids, not the Teams table's three, because D-11 carries no rank column to pin. */
-export const BREAKDOWN_PINNED_COLUMN_IDS = ["teamNumber", "nickname"] as const;
-
-/**
- * The narrow-viewport pinned set (07-UAT.md G-2) — `BREAKDOWN_PINNED_COLUMN_IDS`
- * minus `"nickname"`, the same derivation `teams-table/columns.tsx`'s own
- * `MOBILE_PINNED_COLUMN_IDS` uses for its three-column sibling, restated
- * locally (not imported) because this module's pinned set has no `rank`
- * member to begin with — there is no shared three-element list to filter
- * from across the module boundary. Below `MOBILE_BREAKPOINT_PX`, team
- * number (FRC's canonical row identity) is the one identity column that
- * stays pinned; nickname scrolls with the data.
- */
-export const BREAKDOWN_MOBILE_PINNED_COLUMN_IDS = BREAKDOWN_PINNED_COLUMN_IDS.filter((id) => id !== "nickname");
+/** The Breakdown tab's two leading identity columns, in definition order — never sortable (see `isSortable` below). Two ids, not the Teams table's three, because D-11 carries no rank column at all. */
+export const BREAKDOWN_IDENTITY_COLUMN_IDS = ["teamNumber", "nickname"] as const;
 
 /** One team's Breakdown row — no `rank` field exists here at all (D-11). */
 export interface BreakdownRow {
@@ -187,11 +175,10 @@ export function visibleMetricKeys(algorithmId: string, season: number, expanded:
 }
 
 /**
- * Registered once, module-level (05-04-SUMMARY.md's v9 API note: pinning
- * offsets require `columnSizingFeature` registered alongside
- * `columnPinningFeature`, or `getStart`/`getSize` do not exist at all).
+ * Registered once, module-level: only column sizing is registered (no
+ * pinning feature — no column in this table is frozen, 2026-09-13).
  */
-const features = tableFeatures({ columnPinningFeature, columnSizingFeature });
+const features = tableFeatures({ columnSizingFeature });
 const columnHelper = createColumnHelper<typeof features, BreakdownRow>();
 
 /**
@@ -376,7 +363,7 @@ const BREAKDOWN_SKELETON_ROW_COUNT = 8;
  * `BreakdownTabSkeleton({ algorithmId, season })`: the real column headers
  * above `SkeletonRows`, sized by the COLLAPSED-default visible key set
  * (`visibleMetricKeys` with `NO_GROUPS_EXPANDED` — the state the populated
- * table always lands in) plus the two pinned columns — the pending state
+ * table always lands in) plus the two identity columns — the pending state
  * has the shape of the table that is loading, never a spinner. The group
  * toggle row is deliberately absent here: a placeholder must not offer an
  * interaction that does nothing.
@@ -415,7 +402,7 @@ export function BreakdownTabSkeleton({ algorithmId, season }: { algorithmId: str
 }
 
 /**
- * The Breakdown tab: `TierKeyRow` once above the table, the pinned wide
+ * The Breakdown tab: `TierKeyRow` once above the table, the wide
  * table itself in its own native `overflow-x-auto` scroll region, and the
  * D-11 caption once beneath it. Renders `EmptyState` (no table at all) when
  * `artifact.teams` is empty.
@@ -430,16 +417,11 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
   const rows = useMemo(() => buildBreakdownRows(artifact, algorithmId), [artifact, algorithmId]);
   const sortedRows = useMemo(() => sortBreakdownRows(rows, sort), [rows, sort]);
   const columns = useMemo(() => buildBreakdownColumns(algorithmId, season, isNarrow, expanded), [algorithmId, season, isNarrow, expanded]);
-  const columnPinning = useMemo(
-    () => ({ start: isNarrow ? [...BREAKDOWN_MOBILE_PINNED_COLUMN_IDS] : [...BREAKDOWN_PINNED_COLUMN_IDS], end: [] }),
-    [isNarrow],
-  );
 
   const table = useTable({
     features,
     columns,
     data: sortedRows,
-    state: { columnPinning },
   });
 
   /**
@@ -500,21 +482,13 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
               <TableRow data-testid="breakdown-group-row">
                 <TableHead
                   aria-hidden="true"
-                  data-pinned="true"
                   className="h-auto py-1"
-                  style={{ width: teamNumberWidth, position: "sticky", left: 0, zIndex: 4, background: "var(--color-bg-surface)" }}
+                  style={{ width: teamNumberWidth, background: "var(--color-bg-surface)" }}
                 />
                 <TableHead
                   aria-hidden="true"
-                  data-pinned={isNarrow ? "false" : "true"}
                   className="h-auto py-1"
-                  style={{
-                    width: nicknameWidth,
-                    position: isNarrow ? undefined : "sticky",
-                    left: isNarrow ? undefined : teamNumberWidth,
-                    zIndex: isNarrow ? 3 : 4,
-                    background: "var(--color-bg-surface)",
-                  }}
+                  style={{ width: nicknameWidth, background: "var(--color-bg-surface)" }}
                 />
                 <TableHead
                   aria-hidden="true"
@@ -557,22 +531,17 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
-                  const pinned = header.column.getIsPinned();
-                  const isSortable = isGrouped && !BREAKDOWN_PINNED_COLUMN_IDS.includes(header.column.id as (typeof BREAKDOWN_PINNED_COLUMN_IDS)[number]);
+                  const isSortable = isGrouped && !BREAKDOWN_IDENTITY_COLUMN_IDS.includes(header.column.id as (typeof BREAKDOWN_IDENTITY_COLUMN_IDS)[number]);
                   const isActive = isSortable && header.column.id === sort.key;
                   const ariaSort = !isSortable ? undefined : isActive ? (sort.dir === "asc" ? "ascending" : "descending") : "none";
                   return (
                     <TableHead
                       key={header.id}
                       data-testid={`breakdown-header-${header.column.id}`}
-                      data-pinned={pinned ? "true" : "false"}
                       aria-sort={ariaSort}
                       className={isNarrow ? "text-role-label truncate" : WRAPPING_HEADER_CLASS_NAME}
                       style={{
                         width: header.getSize(),
-                        position: pinned ? "sticky" : undefined,
-                        left: pinned ? header.getStart("start") : undefined,
-                        zIndex: pinned ? 4 : 3,
                         background: "var(--color-bg-surface)",
                       }}
                     >
@@ -604,26 +573,16 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
           <TableBody>
             {table.getRowModel().rows.map((row) => (
               <TableRow key={row.id} data-testid="breakdown-row" data-team-number={row.original.teamNumber}>
-                {row.getAllCells().map((cell) => {
-                  const pinned = cell.column.getIsPinned();
-                  return (
-                    <TableCell
-                      key={cell.id}
-                      data-testid={`breakdown-cell-${cell.column.id}`}
-                      data-pinned={pinned ? "true" : "false"}
-                      className={cellClassName(cell.column.id)}
-                      style={{
-                        width: cell.column.getSize(),
-                        position: pinned ? "sticky" : undefined,
-                        left: pinned ? cell.column.getStart("start") : undefined,
-                        zIndex: pinned ? 1 : undefined,
-                        background: pinned ? "var(--color-bg-surface)" : undefined,
-                      }}
-                    >
-                      <table.FlexRender cell={cell} />
-                    </TableCell>
-                  );
-                })}
+                {row.getAllCells().map((cell) => (
+                  <TableCell
+                    key={cell.id}
+                    data-testid={`breakdown-cell-${cell.column.id}`}
+                    className={cellClassName(cell.column.id)}
+                    style={{ width: cell.column.getSize() }}
+                  >
+                    <table.FlexRender cell={cell} />
+                  </TableCell>
+                ))}
               </TableRow>
             ))}
           </TableBody>

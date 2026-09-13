@@ -333,11 +333,11 @@ test.describe("E3 — Insights tab at the widest real rosters", () => {
 
 // ---------------------------------------------------------------------------
 // E4 — Breakdown, the widest column set that exists anywhere in the app
-// (2024: 13 components + Total = 14 metric columns behind 2 pinned = 16)
+// (2024: 13 components + Total = 14 metric columns behind 2 identity columns = 16)
 // ---------------------------------------------------------------------------
 
 test.describe("E4 — Breakdown tab at the app's widest column set", () => {
-  test("2024new: exactly 16 header columns, one pinned header holds position and stays opaque after a full-width drag (nickname unpinned below 768px, 07-UAT.md G-2)", async ({ page }) => {
+  test("2024new: exactly 16 header columns, every column scrolls with a full-width drag (no sticky columns, 2026-09-13)", async ({ page }) => {
     await page.goto(eventUrl("2024new", "breakdown"), { waitUntil: "networkidle" });
     const region = page.locator('[data-testid="breakdown-table-scroll"]');
     await region.waitFor({ state: "visible", timeout: 15_000 });
@@ -347,40 +347,26 @@ test.describe("E4 — Breakdown tab at the app's widest column set", () => {
 
     await assertOverflows(region);
 
-    // 07-UAT.md G-2: below MOBILE_BREAKPOINT_PX (this spec's phone-width
-    // projects), only teamNumber stays pinned — see
-    // `BreakdownTab.tsx`'s `BREAKDOWN_MOBILE_PINNED_COLUMN_IDS`. Nickname is
-    // no longer pinned and must move with the drag like any other column.
-    const pinnedHeader = page.getByTestId("breakdown-header-teamNumber");
+    const teamNumberHeader = page.getByTestId("breakdown-header-teamNumber");
     const nicknameHeader = page.getByTestId("breakdown-header-nickname");
-    const unpinnedHeader = page.getByTestId("breakdown-header-total");
+    const totalHeader = page.getByTestId("breakdown-header-total");
 
-    expect(await nicknameHeader.getAttribute("data-pinned")).toBe("false");
-
-    const pinnedBefore = await pinnedHeader.boundingBox();
+    const teamNumberBefore = await teamNumberHeader.boundingBox();
     const nicknameBefore = await nicknameHeader.boundingBox();
-    const unpinnedBefore = await unpinnedHeader.boundingBox();
-    if (pinnedBefore === null || nicknameBefore === null || unpinnedBefore === null) throw new Error("header cell missing a bounding box");
+    const totalBefore = await totalHeader.boundingBox();
+    if (teamNumberBefore === null || nicknameBefore === null || totalBefore === null) throw new Error("header cell missing a bounding box");
 
     const { box, midY } = await visibleMidpoint(page, region);
     await touchDrag(page, { x: box.x + box.width - 20, y: midY }, { x: box.x + 20, y: midY });
 
-    const pinnedAfter = await pinnedHeader.boundingBox();
+    const teamNumberAfter = await teamNumberHeader.boundingBox();
     const nicknameAfter = await nicknameHeader.boundingBox();
-    const unpinnedAfter = await unpinnedHeader.boundingBox();
-    if (pinnedAfter === null || nicknameAfter === null || unpinnedAfter === null) throw new Error("header cell missing a bounding box after the drag");
+    const totalAfter = await totalHeader.boundingBox();
+    if (teamNumberAfter === null || nicknameAfter === null || totalAfter === null) throw new Error("header cell missing a bounding box after the drag");
 
-    expect(pinnedAfter.x).toBeCloseTo(pinnedBefore.x, 0);
+    expect(teamNumberAfter.x).not.toBeCloseTo(teamNumberBefore.x, 0);
     expect(nicknameAfter.x).not.toBeCloseTo(nicknameBefore.x, 0);
-    expect(unpinnedAfter.x).not.toBeCloseTo(unpinnedBefore.x, 0);
-
-    // A see-through pinned column is how a wide table fails at phone width
-    // without failing any scroll assertion — the same opacity assertion
-    // `touch-scroll.spec.ts` makes for the Teams table.
-    const pinnedCell = page.getByTestId("breakdown-cell-teamNumber").first();
-    const background = await pinnedCell.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(background).not.toBe("transparent");
-    expect(background).not.toBe("rgba(0, 0, 0, 0)");
+    expect(totalAfter.x).not.toBeCloseTo(totalBefore.x, 0);
   });
 });
 

@@ -124,7 +124,7 @@ test("Breakdown desktop header wrap: no header cell's wrapped text is clipped (s
   }
 });
 
-test("Breakdown desktop (1440px): G-1's declared==actual and 0px pinned sticky gap both hold after the container widen", async ({ page }) => {
+test("Breakdown desktop (1440px): G-1's declared==actual holds after the container widen, and the teamNumber/nickname headers abut with a 0px gap", async ({ page }) => {
   await measureOverflow(page, 1440);
 
   const teamNumberHeader = page.getByTestId("breakdown-header-teamNumber");
@@ -137,7 +137,7 @@ test("Breakdown desktop (1440px): G-1's declared==actual and 0px pinned sticky g
   const nicknameBox = await nicknameHeader.boundingBox();
   if (nicknameBox === null) throw new Error("nickname header has no bounding box");
   const gap = nicknameBox.x - (actualTeamNumberBox.x + actualTeamNumberBox.width);
-  expect(Math.abs(gap), `sticky gap between pinned teamNumber and nickname headers: ${gap}px`).toBeLessThanOrEqual(1);
+  expect(Math.abs(gap), `gap between the adjacent teamNumber and nickname headers: ${gap}px — under fixed table layout, adjacent declared-width columns must abut with no gap`).toBeLessThanOrEqual(1);
 });
 
 /**

@@ -34,6 +34,9 @@
  *     whole screen is identity columns," independent of any single pixel
  *     constant either side might later drift toward.
  *
+ *     Since 2026-09-13 the event tables (Insights, Breakdown) have no pinned
+ *     columns at all — classes 2 and 3 above run against TeamsTable only.
+ *
  * Runs on `phone-390`/`pixel-10` only (both at 390px UI-SPEC's own named
  * width, matching this repo's existing narrow-viewport convention rather
  * than a new one) — this is a narrow-viewport defect class, not one this
@@ -73,6 +76,8 @@ interface TableSpec {
   rowTestId: string;
   /** Declared-size columns to check, header-row order — must include every pinned column, in pinned order, first. */
   columns: ColumnSpec[];
+  /** This table's leading identity column ids, in order — never pinned since 2026-09-13 on the event tables, but still excluded from the "data column" checks below the same way a pinned identity column used to be. */
+  identityColumnIds: readonly string[];
 }
 
 const TABLES: TableSpec[] = [
@@ -84,11 +89,12 @@ const TABLES: TableSpec[] = [
     cellPrefix: "insights-cell",
     rowTestId: "insights-row",
     columns: [
-      { id: "rank", pinned: true },
-      { id: "teamNumber", pinned: true },
+      { id: "rank", pinned: false },
+      { id: "teamNumber", pinned: false },
       { id: "nickname", pinned: false },
       { id: "record", pinned: false },
     ],
+    identityColumnIds: ["rank", "teamNumber", "nickname"],
   },
   {
     name: "Breakdown (2024new, widest column set)",
@@ -98,9 +104,10 @@ const TABLES: TableSpec[] = [
     cellPrefix: "breakdown-cell",
     rowTestId: "breakdown-row",
     columns: [
-      { id: "teamNumber", pinned: true },
+      { id: "teamNumber", pinned: false },
       { id: "nickname", pinned: false },
     ],
+    identityColumnIds: ["teamNumber", "nickname"],
   },
   {
     name: "TeamsTable (2024 season)",
@@ -114,6 +121,7 @@ const TABLES: TableSpec[] = [
       { id: "teamNumber", pinned: true },
       { id: "nickname", pinned: false },
     ],
+    identityColumnIds: ["rank", "teamNumber", "nickname"],
   },
 ];
 
@@ -148,41 +156,46 @@ for (const spec of TABLES) {
       }
     });
 
-    test("sticky offset correctness: each pinned column's right edge meets the next pinned column's left edge with a 0px gap", async ({ page }) => {
-      await gotoTable(page, spec);
+    // Generated only for specs that declare at least one pinned column —
+    // since 2026-09-13 the event tables (Insights, Breakdown) pin nothing,
+    // so this class of check runs against TeamsTable only.
+    if (spec.columns.some((c) => c.pinned)) {
+      test("sticky offset correctness: each pinned column's right edge meets the next pinned column's left edge with a 0px gap", async ({ page }) => {
+        await gotoTable(page, spec);
 
-      const pinnedIds = spec.columns.filter((c) => c.pinned).map((c) => c.id);
-      expect(pinnedIds.length, `${spec.name} declares no pinned columns for this test to check`).toBeGreaterThan(0);
+        const pinnedIds = spec.columns.filter((c) => c.pinned).map((c) => c.id);
+        expect(pinnedIds.length, `${spec.name} declares no pinned columns for this test to check`).toBeGreaterThan(0);
 
-      // Check both the header row (always in normal table flow) and the
-      // FIRST body row (TeamsTable's own virtualizer absolutely-positions
-      // rows, which is exactly the case that partially masked this defect
-      // in the header alone — 07-UAT.md G-1's own finding).
-      for (const rowKind of ["header", "body"] as const) {
-        const boxes: { id: string; box: { x: number; width: number } }[] = [];
-        for (const id of pinnedIds) {
-          const locator = rowKind === "header" ? page.getByTestId(`${spec.headerPrefix}-${id}`) : page.getByTestId(`${spec.cellPrefix}-${id}`).first();
-          const box = await locator.boundingBox();
-          if (box === null) throw new Error(`${spec.name} ${rowKind} cell "${id}" has no bounding box`);
-          boxes.push({ id, box });
+        // Check both the header row (always in normal table flow) and the
+        // FIRST body row (TeamsTable's own virtualizer absolutely-positions
+        // rows, which is exactly the case that partially masked this defect
+        // in the header alone — 07-UAT.md G-1's own finding).
+        for (const rowKind of ["header", "body"] as const) {
+          const boxes: { id: string; box: { x: number; width: number } }[] = [];
+          for (const id of pinnedIds) {
+            const locator = rowKind === "header" ? page.getByTestId(`${spec.headerPrefix}-${id}`) : page.getByTestId(`${spec.cellPrefix}-${id}`).first();
+            const box = await locator.boundingBox();
+            if (box === null) throw new Error(`${spec.name} ${rowKind} cell "${id}" has no bounding box`);
+            boxes.push({ id, box });
+          }
+
+          for (let i = 0; i < boxes.length - 1; i++) {
+            const current = boxes[i]!;
+            const next = boxes[i + 1]!;
+            const gap = next.box.x - (current.box.x + current.box.width);
+            expect(
+              Math.abs(gap),
+              `${spec.name} ${rowKind} row: gap of ${gap}px between pinned "${current.id}" and pinned "${next.id}" — a non-zero gap here is the exact "page-coloured stripe between pinned headers" 07-UAT.md G-1 found on a real phone`,
+            ).toBeLessThanOrEqual(SUBPIXEL_TOLERANCE_PX);
+          }
         }
-
-        for (let i = 0; i < boxes.length - 1; i++) {
-          const current = boxes[i]!;
-          const next = boxes[i + 1]!;
-          const gap = next.box.x - (current.box.x + current.box.width);
-          expect(
-            Math.abs(gap),
-            `${spec.name} ${rowKind} row: gap of ${gap}px between pinned "${current.id}" and pinned "${next.id}" — a non-zero gap here is the exact "page-coloured stripe between pinned headers" 07-UAT.md G-1 found on a real phone`,
-          ).toBeLessThanOrEqual(SUBPIXEL_TOLERANCE_PX);
-        }
-      }
-    });
+      });
+    }
   });
 }
 
-test.describe("G-3 layout quality — pinned width bound (all three tables)", () => {
-  for (const spec of TABLES) {
+test.describe("G-3 layout quality — pinned width bound (tables with pinned columns)", () => {
+  for (const spec of TABLES.filter((s) => s.columns.some((c) => c.pinned))) {
     test(`${spec.name}: pinned columns never consume more than ${MAX_PINNED_FRACTION_OF_VIEWPORT * 100}% of the viewport`, async ({ page }) => {
       await gotoTable(page, spec);
       const viewport = page.viewportSize();
@@ -300,24 +313,36 @@ test.describe("nickname ellipsis — overflowing nickname text truncates with an
 
 test.describe("G-2 part 2 — at least one full data column visible at scroll 0 (no scrolling)", () => {
   for (const spec of TABLES) {
-    test(`${spec.name}: at least one non-pinned, non-nickname column is fully visible inside the scroll region at scroll 0`, async ({ page }) => {
+    test(`${spec.name}: at least one data column is fully visible inside the scroll region at scroll 0`, async ({ page }) => {
       await gotoTable(page, spec);
       const region = page.getByTestId(spec.regionTestId);
       const regionBox = await region.boundingBox();
       if (regionBox === null) throw new Error(`${spec.name} scroll region has no bounding box`);
 
-      // Reads `data-pinned="false"` DIRECTLY off the DOM (same technique the
-      // pinned-width-bound test above uses for `data-pinned="true"`) rather
-      // than hardcoding a metric-key column id — the metric-key set is
-      // season/algorithm-dependent (`metricKeysFor`). Nickname's own header
-      // cell is deliberately excluded (`:not([data-testid$="-nickname"])`):
-      // nickname is supplementary identity once unpinned, not the
-      // prediction/competition data 07-UAT.md G-2's own acceptance wording
-      // ("two real metric columns visible on first paint") is about — a fix
-      // that merely left nickname itself barely fitting must not pass this.
-      const dataHeaders = page.locator(`[data-testid^="${spec.headerPrefix}-"][data-pinned="false"]:not([data-testid$="-nickname"])`);
+      // Specs with at least one pinned column read `data-pinned="false"`
+      // DIRECTLY off the DOM (same technique the pinned-width-bound test
+      // above uses for `data-pinned="true"`) rather than hardcoding a
+      // metric-key column id — the metric-key set is season/algorithm-
+      // dependent (`metricKeysFor`). Nickname's own header cell is
+      // deliberately excluded (`:not([data-testid$="-nickname"])`): nickname
+      // is supplementary identity, not the prediction/competition data
+      // 07-UAT.md G-2's own acceptance wording ("two real metric columns
+      // visible on first paint") is about.
+      //
+      // Specs with NO pinned column at all (Insights, Breakdown — no column
+      // is frozen since 2026-09-13) have no `data-pinned` attribute to key
+      // off, so this excludes each of the spec's own `identityColumnIds` by
+      // testid suffix instead — the same "identity columns are not the data
+      // this check is about" rule, expressed without `data-pinned`.
+      const hasPinnedColumns = spec.columns.some((c) => c.pinned);
+      const dataHeaders = hasPinnedColumns
+        ? page.locator(`[data-testid^="${spec.headerPrefix}-"][data-pinned="false"]:not([data-testid$="-nickname"])`)
+        : spec.identityColumnIds.reduce(
+            (locator, id) => locator.and(page.locator(`:not([data-testid$="-${id}"])`)),
+            page.locator(`[data-testid^="${spec.headerPrefix}-"]`),
+          );
       const dataCount = await dataHeaders.count();
-      expect(dataCount, `${spec.name}: no non-pinned, non-nickname header cell found — is the testid prefix right?`).toBeGreaterThan(0);
+      expect(dataCount, `${spec.name}: no data header cell found — is the testid prefix right?`).toBeGreaterThan(0);
 
       let fullyVisibleCount = 0;
       let totalVisiblePx = 0;
