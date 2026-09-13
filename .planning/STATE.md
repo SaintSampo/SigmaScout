@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: 08
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-09-13 - Completed quick task 260913-l8q: em dashes out of user-facing sentences, Locks cut line matches the verdicts (NC 2026 Champs 172 to 231), grey Beta tag on the ribbon (b186f81b); web live via another session's push, district republish owed
+Last activity: 2026-09-13 - Completed quick task 260913-m9m: no sticky columns on any event-page table (Quals, Playoffs, Insights, Breakdown, Alliances, Simulation), f15b734e
 
 Progress: [██████████] 100%
 
@@ -556,6 +556,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 152 | fast: team page match table has no sticky columns. Result and Match no longer pin during horizontal pans; the cell-level tint classes that only backed the sticky cells went too. The event page Quals/Elims table still has a sticky Match column (not in scope) | 2026-09-13 | ef07aad4 | — |
 | 153 | Em dashes out of user-facing sentences (placeholder dashes kept, found by an AST scan so comments were excluded). Locks cut line now shares the lock verdicts' own pool and slot count via cutLinePointsWithQualifiers: 2026 NC Champs 172 to 231 (GearCats eliminated at 216), DCMP 75 to 76, 101 of 109 district-years corrected. Grey Beta tag after the ribbon wordmark, kept on phones by choice though it hides the SPR label at 360-393px. Committed only by choice, but another session's push deployed the web changes anyway (verified in the live bundle); district republish owed | 2026-09-13 | b186f81b | [260913-l8q-remove-em-dashes-from-user-facing-text-f](./quick/260913-l8q-remove-em-dashes-from-user-facing-text-f/) |
 | 154 | fast: no prediction displays as certain. Match win confidence on the team and event match tables and the bonus RP dot labels go through predictionPercent, which clamps the shown whole percent to 1-99 (a model 100% shows 99%). Display only, published probabilities and scoring untouched | 2026-09-13 | c3ef6a06 | — |
+| 155 | No event-page table freezes a column during horizontal scroll. Quals and Playoffs Match column, Insights, Breakdown, Alliances and the Simulation rank table all dropped TanStack column pinning (755c1c48, fa680809, f15b734e); column order unchanged, the Simulation rank table keeps its sticky title row for vertical scroll. Full apps/web suite 1872/1872, web typecheck clean. Four Playwright specs updated but only parsed, never run against the live origin. Not pushed | 2026-09-13 | f15b734e | [260913-m9m-remove-sticky-columns-from-every-event-p](./quick/260913-m9m-remove-sticky-columns-from-every-event-p/) |
 
 ### Roadmap Evolution
 
