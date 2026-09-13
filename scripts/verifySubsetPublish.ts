@@ -61,11 +61,20 @@ import {
  * control entry's renamed duplicate carries this id instead. Was `"vpr"`
  * until 2026-09-10: VPR was retired from the site 2026-09-09 (commit
  * eae2defb) and the manifest no longer resolves it, so the live presence
- * layer now targets its successor, `bpr`. The orphaned `vpr@*` objects are
- * still physically present in R2 until the filed delete pass runs
- * (`retire-vpr-*-generation-r2`) — vpr-key ABSENCE entries (PD-05 style,
- * like the fifteen `sigma1` ones) become assertable only after that pass,
- * and are deliberately not added here yet.
+ * layer now targets its successor, `bpr`.
+ *
+ * 2026-09-12 (quick task 260912-tay): the orphaned `vpr@*` objects are gone.
+ * That task deleted every generation the live manifest does not name, all
+ * seven vpr versions still in the bucket among them, selected from a FULL
+ * bucket listing and proven by a second full listing afterwards (0 objects
+ * left under any deleted generation; `docs/publish-budget.md`, "Delete pass —
+ * 2026-09-12"). Vpr-key ABSENCE is therefore assertable, and
+ * `RETIRED_VPR_FINAL_EVENT_SUBSET` (15 event entries) plus one
+ * `PUBLISHED_TEAM_SUBSET` entry (frc4206/2024) pin VPR's final published
+ * generation, `11.0.0+rolling-2026-09g`. The earlier 9.0.0 layer
+ * (`RETIRED_VPR_EVENT_SUBSET`) stays alongside it. The new absence claims are
+ * not vacuous: 16/16 of their keys were present in the pre-delete full
+ * listing (`260912-tay-spotchecks.txt`).
  *
  * 2026-09-12 (quick task 260912-ivg): renamed again, to `spr` — the same
  * algorithm under a new wire id, not a new algorithm. The full cutover ran the
@@ -644,32 +653,65 @@ const NEW_2024AUWARP_ENTRY: SubsetEntry = {
  * re-runnable claim. Derived programmatically from the fifteen sigma1
  * controls (same events, same PD-05 shape); the version literal is the
  * historical record of what was deleted and cannot go stale — nothing will
- * ever publish under `vpr@9.0.0+rolling-2026-09c` again. Earlier vpr
- * generations (7.0.0, 8.0.0) were deleted by their own passes and are not
- * re-asserted here, matching how sigma1's absence layer pins only its final
- * version.
+ * ever publish under `vpr@9.0.0+rolling-2026-09c` again.
+ *
+ * Corrected 2026-09-12: this comment used to say the layer pins "only its
+ * final version", like sigma1's. 9.0.0 was NOT vpr's final generation —
+ * 10.0.0 and 11.0.0 generations were published after it. The final one,
+ * `11.0.0+rolling-2026-09g`, now has its own layer
+ * (`RETIRED_VPR_FINAL_EVENT_SUBSET` below, quick task 260912-tay), and this
+ * 9.0.0 layer is kept alongside it because its claim is still true and
+ * removing an assertion would only narrow the verifier.
  */
-export const RETIRED_VPR_EVENT_SUBSET: readonly SubsetEntry[] = PRE_RENAME_EVENT_SUBSET.filter(
-  (entry) => entry.algorithmId === "sigma1"
-).map((entry) => ({
-  ...entry,
-  algorithmId: "vpr",
-  note: `[retired-vpr absence, 2026-09-10] ${entry.note}`,
-  expectAbsent: true,
-  version: "9.0.0+rolling-2026-09c",
-}));
+export const RETIRED_VPR_EVENT_SUBSET: readonly SubsetEntry[] = retiredVprAbsenceLayer(
+  "9.0.0+rolling-2026-09c",
+  "[retired-vpr absence, 2026-09-10]"
+);
+
+/**
+ * 2026-09-12 (quick task 260912-tay): the retired-vpr FINAL-generation
+ * absence layer, pinned to `11.0.0+rolling-2026-09g` — the last generation
+ * vpr ever published, per the house convention that an absence layer pins
+ * the final version. Assertable because that task deleted every orphaned
+ * generation from R2 by full-listing census. Same fifteen sigma1 controls,
+ * derived the same way as the 9.0.0 layer above. Non-vacuity: all 15 of
+ * these event keys (and the frc4206/2024 team key in
+ * `PUBLISHED_TEAM_SUBSET`) were present in the pre-delete full listing.
+ */
+export const RETIRED_VPR_FINAL_EVENT_SUBSET: readonly SubsetEntry[] = retiredVprAbsenceLayer(
+  "11.0.0+rolling-2026-09g",
+  "[retired-vpr final-generation absence, 2026-09-12]"
+);
+
+/**
+ * Derives one retired-vpr absence layer from the fifteen sigma1 controls in
+ * `PRE_RENAME_EVENT_SUBSET` — programmatically, never hand-retyped, so the
+ * event list cannot drift between layers.
+ */
+function retiredVprAbsenceLayer(version: string, notePrefix: string): SubsetEntry[] {
+  return PRE_RENAME_EVENT_SUBSET.filter((entry) => entry.algorithmId === "sigma1").map((entry) => ({
+    ...entry,
+    algorithmId: "vpr",
+    note: `${notePrefix} ${entry.note}`,
+    expectAbsent: true,
+    version,
+  }));
+}
 
 /**
  * The full event-level expectation table this plan's verifier runs against:
  * the seventeen 07-10 control entries, their seventeen renamed-run
- * duplicates, the one genuinely new `2024auwarp` entry, and (2026-09-10)
- * the fifteen retired-vpr absence entries — 50 total.
+ * duplicates, the one genuinely new `2024auwarp` entry, (2026-09-10) the
+ * fifteen retired-vpr absence entries at `9.0.0+rolling-2026-09c`, and
+ * (2026-09-12, quick task 260912-tay) the fifteen retired-vpr
+ * final-generation absence entries at `11.0.0+rolling-2026-09g` — 65 total.
  */
 export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
   ...PRE_RENAME_EVENT_SUBSET,
   ...RENAMED_EVENT_SUBSET,
   NEW_2024AUWARP_ENTRY,
   ...RETIRED_VPR_EVENT_SUBSET,
+  ...RETIRED_VPR_FINAL_EVENT_SUBSET,
 ];
 assertSubsetEntryShape(PUBLISHED_SUBSET, "PUBLISHED_SUBSET");
 
@@ -766,6 +808,19 @@ export const PUBLISHED_TEAM_SUBSET: readonly TeamSubsetEntry[] = [
     algorithmId: RENAMED_ALGORITHM_ID,
     note: "2026's playoff-row entry — 40 total matches, 11 playoff rows, zero offseason/preseason involvement.",
     expectPlayoffRows: 11,
+  },
+  {
+    teamKey: "frc4206",
+    year: 2024,
+    algorithmId: "vpr",
+    note:
+      "[retired-vpr final-generation absence, 2026-09-12] Quick task 260912-tay deleted every orphaned R2 " +
+      "generation by full-listing census, vpr's final 11.0.0+rolling-2026-09g among them. This team object was " +
+      "present in the pre-delete full listing, so its 404 is a real claim. expectPlayoffRows mirrors the sigma1 " +
+      "team control above.",
+    expectPlayoffRows: 25,
+    expectAbsent: true,
+    version: "11.0.0+rolling-2026-09g",
   },
 ];
 assertSubsetEntryShape(PUBLISHED_TEAM_SUBSET, "PUBLISHED_TEAM_SUBSET");
@@ -1629,6 +1684,18 @@ function formatResultLine(result: SubsetEntryResult): string {
   );
 }
 
+/**
+ * The algorithm part of a FAIL label. Absence entries carry their pinned
+ * version (e.g. `vpr@11.0.0+rolling-2026-09g`) because, since 2026-09-12, two
+ * vpr absence layers share the same eventKey and algorithmId and a failure
+ * must name which one failed. Presence entries keep the bare algorithm id.
+ */
+function failLabelAlgorithm(entry: AbsenceCapableEntry & { readonly algorithmId: string }): string {
+  return entry.expectAbsent === true && entry.version !== undefined
+    ? `${entry.algorithmId}@${entry.version}`
+    : entry.algorithmId;
+}
+
 /** Check 12 — generation uniformity. Reported at the end of a run, informational only (never a per-entry failure): more than one distinct generation among entries this SAME publish run was supposed to have produced is the observable signature of a resumed or interrupted pass. */
 function reportGenerationUniformity(label: string, generations: readonly (string | undefined)[]): void {
   const distinct = new Set(generations.filter((g): g is string => g !== undefined));
@@ -1657,7 +1724,7 @@ async function runTeamMode(options: CliOptions): Promise<void> {
     if (!options.json) {
       console.log(formatTeamResultLine(result));
       for (const failure of result.failures) {
-        console.log(`  FAIL ${result.entry.teamKey}/${result.entry.year}/${result.entry.algorithmId}: ${failure}`);
+        console.log(`  FAIL ${result.entry.teamKey}/${result.entry.year}/${failLabelAlgorithm(result.entry)}: ${failure}`);
       }
       if (options.compareLegacy !== undefined && result.observed.metricCensus !== undefined) {
         await printLegacyComparison(options.origin, versions, entry, result.observed.metricCensus, options.compareLegacy, runId);
@@ -1738,7 +1805,7 @@ async function main(): Promise<void> {
     for (const result of results) {
       console.log(formatResultLine(result));
       for (const failure of result.failures) {
-        console.log(`  FAIL ${result.entry.eventKey}/${result.entry.algorithmId}: ${failure}`);
+        console.log(`  FAIL ${result.entry.eventKey}/${failLabelAlgorithm(result.entry)}: ${failure}`);
       }
     }
     const failingEntries = results.filter((r) => r.failures.length > 0).length;
