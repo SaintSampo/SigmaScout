@@ -445,8 +445,13 @@ export function buildColumns(
   // at `128 (pinned) + 90 (nickname) + 8 (gap)` = 226px; its Total half ends
   // at 290.16px, fully visible at scroll 0 (ui-polish F3's "a tiered value
   // on the first screenful" still holds); its Sigma half ends at 356.31px,
-  // about 14px past the 342px scroller until the reader scrolls. Nickname
-  // is deliberately NOT narrowed for SPR only — see
+  // past the scroller's edge until the reader scrolls. Measured live at
+  // phone-390 (2026-09-13): the scroller's inner width is 340px, not 342,
+  // because the table wrapper's 1px border takes one pixel each side, so the
+  // pill overshoots by 16.31px. Rank and Team # cannot absorb that on their
+  // own: their floors are 52.31px ("9999") and 61.89px (the "Team #" header),
+  // which saves at most 13px. The developer chose to leave the overflow
+  // (260913-jkp). Nickname is deliberately NOT narrowed for SPR only; see
   // `NICKNAME_COLUMN_WIDTH_NARROW_PX`'s own doc comment for why an
   // algorithm-conditional layout is the wrong trade here.
   const leadMetricIndex = 0;
