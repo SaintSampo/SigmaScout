@@ -214,6 +214,20 @@ Applies to every agent and every workflow, including work inside isolated worktr
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 
+### Do not run `quick-tasks-append` (added 2026-09-12)
+
+`gsd-tools quick-tasks-append` is **banned on this checkout** until
+`.planning/todos/pending/quick-tasks-append-corrupts-state-frontmatter.md` is closed. It corrupted
+`.planning/STATE.md` four times on 2026-09-12 — splitting the frontmatter in two, resetting
+`current_phase`, and twice writing its row over the file's opening `---` — and nothing in its output
+says it touched the frontmatter.
+
+Append the Quick Tasks row with a small script instead, and before committing verify all four:
+frontmatter parses (`gsd-tools query frontmatter.get .planning/STATE.md milestone`), both `---`
+delimiters are present, no row number is duplicated, and every numbered row has exactly 5 cells.
+Re-read the table's last row number immediately before writing — concurrent sessions claim numbers.
+Never put a `|` in a description.
+
 ## Architecture
 
 Architecture not yet mapped. Follow existing patterns found in the codebase.

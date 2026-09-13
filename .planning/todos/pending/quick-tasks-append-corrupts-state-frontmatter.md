@@ -77,3 +77,13 @@ grep -n "^current_phase:" .planning/STATE.md
 
 Two delimiters and the right phase. If there are four, the file has been split and the body copy is
 the good one.
+
+
+## Incident 4 — row at line 2, opening `---` gone (2026-09-12, found by 260912-ivg)
+
+Quick task 260912-l8t's row landed at **line 2**, replacing the opening delimiter, outside the table.
+Repaired in `1d624515` (delimiter restored, row re-homed as 137). The helper is now **banned** in
+`.claude/CLAUDE.md` until this todo closes. Note the write path is already lock-protected
+(`readModifyWriteStateMd`) and `appendQuickTaskRow`'s own table-local logic looks sound, so the
+likeliest suspect is the splice of the section body back into the whole file — worth checking
+`collectSection`'s offsets against this file's mixed LF/CRLF line endings first.
