@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMetricSeries, detectEventBands, drawsSigmaBand, sigmaBandFor } from "./metricHistorySeries.js";
+import { buildMetricSeries, detectEventBands, drawsSigmaBand, niceYAxis, sigmaBandFor } from "./metricHistorySeries.js";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 
@@ -132,5 +132,58 @@ describe("drawsSigmaBand (quick task 260913-m45)", () => {
   it("is false for spr rows with no sigma entry at all (pre-republish)", () => {
     const rows = [row({ matchKey: "m1", eventKey: "A", matchIndex: 0, metrics: { total: { value: 100 } } })];
     expect(drawsSigmaBand(rows, "spr")).toBe(false);
+  });
+});
+
+describe("niceYAxis (quick task 260913-m45)", () => {
+  // Every tick must be a whole multiple of one step, with zero on the ladder.
+  function expectLadder(ticks: readonly number[], domain: readonly [number, number]) {
+    const step = ticks[1]! - ticks[0]!;
+    expect(step).toBeGreaterThan(0);
+    for (const tick of ticks) expect(Math.abs(tick / step - Math.round(tick / step))).toBeLessThan(1e-9);
+    expect(ticks).toContain(0);
+    expect(ticks[0]).toBe(domain[0]);
+    expect(ticks[ticks.length - 1]).toBe(domain[1]);
+  }
+
+  it("a band dipping below zero gets round ticks through zero, not ticks anchored at the band's odd lower edge", () => {
+    // The live look check (2481, synthetic sigma): a raw domain of
+    // [-18.71, 514.53] rendered ticks -18.71, 131.29, 281.29, ...
+    const { domain, ticks } = niceYAxis(-18.71, 514.53);
+    expect(domain).toEqual([-100, 600]);
+    expect(ticks).toEqual([-100, 0, 100, 200, 300, 400, 500, 600]);
+  });
+
+  it("a negative-Total team straddling zero reads -100, -50, 0, 50, 100", () => {
+    const { domain, ticks } = niceYAxis(-74.29, 76.13);
+    expect(domain).toEqual([-100, 100]);
+    expect(ticks).toEqual([-100, -50, 0, 50, 100]);
+  });
+
+  it("never narrows the raw domain, and adds at most one step on each side", () => {
+    for (const [min, max] of [
+      [0, 418.64],
+      [-1509.66, 180.2],
+      [-85, 0],
+      [0, 101],
+      [0, 1.3],
+    ] as const) {
+      const { domain, ticks } = niceYAxis(min, max);
+      const step = ticks[1]! - ticks[0]!;
+      expect(domain[0]).toBeLessThanOrEqual(min);
+      expect(domain[1]).toBeGreaterThanOrEqual(max);
+      expect(min - domain[0]).toBeLessThan(step);
+      expect(domain[1] - max).toBeLessThan(step);
+      expectLadder(ticks, domain);
+    }
+  });
+
+  it("keeps zero as the exact floor or ceiling when the raw domain ends at zero", () => {
+    expect(niceYAxis(0, 418.64).domain[0]).toBe(0);
+    expect(niceYAxis(-85, 0).domain[1]).toBe(0);
+  });
+
+  it("produces tick values free of float noise for fractional steps", () => {
+    for (const tick of niceYAxis(0, 1.3).ticks) expect(tick).toBe(Number(tick.toFixed(6)));
   });
 });

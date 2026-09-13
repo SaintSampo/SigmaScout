@@ -306,6 +306,25 @@ describe("MetricHistoryChart", () => {
     expect(Math.min(...ticks)).toBeLessThanOrEqual(-85);
   });
 
+  it("a band dipping below zero gets round Y ticks through zero, never ticks anchored at the band edge (quick task 260913-m45)", () => {
+    // The look check found a band lower edge of -18.71 rendering ticks
+    // -18.71, 131.29, 281.29: every label offset by the edge. The ladder must
+    // step through 0 and cover both band edges.
+    const rows = [
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 98, sigma: 116.71 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 400, sigma: 40 }),
+    ];
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="spr" season={2024} eventNameByKey={EVENT_NAMES} />);
+
+    const ticks = tickValues(container);
+    expect(ticks.length).toBeGreaterThan(2);
+    expect(ticks).toContain(0);
+    const step = ticks[1]! - ticks[0]!;
+    for (const tick of ticks) expect(Math.abs(tick / step - Math.round(tick / step))).toBeLessThan(1e-9);
+    expect(Math.min(...ticks)).toBeLessThanOrEqual(98 - 116.71);
+    expect(Math.max(...ticks)).toBeGreaterThanOrEqual(440);
+  });
+
   it("a flat all-positive series still spans zero rather than collapsing to a hairline", () => {
     // Zero-range data took the `headroom = 1` branch, which pre-change gave
     // the degenerate domain [100, 101]. No sigma here — band irrelevant to
