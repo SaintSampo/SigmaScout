@@ -276,7 +276,7 @@ describe("SearchBox", () => {
     expect(screen.queryByText(/Week/)).toBeNull();
   });
 
-  it("the mobile icon trigger exposes an accessible name", async () => {
+  it("on mobile, the ribbon renders an icon trigger with an accessible name and the page tone renders a bar named by its visible text", async () => {
     const original = window.matchMedia;
     window.matchMedia = (query: string) =>
       ({
@@ -292,8 +292,15 @@ describe("SearchBox", () => {
 
     try {
       global.fetch = baseFetchMock({});
-      render(<SearchBox />, { wrapper });
+      render(
+        <>
+          <SearchBox tone="ribbon" />
+          <SearchBox />
+        </>,
+        { wrapper },
+      );
       expect(screen.getByRole("button", { name: "Open search" })).toBeDefined();
+      expect(screen.getByRole("button", { name: "Search teams or events" })).toBeDefined();
     } finally {
       window.matchMedia = original;
     }

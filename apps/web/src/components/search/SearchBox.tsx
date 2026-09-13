@@ -69,8 +69,12 @@ type SearchNavigate = (opts: {
  */
 const SEARCH_PLACEHOLDER = "Search teams or events";
 
-/** The highlighted-row token (05-UI-SPEC.md's "Accent reserved for" list: "highlighted row background, at 10% opacity tint, not solid fill") — applied as a Tailwind arbitrary-value opacity modifier over the CSS custom property, never a literal hex value. */
-const HIGHLIGHT_CLASS = "data-selected:bg-[var(--color-accent)]/10 data-selected:text-[var(--color-text-primary)]";
+/**
+ * The highlighted-row token (05-UI-SPEC.md's "Accent reserved for" list: "highlighted row background, at 10% opacity tint, not solid fill") — applied as a Tailwind arbitrary-value opacity modifier over the CSS custom property, never a literal hex value.
+ *
+ * `data-[selected=true]:`, never Tailwind v4's bare `data-selected:` — the bare form matches the attribute's PRESENCE, and cmdk writes `data-selected="false"` on every unselected row, so every result row painted the highlight at once.
+ */
+const HIGHLIGHT_CLASS = "data-[selected=true]:bg-[var(--color-accent)]/10 data-[selected=true]:text-[var(--color-text-primary)]";
 
 /**
  * The composition-seam fix for 260902-sbx ("the search box draws two
@@ -354,9 +358,24 @@ export function SearchBox({ tone = "page", className }: SearchBoxProps = {}) {
   if (isMobile) {
     return (
       <>
-        <button type="button" aria-label="Open search" className="tap-target flex items-center justify-center rounded-md" onClick={() => setDialogOpen(true)}>
-          <SearchIcon aria-hidden="true" className={tone === "ribbon" ? "size-4 text-[var(--ribbon-ink)]" : "size-4 text-[var(--color-text-primary)]"} />
-        </button>
+        {tone === "ribbon" ? (
+          <button type="button" aria-label="Open search" className="tap-target flex items-center justify-center rounded-md" onClick={() => setDialogOpen(true)}>
+            <SearchIcon aria-hidden="true" className="size-4 text-[var(--ribbon-ink)]" />
+          </button>
+        ) : (
+          // The home hero exists to BE a search bar, so a lone icon there read
+          // as a broken control. On a phone it is a bar-shaped button opening
+          // the same dialog: an inline input's dropdown would open under the
+          // on-screen keyboard. The visible text is its accessible name.
+          <button
+            type="button"
+            className={`flex h-11 items-center gap-[var(--spacing-sm)] rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-md)] text-left text-sm text-[var(--color-text-muted)] ${className ?? "w-64"}`}
+            onClick={() => setDialogOpen(true)}
+          >
+            <SearchIcon aria-hidden="true" className="size-4 shrink-0" />
+            <span className="truncate">{SEARCH_PLACEHOLDER}</span>
+          </button>
+        )}
         <CommandDialog
           open={dialogOpen}
           onOpenChange={(open) => {

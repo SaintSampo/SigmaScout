@@ -68,7 +68,7 @@ function preserveSearch(prev: Record<string, unknown>): never {
   return next as never;
 }
 
-function NavLinks() {
+function NavLinks({ gapClass = "gap-[var(--spacing-md)]" }: { gapClass?: string } = {}) {
   // Four explicit `<Link>` elements, not a `.map()` over `NAV_LINKS` — each
   // element's `to` prop needs its own precise literal route path for
   // TanStack Router's typed `search` prop to type-check at all; mapping
@@ -81,11 +81,11 @@ function NavLinks() {
   // Compare by quick task 260905-phf) — the user's own explicit "Teams,
   // Events, Districts, Compare" ordering, restated against the current
   // Methodology name. `gap-[var(--spacing-md)]` (was `--spacing-lg`, 24px)
-  // stays narrowed to 16px (260905-lic's original narrowing) so the mobile
-  // branch's compact second row (below) keeps four links comfortably inside
-  // the 390px local-phone Playwright project's width regardless of order.
+  // stays narrowed to 16px (260905-lic's original narrowing) on desktop; the
+  // mobile branch passes 12px, because its second row must also hold the
+  // GitHub and search icons (see that row's budget comment).
   return (
-    <nav aria-label="Primary" className="flex items-center gap-[var(--spacing-md)]">
+    <nav aria-label="Primary" className={`flex items-center ${gapClass}`}>
       <Link to="/teams" search={preserveSearch} className={INACTIVE_LINK_CLASS} activeProps={{ className: ACTIVE_LINK_CLASS }}>
         {NAV_LINKS[0].label}
       </Link>
@@ -167,7 +167,11 @@ export function Ribbon() {
       // container on Y, so the dropdown escapes normally. Still blocks
       // horizontal overflow exactly as `hidden` did — `no-page-pan.spec.ts`
       // (the property this token exists to guard) is unaffected.
-      <header className="shadow-sm w-full max-w-full overflow-x-clip bg-[var(--ribbon-bg)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
+      //
+      // Phone gutter is `--spacing-md` (16px), not the desktop's 24px: at 24px
+      // the first row (wordmark + both selects, 364px measured) only fit at
+      // 412px and truncated the algorithm select on 390-402px iPhones.
+      <header className="shadow-sm w-full max-w-full overflow-x-clip bg-[var(--ribbon-bg)] px-[var(--spacing-md)] py-[var(--spacing-md)]">
         <div className="flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">
           {wordmark}
           <GlobalSelects />
@@ -178,11 +182,29 @@ export function Ribbon() {
             between the two branches, only the surrounding layout reflows. `SearchBox`
             renders as the 44x44 icon trigger here (`useIsMobile()` inside it
             resolves the same way this component's own `isMobile` did). */}
-        <div className="mt-[var(--spacing-sm)] flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">
-          <NavLinks />
-          <div className="flex items-center gap-[var(--spacing-sm)]">
-            <GitHubLink />
-            <SearchBox tone="ribbon" />
+        {/* Row budget, measured 2026-09-13: the four labels are 265px. The
+            icons were once plain flex items with no shrink guard, so the nav
+            pushed the search trigger past the header's clip edge (x=382-426
+            on a 412px phone), leaving a sliver of magnifier. Now:
+            - the icon group is `shrink-0`, so it can never be pushed out;
+            - the search trigger's 44px tap target overhangs the gutter by
+              14px, so its 16px glyph lines up with the select above;
+            - the GitHub icon drops below 400px, where keeping it would cut
+              "Methodology" off (the row fits down to 375px without it);
+            - below 375px the link gap tightens to 8px, which still fits a
+              360px phone; anything narrower scrolls the nav sideways
+              instead of clipping it. */}
+        <div className="mt-[var(--spacing-sm)] flex min-w-0 items-center justify-between gap-[var(--spacing-sm)]">
+          <div className="min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <NavLinks gapClass="gap-[12px] max-[374px]:gap-[var(--spacing-sm)]" />
+          </div>
+          <div className="flex shrink-0 items-center">
+            <div className="flex max-[399px]:hidden">
+              <GitHubLink />
+            </div>
+            <div className="-mr-[14px] flex">
+              <SearchBox tone="ribbon" />
+            </div>
           </div>
         </div>
       </header>
