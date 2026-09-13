@@ -1,10 +1,10 @@
 /**
  * The rank-distribution table (08-14-PLAN.md Task 3, D-05/D-06/D-14, EVNT-07)
  * — the Simulation tab's central visualization. Four columns: Team #,
- * Nickname (both pinned, mirroring `BreakdownTab.tsx`'s two-column pinned
- * shape via `RANK_PINNED_COLUMN_IDS`), Median (a plain display integer) and
- * Distribution (the three-layer plot cell on a shared 1..N rank axis drawn
- * exactly once in the column header).
+ * Nickname (both leading, matching `BreakdownTab.tsx`'s own identity-column
+ * lead), Median (a plain display integer) and Distribution (the three-layer
+ * plot cell on a shared 1..N rank axis drawn exactly once in the column
+ * header). No column is frozen horizontally (2026-09-13).
  *
  * Every position in this file comes from `simAxis.ts` (`x`, `histBarExtent`,
  * `rankBandExtent`, `medianTickLeft`, `rankAxisTicks`, `PLOT_W`,
@@ -22,7 +22,7 @@
  * position-0 sort order is ever ingested and no data-backed secondary sort
  * exists anywhere in this pipeline (D-14).
  */
-import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
+import { columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -30,12 +30,6 @@ import { useIsMobile } from "@/lib/breakpoints";
 import { PLOT_W, SIM_GEOMETRY, histBarExtent, medianTickLeft, rankAxisTicks, rankBandExtent, x } from "@/lib/simAxis";
 import { histBarHeight, rankBandLabel, type RankDistributionRow } from "./rankRows.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-
-/** The Breakdown tab's own two-column pinned shape (`BreakdownTab.tsx`'s `BREAKDOWN_PINNED_COLUMN_IDS`) — this table has no rank column of its own to pin either. */
-export const RANK_PINNED_COLUMN_IDS = ["teamNumber", "nickname"] as const;
-
-/** The narrow-viewport pinned set, DERIVED from `RANK_PINNED_COLUMN_IDS` by a filter rather than restated — mirrors `BREAKDOWN_MOBILE_PINNED_COLUMN_IDS`'s own derivation. */
-export const RANK_MOBILE_PINNED_COLUMN_IDS = RANK_PINNED_COLUMN_IDS.filter((id) => id !== "nickname");
 
 /**
  * The exact four header labels, in order — shared by the header render so
@@ -153,14 +147,12 @@ function RankDistributionPlotCell({ row, teamCount, plotW }: { row: RankDistribu
 }
 
 /**
- * Registered once, module-level, mirroring `InsightsTab.tsx`'s/`BreakdownTab.tsx`'s
- * own precedent: pinning offsets require `columnSizingFeature` registered
- * alongside `columnPinningFeature`, or `getStart`/`getSize` do not exist at
- * all. The column helper is typed against THIS module's own
- * `RankDistributionRow`, so it is declared locally rather than imported
- * across a module boundary.
+ * Registered once, module-level: only column sizing is registered (no
+ * pinning feature — no column in this table is frozen, 2026-09-13). The
+ * column helper is typed against THIS module's own `RankDistributionRow`, so
+ * it is declared locally rather than imported across a module boundary.
  */
-const features = tableFeatures({ columnPinningFeature, columnSizingFeature });
+const features = tableFeatures({ columnSizingFeature });
 const columnHelper = createColumnHelper<typeof features, RankDistributionRow>();
 
 /**
@@ -238,10 +230,11 @@ export interface RankDistributionTableProps {
 /**
  * The rank-distribution table. `tableLayout: "fixed"` (07-UAT.md G-1's own
  * measured reasoning, reproduced by `InsightsTab.tsx`): an `auto` layout
- * lets the browser resize columns past their declared `size`, desyncing
- * every pinned column's sticky `left` from where its neighbour actually
- * rendered. The table is sized to `max-content` (2026-09-01) so there is no
- * slack to redistribute and no trailing filler cell is needed.
+ * lets the browser resize columns past their declared `size`, and the
+ * leftover-width computation below (`fixedColumnsWidth`) depends on every
+ * column actually rendering at its declared width. The table is sized to
+ * `max-content` (2026-09-01) so there is no slack to redistribute and no
+ * trailing filler cell is needed.
  */
 /**
  * The three non-plot columns' declared widths, per breakpoint — the ONE
@@ -321,12 +314,8 @@ export function RankDistributionTable({ rows, teamCount, season, algorithmId }: 
     () => buildRankTableColumns(teamCount, season, algorithmId, isNarrow, plotColumnW),
     [teamCount, season, algorithmId, isNarrow, plotColumnW]
   );
-  const columnPinning = useMemo(
-    () => ({ start: isNarrow ? [...RANK_MOBILE_PINNED_COLUMN_IDS] : [...RANK_PINNED_COLUMN_IDS], end: [] }),
-    [isNarrow]
-  );
 
-  const table = useTable({ features, columns, data: rows as RankDistributionRow[], state: { columnPinning } });
+  const table = useTable({ features, columns, data: rows as RankDistributionRow[] });
 
   return (
     // `max-h-[70vh]` + `overflow-y-auto` (2026-09-01 user request: a sticky
@@ -364,59 +353,42 @@ export function RankDistributionTable({ rows, teamCount, season, algorithmId }: 
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (
             <TableRow key={headerGroup.id}>
-              {headerGroup.headers.map((header) => {
-                const pinned = header.column.getIsPinned();
-                return (
-                  <TableHead
-                    key={header.id}
-                    data-testid={`rank-header-${header.column.id}`}
-                    data-pinned={pinned ? "true" : "false"}
-                    className="text-role-label truncate"
-                    style={{
-                      width: header.getSize(),
-                      // ALWAYS sticky now, in both axes: `top: 0` keeps the
-                      // title row visible while the reader scrolls this
-                      // table's own scrollport, and a pinned column adds
-                      // `left` so it sticks horizontally too. One element can
-                      // stick on both axes at once, so the horizontal pinning
-                      // this row already had is unchanged.
-                      position: "sticky",
-                      top: 0,
-                      left: pinned ? header.getStart("start") : undefined,
-                      zIndex: pinned ? 5 : 4,
-                      background: "var(--color-bg-surface)",
-                    }}
-                  >
-                    <table.FlexRender header={header} />
-                  </TableHead>
-                );
-              })}
+              {headerGroup.headers.map((header) => (
+                <TableHead
+                  key={header.id}
+                  data-testid={`rank-header-${header.column.id}`}
+                  className="text-role-label truncate"
+                  style={{
+                    width: header.getSize(),
+                    // `top: 0` keeps the title row visible inside this
+                    // table's own scrollport while the reader scrolls
+                    // (2026-09-01 user request); no column is frozen
+                    // horizontally (2026-09-13).
+                    position: "sticky",
+                    top: 0,
+                    zIndex: 4,
+                    background: "var(--color-bg-surface)",
+                  }}
+                >
+                  <table.FlexRender header={header} />
+                </TableHead>
+              ))}
             </TableRow>
           ))}
         </TableHeader>
         <TableBody>
           {table.getRowModel().rows.map((row) => (
             <TableRow key={row.id} data-testid="rank-distribution-row" data-team-number={row.original.teamNumber}>
-              {row.getAllCells().map((cell) => {
-                const pinned = cell.column.getIsPinned();
-                return (
-                  <TableCell
-                    key={cell.id}
-                    data-testid={`rank-cell-${cell.column.id}`}
-                    data-pinned={pinned ? "true" : "false"}
-                    className={cell.column.id === "nickname" ? "truncate text-role-body" : "text-role-body"}
-                    style={{
-                      width: cell.column.getSize(),
-                      position: pinned ? "sticky" : undefined,
-                      left: pinned ? cell.column.getStart("start") : undefined,
-                      zIndex: pinned ? 1 : undefined,
-                      background: pinned ? "var(--color-bg-surface)" : undefined,
-                    }}
-                  >
-                    <table.FlexRender cell={cell} />
-                  </TableCell>
-                );
-              })}
+              {row.getAllCells().map((cell) => (
+                <TableCell
+                  key={cell.id}
+                  data-testid={`rank-cell-${cell.column.id}`}
+                  className={cell.column.id === "nickname" ? "truncate text-role-body" : "text-role-body"}
+                  style={{ width: cell.column.getSize() }}
+                >
+                  <table.FlexRender cell={cell} />
+                </TableCell>
+              ))}
             </TableRow>
           ))}
         </TableBody>

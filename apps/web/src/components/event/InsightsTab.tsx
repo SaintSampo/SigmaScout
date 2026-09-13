@@ -14,15 +14,15 @@
  * and ships a false claim. Here there is exactly one fact ("does this event
  * have an official ranking") and exactly one function that knows it.
  *
- * The second section (Task 2) is the rendered table: pinned columns via
- * `PINNED_COLUMN_IDS` imported VERBATIM from `teams-table/columns.tsx`
- * (07-RESEARCH.md Pattern 2, 07-PATTERNS.md) — never a locally re-typed
- * `["rank", "teamNumber", "nickname"]` literal — tier-boxed Auto/Teleop/
- * Endgame cells via the identical `tierForPercentile` derivation
- * `BreakdownTab.tsx` uses, a plain bare RP cell that can never wear a tier
- * (Decision 1), and the D-08 fallback banner.
+ * The second section (Task 2) is the rendered table: the identity columns
+ * (rank, teamNumber, nickname) simply lead the column set in definition
+ * order — tier-boxed Auto/Teleop/Endgame cells via the identical
+ * `tierForPercentile` derivation `BreakdownTab.tsx` uses, a plain bare RP
+ * cell that can never wear a tier (Decision 1), and the D-08 fallback
+ * banner. No column in this table is frozen during horizontal scroll
+ * (2026-09-13, user request).
  */
-import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
+import { columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { useMemo } from "react";
 import { Link } from "@tanstack/react-router";
 import { InfoIcon } from "lucide-react";
@@ -34,9 +34,7 @@ import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/compon
 import { TierKeyRow } from "@/components/team/TierKeyRow";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import {
-  MOBILE_PINNED_COLUMN_IDS,
   NICKNAME_COLUMN_WIDTH_NARROW_PX,
-  PINNED_COLUMN_IDS,
   RANK_COLUMN_WIDTH_NARROW_PX,
   RECORD_COLUMN_WIDTH_NARROW_PX,
   TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX,
@@ -201,15 +199,13 @@ export const INSIGHTS_RP_DECIMALS = 2;
 // ---------------------------------------------------------------------------
 
 /**
- * Registered once, module-level (05-04-SUMMARY.md's v9 API note, restated by
- * `teams-table/columns.tsx`'s own header comment): pinning offsets require
- * `columnSizingFeature` registered alongside `columnPinningFeature`, or
- * `getStart`/`getSize` do not exist at all. The column helper below is typed
- * against THIS module's own `InsightsRow`, so it is declared locally rather
- * than imported across the `teams-table` module boundary — only
- * `PINNED_COLUMN_IDS` itself is imported from there, verbatim.
+ * Registered once, module-level: only column sizing is registered (no
+ * pinning feature — no column in this table is frozen, 2026-09-13). The
+ * column helper below is typed against THIS module's own `InsightsRow`, so
+ * it is declared locally rather than imported across the `teams-table`
+ * module boundary.
  */
-const features = tableFeatures({ columnPinningFeature, columnSizingFeature });
+const features = tableFeatures({ columnSizingFeature });
 const columnHelper = createColumnHelper<typeof features, InsightsRow>();
 
 function cellClassName(columnId: string): string {
@@ -220,9 +216,8 @@ function cellClassName(columnId: string): string {
  * The Insights tab's column set is the fixed five identity/competition
  * columns plus one per `METRIC_GROUPS` entry, in that constant's own order —
  * never derived from a fetched row's own `metrics` key order (EVNT-02
- * ordering). Column ids are chosen to match `PINNED_COLUMN_IDS` verbatim
- * (`rank`, `teamNumber`, `nickname`) rather than the constant being adapted
- * to them.
+ * ordering). Column ids match the Teams table's own identity ids
+ * (`rank`, `teamNumber`, `nickname`).
  */
 function buildInsightsColumns(algorithmId: string, season: number, orderSource: InsightsOrderSource, isNarrow: boolean, metricFirst: boolean = isNarrow) {
   // `algorithmId` reaching this function was already validated upstream
@@ -447,7 +442,7 @@ export function InsightsTabSkeleton({ algorithmId, season }: { algorithmId: stri
 
 /**
  * The Insights tab: `TierKeyRow` once, the D-08 banner when (and only when)
- * `orderSource` is `"fallback"`, then the pinned wide table in its own
+ * `orderSource` is `"fallback"`, then the wide table in its own
  * native `overflow-x-auto` scroll region — a DOM SIBLING of the tab strip's
  * own scroll region, never its ancestor or descendant. Renders `EmptyState`
  * (no table at all) when `artifact.teams` is empty.
@@ -468,16 +463,11 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
     () => buildInsightsColumns(algorithmId, season, orderSource, isNarrow),
     [algorithmId, season, orderSource, isNarrow],
   );
-  const columnPinning = useMemo(
-    () => ({ start: isNarrow ? [...MOBILE_PINNED_COLUMN_IDS] : [...PINNED_COLUMN_IDS], end: [] }),
-    [isNarrow],
-  );
 
   const table = useTable({
     features,
     columns,
     data: rows,
-    state: { columnPinning },
   });
 
   if (artifact.teams.length === 0) {
@@ -502,9 +492,10 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
           style={{
             // 07-UAT.md G-1: see `TeamsTable.tsx`'s identical style-object
             // comment for the full mechanism — `auto` let the browser
-            // resize columns past their declared `size`, desyncing every
-            // pinned column's sticky `left` from where its neighbour
-            // actually rendered (measured live: nickname 220→348px).
+            // resize columns past their declared `size`, so a column no
+            // longer rendered at the width its neighbours' layout assumed
+            // (measured live: nickname 220→348px). `fixed` keeps every
+            // column at its declared size.
             tableLayout: "fixed",
             width: "100%",
             minWidth: table.getTotalSize(),
@@ -515,32 +506,25 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => {
-                  const pinned = header.column.getIsPinned();
-                  return (
-                    <TableHead
-                      key={header.id}
-                      data-testid={`insights-header-${header.column.id}`}
-                      data-pinned={pinned ? "true" : "false"}
-                      className="text-role-label truncate"
-                      style={{
-                        width: header.getSize(),
-                        position: pinned ? "sticky" : undefined,
-                        left: pinned ? header.getStart("start") : undefined,
-                        zIndex: pinned ? 4 : 3,
-                        background: "var(--color-bg-surface)",
-                      }}
-                    >
-                      <table.FlexRender header={header} />
-                    </TableHead>
-                  );
-                })}
+                {headerGroup.headers.map((header) => (
+                  <TableHead
+                    key={header.id}
+                    data-testid={`insights-header-${header.column.id}`}
+                    className="text-role-label truncate"
+                    style={{
+                      width: header.getSize(),
+                      background: "var(--color-bg-surface)",
+                    }}
+                  >
+                    <table.FlexRender header={header} />
+                  </TableHead>
+                ))}
                 {/*
                   Trailing sizeless filler, matching `TeamsTable.tsx`'s own
                   reasoning: slack absorbed here rather than redistributed
-                  across real columns, which would desync the pinned
-                  offsets (`getStart("start")` is derived from column
-                  sizes). Hidden from assistive tech — it carries no data.
+                  across real columns, so every real column renders at its
+                  declared size. Hidden from assistive tech — it carries no
+                  data.
                 */}
                 <TableHead aria-hidden="true" style={{ padding: 0, background: "var(--color-bg-surface)" }} />
               </TableRow>
@@ -549,26 +533,16 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
           <TableBody>
             {table.getRowModel().rows.map((row) => (
               <TableRow key={row.id} data-testid="insights-row" data-team-number={row.original.teamNumber}>
-                {row.getAllCells().map((cell) => {
-                  const pinned = cell.column.getIsPinned();
-                  return (
-                    <TableCell
-                      key={cell.id}
-                      data-testid={`insights-cell-${cell.column.id}`}
-                      data-pinned={pinned ? "true" : "false"}
-                      className={cellClassName(cell.column.id)}
-                      style={{
-                        width: cell.column.getSize(),
-                        position: pinned ? "sticky" : undefined,
-                        left: pinned ? cell.column.getStart("start") : undefined,
-                        zIndex: pinned ? 1 : undefined,
-                        background: pinned ? "var(--color-bg-surface)" : undefined,
-                      }}
-                    >
-                      <table.FlexRender cell={cell} />
-                    </TableCell>
-                  );
-                })}
+                {row.getAllCells().map((cell) => (
+                  <TableCell
+                    key={cell.id}
+                    data-testid={`insights-cell-${cell.column.id}`}
+                    className={cellClassName(cell.column.id)}
+                    style={{ width: cell.column.getSize() }}
+                  >
+                    <table.FlexRender cell={cell} />
+                  </TableCell>
+                ))}
                 {/* Matches the header's trailing filler — see the note there. */}
                 <TableCell aria-hidden="true" style={{ padding: 0 }} />
               </TableRow>

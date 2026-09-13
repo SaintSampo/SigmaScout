@@ -19,7 +19,6 @@ import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import { METRIC_GROUPS } from "@/lib/metricGroups";
 import { TOTAL_KEY } from "@/lib/metricKeys";
-import { PINNED_COLUMN_IDS } from "@/components/teams-table/columns";
 import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 import {
@@ -482,30 +481,81 @@ describe("InsightsTab — D-08 fallback header and banner", () => {
   });
 });
 
-describe("InsightsTab — pinning (UI-SPEC E3 overflow, structural half)", () => {
-  it("Rank/Team #/Nickname carry data-pinned=true; Record/RP/Auto/Teleop/Endgame carry data-pinned=false", async () => {
-    const artifact = EventArtifactSchema.parse({
-      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
-      generation: "gen-1",
-      computedAt: "2026-08-27T00:00:00.000Z",
-      algorithmId: "spr",
-      algorithmVersion: "2.0.0+tuned-2026-08",
-      eventKey: "2024casf",
-      season: 2024,
-      matches: [],
-      upcoming: [],
-      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics() }],
-    });
-    renderInsights(artifact);
+/** Local copy of `TeamsTable.test.tsx`'s `mockNarrowViewport` — stubs `window.matchMedia` to always match, giving the narrow layout. Always restored in a `finally`. */
+function mockNarrowViewport(): () => void {
+  const original = window.matchMedia;
+  window.matchMedia = (query: string) =>
+    ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList;
+  return () => {
+    window.matchMedia = original;
+  };
+}
 
+describe("InsightsTab — no sticky columns (2026-09-13)", () => {
+  const artifact = EventArtifactSchema.parse({
+    schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+    generation: "gen-1",
+    computedAt: "2026-08-27T00:00:00.000Z",
+    algorithmId: "spr",
+    algorithmVersion: "2.0.0+tuned-2026-08",
+    eventKey: "2024casf",
+    season: 2024,
+    matches: [],
+    upcoming: [],
+    teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: fullInsightsMetrics() }],
+  });
+
+  it("wide layout: no sticky column, identity columns still lead", async () => {
+    renderInsights(artifact);
     await waitFor(() => expect(screen.getByTestId("insights-header-rank")).toBeDefined());
-    for (const columnId of PINNED_COLUMN_IDS) {
-      expect(screen.getByTestId(`insights-header-${columnId}`).getAttribute("data-pinned")).toBe("true");
-      expect(screen.getByTestId(`insights-cell-${columnId}`).getAttribute("data-pinned")).toBe("true");
+
+    const region = screen.getByTestId("insights-table-scroll");
+    const cells = within(region).getByRole("table").querySelectorAll("th, td");
+    expect(cells.length).toBeGreaterThan(0);
+    for (const cell of cells) {
+      expect((cell as HTMLElement).style.position).not.toBe("sticky");
+      expect((cell as HTMLElement).style.left).toBe("");
+      expect(cell.getAttribute("data-pinned")).toBeNull();
     }
-    for (const columnId of ["record", "rp", ...METRIC_GROUPS.map((group) => group.metricKey)]) {
-      expect(screen.getByTestId(`insights-header-${columnId}`).getAttribute("data-pinned")).toBe("false");
-      expect(screen.getByTestId(`insights-cell-${columnId}`).getAttribute("data-pinned")).toBe("false");
+
+    const headerIds = within(region)
+      .getByRole("table")
+      .querySelectorAll("thead [data-testid^='insights-header-']");
+    const orderedIds = Array.from(headerIds).map((el) => el.getAttribute("data-testid"));
+    expect(orderedIds.slice(0, 3)).toEqual(["insights-header-rank", "insights-header-teamNumber", "insights-header-nickname"]);
+  });
+
+  it("narrow layout: no sticky column, identity columns still lead", async () => {
+    const restoreMatchMedia = mockNarrowViewport();
+    try {
+      renderInsights(artifact);
+      await waitFor(() => expect(screen.getByTestId("insights-header-rank")).toBeDefined());
+
+      const region = screen.getByTestId("insights-table-scroll");
+      const cells = within(region).getByRole("table").querySelectorAll("th, td");
+      expect(cells.length).toBeGreaterThan(0);
+      for (const cell of cells) {
+        expect((cell as HTMLElement).style.position).not.toBe("sticky");
+        expect((cell as HTMLElement).style.left).toBe("");
+        expect(cell.getAttribute("data-pinned")).toBeNull();
+      }
+
+      const headerIds = within(region)
+        .getByRole("table")
+        .querySelectorAll("thead [data-testid^='insights-header-']");
+      const orderedIds = Array.from(headerIds).map((el) => el.getAttribute("data-testid"));
+      expect(orderedIds.slice(0, 3)).toEqual(["insights-header-rank", "insights-header-teamNumber", "insights-header-nickname"]);
+    } finally {
+      restoreMatchMedia();
     }
   });
 });

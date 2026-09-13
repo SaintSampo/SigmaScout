@@ -354,7 +354,7 @@ function EventPage() {
   }
 
   // 07-UAT.md G-7: the Breakdown tab's own column set (14 metric columns at
-  // `size: 120`, plus the pinned `teamNumber`/`nickname` identity block) is
+  // `size: 120`, plus the leading `teamNumber`/`nickname` identity block) is
   // 1988px wide — most of that width is the value-display box's own
   // real-geometry floor (`.metric-tier`'s `min-width: 80px` plus `TableCell`'s
   // `p-2` padding, plus the widest real "value ± spread" string this

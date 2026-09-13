@@ -12,7 +12,7 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Router
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { PLOT_W, SIM_GEOMETRY, histBarExtent, medianTickLeft, rankAxisTicks, rankBandExtent, x } from "@/lib/simAxis";
 import { buildRankDistributionRows, rankBandLabel, type RankDistributionRow } from "./rankRows.js";
-import { RANK_MOBILE_PINNED_COLUMN_IDS, RANK_PINNED_COLUMN_IDS, RANK_TABLE_HEADERS, RankDistributionTable } from "./RankDistributionTable.js";
+import { RANK_TABLE_HEADERS, RankDistributionTable } from "./RankDistributionTable.js";
 import type { SimResult } from "../../../../../packages/core/algorithms/simulation/rankSimulation.js";
 
 const ChildrenContext = createContext<ReactNode>(null);
@@ -253,20 +253,71 @@ describe("RankDistributionTable — sort order (integration through the shipped 
   });
 });
 
-describe("RankDistributionTable — pinned columns", () => {
-  it("RANK_PINNED_COLUMN_IDS is exactly teamNumber and nickname; RANK_MOBILE_PINNED_COLUMN_IDS excludes nickname", () => {
-    expect(RANK_PINNED_COLUMN_IDS).toEqual(["teamNumber", "nickname"]);
-    expect(RANK_MOBILE_PINNED_COLUMN_IDS).toEqual(["teamNumber"]);
+/** Local copy of `TeamsTable.test.tsx`'s `mockNarrowViewport` — stubs `window.matchMedia` to always match, giving the narrow layout. Always restored in a `finally`. */
+function mockNarrowViewport(): () => void {
+  const original = window.matchMedia;
+  window.matchMedia = (query: string) =>
+    ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList;
+  return () => {
+    window.matchMedia = original;
+  };
+}
+
+describe("RankDistributionTable — sticky title row, no sticky columns (2026-09-13)", () => {
+  it("wide layout: headers sticky top-only, body cells never sticky", async () => {
+    await renderTable([row({ teamKey: "frc1", teamCount: 5, teamNumber: 254 })], 5);
+
+    const headerIds = ["teamNumber", "nickname", "medianDisplay", "distribution"];
+    for (const id of headerIds) {
+      const header = screen.getByTestId(`rank-header-${id}`);
+      expect(header.style.position).toBe("sticky");
+      expect(header.style.top).toBe("0px");
+      expect(header.style.left).toBe("");
+      expect(header.getAttribute("data-pinned")).toBeNull();
+    }
+    const orderedIds = headerIds.map((id) => screen.getByTestId(`rank-header-${id}`).getAttribute("data-testid"));
+    expect(orderedIds).toEqual(["rank-header-teamNumber", "rank-header-nickname", "rank-header-medianDisplay", "rank-header-distribution"]);
+
+    for (const id of ["teamNumber", "nickname", "medianDisplay", "distribution"]) {
+      const cell = screen.getByTestId(`rank-cell-${id}`);
+      expect(cell.style.position).not.toBe("sticky");
+      expect(cell.style.left).toBe("");
+      expect(cell.getAttribute("data-pinned")).toBeNull();
+    }
   });
 
-  it("header and cell for teamNumber/nickname carry data-pinned true; Median and Distribution carry false", async () => {
-    await renderTable([row({ teamKey: "frc1", teamCount: 5, teamNumber: 254 })], 5);
-    expect(screen.getByTestId("rank-header-teamNumber").getAttribute("data-pinned")).toBe("true");
-    expect(screen.getByTestId("rank-header-nickname").getAttribute("data-pinned")).toBe("true");
-    expect(screen.getByTestId("rank-header-medianDisplay").getAttribute("data-pinned")).toBe("false");
-    expect(screen.getByTestId("rank-header-distribution").getAttribute("data-pinned")).toBe("false");
-    expect(screen.getByTestId("rank-cell-teamNumber").getAttribute("data-pinned")).toBe("true");
-    expect(screen.getByTestId("rank-cell-nickname").getAttribute("data-pinned")).toBe("true");
+  it("narrow layout: headers sticky top-only, body cells never sticky", async () => {
+    const restoreMatchMedia = mockNarrowViewport();
+    try {
+      await renderTable([row({ teamKey: "frc1", teamCount: 5, teamNumber: 254 })], 5);
+
+      const headerIds = ["teamNumber", "nickname", "medianDisplay", "distribution"];
+      for (const id of headerIds) {
+        const header = screen.getByTestId(`rank-header-${id}`);
+        expect(header.style.position).toBe("sticky");
+        expect(header.style.top).toBe("0px");
+        expect(header.style.left).toBe("");
+        expect(header.getAttribute("data-pinned")).toBeNull();
+      }
+
+      for (const id of ["teamNumber", "nickname", "medianDisplay", "distribution"]) {
+        const cell = screen.getByTestId(`rank-cell-${id}`);
+        expect(cell.style.position).not.toBe("sticky");
+        expect(cell.style.left).toBe("");
+        expect(cell.getAttribute("data-pinned")).toBeNull();
+      }
+    } finally {
+      restoreMatchMedia();
+    }
   });
 });
 

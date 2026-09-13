@@ -113,7 +113,7 @@ test.describe("S3 — the rank-distribution table at its largest real roster (20
     console.log(`[08-15] S3 desktop screenshot: ${shot}`);
   });
 
-  test("390x844: the same 78-row table, its own scroll region overflows, passes the ancestor walk, and the pinned Team # column holds across a full-width drag while Nickname (unpinned below 768px) and Median both move", async ({
+  test("390x844: the same 78-row table, its own scroll region overflows, passes the ancestor walk, and Team # moves across a full-width drag exactly like Nickname and Median (no column is pinned)", async ({
     page,
   }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -129,34 +129,27 @@ test.describe("S3 — the rank-distribution table at its largest real roster (20
     await assertOverflows(region);
     await assertNoIntermediateScroller(region);
 
-    // Below MOBILE_BREAKPOINT_PX (this project's 390px viewport), only
-    // teamNumber stays pinned — `RankDistributionTable.tsx`'s own
-    // `RANK_MOBILE_PINNED_COLUMN_IDS`, the identical G-2 narrowing
-    // `InsightsTab.tsx`/`BreakdownTab.tsx` already established. Nickname is
-    // NOT pinned at this width and must move with the drag like any other
-    // unpinned column.
-    const pinnedHeader = page.getByTestId("rank-header-teamNumber");
+    // No column is pinned (2026-09-13): teamNumber, nickname and
+    // medianDisplay must all move with the drag like any other column.
+    const teamNumberHeader = page.getByTestId("rank-header-teamNumber");
     const nicknameHeader = page.getByTestId("rank-header-nickname");
     const unpinnedHeader = page.getByTestId("rank-header-medianDisplay");
 
-    expect(await nicknameHeader.getAttribute("data-pinned")).toBe("false");
-    expect(await pinnedHeader.getAttribute("data-pinned")).toBe("true");
-
-    const pinnedBefore = await pinnedHeader.boundingBox();
+    const teamNumberBefore = await teamNumberHeader.boundingBox();
     const nicknameBefore = await nicknameHeader.boundingBox();
     const unpinnedBefore = await unpinnedHeader.boundingBox();
-    if (pinnedBefore === null || nicknameBefore === null || unpinnedBefore === null) throw new Error("header cell missing a bounding box");
+    if (teamNumberBefore === null || nicknameBefore === null || unpinnedBefore === null) throw new Error("header cell missing a bounding box");
 
     const regionBox = await region.boundingBox();
     if (regionBox === null) throw new Error("rank table scroll region has no bounding box");
     await touchDrag(page, { x: regionBox.x + regionBox.width - 20, y: regionBox.y + 30 }, { x: regionBox.x + 20, y: regionBox.y + 30 });
 
-    const pinnedAfter = await pinnedHeader.boundingBox();
+    const teamNumberAfter = await teamNumberHeader.boundingBox();
     const nicknameAfter = await nicknameHeader.boundingBox();
     const unpinnedAfter = await unpinnedHeader.boundingBox();
-    if (pinnedAfter === null || nicknameAfter === null || unpinnedAfter === null) throw new Error("header cell missing a bounding box after the drag");
+    if (teamNumberAfter === null || nicknameAfter === null || unpinnedAfter === null) throw new Error("header cell missing a bounding box after the drag");
 
-    expect(pinnedAfter.x).toBeCloseTo(pinnedBefore.x, 0);
+    expect(teamNumberAfter.x).not.toBeCloseTo(teamNumberBefore.x, 0);
     expect(nicknameAfter.x).not.toBeCloseTo(nicknameBefore.x, 0);
     expect(unpinnedAfter.x).not.toBeCloseTo(unpinnedBefore.x, 0);
 
