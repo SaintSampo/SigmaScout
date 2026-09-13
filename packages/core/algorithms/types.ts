@@ -126,21 +126,20 @@ export interface Prediction {
   redScore: number;
   blueScore: number;
   /**
-   * Optional variance channel — left unpopulated by OPR, populated by later
-   * algorithms. This is the red+blue SUM, NOT either alliance's own variance —
+   * Optional variance channel — populated by `spr` only; OPR and EPA leave it
+   * unset. This is the red+blue SUM, NOT either alliance's own variance —
    * see `redScoreVarianceOwn`/`blueScoreVarianceOwn` below for that.
    *
-   * TREAT THIS AS A DISPLAY QUANTITY, NOT AS A WIN-PROBABILITY DENOMINATOR.
-   * This comment used to call it "the win-probability denominator", and for
-   * Sigma1 it still coincides with one. It does NOT for `spr` (wire id
-   * renamed by quick task 260912-ivg from the id BPR carried before it) as of
-   * `2.0.0+baseline`: BPR's filter states about twice the score variance it
-   * realizes (quick task 260910-25c measured sd(z) = 0.7062 over the design
-   * era), so BPR calibrates what it EMITS while computing `pRedWin` from the
-   * raw, uncalibrated figure. Reconstructing a win probability from this field
-   * would therefore disagree with `pRedWin` — which is why the only consumers
-   * are `EventMatchTable`/`MatchTable`, both of which render `sqrt(variance)`
-   * as a displayed interval and nothing else.
+   * NOT A WIN-PROBABILITY DENOMINATOR. This comment used to call it one, which
+   * held for the Sigma1 core that quick task 260913-it4 deleted. It does not
+   * for `spr` (wire id renamed by quick task 260912-ivg from the id BPR
+   * carried before it) as of `2.0.0+baseline`: BPR's filter states about
+   * twice the score variance it realizes (quick task 260910-25c measured
+   * sd(z) = 0.7062 over the design era), so BPR calibrates what it EMITS while
+   * computing `pRedWin` from the raw, uncalibrated figure. Reconstructing a
+   * win probability from this field would therefore disagree with `pRedWin`.
+   * It is still published on match rows, but no page draws it: match bands
+   * read the Match Band (`redMatchBandVariance`/`blueMatchBandVariance`).
    */
   variance?: number;
   /**
@@ -167,7 +166,7 @@ export interface Prediction {
   redScoreVarianceOwn?: number;
   /** D-01 (Phase 6): the blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
   blueScoreVarianceOwn?: number;
-  /** D-24: full component vectors, present only for algorithms that decompose scores (EPA, Sigma1). */
+  /** D-24: full component vectors, present only for algorithms that decompose scores (EPA). */
   redComponents?: Record<string, ComponentPrediction>;
   blueComponents?: Record<string, ComponentPrediction>;
   /**
@@ -306,8 +305,9 @@ export interface SeasonBoundary {
  * state. Cumulative over the algorithm's whole lifetime, never reset by
  * `carrySeason` (D-Q2) — this is a data-quality observation about the
  * corpus, not a per-season quantity. Kept as its own field, deliberately
- * SEPARATE from any per-algorithm "RP fold skipped"-style counter (e.g.
- * Sigma1's `rpSkippedMatchCount`): the two overlap on a malformed match
+ * SEPARATE from any per-algorithm "RP fold skipped"-style counter (the
+ * deleted Sigma1 core's `rpSkippedMatchCount` was one; no current algorithm
+ * keeps one): the two overlap on a malformed match
  * (both increment) but record different facts — this one the CAUSE (the
  * breakdown failed its schema), the other the EFFECT (a downstream fold was
  * skipped) — and folding a ~21% population into a counter whose documented
@@ -338,9 +338,9 @@ export interface AlgorithmModule<S> {
   teamMetrics(state: S, teams?: readonly string[]): TeamMetrics;
   /**
    * D-16/D-17/D-19: carries a team's rating across a season boundary.
-   * Declared optional now (implemented by EPA and Sigma1 in later plans) so
-   * the season loop that calls it can be written once, before either
-   * algorithm implements it.
+   * Optional: EPA and SPR implement it, OPR does not. It was declared
+   * optional so the season loop that calls it could be written once, before
+   * any algorithm implemented it.
    */
   carrySeason?(state: S, boundary: SeasonBoundary): S;
   /**

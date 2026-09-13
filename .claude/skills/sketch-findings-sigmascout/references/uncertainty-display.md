@@ -150,19 +150,18 @@ visible when it lands on top of the band it belongs to.
 - **Drawing a band from only PART of the predictive variance** — the consistency term (R) alone, or
   the posterior term (P) alone. Wrong by multiple sigma either way — see the top of this file.
 
-## Data dependency (not yet satisfied)
+## Data dependency (satisfied)
 
-**Match-level predictive variance is published on the team artifact, not yet on the event artifact.**
-The harness used D-10's `P + Q + R` in the retired Sigma1 core's link functions (deleted by quick task 260913-it4) to produce
-`pRedWin`; the per-match `redScoreVarianceOwn`/`blueScoreVarianceOwn` values it also computes have
-carried through to `TeamSeasonMatchSchema` since Phase 6 D-01, so a team page's own match table can
-already draw a real band. `EventMatchSchema` in `packages/harness/pageArtifacts.ts` does not yet
-carry those fields — Phase 7 plan 07-07 adds them to the schema and 07-08 populates them. **Any event
-page's match-interval display is wrong until that lands.** See
-`.planning/todos/pending/publish-match-predictive-variance.md`, folded into Phase 7 as D-18 item 3.
+**Match-level uncertainty is published on both the team and the event artifact.** The team artifact's
+`TeamSeasonMatchSchema` has carried `redScoreVarianceOwn`/`blueScoreVarianceOwn` since Phase 6 D-01,
+and Phase 7 plans 07-07/07-08 added and populated the same fields on `EventMatchSchema`
+(`.planning/todos/completed/publish-match-predictive-variance.md`, D-18 item 3). That unblocked
+TEAM-05 and the event-page match intervals.
 
-This blocked **TEAM-05** (Phase 6: "predicted RP ± variance" per match, now satisfied) and blocks any
-Phase 7 event-page display that shows match-level uncertainty until 07-07/07-08 land.
+The bands pages draw today do not read those fields. Match rows draw the published Match Band,
+`redMatchBandVariance`/`blueMatchBandVariance` (quick task 260913-g66, SPR only), and the Alliances tab
+builds its band from the same Sigma Score helpers in `packages/harness/sigmaScore.ts`. OPR and EPA
+publish neither the own variance nor the Match Band.
 
 ## Open questions
 

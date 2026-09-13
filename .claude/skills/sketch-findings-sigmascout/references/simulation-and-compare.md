@@ -54,7 +54,8 @@ single match to 5,950. Prose hides sparsity that a shrunken chart point makes ob
 sparse-bin encoding is what keeps this variant truthful rather than a decoration on it.
 
 **Series colours, validated with the dataviz skill's `validate_palette.js`** (`--pairs all`, light
-mode): OPR orange `#EA580C`, EPA violet `#7C3AED`, VPR teal `#0D9488`. Worst-pair CVD ΔE 13.8/13.6,
+mode): OPR orange `#EA580C`, EPA violet `#7C3AED`, SPR teal `#0D9488` (validated when retired VPR held
+that teal; `--compare-algo-spr` in `theme.css` now carries it). Worst-pair CVD ΔE 13.8/13.6,
 normal-vision ΔE 28.8. Two candidate trios were tested and rejected for failing CVD checks
 (orange/violet/fuchsia; orange/teal/magenta). These avoid alliance red/blue and the win/loss
 emerald/rose.
@@ -114,16 +115,18 @@ Recorded as **D-11 in `08-CONTEXT.md`**. Does not affect SC-3, which is measured
 
 ## Data notes for implementers
 
-- **RP distributions are VPR-only.** OPR and EPA publish neither `redRpPmf` nor `redScoreVarianceOwn`
-  — verified on the live OPR event artifact. The Simulation tab cannot run on them.
-- **Played event matches do not carry `redRpPmf`/`blueRpPmf`** — only `upcoming[]` does. The team
-  artifact publishes them on played matches, so the harness computes them; they are simply absent from
-  the event artifact. Phase 8 D-03 adds them (~84 bytes/match).
+- **RP distributions are SPR-only.** OPR and EPA publish neither `redRpPmf` nor `redScoreVarianceOwn`
+  (`publishesRankingPoints` in `packages/harness/sigmaScore.ts`, developer decision 2026-09-13). The
+  Simulation tab cannot run on them.
+- **Played event matches carry `redRpPmf`/`blueRpPmf` too** (Phase 8 D-03, ~84 bytes/match). Before
+  that only `upcoming[]` did, which kept the simulation from rewinding into played matches. The
+  2026-09-06 republish closed it, verified 72/72 on played qualification matches in the v1.0 milestone
+  audit (2026-09-07).
 - **A simulation restricted to genuinely-unplayed matches is dead almost everywhere:** 41 of 1,353
   corpus events have any unplayed qualification match, and most are abandoned offseason events.
 - **The calibration case that justifies the whole Compare page:** 2026 qualification, OPR predicted
   85.3% and observed 52.8% across 395 matches — a 32.5pp overconfidence gap in a well-populated bin,
-  while OPR's headline accuracy (74.8%) sits only four points behind VPR's. A bare accuracy number
+  while OPR's headline accuracy (74.8%) sits only four points behind VPR's (VPR was the premier algorithm when this was measured). A bare accuracy number
   hides this completely.
 
 ## Origin
