@@ -63,6 +63,14 @@
  * extends this mechanism or a manual republish runs. Documented as a Known
  * Stub in this plan's SUMMARY, not a silent gap.
  *
+ * TIERS (quick task 260912-tnk): a touched row keeps the prior row's
+ * published rarity `tier` per metric key and its published Sigma/Swing entry
+ * (`touchedTeamsRowMetrics`), so the Teams list never falls back to a false
+ * Common mid-event. Tiers are CARRIED, not re-derived: re-ranking every row
+ * with the pipeline's helper was measured at 67-97% of this rebuild's existing
+ * CPU-bound cost against a 25% gate (numbers on that function's doc comment),
+ * so a carried tier stays as of the last offline publish.
+ *
  * OFFICIAL-PLAY SCOPE (quick task 260904-586, WIDENED by quick task
  * 260908-615): every SUMMARY quantity this merge writes covers OFFICIAL play
  * only (`isOfficialEventType`, `packages/core/algorithms/eventTypes.ts`),
@@ -138,8 +146,8 @@ import {
   withSigmaPopulation,
   withSwingBeliefs,
 } from "../../../packages/harness/stateSnapshot.js";
-import { SwingFactorAccumulator } from "../../../packages/harness/swingFactor.js";
-import { SigmaScoreAccumulator, usesSigmaScore } from "../../../packages/harness/sigmaScore.js";
+import { SWING_METRIC_KEY, SwingFactorAccumulator } from "../../../packages/harness/swingFactor.js";
+import { SIGMA_METRIC_KEY, SigmaScoreAccumulator, usesSigmaScore } from "../../../packages/harness/sigmaScore.js";
 import { TOTAL_METRIC_KEY } from "../../../packages/core/algorithms/types.js";
 import {
   artifactKey,
@@ -1449,6 +1457,61 @@ async function runPhaseBAndReport(
 // D-16's slower-cadence global rebuild (see this module's header for scope)
 // ---------------------------------------------------------------------------
 
+/** One record-form teams-row metric entry, as `runGlobalRebuild` holds it. */
+type TierableTeamMetric = { value: number; spread?: number; percentile?: number; tier?: "rare" | "epic" | "legendary" };
+
+/**
+ * Quick task 260912-tnk: the metrics record `runGlobalRebuild` writes for a
+ * TOUCHED teams row, so a live update never paints a false Common on a team
+ * the last publish tiered.
+ *
+ * - Every freshly computed entry (`roundTeamMetricRecord(info.metrics)`) keeps
+ *   the prior row's published `tier` for the SAME key when the prior row has
+ *   that entry and it carries a tier. A key the prior row lacks gets no tier,
+ *   and "common" is never written (absence means Common or unranked).
+ * - The prior row's `SIGMA_METRIC_KEY` / `SWING_METRIC_KEY` entries (value and
+ *   tier) are carried forward unchanged. The live tick does not compute the
+ *   season-final consistency figure, so the published one is kept rather than
+ *   dropped; before this task a touched spr team lost its Sigma value and tier
+ *   until the next publish.
+ *
+ * This is the CARRY-FORWARD fallback `260912-tnk-CONTEXT.md` names, not the
+ * preferred re-derivation, and the choice was MEASURED, not assumed. Re-deriving
+ * every row's tier from the rows' own values with the pipeline's single ranking
+ * helper (`percentiles.ts`'s `sortedPoolsByMetric` +
+ * `goodnessPercentileAgainstPools`, then `publishedTierForPercentile`) is
+ * offline-identical by construction, but on a synthetic 3,800-row x 18-key
+ * positional teams artifact with a tiered Sigma entry (throwaway `npx tsx`
+ * script outside the repo, 20 warm-up runs, median of 50, 2026-09-12) it cost
+ * a median 72.5-90.4 ms against a BASELINE median of 74.9-135.0 ms for the
+ * rebuild's existing CPU-bound path (`JSON.parse`, `TeamsArtifactSchema.parse`,
+ * `deriveMetricKeyOrder`, `encodeTeamsRowMetrics` over every row,
+ * `JSON.stringify`) — 67-97% of baseline across three runs, against a gate of
+ * 25%. Building the pools alone measured ~36%.
+ *
+ * Honest limitation, kept visible: a carried tier is the LAST PUBLISHED one.
+ * A touched team whose value crossed a tier cut keeps its old tier until the
+ * next offline publish, the other rows' tiers are not re-ranked against its
+ * new value, and a team with no prior teams row gets no tier at all.
+ */
+export function touchedTeamsRowMetrics(
+  priorMetrics: Readonly<Record<string, TierableTeamMetric>> | undefined,
+  freshMetrics: Readonly<Record<string, TeamMetric>>
+): Record<string, TierableTeamMetric> {
+  const result: Record<string, TierableTeamMetric> = {};
+  for (const [key, metric] of Object.entries(freshMetrics)) {
+    const priorTier = priorMetrics?.[key]?.tier;
+    result[key] = priorTier !== undefined ? { ...metric, tier: priorTier } : metric;
+  }
+  // Appended after the fresh entries (a fresh entry of the same key wins), so
+  // the consistency metric keeps publish.ts's position at the end of the record.
+  for (const key of [SIGMA_METRIC_KEY, SWING_METRIC_KEY]) {
+    const carried = priorMetrics?.[key];
+    if (carried !== undefined && !(key in result)) result[key] = carried;
+  }
+  return result;
+}
+
 /**
  * D-16's slower-cadence rebuild — see this module's header for scope.
  *
@@ -1463,6 +1526,12 @@ async function runPhaseBAndReport(
  * rows), and every write this Worker makes from here on must be positional
  * — re-encoding, never assuming either shape, is what keeps a live event
  * from corrupting the season's teams artifact mid-transition.
+ *
+ * Quick task 260912-tnk: a touched row's metrics go through
+ * `touchedTeamsRowMetrics`, which carries the prior row's published tiers and
+ * Sigma/Swing entry forward instead of dropping them. Zero added subrequests;
+ * the added CPU is one small object per touched metric. Full tier
+ * re-derivation was measured and rejected on CPU (see that function).
  */
 async function runGlobalRebuild(env: Env, budget: SubrequestBudget, algorithmModules: ReadonlyMap<string, AlgorithmModule<any>>, touchedTeamsByAlgorithm: ReadonlyMap<string, Map<string, TouchedTeamInfo>>, stamp: Stamp): Promise<boolean> {
   if (touchedTeamsByAlgorithm.size === 0) return true; // trigger fired, nothing to merge — a legitimate no-op "ran"
@@ -1505,7 +1574,10 @@ async function runGlobalRebuild(env: Env, budget: SubrequestBudget, algorithmMod
           // NOT updated here — see this module's header's documented
           // limitation. Preserved from the last offline/incremental value.
           record: prior?.record ?? { wins: 0, losses: 0, ties: 0 },
-          metrics: roundTeamMetricRecord(info.metrics),
+          // Quick task 260912-tnk: fresh values, with the prior row's
+          // published tiers and Sigma/Swing entry carried forward — see
+          // `touchedTeamsRowMetrics` for why tiers are carried, not re-derived.
+          metrics: touchedTeamsRowMetrics(prior?.metrics, roundTeamMetricRecord(info.metrics)),
           eventCount: prior?.eventCount ?? 0,
           matchCount: (prior?.matchCount ?? 0) + info.matchDelta,
         };

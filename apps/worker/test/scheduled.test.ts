@@ -7,7 +7,7 @@
  * the global-rebuild triggers.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runTick } from "../src/scheduled.js";
+import { runTick, touchedTeamsRowMetrics } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { artifactKey, decodeTeamsRowMetrics } from "../../../packages/harness/pageArtifacts.js";
 // `runTick` builds every artifact key from the LIVE algorithm module's
@@ -845,6 +845,8 @@ describe("runTick — global rebuild (D-16)", () => {
     const untouchedRow = written.teams.find((t) => t.teamKey === "frc999");
     expect(untouchedRow).toBeDefined();
     const decoded = decodeTeamsRowMetrics(untouchedRow!.metrics as never, written.metricKeys!);
+    // Exact, tier included (quick task 260912-tnk): tiers are carried, never
+    // re-ranked, so an untouched row gains and loses no tier.
     expect(decoded.total).toEqual({ value: 10, spread: 1 });
 
     // And the newly-touched teams acquired a real row too.
@@ -884,7 +886,9 @@ describe("runTick — global rebuild (D-16)", () => {
             teamNumber: 1,
             nickname: "Touched Team",
             record: { wins: 2, losses: 0, ties: 0 },
-            metrics: { total: { value: 10, spread: 1 } },
+            // Quick task 260912-tnk: a published Sigma entry with a tier, which
+            // the live tick does not recompute and must not drop.
+            metrics: { total: { value: 10, spread: 1 }, sigma: { value: 3.25, tier: "epic" } },
             eventCount: 1,
             matchCount: 2,
             swingFactor: 27.5,
@@ -909,10 +913,13 @@ describe("runTick — global rebuild (D-16)", () => {
 
     const teamsPut = r2.puts.filter((p) => p.key === teamsKey).at(-1);
     const written = JSON.parse(teamsPut!.body) as {
-      teams: { teamKey: string; swingFactor?: number; country?: string; stateProv?: string; districtKey?: string; matchCount: number }[];
+      metricKeys: string[];
+      teams: { teamKey: string; metrics: unknown; swingFactor?: number; country?: string; stateProv?: string; districtKey?: string; matchCount: number }[];
     };
     const touched = written.teams.find((t) => t.teamKey === "frc1");
     expect(touched).toBeDefined();
+    // Quick task 260912-tnk: the published Sigma entry survives, value and tier.
+    expect(decodeTeamsRowMetrics(touched!.metrics as never, written.metricKeys).sigma).toEqual({ value: 3.25, tier: "epic" });
 
     // Publisher-owned: preserved through the tick.
     expect(touched!.swingFactor, "a live tick must not delete a published Swing Factor").toBe(27.5);
@@ -922,6 +929,128 @@ describe("runTick — global rebuild (D-16)", () => {
 
     // Tick-owned: still advanced, so the spread cannot be masking stale data.
     expect(touched!.matchCount).toBe(3);
+  });
+});
+
+/**
+ * Quick task 260912-tnk: during a live global rebuild the Teams list must not
+ * fall back to a false Common. Full tier re-derivation was measured over the
+ * CPU gate, so touched rows carry their published tiers forward
+ * (`touchedTeamsRowMetrics`'s doc comment has the numbers).
+ */
+describe("260912-tnk: live Teams-row tiers", () => {
+  it("a touched metric keeps the prior row's published tier on the same key, with the fresh value", () => {
+    const result = touchedTeamsRowMetrics({ total: { value: 180, tier: "legendary" }, phaseAuto: { value: 20, spread: 1, tier: "rare" } }, {
+      total: { value: 190.5, spread: 2 },
+      phaseAuto: { value: 22 },
+    });
+    expect(result.total).toEqual({ value: 190.5, spread: 2, tier: "legendary" });
+    expect(result.phaseAuto).toEqual({ value: 22, tier: "rare" });
+  });
+
+  it("a key the prior row lacks, or carried without a tier, gets NO tier key — never a written 'common'", () => {
+    const result = touchedTeamsRowMetrics({ total: { value: 40 } }, { total: { value: 41 }, phaseTeleop: { value: 7 } });
+    expect(result.total).toEqual({ value: 41 });
+    expect(result.phaseTeleop).toEqual({ value: 7 });
+    expect(JSON.stringify(result)).not.toContain("common");
+  });
+
+  it("with no prior row at all, returns the fresh entries untiered", () => {
+    expect(touchedTeamsRowMetrics(undefined, { total: { value: 12 } })).toEqual({ total: { value: 12 } });
+  });
+
+  it("the prior row's Sigma and Swing entries (value and tier) are carried forward unchanged, after the fresh entries", () => {
+    const prior = { total: { value: 100, tier: "epic" as const }, sigma: { value: 3.25, tier: "legendary" as const }, swing: { value: 9.5, tier: "rare" as const } };
+    const result = touchedTeamsRowMetrics(prior, { total: { value: 101 } });
+    expect(result.sigma).toEqual({ value: 3.25, tier: "legendary" });
+    expect(result.swing).toEqual({ value: 9.5, tier: "rare" });
+    expect(Object.keys(result)).toEqual(["total", "sigma", "swing"]);
+  });
+
+  it("a Sigma entry is never re-tiered and a fresh Sigma entry wins over the carried one", () => {
+    const result = touchedTeamsRowMetrics({ sigma: { value: 3.25, tier: "legendary" } }, { sigma: { value: 4 } });
+    expect(result.sigma).toEqual({ value: 4, tier: "legendary" });
+  });
+
+  it("never mutates its inputs", () => {
+    const prior = { total: { value: 100, tier: "epic" as const } };
+    const fresh = { total: { value: 101 } };
+    const priorSnapshot = structuredClone(prior);
+    const freshSnapshot = structuredClone(fresh);
+    touchedTeamsRowMetrics(prior, fresh);
+    expect(prior).toEqual(priorSnapshot);
+    expect(fresh).toEqual(freshSnapshot);
+  });
+
+  it("runTick: every touched row with a prior tier in the WRITTEN teams artifact carries it, and untouched rows keep theirs exactly", async () => {
+    const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const kv = makeKv([window]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+
+    const teamsKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
+    const priorTiers: Record<string, "rare" | "epic" | "legendary"> = { frc1: "legendary", frc2: "epic", frc4: "rare" };
+    await r2.put(
+      teamsKey,
+      JSON.stringify({
+        schemaVersion: 1,
+        generation: "gen-0",
+        computedAt: "2026-08-01T00:00:00.000Z",
+        algorithmId: "opr",
+        algorithmVersion: opr.version,
+        season: SEASON,
+        teams: [
+          ...Object.entries(priorTiers).map(([teamKey, tier], i) => ({
+            teamKey,
+            teamNumber: Number(teamKey.slice(3)),
+            nickname: `Touched ${teamKey}`,
+            record: { wins: 1, losses: 0, ties: 0 },
+            metrics: { total: { value: 50 + i, tier } },
+            eventCount: 1,
+            matchCount: 1,
+          })),
+          {
+            teamKey: "frc999",
+            teamNumber: 999,
+            nickname: "Untouched",
+            record: { wins: 1, losses: 0, ties: 0 },
+            metrics: { total: { value: 77.7, spread: 1, tier: "epic" } },
+            eventCount: 1,
+            matchCount: 1,
+          },
+        ],
+      })
+    );
+
+    const record: TbaEventRecord = {
+      etag: "etag-1",
+      eventType: 0,
+      season: SEASON,
+      matches: [tbaMatch({ key: "2026casj_qm1", eventKey: "2026casj", matchNumber: 1, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 120, blueScore: 95, actualTimeSec: Math.floor(NOW_MS / 1000) - 60 })],
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", record]])));
+
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    expect(result.globalRebuildRan).toBe(true);
+
+    const teamsPut = r2.puts.filter((p) => p.key === teamsKey).at(-1);
+    expect(teamsPut).toBeDefined();
+    const written = JSON.parse(teamsPut!.body) as { metricKeys: string[]; teams: { teamKey: string; metrics: unknown }[] };
+    const decodedByTeam = new Map(written.teams.map((t) => [t.teamKey, decodeTeamsRowMetrics(t.metrics as never, written.metricKeys)]));
+
+    let checked = 0;
+    for (const teamKey of ALL_TEAMS) {
+      const total = decodedByTeam.get(teamKey)?.total;
+      expect(total, `${teamKey} has a live total`).toBeDefined();
+      expect(total!.tier, `${teamKey} tier`).toBe(priorTiers[teamKey]);
+      if (priorTiers[teamKey] !== undefined) {
+        // Fresh value, not the seeded one: the tick really rewrote this row.
+        expect(total!.value).not.toBe(50 + Object.keys(priorTiers).indexOf(teamKey));
+        checked++;
+      }
+    }
+    expect(checked, "non-vacuous: every seeded touched team was checked").toBe(Object.keys(priorTiers).length);
+    expect(decodedByTeam.get("frc999")?.total).toEqual({ value: 77.7, spread: 1, tier: "epic" });
   });
 });
 
