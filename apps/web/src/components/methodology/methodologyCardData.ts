@@ -24,6 +24,7 @@ export interface MethodologyCardDescriptor {
     | "/methodology/epa-vs-statbotics"
     | "/methodology/compare"
     | "/methodology/sigma"
+    | "/methodology/awards"
     | "/methodology/acknowledgments";
   readonly title: string;
   readonly blurb: string;
@@ -39,7 +40,9 @@ export interface MethodologyCardDescriptor {
  * reads first.
  *
  * The hub shows FIVE cards as of quick task 260910-vof, which added the SPR
- * explainer in first position ahead of the four cards already here.
+ * explainer in first position ahead of the four cards already here, and SIX as
+ * of quick task 260912-tm8, which added the award prediction write up fifth so
+ * Acknowledgments stays last.
  *
  * ORDER IS LOAD BEARING. `MethodologyCards.tsx` destructures this array
  * POSITIONALLY (it cannot `.map()` over it — see that file's own doc comment
@@ -75,6 +78,12 @@ export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
     title: "Sigma Score and the match band",
     blurb: "What a team's Sigma number means, and how to read the coloured bars on a match row.",
     testId: "methodology-card-sigma",
+  },
+  {
+    to: "/methodology/awards",
+    title: "Predicting awards",
+    blurb: "Can awards be predicted before an event? What worked, what did not, and what it means for qualifying.",
+    testId: "methodology-card-awards",
   },
   {
     to: "/methodology/acknowledgments",
