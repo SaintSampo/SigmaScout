@@ -100,7 +100,7 @@ import {
   type TeamSeasonArtifact,
 } from "./pageArtifacts.js";
 import { buildTeamRankScopes, deriveTeamRegions, type RankableTeamRow, type TeamRankScope } from "./teamRanks.js";
-import { consistencyMetricByTeam } from "./consistencyMetric.js";
+import { consistencyMetricByTeam, type ConsistencyMetricEntry } from "./consistencyMetric.js";
 import {
   allianceSigmaBandVariance,
   publishesRankingPoints,
@@ -451,6 +451,12 @@ export interface EventTeamStandingInput {
    * reaches this interface, so nothing downstream (`buildEventArtifact`'s
    * `roundTeamMetricRecord`) computes one. A plain `TeamMetric` (no
    * `percentile`) is still assignable, so no existing caller is affected.
+   *
+   * Quick task 260913-jkp: for a Sigma-enabled algorithm, this record also
+   * carries a `SIGMA_METRIC_KEY` entry as its LAST key — the season-final
+   * consistency figure, the same one the Teams row and team-season artifact
+   * publish, merged in by `buildEventTeamsStanding` after the AS-OF-EVENT
+   * Total and phase values above it.
    */
   readonly metrics: Record<string, TeamMetricWithPercentile>;
 }
@@ -2094,20 +2100,37 @@ export function withPublishedTiers(metrics: Record<string, { value: number; spre
  * applies to history rows; the merge itself is `withEventPercentiles`. Required rather than optional (PD-02): an
  * optional pool is an opt-out, and an artifact published without
  * percentiles parses, uploads, and renders a page with every tier box dark.
+ *
+ * Quick task 260913-jkp: `sigmaByTeam` is REQUIRED, not optional, for the
+ * same PD-02 reason — an optional input is an opt-out. Sigma-enabled
+ * algorithms pass the SAME `sigmaMetricForAlgo` object that already feeds the
+ * Teams row and the team-season artifact (`consistencyMetricByTeam`, computed
+ * once per (algorithm, season)); every other algorithm passes an empty
+ * object. The entry is merged in AFTER `withEventPercentiles`, as the LAST
+ * key, so the season ranking pool never sees or re-ranks Sigma: its
+ * percentile is already the inverted residual percentile
+ * `consistencyMetricByTeam` produced, never re-inverted or recomputed here. A
+ * team with no entry gets no key at all (present-and-undefined is never
+ * published). This is why SPR standings now carry the season-final sigma
+ * entry beside the AS-OF-EVENT Total and phase values: the same value the
+ * Teams row and team page publish, by construction (T-jkp-04).
  */
 function buildEventTeamsStanding(
   metricsByTeam: TeamMetrics,
   teamKeys: readonly string[],
   teamInfo: ReadonlyMap<string, TeamInfo>,
-  rankingPools: ReadonlyMap<string, readonly number[]>
+  rankingPools: ReadonlyMap<string, readonly number[]>,
+  sigmaByTeam: Readonly<Record<string, ConsistencyMetricEntry>>
 ): EventTeamStandingInput[] {
   return teamKeys.map((teamKey) => {
     const info = teamInfoOrFallback(teamInfo, teamKey);
+    const metrics = withEventPercentiles(metricsByTeam[teamKey] ?? {}, rankingPools);
+    const sigma = sigmaByTeam[teamKey];
     return {
       teamKey,
       teamNumber: info.teamNumber,
       nickname: info.nickname,
-      metrics: withEventPercentiles(metricsByTeam[teamKey] ?? {}, rankingPools),
+      metrics: sigma !== undefined ? { ...metrics, [SIGMA_METRIC_KEY]: sigma } : metrics,
     };
   });
 }
@@ -3101,7 +3124,11 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
         // with no completed matches — PD-04); the pool is THE season ranking
         // pool (`rankingPools`, quick task 260912-tnk, already in scope above).
         const asOfEventMetrics = metricsAsOfEvent(algorithm, stateByEventForAlgo, e.event_key, eventTeamKeys, metricsByTeam);
-        const teamsStanding = buildEventTeamsStanding(asOfEventMetrics, eventTeamKeys, teamInfo, rankingPools);
+        // Quick task 260913-jkp: the SAME `sigmaMetricForAlgo` object above
+        // (one computation per (algorithm, season)) feeds this call too, so
+        // the event standings row, the Teams row and the team-season
+        // artifact cannot structurally disagree about a team's sigma entry.
+        const teamsStanding = buildEventTeamsStanding(asOfEventMetrics, eventTeamKeys, teamInfo, rankingPools, sigmaMetricForAlgo);
         const eventArtifact = buildEventArtifact({
           eventKey: e.event_key,
           season,
@@ -3707,8 +3734,22 @@ export function buildSingleEventPublish(db: Corpus, eventKey: string, algorithm:
       lastOfficialMetrics,
       teamsThisSeason.filter((teamKey) => !isDemoTeamKey(teamKey))
     );
+    // Quick task 260913-jkp: code parity with the seasons path's own
+    // `sigmaMetricForAlgo`, computed here from `layer.consistencyByTeam()`
+    // (season-final, since the fold loop above has finished) — this mode
+    // must never be run against a real event (it publishes cold; see this
+    // file's own header), so this is parity for the two-path agreement tests
+    // only, not a live publishing route.
+    const sigmaMetricForEvent = usesSigmaScore(algorithm.id)
+      ? consistencyMetricByTeam({
+          valueByTeam: layer.consistencyByTeam(),
+          metricsByTeam: seasonFinalMetrics,
+          teamKeys: teamsThisSeason,
+          metricKey: SIGMA_METRIC_KEY,
+        })
+      : {};
     const asOfEventMetrics = metricsAsOfEvent(algorithm, stateByEventKey, eventKey, eventTeamKeys, seasonFinalMetrics);
-    const teamsStanding = buildEventTeamsStanding(asOfEventMetrics, eventTeamKeys, teamInfo, rankingPools);
+    const teamsStanding = buildEventTeamsStanding(asOfEventMetrics, eventTeamKeys, teamInfo, rankingPools, sigmaMetricForEvent);
     // D-08 (Phase 6)/D-13, plan 07-08: this single-event mode had no
     // sort-time read at all before that plan — `--event <key>` is an
     // explicit request to publish that one event, so this call is made with
