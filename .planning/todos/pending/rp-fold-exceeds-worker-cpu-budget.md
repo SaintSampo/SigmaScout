@@ -117,7 +117,60 @@ with `wrangler delete --config apps/worker/wrangler.probe.toml` once this todo c
 — `params.rp` states the arm, the ablated arm self-labels in `warnings`, and an unrecognised `rp`
 value runs **enabled** and says so, so a typo cannot silently measure the wrong arm.
 
-## Directions worth pricing (none chosen)
+## DIRECTION CHOSEN — horizon repricing (Jacob, 2026-09-13)
+
+### A correctness defect found while pricing the directions, and it changes the problem
+
+**The upcoming loop prices every still-upcoming match from state that holds only this tick's touched
+teams.** `processEvent` loads D1 rows via `selectionsFor(algorithmId, eventKey, realTouchedTeams)`
+(`apps/worker/src/scheduled.ts:1106`) — the ~12 teams in 2 newly-folded matches, at a ~40-team event —
+then runs `algorithm.predict(state, match)` over the WHOLE upcoming schedule (`:1296`). SPR's
+`viewOfMap` substitutes `teams.get(k) ?? freshTeam(p)` (`packages/core/algorithms/spr.ts:468`), so any
+unloaded team is priced as a brand-new team, silently. `mergeEventArtifact` then rebuilds every upcoming
+row from those predictions (`scheduled.ts:672`), overwriting the published ones. Nearly every upcoming
+row would carry a wrong `pRedWin` and predicted scores, a band built from prior sigmas, and no RP pmf
+(the partial-roster gate strips it). `scheduled.rp.test.ts:677` pins the RP half of that gate; nothing
+pins the prediction half. Never observed in production only because this todo's gate has kept every
+live window closed.
+
+**Consequence for the measurement:** the probe cycles rosters through `teamCount=21` loaded teams, so
+every synthetic roster is fully resumed — it prices the tick a *correct* implementation would run. The
+current code would look cheaper on a real event only because it is skipping work it must do. Any CPU fix
+has to fix this too, and fixing it naively (load the whole event roster) makes the tick more expensive.
+
+### Why cheapening `analyticRpPmf` was not chosen
+
+Node micro-benchmark, 2026 rule module, 43 calls (the probe's `rpPmfsProduced`), desktop:
+**4.6 µs/call warm**, **17 µs/call with every JIT tier disabled** (`--no-opt --no-sparkplug --no-maglev`),
+**1.7 ms for the first 43 cold calls**. The probe's ablation implies ~160 µs per pmf on Workers. The math
+is cheap; the Workers figure is cold-isolate/allocation/GC overhead, so optimizing the formula is an
+uncertain lever. The ablation also shows `rp=0` at 60 upcoming (6 ms p50) equals 0 upcoming (6 ms p50):
+predict + band over the upcoming loop is near-free, and the whole upcoming increment is RP.
+
+### The chosen design, as decided (details for the phase to settle)
+
+- **Load** touched teams ∪ the rosters of the next K upcoming matches, in the SAME single
+  `readScopedState` query — zero added subrequests.
+- **Reprice only** those K matches, each with a fully-loaded roster. **Preserve every other upcoming row
+  verbatim** from the existing artifact rather than overwriting it — the prediction-side counterpart of
+  the RP partial-roster gate's "absent rather than wrong".
+- Cost becomes O(K), independent of schedule length. Rows beyond the horizon lag until they enter it;
+  the live/offline parity test needs that as a STATED exception, not a loosened assertion.
+- **Pick K by measurement, not reasoning.** The deployed probe (`c0405758`) predates the 2026-09-13
+  Swing/VPR teardown (`260913-it4`, `260913-g66`), so re-mirror it to the post-teardown tick and to the
+  horizon shape before pricing K.
+
+### Constraints to verify during planning
+
+- **D1 bound-parameter cap.** `readScopedState` binds `algorithmId`, each scope kind, and every scope key
+  in one statement, with no cap handling (`apps/worker/src/stateStore.ts:99-127`). D1 limits bound
+  parameters per query (believed 100 — confirm against Cloudflare's limits page). Touched + 6K distinct
+  keys bounds K; a whole-roster load at a 75-team division would not fit.
+- **Elimination matches** whose rosters TBA has not filled yet — decide whether they count toward K.
+- **Ticks only run when matches fold** (`newlyFolded.length === 0` returns early), so "next K" advances
+  one played match at a time; confirm that is enough freshness for the rank simulation's inputs.
+
+## Directions worth pricing (horizon repricing chosen 2026-09-13 — see above)
 
 - **Stop repricing every upcoming match every tick.** The predictions for match 57 do not change
   meaningfully because match 12 just finished. Reprice on a rotation, or only matches within some
