@@ -27,6 +27,7 @@ import { useMemo } from "react";
 import { Link } from "@tanstack/react-router";
 import { InfoIcon } from "lucide-react";
 import { MetricValue } from "@/components/MetricValue";
+import { TotalSigmaValue, totalColumnHeader, totalColumnWidth } from "@/components/TotalSigmaValue";
 import { EmptyState } from "@/components/StateViews";
 import { SkeletonRows } from "@/components/Skeletons";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -47,6 +48,7 @@ import { teamNumberFromKey } from "@/lib/teamKey";
 import { tierForPercentile } from "@/lib/tiers";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
+import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 
 type EventTeam = EventArtifact["teams"][number];
 type EventTeamMetrics = EventTeam["metrics"];
@@ -267,13 +269,27 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
   // to append it last while this comment claimed otherwise — D-5 resolves
   // that disagreement in the direction this comment and Task 1's
   // `metricKeysFor`/Teams-table ordering already established).
+  // Quick task 260913-jkp: the Total cell renders the split pill when this
+  // row's metrics carry a SIGMA_METRIC_KEY entry — published inside the
+  // event standings themselves (`publish.ts`'s `buildEventTeamsStanding`),
+  // never fetched from the ~200KB Teams artifact. Header and size both come
+  // from the shared `TotalSigmaValue` helpers so the header text, the pill
+  // and the column width can never drift apart from what OPR/EPA (no
+  // Sigma) or SPR (Sigma) actually publish.
   const totalColumn = columnHelper.accessor((row) => row.metrics[TOTAL_KEY], {
     id: "total",
-    header: "Total",
-    size: 120,
+    header: totalColumnHeader(algorithmId),
+    size: totalColumnWidth(algorithmId, 120),
     cell: (info) => {
       const entry = info.getValue();
-      return <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />;
+      const sigmaEntry = info.row.original.metrics[SIGMA_METRIC_KEY];
+      return (
+        <TotalSigmaValue
+          total={entry}
+          totalTier={tierForPercentile(entry?.percentile)}
+          sigma={sigmaEntry !== undefined ? { value: sigmaEntry.value, tier: tierForPercentile(sigmaEntry.percentile) } : undefined}
+        />
+      );
     },
   });
 
@@ -394,14 +410,17 @@ export const INSIGHTS_SKELETON_ROW_COUNT = 8;
  * know whether D-08's fallback applies, and flashing the algorithm-labelled
  * header only to replace it a moment later would assert a provenance claim
  * the page cannot yet support.
+ *
+ * Quick task 260913-jkp: the Total header DOES now vary by algorithm — the
+ * same `totalColumnHeader(algorithmId)` the live table uses — so nothing
+ * shifts when the real data lands under a Sigma-enabled algorithm.
  */
 export function InsightsTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
-  void algorithmId; // the skeleton's header set does not vary by algorithm — see the doc comment above for why orderSource is fixed to "official" here
   void season;
   // D-5 (260904-5zg): Total leads the metric block, matching the live
   // table's own `metricGroupColumns` order — never a re-typed literal that
   // could drift from it.
-  const headers = ["Rank", "Team #", "Team Name", "Record", "RP", "Total", ...METRIC_GROUPS.map((group) => group.label)];
+  const headers = ["Rank", "Team #", "Team Name", "Record", "RP", totalColumnHeader(algorithmId), ...METRIC_GROUPS.map((group) => group.label)];
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
