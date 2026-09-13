@@ -15,7 +15,14 @@ import { z } from "zod";
 
 export const MetricValueSchema = z.object({
   value: z.number(),
-  /** Present only for algorithms that model uncertainty (Sigma1) — omitted entirely, never `0`, for algorithms that do not (OPR). */
+  /**
+   * The algorithm's OWN confidence in its own rating — never SigmaScout's
+   * Sigma Score, and never displayed anywhere on the site (developer rule,
+   * 2026-09-09; the retired Sigma1 core's own uncertainty modelling was
+   * deleted by quick task 260913-it4). Web readers must not read this field
+   * at all; see `SIGMA_METRIC_KEY` below for the one quantity the site does
+   * draw a `±` from.
+   */
   spread: z.number().optional(),
   /**
    * D-06.1-A / F-06-3 (plan 06.1-03): a publish-time-only derived quantity —
@@ -47,7 +54,22 @@ export const MetricHistoryRowSchema = z.object({
   teamKey: z.string().min(1),
   /** This team's position in the season's chronological match stream — the same total order `buildSeasonStream` produces, not a per-team match count. */
   matchIndex: z.number().int().nonnegative(),
-  /** Component name -> that team's metric after this match, per `AlgorithmModule.teamMetrics`. */
+  /**
+   * Component name -> that team's metric after this match, per
+   * `AlgorithmModule.teamMetrics`.
+   *
+   * Quick task 260913-m45: for a Sigma-enabled algorithm (SPR today) this
+   * record ALSO carries a `SIGMA_METRIC_KEY` ("sigma") entry — `{ value }`
+   * only, no `percentile` (a per-match ranking pool has no meaning, and the
+   * chart needs no tier) and no `spread` — the team's Sigma Score AS OF
+   * AFTER THIS MATCH: read right after the offline pipeline's fold for this
+   * match, or as of the end of the live Worker tick that folded it. No
+   * ranking pool, no Teams row and no `seasonStats` entry ever reads this
+   * per-match value; only `apps/web/src/components/team/metricHistorySeries.ts`'s
+   * `buildMetricSeries` does, to draw the Metric History chart's Total ±
+   * Sigma band. OPR and EPA rows, and any row from before the republish that
+   * added this field, carry no `sigma` key at all.
+   */
   metrics: z.record(z.string(), MetricValueSchema),
 });
 
