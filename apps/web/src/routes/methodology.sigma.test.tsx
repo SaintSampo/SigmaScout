@@ -97,6 +97,16 @@ describe("/methodology/sigma", () => {
   });
 });
 
+describe("/methodology/sigma names no retired Swing metric", () => {
+  // Quick task 260913-g66, D3: Swing Score is gone from the website. Every
+  // rendered word, SVG labels included, is checked case-insensitively, since
+  // lowercase "swing" used as a quantity reads as the retired metric too.
+  it("carries no form of the word swing anywhere in the rendered page", async () => {
+    await renderMethodologySigma();
+    expect(document.body.textContent ?? "").not.toMatch(/swing/i);
+  });
+});
+
 describe("/methodology/sigma rendered text carries no dash character", () => {
   it("carries no hyphen-minus, including inside every SVG label", async () => {
     await renderMethodologySigma();
@@ -160,6 +170,9 @@ describe("SigmaPage.tsx source discipline", () => {
       "DEFAULT_SIGMA_SCORE_OPTIONS",
       "SigmaScoreAccumulator",
       "allianceSwingBandVariance",
+      // Quick task 260913-g66: F4's alliance bar is the published Match Band.
+      "sigmaMatchBandVariance",
+      "SIGMA_ALLIANCE_EXAMPLE_SIGMAS",
     ]) {
       expect(source, `SigmaPage.tsx no longer imports ${imported}`).toContain(imported);
     }

@@ -17,10 +17,12 @@
  * this script, nobody had measured how close the shipped estimator gets to that
  * ceiling, and `scripts/` held no harness that could.
  *
- * Swing is load-bearing for TWO surfaces — the team tile/column and every match
- * band on the site, since `*SwingBandVariance` is the only band source now — so
- * this was a published number with no evaluation harness, which is the failure
- * this project's log names as its original sin.
+ * When this script was written Swing was load-bearing for TWO surfaces — the
+ * team tile/column and every match band on the site — so it was a published
+ * number with no evaluation harness, which is the failure this project's log
+ * names as its original sin. (Since quick task 260913-g66 Swing publishes no
+ * band at all: SPR's band comes from Sigma Score via `sigmaMatchBandVariance`,
+ * and OPR and EPA keep Swing only as their internal win-odds variance.)
  *
  * ---------------------------------------------------------------------------
  * THE MEASUREMENT, AND WHY IT IS WALK-FORWARD BY CONSTRUCTION

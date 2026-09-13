@@ -35,6 +35,7 @@
     "measure:field-averaged": "tsx scripts/measureFieldAveragedRanks.ts",
     "measure:rp-mean-deficit": "tsx scripts/measureRpMeanDeficit.ts",
     "measure:swing-skill": "tsx scripts/measureSwingSkill.ts",
+    "measure:match-band": "tsx scripts/measureMatchBandCoverage.ts",
     "measure:alliance-reconstruction": "tsx scripts/measureAllianceReconstruction.ts",
     "measure:epa-deviations": "tsx scripts/measureEpaDeviations.ts",
     "measure:award-predictability": "tsx scripts/measureAwardPredictability.ts",

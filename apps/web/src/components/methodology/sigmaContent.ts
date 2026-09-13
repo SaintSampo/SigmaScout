@@ -32,21 +32,42 @@
  * positive on them.
  *
  * Every measured number below traces to quick task 260910-u7g (the head to head
- * against the old number) and 260910-sz9 (the measurement of the old number
- * itself). No number is stated here that those did not produce.
+ * against the old number), 260910-sz9 (the measurement of the old number
+ * itself), and 260913-g66 (the alliance band's own coverage, printed by
+ * `pnpm measure:match-band`, which runs `scripts/measureMatchBandCoverage.ts`).
+ * No number is stated here that those did not produce.
+ *
+ * Quick task 260913-g66 also retracted two teachings this page used to carry:
+ * that the overlap of the two bars IS the win probability, and that three
+ * robots at 10 combine to 17.32. A robot's Sigma is its share of the alliance's
+ * miss, so the band multiplies the summed squares by the roster size. The
+ * example robots in `three-robots-one-band` are exported below so the page's
+ * drawing and the content test both run them through the shipping helper.
  */
 
 export const SIGMA_PAGE_TITLE = "Sigma Score and the match band";
 
 export const SIGMA_LEAD =
-  "Teams on this site carry a number called Sigma, and match rows carry two coloured bars. Both answer one question: how much might a robot's contribution move in its next match. This page shows how that number is worked out, what it tells you, and where it runs out.";
+  "Under the SPR rating, teams on this site carry a number called Sigma, and match rows carry two coloured bars. Both come from one question: how much might a robot's contribution move in its next match. This page shows how that number is worked out, how three robots become one alliance band, what it tells you, and where it runs out. Under OPR and EPA no Sigma is shown and no band is drawn.";
+
+/**
+ * The example alliance in `three-robots-one-band`, in points: two steady robots
+ * and one erratic one. `SigmaPage.tsx` draws F4 from this array and
+ * `sigmaContent.test.ts` recomputes the quoted band from it through
+ * `sigmaMatchBandVariance`, so the prose, the drawing and the shipping helper
+ * cannot disagree.
+ */
+export const SIGMA_ALLIANCE_EXAMPLE_SIGMAS: readonly number[] = [6, 6, 18];
+
+/** The all steady comparison alliance quoted beside the example above, in points. */
+export const SIGMA_STEADY_ALLIANCE_EXAMPLE_SIGMAS: readonly number[] = [6, 6, 6];
 
 export const SIGMA_FIGURE_IDS = [
   "even-split",
   "level-and-swing",
   "evidence",
   "same-rating",
-  "squares-add",
+  "shares-to-alliance",
   "match-band",
 ] as const;
 export type SigmaFigureId = (typeof SIGMA_FIGURE_IDS)[number];
@@ -97,17 +118,17 @@ export const SIGMA_FIGURES: readonly SigmaFigure[] = [
     illustrative: true,
   },
   {
-    id: "squares-add",
-    title: "Three robots at ±10 combine to ±17.32, not ±30",
+    id: "shares-to-alliance",
+    title: "Robots at ±6, ±6 and ±18 give their alliance a band of ±34.47",
     caption:
-      "Three example robots, each at ±10 points. The combined bar is drawn by the same code the site publishes with, so it cannot drift from the real answer. The pale bar underneath is what you get by adding the three numbers straight up, and it is wrong.",
+      "Three example robots, two steady at ±6 points and one erratic at ±18. Each Sigma is that robot's share of the alliance's miss, and the red bar turns the three shares back into one alliance band. It is drawn by the same code the site publishes with, so it cannot drift from the real answer. The pale bar underneath adds the three numbers straight up, for comparison.",
     illustrative: true,
   },
   {
     id: "match-band",
     title: "Three match rows going from heavy overlap to clean separation",
     caption:
-      "Three example matches on one shared score axis. Red and blue are the two alliances. Each bar covers one Sigma either side of that alliance's predicted score, and the solid tick inside it is the prediction. The bars pull apart as the match gets less close.",
+      "Three example matches on one shared score axis. Red and blue are the two alliances. Each bar covers that alliance's band either side of its predicted score, and the solid tick inside it is the prediction. The bars pull apart as the match gets less close.",
     illustrative: true,
   },
 ];
@@ -164,7 +185,7 @@ export const SIGMA_SECTIONS: readonly SigmaSection[] = [
       "A team that has played two matches has almost no evidence about itself. Two matches that happen to land close together do not mean the robot is reliable, they mean you have seen it twice.",
       "So Sigma does not start from nothing. It starts from what robots of similar strength usually do, then moves toward what this robot's own matches say, by an amount that depends on how many matches there are.",
       "It never moves all the way across. Only the last few matches count toward the spread, so the number of matches that carry weight stops growing at about 3 no matter how long the season runs. A small share of the answer stays with what similar robots do, permanently. That is deliberate, and it is what stops one quiet run of matches from being read as proof.",
-      "Stronger robots score more points, so they have more points to swing by. The starting guess scales with the team's own rating for that reason, rather than being one number for every robot on the field.",
+      "Stronger robots score more points, so their contribution has more room to move. The starting guess scales with the team's own rating for that reason, rather than being one number for every robot on the field.",
       "This is why Sigma is never exactly zero and never blank. A robot seen twice gets an honest answer built mostly from its peers. A robot never seen at all still gets one, which means a match between six debut teams can still be given a band.",
       "The old number on this site did start from nothing, and it showed. Measured across 297,854 team matches, about 2 teams in every 1,000 came out below 1 point, meaning the site called them almost perfectly consistent on the strength of two similar matches. Those few teams then missed by 40 points and more.",
     ],
@@ -178,18 +199,19 @@ export const SIGMA_SECTIONS: readonly SigmaSection[] = [
       "A robot with a small Sigma plays about the same every match. A robot with a large one might dominate one match and barely show up in the next. Two robots can carry the exact same rating and completely different Sigma.",
       "Which one you want depends on where you are sitting. A top seed picking first usually wants a low Sigma, a partner that turns up the same every match. A low seed hunting an upset wants a high one, because it needs the variance to have any shot at all. Halfway through quals it is how you judge whether the partner you drew can be relied on.",
       "It has its own column in the Teams list and its own tile at the top of a team page, both labelled Sigma, to two decimals.",
-      "The site publishes three ratings, OPR, EPA and SPR. Sigma is worked out for SPR only. It was tested against all three and came out better for OPR and SPR and worse for EPA, so rather than show a number that is better in some places and worse in others, it is shown where the testing supported it. Under OPR and EPA the column is simply empty.",
-      "The reading is a true one standard deviation, in points. A robot at 12.00 lands within 12 points of its usual level in roughly two matches out of three.",
+      "The site publishes three ratings, OPR, EPA and SPR. Sigma is worked out for SPR only. It was tested against all three and came out better for OPR and SPR and worse for EPA, so rather than show a number that is better in some places and worse in others, it is shown where the testing supported it. Under OPR and EPA the column is simply empty and no match band is drawn.",
+      "The reading is a true one standard deviation, in points, of a robot's share of the miss. A robot at 12.00 has its share land within 12 points of its usual level in roughly two matches out of three.",
     ],
   },
   {
     id: "three-robots-one-band",
     heading: "Three robots, one band",
-    figureId: "squares-add",
+    figureId: "shares-to-alliance",
     paragraphs: [
-      "An alliance is three robots, and their swings do not simply add up. Square each one, add the squares, then take the square root.",
-      "Three robots at ±10 give ±17.32, not ±30. They do not all swing the same way in the same match, so some of the swing cancels itself out.",
-      "Every robot on the field has a Sigma, including one playing its first ever match, so every alliance gets a band. The old number had no answer for a robot it had seen fewer than twice, and one such robot meant no band at all for that whole alliance.",
+      "An alliance is three robots, and each robot's Sigma is only its share of the alliance's miss. The band has to turn those three shares back into one whole alliance.",
+      "Square each Sigma, add the squares, multiply by the number of robots, then take the square root. That is the same as the number of robots times their typical Sigma, where typical means the square root of the average square.",
+      "Three steady robots at ±6 give the alliance a band of ±18, exactly what adding them straight up gives. Swap one of them for an erratic robot at ±18 and the band grows to ±34.47, wider than the ±30 you get by adding them straight up. Squaring gives the big number extra weight, so one erratic robot widens its whole alliance's band.",
+      "Every robot on the field has a Sigma under SPR, including one playing its first ever match, so every SPR alliance gets a band. The old number had no answer for a robot it had seen fewer than twice, and one such robot meant no band at all for that whole alliance.",
     ],
   },
   {
@@ -197,9 +219,9 @@ export const SIGMA_SECTIONS: readonly SigmaSection[] = [
     heading: "Reading the match band",
     figureId: "match-band",
     paragraphs: [
-      "On a team page and on an event page, every match row draws both alliances on one shared score axis.",
-      "The soft bar covers one Sigma either side of the predicted score, which is the range most results land in. The solid tick inside the bar is the prediction itself. The ringed dot is what the alliance actually scored.",
-      "The overlap between the two bars is the win probability, drawn instead of asserted. Heavy overlap means the match is close to a coin flip. Clean separation means a strong favourite.",
+      "Under SPR, on a team page and on an event page, every match row draws both alliances on one shared score axis. Under OPR and EPA no band is drawn.",
+      "The soft bar is the alliance's band either side of its predicted score. It shows where that alliance's score is likely to land, and across 2024 to 2026 it held about 7 in 10 results. The solid tick inside the bar is the prediction itself. The ringed dot is what the alliance actually scored.",
+      "The overlap between the two bars gives a feel for how close a match is. Heavy overlap means a close match. Clean separation means a clear favourite. The win probability the site shows is worked out separately, because the two alliances' misses in one match tend to move together, and two bars drawn side by side cannot show that.",
       "The band on any match uses only the matches played before it, never anything from later in the season, so it shows what was knowable at the time. It does not reset when a team travels to its second event.",
     ],
   },
@@ -210,10 +232,12 @@ export const SIGMA_SECTIONS: readonly SigmaSection[] = [
       "Sigma replaced an older number, and it had to earn the job rather than simply sound better.",
       "The settings were chosen on the 2024 and 2025 seasons, across 209,349 team matches, and then checked once on 2026, across 110,232 team matches for each rating. Choosing settings on one set of seasons and checking on a different one is what stops a number being tuned until it flatters itself.",
       "Every test scored both numbers on the same rows, against the same target, which was how far the team actually landed from prediction in its next match. Each number had to supply both a guess and a range, so neither could be graded on a target it had picked for itself.",
-      "A band that claims one standard deviation should contain the result about 68.3% of the time. The old number managed 64.1%, which sounds close but means it was quietly too narrow. Sigma lands at 67.0%.",
+      "Those first tests were about one robot's share of the miss. For that share, a band that claims one standard deviation should contain the result about 68.3% of the time. The old number managed 64.1%, which sounds close but means it was quietly too narrow. Sigma lands at 67.0%.",
       "Sigma separates steady robots from erratic ones better. On a measure where lower is better, it scores 0.323 against the old number's 0.384. It also spots a robot that has just changed slightly faster.",
       "The clearest gap is in how badly each one fails at its worst. On a score that punishes false confidence, the old number came out at 33.24 and Sigma at 5.05. Almost all of that gap is the handful of teams the old number called nearly perfect after two matches.",
       "One result went the other way and is worth stating. On a measure of the typical team rather than the worst case, the old number scored slightly better. That measure rewards a narrow band, and the coverage figures above show the old band was too narrow, so the two findings agree rather than conflict.",
+      "The alliance band was checked on its own, for SPR, walk forward across 2024 to 2026: 131,961 alliance results from 66,316 matches, each band built only from the matches before it. The band held 71.6% of results, against the 68.3% target, and 94.9% fell within twice the band, against 95.4%. Before the step that multiplies by the number of robots was added, the same band held only 47.1%.",
+      "The band is weakest when the robots are new. When the least experienced robot on an alliance had played fewer than 3 matches that season, the band held 59.9% of 14,978 results, so a band on a debut alliance is too narrow.",
     ],
   },
   {

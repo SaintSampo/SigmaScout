@@ -23,13 +23,17 @@
  * covers the whole page on its own.
  */
 import { describe, expect, it } from "vitest";
+import { sigmaMatchBandVariance } from "../../../../../packages/harness/sigmaScore.js";
+import { allianceSwingBandVariance } from "../../../../../packages/harness/swingFactor.js";
 import {
+  SIGMA_ALLIANCE_EXAMPLE_SIGMAS,
   SIGMA_FIGURE_IDS,
   SIGMA_FIGURES,
   SIGMA_LEAD,
   SIGMA_PAGE_TITLE,
   SIGMA_SECTION_IDS,
   SIGMA_SECTIONS,
+  SIGMA_STEADY_ALLIANCE_EXAMPLE_SIGMAS,
 } from "./sigmaContent.js";
 
 /** The three banned characters, named so a failure message reads clearly. */
@@ -53,12 +57,20 @@ const EXPECTED_SECTION_IDS = [
 ];
 
 /** The six figure ids, hand-typed, same reasoning as above. */
-const EXPECTED_FIGURE_IDS = ["even-split", "level-and-swing", "evidence", "same-rating", "squares-add", "match-band"];
+const EXPECTED_FIGURE_IDS = ["even-split", "level-and-swing", "evidence", "same-rating", "shares-to-alliance", "match-band"];
 
 /**
- * Every measured number the page is allowed to state, from
- * quick tasks 260910-u7g and 260910-sz9. Pinned as substrings so a rewrite of the prose
- * cannot silently drop the provenance while still reading fine.
+ * Every measured number the page is allowed to state, from quick tasks
+ * 260910-u7g and 260910-sz9, plus the alliance band's own coverage from quick
+ * task 260913-g66's `pnpm measure:match-band` run (pooled SPR 2024-2026:
+ * n=131,961 rows from 66,316 matches, 71.6% inside 1 band, 94.9% inside 2,
+ * 47.1% pre-correction; coldest robot under 3: n=14,978, 59.9%). Pinned as
+ * substrings so a rewrite of the prose cannot silently drop the provenance
+ * while still reading fine.
+ *
+ * "17.32" is RETIRED (260913-g66): it taught three shares of one miss as if
+ * they were independent. The F4 combined figure is checked separately below by
+ * recomputing it through the shipping helper, never by pinning a typed copy.
  */
 const PINNED_NUMBERS = [
   "297,854",
@@ -68,13 +80,20 @@ const PINNED_NUMBERS = [
   "68.3%",
   "64.1%",
   "67.0%",
-  "17.32",
   "33.24",
   "5.05",
   "0.323",
   "0.384",
   "0.80",
   "1.94",
+  "131,961",
+  "66,316",
+  "71.6%",
+  "94.9%",
+  "95.4%",
+  "47.1%",
+  "14,978",
+  "59.9%",
 ];
 
 interface StringRecord {
@@ -206,5 +225,69 @@ describe("measured provenance", () => {
     for (const value of PINNED_NUMBERS) {
       expect(joined, `the page no longer states ${value}`).toContain(value);
     }
+  });
+});
+
+/**
+ * Quick task 260913-g66, D4. The retired teaching claimed the overlap of the two
+ * bars IS the win probability. It is not: red's and blue's misses in one match
+ * move together, so the site's win probability is computed separately.
+ */
+describe("the match band copy tells the truth about win probability", () => {
+  it("no exported string claims the overlap is the win probability", () => {
+    for (const { where, text } of collectStrings()) {
+      expect(text, `${where} equates overlap with win probability`).not.toMatch(/overlap[^.]*\b(is|equals|shows)\s+the\s+win\s+probability/i);
+      expect(text, `${where} equates overlap with win probability`).not.toMatch(/win probability[^.]*drawn instead of asserted/i);
+    }
+  });
+
+  it("no exported string teaches the retired ±17.32 or the one Sigma either side bar", () => {
+    for (const { where, text } of collectStrings()) {
+      expect(text, `${where} still teaches the retired combination`).not.toContain("17.32");
+      expect(text, `${where} still calls the bar one Sigma either side`).not.toMatch(/one Sigma either side/i);
+    }
+  });
+});
+
+/**
+ * Quick task 260913-g66, D4. The combined figures the three-robots section and
+ * F4 quote are recomputed HERE through the same two shipping functions
+ * `SigmaScoutLayer.enrichUpcoming` composes, from the exported example arrays,
+ * so a typed number that drifts from the helper fails.
+ */
+describe("the three robots section quotes the shipping helper's answer", () => {
+  function allianceBand(sigmas: readonly number[]): number {
+    const roster = sigmas.map((_, index) => `frcExample${index}`);
+    const byRobot = new Map(roster.map((key, index) => [key, sigmas[index] as number]));
+    const variance = sigmaMatchBandVariance(roster.length, allianceSwingBandVariance(roster, byRobot));
+    expect(variance, "the helper returned no band for a full example roster").toBeDefined();
+    return Math.sqrt(variance as number);
+  }
+
+  const section = SIGMA_SECTIONS.find((entry) => entry.id === "three-robots-one-band");
+  const figure = SIGMA_FIGURES.find((entry) => entry.id === "shares-to-alliance");
+
+  it("quotes the erratic example alliance's band to two decimals, in the prose and the figure title", () => {
+    const expected = `±${allianceBand(SIGMA_ALLIANCE_EXAMPLE_SIGMAS).toFixed(2)}`;
+    expect(section?.paragraphs.join(" ")).toContain(expected);
+    expect(figure?.title).toContain(expected);
+  });
+
+  it("quotes the all steady alliance's band, which equals adding them straight up", () => {
+    const steady = allianceBand(SIGMA_STEADY_ALLIANCE_EXAMPLE_SIGMAS);
+    const straight = SIGMA_STEADY_ALLIANCE_EXAMPLE_SIGMAS.reduce((sum, value) => sum + value, 0);
+    expect(steady).toBeCloseTo(straight, 10);
+    expect(section?.paragraphs.join(" ")).toContain(`±${Number(steady.toFixed(2))}`);
+  });
+
+  it("quotes the erratic alliance's straight sum as the narrower comparison", () => {
+    const straight = SIGMA_ALLIANCE_EXAMPLE_SIGMAS.reduce((sum, value) => sum + value, 0);
+    expect(allianceBand(SIGMA_ALLIANCE_EXAMPLE_SIGMAS)).toBeGreaterThan(straight);
+    expect(section?.paragraphs.join(" ")).toContain(`±${straight}`);
+  });
+
+  it("the example arrays are a full three robot roster each", () => {
+    expect(SIGMA_ALLIANCE_EXAMPLE_SIGMAS).toHaveLength(3);
+    expect(SIGMA_STEADY_ALLIANCE_EXAMPLE_SIGMAS).toHaveLength(3);
   });
 });

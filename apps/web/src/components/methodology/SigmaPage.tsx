@@ -1,5 +1,6 @@
 import type { ReactElement, ReactNode } from "react";
 import {
+  SIGMA_ALLIANCE_EXAMPLE_SIGMAS,
   SIGMA_FIGURES,
   SIGMA_LEAD,
   SIGMA_SECTIONS,
@@ -19,6 +20,7 @@ import {
   DEFAULT_SIGMA_SCORE_OPTIONS,
   MIN_POPULATION_FOR_TALENT_PRIOR,
   SigmaScoreAccumulator,
+  sigmaMatchBandVariance,
 } from "../../../../../packages/harness/sigmaScore.js";
 
 /**
@@ -51,17 +53,23 @@ function illustrativeSigma(misses: readonly number[], talent = 40): number {
  *
  * WHY THE FIGURES CALL THE SHIPPING CODE
  *
- * The three quantities the drawings depend on are computed at render time by
- * `packages/harness/swingFactor.ts` itself, never retyped here:
+ * The quantities the drawings depend on are computed at render time by the
+ * shipping modules in `packages/harness/` themselves, never retyped here:
  *
  *   - F2's band width is `SigmaScoreAccumulator` over the illustrative
  *     miss array, and its dot opacities are the variance half life raised to
  *     each observation's age.
  *   - F3's two `±` labels are `SigmaScoreAccumulator` over each row's own
  *     dots, so a label can never drift from the marks beside it.
- *   - F4's combined bar is the square root of `allianceSwingBandVariance`, so
- *     the "±17.32, never ±30" claim the prose makes is measured on screen by
- *     the function that produces it in production.
+ *   - F4's alliance bar is the square root of
+ *     `sigmaMatchBandVariance(rosterSize, allianceSwingBandVariance(...))`, the
+ *     same two functions `SigmaScoutLayer.enrichUpcoming` composes to publish a
+ *     Match Band (quick task 260913-g66). The example Sigma values come from
+ *     `SIGMA_ALLIANCE_EXAMPLE_SIGMAS`, the array the prose quotes, so the
+ *     number in the paragraph, the width on screen and the production band
+ *     are one computation. The retired "three at 10 give 17.32" drawing
+ *     treated three shares of one miss as independent; it was wrong by the
+ *     square root of the roster size.
  *
  * Neither the scale nor the half life is therefore typed anywhere in this
  * file as a number. If either constant moves, these pictures move with it.
@@ -82,7 +90,7 @@ function illustrativeSigma(misses: readonly number[], talent = 40): number {
  *     fails the route test's source scan.
  *   - Alliance red and blue are FRC domain vocabulary and mean "alliance".
  *     Marks that are NOT alliances (a team's misses in F2 and F3, a single
- *     robot's swing in F4) wear neutral ink instead, so the colour encoding
+ *     robot's Sigma in F4) wear neutral ink instead, so the colour encoding
  *     stays honest.
  *   - Green is ink, not paint. Nothing here is clickable, so the accent
  *     token never appears.
@@ -385,7 +393,7 @@ function LevelAndSwingFigure(): ReactElement {
       <line x1={PLOT_LEFT + 20} y1={meanY} x2={PLOT_LEFT + 32} y2={meanY} stroke="var(--color-text-primary)" strokeWidth={1} />
       <line x1={PLOT_LEFT + 20} y1={F2_ZERO_Y} x2={PLOT_LEFT + 32} y2={F2_ZERO_Y} stroke="var(--color-text-primary)" strokeWidth={1} />
       <text x={PLOT_LEFT + 46} y={F2_ZERO_Y - 10} fontSize={ANNOTATION_FONT} fill="var(--color-text-primary)">
-        {"this gap is the model's steady bias, not the robot's swing"}
+        {"this gap is the model's steady bias, not the robot's Sigma"}
       </text>
 
       <text x={xFor(0)} y={F2_ZERO_Y + 44} textAnchor="middle" fontSize={TICK_FONT} fill="var(--color-text-muted)">
@@ -504,17 +512,17 @@ function EvidenceFigure(): ReactElement {
 }
 
 /* ------------------------------------------------------------------ */
-/* F3 — same rating, different swing                                   */
+/* F3 — same rating, different Sigma                                   */
 /* ------------------------------------------------------------------ */
 
 /** Two example teams. Both arrays are drawn AND labelled from the same call. */
 const F3_STEADY_MISSES = [19, 20, 21, 20, 19, 20, 21, 20, 19, 20];
-const F3_SWINGY_MISSES = [6, 31, 14, 27, 9, 29, 12, 25, 17, 22];
+const F3_ERRATIC_MISSES = [6, 31, 14, 27, 9, 29, 12, 25, 17, 22];
 const F3_EXAMPLE_TOTAL = "42.00";
 const F3_MISS_MAX = 40;
 const F3_H = 250;
 const F3_STEADY_ROW_Y = 64;
-const F3_SWINGY_ROW_Y = 158;
+const F3_ERRATIC_ROW_Y = 158;
 const F3_ROW_JITTER = 7;
 const F3_AXIS_Y = 200;
 
@@ -530,13 +538,13 @@ function SameRatingRow({
   xFor: (miss: number) => number;
 }) {
   // The label and the marks come from ONE call, so they cannot disagree.
-  const swing = illustrativeSigma(misses);
+  const sigma = illustrativeSigma(misses);
   return (
     <g>
       <GutterLabel y={rowY - 10}>{teamLabel}</GutterLabel>
       <GutterLabel y={rowY + 4}>{`Total ${F3_EXAMPLE_TOTAL}`}</GutterLabel>
       <text x={GUTTER_TEXT_X} y={rowY + 20} textAnchor="end" fontSize={ANNOTATION_FONT} fill="var(--color-text-primary)">
-        {`Sigma ${swing.toFixed(2)}`}
+        {`Sigma ${sigma.toFixed(2)}`}
       </text>
       {misses.map((miss, index) => (
         <circle
@@ -557,7 +565,7 @@ function SameRatingFigure(): ReactElement {
   return (
     <Figure figureId="same-rating" height={F3_H}>
       <SameRatingRow rowY={F3_STEADY_ROW_Y} misses={F3_STEADY_MISSES} teamLabel="steady team" xFor={xFor} />
-      <SameRatingRow rowY={F3_SWINGY_ROW_Y} misses={F3_SWINGY_MISSES} teamLabel="swingy team" xFor={xFor} />
+      <SameRatingRow rowY={F3_ERRATIC_ROW_Y} misses={F3_ERRATIC_MISSES} teamLabel="erratic team" xFor={xFor} />
       <ValueAxis
         y={F3_AXIS_Y}
         ticks={[0, 10, 20, 30, 40]}
@@ -569,62 +577,66 @@ function SameRatingFigure(): ReactElement {
 }
 
 /* ------------------------------------------------------------------ */
-/* F4 — squares add                                                    */
+/* F4 — three shares back into one alliance                            */
 /* ------------------------------------------------------------------ */
 
-const F4_ROBOT_SWING = 10;
 const F4_ROSTER = ["robot one", "robot two", "robot three"] as const;
-const F4_SWING_MAX = 36;
+/** Wide enough that the alliance bar's label never runs past the right edge. */
+const F4_VALUE_MAX = 48;
 const F4_H = 246;
 const F4_BAR_H = 12;
 const F4_COMBINED_BAR_H = 16;
 const F4_ROBOT_ROW_Y = [36, 62, 88];
 const F4_COMBINED_Y = 124;
-const F4_WRONG_Y = 158;
+const F4_STRAIGHT_Y = 158;
 const F4_AXIS_Y = 196;
 
-function SquaresAddFigure(): ReactElement {
-  // The combined width is the SHIPPING function's answer. ±17.32 is measured
-  // here, not typed here.
-  const swingByTeam = new Map<string, number>(F4_ROSTER.map((key) => [key, F4_ROBOT_SWING]));
-  const combined = Math.sqrt(allianceSwingBandVariance([...F4_ROSTER], swingByTeam) ?? 0);
-  const naive = F4_ROBOT_SWING * F4_ROSTER.length;
-  const xFor = (swing: number) => PLOT_LEFT + (swing / F4_SWING_MAX) * FIGURE_PLOT_W;
-  const lengthOf = (swing: number) => xFor(swing) - PLOT_LEFT;
+function SharesToAllianceFigure(): ReactElement {
+  // Each robot's Sigma is the prose's own example array, paired with a roster
+  // label. The alliance width is the SHIPPING composition's answer, the one
+  // `SigmaScoutLayer.enrichUpcoming` publishes: the summed squares, times the
+  // roster size, square rooted. ±34.47 is measured here, not typed here.
+  const robots = F4_ROSTER.map((label, index) => ({ label, sigma: SIGMA_ALLIANCE_EXAMPLE_SIGMAS[index] as number }));
+  const roster = robots.map((robot) => robot.label);
+  const sigmaByRobot = new Map<string, number>(robots.map((robot) => [robot.label, robot.sigma]));
+  const alliance = Math.sqrt(sigmaMatchBandVariance(roster.length, allianceSwingBandVariance(roster, sigmaByRobot)) ?? 0);
+  const straightSum = robots.reduce((sum, robot) => sum + robot.sigma, 0);
+  const xFor = (points: number) => PLOT_LEFT + (points / F4_VALUE_MAX) * FIGURE_PLOT_W;
+  const lengthOf = (points: number) => xFor(points) - PLOT_LEFT;
 
   return (
-    <Figure figureId="squares-add" height={F4_H}>
-      {F4_ROSTER.map((label, index) => {
+    <Figure figureId="shares-to-alliance" height={F4_H}>
+      {robots.map((robot, index) => {
         const barY = F4_ROBOT_ROW_Y[index] as number;
         return (
-          <g key={label}>
-            <GutterLabel y={barY + F4_BAR_H / 2 + 4}>{label}</GutterLabel>
+          <g key={robot.label}>
+            <GutterLabel y={barY + F4_BAR_H / 2 + 4}>{robot.label}</GutterLabel>
             <rect
               x={PLOT_LEFT}
               y={barY}
-              width={lengthOf(F4_ROBOT_SWING)}
+              width={lengthOf(robot.sigma)}
               height={F4_BAR_H}
               rx={2}
               fill="var(--color-text-primary)"
               fillOpacity={0.5}
             />
             <text
-              x={xFor(F4_ROBOT_SWING) + 8}
+              x={xFor(robot.sigma) + 8}
               y={barY + F4_BAR_H / 2 + 4}
               fontSize={ANNOTATION_FONT}
               fill="var(--color-text-primary)"
             >
-              {`±${F4_ROBOT_SWING}`}
+              {`±${robot.sigma}`}
             </text>
           </g>
         );
       })}
 
-      <GutterLabel y={F4_COMBINED_Y + F4_COMBINED_BAR_H / 2 + 4}>all three together</GutterLabel>
+      <GutterLabel y={F4_COMBINED_Y + F4_COMBINED_BAR_H / 2 + 4}>{"the alliance's band"}</GutterLabel>
       <rect
         x={PLOT_LEFT}
         y={F4_COMBINED_Y}
-        width={lengthOf(combined)}
+        width={lengthOf(alliance)}
         height={F4_COMBINED_BAR_H}
         rx={3}
         fill="var(--alliance-red-soft)"
@@ -632,20 +644,20 @@ function SquaresAddFigure(): ReactElement {
         strokeWidth={1.5}
       />
       <text
-        x={xFor(combined) + 8}
+        x={xFor(alliance) + 8}
         y={F4_COMBINED_Y + F4_COMBINED_BAR_H / 2 + 4}
         fontSize={12}
         fontWeight={600}
         fill="var(--color-text-primary)"
       >
-        {`±${combined.toFixed(2)}`}
+        {`±${alliance.toFixed(2)}`}
       </text>
 
-      <GutterLabel y={F4_WRONG_Y + F4_COMBINED_BAR_H / 2 + 4}>adding them straight up</GutterLabel>
+      <GutterLabel y={F4_STRAIGHT_Y + F4_COMBINED_BAR_H / 2 + 4}>added straight up</GutterLabel>
       <rect
         x={PLOT_LEFT}
-        y={F4_WRONG_Y}
-        width={lengthOf(naive)}
+        y={F4_STRAIGHT_Y}
+        width={lengthOf(straightSum)}
         height={F4_COMBINED_BAR_H}
         rx={3}
         fill="var(--loser-ink)"
@@ -654,16 +666,20 @@ function SquaresAddFigure(): ReactElement {
         strokeWidth={1}
       />
       <text
-        x={xFor(naive) - 8}
-        y={F4_WRONG_Y + F4_COMBINED_BAR_H / 2 + 4}
-        textAnchor="end"
+        x={xFor(straightSum) + 8}
+        y={F4_STRAIGHT_Y + F4_COMBINED_BAR_H / 2 + 4}
         fontSize={ANNOTATION_FONT}
         fill="var(--color-text-primary)"
       >
-        {`±${naive}, the wrong answer`}
+        {`±${straightSum}`}
       </text>
 
-      <ValueAxis y={F4_AXIS_Y} ticks={[0, 12, 24, 36]} xFor={xFor} name="swing in points" />
+      <ValueAxis
+        y={F4_AXIS_Y}
+        ticks={[0, 12, 24, 36, 48]}
+        xFor={xFor}
+        name="points either side of the predicted score"
+      />
     </Figure>
   );
 }
@@ -682,9 +698,9 @@ interface ExampleMatch {
 
 /** Three example matches, from heavy overlap to clean separation. */
 const F5_EXAMPLE_MATCHES: readonly ExampleMatch[] = [
-  { redPredicted: 150, redSpread: 18, bluePredicted: 154, blueSpread: 20, reading: "close to a coin flip" },
+  { redPredicted: 150, redSpread: 18, bluePredicted: 154, blueSpread: 20, reading: "a close match" },
   { redPredicted: 140, redSpread: 15, bluePredicted: 165, blueSpread: 16, reading: "a slight favourite" },
-  { redPredicted: 120, redSpread: 12, bluePredicted: 190, blueSpread: 14, reading: "a strong favourite" },
+  { redPredicted: 120, redSpread: 12, bluePredicted: 190, blueSpread: 14, reading: "a clear favourite" },
 ];
 const F5_TOP = 18;
 /**
@@ -773,7 +789,7 @@ const FIGURE_RENDERERS: Record<SigmaFigureId, () => ReactElement> = {
   "level-and-swing": LevelAndSwingFigure,
   evidence: EvidenceFigure,
   "same-rating": SameRatingFigure,
-  "squares-add": SquaresAddFigure,
+  "shares-to-alliance": SharesToAllianceFigure,
   "match-band": MatchBandFigure,
 };
 
