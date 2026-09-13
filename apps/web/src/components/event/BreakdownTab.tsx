@@ -3,17 +3,20 @@
  * quick 260905-3rq to sketch 009 winner A): the selected algorithm's
  * per-team metric components, tier-boxed, with NO rank column of any kind.
  *
- * Post-009-A shape (grouped algorithms — VPR and EPA): the default view is
- * `Total + Auto + Teleop + Endgame + <ungrouped components>` — the three
- * phase columns are the PUBLISHED `phaseAuto`/`phaseTeleop`/`phaseEndgame`
- * metrics (value, spread AND season-wide percentile verified live on
- * `2026alhu` 2026-09-05), so the collapsed table fits desktop widths with
- * no horizontal scroll while every cell keeps a real tier. A group-band
- * header row above the column labels carries one toggle per phase;
- * expanding swaps that phase's single column for its component columns in
- * place. Expansion is plain component state — deliberately NOT a URL search
- * param (user decision, 2026-09-05): it is a transient reading posture, not
- * a shareable view.
+ * Three shapes, by algorithm (`lib/metricKeys.ts`'s `hasGroupedTeamsView`/
+ * `publishesComponentMetrics`): OPR renders flat — Total only, no band row,
+ * no sort buttons. SPR renders Total plus the three PUBLISHED
+ * `phaseAuto`/`phaseTeleop`/`phaseEndgame` metrics (value, spread AND
+ * season-wide percentile verified live on `2026alhu` 2026-09-05), sortable,
+ * but with no group-band row and no expansion — SPR's event artifacts
+ * publish no per-team components to expand a phase into
+ * (`publishesComponentMetrics` false, quick task 260913-mgn). EPA renders
+ * those same three phase columns plus any trailing ungrouped components
+ * (e.g. `foulsCommitted`), with a group-band header row above the column
+ * labels carrying one toggle per phase; expanding swaps that phase's single
+ * column for its component columns in place. Expansion is plain component
+ * state — deliberately NOT a URL search param (user decision, 2026-09-05):
+ * it is a transient reading posture, not a shareable view.
  *
  * Sorting (sketch 009-B's idea, folded in by the same user decision): every
  * metric column header is a sort button using the Teams table's exact
@@ -22,7 +25,9 @@
  * last regardless of direction; exact ties break by ascending team number —
  * the same three rules `teams-table/rowModel.ts` encodes. Collapsing the
  * group that owns the active sort key resets the sort to Total-descending
- * rather than silently sorting by an invisible column.
+ * rather than silently sorting by an invisible column. A sort key no longer
+ * visible at all (after an in-place algorithm switch, e.g. EPA to SPR) also
+ * falls back to Total-descending, the same way (quick task 260913-mgn).
  *
  * OPR is deliberately untouched (user decision): `hasGroupedTeamsView` is
  * false for it, and it renders the same flat single-header-row table it did
@@ -128,7 +133,7 @@ export function sortBreakdownRows(rows: readonly BreakdownRow[], sort: Breakdown
  * attaches a rank number (D-11).
  *
  * Each row's metrics pass through `withDerivedGroupMetrics` (its published-
- * entry-always-wins merge): on current artifacts this is a no-op — VPR and
+ * entry-always-wins merge): on current artifacts this is a no-op — SPR and
  * EPA both publish `phaseAuto`/`phaseTeleop`/`phaseEndgame` — but a browser
  * holding a cached pre-260904-7id EPA artifact gets an honest value-only
  * derived phase entry (no spread, no tier) instead of a blank phase column.
@@ -153,14 +158,20 @@ export function buildBreakdownRows(artifact: EventArtifact, algorithmId: string)
 }
 
 /**
- * The visible metric-column keys for one expansion state (sketch 009-A).
+ * The visible metric-column keys for one expansion state (sketch 009-A;
+ * three shapes as of quick task 260913-mgn) — checked in this order:
  *
- * Non-grouped algorithms (OPR) return `metricKeysFor` unchanged — the
- * pre-redesign flat set, per the "OPR gets no changes" decision. Grouped
- * algorithms return `TOTAL_KEY`, then per phase either its published group
- * metric key (collapsed) or its component keys in their group-declared
- * order (expanded), then every declared component belonging to no group
- * (e.g. `foulsCommitted`) trailing — the same order the sketch validated.
+ * 1. Non-grouped algorithms (OPR) return `metricKeysFor` unchanged — the
+ *    pre-redesign flat set, per the "OPR gets no changes" decision.
+ * 2. Grouped algorithms that do not publish per-team component metrics
+ *    (SPR, `publishesComponentMetrics` false) return `TOTAL_KEY` followed by
+ *    each group's own published metric key — always collapsed, `expanded`
+ *    is never read, because there is nothing to expand into.
+ * 3. Grouped algorithms that DO publish components (EPA) return `TOTAL_KEY`,
+ *    then per phase either its published group metric key (collapsed) or
+ *    its component keys in their group-declared order (expanded), then
+ *    every declared component belonging to no group (e.g. `foulsCommitted`)
+ *    trailing — the same order the sketch validated.
  */
 export function visibleMetricKeys(algorithmId: string, season: number, expanded: ExpandedGroups): readonly string[] {
   const declared = metricKeysFor(algorithmId, season);
@@ -369,7 +380,10 @@ const BREAKDOWN_SKELETON_ROW_COUNT = 8;
  * table always lands in) plus the two identity columns — the pending state
  * has the shape of the table that is loading, never a spinner. The group
  * toggle row is deliberately absent here: a placeholder must not offer an
- * interaction that does nothing.
+ * interaction that does nothing. Under SPR this renders the same six
+ * headers the populated SPR table shows, because both read
+ * `visibleMetricKeys` (quick task 260913-mgn) — nothing shifts once real
+ * data lands.
  */
 export function BreakdownTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
   // Quick task 260913-jkp: Total's header now varies by algorithm too (the
@@ -419,7 +433,12 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
   const [sort, setSort] = useState<BreakdownSort>(DEFAULT_BREAKDOWN_SORT);
 
   const rows = useMemo(() => buildBreakdownRows(artifact, algorithmId), [artifact, algorithmId]);
-  const sortedRows = useMemo(() => sortBreakdownRows(rows, sort), [rows, sort]);
+  const visibleKeys = useMemo(() => visibleMetricKeys(algorithmId, season, expanded), [algorithmId, season, expanded]);
+  // A sort key no longer visible (after an in-place algorithm switch or a
+  // collapse) falls back to Total descending rather than silently sorting
+  // by a column the table no longer renders.
+  const activeSort = useMemo(() => (visibleKeys.includes(sort.key) ? sort : DEFAULT_BREAKDOWN_SORT), [visibleKeys, sort]);
+  const sortedRows = useMemo(() => sortBreakdownRows(rows, activeSort), [rows, activeSort]);
   const columns = useMemo(() => buildBreakdownColumns(algorithmId, season, isNarrow, expanded), [algorithmId, season, isNarrow, expanded]);
 
   const table = useTable({
@@ -432,6 +451,9 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
    * Ungrouped trailing key count for the group-band row's trailing spacer —
    * derived from the same `visibleMetricKeys` call the columns use, so the
    * two can never disagree about how many columns follow the last group.
+   * EPA-only (`isExpandable`): 0 whenever `publishesComponentMetrics` is
+   * false, since the band row itself does not render then (quick task
+   * 260913-mgn) and nothing else reads this count.
    */
   const ungroupedCount = useMemo(() => {
     if (!isExpandable) return 0;
@@ -443,14 +465,18 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
     const collapsing = expanded[groupId];
     // Never leave the table sorted by a column that just disappeared —
     // reset to the landing sort rather than sorting by an invisible key.
-    if (collapsing && componentsInGroup(season, groupId).includes(sort.key)) {
+    if (collapsing && componentsInGroup(season, groupId).includes(activeSort.key)) {
       setSort(DEFAULT_BREAKDOWN_SORT);
     }
     setExpanded({ ...expanded, [groupId]: !collapsing });
   }
 
   function handleSortClick(key: string) {
-    setSort((prev) => (prev.key === key ? { key, dir: prev.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" }));
+    // Computed from `activeSort`, never the raw `sort` state: after an
+    // in-place algorithm switch, `sort` may still hold a key the current
+    // algorithm no longer shows, and a click must read the EFFECTIVE sort
+    // the table is actually displaying, not that stale value.
+    setSort(activeSort.key === key ? { key, dir: activeSort.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
   }
 
   if (artifact.teams.length === 0) {
@@ -469,12 +495,16 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
             // 07-UAT.md G-1/G-7: `tableLayout: fixed` with `width` at the
             // EXACT declared total (`table.getTotalSize()`), never `"100%"`
             // — see `TeamsTable.tsx`'s identical style-object comment for
-            // the declared==actual invariant this protects. With the group
-            // band as the FIRST rendered row (fixed layout reads column
-            // widths from the first row's cells), every band cell below
-            // carries an explicit width summed from the same
-            // `metricColumnWidth` its member columns declare, so the two
-            // header rows cannot disagree about geometry.
+            // the declared==actual invariant this protects. The group band
+            // is the FIRST rendered row (fixed layout reads column widths
+            // from the first row's cells) only under EPA (`isExpandable`);
+            // under OPR and SPR the column-label row is first, and its
+            // cells already carry `header.getSize()` widths (below), so
+            // fixed layout reads the same geometry either way. When the
+            // band DOES render, every band cell carries an explicit width
+            // summed from the same `metricColumnWidth` its member columns
+            // declare, so the two header rows cannot disagree about
+            // geometry.
             tableLayout: "fixed",
             width: table.getTotalSize(),
             borderCollapse: "separate",
@@ -536,8 +566,8 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
                   const isSortable = isGrouped && !BREAKDOWN_IDENTITY_COLUMN_IDS.includes(header.column.id as (typeof BREAKDOWN_IDENTITY_COLUMN_IDS)[number]);
-                  const isActive = isSortable && header.column.id === sort.key;
-                  const ariaSort = !isSortable ? undefined : isActive ? (sort.dir === "asc" ? "ascending" : "descending") : "none";
+                  const isActive = isSortable && header.column.id === activeSort.key;
+                  const ariaSort = !isSortable ? undefined : isActive ? (activeSort.dir === "asc" ? "ascending" : "descending") : "none";
                   return (
                     <TableHead
                       key={header.id}
@@ -561,7 +591,7 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
                           <table.FlexRender header={header} />
                           {isActive && (
                             <span aria-hidden="true" className="text-[var(--color-accent)]">
-                              {sort.dir === "asc" ? "▲" : "▼"}
+                              {activeSort.dir === "asc" ? "▲" : "▼"}
                             </span>
                           )}
                         </button>
