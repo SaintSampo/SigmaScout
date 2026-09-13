@@ -2,8 +2,17 @@ import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import MetricHistoryChart from "./MetricHistoryChart.js";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
+import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 
-function row(overrides: { matchKey: string; eventKey: string; matchIndex: number; value?: number; spread?: number; hasMetric?: boolean }): MetricHistoryRow {
+function row(overrides: {
+  matchKey: string;
+  eventKey: string;
+  matchIndex: number;
+  value?: number;
+  spread?: number;
+  sigma?: number;
+  hasMetric?: boolean;
+}): MetricHistoryRow {
   const hasMetric = overrides.hasMetric ?? true;
   return {
     matchKey: overrides.matchKey,
@@ -12,7 +21,12 @@ function row(overrides: { matchKey: string; eventKey: string; matchIndex: number
     algorithmId: "spr",
     teamKey: "frc1114",
     matchIndex: overrides.matchIndex,
-    metrics: hasMetric ? { total: { value: overrides.value ?? 100, spread: overrides.spread } } : {},
+    metrics: hasMetric
+      ? {
+          total: { value: overrides.value ?? 100, spread: overrides.spread },
+          ...(overrides.sigma !== undefined ? { [SIGMA_METRIC_KEY]: { value: overrides.sigma } } : {}),
+        }
+      : {},
   };
 }
 
@@ -22,20 +36,19 @@ const EVENT_NAMES: Record<string, string> = {
 };
 
 describe("MetricHistoryChart", () => {
-  it("renders NO Area band even when points carry a spread — the band was drawn from the algorithm's confidence", () => {
+  it("renders NO Area band when points carry only a spread — the band is built from sigma (quick task 260913-m45), never spread", () => {
     const rows = [
       row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, spread: 5 }),
       row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110, spread: 6 }),
     ];
     const { container } = render(<MetricHistoryChart rows={rows} algorithmId="spr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
-    // The Area band was drawn from each row's `spread`. Spread must never
-    // reach the screen, so no band renders — and there is no per-match Sigma
-    // Score published yet to draw an honest one from.
+    // Spread is the algorithm's own confidence and must never reach the
+    // screen. These rows carry no published sigma, so no band renders.
     expect(container.querySelectorAll(".recharts-area").length).toBe(0);
   });
 
-  it("renders zero Area elements and no variance/spread copy when no row carries a spread (OPR/EPA)", () => {
+  it("renders zero Area elements and no variance/spread copy when no row carries sigma (OPR/EPA)", () => {
     const rows = [
       row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100 }),
       row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110 }),
@@ -47,8 +60,18 @@ describe("MetricHistoryChart", () => {
     expect(container.textContent?.toLowerCase()).not.toContain("spread");
   });
 
+  it("draws no band for OPR rows even when they carry a sigma key (algorithm gate wins, not row presence)", () => {
+    const rows = [
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, sigma: 8 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110, sigma: 9 }),
+    ];
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="opr" season={2024} eventNameByKey={EVENT_NAMES} />);
+
+    expect(container.querySelectorAll(".recharts-area").length).toBe(0);
+  });
+
   it("renders a single point with no line segment for a one-match team-season (E9 zero-one-many)", () => {
-    const rows = [row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, spread: 4 })];
+    const rows = [row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, sigma: 4 })];
     const { container } = render(<MetricHistoryChart rows={rows} algorithmId="spr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
     // Recharts never draws a curve path for a single-point Line series —
@@ -58,15 +81,29 @@ describe("MetricHistoryChart", () => {
     expect(container.querySelectorAll(".recharts-line-dots").length).toBeGreaterThan(0);
   });
 
-  it("renders many points as an ordinary line-plus-band", () => {
+  it("renders many points as an ordinary line-plus-band, for spr rows carrying sigma", () => {
     const rows = [
-      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, spread: 5 }),
-      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110, spread: 6 }),
-      row({ matchKey: "m3", eventKey: "2024casj", matchIndex: 2, value: 105, spread: 5 }),
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, sigma: 5 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110, sigma: 6 }),
+      row({ matchKey: "m3", eventKey: "2024casj", matchIndex: 2, value: 105, sigma: 5 }),
     ];
     const { container } = render(<MetricHistoryChart rows={rows} algorithmId="spr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
     expect(container.querySelectorAll(".recharts-line-curve").length).toBe(1);
+    expect(container.querySelectorAll(".recharts-area").length).toBe(1);
+    expect(container.textContent?.toLowerCase()).not.toContain("variance");
+    expect(container.textContent?.toLowerCase()).not.toContain("spread");
+  });
+
+  it("a middle row lacking sigma still renders one Area — the series gives that point a null band (a gap, not a broken chart)", () => {
+    const rows = [
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, sigma: 5 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110 }), // no sigma: a gap in the band
+      row({ matchKey: "m3", eventKey: "2024casj", matchIndex: 2, value: 105, sigma: 5 }),
+    ];
+    const { container } = render(<MetricHistoryChart rows={rows} algorithmId="spr" season={2024} eventNameByKey={EVENT_NAMES} />);
+
+    expect(container.querySelectorAll(".recharts-area").length).toBe(1);
   });
 
   it("renders a plain labelled axis and zero line elements for a zero-match team-season (E9 empty)", () => {
@@ -78,8 +115,13 @@ describe("MetricHistoryChart", () => {
 
   it("uses only theme tokens, never a hardcoded hex literal, in the rendered inline styles/attrs", () => {
     // A structural proxy for the source-file grep acceptance criterion —
-    // confirms no rendered fill/stroke attribute is a bare hex literal.
-    const rows = [row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, spread: 5 })];
+    // confirms no rendered fill/stroke attribute is a bare hex literal. Uses
+    // a real sigma so the band's fill token is actually rendered, not just
+    // the line's.
+    const rows = [
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, sigma: 5 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110, sigma: 6 }),
+    ];
     const { container } = render(<MetricHistoryChart rows={rows} algorithmId="spr" season={2024} eventNameByKey={EVENT_NAMES} />);
     const hexLike = /#[0-9A-Fa-f]{6}/;
     for (const el of Array.from(container.querySelectorAll("[fill], [stroke]"))) {
@@ -93,7 +135,7 @@ describe("MetricHistoryChart", () => {
     // whole default 640px chart (~98 chars of room), so the fixture name must
     // exceed even that to exercise the ellipsis path.
     const longName = "Very Long Championship Sub-Division Event Name 2024 With An Additional Ceremonial Suffix Attached For Good Measure And Then Some";
-    const rows = Array.from({ length: 4 }, (_, i) => row({ matchKey: `m${i}`, eventKey: "2024long", matchIndex: i, value: 100 + i, spread: 4 }));
+    const rows = Array.from({ length: 4 }, (_, i) => row({ matchKey: `m${i}`, eventKey: "2024long", matchIndex: i, value: 100 + i }));
     const { container } = render(<MetricHistoryChart rows={rows} algorithmId="spr" season={2024} eventNameByKey={{ "2024long": longName }} />);
 
     const titles = Array.from(container.querySelectorAll("title")).map((t) => t.textContent);
@@ -107,7 +149,7 @@ describe("MetricHistoryChart", () => {
   it("renders legibly for a high-match-count team fixture spanning several events (E9 overflow backstop)", () => {
     const eventKeys = ["2024casj", "2024cala", "2024cabe", "2024cain"];
     const rows = Array.from({ length: 62 }, (_, i) =>
-      row({ matchKey: `m${i}`, eventKey: eventKeys[Math.floor(i / 16)] ?? "2024casj", matchIndex: i * 3, value: 100 + i, spread: 4 }),
+      row({ matchKey: `m${i}`, eventKey: eventKeys[Math.floor(i / 16)] ?? "2024casj", matchIndex: i * 3, value: 100 + i, sigma: 4 }),
     );
     const { container } = render(<MetricHistoryChart rows={rows} algorithmId="spr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
@@ -115,17 +157,20 @@ describe("MetricHistoryChart", () => {
     // continuous line/band across all 62 points, no thrown error.
     expect(container.querySelectorAll(".recharts-reference-area").length).toBe(4);
     expect(container.querySelectorAll(".recharts-line-curve").length).toBe(1);
+    expect(container.querySelectorAll(".recharts-area").length).toBe(1);
   });
 
   it("G-13 (07-UAT.md): renders no float-noise Y-axis tick labels for an extreme, negative domain", () => {
     // Mirrors the live-reported case (frc4788/2026/vpr): a deeply negative
     // total alongside a small positive one, the exact domain shape that
     // surfaced Recharts' own floating-point interval-arithmetic noise
-    // (e.g. "-1349.99999997") before this fix's `tickFormatter`.
+    // (e.g. "-1349.99999997") before this fix's `tickFormatter`. Sigma
+    // (quick task 260913-m45) now stands in for the retired spread-based
+    // band fixture, since band edges are what stretched this domain.
     const rows = [
-      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: -1354.13, spread: 155.53 }),
-      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 62.69, spread: 5 }),
-      row({ matchKey: "m3", eventKey: "2024casj", matchIndex: 2, value: -700, spread: 30 }),
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: -1354.13, sigma: 155.53 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 62.69, sigma: 5 }),
+      row({ matchKey: "m3", eventKey: "2024casj", matchIndex: 2, value: -700, sigma: 30 }),
     ];
     const { container } = render(<MetricHistoryChart rows={rows} algorithmId="spr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
@@ -141,12 +186,12 @@ describe("MetricHistoryChart", () => {
 
   it("G-13 (07-UAT.md): widens the Y axis for a wide extreme label, narrower for a typical short one — never a fixed magic number", () => {
     const extremeRows = [
-      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: -1354.13, spread: 155.53 }),
-      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 62.69, spread: 5 }),
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: -1354.13, sigma: 155.53 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 62.69, sigma: 5 }),
     ];
     const normalRows = [
-      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, spread: 5 }),
-      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110, spread: 6 }),
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, sigma: 5 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110, sigma: 6 }),
     ];
 
     const { container: extremeContainer } = render(<MetricHistoryChart rows={extremeRows} algorithmId="spr" season={2024} eventNameByKey={EVENT_NAMES} />);
@@ -177,10 +222,12 @@ describe("MetricHistoryChart", () => {
 
   it("Y axis includes zero for an all-positive series — the baseline is 0, not the data minimum", () => {
     // Values nowhere near zero: pre-change the domain floor was 114 (the
-    // lowest band edge), so 0 was nowhere on the axis.
+    // lowest band edge), so 0 was nowhere on the axis. Sigma (quick task
+    // 260913-m45) is what now stretches the domain past the data — the top
+    // tick must be at or above the band's own upper edge (124 + 5 = 129).
     const rows = [
-      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 118, spread: 4 }),
-      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 124, spread: 5 }),
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 118, sigma: 4 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 124, sigma: 5 }),
     ];
     const { container } = render(<MetricHistoryChart rows={rows} algorithmId="spr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
@@ -194,10 +241,11 @@ describe("MetricHistoryChart", () => {
   it("Y axis includes zero for an all-NEGATIVE series — there 0 is the CEILING, not the floor", () => {
     // The clamp is two-sided: VPR/OPR totals go genuinely negative, and a
     // one-sided Math.min(0, ...) would leave this series' axis topping out
-    // below zero.
+    // below zero. The band's lower edge (-80 - 5 = -85) is what the tick
+    // floor must clear.
     const rows = [
-      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: -80, spread: 5 }),
-      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: -40, spread: 5 }),
+      row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: -80, sigma: 5 }),
+      row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: -40, sigma: 5 }),
     ];
     const { container } = render(<MetricHistoryChart rows={rows} algorithmId="spr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
@@ -209,7 +257,8 @@ describe("MetricHistoryChart", () => {
 
   it("a flat all-positive series still spans zero rather than collapsing to a hairline", () => {
     // Zero-range data took the `headroom = 1` branch, which pre-change gave
-    // the degenerate domain [100, 101].
+    // the degenerate domain [100, 101]. No sigma here — band irrelevant to
+    // this case.
     const rows = [
       row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100 }),
       row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 100 }),
