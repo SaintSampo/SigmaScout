@@ -10,7 +10,7 @@
  * `districts.tsx` is under test, not a re-implementation of it.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema } from "../lib/searchParams.js";
@@ -128,8 +128,10 @@ describe("/districts route", () => {
     });
     renderDistrictsRoute("/districts?algorithm=spr");
 
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "District" })).toBeDefined());
+    await waitFor(() => expect(screen.getByRole("group", { name: "District" })).toBeDefined());
     expect(screen.getByText("Pick a district")).toBeDefined();
+    // No chip is pressed until the reader picks one.
+    expect(within(screen.getByRole("group", { name: "District" })).queryAllByRole("button", { pressed: true })).toHaveLength(0);
   });
 
   it("selecting a district navigates and puts ?district= in the URL", async () => {
@@ -141,15 +143,12 @@ describe("/districts route", () => {
     });
     const router = renderDistrictsRoute("/districts?algorithm=spr");
 
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "District" })).toBeDefined());
-    const trigger = screen.getByRole("combobox", { name: "District" });
-    fireEvent.pointerDown(trigger, { button: 0, pointerId: 1 });
-    fireEvent.click(trigger);
-    const option = await screen.findByRole("option", { name: "FIRST NC" });
-    fireEvent.pointerUp(option, { button: 0, pointerId: 1 });
-    fireEvent.click(option);
+    const chip = await screen.findByRole("button", { name: "FIRST NC" });
+    expect(chip.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(chip);
 
     await waitFor(() => expect((router.state.location.search as Record<string, unknown>).district).toBe("2026fnc"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "FIRST NC" }).getAttribute("aria-pressed")).toBe("true"));
   });
 
   it("?district=2026fnc&tab=champ-locks deep-links directly to the Champ Locks tab", async () => {
