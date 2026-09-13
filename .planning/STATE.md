@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: 08
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-09-13 - Completed quick task 260913-it4: Swing Score and the retired VPR/Sigma1 core torn out, OPR/EPA publish no RP odds (bcc929cb); shipped web + Worker 0aa87b51, republish owed
+Last activity: 2026-09-13 - Completed quick task 260913-l8q: em dashes out of user-facing sentences, Locks cut line matches the verdicts (NC 2026 Champs 172 to 231), grey Beta tag on the ribbon (b186f81b); committed only, district republish and push owed
 
 Progress: [██████████] 100%
 
@@ -554,6 +554,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 150 | fast: mobile search fixed. Ribbon search icon was pushed past the header clip edge on phones (16px phone gutter, 12px link gap, 8px below 375px, GitHub icon hidden below 400px, icon group shrink-0). Home hero on phones is now a search bar opening the dialog instead of a lone icon. Every search result row was highlighted on desktop and mobile: Tailwind v4 bare data-selected matched cmdk data-selected=false, now data-[selected=true]. Verified by Playwright at 360-430px | 2026-09-13 | dfc00b7c | — |
 | 151 | fast: team page shows Total first on its own line, with Auto, Teleop and Endgame together on the line below, in both the season header and every event card. The phase line never wraps: the header tightens its gap below sm, the event card stacks each label over its value. Sigma stays beside Total in the header | 2026-09-13 | f33a07ce | — |
 | 152 | fast: team page match table has no sticky columns. Result and Match no longer pin during horizontal pans; the cell-level tint classes that only backed the sticky cells went too. The event page Quals/Elims table still has a sticky Match column (not in scope) | 2026-09-13 | ef07aad4 | — |
+| 153 | Em dashes out of user-facing sentences (placeholder dashes kept, found by an AST scan so comments were excluded). Locks cut line now shares the lock verdicts' own pool and slot count via cutLinePointsWithQualifiers: 2026 NC Champs 172 to 231 (GearCats eliminated at 216), DCMP 75 to 76, 101 of 109 district-years corrected. Grey Beta tag after the ribbon wordmark, kept on phones by choice though it hides the SPR label at 360-393px. Committed only, district republish and push owed | 2026-09-13 | b186f81b | [260913-l8q-remove-em-dashes-from-user-facing-text-f](./quick/260913-l8q-remove-em-dashes-from-user-facing-text-f/) |
 
 ### Roadmap Evolution
 
