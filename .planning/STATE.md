@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: 09
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-09-13 - Completed quick task 260913-ppk: closed vpr-retirement-make-features-algorithm-agnostic, SPR stays the only live-folding algorithm
+Last activity: 2026-09-13 - Paused quick task 260913-nvn (simplification audit and cuts) for a republish, net -29,588 lines
 
 Progress: [██████████] 100%
 
@@ -567,6 +567,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 163 | Withdraw the false spread/own-variance additivity identity from 6 comment and skill sites, close its todo, confirm the data/ sweep todo was already closed | 2026-09-13 | ded58569 | [260913-q1l-resolve-pageartifacts-additivity-identit](./quick/260913-q1l-resolve-pageartifacts-additivity-identit/) |
 | 164 | Correct stale Sigma1/VPR present-tense claims left out of 260913-q1l in types.ts and two sketch-skill references (comment and doc text only) | 2026-09-13 | 2c1fe1cc | — |
 | 165 | fast: resolved three todos. Championship pre-qualified lists backfilled for 2016-2020 from the manuals, the Hall of Fame roster and TBA award rows (75f25d6d). The frozen EPA ablation register now records offseason-population as measured with no effect (9b13f6a5). TBA placeholder keys frc, frc0 and frc58 / are handled as demo robots (a8c5f965), and SPR gained the demo exclusion as spr@4.0.0+baseline under Rule A, pooled accuracy +0.012pp and Brier -0.000015. 15 stale placeholder team pages deleted from R2. Republish, D1 seed and worker deploy owed | 2026-09-13 | b8eb402e | — |
+| 166 | Simplification audit and cuts, paused for a republish. Net -29,588 lines and 80 files deleted: gbr, pcm, spr research files, one-shot scripts, harness diagnostics, the pnpm harness CLI, publish --event mode, web orphans and two deps. SPR got its missing Compare colour. Republish: OPR/EPA sidecar probes skipped, rank scopes sort once, bounded upload queue at concurrency 48, publish writes and enforces its own budget, per-phase timers (byte-identical on 24,194 objects). Page load: manifest preload, WebP logo, immutable assets, Pine shell ribbon. Comment diet partial (1,703 lines). Plan 03 Task 3 and comment region B remain | 2026-09-13 | 2919f37e | [260913-nvn-simplify-codebase-audit](./quick/260913-nvn-simplify-codebase-audit/) |
 
 ### Roadmap Evolution
 
