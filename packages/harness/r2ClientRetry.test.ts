@@ -115,7 +115,7 @@ describe("putObject retry policy", () => {
 });
 
 /**
- * deleteObject retry policy (quick task 260912-tay). docs/publish-budget.md
+ * deleteObject retry policy (quick task 260912-tay). docs/publish-budget.md's git history
  * records "two transient R2 500s" interrupting a past single-shot delete pass;
  * a census-driven cleanup issues ~228K single-key DELETEs, so the delete path
  * now shares the PUT path's transient-retry policy. 404 stays a success (S3

@@ -87,6 +87,14 @@ vi.mock("./r2Client.js", () => ({
   getObject: vi.fn(async () => ""),
 }));
 import { putObject } from "./r2Client.js";
+// Quick task 260913-nvn: the ceilings replaced by a MUTABLE copy, so the
+// ceiling-gate tests below can lower one and restore it; every other test sees
+// the real values.
+vi.mock("./publishBudget.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./publishBudget.js")>();
+  return { ...real, PAGE_BUDGET_MAX_BYTES: { ...real.PAGE_BUDGET_MAX_BYTES } };
+});
+import { PAGE_BUDGET_MAX_BYTES, PublishBudgetExceededError } from "./publishBudget.js";
 
 function fixtureMatch(overrides: Partial<MatchResult> = {}): MatchResult {
   return {
@@ -5055,6 +5063,44 @@ describe("publishSeasons — the pre-schedule sidecar is SPR-only (quick task 26
     expect(presimKeys.some((key) => key.startsWith(`v1/presim/${lateEventKey}/${epa.id}@`))).toBe(false);
   });
 
+});
+
+describe("publishSeasons — per-object ceiling gate and upload failures (quick task 260913-nvn)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-budget-gate-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it.each([true, false])("dryRun=%s: a teams artifact above its ceiling rejects with the ceiling error before any put", async (dryRun) => {
+    seedTwoEventSeason(db);
+    const ceilings = PAGE_BUDGET_MAX_BYTES as Record<string, number>;
+    const original = ceilings.teams!;
+    ceilings.teams = 1;
+    try {
+      await expect(publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun, skipState: true })).rejects.toBeInstanceOf(
+        PublishBudgetExceededError
+      );
+      expect(putObject).not.toHaveBeenCalled();
+    } finally {
+      ceilings.teams = original;
+    }
+  });
+
+  it("a put that still fails after r2Client's own retries fails the run with that error", async () => {
+    seedTwoEventSeason(db);
+    const failure = new Error("R2 PUT failed after 5 attempts");
+    vi.mocked(putObject).mockRejectedValueOnce(failure);
+    await expect(publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true })).rejects.toBe(failure);
+  });
 });
 
 describe("buildCompareArtifact — one write path (F1/D-09/D-11, phase 09 plan 09-01 Task 2 Step 4)", () => {

@@ -17,62 +17,29 @@
  * expectation, failing loudly on drift.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { openCorpusReadOnly, selectMatchesChronological } from "../corpus/db.js";
 import { opr } from "../core/algorithms/opr.js";
 import { buildEventArtifact, buildTeamSeasonArtifact } from "./publish.js";
+import {
+  PAGE_BUDGET_MAX_BYTES,
+  parsePublishBudget,
+  PUBLISH_BUDGET_DOC_PATH,
+  PublishBudgetParseError,
+  type PublishBudget,
+} from "./publishBudget.js";
 import { WalkForwardSimulator, type PredictionRecord } from "./replay.js";
 
 // ---------------------------------------------------------------------------
-// The parser — this file's single source for docs/publish-budget.md
+// The committed doc — parsed through publishBudget.ts, the one home for the
+// block's parser and the ceilings it must mirror (quick task 260913-nvn)
 // ---------------------------------------------------------------------------
 
-const BUDGET_DOC_PATH = join("docs", "publish-budget.md");
-const BUDGET_BLOCK_PATTERN = /```json budget\r?\n([\s\S]*?)\r?\n```/;
-
-export class PublishBudgetParseError extends Error {
-  constructor(reason: string) {
-    super(`payloadBudget: could not read the machine-readable "json budget" block from ${BUDGET_DOC_PATH} — ${reason}`);
-    this.name = "PublishBudgetParseError";
-  }
-}
-
-interface PublishBudgetPageEntry {
-  count: number;
-  medianBytes: number;
-  p95Bytes: number;
-  maxBytes: number;
-  budgetMaxBytes: number;
-  largestKey: string;
-}
-
-interface PublishBudget {
-  measuredAt: string;
-  run: string;
-  pages: Record<string, PublishBudgetPageEntry>;
-}
-
-/** Extracted so `describe("parser robustness")` below can drive it directly against a fixture with no real file on disk — a missing/corrupt block must fail loudly, demonstrated as a unit test over this function, never by editing the real committed doc. */
-export function parsePublishBudget(markdown: string): PublishBudget {
-  const match = BUDGET_BLOCK_PATTERN.exec(markdown);
-  if (!match) {
-    throw new PublishBudgetParseError(`no fenced \`\`\`json budget block found`);
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(match[1]!);
-  } catch (err) {
-    throw new PublishBudgetParseError(`the block did not parse as JSON: ${err instanceof Error ? err.message : String(err)}`);
-  }
-  return parsed as PublishBudget;
-}
-
 function readCommittedPublishBudget(): PublishBudget {
-  if (!existsSync(BUDGET_DOC_PATH)) {
-    throw new PublishBudgetParseError(`${BUDGET_DOC_PATH} does not exist`);
+  if (!existsSync(PUBLISH_BUDGET_DOC_PATH)) {
+    throw new PublishBudgetParseError(`${PUBLISH_BUDGET_DOC_PATH} does not exist`);
   }
-  return parsePublishBudget(readFileSync(BUDGET_DOC_PATH, "utf8"));
+  return parsePublishBudget(readFileSync(PUBLISH_BUDGET_DOC_PATH, "utf8"));
 }
 
 const PAGE_KINDS = ["teams", "team", "events", "event", "compare"] as const;
@@ -84,7 +51,7 @@ const PAGE_KINDS = ["teams", "team", "events", "event", "compare"] as const;
  * page structurally bigger, rather than merely noisier.
  *
  * Both bounds come from the real full 2022-2026 publish run recorded in
- * `docs/publish-budget.md` (`pnpm publish:seasons`, completed
+ * `docs/publish-budget.md`'s git history (`pnpm publish:seasons`, completed
  * 2026-08-25T19:10:49Z — plan 06-06's authorized republish carrying D-01..D-05's
  * team-artifact fields — 54,671 page objects across 5 seasons × 3 algorithms):
  *   - teams: measured max 2,721,887 bytes (`v1/teams/2024/sigma1@2.0.0+tuned-2026-08.json`, [pre-rename]
@@ -175,6 +142,15 @@ describe("published payload budget (D-05)", () => {
       expect(entry.maxBytes, `${kind}: maxBytes (${entry.maxBytes}) should be <= budgetMaxBytes (${entry.budgetMaxBytes})`).toBeLessThanOrEqual(
         entry.budgetMaxBytes
       );
+    }
+  });
+
+  it("every page kind's committed budgetMaxBytes equals PAGE_BUDGET_MAX_BYTES — the constant is the one home for ceilings; the doc mirrors it", () => {
+    for (const kind of PAGE_KINDS) {
+      expect(
+        budget.pages[kind]?.budgetMaxBytes,
+        `${kind}: docs/publish-budget.md's budgetMaxBytes must equal PAGE_BUDGET_MAX_BYTES.${kind} (${PAGE_BUDGET_MAX_BYTES[kind]}) — edit the constant, then let \`pnpm publish:seasons\` (--write-budget) rewrite the block, or update the block by hand to match`
+      ).toBe(PAGE_BUDGET_MAX_BYTES[kind]);
     }
   });
 

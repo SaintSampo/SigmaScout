@@ -26,7 +26,7 @@
  * (`canonicalQueryString`) is both signed and sent after `?`, so the two cannot
  * drift apart; with no params there is no `?` at all, so every object-level URL
  * and signature is byte-identical to before. `deleteObject` now shares the PUT
- * path's transient-retry policy, because `docs/publish-budget.md` records "two
+ * path's transient-retry policy, because `docs/publish-budget.md`'s git history records "two
  * transient R2 500s" interrupting a past single-shot delete pass. Deletion
  * stays single-key: there is no bulk or prefix DELETE in this file, and none
  * may be added.
@@ -333,7 +333,7 @@ export async function getObject(bucket: string, key: string): Promise<string> {
  * 200) and a 404 are treated as success, matching that contract.
  *
  * Transient failures (5xx, 429, 408, network rejections) are retried with the
- * same policy as `putObject` (quick task 260912-tay): `docs/publish-budget.md`
+ * same policy as `putObject` (quick task 260912-tay): `docs/publish-budget.md`'s git history
  * logs "two transient R2 500s" interrupting a past delete pass that made one
  * attempt per key, and a census-driven cleanup issues hundreds of thousands of
  * single-key DELETEs. A permanent status throws immediately; an exhausted

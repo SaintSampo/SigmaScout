@@ -4,7 +4,12 @@
  * 04-04 Task 1 into the full offline publisher).
  *
  *   pnpm publish:artifacts --seasons 2022-2026 [--algorithm opr,epa,spr] [--bucket <name>]
- *     [--concurrency 16] [--dry-run] [--skip-state] [--include-offseason]
+ *     [--concurrency 48] [--dry-run] [--skip-state] [--include-offseason] [--write-budget]
+ *
+ * `--write-budget` rewrites the fenced `json budget` block in
+ * `docs/publish-budget.md` from this run's own measurements after a
+ * successful run (`pnpm publish:seasons` passes it; narrow ad-hoc runs do
+ * not, so they never clobber the full-run record).
  *
  * `--seasons` is the full-season publisher: every page kind, every requested
  * algorithm, one shared match stream per season — see `publishSeasons` below
@@ -40,7 +45,7 @@
  * deferral mechanism (plans 04-05/04-07), not by changing the model here.
  */
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
@@ -140,10 +145,22 @@ import type { HarnessPredictionInput, ScoreSlice } from "./score.js";
 import { aggregateScoresForRun } from "./selectionProvenance.js";
 import type { MetricHistoryRow } from "./metricHistorySchema.js";
 import { putObject } from "./r2Client.js";
+import { UploadQueue } from "./uploadQueue.js";
+import {
+  assertWithinPageBudget,
+  computeSizeStats,
+  PAGE_BUDGET_MAX_BYTES,
+  percentileOf,
+  PUBLISH_BUDGET_DOC_PATH,
+  renderPublishBudgetBlock,
+  replacePublishBudgetBlock,
+  type PageKindSizeStats,
+  type PublishedObjectRecord,
+} from "./publishBudget.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const DEFAULT_BUCKET = "sigmascout-artifacts";
-const DEFAULT_CONCURRENCY = 16;
+const DEFAULT_CONCURRENCY = 48;
 const SEED_OUT_DIR = join("reports", "publish");
 /**
  * C-05 (quick task 260905-tll Task 4): the default first season that gets
@@ -1785,66 +1802,35 @@ export function buildCompareArtifact(params: BuildCompareArtifactParams): Compar
 }
 
 // ---------------------------------------------------------------------------
-// Size-stat tracking (D-05) — shared by publishSeasons and payloadBudget.test.ts
+// Size-stat tracking (D-05) — lives in publishBudget.ts; re-exported here so
+// existing importers of these names keep working
 // ---------------------------------------------------------------------------
 
-export interface PublishedObjectRecord {
-  readonly pageKind: PageKind;
-  readonly key: string;
-  readonly bytes: number;
-}
+export { computeSizeStats, type PageKindSizeStats, type PublishedObjectRecord };
 
-export interface PageKindSizeStats {
-  readonly count: number;
-  readonly medianBytes: number;
-  readonly p95Bytes: number;
-  readonly maxBytes: number;
-  readonly largestKey: string;
-}
-
-function percentileOf(sortedAscending: readonly number[], p: number): number {
-  if (sortedAscending.length === 0) return 0;
-  const idx = Math.min(sortedAscending.length - 1, Math.max(0, Math.ceil((p / 100) * sortedAscending.length) - 1));
-  return sortedAscending[idx]!;
-}
+const UPLOAD_HEADERS = { contentType: "application/json", cacheControl: "public, max-age=60" } as const;
 
 /**
- * Groups published-object byte counts by page kind and computes the
- * count/median/p95/max/largestKey stats `docs/publish-budget.md`'s
- * machine-readable block records. Exported so `payloadBudget.test.ts` can
- * re-measure a fresh assembly through this SAME function rather than
- * re-implementing the size math.
- */
-export function computeSizeStats(records: readonly PublishedObjectRecord[]): Partial<Record<PageKind, PageKindSizeStats>> {
-  const byKind = new Map<PageKind, PublishedObjectRecord[]>();
-  for (const record of records) {
-    const list = byKind.get(record.pageKind) ?? [];
-    list.push(record);
-    byKind.set(record.pageKind, list);
-  }
-  const result: Partial<Record<PageKind, PageKindSizeStats>> = {};
-  for (const [kind, list] of byKind) {
-    const sorted = [...list].sort((a, b) => a.bytes - b.bytes);
-    const bytesSorted = sorted.map((r) => r.bytes);
-    const largest = sorted[sorted.length - 1]!;
-    result[kind] = {
-      count: sorted.length,
-      medianBytes: percentileOf(bytesSorted, 50),
-      p95Bytes: percentileOf(bytesSorted, 95),
-      maxBytes: largest.bytes,
-      largestKey: largest.key,
-    };
-  }
-  return result;
-}
-
-/**
- * Bounded-concurrency uploader (D-26: `application/json`, `max-age=60`).
- * Records every candidate object's page kind/key/byte length REGARDLESS of
- * `dryRun` — `--dry-run` assembles and validates everything and still prints
- * the size summary (the whole reason `--dry-run` exists is to re-measure
- * budgets without spending a Class-A operation), it just skips the actual
+ * The publisher's uploader (D-26: `application/json`, `max-age=60`). Records
+ * every candidate object's page kind/key/byte length REGARDLESS of `dryRun`
+ * — `--dry-run` assembles and validates everything and still prints the size
+ * summary (the whole reason `--dry-run` exists is to re-measure budgets
+ * without spending a Class-A operation), it just skips the actual
  * `putObject` call.
+ *
+ * Quick task 260913-nvn: every page-kind object is asserted against
+ * `PAGE_BUDGET_MAX_BYTES` BEFORE it is recorded or queued, in both modes, so
+ * an over-budget object is never uploaded. Real puts drain through a bounded
+ * `UploadQueue` while the build loop keeps going: each publish call resolves
+ * once its put is ACCEPTED, and that await is the build loop's backpressure.
+ *
+ * Design note — the ceiling is checked per object at enqueue, so objects from
+ * EARLIER blocks may already be in R2 when a later object fails its ceiling.
+ * That is the same exposure as any mid-run network failure (keys are
+ * version-addressed and the next successful run overwrites them in place).
+ * `--dry-run` is therefore the complete budget pre-flight; the stricter
+ * "nothing uploads until everything is built" reading would forfeit the
+ * build/upload overlap the queue exists to add.
  */
 class BoundedUploader {
   readonly records: PublishedObjectRecord[] = [];
@@ -1854,59 +1840,61 @@ class BoundedUploader {
    * the sidecar is deliberately not a `PageKind` (see `preScheduleKey`'s
    * doc comment in pageArtifacts.ts), so it must not enter
    * `computeSizeStats`' per-kind budget accounting or
-   * `payloadBudget.test.ts`'s `PAGE_KINDS` gate. Its own size summary is
-   * printed from this array at the end of the run.
+   * `payloadBudget.test.ts`'s `PAGE_KINDS` gate, and it has no ceiling. Its
+   * own size summary is printed from this array at the end of the run.
    */
   readonly sidecarRecords: { key: string; bytes: number }[] = [];
-  #active = 0;
-  readonly #queue: (() => void)[] = [];
+  readonly #queue: UploadQueue;
 
   constructor(
     private readonly bucket: string,
-    private readonly concurrency: number,
+    concurrency: number,
     private readonly dryRun: boolean
-  ) {}
-
-  async #withSlot<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.#active >= this.concurrency) {
-      await new Promise<void>((resolve) => this.#queue.push(resolve));
-    }
-    this.#active++;
-    try {
-      return await fn();
-    } finally {
-      this.#active--;
-      const next = this.#queue.shift();
-      if (next) next();
-    }
+  ) {
+    this.#queue = new UploadQueue({ concurrency });
   }
 
-  /** Returns a promise the caller collects into a batch and awaits with `Promise.all` — NOT awaited here, so the bounded semaphore actually bounds concurrency across a batch rather than serializing it. */
-  publish(pageKind: PageKind, key: string, body: string): Promise<void> {
+  #put(key: string, body: string): Promise<void> {
+    return putObject(this.bucket, key, body, UPLOAD_HEADERS);
+  }
+
+  #record(pageKind: PageKind, key: string, body: string): void {
     const bytes = Buffer.byteLength(body, "utf8");
+    assertWithinPageBudget(pageKind, key, bytes, PAGE_BUDGET_MAX_BYTES);
     this.records.push({ pageKind, key, bytes });
+  }
+
+  /** Asserts the ceiling, records, and (real runs only) resolves once the put is accepted by the queue. */
+  publish(pageKind: PageKind, key: string, body: string): Promise<void> {
+    this.#record(pageKind, key, body);
     if (this.dryRun) return Promise.resolve();
-    return this.#withSlot(() =>
-      putObject(this.bucket, key, body, { contentType: "application/json", cacheControl: "public, max-age=60" })
-    );
+    return this.#queue.enqueue(() => this.#put(key, body));
   }
 
   /**
-   * Quick task 260905-tll Task 4: the sidecar counterpart to `publish` —
-   * same bounded semaphore, same `application/json` / `max-age=60` headers,
-   * same dry-run record-without-upload behavior, but records into
-   * `sidecarRecords` rather than the `PageKind`-keyed `records` array
-   * (PD-01). Callers chain the returned promise BEFORE the same event's
-   * event-artifact `publish`, following the repo's established
-   * artifacts-before-index ordering rule.
+   * Quick task 260905-tll Task 4: a sidecar and its event artifact, queued as
+   * ONE task that puts the sidecar and then the event artifact, following the
+   * repo's established artifacts-before-index ordering rule. The event
+   * artifact's ceiling is asserted before anything is queued.
    */
-  publishSidecar(key: string, body: string): Promise<void> {
-    const bytes = Buffer.byteLength(body, "utf8");
-    this.sidecarRecords.push({ key, bytes });
+  publishSidecarThenEvent(sidecarKey: string, sidecarBody: string, eventKey: string, eventBody: string): Promise<void> {
+    this.#record("event", eventKey, eventBody);
+    this.sidecarRecords.push({ key: sidecarKey, bytes: Buffer.byteLength(sidecarBody, "utf8") });
     if (this.dryRun) return Promise.resolve();
-    return this.#withSlot(() =>
-      putObject(this.bucket, key, body, { contentType: "application/json", cacheControl: "public, max-age=60" })
-    );
+    return this.#queue.enqueue(async () => {
+      await this.#put(sidecarKey, sidecarBody);
+      await this.#put(eventKey, eventBody);
+    });
+  }
+
+  /** Waits for every queued put; rejects with the first put failure. */
+  drain(): Promise<void> {
+    return this.#queue.drain();
+  }
+
+  /** The failure path: drops puts not yet started and lets in-flight puts settle, ignoring their outcomes. */
+  abandon(): Promise<void> {
+    return this.#queue.abandon();
   }
 }
 
@@ -2319,8 +2307,10 @@ export interface PublishSummary {
   readonly pages: Partial<Record<PageKind, PageKindSizeStats>>;
   readonly seedFiles: readonly string[];
   readonly manifestKeys: readonly string[];
-  /** Wall-clock milliseconds per publish phase, keyed by label (quick task 260913-nvn): `season {year} replay|fold|compare`, `{year}/{algorithm} build|sidecars|uploadWait`, and `total`. */
+  /** Wall-clock milliseconds per publish phase, keyed by label (quick task 260913-nvn): `season {year} replay|fold|compare`, `{year}/{algorithm} build|sidecars|uploadWait`, `uploadDrain`, and `total`. */
   readonly timings: Readonly<Record<string, number>>;
+  /** Pre-schedule sidecar size stats — not a `PageKind`, so outside `pages` (PD-01); `undefined` when the run wrote none. */
+  readonly sidecars?: PageKindSizeStats;
 }
 
 interface TeamSeasonStats {
@@ -2524,9 +2514,21 @@ function sortTeamSeasonMatches(
  * reused unchanged; only the orchestration around them is mirrored.
  */
 export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions): Promise<PublishSummary> {
+  const uploader = new BoundedUploader(options.bucket, options.concurrency ?? DEFAULT_CONCURRENCY, options.dryRun ?? false);
+  try {
+    return await publishSeasonsWith(db, options, uploader);
+  } catch (err) {
+    // Quick task 260913-nvn: let puts already in flight settle (ignoring their
+    // outcomes) so nothing is still writing when the caller sees the failure,
+    // then rethrow the ORIGINAL error.
+    await uploader.abandon();
+    throw err;
+  }
+}
+
+async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, uploader: BoundedUploader): Promise<PublishSummary> {
   const generation = options.generation ?? randomUUID();
   const computedAt = options.computedAt ?? new Date().toISOString();
-  const concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
   const dryRun = options.dryRun ?? false;
   const includeOffseason = options.includeOffseason ?? false;
   const coldStartSeason = options.coldStartSeason;
@@ -2536,7 +2538,6 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
 
   const runStart = performance.now();
   const timings = new PhaseTimings();
-  const uploader = new BoundedUploader(options.bucket, concurrency, dryRun);
   const teamInfo = lookupAllTeamInfo(db);
   const seedFiles: string[] = [];
   const manifestKeys: string[] = [];
@@ -3221,7 +3222,14 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
         computedAt,
       });
       const teamsKey = artifactKey({ page: "teams", year: season, algorithmId: algorithm.id, version });
-      const teamsPending = uploader.publish("teams", teamsKey, JSON.stringify(teamsArtifact));
+      let uploadWaitMs = 0;
+      /** Awaits one publish call (its queue acceptance) and books the wait as upload time, not build time. */
+      const publishTimed = async (publishing: () => Promise<void>): Promise<void> => {
+        const start = performance.now();
+        await publishing();
+        uploadWaitMs += performance.now() - start;
+      };
+      await publishTimed(() => uploader.publish("teams", teamsKey, JSON.stringify(teamsArtifact)));
 
       // --- events/{year}/{algorithm}@{version}.json ---
       // The once-per-season base above, re-stamped for this algorithm. Only
@@ -3232,10 +3240,9 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
         ...EventsArtifactStampSchema.parse({ algorithmId: algorithm.id, algorithmVersion: version }),
       };
       const eventsKey = artifactKey({ page: "events", year: season, algorithmId: algorithm.id, version });
-      const eventsPending = uploader.publish("events", eventsKey, JSON.stringify(eventsArtifact));
+      await publishTimed(() => uploader.publish("events", eventsKey, JSON.stringify(eventsArtifact)));
 
       // --- event/{eventKey}/{algorithm}@{version}.json, one per event ---
-      const eventPending: Promise<void>[] = [];
       for (const e of eventMeta) {
         const predictions = eventMatchesForAlgo.get(e.event_key) ?? [];
         const scheduledForEvent = scheduledByEvent.get(e.event_key) ?? [];
@@ -3311,8 +3318,8 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
         // scope (C-05, gated once per season above); every other skip reason
         // is decided and logged inside `buildPreScheduleSidecarForEvent`.
         // The sidecar is written BEFORE the event artifact for the same
-        // event (the artifacts-before-index ordering rule) by CHAINING the
-        // event upload behind the sidecar upload — the two never race.
+        // event (the artifacts-before-index ordering rule): both puts ride
+        // ONE queued task, sidecar first — the two never race.
         //
         // Quick task 260913-nvn: gated on `publishesRankingPoints` as well.
         // The layer's RP accumulator exists only for RP-publishing ids, so
@@ -3340,14 +3347,13 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           : undefined;
         sidecarMs += performance.now() - sidecarStart;
         if (sidecar !== undefined) {
-          eventPending.push(uploader.publishSidecar(sidecar.key, sidecar.body).then(() => uploader.publish("event", key, eventBody)));
+          await publishTimed(() => uploader.publishSidecarThenEvent(sidecar.key, sidecar.body, key, eventBody));
         } else {
-          eventPending.push(uploader.publish("event", key, eventBody));
+          await publishTimed(() => uploader.publish("event", key, eventBody));
         }
       }
 
       // --- team/{teamKey}/{year}/{algorithm}@{version}.json, one per team ---
-      const teamPending: Promise<void>[] = [];
       for (const teamKey of teamsThisSeason) {
         const info = teamInfoOrFallback(teamInfo, teamKey);
         // D-08/D-09 (Phase 6): played AND scheduled matches grouped together,
@@ -3440,13 +3446,13 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           videoByMatchKey,
         });
         const key = artifactKey({ page: "team", teamKey, year: season, algorithmId: algorithm.id, version });
-        teamPending.push(uploader.publish("team", key, JSON.stringify(teamSeasonArtifact)));
+        await publishTimed(() => uploader.publish("team", key, JSON.stringify(teamSeasonArtifact)));
       }
 
       const blockLabel = `${season}/${algorithm.id}`;
-      timings.add(`${blockLabel} build`, performance.now() - blockStart - sidecarMs);
+      timings.add(`${blockLabel} build`, performance.now() - blockStart - sidecarMs - uploadWaitMs);
       timings.add(`${blockLabel} sidecars`, sidecarMs);
-      await timings.timeAsync(`${blockLabel} uploadWait`, () => Promise.all([teamsPending, eventsPending, ...eventPending, ...teamPending]));
+      timings.add(`${blockLabel} uploadWait`, uploadWaitMs);
     }
 
     // --- compare/{year}.json — one file, every algorithm, per D-02's exception ---
@@ -3530,6 +3536,11 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     }
   }
 
+  // Quick task 260913-nvn: every queued put settles here, once, before the
+  // manifests below point readers at this run's objects. A put that failed
+  // after r2Client's own retries rejects this await and fails the run.
+  await timings.timeAsync("uploadDrain", () => uploader.drain());
+
   // --- Manifests (D-18/D-03) and D-12's state snapshot / D1 seed ---
   if (!options.skipState) {
     const liveWindows = buildLiveWindowsManifest(db, { seasons: seasonsSorted, generation, computedAt });
@@ -3611,15 +3622,23 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     );
   }
   // Quick task 260905-tll Task 4: the sidecar size summary, printed in the
-  // same shape as the page-kind lines above so the figures can be
-  // transcribed by hand into docs/publish-budget.md after a real run —
-  // deliberately OUTSIDE `computeSizeStats`/the machine-readable budget
-  // block, because the sidecar is not a `PageKind` (PD-01).
+  // same shape as the page-kind lines above — deliberately OUTSIDE
+  // `computeSizeStats`/the machine-readable budget block's `pages`, because
+  // the sidecar is not a `PageKind` (PD-01). `--write-budget` carries these
+  // figures in the block's `run` string instead.
+  let sidecars: PageKindSizeStats | undefined;
   if (uploader.sidecarRecords.length > 0) {
     const sidecarBytesSorted = uploader.sidecarRecords.map((r) => r.bytes).sort((a, b) => a - b);
     const largestSidecar = uploader.sidecarRecords.reduce((max, r) => (r.bytes > max.bytes ? r : max));
+    sidecars = {
+      count: uploader.sidecarRecords.length,
+      medianBytes: percentileOf(sidecarBytesSorted, 50),
+      p95Bytes: percentileOf(sidecarBytesSorted, 95),
+      maxBytes: largestSidecar.bytes,
+      largestKey: largestSidecar.key,
+    };
     console.log(
-      `  presim: count=${uploader.sidecarRecords.length} median=${percentileOf(sidecarBytesSorted, 50)}B p95=${percentileOf(sidecarBytesSorted, 95)}B max=${largestSidecar.bytes}B key=${largestSidecar.key}`
+      `  presim: count=${sidecars.count} median=${sidecars.medianBytes}B p95=${sidecars.p95Bytes}B max=${sidecars.maxBytes}B key=${sidecars.largestKey}`
     );
   }
   if (manifestKeys.length > 0) console.log(`  manifests: ${manifestKeys.join(", ")}`);
@@ -3629,7 +3648,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     console.log(`  timing: ${label} ${(elapsedMs / 1000).toFixed(1)}s`);
   }
 
-  return { generation, computedAt, objectCount, totalBytes, pages, seedFiles, manifestKeys, timings: { ...timings.ms } };
+  return { generation, computedAt, objectCount, totalBytes, pages, seedFiles, manifestKeys, timings: { ...timings.ms }, sidecars };
 }
 
 // ---------------------------------------------------------------------------
@@ -3722,7 +3741,8 @@ async function runSeasonsCliMode(
   includeOffseason: boolean,
   preScheduleFromSeason: number | undefined,
   rpCalibrationPathOverride: string | undefined,
-  noRpCalibration: boolean
+  noRpCalibration: boolean,
+  writeBudget: boolean
 ): Promise<void> {
   const seasons = parseSeasonsRange(seasonsSpec);
   const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
@@ -3733,11 +3753,40 @@ async function runSeasonsCliMode(
   const rpCalibration = noRpCalibration ? undefined : loadRpCalibrationMeasurement(rpCalibrationPathOverride ?? RP_CALIBRATION_MEASUREMENT_PATH);
 
   const db = openCorpusReadOnly(CORPUS_PATH);
+  const startedAt = new Date();
+  let summary: PublishSummary;
   try {
-    await publishSeasons(db, { seasons, algorithms, bucket, concurrency, dryRun, skipState, includeOffseason, preScheduleFromSeason, rpCalibration });
+    summary = await publishSeasons(db, { seasons, algorithms, bucket, concurrency, dryRun, skipState, includeOffseason, preScheduleFromSeason, rpCalibration });
   } finally {
     db.close();
   }
+  if (writeBudget) writePublishBudgetDoc(summary, startedAt, new Date(), dryRun);
+}
+
+/**
+ * `--write-budget` (quick task 260913-nvn): replaces the fenced `json budget`
+ * block in `docs/publish-budget.md` with this run's own measurements, so no
+ * figure is transcribed by hand. Called only after `publishSeasons` returned
+ * successfully. The `run` string is built from `process.argv` and summary
+ * fields only — never from environment variables (`--env-file` is tsx's own
+ * flag and never appears in `process.argv.slice(2)`).
+ */
+function writePublishBudgetDoc(summary: PublishSummary, startedAt: Date, finishedAt: Date, dryRun: boolean): void {
+  const durationSeconds = Math.round((finishedAt.getTime() - startedAt.getTime()) / 1000);
+  const duration = `${Math.floor(durationSeconds / 3600)}h${String(Math.floor((durationSeconds % 3600) / 60)).padStart(2, "0")}m${String(durationSeconds % 60).padStart(2, "0")}s`;
+  const sidecarText =
+    summary.sidecars === undefined
+      ? "0 presim sidecars"
+      : `${summary.sidecars.count} presim sidecars (median ${summary.sidecars.medianBytes} B, p95 ${summary.sidecars.p95Bytes} B, max ${summary.sidecars.maxBytes} B)`;
+  const run =
+    `tsx packages/harness/publish.ts ${process.argv.slice(2).join(" ")} -- generation ${summary.generation}, ` +
+    `${summary.objectCount} objects, ${summary.totalBytes} bytes total, ${sidecarText}, ` +
+    `${startedAt.toISOString()} to ${finishedAt.toISOString()} (${duration})` +
+    (dryRun ? " (dry-run: nothing uploaded)" : "");
+  const block = renderPublishBudgetBlock({ measuredAt: finishedAt.toISOString(), run, pages: summary.pages });
+  const doc = readFileSync(PUBLISH_BUDGET_DOC_PATH, "utf8");
+  writeFileSync(PUBLISH_BUDGET_DOC_PATH, replacePublishBudgetBlock(doc, block));
+  console.log(`publish: wrote the json budget block to ${PUBLISH_BUDGET_DOC_PATH}`);
 }
 
 async function main(): Promise<void> {
@@ -3758,6 +3807,9 @@ async function main(): Promise<void> {
       // RP calibration measurement path, or suppress attachment entirely.
       "rp-calibration": { type: "string" },
       "no-rp-calibration": { type: "boolean" },
+      // Quick task 260913-nvn: rewrite docs/publish-budget.md's json budget
+      // block from this run's measurements after a successful run.
+      "write-budget": { type: "boolean" },
     },
   });
 
@@ -3783,7 +3835,8 @@ async function main(): Promise<void> {
       values["include-offseason"] === true,
       preScheduleFromSeason,
       values["rp-calibration"],
-      values["no-rp-calibration"] === true
+      values["no-rp-calibration"] === true,
+      values["write-budget"] === true
     );
   } else {
     throw new Error("--seasons is required");
