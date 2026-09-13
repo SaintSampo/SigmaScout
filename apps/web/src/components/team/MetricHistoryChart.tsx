@@ -4,11 +4,19 @@
  * module so Recharts is never in the eager bundle (D-14).
  *
  * Plots ONLY `TOTAL_KEY` (D-11) — component metric trajectories are
- * deferred, not this chart's job. The variance band (an `Area`, drawn from
- * `value - spread` to `value + spread`) renders only when at least one point
- * in the series carries a `spread` — OPR (Total only, no spread) and EPA (no
- * spread on any metric) simply never show a band, and D-13 locks that as
- * silent: no explanatory text anywhere in this file.
+ * deferred, not this chart's job. The band (an `Area`, Total ± Sigma, one
+ * standard deviation) renders only when `drawsSigmaBand` holds: `algorithmId`
+ * publishes Sigma Score AND at least one row carries a published per-match
+ * `sigma` entry (quick task 260913-m45). OPR and EPA never publish Sigma
+ * Score, so they never show a band; a not-yet-republished SPR artifact shows
+ * none either, silently — no explanatory text anywhere in this file (D-13's
+ * silence rule, carried over from the retired spread-based band).
+ *
+ * The band is built from `sigma`, NEVER `spread` — `spread` is the
+ * algorithm's own confidence in its rating and must never reach the screen
+ * (developer rule, 2026-09-09); `metricHistorySeries.ts`'s `MetricSeriesPoint`
+ * no longer even carries a `spread` field, so this file cannot regress onto
+ * it by accident.
  *
  * Sizing: NOT `ResponsiveContainer` — Recharts' own `ResizeObserver`-driven
  * auto-sizing never resolves under jsdom (this repo's stubbed
@@ -24,7 +32,20 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceArea, XAxis, YAxis } from "recharts";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
-import { buildMetricSeries, detectEventBands } from "./metricHistorySeries.js";
+import { buildMetricSeries, detectEventBands, drawsSigmaBand, sigmaBandFor } from "./metricHistorySeries.js";
+
+/**
+ * The band's fill token — `chart-craft.md`'s own encoding rule ("text wears
+ * text tokens") extended to the band: this is a passive, non-interactive
+ * shaded region, never the accent (accent means interactive/active only,
+ * sketch-findings-sigmascout's design direction). The Line's own stroke and
+ * width are named here too so Task 3's legend swatches can reuse the exact
+ * same tokens rather than a second, independently hand-tuned pair.
+ */
+const BAND_FILL = "var(--color-text-muted)";
+const BAND_FILL_OPACITY = 0.18;
+const LINE_STROKE = "var(--color-text-primary)";
+const LINE_WIDTH_PX = 2;
 
 export interface MetricHistoryChartProps {
   rows: readonly MetricHistoryRow[];
@@ -136,7 +157,7 @@ function eventBandLabel(fullName: string) {
  * segment), so no special-casing is needed beyond gating the `Line`/`Area`
  * on `points.length > 0`.
  */
-export default function MetricHistoryChart({ rows, eventNameByKey }: MetricHistoryChartProps) {
+export default function MetricHistoryChart({ rows, algorithmId, eventNameByKey }: MetricHistoryChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState<number>(DEFAULT_CHART_WIDTH);
 
@@ -153,20 +174,19 @@ export default function MetricHistoryChart({ rows, eventNameByKey }: MetricHisto
   }, []);
 
   const points = buildMetricSeries(rows, TOTAL_KEY);
-  // The shaded band this chart used to draw came from each history row's
-  // `spread` — the ALGORITHM's confidence in its own rating — which must never
-  // reach the screen (2026-09-09). Forced off rather than deleted piecemeal:
-  // every band code path below stays intact and dormant, so re-enabling it
-  // once PER-MATCH Sigma Scores are published is a one-line change rather than
-  // a re-implementation. `metricHistorySeries.ts` still carries `spread` on
-  // each point for the same reason; nothing renders it.
-  const hasSpread = false;
+  // Quick task 260913-m45: the band draws only when this algorithm publishes
+  // Sigma Score AND at least one row actually carries a published per-match
+  // sigma — OPR, EPA and a not-yet-republished SPR artifact draw none,
+  // silently (D-13). One predicate feeds the Area below, the Y domain (via
+  // `data`), and Task 3's legend, so none of the three can disagree about
+  // whether a band is coming.
+  const drawBand = drawsSigmaBand(rows, algorithmId);
   const bands = detectEventBands(points);
 
   const data: ChartDatum[] = points.map((point) => ({
     x: point.x,
     value: point.value ?? null,
-    band: point.spread !== undefined && point.value !== undefined ? [point.value - point.spread, point.value + point.spread] : null,
+    band: drawBand ? sigmaBandFor(point) : null,
     matchKey: point.matchKey,
     eventKey: point.eventKey,
   }));
@@ -264,8 +284,14 @@ export default function MetricHistoryChart({ rows, eventNameByKey }: MetricHisto
           tick={{ fill: "var(--color-text-muted)", fontSize: 12 }}
           label={{ value: "Total", angle: -90, position: "insideLeft", fill: "var(--color-text-muted)", fontSize: 12 }}
         />
-        {hasSpread && <Area dataKey="band" stroke="none" fill="var(--color-accent)" fillOpacity={0.15} connectNulls={false} isAnimationActive={false} />}
-        {points.length > 0 && <Line dataKey="value" stroke="var(--color-text-primary)" strokeWidth={2} connectNulls={false} isAnimationActive={false} />}
+        {/*
+          Accepted consequence (quick task 260913-m45): a low Total with a
+          wide Sigma can push the band's lower edge — and so the axis, via
+          `yAxisDomainValues` above — below zero. That is the honest ±1 SD,
+          not a bug to clamp away.
+        */}
+        {drawBand && <Area dataKey="band" stroke="none" fill={BAND_FILL} fillOpacity={BAND_FILL_OPACITY} connectNulls={false} isAnimationActive={false} />}
+        {points.length > 0 && <Line dataKey="value" stroke={LINE_STROKE} strokeWidth={LINE_WIDTH_PX} connectNulls={false} isAnimationActive={false} />}
       </ComposedChart>
     </div>
   );
