@@ -7,7 +7,7 @@
  * the global-rebuild triggers.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runTick, touchedTeamsRowMetrics } from "../src/scheduled.js";
+import { runTick, touchedTeamsRowMetrics, touchedEventTeamMetrics } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { artifactKey, decodeTeamsRowMetrics } from "../../../packages/harness/pageArtifacts.js";
 // `runTick` builds every artifact key from the LIVE algorithm module's
@@ -1052,6 +1052,96 @@ describe("260912-tnk: live Teams-row tiers", () => {
     }
     expect(checked, "non-vacuous: every seeded touched team was checked").toBe(Object.keys(priorTiers).length);
     expect(decodedByTeam.get("frc999")?.total).toEqual({ value: 77.7, spread: 1, tier: "epic" });
+  });
+});
+
+describe("260913-jkp: live ticks keep the published Sigma entry", () => {
+  it("carries the prior Sigma entry forward, as the last key, over a fresh record that lacks it", () => {
+    const result = touchedEventTeamMetrics({ total: { value: 10, percentile: 40 }, sigma: { value: 27.8, percentile: 83.2 } }, { total: { value: 12.34 } });
+    expect(result).toEqual({ total: { value: 12.34 }, sigma: { value: 27.8, percentile: 83.2 } });
+    expect(Object.keys(result)).toEqual(["total", "sigma"]);
+  });
+
+  it("when fresh already has a sigma key, the fresh entry wins and nothing is carried", () => {
+    const result = touchedEventTeamMetrics({ sigma: { value: 27.8, percentile: 83.2 } }, { sigma: { value: 30 } });
+    expect(result).toEqual({ sigma: { value: 30 } });
+  });
+
+  it("with prior undefined, the result equals the rounded fresh record", () => {
+    expect(touchedEventTeamMetrics(undefined, { total: { value: 12.34 } })).toEqual({ total: { value: 12.34 } });
+  });
+
+  it("no key other than sigma is ever carried from prior", () => {
+    const result = touchedEventTeamMetrics({ total: { value: 999 }, phaseAuto: { value: 5 }, sigma: { value: 1, percentile: 2 } }, { total: { value: 10 } });
+    expect(result).toEqual({ total: { value: 10 }, sigma: { value: 1, percentile: 2 } });
+    expect(result).not.toHaveProperty("phaseAuto");
+  });
+
+  it("runTick: a touched team's seeded event and team-season Sigma entries survive one tick, on both artifacts", async () => {
+    const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const kv = makeKv([window]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+
+    const eventArtifactKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "opr", version: opr.version });
+    const seededSigma = { value: 27.8, percentile: 83.2 };
+    await r2.put(
+      eventArtifactKey,
+      JSON.stringify({
+        schemaVersion: 1,
+        generation: "gen-0",
+        computedAt: "2026-08-01T00:00:00.000Z",
+        algorithmId: "opr",
+        algorithmVersion: opr.version,
+        eventKey: "2026casj",
+        season: SEASON,
+        matches: [],
+        upcoming: [],
+        teams: [{ teamKey: "frc1", teamNumber: 1, nickname: "Touched", metrics: { total: { value: 50 }, sigma: seededSigma } }],
+      })
+    );
+
+    const teamArtifactKey = artifactKey({ page: "team", teamKey: "frc1", year: SEASON, algorithmId: "opr", version: opr.version });
+    await r2.put(
+      teamArtifactKey,
+      JSON.stringify({
+        schemaVersion: 1,
+        generation: "gen-0",
+        computedAt: "2026-08-01T00:00:00.000Z",
+        algorithmId: "opr",
+        algorithmVersion: opr.version,
+        teamKey: "frc1",
+        teamNumber: 1,
+        nickname: "Touched",
+        season: SEASON,
+        seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: { total: { value: 50 }, sigma: seededSigma } },
+        events: [],
+        metricHistory: [],
+      })
+    );
+
+    const record: TbaEventRecord = {
+      etag: "etag-1",
+      eventType: 0,
+      season: SEASON,
+      matches: [tbaMatch({ key: "2026casj_qm1", eventKey: "2026casj", matchNumber: 1, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 120, blueScore: 95, actualTimeSec: Math.floor(NOW_MS / 1000) - 60 })],
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", record]])));
+
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    expect(result.eventsAdvanced).toBe(1);
+
+    const eventPut = r2.puts.filter((p) => p.key === eventArtifactKey).at(-1);
+    expect(eventPut).toBeDefined();
+    const writtenEvent = JSON.parse(eventPut!.body) as { teams: { teamKey: string; metrics: Record<string, { value: number; percentile?: number }> }[] };
+    const frc1EventRow = writtenEvent.teams.find((t) => t.teamKey === "frc1");
+    expect(frc1EventRow?.metrics.sigma).toEqual(seededSigma);
+    expect(frc1EventRow?.metrics.total?.value).not.toBe(50); // the fresh value really landed, not the seeded one
+
+    const teamPut = r2.puts.filter((p) => p.key === teamArtifactKey).at(-1);
+    expect(teamPut).toBeDefined();
+    const writtenTeam = JSON.parse(teamPut!.body) as { seasonStats: { metrics: Record<string, { value: number; percentile?: number }> } };
+    expect(writtenTeam.seasonStats.metrics.sigma).toEqual(seededSigma);
   });
 });
 
