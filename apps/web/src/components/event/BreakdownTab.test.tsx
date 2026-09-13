@@ -18,7 +18,8 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Router
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { TOTAL_SIGMA_COLUMN_WIDTH_PX, totalColumnHeader } from "@/components/TotalSigmaValue";
-import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { makeEventArtifact as makeArtifact, mockNarrowViewport } from "@/test/helpers";
+import { PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 import {
   BreakdownTab,
@@ -83,23 +84,6 @@ function team(overrides: Partial<ArtifactTeam> = {}): ArtifactTeam {
     metrics: { [TOTAL_KEY]: { value: 48.33, spread: 2.32 } },
     ...overrides,
   };
-}
-
-/** Builds a valid artifact through `EventArtifactSchema.parse` — the real schema, proving the fixture matches the published shape. */
-function makeArtifact(teams: ArtifactTeam[], overrides: Partial<EventArtifact> = {}): EventArtifact {
-  return EventArtifactSchema.parse({
-    schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
-    generation: "gen-1",
-    computedAt: "2026-08-27T00:00:00.000Z",
-    algorithmId: "spr",
-    algorithmVersion: "2.0.0+tuned-2026-08",
-    eventKey: "2024casf",
-    season: 2024,
-    matches: [],
-    upcoming: [],
-    teams,
-    ...overrides,
-  });
 }
 
 /**
@@ -405,25 +389,6 @@ describe("BreakdownTab — long text (EVNT-03/UI-SPEC E4 long-text)", () => {
     expect(link.textContent).toBe(longNickname);
   });
 });
-
-/** Local copy of `TeamsTable.test.tsx`'s `mockNarrowViewport` — stubs `window.matchMedia` to always match, giving the narrow layout. Always restored in a `finally`. */
-function mockNarrowViewport(): () => void {
-  const original = window.matchMedia;
-  window.matchMedia = (query: string) =>
-    ({
-      matches: true,
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    }) as MediaQueryList;
-  return () => {
-    window.matchMedia = original;
-  };
-}
 
 describe("BreakdownTab — no sticky columns (2026-09-13)", () => {
   function assertNoStickyColumns() {

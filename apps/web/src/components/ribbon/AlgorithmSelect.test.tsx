@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { makeQueryClient } from "@/test/helpers";
 import { AlgorithmSelect, algorithmDisplayLabel, useAlgorithmOptions } from "./AlgorithmSelect.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../../../../../packages/harness/publishedAlgorithms.js";
 
@@ -16,10 +17,6 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
     useSearch: () => mockSearch,
   };
 });
-
-function makeQueryClient(): QueryClient {
-  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
-}
 
 function wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={makeQueryClient()}>{children}</QueryClientProvider>;

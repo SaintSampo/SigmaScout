@@ -19,6 +19,7 @@ import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import { METRIC_GROUPS } from "@/lib/metricGroups";
 import { TOTAL_KEY } from "@/lib/metricKeys";
+import { makeEventArtifact as makeArtifact, mockNarrowViewport } from "@/test/helpers";
 import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 import {
@@ -77,23 +78,6 @@ function team(overrides: Partial<ArtifactTeam> = {}): ArtifactTeam {
     metrics: { [TOTAL_KEY]: { value: 48.33, spread: 2.32 } },
     ...overrides,
   };
-}
-
-/** Builds a valid artifact through `EventArtifactSchema.parse` — the real schema, proving the fixture matches the published shape. */
-function makeArtifact(teams: ArtifactTeam[], overrides: Partial<EventArtifact> = {}): EventArtifact {
-  return EventArtifactSchema.parse({
-    schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
-    generation: "gen-1",
-    computedAt: "2026-08-27T00:00:00.000Z",
-    algorithmId: "spr",
-    algorithmVersion: "2.0.0+tuned-2026-08",
-    eventKey: "2024casf",
-    season: 2024,
-    matches: [],
-    upcoming: [],
-    teams,
-    ...overrides,
-  });
 }
 
 describe("buildInsightsRows — official vs fallback ordering (EVNT-02, D-07/D-08)", () => {
@@ -480,25 +464,6 @@ describe("InsightsTab — D-08 fallback header and banner", () => {
     expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
   });
 });
-
-/** Local copy of `TeamsTable.test.tsx`'s `mockNarrowViewport` — stubs `window.matchMedia` to always match, giving the narrow layout. Always restored in a `finally`. */
-function mockNarrowViewport(): () => void {
-  const original = window.matchMedia;
-  window.matchMedia = (query: string) =>
-    ({
-      matches: true,
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    }) as MediaQueryList;
-  return () => {
-    window.matchMedia = original;
-  };
-}
 
 describe("InsightsTab — no sticky columns (2026-09-13)", () => {
   const artifact = EventArtifactSchema.parse({

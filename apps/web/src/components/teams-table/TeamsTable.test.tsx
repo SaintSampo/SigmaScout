@@ -5,6 +5,7 @@ import { createMemoryHistory, createRootRoute, createRoute, createRouter, Router
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
+import { mockNarrowViewport } from "@/test/helpers";
 import { PINNED_COLUMN_IDS } from "./columns";
 import { TeamsTable } from "./TeamsTable";
 import type { TeamRow } from "./rowModel";
@@ -74,31 +75,6 @@ function row(overrides: Partial<TeamRow> = {}): TeamRow {
 }
 
 const noop = () => {};
-
-/**
- * Same phone-viewport `matchMedia` override `Ribbon.test.tsx` uses (query
- * argument ignored, always `matches: true`) — sufficient here because
- * `TeamsTable`'s two breakpoint hooks (`useIsMobile`/`useIsF3MetricFirstWidth`)
- * only need `isNarrow` to resolve `true`; `metricFirst`'s value doesn't
- * affect the rank column under test.
- */
-function mockNarrowViewport(): () => void {
-  const original = window.matchMedia;
-  window.matchMedia = (query: string) =>
-    ({
-      matches: true,
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    }) as MediaQueryList;
-  return () => {
-    window.matchMedia = original;
-  };
-}
 
 describe("TeamsTable", () => {
   it("renders the declared column set for the given algorithm/season, and switching algorithm changes it", async () => {

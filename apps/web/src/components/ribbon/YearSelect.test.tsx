@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { useConstrainedYears, YearSelect } from "./YearSelect.js";
 import { SEASONS } from "@/lib/seasons";
 import { algorithmsManifestQueryOptions } from "@/lib/api/manifests";
 import { teamQueryOptions } from "@/lib/api/team";
+import { makeQueryClient } from "@/test/helpers";
 import { PAGE_ARTIFACT_SCHEMA_VERSION, EventsArtifactSchema, type TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 // D-18 (06-07-PLAN.md Task 3). `YearSelect` mounts once at the root layout,
@@ -50,10 +51,6 @@ function teamArtifact(overrides: Partial<TeamSeasonArtifact> = {}): TeamSeasonAr
     metricHistory: [],
     ...overrides,
   };
-}
-
-function makeQueryClient(): QueryClient {
-  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
 
 /** The exact same key `teamQueryOptions` builds (and the route itself queries with) — `useConstrainedYears` must read THIS key, never a derived/approximate one. */

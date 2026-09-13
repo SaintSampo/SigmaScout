@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema, TeamsSearchSchema } from "@/lib/searchParams";
+import { makeQueryClient } from "@/test/helpers";
 import { Ribbon } from "./Ribbon.js";
 
 /**
@@ -30,10 +31,6 @@ function buildTestRouter(initialPath: string) {
   const districtsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/districts", component: () => <div>Districts page</div> });
   const routeTree = rootRoute.addChildren([teamsRoute, eventsRoute, methodologyRoute, districtsRoute]);
   return createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [initialPath] }) });
-}
-
-function makeQueryClient(): QueryClient {
-  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
 
 async function renderRibbonAt(initialPath: string) {

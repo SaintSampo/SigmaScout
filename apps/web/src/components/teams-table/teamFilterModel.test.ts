@@ -5,20 +5,8 @@
  * and a state value that fails the two-letter-alpha rule.
  */
 import { describe, expect, it } from "vitest";
-import { PAGE_ARTIFACT_SCHEMA_VERSION, TeamsArtifactSchema, type TeamsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { makeTeamsArtifact as makeArtifact } from "@/test/helpers";
 import { applyTeamFilters, teamFilterOptions, type TeamFilterRow, type TeamFilters } from "./teamFilterModel.js";
-
-function makeArtifact(teams: unknown[]): TeamsArtifact {
-  return TeamsArtifactSchema.parse({
-    schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
-    generation: "gen-1",
-    computedAt: "2026-08-24T00:00:00.000Z",
-    algorithmId: "spr",
-    algorithmVersion: "2.0.0+tuned-2026-08",
-    season: 2026,
-    teams,
-  });
-}
 
 function makeRow(overrides: Partial<TeamFilterRow> & { teamKey: string; teamNumber: number }): Record<string, unknown> {
   return {

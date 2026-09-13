@@ -11,6 +11,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { PLOT_W, SIM_GEOMETRY, histBarExtent, medianTickLeft, rankAxisTicks, rankBandExtent, x } from "@/lib/simAxis";
+import { mockNarrowViewport } from "@/test/helpers";
 import { buildRankDistributionRows, rankBandLabel, type RankDistributionRow } from "./rankRows.js";
 import { RANK_TABLE_HEADERS, RankDistributionTable } from "./RankDistributionTable.js";
 import type { SimResult } from "../../../../../packages/core/algorithms/simulation/rankSimulation.js";
@@ -252,25 +253,6 @@ describe("RankDistributionTable — sort order (integration through the shipped 
     expect(builtRows.map((r) => r.teamKey)).toEqual(["frcLow", "frcMid", "frcHigh"]);
   });
 });
-
-/** Local copy of `TeamsTable.test.tsx`'s `mockNarrowViewport` — stubs `window.matchMedia` to always match, giving the narrow layout. Always restored in a `finally`. */
-function mockNarrowViewport(): () => void {
-  const original = window.matchMedia;
-  window.matchMedia = (query: string) =>
-    ({
-      matches: true,
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    }) as MediaQueryList;
-  return () => {
-    window.matchMedia = original;
-  };
-}
 
 describe("RankDistributionTable — sticky title row, no sticky columns (2026-09-13)", () => {
   it("wide layout: headers sticky top-only, body cells never sticky", async () => {

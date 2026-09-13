@@ -18,7 +18,8 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { TOTAL_KEY } from "@/lib/metricKeys";
-import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { makeEventArtifact, mockNarrowViewport } from "@/test/helpers";
+import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { allianceSigmaBandVariance, SIGMA_METRIC_KEY, sigmaMatchBandVariance } from "../../../../../packages/harness/sigmaScore.js";
 import {
   ALLIANCE_APPROX_TIER_DISCLOSURE,
@@ -73,21 +74,9 @@ function alliance(overrides: Partial<ArtifactAlliance> = {}): ArtifactAlliance {
   };
 }
 
+/** Thin local wrapper over the shared `makeEventArtifact`: only adds `alliances` to `overrides` when it is defined, so the key stays absent otherwise, exactly as before this file used the shared helper. */
 function makeArtifact(teams: ArtifactTeam[], alliances: ArtifactAlliance[] | undefined, overrides: Partial<EventArtifact> = {}): EventArtifact {
-  return EventArtifactSchema.parse({
-    schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
-    generation: "gen-1",
-    computedAt: "2026-08-27T00:00:00.000Z",
-    algorithmId: "spr",
-    algorithmVersion: "2.0.0+tuned-2026-08",
-    eventKey: "2024casf",
-    season: 2024,
-    matches: [],
-    upcoming: [],
-    teams,
-    ...(alliances === undefined ? {} : { alliances }),
-    ...overrides,
-  });
+  return makeEventArtifact(teams, { ...(alliances === undefined ? {} : { alliances }), ...overrides });
 }
 
 /** Four teams whose keys/numbers/nicknames match `alliance()`'s default four-pick shape. */
@@ -785,25 +774,6 @@ describe("AlliancesTab — Combined Total's neutral Sigma band (quick task 26091
 // 2026-09-13 (user request): no column on any event-page table stays frozen
 // during horizontal scroll — see EventMatchTable.test.tsx's identical assertion.
 // ---------------------------------------------------------------------------
-
-/** Local copy of `TeamsTable.test.tsx`'s `mockNarrowViewport` — stubs `window.matchMedia` to always match, giving the narrow layout. Always restored in a `finally`. */
-function mockNarrowViewport(): () => void {
-  const original = window.matchMedia;
-  window.matchMedia = (query: string) =>
-    ({
-      matches: true,
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    }) as MediaQueryList;
-  return () => {
-    window.matchMedia = original;
-  };
-}
 
 describe("AlliancesTab — no sticky columns (2026-09-13)", () => {
   function assertNoStickyColumns() {
