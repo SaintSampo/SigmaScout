@@ -1,63 +1,34 @@
 /**
- * THE CLOSED FORM — replaces `distribution.ts`'s 4,000-draw joint Monte
- * Carlo with an EXACT analytic pmf: one marginal per threshold variable
- * (`marginals.ts`, 09-03), bonuses grouped by shared threshold variable and
- * enumerated from marginal CDFs, groups convolved into a bonus-only pmf,
- * and that pmf convolved with the win/tie outcome half.
+ * THE CLOSED FORM — an EXACT analytic pmf: one marginal per threshold
+ * variable (`marginals.ts`), bonuses grouped by shared threshold variable
+ * and enumerated from marginal CDFs, groups convolved into a bonus-only
+ * pmf, and that pmf convolved with the win/tie outcome half.
  *
- * ---------------------------------------------------------------------------
- * WHY THIS IS EXACT, NOT AN APPROXIMATION (D-08, 09-CONTEXT `<domain>`)
- * ---------------------------------------------------------------------------
+ * WHY THIS IS EXACT, NOT AN APPROXIMATION: `empiricalMoments.ts`'s
+ * `momentsFor` builds a DIAGONAL `varianceBlock` and an ALL-ZERO
+ * `scoreCrossCovariance` by construction — the joint is already exactly
+ * independent. A closed form over independent marginals computes the exact
+ * distribution, with no sampling noise. This module ASSERTS that
+ * diagonal/zero precondition on every call (`assertIndependencePrecondition`
+ * below) rather than assuming it — a caller supplying a genuine, non-zero
+ * correlation would have it silently discarded by a function whose whole
+ * correctness argument depends on its absence, so this module refuses that
+ * caller instead.
  *
- * `empiricalMoments.ts`'s `momentsFor` builds a DIAGONAL `varianceBlock` and
- * an ALL-ZERO `scoreCrossCovariance` by construction — the joint the deleted
- * Monte Carlo sampled was already exactly independent. `distribution.ts`'s
- * Cholesky factor was therefore always a diagonal of standard deviations,
- * and its 4,000 correlated-looking draws were sampling independent normals.
- * A closed form over independent marginals is not an approximation of that
- * joint; it computes the same distribution the draws were estimating, with
- * the +/-0.008 of sampling noise the draws added simply gone. This module
- * ASSERTS that diagonal/zero precondition on every call
- * (`assertIndependencePrecondition` below) rather than assuming it — a
- * caller supplying a genuine, non-zero correlation (Sigma1's
- * `predictAllianceRpMoments` does exactly that, D-11) would have it silently
- * discarded by a function whose whole correctness argument depends on its
- * absence, so this module refuses that caller instead.
+ * THE HAND-COMPUTED TEST DEBT THIS MODULE OWES: `analyticPmf.test.ts` and
+ * `analyticPmf.seasons.test.ts` carry expected values computed from this
+ * module's own specification, never produced by running this file. The
+ * single highest-risk computation in the whole module lives here — 2026's
+ * `energized`/`supercharged` pair both threshold `hubTotalCount`, and
+ * `SUPERCHARGED_THRESHOLD[tier] >= ENERGIZED_THRESHOLD[tier]` at every
+ * tier, so supercharged structurally IMPLIES energized. Treating the pair
+ * as independent Bernoulli events understates `P(both)` — the
+ * nested-threshold interval enumeration below (`groupContribution`'s
+ * `nestedSameVariable` branch) exists specifically to get this right, and
+ * the test suite asserts the correct answer is NOT the independent product.
  *
- * ---------------------------------------------------------------------------
- * D-07 — THE HAND-COMPUTED TEST DEBT THIS MODULE OWES
- * ---------------------------------------------------------------------------
- *
- * D-07 declined the one-time Monte Carlo equivalence check that would have
- * been this phase's strongest correctness evidence, and named hand-computed
- * unit tests as the required mitigation instead. `analyticPmf.test.ts` and
- * `analyticPmf.seasons.test.ts` carry that debt: every expected value in
- * them was computed from this module's own specification at PLANNING time,
- * never produced by running this file. The single highest-risk computation
- * in the whole phase lives here — 2026's `energized`/`supercharged` pair
- * both threshold `hubTotalCount`, and `SUPERCHARGED_THRESHOLD[tier] >=
- * ENERGIZED_THRESHOLD[tier]` at every tier, so supercharged structurally
- * IMPLIES energized. Treating the pair as independent Bernoulli events
- * understates `P(both)` — the nested-threshold interval enumeration below
- * (`groupContribution`'s `nestedSameVariable` branch) exists specifically to
- * get this right, and the test suite asserts the correct answer is NOT the
- * independent product.
- *
- * ---------------------------------------------------------------------------
- * THE MODEL THIS FILE IMPLEMENTS (settled 2026-09-11, phase 09 plan 09-06)
- * ---------------------------------------------------------------------------
- *
- * ONE model, one path, no selectable surface. Phase 9 built three alternative
- * formulations behind a temporary config object, measured all eight
- * combinations of them against the unchanged legacy model through the
- * publisher's own scorer, and applied a per-bonus acceptance bar that had been
- * committed as executable code before any of the figures existed. THE RULE
- * ACCEPTED NONE OF THE THREE, so all three were reverted and the branches they
- * selected between were deleted along with the config object itself.
- *
- * What survives is the legacy formulation running on the CLOSED FORM that plan
- * 09-04 put in place of a 4,000-draw Monte Carlo — that engine change shipped
- * unconditionally and was never on trial:
+ * THE MODEL THIS FILE IMPLEMENTS. ONE model, one path, no selectable
+ * surface:
  *
  *   - the win/loss split comes from the difference of the two alliances'
  *     independent Gaussian score distributions;
@@ -66,11 +37,11 @@
  *     means case;
  *   - each threshold variable's marginal is Gaussian.
  *
- * The measurement, the rejected formulations, their measured effects and the
- * reason each was refused are recorded in `docs/models/rp-attribution.md` and
- * `docs/models/rp-layer-config-arms.md`. Both outlive the code they describe;
- * that is deliberate, and it is why the committed measurement's schema
- * references nothing that was deleted here.
+ * Alternative formulations were measured against this one through the
+ * publisher's own scorer under a pre-committed per-bonus acceptance bar and
+ * did not clear it. The measurement, the rejected formulations and the
+ * reason each was refused are recorded in `docs/models/rp-attribution.md`
+ * and `docs/models/rp-layer-config-arms.md`.
  */
 import type { CompLevel } from "../algorithms/types.js";
 import type {
@@ -94,33 +65,24 @@ import {
 } from "./marginals.js";
 
 /**
- * A PERMANENT FALLBACK-LADDER DIAGNOSTIC: running counts of what a set of
- * `fitMarginal` calls actually RESOLVED to — `FittedMarginal.resolved`, never
- * `.declared`.
+ * A fallback-ladder diagnostic: running counts of what a set of
+ * `fitMarginal` calls actually RESOLVED to — `FittedMarginal.resolved`,
+ * never `.declared`. A variable can declare Gaussian and still resolve to a
+ * degenerate point mass when a fit over its data cannot support any
+ * distribution; this counts how often that happens.
  *
- * It was introduced to stop a measurement publishing an accept/revert call for
- * a model that had silently fallen back to a different one, and it did that
- * job. It is kept, rather than deleted with the rest of that measurement's
- * scaffolding, because the thing it counts is still live and still
- * multi-valued: a variable declares Gaussian, and a fit over data that cannot
- * support any distribution still resolves to a degenerate point mass. A count
- * of how often that happens is a real diagnostic, not a toggle that lost its
- * second position.
+ * The `negativeBinomial` counter matters because the NB method-of-moments
+ * fit is undefined for `mean <= 0` and for `variance <= mean`, both of
+ * which fall back to Gaussian. Without this counter, a measurement arm
+ * labelled `"negative-binomial"` whose fits mostly fell back is
+ * indistinguishable from a genuine one — a verdict taken on that arm would
+ * be a verdict about the fit's APPLICABILITY wearing the costume of a
+ * verdict about the family. Any measurement using the arm must report what
+ * fraction of its fits actually resolved here.
  *
- * ITS `negativeBinomial` COUNTER IS BACK (2026-09-12, quick task 260912-2uz),
- * restored with the family it counts and for the reason it existed: the NB
- * method-of-moments fit is undefined for `mean <= 0` and for
- * `variance <= mean`, and both fall back to Gaussian. Without this counter, a
- * measurement arm labelled `"negative-binomial"` whose fits mostly fell back is
- * indistinguishable from a genuine one — and a verdict taken on that arm would
- * be a verdict about the fit's APPLICABILITY wearing the costume of a verdict
- * about the family. Any measurement using the arm must report what fraction of
- * its fits actually resolved here.
- *
- * `fallbacks` is counted SEPARATELY from `gaussian` — a fit that resolved to
- * what it declared is not a fallback, and conflating the two would overstate
- * how often the ladder fired (the same discipline `FittedMarginal`'s own
- * `declared`/`resolved`/`fallbackReason` split applies).
+ * `fallbacks` is counted SEPARATELY from `gaussian` — a fit that resolved
+ * to what it declared is not a fallback, and conflating the two would
+ * overstate how often the ladder fired.
  */
 export interface MarginalResolutionTally {
   negativeBinomial: number;
@@ -152,7 +114,7 @@ function accumulateMarginalResolution(tally: MarginalResolutionTally, marginal: 
 
 // ---------------------------------------------------------------------------
 // convolvePmf — plain polynomial multiplication, the one convolution routine
-// every step below (and 09-09's rung-1 N-fold season-total convolution) uses.
+// every step below (and the rung-1 N-fold season-total convolution) uses.
 // ---------------------------------------------------------------------------
 
 export function convolvePmf(a: readonly number[], b: readonly number[]): number[] {
@@ -175,8 +137,8 @@ export function convolvePmf(a: readonly number[], b: readonly number[]): number[
  * `analyticRpPmf`/`allianceBonusRpPmf` are exact ONLY because the joint is
  * diagonal: every `scoreCrossCovariance` entry zero, every off-diagonal
  * `varianceBlock` entry zero. Throws naming the season and the violating
- * index/variable pair otherwise — a caller supplying a learned correlation
- * (Sigma1's `predictAllianceRpMoments`) must not reach this function.
+ * index/variable pair otherwise — a caller supplying a learned score/threshold
+ * correlation must not reach this function.
  */
 function assertIndependencePrecondition(moments: AllianceRpMoments, season: number): void {
   for (let i = 0; i < moments.scoreCrossCovariance.length; i++) {
@@ -219,8 +181,8 @@ function intersects(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
  * Which `MarginalFamily` a clause's COMBINED moments may be fitted with,
  * DERIVED from the families its contributing terms declare rather than
  * asserted here. Reads `FittedMarginal.declared` — the per-variable
- * declaration site D-02 locked — so a future family extends the declarations
- * and this derivation picks it up, rather than reintroducing a global switch.
+ * declaration site — so a future family extends the declarations and this
+ * derivation picks it up, rather than reintroducing a global switch.
  *
  * Refuses, loudly, in both cases where no exact closed form exists. That is
  * this module's house style (`assertIndependencePrecondition`,
@@ -253,23 +215,18 @@ function familyForClauseSum(
       // combined moments at all.
       return "gaussian";
     case "negative-binomial":
-      // THE DESIGN WORKED. This arm exists because the union grew on
-      // 2026-09-12 (quick task 260912-2uz) and the `never` below refused to
-      // compile until someone answered the question it was built to force:
-      // is this family closed under scaled addition? Negative binomial is
-      // NOT. A sum of independent NB variables is NB only when every `p`
-      // matches — nothing here guarantees that — and `X / divisor` is not
-      // even integer-supported, so a divided term has left the family
-      // outright. Fitting the combined moments with an NB would therefore
-      // publish a probability from a distribution the terms do not have.
+      // Negative binomial is NOT closed under scaled addition: a sum of
+      // independent NB variables is NB only when every `p` matches —
+      // nothing here guarantees that — and `X / divisor` is not even
+      // integer-supported, so a divided term has left the family outright.
+      // Fitting the combined moments with an NB would therefore publish a
+      // probability from a distribution the terms do not have.
       //
-      // THROWING IS THE ONLY CORRECT ANSWER HERE, and specifically a silent
-      // Gaussian fallback is not: that fallback is exactly the hardcode quick
-      // task 260911-w7k removed, whose presence made 24 of 30 cells in plan
-      // 09-06's measurement structurally incapable of responding to a family
-      // change while still reporting as ties. Reintroducing it would make the
-      // same measurement meaningless a second time. A caller that wants NB on
-      // a variable must confine it to clauses of one unscaled term.
+      // Throwing is the only correct answer here; a silent Gaussian
+      // fallback would make a measurement using this family structurally
+      // incapable of responding to a family change while still reporting a
+      // tie. A caller that wants NB on a variable must confine it to
+      // clauses of one unscaled term.
       throw new Error(
         `analyticRpPmf: season ${season} bonus "${bonusName}" sums scaled terms all declaring "negative-binomial" over variables {${clause.terms.map((term) => term.variable).join(", ")}}, which is not closed under scaled addition — a sum of independent negative binomials is negative binomial only when every p matches, and a divided term is not even integer-supported, so implement that joint explicitly or declare "gaussian" on every variable appearing in a multi-term or divisor-bearing clause`
       );
@@ -596,13 +553,13 @@ function groupContribution(
 // Step 1/5 — fit marginals, group, convolve into the bonus-only pmf.
 // ---------------------------------------------------------------------------
 
-/** One alliance's bonus-only RP distribution, plus the observability 09-06 depends on. */
+/** One alliance's bonus-only RP distribution, plus the observability a caller may need. */
 export interface AllianceBonusRp {
   /** Index `i` = P(this alliance earns exactly `i` bonus RP). Sums to 1. Length `bonusNames.length + 1`. */
   readonly pmf: readonly number[];
   /** Per-bonus MARGINAL probabilities, in `ruleModule.bonusNames` order. Does NOT sum to 1. */
   readonly bonusProbabilities: readonly number[];
-  /** 09-03's `FittedMarginal[]`, carrying `resolved`/`fallbackReason` intact, in `moments.variableNames` order. */
+  /** `FittedMarginal[]`, carrying `resolved`/`fallbackReason` intact, in `moments.variableNames` order. */
   readonly marginals: readonly FittedMarginal[];
 }
 
@@ -622,7 +579,7 @@ function assertNormalizedPmf(pmf: readonly number[], season: number, label: stri
 /**
  * One alliance's bonus-only RP distribution — fit marginals (Step 1), group
  * bonuses (Step 2), enumerate and convolve each group (Steps 3/4/5). This is
- * the bonus-only marginal 09-07/09-09 consume directly.
+ * the bonus-only marginal callers consume directly.
  */
 export function allianceBonusRpPmf(
   moments: AllianceRpMoments,
@@ -632,10 +589,10 @@ export function allianceBonusRpPmf(
 ): AllianceBonusRp {
   assertIndependencePrecondition(moments, ruleModule.season);
   const tier = eventTierFor(eventType);
-  // Each variable's own declared family is honored verbatim. D-02 locked the
-  // per-variable DECLARATION SITE, so this stays a per-variable read even
-  // though every variable currently declares the same family — a future family
-  // extends the declaration rather than reintroducing a global switch.
+  // Each variable's own declared family is honored verbatim: this stays a
+  // per-variable read even though every variable currently declares the
+  // same family — a future family extends the declaration rather than
+  // reintroducing a global switch.
   const marginalsByName = fitAllianceMarginals(moments, ruleModule.thresholdVariables);
   if (tally !== undefined) {
     for (const marginal of marginalsByName.values()) accumulateMarginalResolution(tally, marginal);
@@ -675,7 +632,7 @@ export function allianceBonusRpPmf(
 // Step 6 — the outcome half.
 // ---------------------------------------------------------------------------
 
-/** The win/tie/loss probabilities for one match, plus the season's own `winRp`/`tieRp` (09-07 composes its outcome vectors against these). */
+/** The win/tie/loss probabilities for one match, plus the season's own `winRp`/`tieRp` (a caller composes its outcome vectors against these). */
 export interface RpOutcomeDistribution {
   readonly pRedWin: number;
   readonly pTie: number;
@@ -703,26 +660,22 @@ export interface RpOutcomeInput {
  * independent Gaussian score distributions. The cross-alliance covariance
  * block is zero, so `D = redScore - blueScore` is Gaussian with
  * `meanD = red.scoreMean - blue.scoreMean` and
- * `varianceD = red.scoreVariance + blue.scoreVariance`. This reproduces the
- * deleted draw loop's `redScore > blueScore` comparison exactly — plan 09-04
- * replaced a 4,000-draw Monte Carlo with this closed form without changing
- * the model it evaluates.
+ * `varianceD = red.scoreVariance + blue.scoreVariance`.
  *
  * A TIE HAS PROBABILITY ZERO whenever `varianceD > 0`, because a tie would
- * need exact floating-point equality of two continuous draws. That is a known
- * and measured shortcoming, not an oversight: about 1.09% of real
+ * need exact floating-point equality of two continuous draws. That is a
+ * known and measured shortcoming, not an oversight: about 1.09% of real
  * qualification matches tie. A replacement that gave the tie its own
- * integer-margin probability was built, measured on 2023-2026 through the
- * publisher's own scorer, and REFUSED by the pre-committed per-bonus bar,
- * which reads bonus Brier and is blind to a change that only moves the
- * win/tie/loss half. `docs/models/rp-attribution.md` carries the figures,
- * including what that replacement actually achieved.
+ * integer-margin probability was measured through the publisher's own
+ * scorer and REFUSED by the pre-committed per-bonus bar, which reads bonus
+ * Brier and is blind to a change that only moves the win/tie/loss half.
+ * `docs/models/rp-attribution.md` carries the figures.
  *
  * The `varianceD <= 0` DEGENERATE branch — both alliances' predicted score
- * variance exactly zero, a deterministic score pair — is preserved exactly as
- * 09-04 shipped it, and it is the one place `pTie` can be non-zero: two equal
- * deterministic means ARE a tie. That is not the dead branch described above,
- * which is a claim about `varianceD > 0` only.
+ * variance exactly zero, a deterministic score pair — is the one place
+ * `pTie` can be non-zero: two equal deterministic means ARE a tie. That is
+ * not the dead branch described above, which is a claim about
+ * `varianceD > 0` only.
  */
 export function matchOutcomeDistribution(input: RpOutcomeInput): RpOutcomeDistribution {
   const meanD = input.redScoreMean - input.blueScoreMean;
@@ -777,9 +730,9 @@ export interface AnalyticRpPmfInput {
   readonly eventType: number;
   readonly compLevel: CompLevel;
   /**
-   * Optional EXTERNAL accumulator (09-05 Task 3, D-01) — when supplied, this
-   * call's marginal fits (both alliances) are ALSO folded into it, so a
-   * caller (`SigmaScoutLayer.rpMarginalResolutionTally`) can track the
+   * Optional EXTERNAL accumulator — when supplied, this call's marginal
+   * fits (both alliances) are ALSO folded into it, so a caller
+   * (`SigmaScoutLayer.rpMarginalResolutionTally`) can track the
    * resolved-family mix across many calls. A call given no tally still
    * returns a correct pmf and does not throw.
    */
@@ -791,24 +744,21 @@ export interface AnalyticRpPmfResult {
   readonly bluePmf: readonly number[];
   readonly redBonusProbabilities?: readonly number[];
   readonly blueBonusProbabilities?: readonly number[];
-  /** Each alliance's bonus-only marginal — the halves 09-07's rank-simulation coupling fix consumes directly. */
+  /** Each alliance's bonus-only marginal — the halves a rank-simulation coupling consumes directly. */
   readonly redBonusPmf?: readonly number[];
   readonly blueBonusPmf?: readonly number[];
-  /** 09-03's `FittedMarginal[]`, carried through so 09-06 can count fallback rates. */
+  /** `FittedMarginal[]`, carried through so a caller can count fallback rates. */
   readonly redMarginals?: readonly FittedMarginal[];
   readonly blueMarginals?: readonly FittedMarginal[];
   /** THIS CALL's OWN resolved-family counts (both alliances), independent of whether `input.tally` was also supplied. Undefined for the non-qualification short-circuit, which fits no marginal at all. */
   readonly marginalResolution?: MarginalResolutionTally;
-  /** The shared win/tie/loss draw both alliances' outcome halves were built from — what 09-07 composes its `[winRp, tieRp, 0]`/`[0, tieRp, winRp]` vectors against. */
+  /** The shared win/tie/loss draw both alliances' outcome halves were built from — what a caller composes its `[winRp, tieRp, 0]`/`[0, tieRp, winRp]` vectors against. */
   readonly outcome?: RpOutcomeDistribution;
 }
 
 /**
- * Mean, derived from a discrete pmf at read time — D-10: the pmf is the ONE
- * stored representation, mean/SD are never stored alongside it. MOVED here
- * from the deleted `distribution.ts` (plan 09-04 Task 3) — a pmf read-time
- * utility with nothing to do with the Monte Carlo it used to sit beside.
- * Same name, same doc comment as before, one relocation note.
+ * Mean, derived from a discrete pmf at read time: the pmf is the ONE stored
+ * representation, mean/SD are never stored alongside it.
  */
 export function pmfMean(pmf: readonly number[]): number {
   let mean = 0;
@@ -817,16 +767,12 @@ export function pmfMean(pmf: readonly number[]): number {
 }
 
 /**
- * The `rpPmfForMatch` replacement — one match's full RP pmf for both
- * alliances, from the closed form. See this plan's "## The closed form,
- * specified" section for the step-by-step derivation this function
- * implements.
+ * One match's full RP pmf for both alliances, from the closed form.
  *
- * The two short-circuits carried forward from `distribution.ts`:
- * non-qualification `compLevel` returns the degenerate `P(RP=0)=1` pmf for
- * both alliances with no marginal fitted (Pitfall 3); the zero-draws fast
- * path is GONE — a closed form has no draw count to set to zero, so this
- * function always computes.
+ * The one short-circuit: non-qualification `compLevel` returns the
+ * degenerate `P(RP=0)=1` pmf for both alliances with no marginal fitted —
+ * a closed form has no draw count to set to zero, so this function always
+ * computes for a qualification match.
  */
 export function analyticRpPmf(input: AnalyticRpPmfInput): AnalyticRpPmfResult {
   const { red, blue, ruleModule, eventType, compLevel, tally } = input;
@@ -838,7 +784,7 @@ export function analyticRpPmf(input: AnalyticRpPmfInput): AnalyticRpPmfResult {
   // THIS CALL's own tally (both alliances) — always built when the bonus
   // path runs, regardless of whether an external `tally` accumulator was
   // also supplied. Merged into the external accumulator below, never
-  // replacing it (D-01, 09-05 Task 3).
+  // replacing it.
   const callTally = emptyMarginalResolutionTally();
   const redBonus = allianceBonusRpPmf(red, ruleModule, eventType, callTally);
   const blueBonus = allianceBonusRpPmf(blue, ruleModule, eventType, callTally);
