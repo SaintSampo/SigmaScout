@@ -516,6 +516,16 @@ describe("scheduled.replay — offline equivalence (D-14)", () => {
         // the team's NEXT match and never its own.
         const layer = new SigmaScoutLayer(undefined, algorithmId);
         let offlineState: unknown = offlineModule.initState([...ALL_TOUCHED_TEAMS]);
+        // Quick task 260913-m45 Task 2: per team, in match order, this
+        // algorithm's Sigma Score read right after THIS match's foldPlayed —
+        // the identical read-after-fold instant `withHistorySigma` merges
+        // offline. One match per tick makes end-of-tick (what the Worker
+        // reads) equal to after-this-match (what this reads), which is what
+        // makes the exact-equality comparison below valid; a multi-match
+        // catch-up tick would stamp every row in that tick with the tick's
+        // FINAL value, exactly as it already does for Total. Populated only
+        // for Sigma algorithms — see the opr/epa absence assertion below.
+        const offlineSigmaByTeam = new Map<string, number[]>();
         const offlineBands = offlineRecords.map((r) => {
           offlineState = offlineModule.update(offlineState, r.match);
           const roster = [...r.match.redTeams, ...r.match.blueTeams];
@@ -526,6 +536,13 @@ describe("scheduled.replay — offline equivalence (D-14)", () => {
             if (total !== undefined) talent.set(teamKey, total);
           }
           const enriched = layer.foldPlayed(r.match, r.prediction, talent);
+          if (usesSigmaScore(algorithmId)) {
+            for (const teamKey of roster) {
+              const list = offlineSigmaByTeam.get(teamKey) ?? [];
+              list.push(roundMetric(layer.sigmaFor(teamKey)!));
+              offlineSigmaByTeam.set(teamKey, list);
+            }
+          }
           const red = enriched.matchBand?.red;
           const blue = enriched.matchBand?.blue;
           return {
@@ -553,6 +570,41 @@ describe("scheduled.replay — offline equivalence (D-14)", () => {
           computeBandStreamDigestLocal(onlineBands),
           `algorithm "${algorithmId}": online (deployed-tick) and offline Match Band streams diverged`
         ).toBe(computeBandStreamDigestLocal(offlineBands));
+
+        // Quick task 260913-m45 Task 2: THE SIGMA STREAM, team artifact by
+        // team artifact. For a Sigma algorithm every history row the live
+        // tick appended must carry the SAME sigma value, in the SAME order,
+        // as the offline layer's own per-match reading above.
+        if (usesSigmaScore(algorithmId)) {
+          let comparedRows = 0;
+          for (const [teamKey, expectedSigmas] of offlineSigmaByTeam) {
+            const teamArtifactKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId, version: offlineModule.version });
+            const publishedTeamText = await r2.get(teamArtifactKey);
+            expect(publishedTeamText, `no published team artifact found at ${teamArtifactKey}`).not.toBeNull();
+            const publishedTeam = JSON.parse(await publishedTeamText!.text()) as {
+              metricHistory: { matchKey: string; metrics: Record<string, { value: number } | undefined> }[];
+            };
+            const actualSigmas = publishedTeam.metricHistory.map((row) => row.metrics.sigma?.value);
+            expect(actualSigmas, `algorithm "${algorithmId}" team "${teamKey}": live vs offline sigma stream diverged`).toEqual(expectedSigmas);
+            comparedRows += actualSigmas.length;
+          }
+          // Non-vacuous, and EXACT: 7 matches x 6 roster teams per match.
+          expect(comparedRows, `algorithm "${algorithmId}": expected exactly 42 compared sigma rows`).toBe(42);
+        } else {
+          // OPR/EPA: no team-artifact history row carries a sigma key at all.
+          let checkedRows = 0;
+          for (const teamKey of ALL_TOUCHED_TEAMS) {
+            const teamArtifactKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId, version: offlineModule.version });
+            const publishedTeamText = await r2.get(teamArtifactKey);
+            if (publishedTeamText === null) continue;
+            const publishedTeam = JSON.parse(await publishedTeamText.text()) as { metricHistory: { metrics: Record<string, unknown> }[] };
+            for (const row of publishedTeam.metricHistory) {
+              expect(row.metrics, `algorithm "${algorithmId}" team "${teamKey}": no sigma key on a non-Sigma algorithm's row`).not.toHaveProperty("sigma");
+              checkedRows++;
+            }
+          }
+          expect(checkedRows, `algorithm "${algorithmId}": non-vacuous — team artifacts with history rows were actually checked`).toBeGreaterThan(0);
+        }
       }
     },
     60_000

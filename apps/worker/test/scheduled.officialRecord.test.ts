@@ -74,6 +74,7 @@ function mergeOne(match: MatchResult): TeamSeasonArtifact {
     metrics: METRICS,
     matchIndexByKey: new Map([[match.matchKey, 0]]),
     bands: new Map(),
+    sigmaAfterTick: undefined,
     stamp: { generation: "test-generation", computedAt: "2026-09-08T00:00:00.000Z" },
   }) as TeamSeasonArtifact;
 }
@@ -136,6 +137,7 @@ describe("mergeTeamSeasonArtifact — official-only seasonStats.record (quick ta
       metrics: METRICS,
       matchIndexByKey: new Map([["2026ex_qm1", 1]]),
       bands: new Map(),
+      sigmaAfterTick: undefined,
       stamp: { generation: "test-generation", computedAt: "2026-09-08T00:00:00.000Z" },
     }) as TeamSeasonArtifact;
 
@@ -195,6 +197,7 @@ describe("mergeTeamSeasonArtifact — preserves offline-published fields (quick 
       metrics: METRICS,
       matchIndexByKey: new Map([[match.matchKey, 0]]),
       bands: new Map(),
+      sigmaAfterTick: undefined,
       stamp: { generation: "live-generation", computedAt: "2026-09-08T00:00:00.000Z" },
     }) as TeamSeasonArtifact;
   }
@@ -234,5 +237,106 @@ describe("mergeTeamSeasonArtifact — preserves offline-published fields (quick 
     const artifact = mergeOne(makeMatch());
     expect(artifact).not.toHaveProperty("legacyPerTeamField");
     expect(artifact.teamNumber).toBe(1);
+  });
+});
+
+/**
+ * Quick task 260913-m45 Task 2: `sigmaAfterTick` — this team's Sigma Score at
+ * the SAME instant as `metrics` (end of tick) — lands ONLY on this tick's
+ * NEW metric-history rows, never on `seasonStats`, which keeps the
+ * publisher's season-final, tiered entry (`touchedEventTeamMetrics` carries
+ * it forward). A required parameter (may be `undefined`), so no caller can
+ * opt out by omission.
+ */
+describe("mergeTeamSeasonArtifact — Sigma on appended history rows (quick task 260913-m45)", () => {
+  it("appends sigma.value as the LAST key on every NEW history row when sigmaAfterTick is defined", () => {
+    const match = makeMatch();
+    const merged = mergeTeamSeasonArtifact({
+      existing: undefined,
+      teamKey: TEAM,
+      season: SEASON,
+      algorithmId: "spr",
+      algorithmVersion: "3.0.0+baseline",
+      eventKey: match.eventKey,
+      matches: [match],
+      predictions: new Map([[match.matchKey, makePrediction()]]),
+      metrics: { total: { value: 42 } },
+      matchIndexByKey: new Map([[match.matchKey, 0]]),
+      bands: new Map(),
+      stamp: { generation: "test-generation", computedAt: "2026-09-08T00:00:00.000Z" },
+      sigmaAfterTick: 27.834,
+    }) as TeamSeasonArtifact;
+
+    expect(merged.metricHistory).toHaveLength(1);
+    expect(merged.metricHistory[0]?.metrics).toEqual({ total: { value: 42 }, sigma: { value: 27.83 } });
+    expect(Object.keys(merged.metricHistory[0]!.metrics).at(-1)).toBe("sigma");
+  });
+
+  it("appends no sigma key on new rows when sigmaAfterTick is undefined", () => {
+    const match = makeMatch();
+    const merged = mergeTeamSeasonArtifact({
+      existing: undefined,
+      teamKey: TEAM,
+      season: SEASON,
+      algorithmId: "opr",
+      algorithmVersion: "1.0.0+baseline",
+      eventKey: match.eventKey,
+      matches: [match],
+      predictions: new Map([[match.matchKey, makePrediction()]]),
+      metrics: { total: { value: 42 } },
+      matchIndexByKey: new Map([[match.matchKey, 0]]),
+      bands: new Map(),
+      stamp: { generation: "test-generation", computedAt: "2026-09-08T00:00:00.000Z" },
+      sigmaAfterTick: undefined,
+    }) as TeamSeasonArtifact;
+
+    expect(merged.metricHistory).toHaveLength(1);
+    expect(merged.metricHistory[0]?.metrics).toEqual({ total: { value: 42 } });
+    expect(merged.metricHistory[0]?.metrics).not.toHaveProperty("sigma");
+  });
+
+  it("carries seasonStats.metrics.sigma forward UNCHANGED while the new row carries the live sigmaAfterTick value", () => {
+    const existing = {
+      schemaVersion: 1,
+      generation: "offline-generation",
+      computedAt: "2026-09-01T00:00:00.000Z",
+      algorithmId: "spr",
+      algorithmVersion: "3.0.0+baseline",
+      teamKey: TEAM,
+      teamNumber: 1,
+      nickname: "",
+      season: SEASON,
+      seasonStats: { record: { wins: 5, losses: 1, ties: 0 }, metrics: { total: { value: 40 }, sigma: { value: 72.97, percentile: 1 } } },
+      events: [],
+      metricHistory: [
+        { matchKey: "2026casj_qm0", season: SEASON, eventKey: "2026casj", algorithmId: "spr", teamKey: TEAM, matchIndex: 0, metrics: { total: { value: 39 } } },
+        { matchKey: "2026casj_qm0b", season: SEASON, eventKey: "2026casj", algorithmId: "spr", teamKey: TEAM, matchIndex: 0, metrics: { total: { value: 39 }, sigma: { value: 70 } } },
+      ],
+    } as unknown as TeamSeasonArtifact;
+
+    const match = makeMatch();
+    const merged = mergeTeamSeasonArtifact({
+      existing,
+      teamKey: TEAM,
+      season: SEASON,
+      algorithmId: "spr",
+      algorithmVersion: "3.0.0+baseline",
+      eventKey: match.eventKey,
+      matches: [match],
+      predictions: new Map([[match.matchKey, makePrediction()]]),
+      metrics: { total: { value: 42 } },
+      matchIndexByKey: new Map([[match.matchKey, 1]]),
+      bands: new Map(),
+      stamp: { generation: "live-generation", computedAt: "2026-09-08T00:00:00.000Z" },
+      sigmaAfterTick: 27.83,
+    }) as TeamSeasonArtifact;
+
+    expect(merged.seasonStats.metrics.sigma).toEqual({ value: 72.97, percentile: 1 });
+    expect(merged.metricHistory).toHaveLength(3);
+    // The two prior rows come back deep-equal to the input rows, sigma or no sigma.
+    expect(merged.metricHistory[0]).toEqual(existing.metricHistory[0]);
+    expect(merged.metricHistory[1]).toEqual(existing.metricHistory[1]);
+    // The new row carries the live value.
+    expect(merged.metricHistory[2]?.metrics).toEqual({ total: { value: 42 }, sigma: { value: 27.83 } });
   });
 });
