@@ -83,9 +83,7 @@ export function EpaComparisonPage({ results }: EpaComparisonPageProps) {
               data-testid={epaDifferenceCardTestId(card.id)}
               className="event-card flex min-w-0 flex-col gap-[var(--spacing-sm)] p-[var(--spacing-md)] shadow-sm"
             >
-              {/* `font-semibold!`, not `font-semibold`: `.text-role-body` is unlayered CSS and sets
-                  font-weight 400, which beats any Tailwind utility-layer class. Measured 400 without it. */}
-              <h3 className="text-role-body font-semibold! text-[var(--color-text-primary)]">{card.title}</h3>
+              <h3 className="text-role-body font-semibold text-[var(--color-text-primary)]">{card.title}</h3>
               <dl className="grid gap-[var(--spacing-sm)] md:grid-cols-2">
                 <div className="flex min-w-0 flex-col gap-[var(--spacing-xs)]">
                   <dt className="text-role-label text-[var(--color-text-muted)]">{EPA_CARD_STATBOTICS_LABEL}</dt>

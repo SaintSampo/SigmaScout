@@ -586,6 +586,19 @@ body {
   line-height: 1.5;
 }
 
+/*
+ * The one weight override the Body role allows. `.text-role-body` is unlayered
+ * CSS, and unlayered CSS beats everything in Tailwind's `@layer utilities`, so
+ * `text-role-body font-semibold` rendered at 400. Measured 2026-09-13 on six
+ * call sites: the home page's three buttons and algorithm label, the SPR and
+ * Acknowledgments page links, and the EPA vs Statbotics card titles. Two classes
+ * out-specify one, so the semibold request now lands. Every other role already
+ * sets 600 itself, so this pairing is the only one that needs it.
+ */
+.text-role-body.font-semibold {
+  font-weight: 600;
+}
+
 .text-role-label {
   font-size: 12px;
   font-weight: 600;
