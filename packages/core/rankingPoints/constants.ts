@@ -1,107 +1,47 @@
 /**
- * Leaf module for the RP (ranking-point) rule tree (D-09, D-12): types and
- * constants every per-season module (`2022.ts`...`2026.ts`) AND the
- * dispatch table (`rules.ts`) both need, with no dependency running the
- * other direction — the identical split `breakdown/constants.ts` documents
- * for the score-component tree, applied here before any circular-import bug
- * has a chance to appear (rather than after, the way `breakdown/`'s split
- * was discovered): every season file imports THIS leaf; `rules.ts` imports
- * every season file; neither the leaf nor a season file ever imports
- * `rules.ts`, so the dependency graph stays acyclic at module-init time.
+ * Leaf module for the RP (ranking-point) rule tree: types and constants
+ * every per-season module (`2022.ts`...`2026.ts`) AND the dispatch table
+ * (`rules.ts`) both need, with no dependency running the other direction —
+ * the identical split `breakdown/constants.ts` documents for the
+ * score-component tree: every season file imports THIS leaf; `rules.ts`
+ * imports every season file; neither the leaf nor a season file ever
+ * imports `rules.ts`, so the dependency graph stays acyclic at module-init
+ * time.
  *
- * D-09: RP bonus prediction runs off a state vector kept SEPARATE from the
+ * RP bonus prediction runs off a state vector kept SEPARATE from the
  * score-component vector (`breakdown/constants.ts`'s `ParsedComponents`).
  * That separation is a units discipline, not a "every threshold variable is
  * a raw count" claim — 2022's Hangar Bonus thresholds on `endgamePoints` (a
  * point total) while its Cargo Bonus thresholds on `matchCargoTotal` (a raw
  * count). `RpThresholdVariable.unit` exists so a season module cannot
  * silently read a `*Points` roll-up where the manual's rule wants a raw
- * `*Count` (RESEARCH.md Anti-Patterns: 2026's `hubScore.totalCount`, never
- * `.totalPoints`, despite being numerically identical in sampled data).
+ * `*Count` (2026's `hubScore.totalCount`, never `.totalPoints`, despite
+ * being numerically identical in sampled data).
  */
 
 import type { CompLevel } from "../algorithms/types.js";
 
 /**
  * The marginal probability family a threshold variable's belief is modelled
- * with (D-01, D-02). D-01 chose the count-native `"negative-binomial"`
- * family (right-skewed, exact discrete CDF at integer thresholds, support
- * `[0, infinity)`); D-02 put that CHOICE in the season module beside `unit`
- * rather than deriving it implicitly from `unit`.
+ * with. Declared explicitly per-variable beside `unit`, rather than derived
+ * from it, so a variable needing an exception has somewhere to say so.
  *
- * AS OF 09-05 TASK 3: all 34 threshold-variable declarations across the ten
- * registered seasons name `"negative-binomial"`, gated on 09-03's
- * warm-roster re-measurement of F3's mean deficit
- * (`docs/models/rp-mean-deficit-warm-rosters.md`: the deficit survives
- * restriction to fully-warm 3/3 rosters — 33 of 34 season-variables, mean
- * deficit shrinking from 10.4% to 8.0% on the SELECTION slice). This
- * session's corpus probe (09-RESEARCH.md) measured three D-03 derived
- * linear-combination quantities (2017 `rotorCount`, 2016 `towerRobotCount`,
- * 2023 `links`) as 100% integer-valued with zero exceptions across
- * 25,386/22,158/27,116 alliance-sides respectively, and a broader probe
- * found 15 further threshold variables across seven-to-eight seasons ALSO
- * 100% integer-valued and overdispersed (variance/mean ratios 1.27-102.3)
- * — that broader finding is an AGGREGATE claim over the probed set, not a
- * per-variable figure recorded for every one of the 34; see each season
- * module's own note above `THRESHOLD_VARIABLES` for which evidence class
- * (measured / derived-integer / structural-only) applies to its variables.
+ * `"negative-binomial"` is the count-native family (right-skewed, exact
+ * discrete CDF at integer thresholds, support `[0, infinity)`); it is
+ * NOT closed under scaled addition, so a variable appearing in any
+ * multi-term or divisor-bearing clause cannot declare it — `familyForClauseSum`
+ * in `analyticPmf.ts` refuses that combination loudly rather than silently
+ * refitting it as a Gaussian.
  *
- * Two alternatives were considered and rejected (09-RESEARCH.md
- * "Alternatives Considered"): Poisson forces `variance = mean`, and every
- * measured variable badly violates that (ratios 1.27-102.3, never
- * approaching 1); a continuity-corrected normal fixes the discreteness
- * error at integer thresholds but not the right-skew a symmetric Gaussian
- * under-predicts `P(X >= t)` with, exactly where bonus thresholds sit.
- *
- * THE FLIP WAS TRIED AND REFUSED (2026-09-11, plan 09-06). Every variable
- * declared `"negative-binomial"`, the whole model was measured against the
- * unchanged Gaussian one through the publisher's own scorer, and the
- * pre-committed per-bonus bar refused it: three bonus cells improved and
- * three got worse, and the bar admits no regression at any magnitude. The
- * declarations were returned to `"gaussian"` and the negative-binomial fit
- * and its discrete CDF were deleted.
- *
- * The measurement also found that the swap's REACH was far narrower than its
- * label: `clauseProbability` refitted a clause's combined moments as a
- * hardcoded Gaussian, so only `nestedSameVariable` bonuses ever honored a
- * declared family at all. `docs/models/rp-attribution.md` carries the figures
- * and that finding; the evidence above for right-skew and overdispersion is
- * unaffected by the refusal and is left standing for whoever revisits this.
- *
- * THAT HARDCODE WAS REMOVED on 2026-09-11 (quick task 260911-w7k). A clause now
- * derives its family from its terms' own declarations, reuses a single unscaled
- * term's fitted marginal verbatim, and is refused loudly where a combination
- * has no exact closed form — so a future second family added to this union
- * reaches every predicate shape whose terms declare it, rather than the one
- * shape `nestedSameVariable` covers. That is the reason the D-02 declaration
- * site below was worth keeping. The removal changed no published number and
- * re-measured nothing; it changed what a future measurement could reach.
- *
- * THE UNION HAS TWO MEMBERS AGAIN (2026-09-12, quick task 260912-2uz). The
- * 2026-09-11 refusal above was measured on a run whose REACH was a single
- * predicate shape: `clauseProbability`'s hardcoded Gaussian meant only
- * `nestedSameVariable` bonuses could respond to a declared family at all, so
- * 24 of the 30 cells that "tied" were structurally incapable of moving. That
- * hardcode is gone, and `"negative-binomial"` is restored here so the question
- * can be RE-MEASURED under the wider reach rather than left resting on a
- * measurement that could not have detected an effect. The refusal is not
- * reversed by this restore — it is re-opened.
- *
- * The restore is INERT IN PRODUCTION. All 34 threshold-variable declarations
- * across the ten registered seasons name `"gaussian"` and none of them change;
- * the re-measurement builds its negative-binomial arm as a VARIANT RULE MODULE
- * inside `scripts/measureRpCalibration.ts`, never by editing the tree. Both
- * `analyticPmfGolden.json` and `predictThresholdsGolden.json` are green across
- * this restore with zero edits, which is what "inert" means here.
- *
- * THE DECLARATION SITE IS WHAT MAKES THAT POSSIBLE. D-02 locked the
- * per-variable declaration, so a second family extends this union and the
- * variables that want it, rather than reintroducing a global switch — and a
- * measurement arm is a variant set of declarations rather than a config flag
- * threaded through production. Note that negative binomial is NOT closed under
- * scaled addition, so a variable appearing in any multi-term or divisor-bearing
- * clause cannot declare it; `familyForClauseSum` in `analyticPmf.ts` refuses
- * that combination loudly rather than silently refitting it as a Gaussian.
+ * IN PRODUCTION, all 34 threshold-variable declarations across the ten
+ * registered seasons currently name `"gaussian"`. A negative-binomial arm
+ * was measured end-to-end against the publisher's own scorer and did not
+ * clear the pre-committed no-regression bar (`docs/models/rp-attribution.md`
+ * carries the figures); it remains available in this union for a future
+ * re-measurement, built as a variant rule module inside
+ * `scripts/measureRpCalibration.ts`, never by editing the production tree.
+ * Keeping the family declared per-variable (rather than a global switch) is
+ * what lets that measurement arm reach exactly the variables it wants to.
  */
 export type MarginalFamily = "negative-binomial" | "gaussian";
 
@@ -113,16 +53,12 @@ export interface RpThresholdVariable {
   readonly name: string;
   readonly unit: "count" | "points";
   /**
-   * D-02: which `MarginalFamily` this variable's belief is modelled with,
-   * declared explicitly beside `unit` rather than derived from it — a
-   * variable needing an exception has somewhere to say so. Every
-   * declaration in the tree names the Gaussian value today; the flip to
-   * the count-native family is 09-05's, gated on 09-03's warm-roster
-   * re-measurement. Introduced OPTIONAL in Task 1 for exactly one task's
-   * worth of migration (so the nine not-yet-converted modules kept
-   * typechecking); REQUIRED as of Task 3, once every one of the ten season
-   * modules declares it — a future season module cannot compile without
-   * naming a family.
+   * Which `MarginalFamily` this variable's belief is modelled with, declared
+   * explicitly beside `unit` rather than derived from it — a variable
+   * needing an exception has somewhere to say so. Every declaration in the
+   * tree currently names `"gaussian"` (see `MarginalFamily`'s own doc
+   * comment). Required on every season module — a future season module
+   * cannot compile without naming a family.
    */
   readonly marginalFamily: MarginalFamily;
 }
@@ -137,8 +73,8 @@ export interface RpThresholdVariable {
 export type EventTier = "base" | "districtChampionship" | "championship";
 
 /**
- * TBA `event_type` enum -> `EventTier` (RESEARCH.md Code Examples, CITED:
- * `github.com/the-blue-alliance/the-blue-alliance/blob/master/consts/event_type.py`):
+ * TBA `event_type` enum -> `EventTier`
+ * (`github.com/the-blue-alliance/the-blue-alliance/blob/master/consts/event_type.py`):
  * `0`=Regional, `1`=District, `100`=Preseason -> base;
  * `2`=District Championship, `5`=District Championship Division ->
  * districtChampionship; `3`=Championship Division, `4`=Championship Finals
@@ -177,26 +113,19 @@ export function eventTierFor(eventType: number): EventTier {
 }
 
 /**
- * CR-01 (03-REVIEW.md): the caller-side counterpart to `eventTierFor`'s
- * deliberate throw above. Reads the SAME `EVENT_TYPE_TIERS` table, so the
- * two can never disagree about which event types are eligible — adding a
- * new event type to `EVENT_TYPE_TIERS` automatically makes it eligible here
- * too, with no second edit required anywhere.
+ * The caller-side counterpart to `eventTierFor`'s deliberate throw above.
+ * Reads the SAME `EVENT_TYPE_TIERS` table, so the two can never disagree
+ * about which event types are eligible — adding a new event type to
+ * `EVENT_TYPE_TIERS` automatically makes it eligible here too, with no
+ * second edit required anywhere.
  *
  * `eventTierFor` is correct to throw for its own callers (every per-season
  * `parse()`/`predictThresholds()`, which have no sensible fallback once
- * invoked), but Sigma1's own live `update()`/`predict()` in the retired Sigma1 core (deleted by quick task 260913-it4)
- * were the one place in the codebase relying on every caller remembering to
- * filter offseason/unmapped matches out upstream — every OTHER caller
- * already applies this exclusion structurally at its own boundary
- * (`reconciliation.test.ts`'s `sampleQualMatches`, `promote.ts`'s
- * `selectMatchesChronological(..., { excludeOffseason: true })`, `tune.ts`'s
- * `boundedSeasonStream`, which hardcodes `includeOffseason: false`). This
- * predicate exists so `update()`/`predict()` can apply that same exclusion
- * themselves, right before the throw would otherwise be reached, instead of
- * trusting an upstream filter that (for two documented CLI invocations)
- * does not exist. `eventTierFor` itself is NOT weakened — it keeps
- * throwing; this predicate is a precondition check, not a replacement.
+ * invoked). A live caller that cannot guarantee an upstream offseason/unmapped
+ * filter (e.g. the Worker's live RP fold in `apps/worker/src/scheduled.ts`)
+ * applies this predicate as a precondition check BEFORE reaching that throw.
+ * `eventTierFor` itself is NOT weakened — it keeps throwing; this predicate
+ * is a precondition check, not a replacement.
  */
 export function isRpEligibleEventType(eventType: number): boolean {
   return EVENT_TYPE_TIERS[eventType] !== undefined;
@@ -278,11 +207,8 @@ export interface RpThresholdClause {
  * `false`, and `"numeric-proxy"` for 2018 `autoQuest`, the one documented
  * exception whose fallback OVER-fires rather than under-fires.
  * `errorDirection` names which way: `"understates"` for the five,
- * `"overstates"` for 2018. `note` carries the one-sentence justification
- * and the measured figure, attributed to `pnpm rp:conservative-branch` (deleted in 260913-nvn) and
- * `docs/models/sigma1-rp-verification.md`'s
- * `## Conservative-Branch Understatement` section — never restated as a
- * fresh claim.
+ * `"overstates"` for 2018. `note` carries the one-sentence justification and
+ * the measured figure — never restated as a fresh claim.
  *
  * **THIS TYPE IS METADATA ONLY. `evaluateBonusPredicates` must never read
  * it.** The conservative choice is already baked into which threshold
@@ -299,10 +225,8 @@ export interface RpUntrackedGate {
 
 /**
  * One bonus's achievement condition, expressed as declared data instead of
- * a hand-written comparison (D-02, D-07). All 21 bonuses across the ten
- * registered seasons reduce to exactly these seven mechanism classes — see
- * 09-RESEARCH.md's "seven bonus mechanisms" enumeration, verified against
- * every season's `predictThresholds` at HEAD before this plan. None
+ * a hand-written comparison. All 21 bonuses across the ten registered
+ * seasons reduce to exactly these seven mechanism classes; none has
  * required an eighth.
  */
 export type BonusPredicate =
@@ -335,10 +259,10 @@ export type BonusPredicate =
       readonly direction: "gte" | "lte";
       readonly threshold: RpPredicateThreshold;
       /**
-       * The sibling bonus name(s) thresholding the SAME `variable` — 09-04's
-       * grouping key (D-07). 2026's `energized`/`supercharged` pair names
-       * each other here, distinguishable from `conjunctionDistinct` at the
-       * TYPE level so 09-04 cannot accidentally group them as independent.
+       * The sibling bonus name(s) thresholding the SAME `variable`. 2026's
+       * `energized`/`supercharged` pair names each other here, distinguishable
+       * from `conjunctionDistinct` at the TYPE level so a grouping pass
+       * cannot accidentally treat them as independent.
        */
       readonly nestedWith: readonly string[];
     }
@@ -373,20 +297,20 @@ function evaluateClause(clause: RpThresholdClause, values: Readonly<Record<strin
 }
 
 /**
- * The thin evaluator every season's `predictThresholds` delegates to
- * (D-02, D-07). First statement is `eventTierFor(eventType)` — reached
- * before any comparison, so an unmapped event type still throws exactly as
- * every season's hand-written implementation already does. Builds
+ * The thin evaluator every season's `predictThresholds` delegates to. First
+ * statement is `eventTierFor(eventType)` — reached before any comparison,
+ * so an unmapped event type still throws exactly as every season's
+ * hand-written implementation already does. Builds
  * `bonusFlags` with `Object.create(null)` and assigns one key per predicate
  * in ARRAY order, matching every module's current epilogue exactly. One
  * `switch` on `kind`, seven arms, no default fallthrough that silently
  * returns `false` — an unhandled kind is a COMPILE error via the
  * exhaustiveness check in the `default` arm, never a silent mis-evaluation.
  *
- * `nestedSameVariable` evaluates IDENTICALLY to `singleThreshold` here —
- * the nesting is declarative information for 09-04's grouping, and making
- * it change the boolean answer here would break byte-for-byte equivalence
- * with the pre-rewrite code.
+ * `nestedSameVariable` evaluates IDENTICALLY to `singleThreshold` here — the
+ * nesting is declarative grouping information only, and making it change
+ * the boolean answer here would break byte-for-byte equivalence with the
+ * pre-rewrite code.
  */
 export function evaluateBonusPredicates(
   predicates: readonly BonusPredicate[],
@@ -445,8 +369,8 @@ export function evaluateBonusPredicates(
  * What a season module's `parse` returns for ONE alliance. `bonusFlags` are
  * RECOMPUTED from raw fields; `recordedBonusFlags` are TBA's own booleans
  * read verbatim from the same raw payload — keeping both is what turns
- * `reconciliation.test.ts` into a comparison rather than a restatement
- * (D-12). `thresholdVariables` carries every named `RpThresholdVariable`
+ * `reconciliation.test.ts` into a comparison rather than a restatement.
+ * `thresholdVariables` carries every named `RpThresholdVariable`
  * value this parse observed (keyed by `RpThresholdVariable.name`), so the
  * reconciliation test's exact-boundary assertion and per-tier bracket
  * report can read the raw scalar a bonus flag was computed from, not just
@@ -478,8 +402,8 @@ export interface RpParsedResult {
 /**
  * The per-season interface, structurally mirroring `SeasonComponentMap`
  * (`breakdown/constants.ts`). `maxRp` is `winRp + bonusNames.length` and is
- * what sizes the pmf array in plan 03-03 — asserted equal in
- * `rules.test.ts` rather than trusted from a hand-maintained literal.
+ * what sizes the pmf array — asserted equal in `rules.test.ts` rather than
+ * trusted from a hand-maintained literal.
  */
 /** What `RpRuleModule.predictThresholds` returns — the bonus-only counterpart of `RpParsedResult` (no `thresholdVariables`/`recordedBonusFlags`/`winRp`/`tieRp` echo, since the caller already supplied the values and has no TBA-recorded flag to compare against a PREDICTED match). */
 export interface RpThresholdPrediction {
@@ -492,13 +416,10 @@ export interface RpRuleModule {
   readonly thresholdVariables: readonly RpThresholdVariable[];
   readonly bonusNames: readonly string[];
   /**
-   * D-02/Pitfall 2: `bonusNames` above is DERIVED from this array —
+   * `bonusNames` above is DERIVED from this array —
    * `bonusNames.map(p => p.name)` in every season module, one list of
    * bonus names in the tree that can never drift from a second,
-   * separately-maintained literal. Introduced OPTIONAL in Task 1 for
-   * exactly one task's worth of migration; REQUIRED as of Task 3, once
-   * every season module declares it — a future season module cannot
-   * compile without declaring its predicates.
+   * separately-maintained literal.
    */
   readonly bonusPredicates: readonly BonusPredicate[];
   readonly maxRp: number;
@@ -506,14 +427,11 @@ export interface RpRuleModule {
   readonly tieRp: number;
   parse(rawBreakdownJson: unknown, side: "red" | "blue", eventType: number): RpParsedResult;
   /**
-   * Plan 03-03 (D-09/D-11): evaluates every named bonus at `eventType`'s
-   * tier from ONLY the threshold-variable values a caller supplies —
-   * `values` keyed by `RpThresholdVariable.name`, the shape
-   * `analyticPmf.ts`'s closed form fits marginals from (plan 09-04 — this
-   * used to read "the Monte Carlo joint draw in `rp/distribution.ts`
-   * produces", a module this repo no longer has; it never calls `parse`
-   * above, since it works from fitted per-variable BELIEFS, never a full
-   * raw `score_breakdown`).
+   * Evaluates every named bonus at `eventType`'s tier from ONLY the
+   * threshold-variable values a caller supplies — `values` keyed by
+   * `RpThresholdVariable.name`, the shape `analyticPmf.ts`'s closed form
+   * fits marginals from; it never calls `parse` above, since it works from
+   * fitted per-variable BELIEFS, never a full raw `score_breakdown`.
    *
    * KNOWN, NAMED MODELING SIMPLIFICATION (documented once here, not
    * per-season, and cited by every module that needs it): a bonus whose
@@ -527,38 +445,12 @@ export interface RpRuleModule {
    * predicted probability, never overstates it — a deliberate, honest,
    * conservative choice over silently guessing a gate is met, following
    * this project's "measured tolerance over a forced fit" precedent
-   * (`reconciliation.test.ts`'s `KNOWN_TOLERANCES`).
-   *
-   * MEASURED (plan 03-08, `pnpm rp:conservative-branch` (deleted in 260913-nvn), post the 2025
-   * Coral coopertition both-alliances fix — full method and the complete
-   * season x bonus table in `docs/models/sigma1-rp-verification.md`'s
-   * `## Conservative-Branch Understatement`): mean RP understatement per
-   * affected bonus, per alliance-match — 2023 `sustainabilityBonus`
-   * 0.105362; 2024 `melodyBonus` 0.123188; 2025 `coralBonus` 0.095405;
-   * 2025 `autoBonus` 0.625464 (by far the largest — it had no
-   * threshold-variable-only fallback at all). No bonus in any season
-   * showed a non-zero `overstatedRate` — the "never overstates" half of
-   * this claim was tested, not assumed. This measured shortfall was
-   * escalated as a named decision to a future phase (human checkpoint
-   * option `B2-plan-fix`, 03-08-PLAN.md Task 2) rather than accepted as-is
-   * — the future direction is to predict an underivable bonus from teams'
-   * historical RP success rates rather than a near-zero/conservative
-   * branch, not to extend `RpThresholdVariable` with a new latent Kalman
-   * dimension (which D-09's own rationale is wary of without an
-   * identifiability argument). See
+   * (`reconciliation.test.ts`'s `KNOWN_TOLERANCES`). Measured mean RP
+   * understatement per affected bonus is recorded in
    * `docs/models/sigma1-rp-verification.md`'s `## Conservative-Branch
-   * Understatement` for the full disposition.
-   *
-   * STALE FIGURE WARNING (recorded 2026-09-11, plan 09-06; routed here by
-   * 09-02). The 2025 `autoBonus` figure of 0.625464 above PREDATES the
-   * 2026-09-09 auto-variable tracking fix and describes a superseded state of
-   * this module: that bonus is no longer without a threshold-variable
-   * fallback, so the measurement that produced 0.625464 was taken against code
-   * that no longer exists. The figure is LEFT IN PLACE, not silently updated,
-   * because it is a dated measurement with a named generating command and
-   * overwriting it with a guess would be worse than labelling it — but it must
-   * not be quoted as this module's current understatement. The generator
-   * was deleted in 260913-nvn; restore it from git history to re-measure.
+   * Understatement` — no bonus in any season showed a non-zero
+   * `overstatedRate`. Regenerate rather than trust a quoted figure that
+   * predates a threshold-variable tracking fix.
    */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction;
   /**
@@ -574,9 +466,7 @@ export interface RpRuleModule {
 /**
  * The RP-side twin of `assertFiniteComponents` (`breakdown/constants.ts`):
  * throws loudly rather than letting a non-finite threshold-variable value
- * reach the Kalman fold or `analyticPmf.ts`'s closed-form pmf (plan 09-04 —
- * this used to read "the Cholesky draw in plan 03-03", a module this repo
- * no longer has). A value that
+ * reach the fold or `analyticPmf.ts`'s closed-form pmf. A value that
  * survives a season module's Zod parse boundary can still be produced
  * non-finite by an upstream degenerate branch — the same second-gate
  * reasoning `breakdown/constants.ts`'s own doc comment records for
@@ -591,13 +481,11 @@ export function assertFiniteThresholdVariables(vars: Record<string, number>, con
 }
 
 /**
- * RP is a qualification-tournament-only mechanic (Pitfall 3): both
- * `red_rp_earned` and `blue_rp_earned` are 0 for 100% of PLAYED elimination
- * matches in every season, verified across the FULL population (not a
- * sample): 2022 0/2613, 2023 0/2795, 2024 0/2867, 2025 0/3056, 2026 0/3212
- * (RESEARCH.md Code Examples, this session's live corpus query). Plan
- * 03-03's `predict()` short-circuits to a degenerate `P(RP=0)=1` pmf for
- * any non-`qm` `compLevel`, matching `score.ts`'s existing qual/elim split.
+ * RP is a qualification-tournament-only mechanic: both `red_rp_earned` and
+ * `blue_rp_earned` are 0 for 100% of PLAYED elimination matches in every
+ * season, verified across the full corpus population. `predict()`
+ * short-circuits to a degenerate `P(RP=0)=1` pmf for any non-`qm`
+ * `compLevel`, matching `score.ts`'s existing qual/elim split.
  */
 export const ELIMINATION_RP_TOTAL = 0;
 
@@ -610,15 +498,14 @@ export const ELIMINATION_RP_TOTAL = 0;
  * returns `true` for `"qm"` and `false` for every elimination `CompLevel`
  * (`"ef" | "qf" | "sf" | "f"`).
  *
- * This is the SINGLE SOURCE of that rule (G-06.1-26, plan 06.1-08): the
- * predicted gate (`rp/distribution.ts`'s `rpPmfForMatch`), the actual gate
- * (`packages/harness/publish.ts`'s `actualBonusFlagsForSeason`), and the
- * client guard (`apps/web/src/components/team/BonusRpDots.tsx`'s
- * `applicable` prop) all call this one function. Before this plan those
- * three carried INDEPENDENT copies of the rule, and two of them drifted:
- * the actual side had no gate at all, so a played playoff match published
- * (and rendered) earned/missed bonus dots for a ranking point FRC never
- * awards there. Naming the rule once, here, is what makes that drift
+ * This is the SINGLE SOURCE of that rule: the predicted gate
+ * (`analyticPmf.ts`, `apps/worker/src/scheduled.ts`), the actual gate
+ * (`packages/harness/publish.ts`), and the client guard
+ * (`apps/web/src/components/team/BonusRpDots.tsx`'s `applicable` prop) all
+ * call this one function. Independent copies of the rule previously
+ * drifted — the actual side had no gate at all, so a played playoff match
+ * published (and rendered) earned/missed bonus dots for a ranking point FRC
+ * never awards there. Naming the rule once, here, is what makes that drift
  * structurally impossible to reintroduce.
  */
 export function isBonusRpCompLevel(compLevel: CompLevel): boolean {
