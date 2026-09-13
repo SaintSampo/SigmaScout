@@ -56,9 +56,14 @@ export interface DisplayMetric {
  * component used to carry, together with its `.metric-spread-superscript`
  * render branch: that prop printed a per-team consistency figure beside a
  * value, no production caller passed it any more, and the site no longer
- * names that figure anywhere. A metric cell is now the value alone. Sigma
- * Score, where it is published (SPR only), renders as its own number in its
- * own column or tile, never as a suffix on another metric.
+ * names that figure anywhere. A metric cell is now the value alone.
+ *
+ * Quick task 260913-jkp: wherever Sigma Score is published (SPR only), it
+ * renders as the right half of `TotalSigmaValue`'s split pill, joined onto
+ * that surface's Total cell — never through this component's own props.
+ * `TotalSigmaValue` degrades to plain `MetricValue` (this component,
+ * unchanged) whenever no Sigma entry exists, so every no-Sigma surface stays
+ * byte-identical to what this component alone would have rendered.
  */
 export function MetricValue({
   metric,
