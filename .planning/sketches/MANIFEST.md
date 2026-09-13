@@ -59,6 +59,7 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 | 008 | common-tier-treatment | How should Common (0–50) be treated so it reads as a tier, not an absence? (revisits 004-B "Common unboxed" at the user's request) | **C — outline only** | palette, percentile, rarity, accessibility |
 | 009 | breakdown-usability | What makes the event Breakdown table friendlier — phase drill-down, sort + focus, or standout markers + row detail? | **A — phase drill-down** | table, event-page, breakdown, tiers, interaction |
 | 010 | alliance-membership-emphasis | On a team page match table, how should the team's own alliance — and its own number within it — be marked, without bold? | **C — ground tint, 10px gap** | team-page, match-table, alliance, emphasis, accessibility |
+| 011 | total-sigma-joined-box | SPR Total and Sigma as two joined tier boxes with a ± between: what should the join look like? | **A — split pill** | metric-cell, tiers, uncertainty, teams-table, team-page, event-page, alliances |
 
 ## Findings so far
 

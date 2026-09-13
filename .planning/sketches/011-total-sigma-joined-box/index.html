@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SigmaScout — Total ± Sigma joined box</title>
+<link rel="stylesheet" href="../themes/default.css" />
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; padding-top:52px; font-family:var(--font-sans); background:var(--color-bg); color:var(--color-text); -webkit-font-smoothing:antialiased; }
+  #variant-nav { position:fixed; top:0; left:0; right:0; z-index:9998; background:#fff; border-bottom:1px solid var(--color-border);
+    padding:8px 12px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; font-size:13px; }
+  .variant-tab { border:1px solid var(--color-border); background:#fff; color:var(--color-text); padding:6px 12px; border-radius:var(--radius); cursor:pointer; font:inherit; }
+  .variant-tab.active { background:var(--color-text); color:#fff; border-color:var(--color-text); }
+  #variant-nav .spacer { flex:1; }
+  .vp { border:1px solid var(--color-border); background:#fff; padding:5px 10px; border-radius:var(--radius); cursor:pointer; font:inherit; font-size:12px; }
+  .vp.active { background:#14532d; color:#fff; border-color:#14532d; }
+  .variant { display:none; } .variant.active { display:block; }
+  #frame { margin:0 auto; transition:max-width .15s; }
+  .page { max-width:1200px; margin:0 auto; padding:16px var(--space-md) var(--space-lg); }
+  .tablewrap { overflow-x:auto; background:#fff; border:1px solid var(--color-border); border-radius:8px; }
+  .caption { background:#fff; border:1px solid var(--color-border); border-radius:8px; padding:12px 14px; color:var(--color-text-muted); font-size:13px; line-height:1.65; margin:0 0 18px; }
+  .caption b { color:var(--color-text); }
+  table { width:100%; border-collapse:separate; border-spacing:0; font-size:14px; }
+  th { text-align:left; font-size:12px; font-weight:600; color:var(--color-text-muted); padding:8px 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; background:#fff; }
+  th.num, td.num { text-align:right; font-variant-numeric:tabular-nums; }
+  th.grp { text-align:center; border-bottom:1px solid var(--color-border); }
+  td { padding:6px 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; }
+  tr:last-child td { border-bottom:0; }
+  .team-no { font-variant-numeric:tabular-nums; font-weight:600; color:#2e7d32; }
+  .muted { color:var(--color-text-muted); }
+  .slice { margin-bottom:26px; }
+  .slice h2 { font-size:15px; font-weight:600; margin:0 0 2px; }
+  .slice p.sub { margin:0 0 8px; font-size:12px; color:var(--color-text-muted); }
+  .ctx { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#2e7d32; margin:0 0 4px; }
+  .key { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px; margin:0 0 14px; }
+  .key .k { padding:3px 10px; border-radius:5px; font-weight:600; }
+
+  /* ---- shipped single-metric box (theme.css .metric-tier, 008-C Common) ---- */
+  .mt { display:inline-block; padding:3px 8px; border-radius:5px; min-width:58px; text-align:right; font-variant-numeric:tabular-nums; }
+  .t-common    { box-shadow:inset 0 0 0 1px var(--tier-common-edge, #CBD5E1); }
+  .t-rare      { background:#E0F2FE; color:#0369A1; }
+  .t-epic      { background:#F3E8FF; color:#7E22CE; }
+  .t-legendary { background:#FEF3C7; color:#B45309; }
+  .t-none      { background:#F1F5F9; color:#475569; }
+
+  /* ---- the five joined treatments ---- */
+  .jb { display:inline-flex; align-items:stretch; font-variant-numeric:tabular-nums; vertical-align:middle; white-space:nowrap; }
+  .jb > span { display:inline-flex; align-items:center; justify-content:flex-end; }
+
+  /* A: split pill — one shape, two fills, ± leads the Sigma half */
+  .jA > .tot { padding:3px 7px 3px 8px; border-radius:5px 0 0 5px; min-width:58px; }
+  .jA > .sig { padding:3px 8px 3px 6px; border-radius:0 5px 5px 0; min-width:54px; }
+  .jA .pm { opacity:.7; margin-right:3px; }
+
+  /* B: seam badge — two halves with a hairline gap, ± sits in a white disc on the seam */
+  .jB { position:relative; gap:2px; }
+  .jB > .tot { padding:3px 12px 3px 8px; border-radius:5px 0 0 5px; min-width:62px; }
+  .jB > .sig { padding:3px 8px 3px 12px; border-radius:0 5px 5px 0; min-width:58px; }
+  .jB > .pm { position:absolute; left:var(--seam); top:50%; transform:translate(-50%,-50%); width:15px; height:15px; border-radius:50%;
+    background:#fff; color:#475569; font-size:11px; font-weight:700; justify-content:center !important; box-shadow:0 0 0 1px #E2E8F0; z-index:1; }
+
+  /* C: Total + tab — Total keeps full weight, Sigma is a smaller attached tab */
+  .jC > .tot { padding:3px 8px; border-radius:5px 0 0 5px; min-width:58px; }
+  .jC > .sig { padding:0 6px 0 5px; border-radius:0 5px 5px 0; font-size:12px; min-width:48px; box-shadow:inset 1px 0 0 rgba(15,23,42,.10); }
+  .jC > .sig.t-common { box-shadow:inset 0 0 0 1px var(--tier-common-edge, #CBD5E1); }
+  .jC .pm { opacity:.7; margin-right:2px; }
+
+  /* D: framed pair — a hairline frame holds two tier chips, ± in the neutral gap */
+  .jD { box-shadow:inset 0 0 0 1px #CBD5E1; border-radius:7px; padding:2px; gap:0; background:#fff; }
+  .jD > .tot, .jD > .sig { padding:2px 7px; border-radius:5px; min-width:54px; }
+  .jD > .pm { padding:0 4px; color:#64748B; font-size:12px; }
+  .jD > .t-common { box-shadow:none; background:#F8FAFC; }
+
+  /* E: three segments — Total | ± | Sigma, the ± gets its own neutral cell */
+  .jE > .tot { padding:3px 7px 3px 8px; border-radius:5px 0 0 5px; min-width:58px; }
+  .jE > .pm { padding:0 5px; background:#E2E8F0; color:#334155; font-size:12px; font-weight:600; justify-content:center !important; }
+  .jE > .sig { padding:3px 8px 3px 7px; border-radius:0 5px 5px 0; min-width:50px; }
+
+  .tiles { display:flex; flex-wrap:wrap; gap:10px 36px; background:#fff; border:1px solid var(--color-border); border-radius:8px; padding:14px 16px; margin-bottom:10px; }
+  .tile { display:flex; flex-direction:column; align-items:flex-start; gap:4px; }
+  .tile .lbl { font-size:12px; color:var(--color-text-muted); }
+  .teamhead { font-weight:600; font-size:14px; margin:0 0 6px; }
+  .pickcell { display:inline-flex; align-items:center; gap:8px; }
+  .note { font-size:11.5px; color:var(--color-text-muted); margin-top:6px; line-height:1.55; }
+  .warn { border:1px solid #FCD34D; background:#FFFBEB; color:#78350F; border-radius:8px; padding:10px 12px; font-size:12.5px; line-height:1.6; margin:0 0 16px; }
+</style>
+</head>
+<body>
+
+<div id="variant-nav">
+  <button class="variant-tab active" onclick="show('A', this)">A: Split pill &#9733; Selected</button>
+  <button class="variant-tab" onclick="show('B', this)">B: Seam badge</button>
+  <button class="variant-tab" onclick="show('C', this)">C: Total + tab</button>
+  <button class="variant-tab" onclick="show('D', this)">D: Framed pair</button>
+  <button class="variant-tab" onclick="show('E', this)">E: Three segments</button>
+  <span class="spacer"></span>
+  <button class="vp" onclick="vp(390, this)">Phone 390</button>
+  <button class="vp active" onclick="vp(0, this)">Full width</button>
+</div>
+
+<div id="frame"><div id="wrap"></div></div>
+
+<script src="data.js"></script>
+<script>
+/*
+ * Sketch 011. Developer request 2026-09-13 (quick task 260913-jkp): delete every Sigma column/tile and
+ * render SPR's Total as TWO JOINED BOXES — Total in its own tier colour, Sigma in its own tier colour,
+ * a ± between them. Every variant keeps the shipped tier palette (theme.css --tier-*) and 008-C's
+ * outline-only Common; only the JOIN differs. All data is the live 2026 SPR artifacts, tiers as published.
+ */
+var fmt = function (n) { return n.toFixed(2); };
+var CAP = {
+  A: '<b>A — Split pill.</b> One rounded shape cut in two: the left half is Total in Total’s tier, the right half is Sigma in Sigma’s tier, and the ± leads the Sigma half. The two fills touch with no gap, so it reads as one value with two parts. Most compact option. Watch Common next to Common: two outline rings meet at the seam and draw a divider line.',
+  B: '<b>B — Seam badge.</b> The halves sit 2px apart. A small white disc holding the ± straddles the seam and pins them together. The ± is the most visible here, and each tier colour stays fully separate, since no fill touches another. It is slightly wider, and the disc adds a third shape to every row.',
+  C: '<b>C — Total + tab.</b> Total keeps the full box and the full type size; Sigma is a smaller tab attached to its right edge. Hierarchy is explicit: Total is the number, Sigma qualifies it. It is the closest to how X ± Y reads in print. Sigma’s tier colour is smaller, so it is quieter.',
+  D: '<b>D — Framed pair.</b> A hairline frame holds two tier chips with the ± in the neutral gap between them. The frame is what joins them, so each chip keeps its own rounded shape. Common gets a faint fill inside the frame, because a ring inside a ring looks doubled. This is the busiest option: every cell gains a frame.',
+  E: '<b>E — Three segments.</b> Total | ± | Sigma, with the ± in its own narrow slate cell. The join is as literal as it gets, and the ± can never be mistaken for part of either number. It costs the most width and adds a grey band to every row, so the eye lands on the ± before either number.'
+};
+
+function jb(v, total, sigma, bandValue, bandTier) {
+  // total: {v,t}; sigma: {v,t} or null. bandValue overrides sigma for Combined Total (sigma tier "none").
+  if (!total) return '<span></span>';
+  var sv = bandValue !== undefined ? bandValue : (sigma ? sigma.v : undefined);
+  var st = bandValue !== undefined ? (bandTier || 'none') : (sigma ? sigma.t : undefined);
+  var tot = '<span class="tot t-' + total.t + '">' + fmt(total.v) + '</span>';
+  if (sv === undefined) return '<span class="mt t-' + total.t + '">' + fmt(total.v) + '</span>';
+  if (v === 'A' || v === 'C') return '<span class="jb j' + v + '">' + tot + '<span class="sig t-' + st + '"><span class="pm">±</span>' + fmt(sv) + '</span></span>';
+  if (v === 'B') {
+    var seam = (8 + 12 + 7.8 * fmt(total.v).length + 1);
+    var w = Math.max(62, seam);
+    return '<span class="jb jB" style="--seam:' + (w + 1) + 'px"><span class="tot t-' + total.t + '" style="min-width:' + w + 'px">' + fmt(total.v) + '</span><span class="pm">±</span><span class="sig t-' + st + '">' + fmt(sv) + '</span></span>';
+  }
+  return '<span class="jb j' + v + '">' + tot + '<span class="pm">±</span><span class="sig t-' + st + '">' + fmt(sv) + '</span></span>';
+}
+function mt(m) { return m ? '<span class="mt t-' + m.t + '">' + fmt(m.v) + '</span>' : ''; }
+function rec(r) { return r.w + '-' + r.l + '-' + (r.ti || 0); }
+
+function keyRow() {
+  return '<div class="key"><span class="muted" style="font-weight:600">Key (percentile)</span>' +
+    '<span class="k t-common">0–50</span><span class="k t-rare">50–75</span><span class="k t-epic">75–95</span><span class="k t-legendary">95–100</span>' +
+    '<span class="muted">Common · Rare · Epic · Legendary. Sigma’s tier is inverted at the pipeline: a <b>low</b> Sigma (a steadier robot) earns the high tier.</span></div>';
+}
+
+function teamsTable(v, rows) {
+  return '<div class="tablewrap"><table><thead><tr><th class="num">Rank</th><th class="num">Team #</th><th>Team Name</th><th class="num">Record</th>' +
+    '<th class="num">Total ± Sigma</th><th class="num">Auto</th><th class="num">Teleop</th><th class="num">Endgame</th></tr></thead><tbody>' +
+    rows.map(function (r) {
+      return '<tr><td class="num muted">' + r.rank + '</td><td class="num team-no">' + r.n + '</td><td>' + r.nick + '</td><td class="num muted">' + rec(r) + '</td>' +
+        '<td class="num">' + jb(v, r.total, r.sigma) + '</td><td class="num">' + mt(r.phaseAuto) + '</td><td class="num">' + mt(r.phaseTeleop) + '</td><td class="num">' + mt(r.phaseEndgame) + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+}
+
+function teamPages(v) {
+  var seen = {}, list = DATA.teamPages.filter(function (r) { if (!r || seen[r.n]) return false; seen[r.n] = 1; return true; });
+  return list.map(function (r) {
+    return '<p class="teamhead"><span class="team-no">' + r.n + '</span> ' + r.nick + ' <span class="muted" style="font-weight:400;font-size:12px">· Total ' + r.total.t + ' · Sigma ' + r.sigma.t + '</span></p>' +
+      '<div class="tiles"><div class="tile"><span class="lbl">Total ± Sigma</span>' + jb(v, r.total, r.sigma) + '</div>' +
+      '<div class="tile"><span class="lbl">Auto</span>' + mt(r.phaseAuto) + '</div><div class="tile"><span class="lbl">Teleop</span>' + mt(r.phaseTeleop) + '</div>' +
+      '<div class="tile"><span class="lbl">Endgame</span>' + mt(r.phaseEndgame) + '</div></div>';
+  }).join('') + '<p class="note">The separate Sigma tile is gone; Sigma now rides on the Total tile.</p>';
+}
+
+function insights(v) {
+  var rows = DATA.event.teams.slice(0, 12);
+  return '<div class="tablewrap"><table><thead><tr><th class="num">Rank</th><th class="num">Team #</th><th>Team Name</th><th class="num">Record</th><th class="num">RP</th>' +
+    '<th class="num">Total ± Sigma</th><th class="num">Auto</th><th class="num">Teleop</th><th class="num">Endgame</th></tr></thead><tbody>' +
+    rows.map(function (r) {
+      return '<tr><td class="num muted">' + (r.rank ?? '') + '</td><td class="num team-no">' + r.n + '</td><td>' + r.nick + '</td><td class="num muted">' + rec(r) + '</td><td class="num muted">' + (r.rp ?? '') + '</td>' +
+        '<td class="num">' + jb(v, r.total, r.sigma) + '</td><td class="num">' + mt(r.phaseAuto) + '</td><td class="num">' + mt(r.phaseTeleop) + '</td><td class="num">' + mt(r.phaseEndgame) + '</td></tr>';
+    }).join('') + '</tbody></table></div>';
+}
+
+function breakdown(v) {
+  var rows = DATA.event.teams.filter(function (r) { return r.total; }).sort(function (a, b) { return b.total.v - a.total.v; }).slice(0, 8);
+  return '<div class="tablewrap"><table><thead><tr><th>Team</th><th class="num">Total ± Sigma ▼</th><th class="num">Auto</th><th class="num">Teleop</th><th class="num">Endgame</th></tr></thead><tbody>' +
+    rows.map(function (r) {
+      return '<tr><td><span class="team-no">' + r.n + '</span> <span class="muted">' + r.nick + '</span></td><td class="num">' + jb(v, r.total, r.sigma) + '</td>' +
+        '<td class="num">' + mt(r.phaseAuto) + '</td><td class="num">' + mt(r.phaseTeleop) + '</td><td class="num">' + mt(r.phaseEndgame) + '</td></tr>';
+    }).join('') + '</tbody></table></div><p class="note">Only the Total column changes; the component columns stay single boxes.</p>';
+}
+
+function alliances(v) {
+  return '<div class="tablewrap"><table><thead><tr><th class="num">Alliance #</th><th>Captain</th><th>Pick 1</th><th>Pick 2</th><th class="num">Combined Total ± Band</th><th class="num">Record</th></tr></thead><tbody>' +
+    DATA.event.alliances.map(function (a) {
+      var pick = function (p) { return p ? '<span class="pickcell"><span class="team-no">' + p.n + '</span>' + jb(v, p.total, p.sigma) + '</span>' : ''; };
+      return '<tr><td class="num muted">' + a.num + '</td><td>' + pick(a.picks[0]) + '</td><td>' + pick(a.picks[1]) + '</td><td>' + pick(a.picks[2]) + '</td>' +
+        '<td class="num">' + (a.combined ? jb(v, { v: a.combined.v, t: a.combined.t }, null, a.combined.band) : '') + '</td><td class="num muted">' + (a.w !== undefined ? a.w + '-' + a.l + '-' + (a.ti || 0) : '') + '</td></tr>';
+    }).join('') + '</tbody></table></div>' +
+    '<p class="note">Combined band = √(3 × ΣSigma²), the Match Band formula. Its right half is plain slate: no percentile exists for a 3-team band, so it has no honest tier (the Total half keeps the existing 3× approximate tier).</p>';
+}
+
+function build(v) {
+  return '<div id="v-' + v + '" class="variant">' +
+    '<header style="background:#14532d;padding:12px 16px;"><div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:20px;flex-wrap:wrap;">' +
+      '<span style="font-size:20px;font-weight:600;letter-spacing:-.02em;color:#fff;"><span style="color:#81c784">Σ</span>igmaScout</span>' +
+      '<nav style="display:flex;gap:16px;font-size:14px;font-weight:600;"><span style="border-bottom:2px solid #81c784;color:#fff;padding-bottom:2px;">Teams</span>' +
+      '<span style="color:rgba(255,255,255,.72)">Events</span><span style="color:rgba(255,255,255,.72)">Compare</span></nav>' +
+      '<span style="flex:1"></span><span style="font-size:13px;color:rgba(255,255,255,.72)">2026 · SPR ' + DATA.artifact.split('@')[1] + '</span></div></header>' +
+    '<div class="page">' +
+      '<div class="caption">' + CAP[v] + '</div>' + keyRow() +
+      '<div class="slice"><div class="ctx">Teams list</div><h2>Sorted by Total, ranks 1–10</h2><p class="sub">The Sigma column is gone. Every Total here is Legendary; the Sigma half is what varies.</p>' + teamsTable(v, DATA.top) + '</div>' +
+      '<div class="slice"><div class="ctx">Teams list</div><h2>Ten teams spread across the ' + DATA.fieldSize.toLocaleString() + '-team field</h2><p class="sub">Ranks 4 / 181 / 521 / 901 / 1,501 / 2,101 / 2,601 / 3,101 / 3,401 / 3,651. Judge the tier-on-tier colour clashes here.</p>' + teamsTable(v, DATA.eventShaped) + '</div>' +
+      '<div class="slice"><div class="ctx">Team page</div><h2>The Total tile</h2><p class="sub">Three real teams, chosen for different Total/Sigma tier pairings.</p>' + teamPages(v) + '</div>' +
+      '<div class="slice"><div class="ctx">Event page · Insights tab</div><h2>' + DATA.event.name + ' (' + DATA.event.key + '), top 12 by official rank</h2><p class="sub">As-of-event Total with season-final Sigma. The real build publishes Sigma inside the event file.</p>' + insights(v) + '</div>' +
+      '<div class="slice"><div class="ctx">Event page · Breakdown tab</div><h2>Total column</h2>' + breakdown(v) + '</div>' +
+      '<div class="slice"><div class="ctx">Event page · Alliances tab</div><h2>Picks and Combined Total</h2>' + alliances(v) + '</div>' +
+    '</div></div>';
+}
+
+document.getElementById('wrap').innerHTML = ['A', 'B', 'C', 'D', 'E'].map(build).join('');
+document.getElementById('v-A').classList.add('active');
+
+function show(id, el) {
+  document.querySelectorAll('.variant').forEach(function (x) { x.classList.remove('active'); });
+  document.querySelectorAll('.variant-tab').forEach(function (t) { t.classList.remove('active'); });
+  document.getElementById('v-' + id).classList.add('active');
+  el.classList.add('active');
+  window.scrollTo(0, 0);
+}
+function vp(w, el) {
+  document.getElementById('frame').style.maxWidth = w ? w + 'px' : '';
+  document.querySelectorAll('.vp').forEach(function (b) { b.classList.remove('active'); });
+  el.classList.add('active');
+}
+</script>
+</body>
+</html>
