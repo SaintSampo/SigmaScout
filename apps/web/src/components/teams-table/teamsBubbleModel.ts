@@ -46,7 +46,7 @@ export const BUBBLE_TONE_DRAW_ORDER: readonly BubbleTone[] = ["neutral", "rare",
 
 /**
  * One plotted team. `x` is the Total metric value; `y` is the published
- * Swing Score. The algorithm's own confidence field on the source metric
+ * Sigma Score. The algorithm's own confidence field on the source metric
  * entry is deliberately never copied onto this object — that absence is
  * what makes the never-render rule structural rather than a convention a
  * future edit could break.
@@ -69,8 +69,15 @@ export interface BubbleAxis {
 
 export interface BubbleModel {
   points: readonly BubblePoint[];
-  /** Rows omitted for lacking a Swing Score (fewer than two played matches). */
-  omittedNoSwing: number;
+  /** Rows omitted for lacking a Sigma Score (the row carries a Total but no Sigma Score entry). */
+  omittedNoSigma: number;
+  /**
+   * True when at least one input row carries a defined `sigmaScore`. False for
+   * every OPR and EPA row set (Sigma Score is published for SPR only, quick
+   * task 260913-g66), which is what the chart keys its no-Sigma state on. Data
+   * driven on purpose: no algorithm id is consulted here or in the chart.
+   */
+  hasAnySigma: boolean;
   /** Rows omitted for lacking a Total metric entirely. */
   omittedNoTotal: number;
   x: BubbleAxis;
@@ -123,15 +130,16 @@ export const BUBBLE_CHART = Object.freeze({
 });
 
 /**
- * The per-team published number and the Y axis title — SigmaScout's own
- * heuristic for how much a robot's contribution varies match to match. NOT
- * Match Band (an unrelated term) and NEVER the algorithm's own internal
+ * The per-team published number and the Y axis title: Sigma Score, the 1
+ * standard deviation of a robot's share of its alliance's miss, published for
+ * SPR only (quick task 260913-g66). NOT the Match Band (that is an alliance
+ * quantity drawn on match rows) and NEVER the algorithm's own internal
  * confidence field. The axis title and the tooltip's row label both read
  * this ONE constant, so "the same label the axis uses, never a re-typed
  * literal" (D-01, quick task 260909-v5v) is structural rather than a
  * convention two call sites could drift apart on.
  */
-export const SWING_AXIS_LABEL = "Swing Score";
+export const SIGMA_AXIS_LABEL = "Sigma Score";
 
 /** Derives the plot rect from `width` and `BUBBLE_CHART`. Clamps both dimensions to a non-negative minimum so a collapsed container cannot produce negative geometry. */
 export function plotRectFor(width: number): PlotRect {
@@ -217,17 +225,19 @@ export function projectY(value: number, axis: BubbleAxis, plot: PlotRect): numbe
  */
 export function buildBubbleModel(rows: readonly TeamRow[]): BubbleModel {
   const points: BubblePoint[] = [];
-  let omittedNoSwing = 0;
+  let omittedNoSigma = 0;
+  let hasAnySigma = false;
   let omittedNoTotal = 0;
 
   for (const row of rows) {
+    if (row.sigmaScore !== undefined) hasAnySigma = true;
     const total = row.metrics[TOTAL_KEY];
     if (total === undefined) {
       omittedNoTotal += 1;
       continue;
     }
     if (row.sigmaScore === undefined) {
-      omittedNoSwing += 1;
+      omittedNoSigma += 1;
       continue;
     }
     points.push({
@@ -251,7 +261,7 @@ export function buildBubbleModel(rows: readonly TeamRow[]): BubbleModel {
       ? niceAxis(0, 1, BUBBLE_CHART.targetTickCount)
       : niceAxis(Math.min(...yValues), Math.max(...yValues), BUBBLE_CHART.targetTickCount);
 
-  return { points, omittedNoSwing, omittedNoTotal, x, y };
+  return { points, omittedNoSigma, omittedNoTotal, hasAnySigma, x, y };
 }
 
 /**

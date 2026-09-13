@@ -37,7 +37,7 @@ function makeRow(overrides: Partial<TeamRow> & Pick<TeamRow, "teamKey" | "teamNu
 }
 
 describe("teamsBubbleModel", () => {
-  it("returns one point per row with BOTH a Total value and a Swing Score, in input order", () => {
+  it("returns one point per row with BOTH a Total value and a Sigma Score, in input order", () => {
     const rows: TeamRow[] = [
       makeRow({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20 } }, sigmaScore: 4 }),
       makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 } }, sigmaScore: 2 }),
@@ -47,13 +47,28 @@ describe("teamsBubbleModel", () => {
     expect(model.points).toHaveLength(2);
   });
 
-  it("omits a row with sigmaScore undefined, incrementing omittedNoSwing, and never emits a y === 0 point for it", () => {
+  it("omits a row with sigmaScore undefined, incrementing omittedNoSigma, and never emits a y === 0 point for it", () => {
     const rows: TeamRow[] = [makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 } }, sigmaScore: undefined })];
     const model = buildBubbleModel(rows);
     expect(model.points).toHaveLength(0);
-    expect(model.omittedNoSwing).toBe(1);
+    expect(model.omittedNoSigma).toBe(1);
+    expect(model.hasAnySigma).toBe(false);
     expect(model.omittedNoTotal).toBe(0);
     expect(model.points.some((point) => point.teamKey === "frc1")).toBe(false);
+  });
+
+  it("hasAnySigma is true when any row carries a sigmaScore, false for an OPR or EPA row set and for no rows at all (260913-g66)", () => {
+    const opr: TeamRow[] = [
+      makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 } } }),
+      makeRow({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20 } } }),
+    ];
+    expect(buildBubbleModel(opr).hasAnySigma).toBe(false);
+    expect(buildBubbleModel([]).hasAnySigma).toBe(false);
+    const mixed = [...opr, makeRow({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 30 } }, sigmaScore: 2 })];
+    const model = buildBubbleModel(mixed);
+    expect(model.hasAnySigma).toBe(true);
+    expect(model.omittedNoSigma).toBe(2);
+    expect(model.points).toHaveLength(1);
   });
 
   it("omits a row whose metrics[TOTAL_KEY] is absent, incrementing omittedNoTotal", () => {
@@ -61,7 +76,8 @@ describe("teamsBubbleModel", () => {
     const model = buildBubbleModel(rows);
     expect(model.points).toHaveLength(0);
     expect(model.omittedNoTotal).toBe(1);
-    expect(model.omittedNoSwing).toBe(0);
+    expect(model.omittedNoSigma).toBe(0);
+    expect(model.hasAnySigma).toBe(true);
   });
 
   it("tone is the published tier for rows that have one; a Total metric with no tier yields 'neutral', never 'common'", () => {

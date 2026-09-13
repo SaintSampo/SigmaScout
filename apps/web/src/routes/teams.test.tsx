@@ -20,7 +20,10 @@ function manifestResponse() {
       schemaVersion: 1,
       generation: "gen-1",
       computedAt: "2026-09-09T00:00:00.000Z",
-      algorithms: [{ id: "spr", version: "2.0.0+tuned-2026-09", codeVersion: "2.0.0", paramSetName: "tuned-2026-09" }],
+      algorithms: [
+        { id: "spr", version: "2.0.0+tuned-2026-09", codeVersion: "2.0.0", paramSetName: "tuned-2026-09" },
+        { id: "opr", version: "1.0.0+default", codeVersion: "1.0.0", paramSetName: "default" },
+      ],
     }),
     { status: 200 },
   );
@@ -50,8 +53,8 @@ function teamsArtifactResponse() {
           eventCount: 3,
           matchCount: 30,
           record: { wins: 20, losses: 10, ties: 0 },
-          // Sigma Score rides the published `sigma` metric entry, not the
-          // legacy top-level `swingFactor` wire field (2026-09-10).
+          // Sigma Score rides the published `sigma` metric entry. The old
+          // top-level per-team field is no longer published (260913-g66).
           metrics: { total: { value: 50, tier: "rare" }, sigma: { value: 3.5 } },
           country: "USA",
         },
@@ -68,7 +71,7 @@ function teamsArtifactResponse() {
         {
           teamKey: "frc3",
           teamNumber: 3,
-          nickname: "USA Legendary No Swing",
+          nickname: "USA Legendary No Sigma",
           eventCount: 1,
           matchCount: 1,
           record: { wins: 1, losses: 0, ties: 0 },
@@ -92,11 +95,28 @@ function teamsArtifactResponse() {
   );
 }
 
-function stubFetch() {
+/**
+ * Quick task 260913-g66: the same four teams as an OPR artifact publishes
+ * them. Sigma Score is published for SPR only, so no row carries a `sigma`
+ * metric entry at all.
+ */
+async function oprTeamsArtifactResponse(): Promise<Response> {
+  const artifact = (await teamsArtifactResponse().json()) as {
+    algorithmId: string;
+    algorithmVersion: string;
+    teams: { metrics: Record<string, unknown> }[];
+  };
+  artifact.algorithmId = "opr";
+  artifact.algorithmVersion = "1.0.0+default";
+  for (const team of artifact.teams) delete team.metrics.sigma;
+  return new Response(JSON.stringify(artifact), { status: 200 });
+}
+
+function stubFetch(algorithmId: "spr" | "opr" = "spr") {
   return vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes("manifest")) return Promise.resolve(manifestResponse());
-    if (url.includes("/v1/teams/")) return Promise.resolve(teamsArtifactResponse());
+    if (url.includes("/v1/teams/")) return algorithmId === "opr" ? oprTeamsArtifactResponse() : Promise.resolve(teamsArtifactResponse());
     return new Promise<Response>(() => {});
   });
 }
@@ -225,7 +245,7 @@ describe("/teams route bubble-chart toggle", () => {
     expect(screen.getByRole("button", { name: "Bubble chart" }).getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("with a region filter active, the plotted dot count equals the filtered rows that have both a Total and a Swing Score (D-03)", async () => {
+  it("with a region filter active, the plotted dot count equals the filtered rows that have both a Total and a Sigma Score (D-03)", async () => {
     global.fetch = stubFetch();
     const { container } = renderTeamsRoute("/teams?algorithm=spr&chart=bubble&country=USA");
 
@@ -233,6 +253,22 @@ describe("/teams route bubble-chart toggle", () => {
     // Filtered to country=USA: frc1, frc3, frc4 (frc2 is Canada). Of those,
     // frc3 has no `sigma` entry and is omitted -- exactly frc1 and frc4 plot.
     await waitFor(() => expect(countDots(container)).toBe(2));
+  });
+
+  it("under OPR the toggle still renders, and the chart shows the plain no-Sigma state with no axis and no Swing text (260913-g66)", async () => {
+    global.fetch = stubFetch("opr");
+    const { container } = renderTeamsRoute("/teams?algorithm=opr&chart=bubble");
+
+    await waitFor(() => expect(screen.getByTestId("bubble-chart-no-sigma")).toBeDefined());
+    expect(screen.getByRole("button", { name: "Bubble chart" })).toBeDefined();
+    const chart = screen.getByTestId("teams-bubble-chart");
+    expect(chart.querySelector("svg")).toBeNull();
+    expect(countDots(container)).toBe(0);
+    expect(chart.textContent ?? "").toContain("Sigma Score is published for SPR only");
+    expect(chart.textContent ?? "").not.toMatch(/\bSwing\b/);
+    for (const el of Array.from(chart.querySelectorAll("[aria-label]"))) {
+      expect(el.getAttribute("aria-label") ?? "").not.toMatch(/\bSwing\b/);
+    }
   });
 
   it("applyYearChange preserves the chart param across a year change", () => {

@@ -97,7 +97,7 @@ function RobotMetricCells({ preMatch, isPending }: { preMatch: PreMatchMetrics |
         return (
           <div key={cell.key} className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
             <span className="text-role-label text-[var(--color-text-muted)]">{cell.label}</span>
-            {/* Plan-wide rule 3: `metric` and `tier` ONLY — no `swingScore`, ever, on this page. */}
+            {/* Plan-wide rule 3: `metric` and `tier` ONLY. MetricValue renders no plus-minus of any kind (260913-g66 removed its last one). */}
             <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />
           </div>
         );

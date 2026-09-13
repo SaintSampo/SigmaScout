@@ -153,8 +153,11 @@ export function padAxisDomain(min: number, max: number): AxisDomain {
  * the whole season so the axis is stable once the schedule is known, rather
  * than creeping as results land). Includes each alliance's predicted score
  * band extents (predicted score plus and minus one standard deviation, from
- * that alliance's own predicted-score variance when published) and the
- * actual scores where present. Never computed per event or per row — the
+ * that alliance's published Match Band variance, the same
+ * `redMatchBandVariance`/`blueMatchBandVariance` `MatchTable` draws, so a
+ * drawn band never runs past the axis; quick task 260913-g66) and the actual
+ * scores where present. SPR only: OPR and EPA rows carry no band and
+ * contribute only their point predictions and actual scores. Never computed per event or per row — the
  * sketch's first two drafts did that and every row was readable alone and
  * incomparable to its neighbours.
  */
@@ -172,8 +175,8 @@ export function computeAxisDomain(events: readonly TeamSeasonEvent[]): AxisDomai
       consider(match.predictedRedScore);
       consider(match.predictedBlueScore);
 
-      const redSd = match.redScoreVarianceOwn !== undefined ? Math.sqrt(Math.max(0, match.redScoreVarianceOwn)) : 0;
-      const blueSd = match.blueScoreVarianceOwn !== undefined ? Math.sqrt(Math.max(0, match.blueScoreVarianceOwn)) : 0;
+      const redSd = match.redMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, match.redMatchBandVariance)) : 0;
+      const blueSd = match.blueMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, match.blueMatchBandVariance)) : 0;
       consider(match.predictedRedScore - redSd);
       consider(match.predictedRedScore + redSd);
       consider(match.predictedBlueScore - blueSd);

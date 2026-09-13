@@ -101,12 +101,24 @@ describe("computeAxisDomain", () => {
     expect(domain.max).toBeGreaterThan(60);
   });
 
-  it("includes each alliance's own predicted-score variance band, not just the point prediction", () => {
+  it("includes each alliance's published Match Band, not just the point prediction", () => {
     const domain = computeAxisDomain([
-      makeEvent([makeMatch({ matchKey: "m1", predictedRedScore: 250, predictedBlueScore: 250, redScoreVarianceOwn: 400, blueScoreVarianceOwn: 100 })]),
+      makeEvent([makeMatch({ matchKey: "m1", predictedRedScore: 250, predictedBlueScore: 250, redMatchBandVariance: 400, blueMatchBandVariance: 100 })]),
     ]);
     // sqrt(400) = 20, so the red band's upper edge sits at 270 plus padding.
     expect(domain.max).toBeGreaterThanOrEqual(270);
+  });
+
+  it("widens for the Match Band MatchTable draws, and ignores the algorithm's own variance (260913-g66)", () => {
+    const banded = computeAxisDomain([
+      makeEvent([makeMatch({ matchKey: "m1", predictedRedScore: 250, predictedBlueScore: 250, redMatchBandVariance: 10000 })]),
+    ]);
+    // sqrt(10000) = 100, so the red band's upper edge sits at 350.
+    expect(banded.max).toBeGreaterThanOrEqual(350);
+    const ownOnly = computeAxisDomain([
+      makeEvent([makeMatch({ matchKey: "m1", predictedRedScore: 250, predictedBlueScore: 250, redScoreVarianceOwn: 10000 })]),
+    ]);
+    expect(ownOnly.max).toBeLessThan(350);
   });
 
   it("degrades to a safe fallback domain for a team-season with zero matches", () => {

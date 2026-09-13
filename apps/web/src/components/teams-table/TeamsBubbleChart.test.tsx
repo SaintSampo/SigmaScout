@@ -66,17 +66,20 @@ describe("TeamsBubbleChart", () => {
     expect(tones[tones.length - 1]).toBe("legendary");
   });
 
-  it("with rows whose Swing Score is absent, an on-screen note names the count and the reason; absent when nothing was omitted", () => {
+  it("with rows whose Sigma Score is absent, an on-screen note names the count and the reason; absent when nothing was omitted", () => {
     const rowsWithOmission: TeamRow[] = [
       ...MIXED_ROWS,
       makeRow({ teamKey: "frc6", teamNumber: 6, metrics: { [TOTAL_KEY]: { value: 60 } }, sigmaScore: undefined }),
     ];
     render(<TeamsBubbleChart rows={rowsWithOmission} />);
-    expect(screen.getByText(/1 team is not plotted: they have played fewer than two matches, so they have no Swing Score\./)).toBeDefined();
+    const note = screen.getByText(/1 team is not plotted: they have no Sigma Score for this season\./);
+    expect(note).toBeDefined();
+    // The retired reason named a two-match minimum, which Sigma Score does not have.
+    expect(note.textContent).not.toMatch(/two matches/);
 
     cleanup();
     render(<TeamsBubbleChart rows={MIXED_ROWS} />);
-    expect(screen.queryByText(/not plotted: they have played fewer than two matches/)).toBeNull();
+    expect(screen.queryByText(/not plotted: they have no Sigma Score/)).toBeNull();
   });
 
   it("with rows carrying no Total metric, a second note names that count separately", () => {
@@ -100,9 +103,14 @@ describe("TeamsBubbleChart", () => {
     expect(label).toContain("Vertical axis");
   });
 
-  it("the Y axis title text is exactly 'Swing Score'", () => {
+  it("the Y axis title text is exactly 'Sigma Score'", () => {
     render(<TeamsBubbleChart rows={MIXED_ROWS} />);
-    expect(screen.getByText("Swing Score")).toBeDefined();
+    expect(screen.getByText("Sigma Score")).toBeDefined();
+  });
+
+  it("the accessible name names Sigma Score as the vertical axis", () => {
+    render(<TeamsBubbleChart rows={MIXED_ROWS} />);
+    expect(screen.getByRole("img").getAttribute("aria-label")).toContain("Vertical axis: Sigma Score.");
   });
 
   it("the X axis title is the same label the table's Total column header uses", () => {
@@ -196,7 +204,7 @@ describe("TeamsBubbleChart hover and click", () => {
     expect(firstLine?.className).toContain("text-role-heading");
   });
 
-  it("the tooltip shows the nickname, the Total value under the X axis's label, and the Swing Score value under the Y axis's label", () => {
+  it("the tooltip shows the nickname, the Total value under the X axis's label, and the Sigma Score value under the Y axis's label", () => {
     const { container } = render(<TeamsBubbleChart rows={MIXED_ROWS} />);
     const svg = container.querySelector("svg")!;
     stubRect(svg);
@@ -206,7 +214,7 @@ describe("TeamsBubbleChart hover and click", () => {
     const tooltip = within(screen.getByTestId("bubble-chart-tooltip"));
     expect(tooltip.getByText("Team 1")).toBeDefined(); // nickname (makeRow's default)
     expect(tooltip.getByText("Total")).toBeDefined();
-    expect(tooltip.getByText("Swing Score")).toBeDefined();
+    expect(tooltip.getByText("Sigma Score")).toBeDefined();
   });
 
   it("both tooltip values render with the table's two-decimal display precision", () => {
@@ -311,5 +319,73 @@ describe("TeamsBubbleChart hover and click", () => {
     const circles = container.querySelectorAll("circle");
     expect(paths.length).toBeLessThanOrEqual(4);
     expect(circles.length).toBeLessThanOrEqual(1);
+  });
+});
+
+/**
+ * Quick task 260913-g66: Sigma Score is published for SPR only, so OPR and EPA
+ * row sets carry no `sigmaScore` at all. The chart then renders a plain
+ * no-Sigma state instead of an axis, and no state of the chart names Swing.
+ */
+describe("TeamsBubbleChart: no-Sigma state and no Swing text (260913-g66)", () => {
+  afterEach(() => cleanup());
+
+  /** Case-sensitive, whole word: the retired user-facing name. */
+  const SWING_WORD = /\bSwing\b/;
+
+  function assertNoSwingText(container: HTMLElement): void {
+    expect(container.textContent ?? "").not.toMatch(SWING_WORD);
+    for (const el of Array.from(container.querySelectorAll("[aria-label]"))) {
+      expect(el.getAttribute("aria-label") ?? "").not.toMatch(SWING_WORD);
+    }
+  }
+
+  const NO_SIGMA_ROWS: TeamRow[] = [
+    makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10, tier: "legendary" } } }),
+    makeRow({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20 } } }),
+  ];
+
+  it("when NO row carries a sigmaScore, renders the no-Sigma state with no svg, no axis, no key and no omission note", () => {
+    const { container } = render(<TeamsBubbleChart rows={NO_SIGMA_ROWS} />);
+    const state = screen.getByTestId("bubble-chart-no-sigma");
+    expect(state.textContent).toBe(
+      "No team here has a Sigma Score to plot. Sigma Score is published for SPR only, and a team gets one after it plays its first match of the season.",
+    );
+    expect(container.querySelector("svg")).toBeNull();
+    expect(container.querySelectorAll("[data-tone]")).toHaveLength(0);
+    expect(screen.queryByTestId("bubble-chart-key")).toBeNull();
+    expect(screen.queryByTestId("bubble-chart-empty")).toBeNull();
+    expect(screen.queryByText(/not plotted/)).toBeNull();
+  });
+
+  it("a filter matching zero rows keeps the ordinary empty state, not the no-Sigma state", () => {
+    render(<TeamsBubbleChart rows={[]} />);
+    expect(screen.getByTestId("bubble-chart-empty")).toBeDefined();
+    expect(screen.queryByTestId("bubble-chart-no-sigma")).toBeNull();
+  });
+
+  it("one row with a sigmaScore is enough to draw the chart, with the rest named in the omission note", () => {
+    const rows: TeamRow[] = [...NO_SIGMA_ROWS, makeRow({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 30 } }, sigmaScore: 4 })];
+    const { container } = render(<TeamsBubbleChart rows={rows} />);
+    expect(screen.queryByTestId("bubble-chart-no-sigma")).toBeNull();
+    expect(container.querySelector("svg")).not.toBeNull();
+    expect(screen.getByText(/2 teams are not plotted: they have no Sigma Score for this season\./)).toBeDefined();
+  });
+
+  it("rendered text and every aria-label contain no capitalised Swing word, in the chart, empty and no-Sigma states", () => {
+    const withOmission: TeamRow[] = [...MIXED_ROWS, makeRow({ teamKey: "frc6", teamNumber: 6, metrics: { [TOTAL_KEY]: { value: 60 } } })];
+    const chart = render(<TeamsBubbleChart rows={withOmission} />);
+    const svg = chart.container.querySelector("svg")!;
+    stubRect(svg);
+    const { x, y } = firstDotCoords(chart.container, "legendary");
+    fireEvent.pointerMove(svg, { clientX: x, clientY: y });
+    expect(screen.getByTestId("bubble-chart-tooltip")).toBeDefined();
+    assertNoSwingText(chart.container);
+    cleanup();
+
+    assertNoSwingText(render(<TeamsBubbleChart rows={[]} />).container);
+    cleanup();
+
+    assertNoSwingText(render(<TeamsBubbleChart rows={NO_SIGMA_ROWS} />).container);
   });
 });

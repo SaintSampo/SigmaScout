@@ -152,7 +152,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     expect(autoCell.textContent).toContain("12.34");
   });
 
-  it("gives every phase group its own rarity tier; only Total carries a plus-minus, since Swing Score is a total-only quantity", () => {
+  it("gives every phase group its own rarity tier, and no phase tile carries a plus-minus", () => {
     const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
       phaseAuto: { value: 12.34, spread: 1.5, percentile: 96 },
       phaseTeleop: { value: 30, spread: 2, percentile: 20 },
@@ -170,9 +170,8 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     if (autoCell === undefined || teleopCell === undefined || totalCell === undefined) throw new Error("expected four grid cells");
 
     // A group's published `spread` is the ALGORITHM's own confidence, so it no
-    // longer renders (2026-09-09). Swing Score is computed from TOTAL-score
-    // residuals and has no per-component form, so a phase tile shows a bare
-    // value and its tier.
+    // longer renders (2026-09-09). Sigma Score is a per-team figure with no
+    // per-component form, so a phase tile shows a bare value and its tier.
     expect(autoCell.textContent).not.toContain("±");
     expect(autoCell.querySelector(".metric-tier--legendary")).not.toBeNull();
     expect(totalCell.querySelector(".metric-tier--legendary")).not.toBeNull();
@@ -320,7 +319,7 @@ describe("SeasonHeader — as-of labelling (IN-01, 260902-post-phase08-ungoverne
   });
 });
 
-describe("SeasonHeader — Swing Score has its OWN tile (developer decision 2026-09-09)", () => {
+describe("SeasonHeader — Sigma Score has its OWN tile (developer decision 2026-09-09)", () => {
   afterEach(() => cleanup());
 
   function eventsWithOneMatch(overrides: Partial<TeamSeasonArtifact["events"][number]["matches"][number]> = {}) {
@@ -385,9 +384,9 @@ describe("SeasonHeader — Swing Score has its OWN tile (developer decision 2026
 
     render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
 
-    const swingTile = screen.getByTestId("sigma-score-tile");
-    expect(swingTile.textContent).toContain("18.50");
-    // No metric tile carries a ± any more — Swing Score is its own quantity.
+    const sigmaTile = screen.getByTestId("sigma-score-tile");
+    expect(sigmaTile.textContent).toContain("18.50");
+    // No metric tile carries a ± any more — Sigma Score is its own quantity.
     for (const cell of screen.getAllByTestId("metric-grid-cell")) {
       expect(cell.textContent).not.toContain("±");
     }
@@ -452,10 +451,10 @@ describe("SeasonHeader — Swing Score has its OWN tile (developer decision 2026
   });
 });
 
-describe("SeasonHeader — Swing tile tier (quick task 260909-tgf)", () => {
+describe("SeasonHeader — Sigma tile tier (quick task 260909-tgf)", () => {
   afterEach(() => cleanup());
 
-  it("an artifact whose seasonStats.metrics.sigma carries percentile 97 renders the Swing tile with the legendary tier class", () => {
+  it("an artifact whose seasonStats.metrics.sigma carries percentile 97 renders the Sigma tile with the legendary tier class", () => {
     const artifact = baseArtifact({
       seasonStats: {
         record: { wins: 1, losses: 0, ties: 0 },
@@ -465,12 +464,12 @@ describe("SeasonHeader — Swing tile tier (quick task 260909-tgf)", () => {
 
     render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
 
-    const swingTile = screen.getByTestId("sigma-score-tile");
-    expect(swingTile.textContent).toContain("8.42");
-    expect(swingTile.querySelector(".metric-tier--legendary")).not.toBeNull();
+    const sigmaTile = screen.getByTestId("sigma-score-tile");
+    expect(sigmaTile.textContent).toContain("8.42");
+    expect(sigmaTile.querySelector(".metric-tier--legendary")).not.toBeNull();
   });
 
-  it("an artifact whose seasonStats.metrics.sigma carries percentile 12 renders the Swing tile with the common (hairline ring) tier class", () => {
+  it("an artifact whose seasonStats.metrics.sigma carries percentile 12 renders the Sigma tile with the common (hairline ring) tier class", () => {
     const artifact = baseArtifact({
       seasonStats: {
         record: { wins: 1, losses: 0, ties: 0 },
@@ -480,14 +479,16 @@ describe("SeasonHeader — Swing tile tier (quick task 260909-tgf)", () => {
 
     render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
 
-    const swingTile = screen.getByTestId("sigma-score-tile");
-    expect(swingTile.textContent).toContain("3.10");
-    expect(swingTile.querySelector(".metric-tier--common")).not.toBeNull();
+    const sigmaTile = screen.getByTestId("sigma-score-tile");
+    expect(sigmaTile.textContent).toContain("3.10");
+    expect(sigmaTile.querySelector(".metric-tier--common")).not.toBeNull();
   });
 
-  it("an artifact carrying only the top-level swingFactor renders NO tile -- a Swing value must never appear under a Sigma label", () => {
-    // The fallback this used to assert was REMOVED on 2026-09-10; see
-    // `rowModel.test.ts`'s twin for the reasoning. Absent entry, absent tile.
+  it("a STALE artifact still carrying the retired top-level per-team field renders NO tile -- only the published sigma entry may fill it", () => {
+    // The fallback this used to assert was REMOVED on 2026-09-10, and the
+    // field itself stopped being published in 260913-g66 (the schema strips
+    // it on parse). A cached pre-republish object can still carry it, so this
+    // pins that it never reaches the screen. Absent entry, absent tile.
     const artifact = {
       ...baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 60.5 } } } }),
       swingFactor: 18.5,
@@ -498,7 +499,7 @@ describe("SeasonHeader — Swing tile tier (quick task 260909-tgf)", () => {
     expect(screen.queryByTestId("sigma-score-tile")).toBeNull();
   });
 
-  it("still hides the tile entirely when there is no swing data at all -- the tile's existing hide-when-absent behaviour is unaffected by this task (no `showSwingFactor` toggle exists in the current codebase to test directly)", () => {
+  it("still hides the tile entirely when there is no Sigma Score entry at all (every OPR and EPA artifact)", () => {
     const artifact = baseArtifact({
       seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: { total: { value: 10 } } },
       events: [],
@@ -509,7 +510,7 @@ describe("SeasonHeader — Swing tile tier (quick task 260909-tgf)", () => {
     expect(screen.queryByTestId("sigma-score-tile")).toBeNull();
   });
 
-  it("MetricValue's ± superscript render path is NOT given a tier by any of these changes -- no metric superscript element itself carries a tier class (D3: this task never touches MetricValue.tsx, which owns that render path)", () => {
+  it("renders no plus-minus superscript anywhere in the header -- MetricValue has no plus-minus render path since 260913-g66", () => {
     const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
       total: { value: 60.5, percentile: 96 },
       swing: { value: 8.42, percentile: 97 },
@@ -521,10 +522,7 @@ describe("SeasonHeader — Swing tile tier (quick task 260909-tgf)", () => {
 
     render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
 
-    const superscripts = document.querySelectorAll(".metric-spread-superscript");
-    for (const el of superscripts) {
-      expect(el.className).not.toMatch(/metric-tier/);
-    }
+    expect(document.querySelectorAll(".metric-spread-superscript")).toHaveLength(0);
   });
 });
 

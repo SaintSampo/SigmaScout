@@ -31,11 +31,11 @@ export interface SeasonHeaderProps {
   metricsOverride?: TeamSeasonArtifact["metricHistory"][number]["metrics"];
   /**
    * The `matchKey` of the row `metricsOverride` came from (quick task
-   * 260908-5wd) — the as-of instant, passed as data rather than re-derived
-   * here, so the browser-computed Swing Factor can be measured over exactly
-   * the span the snapshot's own values describe. Meaningful only alongside
-   * `metricsOverride`; absent for the season-final case, where the window is
-   * the whole season.
+   * 260908-5wd): the as-of instant, passed as data rather than re-derived
+   * here. It was added for a browser-side per-team consistency estimate that
+   * no longer exists; the header reads the published Sigma Score entry
+   * instead, so nothing here consumes it today. Meaningful only alongside
+   * `metricsOverride`; absent for the season-final case.
    */
   snapshotMatchKey?: string;
   /**
@@ -128,11 +128,6 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // through this identical call, so the snapshot caption above stays
   // truthful either way. See lib/metricGroups.ts's header for the full
   // honesty argument.
-  // Swing Factor merge runs BEFORE withDerivedGroupMetrics, in BOTH as-of
-  // states, with its observation window bounded to match whichever one is
-  // showing: the whole season for season-final values, and everything up to
-  // the snapshot's own match when `snapshotMatchKey` is supplied. See
-  // `withBrowserSwingFactor` for why bounding replaced the original skip.
   const resolvedMetrics = metricsOverride ?? artifact.seasonStats.metrics;
   const metrics = withDerivedGroupMetrics(resolvedMetrics, season);
   // Column set is derived from (algorithm, season) ONLY, never from
@@ -158,28 +153,19 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // `tierForPercentile(undefined)` below yields no tier for a derived tile —
   // the honest outcome for stale data, never worked around by inventing a
   // percentile from the single team in view.
-  // SWING SCORE is its OWN TILE (developer decision, 2026-09-09), not a `±`
-  // suffix on Total. It is one number per team — its total consistency
-  // estimate for its NEXT match — which is a different question from every
-  // metric beside it, so it reads as its own quantity rather than an
+  // SIGMA SCORE is its OWN TILE (developer decision, 2026-09-09), not a `±`
+  // suffix on Total. It is one number per team, a different question from
+  // every metric beside it, so it reads as its own quantity rather than an
   // annotation on another one. No metric tile carries a `±` any more.
   //
-  // Quick task 260909-tgf: the VALUE still prefers the published `swing`
-  // metric entry (`SWING_METRIC_KEY` in `metrics`, the SAME resolved/widened
-  // record the tiles above read) and falls back to the top-level
-  // `swingFactor` field only when that entry is absent — a pre-republish
-  // artifact, or a browser-computed estimate for an as-of-event snapshot
-  // that never carried a percentile. The TIER comes ONLY from the published
-  // entry's percentile, via the existing client `tierForPercentile` (the
-  // same function every other tile on this page already uses, so the
-  // pipeline's cuts and this page's cuts can never disagree) — when the
-  // entry is absent, `tierForPercentile(undefined)` yields `undefined`, so
-  // the fallback-only case renders the value with NO ring at all.
-  // The published `sigma` entry and NOTHING ELSE. The old
-  // `?? artifact.swingFactor` fallback is deliberately gone: that field holds a
-  // SWING FACTOR, a different estimator on a different scale (Swing prints
-  // 1.92 sigma against Sigma's honest 1 sigma), so falling back to it would
-  // print a Swing number under a "Sigma" label. Absent entry means no tile.
+  // It is published for SPR only (quick task 260913-g66). The VALUE and the
+  // TIER both come from the published `sigma` metric entry and NOTHING ELSE;
+  // the tier goes through the existing client `tierForPercentile`, the same
+  // function every other tile on this page uses, so the pipeline's cuts and
+  // this page's cuts can never disagree. There is no fallback to any other
+  // per-team figure: the old top-level per-team field held a different
+  // estimator on a different scale and is no longer published. Absent entry
+  // (every OPR and EPA artifact) means no tile.
   const sigmaMetric = metrics[SIGMA_METRIC_KEY];
   const sigmaScore = sigmaMetric?.value;
   const sigmaTier = tierForPercentile(sigmaMetric?.percentile);
@@ -310,12 +296,13 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
               <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric?.percentile)} />
             </div>
           ))}
-          {/* Sigma Score's own tile — see `sigmaScore`'s derivation above for
-              why it is not a suffix on Total. Quick task 260909-tgf: the tile
-              IS tier-boxed, exactly like the tiles beside it — the percentile
-              behind it is the team's residual against an expected-swing curve
-              at its own rating, inverted at the pipeline so LOW swing earns
-              the HIGH tier. */}
+          {/* Sigma Score's own tile, published for SPR only; see
+              `sigmaScore`'s derivation above for why it is not a suffix on
+              Total. Quick task 260909-tgf: the tile IS tier-boxed, exactly
+              like the tiles beside it. The percentile behind it is the team's
+              residual against the Sigma Score expected at its own rating,
+              inverted at the pipeline so a LOW Sigma Score (a steadier robot)
+              earns the HIGH tier. */}
           <SigmaScoreTile sigmaScore={sigmaScore} tier={sigmaTier} />
         </div>
       </div>

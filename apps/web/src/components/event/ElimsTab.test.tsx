@@ -48,10 +48,10 @@ function makeUpcomingMatch(overrides: Record<string, unknown> = {}): EventUpcomi
     pRedWin: 0.55,
     predictedRedScore: 115,
     predictedBlueScore: 105,
-    // Quick task 260908-5wd: an upcoming row carries a published band too,
-    // built at publish time from every team's play so far.
-    redSwingBandVariance: 144,
-    blueSwingBandVariance: 169,
+    // Quick task 260913-g66: an upcoming SPR row carries the published Match
+    // Band too, under the renamed keys.
+    redMatchBandVariance: 144,
+    blueMatchBandVariance: 169,
     ...overrides,
   } as unknown as EventUpcomingMatch;
 }
@@ -336,7 +336,7 @@ describe("Unplayed and absent-variance rows", () => {
   });
 
   it("a row carrying neither variance field renders both ticks and no band for either alliance and does not throw", () => {
-    const matches = [makePlayedMatch({ matchKey: "qf1m1", redSwingBandVariance: undefined, blueSwingBandVariance: undefined })];
+    const matches = [makePlayedMatch({ matchKey: "qf1m1", redMatchBandVariance: undefined, blueMatchBandVariance: undefined })];
     expect(() => renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="spr" season={2022} />)).not.toThrow();
     expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m1-blue-tick")).toBeDefined();
@@ -344,20 +344,48 @@ describe("Unplayed and absent-variance rows", () => {
     expect(screen.queryByTestId("alliance-mark-qf1m1-blue-band")).toBeNull();
   });
 
-  // Quick task 260908-5wd: PUBLISHED WINS. An algorithm that publishes its own
-  // alliance variance (VPR, SPR) keeps it here, so the band on this page is the
-  // byte-identical number the TEAM page shows for the same match — the team
-  // page cannot compute the browser band and always reads the published field.
+  // The band on this page is the published Match Band, the byte-identical
+  // number the TEAM page shows for the same match.
   it("a row carrying only the red variance field renders a red band and no blue band — the published value is honoured, not overridden", () => {
-    const matches = [makePlayedMatch({ matchKey: "qf1m1", redSwingBandVariance: 25, blueSwingBandVariance: undefined })];
+    const matches = [makePlayedMatch({ matchKey: "qf1m1", redMatchBandVariance: 25, blueMatchBandVariance: undefined })];
     renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="spr" season={2022} />);
     expect(screen.getByTestId("alliance-mark-qf1m1-red-band")).toBeDefined();
     expect(screen.queryByTestId("alliance-mark-qf1m1-blue-band")).toBeNull();
   });
 
+  it("a stale row carrying ONLY the retired pre-rename band keys draws no band and prints no plus-minus (260913-g66)", () => {
+    // The retired key names are assembled at runtime so the repo-wide sweep
+    // for the old spelling stays empty; this is what a stale R2 artifact
+    // published before the rename carries.
+    const retired = (side: "red" | "blue"): string => [side, "Swing", "BandVariance"].join("");
+    const matches = [
+      makePlayedMatch({ matchKey: "qf1m1", redMatchBandVariance: undefined, blueMatchBandVariance: undefined, [retired("red")]: 400, [retired("blue")]: 400 }),
+    ];
+    const upcoming = [
+      makeUpcomingMatch({ matchKey: "qf1m2", redMatchBandVariance: undefined, blueMatchBandVariance: undefined, [retired("red")]: 144, [retired("blue")]: 169 }),
+    ];
+    renderWithRouter(<ElimsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="spr" season={2022} />);
+    for (const key of ["qf1m1", "qf1m2"]) {
+      expect(screen.getByTestId(`alliance-mark-${key}-red-tick`)).toBeDefined();
+      expect(screen.queryByTestId(`alliance-mark-${key}-red-band`)).toBeNull();
+      expect(screen.queryByTestId(`alliance-mark-${key}-blue-band`)).toBeNull();
+      expect(screen.getByTestId(`predicted-score-${key}`).textContent).not.toContain("±");
+    }
+  });
+
+  it("a row carrying the NEW band keys draws both bands, played and upcoming", () => {
+    const matches = [makePlayedMatch({ matchKey: "qf1m1", redMatchBandVariance: 400, blueMatchBandVariance: 400 })];
+    const upcoming = [makeUpcomingMatch({ matchKey: "qf1m2" })];
+    renderWithRouter(<ElimsTab artifact={makeArtifact({ matches, upcoming })} algorithmId="spr" season={2022} />);
+    for (const key of ["qf1m1", "qf1m2"]) {
+      expect(screen.getByTestId(`alliance-mark-${key}-red-band`)).toBeDefined();
+      expect(screen.getByTestId(`alliance-mark-${key}-blue-band`)).toBeDefined();
+    }
+  });
+
   it("IGNORES the algorithm's own redScoreVarianceOwn — reading it is what made the band a VPR privilege", () => {
     const matches = [
-      makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: 900, blueScoreVarianceOwn: 900, redSwingBandVariance: undefined, blueSwingBandVariance: undefined }),
+      makePlayedMatch({ matchKey: "qf1m1", redScoreVarianceOwn: 900, blueScoreVarianceOwn: 900, redMatchBandVariance: undefined, blueMatchBandVariance: undefined }),
     ];
     renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="spr" season={2022} />);
     expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
@@ -439,9 +467,9 @@ describe("Adjacency (EVNT-06 adjacency)", () => {
       makePlayedMatch({
         matchKey: "qf1m1",
         predictedRedScore: 100,
-        redSwingBandVariance: 100,
+        redMatchBandVariance: 100,
         predictedBlueScore: 130,
-        blueSwingBandVariance: 400,
+        blueMatchBandVariance: 400,
       }),
     ];
     renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="spr" season={2022} />);
@@ -456,9 +484,9 @@ describe("Adjacency (EVNT-06 adjacency)", () => {
       makePlayedMatch({
         matchKey: "qf1m1",
         predictedRedScore: 100,
-        redSwingBandVariance: 100,
+        redMatchBandVariance: 100,
         predictedBlueScore: 100,
-        blueSwingBandVariance: 100,
+        blueMatchBandVariance: 100,
       }),
     ];
     renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="spr" season={2022} />);
@@ -472,7 +500,7 @@ describe("Adjacency (EVNT-06 adjacency)", () => {
     // A published zero is a REAL state — every rostered robot missed by the
     // identical amount, so the centred swing is exactly 0 and the model's
     // constant error is the model's problem, not the robot's.
-    const matches = [makePlayedMatch({ matchKey: "qf1m1", redSwingBandVariance: 0, blueSwingBandVariance: 0 })];
+    const matches = [makePlayedMatch({ matchKey: "qf1m1", redMatchBandVariance: 0, blueMatchBandVariance: 0 })];
     renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="spr" season={2022} />);
     expect(screen.getByTestId("alliance-mark-qf1m1-red-tick")).toBeDefined();
     expect(screen.getByTestId("alliance-mark-qf1m1-blue-tick")).toBeDefined();

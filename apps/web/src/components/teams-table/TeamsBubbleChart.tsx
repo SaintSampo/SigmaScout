@@ -1,6 +1,13 @@
 /**
  * The Teams page's bubble-chart view (quick task 260909-tom) — a hand-rolled
- * SVG scatter of the currently filtered teams, X = Total, Y = Swing Score.
+ * SVG scatter of the currently filtered teams, X = Total, Y = Sigma Score.
+ *
+ * Sigma Score is published for SPR only (quick task 260913-g66). When no
+ * row carries one (every OPR and EPA row set) the component renders a plain
+ * no-Sigma state instead of an axis: no svg, no key, just one sentence
+ * pointing the reader at SPR. That branch keys off the DATA
+ * (`model.hasAnySigma`), never off an algorithm id, the same way the table's
+ * Sigma column keys off `row.sigmaScore` presence.
  *
  * NOT Recharts — a deliberate departure from this project's default
  * charting library (260909-tom-PLAN.md `rendering_decision`). Recharts'
@@ -64,6 +71,7 @@ import { cn } from "@/lib/utils";
 import { metricDisplayLabel } from "@/lib/metricLabels";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { MetricValue } from "@/components/MetricValue";
+import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import type { TeamRow } from "./rowModel.js";
 import {
   BUBBLE_CHART,
@@ -76,7 +84,7 @@ import {
   projectY,
   tonePathData,
   tooltipAnchorFor,
-  SWING_AXIS_LABEL,
+  SIGMA_AXIS_LABEL,
   type BubblePoint,
   type BubbleTone,
 } from "./teamsBubbleModel.js";
@@ -220,11 +228,36 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
 
   const totalLabel = metricDisplayLabel(TOTAL_KEY);
 
-  const omissionNotes: string[] = [];
-  if (model.omittedNoSwing > 0) {
-    omissionNotes.push(
-      omissionNote(model.omittedNoSwing, "they have played fewer than two matches, so they have no Swing Score."),
+  // Quick task 260913-g66: the no-Sigma state. Placed AFTER every hook above
+  // so the hook order never changes between renders. The label for SPR is the
+  // one the ribbon's algorithm menu shows, read through `algorithmDisplayLabel`
+  // rather than re-typed.
+  //
+  // Gated on `rows.length > 0` so a filter that matches nothing keeps the
+  // ordinary empty state below. The copy is deliberately true in BOTH cases
+  // that reach this branch, because it cannot tell them apart without an
+  // algorithm id: OPR and EPA (never any Sigma Score), and SPR before any team
+  // has played this season (a fresh Sigma layer per season, so no entries
+  // yet). "Choose SPR" would be wrong for the second, so it is not said.
+  if (rows.length > 0 && !model.hasAnySigma) {
+    const sprLabel = algorithmDisplayLabel("spr");
+    return (
+      <div data-testid="teams-bubble-chart" className="flex flex-col gap-[var(--spacing-md)]">
+        <p data-testid="bubble-chart-no-sigma" className="text-role-body text-[var(--color-text-muted)]">
+          {`No team here has a ${SIGMA_AXIS_LABEL} to plot. ${SIGMA_AXIS_LABEL} is published for ${sprLabel} only, and a team gets one after it plays its first match of the season.`}
+        </p>
+      </div>
     );
+  }
+
+  const omissionNotes: string[] = [];
+  if (model.omittedNoSigma > 0) {
+    // A Sigma entry is absent only when the SigmaScout layer never folded a
+    // match for that team (`SigmaScoreAccumulator.scoreByTeam` lists exactly
+    // the teams it has folded), but a fold can also be skipped for a fully
+    // demo or fully disqualified alliance, so "has not played" is not always
+    // literally true. This wording is true in every case.
+    omissionNotes.push(omissionNote(model.omittedNoSigma, `they have no ${SIGMA_AXIS_LABEL} for this season.`));
   }
   if (model.omittedNoTotal > 0) {
     omissionNotes.push(omissionNote(model.omittedNoTotal, `they carry no ${totalLabel} for this algorithm.`));
@@ -254,9 +287,10 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
         honestly (D-04, `<accessibility_decision>`) rather than claiming
         keyboard operability the chart does not have. Real DOM text, so it
         reaches a screen reader too. It must contain neither "Total" nor
-        "Swing Score" — both strings are asserted by existing single-match
-        `getByText` calls elsewhere in this component, and a second match
-        would make those throw.
+        "Sigma Score": the axis titles and tooltip labels carrying those
+        strings are asserted by single-match `getByText` calls in
+        `TeamsBubbleChart.test.tsx`, and a second match would make those
+        throw.
       */}
       <p className="text-role-label text-[var(--color-text-muted)]">
         Hover a point for its team; click to open that team's page.
@@ -265,12 +299,12 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
       <div ref={containerRef} className="relative w-full">
         {model.points.length === 0 ? (
           <p data-testid="bubble-chart-empty" className="text-role-body text-[var(--color-text-muted)]">
-            No teams have both a {totalLabel} value and a Swing Score to plot.
+            No teams have both a {totalLabel} value and a {SIGMA_AXIS_LABEL} to plot.
           </p>
         ) : (
           <svg
             role="img"
-            aria-label={`${model.points.length} teams plotted. Horizontal axis: ${totalLabel}. Vertical axis: Swing Score.`}
+            aria-label={`${model.points.length} teams plotted. Horizontal axis: ${totalLabel}. Vertical axis: ${SIGMA_AXIS_LABEL}.`}
             width={width}
             height={BUBBLE_CHART.height}
             viewBox={`0 0 ${width} ${BUBBLE_CHART.height}`}
@@ -310,7 +344,7 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
               return <path key={tone} data-tone={tone} className={cn("bubble-tone", `bubble-tone--${tone}`)} d={d} />;
             })}
 
-            {/* Axis titles. X: the Total column's own label, never a re-typed literal. Y: SWING_AXIS_LABEL — the full name, per the recorded vocabulary rule, even though the table column abbreviates it to fit. */}
+            {/* Axis titles. X: the Total column's own label, never a re-typed literal. Y: SIGMA_AXIS_LABEL, the full name, per the recorded vocabulary rule, even though the table column abbreviates it to fit. */}
             <text x={plot.left + plot.width / 2} y={BUBBLE_CHART.height - 6} textAnchor="middle" fontSize={12} fill="var(--color-text-muted)">
               {totalLabel}
             </text>
@@ -322,7 +356,7 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
               fill="var(--color-text-muted)"
               transform={`rotate(-90, 16, ${plot.top + plot.height / 2})`}
             >
-              {SWING_AXIS_LABEL}
+              {SIGMA_AXIS_LABEL}
             </text>
 
             {/*
@@ -379,7 +413,7 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
               <MetricValue metric={{ value: hoveredPoint.x }} />
             </div>
             <div className="flex items-center justify-between gap-[var(--spacing-sm)]">
-              <span className="text-role-label text-[var(--color-text-muted)]">{SWING_AXIS_LABEL}</span>
+              <span className="text-role-label text-[var(--color-text-muted)]">{SIGMA_AXIS_LABEL}</span>
               <MetricValue metric={{ value: hoveredPoint.y }} />
             </div>
           </div>

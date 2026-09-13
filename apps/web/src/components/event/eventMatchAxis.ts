@@ -42,9 +42,15 @@ export interface EventMatchRow {
   predictedBlueScore: number;
   redScoreVarianceOwn?: number;
   blueScoreVarianceOwn?: number;
-  /** The SigmaScout-layer band (quick task 260908-5wd) — published for every algorithm, unlike the pair above. Absent until a republish lands. */
-  redSwingBandVariance?: number;
-  blueSwingBandVariance?: number;
+  /**
+   * The published Match Band variance (quick task 260913-g66): the number of
+   * robots on the alliance times the sum of their squared Sigma Scores. Sigma
+   * algorithms (SPR) only; absent for OPR and EPA, and absent on stale
+   * artifacts that carry only the retired pre-rename band keys. Display band
+   * only, never the win-odds variance.
+   */
+  redMatchBandVariance?: number;
+  blueMatchBandVariance?: number;
   sortTime?: number;
   played: boolean;
   actualWinner?: "red" | "blue" | "tie";
@@ -183,8 +189,8 @@ function toRow(match: EventMatch | EventUpcomingMatch, played: boolean): EventMa
     predictedBlueScore: match.predictedBlueScore,
     redScoreVarianceOwn: match.redScoreVarianceOwn,
     blueScoreVarianceOwn: match.blueScoreVarianceOwn,
-    redSwingBandVariance: match.redSwingBandVariance,
-    blueSwingBandVariance: match.blueSwingBandVariance,
+    redMatchBandVariance: match.redMatchBandVariance,
+    blueMatchBandVariance: match.blueMatchBandVariance,
     sortTime: match.sortTime,
     // Quick 260905-jj8: both source schemas publish the predicted per-bonus
     // marginals; copied verbatim, never defaulted (absent stays absent).
@@ -237,24 +243,23 @@ export function mergeEventMatches(
     byMatchKey.set(match.matchKey, toRow(match, true));
   }
 
-  // Quick task 260908-5wd: the band is a SIGMASCOUT-LAYER quantity published for
-  // EVERY algorithm — `√(Σ the three teams' Swing Factor²)`, computed once at
-  // publish time and attached to the one record both the event artifact and the
-  // team artifact are built from. So this reads it rather than deriving it, and
-  // a match's band is byte-identical on both pages by construction.
+  // Quick task 260913-g66: the band is the published Match Band, computed once
+  // at publish time (and live by the Worker, through the same helper) as the
+  // number of robots on the alliance times the sum of their squared Sigma
+  // Scores, and attached to the one record both the event artifact and the team
+  // artifact are built from. So this reads it rather than deriving it, and a
+  // match's band is byte-identical on both pages by construction.
   //
-  // The browser-side estimator this file briefly carried is GONE (verified
-  // 2026-09-08: every season 2016-2026 publishes `swingFactor` for ~100% of
-  // teams, the residue being teams with fewer than two played matches, which
-  // correctly have none). `redScoreVarianceOwn` is deliberately NOT consulted as
-  // a fallback — it is the ALGORITHM's own predictive variance, a different
-  // quantity at a different level, published only by the algorithms that model
-  // one. Reading it here is what made the band a VPR privilege in the first
-  // place.
+  // It is published for Sigma algorithms (SPR) ONLY. OPR and EPA rows carry no
+  // band and draw none. Only the new keys are read, with no fallback to the
+  // retired pre-rename band keys, so a stale artifact renders no band rather
+  // than an old, too-narrow one. `redScoreVarianceOwn` from the artifact is
+  // deliberately NOT consulted as a fallback either: it is the ALGORITHM's own
+  // predictive variance, a different quantity at a different level.
   const rows = [...byMatchKey.values()].map((row) => ({
     ...row,
-    redScoreVarianceOwn: row.redSwingBandVariance,
-    blueScoreVarianceOwn: row.blueSwingBandVariance,
+    redScoreVarianceOwn: row.redMatchBandVariance,
+    blueScoreVarianceOwn: row.blueMatchBandVariance,
   }));
 
   return rows.sort(compareEventMatchRows);

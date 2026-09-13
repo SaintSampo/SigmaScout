@@ -225,7 +225,7 @@ function PredictedScoreLine({
   matchKey: string;
   side: "red" | "blue";
   score: number;
-  /** This alliance's OWN predicted-score variance (D-01). Published by VPR; absent for OPR/EPA, which model no alliance-level own variance — those rows then show a bare score, never a fabricated ±. */
+  /** This alliance's published Match Band variance (`redMatchBandVariance`/`blueMatchBandVariance`, quick task 260913-g66). Published for Sigma algorithms (SPR) only; absent for OPR and EPA rows and for stale artifacts, which then show a bare score, never a fabricated ±. */
   variance: number | undefined;
   season: number;
   /** This alliance's own predicted per-bonus probabilities (`TeamSeasonMatchSchema.redBonusRp`/`blueBonusRp`, plan 06.1-05), positionally aligned to the season's bonus list. Undefined when the Monte Carlo did not run for this match. */
@@ -393,7 +393,7 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
             matchKey={match.matchKey}
             side="red"
             predicted={match.predictedRedScore}
-            sd={swingBandSd(match.redSwingBandVariance)}
+            sd={matchBandSd(match.redMatchBandVariance)}
             actual={match.actualRedScore}
             yBand={MATCH_GEOMETRY.Y_RED}
             domain={domain}
@@ -404,7 +404,7 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
             matchKey={match.matchKey}
             side="blue"
             predicted={match.predictedBlueScore}
-            sd={swingBandSd(match.blueSwingBandVariance)}
+            sd={matchBandSd(match.blueMatchBandVariance)}
             actual={match.actualBlueScore}
             yBand={MATCH_GEOMETRY.Y_BLUE}
             domain={domain}
@@ -421,8 +421,8 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
       </td>
       <td data-testid={`predicted-score-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         <div className="flex flex-col gap-[2px]">
-          <PredictedScoreLine matchKey={match.matchKey} side="red" score={match.predictedRedScore} variance={match.redSwingBandVariance} season={season} bonusRp={match.redBonusRp} compLevel={match.compLevel} />
-          <PredictedScoreLine matchKey={match.matchKey} side="blue" score={match.predictedBlueScore} variance={match.blueSwingBandVariance} season={season} bonusRp={match.blueBonusRp} compLevel={match.compLevel} />
+          <PredictedScoreLine matchKey={match.matchKey} side="red" score={match.predictedRedScore} variance={match.redMatchBandVariance} season={season} bonusRp={match.redBonusRp} compLevel={match.compLevel} />
+          <PredictedScoreLine matchKey={match.matchKey} side="blue" score={match.predictedBlueScore} variance={match.blueMatchBandVariance} season={season} bonusRp={match.blueBonusRp} compLevel={match.compLevel} />
         </div>
       </td>
       <td data-testid={`actual-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
@@ -461,18 +461,21 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
 
 /** One event's match table: the shared axis header drawn exactly once, then one row per published match, in the exact order the artifact carries them (never re-sorted client-side). */
 /**
- * The band's standard deviation, from the SIGMASCOUT-LAYER
- * `*SwingBandVariance` published for every algorithm (quick task 260908-5wd).
+ * The band's standard deviation, from the published Match Band variance
+ * (`redMatchBandVariance`/`blueMatchBandVariance`, quick task 260913-g66):
+ * the number of robots on the alliance times the sum of their squared Sigma
+ * Scores. It is the display band only, never the win-odds variance.
+ *
+ * Published for Sigma algorithms (SPR) only. OPR and EPA rows carry none, and
+ * neither do stale artifacts published before 260913-g66 (they carry only the
+ * retired pre-rename band keys, which this file deliberately never reads), so
+ * those rows draw no band rather than a wrong one.
  *
  * Deliberately does NOT fall back to the algorithm's own `*ScoreVarianceOwn`:
- * that is a different quantity at a different level, published only by the
- * algorithms that model their own predictive variance, and reading it is what
- * made the band a VPR privilege before this task. Absent means absent — the
- * opening matches of a team's season, where no roster member yet has the two
- * observations a centred swing needs.
+ * that is a different quantity at a different level. Absent means absent.
  */
-function swingBandSd(swingBandVariance: number | undefined): number | undefined {
-  return swingBandVariance === undefined ? undefined : Math.sqrt(Math.max(0, swingBandVariance));
+function matchBandSd(matchBandVariance: number | undefined): number | undefined {
+  return matchBandVariance === undefined ? undefined : Math.sqrt(Math.max(0, matchBandVariance));
 }
 
 export function MatchTable({ matches, domain, teamKey, season, algorithm }: MatchTableProps) {

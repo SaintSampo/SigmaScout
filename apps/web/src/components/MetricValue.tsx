@@ -25,9 +25,9 @@ export interface DisplayMetric {
 }
 
 /**
- * The D-07 value-and-spread display primitive: `{value} ± {spread}`, or the
- * bare value when no spread is published, or a single em-dash when no
- * metric exists at all (05-03-PLAN.md Task 3).
+ * The D-07 metric display primitive: the value to two decimals, or a blank
+ * cell when no metric exists at all (05-03-PLAN.md Task 3). It renders no
+ * plus-minus in any case (quick task 260913-g66 removed the last one).
  *
  * Both numbers arrive from the published artifact ALREADY rounded to two
  * decimals (`packages/harness/rounding.ts`'s `ROUNDING_RULE.metric`).
@@ -46,51 +46,28 @@ export interface DisplayMetric {
  * `undefined` alone. `"common"` means a percentile WAS published and landed
  * below the 50th, and the cell renders the `.metric-tier--common` hairline
  * ring (no fill, no foreground change) — it no longer renders identically to
- * `undefined`. Any tier wraps the same value/spread output in the
+ * `undefined`. Any tier wraps the same value output in the
  * `.metric-tier`/`.metric-tier--{tier}` box (`theme.css`) via `cn()`,
  * changing only background/foreground/box-shadow/padding — never the type
- * scale, never a re-round of either number. The prop stays
+ * scale, never a re-round of the number. The prop stays
  * presentation-only in every case — it may never change a digit.
  *
- * The ± glyph and spread number render through `.metric-spread-superscript`
- * (07-UAT.md G-10, the developer's own design direction) — smaller, grey,
- * and raised beside the value like an exponent, top-aligned with it. The
- * VALUE itself is untouched: same `.text-role-body` size/weight, same
- * `toFixed(2)` digits, same DOM text content and order as before — this is
- * a presentation-only change over the identical " ± {spread}" string
- * `.text-role-spread-suffix` used to render, so the accessible name/text
- * content read by assistive tech is byte-identical to before this change.
- * Swing Score is a permanent part of the site (2026-09-09): the ribbon's
- * `±` toggle and the `displaySettings` store behind it are gone, so a
- * `swingScore` reaching this component ALWAYS renders — there is no longer
- * any state in which the spread span is suppressed. See
- * `theme.css`'s own doc comment on `.metric-spread-superscript` for why
- * this is a NEW class rather than a redefinition of `.text-role-spread-suffix`
- * (that class is also consumed by two match-table surfaces outside this
- * fix's scope).
+ * Quick task 260913-g66 removed the optional per-cell plus-minus prop this
+ * component used to carry, together with its `.metric-spread-superscript`
+ * render branch: that prop printed a per-team consistency figure beside a
+ * value, no production caller passed it any more, and the site no longer
+ * names that figure anywhere. A metric cell is now the value alone. Sigma
+ * Score, where it is published (SPR only), renders as its own number in its
+ * own column or tile, never as a suffix on another metric.
  */
 export function MetricValue({
   metric,
   tier,
   className,
-  swingScore,
 }: {
   metric?: DisplayMetric;
   tier?: Tier;
   className?: string;
-  /**
-   * The SWING SCORE for this cell — SigmaScout's own heuristic for how much
-   * this robot's contribution varies match to match. The ONLY quantity this
-   * component will render as a `±`.
-   *
-   * Passed EXPLICITLY by each caller rather than read off `metric`, so that
-   * showing a `±` is always a deliberate act. Before 2026-09-09 this component
-   * rendered `metric.spread`, which meant every one of its ten call sites
-   * displayed the algorithm's internal confidence without ever asking to —
-   * a leak that was systemic precisely because it lived here rather than at
-   * any one call site.
-   */
-  swingScore?: number;
 }) {
   if (metric === undefined) {
     // Blank, not an em-dash (2026-09-01 user request: no visible em-dashes
@@ -100,15 +77,11 @@ export function MetricValue({
   }
 
   const valueText = metric.value.toFixed(2);
-  const hasSwingScore = swingScore !== undefined;
   const boxed = tier !== undefined;
 
   return (
     <span className={cn("numeric-cell whitespace-nowrap", boxed && "metric-tier", boxed && `metric-tier--${tier}`, className)}>
       <span className="text-role-body">{valueText}</span>
-      {hasSwingScore && (
-        <span className="metric-spread-superscript text-muted-foreground">{` ± ${swingScore.toFixed(2)}`}</span>
-      )}
     </span>
   );
 }

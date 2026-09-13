@@ -166,21 +166,20 @@ describe("buildTeamRows — swing tier (quick task 260909-tgf)", () => {
     expect(rows[0]?.sigmaTier).toBe("common");
   });
 
-  it("a row carrying only the top-level swingFactor produces NO sigmaScore -- a Swing value must never render under a Sigma heading", () => {
-    // The fallback this used to assert was REMOVED on 2026-09-10. `swingFactor`
-    // holds a Swing Factor: a different estimator on a different scale (Swing
-    // prints 1.92 sigma against Sigma's honest 1 sigma, so the same robot reads
-    // roughly twice as large). Falling back to it is not a degraded answer, it
-    // is a wrong one, and it would appear under a column labelled "Sigma".
-    const rows = buildTeamRows(
-      artifact([team({ swingFactor: 8.42, metrics: { [TOTAL_KEY]: { value: 50 } } })]),
-      "spr",
-    );
+  it("a STALE row still carrying the retired top-level per-team field produces NO sigmaScore -- only the published sigma entry counts", () => {
+    // The fallback this used to assert was REMOVED on 2026-09-10, and the
+    // field stopped being published in 260913-g66 (it is gone from the row
+    // type and the schema strips it on parse). It held a different estimator
+    // on a different scale, so falling back to it would print a wrong number
+    // under a column labelled "Sigma". A cached pre-republish object can still
+    // carry it, which is what the cast below stands in for.
+    const stale = { ...team({ metrics: { [TOTAL_KEY]: { value: 50 } } }), swingFactor: 8.42 } as ReturnType<typeof team>;
+    const rows = buildTeamRows(artifact([stale]), "spr");
     expect(rows[0]?.sigmaScore).toBeUndefined();
     expect(rows[0]?.sigmaTier).toBeUndefined();
   });
 
-  it("a row with neither the swing metric entry nor the top-level swingFactor produces sigmaScore undefined and sigmaTier undefined", () => {
+  it("a row with no sigma metric entry produces sigmaScore undefined and sigmaTier undefined", () => {
     const rows = buildTeamRows(artifact([team({ metrics: { [TOTAL_KEY]: { value: 50 } } })]), "spr");
     expect(rows[0]?.sigmaScore).toBeUndefined();
     expect(rows[0]?.sigmaTier).toBeUndefined();

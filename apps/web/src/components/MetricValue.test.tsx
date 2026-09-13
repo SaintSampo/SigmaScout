@@ -5,22 +5,20 @@ import { afterEach, describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { MetricValue } from "./MetricValue.js";
 
-// D-07: the value-and-spread display primitive. Every input/output pair
-// below is pinned exactly as 05-UI-SPEC.md's Typography "Sigma display
-// format" and the Sigma-metric-display UI Considerations rows specify it
-// (05-03-PLAN.md Task 3).
+// D-07: the metric display primitive. Quick task 260913-g66 removed its
+// optional per-cell plus-minus prop, so every case below renders the value
+// alone; the formatting and tier contracts are unchanged.
 
 describe("MetricValue", () => {
-  it("renders value and spread as '88.20 ± 3.10' in separate elements", () => {
-    const { container } = render(<MetricValue metric={{ value: 88.2 }} swingScore={3.1} />);
+  it("renders the value inside its own type-role element, within the outer numeric cell", () => {
+    const { container } = render(<MetricValue metric={{ value: 88.2 }} />);
 
-    expect(container.textContent).toBe("88.20 ± 3.10");
-    // Value and suffix carry different type/colour, so they must be two
-    // distinct child elements, not one text node.
-    expect(container.querySelectorAll("*").length).toBeGreaterThanOrEqual(3);
+    expect(container.textContent).toBe("88.20");
+    const valueEl = container.querySelector(".text-role-body");
+    expect(valueEl?.textContent).toBe("88.20");
   });
 
-  it("renders exactly '88.20' with no suffix and no separator when spread is absent", () => {
+  it("renders exactly '88.20' with no suffix and no separator", () => {
     const { container } = render(<MetricValue metric={{ value: 88.2 }} />);
 
     expect(container.textContent).toBe("88.20");
@@ -50,33 +48,32 @@ describe("MetricValue", () => {
     expect(container.textContent).toBe("88.24");
   });
 
-  it("renders a zero spread as a real suffix: '-3.50 ± 0.00'", () => {
-    const { container } = render(<MetricValue metric={{ value: -3.5 }} swingScore={0} />);
+  it("renders a negative value with its sign and two decimals: '-3.50'", () => {
+    const { container } = render(<MetricValue metric={{ value: -3.5 }} />);
 
-    expect(container.textContent).toBe("-3.50 ± 0.00");
+    expect(container.textContent).toBe("-3.50");
   });
 
-  it("wraps the value-and-spread pair in one non-wrapping element", () => {
-    const { container } = render(<MetricValue metric={{ value: 88.2 }} swingScore={3.1} />);
+  it("wraps the value in one non-wrapping element", () => {
+    const { container } = render(<MetricValue metric={{ value: 88.2 }} />);
 
     const outer = container.firstElementChild;
     expect(outer).not.toBeNull();
     expect(outer?.className).toMatch(/whitespace-nowrap/);
   });
 
-  it("resolves the suffix colour through the muted text token, never a literal", () => {
-    const { container } = render(<MetricValue metric={{ value: 88.2 }} swingScore={3.1} />);
+  it("renders no plus-minus superscript element at all (260913-g66)", () => {
+    const { container } = render(<MetricValue metric={{ value: 88.2, spread: 3.1 }} tier="epic" />);
 
-    const suffix = Array.from(container.querySelectorAll("span")).find((el) => el.textContent === " ± 3.10");
-    expect(suffix).not.toBeUndefined();
-    expect(suffix?.className).toMatch(/text-muted/);
+    expect(container.querySelector(".metric-spread-superscript")).toBeNull();
+    expect(container.textContent).not.toContain("±");
   });
 
   // D-17 (06-07-PLAN.md Task 1): the tier prop is presentation-only — it may
   // never change a digit, only wrap the SAME output in `.metric-tier`.
   describe("tier prop (D-17)", () => {
     it("wraps the value in the epic modifier class when tier='epic'", () => {
-      const { container } = render(<MetricValue metric={{ value: 76.23 }} swingScore={2.85} tier="epic" />);
+      const { container } = render(<MetricValue metric={{ value: 76.23 }} tier="epic" />);
 
       const outer = container.firstElementChild;
       expect(outer?.className).toMatch(/metric-tier\b/);
@@ -88,7 +85,7 @@ describe("MetricValue", () => {
     // the `.metric-tier--common` modifier — it no longer matches the
     // undefined-tier case (see the untiered test below for that contract).
     it("wraps the value in the common modifier class when tier='common' (260904-7rt, sketch 008 winner C)", () => {
-      const { container } = render(<MetricValue metric={{ value: 76.23 }} swingScore={2.85} tier="common" />);
+      const { container } = render(<MetricValue metric={{ value: 76.23 }} tier="common" />);
 
       const outer = container.firstElementChild;
       expect(outer?.className).toMatch(/metric-tier\b/);
@@ -96,19 +93,19 @@ describe("MetricValue", () => {
     });
 
     it("renders byte-identical numeric text at tier='common' to the same metric rendered untiered (260904-7rt: the ring is presentation-only)", () => {
-      const untiered = render(<MetricValue metric={{ value: 88.2 }} swingScore={3.1} />);
-      const common = render(<MetricValue metric={{ value: 88.2 }} swingScore={3.1} tier="common" />);
+      const untiered = render(<MetricValue metric={{ value: 88.2 }} />);
+      const common = render(<MetricValue metric={{ value: 88.2 }} tier="common" />);
 
       expect(common.container.textContent).toBe(untiered.container.textContent);
-      expect(common.container.textContent).toBe("88.20 ± 3.10");
+      expect(common.container.textContent).toBe("88.20");
     });
 
     it("renders byte-identical numeric text whether tiered or untiered", () => {
-      const untiered = render(<MetricValue metric={{ value: 88.2 }} swingScore={3.1} />);
-      const tiered = render(<MetricValue metric={{ value: 88.2 }} swingScore={3.1} tier="legendary" />);
+      const untiered = render(<MetricValue metric={{ value: 88.2 }} />);
+      const tiered = render(<MetricValue metric={{ value: 88.2 }} tier="legendary" />);
 
       expect(tiered.container.textContent).toBe(untiered.container.textContent);
-      expect(tiered.container.textContent).toBe("88.20 ± 3.10");
+      expect(tiered.container.textContent).toBe("88.20");
     });
 
     it("renders no metric-tier class when tier is undefined (the default, unchanged behaviour)", () => {
@@ -121,27 +118,17 @@ describe("MetricValue", () => {
     });
   });
 
-  // Swing Score is unconditional (2026-09-09, user decision): the ribbon's ±
-  // control and the `displaySettings` store it wrote to are both gone, so
-  // `swingScore` is the ONLY thing that decides whether a ± renders. These
-  // replace the four toggle-state tests that used to live here.
-  describe("Swing Score is unconditional", () => {
-    it("renders the value followed by the ± span whenever a swingScore is passed", () => {
-      const { container } = render(<MetricValue metric={{ value: 88.2 }} swingScore={3.1} />);
-
-      expect(container.textContent).toBe("88.20 ± 3.10");
-    });
-
-    it("renders the ± inside a tier wrapper too, box and all", () => {
-      const { container } = render(<MetricValue metric={{ value: 76.23 }} swingScore={2.85} tier="epic" />);
+  describe("tier wrapper with no plus-minus", () => {
+    it("renders the tier box around the bare value", () => {
+      const { container } = render(<MetricValue metric={{ value: 76.23 }} tier="epic" />);
 
       const outer = container.firstElementChild;
       expect(outer?.className).toMatch(/metric-tier\b/);
       expect(outer?.className).toMatch(/metric-tier--epic/);
-      expect(container.textContent).toBe("76.23 ± 2.85");
+      expect(container.textContent).toBe("76.23");
     });
 
-    it("renders the bare value, keeping the numeric-cell box, when no swingScore is passed", () => {
+    it("renders the bare value, keeping the numeric-cell box, when untiered", () => {
       const { container } = render(<MetricValue metric={{ value: 88.2 }} />);
 
       expect(container.textContent).toBe("88.20");
@@ -189,16 +176,10 @@ describe("theme.css Common-tier drift guard (260904-7rt)", () => {
 });
 
 describe("MetricValue — spread must never reach the screen (developer rule, 2026-09-09)", () => {
-  it("renders NO ± for a metric carrying only the algorithm's spread, with no swingScore passed", () => {
+  it("renders NO ± for a metric carrying the algorithm's spread", () => {
     const { container } = render(<MetricValue metric={{ value: 183.9, spread: 36.32 }} />);
     expect(container.textContent).toBe("183.90");
     expect(container.textContent).not.toContain("±");
-    expect(container.textContent).not.toContain("36.32");
-  });
-
-  it("renders the SWING SCORE and never the spread when a metric carries both", () => {
-    const { container } = render(<MetricValue metric={{ value: 183.9, spread: 36.32 }} swingScore={65.8} />);
-    expect(container.textContent).toBe("183.90 ± 65.80");
     expect(container.textContent).not.toContain("36.32");
   });
 });
