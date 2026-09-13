@@ -99,7 +99,7 @@ import {
   type TeamsArtifactWire,
   type TeamSeasonArtifact,
 } from "./pageArtifacts.js";
-import { buildTeamRankScopes, deriveTeamRegions, type RankableTeamRow, type TeamRankScope } from "./teamRanks.js";
+import { buildTeamRankScopesByTeam, deriveTeamRegions, type RankableTeamRow, type TeamRankScope } from "./teamRanks.js";
 import { consistencyMetricByTeam, type ConsistencyMetricEntry } from "./consistencyMetric.js";
 import {
   allianceSigmaBandVariance,
@@ -2223,6 +2223,45 @@ function groupByEvent<T extends { readonly match: { readonly eventKey: string } 
   return map;
 }
 
+/** The two per-algorithm stamps on an events-list body — re-validated when a season's shared events base is re-stamped for each algorithm (quick task 260913-nvn). */
+const EventsArtifactStampSchema = EventsArtifactSchema.pick({ algorithmId: true, algorithmVersion: true });
+
+// ---------------------------------------------------------------------------
+// Phase timings (quick task 260913-nvn)
+// ---------------------------------------------------------------------------
+
+/**
+ * Wall-clock milliseconds per labelled publish phase, accumulated across
+ * calls with the same label. Printed as the run summary's `timing:` lines and
+ * returned on `PublishSummary.timings`, so a republish documents where its
+ * time went instead of reporting one end-to-end duration.
+ */
+class PhaseTimings {
+  readonly ms: Record<string, number> = {};
+
+  add(label: string, elapsedMs: number): void {
+    this.ms[label] = (this.ms[label] ?? 0) + elapsedMs;
+  }
+
+  time<T>(label: string, fn: () => T): T {
+    const start = performance.now();
+    try {
+      return fn();
+    } finally {
+      this.add(label, performance.now() - start);
+    }
+  }
+
+  async timeAsync<T>(label: string, fn: () => Promise<T>): Promise<T> {
+    const start = performance.now();
+    try {
+      return await fn();
+    } finally {
+      this.add(label, performance.now() - start);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // publishSeasons — the full multi-season, multi-page, multi-algorithm publish
 // ---------------------------------------------------------------------------
@@ -2280,6 +2319,8 @@ export interface PublishSummary {
   readonly pages: Partial<Record<PageKind, PageKindSizeStats>>;
   readonly seedFiles: readonly string[];
   readonly manifestKeys: readonly string[];
+  /** Wall-clock milliseconds per publish phase, keyed by label (quick task 260913-nvn): `season {year} replay|fold|compare`, `{year}/{algorithm} build|sidecars|uploadWait`, and `total`. */
+  readonly timings: Readonly<Record<string, number>>;
 }
 
 interface TeamSeasonStats {
@@ -2493,6 +2534,8 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
   const seasonsSorted = [...options.seasons].sort((a, b) => a - b);
   const stamp: StateStamp = { generation, computedAt };
 
+  const runStart = performance.now();
+  const timings = new PhaseTimings();
   const uploader = new BoundedUploader(options.bucket, concurrency, dryRun);
   const teamInfo = lookupAllTeamInfo(db);
   const seedFiles: string[] = [];
@@ -2767,7 +2810,10 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // D-01 (quick task 260909-t5q): `db` is the corpus handle this whole
     // function already has open.
     const simulator = new WalkForwardSimulator(stream, corpusColdStartIndex(db));
-    const records = simulator.runAll(options.algorithms, teamsThisSeason, initialStates, onMatchComplete);
+    const records = timings.time(`season ${season} replay`, () =>
+      simulator.runAll(options.algorithms, teamsThisSeason, initialStates, onMatchComplete)
+    );
+    const foldStart = performance.now();
 
     for (const algorithm of options.algorithms) {
       const carryStatus = initialStates?.has(algorithm.id) ? "carried state in" : "started cold";
@@ -2921,7 +2967,57 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       isColdStart: r.coldStart === true,
     }));
 
+    // --- events/{year}/{algorithm}@{version}.json rows, once per season ---
+    // Event summary counts reflect matches actually replayed this run
+    // (respecting --include-offseason, plan 07-09: now CLI-reachable via
+    // main()'s parseArgs, where before this plan nothing could set it),
+    // same scope as the artifacts themselves — an offseason event shows
+    // zero counts when offseason matches were excluded from this run.
+    //
+    // Quick task 260913-nvn: the rows come from `eventMeta` and `eventCounts`
+    // alone, both algorithm-independent, so they are built and validated ONCE
+    // per season here. The three `events/{year}/{algorithm}` bodies differ
+    // only by their `algorithmId`/`algorithmVersion` stamps, which the loop
+    // below overwrites on a spread of this base (a spread keeps key positions,
+    // so serialized key order is unchanged).
+    const eventsRows: EventsArtifactEventInput[] = eventMeta.map((e) => {
+      const counts = eventCounts.get(e.event_key);
+      return {
+        eventKey: e.event_key,
+        // plan 05-02 (EVNT-01): real name from the corpus's name column.
+        // Falls back to the event key only when the column is null —
+        // an un-refreshed corpus (never ran --events-only) degrades to
+        // the pre-05-02 behavior instead of failing a required-string parse.
+        name: e.name ?? e.event_key,
+        eventType: e.event_type,
+        isOffseason: e.is_offseason === 1,
+        startDate: e.start_date,
+        week: e.week,
+        teamCount: counts?.teamKeys.size ?? 0,
+        matchCount: counts?.matchCount ?? 0,
+        playedMatchCount: counts?.playedMatchCount ?? 0,
+        country: e.country,
+        stateProv: e.state_prov,
+        districtKey: e.district_key,
+      };
+    });
+    const firstAlgorithm = options.algorithms[0];
+    const eventsArtifactBase =
+      firstAlgorithm === undefined
+        ? undefined
+        : buildEventsArtifact({
+            season,
+            algorithmId: firstAlgorithm.id,
+            algorithmVersion: firstAlgorithm.version,
+            events: eventsRows,
+            generation,
+            computedAt,
+          });
+    timings.add(`season ${season} fold`, performance.now() - foldStart);
+
     for (const algorithm of options.algorithms) {
+      const blockStart = performance.now();
+      let sidecarMs = 0;
       const state = records.finalStates.get(algorithm.id);
       const version = algorithm.version;
       // Season-final metrics (the algorithm's final state). NOT a ranking pool
@@ -3112,9 +3208,9 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
         metrics: roundTeamMetricRecord(row.metrics),
         ...teamRegions.get(row.teamKey),
       }));
-      const rankScopesByTeamKey = new Map<string, readonly TeamRankScope[]>(
-        teamsRows.map((row) => [row.teamKey, buildTeamRankScopes({ rows: rankableTeamRows, teamKey: row.teamKey })])
-      );
+      // Quick task 260913-nvn: every pool sorted once for the whole roster;
+      // `rankableTeamRows` is 1:1 with `teamsRows`, so every row key gets an entry.
+      const rankScopesByTeamKey = buildTeamRankScopesByTeam(rankableTeamRows);
 
       const teamsArtifact = buildTeamsArtifact({
         season,
@@ -3128,40 +3224,13 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       const teamsPending = uploader.publish("teams", teamsKey, JSON.stringify(teamsArtifact));
 
       // --- events/{year}/{algorithm}@{version}.json ---
-      // Event summary counts reflect matches actually replayed this run
-      // (respecting --include-offseason, plan 07-09: now CLI-reachable via
-      // main()'s parseArgs, where before this plan nothing could set it),
-      // same scope as the artifacts themselves — an offseason event shows
-      // zero counts when offseason matches were excluded from this run.
-      const eventsRows: EventsArtifactEventInput[] = eventMeta.map((e) => {
-        const counts = eventCounts.get(e.event_key);
-        return {
-          eventKey: e.event_key,
-          // plan 05-02 (EVNT-01): real name from the corpus's name column.
-          // Falls back to the event key only when the column is null —
-          // an un-refreshed corpus (never ran --events-only) degrades to
-          // the pre-05-02 behavior instead of failing a required-string parse.
-          name: e.name ?? e.event_key,
-          eventType: e.event_type,
-          isOffseason: e.is_offseason === 1,
-          startDate: e.start_date,
-          week: e.week,
-          teamCount: counts?.teamKeys.size ?? 0,
-          matchCount: counts?.matchCount ?? 0,
-          playedMatchCount: counts?.playedMatchCount ?? 0,
-          country: e.country,
-          stateProv: e.state_prov,
-          districtKey: e.district_key,
-        };
-      });
-      const eventsArtifact = buildEventsArtifact({
-        season,
-        algorithmId: algorithm.id,
-        algorithmVersion: version,
-        events: eventsRows,
-        generation,
-        computedAt,
-      });
+      // The once-per-season base above, re-stamped for this algorithm. Only
+      // the two stamps are re-validated, so nothing unparsed reaches an
+      // upload (T-04-22).
+      const eventsArtifact: EventsArtifact = {
+        ...eventsArtifactBase!,
+        ...EventsArtifactStampSchema.parse({ algorithmId: algorithm.id, algorithmVersion: version }),
+      };
       const eventsKey = artifactKey({ page: "events", year: season, algorithmId: algorithm.id, version });
       const eventsPending = uploader.publish("events", eventsKey, JSON.stringify(eventsArtifact));
 
@@ -3244,7 +3313,13 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
         // The sidecar is written BEFORE the event artifact for the same
         // event (the artifacts-before-index ordering rule) by CHAINING the
         // event upload behind the sidecar upload — the two never race.
-        const sidecar = presimEnabled
+        //
+        // Quick task 260913-nvn: gated on `publishesRankingPoints` as well.
+        // The layer's RP accumulator exists only for RP-publishing ids, so
+        // every other id's probe returns null by construction — after loading
+        // a template, building schedule 0 and pricing a probe match for nothing.
+        const sidecarStart = performance.now();
+        const sidecar = presimEnabled && publishesRankingPoints(algorithm.id)
           ? buildPreScheduleSidecarForEvent({
               eventKey: e.event_key,
               season,
@@ -3263,6 +3338,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
               fillRankingPoints: makeRankingPointFiller(layerForAlgo.rpAccumulator, rpRuleModule, sigmaByTeamForAlgo, eventTeamKeys),
             })
           : undefined;
+        sidecarMs += performance.now() - sidecarStart;
         if (sidecar !== undefined) {
           eventPending.push(uploader.publishSidecar(sidecar.key, sidecar.body).then(() => uploader.publish("event", key, eventBody)));
         } else {
@@ -3367,7 +3443,10 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
         teamPending.push(uploader.publish("team", key, JSON.stringify(teamSeasonArtifact)));
       }
 
-      await Promise.all([teamsPending, eventsPending, ...eventPending, ...teamPending]);
+      const blockLabel = `${season}/${algorithm.id}`;
+      timings.add(`${blockLabel} build`, performance.now() - blockStart - sidecarMs);
+      timings.add(`${blockLabel} sidecars`, sidecarMs);
+      await timings.timeAsync(`${blockLabel} uploadWait`, () => Promise.all([teamsPending, eventsPending, ...eventPending, ...teamPending]));
     }
 
     // --- compare/{year}.json — one file, every algorithm, per D-02's exception ---
@@ -3391,6 +3470,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // to once-per-published-season — negligible against a run that replays
     // every match of every season, and worth it for removing the
     // hand-buildable options literal that made F-1 possible.
+    const compareStart = performance.now();
     const slices = aggregateScoresForRun(
       db,
       harnessPredictions,
@@ -3406,6 +3486,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     });
     const compareKey = artifactKey({ page: "compare", year: season });
     await uploader.publish("compare", compareKey, JSON.stringify(compareArtifact));
+    timings.add(`season ${season} compare`, performance.now() - compareStart);
 
     // Quick task 260908-615: these two lines read DIFFERENT maps, and the
     // split IS the point — do not collapse them back into one read.
@@ -3543,8 +3624,12 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
   }
   if (manifestKeys.length > 0) console.log(`  manifests: ${manifestKeys.join(", ")}`);
   if (seedFiles.length > 0) console.log(`  seed files: ${seedFiles.join(", ")}`);
+  timings.add("total", performance.now() - runStart);
+  for (const [label, elapsedMs] of Object.entries(timings.ms)) {
+    console.log(`  timing: ${label} ${(elapsedMs / 1000).toFixed(1)}s`);
+  }
 
-  return { generation, computedAt, objectCount, totalBytes, pages, seedFiles, manifestKeys };
+  return { generation, computedAt, objectCount, totalBytes, pages, seedFiles, manifestKeys, timings: { ...timings.ms } };
 }
 
 // ---------------------------------------------------------------------------

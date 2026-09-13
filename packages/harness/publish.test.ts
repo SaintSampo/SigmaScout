@@ -4048,17 +4048,18 @@ describe("publishSeasons — D-10 as-of-event value + season-pool percentile on 
  * Quick task 260905-tll Task 4: a minimal RP-modeling fake algorithm whose
  * predictions ENCODE its own state (`matchCount`), so which state priced a
  * sidecar is directly readable from the published pmf bytes. Registered
- * under the id "epa" deliberately: `publishSeasons`' compare step routes
- * every algorithm id through `selectedOnSeasonsFor`'s explicit registry,
- * which throws for an unregistered id — "epa"'s registered source is the
- * honest `() => []`, and this module never touches the real epa module
- * (publishSeasons uses the passed-in module directly).
+ * under the spr id deliberately (quick task 260913-nvn): `publishSeasons`
+ * only builds a sidecar for an id where `publishesRankingPoints` is true, and
+ * spr is the only such id. The compare step's explicit registry knows spr, and
+ * this module never touches the real spr module (publishSeasons uses the
+ * passed-in module directly). The SPR layer's ranking-point filler leaves an
+ * already-present pmf untouched, so the fake's state still reaches the bytes.
  */
 interface FakeRpState {
   matchCount: number;
 }
 const fakeRpAlgorithm: AlgorithmModule<FakeRpState> = {
-  id: "epa",
+  id: spr.id,
   version: "9.9.9+presim-test",
   initState: () => ({ matchCount: 0 }),
   predict: (state) => {
@@ -4142,9 +4143,9 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     });
 
     // The later event's sidecar exists, under the ONE key spelling.
-    const call = findPresimCall("2026lat", "epa");
-    expect(call, "expected a v1/presim/2026lat/epa@... putObject call").toBeDefined();
-    expect(call![1]).toBe(preScheduleKey({ eventKey: "2026lat", algorithmId: "epa", version: "9.9.9+presim-test" }));
+    const call = findPresimCall("2026lat", spr.id);
+    expect(call, `expected a v1/presim/2026lat/${spr.id}@... putObject call`).toBeDefined();
+    expect(call![1]).toBe(preScheduleKey({ eventKey: "2026lat", algorithmId: spr.id, version: "9.9.9+presim-test" }));
 
     // The proof obligation, on the RAW published bytes, before any schema
     // parse: no own `schedules` property, and `scheduleCount` is the real
@@ -4174,7 +4175,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
 
     // PD-04: the season's FIRST event has no exposable pre-event state under
     // a cold start — no sidecar, never a fabricated one.
-    expect(findPresimCall("2026ear", "epa")).toBeUndefined();
+    expect(findPresimCall("2026ear", spr.id)).toBeUndefined();
 
     // Ordering: the sidecar is written BEFORE the same event's artifact.
     const calls = vi.mocked(putObject).mock.calls;
@@ -4246,7 +4247,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
       skipState: true,
     });
 
-    const call = findPresimCall("2026sch", "epa");
+    const call = findPresimCall("2026sch", spr.id);
     expect(call, "a scheduled-but-unplayed event must still publish a sidecar").toBeDefined();
     const artifact = PublishedPreScheduleArtifactSchema.parse(JSON.parse(call![2] as string));
     // "Before the event" and "now" are the same state when no match of the
@@ -4270,6 +4271,25 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     const presimCall = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith("v1/presim/"));
     expect(presimCall).toBeUndefined();
   });
+
+  it.each([opr.id, epa.id])(
+    "the sidecar gate is by algorithm id, not by probe: the same RP-modeling fake registered under %s gets NO sidecar (quick task 260913-nvn)",
+    async (algorithmId) => {
+      seedTwoEventSeason(db);
+
+      await publishSeasons(db, {
+        seasons: [2026],
+        algorithms: [{ ...fakeRpAlgorithm, id: algorithmId }],
+        bucket: "test-bucket",
+        dryRun: false,
+        skipState: true,
+      });
+
+      const keys = vi.mocked(putObject).mock.calls.map(([, key]) => key as string);
+      expect(keys.some((key) => key.startsWith(`v1/event/2026lat/${algorithmId}@`)), "non-vacuous: the event artifact itself is published").toBe(true);
+      expect(keys.some((key) => key.startsWith("v1/presim/"))).toBe(false);
+    }
+  );
 });
 
 describe("buildCompareArtifact", () => {

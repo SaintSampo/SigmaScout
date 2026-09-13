@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTeamRankScopes,
+  buildTeamRankScopesByTeam,
   compareTeamsByTotal,
   deriveTeamRegions,
   isRealPublishedTeamKey,
@@ -8,7 +9,9 @@ import {
   USA_COUNTRY_VALUE,
   type RankableTeamRow,
   type SeasonEventGeoRow,
+  type TeamRankScope,
 } from "./teamRanks.js";
+import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { percentileRanks } from "./percentiles.js";
 
 const OFFICIAL_REGIONAL_EVENT_TYPE = 0;
@@ -277,6 +280,139 @@ describe("buildTeamRankScopes", () => {
     const world = scopes.find((s) => s.scope === "world")!;
     // With frc1114B excluded, frc1114 (50) is 1st of 2 real teams, not pushed to 2nd/3rd.
     expect(world).toEqual({ scope: "world", rank: 1, total: 2 });
+  });
+});
+
+// Quick task 260913-nvn: the pre-change per-team implementation, pasted
+// verbatim as a test-local reference so the sort-once rewrite is checked
+// against the exact code it replaced, not against a re-derivation of it.
+function referenceRankWithin(pool: readonly RankableTeamRow[], teamKey: string): { rank: number; total: number } | undefined {
+  const sorted = [...pool].sort(compareTeamsByTotal);
+  const index = sorted.findIndex((row) => row.teamKey === teamKey);
+  if (index === -1) return undefined;
+  return { rank: index + 1, total: sorted.length };
+}
+
+function referenceBuildTeamRankScopes(params: { rows: readonly RankableTeamRow[]; teamKey: string }): TeamRankScope[] {
+  const realRows = params.rows.filter((row) => isRealPublishedTeamKey(row.teamKey));
+  const target = realRows.find((row) => row.teamKey === params.teamKey);
+  if (target === undefined) return [];
+  if (target.metrics[TOTAL_METRIC_KEY]?.value === undefined) return [];
+
+  const scopes: TeamRankScope[] = [];
+
+  const worldRank = referenceRankWithin(realRows, params.teamKey);
+  if (worldRank !== undefined) {
+    scopes.push({ scope: "world", rank: worldRank.rank, total: worldRank.total });
+  }
+
+  if (target.country !== undefined) {
+    const countryPool = realRows.filter((row) => row.country === target.country);
+    const countryRank = referenceRankWithin(countryPool, params.teamKey);
+    if (countryRank !== undefined) {
+      scopes.push({ scope: "country", value: target.country, rank: countryRank.rank, total: countryRank.total });
+    }
+  }
+
+  if (target.districtKey !== undefined) {
+    const districtPool = realRows.filter((row) => row.districtKey === target.districtKey);
+    const districtRank = referenceRankWithin(districtPool, params.teamKey);
+    if (districtRank !== undefined) {
+      scopes.push({ scope: "district", value: target.districtKey, rank: districtRank.rank, total: districtRank.total });
+    }
+  }
+
+  if (target.country === USA_COUNTRY_VALUE && target.stateProv !== undefined) {
+    const statePool = realRows.filter((row) => row.country === USA_COUNTRY_VALUE && row.stateProv === target.stateProv);
+    const stateRank = referenceRankWithin(statePool, params.teamKey);
+    if (stateRank !== undefined) {
+      scopes.push({ scope: "state", value: target.stateProv, rank: stateRank.rank, total: stateRank.total });
+    }
+  }
+
+  return scopes;
+}
+
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function randomRoster(seed: number): RankableTeamRow[] {
+  const random = mulberry32(seed);
+  const pick = <T,>(values: readonly T[]): T => values[Math.floor(random() * values.length)]!;
+  const rows: RankableTeamRow[] = [];
+  for (let i = 1; i <= 600; i++) {
+    const teamNumber = 1 + Math.floor(random() * 9000);
+    // A handful of non-real keys: letter-suffixed second robots and frc0.
+    const roll = random();
+    const teamKey = roll < 0.01 ? "frc0" : roll < 0.03 ? `frc${teamNumber}B` : `frc${i}`;
+    const row: RankableTeamRow = {
+      teamKey,
+      teamNumber,
+      // ~10% of rows carry no total; the rest draw from a small integer set so ties are common.
+      metrics: random() < 0.1 ? {} : { [TOTAL_METRIC_KEY]: { value: pick([10, 20, 20, 30, 40, 40, 50]) } },
+    };
+    const country = pick(["USA", "USA", "Canada", "Israel", undefined]);
+    if (country !== undefined) row.country = country;
+    // Includes non-USA rows that still carry a stateProv (ON on a USA row, CA on a Canada row).
+    const stateProv = pick(["CA", "TX", "ON", undefined]);
+    if (stateProv !== undefined) row.stateProv = stateProv;
+    const districtKey = pick(["fim", "ne", "ont", undefined]);
+    if (districtKey !== undefined) row.districtKey = districtKey;
+    rows.push(row);
+  }
+  // Shuffle so pool order is not team-number order.
+  for (let i = rows.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [rows[i], rows[j]] = [rows[j]!, rows[i]!];
+  }
+  return rows;
+}
+
+describe("buildTeamRankScopesByTeam — sort-once equivalence with the per-team implementation (quick task 260913-nvn)", () => {
+  it.each([1, 7, 42, 2026, 90210])("seed %i: every row's scopes deep-equal the pre-change per-team result", (seed) => {
+    const rows = randomRoster(seed);
+    // Fixture-vacuity guards: the roster must genuinely exercise ties, missing totals and non-real keys.
+    expect(rows.some((row) => !isRealPublishedTeamKey(row.teamKey))).toBe(true);
+    expect(rows.some((row) => row.metrics[TOTAL_METRIC_KEY] === undefined)).toBe(true);
+    expect(rows.some((row) => row.country !== USA_COUNTRY_VALUE && row.stateProv !== undefined)).toBe(true);
+
+    const byTeam = buildTeamRankScopesByTeam(rows);
+    for (const row of rows) {
+      expect(byTeam.get(row.teamKey), row.teamKey).toEqual(referenceBuildTeamRankScopes({ rows, teamKey: row.teamKey }));
+    }
+    expect(rows.some((row) => (byTeam.get(row.teamKey)?.length ?? 0) === 4), "non-vacuous: some row resolves all four scopes").toBe(true);
+
+    // A key absent from the rows maps to nothing, where the per-team form answers an empty array.
+    expect(byTeam.has("frc99999")).toBe(false);
+    expect(referenceBuildTeamRankScopes({ rows, teamKey: "frc99999" })).toEqual([]);
+    expect(buildTeamRankScopes({ rows, teamKey: "frc99999" })).toEqual([]);
+  });
+
+  it("returns an entry for every row key, including non-real keys and rows with no total", () => {
+    const rows: RankableTeamRow[] = [
+      { teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_METRIC_KEY]: { value: 10 } }, country: "USA" },
+      { teamKey: "frc2", teamNumber: 2, metrics: {} },
+      { teamKey: "frc5199B", teamNumber: 5199, metrics: { [TOTAL_METRIC_KEY]: { value: 99 } } },
+      { teamKey: "frc0", teamNumber: 0, metrics: {} },
+    ];
+    const byTeam = buildTeamRankScopesByTeam(rows);
+    expect([...byTeam.keys()].sort()).toEqual(["frc0", "frc1", "frc2", "frc5199B"]);
+    expect(byTeam.get("frc2")).toEqual([]);
+    expect(byTeam.get("frc5199B")).toEqual([]);
+    expect(byTeam.get("frc0")).toEqual([]);
+    expect(byTeam.get("frc1")).toEqual([
+      // frc2 is a real row without a total: it still counts toward the world pool, sorted last.
+      { scope: "world", rank: 1, total: 2 },
+      { scope: "country", value: "USA", rank: 1, total: 1 },
+    ]);
   });
 });
 

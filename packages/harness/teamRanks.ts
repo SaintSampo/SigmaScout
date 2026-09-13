@@ -286,63 +286,94 @@ export function percentileForRank(rank: number, total: number): number {
   return roundTo(((total - rank + 0.5) / total) * 100, ROUNDING_RULE.percentile);
 }
 
-/** Sorts `pool` by `compareTeamsByTotal` and returns the target's 1-based rank and the pool's total size, or `undefined` when the target is not a member of `pool`. */
-function rankWithin(pool: readonly RankableTeamRow[], teamKey: string): { rank: number; total: number } | undefined {
-  const sorted = [...pool].sort(compareTeamsByTotal);
-  const index = sorted.findIndex((row) => row.teamKey === teamKey);
-  if (index === -1) return undefined;
-  return { rank: index + 1, total: sorted.length };
+/**
+ * Builds the ordered (world, country, district, state) rank-scope array for
+ * EVERY row in `rows` at once, keyed by team key. Pool membership: world is
+ * every real team; country is every real team sharing the target's
+ * `country`; district is every real team sharing the target's `districtKey`;
+ * state is every real team sharing both the target's `country` AND
+ * `stateProv`, emitted ONLY when the target's country is the literal
+ * `USA_COUNTRY_VALUE` (no state card outside the USA). A scope whose gating
+ * field is absent on the target is not emitted — the array shrinks rather
+ * than carrying a placeholder. A row with no `total` metric, or a non-real
+ * team key, maps to an EMPTY array: a team with no published value has no
+ * honest rank, and does not get placed last and shown anyway.
+ *
+ * Quick task 260913-nvn: each pool is sorted ONCE (world once, each
+ * country/district/state group once) and every member's rank is read from
+ * an index map, instead of copying and re-sorting the pool per team. Every
+ * group keeps the real rows' iteration order before sorting and
+ * `Array.prototype.sort` is stable, so a pool's sorted order — and therefore
+ * every rank — is exactly what a per-team copy-and-sort produced. When a team
+ * key repeats, its first occurrence is the one ranked and emitted.
+ */
+export function buildTeamRankScopesByTeam(rows: readonly RankableTeamRow[]): Map<string, TeamRankScope[]> {
+  const realRows = rows.filter((row) => isRealPublishedTeamKey(row.teamKey));
+
+  const countryGroups = new Map<string, RankableTeamRow[]>();
+  const districtGroups = new Map<string, RankableTeamRow[]>();
+  const stateGroups = new Map<string, RankableTeamRow[]>();
+  const pushTo = (groups: Map<string, RankableTeamRow[]>, value: string, row: RankableTeamRow): void => {
+    const group = groups.get(value);
+    if (group === undefined) groups.set(value, [row]);
+    else group.push(row);
+  };
+  for (const row of realRows) {
+    if (row.country !== undefined) pushTo(countryGroups, row.country, row);
+    if (row.districtKey !== undefined) pushTo(districtGroups, row.districtKey, row);
+    if (row.country === USA_COUNTRY_VALUE && row.stateProv !== undefined) pushTo(stateGroups, row.stateProv, row);
+  }
+
+  /** Sorts `pool` once and returns teamKey -> 1-based rank (first occurrence wins) plus the pool size. */
+  const rankIndex = (pool: readonly RankableTeamRow[]): { ranks: Map<string, number>; total: number } => {
+    const sorted = [...pool].sort(compareTeamsByTotal);
+    const ranks = new Map<string, number>();
+    sorted.forEach((row, index) => {
+      if (!ranks.has(row.teamKey)) ranks.set(row.teamKey, index + 1);
+    });
+    return { ranks, total: sorted.length };
+  };
+  const indexGroups = (groups: Map<string, RankableTeamRow[]>) => new Map(Array.from(groups, ([value, pool]) => [value, rankIndex(pool)]));
+
+  const world = rankIndex(realRows);
+  const countryIndex = indexGroups(countryGroups);
+  const districtIndex = indexGroups(districtGroups);
+  const stateIndex = indexGroups(stateGroups);
+
+  const result = new Map<string, TeamRankScope[]>();
+  for (const row of rows) {
+    if (result.has(row.teamKey)) continue;
+    // The first REAL occurrence of a key is its target; a non-real key never has one.
+    const target = isRealPublishedTeamKey(row.teamKey) ? row : undefined;
+    if (target === undefined || target.metrics[TOTAL_METRIC_KEY]?.value === undefined) {
+      result.set(row.teamKey, []);
+      continue;
+    }
+
+    const scopes: TeamRankScope[] = [];
+    scopes.push({ scope: "world", rank: world.ranks.get(target.teamKey)!, total: world.total });
+    if (target.country !== undefined) {
+      const pool = countryIndex.get(target.country)!;
+      scopes.push({ scope: "country", value: target.country, rank: pool.ranks.get(target.teamKey)!, total: pool.total });
+    }
+    if (target.districtKey !== undefined) {
+      const pool = districtIndex.get(target.districtKey)!;
+      scopes.push({ scope: "district", value: target.districtKey, rank: pool.ranks.get(target.teamKey)!, total: pool.total });
+    }
+    if (target.country === USA_COUNTRY_VALUE && target.stateProv !== undefined) {
+      const pool = stateIndex.get(target.stateProv)!;
+      scopes.push({ scope: "state", value: target.stateProv, rank: pool.ranks.get(target.teamKey)!, total: pool.total });
+    }
+    result.set(row.teamKey, scopes);
+  }
+  return result;
 }
 
 /**
- * Builds the ordered (world, country, district, state) rank-scope array for
- * one team. Pool membership: world is every real team; country is every
- * real team sharing the target's `country`; district is every real team
- * sharing the target's `districtKey`; state is every real team sharing both
- * the target's `country` AND `stateProv`, emitted ONLY when the target's
- * country is the literal `USA_COUNTRY_VALUE` (no state card outside the
- * USA). A scope whose gating field is absent on the target is not emitted —
- * the array shrinks rather than carrying a placeholder. A target with no
- * `total` metric, or a `teamKey` absent from `rows` entirely, yields an
- * EMPTY array: a team with no published value has no honest rank, and does
- * not get placed last and shown anyway.
+ * The single-team form of `buildTeamRankScopesByTeam`: the ordered rank-scope
+ * array for `params.teamKey`, or an EMPTY array when that key is absent from
+ * `rows`, is not a real team key, or carries no `total` metric.
  */
 export function buildTeamRankScopes(params: BuildTeamRankScopesParams): TeamRankScope[] {
-  const realRows = params.rows.filter((row) => isRealPublishedTeamKey(row.teamKey));
-  const target = realRows.find((row) => row.teamKey === params.teamKey);
-  if (target === undefined) return [];
-  if (target.metrics[TOTAL_METRIC_KEY]?.value === undefined) return [];
-
-  const scopes: TeamRankScope[] = [];
-
-  const worldRank = rankWithin(realRows, params.teamKey);
-  if (worldRank !== undefined) {
-    scopes.push({ scope: "world", rank: worldRank.rank, total: worldRank.total });
-  }
-
-  if (target.country !== undefined) {
-    const countryPool = realRows.filter((row) => row.country === target.country);
-    const countryRank = rankWithin(countryPool, params.teamKey);
-    if (countryRank !== undefined) {
-      scopes.push({ scope: "country", value: target.country, rank: countryRank.rank, total: countryRank.total });
-    }
-  }
-
-  if (target.districtKey !== undefined) {
-    const districtPool = realRows.filter((row) => row.districtKey === target.districtKey);
-    const districtRank = rankWithin(districtPool, params.teamKey);
-    if (districtRank !== undefined) {
-      scopes.push({ scope: "district", value: target.districtKey, rank: districtRank.rank, total: districtRank.total });
-    }
-  }
-
-  if (target.country === USA_COUNTRY_VALUE && target.stateProv !== undefined) {
-    const statePool = realRows.filter((row) => row.country === USA_COUNTRY_VALUE && row.stateProv === target.stateProv);
-    const stateRank = rankWithin(statePool, params.teamKey);
-    if (stateRank !== undefined) {
-      scopes.push({ scope: "state", value: target.stateProv, rank: stateRank.rank, total: stateRank.total });
-    }
-  }
-
-  return scopes;
+  return buildTeamRankScopesByTeam(params.rows).get(params.teamKey) ?? [];
 }
