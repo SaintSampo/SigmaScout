@@ -19,7 +19,7 @@ import { EPA_FALLBACK_SCORE_SD } from "./epa.js";
 import { standardDeviation } from "../scoring/expandingStats.js";
 import { TOTAL_METRIC_KEY, type MatchResult, type UpcomingMatch } from "./types.js";
 import { WalkForwardSimulator } from "../../harness/replay.js";
-import { ALGORITHMS } from "../../harness/cli.js";
+import { BASE_PUBLISH_ALGORITHMS } from "../../harness/publish.js";
 import * as oprModule from "./opr.js";
 import { DEMO_PSEUDO_TEAM_KEY } from "./demoTeams.js";
 
@@ -343,8 +343,8 @@ describe("opr — public export surface (SC-1)", () => {
 });
 
 describe("opr — harness registry resolves to the rewritten module (SC-1)", () => {
-  it("ALGORITHMS.opr (packages/harness/cli.ts) is the exact same object as the opr export from packages/core/algorithms/opr.ts", () => {
-    expect(ALGORITHMS.opr).toBe(opr);
+  it("BASE_PUBLISH_ALGORITHMS.opr (packages/harness/publish.ts) is the exact same object as the opr export from packages/core/algorithms/opr.ts", () => {
+    expect(BASE_PUBLISH_ALGORITHMS.opr).toBe(opr);
   });
 });
 

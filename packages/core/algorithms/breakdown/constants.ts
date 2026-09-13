@@ -3,16 +3,16 @@
  * every per-season map (`2022.ts`...`2026.ts`) AND the dispatch table
  * (`index.ts`) both need, with no dependency running the other direction.
  *
- * Rule 1 fix (plan 02-03, discovered running `pnpm harness` for real):
- * every season file previously imported `ADJUST_COMPONENT`/
- * `FOULS_COMMITTED_COMPONENT` FROM `index.ts`, while `index.ts` imports
- * every season file — a circular import. `vitest`'s transform tolerated
- * it, but `tsx`'s real Node ESM loader does not: `index.ts`'s top-level
- * `export const ADJUST_COMPONENT = "adjust"` had not executed yet by the
- * time a circularly-loaded `2022.ts` tried to read it, throwing
- * `ReferenceError: Cannot access 'ADJUST_COMPONENT' before initialization`
- * the moment any real `pnpm harness` invocation touched a season with a
- * breakdown map (i.e. every season). Moving the shared types/constants
+ * Rule 1 fix (plan 02-03, discovered running a real `tsx` invocation of the
+ * harness entry point): every season file previously imported
+ * `ADJUST_COMPONENT`/`FOULS_COMMITTED_COMPONENT` FROM `index.ts`, while
+ * `index.ts` imports every season file — a circular import. `vitest`'s
+ * transform tolerated it, but `tsx`'s real Node ESM loader does not:
+ * `index.ts`'s top-level `export const ADJUST_COMPONENT = "adjust"` had not
+ * executed yet by the time a circularly-loaded `2022.ts` tried to read it,
+ * throwing `ReferenceError: Cannot access 'ADJUST_COMPONENT' before
+ * initialization` the moment any real `tsx` invocation touched a season
+ * with a breakdown map (i.e. every season). Moving the shared types/constants
  * into this dependency-free leaf module and having BOTH sides import from
  * here (never from each other) removes the cycle entirely.
  */

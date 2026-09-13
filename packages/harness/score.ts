@@ -196,9 +196,8 @@ export const QUARANTINE_SHARE_MIN_POPULATION = 200;
  * prediction (D-20/D-22 — one harness run scores many algorithms over the
  * same match stream, so every prediction must be attributable back to its
  * algorithm). `predictedRedScore`/`predictedBlueScore` are the predicted
- * scores, kept rather than discarded after prediction — this is what lets
- * a later sidecar (plan 02-05's `predictions.ts`) and this plan's own
- * head-to-head report show more than just win probability.
+ * scores, kept rather than discarded after prediction — this is what lets a
+ * published match row (`publish.ts`) show more than just win probability.
  */
 export interface HarnessPredictionInput {
   matchKey: string;

@@ -409,8 +409,8 @@ export interface EpaState extends BreakdownParseTelemetry {
   // permanently-zero invariant about a code path that must never run (a
   // breakdown-less match reaching a code path that dropped it entirely),
   // while this one is a genuine, expected-nonzero data-quality counter that
-  // one shared CLI reader (`reportBreakdownParseFailures`) prints for both
-  // EPA and Sigma1 and therefore must mean the same thing on both states.
+  // must mean the same thing — "observed since this algorithm started" — on
+  // every algorithm state that carries it.
 }
 
 const EMPTY_PRIOR_SEASON_RATINGS: EpaCarryoverPriorRatings = {
@@ -1367,21 +1367,19 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary, toSeasonMap?: Se
     // CONTRAST to the `fallbackSkipped` reset immediately above.
     // `fallbackSkipped` is a per-lifetime zero invariant about a code path
     // that must never run; `breakdownParseFailureCount` is a cumulative
-    // data-quality counter that one shared CLI reader
-    // (`reportBreakdownParseFailures`) prints for both EPA and Sigma1, so it
-    // must mean the same thing — "observed since this algorithm started" —
-    // on both states, and a season boundary is not a reason to forget it.
+    // data-quality counter that must mean the same thing — "observed since
+    // this algorithm started" — on every algorithm state that carries it,
+    // and a season boundary is not a reason to forget it.
     breakdownParseFailureCount: state.breakdownParseFailureCount,
   };
 }
 
 export const epa = {
   id: "epa",
-  // D-13 (plan 03-03, Rule 1 fix): `buildArtifact` (packages/harness/artifact.ts)
-  // now REQUIRES every algorithm's `version` to carry the
-  // `{codeVersion}+{paramSetName}` shape, throwing otherwise — a real
-  // `pnpm harness --algorithm epa` run would break at artifact-build time
-  // without this. EPA has no separate tuned parameter set (D-04: frozen at
+  // D-13 (plan 03-03, Rule 1 fix): every published algorithm's `version`
+  // must carry the `{codeVersion}+{paramSetName}` shape — publish.ts and
+  // manifests.ts both split on it and throw otherwise. EPA has no separate
+  // tuned parameter set (D-04: frozen at
   // Statbotics' own published constants, never searched), so "baseline" is
   // the honest, single named set.
   //

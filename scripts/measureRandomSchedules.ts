@@ -69,8 +69,7 @@ import { openCorpusReadOnly, selectMatchesChronological, selectScheduledMatches,
 import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
 import { loadScheduleTemplate, matchesPerTeamFor, type ScheduleTemplateMatch } from "../packages/harness/scheduleTemplates.js";
 import { roundPmf } from "../packages/harness/rounding.js";
-import { makeRankingPointFiller } from "../packages/harness/publish.js";
-import { ALGORITHMS } from "../packages/harness/cli.js";
+import { BASE_PUBLISH_ALGORITHMS, makeRankingPointFiller } from "../packages/harness/publish.js";
 import {
   CLAUSE_1_MEDIAN_HARD,
   CLAUSE_1_MEDIAN_TIGHT,
@@ -1023,7 +1022,7 @@ export async function main(argv: readonly string[]): Promise<void> {
   }
 
   const algorithmId = values.algorithm ?? DEFAULT_ALGORITHM_ID;
-  const algorithm = ALGORITHMS[algorithmId];
+  const algorithm = BASE_PUBLISH_ALGORITHMS[algorithmId];
   if (algorithm === undefined) throw new Error(`measureRandomSchedules: unknown algorithm "${algorithmId}"`);
 
   const probeTotalDraws = values["total-draws"] === undefined ? 20000 : Number(values["total-draws"]);

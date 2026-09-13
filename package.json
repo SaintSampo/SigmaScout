@@ -16,7 +16,6 @@
     "ingest:awards-all": "tsx --env-file=.env packages/ingest/cli.ts --awards-all-only",
     "ingest:event-teams": "tsx --env-file=.env packages/ingest/cli.ts --event-teams-only",
     "ingest:teams": "tsx --env-file=.env packages/ingest/cli.ts --teams-only",
-    "harness": "tsx --env-file=.env packages/harness/cli.ts",
     "rp:golden": "tsx scripts/rpPredictThresholdsGolden.ts",
     "measure:field-averaged": "tsx scripts/measureFieldAveragedRanks.ts",
     "measure:rp-mean-deficit": "tsx scripts/measureRpMeanDeficit.ts",

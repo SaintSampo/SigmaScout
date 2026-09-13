@@ -158,7 +158,7 @@ knows it was retired rather than mistyped.
 runbook's commands split across them by which tier they belong to:
 
 - The **`--file`/`wrangler d1 execute` seeding commands below** run against whatever
-  `pnpm publish:seasons` (or `pnpm harness`) most recently generated — the WRITE tier
+  `pnpm publish:seasons` most recently generated — the WRITE tier
   (`PIPELINE_ALGORITHM_IDS`). As of this task, that means the third seed file is named
   **`seed-spr.sql`**, not `seed-bpr.sql`.
 - **The cutover finished on 2026-09-12 and nothing here is transitional any more.**

@@ -4294,7 +4294,7 @@ describe("buildCompareArtifact", () => {
       generation: "g1",
     });
     expect(artifact.algorithms[0]).toEqual({ id: "opr", version: "3.0.0+baseline", codeVersion: "3.0.0", paramSetName: "baseline" });
-    // Unrounded — mirrors artifact.ts's HarnessArtifactSchema policy.
+    // Unrounded — rounding happens only when a downstream reader renders a value.
     expect(artifact.slices[0]?.brierScore).toBe(0.181234567);
   });
 

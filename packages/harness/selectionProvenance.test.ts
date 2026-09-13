@@ -5,8 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openCorpus, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
-import { ALGORITHMS } from "./cli.js";
-import { resolvePublishAlgorithms } from "./publish.js";
+import { BASE_PUBLISH_ALGORITHMS, resolvePublishAlgorithms } from "./publish.js";
 import type { HarnessPredictionInput } from "./score.js";
 import { aggregateScoresForRun, selectedOnSeasonsFor } from "./selectionProvenance.js";
 
@@ -19,8 +18,8 @@ describe("selectedOnSeasonsFor", () => {
   });
 
   it("registers a source for exactly the harness registry's ids", () => {
-    expect(Object.keys(ALGORITHMS)).toEqual(["opr", "epa", "spr"]);
-    expect(Object.keys(selectedOnSeasonsFor(Object.keys(ALGORITHMS)))).toEqual(["opr", "epa", "spr"]);
+    expect(Object.keys(BASE_PUBLISH_ALGORITHMS)).toEqual(["opr", "epa", "spr"]);
+    expect(Object.keys(selectedOnSeasonsFor(Object.keys(BASE_PUBLISH_ALGORITHMS)))).toEqual(["opr", "epa", "spr"]);
   });
 
   it("an unregistered algorithm id throws, naming the id", () => {
@@ -43,7 +42,7 @@ describe("selectedOnSeasonsFor", () => {
 
 /**
  * F-1 (quick task 260903-tk6): direct coverage of `aggregateScoresForRun` —
- * the single derivation `cli.ts` and `publish.ts` used to independently
+ * the single derivation two orchestrations used to independently
  * rebuild. The corpus-season assertion reddens if the corpus-season source is
  * narrowed to the seasons the run happens to be scoring; the unregistered-id
  * assertion reddens if the selected-on source stops being this module's

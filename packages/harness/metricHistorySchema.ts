@@ -1,15 +1,12 @@
 /**
- * Node-free leaf carrying the metric-history row schema, split out of
- * `metricHistory.ts` for exactly the reason `manifestSchemas.ts`'s own
- * header documents for `manifests.ts` (plan 05-01 Task 3): `metricHistory.ts`
- * imports `node:fs`/`node:path` at module top level for its streaming
- * writer, and ES module imports are file-scoped — importing even a single
- * schema from that module would drag those Node built-ins into any browser
- * bundle that needs `MetricHistoryRowSchema` (via `pageArtifacts.ts`'s
- * `TeamSeasonArtifactSchema.metricHistory` field). This file has zero
- * Node-only imports, only `zod`, so it is safe on the browser's import
- * graph. `metricHistory.ts` re-exports everything below unchanged, so every
- * existing call site keeps working without modification.
+ * Node-free home of the metric-history row schema (plan 05-01 Task 3),
+ * split off for the same reason `manifestSchemas.ts` is split from
+ * `manifests.ts`: this file has zero Node-only imports, only `zod`, so it is
+ * safe on the browser's import graph — anything that needs
+ * `MetricHistoryRowSchema` (`pageArtifacts.ts`'s
+ * `TeamSeasonArtifactSchema.metricHistory` field, `publish.ts`'s
+ * `MetricHistoryRow` type) imports from here directly rather than pulling in
+ * a module with a Node-only streaming writer.
  */
 import { z } from "zod";
 

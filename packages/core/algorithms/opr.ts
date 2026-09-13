@@ -116,9 +116,9 @@ interface PerEventOprState {
  * of margin constitute a confident prediction this year), not a rating, so
  * pooling it across a season's events is the right estimator and is what was
  * validated. No `carrySeason` is needed to bound it — `opr` implements none,
- * so `cli.ts`'s `runSeasons` starts OPR from `initState` every season (see its
- * doc comment, "deliberately left OUT of `initialStates`"), which gives
- * exactly the season-wide-but-not-cross-season scope wanted.
+ * so every season-loop orchestration in this repo starts OPR from
+ * `initState` every season (deliberately left OUT of `initialStates`), which
+ * gives exactly the season-wide-but-not-cross-season scope wanted.
  */
 export interface OprState {
   readonly perEvent: ReadonlyMap<string, PerEventOprState>;

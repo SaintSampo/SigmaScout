@@ -15,8 +15,8 @@ import { selectCorpusSeasons, type Corpus } from "../corpus/db.js";
 import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
 
 /**
- * The registry itself, one entry per id in `cli.ts`'s `ALGORITHMS` and
- * `publish.ts`'s `BASE_PUBLISH_ALGORITHMS`.
+ * The registry itself, one entry per id in `publish.ts`'s
+ * `BASE_PUBLISH_ALGORITHMS`.
  */
 const SELECTED_ON_SEASONS_SOURCES: Readonly<Record<string, (season: number) => readonly number[]>> = {
   // Never-tuned baselines — no fitted hyperparameters at all, so declaring
@@ -30,8 +30,8 @@ const SELECTED_ON_SEASONS_SOURCES: Readonly<Record<string, (season: number) => r
   // selected-on season means "a search picked this parameter set here", and
   // BPR ran no per-season search. Keyed `spr` since quick task 260912-ivg
   // Stage 1 renamed the WRITE-tier wire id (this registry mirrors
-  // `cli.ts`'s `ALGORITHMS` and `publish.ts`'s `BASE_PUBLISH_ALGORITHMS`,
-  // both of which key on `spr` as of the same task).
+  // `publish.ts`'s `BASE_PUBLISH_ALGORITHMS`, which keys on `spr` as of the
+  // same task).
   spr: () => [],
 };
 
@@ -67,8 +67,9 @@ export function selectedOnSeasonsFor(algorithmIds: readonly string[]): Record<st
 /**
  * F-1 (quick task 260903-tk6): the SINGLE derivation of `aggregateScores`'
  * eligibility pair, wrapping `aggregateScores` itself rather than returning
- * the pair for a caller to spread — `cli.ts:777` and `publish.ts:1517/1998`
- * used to independently build the identical
+ * the pair for a caller to spread — two call sites (one since deleted along
+ * with the harness backtest CLI, 260913-nvn) used to independently build the
+ * identical
  * `{corpusSeasons: selectCorpusSeasons(db), selectedOnSeasons: selectedOnSeasonsFor(ids)}`
  * literal, which is exactly why fixing one flag-bearing call site's eligibility
  * bug left the other exposed with the whole suite still green. A helper that

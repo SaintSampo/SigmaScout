@@ -3,12 +3,11 @@
  * 04-01 Task 3; widened to all five page kinds by plan 04-02 Task 2). These
  * are the world-readable JSON files R2 serves directly to the client
  * (`packages/harness/r2Client.ts`'s `putObject`) — a different contract
- * from `packages/harness/artifact.ts`'s `HarnessArtifactSchema` (the
- * harness's own internal scoring artifact, never published). The two are
- * versioned independently: `PAGE_ARTIFACT_SCHEMA_VERSION` starts at 1
- * regardless of where `ARTIFACT_SCHEMA_VERSION` currently sits, because
+ * from any internal scoring artifact used only during offline evaluation,
+ * never published. `PAGE_ARTIFACT_SCHEMA_VERSION` is versioned
+ * independently of any such internal artifact's own schema version, because
  * they have different consumers (a browser fetching a page vs. this repo's
- * own harness tooling) and must be free to evolve on separate schedules.
+ * own offline tooling) and must be free to evolve on separate schedules.
  *
  * Every schema below shares one top-level preamble
  * (`PagePreambleSchema`/`AlgorithmScopedPreambleSchema`), factored into a
@@ -44,9 +43,8 @@ import { MetricHistoryRowSchema } from "./metricHistorySchema.js";
 
 /**
  * Bumped whenever a published page artifact's shape changes in a way a
- * client consumer must know about. Independent of
- * `packages/harness/artifact.ts`'s `ARTIFACT_SCHEMA_VERSION` — see file
- * header.
+ * client consumer must know about. Independent of any internal scoring
+ * artifact's own schema version — see file header.
  *
  * NOT bumped by quick task 260902-pbc's removal of `redComponents`/
  * `blueComponents` from `EventMatchSchema`/`EventUpcomingMatchSchema`/
@@ -108,13 +106,13 @@ interface ComparePageParams {
 export type ArtifactKeyParams = TeamsPageParams | TeamPageParams | EventsPageParams | EventPageParams | ComparePageParams;
 
 /**
- * Splits an algorithm's `version` string on its FIRST `+`, mirroring
- * `packages/harness/artifact.ts`'s module-private `splitAlgorithmVersion`
- * discipline (that function is not exported, so this is a deliberate,
- * intentionally small reimplementation, not a bypass of it). Throws a named
- * error when the `+` separator is absent, so a version string that lost
- * D-13's `{codeVersion}+{paramSetName}` shape fails at key-build time
- * instead of publishing to a path nothing will ever fetch.
+ * Splits an algorithm's `version` string on its FIRST `+` — the same
+ * `{codeVersion}+{paramSetName}` split discipline `publish.ts`'s
+ * `splitVersion` and `manifestSchemas.ts`'s `splitManifestVersion` each
+ * implement, deliberately reimplemented here rather than imported across
+ * the module boundary. Throws a named error when the `+` separator is
+ * absent, so a version string that lost D-13's shape fails at key-build
+ * time instead of publishing to a path nothing will ever fetch.
  */
 export class MissingVersionSeparatorError extends Error {
   constructor(algorithmId: string, version: string) {
@@ -315,7 +313,7 @@ const RecordAndMetricsSchema = z.object({
 // Shared match-row building blocks
 // ---------------------------------------------------------------------------
 
-/** D-10: a discrete pmf's sum tolerance — the same 1e-9 bound `packages/harness/predictions.ts`'s `PredictionRecordSchema` enforces, applied identically here so a published pmf can never drift looser than the sidecar that fed it. */
+/** D-10: a discrete pmf sums to 1 within 1e-9 — the same tolerance applied everywhere else in this codebase that validates a pmf. */
 const RP_PMF_SUM_TOLERANCE = 1e-9;
 
 function isValidPmf(pmf: readonly number[] | undefined): boolean {
@@ -326,13 +324,10 @@ function isValidPmf(pmf: readonly number[] | undefined): boolean {
 }
 
 /**
- * One played match's prediction-vs-actual row. Field names match
- * `packages/harness/predictions.ts`'s `PredictionRecordSchema` so a reader
- * never has to translate between the sidecar and the published file — as of
- * D-03/D-12 (plan 08-02) this includes the ranking-point distribution pair
- * and the actual-ranking-point pair, closing the one divergence that
- * remained: the sidecar carried both pairs on a played record from the
- * start, and this published row did not, until now.
+ * One played match's prediction-vs-actual row. As of D-03/D-12 (plan
+ * 08-02) this includes the ranking-point distribution pair and the
+ * actual-ranking-point pair, closing a divergence from an earlier revision
+ * of this row shape.
  */
 const EventMatchSchema = z
   .object({
@@ -771,11 +766,11 @@ const EventTeamSchema = z.object({
 });
 
 /**
- * The prediction-vs-actual fields from `packages/harness/predictions.ts`'s
- * `PredictionRecordSchema`, reconstructed locally (that schema is a
- * `ZodEffects` from its own `.refine()` calls and cannot be `.extend()`-ed)
- * plus `redTeams`/`blueTeams`, since a team-season artifact's per-match row
- * needs the alliance rosters `PredictionRecordSchema` itself does not carry.
+ * The prediction-vs-actual fields a match's prediction sidecar carries,
+ * reconstructed locally as a plain Zod object (a `.refine()`-based schema
+ * cannot be `.extend()`-ed) plus `redTeams`/`blueTeams`, since a team-season
+ * artifact's per-match row needs the alliance rosters the sidecar's own
+ * schema does not carry.
  *
  * Phase 6 (D-01/D-02/D-09, TEAM-04/TEAM-05) widens this row for the team
  * page: every field added below is `.optional()`, so a team artifact
@@ -1542,7 +1537,7 @@ export type EventArtifact = z.infer<typeof EventArtifactSchema>;
 // CompareArtifactSchema — v1/compare/{year}.json
 // ---------------------------------------------------------------------------
 
-/** One algorithm's identity as published on the Compare page — mirrors `packages/harness/artifact.ts`'s module-private `AlgorithmDescriptorSchema` shape (that schema is not exported, so this is a deliberate small reimplementation, not a bypass). */
+/** One algorithm's identity as published on the Compare page — an {id, version, codeVersion, paramSetName} shape reimplemented here rather than shared across the module boundary. */
 const CompareAlgorithmSchema = z.object({
   id: z.string().min(1),
   version: z.string().min(1),
@@ -1566,8 +1561,7 @@ const CompareExclusionCountsSchema = z.object({
   /**
    * D-02/D-04 (quick task 260909-t5q): see `packages/harness/score.ts`'s
    * `ExclusionCounts.coldStart` doc comment for the full contract. OPTIONAL
-   * here on purpose, UNLIKE `packages/harness/artifact.ts`'s own
-   * `ExclusionCountsSchema` counterpart — this is a LIVE, R2-served artifact
+   * here on purpose — this is a LIVE, R2-served artifact
    * shape, and D-04 defers the republish that would add this key to every
    * already-published slice. A required key would fail to parse every one
    * of today's four-key live artifacts and blank the Compare page in

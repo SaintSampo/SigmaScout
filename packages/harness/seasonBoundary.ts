@@ -4,8 +4,8 @@ import type { SeasonBoundary } from "../core/algorithms/types.js";
  * The one shared, unit-tested constructor of a production `SeasonBoundary`.
  *
  * Before quick task 260903-3bv this construction existed as THREE independent
- * inline copies (`cli.ts`, `tune.ts`, `publish.ts`), each writing
- * `fromSeason: season - 1` rather than reading the actual preceding element
+ * inline copies across the harness's entry points (`publish.ts` among them),
+ * each writing `fromSeason: season - 1` rather than reading the actual preceding element
  * of the `seasons` array. That hardcoding was harmless while
  * `SeasonBoundary.fromSeason` had zero read sites anywhere in production code
  * (verified 2026-09-03) — nothing downstream could notice it was a nominal
@@ -19,11 +19,11 @@ import type { SeasonBoundary } from "../core/algorithms/types.js";
  * place left that can get it wrong, and it is covered by
  * `seasonBoundary.test.ts`.
  *
- * `cli.ts`'s own 02-REVIEW IN-01 comment anticipated exactly this: "correct
- * ... if a non-contiguous `seasons` array ever reaches this loop and a future
- * `carrySeason` starts consuming `fromSeason`." This function is that future,
- * carried forward to all three call sites rather than just the one that
- * already had the reasoning written down.
+ * One of those inline copies' own 02-REVIEW IN-01 comment anticipated exactly
+ * this: "correct ... if a non-contiguous `seasons` array ever reaches this
+ * loop and a future `carrySeason` starts consuming `fromSeason`." This
+ * function is that future, carried forward to all three call sites rather
+ * than just the one that already had the reasoning written down.
  *
  * `fromSeason` is the ACTUAL previous element of `seasons` when one exists
  * (`index > 0`), never a `season - 1` computation — so a non-contiguous

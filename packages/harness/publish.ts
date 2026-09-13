@@ -7,9 +7,9 @@
  *     [--concurrency 16] [--dry-run] [--skip-state] [--include-offseason]
  *
  * `--seasons` is the full-season publisher: every page kind, every requested
- * algorithm, one shared match stream per season (mirroring `cli.ts`'s
- * `runSeasons` — see `publishSeasons` below for why this orchestration is
- * mirrored locally rather than imported). A single event is refreshed by
+ * algorithm, one shared match stream per season — see `publishSeasons` below
+ * for the orchestration's own `buildSeasonStream`/`WalkForwardSimulator`
+ * shared primitives. A single event is refreshed by
  * running a full `pnpm publish:seasons` — there is no separate single-event
  * publish path (260913-nvn: the prior single-event mode replayed its season
  * cold, with no cross-season state, and wrote materially different numbers
@@ -138,7 +138,7 @@ import {
 import type { RpTeamBeliefs } from "../core/rankingPoints/empiricalMoments.js";
 import type { HarnessPredictionInput, ScoreSlice } from "./score.js";
 import { aggregateScoresForRun } from "./selectionProvenance.js";
-import type { MetricHistoryRow } from "./metricHistory.js";
+import type { MetricHistoryRow } from "./metricHistorySchema.js";
 import { putObject } from "./r2Client.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
@@ -191,7 +191,7 @@ const PRESIM_SCHEDULE_COUNT = 1000;
 const PRESIM_DRAWS_PER_SCHEDULE = 50;
 
 /** D-03 (re-keyed by quick task 260912-ivg): the modules for `PUBLISHED_ALGORITHM_IDS`. `spr` (the module `packages/core/algorithms/spr.ts` exports — wire id and file both renamed from their BPR-era names by quick task 260912-ivg) joined the site on 2026-09-08. None of the three carries a tuned parameter file, so `resolvePublishAlgorithms` returns these modules directly; the retired Sigma1 core and its promoted-version override were deleted by quick task 260913-it4. Each object key and its module's `id` must agree (T-07-16-01). No pre-rename key remains here: the earlier wire ids retired entirely, per `PUBLISHED_ALGORITHM_IDS`. */
-const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa, spr };
+export const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa, spr };
 
 // ---------------------------------------------------------------------------
 // Small local helpers shared by every assembly function below
@@ -440,11 +440,10 @@ export function withEventPercentiles(
 
 /**
  * Splits an algorithm's `version` on its first `+` — the same D-13 identity
- * split `packages/harness/artifact.ts`'s `splitAlgorithmVersion` and
- * `packages/harness/manifests.ts`'s module-private `splitVersion` already
- * implement. Neither is exported, so this is a third small, deliberate
- * duplication of the same few lines, following the precedent both of those
- * already set for this exact situation.
+ * split `packages/harness/manifestSchemas.ts`'s `splitManifestVersion`
+ * already implements. This is a small, deliberate duplication of the same
+ * few lines, following the precedent that module already set for this exact
+ * situation.
  */
 function splitVersion(algorithmId: string, version: string): { codeVersion: string; paramSetName: string } {
   const separatorIndex = version.indexOf("+");
@@ -1754,11 +1753,8 @@ export interface BuildCompareArtifactParams {
 
 /**
  * Brier/accuracy/calibration figures are NOT rounded — they don't map to any
- * of `rounding.ts`'s five field classes, and `artifact.ts`'s own
- * `HarnessArtifactSchema.slices[].brierScore` doc comment already states the
- * same policy for the harness's internal artifact ("Unrounded — rounding
- * happens only when the HTML report renders a value"). This mirrors that
- * exactly rather than inventing a sixth rounding rule. The ONE exception is
+ * of `rounding.ts`'s five field classes: rounding happens only when a
+ * downstream reader renders a value, never at the source. The ONE exception is
  * `rpCalibration`, rounded to six decimal places by `attachRpCalibration`
  * for the documented wire-budget reason on that function. Parses through
  * `CompareArtifactSchema` before returning (T-04-22).
@@ -2470,12 +2466,10 @@ function sortTeamSeasonMatches(
 
 /**
  * Widens the 04-01 tracer into the full offline publisher (D-01 through
- * D-08, D-25/D-26). Mirrors `cli.ts`'s `runSeasons` orchestration (season
- * loop, `carrySeason` boundary threading via `liveStates`) rather than
- * importing it — `runSeasons` returns only predictions and drops
- * `finalStates`, which this function needs for D-12's live-state snapshot,
- * exactly the same reason `tune.ts`'s file header already documents for its
- * own local mirror of the same loop. `buildSeasonStream`/
+ * D-08, D-25/D-26). Its own local season loop threads `carrySeason`
+ * boundary state via `liveStates`, because this function needs D-12's
+ * live-state snapshot (`finalStates`) that a predictions-only return would
+ * drop. `buildSeasonStream`/
  * `WalkForwardSimulator` (the actual leak-proof replay primitives) are
  * reused unchanged; only the orchestration around them is mirrored.
  */
@@ -3373,10 +3367,11 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // `[season]` here would make every published slice's `headlineEligible`
     // come back false, silently, with every test still green (Finding 1).
     // F-1 (quick task 260903-tk6): this call site used to independently
-    // rebuild the exact same `{corpusSeasons, selectedOnSeasons}` pair
-    // `cli.ts`'s `runSeasonsMode` built — that duplication is exactly why
-    // fixing this call site's D-4 eligibility bug left `cli.ts`'s identical
-    // bug (F-1) exposed. `aggregateScoresForRun` (`selectionProvenance.ts`)
+    // rebuild the exact same `{corpusSeasons, selectedOnSeasons}` pair a
+    // sibling orchestration built elsewhere in this repo — that duplication
+    // is exactly why fixing this call site's D-4 eligibility bug left the
+    // sibling's identical bug (F-1) exposed.
+    // `aggregateScoresForRun` (`selectionProvenance.ts`)
     // is now the ONLY derivation of the pair: it reads `selectCorpusSeasons(db)`
     // itself (the corpus-held season set, never `seasonsSorted` — see the
     // D-4 history above for why a range-derived value is wrong) and
@@ -3547,7 +3542,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
 // CLI
 // ---------------------------------------------------------------------------
 
-/** D-03 (rename D-04/D-05, plan 07-16/07-18; re-split then re-collapsed by quick task 260912-ivg): resolves the requested `--algorithm` ids (default: `PUBLISHED_ALGORITHM_IDS`, the single algorithm-id constant again as of 260912-ivg Stage 5) against the base modules, then swaps in the promoted VPR the same way `manifests.ts`'s `buildAlgorithmsManifest` (still read-tier) and `cli.ts`'s harness runs do (T-04-16) — never a second, independent resolution. Exported (plan 07-16 Task 2) so the rename's default-set/artifact-key/unknown-id behavior is directly testable rather than only reachable through the CLI entry point. */
+/** D-03 (rename D-04/D-05, plan 07-16/07-18; re-split then re-collapsed by quick task 260912-ivg): resolves the requested `--algorithm` ids (default: `PUBLISHED_ALGORITHM_IDS`, the single algorithm-id constant again as of 260912-ivg Stage 5) against the base modules, then swaps in the promoted VPR the same way `manifests.ts`'s `buildAlgorithmsManifest` (still read-tier) does (T-04-16) — never a second, independent resolution. Exported (plan 07-16 Task 2) so the rename's default-set/artifact-key/unknown-id behavior is directly testable rather than only reachable through the CLI entry point. */
 export function resolvePublishAlgorithms(idsCsv: string | undefined): AlgorithmModule<any>[] {
   const ids = idsCsv
     ? idsCsv
@@ -3584,10 +3579,8 @@ export function resolvePublishAlgorithms(idsCsv: string | undefined): AlgorithmM
  * the real seven-season corpus (`2019,2020,2022-2026`) without a contiguous
  * range lying about what exists.
  *
- * `cli.ts` NOW MIRRORS this grammar term-for-term (quick task 260907-203,
- * which needed `--seasons 2016-2020,2022-2026` for the backward corpus
- * extension to 2016). This module and `cli.ts` are the two `--seasons`
- * parsers and they agree; if one moves, move the other.
+ * This is now the ONE `--seasons` parser in the repo (the harness backtest
+ * CLI's own duplicate copy was deleted in 260913-nvn).
  *
  * **EXPORTED** for direct test coverage, following the exported-for-test
  * precedent `resolvePublishAlgorithms` (above) already sets in this file.

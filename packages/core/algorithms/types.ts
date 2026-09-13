@@ -117,8 +117,6 @@ export interface MatchResult extends UpcomingMatch {
 /** D-24: one component's predicted contribution to an alliance's score. */
 export interface ComponentPrediction {
   mean: number;
-  /** Present only for algorithms carrying variance (Sigma1). */
-  variance?: number;
 }
 
 export interface Prediction {
@@ -310,26 +308,6 @@ export interface SeasonBoundary {
  */
 export interface BreakdownParseTelemetry {
   readonly breakdownParseFailureCount: number;
-}
-
-/**
- * Reads `breakdownParseFailureCount` off an arbitrary algorithm state,
- * returning `null` when the value does not track it (e.g. OPR, which never
- * touches `score_breakdown` at all) rather than fabricating a `0` — a caller
- * (`packages/harness/cli.ts`'s `reportBreakdownParseFailures`) must be able
- * to distinguish "this algorithm has no opinion" from "this algorithm
- * observed zero parse failures."
- */
-export function breakdownParseFailureCountOf(state: unknown): number | null {
-  if (
-    typeof state === "object" &&
-    state !== null &&
-    "breakdownParseFailureCount" in state &&
-    Number.isFinite((state as { breakdownParseFailureCount: unknown }).breakdownParseFailureCount)
-  ) {
-    return (state as BreakdownParseTelemetry).breakdownParseFailureCount;
-  }
-  return null;
 }
 
 export interface AlgorithmModule<S> {

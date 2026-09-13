@@ -77,8 +77,7 @@ import {
   buildFieldAveragedPreScheduleArtifact,
   buildFieldContributions,
 } from "../packages/harness/preSchedule.js";
-import { makeRankingPointFiller } from "../packages/harness/publish.js";
-import { ALGORITHMS } from "../packages/harness/cli.js";
+import { BASE_PUBLISH_ALGORITHMS, makeRankingPointFiller } from "../packages/harness/publish.js";
 import type { PreScheduleArtifact } from "../packages/harness/pageArtifacts.js";
 import {
   ALLIANCE_SIZE,
@@ -1098,7 +1097,7 @@ export async function main(argv: readonly string[]): Promise<void> {
 
   const draws = values.draws === undefined ? DEFAULT_DRAWS : Number(values.draws);
   const algorithmId = values.algorithm ?? DEFAULT_ALGORITHM_ID;
-  const algorithm = ALGORITHMS[algorithmId];
+  const algorithm = BASE_PUBLISH_ALGORITHMS[algorithmId];
   if (algorithm === undefined) throw new Error(`measureFieldAveragedRanks: unknown algorithm "${algorithmId}"`);
   const replayFromOpt = values["replay-from"] === undefined ? undefined : Number(values["replay-from"]);
   // The flag's raw value: `undefined` when `--schedules` is absent, which is

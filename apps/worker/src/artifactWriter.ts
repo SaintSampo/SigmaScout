@@ -5,8 +5,7 @@
  * byte-identical output to the offline half given the same input: same key
  * scheme (`artifactKey`, `packages/harness/pageArtifacts.ts`), same schema
  * validation before any write, same cache-control/content-type metadata,
- * same secret-scrub refusal (`packages/harness/artifact.ts`'s `writeArtifact`
- * discipline, mirrored here).
+ * same secret-scrub refusal before any write ever reaches R2.
  *
  * `writeArtifactObject` validates-then-persists, in that order, and never
  * the reverse — a malformed object never reaches R2 (T-04-22). Every
@@ -49,7 +48,7 @@ const SCHEMA_BY_PAGE: Record<PageKind, { parse(input: unknown): unknown }> = {
   compare: CompareArtifactSchema,
 };
 
-/** Thrown when a serialized artifact would contain the configured TBA secret — refuses the write entirely, mirroring `packages/harness/artifact.ts`'s `writeArtifact` scrub guard. */
+/** Thrown when a serialized artifact would contain the configured TBA secret — refuses the write entirely. */
 export class ArtifactSecretLeakError extends Error {
   constructor(page: PageKind) {
     super(`writeArtifactObject: refusing to write "${page}" artifact — serialized output contains a secret value`);

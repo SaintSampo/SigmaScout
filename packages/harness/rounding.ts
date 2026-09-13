@@ -4,8 +4,7 @@
  *
  * BOUNDARY: this module is for building PUBLISHED page artifacts only
  * (`packages/harness/pageArtifacts.ts`). It is never called from the
- * scoring path (`packages/harness/score.ts`), the prediction sidecars
- * (`packages/harness/predictions.ts`), or anything a committed digest
+ * scoring path (`packages/harness/score.ts`) or anything a committed digest
  * hashes. In particular, `packages/harness/predictionStreamDigest.ts`'s
  * `computePredictionStreamDigest` states outright that its input must stay
  * "never rounded, `toFixed`'d, or truncated" — a promoted version's digest
@@ -203,9 +202,9 @@ export function roundProbability(value: number): number {
 
 /**
  * Rounds each pmf entry to `ROUNDING_RULE.pmf` decimals, then renormalizes
- * so the rounded array still sums to 1 within
- * `packages/harness/predictions.ts`'s 1e-9 tolerance — see this module's
- * file header for the full tie-breaking contract.
+ * so the rounded array still sums to 1 within the same 1e-9 tolerance every
+ * pmf validator in this codebase applies — see this module's file header
+ * for the full tie-breaking contract.
  */
 export function roundPmf(pmf: readonly number[]): number[] {
   if (pmf.length === 0) {

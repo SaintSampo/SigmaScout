@@ -4,7 +4,6 @@
  * before `rounding.ts`'s implementation (RED before GREEN).
  */
 import { describe, expect, it } from "vitest";
-import { PredictionRecordSchema } from "./predictions.js";
 import { ROUNDING_RULE, roundMetric, roundPmf, roundProbability, roundTo } from "./rounding.js";
 
 describe("roundTo — half-away-from-zero, symmetric about zero", () => {
@@ -110,28 +109,6 @@ describe("roundPmf — renormalized rounding with a deterministic tie-break", ()
     expect(result[0] as number).toBeGreaterThanOrEqual(result[1] as number);
   });
 
-  it("a rounded pmf still satisfies PredictionRecordSchema's own 1e-9 sum tolerance", () => {
-    const redRpPmf = roundPmf([0.19999, 0.2, 0.2, 0.2, 0.20001]);
-    const record = {
-      matchKey: "2024test_qm1",
-      season: 2024,
-      eventKey: "2024test",
-      compLevel: "qm" as const,
-      algorithmId: "vpr",
-      algorithmVersion: "2.0.0+tuned-2026-08",
-      predictedWinner: "red" as const,
-      pRedWin: 0.6,
-      predictedRedScore: 100,
-      predictedBlueScore: 90,
-      redComponents: {},
-      blueComponents: {},
-      redRpPmf,
-      actualWinner: "red" as const,
-      actualRedScore: 105,
-      actualBlueScore: 88,
-    };
-    expect(() => PredictionRecordSchema.parse(record)).not.toThrow();
-  });
 });
 
 describe("ROUNDING_RULE — plain data, quotable by name", () => {

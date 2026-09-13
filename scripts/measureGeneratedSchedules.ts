@@ -51,8 +51,7 @@ import { openCorpusReadOnly, selectMatchesChronological, selectScheduledMatches,
 import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
 import { matchesPerTeamFor, loadScheduleTemplate, type ScheduleTemplateMatch } from "../packages/harness/scheduleTemplates.js";
 import { buildPreScheduleArtifact } from "../packages/harness/preSchedule.js";
-import { makeRankingPointFiller } from "../packages/harness/publish.js";
-import { ALGORITHMS } from "../packages/harness/cli.js";
+import { BASE_PUBLISH_ALGORITHMS, makeRankingPointFiller } from "../packages/harness/publish.js";
 import type { PreScheduleArtifact } from "../packages/harness/pageArtifacts.js";
 import {
   mulberry32,
@@ -777,7 +776,7 @@ export async function main(argv: readonly string[]): Promise<void> {
   const counts =
     values.counts === undefined ? DEFAULT_PHASE_A_COUNTS : values.counts.split(",").map((s) => Number(s.trim())).filter((n) => Number.isInteger(n) && n > 0);
   const algorithmId = values.algorithm ?? DEFAULT_ALGORITHM_ID;
-  const algorithm = ALGORITHMS[algorithmId];
+  const algorithm = BASE_PUBLISH_ALGORITHMS[algorithmId];
   if (algorithm === undefined) throw new Error(`measureGeneratedSchedules: unknown algorithm "${algorithmId}"`);
   const replayFromOpt = values["replay-from"] === undefined ? undefined : Number(values["replay-from"]);
   const phase = (values.phase ?? "a").toLowerCase();
