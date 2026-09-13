@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 09
 status: completed
 stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
-last_updated: "2026-09-13T23:20:01.141Z"
+last_updated: "2026-09-13T23:30:12.583Z"
 last_activity: 2026-09-13
 last_activity_desc: "Completed quick task 260913-ppk: closed vpr-retirement-make-features-algorithm-agnostic, SPR stays the only live-folding algorithm"
 progress:
@@ -566,6 +566,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 162 | Fixed the missing SPR ranking-point scorecard: the committed measurement had only opr, epa and bpr records while the publisher attaches cards to spr alone by literal id, so the next publish would have dropped the Compare RP card. Measured spr into rp-calibration-2026-09c.json, repointed the constant, replaced the aliased test. Also wrote the 09-13 status of ranking-points-audit: F9, F12, F13 closed, F8 superseded, F6/F7 and F4 decided, F10 deferred | 2026-09-13 | 2be153a1 | — |
 | 163 | Withdraw the false spread/own-variance additivity identity from 6 comment and skill sites, close its todo, confirm the data/ sweep todo was already closed | 2026-09-13 | ded58569 | [260913-q1l-resolve-pageartifacts-additivity-identit](./quick/260913-q1l-resolve-pageartifacts-additivity-identit/) |
 | 164 | Correct stale Sigma1/VPR present-tense claims left out of 260913-q1l in types.ts and two sketch-skill references (comment and doc text only) | 2026-09-13 | 2c1fe1cc | — |
+| 165 | fast: resolved three todos. Championship pre-qualified lists backfilled for 2016-2020 from the manuals, the Hall of Fame roster and TBA award rows (75f25d6d). The frozen EPA ablation register now records offseason-population as measured with no effect (9b13f6a5). TBA placeholder keys frc, frc0 and frc58 / are handled as demo robots (a8c5f965), and SPR gained the demo exclusion as spr@4.0.0+baseline under Rule A, pooled accuracy +0.012pp and Brier -0.000015. 15 stale placeholder team pages deleted from R2. Republish, D1 seed and worker deploy owed | 2026-09-13 | b8eb402e | — |
 
 ### Roadmap Evolution
 
