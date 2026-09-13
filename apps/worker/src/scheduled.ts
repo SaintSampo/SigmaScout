@@ -545,6 +545,14 @@ interface PerAlgorithmFold {
   readonly newBands: ReadonlyMap<string, MatchBand>;
   /** Match Band per still-upcoming match key (shape 10). */
   readonly upcomingBands: ReadonlyMap<string, MatchBand>;
+  /**
+   * Quick task 260913-m45 Task 2: this algorithm's Sigma Score per REAL
+   * touched team, read at END OF TICK — the SAME instant `touchedMetrics` is
+   * read, so Total and Sigma on a live-written row always pair from one
+   * instant. Empty for an algorithm outside `SIGMA_SCORE_ALGORITHM_IDS`
+   * (`usesSigmaScore` false), never merely omitted.
+   */
+  readonly touchedSigma: ReadonlyMap<string, number>;
 }
 
 function buildEventMatchRow(match: MatchResult, prediction: Prediction, band: MatchBand | undefined) {
@@ -770,6 +778,16 @@ interface MergeTeamSeasonArtifactParams {
   /** Match Band per newly-folded match key (shape 10). */
   readonly bands: ReadonlyMap<string, MatchBand>;
   readonly stamp: Stamp;
+  /**
+   * Quick task 260913-m45 Task 2: this team's Sigma Score at the SAME
+   * instant as `metrics` (end of tick), used ONLY on this tick's NEW
+   * metric-history rows below. `seasonStats` keeps the publisher's
+   * season-final, tiered Sigma, which `touchedEventTeamMetrics` carries
+   * forward — putting this value into `metrics` instead would replace that
+   * entry, which is why it travels separately. REQUIRED (may be
+   * `undefined`) so no caller can opt out by omission.
+   */
+  readonly sigmaAfterTick: number | undefined;
 }
 
 /**
@@ -785,7 +803,7 @@ interface MergeTeamSeasonArtifactParams {
  * D1/R2/KV fake rig to prove a property of ten lines of pure merge logic.
  */
 export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): unknown {
-  const { existing, teamKey, season, algorithmId, algorithmVersion, eventKey, matches, predictions, metrics, matchIndexByKey, bands, stamp } = params;
+  const { existing, teamKey, season, algorithmId, algorithmVersion, eventKey, matches, predictions, metrics, matchIndexByKey, bands, stamp, sigmaAfterTick } = params;
 
   let record = existing?.seasonStats.record ?? { wins: 0, losses: 0, ties: 0 };
   for (const match of matches) record = incrementRecord(record, teamKey, match);
@@ -798,6 +816,11 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
       ? [...existingEvents, { eventKey, eventName: eventKey, startDate: stamp.computedAt.slice(0, 10), matches: newRows }]
       : existingEvents.map((e, i) => (i === eventIndex ? { ...e, matches: [...e.matches, ...newRows] } : e));
 
+  // Quick task 260913-m45 Task 2: `sigmaAfterTick` is appended as the LAST
+  // metrics key on every NEW row this tick writes, ONLY when defined — an
+  // algorithm outside `SIGMA_SCORE_ALGORITHM_IDS` passes `undefined` and
+  // appends nothing. Existing rows (built before this tick, whether or not
+  // they carry sigma) are untouched below, via the leading `existing?.metricHistory` spread.
   const newMetricHistoryRows = matches.map((m) => ({
     matchKey: m.matchKey,
     season,
@@ -805,7 +828,10 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
     algorithmId,
     teamKey,
     matchIndex: matchIndexByKey.get(m.matchKey) ?? 0,
-    metrics: roundTeamMetricRecord(metrics),
+    metrics: {
+      ...roundTeamMetricRecord(metrics),
+      ...(sigmaAfterTick !== undefined ? { [SIGMA_METRIC_KEY]: { value: roundMetric(sigmaAfterTick) } } : {}),
+    },
   }));
 
   // The leading spread is load-bearing, not tidiness (quick task 260908-5wd).
@@ -1284,6 +1310,16 @@ async function processEvent(
         }
 
         const touchedMetrics = algorithm.teamMetrics(state, touchedTeams);
+        // Quick task 260913-m45 Task 2: read directly after `touchedMetrics`
+        // above — same instant, same one-read-per-team cost, zero added
+        // subrequests (`sigma.sigmaFor` is the accumulator's own read-only
+        // accessor, so this creates no belief). Scoped to `realTouchedTeams`
+        // (demo keys excluded), matching `mergeTeamSeasonArtifact`'s own
+        // per-team loop below, which is the only consumer.
+        const touchedSigma = new Map<string, number>();
+        if (sigma !== undefined) {
+          for (const teamKey of realTouchedTeams) touchedSigma.set(teamKey, sigma.sigmaFor(teamKey));
+        }
 
         // The beliefs ride back into the rows after the algorithm serializer
         // has run, so no algorithm's serializer knows they exist.
@@ -1301,7 +1337,7 @@ async function processEvent(
         budget.consume(1);
         await writeScopedState(env.DB, changedRows); // may throw -- caught below, reverts the claim and aborts the WHOLE event (zero artifact puts)
 
-        perAlgorithm.set(algorithmId, { algorithm, newPredictions, upcomingPredictions, touchedMetrics, newBands, upcomingBands });
+        perAlgorithm.set(algorithmId, { algorithm, newPredictions, upcomingPredictions, touchedMetrics, newBands, upcomingBands, touchedSigma });
       }
 
       return await runPhaseBAndReport(env, budget, window, eventKey, eventType, newlyFoldedResults, stillUpcomingViews, touchedTeams, realTouchedTeams, matchIndexByKey, perAlgorithm, touchedTeamsByAlgorithm, stamp, stillUpcoming.length === 0);
@@ -1414,6 +1450,9 @@ async function runPhaseBAndReport(
           matchIndexByKey,
           bands: info.newBands,
           stamp,
+          // Quick task 260913-m45 Task 2: end-of-tick Sigma for THIS team,
+          // read at the same instant as `touchedMetrics` above.
+          sigmaAfterTick: info.touchedSigma.get(teamKey),
         });
         await writeArtifactObject(env, budget, "team", teamParams, mergedTeam);
 
