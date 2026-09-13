@@ -849,6 +849,47 @@ body {
 }
 
 /*
+ * Quick task 260913-jkp — sketch 011 winner A, the split pill. One rounded
+ * shape cut in two: Total's half on the left, Sigma's half on the right, no
+ * gap between them. Geometry lives here; colour comes entirely from the
+ * existing `.metric-tier--*` modifier classes above (background/color/
+ * box-shadow only, no geometry), so each half tiers independently and two
+ * Common halves meeting at the seam is the accepted look
+ * (colour-and-tiers.md). `--color-bg-inset`/`--color-text-muted` are the
+ * only tokens the neutral (untiered) Alliances Combined Total band uses —
+ * no colour literal anywhere (D-06).
+ */
+.metric-pill {
+  display: inline-flex;
+  align-items: stretch;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+}
+.metric-pill__total {
+  display: inline-flex;
+  justify-content: flex-end;
+  padding: 3px 7px 3px 8px;
+  border-radius: 5px 0 0 5px;
+  min-width: 58px;
+}
+.metric-pill__sigma {
+  display: inline-flex;
+  justify-content: flex-end;
+  padding: 3px 8px 3px 6px;
+  border-radius: 0 5px 5px 0;
+  min-width: 54px;
+}
+.metric-pill__pm {
+  opacity: 0.7;
+  margin-right: 3px;
+}
+.metric-pill__sigma--neutral {
+  background: var(--color-bg-inset);
+  color: var(--color-text-muted);
+}
+
+/*
  * Bubble-chart tone classes (quick task 260909-tom) — the SVG dot marks and
  * the key-row swatches share this one class family rather than two separate
  * colour declarations that could drift apart. `fill` is what an SVG
