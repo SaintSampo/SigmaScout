@@ -21,6 +21,7 @@ import { METRIC_GROUPS } from "@/lib/metricGroups";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { PINNED_COLUMN_IDS } from "@/components/teams-table/columns";
 import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 import {
   buildInsightsRows,
   formatEventRecord,
@@ -304,7 +305,8 @@ describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    expect(headers).toEqual(["Rank", "Team #", "Team Name", "Record", "RP", "Total", "Auto", "Teleop", "Endgame"]);
+    // Quick task 260913-jkp: SPR's Total header reads "Total ± Sigma".
+    expect(headers).toEqual(["Rank", "Team #", "Team Name", "Record", "RP", "Total ± Sigma", "Auto", "Teleop", "Endgame"]);
   });
 
   it("opr/2024: also exactly nine headers — the column count is algorithm-independent, unlike Breakdown's", async () => {
@@ -348,7 +350,89 @@ describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
 
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    expect(headers).toEqual(["Rank", "Team #", "Team Name", "Record", "RP", "Total", "Auto", "Teleop", "Endgame"]);
+    expect(headers).toEqual(["Rank", "Team #", "Team Name", "Record", "RP", "Total ± Sigma", "Auto", "Teleop", "Endgame"]);
+  });
+});
+
+describe("InsightsTab — Total ± Sigma pill (quick task 260913-jkp Task 1)", () => {
+  function sprArtifactWithSigma(sigma?: { value: number; percentile?: number }) {
+    return EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "spr",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [
+        {
+          teamKey: "frc254",
+          teamNumber: 254,
+          nickname: "The Cheesy Poofs",
+          rank: 1,
+          metrics: fullInsightsMetrics(sigma !== undefined ? { [SIGMA_METRIC_KEY]: sigma } : {}),
+        },
+      ],
+    });
+  }
+
+  it("spr with sigma on the row: Total header reads 'Total ± Sigma' and the Total cell renders the pill", async () => {
+    renderInsights(sprArtifactWithSigma({ value: 92, percentile: 80 }), "spr", 2024);
+
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
+    const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
+    expect(headers[5]).toBe("Total ± Sigma");
+
+    const totalCell = await screen.findByTestId("insights-cell-total");
+    const pill = totalCell.querySelector("[data-testid='total-sigma-pill']");
+    expect(pill).not.toBeNull();
+    expect(totalCell.textContent).toBe("10.00±92.00");
+  });
+
+  it("the same fixture with sigma stripped renders exactly one metric-tier box per Total cell and no pill", async () => {
+    renderInsights(sprArtifactWithSigma(undefined), "spr", 2024);
+
+    const totalCell = await screen.findByTestId("insights-cell-total");
+    expect(totalCell.querySelector("[data-testid='total-sigma-pill']")).toBeNull();
+    expect(totalCell.querySelectorAll(".numeric-cell").length).toBe(1);
+    expect(totalCell.textContent).toBe("10.00");
+  });
+
+  it("opr renders header 'Total' and no pill", async () => {
+    const artifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "opr",
+      algorithmVersion: "3.0.0+baseline",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", rank: 1, metrics: { [TOTAL_KEY]: { value: 20 } } }],
+    });
+    renderInsights(artifact, "opr", 2024);
+
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
+    const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
+    expect(headers[5]).toBe("Total");
+
+    const totalCell = await screen.findByTestId("insights-cell-total");
+    expect(totalCell.querySelector("[data-testid='total-sigma-pill']")).toBeNull();
+  });
+
+  it("InsightsTabSkeleton reads 'Total ± Sigma' for spr and 'Total' for opr, before any data lands", () => {
+    const sprRender = render(<InsightsTabSkeleton algorithmId="spr" season={2024} />);
+    const sprHeaders = sprRender.getAllByRole("columnheader").map((el) => el.textContent);
+    expect(sprHeaders[5]).toBe("Total ± Sigma");
+    sprRender.unmount();
+
+    const oprRender = render(<InsightsTabSkeleton algorithmId="opr" season={2024} />);
+    const oprHeaders = oprRender.getAllByRole("columnheader").map((el) => el.textContent);
+    expect(oprHeaders[5]).toBe("Total");
+    oprRender.unmount();
   });
 });
 
@@ -881,7 +965,7 @@ describe("InsightsTabSkeleton", () => {
     render(<InsightsTabSkeleton algorithmId="spr" season={2024} />);
 
     const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
-    expect(headers).toEqual(["Rank", "Team #", "Team Name", "Record", "RP", "Total", "Auto", "Teleop", "Endgame"]);
+    expect(headers).toEqual(["Rank", "Team #", "Team Name", "Record", "RP", "Total ± Sigma", "Auto", "Teleop", "Endgame"]);
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
   });
