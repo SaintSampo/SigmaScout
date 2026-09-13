@@ -23,7 +23,30 @@ pnpm publish:seasons
 (equivalently `tsx --env-file=.env packages/harness/publish.ts --seasons 2022-2026`, invoked
 directly to bypass this machine's known `pnpm install`/`better-sqlite3` node-gyp pre-check failure)
 
-**Latest run — 2026-09-12 (19:44:42–21:31:09 UTC, ~1h46m), the BPR -> SPR cutover republish —
+**Latest run — 2026-09-13 (16:45:35–18:41:04 UTC, ~1h55m), the Match Band correction republish —
+attended (`tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026
+--include-offseason --presim-from-season 2026`, generation
+`174d585f-16c8-4a0d-b342-dbd3f7acda6e`).** 108,979 page objects, 4,163,068,726 bytes, 641 presim
+sidecars.
+
+```
+teams:   count=30      median=913,216B  p95=1,372,026B  max=1,500,066B
+events:  count=30      median=68,675B   p95=84,108B     max=84,109B
+event:   count=7,500   median=70,580B   p95=113,663B    max=256,899B
+team:    count=101,409 median=30,749B   p95=84,709B     max=256,681B
+compare: count=10      median=14,583B   p95=14,878B     max=14,878B
+presim:  count=641     median=7,229B    p95=16,068B     max=23,963B
+```
+
+**Bytes fell 158.8 MB at an identical object count.** Quick task 260913-g66 stopped publishing the
+per-team `swingFactor` field for every algorithm and emits the renamed per-match band keys
+(`redMatchBandVariance`/`blueMatchBandVariance`) for spr only. No algorithm version changed, so every
+key was overwritten in place and **no generation was orphaned**. The run also carried 260912-tnk's
+pool-ranked percentiles into R2. Verified by content: live 2026 spr event artifacts put 72.1% of
+40,816 played alliance scores inside one band (the committed `measure:match-band` predicted 72.2%);
+opr and epa carry no band key; `verify:subset` 65 entries, 0 failing, generation uniformity 1.
+
+**Previous run — 2026-09-12 (19:44:42–21:31:09 UTC, ~1h46m), the BPR -> SPR cutover republish —
 attended (`tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026
 --include-offseason --presim-from-season 2026`, generation
 `2c22394b-de85-44f5-b80a-bfdca523ee98`).** 108,979 page objects, 4,321,867,353 bytes, 641 presim
@@ -1922,24 +1945,24 @@ rendering of these same numbers, not a second source.
 
 ```json budget
 {
-  "measuredAt": "2026-09-12T11:01:01.000Z",
-  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2026) -- generation 622eeb28-8da6-4b95-b687-b74d42c45237, 108,979 objects, 4,321,870,202 bytes total, 641 presim sidecars, 09:19:12-11:01:01 UTC 2026-09-12, UNATTENDED (operator asleep, run under the sigmascout-retune-republish skill's non-interruption contract). REPUBLISH ONLY -- no retune, no promotion, promotedVersionPath.ts untouched, no model changed. It exists to carry two already-merged changes into R2 that had never reached it. (1) PRESIM_SCHEDULE_COUNT 20 -> 1,000 (ea84a0da): at 20, two runs of the IDENTICAL construction disagreed on 73% of teams and moved the worst team 10.61 ranks, so the published pre-schedule band was mostly sampling noise; at 1,000 the worst team moves 1.17 and the pooled mean 0.275, below what a reader can perceive on an integer rank scale. (2) The priced schedules block is no longer published (260912-2ur, commits 5cd916e8/43e79b30/efb0c24f), replaced by a scheduleCount scalar; the client never read that block -- preScheduleResult.ts rebuilds everything from roster and baked alone -- and on the previous generation it was 376,211 of 388,484 bytes, 96.8% downloaded and discarded on the page whose stated top priority is load speed. THE HEADLINE IS THAT THOSE TWO COMPOSE: presim median went 206,385 B -> 7,229 B (28.5x smaller) and max 393,507 B -> 23,963 B (16.4x smaller) while the schedule count went UP 50x. Raising the count was only affordable because the block went first -- with it, a sidecar at 1,000 would be ~18 MB, roughly 11.5 GB of presim across 641 sidecars against a 10 GB R2 free tier. The event page kind grew 7,341 -> 7,500 objects (the 2026 season gained events since the last run) and its median FELL 75,366 -> 74,611 B; every page kind remains inside its budget with the largest, event, at 272,530 of 350,000. Verified by CONTENT, not status: v1/manifest/algorithms.json reads back opr 4.0.0 / epa 10.0.0 / bpr 3.0.0 at this generation with the publisher's own read-back check passing; three presim sidecars parsed as JSON across all three algorithms show schedules key ABSENT, scheduleCount 1000, baked.draws 50000 (1,000 x 50) and histogram counts matching roster size. verify:subset 50 entries, 0 failing, generation uniformity 1 distinct value. The vpr 404s in that run are the retired-algorithm control entries and are expected. Elapsed 1h42m against a ~64 min estimate -- the estimate under-priced the presim generation, which is ~10 min per algorithm at the new count.",
+  "measuredAt": "2026-09-13T18:41:04.000Z",
+  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2026) -- generation 174d585f-16c8-4a0d-b342-dbd3f7acda6e, 108,979 objects, 4,163,068,726 bytes total, 641 presim sidecars, 16:45:35-18:41:04 UTC 2026-09-13 (1h55m), attended. REPUBLISH ONLY for quick task 260913-g66 -- no retune, no promotion, no algorithm version changed (opr 4.0.0 / epa 10.0.0 / spr 3.0.0), so every key was overwritten in place and no generation was orphaned. It also carries 260912-tnk (pool-ranked percentiles) into R2. Wire changes: the per-match band keys were renamed redSwingBandVariance/blueSwingBandVariance -> redMatchBandVariance/blueMatchBandVariance and are now emitted for spr only, as rosterSize x sum of squared Sigma Scores (display-only; the RP pmf still uses the uncorrected variance); the top-level per-team swingFactor field is no longer published for any algorithm. That removal is why total bytes FELL 158.8 MB (4,321,867,353 -> 4,163,068,726) at an identical object count: teams max 1,573,854 -> 1,500,066 B, event median 74,611 -> 70,580 B and max 272,530 -> 256,899 B, team median 31,305 -> 30,749 B and max 267,128 -> 256,681 B. Every page kind remains inside its budget. Verified by CONTENT: v1/manifest/algorithms.json reads opr 4.0.0 / epa 10.0.0 / spr 3.0.0 at this generation; 2026casnv spr carries redMatchBandVariance on 89/89 rows and zero retired keys, while opr and epa carry no band key; the 2026 teams artifacts carry no swingFactor for any algorithm and a sigma column only for spr (3,721/3,721); live 2026 spr event artifacts put 72.1% of 40,816 played alliance scores inside 1 band and 94.6% inside 2 (measure:match-band predicted 72.2%). verify:subset 65 entries, 0 failing, generation uniformity 1 distinct value; its vpr 404s are the retired-algorithm control entries.",
   "pages": {
     "teams": {
       "count": 30,
-      "medianBytes": 913209,
-      "p95Bytes": 1445501,
-      "maxBytes": 1573854,
+      "medianBytes": 913216,
+      "p95Bytes": 1372026,
+      "maxBytes": 1500066,
       "budgetMaxBytes": 3500000,
       "largestKey": "v1/teams/2026/epa@10.0.0+baseline.json"
     },
     "team": {
       "count": 101409,
-      "medianBytes": 31305,
-      "p95Bytes": 87608,
-      "maxBytes": 267128,
+      "medianBytes": 30749,
+      "p95Bytes": 84709,
+      "maxBytes": 256681,
       "budgetMaxBytes": 500000,
-      "largestKey": "v1/team/frc3538/2025/epa@10.0.0+baseline.json"
+      "largestKey": "v1/team/frc3538/2024/spr@3.0.0+baseline.json"
     },
     "events": {
       "count": 30,
@@ -1951,17 +1974,17 @@ rendering of these same numbers, not a second source.
     },
     "event": {
       "count": 7500,
-      "medianBytes": 74611,
-      "p95Bytes": 118498,
-      "maxBytes": 272530,
+      "medianBytes": 70580,
+      "p95Bytes": 113663,
+      "maxBytes": 256899,
       "budgetMaxBytes": 350000,
       "largestKey": "v1/event/2016micmp/epa@10.0.0+baseline.json"
     },
     "compare": {
       "count": 10,
-      "medianBytes": 14854,
-      "p95Bytes": 15264,
-      "maxBytes": 15264,
+      "medianBytes": 14583,
+      "p95Bytes": 14878,
+      "maxBytes": 14878,
       "budgetMaxBytes": 20000,
       "largestKey": "v1/compare/2026.json"
     }
