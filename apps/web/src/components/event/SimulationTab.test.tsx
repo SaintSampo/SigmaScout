@@ -156,6 +156,16 @@ describe("SimulationTab", () => {
     expect(screen.queryByText(SIMULATION_EMPTY_STATE_HEADING)).toBeNull();
   });
 
+  it("an OPR artifact carries no pmfs (ranking-point odds are Sigma-only since 260913-it4) and renders the unavailable heading AND body", () => {
+    const artifact = baseArtifact({
+      matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
+    });
+    render(<SimulationTab artifact={artifact} algorithmId="opr" season={2024} />);
+    expect(screen.getByText(SIMULATION_UNAVAILABLE_HEADING)).toBeDefined();
+    expect(screen.getByText(SIMULATION_UNAVAILABLE_BODY)).toBeDefined();
+    expect(screen.queryByText(SIMULATION_EMPTY_STATE_HEADING)).toBeNull();
+  });
+
   it("renders the PRE-RUN state (not an empty state) when pmfs exist on upcoming[] only — proving the predicate reads both arrays", () => {
     const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
     render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);

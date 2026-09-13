@@ -66,19 +66,20 @@ export interface TeamRow {
   /** The published metrics record, exactly as fetched — a key the declared set contains but this row lacks is simply absent here, never defaulted. */
   metrics: TeamMetrics;
   /**
-   * This team's SWING SCORE, published per row since 2026-09-08. The ONLY
-   * quantity the Total column may render as a `±` — the metrics above also
-   * carry the algorithm's own `spread`, which must never reach the screen.
-   * Absent for a team with fewer than two played matches.
+   * This team's SIGMA SCORE, read from the published `sigma` metric entry
+   * (`SIGMA_METRIC_KEY` in `team.metrics`). The ONLY quantity the Total
+   * column may render as a `±` — the metrics above also carry the
+   * algorithm's own `spread`, which must never reach the screen. Absent for
+   * a team with fewer than two played matches and for every algorithm
+   * without a Sigma Score.
    */
   sigmaScore?: number;
   /**
-   * Quick task 260909-tgf: the Swing column's rarity tier, sourced from the
-   * published `swing` metric entry (`SWING_METRIC_KEY` in `team.metrics`),
-   * NEVER derived here from `swingScore`. `undefined` means the pipeline has
-   * not ranked this team's swing at all (a pre-republish artifact, or a
-   * live-worker-rebuilt row) — see `buildTeamRows`'s own comment for the
-   * two-branch distinction that produces this value.
+   * The Sigma column's rarity tier (first shipped by quick task 260909-tgf),
+   * sourced from the published `sigma` metric entry, NEVER derived here from
+   * `sigmaScore`. `undefined` means the pipeline has not ranked this team's
+   * Sigma Score at all (a pre-republish artifact, or a live-worker-rebuilt
+   * row) — see `buildTeamRows`'s own comment for why that is not coalesced.
    */
   sigmaTier?: Tier;
   rank: number;
@@ -114,7 +115,7 @@ function byTeamNumberAscending(a: { teamNumber: number }, b: { teamNumber: numbe
 export const WIN_RATE_SORT_KEY = "winRate";
 
 /**
- * Quick task 260909-tgf: `TeamRow.swingTier`'s two-branch derivation, pulled
+ * Quick task 260909-tgf: `TeamRow.sigmaTier`'s derivation, pulled
  * into its own function with an explicit `Tier | undefined` return type so
  * the `"common"` fallback keeps its literal type rather than widening to
  * plain `string` inside the larger object-literal `.map()` in `buildTeamRows`
@@ -155,36 +156,28 @@ export function buildTeamRows(artifact: TeamsArtifact, algorithmId: string): Tea
     nickname: team.nickname,
     record: team.record,
     winRate: winRate(team.record),
-    // Quick task 260909-tgf: TWO BRANCHES, deliberately kept separate --
-    // this is the single most "fixable-back-to-wrong" line in this file.
+    // Quick task 260909-tgf: the tier, deliberately kept apart from the value
+    // -- this is the single most "fixable-back-to-wrong" line in this file.
     //
-    // Branch 1 (entry present): the published `swing` metric entry
-    // (`SWING_METRIC_KEY` in `team.metrics`) IS the source of truth for both
-    // the value and the tier. `entry.tier ?? "common"` is correct HERE
-    // because the entry's PRESENCE proves the pipeline ranked this team's
-    // swing -- Common is omitted from the wire purely for size (the same
+    // Entry present: the published `sigma` metric entry IS the source of
+    // truth for both the value and the tier. `entry.tier ?? "common"` is
+    // correct HERE because the entry's PRESENCE proves the pipeline ranked
+    // this team -- Common is omitted from the wire purely for size (the same
     // argument `columns.tsx`'s existing metric cells already make), so its
     // absence on a present entry means "ranked, Common tier," never
     // "unranked."
     //
-    // Branch 2 (entry absent): falls back to the top-level `swingFactor`
-    // field for the VALUE only, and `swingTier` stays UNDEFINED. The entry
-    // can be absent for two reasons -- a pre-republish artifact (this
-    // task's own commit, before the developer's `pnpm publish:seasons`
-    // run) or a live-worker-rebuilt row (`apps/worker/src/scheduled.ts`
-    // writes only the top-level field and computes no percentiles at all)
-    // -- and in NEITHER case does the pipeline know this team's tier.
-    // Coalescing to `"common"` here would be a positive false claim about a
-    // team the pipeline has not actually ranked.
-    // SIGMA SCORE, from the published `sigma` metric entry and NOTHING ELSE.
+    // Entry absent: both the value and the tier stay UNDEFINED. The entry can
+    // be absent on a pre-republish artifact or a live-worker-rebuilt row (the
+    // Worker computes no percentiles at all), and in NEITHER case does the
+    // pipeline know this team's tier. Coalescing to `"common"` here would be
+    // a positive false claim about a team the pipeline has not ranked.
     //
-    // The old `?? team.swingFactor` fallback is deliberately GONE. That field
-    // still exists on OPR/EPA rows and on any pre-republish SPR row, and it
-    // holds a SWING FACTOR — a different estimator on a different scale
-    // (Swing prints 1.92 sigma, Sigma prints an honest 1 sigma, so the same
-    // robot reads roughly twice as large under Swing). Falling back to it
-    // would print a Swing number under a "Sigma" heading, which is not a
-    // degraded answer but a wrong one.
+    // SIGMA SCORE comes from that entry and NOTHING ELSE. Stale rows may still
+    // carry a top-level field left by the retired per-robot consistency
+    // accumulator; it was a different estimator on a different scale, so
+    // reading it would print a wrong number under the "Sigma" heading, not a
+    // degraded one. The web never reads it.
     //
     // The consequence is intended: until the pipeline republishes, and for
     // every algorithm outside `SIGMA_SCORE_ALGORITHM_IDS`, this is `undefined`

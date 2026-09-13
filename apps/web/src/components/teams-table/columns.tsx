@@ -245,7 +245,7 @@ export const METRIC_COLUMN_WIDTH_SPREADLESS_PX = 88;
  *
  * NOTE, and it is a real inconsistency rather than a subtlety: this is the
  * ALGORITHM's own spread, which is a different quantity from the SigmaScout
- * Swing Factor the team page now shows on its Total tile. The teams table and
+ * per-robot consistency figure the team page shows on its Total tile. The teams table and
  * the team page can therefore print different `±` for the same team under SPR.
  * Tracked in `.planning/todos/pending/`'s band/identity notes; not resolved by
  * the VPR removal.
@@ -381,7 +381,7 @@ export function buildColumns(
       // showing Common bare while every other tiered surface on the site
       // shows it outlined.
       // No metric column carries a `±` any more (developer decision,
-      // 2026-09-09): Swing Score is ONE number per team, not a suffix on
+      // 2026-09-09): Sigma Score is ONE number per team, not a suffix on
       // another metric, and it has its own column below. The algorithm's own
       // spread is never rendered here either.
       cell: (info) => <MetricValue metric={info.getValue()} tier={info.getValue()?.tier ?? "common"} />,
@@ -413,7 +413,7 @@ export function buildColumns(
   });
 
   /**
-   * SWING SCORE, its own column (developer decision, 2026-09-09): a team's
+   * SIGMA SCORE, its own column (developer decision, 2026-09-09): a team's
    * total consistency estimate for its NEXT match — how much its contribution
    * is expected to vary, not how good it is and not how sure the model is.
    *
@@ -425,7 +425,7 @@ export function buildColumns(
    *
    * Quick task 260909-tgf: this cell now carries a rarity TIER, sourced from
    * `rowModel.ts`'s `sigmaTier` (the published `sigma` metric entry's tier,
-   * never derived here) — with LOWER swing earning the HIGHER tier, the D2
+   * never derived here) — with a LOWER Sigma Score earning the HIGHER tier, the D2
    * inversion applied once at the pipeline. Rendered through `MetricValue`
    * so it gets the identical `.metric-tier` box, padding and `toFixed(2)`
    * every other tiered cell on the site gets, rather than hand-rolling a

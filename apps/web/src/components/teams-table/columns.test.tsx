@@ -241,11 +241,11 @@ describe("metricColumnWidth — D-1 spread-carrying vs spread-less", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Quick task 260909-tgf — the Swing column now carries a rarity tier, sourced
+// Quick task 260909-tgf — the Sigma column carries a rarity tier, sourced
 // from rowModel.ts's sigmaTier, never derived here.
 // ---------------------------------------------------------------------------
-describe("buildColumns — swing tier (quick task 260909-tgf)", () => {
-  it("the swing cell for a Legendary row carries the legendary tier class", async () => {
+describe("buildColumns — sigma tier (quick task 260909-tgf)", () => {
+  it("the sigma cell for a Legendary row carries the legendary tier class", async () => {
     renderWithRouter(
       <TeamsTable
         status="success"
@@ -264,7 +264,7 @@ describe("buildColumns — swing tier (quick task 260909-tgf)", () => {
     expect(document.querySelector(".metric-tier--legendary")).not.toBeNull();
   });
 
-  it("the swing cell for a stale row (value, no tier) renders the value with NO .metric-tier wrapper class at all", async () => {
+  it("the sigma cell for a stale row (value, no tier) renders the value with NO .metric-tier wrapper class at all", async () => {
     renderWithRouter(
       <TeamsTable
         status="success"
@@ -280,11 +280,11 @@ describe("buildColumns — swing tier (quick task 260909-tgf)", () => {
     );
 
     await waitFor(() => expect(screen.getByText("8.42")).toBeDefined());
-    const swingValue = screen.getByText("8.42");
-    expect(swingValue.closest(".metric-tier")).toBeNull();
+    const sigmaValue = screen.getByText("8.42");
+    expect(sigmaValue.closest(".metric-tier")).toBeNull();
   });
 
-  it("an absent swing renders blank, not 0.00 — the existing behaviour, re-pinned", async () => {
+  it("an absent sigma renders blank, not 0.00 — the existing behaviour, re-pinned", async () => {
     renderWithRouter(
       <TeamsTable
         status="success"

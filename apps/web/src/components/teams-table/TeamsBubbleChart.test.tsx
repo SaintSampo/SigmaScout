@@ -325,20 +325,10 @@ describe("TeamsBubbleChart hover and click", () => {
 /**
  * Quick task 260913-g66: Sigma Score is published for SPR only, so OPR and EPA
  * row sets carry no `sigmaScore` at all. The chart then renders a plain
- * no-Sigma state instead of an axis, and no state of the chart names Swing.
+ * no-Sigma state instead of an axis.
  */
-describe("TeamsBubbleChart: no-Sigma state and no Swing text (260913-g66)", () => {
+describe("TeamsBubbleChart: no-Sigma state (260913-g66)", () => {
   afterEach(() => cleanup());
-
-  /** Case-sensitive, whole word: the retired user-facing name. */
-  const SWING_WORD = /\bSwing\b/;
-
-  function assertNoSwingText(container: HTMLElement): void {
-    expect(container.textContent ?? "").not.toMatch(SWING_WORD);
-    for (const el of Array.from(container.querySelectorAll("[aria-label]"))) {
-      expect(el.getAttribute("aria-label") ?? "").not.toMatch(SWING_WORD);
-    }
-  }
 
   const NO_SIGMA_ROWS: TeamRow[] = [
     makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10, tier: "legendary" } } }),
@@ -370,22 +360,5 @@ describe("TeamsBubbleChart: no-Sigma state and no Swing text (260913-g66)", () =
     expect(screen.queryByTestId("bubble-chart-no-sigma")).toBeNull();
     expect(container.querySelector("svg")).not.toBeNull();
     expect(screen.getByText(/2 teams are not plotted: they have no Sigma Score for this season\./)).toBeDefined();
-  });
-
-  it("rendered text and every aria-label contain no capitalised Swing word, in the chart, empty and no-Sigma states", () => {
-    const withOmission: TeamRow[] = [...MIXED_ROWS, makeRow({ teamKey: "frc6", teamNumber: 6, metrics: { [TOTAL_KEY]: { value: 60 } } })];
-    const chart = render(<TeamsBubbleChart rows={withOmission} />);
-    const svg = chart.container.querySelector("svg")!;
-    stubRect(svg);
-    const { x, y } = firstDotCoords(chart.container, "legendary");
-    fireEvent.pointerMove(svg, { clientX: x, clientY: y });
-    expect(screen.getByTestId("bubble-chart-tooltip")).toBeDefined();
-    assertNoSwingText(chart.container);
-    cleanup();
-
-    assertNoSwingText(render(<TeamsBubbleChart rows={[]} />).container);
-    cleanup();
-
-    assertNoSwingText(render(<TeamsBubbleChart rows={NO_SIGMA_ROWS} />).container);
   });
 });

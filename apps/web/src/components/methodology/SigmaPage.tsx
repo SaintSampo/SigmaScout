@@ -318,7 +318,7 @@ const F2_AXIS_BOTTOM_Y = 244;
 const F2_FIRST_DOT_X = 70;
 const F2_LAST_DOT_PAD = 20;
 
-function LevelAndSwingFigure(): ReactElement {
+function LevelAndSigmaFigure(): ReactElement {
   const decay = 0.5 ** (1 / DEFAULT_SIGMA_SCORE_OPTIONS.varHalfLife);
   const lastIndex = F2_EXAMPLE_MISSES.length - 1;
   const weights = F2_EXAMPLE_MISSES.map((_, index) => decay ** (lastIndex - index));
@@ -326,17 +326,17 @@ function LevelAndSwingFigure(): ReactElement {
   const weightedMean =
     F2_EXAMPLE_MISSES.reduce((sum, miss, index) => sum + miss * (weights[index] as number), 0) / totalWeight;
   // The drawn band width is the SHIPPING function's answer, not a guess at it.
-  const swing = illustrativeSigma(F2_EXAMPLE_MISSES);
+  const sigma = illustrativeSigma(F2_EXAMPLE_MISSES);
 
   const yFor = (miss: number) => F2_ZERO_Y - (miss / F2_MISS_MAX) * F2_MISS_PX;
   const step = (FIGURE_PLOT_W - F2_FIRST_DOT_X - F2_LAST_DOT_PAD) / lastIndex;
   const xFor = (index: number) => PLOT_LEFT + F2_FIRST_DOT_X + index * step;
   const meanY = yFor(weightedMean);
-  const bandTopY = yFor(weightedMean + swing);
-  const bandBottomY = yFor(weightedMean - swing);
+  const bandTopY = yFor(weightedMean + sigma);
+  const bandBottomY = yFor(weightedMean - sigma);
 
   return (
-    <Figure figureId="level-and-swing" height={F2_H}>
+    <Figure figureId="level-and-sigma" height={F2_H}>
       <rect
         x={PLOT_LEFT}
         y={bandTopY}
@@ -784,7 +784,7 @@ function MatchBandFigure(): ReactElement {
  */
 const FIGURE_RENDERERS: Record<SigmaFigureId, () => ReactElement> = {
   "even-split": EvenSplitFigure,
-  "level-and-swing": LevelAndSwingFigure,
+  "level-and-sigma": LevelAndSigmaFigure,
   evidence: EvidenceFigure,
   "same-rating": SameRatingFigure,
   "shares-to-alliance": SharesToAllianceFigure,

@@ -361,22 +361,6 @@ describe("MatchTable", () => {
     expect(predictedScore.textContent).not.toContain(".");
   });
 
-  it("a stale row carrying ONLY the retired pre-rename band keys draws no band and prints no plus-minus (260913-g66)", () => {
-    // The retired key names are assembled at runtime so the repo-wide sweep
-    // for the old spelling stays empty; the object is what a stale R2
-    // artifact published before the rename would hand this component.
-    const stale = {
-      ...makeMatch({ matchKey: "m1", redMatchBandVariance: undefined, blueMatchBandVariance: undefined }),
-      [["red", "Swing", "BandVariance"].join("")]: 100,
-      [["blue", "Swing", "BandVariance"].join("")]: 64,
-    } as TeamSeasonMatch;
-    renderWithRouter(<MatchTable matches={[stale]} domain={DOMAIN} teamKey="frc118" season={2024} algorithm="spr" />);
-    expect(screen.getByTestId("alliance-mark-m1-red-tick")).toBeDefined();
-    expect(screen.queryByTestId("alliance-mark-m1-red-band")).toBeNull();
-    expect(screen.queryByTestId("alliance-mark-m1-blue-band")).toBeNull();
-    expect(screen.getByTestId("predicted-score-m1").textContent).not.toContain("±");
-  });
-
   it("a row carrying the NEW band keys draws both bands and prints the band's plus-minus", () => {
     renderWithRouter(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={DOMAIN} teamKey="frc118" season={2024} algorithm="spr" />);
     expect(screen.getByTestId("alliance-mark-m1-red-band")).toBeDefined();

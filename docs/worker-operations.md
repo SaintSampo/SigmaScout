@@ -614,7 +614,7 @@ enforced" above). Budget for the *sustained* cost of the common path, never for 
 | Condition | What it means |
 |---|---|
 | `rpPmfsProduced: 0` | Every RP pmf was suppressed — the partial-roster gate tripped, the event type is RP-ineligible, or the season has no registered rule module. The reported `cpuTime` never touched `analyticRpPmf`. |
-| `bandsProduced: 0` | No Sigma/Swing band was produced for any roster, so the RP path's own band-presence gate never opened. |
+| `bandsProduced: 0` | No Sigma band was produced for any roster, so the RP path's own band-presence gate never opened. |
 | Any `algorithms[].ok: false` | That algorithm never deserialized (see its `error`), so nothing downstream of it was priced. |
 | A non-empty `warnings` array | The probe itself is naming a reason its own run under-states a real tick — read each line. |
 

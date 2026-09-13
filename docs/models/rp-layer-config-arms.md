@@ -197,7 +197,7 @@ an accept or a revert.
 ## Open Question 3 — the band variance went partly vestigial. Recorded, not acted on.
 
 **Finding:** under `winSource: "p-red-win"` with the LEGACY tie model, the alliance band variance
-(Swing or Sigma Score, whichever `AllianceRpMoments.scoreVariance`/`scoreCrossCovariance` carries)
+(the retired per-robot consistency accumulator's or Sigma Score's, whichever `AllianceRpMoments.scoreVariance`/`scoreCrossCovariance` carries)
 feeds NOTHING in the RP layer. The bonus half reads only the threshold-variable moments
 (`meanVector`/`varianceBlock`'s diagonal), and `scoreCrossCovariance` is exactly zero by construction
 (`empiricalMoments.ts` line 184 builds `varianceBlock` diagonal; line 192 sets

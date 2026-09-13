@@ -147,8 +147,8 @@ describe("buildTeamRows — derived group metrics (D-2/D-3, 260904-5zg)", () => 
   });
 });
 
-describe("buildTeamRows — swing tier (quick task 260909-tgf)", () => {
-  it("a published row whose metrics carry a swing entry with a tier produces sigmaScore from the entry's value and sigmaTier from the entry's tier", () => {
+describe("buildTeamRows — sigma tier (quick task 260909-tgf)", () => {
+  it("a published row whose metrics carry a sigma entry with a tier produces sigmaScore from the entry's value and sigmaTier from the entry's tier", () => {
     const rows = buildTeamRows(
       artifact([team({ metrics: { [TOTAL_KEY]: { value: 50 }, [SIGMA_METRIC_KEY]: { value: 8.42, tier: "legendary" } } })]),
       "spr",
@@ -157,7 +157,7 @@ describe("buildTeamRows — swing tier (quick task 260909-tgf)", () => {
     expect(rows[0]?.sigmaTier).toBe("legendary");
   });
 
-  it("a published row whose swing entry has no tier (Common, omitted on the wire by design) still produces sigmaTier 'common' -- the tier IS known, it is just the omitted one", () => {
+  it("a published row whose sigma entry has no tier (Common, omitted on the wire by design) still produces sigmaTier 'common' -- the tier IS known, it is just the omitted one", () => {
     const rows = buildTeamRows(
       artifact([team({ metrics: { [TOTAL_KEY]: { value: 50 }, [SIGMA_METRIC_KEY]: { value: 8.42 } } })]),
       "spr",
@@ -166,30 +166,17 @@ describe("buildTeamRows — swing tier (quick task 260909-tgf)", () => {
     expect(rows[0]?.sigmaTier).toBe("common");
   });
 
-  it("a STALE row still carrying the retired top-level per-team field produces NO sigmaScore -- only the published sigma entry counts", () => {
-    // The fallback this used to assert was REMOVED on 2026-09-10, and the
-    // field stopped being published in 260913-g66 (it is gone from the row
-    // type and the schema strips it on parse). It held a different estimator
-    // on a different scale, so falling back to it would print a wrong number
-    // under a column labelled "Sigma". A cached pre-republish object can still
-    // carry it, which is what the cast below stands in for.
-    const stale = { ...team({ metrics: { [TOTAL_KEY]: { value: 50 } } }), swingFactor: 8.42 } as ReturnType<typeof team>;
-    const rows = buildTeamRows(artifact([stale]), "spr");
-    expect(rows[0]?.sigmaScore).toBeUndefined();
-    expect(rows[0]?.sigmaTier).toBeUndefined();
-  });
-
   it("a row with no sigma metric entry produces sigmaScore undefined and sigmaTier undefined", () => {
     const rows = buildTeamRows(artifact([team({ metrics: { [TOTAL_KEY]: { value: 50 } } })]), "spr");
     expect(rows[0]?.sigmaScore).toBeUndefined();
     expect(rows[0]?.sigmaTier).toBeUndefined();
   });
 
-  it("sorting by the published swing metric key still orders by VALUE ascending/descending exactly as before -- the tier does not reorder anything", () => {
+  it("sorting by the published sigma metric key still orders by VALUE ascending/descending exactly as before -- the tier does not reorder anything", () => {
     // `sortTeamRows` sorts by `row.metrics[key]?.value` for any key besides
     // the win-rate sentinel (see `sortValueFor`) -- it was never special-cased
-    // for swing and this task does not add one. Because the published `swing`
-    // entry is merged into the wire `metrics` record (Task 2), sorting by
+    // for the sigma entry and nothing adds one. Because the published `sigma`
+    // entry is merged into the wire `metrics` record, sorting by
     // `SIGMA_METRIC_KEY` already exercises the real generic path -- this pins
     // that a tier riding alongside the value on that SAME entry cannot leak
     // into the comparison, which is the one behaviour a direction change
@@ -209,7 +196,7 @@ describe("buildTeamRows — swing tier (quick task 260909-tgf)", () => {
       ]),
       "spr",
     );
-    // frc2's swing VALUE (3) is lower than frc1's (9) despite frc1 carrying
+    // frc2's sigma VALUE (3) is lower than frc1's (9) despite frc1 carrying
     // the "better" (legendary) tier and frc2 the Common one -- sort order
     // must track the raw value, never the tier.
     expect(sortTeamRows(rows, SIGMA_METRIC_KEY, "asc").map((row) => row.teamKey)).toEqual(["frc2", "frc1"]);

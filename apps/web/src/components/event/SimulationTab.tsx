@@ -72,8 +72,7 @@ export interface SimulationTabProps {
  * that decides reachability. `season` (08-14, Task 3) and `algorithmId`
  * (08-14, typecheck fix) ARE now read and threaded straight through to
  * `RankDistributionTable`'s own Team #/Nickname links, which need both for
- * their `TeamSearchSchema` search params — the tab is unavailable to every
- * algorithm since VPR's retirement, but the selected `algorithmId` is still
+ * their `TeamSearchSchema` search params — the selected `algorithmId` is
  * carried rather than assumed, the same discipline `InsightsTab.tsx` and
  * `BreakdownTab.tsx` already apply.
  */
@@ -85,11 +84,14 @@ export interface SimulationTabProps {
  * algorithm. It is a CAPABILITY question rather than an identity one, which is
  * what let it come back for everyone at once rather than for a favoured id.
  *
- * TRUE as of 2026-09-09: ranking points are now a SigmaScout-layer feature
- * (`packages/core/rankingPoints/`), computed at publish time from observed
- * results for EVERY algorithm — played rows, upcoming rows, and the
- * pre-schedule sidecar alike. The simulation needs per-match RP distributions
- * and every published artifact now carries them.
+ * TRUE, with a scope set on 2026-09-13 (quick task 260913-it4): ranking-point
+ * odds are a SigmaScout-layer feature (`packages/core/rankingPoints/`),
+ * computed at publish time for Sigma algorithms only — SPR today — on played
+ * rows, upcoming rows and the pre-schedule sidecar alike. They need a
+ * per-robot score variance, and only a Sigma algorithm carries one. OPR and
+ * EPA artifacts carry no pmfs, so `hasSimulatableRankInputs` returns false
+ * for them and the existing unavailable state renders; no new UI state exists
+ * for that case.
  *
  * Still a constant rather than an inlined `true`: it is the one place to flip
  * if RP ever stops being published, and the per-event/per-algorithm question
@@ -113,8 +115,10 @@ export const SIMULATION_EMPTY_STATE_BODY =
  * state because 08-05 discovered it, on real published bytes, after that
  * contract was signed off: qualification matches exist but not one of them
  * carries both `redRpPmf`/`blueRpPmf` (see `hasSimulatableRankInputs` below
- * for the mechanism). The cause is stated as the USUAL reason, hedged, never
- * asserted as certain — `EventArtifactSchema` carries no `eventType` field
+ * for the mechanism). Two causes are stated, both hedged, neither asserted
+ * for any one event: not every rating publishes the distributions (OPR and
+ * EPA carry none since quick task 260913-it4), and offseason events never
+ * carry them — `EventArtifactSchema` carries no `eventType` field
  * (see `packages/harness/pageArtifacts.ts` `EventArtifactSchema`, ~line 958),
  * so this component genuinely cannot confirm offseason is the reason for any
  * INDIVIDUAL event, only that it is the usual one across the corpus (368 of
@@ -124,7 +128,7 @@ export const SIMULATION_EMPTY_STATE_BODY =
  */
 export const SIMULATION_UNAVAILABLE_HEADING = "Rank simulation isn't available for this event";
 export const SIMULATION_UNAVAILABLE_BODY =
-  "This event's matches don't carry the predicted ranking-point distributions the simulation needs. Offseason events are the usual reason, since they sit outside the ranking-point model.";
+  "This event's matches don't carry the predicted ranking-point distributions the simulation needs. Not every rating publishes them, and offseason events never carry them, since they sit outside the ranking-point model.";
 
 /** 08-UI-SPEC.md's Copywriting Contract, verbatim — the pre-run placeholder (UI-SPEC S3 `empty` row: nothing failed, nothing returned zero rows, there is simply no simulation output yet). */
 export const SIMULATION_PRE_RUN_BODY = "Pick a start match and run the simulation to see predicted ranks.";

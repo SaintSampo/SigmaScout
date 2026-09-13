@@ -39,7 +39,7 @@ presim:  count=641     median=7,229B    p95=16,068B     max=23,963B
 ```
 
 **Bytes fell 158.8 MB at an identical object count.** Quick task 260913-g66 stopped publishing the
-per-team `swingFactor` field for every algorithm and emits the renamed per-match band keys
+retired per-team consistency field for every algorithm and emits the renamed per-match band keys
 (`redMatchBandVariance`/`blueMatchBandVariance`) for spr only. No algorithm version changed, so every
 key was overwritten in place and **no generation was orphaned**. The run also carried 260912-tnk's
 pool-ranked percentiles into R2. Verified by content: live 2026 spr event artifacts put 72.1% of
@@ -232,7 +232,7 @@ generation per published algorithm version, nothing orphaned. (Corrected 2026-09
 (`pnpm publish:seasons`, generation `b9e26153-c473-4ab0-9c31-189a8d28c884`).** 108,820 page
 objects plus 2 manifests, 4,285,893,092 bytes, **zero presim sidecars** — the first run under
 the temporary `--presim-from-season 9999` flag (commit 1a759198, added to the script while the
-simulation/swing rethink iterates; every season logged the "below presim-from-season" skip).
+simulation rethink iterates; every season logged the "below presim-from-season" skip).
 ~44 min wall clock. Two model-layer changes ship in `bpr@2.0.0+baseline` (code version bump, so
 every bpr key moved and the object count is UNCHANGED at 108,820): (1) quick task 260910-2pt's
 display-time variance calibration (`displaySdFactor` — winner calls pinned bit-identical);
@@ -253,22 +253,22 @@ sanity check worth keeping tight rather than widening again). Note while auditin
 `epa@5.0.0+baseline` keys from before 260908-615's 5→6 bump may be a second, older orphan
 worth a census when the bpr pass runs.
 
-**Prior run — 2026-09-10 (early morning ET), the swing-tiers / cold-start / card-DQ republish
+**Prior run — 2026-09-10 (early morning ET), the consistency-tiers / cold-start / card-DQ republish
 (`pnpm publish:seasons`, generation `2f1a8885-ecdd-4179-8733-f425a3df7ce0`).** 108,820 page
 objects plus 2 manifests (108,822 total `PUT`s), 4,287,054,147 bytes, 641 presim sidecars,
 started 23:45:19 ET 2026-09-09, ~60 min wall clock. This is the SECOND full publish of the same
 evening — it supersedes generation `af0bf6af` (the shape-10 / post-VPR run recorded in the
 machine-readable block's previous revision, measured 22:40 ET) roughly an hour later, because
-three artifact-value changes landed after that run: quick task 260909-tgf's Swing Score
+three artifact-value changes landed after that run: quick task 260909-tgf's per-team consistency
 tier/percentile merge onto both artifact families, 260909-vs5's card-driven-zero exemption from
-the Swing Factor accumulator, and 260909-t5q's unified cold-start handling (`coldStart` stamps
+the retired per-robot consistency accumulator, and 260909-t5q's unified cold-start handling (`coldStart` stamps
 plus the Compare exclusion bucket). Object count moved +15 vs `af0bf6af` (108,805 → 108,820):
 +6 `event` and +9 `team` pages, corpus growth from newly ingested offseason events between the
 two runs, not a schema change. **Post-run verification, all against the live origin:**
 `pnpm manifest:algorithms` read-back verified (3 entries — opr `4.0.0+baseline`,
 epa `6.0.0+baseline`, bpr `1.0.0+baseline`); Compare exclusion counts match 260909-t5q's
 pre-publish census EXACTLY (coldStart 269 in 2016, 1 in 2017, 0 elsewhere); all 3,721 rows of
-`teams/2026/bpr` carry a swing entry (930 rare / 744 epic / 188 legendary, common encoded by
+`teams/2026/bpr` carry a consistency-metric entry (930 rare / 744 epic / 188 legendary, common encoded by
 omission); `metricsBasis: "last-official-match"` present on team artifacts (closing
 260908-wpo's deferred parity check). `pnpm verify:subset`: generation uniformity **1 distinct
 value** equal to the summary line — but 20 of 35 entries fail on STALE EXPECTATIONS, not bad
@@ -276,7 +276,7 @@ artifacts: the subset still checks retired `vpr` rows (the manifest correctly re
 and still pins opr/epa to ZERO RP pmfs, a polarity commit 160401fe deliberately inverted. The
 expectation-table rework landed the same night (RENAMED_ALGORITHM_ID vpr → bpr; the new
 `"partial"` pmf expectation): verify:subset is back to **35 entries, 0 failing**. One honest
-observation filed for the simulation/swing rethink, CORRECTED from this entry's first draft:
+observation filed for the simulation rethink, CORRECTED from this entry's first draft:
 ALL THREE algorithms uniformly carry pmfs on 57/72 of `2024casf`'s played qual rows (the
 first-draft "opr/epa 72/72 vs bpr 57/72" claim misread the old checker's either-field count,
 which included 15 degenerate length-1 ELIMINATION pmf pairs). The 15 uncovered qual rows are
@@ -1946,7 +1946,7 @@ rendering of these same numbers, not a second source.
 ```json budget
 {
   "measuredAt": "2026-09-13T18:41:04.000Z",
-  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2026) -- generation 174d585f-16c8-4a0d-b342-dbd3f7acda6e, 108,979 objects, 4,163,068,726 bytes total, 641 presim sidecars, 16:45:35-18:41:04 UTC 2026-09-13 (1h55m), attended. REPUBLISH ONLY for quick task 260913-g66 -- no retune, no promotion, no algorithm version changed (opr 4.0.0 / epa 10.0.0 / spr 3.0.0), so every key was overwritten in place and no generation was orphaned. It also carries 260912-tnk (pool-ranked percentiles) into R2. Wire changes: the per-match band keys were renamed redSwingBandVariance/blueSwingBandVariance -> redMatchBandVariance/blueMatchBandVariance and are now emitted for spr only, as rosterSize x sum of squared Sigma Scores (display-only; the RP pmf still uses the uncorrected variance); the top-level per-team swingFactor field is no longer published for any algorithm. That removal is why total bytes FELL 158.8 MB (4,321,867,353 -> 4,163,068,726) at an identical object count: teams max 1,573,854 -> 1,500,066 B, event median 74,611 -> 70,580 B and max 272,530 -> 256,899 B, team median 31,305 -> 30,749 B and max 267,128 -> 256,681 B. Every page kind remains inside its budget. Verified by CONTENT: v1/manifest/algorithms.json reads opr 4.0.0 / epa 10.0.0 / spr 3.0.0 at this generation; 2026casnv spr carries redMatchBandVariance on 89/89 rows and zero retired keys, while opr and epa carry no band key; the 2026 teams artifacts carry no swingFactor for any algorithm and a sigma column only for spr (3,721/3,721); live 2026 spr event artifacts put 72.1% of 40,816 played alliance scores inside 1 band and 94.6% inside 2 (measure:match-band predicted 72.2%). verify:subset 65 entries, 0 failing, generation uniformity 1 distinct value; its vpr 404s are the retired-algorithm control entries.",
+  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2026) -- generation 174d585f-16c8-4a0d-b342-dbd3f7acda6e, 108,979 objects, 4,163,068,726 bytes total, 641 presim sidecars, 16:45:35-18:41:04 UTC 2026-09-13 (1h55m), attended. REPUBLISH ONLY for quick task 260913-g66 -- no retune, no promotion, no algorithm version changed (opr 4.0.0 / epa 10.0.0 / spr 3.0.0), so every key was overwritten in place and no generation was orphaned. It also carries 260912-tnk (pool-ranked percentiles) into R2. Wire changes: the retired per-match band keys were renamed to redMatchBandVariance/blueMatchBandVariance and are now emitted for spr only, as rosterSize x sum of squared Sigma Scores (display-only; the RP pmf still uses the uncorrected variance); the retired top-level per-team consistency field is no longer published for any algorithm. That removal is why total bytes FELL 158.8 MB (4,321,867,353 -> 4,163,068,726) at an identical object count: teams max 1,573,854 -> 1,500,066 B, event median 74,611 -> 70,580 B and max 272,530 -> 256,899 B, team median 31,305 -> 30,749 B and max 267,128 -> 256,681 B. Every page kind remains inside its budget. Verified by CONTENT: v1/manifest/algorithms.json reads opr 4.0.0 / epa 10.0.0 / spr 3.0.0 at this generation; 2026casnv spr carries redMatchBandVariance on 89/89 rows and zero retired keys, while opr and epa carry no band key; the 2026 teams artifacts carry the retired per-team consistency field for no algorithm and a sigma column only for spr (3,721/3,721); live 2026 spr event artifacts put 72.1% of 40,816 played alliance scores inside 1 band and 94.6% inside 2 (measure:match-band predicted 72.2%). verify:subset 65 entries, 0 failing, generation uniformity 1 distinct value; its vpr 404s are the retired-algorithm control entries.",
   "pages": {
     "teams": {
       "count": 30,

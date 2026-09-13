@@ -56,7 +56,7 @@ const EXPECTED_SECTION_IDS = [
 ];
 
 /** The six figure ids, hand-typed, same reasoning as above. */
-const EXPECTED_FIGURE_IDS = ["even-split", "level-and-swing", "evidence", "same-rating", "shares-to-alliance", "match-band"];
+const EXPECTED_FIGURE_IDS = ["even-split", "level-and-sigma", "evidence", "same-rating", "shares-to-alliance", "match-band"];
 
 /**
  * Every measured number the page is allowed to state, from quick tasks

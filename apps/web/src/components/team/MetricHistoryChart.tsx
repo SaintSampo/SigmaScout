@@ -157,7 +157,7 @@ export default function MetricHistoryChart({ rows, eventNameByKey }: MetricHisto
   // `spread` — the ALGORITHM's confidence in its own rating — which must never
   // reach the screen (2026-09-09). Forced off rather than deleted piecemeal:
   // every band code path below stays intact and dormant, so re-enabling it
-  // once PER-MATCH Swing Scores are published is a one-line change rather than
+  // once PER-MATCH Sigma Scores are published is a one-line change rather than
   // a re-implementation. `metricHistorySeries.ts` still carries `spread` on
   // each point for the same reason; nothing renders it.
   const hasSpread = false;

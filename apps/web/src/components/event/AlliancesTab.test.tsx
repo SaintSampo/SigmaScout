@@ -113,7 +113,7 @@ describe("combineAlliancePicks — D-15 combination arithmetic (EVNT-05)", () =>
   // `spread`. That combination is gone — spread is the algorithm's own
   // confidence and must never reach the screen in any form, including summed.
   // The values still sum; the alliance simply makes no uncertainty claim until
-  // per-team Swing Scores are available on this surface.
+  // per-team Sigma Scores are available on this surface.
   it("sums the picks' values and returns NO combined ± — the spread-derived one was removed", () => {
     const totals = [
       { value: 10, spread: 10 },

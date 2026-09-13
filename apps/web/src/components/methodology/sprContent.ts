@@ -107,7 +107,7 @@ export const SPR_SECTIONS: readonly SprSection[] = [
     id: "what-it-does-not-do",
     heading: "What it does not do",
     paragraphs: [
-      "SPR carries no ranking-point model. It emits no probability mass function for a match's ranking points and cannot drive the rank simulation. That is a deliberate scope boundary, not an omission.",
+      "SPR carries no ranking-point model of its own. SigmaScout builds ranking-point odds on top of SPR's score predictions from each robot's past results and its Sigma Score, and those odds are what the rank simulation draws from. OPR and EPA carry no ranking-point odds.",
       "For how well SPR actually predicts match winners, the measured numbers live on the algorithm accuracy page rather than here.",
     ],
   },

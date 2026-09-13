@@ -354,9 +354,9 @@ describe("SeasonHeader — Sigma Score has its OWN tile (developer decision 2026
   /**
    * Two played matches with DIFFERENT residuals. Since the browser estimator
    * centres (2026-09-08), a single observation cannot separate model bias from
-   * robot swing and correctly yields nothing — so any fixture asserting that a
+   * robot variation and correctly yields nothing — so any fixture asserting that a
    * ± RENDERS needs at least two, and they must not be identical (identical
-   * deviations are a real zero-swing case, which renders "0.00" rather than a
+   * deviations are a real zero-variation case, which renders "0.00" rather than a
    * blank).
    */
   function eventsWithTwoMatches() {
@@ -394,7 +394,7 @@ describe("SeasonHeader — Sigma Score has its OWN tile (developer decision 2026
 
   // The tile shows the SIGMASCOUT-LAYER consistency figure, never the
   // algorithm's own `spread` — a different quantity at a different level (the
-  // model's uncertainty about its rating, not the robot's match-to-match swing).
+  // model's uncertainty about its rating, not the robot's match-to-match variation).
   it("shows the Sigma Score and never the algorithm's own spread, for an algorithm that publishes both", () => {
     const artifact = baseArtifact({
       seasonStats: {
@@ -413,7 +413,7 @@ describe("SeasonHeader — Sigma Score has its OWN tile (developer decision 2026
     expect(totalCell?.textContent).not.toContain("±");
   });
 
-  it("shows NO swing tile for a team with fewer than two played matches", () => {
+  it("shows NO Sigma Score tile for a team with fewer than two played matches", () => {
     const artifact = baseArtifact({
       seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: { total: { value: 10 } } },
       events: [],
@@ -484,21 +484,6 @@ describe("SeasonHeader — Sigma tile tier (quick task 260909-tgf)", () => {
     expect(sigmaTile.querySelector(".metric-tier--common")).not.toBeNull();
   });
 
-  it("a STALE artifact still carrying the retired top-level per-team field renders NO tile -- only the published sigma entry may fill it", () => {
-    // The fallback this used to assert was REMOVED on 2026-09-10, and the
-    // field itself stopped being published in 260913-g66 (the schema strips
-    // it on parse). A cached pre-republish object can still carry it, so this
-    // pins that it never reaches the screen. Absent entry, absent tile.
-    const artifact = {
-      ...baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 60.5 } } } }),
-      swingFactor: 18.5,
-    } as unknown as TeamSeasonArtifact;
-
-    render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
-
-    expect(screen.queryByTestId("sigma-score-tile")).toBeNull();
-  });
-
   it("still hides the tile entirely when there is no Sigma Score entry at all (every OPR and EPA artifact)", () => {
     const artifact = baseArtifact({
       seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: { total: { value: 10 } } },
@@ -513,7 +498,7 @@ describe("SeasonHeader — Sigma tile tier (quick task 260909-tgf)", () => {
   it("renders no plus-minus superscript anywhere in the header -- MetricValue has no plus-minus render path since 260913-g66", () => {
     const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
       total: { value: 60.5, percentile: 96 },
-      swing: { value: 8.42, percentile: 97 },
+      sigma: { value: 8.42, percentile: 97 },
     };
     const artifact = baseArtifact({
       seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics },

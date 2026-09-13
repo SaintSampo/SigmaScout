@@ -1,6 +1,6 @@
 /**
- * Content-as-data for `/methodology/sigma`. Replaces `swingContent.ts`, which
- * explained a number the site stopped showing on 2026-09-10 when Sigma Score
+ * Content-as-data for `/methodology/sigma`. Replaces the content module for
+ * the retired per-robot consistency accumulator, which explained a number the site stopped showing on 2026-09-10 when Sigma Score
  * shipped for the SPR rating (published under the internal id `spr`, still
  * unchanged; see `sprContent.ts`).
  *
@@ -64,7 +64,7 @@ export const SIGMA_STEADY_ALLIANCE_EXAMPLE_SIGMAS: readonly number[] = [6, 6, 6]
 
 export const SIGMA_FIGURE_IDS = [
   "even-split",
-  "level-and-swing",
+  "level-and-sigma",
   "evidence",
   "same-rating",
   "shares-to-alliance",
@@ -97,7 +97,7 @@ export const SIGMA_FIGURES: readonly SigmaFigure[] = [
     illustrative: true,
   },
   {
-    id: "level-and-swing",
+    id: "level-and-sigma",
     title: "One team's misses across ten matches, with its own level and the spread around it",
     caption:
       "Example misses for one team, oldest at the left. The dashed line is the team's own level, meaning the amount the model usually misses it by. Sigma measures the spread around that line, not the distance from zero.",
@@ -168,7 +168,7 @@ export const SIGMA_SECTIONS: readonly SigmaSection[] = [
   {
     id: "a-robots-own-level",
     heading: "A robot's own level",
-    figureId: "level-and-swing",
+    figureId: "level-and-sigma",
     paragraphs: [
       "Collect one team's misses across every match it has played, oldest first.",
       "Some teams get missed in the same direction every time. A model might be 8 points low on a particular robot in nearly every match. That steady gap is the model's problem, not the robot's, so it gets measured separately and set aside. It is called the team's level.",

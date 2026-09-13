@@ -1,7 +1,10 @@
 /**
  * The Compare page's RP calibration section (F1, D-09, D-11) — one
- * plain-language card per published algorithm showing how often each
- * predicted bonus ranking point actually happened. Modelled on
+ * plain-language card per published algorithm that publishes ranking-point
+ * odds (`publishesRankingPoints`: SPR only since quick task 260913-it4, when
+ * OPR and EPA stopped carrying them) showing how often each predicted bonus
+ * ranking point actually happened. A stale artifact that still carries OPR or
+ * EPA ranking-point records therefore renders the SPR card alone. Modelled on
  * `CalibrationSection.tsx`'s live card form: a headline sentence at full
  * ink, a per-bonus readable row list with counts and sparse tags, and a
  * small inline-SVG deviation-bars chart demoted beneath the sentence as
@@ -30,6 +33,10 @@ import { fmtPct, niceCeil } from "./calibrationCards.js";
 import { buildRpCalibrationCard, rpCardHeadlineSentence, type RpCalibrationCardModel } from "./rpCalibrationCards.js";
 import type { CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
+import { publishesRankingPoints } from "../../../../../packages/harness/sigmaScore.js";
+
+/** The published algorithms that carry ranking-point odds, in `PUBLISHED_ALGORITHM_IDS` order — the only ones that get a card. */
+export const RP_CALIBRATION_ALGORITHM_IDS: readonly PublishedAlgorithmId[] = PUBLISHED_ALGORITHM_IDS.filter(publishesRankingPoints);
 
 export const RP_CALIBRATION_SECTION_TESTID = "compare-rp-calibration-section";
 export const RP_CALIBRATION_YEAR_SELECT_TESTID = "compare-rp-calibration-year-select";
@@ -67,7 +74,7 @@ const MINI_W = 260;
 const MINI_H = 88;
 const MINI_MARGIN = { left: 8, right: 8, top: 8, bottom: 6 };
 
-/** One bar per bonus the card carries, from the zero line, sharing scale `d` across all three cards so a bar's height means the same thing card to card — same shape as `CalibrationSection.tsx`'s `MiniDeviationChart`. */
+/** One bar per bonus the card carries, from the zero line, sharing scale `d` across every card so a bar's height means the same thing card to card — same shape as `CalibrationSection.tsx`'s `MiniDeviationChart`. */
 function MiniDeviationChart({ card, algorithmId, d }: { card: RpCalibrationCardModel; algorithmId: PublishedAlgorithmId; d: number }) {
   const x0 = MINI_MARGIN.left;
   const x1 = MINI_W - MINI_MARGIN.right;
@@ -174,11 +181,11 @@ export function RpCalibrationSection({ artifactsByYear }: RpCalibrationSectionPr
   const [year, setYear] = useState<number>(DEFAULT_RP_CALIBRATION_YEAR);
   const artifact = artifactsByYear.get(year);
 
-  const cards = PUBLISHED_ALGORITHM_IDS.map((algorithmId) => {
+  const cards = RP_CALIBRATION_ALGORITHM_IDS.map((algorithmId) => {
     const slice = artifact?.slices.find((s) => s.algorithmId === algorithmId && s.season === year && s.compLevelView === "qualification");
     return { algorithmId, card: buildRpCalibrationCard(slice?.rpCalibration) };
   });
-  // The shared scale: one `d` across all three cards so a bar's height means
+  // The shared scale: one `d` across every card so a bar's height means
   // the same thing card to card — same discipline as CalibrationSection.
   const d = niceCeil(
     cards.reduce((m, c) => Math.max(m, c.card.maxAbsDeviation), 0),

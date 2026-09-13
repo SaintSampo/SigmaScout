@@ -15,8 +15,8 @@ function preserveSearch(prev: Record<string, unknown>): never {
 
 /**
  * The `/methodology` hub's card grid (quick task 260905-phf Task 1; widened
- * to a third card by quick task 260905-tor, to a fourth — the Swing Factor
- * page — by quick task 260909-3fj, to a fifth — the SPR explainer, in
+ * to a third card by quick task 260905-tor, to a fourth — the per-robot
+ * consistency page, now the Sigma page — by quick task 260909-3fj, to a fifth — the SPR explainer, in
  * first position — by quick task 260910-vof, and to a sixth — the award
  * prediction write up, fifth so Acknowledgments stays last — by quick task
  * 260912-tm8).
@@ -45,12 +45,12 @@ function preserveSearch(prev: Record<string, unknown>): never {
  * three rather than jumping straight to five-across.
  */
 export function MethodologyCards() {
-  const [sprCard, epaVsStatboticsCard, compareCard, swingCard, awardsCard, acknowledgmentsCard] = METHODOLOGY_CARDS;
+  const [sprCard, epaVsStatboticsCard, compareCard, sigmaCard, awardsCard, acknowledgmentsCard] = METHODOLOGY_CARDS;
   if (
     sprCard === undefined ||
     epaVsStatboticsCard === undefined ||
     compareCard === undefined ||
-    swingCard === undefined ||
+    sigmaCard === undefined ||
     awardsCard === undefined ||
     acknowledgmentsCard === undefined
   ) {
@@ -87,13 +87,13 @@ export function MethodologyCards() {
         <span className="text-role-body text-[var(--color-text-muted)]">{compareCard.blurb}</span>
       </Link>
       <Link
-        to={swingCard.to}
+        to={sigmaCard.to}
         search={preserveSearch}
-        data-testid={swingCard.testId}
+        data-testid={sigmaCard.testId}
         className="event-card flex flex-col gap-[var(--spacing-xs)] p-[var(--spacing-md)] shadow-sm transition-shadow hover:shadow-md hover:border-[var(--color-text-muted)]"
       >
-        <span className="text-role-heading text-[var(--color-text-primary)]">{swingCard.title}</span>
-        <span className="text-role-body text-[var(--color-text-muted)]">{swingCard.blurb}</span>
+        <span className="text-role-heading text-[var(--color-text-primary)]">{sigmaCard.title}</span>
+        <span className="text-role-body text-[var(--color-text-muted)]">{sigmaCard.blurb}</span>
       </Link>
       <Link
         to={awardsCard.to}

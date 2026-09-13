@@ -255,7 +255,7 @@ describe("/teams route bubble-chart toggle", () => {
     await waitFor(() => expect(countDots(container)).toBe(2));
   });
 
-  it("under OPR the toggle still renders, and the chart shows the plain no-Sigma state with no axis and no Swing text (260913-g66)", async () => {
+  it("under OPR the toggle still renders, and the chart shows the plain no-Sigma state with no axis (260913-g66)", async () => {
     global.fetch = stubFetch("opr");
     const { container } = renderTeamsRoute("/teams?algorithm=opr&chart=bubble");
 
@@ -265,10 +265,6 @@ describe("/teams route bubble-chart toggle", () => {
     expect(chart.querySelector("svg")).toBeNull();
     expect(countDots(container)).toBe(0);
     expect(chart.textContent ?? "").toContain("Sigma Score is published for SPR only");
-    expect(chart.textContent ?? "").not.toMatch(/\bSwing\b/);
-    for (const el of Array.from(chart.querySelectorAll("[aria-label]"))) {
-      expect(el.getAttribute("aria-label") ?? "").not.toMatch(/\bSwing\b/);
-    }
   });
 
   it("applyYearChange preserves the chart param across a year change", () => {

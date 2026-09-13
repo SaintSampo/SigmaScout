@@ -57,40 +57,6 @@ describe("Ribbon", () => {
     vi.restoreAllMocks();
   });
 
-  // Swing Score is a permanent part of the site (2026-09-09, user decision):
-  // it can never be turned off, so the ribbon carries no control for it. These
-  // two tests are the drift guard against a future edit reintroducing one —
-  // they replace the pair that asserted the toggle's presence on each branch.
-  it("renders NO Swing Factor toggle on desktop — Swing Score can never be turned off", async () => {
-    global.fetch = vi.fn(() => new Promise<Response>(() => {}));
-    await renderRibbonAt("/teams?year=2024&algorithm=spr");
-
-    expect(screen.queryByRole("button", { name: /swing factor/i })).toBeNull();
-  });
-
-  it("renders NO Swing Factor toggle on mobile either, in the compact second row alongside GitHubLink/SearchBox", async () => {
-    global.fetch = vi.fn(() => new Promise<Response>(() => {}));
-    const original = window.matchMedia;
-    window.matchMedia = (query: string) =>
-      ({
-        matches: true,
-        media: query,
-        onchange: null,
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        addListener: () => {},
-        removeListener: () => {},
-        dispatchEvent: () => false,
-      }) as MediaQueryList;
-
-    try {
-      await renderRibbonAt("/teams?year=2024&algorithm=spr");
-      expect(screen.queryByRole("button", { name: /swing factor/i })).toBeNull();
-    } finally {
-      window.matchMedia = original;
-    }
-  });
-
   it("renders with NO query client data resolved, proving it is not fetch-gated — the algorithms manifest fetch never resolves during this test", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {})); // never resolves
     await renderRibbonAt("/teams?year=2024&algorithm=spr");

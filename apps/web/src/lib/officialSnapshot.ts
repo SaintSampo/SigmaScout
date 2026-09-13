@@ -39,7 +39,7 @@ function isOfficialEvent(row: EventRows[number]): boolean {
  * The snapshot ROW, not just its metrics — the same last-official-match row
  * `officialSnapshotMetrics` has always resolved, exposed whole (quick task
  * 260908-5wd) because the row's `matchKey` is what bounds the browser-computed
- * Swing Factor's observation window to the same span the snapshot's own values
+ * per-robot consistency figure's observation window to the same span the snapshot's own values
  * describe. Without it the header would print an as-of-then value beside a
  * whole-season `±`, which is the two-as-of-instants defect IN-01 names.
  */

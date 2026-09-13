@@ -95,7 +95,7 @@ function TeamPage() {
     enabled: isValidTeamNumber && version !== undefined,
   });
   // Quick task 260908-5wd: resolve the snapshot ROW, not just its metrics, so
-  // the header can bound its browser-computed Swing Factor to the same as-of
+  // the header can bound its browser-computed consistency figure to the same as-of
   // instant the tiles beside it show. `headerMetrics` is derived from the row
   // and keeps its exact prior meaning ("the official snapshot or undefined,
   // nothing else"), so the labelling precondition above is untouched.

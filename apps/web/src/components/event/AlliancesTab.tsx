@@ -183,10 +183,10 @@ export function combineAlliancePicks(totals: readonly (DisplayMetric | undefined
   // picks' `spread` — the ALGORITHM's own confidence — and it is gone
   // (2026-09-09): spread must never reach the screen in any form.
   //
-  // The right replacement is the quadrature sum of the three picks' SWING
-  // SCORES, which is precisely the Match Band already drawn on every match row
-  // (`Σ S_i²`, rooted once). It is not wired here yet because an alliance's
-  // picks are team keys and this component has no per-team Swing Score to hand
+  // The right replacement is built from the three picks' SIGMA SCORES, the
+  // same per-team terms the Match Band drawn on every SPR match row sums. It
+  // is not wired here yet because an alliance's
+  // picks are team keys and this component has no per-team Sigma Score to hand
   // — the same per-surface gap the phase tiles have. Until then the combined
   // total renders as a bare value, which is honest: we are not showing a
   // narrower number, we are showing no uncertainty claim at all.

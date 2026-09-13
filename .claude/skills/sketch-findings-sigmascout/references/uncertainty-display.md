@@ -29,7 +29,7 @@ alliance scores against a 68.3% target (walk-forward, 2024–2026). The shipped 
 `√(rosterSize × Σ Sigma²)` — three robots at ±10 give **±30** — and it is published for SPR only.
 That corrected width is DISPLAY-ONLY: the rank simulation's win/tie/loss spread keeps the uncorrected
 `Σ Sigma²`, because widening it worsened win-probability Brier (0.1559 → 0.1631; red and blue misses
-correlate, +0.21). Do not re-teach "squares add, so some swing cancels" on any surface.
+correlate, +0.21). Do not re-teach "squares add, so some variation cancels" on any surface.
 
 **Why this is coherent rather than a compromise:** an alliance's combined `±` is exactly
 `√(Σ teams' own P + R)`, which is the SAME quantity `redScoreVarianceOwn` already is — so the site

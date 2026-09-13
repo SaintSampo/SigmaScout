@@ -30,7 +30,7 @@ describe("MetricHistoryChart", () => {
     const { container } = render(<MetricHistoryChart rows={rows} algorithmId="spr" season={2024} eventNameByKey={EVENT_NAMES} />);
 
     // The Area band was drawn from each row's `spread`. Spread must never
-    // reach the screen, so no band renders — and there is no per-match Swing
+    // reach the screen, so no band renders — and there is no per-match Sigma
     // Score published yet to draw an honest one from.
     expect(container.querySelectorAll(".recharts-area").length).toBe(0);
   });

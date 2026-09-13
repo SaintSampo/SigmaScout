@@ -9,6 +9,9 @@ sidecar and into the browser.
 5's first settle-first item. Sections 2, 5 (Options A/B/C, the cost estimate, the
 recommendation) and 6 otherwise still carry the 2026-09-10 audit.
 
+**2026-09-13:** as of quick task 260913-it4 the rank simulation runs under SPR only, because OPR and
+EPA publish no ranking-point odds. Sections below that describe pmfs on every algorithm predate it.
+
 ---
 
 ## 1. There is one tab and two engines
@@ -236,7 +239,7 @@ live per-match engine continues to work alongside it.
 
 The live engine itself **does** work on current bytes — spot-checked as of the 2026-09-10 audit
 (not re-verified today): `2026mrcmp` carries 132/132 qual rows with pmfs; `2024casf` carries
-57/72, the 15 gaps being exactly `qm1`–`qm15` (the Swing-Factor cold-start chain, already
+57/72, the 15 gaps being exactly `qm1`–`qm15` (the per-robot consistency cold-start chain, already
 measured under quick task 260910-kco).
 
 ---
@@ -288,15 +291,15 @@ event — three to four orders of magnitude above what the rank draws cost. Not 
 ### Option C — ship per-team RP parameters, price alliances cheaply in the browser
 
 The middle path, and the only one that meaningfully shrinks the payload without
-reimplementing the joint model: publish each team's threshold-variable beliefs + swing factor
-(~T means, T variances, 1 swing ≈ tens of bytes per team, so ~2–5 KB for a 66-team event), and
+reimplementing the joint model: publish each team's threshold-variable beliefs + its per-robot consistency figure
+(~T means, T variances, 1 consistency value ≈ tens of bytes per team, so ~2–5 KB for a 66-team event), and
 have the browser build alliance moments and draw a **cheaper** approximation.
 
 - Requires deciding what approximation is honest enough to publish under, since it would no
   longer be the same computation as a real match's pmf. That is a modelling decision, not a
   refactor.
-- `swingFactor` is already published, but on **team-season** artifacts (season-final), not on
-  event artifacts — an event page would need it added.
+- A per-team consistency figure (Sigma Score, SPR only since 260913-it4) is already published, but on
+  **team-season** artifacts (season-final), not on event artifacts — an event page would need it added.
 
 ### Recommendation
 
