@@ -66,6 +66,13 @@ generations (`11.0.0+rolling-2026-09g/e`, `10.0.0+rolling-2026-09e/d`, `8.0.0+ro
 never deleted. Deleting them would bring the bucket to roughly 4.3 GB, comfortably inside the free
 tier. Filed, not done — it is out of scope for a rename.
 
+**Done 2026-09-12 (quick task 260912-tay).** Every orphaned generation was deleted, selected from a full
+bucket listing and proven by a second one: the after-census reads **109,744 objects, 4,340,713,711
+bytes (4.34 GB)**, down from 337,614 objects and 16.52 GB, with the three live generations
+unchanged. The caveat above undercounted: it says "five retired VPR generations" but the census
+found **seven** vpr versions (178,808 objects, 10.05 GB, not ~8.1 GB). See "Delete pass —
+2026-09-12".
+
 **Verified by content, not status.** `v1/manifest/algorithms.json` reads back opr 4.0.0 / epa
 10.0.0 / **spr 3.0.0** at this generation; `v1/compare/2026.json` carries slice ids
 `['epa','opr','spr']`; the deployed browser bundle contains 34 occurrences of the new id and zero
@@ -101,7 +108,7 @@ froze before any RP change, and it is green.
 previous live generation held `epa@7.0.0+baseline`, so roughly **36,000 `epa@7.0.0` objects are now
 orphaned and were deliberately NOT deleted.** The 2026-09-11 approval covered Phase 9's presim
 sidecars and did not extend to retiring an EPA generation, so that pass was not run. R2 therefore
-holds one orphaned generation — the first time since 2026-09-10 that it holds any.
+holds one orphaned generation — the first time since 2026-09-10 that it holds any. (Corrected 2026-09-12: a full bucket listing disproved this; see "Delete pass — 2026-09-12".)
 
 **First run with presim ON** since the `--presim-from-season 9999` sentinel was added in
 `1a759198`. Plan 09-10 found the sentinel **committed in `package.json:43`** — the phase's own
@@ -163,7 +170,7 @@ spot check by content on one team key: `epa@7.0.0` **404s** and `epa@10.0.0` **2
 match the 2026-09-10 `epa@6.0.0` retirement exactly (17,560 / 19,272 / 36,832), which is the
 expected shape for one EPA generation. `--supersedes-live` fetches the live manifest at run time and
 fails closed, so it could not have run before the manifest stopped naming 7.0.0. **R2 again holds no
-orphaned generations.**
+orphaned generations.** (Corrected 2026-09-12: a full bucket listing disproved this; see "Delete pass — 2026-09-12".)
 
 **Methodology page republished in the same window** (`v1/methodology/epa-vs-statbotics.json`, 2,317
 bytes, `epaVersion 10.0.0+baseline`, 5 agreement + 5 head-to-head rows). This closes the todo
@@ -196,7 +203,7 @@ failure). **Post-census 0/60 on all four range×version combinations.** The epa@
 the same morning once authorized**: `epa@5.0.0+baseline`, one `--supersedes-live` pass over
 `--seasons 2019-2026` (its whole published era — the 2016-2018 backfill published straight to
 6.0.0), 25,724 keys enumerated and deleted, post-census **0/60**. R2 now holds exactly one
-generation per published algorithm version, nothing orphaned.
+generation per published algorithm version, nothing orphaned. (Corrected 2026-09-12: a full bucket listing disproved this; see "Delete pass — 2026-09-12".)
 
 **Prior run — 2026-09-10 (~02:26–03:10 ET), the bpr@2.0.0 republish — presim OFF
 (`pnpm publish:seasons`, generation `b9e26153-c473-4ab0-9c31-189a8d28c884`).** 108,820 page
@@ -989,6 +996,184 @@ silently marked done: after this run, a human should open the Cloudflare R2 dash
 count alongside the local numbers above, since the two can differ (multipart uploads, retries, and
 prior runs' objects all count toward the dashboard figure but not this run's local counter).
 
+## Delete pass — 2026-09-12, every orphaned generation removed by full-listing census (quick task 260912-tay)
+
+**The bucket was over the free tier, and this pass brought it back inside.** A full listing of
+`sigmascout-artifacts` measured **16.52 GB** against R2's 10 GB free tier. 12.18 GB of that was
+generations the live manifest no longer names. This pass listed the WHOLE bucket, deleted every
+one of those generations, and proved the result with a second full listing: **4.34 GB after**,
+with the three live generations' object and byte counts identical before and after. Jacob
+authorized every deletion of a dead generation in advance, with no confirmation checkpoint.
+Timestamps below are UTC, so the evening-of-2026-09-12 (ET) run reads as 2026-09-13.
+
+**The instrument is new.** `scripts/pruneR2Generations.ts` (commits `6e347064` for listing in
+`packages/harness/r2Client.ts`, `e92f0efb` for the tool, and `42c15377` for a key-shape fix
+described below) lists the bucket through a signed, paginated ListObjectsV2, fetches the live
+manifest fresh, and classifies every key ending `/{id}@{version}.json` as LIVE or ORPHAN by exact
+equality with the manifest's `id@version` pairs. It is read-only unless `--execute` is given.
+Deletion is still single-key through `deleteObject`, which now retries transient failures; there is
+no bulk or prefix delete. Every guard fails closed before the first DELETE: the manifest must be
+fetchable, well-formed, non-empty and must name every published algorithm id; each requested
+generation must be well-formed, unique, not live, present in the fresh census, and not written
+within the last 6 hours; each live generation must be present with at least 10,000 objects; and
+every selected key must re-parse to a requested, non-live generation with a recognised page kind.
+A full re-listing after the deletes is the proof. An exit code alone never is.
+
+Reusable command: `pnpm cleanup:r2-generations` (= `tsx --env-file=.env scripts/pruneR2Generations.ts`).
+
+**Commands run**, with tsx invoked directly to bypass this machine's pnpm pre-check failure
+(`Q` = `.planning/quick/260912-tay-clean-r2-by-census-driven-deletion-of-ev`):
+
+```
+npx tsx --env-file=.env scripts/pruneR2Generations.ts --out Q/260912-tay-census-before.json --keys-out reports/r2-prune/260912-tay-pre-keys.tsv
+npx tsx --env-file=.env scripts/pruneR2Generations.ts --generation <g> ...                                   # preview over the 11 ORPHAN generations, zero deletes
+npx tsx --env-file=.env scripts/pruneR2Generations.ts --generation <g> ... --execute --out Q/260912-tay-prune-report.json
+npx tsx --env-file=.env scripts/pruneR2Generations.ts --out Q/260912-tay-census-after.json --keys-out reports/r2-prune/260912-tay-post-keys.tsv
+```
+
+**The execute pass ran three times, and this record says so.**
+
+- **Run 1** covered all 11 ORPHAN generations. It was killed from outside the process after about
+  **36,550 deletes**. It printed no stack trace and wrote no report, and other node processes on the
+  machine survived. The count is census-before's 337,614 objects minus run 2's in-run listing of
+  301,064. Its last progress line read `35000/227870 done, 0 failures`.
+- **Run 2** was refused with `NOT_IN_CENSUS` on `epa@6.0.0+baseline`, because run 1 had already
+  deleted all 214 of that generation's objects. This is the typo and already-deleted guard doing
+  its job. Nothing was deleted.
+- **Run 3** covered the 10 remaining generations and was launched as a detached process
+  (PowerShell `Start-Process`). It finished `ok: true`: **191,320 deletes issued, 191,320
+  succeeded, 0 failed, 771.3 s**. It reported 0 remaining under every requested generation and the
+  live generations unchanged. `Q/260912-tay-prune-report.json` is run 3's report, so its
+  `preCensus` is that mid-pass state (301,064 objects), NOT the original bucket.
+- **Total: 36,550 + 191,320 = 227,870**, exactly census-before's ORPHAN object count.
+
+**Before and after, from two independent full listings:**
+
+| Census | Objects | Bytes | GB |
+|--------|--------:|------:|---:|
+| Before (`Q/260912-tay-census-before.json`, 2026-09-13T01:41:03Z) | 337,614 | 16,519,445,447 | 16.52 |
+| — LIVE, 3 generations | 109,610 | 4,326,892,043 | 4.33 |
+| — ORPHAN, 11 generations | 227,870 | 12,178,731,736 | 12.18 |
+| — unversioned | 134 | 13,821,668 | 0.01 |
+| — anomalous (`@` present, no parse) | 0 | 0 | 0.00 |
+| After (`Q/260912-tay-census-after.json`, 2026-09-13T02:11:44Z) | 109,744 | 4,340,713,711 | 4.34 |
+| — LIVE, 3 generations | 109,610 | 4,326,892,043 | 4.33 |
+| — ORPHAN | 0 | 0 | 0.00 |
+| — unversioned | 134 | 13,821,668 | 0.01 |
+| — anomalous | 0 | 0 | 0.00 |
+
+The bucket shrank by 227,870 objects and 12,178,731,736 bytes, which is exactly the ORPHAN total.
+Nothing else moved.
+
+**Generations removed** (census-before's ORPHAN rows; "other 1" is explained below):
+
+| Generation | Objects | Bytes | GB | Kinds |
+|------------|--------:|------:|---:|-------|
+| `vpr@11.0.0+rolling-2026-09g` | 36,481 | 1,989,818,885 | 1.99 | event 2,445, events 10, presim 216, team 33,799, teams 10, other 1 |
+| `vpr@11.0.0+rolling-2026-09e` | 36,481 | 1,909,378,833 | 1.91 | event 2,445, events 10, presim 216, team 33,799, teams 10, other 1 |
+| `vpr@10.0.0+rolling-2026-09e` | 36,481 | 1,908,384,825 | 1.91 | event 2,445, events 10, presim 216, team 33,799, teams 10, other 1 |
+| `vpr@2.1.0+tuned-2026-08` | 18,923 | 1,682,349,041 | 1.68 | event 1,381, events 5, team 17,532, teams 5 |
+| `vpr@10.0.0+rolling-2026-09d` | 25,263 | 1,299,799,811 | 1.30 | event 1,788, events 7, team 23,460, teams 7, other 1 |
+| `epa@1.1.0+baseline` | 18,923 | 1,116,370,254 | 1.12 | event 1,381, events 5, team 17,532, teams 5 |
+| `vpr@5.0.0+tuned-2026-08` | 18,923 | 1,020,333,510 | 1.02 | event 1,381, events 5, team 17,532, teams 5 |
+| `opr@3.1.0+baseline` | 18,923 | 526,442,138 | 0.53 | event 1,381, events 5, team 17,532, teams 5 |
+| `epa@5.0.0+baseline` | 11,002 | 441,703,966 | 0.44 | event 657, events 3, team 10,339, teams 3 |
+| `vpr@8.0.0+rolling-2026-09b` | 6,256 | 241,983,765 | 0.24 | event 323, events 2, team 5,928, teams 2, other 1 |
+| `epa@6.0.0+baseline` | 214 | 42,166,708 | 0.04 | presim 214 |
+| **Total, 11 generations** | **227,870** | **12,178,731,736** | **12.18** | |
+
+The seven vpr generations alone were 178,808 objects and 10.05 GB.
+
+**Live generations, unchanged** (identical in both censuses):
+
+| Generation | Objects | Bytes |
+|------------|--------:|------:|
+| `epa@10.0.0+baseline` | 36,537 | 1,640,857,030 |
+| `spr@3.0.0+baseline` | 36,537 | 1,518,019,743 |
+| `opr@4.0.0+baseline` | 36,536 | 1,168,015,270 |
+
+**A malformed team key the publisher wrote, reported and not fixed.** The first full census found
+one generation-bearing key per affected generation at `v1/team/frc58 //2019/...`. Three 2019wiwi
+elimination matches in the corpus (ef2m1, ef5m1, qf3m1) list the team key `"frc58 /"`, and
+`artifactKey` does not validate team keys. The tool's slash-free team pattern filed those keys as
+kind `other`, so its `UNKNOWN_KEY_SHAPE` guard would have refused five vpr generations. Commit
+`42c15377` anchors the team pattern from the end of the key. census-before was taken before that fix,
+which is why eight of its generations (the three live ones and five vpr ones) show `other 1`.
+census-after, taken with the fix, counts the same key as `team`: the live generations read
+`team 33,803` with no `other`, and their object and byte totals are unchanged. The upstream data
+quirk itself is still in the corpus and in every live generation.
+
+**Reported, not deleted.** The unversioned class, 134 objects and 13,821,668 bytes (about 13.8 MB),
+is unchanged: `v1/district` 109, `v1/compare` 10, `v1/districts` 10, `fixtures/2026cmptx` 2,
+`v1/manifest` 2, `v1/methodology` 1. The anomalous class was empty both times.
+
+**Live content spot checks** against `https://data.sigmascout.org`, cache-busted, at
+2026-09-13T02:12:21Z (`Q/260912-tay-spotchecks.txt`):
+
+- `v1/manifest/algorithms.json` returned 200 naming exactly `opr@4.0.0+baseline`,
+  `epa@10.0.0+baseline` and `spr@3.0.0+baseline`.
+- One event key per live generation, plus `v1/team/frc4206/2024/spr@3.0.0+baseline.json`, returned
+  200 with parseable JSON carrying generation `2c22394b-de85-44f5-b80a-bfdca523ee98`.
+- One sample key per deleted generation returned 404, 11 of 11. `epa@6.0.0+baseline` had no event
+  key, so a presim key stood in for it.
+- The absence controls `v1/event/2024casf/`, `v1/event/2026wvrox/` and `v1/team/frc4206/2024/` at
+  `vpr@11.0.0+rolling-2026-09g` returned 404.
+
+**The new vpr absence layer is not vacuous.** `verify:subset` gained 15 event entries and 1 team
+entry asserting absence at `vpr@11.0.0+rolling-2026-09g`, VPR's final published generation. The
+fifteen `9.0.0+rolling-2026-09c` entries are kept. **16/16** of the new absence keys were PRESENT in
+the pre-delete full listing, so each 404 they now assert is a real deletion rather than a key that
+never existed. FAIL labels on absence entries now carry the pinned version, because two vpr layers
+share each event key.
+
+**`verify:subset` before the edits** (after the deletion): `50 entries checked, 0 failing`; and
+`--team-only` read `7 team entries checked, 1 failing`. That one failure is **a pre-existing
+verifier defect, reported and not fixed here**: `FAIL frc9969/2024/spr: bonusRpAbsence: zero playoff
+rows observed — the absence assertion below is vacuous against this artifact`. The frc9969 entry is
+the low-match half of the PD-08 spread comparison and is designed with `expectPlayoffRows: 0`, but
+check 13 (added in `71212940`, 2026-08-28) fails any team artifact with zero playoff rows as vacuous,
+so that entry can never pass. It has nothing to do with this pass:
+`v1/team/frc9969/2024/spr@3.0.0+baseline.json` is byte-identical in both listings (4,835 bytes,
+LastModified 2026-09-12T20:17:03.881Z). After the edits, the expected team result is **8 team
+entries checked, 1 failing**, where the one failure is exactly frc9969/2024/spr and the new vpr
+absence entry passes.
+
+**`verify:subset` after the edits:** PLACEHOLDER-260912-tay-VERIFY-SUBSET (orchestrator: replace this line with the event-level, `--algorithm vpr` and `--team-only` summary lines)
+
+**Correction: the earlier "nothing orphaned" claims were sample conclusions, and they were wrong.**
+The 2026-09-10 record ("R2 now holds exactly one generation per published algorithm version, nothing
+orphaned") and the 2026-09-11 record ("R2 again holds no orphaned generations") were conclusions
+drawn from **60-key stratified samples** over a key superset that `deleteRetiredAlgorithmObjects.ts`
+predicted from the corpus. A full listing disproved both. census-before still held **11,002
+`epa@5.0.0+baseline` objects** and **214 `epa@6.0.0+baseline` objects**. The epa 5.0.0 remnant
+is its 2016-2018 slice (e.g. `v1/event/2016abca/epa@5.0.0+baseline.json`). The 2026-09-10 pass
+covered only `--seasons 2019-2026`, on the stated premise that the 2016-2018 backfill published
+straight to 6.0.0, and the full listing disproved that premise too (its `events` and `teams` kinds
+are exactly 3 each: 2016, 2017 and 2018). The epa 6.0.0 remnant was 214 presim sidecars, which the
+sampled page-object census could not see (presim enumeration in that tool is a separate, opt-in
+`--include-presim` mode). The same sampling hid other remnants: the
+2026-09-05 vpr 8.0.0 pass left 6,256 `vpr@8.0.0+rolling-2026-09b` objects (its 2019 and 2020
+slices; that pass's 19,261 deletes covered five seasons' `teams` and `events` objects), and four
+older generations (`vpr@2.1.0+tuned-2026-08`, `epa@1.1.0+baseline`, `opr@3.1.0+baseline`,
+`vpr@5.0.0+tuned-2026-08`) were still fully present at 18,923 objects each. The
+enumerate-then-sample method has three blind spots:
+
+1. **Skipped season slices.** `--seasons` takes one contiguous range, so a pass over 2019-2026 never
+   looks at 2016-2018, and a sample drawn from the same range cannot see what the range excluded.
+2. **Corpus drift.** The key superset is predicted from today's corpus, not from what the publisher
+   actually wrote at the time, so keys from a since-changed corpus are invisible to both the delete
+   and the census.
+3. **Superseded presim sidecars under a live id.** Presim enumeration is a separate opt-in mode,
+   so a page-object pass and its sample never look under `v1/presim/`, and sidecars left behind at a superseded version of a still-live algorithm survive
+   a pass that reports clean.
+
+**Rule going forward: a bulk cleanup is proven by a full listing, never by a sample.** A 0/60 sample
+shows the sampled keys are gone. It does not show that the bucket holds nothing else.
+
+**The Cloudflare dashboard's storage figure can lag behind the bucket.** The full-listing census,
+`Q/260912-tay-census-after.json`, is the measurement of record for this pass. A dashboard reading
+taken shortly afterwards that still shows the old total is not evidence the deletes failed.
+
 ## Delete pass — 2026-09-10, the retired `vpr` prefix removed (retire-vpr-9-generation)
 
 The final act of VPR's 2026-09-09 retirement: with generation `2f1a8885` live and the manifest
@@ -1132,7 +1317,9 @@ tsx --env-file=.env scripts/deleteRetiredAlgorithmObjects.ts --retired-id vpr --
   recorded for this generation): 19,261 of the generation's 75,544 objects (25.5% by count) were
   vpr-keyed; at the generation's 2,932,223,803-byte page-object payload and near-uniform per-kind
   sizes across algorithms, that is roughly ~1.0 GB (~10% of the free tier) reclaimed. R2 now holds
-  ONE full generation plus nothing orphaned under vpr.
+  ONE full generation plus nothing orphaned under vpr. (Corrected 2026-09-12: a full bucket listing
+  disproved this; 6,256 `vpr@8.0.0+rolling-2026-09b` objects, the 2019 and 2020 slices, were still
+  present. See "Delete pass — 2026-09-12".)
 
 ## Delete pass — 2026-08-30, superseded opr/epa/vpr generation removed (version-retirement mode)
 
@@ -1324,7 +1511,10 @@ across 56,774 objects; the two enumerated algorithms' page objects (≈2/3 of it
 are what this pass reclaimed — the opr third was overwritten in place by the republish, not
 duplicated, and the 5 `compare/{year}` objects are overwritten in place by every publish
 (D-02's exception, unchanged). Post-pass, R2 holds ONE live generation (`15135c51-...`,
-2,342,103,312 bytes) plus opr's in-place keys — comfortably inside the 10 GB free tier.
+2,342,103,312 bytes) plus opr's in-place keys — comfortably inside the 10 GB free tier. (Corrected
+2026-09-12: a full bucket listing found `vpr@2.1.0+tuned-2026-08`, `epa@1.1.0+baseline`,
+`opr@3.1.0+baseline` and `vpr@5.0.0+tuned-2026-08` objects, all last written before this pass,
+still present on 2026-09-12. See "Delete pass — 2026-09-12".)
 
 ## Re-baseline cadence (the D-12/D-24 resolution)
 
