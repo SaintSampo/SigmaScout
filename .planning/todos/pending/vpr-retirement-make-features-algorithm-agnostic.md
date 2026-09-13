@@ -119,3 +119,13 @@ with VPR instead of being ported.
 4. **Retire VPR** once nothing above still needs it.
 
 Do 1 and 3 in the same deploy if possible: both touch the Worker's tick, and both want the re-seed.
+
+---
+
+> **STATUS 2026-09-13 (quick task 260913-it4, appended note).** Still pending, not fully resolved.
+> - **Step 4 ("Retire VPR") is DONE:** the retired Sigma1/VPR core, its promoted version files and its
+>   tune/promote/search machinery were deleted (`167eab64`); the Worker has no vpr branch.
+> - **Sections 2 and 3 (generalize ranking points to every algorithm) are SUPERSEDED** by Jacob's
+>   2026-09-13 decision that ranking-point odds are SPR-only: OPR and EPA publish none (`094667e9`),
+>   and the rank simulation works under SPR only (`bcc929cb`).
+> - **Section 1 (live updates for every algorithm) is unchanged** and still open.

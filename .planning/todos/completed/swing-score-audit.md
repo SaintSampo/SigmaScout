@@ -478,3 +478,26 @@ R5 are all written against them being undecided:
   it is about BPR's own estimator, and this decision reduces its blast radius rather than removing
   it.
 - **It does not decide the team-page tile.** The decision as recorded is about the match band.
+
+---
+
+## RESOLVED 2026-09-13 by quick task 260913-it4
+
+Appended note; the historical text above is not rewritten.
+
+- **Locked decisions (Jacob, 2026-09-13):** the retired per-robot consistency accumulator was deleted
+  outright, with no replacement variance and no renamed accumulator. OPR and EPA publish no
+  ranking-point odds, and the rank simulation works under SPR only. The retired Sigma1/VPR core and its
+  tune/promote/search machinery were deleted in the same task.
+- **Commits:** `167eab64` (Task 1, retired VPR/Sigma1 core removed), `094667e9` (Task 2, accumulator
+  removed from pipeline, Worker and scripts; OPR/EPA RP odds off), `bcc929cb` (Task 3, web copy,
+  cleanup and docs).
+- **Equivalence gate:** a full local walk-forward replay of 2026 (offseason included, cold start)
+  compared before (`fce1bcb5`) to after: `EQUIVALENCE: PASS` for identical output after Task 1, and
+  `EQUIVALENCE: PASS` under `rp-off-for-non-sigma` after Tasks 2 and 3 — OPR/EPA/SPR winner
+  predictions byte-identical, every SPR ranking-point field, Match Band, pre-schedule filler and seed
+  belief byte-identical, OPR/EPA ranking-point fields gone.
+- **Provenance kept:** the RP layer's half-life evidence (the walk-forward sweep over 275,172
+  team-matches, 2024-2026) now lives in `packages/core/rankingPoints/empiricalMoments.ts`'s
+  `RP_MOMENTS_HALF_LIFE_MATCHES` doc comment. The retired scale constant has no surviving consumer;
+  its derivation lives in git history at `fce1bcb51f91b72b6e2d4d23d6d7e6dc815d0c98`.

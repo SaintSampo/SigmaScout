@@ -7,7 +7,7 @@ status: completed
 stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
 last_updated: "2026-09-13T03:54:31.153Z"
 last_activity: 2026-09-13
-last_activity_desc: "Completed quick task 260913-g66: Match Band corrected and split from win odds, Swing Score removed (59a02fe5); shipped: web, Worker facbdb58, republish 174d585f"
+last_activity_desc: "Completed quick task 260913-it4: Swing Score and the retired VPR/Sigma1 core torn out, OPR/EPA publish no RP odds (bcc929cb); republish, Worker deploy, web ship owed"
 progress:
   total_phases: 12
   completed_phases: 12
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: 08
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-09-13 - Completed quick task 260913-g66: Match Band corrected and split from win odds, Swing Score removed (59a02fe5); shipped: web, Worker facbdb58, republish 174d585f
+Last activity: 2026-09-13 - Completed quick task 260913-it4: Swing Score and the retired VPR/Sigma1 core torn out, OPR/EPA publish no RP odds (bcc929cb); republish, Worker deploy, web ship owed
 
 Progress: [██████████] 100%
 
@@ -550,6 +550,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 146 | Match Band corrected and split from win odds, Swing Score removed from the site. SPR band now sqrt(rosterSize x sum Sigma^2): measured coverage 47.1% to 71.6% over 131,961 alliance results 2024 to 2026 (measure:match-band). Win/tie/loss spread keeps the uncorrected variance, RP digests pinned on unmodified source still green for opr, epa, spr. Wire keys renamed to red/blueMatchBandVariance; OPR and EPA publish no band and no swingFactor; bubble chart shows Sigma Score or a no-Sigma state. Sigma page drops overlap-is-win-probability and teaches shares back into an alliance. Commits 5ca97a41 c09d2a5c 5614d36e 59a02fe5. SHIPPED same day: web pushed, Worker facbdb58, republish generation 174d585f (108,979 objects); live 2026 SPR coverage 72.1% of 40,816 alliance scores | 2026-09-13 | 59a02fe5 | [260913-g66-match-band-correction-win-odds-separatio](./quick/260913-g66-match-band-correction-win-odds-separatio/) |
 | 147 | fast: Locks page district picker is now a wrapping row of clickable chips (aria-pressed toggle buttons, same shape as CompLevelSwitcher) instead of a dropdown; selected district chip is filled, no chip pressed with no district chosen. Props and navigation unchanged; route tests updated | 2026-09-13 | 2a8597ac | — |
 | 148 | fast: ribbon nav links (Teams, Events, Locks, Methodology, wordmark) now carry only year and algorithm. Carrying every search param leaked the Locks page district into the Teams page district filter, and Teams filters and sort into Events and Locks. Regression test Ribbon.navSearch.test.tsx fails on the old code | 2026-09-13 | d52e5ced | — |
+| 149 | Tore out Swing Score and the retired VPR/Sigma1 core. VPR core, its tune/promote/search machinery and 5 version files deleted (167eab64); the per-robot consistency accumulator deleted, OPR and EPA publish no ranking-point odds, rank simulation SPR-only (094667e9); web copy, Compare RP cards SPR-only, docs, todos (bcc929cb). 2026 walk-forward replay equivalence PASS: every winner prediction and every SPR RP, band, presim and seed stream byte-identical. No shape or schema bump, no D1 reseed needed. Republish, Worker deploy and web ship OWED; 21 e2e specs still use algorithm=vpr | 2026-09-13 | bcc929cb | [260913-it4-tear-out-swing-score-and-the-retired-vpr](./quick/260913-it4-tear-out-swing-score-and-the-retired-vpr/) |
 
 ### Roadmap Evolution
 
