@@ -1795,8 +1795,10 @@ describe("FieldAveragedPreScheduleArtifactSchema (plan 09-09 Task 2; D-16, D-17)
   });
 });
 
-describe("retired Swing-era keys are stripped on parse (quick task 260913-g66, D2/D3)", () => {
-  const STALE_BAND = { redSwingBandVariance: 300, blueSwingBandVariance: 250 };
+describe("retired and unknown keys are stripped on parse (quick tasks 260913-g66 D2/D3 and 260913-it4)", () => {
+  // Generic stand-ins for any legacy wire key a stale artifact still carries: every
+  // schema here is non-strict, so an unknown key is dropped rather than rejected.
+  const STALE_BAND = { redLegacyBandVariance: 300, blueLegacyBandVariance: 250 };
 
   it("EventArtifactSchema strips the retired band keys from played and upcoming rows, and keeps the new ones", () => {
     const parsed = EventArtifactSchema.parse(
@@ -1807,12 +1809,12 @@ describe("retired Swing-era keys are stripped on parse (quick task 260913-g66, D
     ) as unknown as { matches: Record<string, unknown>[]; upcoming: Record<string, unknown>[] };
     const played = parsed.matches[0]!;
     const upcoming = parsed.upcoming[0]!;
-    expect("redSwingBandVariance" in played).toBe(false);
-    expect("blueSwingBandVariance" in played).toBe(false);
+    expect("redLegacyBandVariance" in played).toBe(false);
+    expect("blueLegacyBandVariance" in played).toBe(false);
     expect(played.redMatchBandVariance).toBe(900);
     expect(played.blueMatchBandVariance).toBe(750);
-    expect("redSwingBandVariance" in upcoming).toBe(false);
-    expect("blueSwingBandVariance" in upcoming).toBe(false);
+    expect("redLegacyBandVariance" in upcoming).toBe(false);
+    expect("blueLegacyBandVariance" in upcoming).toBe(false);
     expect("redMatchBandVariance" in upcoming).toBe(false);
   });
 
@@ -1820,21 +1822,21 @@ describe("retired Swing-era keys are stripped on parse (quick task 260913-g66, D
     const fixture = validTeamSeasonFixture() as unknown as Record<string, unknown> & {
       events: { matches: Record<string, unknown>[] }[];
     };
-    fixture.swingFactor = 12.5;
+    fixture.legacyPerTeamField = 12.5;
     fixture.events[0]!.matches[0] = { ...fixture.events[0]!.matches[0]!, ...STALE_BAND };
     const parsed = TeamSeasonArtifactSchema.parse(fixture) as unknown as Record<string, unknown> & {
       events: { matches: Record<string, unknown>[] }[];
     };
-    expect("swingFactor" in parsed).toBe(false);
-    expect("redSwingBandVariance" in parsed.events[0]!.matches[0]!).toBe(false);
-    expect("blueSwingBandVariance" in parsed.events[0]!.matches[0]!).toBe(false);
+    expect("legacyPerTeamField" in parsed).toBe(false);
+    expect("redLegacyBandVariance" in parsed.events[0]!.matches[0]!).toBe(false);
+    expect("blueLegacyBandVariance" in parsed.events[0]!.matches[0]!).toBe(false);
   });
 
   it("TeamsArtifactSchema strips the retired per-team key from a teams row", () => {
     const fixture = validTeamsFixture();
-    const stale = { ...fixture, teams: fixture.teams.map((team) => ({ ...team, swingFactor: 12.5 })) };
+    const stale = { ...fixture, teams: fixture.teams.map((team) => ({ ...team, legacyPerTeamField: 12.5 })) };
     const parsed = TeamsArtifactSchema.parse(stale) as unknown as { teams: Record<string, unknown>[] };
     expect(parsed.teams[0]!.teamKey).toBe("frc254");
-    expect("swingFactor" in parsed.teams[0]!).toBe(false);
+    expect("legacyPerTeamField" in parsed.teams[0]!).toBe(false);
   });
 });

@@ -15,6 +15,11 @@
  * (something fed the corrected display band into `#rpFieldsFor`), not a
  * fixture to refresh.
  *
+ * Quick task 260913-it4 REMOVED the opr and epa entries, by developer decision
+ * (2026-09-13) rather than as a refresh: OPR and EPA publish no ranking-point
+ * odds at all any more, so their pins are replaced by absence assertions over
+ * the same played and upcoming passes. The spr entry is untouched.
+ *
  * The slice is read from the committed fixture ONLY, never the corpus, so the
  * digest is deterministic whether or not `data/corpus.sqlite` is present.
  */
@@ -46,8 +51,6 @@ function loadFixture(): DigestSliceFixture {
 
 /** Captured on unmodified source (HEAD 4310e961) before any 260913-g66 edit. Never edit. */
 const PINNED_RP_DIGESTS: Readonly<Record<string, string>> = {
-  opr: "7d126361ae9de7ad80edf40ca2a3bc160017034f893b2ac4f469baa91ca8e858",
-  epa: "4cf67297a2f46aeb54baa2315fa6414f01c433e45bc3daa95eb9c7af8dea33e1",
   spr: "18d8d9011db5df9adeeb2f1c9204ba02fa80e0f7685c1276ec91e753a0839ab4",
 };
 
@@ -117,19 +120,41 @@ function rpDigest(run: LayerRun): string {
 describe("RP and simulation fields are byte-identical to pre-260913-g66 output (D1a pin)", () => {
   const fixture = loadFixture();
   const algorithms = resolvePublishAlgorithms(undefined);
+  const byId = (id: string) => algorithms.find((a) => a.id === id) as AlgorithmModule<unknown>;
 
-  it("resolves exactly the three pinned algorithms", () => {
-    expect(algorithms.map((a) => a.id).sort()).toEqual(Object.keys(PINNED_RP_DIGESTS).sort());
+  it("resolves exactly opr, epa and spr", () => {
+    expect(algorithms.map((a) => a.id).sort()).toEqual(["epa", "opr", "spr"]);
   });
 
-  for (const algorithm of algorithms) {
-    it(`${algorithm.id}: the nine RP fields hash to the digest pinned on unmodified source`, () => {
-      const run = runLayer(algorithm as AlgorithmModule<unknown>, fixture);
-      // Non-vacuity: the RP layer actually produced a pmf on this slice.
-      expect(run.rows.some((row) => row.prediction.redRpPmf !== undefined)).toBe(true);
+  it("spr: the nine RP fields hash to the digest pinned on unmodified source", () => {
+    const algorithm = byId("spr");
+    const run = runLayer(algorithm, fixture);
+    // Non-vacuity: the RP layer actually produced a pmf on this slice.
+    expect(run.rows.some((row) => row.prediction.redRpPmf !== undefined)).toBe(true);
       expect(rpDigest(run)).toBe(PINNED_RP_DIGESTS[algorithm.id]);
-    });
+  });
+
+  /** Quick task 260913-it4: the same played and upcoming passes carry none of the nine RP fields. */
+  function expectNoRpFields(id: string): void {
+    const run = runLayer(byId(id), fixture);
+    // Non-vacuity: both passes produced rows (played, then every slice match as upcoming).
+    expect(run.rows.length).toBe(fixture.matches.length * 2);
+    expect(fixture.matches.length).toBeGreaterThan(0);
+    for (const row of run.rows) {
+      for (const field of RP_FIELDS) {
+        expect(field in (row.prediction as unknown as Record<string, unknown>), `${id} ${row.matchKey} carries ${field}`).toBe(false);
+      }
+    }
+    expect(new SigmaScoutLayer(RP_RULE_MODULES[fixture.sliceSeason], id).rpAccumulator).toBeUndefined();
   }
+
+  it("opr: publishes no ranking-point field on any played or upcoming row (quick task 260913-it4)", () => {
+    expectNoRpFields("opr");
+  });
+
+  it("epa: publishes no ranking-point field on any played or upcoming row (quick task 260913-it4)", () => {
+    expectNoRpFields("epa");
+  });
 });
 
 describe("sigmaMatchBandVariance (D1b)", () => {
@@ -208,29 +233,36 @@ describe("the layer publishes a Sigma-only display band (D1b, D3)", () => {
     expect("matchBand" in enriched).toBe(false);
   });
 
-  for (const id of ["opr", "epa"]) {
-    it(`${id}: no matchBand key from foldPlayed or enrichUpcoming, while win odds still price a pmf`, () => {
-      const algorithm = byId(id);
-      const { records, finalState } = replay(algorithm);
-      const layer = new SigmaScoutLayer(RP_RULE_MODULES[fixture.sliceSeason], id);
+  /** OPR and EPA: no band, no pmf, no consistency figure and no RP beliefs (quick tasks 260913-g66 and 260913-it4). */
+  function expectNoLevelTwoFeatures(id: string): void {
+    const algorithm = byId(id);
+    const { records, finalState } = replay(algorithm);
+    const layer = new SigmaScoutLayer(RP_RULE_MODULES[fixture.sliceSeason], id);
 
-      let playedPmfs = 0;
-      for (const record of records) {
-        const folded = layer.foldPlayed(record.match, record.prediction);
-        expect("matchBand" in folded).toBe(false);
-        if (folded.prediction.redRpPmf !== undefined) playedPmfs++;
-      }
-      // Warm rosters exist and priced a pmf: the Swing win-odds variance is still live.
-      expect(playedPmfs).toBeGreaterThan(0);
+    expect(records.length).toBeGreaterThan(0);
+    for (const record of records) {
+      const folded = layer.foldPlayed(record.match, record.prediction);
+      expect("matchBand" in folded).toBe(false);
+      expect(folded.prediction.redRpPmf).toBeUndefined();
+    }
 
-      let upcomingPmfs = 0;
-      for (const match of fixture.matches) {
-        const upcoming = toLeakProofUpcoming(match);
-        const enriched = layer.enrichUpcoming(upcoming, algorithm.predict(finalState, upcoming));
-        expect("matchBand" in enriched).toBe(false);
-        if (enriched.prediction.redRpPmf !== undefined) upcomingPmfs++;
-      }
-      expect(upcomingPmfs).toBeGreaterThan(0);
-    });
+    for (const match of fixture.matches) {
+      const upcoming = toLeakProofUpcoming(match);
+      const enriched = layer.enrichUpcoming(upcoming, algorithm.predict(finalState, upcoming));
+      expect("matchBand" in enriched).toBe(false);
+      expect(enriched.prediction.redRpPmf).toBeUndefined();
+    }
+
+    expect(layer.consistencyByTeam().size).toBe(0);
+    expect(layer.rpVariableBeliefs().size).toBe(0);
+    expect(layer.rpAccumulator).toBeUndefined();
   }
+
+  it("opr: no matchBand key and no pmf from foldPlayed or enrichUpcoming, and no consistency or RP state", () => {
+    expectNoLevelTwoFeatures("opr");
+  });
+
+  it("epa: no matchBand key and no pmf from foldPlayed or enrichUpcoming, and no consistency or RP state", () => {
+    expectNoLevelTwoFeatures("epa");
+  });
 });

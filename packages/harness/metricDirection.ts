@@ -1,12 +1,13 @@
 /**
  * Quick task 260909-tgf, Task 1: a DECLARED per-metric direction table.
  *
- * D2 makes Swing Factor the first lower-is-better metric this project has
- * ever published. `percentileAgainstSortedPool`/`percentileRanks`
+ * D2 made the retired per-robot consistency accumulator's figure the first
+ * lower-is-better metric this project ever published; Sigma Score is the one
+ * that remains (quick task 260913-it4 removed the other). `percentileAgainstSortedPool`/`percentileRanks`
  * (`percentiles.ts`) are strictly monotone — higher value, higher percentile
  * — and there was no inversion concept anywhere in the pipeline or in
  * `apps/web/src/lib/tiers.ts` before this task. Direction is a declared FACT
- * about a metric name, not a swing special case, so the next lower-is-better
+ * about a metric name, not a per-metric special case, so the next lower-is-better
  * metric reuses this table rather than needing a second mechanism.
  *
  * ---------------------------------------------------------------------------
@@ -41,7 +42,6 @@ import {
   COMPONENT_GROUP_METRIC_KEYS,
 } from "../core/algorithms/breakdown/index.js";
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
-import { SWING_METRIC_KEY } from "./swingFactor.js";
 import { SIGMA_METRIC_KEY } from "./sigmaScore.js";
 
 export type MetricDirection = "higher-is-better" | "lower-is-better";
@@ -62,7 +62,7 @@ export class UndeclaredMetricDirectionError extends Error {
  * never a hardcoded season list — a newly registered season is covered
  * automatically, the iteration-list-trap antidote this project's history
  * records) plus `TOTAL_METRIC_KEY` and `COMPONENT_GROUP_METRIC_KEYS`' three
- * values are `"higher-is-better"`. `SWING_METRIC_KEY` is the lone
+ * values are `"higher-is-better"`. `SIGMA_METRIC_KEY` is the lone
  * `"lower-is-better"` entry.
  */
 const DIRECTION_BY_METRIC_NAME = new Map<string, MetricDirection>();
@@ -76,35 +76,30 @@ for (const key of Object.values(COMPONENT_GROUP_METRIC_KEYS)) {
   DIRECTION_BY_METRIC_NAME.set(key, "higher-is-better");
 }
 /**
- * THE D2 OVERRIDE. the retired Sigma1 core (deleted by quick task 260913-it4) documented the
- * OPPOSITE framing — its user stories 1 and 2 say Alliance 1 wants the LOWER
- * swing and Alliance 8 deliberately WANTS the higher swing, making the
- * underlying quantity two-sided (a strong, wildly-swingy robot can still be
- * a good pick for an alliance chasing upside). That two-sided framing is
- * OVERRIDDEN here, for TIER purposes only, by developer decision
- * (2026-09-09): "more consistent is always always better." The tier is a
- * one-sided judgement even though the underlying quantity is arguably
- * two-sided. Do not "fix" this back to two-sided; it is a decision, not an
- * oversight.
- */
-DIRECTION_BY_METRIC_NAME.set(SWING_METRIC_KEY, "lower-is-better");
-
-/**
- * Sigma Score inherits that same D2 override, for the same reason and by the
- * same decision: the tier is one-sided ("more consistent is always better")
- * even though the underlying quantity is arguably two-sided. Registered
- * separately rather than aliased, because the two keys are independently
- * publishable — `SIGMA_SCORE_ALGORITHM_IDS` decides which appears — and a
- * future change to one direction must not silently move the other.
+ * THE D2 OVERRIDE, anchored on `SIGMA_METRIC_KEY`. The retired Sigma1 core
+ * (deleted by quick task 260913-it4) documented the OPPOSITE framing — its
+ * user stories 1 and 2 say Alliance 1 wants the LOWER variability and
+ * Alliance 8 deliberately WANTS the higher variability, making the underlying
+ * quantity two-sided (a strong, wildly inconsistent robot can still be a good
+ * pick for an alliance chasing upside). That two-sided framing is OVERRIDDEN
+ * here, for TIER purposes only, by developer decision (2026-09-09): "more
+ * consistent is always always better." The tier is a one-sided judgement even
+ * though the underlying quantity is arguably two-sided. Do not "fix" this back
+ * to two-sided; it is a decision, not an oversight.
+ *
+ * The decision was first recorded for the retired per-robot consistency
+ * accumulator's metric; Sigma Score inherited it on 2026-09-10 and is its only
+ * holder since quick task 260913-it4.
  */
 DIRECTION_BY_METRIC_NAME.set(SIGMA_METRIC_KEY, "lower-is-better");
 
 /**
  * STRICT accessor. Throws `UndeclaredMetricDirectionError` on an undeclared
  * name rather than defaulting. Called by the test suite's coverage
- * assertions and by `swingMetric.ts` for `SWING_METRIC_KEY` itself — that
- * name is declared by THIS module, so a throw there would mean the registry
- * lost its own entry, a defect worth crashing on rather than degrading past.
+ * assertions and by `consistencyMetric.ts` for `SIGMA_METRIC_KEY` itself —
+ * that name is declared by THIS module, so a throw there would mean the
+ * registry lost its own entry, a defect worth crashing on rather than
+ * degrading past.
  */
 export function metricDirection(metricName: string): MetricDirection {
   const direction = DIRECTION_BY_METRIC_NAME.get(metricName);

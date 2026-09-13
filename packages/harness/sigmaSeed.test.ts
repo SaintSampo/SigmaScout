@@ -11,7 +11,7 @@
  * Score bands from the flat prior while the artifacts it serves already carry
  * fully warmed ones. No error, no missing field: live and offline simply price
  * the same match from two different histories, both sides looking healthy --
- * exactly the failure the Swing and RP passengers were written to prevent, on
+ * exactly the failure the RP passenger was written to prevent, on
  * the premier published algorithm.
  *
  * These tests pin the CHAIN rather than any one function:
@@ -180,7 +180,7 @@ describe("the D1 seed carries the Sigma Score beliefs (shape 11, the gap plan 09
 });
 
 describe("publish.ts's seed block chains every level-2 passenger (structural)", () => {
-  it("the one emitSeedSql call site is fed rows carrying Swing, Sigma, the Sigma population, and RP", () => {
+  it("the one emitSeedSql call site is fed rows carrying Sigma, the Sigma population, and RP", () => {
     const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8");
     const block = /const state = finalSeasonStates\.get\(algorithm\.id\);[\s\S]*?emitSeedSql\(/.exec(source);
     expect(block, "expected to find publish.ts's seed-emission block").not.toBeNull();
@@ -190,7 +190,7 @@ describe("publish.ts's seed block chains every level-2 passenger (structural)", 
     // and the artifacts it serves if it goes missing. `withSigmaPopulation` is
     // listed beside the others deliberately: it writes the LEAGUE row rather
     // than a team row, which is exactly why it is the one easy to forget.
-    for (const passenger of ["withSwingBeliefs(", "withSigmaBeliefs(", "withSigmaPopulation(", "withRpBeliefs("]) {
+    for (const passenger of ["withSigmaBeliefs(", "withSigmaPopulation(", "withRpBeliefs("]) {
       expect(body, `publish.ts's seed block no longer chains ${passenger}`).toContain(passenger);
     }
   });

@@ -503,7 +503,8 @@ describe("scheduled.replay — offline equivalence (D-14)", () => {
         // Built offline through the REAL `SigmaScoutLayer` that `publish.ts`
         // drives, not through a hand-rolled accumulator. That distinction is
         // the whole point of this assertion and it was learned the hard way:
-        // this block previously constructed a bare `SwingFactorAccumulator`,
+        // this block previously constructed a bare accumulator of its own (the
+        // retired per-robot consistency accumulator),
         // so when the publisher moved BPR's band onto Sigma Score the test's
         // "offline" side kept modelling a publisher that no longer existed and
         // compared the Worker against a stand-in. A second implementation of

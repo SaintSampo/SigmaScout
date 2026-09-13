@@ -145,7 +145,9 @@ export interface SubsetEntry {
    * `2f1a8885`; the other 15 pmf pairs in the histogram are degenerate
    * length-1 ELIMINATION pmfs, not qual coverage). The 15 uncovered qual
    * rows are the cold-start -> no-band -> no-pmf chain filed with the
-   * simulation/swing rethink. When that chain is resolved, these entries
+   * simulation rethink. (Since quick task 260913-it4 OPR and EPA publish no
+   * ranking-point pmfs at all; only Sigma algorithms do.) When that chain is
+   * resolved, these entries
    * should be promoted back to `"present"`; `"partial"` exists so the gap
    * stays measured without leaving the whole subset red-for-known-reasons.
    */

@@ -303,7 +303,7 @@ describe("buildFieldContributions (plan 09-09 Task 2 — the all-or-nothing rost
       expect(contribution.variableMeans).toEqual(own.meanVector);
       expect(contribution.variableVariances).toEqual(own.varianceBlock.map((row, i) => row[i]));
       expect(contribution.scoreMean).toBe(inputs.teamTotals.get(contribution.teamKey));
-      // `allianceSwingBandVariance`'s own per-team term is `swing * swing`.
+      // `allianceSigmaBandVariance`'s own per-team term is `sigma * sigma`.
       expect(contribution.bandVariance).toBe(12 * 12);
     }
   });

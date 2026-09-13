@@ -401,7 +401,7 @@ const EventMatchSchema = z
      * simulation read — that stays the uncorrected sum and is never published.
      *
      * DELIBERATELY DISTINCT FROM `redScoreVarianceOwn`, which is the
-     * ALGORITHM's own predictive variance. The retired Swing-era band keys are
+     * ALGORITHM's own predictive variance. The retired pre-Match-Band band keys are
      * stripped on parse (no schema here is strict), so a stale artifact
      * carrying them renders no band rather than a wrong one. Rounded once, at
      * the publish boundary, at `ROUNDING_RULE.variance`.
@@ -657,7 +657,7 @@ const EventUpcomingMatchSchema = z
      * simulation read — that stays the uncorrected sum and is never published.
      *
      * DELIBERATELY DISTINCT FROM `redScoreVarianceOwn`, which is the
-     * ALGORITHM's own predictive variance. The retired Swing-era band keys are
+     * ALGORITHM's own predictive variance. The retired pre-Match-Band band keys are
      * stripped on parse (no schema here is strict), so a stale artifact
      * carrying them renders no band rather than a wrong one. Rounded once, at
      * the publish boundary, at `ROUNDING_RULE.variance`.
@@ -829,7 +829,7 @@ const TeamSeasonMatchSchema = z
      * simulation read — that stays the uncorrected sum and is never published.
      *
      * DELIBERATELY DISTINCT FROM `redScoreVarianceOwn`, which is the
-     * ALGORITHM's own predictive variance. The retired Swing-era band keys are
+     * ALGORITHM's own predictive variance. The retired pre-Match-Band band keys are
      * stripped on parse (no schema here is strict), so a stale artifact
      * carrying them renders no band rather than a wrong one. Rounded once, at
      * the publish boundary, at `ROUNDING_RULE.variance`.

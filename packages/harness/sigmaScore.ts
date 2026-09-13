@@ -1,24 +1,28 @@
 /**
- * SIGMA SCORE — a Bayesian, talent-informed estimate of how wildly a robot's
- * contribution might swing in its NEXT match.
+ * SIGMA SCORE — a Bayesian, talent-informed estimate of how widely a robot's
+ * contribution might vary in its NEXT match.
  *
  * SHIPPED FOR BPR ONLY (quick task 260910-u7g measured it; the ship decision is
  * the developer's, 2026-09-10). `SIGMA_SCORE_ALGORITHM_IDS` is the single place
  * that scope is declared — OPR and EPA publish no consistency metric at all and,
- * since quick task 260913-g66, no match band either. Their Swing Factor survives
- * only as the internal win-odds variance their ranking-point pmf and rank
- * simulation read; it is never published. See `sigmaMatchBandVariance`.
+ * since quick task 260913-g66, no match band either. Since quick task
+ * 260913-it4 they also publish no ranking-point odds: the retired per-robot
+ * consistency accumulator that used to supply their internal win-odds variance
+ * was deleted outright (developer decision, 2026-09-13), with no replacement.
+ * See `sigmaMatchBandVariance` and `publishesRankingPoints`.
  *
  * Consumers: `sigmaScoutLayer.ts` (bands and the per-team figure), `publish.ts`
- * (the published `sigma` metric), and `scripts/compareSigmaScore.ts` (the
- * head-to-head that justified shipping it).
+ * (the published `sigma` metric). The head-to-head script that justified
+ * shipping it was deleted by quick task 260913-it4 along with the retired
+ * accumulator it compared against; it is restorable from git history.
  *
  * WHY BPR ONLY, since "better metric, ship it everywhere" is the obvious
  * alternative: measured over 110,232 rows per algorithm on 2026, Sigma beats
- * Swing on calibration, on separating steady robots from erratic ones, and on
- * catastrophic-failure avoidance for ALL THREE algorithms — but on volatility
- * RANKING and trimmed likelihood it wins for OPR and BPR and LOSES for EPA. It
- * is scoped to the premier algorithm rather than shipped where it is worse.
+ * the retired per-robot consistency accumulator on calibration, on separating
+ * steady robots from erratic ones, and on catastrophic-failure avoidance for
+ * ALL THREE algorithms — but on volatility RANKING and trimmed likelihood it
+ * wins for OPR and BPR and LOSES for EPA. It is scoped to the premier algorithm
+ * rather than shipped where it is worse.
  *
  * ---------------------------------------------------------------------------
  * WHAT IT IS FOR, WHICH DECIDES ITS SHAPE
@@ -27,9 +31,10 @@
  * From the developer, and every design choice below traces to one of these two
  * sentences:
  *
- *   "How wildly might their performance swing next match? If a robot breaks, or
- *    finally starts working, Sigma Score captures that for a scout. VS if they
- *    have performed the same every match, Sigma Score should be low."
+ *   (paraphrased) How widely might their performance vary next match? If a
+ *   robot breaks, or finally starts working, Sigma Score captures that for a
+ *   scout. Versus if they have performed the same every match, Sigma Score
+ *   should be low.
  *
  * So there are exactly two requirements, and they pull in opposite directions:
  *
@@ -40,8 +45,9 @@
  * WHY THE MEAN'S TRACKING SPEED IS THE CRUX, NOT AN INHERITED CONSTANT
  * ---------------------------------------------------------------------------
  *
- * The shipped Swing Factor centres squared residuals on a recency-weighted mean
- * with a SIX MATCH half-life — the same half-life it uses for the variance. That
+ * The retired per-robot consistency accumulator centred squared residuals on a
+ * recency-weighted mean with a SIX MATCH half-life — the same half-life it used
+ * for the variance. That
  * is fine for quietness and actively hostile to responsiveness: when a robot
  * breaks, the fast mean chases the new (lower) level within a few matches, the
  * residuals about it shrink back toward normal, and the metric stops reporting
@@ -55,8 +61,9 @@
  *   `varHalfLife`   how fast the volatility estimate forgets old evidence. FAST,
  *                   so a break shows up promptly rather than being diluted.
  *
- * Separating them is the whole idea. Swing Factor is the special case where both
- * are 6, which is why it cannot satisfy both requirements at once.
+ * Separating them is the whole idea. The retired accumulator was the special
+ * case where both are 6, which is why it could not satisfy both requirements at
+ * once.
  *
  * ---------------------------------------------------------------------------
  * THE BAYESIAN PART, AND THE THREE MEASURED DEFECTS IT EXISTS TO FIX
@@ -66,13 +73,13 @@
  * and found three things, all traceable to it being an unregularised sample
  * statistic over an effective sample of about nine:
  *
- *   1. A near-zero tail. 0.06-0.35% of rows carry a swing below 1 point (two
+ *   1. A near-zero tail. 0.06-0.35% of rows carry a spread below 1 point (two
  *      near-identical deviations), and under a log score those few hundred rows
  *      carry 83-100% of the total loss. The site publishes "perfectly
  *      consistent" and the robot then misses by 40 points.
- *   2. Regression to the mean. The ratio of published swing to realized spread
- *      climbs monotonically 0.80 -> 1.94 across deciles: low-swing teams are
- *      badly under-estimated, high-swing teams about right.
+ *   2. Regression to the mean. The ratio of published spread to realized spread
+ *      climbs monotonically 0.80 -> 1.94 across deciles: low-spread teams are
+ *      badly under-estimated, high-spread teams about right.
  *   3. It does not beat a single population constant on median NLL for EPA
  *      (-0.015) or BPR (-0.006).
  *
@@ -108,8 +115,8 @@
  * WHY THE PRIOR SCALES WITH TALENT
  * ---------------------------------------------------------------------------
  *
- * Swing is measured in POINTS, and a robot that scores more has more points to
- * swing by. Measured on BPR 2024-2026, mean swing runs 5.93 in the lowest decile
+ * Volatility is measured in POINTS, and a robot that scores more has more points
+ * to vary by. Measured on BPR 2024-2026, mean spread runs 5.93 in the lowest decile
  * against 64.46 in the highest — better than a 10x range. A flat prior would
  * therefore drag strong robots down and weak robots up, which is the opposite of
  * shrinking toward a comparable peer group.
@@ -123,14 +130,16 @@
  *
  * A talent-independent variant is deliberately testable via `talentPrior:
  * false`, because "the talent scaling earns its place" is a claim that should be
- * measured rather than assumed. `compareSigmaScore.ts` runs both.
+ * measured rather than assumed. The head-to-head that ran both was deleted by
+ * quick task 260913-it4 and is restorable from git history.
  */
 
 /**
  * The published metric key Sigma Score is injected under at publish time.
  *
- * A DISTINCT key from `SWING_METRIC_KEY`, not a replacement of its contents,
- * and the distinction is what keeps the UI free of algorithm-ID branching: the
+ * A DISTINCT key from the retired per-robot consistency accumulator's old
+ * metric key, not a replacement of its contents, and the distinction is what
+ * keeps the UI free of algorithm-ID branching: the
  * Sigma column and tile render exactly when this key is present on the row, so
  * "which algorithms show a consistency number" is answered by the data rather
  * than by a hardcoded list in the browser. An algorithm that starts or stops
@@ -142,17 +151,18 @@ export const SIGMA_METRIC_KEY = "sigma";
  * The algorithms that publish Sigma Score.
  *
  * BPR ONLY, by developer decision (2026-09-10), on the measured result in quick
- * task 260910-u7g: Sigma beats Swing on calibration, separation and
- * catastrophic-failure avoidance for all three algorithms, but on volatility
- * RANKING and trimmed likelihood it wins for OPR and BPR and LOSES for EPA.
- * Rather than ship a metric that is better on two algorithms and worse on the
- * third, the developer scoped it to the premier algorithm.
+ * task 260910-u7g: Sigma beats the retired per-robot consistency accumulator on
+ * calibration, separation and catastrophic-failure avoidance for all three
+ * algorithms, but on volatility RANKING and trimmed likelihood it wins for OPR
+ * and BPR and LOSES for EPA. Rather than ship a metric that is better on two
+ * algorithms and worse on the third, the developer scoped it to the premier
+ * algorithm.
  *
  * OPR and EPA therefore publish NO consistency metric at all and show no column
- * — also a developer decision, over the alternative of leaving Swing visible
- * for them. Since quick task 260913-g66 they also publish NO match band: their
- * Swing Factor supplies only the internal win-odds variance their ranking-point
- * pmf and rank simulation read. The display band is Sigma-only, built by
+ * — also a developer decision, over the alternative of leaving the retired
+ * accumulator's figure visible for them. Since quick task 260913-g66 they also
+ * publish NO match band, and since quick task 260913-it4 NO ranking-point odds
+ * (see `publishesRankingPoints`). The display band is Sigma-only, built by
  * `sigmaMatchBandVariance`.
  *
  * 260912-ivg (BPR -> SPR identifier cutover): Stages 1-4 held this as a
@@ -164,9 +174,63 @@ export const SIGMA_METRIC_KEY = "sigma";
  */
 export const SIGMA_SCORE_ALGORITHM_IDS: ReadonlySet<string> = new Set(["spr"]);
 
-/** Whether this algorithm publishes Sigma Score rather than a Swing Factor. */
+/** Whether this algorithm publishes Sigma Score. */
 export function usesSigmaScore(algorithmId: string): boolean {
   return SIGMA_SCORE_ALGORITHM_IDS.has(algorithmId);
+}
+
+/**
+ * Whether this algorithm publishes ranking-point odds (the RP pmfs, their
+ * decomposition, the bonus-RP probabilities and the pre-schedule sidecars the
+ * rank simulation draws from).
+ *
+ * Ranking-point odds need a per-robot score variance, and only Sigma algorithms
+ * carry one. OPR and EPA publish none, by developer decision of 2026-09-13
+ * (quick task 260913-it4): the retired per-robot consistency accumulator that
+ * used to supply their variance was deleted with no replacement, so the rank
+ * simulation works under Sigma algorithms (SPR) only.
+ *
+ * Declared as its own predicate, rather than every caller reusing
+ * `usesSigmaScore`, so a reader of an RP gate sees which capability it is
+ * asking about. Today the two answer identically.
+ */
+export function publishesRankingPoints(algorithmId: string): boolean {
+  return usesSigmaScore(algorithmId);
+}
+
+/**
+ * One alliance's score VARIANCE from a per-team consistency map — the
+ * quadrature sum of its roster's figures, or `undefined` if any member has none.
+ *
+ * The upcoming-row and pre-schedule RP paths read this over
+ * `SigmaScoutLayer.consistencyByTeam()`, and the Sigma methodology page's figure
+ * uses it. It is NOT `SigmaScoreAccumulator.bandVarianceFor`, which prices a
+ * never-seen team from its prior: this helper keeps the all-or-nothing gate over
+ * the map, so a roster member absent from the map yields no variance at all.
+ *
+ * All-or-nothing deliberately. Summing only the members we happen to know would
+ * produce a systematically NARROWER band that reads as a confident prediction
+ * rather than a partial one. That is the failure sketch 003 recorded, where a
+ * band drawn from part of the variance put actual results 7–10σ outside it.
+ * Better no band than a band that is too tight.
+ *
+ * Returning the VARIANCE rather than the standard deviation matches the
+ * existing `redScoreVarianceOwn` convention and keeps the summing-squares
+ * relationship visible: an alliance's variance is the sum of its teams' squared
+ * figures, so three robots at ±10 give ±17.32, never ±30.
+ */
+export function allianceSigmaBandVariance(
+  roster: readonly string[],
+  sigmaByTeam: ReadonlyMap<string, number>
+): number | undefined {
+  if (roster.length === 0) return undefined;
+  let variance = 0;
+  for (const teamKey of roster) {
+    const sigma = sigmaByTeam.get(teamKey);
+    if (sigma === undefined) return undefined;
+    variance += sigma * sigma;
+  }
+  return variance;
 }
 
 /**
@@ -198,9 +262,9 @@ export function usesSigmaScore(algorithmId: string): boolean {
  * added. So `#rpFieldsFor` and the Worker's `rpFieldsFor` keep receiving the
  * win-odds variance, and only the published band is corrected.
  *
- * OPR and EPA publish no display band at all; their Swing Factor supplies only
- * the internal win-odds variance. Callers gate on `usesSigmaScore` before
- * calling this.
+ * OPR and EPA publish no display band at all, and since quick task 260913-it4
+ * no win-odds variance either. Callers gate on `usesSigmaScore` before calling
+ * this.
  *
  * Returns `undefined` when the win-odds variance is undefined, the roster is
  * empty, or either input is non-finite — no band rather than a wrong one.
@@ -228,12 +292,14 @@ export const TALENT_FLOOR = 1;
 export const INITIAL_PRIOR_K = 0.5;
 
 /**
- * The structural slice of a match `foldMatch` needs. Mirrors
- * `swingFactor.ts`'s `SwingFoldMatch` field for field — deliberately, so the
- * same caller object satisfies both and no positional argument can be
- * transposed between them. Both DQ fields are REQUIRED, never optional, for
- * the reason that module's header gives: a caller that omits them must fail
- * typecheck rather than silently fold a carded zero while looking healthy.
+ * The structural slice of a match `foldMatch` needs. Deliberately NOT
+ * `MatchResult` itself, so every real caller passes the object it already holds
+ * (it is structurally assignable) and no positional argument can be
+ * transposed, while a test can build a six-field literal. Both DQ fields are
+ * REQUIRED, never optional: this is the mechanical enforcement of the
+ * live/offline parity contract (`dq.ts`'s header, "D4") — a caller that omits
+ * them must fail typecheck rather than silently fold a carded zero while
+ * looking healthy.
  */
 export interface SigmaFoldMatch {
   readonly redTeams: readonly string[];
@@ -419,7 +485,7 @@ export class SigmaScoreAccumulator {
   }
 
   /**
-   * The prior spread for one team: its talent-implied typical swing.
+   * The prior spread for one team: its talent-implied typical variation.
    *
    * With `talentPrior: false` this collapses to the population's own RMS
    * residual, i.e. one number for every team regardless of strength — the
@@ -457,7 +523,7 @@ export class SigmaScoreAccumulator {
     // against a settled value of 0.33-0.75. Multiply that by an early OPR rating
     // (max observed talent: 9,310, because an under-determined least-squares
     // solve produces nonsense before it has enough matches) and the prior claimed
-    // a 2,780-point swing for a single robot.
+    // a 2,780-point spread for a single robot.
     //
     // The damage was real and the holdout is what caught it: 2024-2025 tuning
     // looked healthy, and the 2026 confirmation run showed trimmed-mean NLL at
@@ -476,12 +542,13 @@ export class SigmaScoreAccumulator {
    * This team's Sigma Score from everything folded so far.
    *
    * ALWAYS DEFINED, including for a team seen zero times, and that is a
-   * deliberate divergence from Swing Factor's below-two-observations
-   * `undefined`. The prior alone is a legitimate answer to "how wildly might
-   * this robot swing" — it is what a scout would assume from the robot's talent
-   * before seeing it play — whereas Swing Factor had no prior and so genuinely
-   * had nothing to say. It also means Sigma Score can price a band for every
-   * match including a team's first, which Swing Factor structurally cannot.
+   * deliberate divergence from the retired per-robot consistency accumulator's
+   * below-two-observations `undefined`. The prior alone is a legitimate answer
+   * to "how widely might this robot vary" — it is what a scout would assume
+   * from the robot's talent before seeing it play — whereas the retired
+   * accumulator had no prior and so genuinely had nothing to say. It also means
+   * Sigma Score can price a band for every match including a team's first,
+   * which the retired accumulator structurally could not.
    */
   sigmaFor(teamKey: string): number {
     const belief = this.#readBelief(teamKey);
@@ -593,14 +660,15 @@ export class SigmaScoreAccumulator {
    * `sigmaMatchBandVariance(roster.length, this)`, which undoes the even-split
    * shrinkage (quick task 260913-g66).
    *
-   * Unlike Swing Factor's all-or-nothing rule there is no undefined case here
-   * beyond an empty roster, because Sigma always has a figure. The rule Swing
-   * needed — better no band than one built from part of the variance — does not
-   * arise: every roster member contributes a real term, from its prior if it has
-   * no history of its own.
+   * Unlike `allianceSigmaBandVariance`'s all-or-nothing rule there is no
+   * undefined case here beyond an empty roster, because Sigma always has a
+   * figure. The rule that helper enforces — better no band than one built from
+   * part of the variance — does not arise: every roster member contributes a
+   * real term, from its prior if it has no history of its own.
    *
    * A consequence worth stating: a BPR match whose roster is all debutants now
-   * carries a band where Swing produced none. That is the intended behaviour,
+   * carries a band where the retired per-robot consistency accumulator produced
+   * none. That is the intended behaviour,
    * not an accident, and it is what lets the rank simulation price matches that
    * previously had no pmf at all.
    */
@@ -615,16 +683,21 @@ export class SigmaScoreAccumulator {
   }
 
   /**
-   * Folds a whole MATCH, applying the IDENTICAL demo and full-DQ-zero rules
-   * `SwingFactorAccumulator.foldMatch` applies.
+   * Folds a whole MATCH, applying the demo and full-DQ-zero rules.
    *
-   * Identical on purpose and not merely by coincidence: Sigma and Swing are
-   * computed side by side over the same stream, and a population difference
-   * between them would make every comparison between the two an
-   * apples-to-oranges one. See `swingFactor.ts`'s `foldMatch` for why each rule
-   * exists — a real alliance beating three placeholders is not evidence about
-   * anybody, and a whole-alliance card ruling is not evidence about the three
-   * robots that were physically on the field.
+   * Every algorithm's `update` returns state unchanged when either alliance is
+   * fully demo: a real alliance "beating" three placeholders is not evidence
+   * about anybody, so its residual must not widen or narrow a band either. A
+   * whole-alliance card ruling (`dq.ts`'s composition contract) is not evidence
+   * about the three robots that were physically on the field, so a fully-DQ'd,
+   * exactly-zero-scored alliance's own fold is skipped — only that alliance's,
+   * never the opponent's genuine score. A partial DQ, or a whole-alliance DQ
+   * with a non-zero recorded score, folds normally.
+   *
+   * This lives at match level, rather than in each caller, because there are
+   * two callers — the offline publisher and the live Worker — and a rule applied
+   * in one and not the other is precisely how live and offline drift apart
+   * while both look healthy.
    */
   foldMatch(match: SigmaFoldMatch, prediction: { readonly redScore: number; readonly blueScore: number }): void {
     if (isFullyDemoAlliance(match.redTeams) || isFullyDemoAlliance(match.blueTeams)) return;

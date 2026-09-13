@@ -1,17 +1,20 @@
 /**
- * THE SIGMASCOUT LAYER — the level-2 features every algorithm gets for free.
+ * THE SIGMASCOUT LAYER — the level-2 features built on top of an algorithm.
  *
  * SigmaScout has two levels, and this module is the whole of the second one:
  *
- *   LEVEL 1  an ALGORITHM (OPR, EPA, BPR) predicts alliance scores. It knows
+ *   LEVEL 1  an ALGORITHM (OPR, EPA, SPR) predicts alliance scores. It knows
  *            nothing about anything below.
  *   LEVEL 2  SigmaScout features computed from predicted-vs-actual scores
- *            alone — the Match Band and ranking points. No algorithm models
- *            them and no algorithm may import them. OPR models no uncertainty
- *            whatsoever and still gets a working rank simulation from its
- *            Swing win-odds variance, but since quick task 260913-g66 it
- *            publishes NO display band: the Match Band is Sigma-only (SPR),
- *            built by `sigmaMatchBandVariance`.
+ *            alone — Sigma Score, the Match Band and ranking-point odds. No
+ *            algorithm models them and no algorithm may import them.
+ *
+ * All three level-2 features are published for SIGMA algorithms only (SPR
+ * today). OPR and EPA get none of the three: no Sigma Score, no Match Band
+ * (quick task 260913-g66) and, since quick task 260913-it4, no ranking-point
+ * odds — the retired per-robot consistency accumulator that used to supply
+ * their win-odds variance was deleted with no replacement (developer decision,
+ * 2026-09-13). Gated by `usesSigmaScore` and `publishesRankingPoints`.
  *
  * ---------------------------------------------------------------------------
  * WHY THIS IS A MODULE AND NOT A LOOP BODY
@@ -58,8 +61,9 @@ import {
   emptyMarginalResolutionTally,
   type MarginalResolutionTally,
 } from "../core/rankingPoints/analyticPmf.js";
-import { allianceSwingBandVariance, SwingFactorAccumulator, type SwingBelief } from "./swingFactor.js";
 import {
+  allianceSigmaBandVariance,
+  publishesRankingPoints,
   SigmaScoreAccumulator,
   sigmaMatchBandVariance,
   usesSigmaScore,
@@ -87,17 +91,16 @@ export interface UpcomingLayerRecord {
  * One algorithm's level-2 state for one season.
  *
  * Construct one per algorithm, drive it with that algorithm's chronological
- * played stream via `foldPlayed`, then read `swingByTeam()` and
+ * played stream via `foldPlayed`, then read `consistencyByTeam()` and
  * `rpAccumulator` for the not-yet-played work.
  */
 export class SigmaScoutLayer {
-  readonly #swing = new SwingFactorAccumulator();
   /**
-   * Present ONLY for an algorithm in `SIGMA_SCORE_ALGORITHM_IDS` (BPR today).
+   * Present ONLY for an algorithm in `SIGMA_SCORE_ALGORITHM_IDS` (SPR today).
    * When present it is the source of this algorithm's per-team consistency
-   * figure, its win-odds variance AND its published match band; `#swing` is
-   * then still folded, but only so the D1 seed's shape stays uniform across
-   * algorithms. When absent (OPR, EPA) no match band is published at all.
+   * figure, its win-odds variance AND its published match band. When absent
+   * (OPR, EPA) the layer publishes no consistency figure, no match band and no
+   * ranking-point odds.
    */
   readonly #sigma: SigmaScoreAccumulator | undefined;
   readonly #rp: RpMomentsAccumulator | undefined;
@@ -119,10 +122,12 @@ export class SigmaScoutLayer {
    * season without rules still gets bands — the two features are independent,
    * and RP simply does not appear.
    *
-   * `algorithmId` decides whether this layer produces Sigma Score or Swing
-   * Factor. It is OPTIONAL and defaults to Swing so that every pre-existing
-   * caller and test keeps its current behaviour without edit — the Sigma path
-   * is opt-in by id, never the silent default.
+   * `algorithmId` decides which level-2 features this layer produces. Sigma
+   * Score and the Match Band need `usesSigmaScore`; the RP accumulator is
+   * constructed only when `ruleModule` is defined AND
+   * `publishesRankingPoints(algorithmId)`. It is OPTIONAL: with no algorithm id
+   * the layer has no Sigma, no RP and no band — every feature is opt-in by id,
+   * never the silent default.
    *
    * There is no third parameter. The RP layer had a temporary selectable
    * config during phase 9; plan 09-06 measured every combination, the
@@ -130,8 +135,9 @@ export class SigmaScoutLayer {
    * deleted with the branches it selected between.
    */
   constructor(ruleModule: RpRuleModule | undefined, algorithmId?: string) {
-    this.#ruleModule = ruleModule;
-    this.#rp = ruleModule !== undefined ? new RpMomentsAccumulator(ruleModule) : undefined;
+    const rankingPoints = algorithmId !== undefined && publishesRankingPoints(algorithmId);
+    this.#ruleModule = rankingPoints ? ruleModule : undefined;
+    this.#rp = rankingPoints && ruleModule !== undefined ? new RpMomentsAccumulator(ruleModule) : undefined;
     this.#sigma = algorithmId !== undefined && usesSigmaScore(algorithmId) ? new SigmaScoreAccumulator() : undefined;
   }
 
@@ -146,68 +152,47 @@ export class SigmaScoutLayer {
     return { ...this.#rpMarginalResolutionTally };
   }
 
-  /** True when this layer publishes Sigma Score in place of a Swing Factor. */
+  /** True when this layer publishes Sigma Score. */
   get usesSigma(): boolean {
     return this.#sigma !== undefined;
   }
 
   /**
    * This algorithm's per-team consistency figure — Sigma Score where enabled,
-   * Swing Factor otherwise.
+   * an EMPTY map otherwise.
    *
-   * The two differ in COVERAGE as well as in value, and callers must not assume
-   * the Swing shape: Swing omits any team below two played matches, while Sigma
-   * always has a figure (its prior is a legitimate answer before any evidence).
-   * So a Sigma layer returns an entry for every team it has ever seen.
+   * Sigma always has a figure (its prior is a legitimate answer before any
+   * evidence), so a Sigma layer returns an entry for every team it has ever
+   * seen.
    */
   consistencyByTeam(): ReadonlyMap<string, number> {
-    if (this.#sigma === undefined) return this.#swing.swingByTeam();
+    if (this.#sigma === undefined) return new Map();
     return this.#sigma.scoreByTeam();
   }
 
   /**
-   * One alliance's WIN-ODDS variance from history so far, in whichever metric
-   * this layer uses. This is what `#rpFieldsFor` reads; the published display
-   * band is derived from it by `#matchBandFields` for Sigma layers only.
+   * One alliance's WIN-ODDS variance from history so far, from the Sigma
+   * accumulator, or `undefined` for a layer without one. This is what
+   * `#rpFieldsFor` reads; the published display band is derived from it by
+   * `#matchBandFields`.
    */
   #bandVarianceFor(roster: readonly string[]): number | undefined {
-    if (this.#sigma === undefined) return this.#swing.bandVarianceFor(roster);
-    return this.#sigma.bandVarianceFor(roster);
-  }
-
-  /** This algorithm's Swing Factors from every match folded so far. Omits any team below two played matches. */
-  swingByTeam(): ReadonlyMap<string, number> {
-    return this.#swing.swingByTeam();
-  }
-
-  /**
-   * Every team's RAW running Swing state, for the D1 seed the live Worker
-   * resumes from (shape 10).
-   *
-   * Distinct from `swingByTeam()` and not interchangeable with it: that
-   * returns finished Swing Factors and DROPS any team below two observations,
-   * which is right for publishing and wrong for seeding. A team with exactly
-   * one observation must carry that observation forward, or its first live
-   * match would fold against an empty belief and the live band would diverge
-   * from what the offline publisher would have produced.
-   */
-  swingBeliefs(): ReadonlyMap<string, SwingBelief> {
-    return this.#swing.beliefsByTeam();
+    return this.#sigma?.bandVarianceFor(roster);
   }
 
   /**
    * Every team's RAW running RP state, for the D1 seed the live Worker
    * resumes from (shape 15, plan 09-08).
    *
-   * The exact counterpart of `swingBeliefs()` above and distinct from
-   * anything the publisher renders, for the same reason: this is raw running
+   * Distinct from anything the publisher renders: this is raw running
    * state, not a finished figure. Dropping a single-observation team from a
    * seed would make its first live match fold against an empty belief and
    * diverge from what the offline publisher would have produced — silently,
    * because the resulting pmf is still a valid distribution.
    *
-   * Empty for a season that registers no RP rules, which is the honest answer
-   * rather than an error: the feature is ABSENT for that season, not empty.
+   * Empty for a season that registers no RP rules, or for an algorithm that
+   * publishes no ranking points, which is the honest answer rather than an
+   * error: the feature is ABSENT there, not empty.
    */
   rpVariableBeliefs(): ReadonlyMap<string, RpTeamBeliefs> {
     return this.#rp?.beliefsByTeam() ?? new Map();
@@ -217,7 +202,7 @@ export class SigmaScoutLayer {
    * Every team's RAW running Sigma Score state, for the D1 seed the live
    * Worker resumes from (shape 11).
    *
-   * The exact counterpart of `swingBeliefs()` above and distinct from
+   * The counterpart of `rpVariableBeliefs()` above and distinct from
    * `consistencyByTeam()`, which returns finished Sigma Scores: this is the
    * raw running state a resumed accumulator needs to CONTINUE this
    * publisher's history rather than start a second, shorter one. Seed a
@@ -252,12 +237,12 @@ export class SigmaScoutLayer {
     return this.#sigma?.population();
   }
 
-  /** The RP beliefs learned so far, or `undefined` for a season with no registered rules. */
+  /** The RP beliefs learned so far, or `undefined` for a season with no registered rules or an algorithm that publishes no ranking points. */
   get rpAccumulator(): RpMomentsAccumulator | undefined {
     return this.#rp;
   }
 
-  /** The season's RP rules, or `undefined`. */
+  /** The season's RP rules, or `undefined` (including for an algorithm that publishes no ranking points). */
   get ruleModule(): RpRuleModule | undefined {
     return this.#ruleModule;
   }
@@ -277,7 +262,6 @@ export class SigmaScoutLayer {
   ): PredictionRecord {
     const redBandVariance = this.#bandVarianceFor(match.redTeams);
     const blueBandVariance = this.#bandVarianceFor(match.blueTeams);
-    this.#swing.foldMatch(match, prediction);
     this.#sigma?.foldMatch(match, prediction);
     // Talent is applied AFTER the fold, on purpose: `talentAfterMatch` is read
     // from the algorithm's state as of AFTER this match, so it is admissible
@@ -327,8 +311,8 @@ export class SigmaScoutLayer {
    */
   enrichUpcoming(match: UpcomingMatch, prediction: Prediction): UpcomingLayerRecord {
     const consistencyByTeam = this.consistencyByTeam();
-    const red = allianceSwingBandVariance(match.redTeams, consistencyByTeam);
-    const blue = allianceSwingBandVariance(match.blueTeams, consistencyByTeam);
+    const red = allianceSigmaBandVariance(match.redTeams, consistencyByTeam);
+    const blue = allianceSigmaBandVariance(match.blueTeams, consistencyByTeam);
     const upcomingRp =
       prediction.redRpPmf === undefined ? this.#rpFieldsFor(match, prediction, red, blue) : {};
 
@@ -343,10 +327,11 @@ export class SigmaScoutLayer {
    * The RP fields for one match, given each alliance's band as its score
    * variance. The band arguments are the WIN-ODDS variance (the uncorrected
    * sum), never the published display band (quick task 260913-g66).
-   * Empty when this season registers no rules, when the event type
-   * awards no RP, or when either band is undefined — a band is undefined only
-   * when a rostered team has too little play to have a Swing Factor, and an
-   * alliance whose score variance is unknown has no honest pmf.
+   * Empty when this layer publishes no ranking points (no rules for the
+   * season, or an algorithm without a Sigma Score), when the event type awards
+   * no RP, or when either band is undefined — an upcoming band is undefined
+   * when a rostered team has no Sigma Score yet, and an alliance whose score
+   * variance is unknown has no honest pmf.
    */
   #rpFieldsFor(
     match: { redTeams: readonly string[]; blueTeams: readonly string[]; eventType: number; matchKey: string; compLevel: CompLevel },

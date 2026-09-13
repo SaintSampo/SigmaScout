@@ -14,9 +14,7 @@ import {
   scaleToPlot,
 } from "../team/matchAxis.js";
 import {
-  allianceSwingBandVariance,
-} from "../../../../../packages/harness/swingFactor.js";
-import {
+  allianceSigmaBandVariance,
   DEFAULT_SIGMA_SCORE_OPTIONS,
   MIN_POPULATION_FOR_TALENT_PRIOR,
   SigmaScoreAccumulator,
@@ -62,7 +60,7 @@ function illustrativeSigma(misses: readonly number[], talent = 40): number {
  *   - F3's two `±` labels are `SigmaScoreAccumulator` over each row's own
  *     dots, so a label can never drift from the marks beside it.
  *   - F4's alliance bar is the square root of
- *     `sigmaMatchBandVariance(rosterSize, allianceSwingBandVariance(...))`, the
+ *     `sigmaMatchBandVariance(rosterSize, allianceSigmaBandVariance(...))`, the
  *     same two functions `SigmaScoutLayer.enrichUpcoming` composes to publish a
  *     Match Band (quick task 260913-g66). The example Sigma values come from
  *     `SIGMA_ALLIANCE_EXAMPLE_SIGMAS`, the array the prose quotes, so the
@@ -599,7 +597,7 @@ function SharesToAllianceFigure(): ReactElement {
   const robots = F4_ROSTER.map((label, index) => ({ label, sigma: SIGMA_ALLIANCE_EXAMPLE_SIGMAS[index] as number }));
   const roster = robots.map((robot) => robot.label);
   const sigmaByRobot = new Map<string, number>(robots.map((robot) => [robot.label, robot.sigma]));
-  const alliance = Math.sqrt(sigmaMatchBandVariance(roster.length, allianceSwingBandVariance(roster, sigmaByRobot)) ?? 0);
+  const alliance = Math.sqrt(sigmaMatchBandVariance(roster.length, allianceSigmaBandVariance(roster, sigmaByRobot)) ?? 0);
   const straightSum = robots.reduce((sum, robot) => sum + robot.sigma, 0);
   const xFor = (points: number) => PLOT_LEFT + (points / F4_VALUE_MAX) * FIGURE_PLOT_W;
   const lengthOf = (points: number) => xFor(points) - PLOT_LEFT;

@@ -279,9 +279,9 @@ function fixture(
 
 /**
  * The PRIOR event — the season history the live event's Worker resumes from.
- * Four matches is enough for every team to clear the Swing Factor's
- * two-observation rule, so the band gate is open for opr/epa as well as for
- * the Sigma-scored spr by the time the live event starts.
+ * Four matches of history per team, so the Sigma-scored spr starts the live
+ * event from warm beliefs. (Since quick task 260913-it4 opr and epa publish no
+ * ranking points at all, so this history only matters to spr's pmf.)
  */
 const PRIOR_FIXTURES: readonly MatchFixture[] = [
   fixture(PRIOR_EVENT_KEY, 1, ["frc1", "frc2", "frc3"], ["frc4", "frc5", "frc6"], 120, 95, 140, 90, 42, 28),
@@ -578,31 +578,54 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
   );
 
   it(
-    "the LIVE pmf stream EQUALS an independent offline SigmaScoutLayer replay of the same matches, for every published algorithm",
+    "spr: the LIVE pmf stream EQUALS an independent offline SigmaScoutLayer replay of the same matches",
     async () => {
       const { r2 } = await driveFixture();
+      const algorithmId = "spr";
+      const offline = offlineRpRows(algorithmId);
+      // Non-vacuity on the OFFLINE arm too: two empty streams digest
+      // identically, so the comparison below would pass on a fixture where
+      // the band gate never opened.
+      expect(
+        offline.filter((r) => r.red !== undefined || r.blue !== undefined).length,
+        `algorithm "${algorithmId}": the offline arm produced no pmf at all, so the digest comparison would be vacuous`
+      ).toBeGreaterThan(0);
 
-      for (const algorithmId of ["opr", "epa", "spr"] as const) {
-        const offline = offlineRpRows(algorithmId);
-        // Non-vacuity on the OFFLINE arm too: two empty streams digest
-        // identically, so the comparison below would pass on a fixture where
-        // the band gate never opened.
-        expect(
-          offline.filter((r) => r.red !== undefined || r.blue !== undefined).length,
-          `algorithm "${algorithmId}": the offline arm produced no pmf at all, so the digest comparison would be vacuous`
-        ).toBeGreaterThan(0);
+      const online = (await publishedLiveRows(r2, algorithmId)).map((row) => ({
+        matchKey: row.matchKey,
+        red: row.redRpPmf,
+        blue: row.blueRpPmf,
+      }));
 
-        const online = (await publishedLiveRows(r2, algorithmId)).map((row) => ({
-          matchKey: row.matchKey,
-          red: row.redRpPmf,
-          blue: row.blueRpPmf,
-        }));
+      expect(
+        computeRpStreamDigest(online),
+        `algorithm "${algorithmId}": the live (deployed-tick) and offline (SigmaScoutLayer) RP pmf streams diverged — the live Worker priced these matches from a different history`
+      ).toBe(computeRpStreamDigest(offline));
+    },
+    60_000
+  );
 
-        expect(
-          computeRpStreamDigest(online),
-          `algorithm "${algorithmId}": the live (deployed-tick) and offline (SigmaScoutLayer) RP pmf streams diverged — the live Worker priced these matches from a different history`
-        ).toBe(computeRpStreamDigest(offline));
-      }
+  /** Quick task 260913-it4: OPR and EPA publish no ranking points, live or offline. */
+  async function expectNoRpLiveOrOffline(r2: FakeR2Bucket, algorithmId: "opr" | "epa"): Promise<void> {
+    const offline = offlineRpRows(algorithmId);
+    expect(offline.length, `algorithm "${algorithmId}": the offline arm produced rows`).toBe(LIVE_FIXTURES.length);
+    expect(offline.every((r) => r.red === undefined && r.blue === undefined), `algorithm "${algorithmId}": offline pmf present`).toBe(true);
+
+    const online = await publishedLiveRows(r2, algorithmId);
+    expect(online.every((row) => row !== undefined), `algorithm "${algorithmId}": every live fixture match was published`).toBe(true);
+    for (const row of online) {
+      expect(row.redRpPmf, `algorithm "${algorithmId}": live redRpPmf on ${row.matchKey}`).toBeUndefined();
+      expect(row.blueRpPmf, `algorithm "${algorithmId}": live blueRpPmf on ${row.matchKey}`).toBeUndefined();
+      expect(row.matchOutcomePmf, `algorithm "${algorithmId}": live matchOutcomePmf on ${row.matchKey}`).toBeUndefined();
+    }
+  }
+
+  it(
+    "opr and epa: neither the live tick nor the offline layer produces a ranking-point pmf (quick task 260913-it4)",
+    async () => {
+      const { r2 } = await driveFixture();
+      await expectNoRpLiveOrOffline(r2, "opr");
+      await expectNoRpLiveOrOffline(r2, "epa");
     },
     60_000
   );

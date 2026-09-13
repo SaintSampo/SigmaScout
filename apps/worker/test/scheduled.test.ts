@@ -432,13 +432,11 @@ describe("runTick — one live event, one new match", () => {
     for (const teamKey of RED_TEAMS) {
       const row = d1.algorithmState.get(`opr::team::${teamKey}`);
       expect(row).toBeDefined();
-      // Shape 10: the row carries OPR's own `lastEventKey` AND the level-2
-      // `sigmascoutSwing` passenger, which no algorithm serializer knows about
-      // (`withSwingBeliefs`). One observation so far, hence weight 1 and no
-      // spread yet — an effective sample of one cannot support one.
+      // The row carries OPR's own `lastEventKey` and NOTHING else: OPR has no
+      // Sigma Score and, since quick task 260913-it4, no ranking-point
+      // passenger, so no level-2 key rides on its team rows.
       expect(JSON.parse(row!.state_json)).toEqual({
         lastEventKey: "2026casj",
-        sigmascoutSwing: { weight: 1, weightSquares: 1, mean: 40, m2: 0 },
       });
     }
     expect(d1.algorithmState.get("opr::event::2026casj")).toBeDefined();
@@ -860,10 +858,10 @@ describe("runTick — global rebuild (D-16)", () => {
    * publisher owns. The test above proves an UNTOUCHED row survives; this one
    * covers the case that was actually broken — the rebuild rebuilt each touched
    * row field-by-field, so a team that played a match silently lost its region
-   * (and with it its district/state rank scopes) and its Swing Factor until the
-   * next offline publish.
+   * (and with it its district/state rank scopes) and its per-team consistency
+   * figure until the next offline publish.
    */
-  it("260908-5wd: a TOUCHED team's row keeps its offline-published region fields, and a stale swingFactor does not survive (260913-g66)", async () => {
+  it("260908-5wd: a TOUCHED team's row keeps its offline-published region fields, and a stale unknown per-team field does not survive (260913-g66)", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([window]);
     const d1 = new FakeD1Database();
@@ -891,7 +889,7 @@ describe("runTick — global rebuild (D-16)", () => {
             metrics: { total: { value: 10, spread: 1 }, sigma: { value: 3.25, tier: "epic" } },
             eventCount: 1,
             matchCount: 2,
-            swingFactor: 27.5,
+            legacyPerTeamField: 27.5,
             country: "USA",
             stateProv: "CA",
             districtKey: "2026fim",
@@ -914,17 +912,17 @@ describe("runTick — global rebuild (D-16)", () => {
     const teamsPut = r2.puts.filter((p) => p.key === teamsKey).at(-1);
     const written = JSON.parse(teamsPut!.body) as {
       metricKeys: string[];
-      teams: { teamKey: string; metrics: unknown; swingFactor?: number; country?: string; stateProv?: string; districtKey?: string; matchCount: number }[];
+      teams: { teamKey: string; metrics: unknown; legacyPerTeamField?: number; country?: string; stateProv?: string; districtKey?: string; matchCount: number }[];
     };
     const touched = written.teams.find((t) => t.teamKey === "frc1");
     expect(touched).toBeDefined();
     // Quick task 260912-tnk: the published Sigma entry survives, value and tier.
     expect(decodeTeamsRowMetrics(touched!.metrics as never, written.metricKeys).sigma).toEqual({ value: 3.25, tier: "epic" });
 
-    // Quick task 260913-g66: the retired per-team swing field is stripped on
+    // Quick task 260913-g66: a retired or unknown per-team field is stripped on
     // parse and never rewritten, so a stale artifact's value does not ride
     // forward through a live tick.
-    expect(touched!, "a live tick must not carry a retired per-team swing field forward").not.toHaveProperty("swingFactor");
+    expect(touched!, "a live tick must not carry an unknown per-team field forward").not.toHaveProperty("legacyPerTeamField");
     // Publisher-owned: preserved through the tick.
     expect(touched!.country).toBe("USA");
     expect(touched!.stateProv).toBe("CA");
@@ -962,11 +960,11 @@ describe("260912-tnk: live Teams-row tiers", () => {
     expect(touchedTeamsRowMetrics(undefined, { total: { value: 12 } })).toEqual({ total: { value: 12 } });
   });
 
-  it("the prior row's Sigma entry (value and tier) is carried forward unchanged after the fresh entries, and a stale Swing entry is not (260913-g66)", () => {
-    const prior = { total: { value: 100, tier: "epic" as const }, sigma: { value: 3.25, tier: "legendary" as const }, swing: { value: 9.5, tier: "rare" as const } };
+  it("the prior row's Sigma entry (value and tier) is carried forward unchanged after the fresh entries, and a stale retired consistency entry is not (260913-g66)", () => {
+    const prior = { total: { value: 100, tier: "epic" as const }, sigma: { value: 3.25, tier: "legendary" as const }, legacyConsistency: { value: 9.5, tier: "rare" as const } };
     const result = touchedTeamsRowMetrics(prior, { total: { value: 101 } });
     expect(result.sigma).toEqual({ value: 3.25, tier: "legendary" });
-    expect(result).not.toHaveProperty("swing");
+    expect(result).not.toHaveProperty("legacyConsistency");
     expect(Object.keys(result)).toEqual(["total", "sigma"]);
   });
 

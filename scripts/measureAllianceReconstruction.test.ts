@@ -306,7 +306,7 @@ describe("strengthBucketIndex", () => {
   });
 });
 
-describe("parseSeasons (reused from measureSwingSkill.ts)", () => {
+describe("parseSeasons (reused from scriptHelpers.ts)", () => {
   it("expands a range", () => {
     expect(parseSeasons("2024-2026")).toEqual([2024, 2025, 2026]);
   });

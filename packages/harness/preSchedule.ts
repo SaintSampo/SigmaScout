@@ -370,7 +370,7 @@ export interface FieldContributionInputs {
   readonly roster: readonly string[];
   /** The season's walk-forward per-team RP beliefs — `SigmaScoutLayer.rpAccumulator`. */
   readonly rpAccumulator: RpMomentsAccumulator | undefined;
-  /** `SigmaScoutLayer.consistencyByTeam()` — Sigma Score for BPR, Swing Factor otherwise. */
+  /** `SigmaScoutLayer.consistencyByTeam()` — Sigma Score for SPR; empty for algorithms without one. */
   readonly consistencyByTeam: ReadonlyMap<string, number>;
   /** `algorithm.teamMetrics(pricingState, roster)[team][TOTAL_METRIC_KEY].value`, per team. */
   readonly teamTotals: ReadonlyMap<string, number>;
@@ -436,8 +436,8 @@ export function buildFieldContributions(inputs: FieldContributionInputs): FieldT
       variableMeans: own.meanVector,
       variableVariances: own.varianceBlock.map((row, i) => row[i] ?? 0),
       scoreMean: teamTotals.get(teamKey) as number,
-      // Squared: `allianceSwingBandVariance`'s own per-team term is
-      // `swing * swing`, so this is the identical quantity under the
+      // Squared: `allianceSigmaBandVariance`'s own per-team term is
+      // `sigma * sigma`, so this is the identical quantity under the
       // identical convention.
       bandVariance: consistency * consistency,
     };

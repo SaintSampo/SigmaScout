@@ -6,13 +6,15 @@
  * `AllianceRpMoments` per alliance; Sigma1 produced one from its own Kalman
  * state (in the retired Sigma1 core, since deleted), which is exactly why ranking points died with
  * it. This module produces the same contract from NOTHING BUT PAST RESULTS —
- * no model state, no per-team rating, no algorithm import — so every algorithm
- * gets ranking points, including OPR and EPA, which model no uncertainty at
- * all.
+ * no model state, no per-team rating, no algorithm import. The module itself
+ * is algorithm-agnostic; which algorithms PUBLISH ranking points is decided by
+ * the harness (`publishesRankingPoints` in `packages/harness/sigmaScore.ts`):
+ * since quick task 260913-it4 that is Sigma algorithms (SPR) only, because the
+ * pmf also needs a per-robot score variance and only Sigma Score supplies one.
  *
- * It is a level-2 SigmaScout feature in exactly the sense `swingFactor.ts` is,
- * and it is built the same way: a team's share of an alliance-level
- * observation, recency-weighted, folded walk-forward.
+ * It is a level-2 SigmaScout feature, built the same way Sigma Score is: a
+ * team's share of an alliance-level observation, recency-weighted, folded
+ * walk-forward.
  *
  * ---------------------------------------------------------------------------
  * WHAT IS OBSERVED, AND HOW IT IS SPLIT
@@ -22,7 +24,7 @@
  * 2026, `hubTotalCount` (a raw fuel count) and `totalTowerPoints`. FRC records
  * no per-robot breakdown (this project's Assumption A1), so a team's share is
  * the even split `value / rosterSize`, the identical inference
- * `swingFactor.ts` makes for score residuals and with the identical caveat: it
+ * `sigmaScore.ts` makes for score residuals and with the identical caveat: it
  * absorbs partners' contributions and is a genuinely noisy per-robot estimate.
  *
  * An alliance's predicted mean is then the sum of its three teams' means, and
@@ -52,8 +54,10 @@
  *      same reason. Same justification, and the same direction of error.
  *
  *   3. VARIANCE IS ABOUT THE TEAM'S OWN MEAN, not about zero, and uses the
- *      same effective-sample denominator `swingFactor.ts` documents — so one
- *      observation yields no variance rather than a fake zero.
+ *      effective-sample denominator `W − W2/W` (recency-weighted count minus
+ *      the sum of squared weights over it), which is exactly 0 after a single
+ *      observation — so one observation yields no variance rather than a fake
+ *      zero.
  *
  * All three make the predicted distribution NARROWER and less correlated than
  * reality. The published effect is bonus probabilities pulled toward the
@@ -64,7 +68,20 @@
 import type { AllianceRpMoments } from "./moments.js";
 import type { RpRuleModule } from "./constants.js";
 
-/** Matches `swingFactor.ts` — the same 6-match half-life, measured there. */
+/**
+ * Half-life in matches: an observation six matches old counts half as much as
+ * the newest.
+ *
+ * MEASURED, not chosen — but measured for the retired per-robot consistency
+ * accumulator, whose half-life this RP layer adopted. That measurement swept the
+ * half-life walk-forward over 275,172 team-matches (2024-2026) against how well
+ * the estimate predicts a team's ACTUAL next-match deviation. 6 sits at the top
+ * of a plateau spanning roughly 4 to 12, where decay beats a flat average by
+ * 2.3%. A future re-measurement landing on 5 or 8 would not contradict it.
+ *
+ * The accumulator it was measured for was deleted by quick task 260913-it4; this
+ * constant is still live here, so its provenance is recorded here.
+ */
 export const RP_MOMENTS_HALF_LIFE_MATCHES = 6;
 
 const DECAY = 0.5 ** (1 / RP_MOMENTS_HALF_LIFE_MATCHES);
@@ -223,7 +240,7 @@ export class RpMomentsAccumulator {
    * as an even split of the alliance value.
    *
    * A non-finite observation is skipped rather than folded — the same
-   * discipline `swingFactor.ts` applies, and for the same reason: a coerced
+   * discipline `SigmaScoreAccumulator.fold` applies, and for the same reason: a coerced
    * value would quietly corrupt every later prediction for that team.
    */
   fold(roster: readonly string[], observedThresholdVariables: Readonly<Record<string, number>>): void {
@@ -252,7 +269,7 @@ export class RpMomentsAccumulator {
    * Every team's RAW running state, for the D1 seed the live Worker resumes
    * from (shape 15, plan 09-08).
    *
-   * The same distinction `SwingFactorAccumulator.beliefsByTeam()` draws, and
+   * The same distinction `SigmaScoreAccumulator.beliefsByTeam()` draws, and
    * for the same reason: this is the raw running state, NOT `momentsFor`'s
    * derived output. A team with a single observation must carry that
    * observation forward, or its first live match would fold against an empty

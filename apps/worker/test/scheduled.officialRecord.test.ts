@@ -154,7 +154,7 @@ describe("mergeTeamSeasonArtifact — official-only seasonStats.record (quick ta
  *
  * Before this, `mergeTeamSeasonArtifact` constructed a fresh object naming
  * twelve fields, so the first live tick touching a team silently deleted its
- * rank cards, its robot photo, its active-years list and its Swing Factor —
+ * rank cards, its robot photo, its active-years list and its per-team consistency figure —
  * for the rest of the event, until the next offline publish restored them.
  * There was no error and no log line; the team page simply got worse mid-event.
  */
@@ -174,7 +174,7 @@ describe("mergeTeamSeasonArtifact — preserves offline-published fields (quick 
       events: [],
       metricHistory: [],
       // The publisher-owned fields a tick must not touch:
-      swingFactor: 33.25,
+      legacyPerTeamField: 33.25,
       robotImageUrl: "https://example.test/robot.jpg",
       activeYears: [2024, 2025, 2026],
       ranks: { world: { rank: 7, total: 3706 } },
@@ -199,17 +199,17 @@ describe("mergeTeamSeasonArtifact — preserves offline-published fields (quick 
     }) as TeamSeasonArtifact;
   }
 
-  it("does not carry a stale artifact's retired per-team swing field forward (quick task 260913-g66)", () => {
+  it("does not carry a stale artifact's retired or unknown per-team field forward (quick task 260913-g66)", () => {
     // `runTick` parses `existing` through `TeamSeasonArtifactSchema` before
     // merging, which strips the retired key; merging the parsed object is the
     // production path. `ranks` is dropped here only because this fixture's
     // loose shape is not what that test is about.
     const { ranks: _ranks, ...stale } = existingArtifact() as unknown as Record<string, unknown>;
     const parsed = TeamSeasonArtifactSchema.parse(stale);
-    expect(parsed).not.toHaveProperty("swingFactor");
-    expect(mergeOnto(parsed)).not.toHaveProperty("swingFactor");
+    expect(parsed).not.toHaveProperty("legacyPerTeamField");
+    expect(mergeOnto(parsed)).not.toHaveProperty("legacyPerTeamField");
     // The merge itself never writes one either.
-    expect(mergeOne(makeMatch())).not.toHaveProperty("swingFactor");
+    expect(mergeOne(makeMatch())).not.toHaveProperty("legacyPerTeamField");
   });
 
   it("keeps the robot photo, the active-years list and the rank scopes", () => {
@@ -232,7 +232,7 @@ describe("mergeTeamSeasonArtifact — preserves offline-published fields (quick 
 
   it("is unchanged for a first-ever artifact, where there is nothing to preserve", () => {
     const artifact = mergeOne(makeMatch());
-    expect(artifact).not.toHaveProperty("swingFactor");
+    expect(artifact).not.toHaveProperty("legacyPerTeamField");
     expect(artifact.teamNumber).toBe(1);
   });
 });

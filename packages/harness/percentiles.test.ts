@@ -23,7 +23,7 @@ import {
   withPercentiles,
   withPoolPercentiles,
 } from "./percentiles.js";
-import { SWING_METRIC_KEY } from "./swingFactor.js";
+import { SIGMA_METRIC_KEY } from "./sigmaScore.js";
 
 describe("percentileRanks", () => {
   it("mid-rank convention on distinct values (D-04)", () => {
@@ -141,15 +141,15 @@ describe("withPercentiles", () => {
     expect(result.frc2?.[TOTAL_METRIC_KEY]?.percentile).toBeGreaterThan(result.frc1?.[TOTAL_METRIC_KEY]?.percentile!);
   });
 
-  it("a metric record containing a declared lower-is-better name (swing) ranks INVERTED -- the lower value receives the higher percentile", () => {
+  it("a metric record containing a declared lower-is-better name (sigma) ranks INVERTED -- the lower value receives the higher percentile", () => {
     const metrics: TeamMetrics = {
-      frc1: { [SWING_METRIC_KEY]: { value: 10 } },
-      frc2: { [SWING_METRIC_KEY]: { value: 20 } },
+      frc1: { [SIGMA_METRIC_KEY]: { value: 10 } },
+      frc2: { [SIGMA_METRIC_KEY]: { value: 20 } },
     };
     const result = withPercentiles(metrics, ["frc1", "frc2"]);
-    // frc1 has the LOWER raw swing value and must receive the HIGHER percentile.
-    expect(result.frc1?.[SWING_METRIC_KEY]?.percentile).toBe(75);
-    expect(result.frc2?.[SWING_METRIC_KEY]?.percentile).toBe(25);
+    // frc1 has the LOWER raw sigma value and must receive the HIGHER percentile.
+    expect(result.frc1?.[SIGMA_METRIC_KEY]?.percentile).toBe(75);
+    expect(result.frc2?.[SIGMA_METRIC_KEY]?.percentile).toBe(25);
   });
 });
 
@@ -258,13 +258,13 @@ describe("sortedPoolsByMetric (D-06.1-A, plan 06.1-03 Task 1)", () => {
  * ranking helper every published pool-ranked percentile goes through.
  */
 describe("goodnessPercentileAgainstPools (quick task 260912-tnk)", () => {
-  it("a declared lower-is-better name (swing) inverts exactly as withPercentiles does", () => {
-    const metrics: TeamMetrics = { frc1: { [SWING_METRIC_KEY]: { value: 10 } }, frc2: { [SWING_METRIC_KEY]: { value: 20 } } };
+  it("a declared lower-is-better name (sigma) inverts exactly as withPercentiles does", () => {
+    const metrics: TeamMetrics = { frc1: { [SIGMA_METRIC_KEY]: { value: 10 } }, frc2: { [SIGMA_METRIC_KEY]: { value: 20 } } };
     const pools = sortedPoolsByMetric(metrics, ["frc1", "frc2"]);
     const widened = withPercentiles(metrics, ["frc1", "frc2"]);
-    expect(goodnessPercentileAgainstPools(pools, SWING_METRIC_KEY, 10)).toBe(75);
-    expect(goodnessPercentileAgainstPools(pools, SWING_METRIC_KEY, 10)).toBe(widened.frc1?.[SWING_METRIC_KEY]?.percentile);
-    expect(goodnessPercentileAgainstPools(pools, SWING_METRIC_KEY, 20)).toBe(widened.frc2?.[SWING_METRIC_KEY]?.percentile);
+    expect(goodnessPercentileAgainstPools(pools, SIGMA_METRIC_KEY, 10)).toBe(75);
+    expect(goodnessPercentileAgainstPools(pools, SIGMA_METRIC_KEY, 10)).toBe(widened.frc1?.[SIGMA_METRIC_KEY]?.percentile);
+    expect(goodnessPercentileAgainstPools(pools, SIGMA_METRIC_KEY, 20)).toBe(widened.frc2?.[SIGMA_METRIC_KEY]?.percentile);
   });
 
   it("two values that collide at 2 decimals share a percentile", () => {

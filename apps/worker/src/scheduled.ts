@@ -64,7 +64,7 @@
  * Stub in this plan's SUMMARY, not a silent gap.
  *
  * TIERS (quick task 260912-tnk): a touched row keeps the prior row's
- * published rarity `tier` per metric key and its published Sigma/Swing entry
+ * published rarity `tier` per metric key and its published Sigma entry
  * (`touchedTeamsRowMetrics`), so the Teams list never falls back to a false
  * Common mid-event. Tiers are CARRIED, not re-derived: re-ranking every row
  * with the pipeline's helper was measured at 67-97% of this rebuild's existing
@@ -138,15 +138,18 @@ import {
   readSigmaBeliefs,
   readSigmaPopulation,
   readRpBeliefs,
-  readSwingBeliefs,
   serializeState,
   withRpBeliefs,
   withSigmaBeliefs,
   withSigmaPopulation,
-  withSwingBeliefs,
 } from "../../../packages/harness/stateSnapshot.js";
-import { SwingFactorAccumulator } from "../../../packages/harness/swingFactor.js";
-import { SIGMA_METRIC_KEY, SigmaScoreAccumulator, sigmaMatchBandVariance, usesSigmaScore } from "../../../packages/harness/sigmaScore.js";
+import {
+  publishesRankingPoints,
+  SIGMA_METRIC_KEY,
+  SigmaScoreAccumulator,
+  sigmaMatchBandVariance,
+  usesSigmaScore,
+} from "../../../packages/harness/sigmaScore.js";
 import { TOTAL_METRIC_KEY } from "../../../packages/core/algorithms/types.js";
 import {
   artifactKey,
@@ -809,7 +812,7 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
   // time a live tick touched a team. Measured against the schema, a touched
   // team was silently losing `ranks` (its rank cards), `robotImageUrl` (its
   // photo, replaced by the no-photo tile), `activeYears` (narrowing its year
-  // dropdown) and, at the time, its Swing Factor — for the rest of the event,
+  // dropdown) and, at the time, its per-team consistency figure — for the rest of the event,
   // until the next offline publish put them back. (Quick task 260913-g66
   // retired that per-team field; the schema now strips it on parse.)
   //
@@ -1073,29 +1076,25 @@ async function processEvent(
         const { rows, state: initialState } = await loadOrInitState(env.DB, algorithmId, selections, algorithm);
 
         let state = initialState;
-        // The level-2 Swing accumulator, RESUMED from the beliefs seeded into
-        // these very rows (shape 10) rather than started fresh. A fresh one
-        // would produce a band from this event's matches alone while the
-        // offline publisher's came from the whole season — live and offline
-        // disagreeing with both sides looking healthy, which is exactly what
-        // the shape bump exists to prevent.
-        const swing = SwingFactorAccumulator.fromBeliefs(readSwingBeliefs(rows));
-        // SIGMA SCORE, for the algorithms that publish it (BPR today). Resumed
-        // from the same rows, WITH the population statistics the talent prior
-        // needs: without them the prior silently falls back to its flat form
+        // SIGMA SCORE, for the algorithms that publish it (SPR today). RESUMED
+        // from the beliefs seeded into these very rows rather than started
+        // fresh — a fresh one would produce a band from this event's matches
+        // alone while the offline publisher's came from the whole season — and
+        // WITH the population statistics the talent prior needs: without them
+        // the prior silently falls back to its flat form
         // (`MIN_POPULATION_FOR_TALENT_PRIOR`) and every band this tick writes
         // would differ from the publisher's while looking healthy.
         const sigma = usesSigmaScore(algorithmId)
           ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(rows), readSigmaPopulation(rows))
           : undefined;
-        // One alliance's WIN-ODDS variance, from whichever estimator this
-        // algorithm is on. ONE accessor so the played loop, the upcoming loop
-        // and the persisted rows below cannot disagree about which one that is.
-        // This is what `rpFieldsFor` reads, exactly as before quick task
-        // 260913-g66; the published display band is derived from it by
-        // `displayBandFor` below, for Sigma algorithms only.
+        // One alliance's WIN-ODDS variance, from the Sigma accumulator, or
+        // `undefined` for an algorithm without one (OPR, EPA — which since quick
+        // task 260913-it4 publish no ranking-point odds). ONE accessor so the
+        // played loop and the upcoming loop cannot disagree. This is what
+        // `rpFieldsFor` reads; the published display band is derived from it
+        // by `displayBandFor` below.
         const winOddsVarianceFor = (roster: readonly string[]): number | undefined =>
-          sigma === undefined ? swing.bandVarianceFor(roster) : sigma.bandVarianceFor(roster);
+          sigma === undefined ? undefined : sigma.bandVarianceFor(roster);
         // The published Match Band for one match, through the SAME helper
         // `SigmaScoutLayer.foldPlayed` / `enrichUpcoming` use offline, so a live
         // band and an offline band cannot drift. OPR and EPA publish none.
@@ -1111,7 +1110,7 @@ async function processEvent(
         };
 
         // RANKING POINTS (shape 15, plan 09-08, D-21). Resumed from the very
-        // same rows, for the identical reason the two accumulators above are:
+        // same rows, for the identical reason the Sigma accumulator above is:
         // a cold-started accumulator would price this match from THIS EVENT's
         // matches alone while the offline publisher priced it from the whole
         // season, and an RP pmf that is wrong is still a valid distribution —
@@ -1122,8 +1121,10 @@ async function processEvent(
         // rules (2021, and anything before the vocabulary starts) must yield
         // no accumulator and no RP at all rather than taking the whole tick
         // down — the same "absent feature, not empty feature" construction
-        // `SigmaScoutLayer`'s own constructor performs.
-        const rpRuleModule = RP_RULE_MODULES[window.season];
+        // `SigmaScoutLayer`'s own constructor performs. Likewise an algorithm
+        // that publishes no ranking points (`publishesRankingPoints`, quick task
+        // 260913-it4) gets no accumulator, and its rows carry no RP passenger.
+        const rpRuleModule = publishesRankingPoints(algorithmId) ? RP_RULE_MODULES[window.season] : undefined;
         const rpBeliefs = readRpBeliefs(rows);
         const rp = rpRuleModule !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs) : undefined;
         // Teams whose beliefs this tick actually resumed, plus the teams it
@@ -1148,7 +1149,7 @@ async function processEvent(
           if (!isRpEligibleEventType(view.eventType)) return {};
           if (redBandVariance === undefined || blueBandVariance === undefined) return {};
           // THE PARTIAL-ROSTER GATE — the RP counterpart of
-          // `allianceSwingBandVariance`'s all-or-nothing rule.
+          // `allianceSigmaBandVariance`'s all-or-nothing rule.
           //
           // The Worker reads state only for the teams touched by THIS tick's
           // newly-folded matches, so an upcoming match can name a team whose
@@ -1240,7 +1241,6 @@ async function processEvent(
             ...rpFieldsFor(result, prediction, redWinOddsVariance, blueWinOddsVariance),
           });
           state = algorithm.update(state, result);
-          swing.foldMatch(result, prediction);
           sigma?.foldMatch(result, prediction);
           foldObservedRp(result);
           // Talent AFTER the fold, read from the post-update state — the exact
@@ -1279,14 +1279,8 @@ async function processEvent(
         const touchedMetrics = algorithm.teamMetrics(state, touchedTeams);
 
         // The beliefs ride back into the rows after the algorithm serializer
-        // has run, so no algorithm's serializer knows they exist. Swing is
-        // ALWAYS persisted, including for a Sigma algorithm: its accumulator is
-        // still folded above, and dropping it would strand any later change
-        // wanting it back with no history to resume from.
-        let candidateRows = withSwingBeliefs(
-          serializeState(algorithmId, algorithm.version, state, stamp),
-          swing.beliefsByTeam()
-        );
+        // has run, so no algorithm's serializer knows they exist.
+        let candidateRows = serializeState(algorithmId, algorithm.version, state, stamp);
         // The RP passenger rides back in the same way and in the same place
         // (shape 15) — after `serializeState`, so no algorithm's serializer
         // knows the key exists, and at zero additional D1 subrequests: these
@@ -1452,7 +1446,7 @@ type TierableTeamMetric = { value: number; spread?: number; percentile?: number;
  *   that entry and it carries a tier. A key the prior row lacks gets no tier,
  *   and "common" is never written (absence means Common or unranked).
  * - The prior row's `SIGMA_METRIC_KEY` entry (value and tier) is carried
- *   forward unchanged. (Quick task 260913-g66 dropped the Swing metric key from
+ *   forward unchanged. (Quick task 260913-g66 dropped the retired consistency metric key from
  *   this carry: no algorithm publishes it any more.) The live tick does not compute the
  *   season-final consistency figure, so the published one is kept rather than
  *   dropped; before this task a touched spr team lost its Sigma value and tier
@@ -1512,7 +1506,7 @@ export function touchedTeamsRowMetrics(
  *
  * Quick task 260912-tnk: a touched row's metrics go through
  * `touchedTeamsRowMetrics`, which carries the prior row's published tiers and
- * Sigma/Swing entry forward instead of dropping them. Zero added subrequests;
+ * Sigma entry forward instead of dropping them. Zero added subrequests;
  * the added CPU is one small object per touched metric. Full tier
  * re-derivation was measured and rejected on CPU (see that function).
  */
@@ -1548,7 +1542,7 @@ async function runGlobalRebuild(env: Env, budget: SubrequestBudget, algorithmMod
         // field, so a touched team silently lost every optional field the
         // offline publisher wrote — `country`, `stateProv`, `districtKey`
         // (its region, and with it its district/state rank scopes) and, at the
-        // time, its Swing Factor (retired by quick task 260913-g66). Tick-owned
+        // time, its per-team consistency figure (retired by quick task 260913-g66). Tick-owned
         // fields stay listed below.
         return {
           ...prior,

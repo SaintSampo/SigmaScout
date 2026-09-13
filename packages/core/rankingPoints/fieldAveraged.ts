@@ -110,7 +110,7 @@ export interface FieldTeamContribution {
   readonly variableVariances: readonly number[];
   /** The algorithm's own per-team total (`TOTAL_METRIC_KEY`). */
   readonly scoreMean: number;
-  /** The team's consistency figure SQUARED — Sigma Score for BPR, Swing Factor otherwise. Matches `allianceSwingBandVariance`'s per-team term exactly. */
+  /** The team's consistency figure SQUARED — Sigma Score for SPR; algorithms without one publish no ranking points. Matches `allianceSigmaBandVariance`'s per-team term exactly. */
   readonly bandVariance: number;
 }
 

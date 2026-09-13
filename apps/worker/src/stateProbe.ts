@@ -92,18 +92,15 @@ import {
 import {
   deserializeState,
   serializeState,
-  readSwingBeliefs,
   readSigmaBeliefs,
   readSigmaPopulation,
   readRpBeliefs,
-  withSwingBeliefs,
   withSigmaBeliefs,
   withSigmaPopulation,
   withRpBeliefs,
   STATE_SNAPSHOT_SHAPE_VERSION,
   type StateStamp,
 } from "../../../packages/harness/stateSnapshot.js";
-import { SwingFactorAccumulator } from "../../../packages/harness/swingFactor.js";
 import { SigmaScoreAccumulator, usesSigmaScore } from "../../../packages/harness/sigmaScore.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
 import { analyticRpPmf } from "../../../packages/core/rankingPoints/analyticPmf.js";
@@ -404,7 +401,7 @@ interface ProbeResponseBody {
   readonly warnings: readonly string[];
 }
 
-/** A literal, never a clock read — see this file's header on why the probe must not time itself. `serializeState`/`withSwingBeliefs`/etc. all thread a stamp through, and this probe's rows are discarded, so the stamp's actual value is inert; it exists only because the shared serializer contract requires one. */
+/** A literal, never a clock read — see this file's header on why the probe must not time itself. `serializeState`/`withSigmaBeliefs`/etc. all thread a stamp through, and this probe's rows are discarded, so the stamp's actual value is inert; it exists only because the shared serializer contract requires one. */
 const PROBE_STAMP: StateStamp = { generation: "probe", computedAt: "1970-01-01T00:00:00.000Z" };
 
 async function readAndDeserializeAll(
@@ -487,7 +484,7 @@ async function readAndDeserializeAll(
 /**
  * The fold, `spr` ONLY — matching `wrangler.toml`'s tracked
  * `LIVE_ALGORITHM_IDS`. Drives the SAME sequence `scheduled.ts:1080-1300`
- * drives, in the same order: resume Swing/Sigma/RP accumulators from the
+ * drives, in the same order: resume Sigma/RP accumulators from the
  * rows just read, price `folded` played matches (predict, band, RP fields,
  * update, fold), then price `upcoming` still-upcoming matches (predict,
  * band, RP fields — read-only), then serialize-and-discard.
@@ -509,15 +506,16 @@ async function readAndDeserializeAll(
  *     - the whole upcoming-repricing loop, `dabe9acd` (04-06, 2026-08-22).
  *       Phase 9 added `analyticRpPmf` INTO an already-costly loop; it did not
  *       create the loop.
- *     - every `bandFor` call in both loops: `63596da3` (2026-09-09) as
- *       `swing.bandVarianceFor`, then `447395a1` (2026-09-10) as the
- *       Sigma-dispatching `bandFor` closure. Both land BEFORE Phase 9's first
+ *     - every `bandFor` call in both loops: `63596da3` (2026-09-09) as the
+ *       retired per-robot consistency accumulator's band variance, then
+ *       `447395a1` (2026-09-10) as the Sigma-dispatching `bandFor` closure,
+ *       Sigma-only since quick task 260913-it4. Both land BEFORE Phase 9's first
  *       commit (2026-09-11), so `bandsProduced` must come out IDENTICAL in the
  *       two arms — `stateProbe.test.ts` asserts exactly that. Ablating the
  *       bands would credit Phase 9 with work that was already there and
  *       overstate its share of the overrun.
- *     - `spr.predict`/`spr.update`, Swing/Sigma folds, the talent read, and
- *       `serializeState` + the Swing/Sigma passengers.
+ *     - `spr.predict`/`spr.update`, the Sigma fold, the talent read, and
+ *       `serializeState` + the Sigma passengers.
  */
 function runSprFold(
   sprRows: StateRow[],
@@ -547,9 +545,8 @@ function runSprFold(
     // Resumed from the rows just read — a fresh accumulator would price
     // these synthetic matches from nothing, which answers a different
     // question than "what does a REAL tick's resumed fold cost".
-    const swing = SwingFactorAccumulator.fromBeliefs(readSwingBeliefs(sprRows));
     const sigma = usesSigmaScore("spr") ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(sprRows), readSigmaPopulation(sprRows)) : undefined;
-    const bandFor = (roster: readonly string[]): number | undefined => (sigma === undefined ? swing.bandVarianceFor(roster) : sigma.bandVarianceFor(roster));
+    const bandFor = (roster: readonly string[]): number | undefined => (sigma === undefined ? undefined : sigma.bandVarianceFor(roster));
 
     // Indexed lookup, never `rpRuleModuleForSeason` (which throws for an
     // unmapped season) — an unregistered season yields no accumulator and a
@@ -658,7 +655,6 @@ function runSprFold(
       if (fields.redRpPmf !== undefined) rpPmfsProduced++;
 
       state = spr.update(state, result);
-      swing.foldMatch(result, prediction);
       sigma?.foldMatch(result, prediction);
       foldObservedRp(result);
       // Talent AFTER the fold, from the post-update state — mirrors
@@ -693,7 +689,7 @@ function runSprFold(
     // Serialize-and-discard: the write payload's construction is part of a
     // real tick's CPU, so this probe pays it too — then throws the rows
     // away rather than calling `writeScopedState` (this file's header).
-    let candidateRows = withSwingBeliefs(serializeState("spr", spr.version, state, PROBE_STAMP), swing.beliefsByTeam());
+    let candidateRows = serializeState("spr", spr.version, state, PROBE_STAMP);
     if (rp !== undefined) candidateRows = withRpBeliefs(candidateRows, rp.beliefsByTeam());
     if (sigma !== undefined) {
       candidateRows = withSigmaPopulation(withSigmaBeliefs(candidateRows, sigma.beliefsByTeam()), sigma.population());
@@ -745,7 +741,7 @@ function buildWarnings(params: {
   }
   if (!rpEnabled) {
     warnings.push(
-      `rp=0 — ABLATED ARM: plan 09-08's four additions (the RpMomentsAccumulator resume, rpFieldsFor, foldObservedRp, and the withRpBeliefs passenger) were all skipped. Bands, both predict loops and the Swing/Sigma folds still ran, because they predate Phase 9. Compare this cpuTime against an otherwise-identical rp=1 run; it is not a measurement of the tick as deployed`
+      `rp=0 — ABLATED ARM: plan 09-08's four additions (the RpMomentsAccumulator resume, rpFieldsFor, foldObservedRp, and the withRpBeliefs passenger) were all skipped. Bands, both predict loops and the Sigma fold still ran, because they predate Phase 9. Compare this cpuTime against an otherwise-identical rp=1 run; it is not a measurement of the tick as deployed`
     );
   }
   if (!eventOverrideSupplied && discoveredEventKey === undefined) {
@@ -769,7 +765,7 @@ function buildWarnings(params: {
     warnings.push(`rpPmfsProduced is 0 — every RP pmf was suppressed (the partial-roster gate, an ineligible event type, or no registered rule module); the reported cpuTime is NOT evidence about the RP path`);
   }
   if (fold.error === undefined && folded + upcoming > 0 && fold.bandsProduced === 0) {
-    warnings.push(`bandsProduced is 0 — no Sigma/Swing band was produced for any roster; the band-dependent RP gate above never opened, so the reported cpuTime under-prices a real tick`);
+    warnings.push(`bandsProduced is 0 — no Sigma band was produced for any roster; the band-dependent RP gate above never opened, so the reported cpuTime under-prices a real tick`);
   }
 
   return warnings;

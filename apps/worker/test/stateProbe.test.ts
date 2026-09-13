@@ -23,14 +23,12 @@ import stateProbe, { probeSelectionsFor } from "../src/stateProbe.js";
 import { selectionsFor } from "../src/scheduled.js";
 import {
   serializeState,
-  withSwingBeliefs,
   withSigmaBeliefs,
   withSigmaPopulation,
   withRpBeliefs,
   STATE_SNAPSHOT_SHAPE_VERSION,
   type StateRow,
 } from "../../../packages/harness/stateSnapshot.js";
-import { SwingFactorAccumulator } from "../../../packages/harness/swingFactor.js";
 import { SigmaScoreAccumulator } from "../../../packages/harness/sigmaScore.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
@@ -399,7 +397,7 @@ const SEED_MATCHES: readonly MatchResult[] = Array.from({ length: SEED_MATCH_COU
 /**
  * Seeds a fresh `FakeD1Database` with REAL rows for all three published
  * algorithms — built via `initState`/`update`/`serializeState` and, for spr,
- * real `SwingFactorAccumulator`/`SigmaScoreAccumulator`/`RpMomentsAccumulator`
+ * real `SigmaScoreAccumulator`/`RpMomentsAccumulator`
  * instances that folded the SAME seed matches — never hand-written JSON.
  *
  * Folding the seed matches through the SAME 6-team roster the probe's own
@@ -417,14 +415,12 @@ function seedAllAlgorithms(db: FakeD1Database): void {
   seedRows(db, serializeState("epa", epa.version, epaState, SEED_STAMP));
 
   let sprState = spr.initState([...SEED_ROSTER]);
-  const swing = new SwingFactorAccumulator();
   const sigma = new SigmaScoreAccumulator();
   const rpRuleModule = RP_RULE_MODULES[2026]!;
   const rp = new RpMomentsAccumulator(rpRuleModule);
   for (const m of SEED_MATCHES) {
     const prediction = spr.predict(sprState, toLeakProofUpcoming(m));
     sprState = spr.update(sprState, m);
-    swing.foldMatch(m, prediction);
     sigma.foldMatch(m, prediction);
     for (const side of ["red", "blue"] as const) {
       try {
@@ -441,7 +437,7 @@ function seedAllAlgorithms(db: FakeD1Database): void {
       if (total !== undefined) sigma.observeTalent(teamKey, total);
     }
   }
-  let sprRows = withSwingBeliefs(serializeState("spr", spr.version, sprState, SEED_STAMP), swing.beliefsByTeam());
+  let sprRows = serializeState("spr", spr.version, sprState, SEED_STAMP);
   sprRows = withRpBeliefs(sprRows, rp.beliefsByTeam());
   sprRows = withSigmaPopulation(withSigmaBeliefs(sprRows, sigma.beliefsByTeam()), sigma.population());
   seedRows(db, sprRows);

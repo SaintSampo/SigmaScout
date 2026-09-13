@@ -141,7 +141,9 @@ describe("foldObservedThresholds equivalence against SigmaScoutLayer's own #fold
     // Arm B: SigmaScoutLayer's own private #foldObservedThresholds, driven
     // through the real, shipped foldPlayed — the exact path the publisher
     // runs.
-    const layer = new SigmaScoutLayer(rp2026);
+    // Since quick task 260913-it4 the RP accumulator exists only for an algorithm
+    // that publishes ranking points, so the layer is built for spr.
+    const layer = new SigmaScoutLayer(rp2026, "spr");
     for (const match of matches) {
       layer.foldPlayed(match, { winner: "red", pRedWin: 0.5, redScore: match.redScore, blueScore: match.blueScore });
     }

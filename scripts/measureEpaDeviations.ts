@@ -201,11 +201,11 @@ import { seasonBoundaryFor } from "../packages/harness/seasonBoundary.js";
 import { eventBlockedBootstrap, type EventBootstrapResult } from "../packages/harness/eventBootstrap.js";
 import { aggregateScores, ELIGIBILITY_NOT_CLAIMED, type HarnessPredictionInput } from "../packages/harness/score.js";
 // REUSE, not re-implementation. `parseSeasons` is already exported and already
-// unit-tested in `measureSwingSkill.ts`, `DEFAULT_SEASONS_SPEC` in
-// `measureAllianceReconstruction.ts`, and both of those modules guard their own
-// entry point, so importing them opens no corpus. A second season parser here
-// would be a second chance to drop a season at a boundary.
-import { parseSeasons } from "./measureSwingSkill.js";
+// unit-tested in `scriptHelpers.ts` (a pure module), `DEFAULT_SEASONS_SPEC` in
+// `measureAllianceReconstruction.ts` (which guards its own entry point), so
+// importing them opens no corpus. A second season parser here would be a second
+// chance to drop a season at a boundary.
+import { parseSeasons } from "./scriptHelpers.js";
 import { DEFAULT_SEASONS_SPEC } from "./measureAllianceReconstruction.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";

@@ -169,7 +169,7 @@ describe("SigmaPage.tsx source discipline", () => {
     for (const imported of [
       "DEFAULT_SIGMA_SCORE_OPTIONS",
       "SigmaScoreAccumulator",
-      "allianceSwingBandVariance",
+      "allianceSigmaBandVariance",
       // Quick task 260913-g66: F4's alliance bar is the published Match Band.
       "sigmaMatchBandVariance",
       "SIGMA_ALLIANCE_EXAMPLE_SIGMAS",

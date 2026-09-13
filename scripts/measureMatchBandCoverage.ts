@@ -68,7 +68,7 @@ import { TOTAL_METRIC_KEY } from "../packages/core/algorithms/types.js";
 import type { AlgorithmModule, MatchResult } from "../packages/core/algorithms/types.js";
 import { isFullyDemoAlliance } from "../packages/core/algorithms/demoTeams.js";
 import { isFullyDqZeroScoreAlliance } from "../packages/core/algorithms/dq.js";
-import { parseSeasons } from "./measureSwingSkill.js";
+import { parseSeasons } from "./scriptHelpers.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 
@@ -365,7 +365,7 @@ async function main(): Promise<void> {
 
 // Guard: only auto-run `main()` when this file is the process entry point, so
 // the pure helpers above can be imported by the test file without opening a
-// corpus. Same idiom as `measureSwingSkill.ts`.
+// corpus. Same idiom as `measureAllianceReconstruction.ts`.
 const isEntryPoint = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isEntryPoint) {
   main().catch((err) => {

@@ -23,8 +23,7 @@
  * covers the whole page on its own.
  */
 import { describe, expect, it } from "vitest";
-import { sigmaMatchBandVariance } from "../../../../../packages/harness/sigmaScore.js";
-import { allianceSwingBandVariance } from "../../../../../packages/harness/swingFactor.js";
+import { allianceSigmaBandVariance, sigmaMatchBandVariance } from "../../../../../packages/harness/sigmaScore.js";
 import {
   SIGMA_ALLIANCE_EXAMPLE_SIGMAS,
   SIGMA_FIGURE_IDS,
@@ -259,7 +258,7 @@ describe("the three robots section quotes the shipping helper's answer", () => {
   function allianceBand(sigmas: readonly number[]): number {
     const roster = sigmas.map((_, index) => `frcExample${index}`);
     const byRobot = new Map(roster.map((key, index) => [key, sigmas[index] as number]));
-    const variance = sigmaMatchBandVariance(roster.length, allianceSwingBandVariance(roster, byRobot));
+    const variance = sigmaMatchBandVariance(roster.length, allianceSigmaBandVariance(roster, byRobot));
     expect(variance, "the helper returned no band for a full example roster").toBeDefined();
     return Math.sqrt(variance as number);
   }

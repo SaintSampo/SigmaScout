@@ -33,7 +33,7 @@ export interface PredictionRecord {
   match: MatchResult;
   prediction: Prediction;
   /**
-   * The PUBLISHED display band for this match (renamed from its Swing-era name by
+   * The PUBLISHED display band for this match (renamed from its earlier wire name by
    * quick task 260913-g66) — each alliance's variance as
    * `sigmaMatchBandVariance(rosterSize, Σ its roster's Sigma Score²)`,
    * walk-forward as of this match. SIGMA ALGORITHMS ONLY: absent for OPR and

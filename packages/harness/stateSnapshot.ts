@@ -36,7 +36,6 @@ import type { SprPhaseRecord, SprState, SprTeamState } from "../core/algorithms/
 import { COMPONENT_GROUP_IDS, type ComponentGroupId } from "../core/algorithms/breakdown/index.js";
 import type { OprObservation, OprState } from "../core/algorithms/opr.js";
 import type { ExpandingStats } from "../core/scoring/expandingStats.js";
-import type { SwingBelief } from "./swingFactor.js";
 import type { SigmaBelief, SigmaPopulation } from "./sigmaScore.js";
 import type { RpTeamBeliefs, RpVariableBelief } from "../core/rankingPoints/empiricalMoments.js";
 
@@ -151,16 +150,16 @@ export class UnknownStateAlgorithmError extends Error {
  * a site that quietly stops showing `±`.
  *
  * Bumped 6 -> 7 (D-Y1/D-Y3, quick task 260903-750): that event row is GONE
- * again, one version after arriving, and each TEAM row gains a `swing` object —
- * the recency-weighted accumulator (`{ weightedSquares, weight }` per metric
- * key, in the retired Sigma1 core) that replaced the decomposition as the source of
+ * again, one version after arriving, and each TEAM row gains a per-metric
+ * spread object — the recency-weighted accumulator (`{ weightedSquares, weight }`
+ * per metric key, in the retired Sigma1 core) that replaced the decomposition as the source of
  * every published `±`. Sigma1 is team-scoped only once more, and
  * `apps/worker/src/scheduled.ts`'s `EVENT_SCOPED_ALGORITHM_IDS` dropped "vpr"
  * in the same task.
  *
  * The load-bearing reason is the SHARPEST of the four, because at shape 7 the
  * failure is indistinguishable from correct behaviour: a shape-6 team row
- * carries no `swing` at all, and D-Y2 makes "this key was never folded" a
+ * carries no such spread object at all, and D-Y2 makes "this key was never folded" a
  * LEGAL, publishable-as-nothing state meaning "a team that has not played yet".
  * A stale row would therefore deserialize into a team that looks brand new
  * rather than into anything that looks broken — every `±` on the site quietly
@@ -210,16 +209,17 @@ export class UnknownStateAlgorithmError extends Error {
  * Costs a Worker re-seed from a fresh publish run, exactly like every bump
  * above it.
  *
- * ## 9 -> 10 (2026-09-09, the live Swing Factor)
+ * ## 9 -> 10 (2026-09-09, the live per-robot consistency accumulator)
  *
- * Every `scopeKind: "team"` row gains `sigmascoutSwing` — four running numbers
- * (`weight`, `weightSquares`, `mean`, `m2`) carrying that team's Swing Factor
- * belief under `swingFactor.ts`'s incremental estimator.
+ * Every `scopeKind: "team"` row gained a level-2 passenger key — four running
+ * numbers (`weight`, `weightSquares`, `mean`, `m2`) carrying that team's
+ * belief under the (now retired) per-robot consistency accumulator's
+ * incremental estimator.
  *
  * This bump guards the SAME failure mode as 6 -> 7, and it is worth naming
  * because that one is described above as the sharpest of its group: a stale
- * row simply has no `sigmascoutSwing`, and "never folded" is a LEGAL state
- * meaning "a team with too little play to have a Swing Factor". So a shape-9
+ * row simply has no passenger, and "never folded" is a LEGAL state
+ * meaning "a team with too little play to have a figure". So a shape-9
  * row read under shape 10 would deserialize into a team that looks brand new
  * rather than into anything that looks broken — every band quietly narrower or
  * absent, no error, no NaN, no malformed row to find. Worse here than in the
@@ -227,36 +227,50 @@ export class UnknownStateAlgorithmError extends Error {
  * matches, so live and offline would disagree while both looked healthy.
  *
  * Note what this field is NOT: it is not algorithm state. It is a level-2
- * SigmaScout quantity riding in a level-1 row, and it is written and read by
- * `withSwingBeliefs`/`readSwingBeliefs` below rather than by any algorithm's
- * serializer, so no algorithm knows it exists. It lives here anyway because
+ * SigmaScout quantity riding in a level-1 row, and it was written and read by
+ * dedicated passenger helpers in this file rather than by any algorithm's
+ * serializer, so no algorithm knew it existed. It lived here anyway because
  * `state_json` is the only per-team row the Worker reads and writes, and it
  * does so in ONE subrequest each way regardless of payload — a separate table
  * would double the subrequest cost of every tick against a budget where three
- * algorithms already overflow. The key is deliberately `sigmascoutSwing` and
- * not `swing`, both to read as a passenger and to avoid colliding with the
- * unrelated `swing` key in Sigma1's own team state.
+ * algorithms already overflow. The key was deliberately `sigmascout`-prefixed,
+ * both to read as a passenger and to avoid colliding with the unrelated spread
+ * key in Sigma1's own team state.
  *
  * Costs a Worker re-seed from a fresh publish run, exactly like every bump
  * above it. Seed first, deploy second: a deploy carrying shape 10 against
  * un-re-seeded rows takes live folding down until the seed runs.
+ *
+ * REMOVED WITHOUT A BUMP (2026-09-13, quick task 260913-it4). The retired
+ * per-robot consistency accumulator was deleted, and with it this team-row
+ * passenger and its read/write helpers. `STATE_SNAPSHOT_SHAPE_VERSION` did NOT
+ * move, for two reasons:
+ *
+ *   - every per-algorithm deserializer reads named fields and ignores extra
+ *     keys, so a row still carrying the retired passenger reads identically
+ *     (`stateSnapshot.test.ts` pins this with an unknown passenger key);
+ *   - the live tier (spr) never used it: its bands, win odds and ranking points
+ *     come from the Sigma passenger below.
+ *
+ * New rows simply omit it, and no reseed is required.
  *
  * ---------------------------------------------------------------------------
  * 10 -> 11 (2026-09-10): SIGMA SCORE BELIEFS
  * ---------------------------------------------------------------------------
  *
  * Sigma Score shipped for BPR and drives its match bands, and BPR is the LIVE
- * TIER. Without this bump the Worker would keep folding Swing Factors into
- * live bands while the offline publisher wrote Sigma ones for the same
- * algorithm, so a match touched during an event would read roughly twice as
- * wide as its untouched neighbours (Swing prints 1.92 sigma, Sigma an honest
- * 1 sigma). The same silent class of divergence the 9 -> 10 bump above was
- * written about, with a bigger visible gap.
+ * TIER. Without this bump the Worker would keep folding the per-robot
+ * consistency accumulator's figures into live bands while the offline
+ * publisher wrote Sigma ones for the same algorithm, so a match touched during
+ * an event would read roughly twice as wide as its untouched neighbours (the
+ * accumulator printed 1.92 sigma, Sigma an honest 1 sigma). The same silent
+ * class of divergence the 9 -> 10 bump above was written about, with a bigger
+ * visible gap.
  *
  * Two things are added, and they live in DIFFERENT rows on purpose:
  *
  *   - the per-team belief, under `sigmascoutSigma` in each TEAM row, for the
- *     same reason its Swing sibling lives there;
+ *     same reason the shape-10 passenger lived there;
  *   - the population statistics behind the talent prior, under
  *     `sigmascoutSigmaPopulation` in the LEAGUE row, because they are THREE
  *     NUMBERS TOTAL and do not scale with team count. Putting them per team
@@ -869,77 +883,22 @@ function deserializeBprState(algorithmId: string, rows: readonly StateRow[]): Sp
 }
 
 // ---------------------------------------------------------------------------
-// The SigmaScout-layer passenger (shape 10)
+// The SigmaScout-layer passengers (shapes 11 and 15)
 // ---------------------------------------------------------------------------
-
-/**
- * The key every `scopeKind: "team"` row carries its Swing Factor belief under.
- *
- * `sigmascoutSwing`, never `swing`: Sigma1's own team state already has an
- * unrelated `swing` key, and the longer name says out loud that this is a
- * level-2 passenger rather than part of the model.
- */
-const SWING_BELIEF_KEY = "sigmascoutSwing";
-
-/**
- * Reads every team's Swing Factor belief out of a set of state rows.
- *
- * Deliberately standalone rather than folded into `deserializeState`: this is
- * NOT algorithm state, and threading it through the four per-algorithm
- * deserializers would make every one of them know about a heuristic none of
- * them may depend on. They ignore the key entirely — each parses its own named
- * fields and an extra property is invisible to it — which is exactly the
- * separation this project's two-level split asks for.
- *
- * A team row with no belief yields no entry, which the caller must treat as
- * "no history", not as zero. Under shape 10 that can only mean a team the
- * publisher had never seen play; a row genuinely written at an older shape is
- * rejected upstream by `LeagueRowShapeVersionError` before reaching here.
- */
-export function readSwingBeliefs(rows: readonly StateRow[]): Map<string, SwingBelief> {
-  const beliefs = new Map<string, SwingBelief>();
-  for (const row of rows) {
-    if (row.scopeKind !== "team") continue;
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
-    const raw = parsed[SWING_BELIEF_KEY] as Partial<SwingBelief> | undefined;
-    if (raw === undefined) continue;
-    const { weight, weightSquares, mean, m2 } = raw;
-    // All four or none. A partially-written belief would produce a plausible
-    // but wrong band rather than no band, which is the failure this whole
-    // shape bump exists to prevent.
-    if (![weight, weightSquares, mean, m2].every((v) => typeof v === "number" && Number.isFinite(v))) continue;
-    beliefs.set(row.scopeKey, { weight: weight!, weightSquares: weightSquares!, mean: mean!, m2: m2! });
-  }
-  return beliefs;
-}
-
-/**
- * Injects each team's Swing Factor belief into the rows `serializeState`
- * produced, returning new rows rather than mutating them.
- *
- * Only `scopeKind: "team"` rows are touched. The league row is left alone on
- * purpose — `MAX_LEAGUE_ROW_BYTES` caps it at 16 KB precisely because nothing
- * in it may scale with team count, and a per-team belief is the definition of
- * something that does.
- *
- * A team with no belief gets no key, which round-trips through
- * `readSwingBeliefs` as "no history" — the same state a team that has played
- * once is in, and the honest one.
- */
-export function withSwingBeliefs(rows: readonly StateRow[], beliefs: ReadonlyMap<string, SwingBelief>): StateRow[] {
-  return rows.map((row) => {
-    if (row.scopeKind !== "team") return row;
-    const belief = beliefs.get(row.scopeKey);
-    if (belief === undefined) return row;
-    const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
-    return { ...row, stateJson: JSON.stringify({ ...parsed, [SWING_BELIEF_KEY]: belief }) };
-  });
-}
+//
+// Level-2 passengers ride in level-1 rows but are written and read by the
+// helpers below rather than by any algorithm's serializer. Deliberately
+// standalone rather than folded into `deserializeState`: this is NOT algorithm
+// state, and every per-algorithm deserializer ignores these keys entirely —
+// each parses its own named fields and an extra property is invisible to it —
+// which is exactly the separation this project's two-level split asks for.
+//
+// Only `scopeKind: "team"` rows carry per-team beliefs. The league row is left
+// alone on purpose — `MAX_LEAGUE_ROW_BYTES` caps it at 16 KB precisely because
+// nothing in it may scale with team count.
+//
+// The shape-10 passenger (the retired per-robot consistency accumulator) was
+// removed by quick task 260913-it4; see the 9 -> 10 history entry above.
 
 const SIGMA_BELIEF_KEY = "sigmascoutSigma";
 const SIGMA_POPULATION_KEY = "sigmascoutSigmaPopulation";
@@ -949,7 +908,7 @@ const SIGMA_POPULATION_KEY = "sigmascoutSigmaPopulation";
  * of `withSigmaBeliefs`.
  *
  * A belief missing any field is SKIPPED ENTIRELY rather than part-filled, the
- * same all-or-nothing rule `readSwingBeliefs` applies: a partially written
+ * same all-or-nothing rule `readRpBeliefs` applies: a partially written
  * belief would produce a plausible but wrong band rather than no band, and a
  * wrong band is far harder to notice than an absent one.
  */
@@ -1030,7 +989,7 @@ export function withSigmaPopulation(rows: readonly StateRow[], population: Sigma
  * The key every `scopeKind: "team"` row carries its RANKING-POINT beliefs
  * under (shape 15, plan 09-08).
  *
- * `sigmascoutRp`, following `sigmascoutSwing`/`sigmascoutSigma`: the
+ * `sigmascoutRp`, following `sigmascoutSigma`: the
  * `sigmascout{Feature}` prefix says out loud that this is a level-2 passenger
  * rather than part of any model.
  *
@@ -1049,7 +1008,7 @@ const RP_BELIEF_KEY = "sigmascoutRp";
  * ALL-OR-NOTHING, AT TEAM GRANULARITY. Every variable entry in a team's
  * record is checked, and if ANY of them is missing a field or holds a
  * non-finite value the WHOLE TEAM is skipped rather than part-filled. The
- * reasoning `readSwingBeliefs` records applies here and then some: a
+ * reasoning `readSigmaBeliefs` records applies here and then some: a
  * partially-written belief produces a plausible but WRONG pmf rather than no
  * pmf, and a wrong one is far harder to notice than an absent one. It is
  * strictly worse for RP than for a band, because `momentsFor` sums silently

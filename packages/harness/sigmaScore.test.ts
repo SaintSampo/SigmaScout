@@ -16,6 +16,9 @@ import {
   MIN_POPULATION_FOR_TALENT_PRIOR,
   PRIOR_SIGMA_MIN_RATIO,
   PRIOR_SIGMA_MAX_RATIO,
+  allianceSigmaBandVariance,
+  publishesRankingPoints,
+  type SigmaFoldMatch,
 } from "./sigmaScore.js";
 
 /**
@@ -127,7 +130,7 @@ describe("THE DEVELOPER'S REQUIREMENTS", () => {
 });
 
 describe("the Bayesian prior", () => {
-  it("gives a NEVER-SEEN team a usable figure from talent alone — Swing Factor has none at all here", () => {
+  it("gives a NEVER-SEEN team a usable figure from talent alone — the retired per-robot consistency accumulator had none at all here", () => {
     const accumulator = new SigmaScoreAccumulator();
     accumulator.observeTalent("frc1", 80);
     const sigma = accumulator.sigmaFor("frc1");
@@ -135,7 +138,7 @@ describe("the Bayesian prior", () => {
     expect(sigma).toBeGreaterThan(0);
   });
 
-  it("scales the prior with talent — a stronger robot is expected to swing by more POINTS", () => {
+  it("scales the prior with talent — a stronger robot is expected to vary by more POINTS", () => {
     const accumulator = seededPopulation();
     accumulator.observeTalent("frcWeak", 10);
     accumulator.observeTalent("frcStrong", 100);
@@ -220,7 +223,7 @@ describe("the Bayesian prior", () => {
   it("CLAMPS an absurd talent so the prior cannot assert a spread the population never shows", () => {
     // The regression test for the measured 2026 blow-up: an early under-
     // determined OPR solve produced a talent of 9,310 and the prior claimed a
-    // 2,780-point swing for one robot.
+    // 2,780-point spread for one robot.
     const accumulator = seededPopulation();
     accumulator.observeTalent("frcAbsurd", 9310);
     expect(accumulator.priorSigmaFor("frcAbsurd")).toBeLessThanOrEqual(
@@ -301,5 +304,87 @@ describe("fold hygiene", () => {
     foldSeries(accumulator, "frc1", Array.from({ length: 20 }, () => 25));
     expect(accumulator.biasFor("frc1")).toBeGreaterThan(20);
     expect(accumulator.biasFor("frc1")).toBeLessThanOrEqual(25);
+  });
+});
+
+describe("allianceSigmaBandVariance", () => {
+  const sigmas = new Map([["a", 10], ["b", 10], ["c", 10]]);
+
+  it("combines by summing SQUARES — three robots at ±10 give ±17.32, never ±30", () => {
+    expect(Math.sqrt(allianceSigmaBandVariance(["a", "b", "c"], sigmas) as number)).toBeCloseTo(17.3205, 4);
+  });
+
+  it("returns undefined when any member is missing — never a narrower band from a partial sum", () => {
+    expect(allianceSigmaBandVariance(["a", "b", "unknown"], sigmas)).toBeUndefined();
+    expect(allianceSigmaBandVariance([], sigmas)).toBeUndefined();
+  });
+});
+
+describe("publishesRankingPoints (quick task 260913-it4)", () => {
+  it("is true for spr and false for opr and epa", () => {
+    expect(publishesRankingPoints("spr")).toBe(true);
+    expect(publishesRankingPoints("opr")).toBe(false);
+    expect(publishesRankingPoints("epa")).toBe(false);
+  });
+});
+
+describe("SigmaScoreAccumulator.foldMatch — demo and card-driven zero scores", () => {
+  const RED = ["r1", "r2", "r3"];
+  const BLUE = ["b1", "b2", "b3"];
+  const DEMO_BLUE = ["frc9970", "frc9971", "frc9972"];
+  const PREDICTION = { redScore: 100, blueScore: 100 };
+
+  /** Six-field literal, overriding only what a given test is about. */
+  function match(overrides: Partial<SigmaFoldMatch> = {}): SigmaFoldMatch {
+    return { redTeams: RED, redScore: 100, redDqs: [], blueTeams: BLUE, blueScore: 100, blueDqs: [], ...overrides };
+  }
+
+  /** An accumulator that folded exactly these per-team deviations directly, bypassing every match-level rule. */
+  function foldedDirectly(deviationsByRoster: readonly [readonly string[], number][]): SigmaScoreAccumulator {
+    const accumulator = new SigmaScoreAccumulator();
+    for (const [roster, deviation] of deviationsByRoster) for (const teamKey of roster) accumulator.fold(teamKey, deviation);
+    return accumulator;
+  }
+
+  const REAL_1 = match({ redScore: 130, blueScore: 115 });
+  const CARDED = match({ redScore: 0, redDqs: RED, blueScore: 90 });
+  const REAL_2 = match({ redScore: 70, blueScore: 105 });
+
+  it("a card is a ruling, not evidence: a fully-DQ'd zero-score alliance does not fold, and its opponent still does", () => {
+    const acc = new SigmaScoreAccumulator();
+    for (const m of [REAL_1, CARDED, REAL_2]) acc.foldMatch(m, PREDICTION);
+
+    const expected = foldedDirectly([
+      [RED, 10],
+      [BLUE, 5],
+      [BLUE, -10 / 3],
+      [RED, -10],
+      [BLUE, 5 / 3],
+    ]);
+    expect(acc.beliefsByTeam().get("r1")).toEqual(expected.beliefsByTeam().get("r1"));
+    expect(acc.beliefsByTeam().get("b1")).toEqual(expected.beliefsByTeam().get("b1"));
+
+    // Non-vacuity: folding the carded zero directly must disagree.
+    const withZero = foldedDirectly([[RED, 10], [RED, -100 / 3], [RED, -10]]);
+    expect(withZero.beliefsByTeam().get("r1")).not.toEqual(acc.beliefsByTeam().get("r1"));
+  });
+
+  it("a partial DQ, or a whole-alliance DQ with a non-zero score, still folds", () => {
+    const partial = new SigmaScoreAccumulator();
+    partial.foldMatch(match({ redScore: 0, redDqs: [RED[0]!, RED[1]!], blueScore: 90 }), PREDICTION);
+    expect(partial.beliefsByTeam().get("r1")).toEqual(foldedDirectly([[RED, -100 / 3]]).beliefsByTeam().get("r1"));
+
+    const nonZero = new SigmaScoreAccumulator();
+    nonZero.foldMatch(match({ redScore: 220, redDqs: RED, blueScore: 90 }), PREDICTION);
+    expect(nonZero.beliefsByTeam().get("r1")).toEqual(foldedDirectly([[RED, 40]]).beliefsByTeam().get("r1"));
+  });
+
+  it("the demo rule drops the whole match, both alliances included", () => {
+    const acc = new SigmaScoreAccumulator();
+    acc.foldMatch(REAL_1, PREDICTION);
+    const redBefore = acc.beliefsByTeam().get("r1");
+    acc.foldMatch(match({ redScore: 300, blueTeams: DEMO_BLUE, blueScore: 250 }), PREDICTION);
+    expect(acc.beliefsByTeam().get("r1")).toEqual(redBefore);
+    expect(acc.beliefsByTeam().has(DEMO_BLUE[0]!)).toBe(false);
   });
 });

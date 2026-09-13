@@ -43,7 +43,7 @@ import { roundMetric, roundTo, ROUNDING_RULE } from "./rounding.js";
  * declared lower-is-better name. This is identical to the raw value-rank
  * percentile for every higher-is-better metric — which was every metric
  * that flowed through this function before this task, and still is every
- * metric except `SWING_METRIC_KEY` — and reversed for a declared
+ * metric except `SIGMA_METRIC_KEY` — and reversed for a declared
  * lower-is-better one. This is what lets `publishedTierForPercentile` and
  * `apps/web/src/lib/tiers.ts` stay completely direction-unaware: they only
  * ever see a goodness percentile, never a raw one, so their single-source

@@ -44,14 +44,14 @@
  * argument (the rule module only), while the publisher
  * (`packages/harness/publish.ts`) always constructs it with TWO (the rule
  * module AND the algorithm id). The second argument is the ONLY thing that
- * selects `SigmaScoreAccumulator` over
- * `SwingFactorAccumulator` (`sigmaScoutLayer.ts`'s `usesSigmaScore` check —
+ * selects `SigmaScoreAccumulator` over the retired per-robot consistency
+ * accumulator (`sigmaScoutLayer.ts`'s `usesSigmaScore` check —
  * `SIGMA_SCORE_ALGORITHM_IDS` is `{bpr}`, this script's own default
  * `--algorithm`), so every bpr bonus probability this script reported BEFORE
- * this fix was computed from Swing-derived band variance while every
+ * this fix was computed from the retired accumulator's band variance while every
  * published bpr row is computed from Sigma-derived band variance — the exact
- * defect class recorded in STATE row 110 (two publish paths fed Swing and
- * Sigma to the ranking-point filler and produced 0.46525 against 0.47 for the
+ * defect class recorded in STATE row 110 (two publish paths fed the retired
+ * accumulator and Sigma to the ranking-point filler and produced 0.46525 against 0.47 for the
  * same event). Fixed by passing the resolved algorithm id as the layer's
  * second constructor argument, so this script is now provably the same scorer
  * the publisher runs, for every algorithm — the whole premise of D-11's
@@ -804,7 +804,7 @@ async function main(): Promise<void> {
       const actualFlags = actualBonusFlagsForSeason(stream, season);
 
       // SAME-SCORER FIX (see header): the second constructor argument selects
-      // Sigma-vs-Swing band variance exactly the way the publisher's own layer
+      // the Sigma band variance exactly the way the publisher's own layer
       // construction does (publish.ts's season loop) — without it this script
       // silently scored a different band than the one it published.
       const layers = new Map(algorithms.map((a) => [a.id, new SigmaScoutLayer(ruleModule, a.id)]));

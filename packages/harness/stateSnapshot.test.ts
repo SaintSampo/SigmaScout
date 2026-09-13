@@ -34,11 +34,9 @@ import {
   emitSeedSql,
   readSigmaBeliefs,
   readSigmaPopulation,
-  readSwingBeliefs,
   serializeState,
   withSigmaBeliefs,
   withSigmaPopulation,
-  withSwingBeliefs,
   type StateRow,
   type StateStamp,
   readRpBeliefs,
@@ -328,6 +326,44 @@ describe("serializeState — stability (unchanged state produces identical state
 // Missing league row
 // ---------------------------------------------------------------------------
 
+describe("deserializeState — an extra unknown passenger key on a team row is ignored (quick task 260913-it4)", () => {
+  // Wire compatibility without a reseed: D1 rows written before the retired
+  // per-robot consistency accumulator was removed still carry its team-row
+  // passenger. Deserializers read named fields, so an unknown key must change
+  // nothing. A generic key stands in for any legacy passenger.
+  it("spr: a row carrying an unknown key deserializes to a state whose predictions and continuation digest equal the clean row's", () => {
+    seedFixtureSeason(db);
+    const allMatches = buildSeasonStream(db, 2024);
+    const firstHalf = allMatches.slice(0, 4);
+    const secondHalf = allMatches.slice(4);
+    const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
+    const state = new WalkForwardSimulator(firstHalf).runAll([spr], allTeams).finalStates.get(spr.id);
+    expect(state).toBeDefined();
+
+    const cleanRows = serializeState(spr.id, spr.version, state as any, STAMP);
+    const legacyRows = cleanRows.map((row) =>
+      row.scopeKind === "team"
+        ? { ...row, stateJson: JSON.stringify({ ...JSON.parse(row.stateJson), legacyPassengerKey: { weight: 1, mean: 2 } }) }
+        : row
+    );
+    // Non-vacuity: the key really rides on at least one team row.
+    expect(legacyRows.filter((row) => row.stateJson.includes("legacyPassengerKey")).length).toBeGreaterThan(0);
+
+    const fromClean = deserializeState(spr.id, cleanRows);
+    const fromLegacy = deserializeState(spr.id, legacyRows);
+    expect(secondHalf.length).toBeGreaterThan(0);
+    for (const m of secondHalf) {
+      expect(spr.predict(fromLegacy as any, m)).toEqual(spr.predict(fromClean as any, m));
+    }
+
+    const contClean = new WalkForwardSimulator(secondHalf).runAll([spr], allTeams, new Map([[spr.id, fromClean]]));
+    const contLegacy = new WalkForwardSimulator(secondHalf).runAll([spr], allTeams, new Map([[spr.id, fromLegacy]]));
+    expect(computePredictionStreamDigest(toDigestInputs(contLegacy) as any)).toBe(
+      computePredictionStreamDigest(toDigestInputs(contClean) as any)
+    );
+  });
+});
+
 describe("serializeState/deserializeState — unknown algorithm id", () => {
   // Quick task 260913-it4: both used to fall through to the retired Sigma1
   // core's shape for any id without its own branch.
@@ -416,21 +452,22 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     // `contributionStats` entirely; shape 4 CARRIES `contributionStats` and
     // `lastContribution`, retired at 260902-varopr; shape 5 has no
     // `scopeKind: "event"` rows; shape 6 has them but its TEAM rows carry no
-    // `swing`, so it would deserialize into teams whose accumulator is absent
+    // spread accumulator, so it would deserialize into teams whose accumulator is absent
     // and `teamMetrics` would publish no `±` at all — SILENTLY, since D-Y2
     // makes "never folded" a legal, publishable-as-nothing state; shape 7 has
-    // `swing` but no `elimScoreOffset`, so it would deserialize the ELIM-OFF
+    // that accumulator but no `elimScoreOffset`, so it would deserialize the ELIM-OFF
     // accumulator as `undefined` and the first fold would throw rather than
     // publish a NaN — a real improvement, but only if this check itself is
     // current (`STATE_SNAPSHOT_SHAPE_VERSION`'s own 7 -> 8 history entry);
-    // shape 9's team rows carry no `sigmascoutSwing`, which repeats shape 6's
-    // failure in a worse place — "never folded" is a LEGAL Swing Factor state
-    // meaning "too little play to say", so a stale row deserializes into a
+    // shape 9's team rows carry no shape-10 passenger (the since-retired
+    // per-robot consistency accumulator), which repeats shape 6's failure in a
+    // worse place — "never folded" was a LEGAL state for it meaning "too
+    // little play to say", so a stale row deserializes into a
     // team that looks brand new while the offline publisher has a band for
     // those very same matches. Live and offline would then disagree with both
     // sides looking healthy.
     //
-    // Shape 10's team rows carry `sigmascoutSwing` but no `sigmascoutSigma`,
+    // Shape 10's team rows carry that passenger but no `sigmascoutSigma`,
     // and its league row carries no `sigmascoutSigmaPopulation`. A stale shape
     // 10 row therefore deserializes into a team with NO Sigma history at all
     // while the offline publisher has a Sigma band for those same matches, and
@@ -973,10 +1010,8 @@ describe("Sigma Score belief and population persistence (shape 11)", () => {
     expect(readSigmaPopulation(teamRows())).toBeUndefined();
   });
 
-  it("coexists with the Swing belief -- both keys survive on the same row", () => {
-    const swung = withSwingBeliefs(teamRows(), new Map([["frc1", { weight: 1, weightSquares: 1, mean: 2, m2: 3 }]]));
-    const both = withSigmaPopulation(withSigmaBeliefs(swung, new Map([["frc1", BELIEF]])), POPULATION);
-    expect(readSwingBeliefs(both).get("frc1")).toEqual({ weight: 1, weightSquares: 1, mean: 2, m2: 3 });
+  it("beliefs and population survive together on the same rows", () => {
+    const both = withSigmaPopulation(withSigmaBeliefs(teamRows(), new Map([["frc1", BELIEF]])), POPULATION);
     expect(readSigmaBeliefs(both).get("frc1")).toEqual(BELIEF);
     expect(readSigmaPopulation(both)).toEqual(POPULATION);
   });
@@ -1357,14 +1392,9 @@ describe("ranking-point belief persistence (shape 15, plan 09-08)", () => {
     }
   });
 
-  it("coexists with BOTH the Swing and Sigma passengers on the same team row", () => {
-    const swing = { weight: 1, weightSquares: 1, mean: 2, m2: 3 };
+  it("coexists with the Sigma passenger on the same team row", () => {
     const sigma = { meanWeight: 3.25, mean: 8.5, varWeight: 2.75, sumSquares: 91.5, talent: 42.25 };
-    const all = withRpBeliefs(
-      withSigmaBeliefs(withSwingBeliefs(teamRows(), new Map([["frc1", swing]])), new Map([["frc1", sigma]])),
-      new Map([["frc1", BELIEFS]])
-    );
-    expect(readSwingBeliefs(all).get("frc1")).toEqual(swing);
+    const all = withRpBeliefs(withSigmaBeliefs(teamRows(), new Map([["frc1", sigma]])), new Map([["frc1", BELIEFS]]));
     expect(readSigmaBeliefs(all).get("frc1")).toEqual(sigma);
     expect(readRpBeliefs(all).get("frc1")).toEqual(BELIEFS);
   });

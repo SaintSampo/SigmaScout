@@ -69,7 +69,7 @@ import {
   PublishedPreScheduleArtifactSchema,
   TeamsArtifactSchema,
 } from "./pageArtifacts.js";
-import { SWING_METRIC_KEY } from "./swingFactor.js";
+import { SIGMA_METRIC_KEY } from "./sigmaScore.js";
 import { compareTeamsByTotal, isRealPublishedTeamKey } from "./teamRanks.js";
 import { roundPmf, roundTo, ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
@@ -894,17 +894,18 @@ describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criteri
   it("Test 8 (folded todo, PD-08; qm-side event assertions flipped by quick 260905-jj8): a freshly published playoff row carries no bonus-RP key on either artifact kind, while the qualification row carries all four on BOTH artifact kinds", async () => {
     upsertEvent(db, seasonEvent({ eventKey: "2024early", year: 2024 }));
     upsertEvent(db, seasonEvent({ eventKey: "2024casj", year: 2024 }));
-    // Plan 09-04 Task 3: VPR no longer computes its OWN RP pmf independent
-    // of Swing Factor band history (that bypass — VPR always having RP by
-    // its very first played match — died when VPR's own RP block was
-    // removed, not repointed). `#rpFieldsFor`'s band-variance gate now
-    // applies to VPR exactly as it always has to OPR/EPA, and Swing Factor
-    // needs 2 PLAYED matches per team before a band exists. These two
-    // warm-up matches (an earlier event, same roster, real scores) exist
+    // Plan 09-04 Task 3: the retired VPR no longer computed its OWN RP pmf
+    // independent of band history (that bypass died when VPR's own RP block
+    // was removed, not repointed), so `#rpFieldsFor`'s band-variance gate
+    // applied to every algorithm, and the per-robot consistency accumulator of
+    // the time needed 2 PLAYED matches per team before a band existed. These
+    // two warm-up matches (an earlier event, same roster, real scores) exist
     // solely to give every team on "2024casj_qm1" that history BEFORE it
     // folds — F8/F9's cold-start gate is explicitly out of scope for this
     // phase (09-CONTEXT.md), so this test widens its fixture rather than
-    // relying on a bypass this phase intentionally removed.
+    // relying on a bypass this phase intentionally removed. (Since quick task
+    // 260913-it4 this test publishes SPR, whose Sigma Score needs no warm-up;
+    // the fixture is kept as-is.)
     upsertMatch(db, seasonMatch({ matchKey: "2024early_qm1", eventKey: "2024early", compLevel: "qm", sortTime: 100, redScore: 90, blueScore: 70 }));
     upsertMatch(db, seasonMatch({ matchKey: "2024early_qm2", eventKey: "2024early", compLevel: "qm", sortTime: 200, redScore: 85, blueScore: 75 }));
     upsertMatch(
@@ -1485,7 +1486,7 @@ describe("buildTeamsArtifact", () => {
   });
 });
 
-describe("buildTeamsArtifact — swing metric (quick task 260909-tgf)", () => {
+describe("buildTeamsArtifact — sigma metric (quick task 260909-tgf)", () => {
   function baseTeamInput(metrics: Record<string, TeamMetric & { percentile?: number; tier?: "rare" | "epic" | "legendary" }>) {
     return {
       teamKey: "frc254",
@@ -1498,39 +1499,39 @@ describe("buildTeamsArtifact — swing metric (quick task 260909-tgf)", () => {
     };
   }
 
-  it("a row whose swing entry carries value + tier (no percentile) encodes positionally without throwing, and metricKeys includes SWING_METRIC_KEY", () => {
+  it("a row whose sigma entry carries value + tier (no percentile) encodes positionally without throwing, and metricKeys includes SIGMA_METRIC_KEY", () => {
     const artifact = buildTeamsArtifact({
       season: 2026,
       algorithmId: "opr",
       algorithmVersion: "3.0.0+baseline",
-      teams: [baseTeamInput({ [SWING_METRIC_KEY]: { value: 8.42, tier: "legendary" } })],
+      teams: [baseTeamInput({ [SIGMA_METRIC_KEY]: { value: 8.42, tier: "legendary" } })],
       generation: "g1",
       computedAt: "2026-08-22T00:00:00.000Z",
     });
-    expect(artifact.metricKeys).toContain(SWING_METRIC_KEY);
-    const swingIndex = artifact.metricKeys!.indexOf(SWING_METRIC_KEY);
+    expect(artifact.metricKeys).toContain(SIGMA_METRIC_KEY);
+    const sigmaIndex = artifact.metricKeys!.indexOf(SIGMA_METRIC_KEY);
     // [value, spread | null, tier] -- the three-element boxed-tier form.
-    expect((artifact.teams[0]!.metrics as unknown[])[swingIndex]).toEqual([8.42, null, "legendary"]);
+    expect((artifact.teams[0]!.metrics as unknown[])[sigmaIndex]).toEqual([8.42, null, "legendary"]);
   });
 
-  it("a row whose swing entry still carries percentile THROWS -- the merge must happen on the correct side of withPublishedTiers", () => {
+  it("a row whose sigma entry still carries percentile THROWS -- the merge must happen on the correct side of withPublishedTiers", () => {
     expect(() =>
       buildTeamsArtifact({
         season: 2026,
         algorithmId: "opr",
         algorithmVersion: "3.0.0+baseline",
-        teams: [baseTeamInput({ [SWING_METRIC_KEY]: { value: 8.42, percentile: 97 } })],
+        teams: [baseTeamInput({ [SIGMA_METRIC_KEY]: { value: 8.42, percentile: 97 } })],
         generation: "g1",
       })
     ).toThrow("encodeTeamMetricEntry: the teams-table positional encoding has no slot for `percentile`");
   });
 
-  it("TeamsArtifactSchema.parse decodes the swing entry back to {value, tier} losslessly", () => {
+  it("TeamsArtifactSchema.parse decodes the sigma entry back to {value, tier} losslessly", () => {
     const artifact = buildTeamsArtifact({
       season: 2026,
       algorithmId: "opr",
       algorithmVersion: "3.0.0+baseline",
-      teams: [baseTeamInput({ [SWING_METRIC_KEY]: { value: 8.42, tier: "legendary" } })],
+      teams: [baseTeamInput({ [SIGMA_METRIC_KEY]: { value: 8.42, tier: "legendary" } })],
       generation: "g1",
     });
     // TeamsArtifactSchema.parse (the DECODING schema, deliberately distinct
@@ -1539,19 +1540,19 @@ describe("buildTeamsArtifact — swing metric (quick task 260909-tgf)", () => {
     // comment. So the round-trip is a direct field read, not a second
     // decodeTeamsRowMetrics call.
     const parsed = TeamsArtifactSchema.parse(artifact);
-    expect(parsed.teams[0]!.metrics[SWING_METRIC_KEY]).toEqual({ value: 8.42, tier: "legendary" });
+    expect(parsed.teams[0]!.metrics[SIGMA_METRIC_KEY]).toEqual({ value: 8.42, tier: "legendary" });
   });
 
-  it("rounds the swing value at ROUNDING_RULE.metric exactly once, matching the metrics beside it", () => {
+  it("rounds the sigma value at ROUNDING_RULE.metric exactly once, matching the metrics beside it", () => {
     const artifact = buildTeamsArtifact({
       season: 2026,
       algorithmId: "opr",
       algorithmVersion: "3.0.0+baseline",
-      teams: [baseTeamInput({ total: { value: 12.34567 }, [SWING_METRIC_KEY]: { value: 8.426789, tier: "epic" } })],
+      teams: [baseTeamInput({ total: { value: 12.34567 }, [SIGMA_METRIC_KEY]: { value: 8.426789, tier: "epic" } })],
       generation: "g1",
     });
-    const swingIndex = artifact.metricKeys!.indexOf(SWING_METRIC_KEY);
-    const entry = (artifact.teams[0]!.metrics as unknown[])[swingIndex] as [number, number | null, string];
+    const sigmaIndex = artifact.metricKeys!.indexOf(SIGMA_METRIC_KEY);
+    const entry = (artifact.teams[0]!.metrics as unknown[])[sigmaIndex] as [number, number | null, string];
     expect(entry[0]).toBe(roundTo(8.426789, ROUNDING_RULE.metric));
   });
 });
@@ -1701,8 +1702,8 @@ describe("buildTeamSeasonArtifact", () => {
   });
 });
 
-describe("buildTeamSeasonArtifact — swing metric (quick task 260909-tgf)", () => {
-  it("seasonStats.metrics.swing.percentile round-trips, and no top-level per-team swing field is published (quick task 260913-g66)", () => {
+describe("buildTeamSeasonArtifact — sigma metric (quick task 260909-tgf)", () => {
+  it("seasonStats.metrics.sigma.percentile round-trips", () => {
     const artifact = buildTeamSeasonArtifact({
       teamKey: "frc254",
       teamNumber: 254,
@@ -1712,18 +1713,17 @@ describe("buildTeamSeasonArtifact — swing metric (quick task 260909-tgf)", () 
       algorithmVersion: "3.0.0+baseline",
       seasonStats: {
         record: { wins: 10, losses: 2, ties: 0 },
-        metrics: { total: { value: 50 }, [SWING_METRIC_KEY]: { value: 8.42, percentile: 97 } },
+        metrics: { total: { value: 50 }, [SIGMA_METRIC_KEY]: { value: 8.42, percentile: 97 } },
         metricsBasis: "last-official-match",
       },
       events: [],
       metricHistory: [],
       generation: "g1",
     });
-    expect(artifact.seasonStats.metrics[SWING_METRIC_KEY]?.percentile).toBe(97);
-    expect(artifact).not.toHaveProperty("swingFactor");
+    expect(artifact.seasonStats.metrics[SIGMA_METRIC_KEY]?.percentile).toBe(97);
   });
 
-  it("rounds the swing value at ROUNDING_RULE.metric exactly once, matching the metrics beside it", () => {
+  it("rounds the sigma value at ROUNDING_RULE.metric exactly once, matching the metrics beside it", () => {
     const artifact = buildTeamSeasonArtifact({
       teamKey: "frc254",
       teamNumber: 254,
@@ -1733,27 +1733,27 @@ describe("buildTeamSeasonArtifact — swing metric (quick task 260909-tgf)", () 
       algorithmVersion: "3.0.0+baseline",
       seasonStats: {
         record: { wins: 10, losses: 2, ties: 0 },
-        metrics: { [SWING_METRIC_KEY]: { value: 8.426789, percentile: 97 } },
+        metrics: { [SIGMA_METRIC_KEY]: { value: 8.426789, percentile: 97 } },
         metricsBasis: "last-official-match",
       },
       events: [],
       metricHistory: [],
       generation: "g1",
     });
-    expect(artifact.seasonStats.metrics[SWING_METRIC_KEY]?.value).toBe(roundTo(8.426789, ROUNDING_RULE.metric));
+    expect(artifact.seasonStats.metrics[SIGMA_METRIC_KEY]?.value).toBe(roundTo(8.426789, ROUNDING_RULE.metric));
   });
 });
 
-describe("withPublishedTiers — swing tier stamping (quick task 260909-tgf)", () => {
-  it("a swing entry with percentile 97 yields tier legendary and no percentile key", () => {
-    const result = withPublishedTiers({ [SWING_METRIC_KEY]: { value: 8.42, percentile: 97 } });
-    expect(result[SWING_METRIC_KEY]?.tier).toBe("legendary");
-    expect("percentile" in (result[SWING_METRIC_KEY] ?? {})).toBe(false);
+describe("withPublishedTiers — sigma tier stamping (quick task 260909-tgf)", () => {
+  it("a sigma entry with percentile 97 yields tier legendary and no percentile key", () => {
+    const result = withPublishedTiers({ [SIGMA_METRIC_KEY]: { value: 8.42, percentile: 97 } });
+    expect(result[SIGMA_METRIC_KEY]?.tier).toBe("legendary");
+    expect("percentile" in (result[SIGMA_METRIC_KEY] ?? {})).toBe(false);
   });
 
-  it("a swing entry with percentile 30 yields no tier key at all (Common is omitted, per the existing wire-format rule)", () => {
-    const result = withPublishedTiers({ [SWING_METRIC_KEY]: { value: 8.42, percentile: 30 } });
-    expect("tier" in (result[SWING_METRIC_KEY] ?? {})).toBe(false);
+  it("a sigma entry with percentile 30 yields no tier key at all (Common is omitted, per the existing wire-format rule)", () => {
+    const result = withPublishedTiers({ [SIGMA_METRIC_KEY]: { value: 8.42, percentile: 30 } });
+    expect("tier" in (result[SIGMA_METRIC_KEY] ?? {})).toBe(false);
   });
 });
 
@@ -4264,6 +4264,21 @@ describe("buildCompareArtifact — rpCalibration attachment (F1/D-09/D-11, phase
     expect(MEASUREMENT.records[0]?.calibration.bonuses[0]?.meanPredicted).toBe(0.123456789);
   });
 
+  it("a measurement record for opr or epa attaches nothing; one for spr attaches as before (quick task 260913-it4)", () => {
+    const record = MEASUREMENT.records[0]!;
+    const measurement: RpCalibrationMeasurement = {
+      ...MEASUREMENT,
+      records: [record, { ...record, algorithmId: "opr" }, { ...record, algorithmId: "epa" }],
+    };
+    const slices = attachRpCalibration(
+      [sliceFor("spr", "qualification"), sliceFor("opr", "qualification"), sliceFor("epa", "qualification")],
+      measurement
+    );
+    expect(slices.find((s) => s.algorithmId === "spr")?.rpCalibration).toBeDefined();
+    expect(slices.find((s) => s.algorithmId === "opr")?.rpCalibration).toBeUndefined();
+    expect(slices.find((s) => s.algorithmId === "epa")?.rpCalibration).toBeUndefined();
+  });
+
   it("rpCalibration undefined (no committed baseline yet) is a no-op over every slice", () => {
     const artifact = buildCompareArtifact({
       algorithms: [{ id: "spr", version: "3.0.0+baseline" }],
@@ -4467,7 +4482,7 @@ describe("parseSeasonsRange — gapped list form (quick task 260904-nt4)", () =>
   //
   // WHY THIS EXISTS, recorded so it is never weakened into a formality. Commit
   // `1a759198` set `publish:seasons`' `--presim-from-season` to the far-future
-  // sentinel `9999` while the simulation/swing rethink iterated. A cutoff above
+  // sentinel `9999` while the simulation rethink iterated. A cutoff above
   // every season in the corpus makes `presimEnabled` (`publish.ts`'s
   // `season >= preScheduleFromSeason`) false for EVERY season, so each run
   // logged a "below presim-from-season" skip per season and wrote zero
@@ -4881,22 +4896,25 @@ describe("publishSeasons and --event agree on the SigmaScout layer (2026-09-09)"
     expect(compared, "non-vacuous: at least one standings percentile compared").toBeGreaterThan(0);
   });
 
-  it("agrees for OPR too — ranking-point parity cannot be an SPR-only property, and neither path publishes an OPR band", async () => {
+  it("agrees for OPR too — neither path publishes an OPR band or OPR ranking-point odds (quick tasks 260913-g66 and 260913-it4)", async () => {
     const { lateEventKey } = seedTwoEventSeason(db);
     await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
     const fromSeasons = findEventArtifact(lateEventKey, opr.id);
 
     const fromEvent = JSON.parse(buildSingleEventPublish(db, lateEventKey, opr).body) as EventArtifact;
 
+    expect(fromSeasons.matches.length, "non-vacuous: the late event has played rows").toBeGreaterThan(0);
     for (const seasonsRow of fromSeasons.matches) {
       const eventRow = fromEvent.matches.find((m) => m.matchKey === seasonsRow.matchKey);
+      expect(eventRow, `--event row exists for ${seasonsRow.matchKey}`).toBeDefined();
       expect(eventRow, `no OPR band on --event ${seasonsRow.matchKey}`).not.toHaveProperty("redMatchBandVariance");
       expect(seasonsRow, `no OPR band on seasons ${seasonsRow.matchKey}`).not.toHaveProperty("redMatchBandVariance");
-      expect(eventRow?.redRpPmf, `redRpPmf on ${seasonsRow.matchKey}`).toEqual(seasonsRow.redRpPmf);
+      expect(eventRow, `no OPR redRpPmf on --event ${seasonsRow.matchKey}`).not.toHaveProperty("redRpPmf");
+      expect(seasonsRow, `no OPR redRpPmf on seasons ${seasonsRow.matchKey}`).not.toHaveProperty("redRpPmf");
     }
   });
 
-  it("OPR publishes no band on any row and no per-team swing field on any team or teams artifact (quick task 260913-g66)", async () => {
+  it("OPR publishes no band and no ranking-point field on any row of any event, team or teams artifact (quick tasks 260913-g66 and 260913-it4)", async () => {
     seedTwoEventSeason(db);
     await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
 
@@ -4911,21 +4929,22 @@ describe("publishSeasons and --event agree on the SigmaScout layer (2026-09-09)"
 
     for (const { key, body } of [...eventBodies, ...teamBodies, ...teamsBodies]) {
       expect(body.includes("MatchBandVariance"), `band key on ${key}`).toBe(false);
-      expect(body.includes("SwingBandVariance"), `retired band key on ${key}`).toBe(false);
-      expect(body.includes("swingFactor"), `per-team swing field on ${key}`).toBe(false);
+      // The nine PREDICTED ranking-point fields, matched with their opening quote so the
+      // observed `actualRedBonusRp`/`actualBlueBonusRp` flags (results, not odds) do not match.
+      for (const rpKey of ["redRpPmf", "blueRpPmf", "matchOutcomePmf", "redOutcomeRp", "blueOutcomeRp", "redBonusRpPmf", "blueBonusRpPmf", "redBonusRp", "blueBonusRp"]) {
+        expect(body.includes(`"${rpKey}"`), `ranking-point key ${rpKey} on ${key}`).toBe(false);
+      }
     }
-    // The ranking-point pmf still rides OPR's rows: its Swing win-odds variance is live.
     const played = eventBodies.flatMap((c) => (JSON.parse(c.body) as EventArtifact).matches);
-    expect(played.some((m) => m.redRpPmf !== undefined)).toBe(true);
+    expect(played.length, "non-vacuous: OPR event artifacts carry played rows").toBeGreaterThan(0);
   });
 
-  it("SPR publishes no top-level per-team swing field on team or teams artifacts either", async () => {
+  it("SPR still publishes ranking-point pmfs on the same fixture (the OPR absence above is a gate, not a broken fixture)", async () => {
     seedTwoEventSeason(db);
     await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
     const calls = vi.mocked(putObject).mock.calls.map(([, key, body]) => ({ key: key as string, body: String(body) }));
-    const teamSurfaces = calls.filter((c) => c.key.startsWith("v1/team/") || c.key.startsWith("v1/teams/"));
-    expect(teamSurfaces.length).toBeGreaterThan(0);
-    for (const { key, body } of teamSurfaces) expect(body.includes("swingFactor"), `per-team swing field on ${key}`).toBe(false);
+    const played = calls.filter((c) => c.key.startsWith("v1/event/")).flatMap((c) => (JSON.parse(c.body) as EventArtifact).matches);
+    expect(played.some((m) => m.redRpPmf !== undefined)).toBe(true);
   });
 });
 
@@ -4948,6 +4967,18 @@ describe("publishSeasons and --event agree on the presim sidecar (2026-09-09)", 
   afterEach(() => {
     db.close();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("OPR and EPA build no pre-schedule sidecar on the fixture where SPR builds one (quick task 260913-it4)", async () => {
+    const { lateEventKey } = seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr, epa, spr], bucket: "test-bucket", dryRun: false, skipState: true });
+    const presimKeys = vi
+      .mocked(putObject)
+      .mock.calls.map(([, key]) => key as string)
+      .filter((key) => key.startsWith(`v1/presim/${lateEventKey}/`));
+    expect(presimKeys.some((key) => key.startsWith(`v1/presim/${lateEventKey}/${spr.id}@`)), "non-vacuous: SPR's sidecar is built").toBe(true);
+    expect(presimKeys.some((key) => key.startsWith(`v1/presim/${lateEventKey}/${opr.id}@`))).toBe(false);
+    expect(presimKeys.some((key) => key.startsWith(`v1/presim/${lateEventKey}/${epa.id}@`))).toBe(false);
   });
 
   it("both paths write a sidecar carrying ranking points for the same event", async () => {

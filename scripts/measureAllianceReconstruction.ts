@@ -112,10 +112,10 @@ import { isFullyDqZeroScoreAlliance } from "../packages/core/algorithms/dq.js";
 import { seasonBoundaryFor } from "../packages/harness/seasonBoundary.js";
 import { eventBlockedBootstrap, type EventBootstrapResult } from "../packages/harness/eventBootstrap.js";
 // REUSE, not re-implementation: `equalCountBuckets` and `parseSeasons` are
-// already exported and already unit-tested in `measureSwingSkill.ts`, and that
-// module's own `isEntryPoint` guard means importing it opens no corpus. A second
-// quantile bucketer here would be a second chance to drop rows at a boundary.
-import { equalCountBuckets, parseSeasons } from "./measureSwingSkill.js";
+// already exported and already unit-tested in `scriptHelpers.ts`, a pure module
+// whose import opens no corpus. A second quantile bucketer here would be a second
+// chance to drop rows at a boundary.
+import { equalCountBuckets, parseSeasons } from "./scriptHelpers.js";
 
 export { parseSeasons };
 
@@ -927,7 +927,7 @@ async function main(): Promise<void> {
 
 // Guard: only auto-run `main()` when this file is the process entry point, so
 // the pure helpers above can be imported by the test file without the harness
-// trying to open a corpus. Same idiom as `measureSwingSkill.ts`.
+// trying to open a corpus. Same idiom as `measureMatchBandCoverage.ts`.
 const isEntryPoint = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isEntryPoint) {
   main().catch((err) => {

@@ -16,7 +16,6 @@ import {
   metricDirectionOrDefault,
   UndeclaredMetricDirectionError,
 } from "./metricDirection.js";
-import { SWING_METRIC_KEY } from "./swingFactor.js";
 import { SIGMA_METRIC_KEY } from "./sigmaScore.js";
 
 describe("metricDirection (strict accessor)", () => {
@@ -24,8 +23,8 @@ describe("metricDirection (strict accessor)", () => {
     expect(metricDirection(TOTAL_METRIC_KEY)).toBe("higher-is-better");
   });
 
-  it("SWING_METRIC_KEY is lower-is-better", () => {
-    expect(metricDirection(SWING_METRIC_KEY)).toBe("lower-is-better");
+  it("SIGMA_METRIC_KEY is lower-is-better", () => {
+    expect(metricDirection(SIGMA_METRIC_KEY)).toBe("lower-is-better");
   });
 
   it("throws UndeclaredMetricDirectionError for a name nobody declared", () => {
@@ -55,7 +54,7 @@ describe("metricDirectionOrDefault (lenient accessor)", () => {
   });
 
   it("agrees with the strict accessor on every declared name", () => {
-    const declaredNames = new Set<string>([TOTAL_METRIC_KEY, SWING_METRIC_KEY, ...Object.values(COMPONENT_GROUP_METRIC_KEYS)]);
+    const declaredNames = new Set<string>([TOTAL_METRIC_KEY, SIGMA_METRIC_KEY, ...Object.values(COMPONENT_GROUP_METRIC_KEYS)]);
     for (const season of BREAKDOWN_REGISTERED_SEASONS) {
       for (const name of componentMapForSeason(season).components) declaredNames.add(name);
     }
@@ -66,12 +65,11 @@ describe("metricDirectionOrDefault (lenient accessor)", () => {
 });
 
 describe("lowerIsBetterMetricKeys (equality pin -- iteration-list-trap antidote)", () => {
-  it("is exactly {swing, sigma} -- a future addition must fail this test loudly rather than sliding in", () => {
-    // `sigma` joined on 2026-09-10 when Sigma Score shipped for BPR. Both keys
-    // are registered independently rather than one aliasing the other, because
-    // `SIGMA_SCORE_ALGORITHM_IDS` decides which of them a given algorithm
-    // publishes and a future change to one direction must not move the other.
-    expect(lowerIsBetterMetricKeys()).toEqual(new Set([SWING_METRIC_KEY, SIGMA_METRIC_KEY]));
+  it("is exactly {sigma} -- a future addition must fail this test loudly rather than sliding in", () => {
+    // `sigma` joined on 2026-09-10 when Sigma Score shipped for BPR. The other
+    // lower-is-better key, the retired per-robot consistency accumulator's, was
+    // removed by quick task 260913-it4.
+    expect(lowerIsBetterMetricKeys()).toEqual(new Set([SIGMA_METRIC_KEY]));
   });
 });
 
