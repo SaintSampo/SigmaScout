@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 09
 status: completed
 stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
-last_updated: "2026-09-13T23:05:00.000Z"
+last_updated: "2026-09-13T22:57:41.129Z"
 last_activity: 2026-09-13
 last_activity_desc: "Completed quick task 260913-ppk: closed vpr-retirement-make-features-algorithm-agnostic, SPR stays the only live-folding algorithm"
 progress:
@@ -563,6 +563,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 159 | Closed the quick-tasks-append corruption todo: patched the installed helper to append byte-exact under the lock (no frontmatter re-derivation, refuses corrupt files, rejects unknown flags and pipes, honors --dry-run, adds --dir and --commit), fixed STATE.md's stale body Phase 08 line, lifted the CLAUDE.md ban | 2026-09-13 | 06e6fb1d | — |
 | 160 | Add the missing 2019 roll-up source gate to reconciliation.test.ts (mutation-checked) and repoint the two comments that claimed it | 2026-09-13 | 3797cff9 | — |
 | 161 | Closed the vpr-retirement-make-features-algorithm-agnostic todo. Jacob decided SPR stays the only live-folding algorithm permanently, with OPR and EPA refreshing only at republish. The todo's rotation design was wrong (event_cursor and the TBA ETag are shared across algorithms, so an algorithm left out of a tick would lose those matches) and the CPU gate blocks it anyway; the reasons and the corrected premise for any reopening are in the completed todo. Stale VPR-folds-live claims fixed in worker-operations.md, wrangler.toml, publishedAlgorithms.ts and AlgorithmSelect.tsx. Docs and comments only, no Worker change or deploy | 2026-09-13 | 076d59fb | [260913-ppk-close-vpr-retirement-make-features-algor](./quick/260913-ppk-close-vpr-retirement-make-features-algor/) |
+| 162 | Fixed the missing SPR ranking-point scorecard: the committed measurement had only opr, epa and bpr records while the publisher attaches cards to spr alone by literal id, so the next publish would have dropped the Compare RP card. Measured spr into rp-calibration-2026-09c.json, repointed the constant, replaced the aliased test. Also wrote the 09-13 status of ranking-points-audit: F9, F12, F13 closed, F8 superseded, F6/F7 and F4 decided, F10 deferred | 2026-09-13 | 2be153a1 | — |
 
 ### Roadmap Evolution
 
