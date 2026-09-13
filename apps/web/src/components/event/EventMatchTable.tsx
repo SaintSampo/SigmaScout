@@ -5,6 +5,7 @@ import { BonusRpDots } from "../team/BonusRpDots.js";
 // `team/MatchTable.tsx` uses — one implementation, two surfaces.
 import { bonusRpForSeason, bonusStatesFromFlags, bonusStatesFromProbabilities } from "../../lib/bonusRp.js";
 import { snapToDevicePixelPhase, useDevicePixelPhaseStep } from "../../lib/devicePixelGrid.js";
+import { predictionPercent } from "../../lib/predictionPercent.js";
 import { formatScheduledTime, matchLabel } from "../team/MatchTable.js";
 import { Link } from "@tanstack/react-router";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
@@ -327,7 +328,7 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
       <td data-testid={`confidence-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] pl-[var(--spacing-lg)] align-top">
         <span className="flex items-center gap-[var(--spacing-xs)]">
           <EventAllianceChip side={row.predictedWinner} />
-          <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{Math.round(confidence * 100)}%</span>
+          <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
         </span>
       </td>
       <td data-testid={`predicted-score-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">

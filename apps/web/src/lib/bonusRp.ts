@@ -18,6 +18,8 @@
  * shell tokens already use against `theme.css`.
  */
 
+import { predictionPercent } from "./predictionPercent.js";
+
 export interface BonusRp {
   /** The core rule module's own `BONUS_NAMES` entry — the join key for per-bonus data once it is published. */
   readonly key: string;
@@ -183,7 +185,7 @@ export function bonusDotLabel(label: string, state: BonusRpState, kind: "predict
     return `${label}: no data published`;
   }
   if (kind === "predicted" && probability !== undefined) {
-    const percent = Math.round(probability * 100);
+    const percent = predictionPercent(probability);
     return `${label}: predicted ${percent}% likely`;
   }
   if (kind === "actual" && state === "earned") {

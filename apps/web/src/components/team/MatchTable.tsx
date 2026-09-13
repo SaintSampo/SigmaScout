@@ -6,6 +6,7 @@ import type { PublishedAlgorithmId } from "../../../../../packages/harness/publi
 import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, PLOT_W, scaleToPlot, type AxisDomain, type TeamSeasonMatch } from "./matchAxis.js";
 import { bonusRpForSeason, bonusStatesFromFlags, bonusStatesFromProbabilities } from "../../lib/bonusRp.js";
 import { snapToDevicePixelPhase, useDevicePixelPhaseStep } from "../../lib/devicePixelGrid.js";
+import { predictionPercent } from "../../lib/predictionPercent.js";
 // G-06.1-26 (plan 06.1-08, PD-19): imported directly from core rather than
 // copied into apps/web — `rp/constants.ts` has zero runtime imports of its
 // own, so (unlike `BONUS_RP_BY_SEASON` in `bonusRp.ts`) importing it does not
@@ -416,7 +417,7 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
       <td data-testid={`confidence-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] pl-[var(--spacing-lg)] align-top">
         <span className="flex items-center gap-[var(--spacing-xs)]">
           <AllianceChip side={match.predictedWinner} />
-          <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{Math.round(confidence * 100)}%</span>
+          <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
         </span>
       </td>
       <td data-testid={`predicted-score-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
