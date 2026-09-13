@@ -455,6 +455,30 @@ describe("SeasonHeader — Total renders the split pill with Sigma (quick task 2
     expect(pill.textContent).toContain("±12.50");
   });
 
+  it("still reads the season-final seasonStats sigma, never a metricsOverride row's own sigma (quick task 260913-m45: history rows now carry per-match sigma too)", () => {
+    const artifact = baseArtifact({
+      seasonStats: {
+        record: { wins: 1, losses: 0, ties: 0 },
+        metrics: { total: { value: 70 }, sigma: { value: 72.97, percentile: 1 } },
+      },
+    });
+    // A metricHistory row as 260913-m45 now publishes it: carries its OWN
+    // per-match sigma. The header must ignore it and keep reading
+    // seasonStats' season-final, tiered entry.
+    const metricsOverride: TeamSeasonArtifact["seasonStats"]["metrics"] = {
+      total: { value: 70 },
+      sigma: { value: 11.11 },
+    };
+
+    render(
+      <SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} metricsOverride={metricsOverride} />
+    );
+
+    const pill = screen.getByTestId("total-sigma-pill");
+    expect(pill.textContent).toContain("±72.97");
+    expect(document.body.textContent).not.toContain("11.11");
+  });
+
   it("still shows no pill and no tile when there is no Sigma Score entry at all (every OPR and EPA artifact)", () => {
     const artifact = baseArtifact({
       seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: { total: { value: 10 } } },

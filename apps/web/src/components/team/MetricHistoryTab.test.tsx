@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MetricHistoryTab } from "./MetricHistoryTab.js";
 import type { MetricHistoryChartProps } from "./MetricHistoryChart.js";
+import { METRIC_HISTORY_LEGEND_HEIGHT_PX } from "./metricHistorySeries.js";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 function artifact(overrides: Partial<TeamSeasonArtifact> = {}): TeamSeasonArtifact {
@@ -67,5 +68,53 @@ describe("MetricHistoryTab", () => {
     render(<MetricHistoryTab artifact={artifact()} algorithmId="spr" season={2024} loadChart={loadChart} />);
 
     await waitFor(() => expect(screen.getByTestId("fake-chart")).toBeDefined());
+  });
+
+  describe("skeleton legend spacer (quick task 260913-m45)", () => {
+    it("reserves a text-free METRIC_HISTORY_LEGEND_HEIGHT_PX spacer while pending, for an spr artifact whose rows draw a sigma band", async () => {
+      const loadChart = vi.fn(() => new Promise<{ default: ComponentType<MetricHistoryChartProps> }>(() => {}));
+      const sprArtifact = artifact({
+        algorithmId: "spr",
+        metricHistory: [
+          { matchKey: "m1", season: 2024, eventKey: "2024casj", algorithmId: "spr", teamKey: "frc1114", matchIndex: 0, metrics: { total: { value: 100 }, sigma: { value: 8 } } },
+        ],
+      });
+
+      render(<MetricHistoryTab artifact={sprArtifact} algorithmId="spr" season={2024} loadChart={loadChart} />);
+
+      const skeleton = await screen.findByTestId("metric-history-chart-skeleton");
+      const spacer = skeleton.querySelector('[data-testid="metric-history-legend-skeleton-spacer"]');
+      expect(spacer).not.toBeNull();
+      expect((spacer as HTMLElement).style.height).toBe(`${METRIC_HISTORY_LEGEND_HEIGHT_PX}px`);
+      expect(spacer?.textContent).toBe("");
+      expect(skeleton.textContent).toBe("");
+    });
+
+    it("has no spacer for an opr artifact (no sigma band ever draws)", async () => {
+      const loadChart = vi.fn(() => new Promise<{ default: ComponentType<MetricHistoryChartProps> }>(() => {}));
+      const oprArtifact = artifact({
+        algorithmId: "opr",
+        metricHistory: [{ matchKey: "m1", season: 2024, eventKey: "2024casj", algorithmId: "opr", teamKey: "frc1114", matchIndex: 0, metrics: { total: { value: 100 } } }],
+      });
+
+      render(<MetricHistoryTab artifact={oprArtifact} algorithmId="opr" season={2024} loadChart={loadChart} />);
+
+      const skeleton = await screen.findByTestId("metric-history-chart-skeleton");
+      expect(skeleton.querySelector('[data-testid="metric-history-legend-skeleton-spacer"]')).toBeNull();
+      expect(skeleton.textContent).toBe("");
+    });
+
+    it("has no spacer for spr rows carrying no sigma entry (pre-republish)", async () => {
+      const loadChart = vi.fn(() => new Promise<{ default: ComponentType<MetricHistoryChartProps> }>(() => {}));
+      const sprArtifact = artifact({
+        algorithmId: "spr",
+        metricHistory: [{ matchKey: "m1", season: 2024, eventKey: "2024casj", algorithmId: "spr", teamKey: "frc1114", matchIndex: 0, metrics: { total: { value: 100 } } }],
+      });
+
+      render(<MetricHistoryTab artifact={sprArtifact} algorithmId="spr" season={2024} loadChart={loadChart} />);
+
+      const skeleton = await screen.findByTestId("metric-history-chart-skeleton");
+      expect(skeleton.querySelector('[data-testid="metric-history-legend-skeleton-spacer"]')).toBeNull();
+    });
   });
 });

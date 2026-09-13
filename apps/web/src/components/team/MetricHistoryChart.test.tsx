@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
-import MetricHistoryChart from "./MetricHistoryChart.js";
+import MetricHistoryChart, { BAND_FILL, BAND_FILL_OPACITY, LINE_STROKE } from "./MetricHistoryChart.js";
+import { METRIC_HISTORY_LEGEND_HEIGHT_PX } from "./metricHistorySeries.js";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 
@@ -93,6 +94,56 @@ describe("MetricHistoryChart", () => {
     expect(container.querySelectorAll(".recharts-area").length).toBe(1);
     expect(container.textContent?.toLowerCase()).not.toContain("variance");
     expect(container.textContent?.toLowerCase()).not.toContain("spread");
+  });
+
+  describe("legend (quick task 260913-m45)", () => {
+    it("renders a two-item legend labelling Total and ± Sigma, sized to METRIC_HISTORY_LEGEND_HEIGHT_PX, when the band draws", () => {
+      const rows = [
+        row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, sigma: 5 }),
+        row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110, sigma: 6 }),
+      ];
+      const { container } = render(<MetricHistoryChart rows={rows} algorithmId="spr" season={2024} eventNameByKey={EVENT_NAMES} />);
+
+      const legend = container.querySelector('[data-testid="metric-history-legend"]');
+      expect(legend).not.toBeNull();
+      expect(legend?.textContent).toContain("Total");
+      expect(legend?.textContent).toContain("± Sigma");
+      expect((legend as HTMLElement).style.height).toBe(`${METRIC_HISTORY_LEGEND_HEIGHT_PX}px`);
+
+      const swatches = legend!.querySelectorAll('[aria-hidden="true"]');
+      expect(swatches.length).toBe(2);
+      const [lineSwatch, bandSwatch] = Array.from(swatches) as HTMLElement[];
+      expect(lineSwatch!.style.background).toBe(LINE_STROKE);
+      expect(bandSwatch!.style.background).toBe(BAND_FILL);
+      expect(Number(bandSwatch!.style.opacity)).toBeCloseTo(BAND_FILL_OPACITY);
+
+      const hexLike = /#[0-9A-Fa-f]{6}/;
+      for (const el of Array.from(legend!.querySelectorAll("*"))) {
+        expect((el as HTMLElement).style.background ?? "").not.toMatch(hexLike);
+      }
+    });
+
+    it("renders no legend, and no rendered text mentions sigma, for OPR rows", () => {
+      const rows = [
+        row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100 }),
+        row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110 }),
+      ];
+      const { container } = render(<MetricHistoryChart rows={rows} algorithmId="opr" season={2024} eventNameByKey={EVENT_NAMES} />);
+
+      expect(container.querySelector('[data-testid="metric-history-legend"]')).toBeNull();
+      expect(container.textContent?.toLowerCase()).not.toContain("sigma");
+    });
+
+    it("renders no legend for spr rows carrying no sigma entry (pre-republish)", () => {
+      const rows = [
+        row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100 }),
+        row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110 }),
+      ];
+      const { container } = render(<MetricHistoryChart rows={rows} algorithmId="spr" season={2024} eventNameByKey={EVENT_NAMES} />);
+
+      expect(container.querySelector('[data-testid="metric-history-legend"]')).toBeNull();
+      expect(container.textContent?.toLowerCase()).not.toContain("sigma");
+    });
   });
 
   it("a middle row lacking sigma still renders one Area — the series gives that point a null band (a gap, not a broken chart)", () => {
