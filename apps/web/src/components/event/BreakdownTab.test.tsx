@@ -17,11 +17,14 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
-import { totalColumnHeader } from "@/components/TotalSigmaValue";
+import { TOTAL_SIGMA_COLUMN_WIDTH_PX, totalColumnHeader } from "@/components/TotalSigmaValue";
 import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 import {
   BreakdownTab,
+  BREAKDOWN_METRIC_COLUMN_WIDTH_PX,
+  BREAKDOWN_TOTAL_COLUMN_WIDTH_PX,
+  BreakdownTabSkeleton,
   buildBreakdownRows,
   metricLabel,
   NO_GROUPS_EXPANDED,
@@ -50,6 +53,25 @@ function TestHarness({ children }: { children: ReactNode }) {
     <ChildrenContext.Provider value={children}>
       <RouterProvider router={router} />
     </ChildrenContext.Provider>
+  );
+}
+
+/**
+ * A test-local stateful switcher: keeps `BreakdownTab` MOUNTED across an
+ * algorithm change (the same `keepPreviousData` remount-free path
+ * `routes/event.$eventKey.tsx` gives it in the real app), so the in-place
+ * EPA-to-SPR switch test below exercises stale local state carrying over
+ * rather than a fresh mount landing on defaults.
+ */
+function AlgorithmSwitcher({ artifact, season }: { artifact: EventArtifact; season: number }) {
+  const [algorithmId, setAlgorithmId] = useState("epa");
+  return (
+    <>
+      <button type="button" data-testid="switch-to-spr" onClick={() => setAlgorithmId("spr")}>
+        Switch to SPR
+      </button>
+      <BreakdownTab artifact={artifact} algorithmId={algorithmId} season={season} />
+    </>
   );
 }
 
@@ -647,5 +669,101 @@ describe("BreakdownTab — Total renders the split pill under Sigma-enabled algo
     expect(buildBreakdownRows(withSigma, "spr").map((row) => row.teamNumber)).toEqual(
       buildBreakdownRows(withoutSigma, "spr").map((row) => row.teamNumber),
     );
+  });
+});
+
+describe("BreakdownTab: clean SPR table (quick task 260913-mgn)", () => {
+  function rowTeamNumbers(): number[] {
+    return screen.getAllByTestId("breakdown-row").map((el) => Number(el.getAttribute("data-team-number")));
+  }
+
+  it("spr desktop geometry: label row leads, six header cells, no spacer cells, table width equals the six column widths summed", async () => {
+    const artifact = makeArtifact([team({ metrics: sprMetrics2024() })]);
+    renderBreakdown(artifact, "spr", 2024);
+    await waitFor(() => expect(screen.getByTestId("breakdown-header-teamNumber")).toBeDefined());
+
+    const theadRows = document.querySelectorAll("thead tr");
+    expect(theadRows[0]?.querySelector("th")?.getAttribute("data-testid")).toBe("breakdown-header-teamNumber");
+
+    const headerCells = document.querySelectorAll("thead th");
+    expect(headerCells.length).toBe(6);
+
+    const totalHeader = screen.getByTestId(`breakdown-header-${TOTAL_KEY}`);
+    expect(totalHeader.style.width).toBe(`${TOTAL_SIGMA_COLUMN_WIDTH_PX}px`);
+    for (const key of ["phaseAuto", "phaseTeleop", "phaseEndgame"]) {
+      expect(screen.getByTestId(`breakdown-header-${key}`).style.width).toBe(`${BREAKDOWN_METRIC_COLUMN_WIDTH_PX}px`);
+    }
+
+    const table = document.querySelector("table");
+    if (table === null) throw new Error("no table element rendered");
+    const summedWidth = [...headerCells].reduce((sum, cell) => sum + Number.parseFloat((cell as HTMLElement).style.width), 0);
+    expect(table.style.width).toBe(`${summedWidth}px`);
+    expect(table.style.width).toBe(`${88 + 220 + TOTAL_SIGMA_COLUMN_WIDTH_PX + 3 * BREAKDOWN_METRIC_COLUMN_WIDTH_PX}px`);
+  });
+
+  it("epa desktop geometry regression pin: the group-band row leads, and the declared width still spans Total plus the three phases plus Fouls Committed", async () => {
+    const artifact = makeArtifact([team({ metrics: fullEpaMetrics2024() })], { algorithmId: "epa" });
+    renderBreakdown(artifact, "epa", 2024);
+    await waitFor(() => expect(screen.getByTestId("breakdown-group-row")).toBeDefined());
+
+    const theadRows = document.querySelectorAll("thead tr");
+    expect(theadRows[0]?.getAttribute("data-testid")).toBe("breakdown-group-row");
+
+    const table = document.querySelector("table");
+    if (table === null) throw new Error("no table element rendered");
+    expect(table.style.width).toBe(`${88 + 220 + BREAKDOWN_TOTAL_COLUMN_WIDTH_PX + 4 * BREAKDOWN_METRIC_COLUMN_WIDTH_PX}px`);
+  });
+
+  it("an in-place EPA-to-SPR switch never leaves the table sorted by a column SPR no longer shows", async () => {
+    const artifact = makeArtifact(
+      [
+        team({ teamKey: "frc1", teamNumber: 1, nickname: "One", metrics: { [TOTAL_KEY]: { value: 30 }, teleop: { value: 1 } } }),
+        team({ teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: { [TOTAL_KEY]: { value: 20 }, teleop: { value: 9 } } }),
+      ],
+      { algorithmId: "epa" },
+    );
+
+    render(
+      <TestHarness>
+        <AlgorithmSwitcher artifact={artifact} season={2024} />
+      </TestHarness>,
+    );
+
+    fireEvent.click(await screen.findByTestId("breakdown-group-toggle-teleop"));
+    const teleopHeader = await screen.findByTestId("breakdown-header-teleop");
+    fireEvent.click(within(teleopHeader).getByRole("button"));
+    await waitFor(() => expect(rowTeamNumbers()).toEqual([2, 1]));
+
+    fireEvent.click(screen.getByTestId("switch-to-spr"));
+
+    await waitFor(() => expect(headerIds()).toEqual(["teamNumber", "nickname", TOTAL_KEY, "phaseAuto", "phaseTeleop", "phaseEndgame"]));
+    expect(screen.queryByTestId("breakdown-group-row")).toBeNull();
+    expect(rowTeamNumbers()).toEqual([1, 2]);
+    expect(screen.getByTestId(`breakdown-header-${TOTAL_KEY}`).getAttribute("aria-sort")).toBe("descending");
+
+    fireEvent.click(within(screen.getByTestId(`breakdown-header-${TOTAL_KEY}`)).getByRole("button"));
+    await waitFor(() => expect(screen.getByTestId(`breakdown-header-${TOTAL_KEY}`).getAttribute("aria-sort")).toBe("ascending"));
+  });
+
+  it("spr skeleton headers match the populated SPR table's headers", async () => {
+    render(<BreakdownTabSkeleton algorithmId="spr" season={2024} />);
+    await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
+    const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
+    expect(headers).toEqual(["Team #", "Team Name", totalColumnHeader("spr"), metricLabel("phaseAuto"), metricLabel("phaseTeleop"), metricLabel("phaseEndgame")]);
+  });
+
+  it("epa skeleton headers match the populated EPA table's headers", async () => {
+    render(<BreakdownTabSkeleton algorithmId="epa" season={2024} />);
+    await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
+    const headers = screen.getAllByRole("columnheader").map((el) => el.textContent);
+    expect(headers).toEqual([
+      "Team #",
+      "Team Name",
+      totalColumnHeader("epa"),
+      metricLabel("phaseAuto"),
+      metricLabel("phaseTeleop"),
+      metricLabel("phaseEndgame"),
+      metricLabel("foulsCommitted"),
+    ]);
   });
 });
