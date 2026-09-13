@@ -7,7 +7,7 @@ status: completed
 stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
 last_updated: "2026-09-13T03:54:31.153Z"
 last_activity: 2026-09-13
-last_activity_desc: "Completed quick task 260913-jkp: SPR Total shows the joined Total plus-minus Sigma split pill; Worker deployed, republish and push owed"
+last_activity_desc: "Completed quick task 260913-m45: per-match Sigma on SPR metric history rows, drawn as the Total plus-minus Sigma band; Worker deploy and republish owed"
 progress:
   total_phases: 12
   completed_phases: 12
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: 08
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-09-13 - Completed quick task 260913-jkp: Sigma column and tile deleted, SPR Total shows the Total plus-minus Sigma split pill on five surfaces, Worker deployed, republish and push owed
+Last activity: 2026-09-13 - Completed quick task 260913-m45: per-match Sigma on SPR metric history rows, drawn as the Total plus-minus Sigma band; Worker deploy and republish owed
 
 Progress: [██████████] 100%
 
@@ -558,6 +558,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 154 | fast: no prediction displays as certain. Match win confidence on the team and event match tables and the bonus RP dot labels go through predictionPercent, which clamps the shown whole percent to 1-99 (a model 100% shows 99%). Display only, published probabilities and scoring untouched | 2026-09-13 | c3ef6a06 | — |
 | 155 | No event-page table freezes a column during horizontal scroll. Quals and Playoffs Match column, Insights, Breakdown, Alliances and the Simulation rank table all dropped TanStack column pinning (755c1c48, fa680809, f15b734e); column order unchanged, the Simulation rank table keeps its sticky title row for vertical scroll. Full apps/web suite 1872/1872, web typecheck clean. Four Playwright specs updated but only parsed, never run against the live origin. Not pushed | 2026-09-13 | f15b734e | [260913-m9m-remove-sticky-columns-from-every-event-p](./quick/260913-m9m-remove-sticky-columns-from-every-event-p/) |
 | 156 | Sigma column and tile deleted; SPR Total renders a joined split pill (Total in its tier, plus-minus Sigma in its own) on the Teams list, team page Total tile, and event Insights, Breakdown and Alliances (sketch 011 winner A). Event standings publish the season-final Sigma entry and the live Worker keeps it; Alliances Combined Total carries sqrt(3 x sum Sigma squared), untiered. Phone-390 Sigma half overflows 16.31px, left by choice. Root vitest 5423 passed, three typechecks clean. Worker deployed (5c32b48a, first tick ok). Republish and web push handed to another agent; until then event tabs show the header over plain Totals | 2026-09-13 | 9bf8829d | [260913-jkp-sigma-columns-removed-spr-total-shows-co](./quick/260913-jkp-sigma-columns-removed-spr-total-shows-co/) |
+| 157 | SPR metric history rows publish each match's own Sigma (offline after each fold, live Worker at end of tick, value only, merged after the percentile pass so season-final Sigma, tiers and pools are untouched) and the Metric History chart draws Total plus-minus Sigma in muted grey with a Total and Sigma legend; OPR, EPA and pre-republish artifacts draw no band. Review fixed a skeleton spacer that reserved nothing (measured shift now 0) and Y ticks anchored to the band edge (now a nice-step ladder through zero). Root vitest 5423 passed, three typechecks clean, look check on synthetic sigma. Web band code already live via another session's push (inert without data); axis commits unpushed, Worker deploy and republish owed | 2026-09-13 | b5babfcc | [260913-m45-metric-history-chart-publish-per-match-s](./quick/260913-m45-metric-history-chart-publish-per-match-s/) |
 
 ### Roadmap Evolution
 
