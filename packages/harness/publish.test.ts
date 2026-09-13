@@ -4949,6 +4949,82 @@ describe("publishSeasons and --event agree on the SigmaScout layer (2026-09-09)"
 });
 
 /**
+ * Quick task 260913-jkp Task 1: SPR event standings now also carry the
+ * season-final Sigma entry beside the AS-OF-EVENT Total and phase values
+ * (`buildEventTeamsStanding`'s new required `sigmaByTeam` parameter). This is
+ * what lets the Insights/Breakdown/Alliances tabs render the split pill
+ * without ever fetching the ~200KB Teams artifact.
+ */
+describe("publishSeasons — event standings carry the season-final Sigma entry (quick task 260913-jkp Task 1)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-event-sigma-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("SPR: every event standings row with a published team-season artifact carries metrics.sigma deep-equal to that artifact's seasonStats.metrics.sigma, as the LAST key", async () => {
+    const { earlyEventKey, lateEventKey, teamKeys } = seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    let compared = 0;
+    for (const eventKey of [earlyEventKey, lateEventKey]) {
+      const eventArtifact = findEventArtifact(eventKey, spr.id);
+      expect(eventArtifact.teams.length, `${eventKey} has a published roster`).toBeGreaterThan(0);
+      for (const row of eventArtifact.teams) {
+        const teamArtifact = findTeamArtifact(row.teamKey, 2026);
+        const seasonSigma = teamArtifact.seasonStats.metrics[SIGMA_METRIC_KEY];
+        expect(seasonSigma, `${row.teamKey} has a published seasonStats sigma entry`).toBeDefined();
+        expect(row.metrics[SIGMA_METRIC_KEY], `${eventKey} ${row.teamKey} sigma vs seasonStats sigma`).toEqual(seasonSigma);
+        expect(Object.keys(row.metrics).at(-1), `${eventKey} ${row.teamKey} sigma must be the LAST metrics key`).toBe(SIGMA_METRIC_KEY);
+        compared++;
+      }
+    }
+    // Non-vacuous: the compared-team count is greater than zero AND equals
+    // the event roster size across both events, so this cannot pass vacuously.
+    expect(compared).toBeGreaterThan(0);
+    expect(compared).toBe(teamKeys.length * 2);
+  });
+
+  it("OPR: no event artifact team row has a sigma key", async () => {
+    seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const calls = vi.mocked(putObject).mock.calls.map(([, key, body]) => ({ key: key as string, body: String(body) }));
+    const eventBodies = calls.filter((c) => c.key.startsWith("v1/event/"));
+    expect(eventBodies.length, "non-vacuous: OPR event artifacts were actually written").toBeGreaterThan(0);
+    for (const { key, body } of eventBodies) {
+      expect(body.includes(`"${SIGMA_METRIC_KEY}"`), `no sigma key on ${key}`).toBe(false);
+    }
+  });
+
+  it("the --event path publishes the same teams[].metrics.sigma entries as the seasons path for the same event", async () => {
+    const { lateEventKey } = seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
+    const fromSeasons = findEventArtifact(lateEventKey, spr.id);
+
+    const fromEvent = JSON.parse(buildSingleEventPublish(db, lateEventKey, spr).body) as EventArtifact;
+
+    let compared = 0;
+    expect(fromSeasons.teams.length, "non-vacuous: the seasons path published a roster").toBeGreaterThan(0);
+    for (const seasonsRow of fromSeasons.teams) {
+      const eventRow = fromEvent.teams.find((t) => t.teamKey === seasonsRow.teamKey);
+      expect(eventRow, `--event row exists for ${seasonsRow.teamKey}`).toBeDefined();
+      expect(eventRow?.metrics[SIGMA_METRIC_KEY], `${seasonsRow.teamKey} sigma agreement`).toEqual(seasonsRow.metrics[SIGMA_METRIC_KEY]);
+      if (seasonsRow.metrics[SIGMA_METRIC_KEY] !== undefined) compared++;
+    }
+    expect(compared, "non-vacuous: at least one sigma entry compared").toBeGreaterThan(0);
+  });
+});
+
+/**
  * The presim sidecar is the THIRD thing `--event` dropped, and the one with
  * the most visible consequence: the rank simulation reads it, so a `--event`
  * republish left that event's Simulation tab with no ranking points to draw
