@@ -6,8 +6,15 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { createRouter, RouterProvider } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen.js";
 import { queryClient } from "./lib/query-client.js";
+import { algorithmsManifestQueryOptions } from "./lib/api/manifests.js";
 
 const router = createRouter({ routeTree });
+
+// Audit E1: starts the algorithms-manifest fetch before the first render,
+// using the SAME query options `useAlgorithmVersion` passes to `useQuery` —
+// both share the query key `["algorithms-manifest"]`, so this prefetch and
+// that hook's own fetch dedupe onto one request rather than firing twice.
+void queryClient.prefetchQuery(algorithmsManifestQueryOptions());
 
 declare module "@tanstack/react-router" {
   interface Register {

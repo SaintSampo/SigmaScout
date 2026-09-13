@@ -2,8 +2,11 @@
  * Mirrors `teams.test.ts`'s shape (05-01) for the algorithms-manifest
  * fetcher: happy path, non-OK-status error, schema-failure error.
  */
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchAlgorithmsManifest, AlgorithmsManifestFetchError, AlgorithmsManifestValidationError } from "./manifests.js";
+import { fetchAlgorithmsManifest, AlgorithmsManifestFetchError, AlgorithmsManifestValidationError, ALGORITHMS_MANIFEST_KEY } from "./manifests.js";
 
 function makeValidManifest() {
   return {
@@ -78,5 +81,22 @@ describe("fetchAlgorithmsManifest", () => {
     await fetchAlgorithmsManifest();
 
     expect(fetchMock).toHaveBeenCalledWith("https://data.sigmascout.org/v1/manifest/algorithms.json");
+  });
+});
+
+/**
+ * Drift guard (audit E1, 260913-nvn): `vite.config.ts` cannot import
+ * `ALGORITHMS_MANIFEST_KEY` from this module — its own header explains why
+ * (`artifactOrigin.ts` reads `import.meta.env` at module top, undefined in
+ * the config's Node context) — so it hand-copies the manifest key's literal
+ * value into its own preload-hint plugin instead. This test reads that
+ * file's raw text and fails the day the two values are hand-edited apart.
+ */
+describe("vite.config.ts manifest-key drift guard", () => {
+  it("vite.config.ts's own copy of the manifest key matches this module's ALGORITHMS_MANIFEST_KEY", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const viteConfigPath = resolve(here, "..", "..", "..", "vite.config.ts");
+    const viteConfigText = readFileSync(viteConfigPath, "utf8");
+    expect(viteConfigText).toContain(ALGORITHMS_MANIFEST_KEY);
   });
 });
