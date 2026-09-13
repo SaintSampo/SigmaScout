@@ -466,9 +466,9 @@ describe("2018 Scale/Switch split source gate (D-1)", () => {
    * because the fused form reconciles EXACTLY too (see `2018.ts`'s file
    * header, "The roll-up hazards"). This is the identical class of hazard
    * `2019.ts`'s `autoPoints`/`sandStormBonusPoints` numeric-identity roll-up
-   * gets from this file's 2026 field-rename assertion above — a
-   * comment-stripped source scan is the only thing that can catch it, since
-   * the corpus proof alone would pass either way.
+   * gets its own gate for, in the "2019 roll-up source gate (BD-1)" block
+   * below — a comment-stripped source scan is the only thing that can catch
+   * it, since the corpus proof alone would pass either way.
    *
    * The negative half (no roll-up field read) is paired with a POSITIVE
    * assertion that both split pairs are actually present in
@@ -514,5 +514,50 @@ describe("2018 Scale/Switch split source gate (D-1)", () => {
     expect(components).toContain("autoScaleOwnership");
     expect(components).toContain("teleopSwitchOwnership");
     expect(components).toContain("teleopScaleOwnership");
+  });
+});
+
+describe("2019 roll-up source gate (BD-1)", () => {
+  /**
+   * `autoPoints` equals `sandStormBonusPoints` in every observed 2019 row, so
+   * reading it in place of the sandstorm field still reconciles EXACTLY — the
+   * corpus proof above passes either way (see `2019.ts`'s file header,
+   * "Roll-up avoidance"). `teleopPoints` is the sum of the hatch/cargo/climb
+   * parts, so reading it beside them double-counts. Same mechanics as the
+   * 2018 gate: a comment-stripped source scan, paired with a POSITIVE
+   * assertion that the independent components are the ones in `components`.
+   */
+  it("2019.ts: never reads TBA's autoPoints/teleopPoints/totalPoints roll-ups (only comments documenting why)", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+    const filePath = path.join(currentDir, "2019.ts");
+    const content = fs.readFileSync(filePath, "utf-8");
+
+    let stripped = content
+      .split("\n")
+      .map((line) => {
+        const commentIdx = line.indexOf("//");
+        return commentIdx !== -1 ? line.substring(0, commentIdx) : line;
+      })
+      .join("\n");
+    stripped = stripped.replace(/\/\*[\s\S]*?\*\//g, "");
+
+    const FORBIDDEN_FIELDS = ["autoPoints", "teleopPoints", "totalPoints"];
+
+    for (const field of FORBIDDEN_FIELDS) {
+      const matches = stripped.match(new RegExp(`\\b${field}\\b`, "g"));
+      expect(matches?.length ?? 0, `2019.ts reads forbidden roll-up field "${field}" outside a comment`).toBe(0);
+    }
+  });
+
+  it("2019.ts: components carry the sandstorm bonus and the three teleop parts, not their roll-ups (BD-1 pinned as a test)", () => {
+    const components = componentMapForSeason(2019).components;
+    expect(components).toContain("sandstormBonus");
+    expect(components).toContain("hatchPanel");
+    expect(components).toContain("cargo");
+    expect(components).toContain("habClimb");
   });
 });

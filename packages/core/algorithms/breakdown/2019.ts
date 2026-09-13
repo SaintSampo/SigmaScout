@@ -23,7 +23,8 @@
  *   every observed row. Reading `autoPoints` instead of the sandstorm field
  *   would be a duplicate, not an independent component — AND
  *   reconciliation would still PASS, because the two values are equal. The
- *   comment-stripped source gate in `reconciliation.test.ts` (asserting
+ *   comment-stripped source gate in `reconciliation.test.ts`'s
+ *   "2019 roll-up source gate (BD-1)" block (asserting
  *   `autoPoints`/`teleopPoints`/`totalPoints` appear nowhere outside a
  *   comment in this file) is the only thing that can catch this particular
  *   substitution — the corpus proof alone cannot.

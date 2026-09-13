@@ -3,7 +3,30 @@ id: 2019-source-gate-claimed-but-never-written
 created: 2026-09-12
 source: salvaged from `2017-2019-deficit-diagnosis` when that todo was deleted (its deficits are gone); the finding itself dates to quick task 260907-057 and has never been fixed
 priority: medium
+resolved_date: 2026-09-13
+resolved_by: new "2019 roll-up source gate (BD-1)" block in reconciliation.test.ts, mutation-checked; both prose claims repointed at it
 ---
+
+## Resolution (2026-09-13)
+
+**The gate now exists, and it catches the substitution the corpus proof cannot.**
+
+- Added `describe("2019 roll-up source gate (BD-1)")` to
+  `packages/core/algorithms/breakdown/reconciliation.test.ts`. It copies the 2018 gate's mechanics
+  and has two tests:
+  - a comment-stripped `readFileSync` scan of `2019.ts` for `autoPoints`, `teleopPoints` and
+    `totalPoints`, with the field name in each assertion message
+  - a positive assertion that `componentMapForSeason(2019).components` contains `sandstormBonus`
+    plus the three teleop parts (`hatchPanel`, `cargo`, `habClimb`)
+- **Mutation-checked.** I temporarily changed the schema field and the `sandstormBonus` mapping in
+  `2019.ts` to read `autoPoints`. The 2019 corpus reconciliation stayed green on both red and blue
+  (4/4 passing), while the new source gate failed with `2019.ts reads forbidden roll-up field
+  "autoPoints" outside a comment: expected 2 to be +0`. That contrast is the claim the header makes.
+  After restoring the file, `git diff` shows only the comment edit below.
+- **Prose fixed.** `2019.ts`'s header now names the block, so following the pointer lands on real
+  code. The 2018 gate's doc comment no longer says 2019 is covered by the 2026 field-rename
+  assertion. It points at the new block instead.
+- Full `reconciliation.test.ts` passes, 61/61, run from the repo root against `data/corpus.sqlite`.
 
 # `2019.ts` cites a source gate in `reconciliation.test.ts` that does not exist
 
