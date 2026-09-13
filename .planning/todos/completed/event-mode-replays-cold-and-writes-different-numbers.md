@@ -65,3 +65,16 @@ only holds until the next full run actually happens.
 
 **Do not run `publish.ts --event` on an event you care about.** It will overwrite that event
 with cold-start numbers. `pnpm publish:seasons` is unaffected and remains the correct full path.
+
+## CLOSED 2026-09-13 — resolved by option 3, the mode is deleted (quick task 260913-nvn)
+
+`--event` and its support (`deriveSeasonFromEventKey`, `SingleEventPublishResult`,
+`buildSingleEventPublish`, `runEventMode`, and the `--event` `parseArgs` option/branch in `main()`)
+are deleted from `packages/harness/publish.ts`. `publish.ts` now has one mode, `--seasons`. A
+single-event refresh is now a full `pnpm publish:seasons`, which carries every season boundary
+(the cross-season state threading `--event` never had) and therefore writes the same numbers the
+full publish always has — no cold-start path to R2 remains in `publish.ts`. The parity test suites
+this bug motivated (`publish.test.ts`'s `publishSeasons`-vs-`--event` describes) are deleted along
+with it; the three non-parity gates they contained (OPR publishes no band/RP odds, SPR still
+publishes ranking-point pmfs, OPR/EPA build no pre-schedule sidecar) survive under retitled
+describes.

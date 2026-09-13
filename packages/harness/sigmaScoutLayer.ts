@@ -20,22 +20,10 @@
  * WHY THIS IS A MODULE AND NOT A LOOP BODY
  * ---------------------------------------------------------------------------
  *
- * `publish.ts` has TWO orchestrations that write the same artifacts:
- * `publishSeasons` (the full multi-season path) and `runEventMode` (`--event`,
- * the single-event republish path). Both replay a whole season; both emit
- * event artifacts and presim sidecars.
- *
- * When the band landed on 2026-09-08 and ranking points on 2026-09-09, both
- * went into `publishSeasons`'s loop only. `--event` kept mirroring the *old*
- * orchestration, so running it on an event silently STRIPPED that event's
- * bands and RP until the next full publish — the identical defect shape as the
- * Worker's lossy merge: a second write path that reconstructs rows field by
- * field and therefore drops whatever the primary path learned to emit.
- *
- * This module exists so that cannot happen a third time. The per-match math
- * lives in exactly one place and both orchestrations call it. Adding a level-2
- * field here reaches every write path at once; adding one in a caller's loop
- * is the bug this file was extracted to prevent.
+ * Level-2 per-match math lives only here, and `publishSeasons` calls it.
+ * Adding a level-2 field in a caller's loop instead recreates the
+ * drop-a-field defect a second write path caused on 2026-09-09 (see git
+ * history at 260913-nvn's base commit for the incident).
  *
  * ---------------------------------------------------------------------------
  * PREDICT BEFORE UPDATE
@@ -175,9 +163,10 @@ export class SigmaScoutLayer {
    * to `SigmaScoreAccumulator.sigmaFor`, which goes through `#readBelief`
    * rather than `#mutableBelief` (see that method's own doc comment for the
    * real order-dependence bug a single insert-on-read accessor once caused:
-   * `publishSeasons` and `--event` produced different ranking-point pmfs for
-   * the same event because merely reading a team created a belief entry, and
-   * whichever path read a team first changed what the other could see).
+   * two orchestrations that wrote the same artifacts produced different
+   * ranking-point pmfs for the same event because merely reading a team
+   * created a belief entry, and whichever path read a team first changed
+   * what the other could see).
    *
    * Costs ONE team, unlike `consistencyByTeam()` above, which scores EVERY
    * team the layer has ever seen and must NEVER be called once per match.

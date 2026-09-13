@@ -1,20 +1,20 @@
 /**
  * `pnpm publish:artifacts` / `pnpm publish:seasons` entry point (D-01/D-02/
  * D-04/D-05/D-06/D-07/D-08/D-25/D-26, plan 04-01 Task 3 widened by plan
- * 04-04 Task 1 into the full offline publisher). Two modes:
+ * 04-04 Task 1 into the full offline publisher).
  *
- *   pnpm publish:artifacts --event <event_key> --algorithm opr [--bucket <name>] [--dry-run]
  *   pnpm publish:artifacts --seasons 2022-2026 [--algorithm opr,epa,spr] [--bucket <name>]
  *     [--concurrency 16] [--dry-run] [--skip-state] [--include-offseason]
  *
- * `--event` is the single-event republish path (how a live-event artifact is
- * refreshed by hand after this plan; unchanged in shape from the 04-01
- * tracer, widened only to fill `upcoming`/`teams`). `--seasons` is the real
- * full-season publisher: every page kind, every requested algorithm, one
- * shared match stream per season (mirroring `cli.ts`'s `runSeasons` — see
- * `publishSeasons` below for why this orchestration is mirrored locally
- * rather than imported, per the precedent `tune.ts`'s file header already
- * records for the exact same reason).
+ * `--seasons` is the full-season publisher: every page kind, every requested
+ * algorithm, one shared match stream per season (mirroring `cli.ts`'s
+ * `runSeasons` — see `publishSeasons` below for why this orchestration is
+ * mirrored locally rather than imported). A single event is refreshed by
+ * running a full `pnpm publish:seasons` — there is no separate single-event
+ * publish path (260913-nvn: the prior single-event mode replayed its season
+ * cold, with no cross-season state, and wrote materially different numbers
+ * from the full publish on 86 of 89 measured rows; deleted rather than
+ * fixed).
  *
  * Every assembly function in this file (`buildEventArtifact`,
  * `buildTeamsArtifact`, `buildTeamSeasonArtifact`, `buildEventsArtifact`,
@@ -113,9 +113,9 @@ import type { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoment
 import { analyticRpPmf } from "../core/rankingPoints/analyticPmf.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 // The level-2 SigmaScout layer — Sigma Score, the band and ranking points, for
-// Sigma algorithms only. BOTH orchestrations in this file drive it
-// (`publishSeasons` and `--event`), which is the point: see that module's
-// header for the regression that extracting it prevents.
+// Sigma algorithms only. `publishSeasons` is the only orchestration in this
+// file that drives it; see that module's header for the regression that
+// extracting it prevents.
 import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "./rounding.js";
 import {
@@ -956,8 +956,7 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     // PUBLISHED MATCH BAND for a not-yet-played match (quick task 260913-g66),
     // read from the upcoming record `SigmaScoutLayer.enrichUpcoming` built from
     // every team's play SO FAR — the same record the team artifact's upcoming
-    // rows read, and the same band `--event` now publishes too. Sigma
-    // algorithms only.
+    // rows read. Sigma algorithms only.
     ...matchBandFields(matchBand),
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
@@ -2784,7 +2783,8 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     // per algorithm. `records` is chronological (runAll's outer loop is the
     // match stream), so each instance walks forward with it, which is the
     // ordering `foldPlayed` requires. The per-match math itself lives in
-    // `sigmaScoutLayer.ts` because `--event` below runs the identical thing.
+    // `sigmaScoutLayer.ts` — see that module's own header for why it is a
+    // module and not a loop body.
     const rpRuleModule = RP_RULE_MODULES[season];
     const layers = new Map<string, SigmaScoutLayer>();
     for (const algorithm of options.algorithms) layers.set(algorithm.id, new SigmaScoutLayer(rpRuleModule, algorithm.id));
@@ -3547,15 +3547,6 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
 // CLI
 // ---------------------------------------------------------------------------
 
-/** Single-event CLI derives season from the event key's leading 4 digits (TBA's own convention), mirroring `packages/harness/cli.ts`'s `runEventMode`. */
-function deriveSeasonFromEventKey(eventKey: string): number {
-  const season = Number.parseInt(eventKey.slice(0, 4), 10);
-  if (!Number.isInteger(season)) {
-    throw new Error(`Could not derive a season from event key "${eventKey}" (expected a leading 4-digit year)`);
-  }
-  return season;
-}
-
 /** D-03 (rename D-04/D-05, plan 07-16/07-18; re-split then re-collapsed by quick task 260912-ivg): resolves the requested `--algorithm` ids (default: `PUBLISHED_ALGORITHM_IDS`, the single algorithm-id constant again as of 260912-ivg Stage 5) against the base modules, then swaps in the promoted VPR the same way `manifests.ts`'s `buildAlgorithmsManifest` (still read-tier) and `cli.ts`'s harness runs do (T-04-16) — never a second, independent resolution. Exported (plan 07-16 Task 2) so the rename's default-set/artifact-key/unknown-id behavior is directly testable rather than only reachable through the CLI entry point. */
 export function resolvePublishAlgorithms(idsCsv: string | undefined): AlgorithmModule<any>[] {
   const ids = idsCsv
@@ -3634,314 +3625,6 @@ export function parseSeasonsRange(spec: string): number[] {
   return Array.from(seasons).sort((a, b) => a - b);
 }
 
-/** What a single-event publish would write: the event artifact, and its presim sidecar when one applies. */
-export interface SingleEventPublishResult {
-  readonly key: string;
-  readonly body: string;
-  readonly sidecar?: { key: string; body: string };
-}
-
-/**
- * Builds everything `--event` publishes, without doing any IO.
- *
- * Separated from `runEventMode`'s corpus-opening and uploading (2026-09-09) so
- * that a test can assert the thing that actually matters about this path: that
- * the artifact it produces carries the SAME level-2 fields `publishSeasons`
- * writes for the same event. That equivalence was silently false for a day —
- * see `sigmaScoutLayer.ts` — and a byte count from `--dry-run` could not have
- * detected it.
- */
-export function buildSingleEventPublish(db: Corpus, eventKey: string, algorithm: AlgorithmModule<any>): SingleEventPublishResult {
-  {
-    const season = deriveSeasonFromEventKey(eventKey);
-    // D-10, PD-05, plan 07-09 Task 2: this mode now replays the target
-    // event's WHOLE SEASON, not just the one event, so the percentile it
-    // publishes is ranked against a genuine season-wide pool rather than
-    // the event's own roster — which `TeamMetricSchema.percentile`'s own
-    // definition forbids. Cost: one season replay per invocation, 16-29
-    // seconds measured (RESEARCH.md Question 3), against a previously
-    // near-instant command. Honest remaining limitation, not hidden: this
-    // mode still carries no CROSS-SEASON state (no season-boundary
-    // threading), so a value it writes is close to but not identical to
-    // what a full seasons run produces — and that full run overwrites
-    // every key it touches. This is the path a subset publish runs on, so
-    // an artifact written here is what the rendered tabs are verified
-    // against.
-    //
-    // PD-06: offseason matches are always included in this season replay,
-    // with no flag of its own — `--event <key>` is an explicit request for
-    // that one event; an excluding stream would be empty (and throw on
-    // data that plainly exists) for an offseason event, and the phase's
-    // authorized full republish always widens its own scope the same way,
-    // so this matches the trajectory that run will write.
-    const stream = buildSeasonStream(db, season, { includeOffseason: true });
-    const scheduled = selectScheduledMatches(db, { year: season });
-    const teamsThisSeason = Array.from(
-      new Set([...stream.flatMap((m) => [...m.redTeams, ...m.blueTeams]), ...scheduled.flatMap((m) => [...m.redTeams, ...m.blueTeams])])
-    );
-
-    // C-17 (quick task 260905-tll Task 4): the loud zero-completed-matches
-    // guard keeps its exact message, but gains the scheduleless branch — an
-    // event with zero completed matches that DOES have registered teams in
-    // `event_teams` proceeds with a roster-only artifact (C-15); an event
-    // with neither still throws, message unchanged from 07-08/Phase 4.
-    const matches = stream.filter((m) => m.eventKey === eventKey);
-    const registeredTeamKeys = selectEventTeamsForEvents(db, [eventKey]).get(eventKey);
-    if (matches.length === 0 && registeredTeamKeys === undefined) {
-      throw new Error(`No completed matches found in corpus for event ${eventKey}`);
-    }
-    const teams = Array.from(new Set(matches.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
-
-    // D-10, plan 07-09 Task 2: the same one-line per-event state capture
-    // Task 1 added to the seasons path's own per-match completion hook —
-    // one Map, no season-boundary threading (this mode publishes no
-    // team-season artifact and needs none). Quick task 260905-tll Task 4
-    // adds the PRE-event counterpart with a single map and a single
-    // `lastState` local, mirroring the seasons path's own capture: the
-    // decision is made once per event on its FIRST completed match
-    // (`preEventCaptureSeen`), and the season's first event under this
-    // cold replay deliberately gets NO entry (PD-04 — the honest pre-event
-    // state there is the unexposed cold-start state).
-    const stateByEventKey = new Map<string, unknown>();
-    const preEventStateByEventKey = new Map<string, unknown>();
-    const preEventCaptureSeen = new Set<string>();
-    let lastState: unknown;
-    let hasLastState = false;
-    // Mirrors `publishSeasons`'s own capture. This mode exists because it has
-    // drifted from the seasons path before — `sigmaScoutLayer.ts`'s header
-    // records bands and RP being silently stripped by exactly that divergence —
-    // so the Sigma talent prior is captured here too rather than left to be
-    // discovered missing later.
-    const talentAfterMatch = new Map<string, Map<string, number>>();
-    // Quick task 260912-tnk: THE season ranking pool's source record — every
-    // team's metrics as of its LAST OFFICIAL match, exactly
-    // `lastOfficialMetricsByTeam`'s rule on the seasons path, from the same
-    // `isOfficialEventType` predicate. Captured in the hook this replay
-    // already runs rather than by building full metric history.
-    const officialEventKeys = new Set(selectEventMeta(db, season).filter((e) => isOfficialEventType(e.event_type)).map((e) => e.event_key));
-    const lastOfficialMetrics: TeamMetrics = {};
-    const onMatchComplete = (match: MatchResult, _algorithmId: string, state: unknown): void => {
-      if (!preEventCaptureSeen.has(match.eventKey)) {
-        preEventCaptureSeen.add(match.eventKey);
-        if (hasLastState) preEventStateByEventKey.set(match.eventKey, lastState);
-      }
-      lastState = state;
-      hasLastState = true;
-      stateByEventKey.set(match.eventKey, state);
-      const isOfficial = officialEventKeys.has(match.eventKey);
-      const wantsTalent = usesSigmaScore(algorithm.id);
-      if (!isOfficial && !wantsTalent) return;
-      const involvedTeams = [...match.redTeams, ...match.blueTeams];
-      // ONE `teamMetrics` call serves both the pool capture and the Sigma
-      // talent prior below.
-      const metrics = algorithm.teamMetrics(state, involvedTeams);
-      if (isOfficial) {
-        for (const teamKey of involvedTeams) {
-          const teamMetrics = metrics[teamKey];
-          if (teamMetrics !== undefined) lastOfficialMetrics[teamKey] = teamMetrics;
-        }
-      }
-      if (wantsTalent) {
-        const talent = new Map<string, number>();
-        for (const teamKey of involvedTeams) {
-          const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
-          if (total !== undefined) talent.set(teamKey, total);
-        }
-        talentAfterMatch.set(match.matchKey, talent);
-      }
-    };
-    // D-01 (quick task 260909-t5q): `db` is the corpus handle this function
-    // already has open.
-    const simulator = new WalkForwardSimulator(stream, corpusColdStartIndex(db));
-    const records = simulator.runAll([algorithm], teamsThisSeason, undefined, onMatchComplete);
-
-    // The SAME level-2 layer `publishSeasons` drives, over the SAME whole-season
-    // chronological stream — so a row this mode publishes carries the same band
-    // and the same pmf the full publish would write for it.
-    //
-    // This mode used to emit neither, which silently STRIPPED both from any
-    // event it republished (see `sigmaScoutLayer.ts`'s header). The fix is free
-    // here only because this mode already replays the whole season for the
-    // percentile pool; the layer rides that existing replay rather than adding
-    // one. That is why every record is folded and only then filtered — folding
-    // the event's own matches alone would give a team no history from its
-    // earlier events and produce a different band than the full publish does.
-    // D-05: the SAME named-local pattern `publishSeasons` uses above — resolved
-    // once per run and threaded to both this construction and
-    // `makeRankingPointFiller` below, so this orchestration cannot silently
-    // diverge from the seasons path about which config it ran.
-    const layer = new SigmaScoutLayer(RP_RULE_MODULES[season], algorithm.id);
-    const predictions: PredictionRecord[] = [];
-    for (const r of records) {
-      // D-01 (quick task 260909-t5q): see the seasons-path loop's identical
-      // comment above `foldPlayed` — the raw record's cold-start stamp must
-      // be spread back in, since the fold itself has no opinion about it.
-      const enriched: PredictionRecord = {
-        ...layer.foldPlayed(r.match, r.prediction, talentAfterMatch.get(r.match.matchKey)),
-        ...(r.coldStart === true ? { coldStart: true as const } : {}),
-      };
-      if (r.match.eventKey === eventKey) predictions.push(enriched);
-    }
-    const finalState = records.finalStates.get(algorithm.id);
-
-    const scheduledForEvent = scheduled.filter((m) => m.eventKey === eventKey);
-    const upcoming: UpcomingPredictionRecord[] =
-      finalState !== undefined ? scheduledForEvent.map((match) => layer.enrichUpcoming(match, algorithm.predict(finalState, match))) : [];
-
-    const teamInfo = lookupAllTeamInfo(db);
-    const matchDerivedTeamKeys = Array.from(new Set([...teams, ...scheduledForEvent.flatMap((m) => [...m.redTeams, ...m.blueTeams])]));
-    // PD-05 (quick task 260905-tll Task 4): the registered roster is used
-    // ONLY when the match-derived roster is empty — same rule as the
-    // seasons path. Sorted ascending for a deterministic registered-only
-    // publish.
-    const eventTeamKeys = matchDerivedTeamKeys.length > 0 ? matchDerivedTeamKeys : [...registeredTeamKeys!].sort();
-
-    // D-10, plan 07-09 Task 2: derived exactly as the seasons path's own
-    // per-algorithm block derives them. Quick task 260912-tnk: the pool is
-    // THE season ranking pool — every team's last-official-match metrics
-    // over the season's non-demo team list, matching publishSeasons's
-    // `teamsThisSeason` filter — and the season-final metrics are kept only
-    // as `metricsAsOfEvent`'s fallback.
-    const seasonFinalMetrics = finalState !== undefined ? algorithm.teamMetrics(finalState, teamsThisSeason) : {};
-    const rankingPools = sortedPoolsByMetric(
-      lastOfficialMetrics,
-      teamsThisSeason.filter((teamKey) => !isDemoTeamKey(teamKey))
-    );
-    // Quick task 260913-jkp: code parity with the seasons path's own
-    // `sigmaMetricForAlgo`, computed here from `layer.consistencyByTeam()`
-    // (season-final, since the fold loop above has finished) — this mode
-    // must never be run against a real event (it publishes cold; see this
-    // file's own header), so this is parity for the two-path agreement tests
-    // only, not a live publishing route.
-    const sigmaMetricForEvent = usesSigmaScore(algorithm.id)
-      ? consistencyMetricByTeam({
-          valueByTeam: layer.consistencyByTeam(),
-          metricsByTeam: seasonFinalMetrics,
-          teamKeys: teamsThisSeason,
-          metricKey: SIGMA_METRIC_KEY,
-        })
-      : {};
-    const asOfEventMetrics = metricsAsOfEvent(algorithm, stateByEventKey, eventKey, eventTeamKeys, seasonFinalMetrics);
-    const teamsStanding = buildEventTeamsStanding(asOfEventMetrics, eventTeamKeys, teamInfo, rankingPools, sigmaMetricForEvent);
-    // D-08 (Phase 6)/D-13, plan 07-08: this single-event mode had no
-    // sort-time read at all before that plan — `--event <key>` is an
-    // explicit request to publish that one event, so this call is made with
-    // NO options object (offseason matches included), unlike the
-    // seasons-path read this file's season loop makes above.
-    const sortTimeByMatchKey = selectScheduledMatchTimes(db, season);
-    // Quick task 260906-7eu: this single-event mode had no video-key read at
-    // all before this task — mirrors the seasons-path read just above (no
-    // options object, offseason matches included, matching this file's
-    // existing single-event convention).
-    const videoByMatchKey = selectMatchVideoKeys(db, season);
-    // D-18 items 6/7/8, plan 07-08: this single-event mode had no identity,
-    // alliance or ranking reads at all before this plan — `--event <key>`
-    // is 07-10's ONLY subset-publish path, so an artifact written here
-    // missing any of these leaves 07-11/07-14/07-15 with nothing to build
-    // against. A missing `events` row (a corpus with matches but no event
-    // metadata — a degraded corpus, not a reason to refuse to publish this
-    // event's matches) yields an OMITTED `eventMeta` parameter, never a
-    // throw.
-    const eventMetaRow = selectEventMeta(db, season).find((e) => e.event_key === eventKey);
-    const alliancesForEvent = selectEventAlliancesForSeason(db, season).get(eventKey) ?? [];
-    const rankingsForEvent = selectEventRankingsForSeason(db, season).get(eventKey);
-    // Quick 260905-jj8: this single-event mode had no per-bonus flags read
-    // at all before — derived here from the same season stream the seasons
-    // path derives its own map from.
-    const actualBonusFlagsByMatchKey = actualBonusFlagsForSeason(stream, season);
-
-    // Quick task 260905-tll Task 4: one generation stamp shared by the
-    // event artifact and its sidecar — the two describe the same run.
-    const generation = randomUUID();
-    const validated = buildEventArtifact({
-      eventKey,
-      season,
-      algorithmId: algorithm.id,
-      algorithmVersion: algorithm.version,
-      predictions,
-      upcoming,
-      teams: teamsStanding,
-      generation,
-      sortTimeByMatchKey,
-      actualBonusFlagsByMatchKey,
-      eventMeta: eventMetaRow
-        ? { name: eventMetaRow.name, startDate: eventMetaRow.start_date, country: eventMetaRow.country, stateProv: eventMetaRow.state_prov, week: eventMetaRow.week }
-        : undefined,
-      alliances: alliancesForEvent,
-      rankings: rankingsForEvent,
-      videoByMatchKey,
-    });
-
-    // Quick task 260905-tll Task 4: the same sidecar generation path the
-    // seasons publisher runs, so a single-event subset publish also writes
-    // its sidecar. Gated on the same default season cutoff (C-05) and on a
-    // known `events` row (the sidecar needs the real event_type — PD-06);
-    // every other skip reason is decided and logged inside
-    // `buildPreScheduleSidecarForEvent`.
-    const sidecar =
-      season >= DEFAULT_PRESCHEDULE_FROM_SEASON && eventMetaRow !== undefined
-        ? buildPreScheduleSidecarForEvent({
-            eventKey,
-            season,
-            eventType: eventMetaRow.event_type,
-            week: eventMetaRow.week,
-            algorithm,
-            roster: eventTeamKeys,
-            qualMatchCount:
-              matches.filter((m) => m.compLevel === "qm").length + scheduledForEvent.filter((m) => m.compLevel === "qm").length,
-            hasPreEventState: preEventStateByEventKey.has(eventKey),
-            preEventState: preEventStateByEventKey.get(eventKey),
-            hasCompletedMatches: matches.length > 0,
-            hasSeasonFinalState: finalState !== undefined,
-            seasonFinalState: finalState,
-            generation,
-            computedAt: new Date().toISOString(),
-            // The same filler the seasons path passes. Without it this mode
-            // wrote a sidecar with no ranking points at all, which is what the
-            // rank simulation reads — so a `--event` republish disabled the
-            // Simulation tab for that event until the next full publish.
-            fillRankingPoints: makeRankingPointFiller(layer.rpAccumulator, RP_RULE_MODULES[season], layer.consistencyByTeam(), eventTeamKeys),
-          })
-        : undefined;
-
-    const key = artifactKey({ page: "event", eventKey, algorithmId: algorithm.id, version: algorithm.version });
-    const body = JSON.stringify(validated);
-
-    return { key, body, ...(sidecar !== undefined ? { sidecar } : {}) };
-  }
-}
-
-async function runEventMode(eventKey: string, algorithmIdsCsv: string | undefined, bucket: string, dryRun: boolean): Promise<void> {
-  const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
-  const algorithm = algorithms[0];
-  if (!algorithm || algorithms.length !== 1) {
-    throw new Error("--event mode requires exactly one --algorithm");
-  }
-
-  const db = openCorpusReadOnly(CORPUS_PATH);
-  try {
-    const { key, body, sidecar } = buildSingleEventPublish(db, eventKey, algorithm);
-
-    if (dryRun) {
-      if (sidecar !== undefined) {
-        console.log(`[dry-run] Would publish "${sidecar.key}" (${sidecar.body.length} bytes) to bucket "${bucket}" — no upload performed.`);
-      }
-      console.log(`[dry-run] Would publish "${key}" (${body.length} bytes) to bucket "${bucket}" — no upload performed.`);
-      return;
-    }
-
-    // Sidecar BEFORE the event artifact (the artifacts-before-index rule).
-    if (sidecar !== undefined) {
-      await putObject(bucket, sidecar.key, sidecar.body, { contentType: "application/json", cacheControl: "public, max-age=60" });
-      console.log(`Published "${sidecar.key}" to bucket "${bucket}" (${sidecar.body.length} bytes).`);
-    }
-    await putObject(bucket, key, body, { contentType: "application/json", cacheControl: "public, max-age=60" });
-    console.log(`Published "${key}" to bucket "${bucket}" (${body.length} bytes).`);
-  } finally {
-    db.close();
-  }
-}
-
 async function runSeasonsCliMode(
   seasonsSpec: string,
   algorithmIdsCsv: string | undefined,
@@ -3973,7 +3656,6 @@ async function runSeasonsCliMode(
 async function main(): Promise<void> {
   const { values } = parseArgs({
     options: {
-      event: { type: "string" },
       algorithm: { type: "string" },
       bucket: { type: "string" },
       "dry-run": { type: "boolean" },
@@ -4002,9 +3684,7 @@ async function main(): Promise<void> {
     }
   }
 
-  if (values.event) {
-    await runEventMode(values.event, values.algorithm, bucket, dryRun);
-  } else if (values.seasons) {
+  if (values.seasons) {
     const concurrency = values.concurrency ? Number.parseInt(values.concurrency, 10) : DEFAULT_CONCURRENCY;
     await runSeasonsCliMode(
       values.seasons,
@@ -4019,7 +3699,7 @@ async function main(): Promise<void> {
       values["no-rp-calibration"] === true
     );
   } else {
-    throw new Error("One of --event or --seasons is required");
+    throw new Error("--seasons is required");
   }
 }
 

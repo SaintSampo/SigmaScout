@@ -13,7 +13,7 @@ Plan 09-05 made three previously-declared-but-unreachable `RpLayerConfig` branch
 "negative-binomial"` (D-01). **None of the three is on in production.** The exported
 `RP_LAYER_CONFIG_DEFAULT` in `packages/core/rankingPoints/analyticPmf.ts` still resolves every
 field to its legacy member (`winSource: "score-draw"`, `tieModel: "continuous-equality"`, `marginal:
-"gaussian"`), and neither `publishSeasons` nor `runEventMode` (`packages/harness/publish.ts`) nor any
+"gaussian"`), and neither `publishSeasons` (`packages/harness/publish.ts`) nor any
 production `SigmaScoutLayer` construction site passes an override.
 
 This is D-05: the four changes ship together as one named, versioned config, and the offline harness

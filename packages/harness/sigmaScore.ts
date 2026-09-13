@@ -441,12 +441,11 @@ export class SigmaScoreAccumulator {
    *
    * Split from `#mutableBelief` because a getter that inserts makes results
    * ORDER-DEPENDENT, and that was not hypothetical: with a single
-   * insert-on-read accessor, `publishSeasons` and `--event` produced different
-   * ranking-point pmfs for the same event (0.46525 against 0.47), because
-   * merely PRICING a match created belief entries and `scoreByTeam()` iterates
-   * exactly those keys. Whichever path happened to read a team first changed
-   * what the other could see. `publish.test.ts`'s sidecar-parity test is what
-   * caught it.
+   * insert-on-read accessor, two orchestrations that wrote the same artifacts
+   * produced different ranking-point pmfs for the same event (0.46525 against
+   * 0.47), because merely PRICING a match created belief entries and
+   * `scoreByTeam()` iterates exactly those keys. Whichever path happened to
+   * read a team first changed what the other could see.
    *
    * Returns a frozen zero belief for an unseen team, so a read still yields the
    * prior-only Sigma Score without recording that the team was ever asked about.

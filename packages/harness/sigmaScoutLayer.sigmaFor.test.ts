@@ -8,9 +8,9 @@
  * doc comment). `sigmaFor` delegates to the accumulator's own read-only
  * `sigmaFor`, which goes through `#readBelief` rather than `#mutableBelief` —
  * see `#readBelief`'s doc comment for the real order-dependence bug a single
- * insert-on-read accessor once caused (`publishSeasons` and `--event`
- * produced different ranking-point pmfs for the same event because merely
- * reading a team created a belief entry).
+ * insert-on-read accessor once caused (two orchestrations produced
+ * different ranking-point pmfs for the same event because merely reading a
+ * team created a belief entry).
  */
 import { describe, expect, it } from "vitest";
 import type { MatchResult, Prediction } from "../core/algorithms/types.js";

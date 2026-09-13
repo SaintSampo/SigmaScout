@@ -19,8 +19,7 @@
  * published percentile is ranked against it: the teams/{year} row's tier,
  * the team-season artifact's `seasonStats.metrics` (including an
  * offseason-only team's season-final fallback), every `metricHistory` row,
- * and every event artifact standing, on both the seasons and `--event`
- * paths. Each of those percentiles goes through
+ * and every event artifact standing. Each of those percentiles goes through
  * `goodnessPercentileAgainstPools`, which applies metric direction and ranks
  * at display precision, so a number cannot change tier between pages. The
  * live Worker's global rebuild re-derives Teams-row tiers through the same

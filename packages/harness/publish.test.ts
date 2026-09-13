@@ -40,7 +40,6 @@ import {
   buildCompareArtifact,
   buildEventArtifact,
   buildEventsArtifact,
-  buildSingleEventPublish,
   buildTeamsArtifact,
   buildTeamSeasonArtifact,
   computeSizeStats,
@@ -4273,34 +4272,6 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
   });
 });
 
-/**
- * Plan 07-09 Task 2, repointed 2026-09-09: this began as a source-text
- * stand-in because `runEventMode` was module-private and no behavior test of
- * it was possible. That premise is gone — the build half is now exported as
- * `buildSingleEventPublish` and the parity suites at the end of this file
- * exercise it against a real seeded corpus.
- *
- * What survives is worth keeping on its own terms, and is no longer a
- * stand-in for anything: the ONE-season-replay shape. `--event` must replay
- * the season exactly once — once because a per-event replay would give a team
- * no history from its earlier events (the wrong fix for the band/RP gap), and
- * only once because that replay is this path's whole cost.
- */
-describe("--event replays the season exactly once — structural (plan 07-09 Task 2)", () => {
-  const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8");
-  const rangeMatch = /export function buildSingleEventPublish\b[\s\S]*?(?=\nasync function runEventMode\b)/.exec(source);
-
-  it("its source range contains exactly one buildSeasonStream call, one sortedPoolsByMetric call, and one metricsAsOfEvent call", () => {
-    expect(rangeMatch, "expected to find buildSingleEventPublish's source range").not.toBeNull();
-    const body = rangeMatch![0];
-    const count = (pattern: string) => (body.match(new RegExp(pattern, "g")) ?? []).length;
-    expect(count("buildSeasonStream\\(")).toBe(1);
-    // <!-- planner-discipline-allow: sortedPoolsByMetric -->
-    expect(count("sortedPoolsByMetric\\(")).toBe(1);
-    expect(count("metricsAsOfEvent\\(")).toBe(1);
-  });
-});
-
 describe("buildCompareArtifact", () => {
   it("assembles a fixture that parses against CompareArtifactSchema without rounding scoring figures", () => {
     const slice: ScoreSlice = {
@@ -4929,23 +4900,7 @@ describe("SigmaScout-layer match band (quick task 260908-5wd, renamed and Sigma-
 
 });
 
-/**
- * The two orchestrations in `publish.ts` must agree.
- *
- * `publishSeasons` and `--event` (`buildSingleEventPublish`) both write
- * `v1/event/{eventKey}/{algorithmId}@...`, and for a day they disagreed: the
- * level-2 SigmaScout fields — the Match Band and ranking points — were added to
- * `publishSeasons`'s loop only, so republishing an event with `--event`
- * silently STRIPPED both from it until the next full publish.
- *
- * These tests exist because nothing else could catch that. Every unit test
- * passed while it was true, and a `--dry-run` byte count cannot see a missing
- * field. The fixture deliberately spans TWO events over the same six teams, so
- * the late event's band depends on history from the early one — an `--event`
- * path that replayed only its own event would produce different numbers here
- * and fail, which is the specific wrong fix this pins against.
- */
-describe("publishSeasons and --event agree on the SigmaScout layer (2026-09-09)", () => {
+describe("publishSeasons — OPR publishes no band or ranking-point odds (quick tasks 260913-g66 and 260913-it4)", () => {
   let dir: string;
   let db: Corpus;
 
@@ -4958,102 +4913,6 @@ describe("publishSeasons and --event agree on the SigmaScout layer (2026-09-09)"
   afterEach(() => {
     db.close();
     rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("emits a band at all on the late event — the precondition the parity assertions below rest on", async () => {
-    const { lateEventKey } = seedTwoEventSeason(db);
-    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
-
-    const fromSeasons = findEventArtifact(lateEventKey, spr.id);
-    const banded = fromSeasons.matches.filter((m) => m.redMatchBandVariance !== undefined);
-    expect(banded.length, "seasons path publishes at least one banded row on the late event").toBeGreaterThan(0);
-  });
-
-  it("--event publishes the SAME band on every played row as the full seasons publish", async () => {
-    const { lateEventKey } = seedTwoEventSeason(db);
-    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
-    const fromSeasons = findEventArtifact(lateEventKey, spr.id);
-
-    const fromEvent = JSON.parse(buildSingleEventPublish(db, lateEventKey, spr).body) as EventArtifact;
-
-    expect(fromEvent.matches.map((m) => m.matchKey)).toEqual(fromSeasons.matches.map((m) => m.matchKey));
-    for (const seasonsRow of fromSeasons.matches) {
-      const eventRow = fromEvent.matches.find((m) => m.matchKey === seasonsRow.matchKey);
-      expect(eventRow?.redMatchBandVariance, `red band on ${seasonsRow.matchKey}`).toBe(seasonsRow.redMatchBandVariance);
-      expect(eventRow?.blueMatchBandVariance, `blue band on ${seasonsRow.matchKey}`).toBe(seasonsRow.blueMatchBandVariance);
-    }
-  });
-
-  it("--event publishes the same ranking-point fields as the full seasons publish", async () => {
-    const { lateEventKey } = seedTwoEventSeason(db);
-    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
-    const fromSeasons = findEventArtifact(lateEventKey, spr.id);
-
-    const fromEvent = JSON.parse(buildSingleEventPublish(db, lateEventKey, spr).body) as EventArtifact;
-
-    for (const seasonsRow of fromSeasons.matches) {
-      const eventRow = fromEvent.matches.find((m) => m.matchKey === seasonsRow.matchKey);
-      expect(eventRow?.redRpPmf, `redRpPmf on ${seasonsRow.matchKey}`).toEqual(seasonsRow.redRpPmf);
-      expect(eventRow?.blueRpPmf, `blueRpPmf on ${seasonsRow.matchKey}`).toEqual(seasonsRow.blueRpPmf);
-      expect(eventRow?.redBonusRp, `redBonusRp on ${seasonsRow.matchKey}`).toEqual(seasonsRow.redBonusRp);
-      expect(eventRow?.blueBonusRp, `blueBonusRp on ${seasonsRow.matchKey}`).toEqual(seasonsRow.blueBonusRp);
-    }
-  });
-
-  it("--event publishes the SAME standings percentiles as the full seasons publish, against the one last-official-match pool (quick task 260912-tnk)", async () => {
-    const { lateEventKey } = seedTwoEventSeason(db);
-    // A later offseason event, so a season-final pool would differ from the
-    // last-official-match pool both paths must now rank against.
-    const offseasonEventKey = "2026off";
-    upsertEvent(db, seasonEvent({ eventKey: offseasonEventKey, name: "Offseason", eventType: OFFSEASON_EVENT_TYPE, isOffseason: true }));
-    upsertMatch(
-      db,
-      seasonMatch({
-        matchKey: `${offseasonEventKey}_qm1`,
-        eventKey: offseasonEventKey,
-        sortTime: 20_000,
-        redTeams: ["frc1", "frc2", "frc6"],
-        blueTeams: ["frc3", "frc4", "frc5"],
-        redScore: 400,
-        blueScore: 5,
-        winner: "red",
-      })
-    );
-    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true, includeOffseason: true });
-
-    let compared = 0;
-    for (const eventKey of [offseasonEventKey, lateEventKey]) {
-      const fromSeasons = findEventArtifact(eventKey, spr.id);
-      const fromEvent = JSON.parse(buildSingleEventPublish(db, eventKey, spr).body) as EventArtifact;
-      expect(fromEvent.teams.map((t) => t.teamKey).sort()).toEqual(fromSeasons.teams.map((t) => t.teamKey).sort());
-      for (const seasonsTeam of fromSeasons.teams) {
-        const eventTeam = fromEvent.teams.find((t) => t.teamKey === seasonsTeam.teamKey)!;
-        expect(Object.keys(eventTeam.metrics).sort(), `${eventKey} ${seasonsTeam.teamKey} metric keys`).toEqual(Object.keys(seasonsTeam.metrics).sort());
-        for (const [key, metric] of Object.entries(seasonsTeam.metrics)) {
-          expect(eventTeam.metrics[key]?.percentile, `${eventKey} ${seasonsTeam.teamKey} ${key} percentile`).toBe(metric.percentile);
-          if (metric.percentile !== undefined) compared++;
-        }
-      }
-    }
-    expect(compared, "non-vacuous: at least one standings percentile compared").toBeGreaterThan(0);
-  });
-
-  it("agrees for OPR too — neither path publishes an OPR band or OPR ranking-point odds (quick tasks 260913-g66 and 260913-it4)", async () => {
-    const { lateEventKey } = seedTwoEventSeason(db);
-    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
-    const fromSeasons = findEventArtifact(lateEventKey, opr.id);
-
-    const fromEvent = JSON.parse(buildSingleEventPublish(db, lateEventKey, opr).body) as EventArtifact;
-
-    expect(fromSeasons.matches.length, "non-vacuous: the late event has played rows").toBeGreaterThan(0);
-    for (const seasonsRow of fromSeasons.matches) {
-      const eventRow = fromEvent.matches.find((m) => m.matchKey === seasonsRow.matchKey);
-      expect(eventRow, `--event row exists for ${seasonsRow.matchKey}`).toBeDefined();
-      expect(eventRow, `no OPR band on --event ${seasonsRow.matchKey}`).not.toHaveProperty("redMatchBandVariance");
-      expect(seasonsRow, `no OPR band on seasons ${seasonsRow.matchKey}`).not.toHaveProperty("redMatchBandVariance");
-      expect(eventRow, `no OPR redRpPmf on --event ${seasonsRow.matchKey}`).not.toHaveProperty("redRpPmf");
-      expect(seasonsRow, `no OPR redRpPmf on seasons ${seasonsRow.matchKey}`).not.toHaveProperty("redRpPmf");
-    }
   });
 
   it("OPR publishes no band and no ranking-point field on any row of any event, team or teams artifact (quick tasks 260913-g66 and 260913-it4)", async () => {
@@ -5147,32 +5006,9 @@ describe("publishSeasons — event standings carry the season-final Sigma entry 
     }
   });
 
-  it("the --event path publishes the same teams[].metrics.sigma entries as the seasons path for the same event", async () => {
-    const { lateEventKey } = seedTwoEventSeason(db);
-    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
-    const fromSeasons = findEventArtifact(lateEventKey, spr.id);
-
-    const fromEvent = JSON.parse(buildSingleEventPublish(db, lateEventKey, spr).body) as EventArtifact;
-
-    let compared = 0;
-    expect(fromSeasons.teams.length, "non-vacuous: the seasons path published a roster").toBeGreaterThan(0);
-    for (const seasonsRow of fromSeasons.teams) {
-      const eventRow = fromEvent.teams.find((t) => t.teamKey === seasonsRow.teamKey);
-      expect(eventRow, `--event row exists for ${seasonsRow.teamKey}`).toBeDefined();
-      expect(eventRow?.metrics[SIGMA_METRIC_KEY], `${seasonsRow.teamKey} sigma agreement`).toEqual(seasonsRow.metrics[SIGMA_METRIC_KEY]);
-      if (seasonsRow.metrics[SIGMA_METRIC_KEY] !== undefined) compared++;
-    }
-    expect(compared, "non-vacuous: at least one sigma entry compared").toBeGreaterThan(0);
-  });
 });
 
-/**
- * The presim sidecar is the THIRD thing `--event` dropped, and the one with
- * the most visible consequence: the rank simulation reads it, so a `--event`
- * republish left that event's Simulation tab with no ranking points to draw
- * until the next full publish.
- */
-describe("publishSeasons and --event agree on the presim sidecar (2026-09-09)", () => {
+describe("publishSeasons — the pre-schedule sidecar is SPR-only (quick task 260913-it4)", () => {
   let dir: string;
   let db: Corpus;
 
@@ -5199,51 +5035,6 @@ describe("publishSeasons and --event agree on the presim sidecar (2026-09-09)", 
     expect(presimKeys.some((key) => key.startsWith(`v1/presim/${lateEventKey}/${epa.id}@`))).toBe(false);
   });
 
-  it("both paths write a sidecar carrying ranking points for the same event", async () => {
-    const { lateEventKey } = seedTwoEventSeason(db);
-    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
-
-    const seasonsCall = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/presim/${lateEventKey}/${spr.id}@`));
-    expect(seasonsCall, "seasons path writes a presim sidecar for the late event").toBeDefined();
-    // 260912-2ur: this test's subject is builder determinism across the two
-    // publish paths, and it must survive the published body dropping the
-    // priced `schedules` block — neither path hands back anything BUT a
-    // published body anymore, so the literal `schedules` comparison this
-    // test used before is no longer available from either side. Widened
-    // instead to compare everything the published body now carries.
-    type Sidecar = {
-      roster: string[];
-      pricedFrom: string;
-      matchesPerTeam: number;
-      scheduleCount: number;
-      baked: { draws: number; histograms: number[][] };
-      generation: string;
-      computedAt: string;
-    };
-    const fromSeasons = JSON.parse(seasonsCall![2] as string) as Sidecar;
-
-    const sidecar = buildSingleEventPublish(db, lateEventKey, spr).sidecar;
-    expect(sidecar, "--event writes a presim sidecar for the same event").toBeDefined();
-    const fromEvent = JSON.parse(sidecar!.body) as Sidecar;
-
-    // Non-vacuity guard: the fixture must actually produce something to
-    // compare, or the `toEqual` below would pass over two empty shells.
-    expect(fromSeasons.scheduleCount, "the fixture produces a real schedule count to compare").toBeGreaterThan(0);
-    const histogramTotal = fromSeasons.baked.histograms.flat().reduce((total, count) => total + count, 0);
-    expect(histogramTotal, "the fixture produces a non-zero baked histogram total to compare").toBeGreaterThan(0);
-
-    // `generation`/`computedAt` are deliberately excluded — they identify the
-    // RUN, not the numbers. Everything else — roster, pricedFrom,
-    // matchesPerTeam, scheduleCount, baked.draws and baked.histograms — is
-    // compared. The histograms are a deterministic function of the priced
-    // schedules under a seeded `mulberry32`, so a divergence in pricing
-    // state or shuffle between the two paths still fails this test even
-    // though the priced schedules themselves are no longer on the wire to
-    // compare directly.
-    const { generation: _seasonsGeneration, computedAt: _seasonsComputedAt, ...seasonsRest } = fromSeasons;
-    const { generation: _eventGeneration, computedAt: _eventComputedAt, ...eventRest } = fromEvent;
-    expect(eventRest).toEqual(seasonsRest);
-  });
 });
 
 describe("buildCompareArtifact — one write path (F1/D-09/D-11, phase 09 plan 09-01 Task 2 Step 4)", () => {

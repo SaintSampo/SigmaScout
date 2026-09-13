@@ -51,9 +51,8 @@ export const SCHEDULE_TEMPLATE_DIR = "data/schedule-templates";
  * three grid cells (6x1, 6x2, 8x2) that `publish.test.ts`'s synthetic
  * `publishSeasons` fixtures reach through `buildPreScheduleSidecarForEvent`.
  * Being ours, they are ours to commit — which is the whole point: without
- * them CI could only SKIP those 16 tests, silently retiring the presim
- * sidecar gate and the `publishSeasons`/`--event` parity gate that exist
- * to catch a cold-publish regression.
+ * them CI could only SKIP those tests, silently retiring the presim
+ * sidecar gate that exists to catch a cold-publish regression.
  *
  * Deliberately a fallback for a WHOLLY ABSENT directory, never a
  * per-file one. On a machine that HAS the cache, a missing individual cell
