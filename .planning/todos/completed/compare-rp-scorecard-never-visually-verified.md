@@ -1,4 +1,7 @@
 ---
+status: resolved
+resolved: 2026-09-13
+resolved_by: "developer (Jacob), reported resolved 2026-09-13"
 id: compare-rp-scorecard-never-visually-verified
 created: 2026-09-12
 source: session audit 2026-09-12 — carried verbally since the scorecard shipped, never filed

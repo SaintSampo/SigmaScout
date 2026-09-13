@@ -1,4 +1,7 @@
 ---
+status: resolved
+resolved: 2026-09-13
+resolved_by: "developer (Jacob), reported resolved 2026-09-13"
 id: rp-scorecard-measures-bonuses-only
 created: 2026-09-12
 source: read off the live 2025 compare slice while answering "what was 2025 RP accuracy, broken down"
