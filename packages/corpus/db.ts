@@ -13,7 +13,12 @@
 import Database from "better-sqlite3";
 import { mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+// `URL` is imported explicitly rather than taken from the global scope: when this
+// file is pulled into apps/worker's compile graph, `@cloudflare/workers-types`
+// declares its own global `URL`, which is not assignable to `fileURLToPath`'s
+// `node:url` parameter type. Importing Node's `URL` keeps both types from the same
+// module, so the file typechecks identically under the root and worker tsconfigs.
+import { fileURLToPath, URL } from "node:url";
 import { z } from "zod";
 import type { CompLevel, MatchResult, UpcomingMatch } from "../core/algorithms/types.js";
 import {

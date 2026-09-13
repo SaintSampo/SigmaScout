@@ -146,8 +146,17 @@ const PROBE_EVENT_KEY = "__07-19-delete-probe__";
  * the old ceiling refused. min stays 15,000 — the failure mode this band
  * exists for (empty/misparsed enumeration) produces counts far BELOW min,
  * and that edge is untouched.
+ *
+ * 2026-09-12: max widened 30,000 -> 40,000 (Jacob's decision, follow-up to quick
+ * task 260912-ivg). The full --seasons 2016-2026 range now enumerates 36,834 page
+ * keys for one algorithm id, which the old ceiling refused — the BPR -> SPR cleanup
+ * had to run as two season slices (17,560 + 19,272) to get under it. That count is
+ * corroborated, not assumed: a same-day full bucket census counted 36,537 objects
+ * actually present for one id, and this tool deliberately over-enumerates, so the
+ * ~300-key gap is expected 404s. min stays 15,000, so the edge this band exists to
+ * guard is still untouched.
  */
-export const RETIRED_KEY_COUNT_BOUNDS = { min: 15_000, max: 30_000 } as const;
+export const RETIRED_KEY_COUNT_BOUNDS = { min: 15_000, max: 40_000 } as const;
 
 /**
  * The presim path's OWN band (plan 09-10 Task 2). Deliberately separate from
