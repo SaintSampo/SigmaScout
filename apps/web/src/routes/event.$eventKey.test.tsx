@@ -358,13 +358,18 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
 
     await waitFor(() => expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0));
     expect(screen.queryByRole("progressbar")).toBeNull();
+    // Quick task 260913-jkp: under spr (a Sigma-enabled algorithm) the
+    // Insights skeleton's Total header already reads "Total ± Sigma"
+    // (`InsightsTabSkeleton`'s own `totalColumnHeader` call) — this route
+    // test slipped through 260913-jkp's own per-file test updates because it
+    // renders through the whole route rather than `InsightsTab` directly.
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
       "Rank",
       "Team #",
       "Team Name",
       "Record",
       "RP",
-      "Total",
+      "Total ± Sigma",
       "Auto",
       "Teleop",
       "Endgame",
