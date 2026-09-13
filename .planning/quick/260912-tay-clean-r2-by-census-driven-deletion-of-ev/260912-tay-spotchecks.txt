@@ -1,0 +1,52 @@
+# 260912-tay spot checks
+
+## Step 3: non-vacuity baseline (pre-delete presence of the new absence keys)
+16/16 of the vpr@11.0.0+rolling-2026-09g absence keys (15 event controls + frc4206/2024 team) were PRESENT in the pre-delete full listing.
+Missing: none
+
+## Step 3: one event key per generation (for Step 6 content checks)
+ORPHAN	vpr@11.0.0+rolling-2026-09g	v1/event/2016abca/vpr@11.0.0+rolling-2026-09g.json
+ORPHAN	vpr@11.0.0+rolling-2026-09e	v1/event/2016abca/vpr@11.0.0+rolling-2026-09e.json
+ORPHAN	vpr@10.0.0+rolling-2026-09e	v1/event/2016abca/vpr@10.0.0+rolling-2026-09e.json
+ORPHAN	vpr@2.1.0+tuned-2026-08	v1/event/2022alhu/vpr@2.1.0+tuned-2026-08.json
+LIVE	epa@10.0.0+baseline	v1/event/2016abca/epa@10.0.0+baseline.json
+LIVE	spr@3.0.0+baseline	v1/event/2016abca/spr@3.0.0+baseline.json
+ORPHAN	vpr@10.0.0+rolling-2026-09d	v1/event/2019abca/vpr@10.0.0+rolling-2026-09d.json
+LIVE	opr@4.0.0+baseline	v1/event/2016abca/opr@4.0.0+baseline.json
+ORPHAN	epa@1.1.0+baseline	v1/event/2022alhu/epa@1.1.0+baseline.json
+ORPHAN	vpr@5.0.0+tuned-2026-08	v1/event/2022alhu/vpr@5.0.0+tuned-2026-08.json
+ORPHAN	opr@3.1.0+baseline	v1/event/2022alhu/opr@3.1.0+baseline.json
+ORPHAN	epa@5.0.0+baseline	v1/event/2016abca/epa@5.0.0+baseline.json
+ORPHAN	vpr@8.0.0+rolling-2026-09b	v1/event/2019abca/vpr@8.0.0+rolling-2026-09b.json
+ORPHAN	epa@6.0.0+baseline	(no event key)
+
+## Step 6: live content checks against https://data.sigmascout.org (2026-09-13T02:12:21Z, cache-busted)
+manifest v1/manifest/algorithms.json -> 200 opr@4.0.0+baseline, epa@10.0.0+baseline, spr@3.0.0+baseline
+LIVE   v1/event/2016abca/opr@4.0.0+baseline.json -> 200, json ok, generation=2c22394b-de85-44f5-b80a-bfdca523ee98
+LIVE   v1/event/2016abca/epa@10.0.0+baseline.json -> 200, json ok, generation=2c22394b-de85-44f5-b80a-bfdca523ee98
+LIVE   v1/event/2016abca/spr@3.0.0+baseline.json -> 200, json ok, generation=2c22394b-de85-44f5-b80a-bfdca523ee98
+LIVE   v1/team/frc4206/2024/spr@3.0.0+baseline.json -> 200, json ok, generation=2c22394b-de85-44f5-b80a-bfdca523ee98
+DELETED v1/event/2016abca/vpr@11.0.0+rolling-2026-09g.json -> 404
+DELETED v1/event/2016abca/vpr@11.0.0+rolling-2026-09e.json -> 404
+DELETED v1/event/2016abca/vpr@10.0.0+rolling-2026-09e.json -> 404
+DELETED v1/event/2022alhu/vpr@2.1.0+tuned-2026-08.json -> 404
+DELETED v1/event/2019abca/vpr@10.0.0+rolling-2026-09d.json -> 404
+DELETED v1/event/2022alhu/epa@1.1.0+baseline.json -> 404
+DELETED v1/event/2022alhu/vpr@5.0.0+tuned-2026-08.json -> 404
+DELETED v1/event/2022alhu/opr@3.1.0+baseline.json -> 404
+DELETED v1/event/2016abca/epa@5.0.0+baseline.json -> 404
+DELETED v1/event/2019abca/vpr@8.0.0+rolling-2026-09b.json -> 404
+DELETED v1/presim/2026alhu/epa@6.0.0+baseline.json -> 404
+DELETED (absence control) v1/event/2024casf/vpr@11.0.0+rolling-2026-09g.json -> 404
+DELETED (absence control) v1/event/2026wvrox/vpr@11.0.0+rolling-2026-09g.json -> 404
+DELETED (absence control) v1/team/frc4206/2024/vpr@11.0.0+rolling-2026-09g.json -> 404
+
+## Step 7: verify:subset after deletion, before Task 3 edits
+50 entries checked, 0 failing, 0 total failure(s).
+7 team entries checked, 1 failing, 1 total failure(s).
+
+## Notes
+- Run 1 of --execute was killed externally at ~36,550 deletes (no stack trace; other node processes survived); run 2 refused NOT_IN_CENSUS on epa@6.0.0+baseline (fully deleted by run 1) as designed; run 3 (10 remaining generations, detached) completed ok: 191,320 deleted, 0 failures, 771.3s.
+- Unversioned class (134 objects, ~13.8 MB: v1/district, v1/compare, v1/districts, fixtures/2026cmptx, v1/methodology, v1/manifest) reported, not deleted. Anomalous: 0.
+- Data quirk found (reported, not fixed): 2019wiwi ef2m1/ef5m1/qf3m1 list team key "frc58 /", so every generation published v1/team/frc58 //2019/... ; tool's team shape fixed in 42c15377 to recognise it.
+- PRE-EXISTING verifier defect, not caused by this task (reported, not fixed): verify:subset --team-only reads 7 checked / 1 failing, FAIL frc9969/2024/spr 'bonusRpAbsence: zero playoff rows observed'. The entry is designed with expectPlayoffRows 0 (PD-08 low-match spread entry), but check 13 (added 71212940, 2026-08-28) pushes a vacuity failure whenever playoff rows are zero, so this entry can never pass. The object v1/team/frc9969/2024/spr@3.0.0+baseline.json is byte-identical in the pre- and post-delete listings (4835 bytes, LastModified 2026-09-12T20:17:03.881Z).

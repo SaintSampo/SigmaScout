@@ -1,0 +1,566 @@
+{
+  "startedAt": "2026-09-13T01:54:30.071Z",
+  "finishedAt": "2026-09-13T02:09:56.425Z",
+  "execute": true,
+  "requested": [
+    "vpr@11.0.0+rolling-2026-09g",
+    "vpr@11.0.0+rolling-2026-09e",
+    "vpr@10.0.0+rolling-2026-09e",
+    "vpr@2.1.0+tuned-2026-08",
+    "vpr@10.0.0+rolling-2026-09d",
+    "epa@1.1.0+baseline",
+    "vpr@5.0.0+tuned-2026-08",
+    "opr@3.1.0+baseline",
+    "epa@5.0.0+baseline",
+    "vpr@8.0.0+rolling-2026-09b"
+  ],
+  "preCensus": {
+    "takenAt": "2026-09-13T01:56:22.020Z",
+    "totals": {
+      "objects": 301064,
+      "bytes": 14002304879
+    },
+    "live": {
+      "generations": 3,
+      "objects": 109610,
+      "bytes": 4326892043
+    },
+    "orphan": {
+      "generations": 10,
+      "objects": 191320,
+      "bytes": 9661591168
+    },
+    "unversioned": {
+      "objects": 134,
+      "bytes": 13821668,
+      "byPrefix": {
+        "fixtures/2026cmptx": {
+          "objects": 2,
+          "bytes": 4310
+        },
+        "v1/compare": {
+          "objects": 10,
+          "bytes": 146077
+        },
+        "v1/district": {
+          "objects": 109,
+          "bytes": 13651937
+        },
+        "v1/districts": {
+          "objects": 10,
+          "bytes": 16511
+        },
+        "v1/manifest": {
+          "objects": 2,
+          "bytes": 516
+        },
+        "v1/methodology": {
+          "objects": 1,
+          "bytes": 2317
+        }
+      }
+    },
+    "anomalous": {
+      "objects": 0,
+      "bytes": 0,
+      "sampleKeys": []
+    },
+    "generations": [
+      {
+        "generation": "epa@10.0.0+baseline",
+        "algorithmId": "epa",
+        "version": "10.0.0+baseline",
+        "status": "LIVE",
+        "objects": 36537,
+        "bytes": 1640857030,
+        "byKind": {
+          "event": {
+            "objects": 2500,
+            "bytes": 191791989
+          },
+          "events": {
+            "objects": 10,
+            "bytes": 675837
+          },
+          "presim": {
+            "objects": 214,
+            "bytes": 1719439
+          },
+          "team": {
+            "objects": 33803,
+            "bytes": 1433919458
+          },
+          "teams": {
+            "objects": 10,
+            "bytes": 12750307
+          }
+        },
+        "newestLastModified": "2026-09-12T21:23:55.703Z"
+      },
+      {
+        "generation": "vpr@11.0.0+rolling-2026-09g",
+        "algorithmId": "vpr",
+        "version": "11.0.0+rolling-2026-09g",
+        "status": "ORPHAN",
+        "objects": 30780,
+        "bytes": 1576577151,
+        "byKind": {
+          "team": {
+            "objects": 30770,
+            "bytes": 1562388608
+          },
+          "teams": {
+            "objects": 10,
+            "bytes": 14188543
+          }
+        },
+        "newestLastModified": "2026-09-09T05:03:06.296Z"
+      },
+      {
+        "generation": "spr@3.0.0+baseline",
+        "algorithmId": "spr",
+        "version": "3.0.0+baseline",
+        "status": "LIVE",
+        "objects": 36537,
+        "bytes": 1518019743,
+        "byKind": {
+          "event": {
+            "objects": 2500,
+            "bytes": 179397361
+          },
+          "events": {
+            "objects": 10,
+            "bytes": 675827
+          },
+          "presim": {
+            "objects": 214,
+            "bytes": 1677273
+          },
+          "team": {
+            "objects": 33803,
+            "bytes": 1327250915
+          },
+          "teams": {
+            "objects": 10,
+            "bytes": 9018367
+          }
+        },
+        "newestLastModified": "2026-09-12T21:31:08.149Z"
+      },
+      {
+        "generation": "vpr@11.0.0+rolling-2026-09e",
+        "algorithmId": "vpr",
+        "version": "11.0.0+rolling-2026-09e",
+        "status": "ORPHAN",
+        "objects": 30780,
+        "bytes": 1514443776,
+        "byKind": {
+          "team": {
+            "objects": 30770,
+            "bytes": 1500916167
+          },
+          "teams": {
+            "objects": 10,
+            "bytes": 13527609
+          }
+        },
+        "newestLastModified": "2026-09-08T07:34:29.088Z"
+      },
+      {
+        "generation": "vpr@10.0.0+rolling-2026-09e",
+        "algorithmId": "vpr",
+        "version": "10.0.0+rolling-2026-09e",
+        "status": "ORPHAN",
+        "objects": 30779,
+        "bytes": 1514189723,
+        "byKind": {
+          "team": {
+            "objects": 30769,
+            "bytes": 1500662455
+          },
+          "teams": {
+            "objects": 10,
+            "bytes": 13527268
+          }
+        },
+        "newestLastModified": "2026-09-07T18:47:37.654Z"
+      },
+      {
+        "generation": "vpr@2.1.0+tuned-2026-08",
+        "algorithmId": "vpr",
+        "version": "2.1.0+tuned-2026-08",
+        "status": "ORPHAN",
+        "objects": 15663,
+        "bytes": 1329718439,
+        "byKind": {
+          "team": {
+            "objects": 15658,
+            "bytes": 1315389245
+          },
+          "teams": {
+            "objects": 5,
+            "bytes": 14329194
+          }
+        },
+        "newestLastModified": "2026-08-31T19:38:51.554Z"
+      },
+      {
+        "generation": "opr@4.0.0+baseline",
+        "algorithmId": "opr",
+        "version": "4.0.0+baseline",
+        "status": "LIVE",
+        "objects": 36536,
+        "bytes": 1168015270,
+        "byKind": {
+          "event": {
+            "objects": 2500,
+            "bytes": 146534874
+          },
+          "events": {
+            "objects": 10,
+            "bytes": 675827
+          },
+          "presim": {
+            "objects": 213,
+            "bytes": 1774055
+          },
+          "team": {
+            "objects": 33803,
+            "bytes": 1011347002
+          },
+          "teams": {
+            "objects": 10,
+            "bytes": 7683512
+          }
+        },
+        "newestLastModified": "2026-09-12T20:30:43.928Z"
+      },
+      {
+        "generation": "vpr@10.0.0+rolling-2026-09d",
+        "algorithmId": "vpr",
+        "version": "10.0.0+rolling-2026-09d",
+        "status": "ORPHAN",
+        "objects": 21212,
+        "bytes": 1044771925,
+        "byKind": {
+          "team": {
+            "objects": 21205,
+            "bytes": 1035562453
+          },
+          "teams": {
+            "objects": 7,
+            "bytes": 9209472
+          }
+        },
+        "newestLastModified": "2026-09-06T23:39:00.953Z"
+      },
+      {
+        "generation": "epa@1.1.0+baseline",
+        "algorithmId": "epa",
+        "version": "1.1.0+baseline",
+        "status": "ORPHAN",
+        "objects": 15663,
+        "bytes": 878519170,
+        "byKind": {
+          "team": {
+            "objects": 15658,
+            "bytes": 869385256
+          },
+          "teams": {
+            "objects": 5,
+            "bytes": 9133914
+          }
+        },
+        "newestLastModified": "2026-08-31T19:37:42.353Z"
+      },
+      {
+        "generation": "vpr@5.0.0+tuned-2026-08",
+        "algorithmId": "vpr",
+        "version": "5.0.0+tuned-2026-08",
+        "status": "ORPHAN",
+        "objects": 15663,
+        "bytes": 821968702,
+        "byKind": {
+          "team": {
+            "objects": 15658,
+            "bytes": 815815188
+          },
+          "teams": {
+            "objects": 5,
+            "bytes": 6153514
+          }
+        },
+        "newestLastModified": "2026-09-03T05:03:29.794Z"
+      },
+      {
+        "generation": "opr@3.1.0+baseline",
+        "algorithmId": "opr",
+        "version": "3.1.0+baseline",
+        "status": "ORPHAN",
+        "objects": 15663,
+        "bytes": 423854887,
+        "byKind": {
+          "team": {
+            "objects": 15658,
+            "bytes": 420647426
+          },
+          "teams": {
+            "objects": 5,
+            "bytes": 3207461
+          }
+        },
+        "newestLastModified": "2026-08-31T19:36:39.882Z"
+      },
+      {
+        "generation": "epa@5.0.0+baseline",
+        "algorithmId": "epa",
+        "version": "5.0.0+baseline",
+        "status": "ORPHAN",
+        "objects": 9567,
+        "bytes": 357428988,
+        "byKind": {
+          "team": {
+            "objects": 9564,
+            "bytes": 353485080
+          },
+          "teams": {
+            "objects": 3,
+            "bytes": 3943908
+          }
+        },
+        "newestLastModified": "2026-09-08T06:50:04.934Z"
+      },
+      {
+        "generation": "vpr@8.0.0+rolling-2026-09b",
+        "algorithmId": "vpr",
+        "version": "8.0.0+rolling-2026-09b",
+        "status": "ORPHAN",
+        "objects": 5550,
+        "bytes": 200118407,
+        "byKind": {
+          "team": {
+            "objects": 5548,
+            "bytes": 198263260
+          },
+          "teams": {
+            "objects": 2,
+            "bytes": 1855147
+          }
+        },
+        "newestLastModified": "2026-09-05T21:07:18.212Z"
+      }
+    ]
+  },
+  "selectedByGeneration": {
+    "epa@1.1.0+baseline": {
+      "objects": 15663,
+      "bytes": 878519170
+    },
+    "opr@3.1.0+baseline": {
+      "objects": 15663,
+      "bytes": 423854887
+    },
+    "vpr@11.0.0+rolling-2026-09e": {
+      "objects": 30780,
+      "bytes": 1514443776
+    },
+    "vpr@11.0.0+rolling-2026-09g": {
+      "objects": 30780,
+      "bytes": 1576577151
+    },
+    "vpr@2.1.0+tuned-2026-08": {
+      "objects": 15663,
+      "bytes": 1329718439
+    },
+    "vpr@5.0.0+tuned-2026-08": {
+      "objects": 15663,
+      "bytes": 821968702
+    },
+    "vpr@10.0.0+rolling-2026-09d": {
+      "objects": 21212,
+      "bytes": 1044771925
+    },
+    "vpr@10.0.0+rolling-2026-09e": {
+      "objects": 30779,
+      "bytes": 1514189723
+    },
+    "epa@5.0.0+baseline": {
+      "objects": 9567,
+      "bytes": 357428988
+    },
+    "vpr@8.0.0+rolling-2026-09b": {
+      "objects": 5550,
+      "bytes": 200118407
+    }
+  },
+  "deletes": {
+    "issued": 191320,
+    "succeeded": 191320,
+    "failed": 0,
+    "failures": []
+  },
+  "postCensus": {
+    "takenAt": "2026-09-13T02:09:56.332Z",
+    "totals": {
+      "objects": 109744,
+      "bytes": 4340713711
+    },
+    "live": {
+      "generations": 3,
+      "objects": 109610,
+      "bytes": 4326892043
+    },
+    "orphan": {
+      "generations": 0,
+      "objects": 0,
+      "bytes": 0
+    },
+    "unversioned": {
+      "objects": 134,
+      "bytes": 13821668,
+      "byPrefix": {
+        "fixtures/2026cmptx": {
+          "objects": 2,
+          "bytes": 4310
+        },
+        "v1/compare": {
+          "objects": 10,
+          "bytes": 146077
+        },
+        "v1/district": {
+          "objects": 109,
+          "bytes": 13651937
+        },
+        "v1/districts": {
+          "objects": 10,
+          "bytes": 16511
+        },
+        "v1/manifest": {
+          "objects": 2,
+          "bytes": 516
+        },
+        "v1/methodology": {
+          "objects": 1,
+          "bytes": 2317
+        }
+      }
+    },
+    "anomalous": {
+      "objects": 0,
+      "bytes": 0,
+      "sampleKeys": []
+    },
+    "generations": [
+      {
+        "generation": "epa@10.0.0+baseline",
+        "algorithmId": "epa",
+        "version": "10.0.0+baseline",
+        "status": "LIVE",
+        "objects": 36537,
+        "bytes": 1640857030,
+        "byKind": {
+          "event": {
+            "objects": 2500,
+            "bytes": 191791989
+          },
+          "events": {
+            "objects": 10,
+            "bytes": 675837
+          },
+          "presim": {
+            "objects": 214,
+            "bytes": 1719439
+          },
+          "team": {
+            "objects": 33803,
+            "bytes": 1433919458
+          },
+          "teams": {
+            "objects": 10,
+            "bytes": 12750307
+          }
+        },
+        "newestLastModified": "2026-09-12T21:23:55.703Z"
+      },
+      {
+        "generation": "spr@3.0.0+baseline",
+        "algorithmId": "spr",
+        "version": "3.0.0+baseline",
+        "status": "LIVE",
+        "objects": 36537,
+        "bytes": 1518019743,
+        "byKind": {
+          "event": {
+            "objects": 2500,
+            "bytes": 179397361
+          },
+          "events": {
+            "objects": 10,
+            "bytes": 675827
+          },
+          "presim": {
+            "objects": 214,
+            "bytes": 1677273
+          },
+          "team": {
+            "objects": 33803,
+            "bytes": 1327250915
+          },
+          "teams": {
+            "objects": 10,
+            "bytes": 9018367
+          }
+        },
+        "newestLastModified": "2026-09-12T21:31:08.149Z"
+      },
+      {
+        "generation": "opr@4.0.0+baseline",
+        "algorithmId": "opr",
+        "version": "4.0.0+baseline",
+        "status": "LIVE",
+        "objects": 36536,
+        "bytes": 1168015270,
+        "byKind": {
+          "event": {
+            "objects": 2500,
+            "bytes": 146534874
+          },
+          "events": {
+            "objects": 10,
+            "bytes": 675827
+          },
+          "presim": {
+            "objects": 213,
+            "bytes": 1774055
+          },
+          "team": {
+            "objects": 33803,
+            "bytes": 1011347002
+          },
+          "teams": {
+            "objects": 10,
+            "bytes": 7683512
+          }
+        },
+        "newestLastModified": "2026-09-12T20:30:43.928Z"
+      }
+    ]
+  },
+  "postCensusError": null,
+  "remainingByGeneration": {
+    "vpr@11.0.0+rolling-2026-09g": 0,
+    "vpr@11.0.0+rolling-2026-09e": 0,
+    "vpr@10.0.0+rolling-2026-09e": 0,
+    "vpr@2.1.0+tuned-2026-08": 0,
+    "vpr@10.0.0+rolling-2026-09d": 0,
+    "epa@1.1.0+baseline": 0,
+    "vpr@5.0.0+tuned-2026-08": 0,
+    "opr@3.1.0+baseline": 0,
+    "epa@5.0.0+baseline": 0,
+    "vpr@8.0.0+rolling-2026-09b": 0
+  },
+  "liveUnchanged": true,
+  "liveDiffs": [],
+  "ok": true,
+  "refused": null
+}

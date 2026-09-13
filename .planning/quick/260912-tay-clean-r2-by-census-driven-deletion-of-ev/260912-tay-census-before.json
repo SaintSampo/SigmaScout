@@ -1,0 +1,476 @@
+{
+  "takenAt": "2026-09-13T01:41:03.963Z",
+  "totals": {
+    "objects": 337614,
+    "bytes": 16519445447
+  },
+  "live": {
+    "generations": 3,
+    "objects": 109610,
+    "bytes": 4326892043
+  },
+  "orphan": {
+    "generations": 11,
+    "objects": 227870,
+    "bytes": 12178731736
+  },
+  "unversioned": {
+    "objects": 134,
+    "bytes": 13821668,
+    "byPrefix": {
+      "fixtures/2026cmptx": {
+        "objects": 2,
+        "bytes": 4310
+      },
+      "v1/compare": {
+        "objects": 10,
+        "bytes": 146077
+      },
+      "v1/district": {
+        "objects": 109,
+        "bytes": 13651937
+      },
+      "v1/districts": {
+        "objects": 10,
+        "bytes": 16511
+      },
+      "v1/manifest": {
+        "objects": 2,
+        "bytes": 516
+      },
+      "v1/methodology": {
+        "objects": 1,
+        "bytes": 2317
+      }
+    }
+  },
+  "anomalous": {
+    "objects": 0,
+    "bytes": 0,
+    "sampleKeys": []
+  },
+  "generations": [
+    {
+      "generation": "vpr@11.0.0+rolling-2026-09g",
+      "algorithmId": "vpr",
+      "version": "11.0.0+rolling-2026-09g",
+      "status": "ORPHAN",
+      "objects": 36481,
+      "bytes": 1989818885,
+      "byKind": {
+        "event": {
+          "objects": 2445,
+          "bytes": 204524432
+        },
+        "events": {
+          "objects": 10,
+          "bytes": 674024
+        },
+        "presim": {
+          "objects": 216,
+          "bytes": 30278562
+        },
+        "team": {
+          "objects": 33799,
+          "bytes": 1740148595
+        },
+        "other": {
+          "objects": 1,
+          "bytes": 4729
+        },
+        "teams": {
+          "objects": 10,
+          "bytes": 14188543
+        }
+      },
+      "newestLastModified": "2026-09-09T05:03:09.192Z"
+    },
+    {
+      "generation": "vpr@11.0.0+rolling-2026-09e",
+      "algorithmId": "vpr",
+      "version": "11.0.0+rolling-2026-09e",
+      "status": "ORPHAN",
+      "objects": 36481,
+      "bytes": 1909378833,
+      "byKind": {
+        "event": {
+          "objects": 2445,
+          "bytes": 193276938
+        },
+        "events": {
+          "objects": 10,
+          "bytes": 674024
+        },
+        "presim": {
+          "objects": 216,
+          "bytes": 30276145
+        },
+        "team": {
+          "objects": 33799,
+          "bytes": 1671619567
+        },
+        "other": {
+          "objects": 1,
+          "bytes": 4550
+        },
+        "teams": {
+          "objects": 10,
+          "bytes": 13527609
+        }
+      },
+      "newestLastModified": "2026-09-08T07:34:32.769Z"
+    },
+    {
+      "generation": "vpr@10.0.0+rolling-2026-09e",
+      "algorithmId": "vpr",
+      "version": "10.0.0+rolling-2026-09e",
+      "status": "ORPHAN",
+      "objects": 36481,
+      "bytes": 1908384825,
+      "byKind": {
+        "event": {
+          "objects": 2445,
+          "bytes": 192400931
+        },
+        "events": {
+          "objects": 10,
+          "bytes": 674024
+        },
+        "presim": {
+          "objects": 216,
+          "bytes": 30278811
+        },
+        "team": {
+          "objects": 33799,
+          "bytes": 1671499241
+        },
+        "other": {
+          "objects": 1,
+          "bytes": 4550
+        },
+        "teams": {
+          "objects": 10,
+          "bytes": 13527268
+        }
+      },
+      "newestLastModified": "2026-09-07T18:47:40.209Z"
+    },
+    {
+      "generation": "vpr@2.1.0+tuned-2026-08",
+      "algorithmId": "vpr",
+      "version": "2.1.0+tuned-2026-08",
+      "status": "ORPHAN",
+      "objects": 18923,
+      "bytes": 1682349041,
+      "byKind": {
+        "event": {
+          "objects": 1381,
+          "bytes": 190339080
+        },
+        "events": {
+          "objects": 5,
+          "bytes": 379256
+        },
+        "team": {
+          "objects": 17532,
+          "bytes": 1477301511
+        },
+        "teams": {
+          "objects": 5,
+          "bytes": 14329194
+        }
+      },
+      "newestLastModified": "2026-08-31T19:38:51.554Z"
+    },
+    {
+      "generation": "epa@10.0.0+baseline",
+      "algorithmId": "epa",
+      "version": "10.0.0+baseline",
+      "status": "LIVE",
+      "objects": 36537,
+      "bytes": 1640857030,
+      "byKind": {
+        "event": {
+          "objects": 2500,
+          "bytes": 191791989
+        },
+        "events": {
+          "objects": 10,
+          "bytes": 675837
+        },
+        "presim": {
+          "objects": 214,
+          "bytes": 1719439
+        },
+        "team": {
+          "objects": 33802,
+          "bytes": 1433915513
+        },
+        "other": {
+          "objects": 1,
+          "bytes": 3945
+        },
+        "teams": {
+          "objects": 10,
+          "bytes": 12750307
+        }
+      },
+      "newestLastModified": "2026-09-12T21:23:55.703Z"
+    },
+    {
+      "generation": "spr@3.0.0+baseline",
+      "algorithmId": "spr",
+      "version": "3.0.0+baseline",
+      "status": "LIVE",
+      "objects": 36537,
+      "bytes": 1518019743,
+      "byKind": {
+        "event": {
+          "objects": 2500,
+          "bytes": 179397361
+        },
+        "events": {
+          "objects": 10,
+          "bytes": 675827
+        },
+        "presim": {
+          "objects": 214,
+          "bytes": 1677273
+        },
+        "team": {
+          "objects": 33802,
+          "bytes": 1327247884
+        },
+        "other": {
+          "objects": 1,
+          "bytes": 3031
+        },
+        "teams": {
+          "objects": 10,
+          "bytes": 9018367
+        }
+      },
+      "newestLastModified": "2026-09-12T21:31:08.149Z"
+    },
+    {
+      "generation": "vpr@10.0.0+rolling-2026-09d",
+      "algorithmId": "vpr",
+      "version": "10.0.0+rolling-2026-09d",
+      "status": "ORPHAN",
+      "objects": 25263,
+      "bytes": 1299799811,
+      "byKind": {
+        "event": {
+          "objects": 1788,
+          "bytes": 133624598
+        },
+        "events": {
+          "objects": 7,
+          "bytes": 499355
+        },
+        "team": {
+          "objects": 23460,
+          "bytes": 1156461853
+        },
+        "other": {
+          "objects": 1,
+          "bytes": 4533
+        },
+        "teams": {
+          "objects": 7,
+          "bytes": 9209472
+        }
+      },
+      "newestLastModified": "2026-09-06T23:39:03.320Z"
+    },
+    {
+      "generation": "opr@4.0.0+baseline",
+      "algorithmId": "opr",
+      "version": "4.0.0+baseline",
+      "status": "LIVE",
+      "objects": 36536,
+      "bytes": 1168015270,
+      "byKind": {
+        "event": {
+          "objects": 2500,
+          "bytes": 146534874
+        },
+        "events": {
+          "objects": 10,
+          "bytes": 675827
+        },
+        "presim": {
+          "objects": 213,
+          "bytes": 1774055
+        },
+        "team": {
+          "objects": 33802,
+          "bytes": 1011344530
+        },
+        "other": {
+          "objects": 1,
+          "bytes": 2472
+        },
+        "teams": {
+          "objects": 10,
+          "bytes": 7683512
+        }
+      },
+      "newestLastModified": "2026-09-12T20:30:43.928Z"
+    },
+    {
+      "generation": "epa@1.1.0+baseline",
+      "algorithmId": "epa",
+      "version": "1.1.0+baseline",
+      "status": "ORPHAN",
+      "objects": 18923,
+      "bytes": 1116370254,
+      "byKind": {
+        "event": {
+          "objects": 1381,
+          "bytes": 130822714
+        },
+        "events": {
+          "objects": 5,
+          "bytes": 379231
+        },
+        "team": {
+          "objects": 17532,
+          "bytes": 976034395
+        },
+        "teams": {
+          "objects": 5,
+          "bytes": 9133914
+        }
+      },
+      "newestLastModified": "2026-08-31T19:37:42.353Z"
+    },
+    {
+      "generation": "vpr@5.0.0+tuned-2026-08",
+      "algorithmId": "vpr",
+      "version": "5.0.0+tuned-2026-08",
+      "status": "ORPHAN",
+      "objects": 18923,
+      "bytes": 1020333510,
+      "byKind": {
+        "event": {
+          "objects": 1381,
+          "bytes": 97404645
+        },
+        "events": {
+          "objects": 5,
+          "bytes": 379256
+        },
+        "team": {
+          "objects": 17532,
+          "bytes": 916396095
+        },
+        "teams": {
+          "objects": 5,
+          "bytes": 6153514
+        }
+      },
+      "newestLastModified": "2026-09-03T05:03:29.794Z"
+    },
+    {
+      "generation": "opr@3.1.0+baseline",
+      "algorithmId": "opr",
+      "version": "3.1.0+baseline",
+      "status": "ORPHAN",
+      "objects": 18923,
+      "bytes": 526442138,
+      "byKind": {
+        "event": {
+          "objects": 1381,
+          "bytes": 50115944
+        },
+        "events": {
+          "objects": 5,
+          "bytes": 379231
+        },
+        "team": {
+          "objects": 17532,
+          "bytes": 472739502
+        },
+        "teams": {
+          "objects": 5,
+          "bytes": 3207461
+        }
+      },
+      "newestLastModified": "2026-08-31T19:36:39.882Z"
+    },
+    {
+      "generation": "epa@5.0.0+baseline",
+      "algorithmId": "epa",
+      "version": "5.0.0+baseline",
+      "status": "ORPHAN",
+      "objects": 11002,
+      "bytes": 441703966,
+      "byKind": {
+        "event": {
+          "objects": 657,
+          "bytes": 46047303
+        },
+        "events": {
+          "objects": 3,
+          "bytes": 174642
+        },
+        "team": {
+          "objects": 10339,
+          "bytes": 391538113
+        },
+        "teams": {
+          "objects": 3,
+          "bytes": 3943908
+        }
+      },
+      "newestLastModified": "2026-09-08T06:50:04.934Z"
+    },
+    {
+      "generation": "vpr@8.0.0+rolling-2026-09b",
+      "algorithmId": "vpr",
+      "version": "8.0.0+rolling-2026-09b",
+      "status": "ORPHAN",
+      "objects": 6256,
+      "bytes": 241983765,
+      "byKind": {
+        "event": {
+          "objects": 323,
+          "bytes": 24389413
+        },
+        "events": {
+          "objects": 2,
+          "bytes": 120077
+        },
+        "team": {
+          "objects": 5928,
+          "bytes": 215614599
+        },
+        "other": {
+          "objects": 1,
+          "bytes": 4529
+        },
+        "teams": {
+          "objects": 2,
+          "bytes": 1855147
+        }
+      },
+      "newestLastModified": "2026-09-05T21:07:18.212Z"
+    },
+    {
+      "generation": "epa@6.0.0+baseline",
+      "algorithmId": "epa",
+      "version": "6.0.0+baseline",
+      "status": "ORPHAN",
+      "objects": 214,
+      "bytes": 42166708,
+      "byKind": {
+        "presim": {
+          "objects": 214,
+          "bytes": 42166708
+        }
+      },
+      "newestLastModified": "2026-09-10T05:05:09.681Z"
+    }
+  ]
+}

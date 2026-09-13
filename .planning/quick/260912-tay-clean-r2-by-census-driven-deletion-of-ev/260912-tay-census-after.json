@@ -1,0 +1,147 @@
+{
+  "takenAt": "2026-09-13T02:11:44.109Z",
+  "totals": {
+    "objects": 109744,
+    "bytes": 4340713711
+  },
+  "live": {
+    "generations": 3,
+    "objects": 109610,
+    "bytes": 4326892043
+  },
+  "orphan": {
+    "generations": 0,
+    "objects": 0,
+    "bytes": 0
+  },
+  "unversioned": {
+    "objects": 134,
+    "bytes": 13821668,
+    "byPrefix": {
+      "fixtures/2026cmptx": {
+        "objects": 2,
+        "bytes": 4310
+      },
+      "v1/compare": {
+        "objects": 10,
+        "bytes": 146077
+      },
+      "v1/district": {
+        "objects": 109,
+        "bytes": 13651937
+      },
+      "v1/districts": {
+        "objects": 10,
+        "bytes": 16511
+      },
+      "v1/manifest": {
+        "objects": 2,
+        "bytes": 516
+      },
+      "v1/methodology": {
+        "objects": 1,
+        "bytes": 2317
+      }
+    }
+  },
+  "anomalous": {
+    "objects": 0,
+    "bytes": 0,
+    "sampleKeys": []
+  },
+  "generations": [
+    {
+      "generation": "epa@10.0.0+baseline",
+      "algorithmId": "epa",
+      "version": "10.0.0+baseline",
+      "status": "LIVE",
+      "objects": 36537,
+      "bytes": 1640857030,
+      "byKind": {
+        "event": {
+          "objects": 2500,
+          "bytes": 191791989
+        },
+        "events": {
+          "objects": 10,
+          "bytes": 675837
+        },
+        "presim": {
+          "objects": 214,
+          "bytes": 1719439
+        },
+        "team": {
+          "objects": 33803,
+          "bytes": 1433919458
+        },
+        "teams": {
+          "objects": 10,
+          "bytes": 12750307
+        }
+      },
+      "newestLastModified": "2026-09-12T21:23:55.703Z"
+    },
+    {
+      "generation": "spr@3.0.0+baseline",
+      "algorithmId": "spr",
+      "version": "3.0.0+baseline",
+      "status": "LIVE",
+      "objects": 36537,
+      "bytes": 1518019743,
+      "byKind": {
+        "event": {
+          "objects": 2500,
+          "bytes": 179397361
+        },
+        "events": {
+          "objects": 10,
+          "bytes": 675827
+        },
+        "presim": {
+          "objects": 214,
+          "bytes": 1677273
+        },
+        "team": {
+          "objects": 33803,
+          "bytes": 1327250915
+        },
+        "teams": {
+          "objects": 10,
+          "bytes": 9018367
+        }
+      },
+      "newestLastModified": "2026-09-12T21:31:08.149Z"
+    },
+    {
+      "generation": "opr@4.0.0+baseline",
+      "algorithmId": "opr",
+      "version": "4.0.0+baseline",
+      "status": "LIVE",
+      "objects": 36536,
+      "bytes": 1168015270,
+      "byKind": {
+        "event": {
+          "objects": 2500,
+          "bytes": 146534874
+        },
+        "events": {
+          "objects": 10,
+          "bytes": 675827
+        },
+        "presim": {
+          "objects": 213,
+          "bytes": 1774055
+        },
+        "team": {
+          "objects": 33803,
+          "bytes": 1011347002
+        },
+        "teams": {
+          "objects": 10,
+          "bytes": 7683512
+        }
+      },
+      "newestLastModified": "2026-09-12T20:30:43.928Z"
+    }
+  ]
+}

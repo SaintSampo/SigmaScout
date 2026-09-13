@@ -1138,7 +1138,12 @@ LastModified 2026-09-12T20:17:03.881Z). After the edits, the expected team resul
 entries checked, 1 failing**, where the one failure is exactly frc9969/2024/spr and the new vpr
 absence entry passes.
 
-**`verify:subset` after the edits:** PLACEHOLDER-260912-tay-VERIFY-SUBSET (orchestrator: replace this line with the event-level, `--algorithm vpr` and `--team-only` summary lines)
+**`verify:subset` after the edits** (run against the live origin 2026-09-13 ~02:40 UTC): event level
+`65 entries checked, 0 failing, 0 total failure(s).`; `--algorithm vpr` `30 entries checked, 0 failing,
+0 total failure(s).` (15 at `9.0.0+rolling-2026-09c` plus the 15 new at `11.0.0+rolling-2026-09g`, all
+404 as asserted); `--team-only` `8 team entries checked, 1 failing, 1 total failure(s).`, the one
+failure exactly the pre-existing `frc9969/2024/spr` defect above, and the new
+`frc4206/2024/vpr@11.0.0+rolling-2026-09g` absence entry passing.
 
 **Correction: the earlier "nothing orphaned" claims were sample conclusions, and they were wrong.**
 The 2026-09-10 record ("R2 now holds exactly one generation per published algorithm version, nothing
