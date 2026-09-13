@@ -37,10 +37,11 @@ Totals render as intervals where there is room; match predictions render as two 
 win probability, and no copy may claim it is (retracted 2026-09-13, 260913-g66; see
 `references/uncertainty-display.md`). The band is drawn for SPR only.
 
-**One ± quantity, everywhere.** (Supersedes prior guidance — Phase 7 plan 07-06, D-01/D-02/D-03.)
-Every `±` this site prints and every band or interval it draws, at every aggregation level, is one
-standard deviation of the full predictive variance. A user must never see a bare consistency-only
-value. Drawing a band from only part of that variance produces bands that are wrong by 7–10σ. Read
+**Never a partial ±, and no identity between ± quantities.** (Revised 2026-09-13, quick task
+260913-q1l: the Phase 7 single-quantity rule, D-01/D-02/D-03, is withdrawn.) Under SPR the `±` beside
+a Total is Sigma Score and the match band is built from Sigma Score; the algorithm's own `spread`
+never renders, and nothing ties it to the alliance variance `redScoreVarianceOwn`. Drawing a band from
+only part of the variance it claims to show produces bands that are wrong by 7–10σ. Read
 `references/uncertainty-display.md` before touching either.
 
 **Typography and tokens.** Inter, applied via Tailwind's `--font-sans` token (a bare
@@ -60,7 +61,7 @@ blue; FRC alliance red/blue is validated and safe as-is.
 | Area | Reference | Key Decision |
 |------|-----------|--------------|
 | Colour & rarity tiers | `references/colour-and-tiers.md` | Percentile tiers; Common outline-only (008-C); blue must stay sky for CVD |
-| Uncertainty display | `references/uncertainty-display.md` | Match predictions as a table on one shared event scale; one ± quantity, everywhere (D-01, Phase 7) |
+| Uncertainty display | `references/uncertainty-display.md` | Match predictions as a table on one shared event scale; never draw a partial variance |
 | Chart craft | `references/chart-craft.md` | Derive coupled geometry; grouping is proximity; mock against the real distribution |
 | Simulation & Compare | `references/simulation-and-compare.md` | Interpolated (continuous) rank-band edges; plain-language-first calibration; near-ties render as ties |
 

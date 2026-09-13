@@ -144,22 +144,25 @@ export interface Prediction {
    */
   variance?: number;
   /**
-   * D-01 (Phase 6): each alliance's OWN predicted-score variance — that
-   * alliance's posterior (estimate uncertainty) plus covariance (performance
-   * spread) total, the exact D-10 predictive-variance quantity Sigma1
-   * already computes and returns here (plan 09-04 Task 3: Sigma1 no longer
-   * builds an RP pmf of its own from it — `SigmaScoutLayer.foldPlayed`,
-   * the level-2 layer every algorithm shares, does that from this same
-   * field). This is NOT the same quantity as
-   * `variance` above (which sums both alliances for the win-probability
-   * denominator) — that distinction stays real and unaffected. It IS,
-   * since plan 07-06 (D-01/D-02), the SAME quantity as `TeamMetric.spread`
-   * at the alliance aggregation level: `redScoreVarianceOwn` equals the sum
-   * of its three teams' `TeamMetric.spread` squares, by construction
-   * (`sigma1/sigma1.test.ts`'s alliance-additivity identity test pins this
-   * against `predict()`'s own output). Optional, following the same
-   * convention as `variance` above: populated by Sigma1, left `undefined`
-   * by OPR and EPA, neither of which models an alliance-level own variance.
+   * D-01 (Phase 6): each alliance's OWN predicted-score variance, in points
+   * squared. This is NOT the same quantity as `variance` above (which sums
+   * both alliances) — that distinction stays real and unaffected.
+   *
+   * It is also NOT the sum of its teams' `TeamMetric.spread` squares, and
+   * no test pins either the identity or its absence. Plan 07-06 (D-01/D-02)
+   * made that sum an identity for Sigma1; Sigma1 later broke it on purpose,
+   * and quick task 260913-it4 deleted Sigma1 and its tests. For `spr`, the
+   * only algorithm that populates this field, `predict()` builds it as
+   * `(pv + obsSd²) × displaySdFactor(mu)² × unit²`, which differs from the
+   * summed spread squares in three structural ways: `pv` weights each team's
+   * posterior by the square of its rank weight, `obsSd²` adds observation
+   * noise that no team's spread carries, and `displaySdFactor` rescales the
+   * result by alliance strength for display. `pRedWin` is computed from the
+   * raw, uncalibrated variance, never from this field.
+   *
+   * Optional, following the same convention as `variance` above: left
+   * `undefined` by OPR and EPA, neither of which models an alliance-level
+   * own variance.
    */
   redScoreVarianceOwn?: number;
   /** D-01 (Phase 6): the blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
@@ -255,11 +258,15 @@ export interface Prediction {
 
 /**
  * D-27, redefined by D-01/D-02 (plan 07-06): one team's named metric — a
- * value with an optional `spread`. `spread` is one standard deviation of
- * the FULL predictive variance for that team and metric (`√(P + R)`) — the
- * only uncertainty quantity this project ever displays. Every `±` printed
- * and every band or interval drawn anywhere on the site is this same
- * quantity, at whatever aggregation level the surface shows.
+ * value with an optional `spread`: the algorithm's own confidence in
+ * `value`. For `spr`, the only algorithm that sets it, it is the standard
+ * deviation of the team's rating estimate alone (`√(pL + pS)`, scaled into
+ * points by `teamMetrics`); OPR and EPA leave it unset. It is NOT what the
+ * site displays: `spread` never renders (`DisplayMetric.spread` in
+ * `apps/web/src/components/MetricValue.tsx`), the `±` beside an SPR Total
+ * is Sigma Score, and match bands are the Match Band
+ * (`redMatchBandVariance`). No identity ties it to
+ * `Prediction.redScoreVarianceOwn`; see that field's doc comment.
  */
 export interface TeamMetric {
   value: number;

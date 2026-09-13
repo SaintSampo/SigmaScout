@@ -3,11 +3,22 @@
 SigmaScout's stated differentiator is *honest uncertainty*. These decisions are about making the ±
 visible rather than decorative.
 
-## One quantity, everywhere — never a partial one
+## Never draw a partial variance
 
 This is the single most important thing in this file.
 
-**Supersedes prior guidance (Phase 7 plan 07-06, D-01/D-02/D-03):** this file used to say the
+**Current state, 2026-09-13 (quick task 260913-q1l): the site shows more than one uncertainty
+quantity, and nothing makes them agree.** Under SPR, the `±` beside a Total is Sigma Score and the
+match band is the Match Band, `√(rosterSize × Σ Sigma²)`; OPR and EPA show neither. The algorithm's
+own `spread` never renders (developer rule, 2026-09-09). The alliance's own predictive variance,
+`redScoreVarianceOwn`, is published but drawn nowhere, and it is NOT the sum of its teams' `spread`
+squares: SPR weights each team's posterior by the square of its rank weight, adds an
+observation-noise term, and rescales the result for display. No test pins a relationship between any
+of them. The Phase 7 rule in the next paragraph is withdrawn and kept only as history. What still
+holds is the sketch-003 lesson at the end of this section: never draw a band from only part of the
+variance it claims to show.
+
+**Withdrawn 2026-09-13 (quick task 260913-q1l), kept as history. Phase 7 plan 07-06 (D-01/D-02/D-03) superseded prior guidance:** this file used to say the
 team-page ± and the match-prediction ± were two different quantities that must never be conflated —
 D-09's match-to-match consistency alone on the team page, D-10's full predictive variance on a match
 prediction. That two-quantity design is REJECTED outright, not merely corrected. A user must never
@@ -31,11 +42,12 @@ That corrected width is DISPLAY-ONLY: the rank simulation's win/tie/loss spread 
 `Σ Sigma²`, because widening it worsened win-probability Brier (0.1559 → 0.1631; red and blue misses
 correlate, +0.21). Do not re-teach "squares add, so some variation cancels" on any surface.
 
-**Why this is coherent rather than a compromise:** an alliance's combined `±` is exactly
-`√(Σ teams' own P + R)`, which is the SAME quantity `redScoreVarianceOwn` already is — so the site
-becomes internally consistent by construction, not by discipline. Accepted consequence: a team we
-have seen only a few matches of now shows a WIDE ± because we are genuinely unsure, not because it is
-streaky — the honest answer, not a flattering one.
+**Why the Phase 7 rule was withdrawn rather than corrected (quick task 260913-q1l):** it rested on an
+alliance's combined `±` being exactly `redScoreVarianceOwn`, so that the site would stay consistent
+without anyone having to keep it so. SPR's code does not make those equal, no test pins them equal,
+and the site draws neither: its `±` and its bands come from Sigma Score. Do not rebuild an alliance
+band from summed `spread` squares or from `redScoreVarianceOwn`, and do not describe any two of these
+quantities as equal.
 
 **The band-from-a-partial-variance failure is still exactly why this file exists** — it just no
 longer has two names. Sketch 003's first draft drew match bands from `sqrt(sum of component

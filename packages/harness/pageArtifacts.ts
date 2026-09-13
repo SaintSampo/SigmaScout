@@ -16,7 +16,7 @@
  * mixed-generation read must be detectable) plus, for the four
  * algorithm-scoped pages, `algorithmId`/`algorithmVersion`.
  *
- * Two rules apply to every schema in this file and are enforced by
+ * One rule applies to every schema in this file and is enforced by
  * `pageArtifacts.test.ts` rather than left to convention:
  *
  *   - Raw numbers only (02-CONTEXT D-21). No schema declares a field that is
@@ -25,18 +25,31 @@
  *     better. `CompareArtifactSchema` publishes each algorithm's own raw
  *     `ScoreSlice` figures side by side; the Compare page computes any
  *     comparison at render time.
- *   - There is exactly ONE uncertainty quantity on this site (superseded,
- *     Phase 7 plan 07-06, D-01/D-02/D-03 — the prior rule required a
- *     `TeamMetric.spread`/predictive-`variance` split and is rejected
- *     outright): one standard deviation of full predictive variance. Every
- *     schema in this file expresses that SAME quantity, at the aggregation
- *     level its field names — `TeamMetric.spread` at the per-team-per-metric
- *     level, `redScoreVarianceOwn`/`blueScoreVarianceOwn` at the
- *     per-alliance level — related by summing squares
- *     (`redScoreVarianceOwn` equals the sum of its three teams'
- *     `TeamMetric.spread` squares, by construction). D-03: the underlying
- *     consistency term (R) stays computed internally and is never given its
- *     own published field under any name.
+ *
+ * The uncertainty fields follow no such rule, and no test relates them.
+ * This header used to state a second rule (Phase 7 plan 07-06,
+ * D-01/D-02/D-03): a single uncertainty quantity across the site, with each
+ * alliance's `redScoreVarianceOwn` equal to the sum of its three teams'
+ * `TeamMetric.spread` squares. `pageArtifacts.test.ts` checks only that
+ * these fields parse and round-trip, never a numeric relationship between
+ * them, and the identity does not hold, so
+ * quick task 260913-q1l withdrew the rule. SPR is the only algorithm that
+ * publishes any of the fields below (OPR and EPA publish none of them), and
+ * `spr.ts` builds three structurally different quantities:
+ *
+ *   - `TeamMetric.spread` (`teamMetrics`): the standard deviation of one
+ *     team's rating estimate alone, `√(pL + pS)` scaled into points. It
+ *     never renders on the site.
+ *   - `redScoreVarianceOwn`/`blueScoreVarianceOwn` (`predict`): the
+ *     alliance's own predictive variance. It is not the sum of its teams'
+ *     spread squares, for three reasons: each team's posterior is weighted
+ *     by the square of its rank weight, the observation-noise term `obsSd²`
+ *     is added, and `displaySdFactor` rescales the result by alliance
+ *     strength. `variance` is the red-plus-blue sum of the two, and
+ *     `pRedWin` is computed from the raw, uncalibrated variance instead.
+ *   - `redMatchBandVariance`/`blueMatchBandVariance`: the Match Band the
+ *     site draws, `roster size × Σ Sigma Score²`
+ *     (`packages/harness/sigmaScore.ts`), built from neither of the above.
  */
 import { z } from "zod";
 import { MetricHistoryRowSchema } from "./metricHistorySchema.js";
@@ -180,10 +193,12 @@ const AlgorithmScopedPreambleSchema = PagePreambleSchema.extend({
 /**
  * D-27, redefined by D-01/D-02 (plan 07-06): one team's named metric — a
  * value with an optional `spread`. Mirrors `packages/core/algorithms/
- * types.ts`'s `TeamMetric`. `spread` is one standard deviation of that
- * team's FULL predictive variance for that metric (`√(P + R)`) — D-03 keeps
- * the underlying consistency term (R) computed internally but never
- * publishes it under this or any other name. The schema shape here is
+ * types.ts`'s `TeamMetric`. Plan 07-06 defined `spread` as one standard
+ * deviation of Sigma1's full predictive variance (`√(P + R)`); Sigma1 was
+ * deleted (quick task 260913-it4). For SPR, the only algorithm that
+ * publishes it, `spread` is the standard deviation of the team's rating
+ * estimate alone (`√(pL + pS)` in `spr.ts`'s `teamMetrics`) and never
+ * renders on the site; OPR and EPA publish none. The schema shape here is
  * deliberately UNCHANGED by that redefinition — same optional-number type,
  * same field name, no `PAGE_ARTIFACT_SCHEMA_VERSION` bump (D-02) —
  * including D-02's accepted risk that a browser holding a pre-republish
@@ -373,12 +388,12 @@ const EventMatchSchema = z
      * alliance-level own variance — following `TeamSeasonMatchSchema.variance`'s
      * own optional convention. Rounded exactly once, at the publish boundary,
      * at `ROUNDING_RULE.variance` (`rounding.ts`); the call itself belongs to
-     * 07-08. Under this file's header rule (D-01) it equals the sum of its
-     * three teams' published `TeamMetric.spread` squares — the additivity
-     * identity plan 07-06 pinned against `predict()`'s own output — which is
-     * what makes the Alliances tab's combined uncertainty (07-14) and the
-     * Elims band (07-13) the same number rather than two numbers that happen
-     * to agree.
+     * 07-08. It is NOT the sum of its three teams' published
+     * `TeamMetric.spread` squares (this file's header gives the three
+     * structural reasons), and no page draws it: match-row bands and the
+     * Alliances tab's combined band are built from Sigma Score instead
+     * (`redMatchBandVariance` below; `allianceSigmaBandVariance` in
+     * `sigmaScore.ts`).
      */
     redScoreVarianceOwn: z.number().optional(),
     /** D-18 item 3, plan 07-07 Task 1: the blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
@@ -798,11 +813,10 @@ const TeamSeasonMatchSchema = z
      * types.ts`'s `Prediction.redScoreVarianceOwn`/`blueScoreVarianceOwn`.
      * This is NOT the same quantity as `variance` above (the red+blue SUM,
      * the win-probability denominator) — that distinction stays real and
-     * unaffected. It IS, since plan 07-06, the alliance-level aggregation of
-     * exactly the SAME quantity a `TeamMetric.spread` elsewhere in this file
-     * carries at the per-team level: this field equals the sum of its three
-     * teams' `TeamMetric.spread` squares, by construction, per this file's
-     * header rule. Populated by Sigma1, left `undefined` by OPR/EPA (neither
+     * unaffected. Plan 07-06 also defined it as the sum of its three teams'
+     * `TeamMetric.spread` squares; that no longer holds, and no test pins it
+     * (this file's header gives the three structural reasons).
+     * Populated by SPR, left `undefined` by OPR/EPA (neither
      * models an alliance-level own variance), following `variance`'s own
      * optional convention above. Reuses `ROUNDING_RULE.variance` unchanged
      * at the publish boundary — same physical quantity, same existing rule,
