@@ -17,11 +17,13 @@
 import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFeatures } from "@tanstack/react-table";
 import { Link } from "@tanstack/react-router";
 import { MetricValue } from "@/components/MetricValue";
+import { TotalSigmaValue, totalColumnHeader, TOTAL_SIGMA_COLUMN_WIDTH_PX } from "@/components/TotalSigmaValue";
 import { GROUP_METRIC_KEYS, hasGroupedTeamsView, metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { metricDisplayLabel } from "@/lib/metricLabels";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import { WIN_RATE_SORT_KEY, type TeamRow } from "./rowModel";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
+import { usesSigmaScore } from "../../../../../packages/harness/sigmaScore.js";
 
 /** The three leading, frozen columns — the ONE list both the table and any test agree on (this plan's own `key_links`). */
 export const PINNED_COLUMN_IDS = ["rank", "teamNumber", "nickname"] as const;
@@ -264,6 +266,27 @@ export function metricColumnWidth(algorithmId: string): number {
 }
 
 /**
+ * Quick task 260913-jkp: the Total column's own width, which now depends on
+ * whether it renders the split pill, not just whether the algorithm publishes
+ * a spread. `TOTAL_SIGMA_COLUMN_WIDTH_PX` (154, `TotalSigmaValue.tsx`'s own
+ * measurement block) applies in BOTH narrow and wide modes when
+ * `usesSigmaScore(algorithmId)` — the pill needs headroom the narrow literal
+ * 120 does not give it. Every other metric column (and Total itself under a
+ * non Sigma algorithm) keeps the pre-existing narrow/wide derivation
+ * unchanged: the literal 120 below the breakpoint, `metricColumnWidth` above
+ * it.
+ */
+function metricColumnWidthFor(key: string, algorithmId: string, isNarrow: boolean): number {
+  if (key === TOTAL_KEY && usesSigmaScore(algorithmId)) return TOTAL_SIGMA_COLUMN_WIDTH_PX;
+  return isNarrow ? 120 : metricColumnWidth(algorithmId);
+}
+
+/** Total's header reads "Total ± Sigma" under a Sigma-enabled algorithm (`TotalSigmaValue.tsx`'s `totalColumnHeader`); every other metric column keeps its ordinary friendly label. */
+function metricColumnHeaderFor(key: string, algorithmId: string): string {
+  return key === TOTAL_KEY ? totalColumnHeader(algorithmId) : metricDisplayLabel(key);
+}
+
+/**
  * The metric column KEY SET a given (algorithm, season, view) triple
  * actually displays — the one derivation both `buildColumns` and
  * `sortableColumnIds` share. Total leads in BOTH the grouped branch and
@@ -348,19 +371,20 @@ export function buildColumns(
   // crossing a component-prop boundary, not a new, unvalidated assumption.
   const algorithm = algorithmId as PublishedAlgorithmId;
 
-  const metricColumns = metricKeys.map((key) =>
-    columnHelper.accessor((row) => row.metrics[key], {
+  const metricColumns = metricKeys.map((key) => {
+    const isTotal = key === TOTAL_KEY;
+    return columnHelper.accessor((row) => row.metrics[key], {
       id: key,
       // Friendly labels ONLY (2026-09-01 redesign): "Hub Shift 2", "Auto",
-      // "Fouls Committed" — never a raw artifact key like `hubShift2`.
-      header: metricDisplayLabel(key),
-      // D-1 (2026-09-04, 260904-5zg): below the breakpoint this stays the
-      // literal 120 UNCHANGED (G-2/G-11's own measured narrow arithmetic
-      // depends on it); at/above it, `metricColumnWidth` sizes from
-      // MEASURED rendered content instead of a width reserved for VPR's
-      // `value ± spread` string — see that function's own doc comment for
-      // the measured derivation.
-      size: isNarrow ? 120 : metricColumnWidth(algorithmId),
+      // "Fouls Committed" — never a raw artifact key like `hubShift2`. Total
+      // is the one exception (quick task 260913-jkp): its header comes from
+      // `metricColumnHeaderFor`, which reads "Total ± Sigma" under a
+      // Sigma-enabled algorithm.
+      header: metricColumnHeaderFor(key, algorithmId),
+      // D-1 (2026-09-04, 260904-5zg) for every non-Total column; Total's own
+      // width is `metricColumnWidthFor`'s business now (quick task
+      // 260913-jkp) — see that function's own doc comment.
+      size: metricColumnWidthFor(key, algorithmId, isNarrow),
       // D-17's rarity tiers, the same ones the team page's metric grid
       // applies and the same `.metric-tier--*` tokens — so a number does
       // not change meaning between the Teams table and the team page it
@@ -380,20 +404,51 @@ export function buildColumns(
       // tradeoff — a small, temporary, wrong claim beats the Teams table
       // showing Common bare while every other tiered surface on the site
       // shows it outlined.
-      // No metric column carries a `±` any more (developer decision,
-      // 2026-09-09): Sigma Score is ONE number per team, not a suffix on
-      // another metric, and it has its own column below. The algorithm's own
-      // spread is never rendered here either.
-      cell: (info) => <MetricValue metric={info.getValue()} tier={info.getValue()?.tier ?? "common"} />,
-    }),
-  );
+      //
+      // Quick task 260913-jkp: the Sigma column is GONE. Wherever this
+      // algorithm publishes a Sigma Score, the TOTAL cell renders it as the
+      // right half of a joined split pill (`TotalSigmaValue`) instead — the
+      // row's own `sigmaScore`/`sigmaTier` (never re-derived here), passed
+      // through exactly as `rowModel.ts` decided them (no `?? "common"`
+      // coalesce: an absent entry means "unranked," not "Common"). Every
+      // other metric column, and Total itself under a non-Sigma algorithm,
+      // renders byte-identical to before — `TotalSigmaValue` degrades to
+      // plain `MetricValue` whenever `sigma` is `undefined`. The algorithm's
+      // own `spread` is never rendered here, in either shape.
+      cell: (info) =>
+        isTotal ? (
+          <TotalSigmaValue
+            total={info.getValue()}
+            totalTier={info.getValue()?.tier ?? "common"}
+            sigma={
+              info.row.original.sigmaScore !== undefined
+                ? { value: info.row.original.sigmaScore, tier: info.row.original.sigmaTier }
+                : undefined
+            }
+          />
+        ) : (
+          <MetricValue metric={info.getValue()} tier={info.getValue()?.tier ?? "common"} />
+        ),
+    });
+  });
 
   // The narrow-viewport LEADING metric (F3): Total leads `metricKeys` in
   // EVERY view now (D-5, 2026-09-04) — `metricKeysFor`'s components-view
   // order and `displayedMetricKeys`'s grouped-view order both put
   // `TOTAL_KEY` first — so the narrow lead is always index 0 by
-  // construction, not a view-specific branch. Same 120px declared width
-  // either way, so G-2/G-11's measured narrow arithmetic is unaffected.
+  // construction, not a view-specific branch.
+  //
+  // Quick task 260913-jkp: under a Sigma-enabled algorithm this leading
+  // column is now 154px (`TOTAL_SIGMA_COLUMN_WIDTH_PX`), not 120 — the
+  // split pill's own measured width. Phone-390 consequence, stated rather
+  // than hidden (this plan's own width-measurement block): the pill starts
+  // at `128 (pinned) + 90 (nickname) + 8 (gap)` = 226px; its Total half ends
+  // at 290.16px, fully visible at scroll 0 (ui-polish F3's "a tiered value
+  // on the first screenful" still holds); its Sigma half ends at 356.31px,
+  // about 14px past the 342px scroller until the reader scrolls. Nickname
+  // is deliberately NOT narrowed for SPR only — see
+  // `NICKNAME_COLUMN_WIDTH_NARROW_PX`'s own doc comment for why an
+  // algorithm-conditional layout is the wrong trade here.
   const leadMetricIndex = 0;
   const leadMetricColumns = [metricColumns[leadMetricIndex]!];
   const restMetricColumns = metricColumns.filter((_, index) => index !== leadMetricIndex);
@@ -410,38 +465,6 @@ export function buildColumns(
     header: "Record",
     size: isNarrow ? RECORD_COLUMN_WIDTH_NARROW_PX : 100,
     cell: (info) => formatRecord(info.getValue()),
-  });
-
-  /**
-   * SIGMA SCORE, its own column (developer decision, 2026-09-09): a team's
-   * total consistency estimate for its NEXT match — how much its contribution
-   * is expected to vary, not how good it is and not how sure the model is.
-   *
-   * A column rather than a `±` on Total because it answers a different
-   * question from every metric beside it. Absent for a team with fewer than
-   * two played matches, which renders blank rather than a fabricated zero.
-   *
-   * Hidden by the ribbon's `±` control, which is what that control now names.
-   *
-   * Quick task 260909-tgf: this cell now carries a rarity TIER, sourced from
-   * `rowModel.ts`'s `sigmaTier` (the published `sigma` metric entry's tier,
-   * never derived here) — with a LOWER Sigma Score earning the HIGHER tier, the D2
-   * inversion applied once at the pipeline. Rendered through `MetricValue`
-   * so it gets the identical `.metric-tier` box, padding and `toFixed(2)`
-   * every other tiered cell on the site gets, rather than hand-rolling a
-   * second box. Deliberately NOT `?? "common"`-coalesced here: `rowModel.ts`
-   * already made that per-branch decision correctly (present entry -> tier
-   * defaults to Common; absent entry, stale fallback -> genuinely no tier),
-   * and re-coalescing here would undo it for a stale row.
-   */
-  const sigmaColumn = columnHelper.accessor("sigmaScore", {
-    id: "sigmaScore",
-    header: "Sigma",
-    size: 84,
-    cell: (info) => {
-      const value = info.getValue();
-      return <MetricValue metric={value === undefined ? undefined : { value }} tier={info.row.original.sigmaTier} />;
-    },
   });
 
   const winRateColumn = columnHelper.accessor("winRate", {
@@ -543,7 +566,6 @@ export function buildColumns(
     ...(isNarrow ? [recordColumn] : []),
     ...(metricFirst ? restMetricColumns : metricColumns),
     ...(isNarrow ? [] : [recordColumn]),
-    sigmaColumn,
     winRateColumn,
   ]);
 }

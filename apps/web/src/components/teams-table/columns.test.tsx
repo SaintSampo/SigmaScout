@@ -11,6 +11,8 @@ import type { ReactNode } from "react";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
+import { TOTAL_SIGMA_COLUMN_WIDTH_PX } from "@/components/TotalSigmaValue";
+import { resolveSortKey } from "@/lib/resolveSortKey";
 import { TeamsTable } from "./TeamsTable";
 import {
   buildColumns,
@@ -226,71 +228,81 @@ describe("metricColumnWidth — D-1 spread-carrying vs spread-less", () => {
     expect(metricColumnWidth("epa")).toBeLessThan(metricColumnWidth("spr"));
   });
 
-  it("buildColumns applies metricColumnWidth at/above the breakpoint, and the pre-existing literal 120 unchanged below it (G-2/G-11)", () => {
+  it("buildColumns applies metricColumnWidth at/above the breakpoint to a NON-Total metric column, and the pre-existing literal 120 unchanged below it (G-2/G-11); Total's own width is now quick task 260913-jkp's business, covered in its own describe block below", () => {
     const wideEpa = buildColumns("epa", 2026, false) as { id?: string; size: number }[];
     const wideVpr = buildColumns("spr", 2026, false) as { id?: string; size: number }[];
-    const epaTotal = wideEpa.find((c) => c.id === "total")!;
-    const vprTotal = wideVpr.find((c) => c.id === "total")!;
-    expect(epaTotal.size).toBe(METRIC_COLUMN_WIDTH_SPREADLESS_PX);
-    expect(vprTotal.size).toBe(METRIC_COLUMN_WIDTH_PX);
+    // opr has no phase-group column at all, so a non-Total metric key exists
+    // only for epa/spr here — the same reason this comparison always used
+    // those two algorithms.
+    const epaPhase = wideEpa.find((c) => c.id === "phaseAuto")!;
+    const vprPhase = wideVpr.find((c) => c.id === "phaseAuto")!;
+    expect(epaPhase.size).toBe(METRIC_COLUMN_WIDTH_SPREADLESS_PX);
+    expect(vprPhase.size).toBe(METRIC_COLUMN_WIDTH_PX);
 
     const narrowEpa = buildColumns("epa", 2026, true) as { id?: string; size: number }[];
-    const narrowTotal = narrowEpa.find((c) => c.id === "total")!;
-    expect(narrowTotal.size).toBe(120);
+    const narrowPhase = narrowEpa.find((c) => c.id === "phaseAuto")!;
+    expect(narrowPhase.size).toBe(120);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Quick task 260909-tgf — the Sigma column carries a rarity tier, sourced
-// from rowModel.ts's sigmaTier, never derived here.
+// Quick task 260913-jkp — the standalone Sigma column is deleted; a
+// Sigma-carrying Total cell now renders the shared split pill instead.
 // ---------------------------------------------------------------------------
-describe("buildColumns — sigma tier (quick task 260909-tgf)", () => {
-  it("the sigma cell for a Legendary row carries the legendary tier class", async () => {
-    renderWithRouter(
-      <TeamsTable
-        status="success"
-        rows={[row({ sigmaScore: 8.42, sigmaTier: "legendary" })]}
-        algorithmId="spr"
-        season={2024}
-        view="components"
-        sortKey={TOTAL_KEY}
-        sortDirection="desc"
-        onSortChange={noop}
-        onRetry={noop}
-      />,
-    );
+describe("buildColumns — Sigma column removed, Total renders the split pill (quick task 260913-jkp)", () => {
+  // Only the metric/record/win-rate columns set an explicit `id` on the raw
+  // column-def object `buildColumns` returns; `rank`/`teamNumber`/`nickname`
+  // rely on `@tanstack/react-table`'s own accessor-key-as-id default, which
+  // this library resolves once the def is registered with a real table, not
+  // on the plain object — so this file reads `accessorKey` there, matching
+  // `columns.tsx`'s own accessor calls.
+  function columnIds(columns: readonly { id?: string; accessorKey?: string }[]): (string | undefined)[] {
+    return columns.map((c) => c.id ?? c.accessorKey);
+  }
 
-    await waitFor(() => expect(screen.getByText("8.42")).toBeDefined());
-    expect(document.querySelector(".metric-tier--legendary")).not.toBeNull();
+  it("spr 2026 grouped view: the column id list is today's list minus \"sigmaScore\", and Total's header/size reflect the split pill", () => {
+    const columns = buildColumns("spr", 2026, false, false, "grouped") as { id?: string; accessorKey?: string; header: unknown; size: number }[];
+    const ids = columnIds(columns);
+    expect(ids).not.toContain("sigmaScore");
+    expect(ids).toEqual(["rank", "teamNumber", "nickname", "total", "phaseAuto", "phaseTeleop", "phaseEndgame", "record", "winRate"]);
+
+    const total = columns.find((c) => c.id === "total")!;
+    expect(total.header).toBe("Total ± Sigma");
+    expect(total.size).toBe(TOTAL_SIGMA_COLUMN_WIDTH_PX);
   });
 
-  it("the sigma cell for a stale row (value, no tier) renders the value with NO .metric-tier wrapper class at all", async () => {
-    renderWithRouter(
-      <TeamsTable
-        status="success"
-        rows={[row({ sigmaScore: 8.42, sigmaTier: undefined })]}
-        algorithmId="spr"
-        season={2024}
-        view="components"
-        sortKey={TOTAL_KEY}
-        sortDirection="desc"
-        onSortChange={noop}
-        onRetry={noop}
-      />,
-    );
-
-    await waitFor(() => expect(screen.getByText("8.42")).toBeDefined());
-    const sigmaValue = screen.getByText("8.42");
-    expect(sigmaValue.closest(".metric-tier")).toBeNull();
+  it("spr 2026 components view: same minus-sigma id set, and Total's size is the split-pill width in BOTH wide and narrow modes", () => {
+    for (const isNarrow of [false, true]) {
+      const columns = buildColumns("spr", 2026, isNarrow, false, "components") as { id?: string; accessorKey?: string; size: number }[];
+      expect(columnIds(columns)).not.toContain("sigmaScore");
+      const total = columns.find((c) => c.id === "total")!;
+      expect(total.size).toBe(TOTAL_SIGMA_COLUMN_WIDTH_PX);
+    }
   });
 
-  it("an absent sigma renders blank, not 0.00 — the existing behaviour, re-pinned", async () => {
+  it("epa and opr: column ids, Total header and Total size are all unchanged from today", () => {
+    for (const algorithmId of ["epa", "opr"] as const) {
+      const columns = buildColumns(algorithmId, 2026, false) as { id?: string; header: unknown; size: number }[];
+      expect(columns.map((c) => c.id)).not.toContain("sigmaScore");
+      const total = columns.find((c) => c.id === "total")!;
+      expect(total.header).toBe("Total");
+      expect(total.size).toBe(metricColumnWidth(algorithmId));
+    }
+  });
+
+  it("resolveSortKey resolves a stale sort=sigmaScore URL to Total, for both Teams-table views", () => {
+    for (const view of ["grouped", "components"] as const) {
+      expect(resolveSortKey("sigmaScore", sortableColumnIds("spr", 2026, view))).toBe(TOTAL_KEY);
+    }
+  });
+
+  it("a row with a published Sigma Score renders the split pill in the Total cell", async () => {
     renderWithRouter(
       <TeamsTable
         status="success"
-        rows={[row({ sigmaScore: undefined, sigmaTier: undefined })]}
+        rows={[row({ metrics: { [TOTAL_KEY]: { value: 425.67 } }, sigmaScore: 92, sigmaTier: "epic" })]}
         algorithmId="spr"
-        season={2024}
+        season={2026}
         view="components"
         sortKey={TOTAL_KEY}
         sortDirection="desc"
@@ -299,7 +311,29 @@ describe("buildColumns — sigma tier (quick task 260909-tgf)", () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getAllByRole("link").length).toBeGreaterThanOrEqual(2));
-    expect(screen.queryByText("0.00")).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("total-sigma-pill")).toBeDefined());
+    const pill = screen.getByTestId("total-sigma-pill");
+    expect(pill.textContent).toContain("425.67");
+    expect(pill.textContent).toContain("±92.00");
+    expect(pill.querySelector(".metric-tier--epic")).not.toBeNull();
+  });
+
+  it("a row with no Sigma Score renders exactly one metric-tier box in Total, never a pill", async () => {
+    renderWithRouter(
+      <TeamsTable
+        status="success"
+        rows={[row({ metrics: { [TOTAL_KEY]: { value: 40 } }, sigmaScore: undefined, sigmaTier: undefined })]}
+        algorithmId="spr"
+        season={2026}
+        view="components"
+        sortKey={TOTAL_KEY}
+        sortDirection="desc"
+        onSortChange={noop}
+        onRetry={noop}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByText("40.00")).toBeDefined());
+    expect(screen.queryByTestId("total-sigma-pill")).toBeNull();
   });
 });

@@ -6,8 +6,12 @@
  * row carries one (every OPR and EPA row set) the component renders a plain
  * no-Sigma state instead of an axis: no svg, no key, just one sentence
  * pointing the reader at SPR. That branch keys off the DATA
- * (`model.hasAnySigma`), never off an algorithm id, the same way the table's
- * Sigma column keys off `row.sigmaScore` presence.
+ * (`model.hasAnySigma`), never off an algorithm id, the same way the Teams
+ * table's Total column keys its split pill's right half off `row.sigmaScore`
+ * presence (quick task 260913-jkp deleted the standalone Sigma column this
+ * comment used to name; `row.sigmaScore`/`row.sigmaTier` themselves are
+ * unchanged and still feed this chart's axis, per that task's own decision
+ * to leave the bubble chart alone).
  *
  * NOT Recharts — a deliberate departure from this project's default
  * charting library (260909-tom-PLAN.md `rendering_decision`). Recharts'

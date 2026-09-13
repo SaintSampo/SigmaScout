@@ -75,11 +75,14 @@ export interface TeamRow {
    */
   sigmaScore?: number;
   /**
-   * The Sigma column's rarity tier (first shipped by quick task 260909-tgf),
-   * sourced from the published `sigma` metric entry, NEVER derived here from
-   * `sigmaScore`. `undefined` means the pipeline has not ranked this team's
-   * Sigma Score at all (a pre-republish artifact, or a live-worker-rebuilt
-   * row) — see `buildTeamRows`'s own comment for why that is not coalesced.
+   * This team's Sigma Score's rarity tier (first shipped by quick task
+   * 260909-tgf; the standalone Sigma column it originally tiered was deleted
+   * by quick task 260913-jkp, which renders this value as the right half of
+   * the Total column's split pill instead), sourced from the published
+   * `sigma` metric entry, NEVER derived here from `sigmaScore`. `undefined`
+   * means the pipeline has not ranked this team's Sigma Score at all (a
+   * pre-republish artifact, or a live-worker-rebuilt row) — see
+   * `buildTeamRows`'s own comment for why that is not coalesced.
    */
   sigmaTier?: Tier;
   rank: number;
