@@ -324,7 +324,7 @@ describe("opr — end-to-end through WalkForwardSimulator (tracer)", () => {
 });
 
 describe("opr — public export surface (SC-1)", () => {
-  it("exports exactly the surviving symbols — no accidental re-export of retired season-pooled machinery, no accidental loss of a symbol epa.ts/identifiability.ts depend on", () => {
+  it("exports exactly the surviving symbols — no accidental re-export of retired season-pooled machinery, no accidental loss of a symbol epa.ts depends on", () => {
     expect(Object.keys(oprModule).sort()).toEqual([
       // D-Q4: OPR_LOGISTIC_SCALE retired — the fixed scale WAS the defect.
       "OPR_FALLBACK_SCORE_SD",
