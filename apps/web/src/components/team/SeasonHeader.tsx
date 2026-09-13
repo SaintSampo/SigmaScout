@@ -1,9 +1,9 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MetricValue } from "@/components/MetricValue";
+import { TotalSigmaValue } from "@/components/TotalSigmaValue";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { METRIC_GROUPS, withDerivedGroupMetrics } from "@/lib/metricGroups";
 import { tierForPercentile } from "@/lib/tiers";
-import type { Tier } from "@/lib/tiers";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
@@ -56,31 +56,6 @@ function formatRecord(record: { wins: number; losses: number; ties: number }): s
 function formatWinRate(value: number | null): string {
   if (value === null) return "";
   return `${(value * 100).toFixed(1)}%`;
-}
-
-/**
- * The SIGMA SCORE tile.
- *
- * Rendered exactly when the artifact carries a published `sigma` metric entry,
- * which is the same thing as saying "this algorithm publishes Sigma Score" —
- * SPR today, per `SIGMA_SCORE_ALGORITHM_IDS`. There is deliberately NO
- * algorithm-id check in the browser: the data's presence is the condition, so
- * changing which algorithms carry Sigma needs no web change at all.
- *
- * The tile IS tier-boxed (quick task 260909-tgf's construction, inherited). The
- * percentile behind it is the team's residual against an expected-consistency
- * curve fitted at its own rating — so a strong robot is not automatically
- * high-sigma — and the direction is inverted at the pipeline so LOW sigma earns
- * the HIGH tier.
- */
-function SigmaScoreTile({ sigmaScore, tier }: { sigmaScore?: number; tier?: Tier }) {
-  if (sigmaScore === undefined) return null;
-  return (
-    <div data-testid="sigma-score-tile" className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
-      <span className="text-role-label text-[var(--color-text-muted)]">Sigma</span>
-      <MetricValue metric={{ value: sigmaScore }} tier={tier} />
-    </div>
-  );
 }
 
 /** One labelled, tier-boxed metric tile. `items-start` (2026-09-01 redesign): flex-col stretch was widening each tier box to the full grid track — the box should hug its value like every other metric cell on the site. */
@@ -163,26 +138,38 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // `tierForPercentile(undefined)` below yields no tier for a derived tile —
   // the honest outcome for stale data, never worked around by inventing a
   // percentile from the single team in view.
-  // SIGMA SCORE is its OWN TILE (developer decision, 2026-09-09), not a `±`
-  // suffix on Total. It is one number per team, a different question from
-  // every metric beside it, so it reads as its own quantity rather than an
-  // annotation on another one. No metric tile carries a `±` any more.
+  // Quick task 260913-jkp: Sigma is GONE as its own tile. Wherever the Total
+  // tile renders, it now renders Sigma as the right half of a joined split
+  // pill (`TotalSigmaValue`) instead of a `±` suffix, exactly like every
+  // other surface this quick task converts.
   //
-  // It is published for SPR only (quick task 260913-g66). The VALUE and the
-  // TIER both come from the published `sigma` metric entry and NOTHING ELSE;
-  // the tier goes through the existing client `tierForPercentile`, the same
-  // function every other tile on this page uses, so the pipeline's cuts and
-  // this page's cuts can never disagree. There is no fallback to any other
-  // per-team figure: the old top-level per-team field held a different
-  // estimator on a different scale and is no longer published. Absent entry
-  // (every OPR and EPA artifact) means no tile.
-  const sigmaMetric = metrics[SIGMA_METRIC_KEY];
-  const sigmaScore = sigmaMetric?.value;
-  const sigmaTier = tierForPercentile(sigmaMetric?.percentile);
+  // The pill's Sigma half is read from `artifact.seasonStats.metrics`
+  // DIRECTLY, never from `metrics` (the resolved `metricsOverride ??
+  // seasonStats.metrics` above): `metricsOverride`, when the route supplies
+  // one, is the last OFFICIAL-match `metricHistory` row, and history rows
+  // carry no `sigma` entry at all (verified live 2026-09-13: frc2481 2026
+  // spr, 66 history rows, none with sigma). Reading through `metrics` would
+  // make the pill silently vanish the instant the events query resolves.
+  // Sigma is therefore SEASON-FINAL while the tiles beside it may be the
+  // last-official-match snapshot — the same as-of pairing the Teams row
+  // already publishes (that row's Total is as-of-event while its Sigma is
+  // season-final, by the same construction). The VALUE and the TIER both
+  // come from the published `sigma` metric entry and NOTHING ELSE; the tier
+  // goes through the existing client `tierForPercentile`, the same function
+  // every other tile on this page uses. Absent entry (every OPR and EPA
+  // artifact, or a pre-republish SPR one) means the Total tile degrades to
+  // today's plain single box — `TotalSigmaValue` is byte-identical to
+  // `MetricValue` whenever `sigma` is `undefined`.
+  const seasonSigmaMetric = artifact.seasonStats.metrics[SIGMA_METRIC_KEY];
+  const seasonSigmaScore = seasonSigmaMetric?.value;
+  const seasonSigmaTier = tierForPercentile(seasonSigmaMetric?.percentile);
   const groupTiles = publishesComponents
     ? METRIC_GROUPS.map((group) => ({ key: group.id, label: group.label, metric: metrics[group.metricKey] }))
     : [];
-  const totalTile = { key: TOTAL_KEY, label: metricLabel(TOTAL_KEY), metric: metrics[TOTAL_KEY] };
+  // The tile's LABEL names Sigma only when the pill actually renders — never
+  // when this algorithm/team carries none, so the label never over-promises.
+  const totalLabel = seasonSigmaScore !== undefined ? "Total ± Sigma" : metricLabel(TOTAL_KEY);
+  const totalMetric = metrics[TOTAL_KEY];
   const tbaUrl = `https://www.thebluealliance.com/team/${teamNumber}`;
 
   return (
@@ -305,16 +292,24 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
             so the three always read as one group. */}
         <div data-testid="season-header-metric-grid" className="flex flex-col gap-[var(--spacing-sm)]">
           <div className="flex flex-wrap gap-x-[var(--spacing-2xl)] gap-y-[var(--spacing-sm)]">
-            <MetricGridCell tile={totalTile} />
-            {/* Sigma Score's own tile, published for SPR only; see
-                `sigmaScore`'s derivation above for why it is not a suffix on
-                Total. It sits on Total's line because it is a whole-team
-                figure, not a phase. Quick task 260909-tgf: the tile IS
-                tier-boxed, exactly like the tiles beside it. The percentile
-                behind it is the team's residual against the Sigma Score
-                expected at its own rating, inverted at the pipeline so a LOW
-                Sigma Score (a steadier robot) earns the HIGH tier. */}
-            <SigmaScoreTile sigmaScore={sigmaScore} tier={sigmaTier} />
+            {/*
+              Quick task 260913-jkp: the Total tile, now rendering the joined
+              split pill (`TotalSigmaValue`) instead of `MetricGridCell` plus
+              a separate Sigma tile. Total's own value/tier derivation is
+              unchanged (`tierForPercentile` over its own percentile); the
+              pill's Sigma half is `seasonSigmaScore`/`seasonSigmaTier`,
+              defined above straight from `artifact.seasonStats.metrics` —
+              see that derivation's own comment for why it must not read the
+              resolved (possibly snapshot) `metrics` instead.
+            */}
+            <div data-testid="metric-grid-cell" className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
+              <span className="text-role-label text-[var(--color-text-muted)]">{totalLabel}</span>
+              <TotalSigmaValue
+                total={totalMetric}
+                totalTier={tierForPercentile(totalMetric?.percentile)}
+                sigma={seasonSigmaScore !== undefined ? { value: seasonSigmaScore, tier: seasonSigmaTier } : undefined}
+              />
+            </div>
           </div>
           {groupTiles.length > 0 && (
             <div className="flex min-w-0 flex-nowrap gap-x-[var(--spacing-md)] sm:gap-x-[var(--spacing-2xl)]">

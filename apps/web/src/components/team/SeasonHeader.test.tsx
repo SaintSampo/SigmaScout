@@ -326,119 +326,66 @@ describe("SeasonHeader — as-of labelling (IN-01, 260902-post-phase08-ungoverne
   });
 });
 
-describe("SeasonHeader — Sigma Score has its OWN tile (developer decision 2026-09-09)", () => {
+describe("SeasonHeader — Total renders the split pill with Sigma (quick task 260913-jkp)", () => {
   afterEach(() => cleanup());
 
-  function eventsWithOneMatch(overrides: Partial<TeamSeasonArtifact["events"][number]["matches"][number]> = {}) {
-    return [
-      {
-        eventKey: "2026miket",
-        eventName: "Kettering",
-        startDate: "2026-03-01",
-        matches: [
-          {
-            matchKey: "2026miket_qm1",
-            season: 2026,
-            eventKey: "2026miket",
-            compLevel: "qm" as const,
-            algorithmId: "opr",
-            algorithmVersion: "1.0.0",
-            predictedWinner: "red" as const,
-            pRedWin: 0.5,
-            predictedRedScore: 100,
-            predictedBlueScore: 90,
-            actualRedScore: 130,
-            actualBlueScore: 90,
-            redTeams: ["frc1114", "frc254", "frc2056"],
-            blueTeams: ["frc118", "frc971", "frc148"],
-            ...overrides,
-          },
-        ],
-      },
-    ];
-  }
-
-  /**
-   * Two played matches with DIFFERENT residuals. Since the browser estimator
-   * centres (2026-09-08), a single observation cannot separate model bias from
-   * robot variation and correctly yields nothing — so any fixture asserting that a
-   * ± RENDERS needs at least two, and they must not be identical (identical
-   * deviations are a real zero-variation case, which renders "0.00" rather than a
-   * blank).
-   */
-  function eventsWithTwoMatches() {
-    const [event] = eventsWithOneMatch();
-    const firstMatch = event?.matches[0];
-    return [
-      {
-        ...event,
-        matches: [
-          { ...firstMatch, matchKey: "2026miket_qm1", actualRedScore: 130 },
-          { ...firstMatch, matchKey: "2026miket_qm2", actualRedScore: 70 },
-        ],
-      },
-    ] as TeamSeasonArtifact["events"];
-  }
-
-  it("renders the published Sigma Score in its own tile, NOT as a ± on Total", () => {
+  it("renders the published Sigma Score as the right half of the Total tile's pill, NOT as a separate tile", () => {
     const artifact = baseArtifact({
       seasonStats: {
         record: { wins: 1, losses: 0, ties: 0 },
         metrics: { total: { value: 42.1 }, sigma: { value: 18.5 } },
       },
-      events: eventsWithTwoMatches(),
     });
 
     render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
 
-    const sigmaTile = screen.getByTestId("sigma-score-tile");
-    expect(sigmaTile.textContent).toContain("18.50");
-    // No metric tile carries a ± any more — Sigma Score is its own quantity.
-    for (const cell of screen.getAllByTestId("metric-grid-cell")) {
-      expect(cell.textContent).not.toContain("±");
-    }
+    const pill = screen.getByTestId("total-sigma-pill");
+    expect(pill.textContent).toContain("42.10");
+    expect(pill.textContent).toContain("±18.50");
+    const totalCell = screen.getAllByTestId("metric-grid-cell").at(0);
+    expect(totalCell?.querySelector("span")?.textContent).toBe("Total ± Sigma");
   });
 
-  // The tile shows the SIGMASCOUT-LAYER consistency figure, never the
-  // algorithm's own `spread` — a different quantity at a different level (the
-  // model's uncertainty about its rating, not the robot's match-to-match variation).
+  // The pill shows the published Sigma entry, never the algorithm's own
+  // `spread` — a different quantity at a different level (the model's
+  // uncertainty about its rating, not the robot's match-to-match variation).
   it("shows the Sigma Score and never the algorithm's own spread, for an algorithm that publishes both", () => {
     const artifact = baseArtifact({
       seasonStats: {
         record: { wins: 1, losses: 0, ties: 0 },
         metrics: { total: { value: 60.5, spread: 2.5 }, sigma: { value: 41.25 } },
       },
-      events: eventsWithTwoMatches(),
     });
 
     render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
-    expect(screen.getByTestId("sigma-score-tile").textContent).toContain("41.25");
-    const totalCell = screen.getAllByTestId("metric-grid-cell").at(0);
-    expect(totalCell?.textContent).toContain("60.50");
+    const pill = screen.getByTestId("total-sigma-pill");
+    expect(pill.textContent).toContain("60.50");
+    expect(pill.textContent).toContain("±41.25");
     // SPR's own spread of 2.50 must not appear anywhere.
-    expect(totalCell?.textContent).not.toContain("2.50");
-    expect(totalCell?.textContent).not.toContain("±");
+    expect(pill.textContent).not.toContain("2.50");
   });
 
-  it("shows NO Sigma Score tile for a team with fewer than two played matches", () => {
+  it("renders one plain Total box, no pill, for a team with no Sigma entry at all", () => {
     const artifact = baseArtifact({
       seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: { total: { value: 10 } } },
-      events: [],
     });
     render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
-    expect(screen.queryByTestId("sigma-score-tile")).toBeNull();
+
+    expect(screen.queryByTestId("total-sigma-pill")).toBeNull();
+    const totalCell = screen.getAllByTestId("metric-grid-cell").at(0);
+    expect(totalCell?.textContent).toContain("10.00");
+    expect(totalCell?.querySelector("span")?.textContent).toBe("Total");
   });
 
-  it("an artifact whose Total carries a published spread renders NO plus-minus from it", () => {
+  it("an artifact whose Total carries a published spread renders NO plus-minus from it, when Sigma is absent", () => {
     const artifact = baseArtifact({
       seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 60.5, spread: 2.5 } } },
-      events: eventsWithOneMatch(),
     });
 
     render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
-    // VPR always shows four tiles (Total, then Auto/Teleop/Endgame); Total is first.
+    // SPR always shows four tiles (Total, then Auto/Teleop/Endgame); Total is first.
     const totalCell = cells.at(0);
     expect(totalCell?.textContent).toContain("60.50");
     expect(totalCell?.textContent).not.toContain("±");
@@ -456,12 +403,8 @@ describe("SeasonHeader — Sigma Score has its OWN tile (developer decision 2026
     const [totalCell] = cells;
     expect(totalCell?.textContent?.includes("±")).toBe(false);
   });
-});
 
-describe("SeasonHeader — Sigma tile tier (quick task 260909-tgf)", () => {
-  afterEach(() => cleanup());
-
-  it("an artifact whose seasonStats.metrics.sigma carries percentile 97 renders the Sigma tile with the legendary tier class", () => {
+  it("carries the pill's Sigma half's legendary tier class when seasonStats.metrics.sigma has percentile 97", () => {
     const artifact = baseArtifact({
       seasonStats: {
         record: { wins: 1, losses: 0, ties: 0 },
@@ -471,12 +414,12 @@ describe("SeasonHeader — Sigma tile tier (quick task 260909-tgf)", () => {
 
     render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
 
-    const sigmaTile = screen.getByTestId("sigma-score-tile");
-    expect(sigmaTile.textContent).toContain("8.42");
-    expect(sigmaTile.querySelector(".metric-tier--legendary")).not.toBeNull();
+    const pill = screen.getByTestId("total-sigma-pill");
+    expect(pill.textContent).toContain("8.42");
+    expect(pill.querySelector(".metric-tier--legendary")).not.toBeNull();
   });
 
-  it("an artifact whose seasonStats.metrics.sigma carries percentile 12 renders the Sigma tile with the common (hairline ring) tier class", () => {
+  it("carries the pill's Sigma half's common (hairline ring) tier class when seasonStats.metrics.sigma has percentile 12", () => {
     const artifact = baseArtifact({
       seasonStats: {
         record: { wins: 1, losses: 0, ties: 0 },
@@ -486,12 +429,33 @@ describe("SeasonHeader — Sigma tile tier (quick task 260909-tgf)", () => {
 
     render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
 
-    const sigmaTile = screen.getByTestId("sigma-score-tile");
-    expect(sigmaTile.textContent).toContain("3.10");
-    expect(sigmaTile.querySelector(".metric-tier--common")).not.toBeNull();
+    const pill = screen.getByTestId("total-sigma-pill");
+    expect(pill.textContent).toContain("3.10");
+    expect(pill.querySelector(".metric-tier--common")).not.toBeNull();
   });
 
-  it("still hides the tile entirely when there is no Sigma Score entry at all (every OPR and EPA artifact)", () => {
+  it("the pill's Sigma half reads seasonStats DIRECTLY, so it survives when metricsOverride is the last-official-match snapshot (which carries no sigma)", () => {
+    const artifact = baseArtifact({
+      seasonStats: {
+        record: { wins: 1, losses: 0, ties: 0 },
+        metrics: { total: { value: 72.97 }, sigma: { value: 12.5 } },
+      },
+    });
+    // The snapshot row itself carries no `sigma` entry — the real shape of a
+    // `metricHistory` row (verified live 2026-09-13: frc2481 2026 spr, 66
+    // history rows, none with sigma).
+    const metricsOverride: TeamSeasonArtifact["seasonStats"]["metrics"] = { total: { value: 70 } };
+
+    render(
+      <SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} metricsOverride={metricsOverride} />
+    );
+
+    const pill = screen.getByTestId("total-sigma-pill");
+    expect(pill.textContent).toContain("70.00");
+    expect(pill.textContent).toContain("±12.50");
+  });
+
+  it("still shows no pill and no tile when there is no Sigma Score entry at all (every OPR and EPA artifact)", () => {
     const artifact = baseArtifact({
       seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: { total: { value: 10 } } },
       events: [],
@@ -499,7 +463,7 @@ describe("SeasonHeader — Sigma tile tier (quick task 260909-tgf)", () => {
 
     render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
 
-    expect(screen.queryByTestId("sigma-score-tile")).toBeNull();
+    expect(screen.queryByTestId("total-sigma-pill")).toBeNull();
   });
 
   it("renders no plus-minus superscript anywhere in the header -- MetricValue has no plus-minus render path since 260913-g66", () => {
