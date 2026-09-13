@@ -4,6 +4,8 @@ created: 2026-09-08
 source: quick task 260908-5wd — analysis for dropping VPR, written after the Swing Factor / band layer shipped
 resolves_phase:
 priority: high
+resolved_date: 2026-09-13
+resolved_by: quick task 260913-ppk, decision only (SPR stays the only live-folding algorithm, no code or Worker change)
 ---
 
 # Making VPR's three privileges algorithm-agnostic
@@ -129,3 +131,41 @@ Do 1 and 3 in the same deploy if possible: both touch the Worker's tick, and bot
 >   2026-09-13 decision that ranking-point odds are SPR-only: OPR and EPA publish none (`094667e9`),
 >   and the rank simulation works under SPR only (`bcc929cb`).
 > - **Section 1 (live updates for every algorithm) is unchanged** and still open.
+
+---
+
+> **RESOLVED 2026-09-13 (quick task 260913-ppk). Closed: SPR stays the only algorithm that folds live, permanently.**
+>
+> Jacob's decision, 2026-09-13. OPR and EPA keep refreshing only at republish (the manual
+> pre/post-event re-baseline), exactly as today. Docs and comments only: no Worker behavior change,
+> no deploy, no D1 or R2 touch, and `LIVE_ALGORITHM_IDS` stays `"spr"`. No follow-up todo was opened
+> and no rotation will be built.
+>
+> Why, each point checked against HEAD on 2026-09-13:
+> 1. **CPU budget.** The Worker cannot sustain even SPR alone yet. `docs/worker-operations.md`'s
+>    PRE-SEASON GATE (in force 2026-09-12) and `.planning/todos/pending/rp-fold-exceeds-worker-cpu-budget.md`
+>    record that a realistic mid-quals tick (2 folded, 60 upcoming) costs 13 ms p50 / 28 ms p90 in
+>    Phase A alone against a 10 ms sustained budget, for one algorithm. Folding OPR and EPA as well
+>    adds their fold, serialize and artifact-merge CPU on top.
+> 2. **Section 1's rotation design was wrong about the cursor.** `event_cursor` holds one row per
+>    event with no per-algorithm granularity (`apps/worker/src/scheduled.ts` header: an event advances
+>    for all published algorithms in a tick, or for none). An algorithm left out of a tick's rotation
+>    would have that tick's matches skipped forever once the shared cursor advanced. The TBA ETag is
+>    shared the same way: once one algorithm's tick stores it, the next tick gets a 304 and returns
+>    "unchanged" before a lagging algorithm could fold. Quick task 260822-wqt already chose a
+>    single-algorithm tier over per-algorithm cursor granularity (see the doc comment on
+>    `DEFAULT_LIVE_ALGORITHM_IDS` in `scheduled.ts`); this decision repeats that choice.
+> 3. **Subrequest arithmetic with today's three algorithms** (opr, epa, spr):
+>    `estimateEventSubrequestCost(3, 6)` = 50 against ~41 usable, so all three per tick never fits.
+>    Unchanged from section 1's table, which was written for four.
+> 4. **Nothing to measure against.** No live event runs before the 2027 season, and section 1 itself
+>    required measuring a real fold before a rotation could be trusted.
+>
+> Already settled by the 2026-09-13 status note above: step 4 (retire VPR) is done (`167eab64`), and
+> sections 2 and 3 (ranking points for every algorithm) are superseded by the SPR-only ranking-point
+> decision (`094667e9`, `bcc929cb`).
+>
+> **If this is ever reopened, start from the corrected premise, not section 1's design.** A rotation
+> needs a per-algorithm cursor (not the shared `event_cursor` row) plus a TBA ETag bypass while any
+> algorithm lags behind, and it stays blocked behind the PRE-SEASON CPU gate until
+> `rp-fold-exceeds-worker-cpu-budget` closes.
