@@ -4,6 +4,8 @@ created: 2026-09-08
 retitled: 2026-09-12
 source: measured during quick task 260908-5wd (then titled `match-band-calibration-and-the-broken-additivity-identity`); cut to this one item by the 2026-09-12 backlog triage, which sized it as the highest-value extra-small in the backlog
 priority: medium
+resolved_date: 2026-09-13
+resolved_by: quick task 260913-q1l, comment and doc text only (six sites corrected, no code or test change)
 ---
 
 # `pageArtifacts.ts`'s header states as an ENFORCED RULE an identity its own test asserts is false
@@ -99,3 +101,51 @@ This file used to carry Findings A through E and three open items. It is now thi
 
 Full prior text is in git history under the old filename,
 `match-band-calibration-and-the-broken-additivity-identity.md`.
+
+---
+
+> **RESOLVED 2026-09-13 (quick task 260913-q1l). The false identity is withdrawn from every site that stated it. Comments and docs only.**
+>
+> Commit `06c65a40` corrects six sites, not the four listed above:
+> 1. `packages/harness/pageArtifacts.ts` file header. Rule 2 is gone. The header now says one rule
+>    (D-21, raw numbers only) is enforced by `pageArtifacts.test.ts`, and that no test relates the
+>    uncertainty fields. The same file's `TeamMetricSchema` doc was also corrected: it called
+>    `spread` Sigma1's full predictive variance.
+> 2. `pageArtifacts.ts`, `EventMatchSchema.redScoreVarianceOwn`. It no longer claims the identity,
+>    nor that the Alliances tab's band is its number. Match-row bands and the Alliances tab's
+>    combined band are built from Sigma Score.
+> 3. `pageArtifacts.ts`, `TeamSeasonMatchSchema.redScoreVarianceOwn`. It no longer claims the
+>    identity, and it names SPR, not Sigma1, as the algorithm that populates it.
+> 4. `.claude/skills/sketch-findings-sigmascout/references/uncertainty-display.md`. Changed: a new
+>    section heading, a new current-state paragraph, the Phase 7 rule marked withdrawn, and the
+>    "why this is coherent" paragraph replaced. The sketch-003 lesson is kept.
+> 5. `packages/core/algorithms/types.ts`, `Prediction.redScoreVarianceOwn` and `TeamMetric`. This
+>    site was not in the list above. It cited the deleted Sigma1 test as the enforcer, and it
+>    called `spread` the only quantity the site displays.
+> 6. `.claude/skills/sketch-findings-sigmascout/SKILL.md`, the design-direction paragraph and the
+>    findings-index row. This site was not in the list above either. It is the part of the skill
+>    that loads first.
+>
+> **The replacement text claims no enforcing test, on purpose.** "What the correct wording has to
+> say" above proposed citing `sigma1.test.ts`'s inequality pin. That test no longer exists: quick
+> task 260913-it4 deleted Sigma1 and its tests on 2026-09-13. No test pins the identity or its
+> absence today, and the new text says so.
+>
+> **Why the quantities differ, from `packages/core/algorithms/spr.ts` at HEAD.** SPR is the only
+> algorithm that publishes `spread`, `redScoreVarianceOwn` or a Match Band. `teamMetrics` sets
+> `spread` to the standard deviation of one team's rating estimate, `√(pL + pS)` in points.
+> `predict` sets `redScoreVarianceOwn` to `(pv + obsSd²) × displaySdFactor(mu)² × unit²`. That
+> differs from the summed spread squares in three structural ways:
+>
+> - `pv` weights each team's posterior by the square of its rank weight.
+> - `obsSd²` adds observation noise that no team's spread carries.
+> - `displaySdFactor` rescales the result by alliance strength for display.
+>
+> A third quantity, the Match Band (`redMatchBandVariance`, `roster size × Σ Sigma Score²`), is
+> built from neither of them, and it is what the site draws.
+>
+> **No magnitude is quoted anywhere.** Nothing was re-measured, and the section above warns that the
+> only figures on record are for retired `vpr@11.0.0` and `bpr@1.0.0`.
+>
+> No test was added (Jacob: comment-only fix). A parser-based check confirmed that no non-comment
+> token changed in either `.ts` file.
