@@ -9,7 +9,7 @@ import {
  * The fixtures below must be reproducible run to run: a fixture built from
  * `Math.random` would make every assertion here a coin flip that passes on
  * the author's machine and fails in CI at some unknowable rate. This is the
- * same Mulberry32 construction `identifiability.ts` cites, kept local to the
+ * same Mulberry32 construction `rankSimulation.ts` cites, kept local to the
  * test so the fixture's randomness is visibly independent of the helper's
  * own resampling PRNG.
  */

@@ -3596,14 +3596,7 @@ export function resolvePublishAlgorithms(idsCsv: string | undefined): AlgorithmM
  * `cli.ts` NOW MIRRORS this grammar term-for-term (quick task 260907-203,
  * which needed `--seasons 2016-2020,2022-2026` for the backward corpus
  * extension to 2016). This module and `cli.ts` are the two `--seasons`
- * parsers and they agree; if one moves, move the other. The sibling
- * module-private implementations in `baselineFingerprint.ts`,
- * `eventScopeDiagnostic.ts`, and `identifiability.ts` still accept only a
- * single year or one contiguous range — those tools remain out of scope and
- * do NOT share this behavior, so do not assume a gapped list works there.
- * (`scripts/publishDistricts.ts`'s `--years` and
- * `scripts/deleteRetiredAlgorithmObjects.ts` are separate flags with their
- * own documented grammars; `publishDistricts` already matches this one.)
+ * parsers and they agree; if one moves, move the other.
  *
  * **EXPORTED** for direct test coverage, following the exported-for-test
  * precedent `resolvePublishAlgorithms` (above) already sets in this file.

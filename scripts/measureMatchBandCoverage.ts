@@ -365,7 +365,7 @@ async function main(): Promise<void> {
 
 // Guard: only auto-run `main()` when this file is the process entry point, so
 // the pure helpers above can be imported by the test file without opening a
-// corpus. Same idiom as `measureAllianceReconstruction.ts`.
+// corpus.
 const isEntryPoint = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isEntryPoint) {
   main().catch((err) => {

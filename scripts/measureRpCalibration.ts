@@ -1125,7 +1125,7 @@ async function main(): Promise<void> {
 
 // Guard: only auto-run `main()` when this file is the process entry point, so
 // the pure helpers above can be imported by the test file without the harness
-// trying to open a corpus. Same idiom as `measureEpaDeviations.ts`.
+// trying to open a corpus.
 const isEntryPoint = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isEntryPoint) {
   main().catch((err) => {

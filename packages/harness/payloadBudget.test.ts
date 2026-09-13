@@ -9,10 +9,8 @@
  *
  * A missing or corrupted machine-readable block is a loud, named failure
  * (`PublishBudgetParseError`), never a silent skip — that is what makes the
- * non-vacuity guard below meaningful (`baselineFingerprint.test.ts`'s
- * "committed baseline fingerprints" suite is the precedent this mirrors:
- * assert a minimum population so the suite cannot go green on an empty
- * budget). Re-measurement re-runs the SAME `packages/harness/publish.ts`
+ * non-vacuity guard below meaningful: assert a minimum population so the
+ * suite cannot go green on an empty budget. Re-measurement re-runs the SAME `packages/harness/publish.ts`
  * assembly functions (`buildEventArtifact`/`buildTeamSeasonArtifact`)
  * rather than re-implementing a size calculation, matching `digest.test.ts`'s
  * closest analog: a real produced artifact measured against a committed

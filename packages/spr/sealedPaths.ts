@@ -21,7 +21,7 @@
  * therefore still attributable to the exact same content; only its address
  * changed. `assertSealed` resolves these strings against the CURRENT tree at
  * run time, so leaving them pointing at the old, now-nonexistent `packages/bpr/`
- * paths would have DISABLED the seal (every holdout/pcm run refusing to start
+ * paths would have DISABLED the seal (every holdout run refusing to start
  * on a path error), not preserved it.
  */
 

@@ -39,10 +39,7 @@ The deploy output must print `schedule: * * * * *` and list three bindings — `
 binding that is not there.
 
 **Check the entrypoint before deploying.** `apps/worker/wrangler.toml` must have
-`main = "src/scheduled.ts"`. `src/bundleSmoke.ts` is kept in the repo as a re-runnable proof that
-`ml-matrix` bundles and executes in the Workers runtime, and it was briefly the entrypoint during
-Phase 4 — deploying with it wired up would put a linear-algebra smoke test on a one-minute
-production cron.
+`main = "src/scheduled.ts"`.
 
 ---
 

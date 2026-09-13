@@ -67,11 +67,11 @@
  *    scored value of that fuel is already in
  *    `autoFuelPoints`/`teleopFuelPoints`.
  *
- * `diagnosticKeys` lists ONLY `foulCount` and `techFoulCount`. Its single
- * consumer (`packages/harness/identifiability.ts:253`) treats every listed
- * name as a FOUL field and increments `matchesWithAnyFoulRecorded` when any
- * one of them exceeds zero, so listing any other raw count here would
- * publish a bogus foul rate in `reports/identifiability.json`.
+ * `diagnosticKeys` lists ONLY `foulCount` and `techFoulCount`. The field has
+ * no consumer today (260913-nvn); when it had one, that consumer treated
+ * every listed name as a FOUL field and incremented a foul-match counter
+ * when any one of them exceeded zero, so listing any other raw count here
+ * would have published a bogus foul rate.
  *
  * Validated at the parse boundary with Zod (T-02-01, ASVS V5): every read
  * field must be a finite number, or `parse` throws rather than coercing an

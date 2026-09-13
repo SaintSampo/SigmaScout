@@ -18,9 +18,9 @@
  *
  * The correction is applied LAZILY, per team, on first sight in the new season,
  * by `epa.ts` — see `epa.carrySeason`/`predict`/`update`. This module owns only
- * the arithmetic, and owns it ONCE: `scripts/measureEpaDeviations.ts` measured
- * the fix with these exact functions and now IMPORTS them from here rather than
- * keeping a second copy. Two copies of a scale conversion drifting apart is the
+ * the arithmetic, and owns it ONCE: `scripts/measureEpaDeviations.ts` (deleted in 260913-nvn) measured the fix
+ * with these exact functions and imported them from here rather than keeping
+ * a second copy. Two copies of a scale conversion drifting apart is the
  * failure `REBUILD_SPEC.md`'s log records and `carryover.ts`'s own
  * `populationMeanSd` comment already names.
  *

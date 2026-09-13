@@ -3,8 +3,9 @@
  * arithmetic.
  *
  * MOVED HERE, not copied (quick task 260911-3kc). These blocks were written
- * against `scripts/measureEpaDeviations.ts` when the rescale existed only as a
- * measurement arm. The functions now SHIP, inside `epa.ts`, so their tests move
+ * against `scripts/measureEpaDeviations.ts` (deleted in 260913-nvn) when the
+ * rescale existed only as a measurement arm. The functions now SHIP, inside
+ * `epa.ts`, so their tests move
  * with them — leaving a second copy behind in the harness is exactly the drift
  * `carryover.ts`'s own `populationMeanSd` comment warns about.
  *

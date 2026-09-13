@@ -1,9 +1,9 @@
 /**
  * WR-01 coverage (added retroactively by code review, phase 07): the shared
  * `v1/manifest/algorithms.json` write now re-fetches through the public origin
- * after `putObject` and asserts the read-back matches what was just composed,
- * mirroring `deleteOrphanedDemoTeamObjects.ts`/`deleteRetiredAlgorithmObjects.ts`'s
- * own probe/census read-back discipline. `putObject` is mocked (no credential,
+ * after `putObject` and asserts the read-back matches what was just composed —
+ * the same probe/census read-back discipline this project's cleanup tooling
+ * has always used. `putObject` is mocked (no credential,
  * no real R2 call — matches `packages/harness/publish.test.ts`'s established
  * `vi.mock("./r2Client.js", ...)` pattern); the read-back GET goes through a
  * mocked global `fetch`, matching `packages/ingest/tbaClient.test.ts`'s pattern.

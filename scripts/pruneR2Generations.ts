@@ -1,9 +1,9 @@
 /**
  * Census-driven R2 generation prune (quick task 260912-tay, 2026-09-12).
  *
- * WHY THIS EXISTS. `scripts/deleteRetiredAlgorithmObjects.ts` cleans up by
- * enumerate-then-sample: it predicts a superset of keys from the corpus,
- * deletes them one by one, then censuses a 60-key stratified sample. That
+ * WHY THIS EXISTS. The prior tool (deleted in 260913-nvn) cleaned up by
+ * enumerate-then-sample: it predicted a superset of keys from the corpus,
+ * deleted them one by one, then censused a 60-key stratified sample. That
  * sample reported "nothing orphaned" on 2026-09-10 and again on 2026-09-11,
  * while a full bucket listing still showed 11,002 epa 5.0.0+baseline objects
  * and 214 epa 6.0.0+baseline objects. Enumerate-then-sample is structurally
@@ -62,9 +62,9 @@
  * Credentials never pass through this file: it does not read the environment
  * at all. They are read only inside `packages/harness/r2Client.ts`.
  *
- * Standalone-script shape matching `scripts/deleteRetiredAlgorithmObjects.ts`
- * (which this deliberately does NOT import: that file pulls the corpus
- * database in at module load, and a list-based tool must not depend on it).
+ * Standalone-script shape: `parseArgs`, `async function main()`, an
+ * entry-point guard — no corpus database import, since a list-based tool
+ * must not depend on it.
  */
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";

@@ -95,10 +95,10 @@
  *    already in the boulder and crossing point fields. The crossings and the
  *    tower ARE read, but by the RP module as threshold variables.
  *
- * `diagnosticKeys` lists ONLY `foulCount` and `techFoulCount`. Its single
- * consumer (`packages/harness/identifiability.ts:253`) treats every listed
- * name as a FOUL field and increments `matchesWithAnyFoulRecorded` when any
- * one of them exceeds zero. Listing `towerEndStrength` or the five
+ * `diagnosticKeys` lists ONLY `foulCount` and `techFoulCount`. The field has
+ * no consumer today (260913-nvn); when it had one, that consumer treated
+ * every listed name as a FOUL field and incremented a foul-match counter
+ * when any one of them exceeded zero. Listing `towerEndStrength` or the five
  * `position{i}crossings` here — as would be natural, since 2016 has more
  * unread raw counts than any other season — would make that predicate true
  * for essentially every 2016 match in which any defense was crossed, and so

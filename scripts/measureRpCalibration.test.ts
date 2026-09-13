@@ -1,6 +1,6 @@
 /**
  * Unit tests for `measureRpCalibration.ts`'s pure helpers — the isEntryPoint
- * guard (same idiom as `measureEpaDeviations.ts`) lets this file import
+ * guard lets this file import
  * `buildRpCalibrationRecord`/`RP_RELIABILITY_BUCKET_EDGES` without the script
  * trying to open a corpus.
  *

@@ -1219,8 +1219,7 @@ export interface EmitSeedSqlOptions {
  * limit is reached first starts a new statement. Single quotes in every
  * string field are escaped by doubling. Performs exactly ONE terminal file
  * write, after every statement is assembled in memory — an interrupted
- * emit leaves no half-file, the same discipline `baselineFingerprint.ts`
- * already uses for its own committed output.
+ * emit leaves no half-file.
  */
 export function emitSeedSql(rows: readonly StateRow[], options: EmitSeedSqlOptions): void {
   const { algorithmId, out } = options;

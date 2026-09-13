@@ -117,10 +117,10 @@ export function parseBreakdown(
  * `assertFiniteComponents`'s plain `Error`, or any future non-Zod defect
  * inside a season module — is deliberately NOT recoverable and must keep
  * propagating and abort loudly (T-03-21: this predicate is the direct,
- * unit-tested narrowness proof the security review required, generalizing
- * the bare `catch` precedent at `identifiability.ts:239-249` — this control
- * is strictly NARROWER than that precedent, since a bare `catch` would
- * swallow all three of the loud cases above too).
+ * unit-tested narrowness proof the security review required — a bare
+ * `catch` around the same `parseBreakdown` calls would swallow all three of
+ * the loud cases above too, which is exactly what this predicate exists to
+ * avoid).
  */
 export function isRecoverableBreakdownParseError(err: unknown): boolean {
   return err instanceof ZodError || err instanceof SyntaxError;
@@ -136,10 +136,9 @@ export type BreakdownParsePairOutcome =
  * T-03-18b: the guarded replacement for calling `parseBreakdown` twice (once
  * per side) at the two call sites this closes
  * (the retired Sigma1 core (deleted by quick task 260913-it4) and `epa.ts`, formerly `:735-736`/`:432-433`).
- * Precedent: `identifiability.ts:239-249`'s bare `catch` around the same
- * `parseBreakdown` calls, generalized here into a shared, directly-tested
- * helper both algorithms use instead of each duplicating the narrowing
- * logic (D-Q1).
+ * Replaces an earlier bare `catch` around the same `parseBreakdown` calls
+ * with a shared, directly-tested helper both algorithms use instead of each
+ * duplicating the narrowing logic (D-Q1).
  *
  * Parses BOTH alliances from a SINGLE `JSON.parse` of `scoreBreakdownRaw`
  * (D-Q1) — each season map's `parse` already validates the WHOLE `{red,

@@ -389,9 +389,9 @@ async function loadOrInitState(db: D1Database, algorithmId: string, selections: 
   const hasLeagueRow = rows.some((row) => row.scopeKind === "league");
   // Not-yet-seeded algorithm/scope: cold-start via initState rather than
   // deserializeState, which throws MissingLeagueRowError by design for
-  // exactly this case (stateStore.ts's own readAndDeserializeScopedState
-  // doc comment names this as the caller's responsibility). initState's
-  // only real consumer of its argument is EPA (seeds teamComponents/
+  // exactly this case — checking for a league row before calling it is the
+  // caller's responsibility. initState's only real consumer of its argument
+  // is EPA (seeds teamComponents/
   // teamMatchCounts) — OPR and Sigma1 both ignore it — so the TEAM
   // selection's own key list (never the event key) is what gets passed.
   const teamKeys = selections.find((s) => s.scopeKind === "team")?.scopeKeys ?? [];

@@ -1,7 +1,6 @@
 /**
  * Small pure helpers shared by the surviving measurement scripts
- * (`measureMatchBandCoverage.ts`, `measureAllianceReconstruction.ts`,
- * `measureEpaDeviations.ts`).
+ * (`measureMatchBandCoverage.ts`).
  *
  * Relocated verbatim by quick task 260913-it4 from the measurement script of
  * the retired per-robot consistency accumulator, which was deleted with it.

@@ -73,9 +73,9 @@ describe("assertSealed", () => {
 });
 
 describe("resolveYears", () => {
-  it("rejects a design year, pointing the caller at score.ts", () => {
+  it("rejects a design year, pointing the caller at cli.ts", () => {
     expect(() => resolveYears("2022")).toThrow(/2022 is not a holdout year/);
-    expect(() => resolveYears("2022")).toThrow(/score\.ts/);
+    expect(() => resolveYears("2022")).toThrow(/cli\.ts/);
   });
 
   it("rejects a year that is in neither era", () => {

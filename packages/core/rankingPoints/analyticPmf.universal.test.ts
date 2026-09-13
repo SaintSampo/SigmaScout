@@ -12,14 +12,15 @@
  * true by construction (no randomness anywhere in the module) rather than
  * by a seeded-PRNG contract.
  *
- * This file also carries `pmfMean`/`pmfStandardDeviation`'s test coverage,
- * relocated here from the deleted `sigma1/rp/distribution.test.ts` (whose
- * own `describe("pmfMean / pmfStandardDeviation", ...)` block is CARRIED
- * FORWARD to this file's own describe of the same name) — hand-computed
- * per D-07's discipline, not round-tripped against the implementation.
+ * This file also carries `pmfMean`'s test coverage, relocated here from the
+ * deleted `sigma1/rp/distribution.test.ts` (whose own pmf-statistics
+ * describe block is CARRIED FORWARD to this file's own `pmfMean`-only
+ * describe — its sibling statistic was itself deleted in 260913-nvn) —
+ * hand-computed per D-07's discipline, not round-tripped against the
+ * implementation.
  */
 import { describe, expect, it } from "vitest";
-import { analyticRpPmf, pmfMean, pmfStandardDeviation } from "./analyticPmf.js";
+import { analyticRpPmf, pmfMean } from "./analyticPmf.js";
 import { RP_REGISTERED_SEASONS, RP_RULE_MODULES, rpRuleModuleForSeason } from "./rules.js";
 import type { AllianceRpMoments } from "./moments.js";
 
@@ -120,7 +121,7 @@ describe("analyticRpPmf — universal, with no algorithm anywhere in the test", 
   });
 });
 
-describe("pmfMean / pmfStandardDeviation — hand-computed (D-07), carried forward from the deleted sigma1/rp/distribution.test.ts", () => {
+describe("pmfMean — hand-computed (D-07), carried forward from the deleted sigma1/rp/distribution.test.ts", () => {
   it("pmfMean of a point mass at index k is exactly k", () => {
     expect(pmfMean([0, 0, 1, 0])).toBe(2);
     expect(pmfMean([1, 0, 0, 0])).toBe(0);
@@ -130,21 +131,10 @@ describe("pmfMean / pmfStandardDeviation — hand-computed (D-07), carried forwa
     expect(pmfMean([0.5, 0.5])).toBe(0.5);
   });
 
-  it("pmfStandardDeviation of a point mass is exactly 0", () => {
-    expect(pmfStandardDeviation([0, 1, 0])).toBe(0);
-  });
-
-  it("pmfStandardDeviation of [0.5, 0.5] over {0,1}: variance = 0.5*(0-0.5)^2 + 0.5*(1-0.5)^2 = 0.25, sd = 0.5", () => {
-    expect(pmfStandardDeviation([0.5, 0.5])).toBeCloseTo(0.5, 9);
-  });
-
-  it("pmfStandardDeviation of the 2026 tracer's hand-computed pmf matches a direct hand computation", () => {
+  it("pmfMean of the 2026 tracer's hand-computed pmf matches a direct hand computation", () => {
     // [0.039663813, 0.210336187, 0.210336187, 0.079327627, 0.210336187, 0.210336187, 0.039663813]
     // mean = sum(i * p_i) = 3 (symmetric around index 3 by construction)
     const pmf = [0.039663813, 0.210336187, 0.210336187, 0.079327627, 0.210336187, 0.210336187, 0.039663813];
     expect(pmfMean(pmf)).toBeCloseTo(3, 6);
-    let handVariance = 0;
-    for (let i = 0; i < pmf.length; i++) handVariance += pmf[i]! * (i - 3) ** 2;
-    expect(pmfStandardDeviation(pmf)).toBeCloseTo(Math.sqrt(handVariance), 9);
   });
 });

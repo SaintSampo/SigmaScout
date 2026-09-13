@@ -26,16 +26,13 @@
  * second one), and the write is one `db.batch([...])` call over as many
  * upsert statements as there are changed rows.
  *
- * `readAndDeserializeScopedState` closes the loop with `packages/harness/
- * stateSnapshot.ts`: the Worker reads back rows the offline seed wrote and
- * rebuilds an in-memory algorithm state through the SAME `deserializeState`
- * the offline pipeline's own round-trip tests already prove lossless — this
- * module must never grow a second deserializer that could drift from it.
+ * The Worker reads back rows the offline seed wrote and rebuilds an
+ * in-memory algorithm state through `packages/harness/stateSnapshot.ts`'s
+ * `deserializeState` — the SAME deserializer the offline pipeline's own
+ * round-trip tests already prove lossless — this module must never grow a
+ * second deserializer that could drift from it.
  */
-import { deserializeState, type StateRow, type StateRowScopeKind } from "../../../packages/harness/stateSnapshot.js";
-import type { EpaState } from "../../../packages/core/algorithms/epa.js";
-import type { OprState } from "../../../packages/core/algorithms/opr.js";
-import type { SprState } from "../../../packages/core/algorithms/spr.js";
+import type { StateRow, StateRowScopeKind } from "../../../packages/harness/stateSnapshot.js";
 
 export type { StateRow, StateRowScopeKind } from "../../../packages/harness/stateSnapshot.js";
 
@@ -143,27 +140,6 @@ export async function readScopedState(db: D1Database, algorithmId: string, selec
     generation: row.generation,
     computedAt: row.computed_at,
   }));
-}
-
-/**
- * `readScopedState` followed by `deserializeState` (`packages/harness/
- * stateSnapshot.ts`) — the ready-to-use in-memory algorithm state a tick's
- * `predict()`/`update()` calls need, rebuilt through the SAME deserializer
- * the offline pipeline's own losslessness tests already prove correct. NOT
- * used for a not-yet-seeded algorithm's degrade path — that path must call
- * `readScopedState` directly and check for an empty/no-league-row result
- * BEFORE reaching this function, since `deserializeState` throws
- * `MissingLeagueRowError` when no `scopeKind: "league"` row is present (by
- * design — a partial load with no league aggregates must fail loudly, not
- * silently cold-start every metric).
- */
-export async function readAndDeserializeScopedState(
-  db: D1Database,
-  algorithmId: string,
-  selections: readonly ScopeSelection[]
-): Promise<EpaState | OprState | SprState> {
-  const rows = await readScopedState(db, algorithmId, selections);
-  return deserializeState(algorithmId, rows);
 }
 
 const ALGORITHM_STATE_UPSERT_SQL = `INSERT INTO algorithm_state (algorithm_id, algorithm_version, scope_kind, scope_key, state_json, generation, computed_at)

@@ -5267,8 +5267,7 @@ describe("data/baselines/rp-calibration-2026-09.json — the committed D-09 'bef
   if (measurement === undefined) {
     it.skip(`skipped: ${RP_CALIBRATION_MEASUREMENT_PATH} does not exist yet — run scripts/measureRpCalibration.ts with --emit-artifact first`, () => {});
   } else {
-    // `data/baselines/rp-calibration-2026-09.json` is a FROZEN record (tier
-    // F, excluded from the algorithmIdentity sweep via `data/baselines/`) —
+    // `data/baselines/rp-calibration-2026-09.json` is a FROZEN record —
     // it was measured under the premier algorithm's wire id in force at the
     // time (before quick task 260912-ivg's rename), and is never rewritten.
     // The one-entry alias below is what lets that frozen citation keep

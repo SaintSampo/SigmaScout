@@ -7,11 +7,7 @@ name = "sigmascout-worker"
 
 # The real scheduled() orchestration entrypoint (plan 04-06) — reads what is
 # live, polls TBA, folds the shared prediction state, and rewrites only the
-# artifacts that moved (D-16). `src/bundleSmoke.ts` (plan 04-05) served as a
-# TEMPORARY entrypoint proving Assumption A1 (ml-matrix bundles/executes in
-# the real Workers runtime, apps/worker/src/bundleSmoke.ts's own header has
-# the evidence) and is kept in the repo as a re-runnable bundle-smoke proof,
-# not wired to `main` anymore.
+# artifacts that moved (D-16).
 main = "src/scheduled.ts"
 
 compatibility_date = "2026-08-22"

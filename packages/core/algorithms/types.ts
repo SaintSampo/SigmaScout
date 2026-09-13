@@ -175,9 +175,9 @@ export interface Prediction {
    * within 1e-9. Optional — omitted entirely (never an empty array
    * standing in for "this algorithm does not model RP"), following the
    * existing optional-field convention above (`variance`, `redComponents`).
-   * Mean and standard deviation are DERIVED from this array at read time
-   * (`packages/core/rankingPoints/analyticPmf.ts`'s `pmfMean`/
-   * `pmfStandardDeviation` — plan 09-04 Task 3 moved these from the deleted
+   * The mean is DERIVED from this array at read time
+   * (`packages/core/rankingPoints/analyticPmf.ts`'s `pmfMean` — plan 09-04
+   * Task 3 moved it from the deleted
    * `packages/core/rankingPoints/distribution.ts`) and never stored
    * alongside it — one representation of one fact (D-10, mirrors D-21's
    * raw-numbers-only artifact rule). No algorithm's own `predict()`

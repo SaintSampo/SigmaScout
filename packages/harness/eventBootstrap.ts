@@ -84,16 +84,12 @@ export interface EventBootstrapOptions {
 
 /**
  * Deterministic PRNG (Mulberry32), the same construction
- * `packages/harness/identifiability.ts`'s `mulberry32`,
- * the retired Sigma1 tuner's private copy, and
- * `packages/core/rankingPoints/distribution.ts`'s copy all use, cited
- * there to the same source. Copied rather than imported: `identifiability.ts`
- * is a standalone diagnostic script whose module body does real work on
- * import, and `rp/distribution.ts` is Worker-path prediction code — reaching
- * into either from here for four lines would create an import edge this
- * module has no other reason to have. The duplication is deliberate and is
- * the same one `rp/state.ts`'s header already documents accepting for
- * `rpTeammateGains`.
+ * `packages/core/algorithms/simulation/rankSimulation.ts`'s `mulberry32`
+ * uses, cited there to the same source. Copied rather than imported:
+ * `rankSimulation.ts` is a browser-bundled client module — reaching into it
+ * from here for four lines would create an import edge this module has no
+ * other reason to have. The duplication is deliberate and is the same one
+ * `rp/state.ts`'s header already documents accepting for `rpTeammateGains`.
  */
 function mulberry32(seed: number): () => number {
   let t = seed;

@@ -44,17 +44,14 @@
  */
 
 /**
- * Deterministic PRNG (Mulberry32), copied verbatim a THIRD time — the
- * existing two copies are `packages/harness/identifiability.ts` and
- * `packages/core/rankingPoints/distribution.ts`, both citing the
- * same source and both documenting this as the established convention for
- * this primitive (`rp/distribution.ts`'s own file header: "cite, don't
- * rederive"). Not imported from `rp/distribution.ts` because that module
- * pulls in `ml-matrix` at module scope for its Cholesky decomposition —
- * importing it here would drag a real dependency into the browser bundle
- * for a 10-line PRNG (PD-06). Every random value in this module traces
- * back to this function; the platform's built-in non-seedable random
- * source never appears anywhere in this file.
+ * Deterministic PRNG (Mulberry32), citing the established source for this
+ * primitive ("cite, don't rederive") rather than importing it from a module
+ * with a heavier dependency graph — a real dependency should never be
+ * dragged into the browser bundle for a 10-line PRNG (PD-06). This copy is
+ * the one `scripts/rpPredictThresholdsGolden.ts` imports from (260913-nvn).
+ * Every random value in this module traces back to this function; the
+ * platform's built-in non-seedable random source never appears anywhere in
+ * this file.
  */
 export function mulberry32(seed: number): () => number {
   let t = seed;

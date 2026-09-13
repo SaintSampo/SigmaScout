@@ -401,7 +401,6 @@ describe("analyticPmf.ts's exported surface is pinned (09-06 Task 4, D-06)", () 
         "AnalyticRpPmfInput",
         "AnalyticRpPmfResult",
         "pmfMean",
-        "pmfStandardDeviation",
         "analyticRpPmf",
       ])
     );

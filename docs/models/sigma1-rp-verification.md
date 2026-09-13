@@ -80,11 +80,9 @@ in `03-08-SUMMARY.md`.
 (`rp/constants.ts`) states that a bonus whose real achievement condition depends on an untracked
 alliance-level gating signal is evaluated at its LESS-likely-to-achieve branch, which
 **understates** that bonus's predicted probability and **never overstates** it. Prior to this
-plan, that second half — "never overstates" — was asserted, not measured. Reproduce with:
-
-```
-pnpm rp:conservative-branch
-```
+plan, that second half — "never overstates" — was asserted, not measured. The generator that
+produced the table below was deleted in quick task 260913-nvn and can be restored from git
+history at `bad2d52fb63a5b80233c747828bd7e01831457fd` to re-measure.
 
 **Measured, post the 2025 Coral coopertition both-alliances fix** (plan 03-08's authorized
 deviation — see below; `parse()`'s `coralBonus` computation changed, so this table supersedes any

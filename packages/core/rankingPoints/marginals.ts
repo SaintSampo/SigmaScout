@@ -34,10 +34,10 @@
  * ---------------------------------------------------------------------------
  *
  * Copied byte-for-byte from the retired Sigma1 core (deleted by quick task 260913-it4)'s link functions
- * (Abramowitz-Stegun formula 7.1.26, max absolute error under 1.5e-7). Four
+ * (Abramowitz-Stegun formula 7.1.26, max absolute error under 1.5e-7). Three
  * copies of this formula exist in the tree already
  * (`packages/core/algorithms/spr.ts:303`, `packages/spr/model.ts:215`,
- * `packages/pcm/model.ts:135`, and `linkFunctions.ts` itself);
+ * and `linkFunctions.ts` itself);
  * `linkFunctions.ts` is the copy source because it is the only one inside
  * `packages/core`, so copying it — rather than importing across the package
  * boundary — avoids the exact cross-package import D-08 exists to prevent.

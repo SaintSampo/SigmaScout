@@ -279,7 +279,7 @@ export interface RpThresholdClause {
  * exception whose fallback OVER-fires rather than under-fires.
  * `errorDirection` names which way: `"understates"` for the five,
  * `"overstates"` for 2018. `note` carries the one-sentence justification
- * and the measured figure, attributed to `pnpm rp:conservative-branch` and
+ * and the measured figure, attributed to `pnpm rp:conservative-branch` (deleted in 260913-nvn) and
  * `docs/models/sigma1-rp-verification.md`'s
  * `## Conservative-Branch Understatement` section — never restated as a
  * fresh claim.
@@ -529,7 +529,7 @@ export interface RpRuleModule {
    * this project's "measured tolerance over a forced fit" precedent
    * (`reconciliation.test.ts`'s `KNOWN_TOLERANCES`).
    *
-   * MEASURED (plan 03-08, `pnpm rp:conservative-branch`, post the 2025
+   * MEASURED (plan 03-08, `pnpm rp:conservative-branch` (deleted in 260913-nvn), post the 2025
    * Coral coopertition both-alliances fix — full method and the complete
    * season x bonus table in `docs/models/sigma1-rp-verification.md`'s
    * `## Conservative-Branch Understatement`): mean RP understatement per
@@ -557,9 +557,8 @@ export interface RpRuleModule {
    * that no longer exists. The figure is LEFT IN PLACE, not silently updated,
    * because it is a dated measurement with a named generating command and
    * overwriting it with a guess would be worse than labelling it — but it must
-   * not be quoted as this module's current understatement. Re-running
-   * `pnpm rp:conservative-branch` is what would produce a current one; that
-   * run is not part of plan 09-06's scope.
+   * not be quoted as this module's current understatement. The generator
+   * was deleted in 260913-nvn; restore it from git history to re-measure.
    */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction;
   /**

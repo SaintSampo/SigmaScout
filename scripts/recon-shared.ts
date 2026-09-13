@@ -158,11 +158,10 @@ const SEASONS_GRAMMAR =
 /**
  * Parses the CLI arguments every recon probe accepts. Seasons come from
  * `parseSeasonsRange`, IMPORTED from `packages/harness/publish.ts` rather
- * than reimplemented — the repo already carries three module-private copies
- * of that parser (`cli.ts`, `identifiability.ts`,
- * `deleteRetiredAlgorithmObjects.ts`) and their drift is documented in
- * `publish.ts`'s own comment. Adding a fourth is exactly the class of
- * failure this task exists to stop.
+ * than reimplemented — this project has already paid for module-private
+ * copies of that parser drifting apart, documented in `publish.ts`'s own
+ * comment. Adding another is exactly the class of failure this task exists
+ * to stop.
  */
 export function parseReconArgs(argv: readonly string[]): ReconArgs {
   const { values } = parseArgs({

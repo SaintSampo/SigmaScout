@@ -1460,39 +1460,10 @@ Windows/Git-Bash zombie-process risk this document's 07-17 section first named.
 
 ### Version-retirement procedure (routine, for the next algorithm bump)
 
-Every future algorithm code-version bump orphans the prior generation exactly this way. The routine:
-
-1. **Confirm the situation, by HTTP, before doing anything.** Fetch
-   `v1/manifest/algorithms.json` and confirm which `{id}@{version}` pairs it names as live. Fetch
-   the OLD version's key for one page kind (e.g. `v1/teams/2024/{id}@{old-version}.json`) and
-   confirm it still returns 200 — that confirms the prior generation is genuinely still present,
-   not already reclaimed.
-2. **Census first, for every algorithm whose version changed** (one invocation per algorithm — the
-   `RETIRED_KEY_COUNT_BOUNDS` band is sized for one algorithm's key set, not three at once):
-   ```bash
-   pnpm cleanup:retired-objects -- --retired-id <id> --version <old-version> --supersedes-live
-   ```
-   Confirm the printed enumerated count sits inside `[15000, 25000]` and the census result is
-   consistent with the prior pass's own shape (≈90% present is normal; the deliberate
-   offseason-inclusive superset over-enumerates a handful of `event` keys).
-3. **Execute, once satisfied the census looks right:**
-   ```bash
-   pnpm cleanup:retired-objects -- --retired-id <id> --version <old-version> --supersedes-live --execute
-   ```
-   If the tool refuses with `RefusedLiveVersionError`, STOP — the manifest still names that version
-   as live, which means either the wrong version string was passed or the republish that was
-   supposed to supersede it has not actually landed yet. If it refuses with
-   `LiveManifestFetchError`, STOP and fix the fetch (network, origin, manifest shape) before
-   retrying — never re-run with a stale assumption about what is live.
-4. **Verify by HTTP afterward**, exactly as this section did: the old version 404s across all four
-   page kinds, the new version still 200s on the same keys, the manifest is unchanged, and the site
-   itself still loads.
-5. **Check `tasklist`'s node.exe count before and after every invocation** (baseline 12 on this
-   machine) — the same zombie-process risk 07-17/07-19's delete passes already carry applies
-   identically here; never start a second invocation before confirming the previous one is
-   genuinely finished.
-6. D1 needs no action for a version-only bump (see above) — only a full algorithm retirement
-   (`enumerateRetiredKeys`, no `--supersedes-live`) touches D1's rows.
+The per-id retirement tool (`scripts/deleteRetiredAlgorithmObjects.ts`, `pnpm cleanup:retired-objects`)
+was deleted in quick task 260913-nvn. The routine for reclaiming any superseded generation —
+whether a single algorithm's version bump or the whole bucket — is now the full-listing
+`pnpm cleanup:r2-generations`, described in "Delete pass — 2026-09-12" above.
 
 ## Delete pass — 2026-09-04, superseded epa/vpr generation removed (version-retirement mode)
 
@@ -1595,7 +1566,7 @@ event's qualification matches only, matching what TBA and Statbotics both publis
 community understands the term "OPR" to mean. The retired **season-pooled** OPR implementation
 (one ridge-regularized fit per team, pooled across a whole season) remains recorded as history, not
 deleted, in [`docs/models/opr-baseline-change.md`](models/opr-baseline-change.md) and
-[`docs/models/sigma1-tuning-results.md`](models/sigma1-tuning-results.md). Event-scoped OPR is a
+`models/sigma1-tuning-results.md` (deleted in 260913-nvn; in git history). Event-scoped OPR is a
 **weaker** baseline than the retired season-pooled one — it sees only one event's handful of
 matches rather than a team's whole season — and that is stated here explicitly so a Sigma1 result
 measured against it is read honestly, not mistaken for a moved goalpost (D-11).

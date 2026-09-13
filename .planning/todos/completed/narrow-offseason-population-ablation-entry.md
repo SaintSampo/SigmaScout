@@ -43,3 +43,13 @@ Change the entry's `status` from `unmeasurable-in-this-harness` to a measured st
 
 Best done alongside some other change that already requires regenerating that artifact, rather than
 paying for a full ablation run on its own.
+
+## CLOSED 2026-09-13 — the generator is deleted (quick task 260913-nvn)
+
+`scripts/measureEpaDeviations.ts` was removed as part of deleting the closed EPA-gap measurement
+work, so "the fix" above (edit the register, then regenerate via `pnpm measure:epa-deviations`)
+has no generator left to run. `data/diagnostics/epa-deviation-ablation.json` is now a frozen
+record: its `offseason-population` entry still reads `unmeasurable-in-this-harness`, and that
+status predates — and is superseded by — the 260911-r7e measurement recorded above (no effect on
+winner accuracy, for the structural reason this file already gives). A reader relying on the
+committed JSON's own `status` field alone would see a stale answer; this note is the correction.

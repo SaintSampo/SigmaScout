@@ -41,7 +41,7 @@ function argValue(flag: string): string | undefined {
 
 /**
  * Resolves `--years` against HOLDOUT_YEARS. A design year is rejected with a
- * message pointing at score.ts, so the two eras stay reachable only through
+ * message pointing at cli.ts, so the two eras stay reachable only through
  * their own entry points.
  */
 export function resolveYears(csv: string | undefined): {
@@ -58,7 +58,7 @@ export function resolveYears(csv: string | undefined): {
     if (!Number.isFinite(y)) throw new Error(`holdout: bad year in "${csv}"`);
     if (!HOLDOUT_YEARS.has(y)) {
       throw new Error(
-        `holdout: ${y} is not a holdout year - use packages/spr/score.ts for design years (2016-2022)`,
+        `holdout: ${y} is not a holdout year - design years (2016-2022) are evaluated by packages/spr/cli.ts`,
       );
     }
     years.add(y);

@@ -116,7 +116,7 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
  * has no threshold-variable-only fallback at all (see file header), so
  * there is nothing to gate with an `RpUntrackedGate`; the `reason` field is
  * where a `constant` predicate carries that justification instead. Measured
- * (`pnpm rp:conservative-branch`): a pooled-season understatedRate of
+ * (`pnpm rp:conservative-branch`, deleted in 260913-nvn): a pooled-season understatedRate of
  * 4.7324%, predicted 0.0000 against an observed ~5.15% (F12) — declared
  * here, not fixed, per this plan's explicit out-of-scope list.
  */

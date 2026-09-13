@@ -54,8 +54,8 @@
  *     base URL, then the tracked default) — this is D-27's existing manual
  *     deploy procedure, just invoked programmatically.
  *
- * Standalone-script shape matching `baselineFingerprint.ts`/`promote.ts`:
- * `parseArgs`, `async function main()`, an entry-point guard.
+ * Standalone-script shape: `parseArgs`, `async function main()`, an
+ * entry-point guard.
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

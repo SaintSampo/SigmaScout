@@ -1541,8 +1541,8 @@ describe("epa — season-boundary scale anchor: a carried rating enters in the I
  *
  * Two cases, and BOTH are required. An inertness case alone would also pass if
  * the new parameter were accepted and then thrown away, which is the exact
- * shape of a dead seam: `measureEpaDeviations.ts` would build an arm, the arm
- * would report a delta of zero, and that zero would read as "the component map
+ * shape of a dead seam: `measureEpaDeviations.ts` (deleted in 260913-nvn) would
+ * build an arm, the arm would report a delta of zero, and that zero would read as "the component map
  * does not matter" rather than as "the arm never took effect". The liveness
  * case is what makes the zero mean something.
  *

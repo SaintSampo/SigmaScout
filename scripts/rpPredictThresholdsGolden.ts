@@ -1,9 +1,9 @@
 /**
  * The deterministic golden-oracle grid generator (09-02 Task 1 Steps 2/3;
  * D-02, D-07, Pitfall 4, T-09-02-01). Pure, exported, entry-point guarded —
- * importing this module never runs a generation pass, following
- * `packages/harness/identifiability.ts`'s own shape (`async function main()`
- * + `isEntryPoint` guard).
+ * importing this module never runs a generation pass, via the same
+ * `async function main()` + `isEntryPoint` guard shape this file's own
+ * `main()` below uses.
  *
  * `buildGridRows(season, eventType)` synthesizes a value grid over every
  * threshold variable a season declares and evaluates it through that
@@ -26,7 +26,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { mulberry32 } from "../packages/harness/identifiability.js";
+import { mulberry32 } from "../packages/core/algorithms/simulation/rankSimulation.js";
 import { RP_REGISTERED_SEASONS, rpRuleModuleForSeason } from "../packages/core/rankingPoints/rules.js";
 
 /** Bumped only when the grid's own shape changes (ladder, row families, row counts) — never in response to a red test. */

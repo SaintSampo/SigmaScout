@@ -89,7 +89,7 @@
 /** The two event tiers this point model distinguishes — a regular district event, or a District Championship (weighted). */
 export type DistrictTier = "district" | "dcmp";
 
-/** Thrown by `maxEventPoints`/`maxRookieBonus` for a season this module does not carry a declared ceiling for — never silently falls back to a guess. */
+/** Thrown by `maxEventPoints` for a season this module does not carry a declared ceiling for — never silently falls back to a guess. */
 export class UnknownDistrictSeasonError extends Error {
   constructor(season: number) {
     super(
@@ -153,20 +153,6 @@ const DCMP_WEIGHT: Readonly<Record<number, number>> = {
   2026: 3,
 };
 
-/** Once-per-season rookie bonus ceiling — official model: 10 for a first-year team, 5 for a second-year team; the corpus maximum observed is 10 in every ingested season. */
-const ROOKIE_BONUS_MAXIMA: Readonly<Record<number, number>> = {
-  2016: 10,
-  2017: 10,
-  2018: 10,
-  2019: 10,
-  2020: 10,
-  2022: 10,
-  2023: 10,
-  2024: 10,
-  2025: 10,
-  2026: 10,
-};
-
 /** Every season this module carries a declared ceiling for — the exact set `UnknownDistrictSeasonError` names. */
 export const DISTRICT_REGISTERED_SEASONS: readonly number[] = Object.keys(DISTRICT_BASE_MAXIMA)
   .map(Number)
@@ -194,9 +180,3 @@ export function maxEventPoints(season: number, tier: DistrictTier): EventPointMa
   };
 }
 
-/** Returns the once-per-season rookie bonus ceiling for `season`. Throws `UnknownDistrictSeasonError` for an unlisted season. */
-export function maxRookieBonus(season: number): number {
-  const max = ROOKIE_BONUS_MAXIMA[season];
-  if (max === undefined) throw new UnknownDistrictSeasonError(season);
-  return max;
-}

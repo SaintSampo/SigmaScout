@@ -10,13 +10,6 @@
  * needs no new script file and no edited year literal — only a different
  * `--seasons` argument, e.g. `pnpm recon:fields -- --seasons 2018`.
  *
- * `recon-tba-fields.ts` answers a narrower, already-answered question for
- * 2022-2026 — "does TBA expose a computed per-match RP field?" — and also
- * probed the Statbotics accuracy endpoint (RESEARCH.md Q2). It stays a
- * separate one-shot; folding it in here would mix a historical answered
- * question into a reusable tool, and its committed output
- * (`docs/data/tba-field-recon.md`) is cited elsewhere.
- *
  * Reads TBA_API_KEY from the environment and sends it only as the
  * X-TBA-Auth-Key request header. The key is never logged and never written
  * into the generated document — enforced by `writeReconDoc` in

@@ -316,8 +316,8 @@ function buildPlayedMatch(eventKey: string, eventType: number, matchNumber: numb
     matchNumber,
     redTeams: red,
     blueTeams: blue,
-    // Stated explicitly, not omitted — `bundleSmoke.ts`'s header records why
-    // an omitted DQ list reads as harmless and is not.
+    // Stated explicitly, not omitted — an omitted DQ list reads as harmless
+    // and is not.
     redSurrogates: [],
     blueSurrogates: [],
     redDqs: [],

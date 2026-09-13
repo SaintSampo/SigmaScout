@@ -85,3 +85,11 @@ Raising `testTimeout` hides the growth instead of stopping it. The corpus only g
 - The live backup now sits at `C:/Users/Jacob/Documents/SigmaScout-corpus-backups/corpus.sqlite.bak-pre-2018`,
   outside the repo. `data/corpus.sqlite.bak-pre-2019-2020` (363 MB) is still inside it and could be
   moved out too — that would cut the sweep's read volume nearly in half on its own, as a stopgap.
+
+## CLOSED 2026-09-13 — the test is deleted (quick task 260913-nvn)
+
+`packages/harness/algorithmIdentity.test.ts` is deleted. The sigma1-rename guard it ran had
+already finished its job on 2026-08-29 (the rename it verified is long since committed and
+stable), and the owner approved deleting the whole-repo sweep rather than fixing its `data/`
+read-volume problem — the sweep's only remaining purpose was checking its own exemption-cap
+bookkeeping, not anything a live rename needed guarding. No replacement sweep is planned.

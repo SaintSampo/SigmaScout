@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DISTRICT_REGISTERED_SEASONS, maxEventPoints, maxRookieBonus, UnknownDistrictSeasonError } from "./pointModel.js";
+import { DISTRICT_REGISTERED_SEASONS, maxEventPoints, UnknownDistrictSeasonError } from "./pointModel.js";
 
 describe("maxEventPoints", () => {
   it("returns the declared regular-tier ceiling for a registered season", () => {
@@ -35,15 +35,5 @@ describe("maxEventPoints", () => {
 
   it("covers every season this plan lists: 2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026", () => {
     expect(DISTRICT_REGISTERED_SEASONS).toEqual([2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026]);
-  });
-});
-
-describe("maxRookieBonus", () => {
-  it("returns the declared once-per-season rookie bonus ceiling", () => {
-    expect(maxRookieBonus(2026)).toBe(10);
-  });
-
-  it("throws a named error for an unlisted season", () => {
-    expect(() => maxRookieBonus(2021)).toThrow(UnknownDistrictSeasonError);
   });
 });
