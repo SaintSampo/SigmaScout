@@ -4,9 +4,16 @@ created: 2026-09-07
 source: row 9 of extend-corpus-2018-2017-2016 (closed 2026-09-07, quick task 260907-203)
 resolves_phase:
 priority: low
+reverified: 2026-09-13
 ---
 
 # Championship pre-qualified lists for 2016-2019
+
+> **RE-VERIFIED 2026-09-13 against HEAD `886fbe19`. Still accurate, still open.** `prequalified.ts`
+> is unchanged since `f103efa1` (2026-09-05): `HALL_OF_FAME_BY_SEASON` covers 2022-2026, 2019
+> carries only the original & sustaining list, and 2016-2018 carry nothing. The lists still reach
+> the site through `scripts/publishDistricts.ts:282`. The file header (lines 17-25) still says 2018
+> predates the corpus, which is the stale claim this todo already describes.
 
 `packages/core/districts/prequalified.ts` carries curated Championship pre-qualifier lists
 for 2022-2026 and a partial 2019 (original & sustaining teams only). 2016, 2017 and 2018

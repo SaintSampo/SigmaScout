@@ -4,9 +4,17 @@ created: 2026-09-10
 source: quick task 260910-5ym (epa@7.0.0 republish) — cosmetic consequence, handed to a separate agent by the developer
 resolves_phase:
 priority: low
+reverified: 2026-09-13
 ---
 
 # 2024's phase-group toggle expands to a single identical column
+
+> **RE-VERIFIED 2026-09-13 against HEAD `886fbe19`. Still real, EPA only.** Moved into `pending/`
+> from the `todos/` root, where it was misfiled. The Breakdown tab now has three table shapes:
+> OPR has no phase groups, and SPR shows the three phases with no toggles (260913-mgn `a013ca1e`),
+> so neither can hit this. EPA still renders one toggle per group (`BreakdownTab.tsx:541-546`) with
+> no single-member check, and 2024's groups still hold one component each (`groups.ts:143-147`).
+> The suggested fix below still applies, scoped to EPA.
 
 Cosmetic only. No data is wrong, nothing 404s, and no rating or prediction is affected.
 

@@ -1,4 +1,31 @@
+---
+status: resolved
+resolved: 2026-09-13
+resolved_by: "Sigma Score prior replaced the Swing Factor gate (260913-g66 c09d2a5c, 260913-it4 094667e9); re-verified against HEAD 886fbe19"
+id: cold-start-chain-gates-rp-pmfs-measured
+created: 2026-09-10
+---
+
 # The Swing-Factor cold-start chain gates RP pmfs — measured, confirmed, uniform
+
+> **RESOLVED 2026-09-13. Re-verified against HEAD `886fbe19`.** The chain this file documents no
+> longer exists in the code.
+>
+> - **The gate's input changed.** `swingFactor.ts` is deleted. `#rpFieldsFor` now receives its band
+>   variance from `SigmaScoreAccumulator.bandVarianceFor` (`packages/harness/sigmaScore.ts:674`),
+>   which prices a never-seen team from the Sigma prior and returns `undefined` only for an empty
+>   roster. The undefined guard at `sigmaScoutLayer.ts:358` therefore no longer fires on a cold
+>   roster, so played-row and upcoming-row pmfs are not gated by observation count.
+>   `sigmaScore.ts:668-672` records this as intended behaviour.
+> - **D3 below is superseded.** OPR and EPA publish no ranking-point odds at all (`094667e9`), so
+>   there is no OPR/EPA band variance left to protect.
+> - **Not re-measured against a live artifact.** This closure rests on the code, not on a fresh
+>   count of pmf-bearing rows.
+> - **Residual, unmeasured.** The pre-schedule sidecar filler (`packages/harness/publish.ts:791`)
+>   still skips a whole event when any roster team is missing from `consistencyByTeam()`. That map
+>   holds only teams the accumulator has a belief for (`sigmaScore.ts:647`), not every team the
+>   prior could price. Whether this darkens real events (for example a rookie's first event) was
+>   not measured. If it does, file a new todo; do not reopen this one.
 
 **Source:** 2026-09-10 investigation (session following the 2f1a8885 republish);
 sim/swing rethink input Jacob requested when halting point-fixes 2026-09-09.
