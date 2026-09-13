@@ -123,9 +123,17 @@ const GENERATION_SEGMENT = /^([a-z0-9][a-z0-9-]*)@([^/@]+)\.json$/;
 /** The shape a `--generation` value must have: the segment without `.json`. */
 const GENERATION_ARG = /^[a-z0-9][a-z0-9-]*@[^/@]+$/;
 
+// The team shape is anchored from the END (`/{year}/{final segment}`) rather than
+// requiring a slash-free team-key segment: `artifactKey` does not validate
+// `teamKey`, and the 2026-09-12 full listing found a real published team key with
+// a trailing space and slash (`v1/team/frc58 //2019/...`) under every generation,
+// live ones included. A slash-free pattern filed those as `other`, which made
+// UNKNOWN_KEY_SHAPE refuse five otherwise-valid orphan generations. Selection is
+// still exact generation equality; this only decides whether a selected key is a
+// published shape.
 const KIND_PREFIXES: ReadonlyArray<readonly [KeyKind, RegExp]> = [
   ["teams", /^v1\/teams\/\d{4}\//],
-  ["team", /^v1\/team\/[^/]+\/\d{4}\//],
+  ["team", /^v1\/team\/.+\/\d{4}\/[^/]+$/],
   ["events", /^v1\/events\/\d{4}\//],
   ["event", /^v1\/event\/[^/]+\//],
   ["presim", /^v1\/presim\/[^/]+\//],

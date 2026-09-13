@@ -183,6 +183,18 @@ describe("parseGenerationKey / pageKindOfKey", () => {
     expect(pageKindOfKey("v1/team/frc1/2024/x.json")).toBe("team");
   });
 
+  it("recognises a team key the publisher wrote with a malformed team key (trailing space and slash)", () => {
+    // Real key shape from the 2026-09-12 full listing: artifactKey does not validate teamKey.
+    expect(parseGenerationKey("v1/team/frc58 //2019/vpr@11.0.0+rolling-2026-09g.json")).toEqual({
+      generation: "vpr@11.0.0+rolling-2026-09g",
+      algorithmId: "vpr",
+      version: "11.0.0+rolling-2026-09g",
+      kind: "team",
+    });
+    expect(pageKindOfKey("v1/team/frc1/24/x.json")).toBe("other");
+    expect(pageKindOfKey("v1/team/2024/x.json")).toBe("other");
+  });
+
   it("allows hyphens in the id", () => {
     expect(parseGenerationKey("v1/event/2024casf/zzz-adapt@1.0.0.json")?.algorithmId).toBe("zzz-adapt");
   });
