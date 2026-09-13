@@ -6,14 +6,17 @@ commits:
   - 6bc36f66
   - b186f81b
   - df7bfbcd
-shipped: false
+shipped: web deployed by another session's push; district republish owed
 ---
 
 # Quick Task 260913-l8q: em dashes out of sentences, Locks cut line, Beta tag
 
-Committed locally only. Jacob chose "Commit only": no R2 district republish and no push. Until
-`pnpm publish:districts` runs, the live Locks tab still shows the old cut lines, and until a push,
-the sentence fixes and Beta tag are not deployed.
+Jacob chose "Commit only": no R2 district republish and no push from this session. But another
+session pushed origin/main up to df7bfbcd about 10 minutes after it landed, so all three code commits
+reached GitHub anyway. The live site deployed them: sigmascout.org's bundle carries the Beta tag and
+the corrected sentences, checked 2026-09-13. The cut-line CODE is live too, but district data only
+changes when it is republished, so the live Locks tab still shows the old cut lines (2026fnc Champs
+172) until `pnpm publish:districts` runs.
 
 ## Task 1: em dashes out of user-facing sentences (6bc36f66)
 
@@ -90,5 +93,4 @@ to keep it as is.
 - `pnpm publish:districts` (network, main context) before the live Locks tab shows the corrected
   cut lines. Then verify https://data.sigmascout.org/v1/district/2026fnc.json reads
   `cmpCutLinePoints` 231 and `dcmpCutLinePoints` 76.
-- A push to deploy the web changes. Check `origin/main..main` first, because other sessions'
-  commits ride along.
+- Nothing else. The web changes were already deployed by another session's push (see top).
