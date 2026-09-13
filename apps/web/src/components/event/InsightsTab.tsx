@@ -1,26 +1,24 @@
 /**
- * The Insights tab (EVNT-02, D-07…D-10, 07-11-PLAN.md): the event's teams in
- * TBA's official event-rank order — or, per D-08, the selected algorithm's
- * own Total order with a stated notice when no official ranking exists.
- * Nine columns: Rank, Team #, Team Name, Record, RP, Total, Auto, Teleop,
- * Endgame — Total leads the metric block (D-5, 2026-09-04).
+ * The Insights tab: the event's teams in TBA's official event-rank order —
+ * or, when no official ranking exists, the selected algorithm's own Total
+ * order with a stated notice. Nine columns: Rank, Team #, Team Name,
+ * Record, RP, Total, Auto, Teleop, Endgame — Total leads the metric block.
  *
- * The first section below (Task 1) is the pure data layer — no React, no
- * TanStack anything. `buildInsightsRows` is the ONE function that returns
- * both the ordered rows and the `orderSource` discriminant driving the D-08
+ * The first section below is the pure data layer — no React, no TanStack
+ * anything. `buildInsightsRows` is the ONE function that returns both the
+ * ordered rows and the `orderSource` discriminant driving the fallback
  * banner, deliberately NOT split into a separate `hasOfficialRanking`
- * predicate a caller could consult independently: 06.1-08's own recorded
- * lesson is that one rule expressed as two independent literals drifts apart
- * and ships a false claim. Here there is exactly one fact ("does this event
- * have an official ranking") and exactly one function that knows it.
+ * predicate a caller could consult independently: one rule expressed as
+ * two independent literals drifts apart and ships a false claim. Here
+ * there is exactly one fact ("does this event have an official ranking")
+ * and exactly one function that knows it.
  *
- * The second section (Task 2) is the rendered table: the identity columns
- * (rank, teamNumber, nickname) simply lead the column set in definition
- * order — tier-boxed Auto/Teleop/Endgame cells via the identical
+ * The second section is the rendered table: the identity columns (rank,
+ * teamNumber, nickname) simply lead the column set in definition order —
+ * tier-boxed Auto/Teleop/Endgame cells via the identical
  * `tierForPercentile` derivation `BreakdownTab.tsx` uses, a plain bare RP
- * cell that can never wear a tier (Decision 1), and the D-08 fallback
- * banner. No column in this table is frozen during horizontal scroll
- * (2026-09-13, user request).
+ * cell that can never wear a tier, and the fallback banner. No column in
+ * this table is frozen during horizontal scroll.
  */
 import { columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { useMemo } from "react";
@@ -107,18 +105,18 @@ function byFallbackTotal(a: InsightsRowBase, b: InsightsRowBase): number {
 
 /**
  * `buildInsightsRows(artifact, algorithmId)`: the ONE function returning
- * both the ordered rows and the `orderSource` discriminant the D-08 banner
- * and the row order both read — see this module's header doc comment for
- * why that must never be two independently-consulted facts.
+ * both the ordered rows and the `orderSource` discriminant the fallback
+ * banner and the row order both read — see this module's header doc
+ * comment for why that must never be two independently-consulted facts.
  *
  * `orderSource` resolves to `"official"` when AT LEAST ONE entry in
  * `artifact.teams` carries a defined `rank` — not "every team has one": a
  * team that registered and withdrew has no ranking row inside an otherwise
- * fully-ranked event, and relabelling the whole table for that one row would
- * be wrong (this plan's Decision 3).
+ * fully-ranked event, and relabelling the whole table for that one row
+ * would be wrong.
  */
 export function buildInsightsRows(artifact: EventArtifact, algorithmId: string): InsightsRowModel {
-  void algorithmId; // reserved for signature symmetry with the column builder; the fallback ordering axis (TOTAL_KEY) is algorithm-agnostic once published (D-27 guarantee)
+  void algorithmId; // reserved for signature symmetry with the column builder; the fallback ordering axis (TOTAL_KEY) is algorithm-agnostic once published
 
   const orderSource: InsightsOrderSource = artifact.teams.some((team) => team.rank !== undefined) ? "official" : "fallback";
 
@@ -132,9 +130,9 @@ export function buildInsightsRows(artifact: EventArtifact, algorithmId: string):
       record: team.record,
       rp: team.rp,
       // Widened with any derivable group entries this algorithm/season
-      // supports (D-4, 260904-5zg) — `EventArtifactSchema` carries its own
-      // `season`, so no new parameter is needed here. See
-      // lib/metricGroups.ts's header for the full honesty argument.
+      // supports — `EventArtifactSchema` carries its own `season`, so no
+      // new parameter is needed here. See lib/metricGroups.ts's header for
+      // the full honesty argument.
       metrics: withDerivedGroupMetrics(team.metrics, artifact.season),
     };
   });
@@ -172,17 +170,16 @@ export function formatEventRecord(record: EventTeamRecord | undefined): string {
 }
 
 /**
- * `insightsFallbackNotice(algorithmLabel)`: 07-UI-SPEC.md's Copywriting
- * Contract sentence for the D-08 row, verbatim, with the selected
- * algorithm's display label substituted in. This is the ONLY place that
- * sentence appears in source.
+ * `insightsFallbackNotice(algorithmLabel)`: the fallback-mode sentence,
+ * with the selected algorithm's display label substituted in. This is the
+ * ONLY place that sentence appears in source.
  */
 export function insightsFallbackNotice(algorithmLabel: string): string {
   return `This event has no official TBA ranking. Teams below are ordered by ${algorithmLabel}'s rank instead.`;
 }
 
 /**
- * The decimal count the RP cell formats to (Task 2). Mirrors
+ * The decimal count the RP cell formats to. Mirrors
  * `packages/harness/rounding.ts`'s `ROUNDING_RULE.rankingPoints` —
  * mirrored rather than imported, following `MetricValue.tsx`'s own
  * established precedent of hardcoding its two decimals with a doc comment
@@ -194,16 +191,12 @@ export function insightsFallbackNotice(algorithmLabel: string): string {
  */
 export const INSIGHTS_RP_DECIMALS = 2;
 
-// ---------------------------------------------------------------------------
-// Task 2 — the rendered table
-// ---------------------------------------------------------------------------
-
 /**
  * Registered once, module-level: only column sizing is registered (no
- * pinning feature — no column in this table is frozen, 2026-09-13). The
- * column helper below is typed against THIS module's own `InsightsRow`, so
- * it is declared locally rather than imported across the `teams-table`
- * module boundary.
+ * pinning feature — no column in this table is frozen). The column helper
+ * below is typed against THIS module's own `InsightsRow`, so it is
+ * declared locally rather than imported across the `teams-table` module
+ * boundary.
  */
 const features = tableFeatures({ columnSizingFeature });
 const columnHelper = createColumnHelper<typeof features, InsightsRow>();
@@ -214,14 +207,14 @@ function cellClassName(columnId: string): string {
 
 /**
  * The Insights tab's column set is the fixed five identity/competition
- * columns plus one per `METRIC_GROUPS` entry, in that constant's own order —
- * never derived from a fetched row's own `metrics` key order (EVNT-02
- * ordering). Column ids match the Teams table's own identity ids
- * (`rank`, `teamNumber`, `nickname`).
+ * columns plus one per `METRIC_GROUPS` entry, in that constant's own
+ * order — never derived from a fetched row's own `metrics` key order.
+ * Column ids match the Teams table's own identity ids (`rank`,
+ * `teamNumber`, `nickname`).
  */
 function buildInsightsColumns(algorithmId: string, season: number, orderSource: InsightsOrderSource, isNarrow: boolean, metricFirst: boolean = isNarrow) {
   // `algorithmId` reaching this function was already validated upstream
-  // through `RootSearchSchema.algorithm` (T-05-02) before this table ever
+  // through `RootSearchSchema.algorithm` before this table ever
   // rendered — the same loose-cast escape hatch `teams-table/columns.tsx`
   // already uses for a value the type system widened to plain `string`
   // crossing a component-prop boundary.
@@ -230,22 +223,22 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
 
   const recordColumn = columnHelper.accessor("record", {
     header: "Record",
-    // 07-UAT.md G-11: 100 at/above the breakpoint (unchanged),
-    // `RECORD_COLUMN_WIDTH_NARROW_PX` below it — see that constant's own
-    // doc comment in `teams-table/columns.tsx` for the real-geometry
-    // derivation. Narrow-mode POSITION is decided at the assembly below
-    // (ui-polish F3), width alone is decided here.
+    // 100 at/above the breakpoint (unchanged), `RECORD_COLUMN_WIDTH_NARROW_PX`
+    // below it — see that constant's own doc comment in
+    // `teams-table/columns.tsx` for the real-geometry derivation.
+    // Narrow-mode POSITION is decided at the assembly below, width alone
+    // is decided here.
     size: isNarrow ? RECORD_COLUMN_WIDTH_NARROW_PX : 100,
     cell: (info) => <span className="numeric-cell">{formatEventRecord(info.getValue())}</span>,
   });
 
   // RP: a plain numeric-cell span, NEVER MetricValue and NEVER a tier
-  // class under any input (this plan's Decision 1). `rp` is TBA's own raw
-  // competition statistic — no percentile exists for it, and none could
-  // honestly be derived from an event's own visible roster
-  // (`TeamMetricSchema.percentile`'s own season-pool-only definition).
-  // An explicit `undefined` comparison distinguishes a real `0` from
-  // absence, the same discipline the Rank cell applies.
+  // class under any input. `rp` is TBA's own raw competition statistic —
+  // no percentile exists for it, and none could honestly be derived from
+  // an event's own visible roster (`TeamMetricSchema.percentile`'s own
+  // season-pool-only definition). An explicit `undefined` comparison
+  // distinguishes a real `0` from absence, the same discipline the Rank
+  // cell applies.
   const rpColumn = columnHelper.accessor("rp", {
     id: "rp",
     header: "RP",
@@ -256,21 +249,16 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
     },
   });
 
-  // Total (2026-09-01, user request; reordered 2026-09-04 D-5, 260904-5zg):
-  // the selected algorithm's own headline value, tiered exactly like the
-  // group columns, placed FIRST among the metric columns — which under
-  // F3's narrow ordering makes Total the value that clears the 390px fold.
-  // `metricGroupColumns` below now actually leads with this column (it used
-  // to append it last while this comment claimed otherwise — D-5 resolves
-  // that disagreement in the direction this comment and Task 1's
-  // `metricKeysFor`/Teams-table ordering already established).
-  // Quick task 260913-jkp: the Total cell renders the split pill when this
-  // row's metrics carry a SIGMA_METRIC_KEY entry — published inside the
-  // event standings themselves (`publish.ts`'s `buildEventTeamsStanding`),
-  // never fetched from the ~200KB Teams artifact. Header and size both come
-  // from the shared `TotalSigmaValue` helpers so the header text, the pill
-  // and the column width can never drift apart from what OPR/EPA (no
-  // Sigma) or SPR (Sigma) actually publish.
+  // Total: the selected algorithm's own headline value, tiered exactly
+  // like the group columns, placed FIRST among the metric columns — which
+  // under the narrow ordering makes Total the value that clears the 390px
+  // fold. The Total cell renders the split pill when this row's metrics
+  // carry a SIGMA_METRIC_KEY entry — published inside the event standings
+  // themselves (`publish.ts`'s `buildEventTeamsStanding`), never fetched
+  // from the ~200KB Teams artifact. Header and size both come from the
+  // shared `TotalSigmaValue` helpers so the header text, the pill and the
+  // column width can never drift apart from what OPR/EPA (no Sigma) or
+  // SPR (Sigma) actually publish.
   const totalColumn = columnHelper.accessor((row) => row.metrics[TOTAL_KEY], {
     id: "total",
     header: totalColumnHeader(algorithmId),
@@ -296,9 +284,9 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
       // The identical `tierForPercentile(metric?.percentile)` derivation
       // `BreakdownTab.tsx` uses — one derivation path, so an Insights tier
       // and a Breakdown tier for the same team/metric/season can never
-      // disagree (D-09). Tiered unconditionally, including this sorted
-      // column: D-09 knowingly accepts the redundancy of adjacent rows
-      // sharing a tier in exchange for one rule and more colour.
+      // disagree. Tiered unconditionally, including this sorted column:
+      // this knowingly accepts the redundancy of adjacent rows sharing a
+      // tier in exchange for one rule and more colour.
       cell: (info) => {
         const entry = info.getValue();
         return <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />;
@@ -307,19 +295,18 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
   )];
 
   return columnHelper.columns([
-    // D-08/T-07-11-02: in fallback mode the header itself names the
-    // algorithm whose ordering it is showing — a model-derived ordinal must
-    // never sit under a bare "Rank" header a reader parses as official.
-    // `size` (07-UAT.md G-2, revised by 07-UI-REVIEW priority fix 1): the
-    // plain "Rank" label keeps 72 at/above the breakpoint and
-    // `RANK_COLUMN_WIDTH_NARROW_PX` below it, but the longer fallback
-    // header ("VPR Rank") was MEASURED clipping live inside 72px on D-08
-    // fallback events (259/1,581 of the corpus) — rendering `VPR Ra…` on
-    // the one state whose whole point is naming the ranking source. In
-    // fallback mode this column budgets 96px at every width, matching what
-    // the Teams page's own Rank column already budgets for the same label
-    // shape. A readable source-naming header outranks the narrow-width
-    // budget on exactly these events.
+    // In fallback mode the header itself names the algorithm whose
+    // ordering it is showing — a model-derived ordinal must never sit
+    // under a bare "Rank" header a reader parses as official. The plain
+    // "Rank" label keeps 72 at/above the breakpoint and
+    // `RANK_COLUMN_WIDTH_NARROW_PX` below it, but a longer algorithm-qualified
+    // fallback header was MEASURED clipping live inside 72px on fallback
+    // events — rendering a truncated label on the one state whose whole
+    // point is naming the ranking source. In fallback mode this column
+    // budgets 96px at every width, matching what the Teams page's own Rank
+    // column already budgets for the same label shape. A readable
+    // source-naming header outranks the narrow-width budget on exactly
+    // these events.
     columnHelper.accessor((row) => row.displayRank, {
       id: "rank",
       header: rankHeader,
@@ -339,13 +326,13 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
       ),
     }),
     columnHelper.accessor("nickname", {
-      // D-6 (2026-09-04, 260904-5zg): visible label only — the column id
-      // stays "nickname" (pinning/data-testid/e2e selectors key off it).
+      // Visible label only — the column id stays "nickname"
+      // (pinning/data-testid/e2e selectors key off it).
       header: "Team Name",
-      // 07-UAT.md G-2 part 2 ("first-paint half"): 220 at/above the
-      // breakpoint (unchanged), `NICKNAME_COLUMN_WIDTH_NARROW_PX` below it —
-      // see that constant's own doc comment in `teams-table/columns.tsx` for
-      // the real-geometry derivation shared with `TeamsTable`/`BreakdownTab`.
+      // 220 at/above the breakpoint (unchanged), `NICKNAME_COLUMN_WIDTH_NARROW_PX`
+      // below it — see that constant's own doc comment in
+      // `teams-table/columns.tsx` for the real-geometry derivation shared
+      // with `TeamsTable`/`BreakdownTab`.
       size: isNarrow ? NICKNAME_COLUMN_WIDTH_NARROW_PX : 220,
       cell: (info) => (
         <Link
@@ -357,15 +344,11 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
           // `overflow:hidden`/`text-overflow:ellipsis` (`cellClassName`
           // below) only ever applies to content that overflows the CELL
           // itself. This anchor's box already fills the cell's content
-          // width exactly (block, auto width) — nothing overflows the
-          // anchor's OWN box at the box-model level, so the cell never sees
-          // an overflow to ellipsize. What actually overflows is the
-          // anchor's inline text content spilling past its own border box
-          // (`white-space:nowrap` + no `overflow`/`text-overflow` of its
-          // own), which the cell then hard-clips at the pixel level with no
-          // ellipsis glyph at all — measured live at 390px on real
-          // nicknames ("The Bucks' Wrath" rendered as "The Bucks' \"", cut
-          // mid-character). `truncate` must sit on the element that is
+          // width exactly, so nothing overflows the anchor's OWN box at
+          // the box-model level. What actually overflows is the anchor's
+          // inline text content spilling past its own border box, which
+          // the cell then hard-clips at the pixel level with no ellipsis
+          // glyph at all. `truncate` must sit on the element that is
           // itself the overflowing box, not merely its ancestor.
           className="block max-w-full truncate"
         >
@@ -373,15 +356,14 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
         </Link>
       ),
     }),
-    // ui-polish F3 (2026-08-31, 07-UI-REVIEW priority fix 3): below the
-    // breakpoint the FIRST metric column leads this trailing block, so a
-    // tiered, percentile-carrying value is on the first screenful — the
-    // product's differentiator, not just TBA's Record/RP facts. Record and
-    // RP sit directly behind it, then the remaining metric columns. At/above
-    // the breakpoint the order is unchanged (record, rp, metrics). Since
-    // D-5 (260904-5zg) `metricGroupColumns` now leads with `totalColumn`,
-    // this slice leads with Total — matching the Teams table's own narrow
-    // lead (`columns.tsx`'s `leadMetricIndex`, always Total since D-5).
+    // Below the breakpoint the FIRST metric column leads this trailing
+    // block, so a tiered, percentile-carrying value is on the first
+    // screenful — the product's differentiator, not just TBA's Record/RP
+    // facts. Record and RP sit directly behind it, then the remaining
+    // metric columns. At/above the breakpoint the order is unchanged
+    // (record, rp, metrics). `metricGroupColumns` leads with `totalColumn`,
+    // so this slice leads with Total — matching the Teams table's own
+    // narrow lead (`columns.tsx`'s `leadMetricIndex`, always Total).
     ...(metricFirst ? metricGroupColumns.slice(0, 1) : []),
     recordColumn,
     rpColumn,
@@ -401,20 +383,20 @@ export const INSIGHTS_SKELETON_ROW_COUNT = 8;
 /**
  * `InsightsTabSkeleton({ algorithmId, season })`: the eight real column
  * headers above `SkeletonRows` — always with the BARE `Rank` header, never
- * the fallback-labelled one. Before the artifact resolves there is no way to
- * know whether D-08's fallback applies, and flashing the algorithm-labelled
- * header only to replace it a moment later would assert a provenance claim
- * the page cannot yet support.
+ * the fallback-labelled one. Before the artifact resolves there is no way
+ * to know whether the fallback applies, and flashing the
+ * algorithm-labelled header only to replace it a moment later would
+ * assert a provenance claim the page cannot yet support.
  *
- * Quick task 260913-jkp: the Total header DOES now vary by algorithm — the
- * same `totalColumnHeader(algorithmId)` the live table uses — so nothing
- * shifts when the real data lands under a Sigma-enabled algorithm.
+ * The Total header DOES vary by algorithm — the same
+ * `totalColumnHeader(algorithmId)` the live table uses — so nothing shifts
+ * when the real data lands under a Sigma-enabled algorithm.
  */
 export function InsightsTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
   void season;
-  // D-5 (260904-5zg): Total leads the metric block, matching the live
-  // table's own `metricGroupColumns` order — never a re-typed literal that
-  // could drift from it.
+  // Total leads the metric block, matching the live table's own
+  // `metricGroupColumns` order — never a re-typed literal that could
+  // drift from it.
   const headers = ["Rank", "Team #", "Team Name", "Record", "RP", totalColumnHeader(algorithmId), ...METRIC_GROUPS.map((group) => group.label)];
 
   return (
@@ -441,21 +423,20 @@ export function InsightsTabSkeleton({ algorithmId, season }: { algorithmId: stri
 }
 
 /**
- * The Insights tab: `TierKeyRow` once, the D-08 banner when (and only when)
- * `orderSource` is `"fallback"`, then the wide table in its own
+ * The Insights tab: `TierKeyRow` once, the fallback banner when (and only
+ * when) `orderSource` is `"fallback"`, then the wide table in its own
  * native `overflow-x-auto` scroll region — a DOM SIBLING of the tab strip's
  * own scroll region, never its ancestor or descendant. Renders `EmptyState`
  * (no table at all) when `artifact.teams` is empty.
  *
  * Every string that originates in the published artifact — nickname, event
  * name, event key — renders as a plain JSX text node or a `title` attribute
- * value, never through a raw-markup sink (T-07-11-01).
+ * value, never through a raw-markup sink.
  */
 export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps) {
-  // 07-UAT.md G-2: same sitewide breakpoint hook `TeamsTable.tsx` reuses —
-  // see that component's own doc comment for why (one "mobile" definition
-  // for the whole page, live on resize/rotation via `matchMedia`'s `change`
-  // event).
+  // Same sitewide breakpoint hook `TeamsTable.tsx` reuses — see that
+  // component's own doc comment for why (one "mobile" definition for the
+  // whole page, live on resize/rotation via `matchMedia`'s `change` event).
   const isNarrow = useIsMobile();
   const isF3Width = useIsF3MetricFirstWidth();
   const { rows, orderSource } = useMemo(() => buildInsightsRows(artifact, algorithmId), [artifact, algorithmId]);
@@ -490,12 +471,12 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
       <div data-testid="insights-table-scroll" className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <table
           style={{
-            // 07-UAT.md G-1: see `TeamsTable.tsx`'s identical style-object
-            // comment for the full mechanism — `auto` let the browser
-            // resize columns past their declared `size`, so a column no
-            // longer rendered at the width its neighbours' layout assumed
-            // (measured live: nickname 220→348px). `fixed` keeps every
-            // column at its declared size.
+            // See `TeamsTable.tsx`'s identical style-object comment for
+            // the full mechanism — `auto` let the browser resize columns
+            // past their declared `size`, so a column no longer rendered
+            // at the width its neighbours' layout assumed (measured live:
+            // nickname 220→348px). `fixed` keeps every column at its
+            // declared size.
             tableLayout: "fixed",
             width: "100%",
             minWidth: table.getTotalSize(),
