@@ -684,7 +684,10 @@ function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
         teamKey,
         teamNumber: prior?.teamNumber ?? fallbackTeamNumber(teamKey),
         nickname: prior?.nickname ?? "",
-        metrics: roundTeamMetricRecord(touchedMetrics[teamKey] ?? {}),
+        // Quick task 260913-jkp: carries the prior row's published Sigma
+        // entry forward — see `touchedEventTeamMetrics` for why (a live tick
+        // computes no season-final Sigma of its own).
+        metrics: touchedEventTeamMetrics(prior?.metrics, touchedMetrics[teamKey] ?? {}),
       };
     }),
   ];
@@ -836,7 +839,11 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
     teamNumber: existing?.teamNumber ?? fallbackTeamNumber(teamKey),
     nickname: existing?.nickname ?? "",
     season,
-    seasonStats: { record, metrics: roundTeamMetricRecord(metrics) },
+    // Quick task 260913-jkp: carries the prior `seasonStats.metrics`
+    // Sigma entry forward — see `touchedEventTeamMetrics`. Keeps the team
+    // page's Total tile pill visible during a live event; the tile reads
+    // this field directly (quick task 260913-jkp Task 3).
+    seasonStats: { record, metrics: touchedEventTeamMetrics(existing?.seasonStats.metrics, metrics) },
     events,
     metricHistory: [...(existing?.metricHistory ?? []), ...newMetricHistoryRows],
   };
@@ -1485,6 +1492,42 @@ export function touchedTeamsRowMetrics(
   for (const key of [SIGMA_METRIC_KEY]) {
     const carried = priorMetrics?.[key];
     if (carried !== undefined && !(key in result)) result[key] = carried;
+  }
+  return result;
+}
+
+/** One prior published metric entry as `touchedEventTeamMetrics` reads it — the shape `EventTeamSchema.metrics`/`TeamSeasonArtifactSchema.seasonStats.metrics` already carry (value, an optional spread, an optional percentile). Never a `tier`: that field is teams-row-only (`TierableTeamMetric`), and the event/team-season artifacts publish `percentile` instead. */
+type PublishedEventTeamMetric = { value: number; spread?: number; percentile?: number };
+
+/**
+ * Quick task 260913-jkp: the metrics record `mergeEventArtifact` and
+ * `mergeTeamSeasonArtifact` write for a TOUCHED team, so a live tick never
+ * strips a published Sigma Score off that team's event standings row or its
+ * team-season `seasonStats` until the next offline publish.
+ *
+ * Every freshly computed entry is rounded exactly as `roundTeamMetricRecord`
+ * already rounds it (this function delegates to it, unchanged). The prior
+ * record's `SIGMA_METRIC_KEY` entry — value AND percentile, already rounded
+ * at publish time and therefore never re-rounded here — is appended AFTER
+ * the fresh entries (so a fresh entry of the same key wins and nothing is
+ * carried), only when the prior record actually has that entry and the fresh
+ * record lacks the key. This is the same carry-forward shape
+ * `touchedTeamsRowMetrics` above already established for the teams row;
+ * `roundTeamMetricRecord` itself is untouched; the return type is widened
+ * just enough to carry the carried entry's `percentile`.
+ *
+ * Known limitation, left alone here: a touched team's OTHER metrics already
+ * lose their `percentile` on a live tick — the Worker computes none. That
+ * loss predates this task and is out of scope for it.
+ */
+export function touchedEventTeamMetrics(
+  priorMetrics: Readonly<Record<string, PublishedEventTeamMetric>> | undefined,
+  freshMetrics: Readonly<Record<string, TeamMetric>>
+): Record<string, PublishedEventTeamMetric> {
+  const result: Record<string, PublishedEventTeamMetric> = roundTeamMetricRecord(freshMetrics);
+  const carried = priorMetrics?.[SIGMA_METRIC_KEY];
+  if (carried !== undefined && !(SIGMA_METRIC_KEY in result)) {
+    result[SIGMA_METRIC_KEY] = carried;
   }
   return result;
 }
