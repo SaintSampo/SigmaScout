@@ -1624,8 +1624,17 @@ void _rpCalibrationSchemaMatchesWireType;
  * comparison rather than a file that was quietly overwritten. A test asserts
  * the new file is per-bonus `===` equal to the chosen arm's pre-collapse
  * figures, which is the proof that the deletion pass was a refactor.
+ *
+ * REPOINTED 2026-09-13 at `-09c`, measured with `--algorithm spr`. Quick task
+ * 260913-it4 made SPR the only algorithm that publishes ranking points, and
+ * `attachRpCalibration` matches ids literally, so `-09b`'s `opr`/`epa`/`bpr`
+ * records could no longer reach any slice: the next publish would have shipped
+ * a Compare page with no RP card. `-09b` stays as the frozen record its own
+ * tests pin. SPR prices matches the retired gate skipped (2025: 29,642
+ * alliance-sides against OPR/EPA's 25,978), so `-09c` is not comparable
+ * cell-for-cell with `-09b`.
  */
-export const RP_CALIBRATION_MEASUREMENT_PATH = "data/baselines/rp-calibration-2026-09b.json";
+export const RP_CALIBRATION_MEASUREMENT_PATH = "data/baselines/rp-calibration-2026-09c.json";
 
 /**
  * A committed, self-describing measurement of every registered season's

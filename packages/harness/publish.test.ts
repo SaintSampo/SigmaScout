@@ -69,7 +69,7 @@ import {
   PublishedPreScheduleArtifactSchema,
   TeamsArtifactSchema,
 } from "./pageArtifacts.js";
-import { SIGMA_METRIC_KEY } from "./sigmaScore.js";
+import { publishesRankingPoints, SIGMA_METRIC_KEY } from "./sigmaScore.js";
 import { compareTeamsByTotal, isRealPublishedTeamKey } from "./teamRanks.js";
 import { roundPmf, roundTo, ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
@@ -5052,26 +5052,48 @@ describe("buildCompareArtifact — one write path (F1/D-09/D-11, phase 09 plan 0
   });
 });
 
-describe("data/baselines/rp-calibration-2026-09.json — the committed D-09 'before' baseline (phase 09 plan 09-01 Task 2)", () => {
+describe("RP_CALIBRATION_MEASUREMENT_PATH — the measurement the publisher attaches to the Compare page", () => {
   const measurement = existsSync(RP_CALIBRATION_MEASUREMENT_PATH) ? loadRpCalibrationMeasurement(RP_CALIBRATION_MEASUREMENT_PATH) : undefined;
 
   if (measurement === undefined) {
     it.skip(`skipped: ${RP_CALIBRATION_MEASUREMENT_PATH} does not exist yet — run scripts/measureRpCalibration.ts with --emit-artifact first`, () => {});
   } else {
-    // `data/baselines/rp-calibration-2026-09.json` is a FROZEN record —
-    // it was measured under the premier algorithm's wire id in force at the
-    // time (before quick task 260912-ivg's rename), and is never rewritten.
-    // The one-entry alias below is what lets that frozen citation keep
-    // resolving against the live (renamed) `PUBLISHED_ALGORITHM_IDS` member,
-    // the same pattern `level1Digest.test.ts`'s `LEGACY_ALGORITHM_ID_ALIASES`
-    // already uses for an identical frozen-baseline situation.
-    const FROZEN_BASELINE_ALGORITHM_ID_ALIASES: Readonly<Record<string, string>> = { bpr: "spr" };
-    it("covers the FULL cross product of every registered RP season and every published algorithm — pinned by set equality, never a loop over a hand-typed list", () => {
-      const expected = new Set(Object.keys(RP_RULE_MODULES).flatMap((season) => PUBLISHED_ALGORITHM_IDS.map((a) => `${season}:${a}`)));
-      const actual = new Set(
-        measurement.records.map((r) => `${r.season}:${FROZEN_BASELINE_ALGORITHM_ID_ALIASES[r.algorithmId] ?? r.algorithmId}`),
-      );
+    // NO ID ALIAS HERE, deliberately. This block used to map the frozen `bpr`
+    // records onto `spr` before comparing, while `attachRpCalibration` matches
+    // the LITERAL algorithm id. After quick task 260913-it4 made SPR the only
+    // algorithm allowed a card, that alias kept this test green over a file
+    // with no `spr` record at all, and the next publish would have shipped a
+    // Compare page with no RP card (found 2026-09-13). The frozen files keep
+    // their own aliased checks in `scripts/measureRpCalibration.test.ts`.
+    const rpAlgorithmIds = PUBLISHED_ALGORITHM_IDS.filter(publishesRankingPoints);
+
+    it("has a record for every registered RP season and every algorithm that publishes ranking points, by literal id — set equality", () => {
+      const expected = new Set(Object.keys(RP_RULE_MODULES).flatMap((season) => rpAlgorithmIds.map((a) => `${season}:${a}`)));
+      const actual = new Set(measurement.records.map((r) => `${r.season}:${r.algorithmId}`));
       expect(actual).toEqual(expected);
+    });
+
+    it("attachRpCalibration puts a card on every qualification slice that should carry one", () => {
+      const slices: ScoreSlice[] = Object.keys(RP_RULE_MODULES).flatMap((season) =>
+        rpAlgorithmIds.map((algorithmId) => ({
+          algorithmId,
+          season: Number(season),
+          headlineEligible: true,
+          compLevelView: "qualification" as const,
+          brierScore: 0.18,
+          winnerAccuracy: 0.72,
+          scoredCount: 1000,
+          tieCount: 0,
+          noCallCount: 0,
+          exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0, coldStart: 0 },
+          candidateCount: 1000,
+          calibrationBins: [],
+        }))
+      );
+      expect(slices.length).toBeGreaterThan(0);
+      for (const slice of attachRpCalibration(slices, measurement)) {
+        expect(slice.rpCalibration, `${slice.algorithmId} ${slice.season} has no RP card`).toBeDefined();
+      }
     });
 
     it("every record's bonuses are in the season module's OWN bonusNames order, and cover every bonus", () => {

@@ -619,3 +619,76 @@ will keep surfacing from there; F2 above is the current number.
 
 Nothing else about this audit's status changed. It stays open on F4, F8/F9, F12, F13 and F10's
 display half.
+
+---
+
+## STATUS 2026-09-13 — re-checked after SPR-only ranking points (260913-g66, 260913-it4)
+
+Everything above was measured on `bpr`, which is no longer published. Since 09-12, Swing and the
+retired VPR core were deleted and OPR and EPA stopped publishing ranking-point odds, so SPR is the
+only algorithm with RP. Each open finding was re-read against the code at `820fe8d7`, and
+Jacob made the four decisions below.
+
+| Finding | State |
+|---|---|
+| **F4** dependence between threshold variables | **OPEN, decided: measure the split first.** See below |
+| **F6 / F7** win and tie half | **OPEN, decided: score total RP, then re-ship.** See below |
+| **F8** cold-start gate | **SUPERSEDED.** Sigma Score always has a value (its prior covers a team with no matches), so the band gate never refuses a match under SPR, and OPR/EPA publish no RP at all. 2026casnv: RP pmf on 89 of 89 SPR rows |
+| **F9** partial-roster mean | **CLOSED, decision.** Now live rather than latent, because F8 no longer holds cold rosters back. Jacob, 2026-09-13: *cold robots should be treated as contributing nothing to RP, but we should still try to predict RP with known robots.* That is exactly what `momentsFor` does, so there is nothing to change |
+| **F10** bonus-dot display threshold | **DEFERRED** until F4's fix lands. The 0.5 line is not the defect, the under-predicted probabilities are |
+| **F12** 2019 `completeRocket` always false | **CLOSED, decision.** Declared `constant` in `2019.ts` on purpose. Old season, 4.7% observed under SPR. Not worth a predictor |
+| **F13** excluded matches award 0 RP | **CLOSED.** The wrong note was corrected 2026-09-10, and with F8 superseded no match is excluded for this reason |
+
+### F14 (new) — the SPR scorecard had no records. Fixed 2026-09-13.
+
+`RP_CALIBRATION_MEASUREMENT_PATH` pointed at `-09b`, which holds `opr`, `epa` and `bpr` records.
+`attachRpCalibration` matches algorithm ids literally and, since 260913-it4, attaches only for
+algorithms that publish RP, which is `spr` alone. So the next publish would have shipped a Compare
+page with **no RP card at all**. The live generation `174d585f` predates it4, which is why the site
+still shows OPR/EPA cards. The test pinning the file was green because it aliased `bpr` to `spr`
+before comparing.
+
+Fixed by measuring `--algorithm spr` into `data/baselines/rp-calibration-2026-09c.json`,
+repointing the constant, and replacing the aliased test with two literal-id tests (record coverage
+by set equality, and `attachRpCalibration` producing a card on every RP slice). Both failed on `-09b`
+before the repoint.
+
+**The SPR figures, the current reference for F2:** n=558,192 (alliance, bonus) observations, mean
+predicted **0.1384** against observed **0.2941**. SPR scores more observations than `bpr` did
+(488,002), because cold rosters now get a pmf.
+
+### F6 / F7 decision — add a scorer that can see them, then re-ship
+
+Both fixes were built in 09-05 and reverted by 09-06 only because the pre-committed bar scored
+bonuses alone, and neither fix touches a bonus (0 improved, 0 regressed, 30 tied). The plan:
+
+1. Extend `measureRpCalibration.ts` and the published scorecard to score **total RP** (win + tie +
+   bonus), for example a ranked probability score over the RP pmf. This also closes
+   `rp-scorecard-measures-bonuses-only`.
+2. Measure `winSource: "p-red-win"` and `tieModel: "discrete-margin"` (code at `2731bfab^`,
+   formulas in `docs/models/rp-layer-config-arms.md`) on the **2016-2022 selection slice**, so no
+   holdout is spent.
+3. Ship each one that improves. Re-measure the F6 gap under SPR first: the 0.0428 median is `bpr`'s.
+
+### F4 decision — measure which cause dominates before fixing anything
+
+The bonuses the model gets most wrong under SPR (`-09c`) almost all require several threshold
+variables at once, and the diagonal block treats those variables as independent:
+
+| Bonus | Predicate kind | Predicted | Observed |
+|---|---|---|---|
+| 2016 `breach` | `countOfIndicators`, 5 positions | 2.5% | 70.0% |
+| 2025 `coralBonus` | `countOfIndicators`, 4 levels | 0.7% | 17.7% |
+| 2025 `autoBonus` | `conjunctionDistinct` | 17.9% | 62.5% |
+| 2024 `ensembleBonus` | `conjunctionDistinct` | 1.3% | 10.9% |
+| 2026 `energized` (control) | `singleThreshold` | 55.2% | 57.7% |
+
+This reframes F4. The audit measured dependence **between** bonuses (P(both)) and called it
+secondary. Dependence **within** a multi-variable bonus was never measured, and it is the likeliest
+explanation for the table above. It is not proven: the same bonuses also carry the conservative
+coopertition branch and bounded counts ("3 of 3 robots") modelled as a smooth Gaussian.
+
+**Next step:** one offline probe on 2016-2022 that re-scores each multi-variable bonus with each
+suspect removed in turn: observed joint dependence, the coop branch evaluated as achieved, and an
+exact bounded-count marginal. It reports how much of each bonus's gap each suspect accounts for.
+Nothing published changes. The fix is chosen from the result, and F10 is revisited after it.
