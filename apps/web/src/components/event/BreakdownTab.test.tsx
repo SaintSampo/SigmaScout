@@ -701,6 +701,32 @@ describe("BreakdownTab: clean SPR table (quick task 260913-mgn)", () => {
     expect(table.style.width).toBe(`${88 + 220 + TOTAL_SIGMA_COLUMN_WIDTH_PX + 3 * BREAKDOWN_METRIC_COLUMN_WIDTH_PX}px`);
   });
 
+  it("desktop header labels share one box: Team # and Team Name sit in the same 44px centered box the sort buttons use, so every label in the row lines up (spr and epa); opr has no sort buttons and keeps bare labels", async () => {
+    // Visual check 2026-09-13: with SPR's band row gone the label row is the
+    // table's top edge, and the bare, top-aligned identity labels sat about
+    // 14px above the sort buttons' centered text.
+    const boxClasses = (el: Element | null | undefined) => (el?.getAttribute("class") ?? "").split(/\s+/).filter((c) => c === "tap-target" || c === "inline-flex" || c === "items-center");
+    for (const [algorithmId, metrics] of [
+      ["spr", sprMetrics2024()],
+      ["epa", fullEpaMetrics2024()],
+    ] as const) {
+      const { unmount } = renderBreakdown(makeArtifact([team({ metrics })], { algorithmId }), algorithmId, 2024);
+      await waitFor(() => expect(screen.getByTestId("breakdown-header-teamNumber")).toBeDefined());
+      const sortBoxClasses = boxClasses(within(screen.getByTestId(`breakdown-header-${TOTAL_KEY}`)).getByRole("button"));
+      expect(sortBoxClasses).toEqual(["tap-target", "inline-flex", "items-center"]);
+      for (const id of ["teamNumber", "nickname"]) {
+        const header = screen.getByTestId(`breakdown-header-${id}`);
+        expect(within(header).queryByRole("button")).toBeNull();
+        expect(boxClasses(header.firstElementChild)).toEqual(sortBoxClasses);
+      }
+      unmount();
+    }
+
+    renderBreakdown(makeArtifact([team({ metrics: { [TOTAL_KEY]: { value: 20 } } })], { algorithmId: "opr" }), "opr", 2024);
+    await waitFor(() => expect(screen.getByTestId("breakdown-header-teamNumber")).toBeDefined());
+    expect(screen.getByTestId("breakdown-header-teamNumber").firstElementChild).toBeNull();
+  });
+
   it("epa desktop geometry regression pin: the group-band row leads, and the declared width still spans Total plus the three phases plus Fouls Committed", async () => {
     const artifact = makeArtifact([team({ metrics: fullEpaMetrics2024() })], { algorithmId: "epa" });
     renderBreakdown(artifact, "epa", 2024);

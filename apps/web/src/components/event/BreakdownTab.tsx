@@ -595,6 +595,19 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
                             </span>
                           )}
                         </button>
+                      ) : isGrouped && !isNarrow ? (
+                        // Team # and Team Name get the sort button's own box
+                        // (44px tall, text centered) without being a button.
+                        // Bare, they sit at the top of the align-top cell
+                        // while every sort label is centered in its box,
+                        // about 14px lower; under SPR the label row is the
+                        // table's top edge, so the offset showed (quick
+                        // task 260913-mgn visual check). Narrow cells keep
+                        // bare labels: their `truncate` needs a plain text
+                        // child to ellipsize.
+                        <span className="tap-target inline-flex items-center text-left">
+                          <table.FlexRender header={header} />
+                        </span>
                       ) : (
                         <table.FlexRender header={header} />
                       )}
