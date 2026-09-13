@@ -173,6 +173,48 @@ describe("Ribbon", () => {
     expect(navigateSpy).not.toHaveBeenCalled();
   });
 
+  it('a grey "Beta" tag renders on desktop, outside the wordmark link, as its sibling in one shared wrapper', async () => {
+    global.fetch = vi.fn(() => new Promise<Response>(() => {}));
+    await renderRibbonAt("/teams?year=2024&algorithm=spr");
+
+    const wordmarkLink = screen.getByRole("link", { name: "ΣigmaScout" });
+    const beta = screen.getByText("Beta");
+    expect(beta.closest("a")).toBeNull();
+    expect(wordmarkLink.nextElementSibling).toBe(beta);
+    expect(wordmarkLink.parentElement).toBe(beta.parentElement);
+
+    // The six-link and link-order assertions are unaffected by the sibling tag.
+    const links = screen.getAllByRole("link");
+    expect(links).toHaveLength(6);
+    expect(links.slice(0, 5).map((link) => link.textContent)).toEqual(["ΣigmaScout", "Teams", "Events", "Locks", "Methodology"]);
+  });
+
+  it('the "Beta" tag also renders on mobile, outside the wordmark link', async () => {
+    global.fetch = vi.fn(() => new Promise<Response>(() => {}));
+    const original = window.matchMedia;
+    window.matchMedia = (query: string) =>
+      ({
+        matches: true, // simulates a phone-width viewport
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      }) as MediaQueryList;
+
+    try {
+      await renderRibbonAt("/teams?year=2024&algorithm=spr");
+      const wordmarkLink = screen.getByRole("link", { name: "ΣigmaScout" });
+      const beta = screen.getByText("Beta");
+      expect(beta.closest("a")).toBeNull();
+      expect(wordmarkLink.nextElementSibling).toBe(beta);
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+
   it("selecting a DIFFERENT year does navigate and preserves sort/sortDir (D-11) — contrast case proving the reselect guard above is not vacuously true", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
     const { router } = await renderRibbonAt("/teams?year=2024&algorithm=spr&sort=hubShift1&sortDir=asc");

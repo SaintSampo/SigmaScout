@@ -149,11 +149,18 @@ export function Ribbon() {
   // 2026-09-01 (user request): the wordmark is the way home. The Σ wears
   // the ribbon's light-green accent — the one place the user's #4CAF50 seed
   // family gets used near-raw, because it passes contrast on the dark bar
-  // (it never does on white).
+  // (it never does on white). 2026-09-13 (user request): a smaller, grey
+  // "Beta" tag sits right after the wordmark, as a sibling `span` OUTSIDE
+  // the `Link` on purpose — the home link's accessible text must stay
+  // exactly the wordmark (Ribbon.test.tsx pins the link's own text to
+  // "ΣigmaScout"), so the tag cannot live inside it.
   const wordmark = (
-    <Link to="/" search={preserveSearch} className="text-role-display shrink-0 truncate text-[var(--ribbon-ink)]">
-      <span className="text-[var(--ribbon-accent)]">Σ</span>igmaScout
-    </Link>
+    <div className="flex shrink-0 items-baseline gap-[var(--spacing-sm)]">
+      <Link to="/" search={preserveSearch} className="text-role-display shrink-0 truncate text-[var(--ribbon-ink)]">
+        <span className="text-[var(--ribbon-accent)]">Σ</span>igmaScout
+      </Link>
+      <span className="text-role-label text-[var(--ribbon-ink-muted)]">Beta</span>
+    </div>
   );
 
   if (isMobile) {
