@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { formatScheduledTime, matchLabel } from "../team/MatchTable.js";
-import { teamNumberFromKey } from "../../lib/teamKey.js";
+import { formatScheduledTime, matchLabel, teamNumberLabel } from "../team/MatchTable.js";
 import { SIMULATION_DRAWS, type SimulationInputs } from "../../lib/simulationInputs.js";
 import type { EventMatchRow } from "./eventMatchAxis.js";
 
@@ -106,15 +105,6 @@ export function simulationScopeText(inputs: SimulationInputs, startMatchNumber: 
   return text;
 }
 
-/** A team key's displayed number, degrading identically to `EventMatchTable.tsx`'s module-private `rosterNumberLabel` (not imported — that helper is not exported and this plan does not modify that file) — the same `teamNumberFromKey` call, the same try/catch fallback to the raw key string. */
-function rosterNumberLabel(rosterKey: string): string {
-  try {
-    return `${teamNumberFromKey(rosterKey)}`;
-  } catch {
-    return rosterKey;
-  }
-}
-
 export interface StartMatchPickerProps {
   /** Every qualification row at the event, already ordered by the caller (`simulationInputs.ts`'s `buildQualRows`). */
   rows: readonly EventMatchRow[];
@@ -173,7 +163,7 @@ function StartMatchSummary({ row, selected }: { row: EventMatchRow; selected: bo
           {row.redTeams.map((key, index) => (
             <span key={key}>
               {index > 0 ? " " : ""}
-              {rosterNumberLabel(key)}
+              {teamNumberLabel(key)}
             </span>
           ))}
         </span>
@@ -181,7 +171,7 @@ function StartMatchSummary({ row, selected }: { row: EventMatchRow; selected: bo
           {row.blueTeams.map((key, index) => (
             <span key={key}>
               {index > 0 ? " " : ""}
-              {rosterNumberLabel(key)}
+              {teamNumberLabel(key)}
             </span>
           ))}
         </span>

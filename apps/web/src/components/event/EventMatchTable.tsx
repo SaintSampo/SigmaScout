@@ -1,22 +1,25 @@
 import { cn } from "@/lib/utils";
 import { SkeletonRows } from "../Skeletons.js";
-import { BonusRpDots } from "../team/BonusRpDots.js";
-// Quick 260905-jj8: the same published-data-to-dot-state mapping
-// `team/MatchTable.tsx` uses — one implementation, two surfaces.
-import { bonusRpForSeason, bonusStatesFromFlags, bonusStatesFromProbabilities } from "../../lib/bonusRp.js";
-import { snapToDevicePixelPhase, useDevicePixelPhaseStep } from "../../lib/devicePixelGrid.js";
 import { predictionPercent } from "../../lib/predictionPercent.js";
-import { formatScheduledTime, matchLabel } from "../team/MatchTable.js";
+// 260913-nvn Task 3b: the five leaf plot/chip/score-line/badge components
+// below were byte-identical twins of these team-page originals (151 lines of
+// duplication) — this file now imports and reuses them instead of carrying
+// its own copies that could silently drift apart.
+import {
+  AllianceChip,
+  AllianceRow,
+  AxisHeader,
+  CallBadge,
+  formatScheduledTime,
+  matchBandSd,
+  matchLabel,
+  PredictedScoreLine,
+  ActualScoreLine,
+  teamNumberLabel,
+} from "../team/MatchTable.js";
 import { Link } from "@tanstack/react-router";
-import { teamNumberFromKey } from "../../lib/teamKey.js";
-import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, PLOT_W, scaleToPlot, type AxisDomain } from "../team/matchAxis.js";
-// G-06.1-26 (plan 06.1-08, PD-19) precedent, followed here verbatim
-// (07-12-PLAN.md Task 2): imported directly from core rather than copied
-// into apps/web — `rp/constants.ts` has zero runtime imports of its own, so
-// importing it does not drag the Sigma1 RP implementation into the browser
-// bundle.
+import { MATCH_GEOMETRY, PLOT_W, type AxisDomain } from "../team/matchAxis.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-import { isBonusRpCompLevel } from "../../../../../packages/core/rankingPoints/constants.js";
 import type { EventMatchRow } from "./eventMatchAxis.js";
 
 /**
@@ -44,184 +47,6 @@ export interface EventMatchTableProps {
 export const EVENT_MATCH_TABLE_COLUMN_COUNT = 6;
 
 const EVENT_MATCH_TABLE_HEADERS = ["Match", "", "Confidence", "Prediction", "Actual", "Call"] as const;
-
-/** A team key's displayed number, falling back to the raw key string when it does not match the `frc{number}` shape — the same construction `MatchTable.tsx`'s own module-private label helper uses. Named distinctly from this row type's own field names so a structural props-declaration gate cannot mistake it for a per-team prop. */
-function rosterNumberLabel(rosterKey: string): string {
-  try {
-    return `${teamNumberFromKey(rosterKey)}`;
-  } catch {
-    return rosterKey;
-  }
-}
-
-interface EventAllianceRowProps {
-  matchKey: string;
-  side: "red" | "blue";
-  predicted: number;
-  sd: number | undefined;
-  actual: number | undefined;
-  played: boolean;
-  yBand: number;
-  domain: AxisDomain;
-  colorVar: string;
-  softVar: string;
-}
-
-/** One alliance's band + tick + dot inside a single match's plot cell — every top from `allianceMarkPositions`, every left from `scaleToPlot`. The dot renders only when the row is PLAYED (never when only `actual` happens to be present, since an unplayed row carries no actual score at all). */
-function EventAllianceRow({ matchKey, side, predicted, sd, actual, played, yBand, domain, colorVar, softVar }: EventAllianceRowProps) {
-  const pos = allianceMarkPositions(yBand);
-  const tickCentre = scaleToPlot(predicted, domain, PLOT_W);
-  const tickStep = useDevicePixelPhaseStep();
-  const testIdBase = `alliance-mark-${matchKey}-${side}`;
-
-  let bandLeft: number | undefined;
-  let bandWidth: number | undefined;
-  if (sd !== undefined) {
-    const lowLeft = scaleToPlot(predicted - sd, domain, PLOT_W);
-    const highLeft = scaleToPlot(predicted + sd, domain, PLOT_W);
-    bandLeft = lowLeft;
-    bandWidth = highLeft - lowLeft;
-  }
-
-  const dotCentre = played && actual !== undefined ? scaleToPlot(actual, domain, PLOT_W) : undefined;
-
-  return (
-    <>
-      {bandLeft !== undefined && bandWidth !== undefined && (
-        <div
-          data-testid={`${testIdBase}-band`}
-          className="absolute rounded-sm"
-          style={{ top: pos.bandTop, left: bandLeft, width: bandWidth, height: MATCH_GEOMETRY.BAND_H, background: softVar }}
-        />
-      )}
-      <div
-        data-testid={`${testIdBase}-tick`}
-        className="absolute"
-        /* 2026-09-09: the left EDGE is snapped onto the device-pixel grid so
-           every tick in the table renders at the same weight — see
-           `lib/devicePixelGrid.ts` for the measurement showing that the 2px
-           width was never the variable and that rounding to a whole CSS
-           pixel does nothing at all. `tickStep` is 1 at dpr 1 and 2, where
-           this was never broken, so those readers see no change. */
-        style={{ top: pos.tickTop, left: snapToDevicePixelPhase(tickCentre - 1, tickStep), width: 2, height: MATCH_GEOMETRY.TICK_H, background: colorVar }}
-      />
-      {dotCentre !== undefined && (
-        <div
-          data-testid={`${testIdBase}-dot`}
-          className="absolute rounded-full bg-white"
-          style={{
-            top: pos.dotTop,
-            left: dotCentre - MATCH_GEOMETRY.DOT_H / 2,
-            width: MATCH_GEOMETRY.DOT_H,
-            height: MATCH_GEOMETRY.DOT_H,
-            border: `3px solid ${colorVar}`,
-          }}
-        />
-      )}
-    </>
-  );
-}
-
-function EventAxisHeader({ domain }: { domain: AxisDomain }) {
-  const ticks = axisTicks(domain);
-  return (
-    <div data-testid="axis-ticks" className="relative" style={{ width: PLOT_W, height: MATCH_GEOMETRY.TICK_H }}>
-      {ticks.map((tick) => (
-        <span
-          key={tick}
-          data-testid="axis-tick"
-          className="numeric-cell text-role-label absolute -translate-x-1/2 text-[var(--color-text-muted)]"
-          style={{ left: scaleToPlot(tick, domain, PLOT_W) }}
-        >
-          {tick}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-/** The Confidence column's predicted-winner chip — the same `--alliance-*` tokens the plotted marks use, reusing `MatchTable`'s own `.alliance-chip`/`.alliance-chip--{side}` classes so the chip and the band agree about which alliance is which. */
-function EventAllianceChip({ side }: { side: "red" | "blue" }) {
-  return <span className={cn("alliance-chip", side === "red" ? "alliance-chip--red" : "alliance-chip--blue")}>{side === "red" ? "Red" : "Blue"}</span>;
-}
-
-/**
- * One alliance's predicted score with its bonus-RP dot group above it.
- * Rounded to a whole number for the same reason `MatchTable.tsx`'s
- * `PredictedScoreLine` gives: its uncertainty is already drawn as the band,
- * so a decimal would imply a precision the band denies.
- *
- * The dot group renders on every `qm` row (gated by `isBonusRpCompLevel`),
- * with real states as of quick 260905-jj8: `EventMatchSchema` and
- * `EventUpcomingMatchSchema` now publish the same per-bonus arrays the team
- * artifact has carried since Phase 06.1, and this line maps them through the
- * EXACT `bonusStatesFromProbabilities`/`bonusStatesFromFlags` calls
- * `team/MatchTable.tsx` uses — one mapping, two surfaces. A row from an
- * artifact predating the fields (or a Worker live-merge row, whose actual
- * side is filled only by the offline republish) passes `undefined` through
- * and every dot renders `unknown` — the placeholder that says "this is a
- * qualification match and we do not know", which is different from saying
- * nothing, and different again from a false earned/missed claim.
- */
-function EventPredictedScoreLine({
-  matchKey,
-  side,
-  score,
-  variance,
-  season,
-  bonusRp,
-  compLevel,
-}: {
-  matchKey: string;
-  side: "red" | "blue";
-  score: number;
-  variance: number | undefined;
-  season: number;
-  /** This alliance's predicted per-bonus probabilities, positionally aligned to the season's bonus list — `EventMatchSchema.redBonusRp`'s contract. Undefined when unpublished. */
-  bonusRp: readonly number[] | undefined;
-  compLevel: EventMatchRow["compLevel"];
-}) {
-  const sd = variance === undefined ? undefined : Math.sqrt(Math.max(0, variance));
-  const bonusStates = bonusStatesFromProbabilities(bonusRp, bonusRpForSeason(season).length);
-  return (
-    <span className="flex items-center gap-[var(--spacing-xs)]">
-      <BonusRpDots season={season} side={side} kind="predicted" matchKey={matchKey} states={bonusStates} probabilities={bonusRp} applicable={isBonusRpCompLevel(compLevel)} />
-      <span data-testid={`predicted-score-${matchKey}-${side}`} className="numeric-cell whitespace-nowrap text-[var(--color-text-primary)]">
-        {Math.round(score)}
-        {sd !== undefined && <span className="text-role-spread-suffix text-[var(--color-text-muted)]">{` ± ${Math.round(sd)}`}</span>}
-      </span>
-    </span>
-  );
-}
-
-function EventActualScoreLine({
-  matchKey,
-  side,
-  score,
-  isLoser,
-  season,
-  actualBonusRp,
-  compLevel,
-}: {
-  matchKey: string;
-  side: "red" | "blue";
-  score: number;
-  isLoser: boolean;
-  season: number;
-  /** This alliance's actual per-bonus flags — `EventMatchSchema.actualRedBonusRp`'s three-state contract: `null` means looked-and-not-derivable, undefined means the artifact predates the field. */
-  actualBonusRp: readonly boolean[] | null | undefined;
-  compLevel: EventMatchRow["compLevel"];
-}) {
-  const bonusStates = bonusStatesFromFlags(actualBonusRp, bonusRpForSeason(season).length);
-  return (
-    <span className="flex items-center gap-[var(--spacing-xs)]">
-      <BonusRpDots season={season} side={side} kind="actual" matchKey={matchKey} states={bonusStates} applicable={isBonusRpCompLevel(compLevel)} />
-      <span data-testid={`actual-${matchKey}-${side}`} className={cn("numeric-cell whitespace-nowrap", isLoser && "text-[var(--loser-ink)]")}>
-        {score}
-      </span>
-    </span>
-  );
-}
 
 function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: EventMatchRow; domain: AxisDomain; tinted: boolean; season: number; algorithm: PublishedAlgorithmId }) {
   const confidence = row.predictedWinner === "red" ? row.pRedWin : 1 - row.pRedWin;
@@ -263,11 +88,11 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
                 <Link
                   key={rosterKey}
                   to="/team/$teamNumber"
-                  params={{ teamNumber: rosterNumberLabel(rosterKey) }}
+                  params={{ teamNumber: teamNumberLabel(rosterKey) }}
                   search={{ year: season, algorithm, tab: "overview" }}
                   className="hover:underline"
                 >
-                  {rosterNumberLabel(rosterKey)}
+                  {teamNumberLabel(rosterKey)}
                 </Link>
               ))}
             </span>
@@ -286,11 +111,11 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
                 <Link
                   key={rosterKey}
                   to="/team/$teamNumber"
-                  params={{ teamNumber: rosterNumberLabel(rosterKey) }}
+                  params={{ teamNumber: teamNumberLabel(rosterKey) }}
                   search={{ year: season, algorithm, tab: "overview" }}
                   className="hover:underline"
                 >
-                  {rosterNumberLabel(rosterKey)}
+                  {teamNumberLabel(rosterKey)}
                 </Link>
               ))}
             </span>
@@ -299,25 +124,23 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
       </td>
       <td className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         <div className="relative" style={{ width: PLOT_W, height: MATCH_GEOMETRY.PLOT_H }}>
-          <EventAllianceRow
+          <AllianceRow
             matchKey={row.matchKey}
             side="red"
             predicted={row.predictedRedScore}
-            sd={row.redMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, row.redMatchBandVariance)) : undefined}
-            actual={row.actualRedScore}
-            played={row.played}
+            sd={matchBandSd(row.redMatchBandVariance)}
+            actual={row.played ? row.actualRedScore : undefined}
             yBand={MATCH_GEOMETRY.Y_RED}
             domain={domain}
             colorVar="var(--alliance-red)"
             softVar="var(--alliance-red-soft)"
           />
-          <EventAllianceRow
+          <AllianceRow
             matchKey={row.matchKey}
             side="blue"
             predicted={row.predictedBlueScore}
-            sd={row.blueMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, row.blueMatchBandVariance)) : undefined}
-            actual={row.actualBlueScore}
-            played={row.played}
+            sd={matchBandSd(row.blueMatchBandVariance)}
+            actual={row.played ? row.actualBlueScore : undefined}
             yBand={MATCH_GEOMETRY.Y_BLUE}
             domain={domain}
             colorVar="var(--alliance-blue)"
@@ -327,21 +150,21 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
       </td>
       <td data-testid={`confidence-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] pl-[var(--spacing-lg)] align-top">
         <span className="flex items-center gap-[var(--spacing-xs)]">
-          <EventAllianceChip side={row.predictedWinner} />
+          <AllianceChip side={row.predictedWinner} />
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
         </span>
       </td>
       <td data-testid={`predicted-score-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         <div className="flex flex-col gap-[2px]">
-          <EventPredictedScoreLine matchKey={row.matchKey} side="red" score={row.predictedRedScore} variance={row.redMatchBandVariance} season={season} bonusRp={row.redBonusRp} compLevel={row.compLevel} />
-          <EventPredictedScoreLine matchKey={row.matchKey} side="blue" score={row.predictedBlueScore} variance={row.blueMatchBandVariance} season={season} bonusRp={row.blueBonusRp} compLevel={row.compLevel} />
+          <PredictedScoreLine matchKey={row.matchKey} side="red" score={row.predictedRedScore} variance={row.redMatchBandVariance} season={season} bonusRp={row.redBonusRp} compLevel={row.compLevel} />
+          <PredictedScoreLine matchKey={row.matchKey} side="blue" score={row.predictedBlueScore} variance={row.blueMatchBandVariance} season={season} bonusRp={row.blueBonusRp} compLevel={row.compLevel} />
         </div>
       </td>
       <td data-testid={`actual-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         {row.played ? (
           <div className="flex flex-col gap-[2px]">
-            <EventActualScoreLine matchKey={row.matchKey} side="red" score={row.actualRedScore!} isLoser={redLoses} season={season} actualBonusRp={row.actualRedBonusRp} compLevel={row.compLevel} />
-            <EventActualScoreLine matchKey={row.matchKey} side="blue" score={row.actualBlueScore!} isLoser={blueLoses} season={season} actualBonusRp={row.actualBlueBonusRp} compLevel={row.compLevel} />
+            <ActualScoreLine matchKey={row.matchKey} side="red" score={row.actualRedScore!} isLoser={redLoses} season={season} actualBonusRp={row.actualRedBonusRp} compLevel={row.compLevel} />
+            <ActualScoreLine matchKey={row.matchKey} side="blue" score={row.actualBlueScore!} isLoser={blueLoses} season={season} actualBonusRp={row.actualBlueBonusRp} compLevel={row.compLevel} />
           </div>
         ) : (
           <span className="text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
@@ -350,28 +173,7 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
         )}
       </td>
       <td data-testid={`call-${row.matchKey}`} className="text-role-body px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top text-[var(--color-text-primary)]">
-        {!row.played ? (
-          <span aria-hidden="true" className="call-badge call-none">{"—"}</span>
-        ) : row.coldStart === true ? (
-          // D-01/D-02/D-03 (quick task 260909-t5q): a structural cold start —
-          // every robot in this match was making its corpus-global first
-          // appearance, so the algorithm had nothing to predict from and the
-          // match is excluded from accuracy/Brier entirely. Same neutral
-          // glyph and class as the not-played branch above (D-03 wants it
-          // visually inert), but UNLIKE that branch this one IS exposed to
-          // assistive technology, with its own accessible label distinct
-          // from both "Prediction correct" and "Prediction incorrect". Taken
-          // from the row's own published flag, never derived from
-          // `row.pRedWin === 0.5` — that would sweep in an ordinary D-Q3
-          // no-call and violate D-02.
-          <span aria-label="Not scored (no prior data)" className="call-badge call-none">{"—"}</span>
-        ) : row.actualWinner === "tie" ? (
-          <span aria-label="Prediction incorrect" className="call-badge call-miss">{"✗"}</span>
-        ) : winnerCorrect ? (
-          <span aria-label="Prediction correct" className="call-badge call-hit">{"✓"}</span>
-        ) : (
-          <span aria-label="Prediction incorrect" className="call-badge call-miss">{"✗"}</span>
-        )}
+        <CallBadge played={row.played} coldStart={row.coldStart === true} winnerCorrect={winnerCorrect} />
       </td>
     </tr>
   );
@@ -388,7 +190,7 @@ export function EventMatchTable({ rows, domain, season, algorithm }: EventMatchT
             <span className="text-role-label text-[var(--color-text-muted)]">Match</span>
           </th>
           <th className="p-[var(--spacing-sm)] text-left">
-            <EventAxisHeader domain={domain} />
+            <AxisHeader domain={domain} />
           </th>
           <th className="text-role-label p-[var(--spacing-sm)] pl-[var(--spacing-lg)] text-left text-[var(--color-text-muted)]">Confidence</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Prediction</th>

@@ -102,7 +102,13 @@ export function formatScheduledTime(sortTime: number): string {
   return `${weekday} ${time}`;
 }
 
-function teamNumberLabel(teamKey: string): string {
+/**
+ * A team key's displayed number, falling back to the raw key string when it
+ * does not match the `frc{number}` shape. Exported (260913-nvn Task 3b) so
+ * `EventMatchTable.tsx` and `StartMatchPicker.tsx` share this one
+ * implementation instead of each carrying their own byte-identical copy.
+ */
+export function teamNumberLabel(teamKey: string): string {
   try {
     return `${teamNumberFromKey(teamKey)}`;
   } catch {
@@ -110,7 +116,7 @@ function teamNumberLabel(teamKey: string): string {
   }
 }
 
-interface AllianceRowProps {
+export interface AllianceRowProps {
   matchKey: string;
   side: "red" | "blue";
   predicted: number;
@@ -122,8 +128,17 @@ interface AllianceRowProps {
   softVar: string;
 }
 
-/** One alliance's band + tick + dot inside a single match's plot cell — every top from `allianceMarkPositions`, every left from `scaleToPlot`. */
-function AllianceRow({ matchKey, side, predicted, sd, actual, yBand, domain, colorVar, softVar }: AllianceRowProps) {
+/**
+ * One alliance's band + tick + dot inside a single match's plot cell — every
+ * top from `allianceMarkPositions`, every left from `scaleToPlot`. Exported
+ * (260913-nvn Task 3b) and shared with `EventMatchTable.tsx`: this component
+ * carries no `played` gate of its own — a caller who must never draw a dot
+ * for an unplayed row (`EventMatchTable.tsx`) passes `actual={undefined}` in
+ * that case, exactly as this file's own `MatchRow` already does structurally
+ * (`TeamSeasonMatch`'s `actual{Red,Blue}Score` are populated only when
+ * played, so `actual !== undefined` already implies played here).
+ */
+export function AllianceRow({ matchKey, side, predicted, sd, actual, yBand, domain, colorVar, softVar }: AllianceRowProps) {
   const pos = allianceMarkPositions(yBand);
   const tickCentre = scaleToPlot(predicted, domain, PLOT_W);
   const tickStep = useDevicePixelPhaseStep();
@@ -177,7 +192,7 @@ function AllianceRow({ matchKey, side, predicted, sd, actual, yBand, domain, col
   );
 }
 
-function AxisHeader({ domain }: { domain: AxisDomain }) {
+export function AxisHeader({ domain }: { domain: AxisDomain }) {
   const ticks = axisTicks(domain);
   return (
     <div data-testid="axis-ticks" className="relative" style={{ width: PLOT_W, height: MATCH_GEOMETRY.TICK_H }}>
@@ -203,7 +218,7 @@ function AxisHeader({ domain }: { domain: AxisDomain }) {
  * pass, "chips for bounded categorical values where a bare string sits
  * today").
  */
-function AllianceChip({ side }: { side: "red" | "blue" }) {
+export function AllianceChip({ side }: { side: "red" | "blue" }) {
   return <span className={cn("alliance-chip", side === "red" ? "alliance-chip--red" : "alliance-chip--blue")}>{side === "red" ? "Red" : "Blue"}</span>;
 }
 
@@ -214,7 +229,7 @@ function AllianceChip({ side }: { side: "red" | "blue" }) {
  * whose own uncertainty is already drawn as the interval band in the plot
  * column, so a decimal here implies a precision the band explicitly denies.
  */
-function PredictedScoreLine({
+export function PredictedScoreLine({
   matchKey,
   side,
   score,
@@ -231,8 +246,8 @@ function PredictedScoreLine({
   season: number;
   /** This alliance's own predicted per-bonus probabilities (`TeamSeasonMatchSchema.redBonusRp`/`blueBonusRp`, plan 06.1-05), positionally aligned to the season's bonus list. Undefined when the Monte Carlo did not run for this match. */
   bonusRp: readonly number[] | undefined;
-  /** G-06.1-26 (plan 06.1-08): this match's own `compLevel`, fed to `isBonusRpCompLevel` to gate `BonusRpDots`' `applicable` prop. */
-  compLevel: TeamSeasonMatch["compLevel"];
+  /** G-06.1-26 (plan 06.1-08): this match's own `compLevel`, fed to `isBonusRpCompLevel` to gate `BonusRpDots`' `applicable` prop. Typed off `isBonusRpCompLevel`'s own parameter (260913-nvn Task 3b), not either caller's row type, since `TeamSeasonMatchSchema` and `EventMatchSchema` both use the same qm/ef/qf/sf/f enum and this component is shared by both. */
+  compLevel: Parameters<typeof isBonusRpCompLevel>[0];
 }) {
   const sd = variance === undefined ? undefined : Math.sqrt(Math.max(0, variance));
   const bonusCount = bonusRpForSeason(season).length;
@@ -248,7 +263,7 @@ function PredictedScoreLine({
   );
 }
 
-function ActualScoreLine({
+export function ActualScoreLine({
   matchKey,
   side,
   score,
@@ -264,8 +279,8 @@ function ActualScoreLine({
   season: number;
   /** This alliance's own actual per-bonus flags (`TeamSeasonMatchSchema.actualRedBonusRp`/`actualBlueBonusRp`, plan 06.1-05), positionally aligned to the season's bonus list. `null` means the pipeline looked and the fact is not derivable; undefined means the artifact predates the field or the season has no registered RP rules. */
   actualBonusRp: readonly boolean[] | null | undefined;
-  /** G-06.1-26 (plan 06.1-08): this match's own `compLevel`, fed to `isBonusRpCompLevel` to gate `BonusRpDots`' `applicable` prop — the defence-in-depth guard against already-published playoff rows that still carry populated actual per-bonus arrays. */
-  compLevel: TeamSeasonMatch["compLevel"];
+  /** G-06.1-26 (plan 06.1-08): this match's own `compLevel`, fed to `isBonusRpCompLevel` to gate `BonusRpDots`' `applicable` prop — the defence-in-depth guard against already-published playoff rows that still carry populated actual per-bonus arrays. Typed off `isBonusRpCompLevel`'s own parameter (260913-nvn Task 3b) — see `PredictedScoreLine`'s identical note. */
+  compLevel: Parameters<typeof isBonusRpCompLevel>[0];
 }) {
   const bonusCount = bonusRpForSeason(season).length;
   const bonusStates = bonusStatesFromFlags(actualBonusRp, bonusCount);
@@ -439,22 +454,7 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
         )}
       </td>
       <td data-testid={`call-${match.matchKey}`} className="text-role-body px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top text-[var(--color-text-primary)]">
-        {!played ? (
-          <span aria-hidden="true" className="call-badge call-none">{"—"}</span>
-        ) : match.coldStart === true ? (
-          // D-01/D-02/D-03 (quick task 260909-t5q): the mirror of
-          // `EventMatchTable.tsx`'s own cold-start branch — see its comment
-          // for the full contract. Same neutral glyph and class as the
-          // not-played branch above, but exposed to assistive technology
-          // with its own accessible label, distinct from both "Prediction
-          // correct" and "Prediction incorrect". Taken from the row's own
-          // published flag, never derived from `match.pRedWin === 0.5`.
-          <span aria-label="Not scored (no prior data)" className="call-badge call-none">{"—"}</span>
-        ) : winnerCorrect ? (
-          <span aria-label="Prediction correct" className="call-badge call-hit">{"✓"}</span>
-        ) : (
-          <span aria-label="Prediction incorrect" className="call-badge call-miss">{"✗"}</span>
-        )}
+        <CallBadge played={played} coldStart={match.coldStart === true} winnerCorrect={winnerCorrect} />
       </td>
     </tr>
   );
@@ -475,8 +475,55 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
  * Deliberately does NOT fall back to the algorithm's own `*ScoreVarianceOwn`:
  * that is a different quantity at a different level. Absent means absent.
  */
-function matchBandSd(matchBandVariance: number | undefined): number | undefined {
+export function matchBandSd(matchBandVariance: number | undefined): number | undefined {
   return matchBandVariance === undefined ? undefined : Math.sqrt(Math.max(0, matchBandVariance));
+}
+
+/**
+ * The Call column's four-state badge — unplayed dash (aria-hidden), cold-start
+ * dash (its own accessible label, distinct from both prediction outcomes),
+ * hit check, and miss cross. Extracted and exported (260913-nvn Task 3b) so
+ * `MatchRow` (below) and `EventMatchTable.tsx`'s row view share ONE
+ * implementation instead of two copies that could silently diverge. A tie
+ * needs no branch of its own here: `winnerCorrect` is already `false` for a
+ * tie (`predictedWinner` is never `"tie"`, so it can never equal an actual
+ * winner of `"tie"`), which falls through to the same miss badge a dedicated
+ * tie branch would render.
+ */
+export function CallBadge({ played, coldStart, winnerCorrect }: { played: boolean; coldStart: boolean; winnerCorrect: boolean }) {
+  if (!played) {
+    return (
+      <span aria-hidden="true" className="call-badge call-none">
+        {"—"}
+      </span>
+    );
+  }
+  if (coldStart) {
+    // D-01/D-02/D-03 (quick task 260909-t5q): a structural cold start — every
+    // robot in this match was making its corpus-global first appearance, so
+    // the algorithm had nothing to predict from and the match is excluded
+    // from accuracy/Brier entirely. Same neutral glyph and class as the
+    // not-played branch above (D-03 wants it visually inert), but UNLIKE that
+    // branch this one IS exposed to assistive technology, with its own
+    // accessible label distinct from both "Prediction correct" and
+    // "Prediction incorrect". Taken from the row's own published flag, never
+    // derived from a 0.5 win probability — that would sweep in an ordinary
+    // no-call and violate D-02.
+    return (
+      <span aria-label="Not scored (no prior data)" className="call-badge call-none">
+        {"—"}
+      </span>
+    );
+  }
+  return winnerCorrect ? (
+    <span aria-label="Prediction correct" className="call-badge call-hit">
+      {"✓"}
+    </span>
+  ) : (
+    <span aria-label="Prediction incorrect" className="call-badge call-miss">
+      {"✗"}
+    </span>
+  );
 }
 
 export function MatchTable({ matches, domain, teamKey, season, algorithm }: MatchTableProps) {
