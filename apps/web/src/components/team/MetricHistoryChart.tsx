@@ -32,7 +32,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceArea, XAxis, YAxis } from "recharts";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
-import { buildMetricSeries, detectEventBands, drawsSigmaBand, METRIC_HISTORY_LEGEND_HEIGHT_PX, sigmaBandFor } from "./metricHistorySeries.js";
+import { buildMetricSeries, detectEventBands, drawsSigmaBand, METRIC_HISTORY_LEGEND_HEIGHT_PX, niceYAxis, sigmaBandFor } from "./metricHistorySeries.js";
 
 /**
  * The band's fill token — `chart-craft.md`'s own encoding rule ("text wears
@@ -213,6 +213,7 @@ export default function MetricHistoryChart({ rows, algorithmId, eventNameByKey }
   // label-only band. Zero-range data (one flat value) pads by 1 so the
   // domain never collapses.
   let yDomain: [number, number] | undefined;
+  let yTicks: number[] | undefined;
   if (yAxisDomainValues.length > 0) {
     const dataMin = Math.min(...yAxisDomainValues);
     const dataMax = Math.max(...yAxisDomainValues);
@@ -240,7 +241,13 @@ export default function MetricHistoryChart({ rows, algorithmId, eventNameByKey }
     // space proportional to a distance the marks never travel.
     const yMaxExtended = Math.max(0, dataMax + headroom);
     const yMinExtended = Math.min(0, dataMin);
-    yDomain = [yMinExtended, yMaxExtended];
+    // Quick task 260913-m45: rounded outward to a nice step with an explicit
+    // tick ladder through zero. A Sigma band's lower edge below zero would
+    // otherwise anchor every tick label to that arbitrary edge (see
+    // `niceYAxis`).
+    const axis = niceYAxis(yMinExtended, yMaxExtended);
+    yDomain = axis.domain;
+    yTicks = axis.ticks;
     // WR-08 (260902-post-phase08-ungoverned-ui/REVIEW.md): the width above
     // was measured against the RAW domain values, but the headroom just
     // extended the RENDERED domain past every one of them — so a headroom
@@ -250,7 +257,7 @@ export default function MetricHistoryChart({ rows, algorithmId, eventNameByKey }
     // matches the domain the axis actually renders (chart-craft.md's "derive
     // coupled geometry" rule — the domain and the width must never be two
     // independently maintained numbers).
-    yAxisWidth = computeYAxisWidth([...yAxisDomainValues, yMaxExtended, yMinExtended]);
+    yAxisWidth = computeYAxisWidth([...yAxisDomainValues, yMaxExtended, yMinExtended, ...axis.ticks]);
   }
 
   return (
@@ -281,6 +288,7 @@ export default function MetricHistoryChart({ rows, algorithmId, eventNameByKey }
           />
           <YAxis
             domain={yDomain}
+            ticks={yTicks}
             width={yAxisWidth}
             tickFormatter={formatYAxisTick}
             tick={{ fill: "var(--color-text-muted)", fontSize: 12 }}

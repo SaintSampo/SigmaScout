@@ -118,3 +118,40 @@ export function drawsSigmaBand(rows: readonly MetricHistoryRow[], algorithmId: s
   if (!usesSigmaScore(algorithmId)) return false;
   return buildMetricSeries(rows, TOTAL_METRIC_KEY).some((point) => sigmaBandFor(point) !== null);
 }
+
+/** Roughly how many intervals the Y axis aims for before rounding the step. */
+const Y_AXIS_TARGET_INTERVALS = 4;
+
+/**
+ * Quick task 260913-m45: the Y axis's rendered domain and its tick ladder,
+ * from the raw `[min, max]` the chart has already zero-extended and padded.
+ *
+ * Recharts anchors a fixed domain's ticks at the domain's own minimum. While
+ * that minimum was always 0 or a negative Total, the labels came out round.
+ * The Sigma band's lower edge is an arbitrary number, so a band dipping below
+ * zero anchored every label to it: -18.71, 131.29, 281.29 on a live look
+ * check. The fix rounds both bounds OUTWARD to a multiple of one nice step
+ * (1, 2 or 5 times a power of ten) and hands Recharts that exact ladder, so
+ * zero is always a tick and the domain never narrows. Each bound moves by
+ * less than one step.
+ *
+ * Pure, so the chart and its tests share one implementation. Tick values are
+ * cleaned to 12 significant digits (no `0.6000000000000001`) and normalized
+ * so a bound that rounds to zero is `0`, never `-0`.
+ */
+export function niceYAxis(min: number, max: number): { domain: [number, number]; ticks: number[] } {
+  const raw = (max - min) / Y_AXIS_TARGET_INTERVALS;
+  let step = 1;
+  if (raw > 0) {
+    const magnitude = 10 ** Math.floor(Math.log10(raw));
+    const fraction = raw / magnitude;
+    step = (fraction < 1.5 ? 1 : fraction < 3 ? 2 : fraction < 7 ? 5 : 10) * magnitude;
+  }
+  const clean = (value: number): number => Number(value.toPrecision(12)) + 0;
+  const lo = clean(Math.floor(min / step) * step);
+  const hi = clean(Math.ceil(max / step) * step);
+  const count = Math.round((hi - lo) / step);
+  const ticks: number[] = [];
+  for (let k = 0; k <= count; k++) ticks.push(clean(lo + k * step));
+  return { domain: [lo, hi], ticks };
+}
