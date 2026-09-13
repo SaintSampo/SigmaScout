@@ -198,13 +198,29 @@ transcripts: `compare-before-before-repeat.txt`, `compare-before-after-vpr.txt`,
 5. **Test coverage added.** The demo and DQ-zero skip-rule cases were ported to `sigmaScore.test.ts`,
    because the deleted test file held their only coverage.
 
+## Ship record (2026-09-13, Jacob approved "Push (web ship), Worker deploy")
+
+- **Retune skill deleted** (`2673aab1`, Jacob's call): `.claude/skills/sigmascout-retune-republish/`
+  and its Project Skills entry in `.claude/CLAUDE.md`.
+- **Web shipped:**
+  - `vite build` passed locally, then `69b349ae..2673aab1` was pushed. That push also carried another
+    session's ribbon nav fix (`d52e5ced`, `71351208`).
+  - Verified by content: the live `https://sigmascout.org/` serves `index-Bo9r3jmw.js`, the same hash as
+    the local build, and that bundle contains the new Simulation-unavailable copy.
+- **Worker deployed:**
+  - `pnpm worker:deploy` produced version `0aa87b51-a67b-4cf4-b4e5-e1b82a4ef779`, at 100% in
+    `wrangler deployments list`.
+  - Upload was 1,073.64 KiB / gzip 190.58 KiB, startup 53 ms. Bindings are MANIFEST/DB/ARTIFACTS, with
+    `LIVE_ALGORITHM_IDS ("spr")`.
+  - One tailed cron tick returned `outcome: ok`. No D1 reseed.
+
 ## Follow-ups (main context; subagents have no network)
 
 1. **Republish** (`pnpm publish:seasons`) so R2 drops the OPR/EPA ranking-point fields and OPR/EPA
    pre-schedule sidecars. SPR numbers must not move, per the equivalence gate. Until then, live OPR/EPA
-   artifacts still carry pmfs.
-2. **Worker deploy.** The bundle no longer carries the Sigma1 core or the retired accumulator.
-3. **Web ship** (push). Check `origin/main..main` first; other sessions' commits ride along.
+   artifacts still carry pmfs, so the Simulation tab still works under OPR/EPA on current bytes.
+2. ~~Worker deploy~~ done, see Ship record.
+3. ~~Web ship~~ done, see Ship record.
 4. **D1:** no reseed required. Optionally check for and delete any `vpr` state rows.
 5. **R2:** after republish, `pnpm cleanup:r2-generations` for stale OPR/EPA presim sidecars and any
    remaining `vpr@` objects.
@@ -213,8 +229,6 @@ transcripts: `compare-before-before-repeat.txt`, `compare-before-after-vpr.txt`,
 
 ## Flags for Jacob
 
-- `.claude/skills/sigmascout-retune-republish/` and the Project Skills blurb in `.claude/CLAUDE.md` now
-  describe deleted machinery (tune/promote/acceptance). Both were left untouched by instruction.
 - `paramsSeason` is still required by the manifest builder but is vestigial.
 - `data/baselines/rp-calibration-2026-09b.json` still holds OPR/EPA records. They are filtered out when
   attached.
