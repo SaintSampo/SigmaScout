@@ -32,20 +32,21 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceArea, XAxis, YAxis } from "recharts";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
-import { buildMetricSeries, detectEventBands, drawsSigmaBand, sigmaBandFor } from "./metricHistorySeries.js";
+import { buildMetricSeries, detectEventBands, drawsSigmaBand, METRIC_HISTORY_LEGEND_HEIGHT_PX, sigmaBandFor } from "./metricHistorySeries.js";
 
 /**
  * The band's fill token — `chart-craft.md`'s own encoding rule ("text wears
  * text tokens") extended to the band: this is a passive, non-interactive
  * shaded region, never the accent (accent means interactive/active only,
  * sketch-findings-sigmascout's design direction). The Line's own stroke and
- * width are named here too so Task 3's legend swatches can reuse the exact
- * same tokens rather than a second, independently hand-tuned pair.
+ * width are named here too, and EXPORTED, so the legend's swatches below
+ * (and their own tests) reuse the exact same tokens rather than a second,
+ * independently hand-tuned pair.
  */
-const BAND_FILL = "var(--color-text-muted)";
-const BAND_FILL_OPACITY = 0.18;
-const LINE_STROKE = "var(--color-text-primary)";
-const LINE_WIDTH_PX = 2;
+export const BAND_FILL = "var(--color-text-muted)";
+export const BAND_FILL_OPACITY = 0.18;
+export const LINE_STROKE = "var(--color-text-primary)";
+export const LINE_WIDTH_PX = 2;
 
 export interface MetricHistoryChartProps {
   rows: readonly MetricHistoryRow[];
@@ -253,46 +254,73 @@ export default function MetricHistoryChart({ rows, algorithmId, eventNameByKey }
   }
 
   return (
-    <div ref={containerRef} className="h-[280px] w-full" data-testid="metric-history-chart">
-      <ComposedChart width={width} height={CHART_HEIGHT} data={data} margin={{ top: 24, right: 16, bottom: 24, left: 8 }}>
-        <CartesianGrid stroke="var(--color-border)" strokeOpacity={0.4} />
-        {points.length > 0 &&
-          bands.map((band, index) => (
-            <ReferenceArea
-              key={`${band.eventKey}-${band.index}`}
-              x1={band.startX - 0.5}
-              x2={band.endX + 0.5}
-              ifOverflow="visible"
-              fill={index % 2 === 1 ? "var(--color-bg-surface)" : "transparent"}
-              fillOpacity={0.7}
-              stroke="none"
-              label={eventBandLabel(eventNameByKey[band.eventKey] ?? band.eventKey)}
-            />
-          ))}
-        <XAxis
-          dataKey="x"
-          type="number"
-          domain={xDomain}
-          allowDecimals={false}
-          tick={{ fill: "var(--color-text-muted)", fontSize: 12 }}
-          label={{ value: "Match sequence", position: "insideBottom", offset: -8, fill: "var(--color-text-muted)", fontSize: 12 }}
-        />
-        <YAxis
-          domain={yDomain}
-          width={yAxisWidth}
-          tickFormatter={formatYAxisTick}
-          tick={{ fill: "var(--color-text-muted)", fontSize: 12 }}
-          label={{ value: "Total", angle: -90, position: "insideLeft", fill: "var(--color-text-muted)", fontSize: 12 }}
-        />
-        {/*
-          Accepted consequence (quick task 260913-m45): a low Total with a
-          wide Sigma can push the band's lower edge — and so the axis, via
-          `yAxisDomainValues` above — below zero. That is the honest ±1 SD,
-          not a bug to clamp away.
-        */}
-        {drawBand && <Area dataKey="band" stroke="none" fill={BAND_FILL} fillOpacity={BAND_FILL_OPACITY} connectNulls={false} isAnimationActive={false} />}
-        {points.length > 0 && <Line dataKey="value" stroke={LINE_STROKE} strokeWidth={LINE_WIDTH_PX} connectNulls={false} isAnimationActive={false} />}
-      </ComposedChart>
-    </div>
+    <>
+      <div ref={containerRef} className="h-[280px] w-full" data-testid="metric-history-chart">
+        <ComposedChart width={width} height={CHART_HEIGHT} data={data} margin={{ top: 24, right: 16, bottom: 24, left: 8 }}>
+          <CartesianGrid stroke="var(--color-border)" strokeOpacity={0.4} />
+          {points.length > 0 &&
+            bands.map((band, index) => (
+              <ReferenceArea
+                key={`${band.eventKey}-${band.index}`}
+                x1={band.startX - 0.5}
+                x2={band.endX + 0.5}
+                ifOverflow="visible"
+                fill={index % 2 === 1 ? "var(--color-bg-surface)" : "transparent"}
+                fillOpacity={0.7}
+                stroke="none"
+                label={eventBandLabel(eventNameByKey[band.eventKey] ?? band.eventKey)}
+              />
+            ))}
+          <XAxis
+            dataKey="x"
+            type="number"
+            domain={xDomain}
+            allowDecimals={false}
+            tick={{ fill: "var(--color-text-muted)", fontSize: 12 }}
+            label={{ value: "Match sequence", position: "insideBottom", offset: -8, fill: "var(--color-text-muted)", fontSize: 12 }}
+          />
+          <YAxis
+            domain={yDomain}
+            width={yAxisWidth}
+            tickFormatter={formatYAxisTick}
+            tick={{ fill: "var(--color-text-muted)", fontSize: 12 }}
+            label={{ value: "Total", angle: -90, position: "insideLeft", fill: "var(--color-text-muted)", fontSize: 12 }}
+          />
+          {/*
+            Accepted consequence (quick task 260913-m45): a low Total with a
+            wide Sigma can push the band's lower edge — and so the axis, via
+            `yAxisDomainValues` above — below zero. That is the honest ±1 SD,
+            not a bug to clamp away.
+          */}
+          {drawBand && <Area dataKey="band" stroke="none" fill={BAND_FILL} fillOpacity={BAND_FILL_OPACITY} connectNulls={false} isAnimationActive={false} />}
+          {points.length > 0 && <Line dataKey="value" stroke={LINE_STROKE} strokeWidth={LINE_WIDTH_PX} connectNulls={false} isAnimationActive={false} />}
+        </ComposedChart>
+      </div>
+      {/*
+        Quick task 260913-m45: the legend draws ONLY alongside the band it
+        labels — never for OPR/EPA, never for a not-yet-republished SPR
+        artifact — so it cannot claim a Total ± Sigma reading the chart
+        beside it does not actually show. Its height is the ONE constant the
+        Tab's skeleton spacer also reads (chart-craft.md's "derive coupled
+        geometry"), so the chart landing after its lazy import never shifts
+        anything below it.
+      */}
+      {drawBand && (
+        <div
+          data-testid="metric-history-legend"
+          className="flex items-center gap-[var(--spacing-sm)] text-role-label text-[var(--color-text-muted)]"
+          style={{ height: METRIC_HISTORY_LEGEND_HEIGHT_PX }}
+        >
+          <span className="flex items-center gap-[var(--spacing-xs)]">
+            <span aria-hidden="true" className="inline-block w-4" style={{ background: LINE_STROKE, height: LINE_WIDTH_PX }} />
+            Total
+          </span>
+          <span className="flex items-center gap-[var(--spacing-xs)]">
+            <span aria-hidden="true" className="inline-block h-[10px] w-4" style={{ background: BAND_FILL, opacity: BAND_FILL_OPACITY }} />
+            ± Sigma
+          </span>
+        </div>
+      )}
+    </>
   );
 }

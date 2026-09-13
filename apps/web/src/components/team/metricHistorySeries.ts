@@ -7,6 +7,16 @@ import type { MetricHistoryRow } from "../../../../../packages/harness/metricHis
 import { SIGMA_METRIC_KEY, usesSigmaScore } from "../../../../../packages/harness/sigmaScore.js";
 import { TOTAL_METRIC_KEY } from "../../../../../packages/core/algorithms/types.js";
 
+/**
+ * Quick task 260913-m45: the chart's legend row and the Tab's skeleton
+ * spacer both read this ONE constant (chart-craft.md, "derive coupled
+ * geometry"), so the two heights cannot drift apart — the skeleton exists
+ * specifically so the chart's eventual legend causes no layout shift when
+ * the lazy chunk lands, and that guarantee only holds if both sides share
+ * one number rather than two independently hand-tuned ones.
+ */
+export const METRIC_HISTORY_LEGEND_HEIGHT_PX = 24;
+
 export interface MetricSeriesPoint {
   /** The row's ARRAY POSITION (1-indexed) in the team's own `metricHistory` array — see `buildMetricSeries`'s doc comment for what this deliberately does NOT use (D-12, 06-RESEARCH.md Pitfall 7). */
   x: number;

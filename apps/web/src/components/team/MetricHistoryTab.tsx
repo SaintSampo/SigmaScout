@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { MetricHistoryChartProps } from "./MetricHistoryChart.js";
+import { drawsSigmaBand, METRIC_HISTORY_LEGEND_HEIGHT_PX } from "./metricHistorySeries.js";
 
 export interface MetricHistoryTabProps {
   artifact: TeamSeasonArtifact;
@@ -38,11 +39,19 @@ function eventNameByKeyFrom(artifact: TeamSeasonArtifact): Readonly<Record<strin
  * Chart-shaped, text-free loading placeholder (06-UI-SPEC.md Copywriting
  * Contract, "Chart tab — loading"): covers both the dynamic-import wait and
  * any brief render delay once the chunk arrives.
+ *
+ * `drawsBand` (quick task 260913-m45): when true, reserves an extra
+ * text-free spacer sized to `METRIC_HISTORY_LEGEND_HEIGHT_PX` — the SAME
+ * constant `MetricHistoryChart.tsx`'s own legend reads — so the landed
+ * chart's legend causes no layout shift below it. Absent (no spacer) for
+ * OPR, EPA, or a not-yet-republished SPR artifact, matching the chart's own
+ * silence in those cases.
  */
-function ChartSkeleton() {
+function ChartSkeleton({ drawsBand }: { drawsBand: boolean }) {
   return (
     <div data-testid="metric-history-chart-skeleton" className="h-[280px] w-full p-[var(--spacing-md)]">
       <Skeleton className="h-full w-full" />
+      {drawsBand && <div data-testid="metric-history-legend-skeleton-spacer" style={{ height: METRIC_HISTORY_LEGEND_HEIGHT_PX }} />}
     </div>
   );
 }
@@ -102,10 +111,14 @@ export function MetricHistoryTab({ artifact, algorithmId, season, loadChart = de
   const [importKey, setImportKey] = useState(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- importKey intentionally forces recreation on retry
   const ChartComponent = useMemo(() => lazy(loadChart), [importKey, loadChart]);
+  // Quick task 260913-m45: imported from `metricHistorySeries.ts` only — this
+  // Tab must never import `MetricHistoryChart.tsx` statically, since that
+  // would pull Recharts into the eager bundle (D-14).
+  const drawsBand = drawsSigmaBand(artifact.metricHistory, algorithmId);
 
   return (
     <ChartErrorBoundary key={importKey} onRetry={() => setImportKey((key) => key + 1)}>
-      <Suspense fallback={<ChartSkeleton />}>
+      <Suspense fallback={<ChartSkeleton drawsBand={drawsBand} />}>
         <ChartComponent rows={artifact.metricHistory} algorithmId={algorithmId} season={season} eventNameByKey={eventNameByKeyFrom(artifact)} />
       </Suspense>
     </ChartErrorBoundary>

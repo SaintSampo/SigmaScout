@@ -145,21 +145,27 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   //
   // The pill's Sigma half is read from `artifact.seasonStats.metrics`
   // DIRECTLY, never from `metrics` (the resolved `metricsOverride ??
-  // seasonStats.metrics` above): `metricsOverride`, when the route supplies
-  // one, is the last OFFICIAL-match `metricHistory` row, and history rows
-  // carry no `sigma` entry at all (verified live 2026-09-13: frc2481 2026
-  // spr, 66 history rows, none with sigma). Reading through `metrics` would
-  // make the pill silently vanish the instant the events query resolves.
-  // Sigma is therefore SEASON-FINAL while the tiles beside it may be the
-  // last-official-match snapshot — the same as-of pairing the Teams row
-  // already publishes (that row's Total is as-of-event while its Sigma is
-  // season-final, by the same construction). The VALUE and the TIER both
+  // seasonStats.metrics` above) — and this is still deliberate as of quick
+  // task 260913-m45, which is NOT a correction of the claim below, just an
+  // update to it: `metricHistory` rows now DO carry each match's own Sigma
+  // (`row.metrics.sigma`, value only, no percentile), published from both
+  // the offline pipeline and the live Worker. But `metricsOverride` (when the
+  // route supplies one) is the last OFFICIAL-match row's `metrics`, and this
+  // header wants the season-final, TIERED figure — a per-match sigma entry
+  // has no percentile and so no tier, and reading it here would make the
+  // pill's tier silently disappear the instant the route supplies an
+  // override. Sigma is therefore SEASON-FINAL while the tiles beside it may
+  // be the last-official-match snapshot — the same as-of pairing the Teams
+  // row already publishes (that row's Total is as-of-event while its Sigma
+  // is season-final, by the same construction). The VALUE and the TIER both
   // come from the published `sigma` metric entry and NOTHING ELSE; the tier
   // goes through the existing client `tierForPercentile`, the same function
   // every other tile on this page uses. Absent entry (every OPR and EPA
   // artifact, or a pre-republish SPR one) means the Total tile degrades to
   // today's plain single box — `TotalSigmaValue` is byte-identical to
-  // `MetricValue` whenever `sigma` is `undefined`.
+  // `MetricValue` whenever `sigma` is `undefined`. Pairing the header's
+  // Sigma with its own snapshot row (rather than always the season-final
+  // one) is a separate follow-up, not fixed here.
   const seasonSigmaMetric = artifact.seasonStats.metrics[SIGMA_METRIC_KEY];
   const seasonSigmaScore = seasonSigmaMetric?.value;
   const seasonSigmaTier = tierForPercentile(seasonSigmaMetric?.percentile);
