@@ -171,6 +171,31 @@ export class SigmaScoutLayer {
   }
 
   /**
+   * This team's Sigma Score, READ-ONLY — never creates a belief. Delegates
+   * to `SigmaScoreAccumulator.sigmaFor`, which goes through `#readBelief`
+   * rather than `#mutableBelief` (see that method's own doc comment for the
+   * real order-dependence bug a single insert-on-read accessor once caused:
+   * `publishSeasons` and `--event` produced different ranking-point pmfs for
+   * the same event because merely reading a team created a belief entry, and
+   * whichever path read a team first changed what the other could see).
+   *
+   * Costs ONE team, unlike `consistencyByTeam()` above, which scores EVERY
+   * team the layer has ever seen and must NEVER be called once per match.
+   *
+   * Call this right after `foldPlayed` for a match: the value it returns at
+   * that instant is this team's Sigma Score "after this match", the same
+   * "after this match" meaning every other metric a metric-history row
+   * already publishes (quick task 260913-m45).
+   *
+   * `undefined` for a layer with no Sigma accumulator (an algorithm outside
+   * `SIGMA_SCORE_ALGORITHM_IDS`) — the same absent-key convention every
+   * other Sigma-only field on this layer uses.
+   */
+  sigmaFor(teamKey: string): number | undefined {
+    return this.#sigma?.sigmaFor(teamKey);
+  }
+
+  /**
    * One alliance's WIN-ODDS variance from history so far, from the Sigma
    * accumulator, or `undefined` for a layer without one. This is what
    * `#rpFieldsFor` reads; the published display band is derived from it by
