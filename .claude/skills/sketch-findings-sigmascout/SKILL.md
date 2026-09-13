@@ -33,7 +33,9 @@ rejected outright.
 
 **Uncertainty.** The `X ± Y` display is the product's point, so the ± gets drawn, not just printed.
 Totals render as intervals where there is room; match predictions render as two alliance bands on a
-**single shared event scale**, where the overlap between them *is* the win probability.
+**single shared event scale**. Overlap gives a feel for how close the match is, but it is NOT the
+win probability, and no copy may claim it is (retracted 2026-09-13, 260913-g66; see
+`references/uncertainty-display.md`). The band is drawn for SPR only.
 
 **One ± quantity, everywhere.** (Supersedes prior guidance — Phase 7 plan 07-06, D-01/D-02/D-03.)
 Every `±` this site prints and every band or interval it draws, at every aggregation level, is one

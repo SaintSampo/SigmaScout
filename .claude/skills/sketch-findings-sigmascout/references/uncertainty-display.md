@@ -20,6 +20,17 @@ row's band reconcile by summing SQUARES and taking the root — three robots at 
 never ±30. D-09's consistency term (R) is still computed and still feeds the Kalman update
 internally, but it is never displayed or published on its own under any name (D-03).
 
+**Corrected 2026-09-13 (quick task 260913-g66) for the shipped Match Band.** The "±17.3, never ±30"
+rule above holds only for INDEPENDENT per-robot contributions. The shipped Match Band is built from
+Sigma Score, which is the 1σ of a robot's EVEN-SPLIT SHARE of its alliance's miss — and three shares
+of one miss are not independent, they are the same number. Quadrature-summing them gives
+Var(alliance)/rosterSize, so the band came out √3 too narrow: SPR's band held **47.1%** of actual
+alliance scores against a 68.3% target (walk-forward, 2024–2026). The shipped band is therefore
+`√(rosterSize × Σ Sigma²)` — three robots at ±10 give **±30** — and it is published for SPR only.
+That corrected width is DISPLAY-ONLY: the rank simulation's win/tie/loss spread keeps the uncorrected
+`Σ Sigma²`, because widening it worsened win-probability Brier (0.1559 → 0.1631; red and blue misses
+correlate, +0.21). Do not re-teach "squares add, so some swing cancels" on any surface.
+
 **Why this is coherent rather than a compromise:** an alliance's combined `±` is exactly
 `√(Σ teams' own P + R)`, which is the SAME quantity `redScoreVarianceOwn` already is — so the site
 becomes internally consistent by construction, not by discipline. Accepted consequence: a team we
@@ -66,8 +77,11 @@ app.
 | Actual column | the same numbers as text; **loser greyed** |
 | Call column | ✓ / ✗ — did the predicted winner match |
 
-The overlap between the two bands *is* the win probability, drawn rather than asserted. Heavy overlap
-means a coin flip; separation means a lock.
+~~The overlap between the two bands *is* the win probability, drawn rather than asserted.~~
+**Retracted 2026-09-13 (260913-g66).** Overlap gives a *feel* for closeness — heavy overlap reads as
+close, separation as a favourite — but it is NOT the win probability, and no copy may say it is. The
+two alliances' misses in one match move together, so the margin is less uncertain than two
+independent bars imply; the win probability the site shows is computed separately.
 
 **Grey the loser's NUMBER, never its mark.** On the plot a dot carries alliance *identity*, so
 greying half the dots breaks the encoding to restate what the Call column already says. In the Actual
