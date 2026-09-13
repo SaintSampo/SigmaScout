@@ -1,19 +1,17 @@
 /**
- * `TeamSearchSchema`'s own T-06-01 coverage (06-01-PLAN.md Task 2) — the
- * `tab` field's fallback behavior, plus proof the inherited `RootSearchSchema`
- * fallbacks (year/algorithm) still apply unchanged through `.extend()`.
+ * `TeamSearchSchema`'s own coverage — the `tab` field's fallback behavior,
+ * plus proof the inherited `RootSearchSchema` fallbacks (year/algorithm)
+ * still apply unchanged through `.extend()`.
  */
 import { describe, expect, it } from "vitest";
 import { CURRENT_SEASON } from "./seasons.js";
 import { DEFAULT_EVENT_TAB, EVENT_TABS, EventSearchSchema, EventsSearchSchema, MatchSearchSchema, RootSearchSchema, TeamSearchSchema, TeamsSearchSchema } from "./searchParams.js";
 
 describe("RootSearchSchema's default algorithm (plan 07-18 Task 1, the cutover)", () => {
-  // Test 1 — the default algorithm.
   it("defaults to vpr when algorithm is absent", () => {
     expect(RootSearchSchema.parse({}).algorithm).toBe("spr");
   });
 
-  // Test 2 — the empty-input path on every schema that extends the root.
   it("every schema extending RootSearchSchema resolves the same empty-input algorithm default", () => {
     expect(TeamsSearchSchema.parse({}).algorithm).toBe("spr");
     expect(EventsSearchSchema.parse({}).algorithm).toBe("spr");
@@ -21,34 +19,23 @@ describe("RootSearchSchema's default algorithm (plan 07-18 Task 1, the cutover)"
     expect(EventSearchSchema.parse({}).algorithm).toBe("spr");
   });
 
-  // Test 3 — the adjacency case, D-05's safety argument made executable: the
-  // retired id and the renamed id are adjacent INPUTS that resolve to the
-  // same value by two different mechanisms. This is a PERMANENT regression
-  // proof (not a rename leftover), so the retired id is built from two
-  // segments rather than one quoted literal — `packages/harness/
-  // algorithmIdentity.test.ts`'s standing sweep matches an EXACT quoted
-  // occurrence of the retired id (the same disclosed sweep-pattern
-  // limitation that file's own STRUCTURAL_EXEMPTIONS list already applies
-  // to a path-segment case), and this file carries no exemption of its own.
+  // A PERMANENT regression proof: a retired algorithm id falls back to the
+  // current default via `.catch()` rather than erroring. Built from two
+  // segments rather than one quoted literal, to avoid typing a retired id
+  // in source.
   it("the retired pre-rename id falls back to vpr via .catch(); the renamed id parses directly", () => {
     const retiredAlgorithmId = "sigma" + "1";
     expect(RootSearchSchema.parse({ algorithm: retiredAlgorithmId }).algorithm).toBe("spr");
     expect(RootSearchSchema.parse({ algorithm: "spr" }).algorithm).toBe("spr");
   });
 
-  // Test 3b (quick task 260912-ivg Stage 5, URL back-compat): a bookmarked
-  // link carrying the algorithm's PREVIOUS wire id (retired by this rename)
-  // must not 404 or blank the page — same adjacency proof as Test 3 above,
-  // for the SAME `z.enum(...).catch(DEFAULT_ALGORITHM)` mechanism, one
-  // rename later. Built from two segments for the identical reason Test 3's
-  // own comment gives: the standing algorithmIdentity sweep matches an EXACT
-  // quoted occurrence of a retired id, and this file carries no exemption.
+  // Same permanent regression proof for a different retired wire id
+  // (a bookmarked link carrying it must not 404 or blank the page).
   it("the previous premier wire id (retired by quick task 260912-ivg) falls back to the current default via .catch()", () => {
     const retiredAlgorithmId = "b" + "pr";
     expect(RootSearchSchema.parse({ algorithm: retiredAlgorithmId }).algorithm).toBe("spr");
   });
 
-  // Test 4 — an unrelated garbage value still falls back, unchanged behavior.
   it("a garbage algorithm value falls back to the default", () => {
     expect(RootSearchSchema.parse({ algorithm: "not-a-real-algorithm" }).algorithm).toBe("spr");
   });
@@ -75,20 +62,12 @@ describe("TeamSearchSchema", () => {
 });
 
 describe("EventSearchSchema (07-01-PLAN.md Task 1; default flipped to insights by 07-18 Task 2; sixth id 'simulation' added by 08-09-PLAN.md Task 1)", () => {
-  // Test 4 (plan 07-18 Task 2, rewritten by 08-09 Task 1 PD-09): ordering is
-  // untouched — asserted separately from the default so the two facts (WHICH
-  // tab is active vs. WHERE tabs sit in the strip) cannot be conflated. The
-  // expected array grows from five ids to six, with "simulation" appended
-  // last, matching UI-SPEC's declared order.
+  // Ordering asserted separately from the default so the two facts (WHICH
+  // tab is active vs. WHERE tabs sit in the strip) cannot be conflated.
   it("EVENT_TABS is the six fixed ids in UI-SPEC order, with the default's id first and 'simulation' last", () => {
     expect(EVENT_TABS).toEqual(["insights", "breakdown", "quals", "alliances", "elims", "simulation"]);
   });
 
-  // Test 3 (plan 07-18 Task 2, rewritten by 08-09 Task 1): an explicit tab
-  // still wins for every one of the now-SIX ids, so the default change did
-  // not turn the field into a constant — this case covers the sixth id
-  // automatically once the tuple grows, so it now runs six iterations rather
-  // than leaving the coverage implicit.
   it("parses each of the six explicit tab ids back unchanged (six iterations)", () => {
     expect(EVENT_TABS).toHaveLength(6);
     for (const tab of EVENT_TABS) {
@@ -96,14 +75,10 @@ describe("EventSearchSchema (07-01-PLAN.md Task 1; default flipped to insights b
     }
   });
 
-  // Test 2 (plan 07-18 Task 2): a malformed tab still falls back, to the NEW
-  // default. Unmodified by 08-09 Task 1 — run to confirm it still passes.
   it("falls back to insights (the new default) on a bogus tab value", () => {
     expect(EventSearchSchema.parse({ tab: "bogus" }).tab).toBe("insights");
   });
 
-  // Test 1 (plan 07-18 Task 2): the empty-input path. Unmodified by 08-09
-  // Task 1 — run to confirm it still passes.
   it("defaults to insights when tab is absent", () => {
     expect(EventSearchSchema.parse({}).tab).toBe("insights");
   });
@@ -114,10 +89,9 @@ describe("EventSearchSchema (07-01-PLAN.md Task 1; default flipped to insights b
     expect(parsed.algorithm).toBe("spr");
   });
 
-  // New case, 08-09-PLAN.md Task 1: the separation plan 07-18 already
-  // insisted on — which tab is active on arrival vs. where tabs sit in the
-  // strip are different facts — asserted here against the specific failure
-  // mode of "appended an id and moved the default while I was in there."
+  // Which tab is active on arrival vs. where tabs sit in the strip are
+  // different facts — asserted against "appended an id and moved the
+  // default while I was in there."
   it("DEFAULT_EVENT_TAB is still exactly 'insights' and is NOT the last element of EVENT_TABS", () => {
     expect(DEFAULT_EVENT_TAB).toBe("insights");
     expect(EVENT_TABS.at(-1)).toBe("simulation");
