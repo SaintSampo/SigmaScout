@@ -1,8 +1,7 @@
 /**
- * Shared, framework-agnostic algorithm contract (RESEARCH.md Pattern 1,
- * ARCHITECTURE.md Pattern 1). This module must stay importable unchanged by
- * the Phase 4 Cloudflare Worker — no Node-only APIs, no better-sqlite3, no
- * Cloudflare bindings.
+ * Shared, framework-agnostic algorithm contract. This module must stay
+ * importable unchanged by the Cloudflare Worker — no Node-only APIs, no
+ * better-sqlite3, no Cloudflare bindings.
  *
  * `predict` and `update` are pure: neither may mutate its `state` argument.
  * `predict` never receives outcome-bearing fields (see
@@ -28,40 +27,30 @@ export interface UpcomingMatch {
   /**
    * TBA's `event_type` enum value for this match's event (0=Regional,
    * 1=District, 2=District Championship, 3=Championship Division,
-   * 4=Championship Finals, 5=District Championship Division,
-   * 99=Offseason, 100=Preseason — see
-   * `packages/core/rankingPoints/constants.ts`'s `EVENT_TYPE_TIERS`
-   * for the RP-relevant tier mapping). REQUIRED, not optional: an optional
-   * field with a silent default is the failure mode this plan exists to
-   * prevent (plan 03-03 Task 1 — RESEARCH.md Open Question 2). NOT
-   * outcome-bearing — an event's type is fixed when the event is
-   * scheduled, long before any match is played — so it is deliberately NOT
-   * added to `packages/harness/replay.ts`'s `OUTCOME_KEYS`, in explicit
-   * contrast to `scoreBreakdownRaw`'s note below.
+   * 4=Championship Finals, 5=District Championship Division, 99=Offseason,
+   * 100=Preseason — see `packages/core/rankingPoints/constants.ts`'s
+   * `EVENT_TYPE_TIERS` for the RP-relevant tier mapping). REQUIRED, not
+   * optional — a silent default here is the exact failure mode this
+   * contract's required fields exist to prevent. NOT outcome-bearing — an
+   * event's type is fixed when the event is scheduled — so it is
+   * deliberately NOT added to `packages/harness/replay.ts`'s `OUTCOME_KEYS`,
+   * in explicit contrast to `scoreBreakdownRaw`'s note below.
    */
   eventType: number;
   /**
-   * TBA's competition week for this match's event, **0-INDEXED as this corpus
-   * stores it** (`events.week`), or `null` when TBA gives the event no week at
-   * all. Corpus week 0 is competition "Week 1" and is the population
-   * Statbotics' `avg.py` filters with `m.week == 1` — the mapping, its
+   * TBA's competition week for this match's event, **0-INDEXED as this
+   * corpus stores it** (`events.week`), or `null` when TBA gives the event
+   * no week at all. Corpus week 0 is competition "Week 1" — the mapping, its
    * evidence and the null-week policy all live in
-   * `packages/core/algorithms/epaWeekOne.ts`, and that module is the only
-   * place a read site should get the constant from.
+   * `packages/core/algorithms/epaWeekOne.ts`, the only place a read site
+   * should get the constant from.
    *
-   * REQUIRED, not optional, for the same reason `eventType` above is: `null`
-   * is a real and common state (143 of 2024's events carry no week, covering
-   * 6,255 played matches), and an optional field would collapse "TBA has no
-   * week for this event" with "this construction site forgot to supply one".
-   * That is precisely the silent-default failure mode this contract's required
-   * fields exist to prevent. Supply the honest value at every site; where the
-   * week genuinely cannot be known, `null` is correct and `0` is NOT, because
-   * `0` is a real week.
-   *
-   * NOT outcome-bearing — an event's week is fixed when the event is
-   * scheduled, long before any match is played — so it is deliberately NOT
-   * added to `packages/harness/replay.ts`'s `OUTCOME_KEYS`, exactly as
-   * `eventType` is not.
+   * REQUIRED, not optional: `null` is a real and common state (143 of 2024's
+   * events carry no week, covering 6,255 played matches), and an optional
+   * field would collapse "TBA has no week for this event" with "this
+   * construction site forgot to supply one". Where the week genuinely
+   * cannot be known, `null` is correct and `0` is NOT, because `0` is a real
+   * week. NOT outcome-bearing, for the same reason `eventType` above is not.
    */
   week: number | null;
 }
@@ -74,27 +63,14 @@ export interface MatchResult extends UpcomingMatch {
   redRpEarned: number | null;
   blueRpEarned: number | null;
   /**
-   * `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`: TBA's
-   * `dq_team_keys` for each alliance, verbatim (populated end-to-end by
-   * `packages/ingest/normalize.ts` and stored in the corpus's
-   * `matches.red_dqs`/`blue_dqs` columns since Phase 3 — this is the one
-   * place that data was, until now, dropped on the way into an algorithm).
-   * Outcome-bearing: a disqualification is a ranking-and-record ruling
-   * resolved alongside the match result, not a fact knowable before the
-   * match is played, so this is added to `packages/harness/replay.ts`'s
-   * `OUTCOME_KEYS` in the same commit that adds this field — mirrors
-   * `scoreBreakdownRaw`'s doc comment below. Required, not optional (an
-   * empty array is the honest "no DQ" value, matching `redSurrogates`'/
-   * `blueSurrogates`' own required-array convention just above): the corpus
-   * always has an answer for this column (`NOT NULL` in schema.sql), so a
-   * silently-defaulted `undefined` here would be exactly the failure mode
-   * `eventType`'s own doc comment above warns against.
-   *
-   * Consumed by `packages/core/algorithms/dq.ts`'s
-   * `isFullyDqZeroScoreAlliance` — see that module's header for the policy
-   * this field exists to implement, and `opr.ts`'s "Disqualification
-   * policy" comment for the narrower, corrected version of the reasoning
-   * that used to justify carrying no DQ field here at all.
+   * TBA's `dq_team_keys` for each alliance, verbatim. Outcome-bearing: a
+   * disqualification is a ranking-and-record ruling resolved alongside the
+   * match result, not a fact knowable before the match is played, so it is
+   * part of `packages/harness/replay.ts`'s `OUTCOME_KEYS` — mirrors
+   * `scoreBreakdownRaw`'s doc comment below. Required, not optional: an
+   * empty array is the honest "no DQ" value (the corpus always has an
+   * answer for this column). Consumed by
+   * `packages/core/algorithms/dq.ts`'s `isFullyDqZeroScoreAlliance`.
    */
   redDqs: readonly string[];
   /** The blue alliance's counterpart to `redDqs` — see its doc comment for the full contract. */
@@ -102,19 +78,18 @@ export interface MatchResult extends UpcomingMatch {
   hasScoreBreakdown: boolean;
   /**
    * Verbatim TBA `score_breakdown` JSON for this match, or `null` when TBA
-   * omitted it (`hasScoreBreakdown === false`). D-02/D-27: this is the raw
-   * input a per-season `breakdown/*.ts` component map parses into
+   * omitted it (`hasScoreBreakdown === false`). This is the raw input a
+   * per-season `breakdown/*.ts` component map parses into
    * `ParsedComponents` — never parsed here, `packages/corpus` stays
-   * season-agnostic by design. Outcome-bearing: added to
-   * `packages/harness/replay.ts`'s `OUTCOME_KEYS` in the same commit that
-   * adds this field, so the leak-proof Proxy guards it identically to every
-   * other outcome field on all three trap surfaces (`get`,
-   * `getOwnPropertyDescriptor`, `ownKeys`).
+   * season-agnostic by design. Outcome-bearing: part of
+   * `packages/harness/replay.ts`'s `OUTCOME_KEYS`, so the leak-proof Proxy
+   * guards it identically to every other outcome field on all three trap
+   * surfaces (`get`, `getOwnPropertyDescriptor`, `ownKeys`).
    */
   scoreBreakdownRaw: string | null;
 }
 
-/** D-24: one component's predicted contribution to an alliance's score. */
+/** One component's predicted contribution to an alliance's score. */
 export interface ComponentPrediction {
   mean: number;
 }
@@ -130,107 +105,82 @@ export interface Prediction {
    * unset. This is the red+blue SUM, NOT either alliance's own variance —
    * see `redScoreVarianceOwn`/`blueScoreVarianceOwn` below for that.
    *
-   * NOT A WIN-PROBABILITY DENOMINATOR. This comment used to call it one, which
-   * held for the Sigma1 core that quick task 260913-it4 deleted. It does not
-   * for `spr` (wire id renamed by quick task 260912-ivg from the id BPR
-   * carried before it) as of `2.0.0+baseline`: BPR's filter states about
-   * twice the score variance it realizes (quick task 260910-25c measured
-   * sd(z) = 0.7062 over the design era), so BPR calibrates what it EMITS while
-   * computing `pRedWin` from the raw, uncalibrated figure. Reconstructing a
-   * win probability from this field would therefore disagree with `pRedWin`.
-   * It is still published on match rows, but no page draws it: match bands
-   * read the Match Band (`redMatchBandVariance`/`blueMatchBandVariance`).
+   * NOT A WIN-PROBABILITY DENOMINATOR: `spr` calibrates what it EMITS here
+   * while computing `pRedWin` from the raw, uncalibrated figure, so
+   * reconstructing a win probability from this field would disagree with
+   * `pRedWin`. It is still published on match rows, but no page draws it:
+   * match bands read the Match Band (`redMatchBandVariance`/
+   * `blueMatchBandVariance`).
    */
   variance?: number;
   /**
-   * D-01 (Phase 6): each alliance's OWN predicted-score variance, in points
-   * squared. This is NOT the same quantity as `variance` above (which sums
-   * both alliances) — that distinction stays real and unaffected.
-   *
-   * It is also NOT the sum of its teams' `TeamMetric.spread` squares, and
-   * no test pins either the identity or its absence. Plan 07-06 (D-01/D-02)
-   * made that sum an identity for Sigma1; Sigma1 later broke it on purpose,
-   * and quick task 260913-it4 deleted Sigma1 and its tests. For `spr`, the
-   * only algorithm that populates this field, `predict()` builds it as
-   * `(pv + obsSd²) × displaySdFactor(mu)² × unit²`, which differs from the
-   * summed spread squares in three structural ways: `pv` weights each team's
+   * Each alliance's OWN predicted-score variance, in points squared. NOT the
+   * same quantity as `variance` above (which sums both alliances), and NOT
+   * the sum of its teams' `TeamMetric.spread` squares. For `spr`, the only
+   * algorithm that populates this field, `predict()` builds it as
+   * `(pv + obsSd²) × displaySdFactor(mu)² × unit²`: `pv` weights each team's
    * posterior by the square of its rank weight, `obsSd²` adds observation
    * noise that no team's spread carries, and `displaySdFactor` rescales the
    * result by alliance strength for display. `pRedWin` is computed from the
-   * raw, uncalibrated variance, never from this field.
-   *
-   * Optional, following the same convention as `variance` above: left
+   * raw, uncalibrated variance, never from this field. Optional: left
    * `undefined` by OPR and EPA, neither of which models an alliance-level
    * own variance.
    */
   redScoreVarianceOwn?: number;
-  /** D-01 (Phase 6): the blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
+  /** The blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
   blueScoreVarianceOwn?: number;
-  /** D-24: full component vectors, present only for algorithms that decompose scores (EPA). */
+  /** Full component vectors, present only for algorithms that decompose scores (EPA). */
   redComponents?: Record<string, ComponentPrediction>;
   blueComponents?: Record<string, ComponentPrediction>;
   /**
-   * D-10: the full discrete ranking-point pmf, `P(RP = i)` at index `i`,
-   * for `i` in `0..maxRp` (that season's `RpRuleModule.maxRp`). Sums to 1
-   * within 1e-9. Optional — omitted entirely (never an empty array
-   * standing in for "this algorithm does not model RP"), following the
-   * existing optional-field convention above (`variance`, `redComponents`).
-   * The mean is DERIVED from this array at read time
-   * (`packages/core/rankingPoints/analyticPmf.ts`'s `pmfMean` — plan 09-04
-   * Task 3 moved it from the deleted
-   * `packages/core/rankingPoints/distribution.ts`) and never stored
-   * alongside it — one representation of one fact (D-10, mirrors D-21's
-   * raw-numbers-only artifact rule). No algorithm's own `predict()`
-   * populates this field any more (plan 09-04 Task 3 removed VPR's — the
-   * last one that did): it is attached uniformly, for every algorithm, by
-   * the level-2 `SigmaScoutLayer` (`packages/harness/sigmaScoutLayer.ts`)
-   * via `analyticRpPmf`.
+   * The full discrete ranking-point pmf, `P(RP = i)` at index `i`, for `i`
+   * in `0..maxRp` (that season's `RpRuleModule.maxRp`). Sums to 1 within
+   * 1e-9. Optional — omitted entirely (never an empty array standing in for
+   * "this algorithm does not model RP"). The mean is DERIVED from this
+   * array at read time (`packages/core/rankingPoints/analyticPmf.ts`'s
+   * `pmfMean`) and never stored alongside it — one representation of one
+   * fact. No algorithm's own `predict()` populates this field: it is
+   * attached uniformly, for every algorithm, by the level-2
+   * `SigmaScoutLayer` (`packages/harness/sigmaScoutLayer.ts`) via
+   * `analyticRpPmf`.
    */
   redRpPmf?: readonly number[];
-  /** D-10: the blue alliance's counterpart to `redRpPmf` — see its doc comment for the full contract. */
+  /** The blue alliance's counterpart to `redRpPmf` — see its doc comment for the full contract. */
   blueRpPmf?: readonly number[];
   /**
-   * Plan 06.1-02 (F-06-1): predicted per-bonus MARGINAL probabilities.
-   * Entry `i` is the predicted probability this alliance earns the bonus at
-   * the same index of `rpRuleModuleForSeason(season).bonusNames` — a
-   * positional array, not a record, so a reader must always index against
-   * `bonusNames` rather than assume field order. This is a per-bonus
-   * MARGINAL, not a distribution: entries do NOT sum to 1 and must never be
-   * passed through `roundPmf` (PD-05, 06.1-02-PLAN.md). It is a DIFFERENT
-   * quantity from `redRpPmf` above, which is a distribution over the RP
-   * TOTAL — never conflate the two. Optional, following the same
-   * omitted-entirely convention as `redRpPmf`: absent (never an empty or
-   * all-zero array) when `analyticRpPmf` did not run for this prediction
-   * (RP-ineligible event type, non-qualification `compLevel` — plan 09-04
-   * Task 3: this used to also name "zero `rpMonteCarloDraws`", a fast path
-   * a closed form has no draw count to trigger). Populated uniformly by
-   * the level-2 `SigmaScoutLayer`, not by any algorithm's own `predict()` —
-   * see `redRpPmf`'s doc comment above.
+   * Predicted per-bonus MARGINAL probabilities. Entry `i` is the predicted
+   * probability this alliance earns the bonus at the same index of
+   * `rpRuleModuleForSeason(season).bonusNames` — a positional array, not a
+   * record, so a reader must always index against `bonusNames` rather than
+   * assume field order. This is a per-bonus MARGINAL, not a distribution:
+   * entries do NOT sum to 1 and must never be passed through `roundPmf`. It
+   * is a DIFFERENT quantity from `redRpPmf` above, which is a distribution
+   * over the RP TOTAL — never conflate the two. Optional, same
+   * omitted-entirely convention as `redRpPmf`: absent when `analyticRpPmf`
+   * did not run for this prediction (RP-ineligible event type,
+   * non-qualification `compLevel`). Populated uniformly by the level-2
+   * `SigmaScoutLayer`, not by any algorithm's own `predict()`.
    */
   redBonusRp?: readonly number[];
   /** The blue alliance's counterpart to `redBonusRp` — see its doc comment for the full contract. */
   blueBonusRp?: readonly number[];
   /**
-   * Plan 09-07 (D-15): the win/tie/loss half of the RP decomposition —
+   * The win/tie/loss half of the RP decomposition —
    * `[P(red wins), P(tie), P(blue wins)]`, three entries, sums to 1. This is
    * `analyticRpPmf`'s `outcome` field (`RpOutcomeDistribution`'s
    * `pRedWin`/`pTie`/`pBlueWin`) flattened into the index order pinned by
    * `EventMatchSchema.matchOutcomePmf`'s doc comment (the single definition
    * site). Published so the rank simulation can draw a match's outcome ONCE
-   * instead of drawing each alliance's total RP independently — today's
-   * independent draws let both alliances "win" the same draw. Carries three
-   * entries at every configuration; the tie entry is ~0 until D-14's
-   * discrete score-margin tie model is selected, so the shape never changes
-   * when the model does. Optional, following `redRpPmf`'s omitted-entirely
-   * convention: absent (never a zero-filled array) whenever `redRpPmf` is,
-   * for the identical reasons.
+   * instead of drawing each alliance's total RP independently — independent
+   * draws let both alliances "win" the same draw. Optional, following
+   * `redRpPmf`'s omitted-entirely convention.
    */
   matchOutcomePmf?: readonly number[];
   /**
-   * Plan 09-07 (D-15): the red alliance's ranking points under each entry of
+   * The red alliance's ranking points under each entry of
    * `matchOutcomePmf`, index-aligned to it — `[winRp, tieRp, 0]`, read from
    * the season's own `RpRuleModule.winRp`/`.tieRp` (2/1 in 2016-2024, 3/1 in
-   * 2025-2026), never hardcoded. A THIRD quantity again, distinct from both
+   * 2025-2026), never hardcoded. A THIRD quantity, distinct from both
    * neighbours: `redRpPmf` is a distribution over the RP TOTAL, `redBonusRp`
    * is a per-bonus MARGINAL that does not sum to 1, and this is a small
    * exact vector giving each alliance's OUTCOME-only RP conditional on which
@@ -241,14 +191,14 @@ export interface Prediction {
   /** The blue alliance's counterpart to `redOutcomeRp` — `[0, tieRp, winRp]`, index-aligned to the SAME `matchOutcomePmf` order. See its doc comment for the full contract. */
   blueOutcomeRp?: readonly number[];
   /**
-   * Plan 09-07 (D-15): the red alliance's BONUS ranking points only —
-   * `analyticRpPmf`'s `redBonusPmf`, a distribution over the bonus-RP COUNT
-   * (sums to 1, unlike `redBonusRp`'s per-bonus marginal above). A THIRD
-   * quantity from both neighbours by name: `redRpPmf` is the RP TOTAL
-   * distribution (win/tie RP and bonus RP already folded in), `redBonusRp`
-   * is a per-bonus MARGINAL whose entries do not sum to 1, and this is a
-   * distribution over the bonus-RP count alone, independent of the match
-   * outcome. Optional, same convention as `matchOutcomePmf`.
+   * The red alliance's BONUS ranking points only — `analyticRpPmf`'s
+   * `redBonusPmf`, a distribution over the bonus-RP COUNT (sums to 1,
+   * unlike `redBonusRp`'s per-bonus marginal above). A THIRD quantity from
+   * both neighbours by name: `redRpPmf` is the RP TOTAL distribution
+   * (win/tie RP and bonus RP already folded in), `redBonusRp` is a per-bonus
+   * MARGINAL whose entries do not sum to 1, and this is a distribution over
+   * the bonus-RP count alone, independent of the match outcome. Optional,
+   * same convention as `matchOutcomePmf`.
    */
   redBonusRpPmf?: readonly number[];
   /** The blue alliance's counterpart to `redBonusRpPmf` — see its doc comment for the full contract. */
@@ -256,15 +206,14 @@ export interface Prediction {
 }
 
 /**
- * D-27, redefined by D-01/D-02 (plan 07-06): one team's named metric — a
- * value with an optional `spread`: the algorithm's own confidence in
- * `value`. For `spr`, the only algorithm that sets it, it is the standard
- * deviation of the team's rating estimate alone (`√(pL + pS)`, scaled into
- * points by `teamMetrics`); OPR and EPA leave it unset. It is NOT what the
- * site displays: `spread` never renders (`DisplayMetric.spread` in
- * `apps/web/src/components/MetricValue.tsx`), the `±` beside an SPR Total
- * is Sigma Score, and match bands are the Match Band
- * (`redMatchBandVariance`). No identity ties it to
+ * One team's named metric — a value with an optional `spread`: the
+ * algorithm's own confidence in `value`. For `spr`, the only algorithm that
+ * sets it, it is the standard deviation of the team's rating estimate alone
+ * (`√(pL + pS)`, scaled into points by `teamMetrics`); OPR and EPA leave it
+ * unset. It is NOT what the site displays: `spread` never renders
+ * (`DisplayMetric.spread` in `apps/web/src/components/MetricValue.tsx`),
+ * the `±` beside an SPR Total is Sigma Score, and match bands are the Match
+ * Band (`redMatchBandVariance`). No identity ties it to
  * `Prediction.redScoreVarianceOwn`; see that field's doc comment.
  */
 export interface TeamMetric {
@@ -273,22 +222,22 @@ export interface TeamMetric {
 }
 
 /**
- * D-27: the plain-data shape every `AlgorithmModule.teamMetrics` returns.
- * Outer key is the team key, inner key is the component name (e.g.
+ * The plain-data shape every `AlgorithmModule.teamMetrics` returns. Outer
+ * key is the team key, inner key is the component name (e.g.
  * `TOTAL_METRIC_KEY`, or a per-season component like `autoAmpNote`).
  */
 export type TeamMetrics = Record<string, Record<string, TeamMetric>>;
 
 /**
- * D-27: the one component name every algorithm must include in
- * `teamMetrics`'s per-team record, so a renderer has a headline number
- * regardless of which algorithm is selected.
+ * The one component name every algorithm must include in `teamMetrics`'s
+ * per-team record, so a renderer has a headline number regardless of which
+ * algorithm is selected.
  */
 export const TOTAL_METRIC_KEY = "total";
 
 /**
- * D-16/D-19: describes a season-boundary carryover call — which season a
- * team's rating is carrying *from* and *to*, and whether `toSeason` is the
+ * Describes a season-boundary carryover call — which season a team's
+ * rating is carrying *from* and *to*, and whether `toSeason` is the
  * corpus's cold-start season (in which case there is no `fromSeason` state
  * to carry, only a rookie-baseline reversion).
  */
@@ -299,16 +248,14 @@ export interface SeasonBoundary {
 }
 
 /**
- * T-03-18b (security audit, phase 03, quick task 260818-inm): the shared
- * telemetry seam every algorithm that routes its `score_breakdown` parse
- * through `breakdown/index.ts`'s `tryParseBreakdownPair` implements on its
- * state. Cumulative over the algorithm's whole lifetime, never reset by
- * `carrySeason` (D-Q2) — this is a data-quality observation about the
- * corpus, not a per-season quantity. Kept as its own field, deliberately
- * SEPARATE from any per-algorithm "RP fold skipped"-style counter (the
- * deleted Sigma1 core's `rpSkippedMatchCount` was one; no current algorithm
- * keeps one): the two overlap on a malformed match
- * (both increment) but record different facts — this one the CAUSE (the
+ * The shared telemetry seam every algorithm that routes its
+ * `score_breakdown` parse through `breakdown/index.ts`'s
+ * `tryParseBreakdownPair` implements on its state. Cumulative over the
+ * algorithm's whole lifetime, never reset by `carrySeason` — this is a
+ * data-quality observation about the corpus, not a per-season quantity.
+ * Kept as its own field, deliberately SEPARATE from any per-algorithm "RP
+ * fold skipped"-style counter: the two overlap on a malformed match (both
+ * increment) but record different facts — this one the CAUSE (the
  * breakdown failed its schema), the other the EFFECT (a downstream fold was
  * skipped) — and folding a ~21% population into a counter whose documented
  * expectation is ~0.1% would destroy the signal in both.
@@ -326,35 +273,34 @@ export interface AlgorithmModule<S> {
   /** The only place a match's outcome is read. */
   update(state: S, result: MatchResult): S;
   /**
-   * D-27: pure, read-only accessor returning plain data only — this is the
-   * one contract member Phases 5-7 render regardless of which algorithm is
+   * Pure, read-only accessor returning plain data only — this is the one
+   * contract member the site renders regardless of which algorithm is
    * selected, and it must stay plain data so `packages/core` stays
-   * Worker-importable unchanged by the Phase 4 Cloudflare Worker. The
-   * optional `teams` filter exists because D-28 snapshots only the 6 teams
-   * in a match after every match; a full-state snapshot per match would be
-   * O(all teams) and is not acceptable. When `teams` is omitted, every team
-   * known to `state` is returned.
+   * Worker-importable unchanged. The optional `teams` filter exists because
+   * state snapshots only the teams in a match after every match; a
+   * full-state snapshot per match would be O(all teams) and is not
+   * acceptable. When `teams` is omitted, every team known to `state` is
+   * returned.
    */
   teamMetrics(state: S, teams?: readonly string[]): TeamMetrics;
   /**
-   * D-16/D-17/D-19: carries a team's rating across a season boundary.
-   * Optional: EPA and SPR implement it, OPR does not. It was declared
-   * optional so the season loop that calls it could be written once, before
-   * any algorithm implemented it.
+   * Carries a team's rating across a season boundary. Optional: EPA and SPR
+   * implement it, OPR does not. It was declared optional so the season loop
+   * that calls it could be written once, before any algorithm implemented
+   * it.
    */
   carrySeason?(state: S, boundary: SeasonBoundary): S;
   /**
-   * Quick task 260908-615: selects WHICH as-of instant `carrySeason` above
-   * receives at a season boundary. Reads as a pair with it — `carrySeason`
-   * says HOW a rating crosses a boundary, this says FROM WHEN.
+   * Selects WHICH as-of instant `carrySeason` above receives at a season
+   * boundary. Reads as a pair with it — `carrySeason` says HOW a rating
+   * crosses a boundary, this says FROM WHEN.
    *
-   *   - `"season-final"` (the default, and what EVERY algorithm did before
-   *     this quick task): the state after the last replayed match of the
-   *     season, whatever kind of event that match belonged to.
+   *   - `"season-final"` (the default): the state after the last replayed
+   *     match of the season, whatever kind of event that match belonged to.
    *   - `"last-official-match"`: the state as it stood immediately after the
    *     season's last OFFICIAL match (`isOfficialEventType`, i.e. neither
    *     offseason nor preseason Week 0), so exhibition play cannot seed the
-   *     next season's prior. EPA declares this; VPR, OPR and BPR do not.
+   *     next season's prior. EPA declares this; OPR does not.
    *
    * Omitting the field means `"season-final"` — a module that never mentions
    * it is provably unaffected by this mechanism.
