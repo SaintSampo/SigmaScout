@@ -46,13 +46,20 @@ function eventNameByKeyFrom(artifact: TeamSeasonArtifact): Readonly<Record<strin
  * chart's legend causes no layout shift below it. Absent (no spacer) for
  * OPR, EPA, or a not-yet-republished SPR artifact, matching the chart's own
  * silence in those cases.
+ *
+ * The spacer is a SIBLING after the fixed-height box, never a child of it: a
+ * child of an `h-[280px]` box overflows rather than adding height, so it
+ * would reserve nothing. The fragment mirrors the chart's own shape (its
+ * 280px plot container, then its legend) element for element.
  */
 function ChartSkeleton({ drawsBand }: { drawsBand: boolean }) {
   return (
-    <div data-testid="metric-history-chart-skeleton" className="h-[280px] w-full p-[var(--spacing-md)]">
-      <Skeleton className="h-full w-full" />
+    <>
+      <div data-testid="metric-history-chart-skeleton" className="h-[280px] w-full p-[var(--spacing-md)]">
+        <Skeleton className="h-full w-full" />
+      </div>
       {drawsBand && <div data-testid="metric-history-legend-skeleton-spacer" style={{ height: METRIC_HISTORY_LEGEND_HEIGHT_PX }} />}
-    </div>
+    </>
   );
 }
 

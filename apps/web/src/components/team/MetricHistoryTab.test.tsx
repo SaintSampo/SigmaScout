@@ -83,11 +83,29 @@ describe("MetricHistoryTab", () => {
       render(<MetricHistoryTab artifact={sprArtifact} algorithmId="spr" season={2024} loadChart={loadChart} />);
 
       const skeleton = await screen.findByTestId("metric-history-chart-skeleton");
-      const spacer = skeleton.querySelector('[data-testid="metric-history-legend-skeleton-spacer"]');
-      expect(spacer).not.toBeNull();
-      expect((spacer as HTMLElement).style.height).toBe(`${METRIC_HISTORY_LEGEND_HEIGHT_PX}px`);
-      expect(spacer?.textContent).toBe("");
+      const spacer = screen.getByTestId("metric-history-legend-skeleton-spacer");
+      expect(spacer.style.height).toBe(`${METRIC_HISTORY_LEGEND_HEIGHT_PX}px`);
+      expect(spacer.textContent).toBe("");
       expect(skeleton.textContent).toBe("");
+      // The spacer must be the fixed-height box's NEXT SIBLING, never its
+      // child: inside the `h-[280px]` box it would overflow instead of adding
+      // height, and the landed legend would still shift the page by its own
+      // height. This mirrors the chart, whose legend follows its 280px plot
+      // container the same way (jsdom has no layout, so structure is what a
+      // unit test can pin).
+      expect(skeleton.contains(spacer)).toBe(false);
+      expect(skeleton.nextElementSibling).toBe(spacer);
+    });
+
+    it("the chart's legend follows its plot container the same way the skeleton spacer follows the skeleton box", async () => {
+      const { default: MetricHistoryChart } = await import("./MetricHistoryChart.js");
+      const rows = [
+        { matchKey: "m1", season: 2024, eventKey: "2024casj", algorithmId: "spr", teamKey: "frc1114", matchIndex: 0, metrics: { total: { value: 100 }, sigma: { value: 8 } } },
+      ];
+      render(<MetricHistoryChart rows={rows} algorithmId="spr" season={2024} eventNameByKey={{}} />);
+
+      const plot = screen.getByTestId("metric-history-chart");
+      expect(plot.nextElementSibling).toBe(screen.getByTestId("metric-history-legend"));
     });
 
     it("has no spacer for an opr artifact (no sigma band ever draws)", async () => {
@@ -100,7 +118,7 @@ describe("MetricHistoryTab", () => {
       render(<MetricHistoryTab artifact={oprArtifact} algorithmId="opr" season={2024} loadChart={loadChart} />);
 
       const skeleton = await screen.findByTestId("metric-history-chart-skeleton");
-      expect(skeleton.querySelector('[data-testid="metric-history-legend-skeleton-spacer"]')).toBeNull();
+      expect(screen.queryByTestId("metric-history-legend-skeleton-spacer")).toBeNull();
       expect(skeleton.textContent).toBe("");
     });
 
@@ -113,8 +131,8 @@ describe("MetricHistoryTab", () => {
 
       render(<MetricHistoryTab artifact={sprArtifact} algorithmId="spr" season={2024} loadChart={loadChart} />);
 
-      const skeleton = await screen.findByTestId("metric-history-chart-skeleton");
-      expect(skeleton.querySelector('[data-testid="metric-history-legend-skeleton-spacer"]')).toBeNull();
+      await screen.findByTestId("metric-history-chart-skeleton");
+      expect(screen.queryByTestId("metric-history-legend-skeleton-spacer")).toBeNull();
     });
   });
 });
