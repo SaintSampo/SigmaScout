@@ -66,7 +66,7 @@ import {
   type CorpusDistrictRanking,
   type CorpusEventAward,
 } from "../packages/corpus/db.js";
-import { computeLocksWithQualifiers, type LockResult, type LockTeamInput } from "../packages/core/districts/locks.js";
+import { computeLocksWithQualifiers, cutLinePointsWithQualifiers, type LockResult, type LockTeamInput, type QualifierSets } from "../packages/core/districts/locks.js";
 import { maxEventPoints, type DistrictTier } from "../packages/core/districts/pointModel.js";
 import { prequalifiedTeams } from "../packages/core/districts/prequalified.js";
 import {
@@ -202,14 +202,6 @@ function selectTeamMeta(db: Corpus, teamKeys: readonly string[]): Map<string, { 
 // Pure composition — no I/O, fully unit-testable (scripts/publishDistricts.test.ts)
 // ---------------------------------------------------------------------------
 
-/** The point total sitting at the `slots`-th rank (1-based), or `null` when `slots` is `null` (capacity not published) or there are no ranked teams at all. `rankingsAscByRank` must already be sorted ascending by `rank` (`selectDistrictRankings`'s own `ORDER BY rank ASC`). */
-export function cutLinePointsFor(rankingsAscByRank: readonly CorpusDistrictRanking[], slots: number | null): number | null {
-  if (slots === null) return null;
-  const idx = Math.min(slots, rankingsAscByRank.length) - 1;
-  if (idx < 0) return null;
-  return rankingsAscByRank[idx]!.pointTotal;
-}
-
 export interface ComposeDistrictArtifactOptions {
   readonly season: number;
   readonly generation: string;
@@ -343,10 +335,11 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
     pointTotal: t.ranking.pointTotal,
     maxRemaining: t.maxRemainingDistrict,
   }));
-  const districtLocks = computeLocksWithQualifiers(districtLockInputs, district.dcmpSlots, {
-    awardQualified: districtAwardQualified,
-    prequalified: new Set(),
-  });
+  // Hoisted so both this tier's computeLocksWithQualifiers call and its
+  // cutLinePointsWithQualifiers call (below) provably share identical
+  // inputs -- the fix for the 260913-l8q cut-line bug.
+  const districtQualifiers: QualifierSets = { awardQualified: districtAwardQualified, prequalified: new Set() };
+  const districtLocks = computeLocksWithQualifiers(districtLockInputs, district.dcmpSlots, districtQualifiers);
   const districtLockByTeam = new Map(districtLocks.map((r) => [r.teamKey, r] as const));
 
   // Pass 2: maxRemainingChamp = maxRemainingDistrict + (one hypothetical dcmp-tier
@@ -372,10 +365,9 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
     pointTotal: t.ranking.pointTotal,
     maxRemaining: maxRemainingChampByTeam.get(t.ranking.teamKey)!,
   }));
-  let champLocks = computeLocksWithQualifiers(champLockInputs, district.cmpSlots, {
-    awardQualified: dcmpAwardQualified,
-    prequalified: champPrequalified,
-  });
+  // Hoisted for the same reason as districtQualifiers above.
+  const champQualifiers: QualifierSets = { awardQualified: dcmpAwardQualified, prequalified: champPrequalified };
+  let champLocks = computeLocksWithQualifiers(champLockInputs, district.cmpSlots, champQualifiers);
 
   // research: "2025 FIRST South Carolina is a documented exception to the
   // whole points model" — its champ slots are five explicit named
@@ -390,8 +382,8 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
   }
   const champLockByTeam = new Map(champLocks.map((r) => [r.teamKey, r] as const));
 
-  const dcmpCutLine = cutLinePointsFor(rankings, district.dcmpSlots);
-  const cmpCutLine = champAllocationNote !== null ? null : cutLinePointsFor(rankings, district.cmpSlots);
+  const dcmpCutLine = cutLinePointsWithQualifiers(districtLockInputs, district.dcmpSlots, districtQualifiers);
+  const cmpCutLine = champAllocationNote !== null ? null : cutLinePointsWithQualifiers(champLockInputs, district.cmpSlots, champQualifiers);
 
   const lockVerdict = (result: LockResult, cutLinePoints: number | null, allocationNote: string | null) => ({
     status: result.status,

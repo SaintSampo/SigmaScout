@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { CorpusDistrict, CorpusDistrictRanking, CorpusEventAward } from "../packages/corpus/db.js";
-import { buildDistrictArtifact, buildDistrictsIndexArtifact, cutLinePointsFor, parseYearsSpec, type DistrictEventMeta } from "./publishDistricts.js";
+import { buildDistrictArtifact, buildDistrictsIndexArtifact, parseYearsSpec, type DistrictEventMeta } from "./publishDistricts.js";
 
 const GENERATION = "gen-1";
 const COMPUTED_AT = "2026-09-05T00:00:00.000Z";
@@ -416,23 +416,85 @@ describe("buildDistrictArtifact — award-based qualification (revision R2a)", (
   });
 });
 
-describe("cutLinePointsFor", () => {
-  const rankings = [ranking({ teamKey: "a", rank: 1, pointTotal: 100 }), ranking({ teamKey: "b", rank: 2, pointTotal: 80 }), ranking({ teamKey: "c", rank: 3, pointTotal: 50 })];
+describe("buildDistrictArtifact cut lines (260913-l8q: share the lock verdicts' own pool/slot derivation)", () => {
+  it("a DCMP Winner award (award_type 1, consuming at the DCMP tier) to a team ranked below cmpSlots pulls insights.cmpCutLinePoints ABOVE the naive rank-slot value, and every team's champLock.cutLinePoints matches it", () => {
+    const rankings = [
+      ranking({ teamKey: "a", rank: 1, pointTotal: 100 }),
+      ranking({ teamKey: "b", rank: 2, pointTotal: 90 }),
+      ranking({ teamKey: "c", rank: 3, pointTotal: 80 }),
+      ranking({ teamKey: "d", rank: 4, pointTotal: 70 }),
+    ];
+    const events = [districtEvent({ eventKey: "2026dcmp", eventType: 2 })];
+    const awards = new Map([["2026dcmp", [eventAward({ eventKey: "2026dcmp", awardType: 1, teamKey: "d" })]]]);
 
-  it("returns null when slots is null", () => {
-    expect(cutLinePointsFor(rankings, null)).toBeNull();
+    const artifact = buildDistrictArtifact({
+      season: 2026,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district({ dcmpSlots: 4, cmpSlots: 3 }),
+      rankings,
+      events,
+      registrations: new Map(),
+      awards,
+      teamMeta: new Map(),
+    });
+
+    // Naive rank-slot answer (the old cutLinePointsFor): rankings[cmpSlots-1] = "c" at 80.
+    // Pool-consistent answer: "d" is award-qualified (removed from the pool,
+    // pointsSlots = 3 - 1 = 2), so the pool is [a, b, c] and the 2nd-highest is 90.
+    expect(artifact.insights.cmpCutLinePoints).toBe(90);
+    expect(artifact.insights.cmpCutLinePoints).toBeGreaterThan(80);
+    for (const team of artifact.teams) {
+      expect(team.champLock.cutLinePoints).toBe(90);
+    }
   });
 
-  it("returns the point total at the slot-th rank", () => {
-    expect(cutLinePointsFor(rankings, 2)).toBe(80);
+  it("a district-event Impact award (award_type 0, consuming at the district-event tier) to a team ranked below dcmpSlots pulls insights.dcmpCutLinePoints ABOVE the naive rank-slot value", () => {
+    const rankings = [
+      ranking({ teamKey: "e", rank: 1, pointTotal: 100 }),
+      ranking({ teamKey: "f", rank: 2, pointTotal: 90 }),
+      ranking({ teamKey: "g", rank: 3, pointTotal: 80 }),
+      ranking({ teamKey: "h", rank: 4, pointTotal: 70 }),
+    ];
+    const events = [districtEvent({ eventKey: "2026e1", eventType: 1 })];
+    const awards = new Map([["2026e1", [eventAward({ eventKey: "2026e1", awardType: 0, teamKey: "h" })]]]);
+
+    const artifact = buildDistrictArtifact({
+      season: 2026,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district({ dcmpSlots: 3, cmpSlots: 1 }),
+      rankings,
+      events,
+      registrations: new Map(),
+      awards,
+      teamMeta: new Map(),
+    });
+
+    // Naive rank-slot answer: rankings[dcmpSlots-1] = "g" at 80.
+    // Pool-consistent answer: "h" is award-qualified (pointsSlots = 3 - 1 = 2),
+    // pool [e, f, g], 2nd-highest is 90.
+    expect(artifact.insights.dcmpCutLinePoints).toBe(90);
+    expect(artifact.insights.dcmpCutLinePoints).toBeGreaterThan(80);
+    for (const team of artifact.teams) {
+      expect(team.districtLock.cutLinePoints).toBe(90);
+    }
   });
 
-  it("clamps to the lowest-ranked team's point total when slots exceeds the team count", () => {
-    expect(cutLinePointsFor(rankings, 10)).toBe(50);
-  });
-
-  it("returns null for an empty ranking list", () => {
-    expect(cutLinePointsFor([], 1)).toBeNull();
+  it("2025fsc still publishes a null champ cut line", () => {
+    const rankings = [ranking({ teamKey: "frc1", pointTotal: 500, rank: 1 }), ranking({ teamKey: "frc2", pointTotal: 5, rank: 2 })];
+    const artifact = buildDistrictArtifact({
+      season: 2025,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district({ districtKey: "2025fsc", abbreviation: "fsc", displayName: "FIRST South Carolina", dcmpSlots: 5, cmpSlots: 5 }),
+      rankings,
+      events: [],
+      registrations: new Map(),
+      awards: new Map(),
+      teamMeta: new Map(),
+    });
+    expect(artifact.insights.cmpCutLinePoints).toBeNull();
   });
 });
 

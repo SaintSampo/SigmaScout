@@ -178,6 +178,25 @@ export interface QualifierSets {
  * for), and at best it is strictly worse for a rival whose own ceiling was
  * never actually threatened by the now-removed team in the first place.
  */
+/**
+ * The narrowed pool/slot-count derivation shared by `computeLocksWithQualifiers`
+ * and `cutLinePointsWithQualifiers` (fix 260913-l8q: the NC 2026 172-vs-231
+ * bug). Both award-qualified and prequalified teams are removed from the
+ * pool; only award-qualified (consuming) membership reduces `pointsSlots`,
+ * floored at zero. Extracted so the verdicts and the published cut line can
+ * never drift apart -- before this fix, `scripts/publishDistricts.ts`'s
+ * `cutLinePointsFor` read the raw, un-narrowed ranking at rank `slots`,
+ * which could name a cut line a team ranked ABOVE it had already been
+ * `"eliminated"` below (live proof: 2026fnc champ published 172 while the
+ * pool-consistent value is 231).
+ */
+function qualifierPool(teams: readonly LockTeamInput[], slots: number, qualifiers: QualifierSets): { pool: LockTeamInput[]; pointsSlots: number } {
+  const awardQualifiedRankedCount = teams.filter((t) => qualifiers.awardQualified.has(t.teamKey)).length;
+  const pointsSlots = Math.max(slots - awardQualifiedRankedCount, 0);
+  const pool = teams.filter((t) => !qualifiers.awardQualified.has(t.teamKey) && !qualifiers.prequalified.has(t.teamKey));
+  return { pool, pointsSlots };
+}
+
 export function computeLocksWithQualifiers(
   teams: readonly LockTeamInput[],
   slots: number | null,
@@ -198,10 +217,7 @@ export function computeLocksWithQualifiers(
     });
   }
 
-  const awardQualifiedRankedCount = teams.filter((t) => qualifiers.awardQualified.has(t.teamKey)).length;
-  const pointsSlots = Math.max(slots - awardQualifiedRankedCount, 0);
-
-  const pool = teams.filter((t) => !qualifiers.awardQualified.has(t.teamKey) && !qualifiers.prequalified.has(t.teamKey));
+  const { pool, pointsSlots } = qualifierPool(teams, slots, qualifiers);
   const poolByTeam = new Map(computeLocks(pool, pointsSlots).map((r) => [r.teamKey, r] as const));
 
   return teams.map((t) => {
@@ -209,4 +225,35 @@ export function computeLocksWithQualifiers(
     if (qualifiers.awardQualified.has(t.teamKey)) return qualifiedResult(t.teamKey, "lockedAward");
     return poolByTeam.get(t.teamKey)!;
   });
+}
+
+/**
+ * The published cut line: the point total a points-competing team must reach
+ * to be safe, sharing `qualifierPool`'s exact pool/slot derivation with
+ * `computeLocksWithQualifiers` above so the two can never disagree (fix
+ * 260913-l8q). Returns `null` for a `null` `slots` (capacity not published),
+ * a `pointsSlots` of zero (every slot is already consumed by ranked
+ * award-qualified teams), or an empty pool. Otherwise the pool is sorted
+ * descending by `pointTotal` and the value at index
+ * `min(pointsSlots, pool.length) - 1` is returned -- the same clamp
+ * `computeLocks`'s own pointsSlots-sized cutoff implies, so a pool smaller
+ * than `pointsSlots` still returns its lowest-scoring member's total rather
+ * than `undefined`.
+ *
+ * INVARIANT (locks.test.ts's seeded property test): for every non-null
+ * result `c`, every `computeLocksWithQualifiers` result run against the SAME
+ * `teams`/`slots`/`qualifiers` satisfies both `pointTotal > c` implies not
+ * `"eliminated"`, and `pointTotal < c` implies not `"locked"`. This is what
+ * broke before the fix: `scripts/publishDistricts.ts`'s old `cutLinePointsFor`
+ * read the raw ranking at rank `slots` -- ignoring the narrowed pool and
+ * slot count the verdicts above actually use -- so a published cut line
+ * could sit below a team the verdicts had already marked `"eliminated"`.
+ */
+export function cutLinePointsWithQualifiers(teams: readonly LockTeamInput[], slots: number | null, qualifiers: QualifierSets): number | null {
+  if (slots === null) return null;
+  const { pool, pointsSlots } = qualifierPool(teams, slots, qualifiers);
+  if (pointsSlots === 0 || pool.length === 0) return null;
+  const sortedDesc = pool.map((t) => t.pointTotal).sort((a, b) => b - a);
+  const idx = Math.min(pointsSlots, pool.length) - 1;
+  return sortedDesc[idx]!;
 }

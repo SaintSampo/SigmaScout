@@ -7,7 +7,7 @@
  * a possible loss). `status(T) === "locked"` iff `threatCount(T) < slots`.
  */
 import { describe, expect, it } from "vitest";
-import { computeLocks, computeLocksWithQualifiers, type LockTeamInput, type QualifierSets } from "./locks.js";
+import { computeLocks, computeLocksWithQualifiers, cutLinePointsWithQualifiers, type LockTeamInput, type QualifierSets } from "./locks.js";
 
 function team(teamKey: string, pointTotal: number, maxRemaining: number): LockTeamInput {
   return { teamKey, pointTotal, maxRemaining };
@@ -191,5 +191,109 @@ describe("computeLocksWithQualifiers (revision R2a)", () => {
     );
 
     expect(statusRank[after.status]).toBeLessThanOrEqual(statusRank[before.status]!);
+  });
+});
+
+describe("cutLinePointsWithQualifiers", () => {
+  const noQualifiers: QualifierSets = { awardQualified: new Set(), prequalified: new Set() };
+
+  it("returns null when slots is null", () => {
+    const teams = [team("a", 100, 0), team("b", 50, 0)];
+    expect(cutLinePointsWithQualifiers(teams, null, noQualifiers)).toBeNull();
+  });
+
+  it("with no qualifiers, returns the pointTotal of the slots-th team sorted descending, even when input is not already in points order", () => {
+    const teams = [team("d", 40, 0), team("a", 100, 0), team("c", 60, 0), team("b", 80, 0)];
+    expect(cutLinePointsWithQualifiers(teams, 3, noQualifiers)).toBe(60);
+  });
+
+  it("NC-2026-shaped regression: the naive rank-slot answer (70) is wrong; the pool/pointsSlots-consistent answer (90) matches which team is eliminated", () => {
+    const teams = [
+      team("a", 100, 0),
+      team("b", 90, 0),
+      team("c", 80, 0),
+      team("d", 70, 0),
+      team("e", 60, 0),
+      team("f", 50, 0),
+      team("g", 40, 0),
+    ];
+    const qualifiers: QualifierSets = { awardQualified: new Set(["f", "g"]), prequalified: new Set() };
+    expect(cutLinePointsWithQualifiers(teams, 4, qualifiers)).toBe(90);
+
+    const results = computeLocksWithQualifiers(teams, 4, qualifiers);
+    expect(results.find((r) => r.teamKey === "c")!.status).toBe("eliminated");
+  });
+
+  it("prequalified teams leave the pool but do not consume slots", () => {
+    const teams = [team("a", 100, 0), team("b", 90, 0), team("c", 80, 0), team("d", 70, 0)];
+    const qualifiers: QualifierSets = { awardQualified: new Set(), prequalified: new Set(["a"]) };
+    expect(cutLinePointsWithQualifiers(teams, 3, qualifiers)).toBe(70);
+  });
+
+  it("an award qualifier not present in teams (unranked) does not reduce slots", () => {
+    const teams = [team("a", 100, 0), team("b", 90, 0), team("c", 80, 0), team("d", 70, 0)];
+    const qualifiers: QualifierSets = { awardQualified: new Set(["ghost"]), prequalified: new Set() };
+    expect(cutLinePointsWithQualifiers(teams, 3, qualifiers)).toBe(80);
+  });
+
+  it("ranked award-qualified count >= slots gives pointsSlots 0 and returns null", () => {
+    const teams = [team("a", 100, 0), team("b", 90, 0)];
+    const qualifiers: QualifierSets = { awardQualified: new Set(["a", "b"]), prequalified: new Set() };
+    expect(cutLinePointsWithQualifiers(teams, 2, qualifiers)).toBeNull();
+  });
+
+  it("an empty pool returns null", () => {
+    const teams = [team("a", 100, 0)];
+    const qualifiers: QualifierSets = { awardQualified: new Set(["a"]), prequalified: new Set() };
+    expect(cutLinePointsWithQualifiers(teams, 1, qualifiers)).toBeNull();
+  });
+
+  it("a pool smaller than pointsSlots returns the lowest pool team's pointTotal, mirroring the old clamp", () => {
+    const teams = [team("a", 100, 0), team("b", 50, 0)];
+    expect(cutLinePointsWithQualifiers(teams, 10, noQualifiers)).toBe(50);
+  });
+
+  /** Deterministic LCG (no Math.random) so the property test is reproducible. */
+  function lcg(seed: number): () => number {
+    let state = seed >>> 0;
+    return () => {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      return state / 4294967296;
+    };
+  }
+
+  it("property: for every non-null cut line, no team above it is eliminated and no team below it is locked, across ~200 seeded pseudo-random fixtures", () => {
+    const rand = lcg(0xc0ffee);
+    const randInt = (max: number) => Math.floor(rand() * (max + 1));
+
+    for (let trial = 0; trial < 200; trial++) {
+      const teamCount = 1 + randInt(12);
+      const teams: LockTeamInput[] = [];
+      for (let i = 0; i < teamCount; i++) {
+        const pointTotal = randInt(500);
+        const maxRemaining = rand() < 0.3 ? 0 : randInt(200);
+        teams.push(team(`t${i}`, pointTotal, maxRemaining));
+      }
+      const slots = randInt(teamCount + 2);
+      const awardQualified = new Set(teams.filter(() => rand() < 0.15).map((t) => t.teamKey));
+      const prequalified = new Set(teams.filter((t) => !awardQualified.has(t.teamKey) && rand() < 0.1).map((t) => t.teamKey));
+      const qualifiers: QualifierSets = { awardQualified, prequalified };
+
+      const cutLine = cutLinePointsWithQualifiers(teams, slots, qualifiers);
+      if (cutLine === null) continue;
+
+      const results = computeLocksWithQualifiers(teams, slots, qualifiers);
+      const byTeam = new Map(teams.map((t) => [t.teamKey, t] as const));
+      for (const result of results) {
+        if (result.status !== "locked" && result.status !== "eliminated" && result.status !== "contending") continue;
+        const pointTotal = byTeam.get(result.teamKey)!.pointTotal;
+        if (pointTotal > cutLine) {
+          expect(result.status, `trial ${trial} team ${result.teamKey} pointTotal ${pointTotal} > cutLine ${cutLine}`).not.toBe("eliminated");
+        }
+        if (pointTotal < cutLine) {
+          expect(result.status, `trial ${trial} team ${result.teamKey} pointTotal ${pointTotal} < cutLine ${cutLine}`).not.toBe("locked");
+        }
+      }
+    }
   });
 });
