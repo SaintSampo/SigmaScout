@@ -1,53 +1,46 @@
 /**
- * The Breakdown tab (EVNT-03, D-11, 07-01-PLAN.md Task 2; redesigned by
- * quick 260905-3rq to sketch 009 winner A): the selected algorithm's
- * per-team metric components, tier-boxed, with NO rank column of any kind.
+ * The Breakdown tab: the selected algorithm's per-team metric components,
+ * tier-boxed, with NO rank column of any kind.
  *
  * Three shapes, by algorithm (`lib/metricKeys.ts`'s `hasGroupedTeamsView`/
  * `publishesComponentMetrics`): OPR renders flat — Total only, no band row,
  * no sort buttons. SPR renders Total plus the three PUBLISHED
  * `phaseAuto`/`phaseTeleop`/`phaseEndgame` metrics (value, spread AND
- * season-wide percentile verified live on `2026alhu` 2026-09-05), sortable,
- * but with no group-band row and no expansion — SPR's event artifacts
- * publish no per-team components to expand a phase into
- * (`publishesComponentMetrics` false, quick task 260913-mgn). EPA renders
+ * season-wide percentile), sortable, but with no group-band row and no
+ * expansion — SPR's event artifacts publish no per-team components to
+ * expand a phase into (`publishesComponentMetrics` false). EPA renders
  * those same three phase columns plus any trailing ungrouped components
  * (e.g. `foulsCommitted`), with a group-band header row above the column
  * labels carrying one toggle per phase; expanding swaps that phase's single
  * column for its component columns in place. Expansion is plain component
- * state — deliberately NOT a URL search param (user decision, 2026-09-05):
- * it is a transient reading posture, not a shareable view.
+ * state — deliberately NOT a URL search param: it is a transient reading
+ * posture, not a shareable view.
  *
- * Sorting (sketch 009-B's idea, folded in by the same user decision): every
- * metric column header is a sort button using the Teams table's exact
- * affordance (button-in-th, `aria-sort`, accent ▲/▼ — `TeamsTable.tsx`).
- * Local state, default Total-descending; a row missing the sorted key sorts
- * last regardless of direction; exact ties break by ascending team number —
- * the same three rules `teams-table/rowModel.ts` encodes. Collapsing the
- * group that owns the active sort key resets the sort to Total-descending
- * rather than silently sorting by an invisible column. A sort key no longer
- * visible at all (after an in-place algorithm switch, e.g. EPA to SPR) also
- * falls back to Total-descending, the same way (quick task 260913-mgn).
+ * Sorting: every metric column header is a sort button using the Teams
+ * table's exact affordance (button-in-th, `aria-sort`, accent ▲/▼ —
+ * `TeamsTable.tsx`). Local state, default Total-descending; a row missing
+ * the sorted key sorts last regardless of direction; exact ties break by
+ * ascending team number — the same three rules `teams-table/rowModel.ts`
+ * encodes. Collapsing the group that owns the active sort key resets the
+ * sort to Total-descending rather than silently sorting by an invisible
+ * column. A sort key no longer visible at all (after an in-place algorithm
+ * switch, e.g. EPA to SPR) also falls back to Total-descending, the same way.
  *
- * OPR is deliberately untouched (user decision): `hasGroupedTeamsView` is
- * false for it, and it renders the same flat single-header-row table it did
- * before this redesign — no group row, no sort buttons, Total only.
+ * OPR is deliberately untouched: `hasGroupedTeamsView` is false for it, and
+ * it renders a flat single-header-row table — no group row, no sort
+ * buttons, Total only.
  *
- * Columns are sized via `@tanstack/react-table@9.1.2`'s
- * `columnSizingFeature`, registered LOCALLY here (not imported across the
- * `teams-table` module boundary) because the column helper must be typed
- * against this module's own `BreakdownRow` type. The `teamNumber`/`nickname`
- * identity columns lead the column set in definition order; no column is
- * frozen during horizontal scroll (2026-09-13, user request).
+ * Columns are sized via `@tanstack/react-table`'s `columnSizingFeature`,
+ * registered LOCALLY here (not imported across the `teams-table` module
+ * boundary) because the column helper must be typed against this module's
+ * own `BreakdownRow` type. The `teamNumber`/`nickname` identity columns
+ * lead the column set in definition order; no column is frozen during
+ * horizontal scroll.
  *
  * Deliberately does NOT reuse `TeamsTable.tsx`'s row virtualizer or its
  * `useLayoutEffect` viewport-height measurement: an event roster is 20-60
  * rows, and a viewport-filling scroller inside a tab panel would fight the
- * page's own vertical scroll (07-01-PLAN.md Decision 5).
- *
- * The prop contract `{ artifact, algorithmId, season }` is FROZEN by
- * 07-01 — plans 07-11/07-12/07-13/07-14 built their own tabs against the
- * identical shape.
+ * page's own vertical scroll.
  */
 import { columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
@@ -77,14 +70,14 @@ type EventTeamMetrics = EventTeam["metrics"];
 /**
  * One Breakdown cell's metric entry: a published event-team metric, or the
  * value-only client-derived phase entry `withDerivedGroupMetrics` produces
- * for a stale cached EPA artifact that predates published groups (260904-7id).
+ * for a stale cached EPA artifact that predates published groups.
  */
 export type BreakdownMetricEntry = EventTeamMetrics[string] | DerivedGroupMetric;
 
-/** The Breakdown tab's two leading identity columns, in definition order — never sortable (see `isSortable` below). Two ids, not the Teams table's three, because D-11 carries no rank column at all. */
+/** The Breakdown tab's two leading identity columns, in definition order — never sortable (see `isSortable` below). Two ids, not the Teams table's three, because Breakdown carries no rank column at all. */
 export const BREAKDOWN_IDENTITY_COLUMN_IDS = ["teamNumber", "nickname"] as const;
 
-/** One team's Breakdown row — no `rank` field exists here at all (D-11). */
+/** One team's Breakdown row — no `rank` field exists here at all. */
 export interface BreakdownRow {
   teamKey: string;
   teamNumber: number;
@@ -102,10 +95,10 @@ export interface BreakdownSort {
   readonly key: string;
   readonly dir: BreakdownSortDir;
 }
-/** The tab's landing sort — Total descending, the pre-260905-3rq fixed order. */
+/** The tab's landing sort — Total descending. */
 export const DEFAULT_BREAKDOWN_SORT: BreakdownSort = { key: TOTAL_KEY, dir: "desc" };
 
-/** Which phase groups are expanded into their component columns. Transient reading posture — never a URL param (user decision, 2026-09-05). */
+/** Which phase groups are expanded into their component columns. Transient reading posture — never a URL param. */
 export type ExpandedGroups = Readonly<Record<ComponentGroupId, boolean>>;
 export const NO_GROUPS_EXPANDED: ExpandedGroups = { auto: false, teleop: false, endgame: false };
 
@@ -130,13 +123,14 @@ export function sortBreakdownRows(rows: readonly BreakdownRow[], sort: Breakdown
 /**
  * `buildBreakdownRows(artifact, algorithmId)`: maps each published team to a
  * `BreakdownRow` in `DEFAULT_BREAKDOWN_SORT` order. Never computes or
- * attaches a rank number (D-11).
+ * attaches a rank number.
  *
  * Each row's metrics pass through `withDerivedGroupMetrics` (its published-
  * entry-always-wins merge): on current artifacts this is a no-op — SPR and
  * EPA both publish `phaseAuto`/`phaseTeleop`/`phaseEndgame` — but a browser
- * holding a cached pre-260904-7id EPA artifact gets an honest value-only
- * derived phase entry (no spread, no tier) instead of a blank phase column.
+ * holding a cached EPA artifact that predates published groups gets an
+ * honest value-only derived phase entry (no spread, no tier) instead of a
+ * blank phase column.
  *
  * `teamNumber`/`nickname` are optional on `EventTeamSchema` — falls back to
  * the team key's own digits for the number and to a `Team {number}` string
@@ -144,7 +138,7 @@ export function sortBreakdownRows(rows: readonly BreakdownRow[], sort: Breakdown
  * identity.
  */
 export function buildBreakdownRows(artifact: EventArtifact, algorithmId: string): BreakdownRow[] {
-  void algorithmId; // reserved for signature symmetry with the column builder; row shape itself is algorithm-agnostic
+  void algorithmId; // reserved for signature symmetry with the column builder
   const unranked: BreakdownRow[] = artifact.teams.map((team) => {
     const teamNumber = team.teamNumber ?? teamNumberFromKey(team.teamKey);
     return {
@@ -158,8 +152,8 @@ export function buildBreakdownRows(artifact: EventArtifact, algorithmId: string)
 }
 
 /**
- * The visible metric-column keys for one expansion state (sketch 009-A;
- * three shapes as of quick task 260913-mgn) — checked in this order:
+ * The visible metric-column keys for one expansion state — checked in this
+ * order:
  *
  * 1. Non-grouped algorithms (OPR) return `metricKeysFor` unchanged — the
  *    pre-redesign flat set, per the "OPR gets no changes" decision.
@@ -190,28 +184,28 @@ export function visibleMetricKeys(algorithmId: string, season: number, expanded:
 
 /**
  * Registered once, module-level: only column sizing is registered (no
- * pinning feature — no column in this table is frozen, 2026-09-13).
+ * pinning feature — no column in this table is frozen).
  */
 const features = tableFeatures({ columnSizingFeature });
 const columnHelper = createColumnHelper<typeof features, BreakdownRow>();
 
 /**
- * 07-UAT.md G-7: humanizes a declared component key (raw camelCase, e.g.
+ * Humanizes a declared component key (raw camelCase, e.g.
  * `teleopSpeakerNoteAmplified`, `hubShift1`) into space-separated Title Case
  * words (`"Teleop Speaker Note Amplified"`, `"Hub Shift 1"`). This is not
- * cosmetic — G-7's own header-wrapping fix depends on it: a bare camelCase
- * string carries NO whitespace, so `whitespace-normal` has no break
- * opportunity except mid-character (`overflow-wrap: anywhere`'s ugly
- * fallback). Inserting real spaces at camelCase/digit boundaries gives the
- * wrapped header real word-break points, at the same word boundaries a
- * reader would mentally parse the key at anyway.
+ * cosmetic — the header-wrapping fix depends on it: a bare camelCase string
+ * carries NO whitespace, so `whitespace-normal` has no break opportunity
+ * except mid-character (`overflow-wrap: anywhere`'s ugly fallback).
+ * Inserting real spaces at camelCase/digit boundaries gives the wrapped
+ * header real word-break points, at the same word boundaries a reader
+ * would mentally parse the key at anyway.
  *
- * Delegates to the sitewide friendly-label derivation (2026-09-01 redesign,
- * lib/metricLabels.ts) — one implementation, so this tab and the Teams
- * table can never disagree about what a key is called (`phaseAuto` renders
- * as "Auto" through the same map). Exported (not module-private) so
- * `BreakdownTab.test.tsx` computes its own expected header strings through
- * this exact function rather than a second, independently-drifting regex.
+ * Delegates to the sitewide friendly-label derivation (lib/metricLabels.ts)
+ * — one implementation, so this tab and the Teams table can never disagree
+ * about what a key is called (`phaseAuto` renders as "Auto" through the
+ * same map). Exported (not module-private) so `BreakdownTab.test.tsx`
+ * computes its own expected header strings through this exact function
+ * rather than a second, independently-drifting regex.
  */
 export function metricLabel(key: string): string {
   return metricDisplayLabel(key);
@@ -222,7 +216,7 @@ function cellClassName(columnId: string): string {
 }
 
 /**
- * 07-UAT.md G-7: overrides `TableHead`'s own fixed `h-10`/`whitespace-nowrap`
+ * Overrides `TableHead`'s own fixed `h-10`/`whitespace-nowrap`
  * (`ui/table.tsx`) so a wrapped, multi-word humanized label (above) can grow
  * the header row instead of truncating to an ellipsis. `twMerge` (via `cn()`
  * inside `TableHead`) resolves the conflicting height/whitespace/alignment
@@ -234,20 +228,17 @@ function cellClassName(columnId: string): string {
  * neighbour rather than looking vertically mismatched.
  *
  * Desktop-only (`!isNarrow`, applied at the call site below) — mobile keeps
- * the single-line `truncate` treatment (07-UAT.md G-1/G-2/G-4's own 390px
- * measurements never assumed a taller header row).
+ * the single-line `truncate` treatment.
  */
 const WRAPPING_HEADER_CLASS_NAME = "h-auto min-h-10 py-2 align-top whitespace-normal break-words text-role-label";
 
 /**
- * 07-UAT.md G-10: the per-metric column width, post metric-cell redesign.
- * Two sizes, not one:
- * `TOTAL_KEY`'s own value can run to six digits ("284.89", the real worst
- * case measured live against the deployed 2026alhu VPR artifact, 48 teams),
- * so it keeps its own, slightly wider size rather than forcing every other
+ * The per-metric column width. Two sizes, not one: `TOTAL_KEY`'s own value
+ * can run to six digits ("284.89", the real worst case measured live), so
+ * it keeps its own, slightly wider size rather than forcing every other
  * column to carry Total's width — the same "differently-worst-case columns
  * get differently-sized floors" pattern `teams-table/columns.tsx`
- * establishes. The three phase columns (260905-3rq) share
+ * establishes. The three phase columns share
  * `BREAKDOWN_METRIC_COLUMN_WIDTH_PX`: a phase value is a partial sum of the
  * same alliance contribution Total sums fully, so its worst case is the
  * component class's, not Total's.
@@ -256,13 +247,13 @@ export const BREAKDOWN_METRIC_COLUMN_WIDTH_PX = 110;
 export const BREAKDOWN_TOTAL_COLUMN_WIDTH_PX = 118;
 
 /**
- * Quick task 260913-jkp: Total's own width now also depends on whether it
- * renders the split pill. `totalColumnWidth` (from `TotalSigmaValue.tsx`)
- * widens Total to `TOTAL_SIGMA_COLUMN_WIDTH_PX` under a Sigma-enabled
- * algorithm and leaves `BREAKDOWN_TOTAL_COLUMN_WIDTH_PX` unchanged otherwise;
- * every other component column keeps `BREAKDOWN_METRIC_COLUMN_WIDTH_PX`. Used
- * by the column definitions below AND by the group-header spacer cell and
- * the skeleton, so all three can never disagree about Total's width.
+ * Total's own width also depends on whether it renders the split pill.
+ * `totalColumnWidth` (from `TotalSigmaValue.tsx`) widens Total to
+ * `TOTAL_SIGMA_COLUMN_WIDTH_PX` under a Sigma-enabled algorithm and leaves
+ * `BREAKDOWN_TOTAL_COLUMN_WIDTH_PX` unchanged otherwise; every other
+ * component column keeps `BREAKDOWN_METRIC_COLUMN_WIDTH_PX`. Used by the
+ * column definitions below AND by the group-header spacer cell and the
+ * skeleton, so all three can never disagree about Total's width.
  */
 function metricColumnWidth(key: string, algorithmId: string): number {
   return key === TOTAL_KEY ? totalColumnWidth(algorithmId, BREAKDOWN_TOTAL_COLUMN_WIDTH_PX) : BREAKDOWN_METRIC_COLUMN_WIDTH_PX;
@@ -281,20 +272,19 @@ function breakdownColumnHeader(key: string, algorithmId: string): string {
  */
 function buildBreakdownColumns(algorithmId: string, season: number, isNarrow: boolean, expanded: ExpandedGroups) {
   // `algorithmId` reaching this function was already validated upstream
-  // through `RootSearchSchema.algorithm` (T-05-02) before this table ever
-  // rendered — the same loose-cast escape hatch `teams-table/columns.tsx`
-  // already uses for a value the type system widened to plain `string`
-  // crossing a component-prop boundary.
+  // through `RootSearchSchema.algorithm` before this table ever rendered —
+  // the same loose-cast escape hatch `teams-table/columns.tsx` already uses
+  // for a value the type system widened to plain `string` crossing a
+  // component-prop boundary.
   const algorithm = algorithmId as PublishedAlgorithmId;
   const metricKeys = visibleMetricKeys(algorithmId, season, expanded);
 
   return columnHelper.columns([
     columnHelper.accessor("teamNumber", {
       header: "Team #",
-      // `size` (07-UAT.md G-2): 88 at/above the breakpoint (unchanged),
-      // `TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX` below it — the same
-      // real-geometry-derived constant `TeamsTable`/`InsightsTab` share
-      // (`teams-table/columns.tsx`'s own doc comment has the derivation).
+      // 88 at/above the breakpoint (unchanged), `TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX`
+      // below it — the same real-geometry-derived constant `TeamsTable`/`InsightsTab`
+      // share (`teams-table/columns.tsx`'s own doc comment has the derivation).
       size: isNarrow ? TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX : 88,
       cell: (info) => (
         <Link to="/team/$teamNumber" params={{ teamNumber: String(info.getValue()) }} search={{ year: season, algorithm, tab: "overview" }}>
@@ -303,12 +293,11 @@ function buildBreakdownColumns(algorithmId: string, season: number, isNarrow: bo
       ),
     }),
     columnHelper.accessor("nickname", {
-      // D-6 (2026-09-04, 260904-5zg): visible label only — the column id
-      // stays "nickname" (pinning/data-testid/e2e selectors key off it).
+      // Visible label only — the column id stays "nickname"
+      // (pinning/data-testid/e2e selectors key off it).
       header: "Team Name",
-      // 07-UAT.md G-2 part 2: 220 at/above the breakpoint (unchanged),
-      // `NICKNAME_COLUMN_WIDTH_NARROW_PX` below it — the same real-geometry-
-      // derived constant `TeamsTable`/`InsightsTab` share.
+      // 220 at/above the breakpoint (unchanged), `NICKNAME_COLUMN_WIDTH_NARROW_PX`
+      // below it — the same real-geometry-derived constant `TeamsTable`/`InsightsTab` share.
       size: isNarrow ? NICKNAME_COLUMN_WIDTH_NARROW_PX : 220,
       cell: (info) => (
         <Link
@@ -333,9 +322,9 @@ function buildBreakdownColumns(algorithmId: string, season: number, isNarrow: bo
         id: key,
         header: breakdownColumnHeader(key, algorithmId),
         size: metricColumnWidth(key, algorithmId),
-        // Quick task 260913-jkp: only the TOTAL column renders the split
-        // pill — component columns (including an expanded phase's own
-        // components) stay single tier-boxed values, unchanged.
+        // Only the TOTAL column renders the split pill — component columns
+        // (including an expanded phase's own components) stay single
+        // tier-boxed values, unchanged.
         cell: (info) => {
           const entry = info.getValue();
           if (!isTotal) {
@@ -362,9 +351,8 @@ export interface BreakdownTabProps {
 }
 
 /**
- * D-11's model-estimates caption — a function (not a static string) because
- * its text is built from `algorithmDisplayLabel(algorithmId)`. Wording
- * matches 07-UI-SPEC.md's Copywriting Contract row exactly.
+ * The model-estimates caption — a function (not a static string) because
+ * its text is built from `algorithmDisplayLabel(algorithmId)`.
  */
 export function BREAKDOWN_MODEL_ESTIMATES_CAPTION(algorithmId: PublishedAlgorithmId): string {
   return `Estimated per-team components. TBA publishes score breakdowns per alliance, not per team; these are ${algorithmDisplayLabel(algorithmId)}'s modeled per-team contributions.`;
@@ -382,13 +370,12 @@ const BREAKDOWN_SKELETON_ROW_COUNT = 8;
  * toggle row is deliberately absent here: a placeholder must not offer an
  * interaction that does nothing. Under SPR this renders the same six
  * headers the populated SPR table shows, because both read
- * `visibleMetricKeys` (quick task 260913-mgn) — nothing shifts once real
- * data lands.
+ * `visibleMetricKeys` — nothing shifts once real data lands.
  */
 export function BreakdownTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
-  // Quick task 260913-jkp: Total's header now varies by algorithm too (the
-  // same `breakdownColumnHeader` the live table uses), so nothing shifts
-  // once real data lands under a Sigma-enabled algorithm.
+  // Total's header varies by algorithm too (the same `breakdownColumnHeader`
+  // the live table uses), so nothing shifts once real data lands under a
+  // Sigma-enabled algorithm.
   const headers = [
     "Team #",
     "Team Name",
@@ -421,11 +408,11 @@ export function BreakdownTabSkeleton({ algorithmId, season }: { algorithmId: str
 /**
  * The Breakdown tab: `TierKeyRow` once above the table, the wide
  * table itself in its own native `overflow-x-auto` scroll region, and the
- * D-11 caption once beneath it. Renders `EmptyState` (no table at all) when
- * `artifact.teams` is empty.
+ * model-estimates caption once beneath it. Renders `EmptyState` (no table
+ * at all) when `artifact.teams` is empty.
  */
 export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProps) {
-  // 07-UAT.md G-2: same sitewide breakpoint hook `TeamsTable.tsx`/`InsightsTab.tsx` reuse.
+  // Same sitewide breakpoint hook `TeamsTable.tsx`/`InsightsTab.tsx` reuse.
   const isNarrow = useIsMobile();
   const isGrouped = hasGroupedTeamsView(algorithmId);
   const isExpandable = publishesComponentMetrics(algorithmId);
@@ -452,8 +439,8 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
    * derived from the same `visibleMetricKeys` call the columns use, so the
    * two can never disagree about how many columns follow the last group.
    * EPA-only (`isExpandable`): 0 whenever `publishesComponentMetrics` is
-   * false, since the band row itself does not render then (quick task
-   * 260913-mgn) and nothing else reads this count.
+   * false, since the band row itself does not render then and nothing else
+   * reads this count.
    */
   const ungroupedCount = useMemo(() => {
     if (!isExpandable) return 0;
@@ -492,19 +479,18 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
       <div data-testid="breakdown-table-scroll" className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
         <table
           style={{
-            // 07-UAT.md G-1/G-7: `tableLayout: fixed` with `width` at the
-            // EXACT declared total (`table.getTotalSize()`), never `"100%"`
-            // — see `TeamsTable.tsx`'s identical style-object comment for
-            // the declared==actual invariant this protects. The group band
-            // is the FIRST rendered row (fixed layout reads column widths
-            // from the first row's cells) only under EPA (`isExpandable`);
-            // under OPR and SPR the column-label row is first, and its
-            // cells already carry `header.getSize()` widths (below), so
-            // fixed layout reads the same geometry either way. When the
-            // band DOES render, every band cell carries an explicit width
-            // summed from the same `metricColumnWidth` its member columns
-            // declare, so the two header rows cannot disagree about
-            // geometry.
+            // `tableLayout: fixed` with `width` at the EXACT declared total
+            // (`table.getTotalSize()`), never `"100%"` — see
+            // `TeamsTable.tsx`'s identical style-object comment for the
+            // declared==actual invariant this protects. The group band is
+            // the FIRST rendered row (fixed layout reads column widths from
+            // the first row's cells) only under EPA (`isExpandable`); under
+            // OPR and SPR the column-label row is first, and its cells
+            // already carry `header.getSize()` widths (below), so fixed
+            // layout reads the same geometry either way. When the band DOES
+            // render, every band cell carries an explicit width summed from
+            // the same `metricColumnWidth` its member columns declare, so
+            // the two header rows cannot disagree about geometry.
             tableLayout: "fixed",
             width: table.getTotalSize(),
             borderCollapse: "separate",
@@ -601,10 +587,9 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
                         // Bare, they sit at the top of the align-top cell
                         // while every sort label is centered in its box,
                         // about 14px lower; under SPR the label row is the
-                        // table's top edge, so the offset showed (quick
-                        // task 260913-mgn visual check). Narrow cells keep
-                        // bare labels: their `truncate` needs a plain text
-                        // child to ellipsize.
+                        // table's top edge, so the offset shows. Narrow
+                        // cells keep bare labels: their `truncate` needs a
+                        // plain text child to ellipsize.
                         <span className="tap-target inline-flex items-center text-left">
                           <table.FlexRender header={header} />
                         </span>
