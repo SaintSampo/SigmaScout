@@ -1,21 +1,63 @@
 /**
  * `prequalified.ts`'s behavior contract (quick task 260905-lic revision
  * R2a) -- verbatim curated team lists per season, verified against
- * `260905-lic-RESEARCH-awards.md` §Q3's own enumerations.
+ * `260905-lic-RESEARCH-awards.md` §Q3's own enumerations. The 2016-2020
+ * lists, backfilled 2026-09-13, are sourced in `prequalified.ts`'s header.
  */
 import { describe, expect, it } from "vitest";
 import { prequalifiedTeams } from "./prequalified.js";
 
 describe("prequalifiedTeams", () => {
-  it("2019 carries ONLY the original & sustaining list (9 teams) -- Hall of Fame and prior-year lists are NOT enumerable from the research and are deliberately omitted", () => {
-    const result = prequalifiedTeams(2019);
-    expect(result).toEqual(
-      new Set(["frc20", "frc45", "frc126", "frc148", "frc151", "frc157", "frc190", "frc191", "frc250"])
-    );
+  // 2016-2020 sizes below were counted by hand from the source lists, not
+  // read back from the implementation: Hall of Fame inducted before the
+  // season, plus original & sustaining (2016-2019), plus the prior-year rows,
+  // minus each overlap named in the test.
+  it("2016 is the whole Hall of Fame (22), original & sustaining (9), and the 2015 Championship winners (4) and EI winners (4), with no Chairman's Finalist category", () => {
+    const result = prequalifiedTeams(2016);
+    // 151 is both original & sustaining and Hall of Fame (1995)
+    expect(result.size).toBe(22 + 9 - 1 + 4 + 4);
+    expect(result.has("frc7")).toBe(true);
+    expect(result.has("frc597")).toBe(true);
+    expect(result.has("frc987")).toBe(false); // inducted 2016, so not yet a member in 2016
+    expect(result.has("frc5012")).toBe(true);
+    expect(result.has("frc3132")).toBe(true); // 2015 EI
   });
 
-  it("2020 carries NO prequalified list at all -- the disputed original & sustaining category follows TBA's year_end=2019, not the 2020 manual text", () => {
-    expect(prequalifiedTeams(2020)).toEqual(new Set());
+  it("2017 adds 987 to the Hall of Fame and swaps in the 2016 Championship winners and EI winners, deduplicating 120 (winner and Hall of Fame)", () => {
+    const result = prequalifiedTeams(2017);
+    expect(result.size).toBe(23 + 9 - 1 + 4 - 1 + 4);
+    expect(result.has("frc987")).toBe(true);
+    expect(result.has("frc120")).toBe(true);
+    expect(result.has("frc5012")).toBe(false); // 2015's winners do not carry past one season
+  });
+
+  it("2018 is the first season with a Chairman's Finalist category, drawn from both 2017 Championships", () => {
+    const result = prequalifiedTeams(2018);
+    // 25 HoF + 9 O&S - 151; 8 winners - 254; 6 EI - 27; 6 finalists - 2614 - 3132
+    expect(result.size).toBe(25 + 9 - 1 + 8 - 1 + 6 - 1 + 6 - 2);
+    expect(result.has("frc1885")).toBe(true); // 2017cmpmo finalist
+    expect(result.has("frc5499")).toBe(true); // 2017cmptx winner
+  });
+
+  it("2019 is the whole Hall of Fame, original & sustaining, and the 2018 winners, EI winners and Chairman's Finalists", () => {
+    const result = prequalifiedTeams(2019);
+    // 27 HoF + 9 O&S - 151; 8 winners - 27 - 254 - 148; 6 EI; 6 finalists - 2834 - 1311
+    expect(result.size).toBe(27 + 9 - 1 + 8 - 3 + 6 + 6 - 2);
+    for (const key of ["frc20", "frc45", "frc126", "frc148", "frc151", "frc157", "frc190", "frc191", "frc250"]) {
+      expect(result.has(key)).toBe(true);
+    }
+    expect(result.has("frc1816")).toBe(true); // a 2018 finalist, not yet Hall of Fame
+  });
+
+  it("2020 carries every category EXCEPT the disputed original & sustaining one, which follows TBA's year_end=2019", () => {
+    const result = prequalifiedTeams(2020);
+    // 29 HoF; 8 winners; 6 EI - 2834; 6 finalists - 1816 - 1902
+    expect(result.size).toBe(29 + 8 + 6 - 1 + 6 - 2);
+    expect(result.has("frc191")).toBe(false); // original & sustaining only, never Hall of Fame
+    expect(result.has("frc20")).toBe(false);
+    expect(result.has("frc151")).toBe(true); // Hall of Fame 1995, independent of the dispute
+    expect(result.has("frc1902")).toBe(true);
+    expect(result.has("frc5672")).toBe(true); // 2019 finalist
   });
 
   it("2022 is Hall of Fame only (13 teams) -- the 2021 Championship was cancelled, so there is no prior-year category", () => {
@@ -51,6 +93,7 @@ describe("prequalifiedTeams", () => {
   });
 
   it("returns an empty set for a season with no declared list at all", () => {
-    expect(prequalifiedTeams(2018)).toEqual(new Set());
+    expect(prequalifiedTeams(2015)).toEqual(new Set());
+    expect(prequalifiedTeams(2021)).toEqual(new Set());
   });
 });

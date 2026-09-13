@@ -14,29 +14,43 @@
  * never a "threat" to anyone else's cut line) but do NOT reduce the
  * district's champ slot allocation the way an award-qualifier does.
  *
- * 2019/2020 GAP, DOCUMENTED NOT GUESSED: the research could not enumerate
- * the full Hall-of-Fame roster for these two seasons (no year window stated
- * in either manual, "not checked" against a full HoF roster) or the
- * prior-year (2018) Championship winner/EI/Chairman's-Finalist teams --
- * 2018 predates this corpus entirely, so there is no ingested award data to
- * derive them from either (research Q3: "For 2019/2020 the equivalent lists
- * are not enumerated in the manual... Derive them from TBA awards data...
- * exactly as TBA's prior_year_cmp_teams() does" -- infeasible here without a
- * 2018 corpus). Per this pipeline's "never guess a value" rule, 2019 below
- * carries ONLY the one fully-enumerable category (original & sustaining
- * teams, cited verbatim) and 2020 carries NO list at all (research Q3 note
- * 3: TBA's own `ORIGINAL_AND_SUSTAINING` rule ends at `year_end=2019`, and
- * the research's own recommendation is to follow TBA so the slot arithmetic
- * reconciles against `official_advancement_counts` — the disputed 2020
- * manual text is flagged, not silently picked).
+ * 2016-2020 BACKFILL (2026-09-13, todo prequalified-backfill-2016-2019). The
+ * category list per season is the manual's own, read verbatim:
+ *   - 2016 (Admin Manual §7.2) and 2017 (Game Manual §10.12): Hall of Fame,
+ *     original & sustaining since 1992, prior-year Championship winners,
+ *     prior-year Championship Engineering Inspiration winners. NO Chairman's
+ *     Finalist category in either season.
+ *   - 2018 (Game Manual T16): the four above plus prior-year Championship
+ *     Chairman's Award Finalists.
+ *   - 2019 and 2020: as 2018, year-shifted (research §Q3's verbatim 2019 text).
+ * Every one of those manuals says "member of the FIRST Hall of Fame" with no
+ * year window, so 2016-2020 take the whole roster inducted before the season
+ * (`HALL_OF_FAME_INDUCTIONS`). The windowed lists begin in 2022.
  *
- * This under-population is the SAFE direction, not a correctness gap in the
- * lock math itself: an unlisted prequalified team is simply treated as a
- * normal points-competing team in the pool, which can only ever make that
+ * The prior-year teams are TBA's award rows under the event/award types TBA's
+ * own `prior_year_cmp_teams()` reads: Championship winners and Chairman's
+ * Finalists from the CMP_FINALS event(s), EI from the CMP_DIVISION events.
+ * 2016-2019's come from `event_awards_all` and matched TBA's API row for row
+ * (75/75). 2015's, for the 2016 season, were read from the API directly, since
+ * 2015 predates the corpus.
+ *
+ * 2020 carries every category EXCEPT original & sustaining (research Q3 note
+ * 3: TBA's own `ORIGINAL_AND_SUSTAINING` rule ends at `year_end=2019`, and the
+ * research's own recommendation is to follow TBA so the slot arithmetic
+ * reconciles against `official_advancement_counts` — the disputed 2020 manual
+ * text is flagged, not silently picked). Omitting a disputed category is the
+ * safe direction described below. TBA applies the other categories to 2020
+ * unchanged.
+ *
+ * This file errs only toward UNDER-population, the SAFE direction, never a
+ * correctness gap in the lock math itself: an unlisted prequalified team is
+ * simply treated as a normal points-competing team in the pool, which can only ever make that
  * one team's OWN status less favorable (never "locked"/"prequalified" when
  * it should be "contending") and can only ever make a genuine rival's status
  * MORE conservative (an extra competitor in the pool, never fewer) -- it can
- * never fabricate a false "locked" guarantee for anyone.
+ * never fabricate a false "locked" guarantee for anyone. The reverse error,
+ * listing a team that was NOT prequalified, is the unsafe one, so every
+ * category and every team above is read from a source, never assumed.
  */
 
 /** `frcN` team-key strings for a list of bare team numbers -- the corpus's own team_key convention (`packages/corpus/schema.sql`'s `teams.team_key`). */
@@ -46,10 +60,56 @@ function teamKeys(numbers: readonly number[]): string[] {
 
 /**
  * Original & sustaining teams (research Q3, `TBA cmp_qualification.py
- * ORIGINAL_AND_SUSTAINING_TEAMS`) -- applies 2019 ONLY per TBA's own
- * `year_end=2019` rule (research Q3 note 3's disputed-2020 resolution).
+ * ORIGINAL_AND_SUSTAINING_TEAMS`). TBA's rule applies one static set from
+ * 1992 through `year_end=2019`. This file uses it for 2016-2019, the seasons
+ * it covers. 2020 is excluded per research Q3 note 3's disputed-2020
+ * resolution.
  */
-const ORIGINAL_AND_SUSTAINING_2019: readonly number[] = [20, 45, 126, 148, 151, 157, 190, 191, 250];
+const ORIGINAL_AND_SUSTAINING: readonly number[] = [20, 45, 126, 148, 151, 157, 190, 191, 250];
+const ORIGINAL_AND_SUSTAINING_FIRST_SEASON = 2016;
+const ORIGINAL_AND_SUSTAINING_LAST_SEASON = 2019;
+
+/**
+ * Every FIRST Hall of Fame team through 2019, keyed by the season it won the
+ * Championship Chairman's Award. Transcribed from firsthalloffame.org's "Meet
+ * the Teams" roster (read 2026-09-13) and cross-checked against the
+ * derivation TBA's `hall_of_fame_teams()` runs over its CMP_FINALS Chairman's
+ * rows. The two agree on every season from 1995 to 2019. TBA's award data also
+ * credits team 191 with 1992 and 1994 wins the Hall of Fame does not list, and
+ * it lacks the 1993 winner (team 7). The official roster is followed on both
+ * counts. Team 191 is already prequalified 2016-2019 as original & sustaining.
+ */
+const HALL_OF_FAME_INDUCTIONS: Readonly<Record<number, readonly number[]>> = {
+  1993: [7],
+  1995: [151],
+  1996: [144],
+  1997: [47],
+  1998: [23],
+  1999: [120],
+  2000: [16],
+  2001: [22],
+  2002: [175],
+  2003: [103],
+  2004: [254],
+  2005: [67],
+  2006: [111],
+  2007: [365],
+  2008: [842],
+  2009: [236],
+  2010: [341],
+  2011: [359],
+  2012: [1114],
+  2013: [1538],
+  2014: [27],
+  2015: [597],
+  2016: [987],
+  2017: [2614, 3132],
+  2018: [2834, 1311],
+  2019: [1816, 1902],
+};
+
+/** Seasons whose manual pre-qualifies EVERY Hall of Fame member, with no year window (see this module's header). */
+const WHOLE_HALL_OF_FAME_SEASONS: ReadonlySet<number> = new Set([2016, 2017, 2018, 2019, 2020]);
 
 /** Hall of Fame teams, per season (research Q3's "Curated pre-qualified lists" table) -- TBA's own list is preferred over the FIRST eligibility page's one-team-shorter list, per research Q3 note 5, "same provenance as the slot counts". */
 const HALL_OF_FAME_BY_SEASON: Readonly<Record<number, readonly number[]>> = {
@@ -61,17 +121,57 @@ const HALL_OF_FAME_BY_SEASON: Readonly<Record<number, readonly number[]>> = {
 };
 
 /**
- * Prior-year (season-1) FIRST Championship pre-qualifiers, verbatim from the
+ * Prior-year (season-1) FIRST Championship pre-qualifiers. 2016-2020 come from
+ * TBA award rows (see this module's header). 2023-2025 are verbatim from the
  * eligibility pages (research Q3): CMP Winners, Impact/Chairman's Finalists,
  * EI Winners, and the single prior-year Impact/Chairman's Winner (who also
  * appears in that season's own Hall of Fame list -- deduplicated by the Set
  * `prequalifiedTeams` builds below, never double-counted).
+ *
+ * 2017-2019 each held two Championships, so those seasons' winner and
+ * finalist rows name both sites.
  *
  * 2025 additionally carries a one-off, named exception (research Q3):
  * team 9739, "Due to extreme outside factors that impacted their ability to
  * attend the 2024 FIRST Championship."
  */
 const PRIOR_YEAR_CMP_PREQUALIFIERS_BY_SEASON: Readonly<Record<number, readonly number[]>> = {
+  2016: [
+    // 2015 CMP Winners (2015cmp)
+    118, 1678, 1671, 5012,
+    // 2015 EI Winners (2015cars, 2015carv, 2015new, 2015tes)
+    3478, 771, 195, 3132,
+  ],
+  2017: [
+    // 2016 CMP Winners (2016cmp)
+    330, 2481, 120, 1086,
+    // 2016 EI Winners (2016arc, 2016cur, 2016gal, 2016new)
+    3211, 3990, 2468, 1676,
+  ],
+  2018: [
+    // 2017 CMP Winners (2017cmpmo, 2017cmptx)
+    2767, 254, 862, 1676, 973, 1011, 2928, 5499,
+    // 2017 EI Winners (2017dal, 2017dar, 2017gal, 2017new, 2017tes, 2017tur)
+    27, 3324, 5437, 2096, 1023, 1540,
+    // 2017 Chairman's Finalists (2017cmpmo, 2017cmptx)
+    2169, 1885, 2614, 1902, 3646, 3132,
+  ],
+  2019: [
+    // 2018 CMP Winners (2018cmpmi, 2018cmptx)
+    2767, 27, 2708, 4027, 254, 148, 2976, 3075,
+    // 2018 EI Winners (2018cars, 2018carv, 2018dal, 2018dar, 2018roe, 2018tur)
+    2137, 5987, 4481, 772, 6348, 3847,
+    // 2018 Chairman's Finalists (2018cmpmi, 2018cmptx)
+    1816, 2220, 2834, 1311, 2096, 2468,
+  ],
+  2020: [
+    // 2019 CMP Winners (2019cmpmi, 2019cmptx)
+    3707, 217, 4481, 1218, 973, 1323, 5026, 4201,
+    // 2019 EI Winners (2019arc, 2019cars, 2019carv, 2019cur, 2019roe, 2019tur)
+    1325, 2096, 2905, 2834, 2557, 3284,
+    // 2019 Chairman's Finalists (2019cmpmi, 2019cmptx)
+    1629, 1816, 5672, 1902, 2682, 3646,
+  ],
   2023: [
     // 2022 CMP Winners
     1619, 254, 3175, 6672,
@@ -115,11 +215,15 @@ const PRIOR_YEAR_CMP_PREQUALIFIERS_BY_SEASON: Readonly<Record<number, readonly n
 export function prequalifiedTeams(season: number): ReadonlySet<string> {
   const numbers = new Set<number>();
 
-  if (season === 2019) {
-    for (const n of ORIGINAL_AND_SUSTAINING_2019) numbers.add(n);
+  if (season >= ORIGINAL_AND_SUSTAINING_FIRST_SEASON && season <= ORIGINAL_AND_SUSTAINING_LAST_SEASON) {
+    for (const n of ORIGINAL_AND_SUSTAINING) numbers.add(n);
   }
-  // 2020: no list at all -- see this module's header comment (disputed
-  // original & sustaining category, TBA's year_end=2019 followed).
+
+  if (WHOLE_HALL_OF_FAME_SEASONS.has(season)) {
+    for (const [inducted, teams] of Object.entries(HALL_OF_FAME_INDUCTIONS)) {
+      if (Number(inducted) < season) for (const n of teams) numbers.add(n);
+    }
+  }
 
   const hof = HALL_OF_FAME_BY_SEASON[season];
   if (hof !== undefined) {

@@ -70,3 +70,35 @@ roster per season, and (for 2019) the original & sustaining list, which is alrea
   acceptable indefinitely.
 - Do not treat this as blocking anything. 2016-2018 are live on the site as of `24887c4d`
   with these lists absent.
+
+## RESOLVED 2026-09-13 — 2016-2020 backfilled from sources
+
+`packages/core/districts/prequalified.ts` now carries full lists for 2016, 2017, 2018, 2019 and 2020.
+Everything was read from a source, never assumed, because OVER-population is the unsafe direction for
+the lock math.
+
+- **Categories per season, verbatim from the manuals.** 2016 (Admin Manual §7.2) and 2017 (Game Manual
+  §10.12): Hall of Fame, original & sustaining, prior-year CMP winners, prior-year CMP EI. **No
+  Chairman's Finalist category** in either. 2018 (T16) adds prior-year Chairman's Finalists. 2019 and
+  2020 as 2018, per the 260905-lic research.
+- **Hall of Fame: the whole roster, no window,** per every 2016-2020 manual. Transcribed from
+  firsthalloffame.org and cross-checked against TBA's own `hall_of_fame_teams()` derivation over its
+  CMP_FINALS Chairman's rows. Agreement on every season 1995-2019. Two TBA data artifacts: 191 credited
+  with 1992/1994 wins the Hall of Fame does not list, and 1993's team 7 missing. The official roster
+  wins both.
+- **Prior-year teams** use the event/award types TBA's `prior_year_cmp_teams()` reads. 2016-2019 rows
+  from `event_awards_all` matched TBA's API 75/75. 2015 (for the 2016 season) came from the API.
+- **Correction to the Work section above:** `event_awards` holds district events only, so it never
+  carried Championship awards. The source is `event_awards_all`.
+- **2020** carries every category except the disputed original & sustaining one (TBA's `year_end=2019`).
+  The previous "no list at all" rested on infeasibility plus that dispute. The infeasibility is gone,
+  and omitting only the disputed category is the safe direction.
+- **Original & sustaining** uses TBA's static nine for 2016-2019. The only other 1992-rookie teams in
+  TBA are 19 (inactive since 2004) and 131 (missed 1993-1994), so neither would qualify.
+- Tests are equality pins with hand-counted sizes (38/38/49/50/46), not read back from the implementation.
+
+**Not done here:** the published district artifacts for 2016-2020 still reflect the old lists until
+`publish:districts` runs for those years.
+
+**Found in passing, not acted on:** TBA's current `main` `HALL_OF_FAME_TEAMS_BY_YEAR[2022]` lists 9 teams.
+This file's 2022 list has 13, matching FIRST's "last 10 years" rule (2012-2021 winners) exactly.
