@@ -124,7 +124,7 @@ function statusChipClass(status: LockVerdict["status"]): string | undefined {
  * wrong.
  */
 export const DISTRICT_LOCKS_CAVEAT =
-  "A locked verdict is a guarantee. A team that is not locked has not been eliminated — declines, waitlist movement and wildcard slots can only ever help a team's chances, never hurt them.";
+  "A locked verdict is a guarantee. A team that is not locked has not been eliminated: declines, waitlist movement and wildcard slots can only ever help a team's chances, never hurt them.";
 
 function formatPoints(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -212,7 +212,7 @@ function DistrictScheduleStrip({ artifact }: { artifact: DistrictArtifact }) {
             data-played={event.played}
             className="event-chip event-chip--week"
           >
-            {event.eventName} — {event.played ? "Played" : "Upcoming"}
+            {event.eventName}: {event.played ? "Played" : "Upcoming"}
             {event.maxPoints !== null && ` (${formatPoints(event.maxPoints)} max)`}
           </span>
         ))}

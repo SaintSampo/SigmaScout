@@ -304,7 +304,7 @@ describe("DistrictLocksTab", () => {
       teamKey: "frc14",
       teamNumber: 14,
       rank: 14,
-      champLock: verdict({ status: "unknown", pointsToLock: null, allocationNote: "special allocation — not modeled" }),
+      champLock: verdict({ status: "unknown", pointsToLock: null, allocationNote: "special allocation, not modeled" }),
     });
     render(
       <TestHarness>
@@ -312,7 +312,7 @@ describe("DistrictLocksTab", () => {
       </TestHarness>,
     );
     expect((await screen.findByTestId("district-champ-lock-status")).textContent).toBe("Capacity not published");
-    expect(screen.getByTestId("district-champ-lock-points-to-lock").textContent).toBe("special allocation — not modeled");
+    expect(screen.getByTestId("district-champ-lock-points-to-lock").textContent).toBe("special allocation, not modeled");
   });
 
   it("the District Locks header shows the schedule strip with played vs upcoming events and the district-wide points pool", async () => {

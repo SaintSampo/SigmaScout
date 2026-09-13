@@ -112,7 +112,7 @@ describe("awardDisplayName", () => {
 
 describe("specialAllocationNote", () => {
   it("flags 2025fsc with the documented not-modeled note", () => {
-    expect(specialAllocationNote("2025fsc")).toBe("special allocation — not modeled");
+    expect(specialAllocationNote("2025fsc")).toBe("special allocation, not modeled");
   });
 
   it("returns null for 2026fsc -- the exception is gone in 2026 (standard model, 7 slots)", () => {

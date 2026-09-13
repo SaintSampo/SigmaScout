@@ -1766,7 +1766,7 @@ const DistrictLockVerdictSchema = z.object({
   threatCount: z.number().int().nonnegative(),
   /** The point total currently sitting at the slot-th rank for this lock's capacity — `null` when capacity (`slots`) is not published, mirroring `pointsToLock`'s own null contract. */
   cutLinePoints: z.number().nullable(),
-  /** revision R2a: `"special allocation — not modeled"` for a district-year the ordinary points/award-slot model does not apply to at all (currently only `2025fsc`'s champ lock, `packages/core/districts/qualification.ts`'s `specialAllocationNote`); `null` for every ordinary district-year. */
+  /** revision R2a: `"special allocation, not modeled"` for a district-year the ordinary points/award-slot model does not apply to at all (currently only `2025fsc`'s champ lock, `packages/core/districts/qualification.ts`'s `specialAllocationNote`); `null` for every ordinary district-year. */
   allocationNote: z.string().nullable(),
 });
 

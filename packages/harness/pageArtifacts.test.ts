@@ -1486,7 +1486,7 @@ describe("DistrictsIndexArtifactSchema / DistrictArtifactSchema (quick task 2609
       pointsToLock: null,
       threatCount: 0,
       cutLinePoints: null,
-      allocationNote: "special allocation — not modeled",
+      allocationNote: "special allocation, not modeled",
     };
     expect(() => DistrictArtifactSchema.parse(fixture)).not.toThrow();
   });

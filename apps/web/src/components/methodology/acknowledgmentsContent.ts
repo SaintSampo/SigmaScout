@@ -65,9 +65,9 @@
  *   the accuracy-comparison page owns those; this entry points at it.
  *
  *   FRC Locks (`https://frclocks.com/`)
- *   1. The idea behind SigmaScout's Districts page — showing whether a
+ *   1. The idea behind SigmaScout's Districts page (showing whether a
  *      team's district championship spot is already mathematically locked,
- *      or already out of reach — came from FRC Locks.
+ *      or already out of reach) came from FRC Locks.
  *   2. The concept is all that was taken. Every number on SigmaScout's
  *      Districts page is computed from TBA's published district point data
  *      and the official FIRST district point model. Nothing was fetched,
@@ -103,7 +103,7 @@ export interface AcknowledgmentEntry {
 }
 
 export const ACKNOWLEDGMENTS_LEAD =
-  "SigmaScout is built on work other people did first — the data, the ratings it measures itself against, and the ideas behind several of its pages. This page says who, and what each one contributed.";
+  "SigmaScout is built on work other people did first: the data, the ratings it measures itself against, and the ideas behind several of its pages. This page says who, and what each one contributed.";
 
 export const ACKNOWLEDGMENTS_ENTRIES: readonly AcknowledgmentEntry[] = [
   {
@@ -123,7 +123,7 @@ export const ACKNOWLEDGMENTS_ENTRIES: readonly AcknowledgmentEntry[] = [
     paragraphs: [
       "Statbotics established the way an FRC stats site presents teams, events and predictions, and SigmaScout follows that shape.",
       "EPA, Statbotics' rating, is one of the algorithms a visitor can select on SigmaScout; the picker names it \"EPA Statbotics\" followed by the version currently being served.",
-      "SigmaScout's EPA is a from-scratch reimplementation over TBA data, not Statbotics' own code — done that way so EPA can be replayed walk-forward at any point in a season. Any place the two disagree is SigmaScout's reimplementation drifting, not a fault of Statbotics'; those differences are measured and written down.",
+      "SigmaScout's EPA is a from-scratch reimplementation over TBA data, not Statbotics' own code. It was done that way so EPA can be replayed walk-forward at any point in a season. Any place the two disagree is SigmaScout's reimplementation drifting, not a fault of Statbotics'; those differences are measured and written down.",
       "Statbotics' own published season accuracy is carried as a clearly-labelled reference figure inside SigmaScout's accuracy reporting, so SigmaScout's numbers are always shown next to the number they are trying to beat.",
     ],
   },
@@ -132,7 +132,7 @@ export const ACKNOWLEDGMENTS_ENTRIES: readonly AcknowledgmentEntry[] = [
     name: "FRC Locks",
     href: "https://frclocks.com/",
     paragraphs: [
-      "The idea behind SigmaScout's Districts page — showing whether a team's district championship spot is already mathematically locked, or already out of reach — came from FRC Locks.",
+      "The idea behind SigmaScout's Districts page (showing whether a team's district championship spot is already mathematically locked, or already out of reach) came from FRC Locks.",
       "The concept is all that was taken. Every number on SigmaScout's Districts page is computed from TBA's published district point data and the official FIRST district point model. Nothing was fetched, scraped, or copied from FRC Locks.",
     ],
   },

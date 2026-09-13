@@ -391,7 +391,7 @@ describe("buildDistrictArtifact — award-based qualification (revision R2a)", (
       expect(team.champLock.status).toBe("unknown");
       expect(team.champLock.pointsToLock).toBeNull();
       expect(team.champLock.cutLinePoints).toBeNull();
-      expect(team.champLock.allocationNote).toBe("special allocation — not modeled");
+      expect(team.champLock.allocationNote).toBe("special allocation, not modeled");
       expect(team.districtLock.allocationNote).toBeNull();
     }
     // districtLock still runs the ordinary points math -- frc1 (500 points, 1 slot) is locked.

@@ -363,7 +363,7 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
           // from the row's own published flag, never derived from
           // `row.pRedWin === 0.5` — that would sweep in an ordinary D-Q3
           // no-call and violate D-02.
-          <span aria-label="Not scored — no prior data" className="call-badge call-none">{"—"}</span>
+          <span aria-label="Not scored (no prior data)" className="call-badge call-none">{"—"}</span>
         ) : row.actualWinner === "tie" ? (
           <span aria-label="Prediction incorrect" className="call-badge call-miss">{"✗"}</span>
         ) : winnerCorrect ? (

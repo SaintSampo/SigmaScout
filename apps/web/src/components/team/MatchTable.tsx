@@ -448,7 +448,7 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
           // with its own accessible label, distinct from both "Prediction
           // correct" and "Prediction incorrect". Taken from the row's own
           // published flag, never derived from `match.pRedWin === 0.5`.
-          <span aria-label="Not scored — no prior data" className="call-badge call-none">{"—"}</span>
+          <span aria-label="Not scored (no prior data)" className="call-badge call-none">{"—"}</span>
         ) : winnerCorrect ? (
           <span aria-label="Prediction correct" className="call-badge call-hit">{"✓"}</span>
         ) : (

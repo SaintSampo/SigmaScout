@@ -136,5 +136,5 @@ const SPECIAL_ALLOCATION_DISTRICTS: ReadonlySet<string> = new Set(["2025fsc"]);
 
 /** The honest "not modeled" note for a district-year the ordinary champ-slot cut-line math does not apply to (currently only `2025fsc`, see `SPECIAL_ALLOCATION_DISTRICTS` above), or `null` for every other district-year. */
 export function specialAllocationNote(districtKey: string): string | null {
-  return SPECIAL_ALLOCATION_DISTRICTS.has(districtKey) ? "special allocation — not modeled" : null;
+  return SPECIAL_ALLOCATION_DISTRICTS.has(districtKey) ? "special allocation, not modeled" : null;
 }

@@ -446,7 +446,7 @@ function EventPage() {
             */}
             <span
               className="inline-flex"
-              title={isSimulationDisabled ? "Simulation is only available on the VPR algorithm — switch the algorithm selector to VPR." : undefined}
+              title={isSimulationDisabled ? "Simulation is only available on SPR. Switch the algorithm selector to SPR." : undefined}
             >
               <TabsTrigger
                 value="simulation"

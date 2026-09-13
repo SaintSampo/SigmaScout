@@ -81,7 +81,7 @@ export const PRE_SCHEDULE_STOP_LABEL = "Before schedule release";
  * first fact is the one that changes how they read the table.
  */
 export function preScheduleScopeText(scheduleCount: number, draws: number): string {
-  return `Before the schedule is released — how the field is likely to rank when nobody yet knows who plays whom. Computed ahead of time across ${scheduleCount} randomly generated schedules, ${draws} draws in total.`;
+  return `Before the schedule is released: how the field is likely to rank when nobody yet knows who plays whom. Computed ahead of time across ${scheduleCount} randomly generated schedules, ${draws} draws in total.`;
 }
 
 /**

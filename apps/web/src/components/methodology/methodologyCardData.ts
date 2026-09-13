@@ -88,7 +88,7 @@ export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
   {
     to: "/methodology/acknowledgments",
     title: "Acknowledgments",
-    blurb: "The projects and data SigmaScout is built on — The Blue Alliance, Statbotics, and more.",
+    blurb: "The projects and data SigmaScout is built on: The Blue Alliance, Statbotics, and more.",
     testId: "methodology-card-acknowledgments",
   },
 ] as const;

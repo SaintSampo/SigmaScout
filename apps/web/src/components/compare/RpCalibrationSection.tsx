@@ -63,7 +63,7 @@ export const RP_CALIBRATION_ABSENT_TEXT = "Bonus ranking point accuracy has not 
  * card, no schema key and no test id moves with it.
  */
 export const RP_CALIBRATION_EXPLAINER =
-  "These cards show how often each predicted bonus ranking point actually happened, checked against every qualification match in the corpus — including offseason events, unlike the win-probability calibration above. " +
+  "These cards show how often each predicted bonus ranking point actually happened, checked against every qualification match in the corpus, including offseason events, unlike the win-probability calibration above. " +
   "The 2016-2020 and 2022 seasons were used to choose the model, so the accuracy reported for 2023 onward is measured on seasons that had no say in that choice.";
 
 export interface RpCalibrationSectionProps {
