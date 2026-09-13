@@ -85,7 +85,7 @@ test.describe("E5 — Quals tab at phone width, highest-risk item on this tab", 
   ] as const;
 
   for (const { eventKey, label, rowCount } of CASES) {
-    test(`${eventKey} (${label}): ${rowCount} rows, pinned Match column holds, axis tick stays legible after a full-width drag`, async ({ page }, testInfo) => {
+    test(`${eventKey} (${label}): ${rowCount} rows, Match column scrolls with the row, axis tick stays legible after a full-width drag`, async ({ page }, testInfo) => {
       await page.goto(eventUrl(eventKey, "quals"), { waitUntil: "networkidle" });
       const region = page.locator('[data-testid="quals-table-scroll"]');
       await region.waitFor({ state: "visible", timeout: 15_000 });
@@ -101,20 +101,20 @@ test.describe("E5 — Quals tab at phone width, highest-risk item on this tab", 
       // eslint-disable-next-line no-console -- Task 3's checkpoint names this exact path for the human judgement call.
       console.log(`[07-20] quals density screenshot: ${shot}`);
 
-      const pinnedHeader = region.getByRole("columnheader", { name: "Match", exact: true });
-      const unpinnedHeader = region.getByRole("columnheader", { name: "Actual", exact: true });
-      const pinnedBefore = await pinnedHeader.boundingBox();
-      const unpinnedBefore = await unpinnedHeader.boundingBox();
-      if (pinnedBefore === null || unpinnedBefore === null) throw new Error("header cell missing a bounding box");
+      const matchHeader = region.getByRole("columnheader", { name: "Match", exact: true });
+      const actualHeader = region.getByRole("columnheader", { name: "Actual", exact: true });
+      const matchBefore = await matchHeader.boundingBox();
+      const actualBefore = await actualHeader.boundingBox();
+      if (matchBefore === null || actualBefore === null) throw new Error("header cell missing a bounding box");
 
       const { box, midY } = await visibleMidpoint(page, region);
       await touchDrag(page, { x: box.x + box.width - 20, y: midY }, { x: box.x + 20, y: midY });
 
-      const pinnedAfter = await pinnedHeader.boundingBox();
-      const unpinnedAfter = await unpinnedHeader.boundingBox();
-      if (pinnedAfter === null || unpinnedAfter === null) throw new Error("header cell missing a bounding box after the drag");
-      expect(pinnedAfter.x).toBeCloseTo(pinnedBefore.x, 0);
-      expect(unpinnedAfter.x).not.toBeCloseTo(unpinnedBefore.x, 0);
+      const matchAfter = await matchHeader.boundingBox();
+      const actualAfter = await actualHeader.boundingBox();
+      if (matchAfter === null || actualAfter === null) throw new Error("header cell missing a bounding box after the drag");
+      expect(matchAfter.x).not.toBeCloseTo(matchBefore.x, 0);
+      expect(actualAfter.x).not.toBeCloseTo(actualBefore.x, 0);
 
       const tick = region.getByTestId("axis-tick").first();
       await expect(tick).toBeVisible();

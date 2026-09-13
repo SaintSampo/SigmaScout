@@ -231,7 +231,7 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
 
   return (
     <tr data-testid={`match-row-${row.matchKey}`} className={cn(tinted ? "match-row-tint" : "match-row-untinted")}>
-      <td className={cn("sticky left-0 z-[1] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", tinted ? "match-row-tint" : "match-row-untinted")}>
+      <td className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         <div className="flex min-w-0 flex-col gap-[1px]">
           {/* 260909-tiq-PLAN.md Task 3: the Match-column label is now a link
               to that match's own page, carrying the reader's current
@@ -383,7 +383,8 @@ export function EventMatchTable({ rows, domain, season, algorithm }: EventMatchT
     <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
       <thead>
         <tr>
-          <th className="sticky left-0 z-[2] bg-[var(--color-bg-surface)] p-[var(--spacing-sm)] text-left">
+          {/* No column in this table is frozen during horizontal scroll (2026-09-13, user request); Match scrolls with the rest of the row. */}
+          <th className="p-[var(--spacing-sm)] text-left">
             <span className="text-role-label text-[var(--color-text-muted)]">Match</span>
           </th>
           <th className="p-[var(--spacing-sm)] text-left">

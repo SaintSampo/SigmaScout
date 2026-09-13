@@ -67,9 +67,7 @@ describe("Structure and the dropped highlight rule", () => {
    * class (`match-row-untinted`), never `transparent` with no class at all —
    * a transparent untinted row is exactly the bug this table shipped with,
    * since this component (unlike `MatchTable.tsx`) has no `.event-card`
-   * ancestor to quietly borrow a colour from. Also asserts the sticky first
-   * cell's own class always matches its row's state, so the pinned column
-   * never desyncs from the row's own stripe.
+   * ancestor to quietly borrow a colour from.
    */
   it("both zebra-stripe states are painted with their own explicit class — never left to inherit a transparent background from an ancestor", () => {
     renderWithRouter(
@@ -90,15 +88,23 @@ describe("Structure and the dropped highlight rule", () => {
     expect(row3.className).toContain("match-row-untinted");
     expect(row3.className).not.toContain("match-row-tint");
     expect(row1.className).not.toBe(row2.className);
+  });
 
-    // The sticky first cell (the Match column) must carry the SAME state
-    // class as its own row, in both directions — never a bare
-    // `bg-[var(--color-bg-surface)]` literal that could drift from the
-    // row's own token.
-    const stickyCell1 = within(row1).getByText("Qual 1").closest("td")!;
-    const stickyCell2 = within(row2).getByText("Qual 1").closest("td")!;
-    expect(stickyCell1.className).toContain("match-row-untinted");
-    expect(stickyCell2.className).toContain("match-row-tint");
+  it("has no sticky column anywhere, header or body (2026-09-13)", () => {
+    const { container } = renderWithRouter(
+      <EventMatchTable
+        rows={[makeRow({ matchKey: "m1" }), makeRow({ matchKey: "m2" })]}
+        domain={DOMAIN}
+        season={2024}
+        algorithm="spr"
+      />,
+    );
+    const cells = container.querySelectorAll("th, td");
+    expect(cells.length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('[class*="sticky"]')).toHaveLength(0);
+    for (const cell of cells) {
+      expect((cell as HTMLElement).style.position).not.toBe("sticky");
+    }
   });
 });
 
