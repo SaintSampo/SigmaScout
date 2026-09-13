@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { useIsMobile } from "@/lib/breakpoints";
+import { RootSearchSchema } from "@/lib/searchParams";
 import { YearSelect } from "./YearSelect.js";
 import { AlgorithmSelect } from "./AlgorithmSelect.js";
 import { SearchBox } from "../search/SearchBox.js";
@@ -41,19 +42,30 @@ const INACTIVE_LINK_CLASS =
   "text-role-ribbon-nav whitespace-nowrap border-b-2 border-transparent pb-[6px] text-[var(--ribbon-ink-muted)] transition-colors hover:text-[var(--ribbon-ink)]";
 
 /**
+ * The site-wide params — exactly `RootSearchSchema`'s keys (year, algorithm),
+ * read from the schema so a new global can never be silently dropped here.
+ */
+const GLOBAL_SEARCH_KEYS = Object.keys(RootSearchSchema.shape);
+
+/**
+ * Carries ONLY the site-wide params across a nav click. Page-owned params
+ * stay on their page: carrying every param forward (this function's original
+ * identity behavior) leaked the Locks page's `?district=` into the Teams
+ * page's same-named district filter, and the Teams filters into Events.
+ * Values are still read from `prev`, never replaced with literals, so the
+ * selected year and algorithm survive every navigation (NAV-02).
+ *
  * `Link`'s typed `search` updater expects the TARGET route's fully-required
- * search shape back, but a cross-route "prev" is typed as a Partial (some
- * fields belong only to certain routes) — there is no single TanStack
- * Router type that means "carry every current param forward unchanged, for
- * any target route in the tree." This narrow, local, identity-behavior cast
- * is the documented escape hatch (same reasoning as `YearSelect.tsx`'s
- * `CrossRouteNavigate`): at RUNTIME `prev` is returned completely
- * unmodified, so this plan's own prohibition ("Navigation between routes
- * must NOT replace the search params with an object literal") is upheld
- * regardless of what the type system can express here.
+ * search shape back, and no single TanStack Router type means "any target
+ * route in the tree" — hence the narrow local cast (same reasoning as
+ * `YearSelect.tsx`'s `CrossRouteNavigate`).
  */
 function preserveSearch(prev: Record<string, unknown>): never {
-  return prev as never;
+  const next: Record<string, unknown> = {};
+  for (const key of GLOBAL_SEARCH_KEYS) {
+    if (prev[key] !== undefined) next[key] = prev[key];
+  }
+  return next as never;
 }
 
 function NavLinks() {
