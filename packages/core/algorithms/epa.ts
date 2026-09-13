@@ -1,145 +1,41 @@
 /**
- * EPA (Expected Points Added) reimplementation — a component-decomposed,
- * variance-free `AlgorithmModule` (ALGO-02, D-13, D-08).
- *
- * Faithful core (D-13, verified verbatim against
+ * EPA (Expected Points Added) — a component-decomposed, variance-free
+ * `AlgorithmModule` reimplementation of Statbotics'
  * github.com/avgupta456/statbotics/blob/master/backend/src/models/epa/{math,main}.py
- * this phase's RESEARCH.md session): the two-stage EWMA (`add_obs`'s
- * `update_mean` then a `weight` blend), the decaying learning rate
- * (`percent_func`), and the natural-exp form of the margin-over-season-SD
- * win-probability logistic (`k_func`'s base-10 form, converted to the same
- * shape `opr.ts`'s `logisticWinProbability` uses).
+ * (`add_obs`'s two-stage EWMA, `percent_func`'s decaying learning rate, and
+ * `k_func`'s margin-over-season-SD win-probability logistic).
  *
- * Also faithful as of D-Q1 (quick task 260901-is2) — component attribution.
- * `applyComponentUpdate` credits each rating-eligible teammate the alliance's
- * ERROR, shared equally, on top of that team's own current level:
- * `attrib = currentMean + (observed - predicted) / n`, one predicted-total
- * pass per alliance-component computed from the pre-update snapshot. That is
- * Statbotics' `post_process_attrib` (`err = observed - predicted`,
- * `attrib = epa + err / n`), and this bullet used to sit in the deliberate-
- * divergence list below claiming both that the alliance total was "divided
- * evenly across its rating-eligible teammates" and that "Statbotics has no
- * direct analog here". Both halves were false. The even split pulled every
- * team toward its alliance's mean on EVERY match: an alliance scoring exactly
- * its predicted total still dragged its strongest robot down and lifted its
- * weakest, when the honest update is that nobody moves.
+ * Component attribution splits an alliance's ERROR across its
+ * rating-eligible teammates, computed once per component from the
+ * pre-update snapshot: `attrib = currentMean + (observed - predicted) / n`
+ * — Statbotics' `post_process_attrib`. An alliance scoring exactly its
+ * prediction is a no-op for every teammate; only the miss moves anyone.
  *
- * Measured over a 5-season faithful replay (carrySeason, offseason
- * built-not-scored), even split -> error split:
- *   - OLS slope vs Statbotics `epa.total_points` (2025, 3,690 teams):
- *     0.489 -> 0.841; Pearson 0.729 -> 0.900
- *   - rating SD 12.5 -> 17.4 (Statbotics: 18.7); mean abs difference
- *     11.2 -> 5.9 points
- *   - 2025 quals Brier 0.1950 -> 0.1589; 2026 quals 0.1771 -> 0.1427
- * The slope quoted here (0.84) is HISTORICAL — measured before D-05 (quick
- * task 260904-5px) adopted Statbotics' elimination-match discount (closing
- * what the D-08 bullet below used to name as a reason the slope sat below
- * 1.00) and before quick task 260904-6a1's adjust-pinning change. The
- * remaining deliberate divergences (no per-season post-processing, a
- * different component decomposition, Pitfall EPA-1's expanding-window SD)
- * still keep the slope below 1.00 — see `docs/models/epa-vs-statbotics.md`
- * for the current, re-measured figure under `epa@5.0.0+baseline`; treat that
- * document as authoritative rather than this comment's own retained
- * historical numbers.
+ * TBA's `score_breakdown` is alliance-level only (no per-robot fields), so
+ * `n` is the rating-eligible teammate count and the error is shared equally
+ * among them — the ERROR is shared; the LEVEL is not.
  *
- * **Provenance (quick task 260904-4aa, SC-2).** The D-Q1 figures immediately
- * above were produced by a one-off script that was never committed — an
- * un-re-runnable result, exactly the failure log's "docs must track the
- * shipped model" pitfall. That gap is closed: `scripts/epaVsStatbotics.ts`
- * (statistics in `packages/harness/epaStatboticsCompare.ts`) is the
- * committed, tested, re-runnable replacement, `npx tsx
- * scripts/epaVsStatbotics.ts --check` gates it against
- * `data/baselines/epa-vs-statbotics-2026-09.json`, and
- * `docs/models/epa-vs-statbotics.md` records the full current verdict
- * across all five seasons (not just 2025). A fresh 2026-09-04 measurement
- * lands close to but not identical to the D-Q1 figures above (2025
- * all-teams: slope 0.865 vs. 0.841, Pearson 0.907 vs. 0.900, joined 3,687
- * vs. 3,690 teams) — the corpus has grown since 260901-is2's one-off run,
- * and that document also measures an offseason-EXCLUDED comparability arm
- * this comment never did (2025: slope 1.012, Pearson 0.991), a materially
- * closer match. Treat the fresh, committed measurement as authoritative;
- * this comment's own D-Q1 figures are the historical record of what
- * changed when the error-split fix landed, not a maintained claim. A
- * future reader should regenerate current numbers from the script rather
- * than trust either quoted figure as a standing claim.
+ * Deliberate divergences from Statbotics (documented at each use site below):
+ *   - `predict()`'s margin carries no foul term; both alliances' published
+ *     scores are scaled afterward by one shared `(1 + foulRate)` (reference
+ *     section 14). `FOULS_COMMITTED_COMPONENT` is still a per-team rated,
+ *     cross-alliance quantity (`breakdown/{year}.ts`'s `parse()`).
+ *   - Elimination matches blend at `EPA_ELIM_WEIGHT` (1/3) and do not advance
+ *     a team's match counter, matching Statbotics' `ELIM_WEIGHT`.
+ *   - No per-season post-processing beyond the attribution split above — no
+ *     `post_process_breakdown` equivalent.
+ *   - The win-probability scale denominator is an expanding-window
+ *     alliance-score SD (Welford, `scoring/expandingStats.ts`), never a
+ *     season-final constant — a season-batch SD would leak future variance
+ *     into early-season predictions.
+ *   - Cold start uses a fixed point-unit seed (`EPA_INIT_COMPONENT_TOTAL`)
+ *     rather than live-converting Statbotics' normalized-scale constants,
+ *     since no season point scale exists yet at a team's first-ever match.
+ *     Cross-season carry (a team WITH prior-season history) is `carrySeason`
+ *     below, backed by `carryover.ts`'s `epaCarryover`.
  *
- * The one thing that is still ours rather than Statbotics': TBA's
- * `score_breakdown` per-season maps this phase built (D-02) are alliance-level
- * only (Assumption A1 excludes unverified per-robot fields), so `n` is the
- * rating-eligible teammate count and the error is shared equally among them.
- * The ERROR is shared; the LEVEL is not.
- *
- * D-01 (quick task 260904-5px) NARROWS D-04, it does not reverse it:
- * `teamMetrics()`'s published `total` now excludes `FOULS_COMMITTED_COMPONENT`
- * too (see that function's own doc comment for the full rationale), so the
- * published metric and `carrySeason()`'s carryover input are now two
- * DIFFERENT quantities on purpose — `predict()` is untouched (an alliance's
- * predicted score is still its own offensive total plus the opponent's
- * `foulsCommitted` mean, the cross-attribution below), and `carrySeason()`'s
- * carryover input is untouched (still the fouls-INCLUSIVE per-team sum,
- * pinned by a dedicated test in `epa.test.ts` so a future reader does not
- * "align" it and silently move every carried rating).
- *
- * Deliberate divergences from Statbotics (every one documented at its use
- * site below, per D-13's "every deliberate divergence must be documented"
- * requirement):
- *   - D-04 is HALF RETIRED as of `10.0.0+baseline` (quick task 260911-l2k,
- *     2026-09-11). Say which half, because both halves used to live in this
- *     one bullet:
- *
- *       RETIRED — `predict()`'s cross-attribution. An alliance's predicted
- *       score is no longer "its own offensive total plus the OPPOSING
- *       alliance's `FOULS_COMMITTED_COMPONENT` mean". Both alliances' foul
- *       means are now absent from the margin entirely, and the foul term
- *       enters afterwards as one `(1 + foulRate)` scalar applied to both
- *       published scores (reference section 14). Red's and blue's foul means
- *       are different numbers, so the retired term moved the margin and
- *       therefore the predicted WINNER — the inverse of what Statbotics does.
- *
- *       STANDS — D-04's reading of `FOULS_COMMITTED_COMPONENT` as a
- *       CROSS-ALLIANCE quantity, derived from the OPPOSING side's raw
- *       `foulPoints` (`breakdown/{year}.ts`'s `parse()`). That is a fact about
- *       what the component MEANS, not about where a prediction puts it, and it
- *       still governs `fallbackObserved`'s netting, the published per-team
- *       metric, `carrySeason`'s carryover input, and the no-foul/foul split
- *       `update` folds. The component is still rated per team exactly as
- *       before.
- *
- *     the retired Sigma1 core (deleted by quick task 260913-it4) still implemented the ORIGINAL D-04 handling and was
- *     deliberately not changed by that task.
- *     WINDOWS.md entry 3 tracked the pre-D-04 behaviour as a bug.
- *   - D-08 CLOSED as of `5.0.0+baseline` (D-05, quick task 260904-5px):
- *     elimination matches used to be learned from normally — full weight,
- *     and the per-team match counter incrementing on every match including
- *     elims — a deliberate divergence from Statbotics'
- *     `ELIM_WEIGHT = 1/3`/non-incrementing counter. Both halves of that
- *     divergence are now ADOPTED (`EPA_ELIM_WEIGHT`, `applyComponentUpdate`,
- *     `docs/models/epa-divergences.md` §1, retired there with a dated
- *     closure note) rather than reversed piecemeal — Statbotics couples the
- *     weight and the counter as one decision, and this project now matches
- *     both.
- *   - D-13: no per-season post-processing — Statbotics' 2018 switch/scale
- *     sigmoid and its per-year clamps have no equivalent here, and this
- *     module runs no `post_process_breakdown` equivalent. Narrowed by D-Q1:
- *     the ATTRIBUTION half of `post_process_attrib` (`err = observed -
- *     predicted`, `attrib = epa + err / n`) IS now implemented faithfully —
- *     see the component-attribution paragraph above. What remains divergent
- *     is the per-season rescaling around it, not the error split itself.
- *   - Pitfall EPA-1: the win-probability scale denominator is this
- *     season's EXPANDING-window alliance-score SD (Welford, folded
- *     match-by-match via `packages/core/scoring/expandingStats.ts`), never
- *     a season-final constant — a season-batch SD would leak future
- *     variance into early-season predictions.
- *   - Cold start: `EPA_NORM_MEAN`/`EPA_NORM_SD`/`EPA_INIT_PENALTY` are
- *     Statbotics-parity constants owned by `carryover.ts` (D-16, imported
- *     back here), but this module's INTRA-season cold start (a team's
- *     first-ever match, nothing to carry from at all) cannot live-convert
- *     them into "this season's point units" without a season scale that
- *     does not yet exist (the same Pitfall EPA-1 concern). See
- *     `EPA_INIT_COMPONENT_TOTAL` below for the documented, fixed-constant
- *     seed used instead. Cross-SEASON carry (a team WITH prior-season
- *     history) is `carrySeason` below, backed by `carryover.ts`'s
- *     `epaCarryover`.
+ * Current measured fidelity against Statbotics: `docs/models/epa-vs-statbotics.md`
+ * (re-runnable via `npx tsx scripts/epaVsStatbotics.ts --check`).
  */
 import { ratingEligibleTeams } from "./opr.js";
 import { isFullyDemoAlliance } from "./demoTeams.js";
@@ -201,11 +97,8 @@ import {
 } from "./epaCarryScale.js";
 
 // EPA_NORM_MEAN/EPA_NORM_SD/EPA_INIT_PENALTY/EPA_MEAN_REVERSION are owned by
-// carryover.ts (D-16) — imported here rather than redeclared, and
-// re-exported below so this module's existing doc comments (and anything
-// that historically imported the Statbotics-parity constants from here)
-// keep working. See carryover.ts's file header for why that module owns
-// them and not this one (avoiding a circular import at module-init time).
+// carryover.ts (avoids a circular import at module-init time) and
+// re-exported here so every existing import path keeps working.
 export { EPA_NORM_MEAN, EPA_NORM_SD, EPA_INIT_PENALTY };
 export { EPA_MEAN_REVERSION } from "./carryover.js";
 
@@ -230,36 +123,26 @@ export const EPA_K = -5 / 8;
  */
 export const EPA_FALLBACK_SCORE_SD = 25;
 
-// `EPA_SCORE_SD_SEED_COUNT` moved to `epaCarryScale.ts` (quick task
-// 260911-3kc) and is re-exported here so every existing import path is
-// unchanged — the same arrangement, and the same acyclic reasoning, as the
-// carryover.ts constants above. It lives there because `cleanSeasonMean`
-// UNWINDS exactly this seed: the seed strength and its unwind are one fact,
-// and a reader who changes one must see the other. See that module for the
-// measurement behind the value.
+// `EPA_SCORE_SD_SEED_COUNT` lives in `epaCarryScale.ts` (re-exported here so
+// every existing import path is unchanged) because `cleanSeasonMean` UNWINDS
+// exactly this seed: the seed strength and its unwind are one fact, and a
+// reader who changes one must see the other.
 export { EPA_SCORE_SD_SEED_COUNT, EPA_CARRY_RESCALE_MIN_OBS };
 
 /**
- * D-05 (quick task 260904-5px) — Statbotics' own `ELIM_WEIGHT`
- * (`backend/src/models/epa/constants.py`), adopted here. This project used
- * to pass a full weight (`1`) for every elimination-match observation as a
- * deliberate divergence (see `docs/models/epa-divergences.md` §1, closed as
- * of this version) — the developer has decided EPA should track the real
- * Statbotics, so an elimination-match observation now blends into a team's
- * component mean at this DISCOUNTED outer EWMA weight instead of full
- * weight, and (see `applyComponentUpdate`'s use of this constant, and the
- * per-team counter it leaves untouched for an elimination match)
- * `epaPercentFunc`'s decaying learning-rate schedule advances on
- * qualification matches only.
+ * Statbotics' own `ELIM_WEIGHT` (`backend/src/models/epa/constants.py`): an
+ * elimination-match observation blends into a team's component mean at this
+ * DISCOUNTED outer EWMA weight instead of full weight, and (see
+ * `applyComponentUpdate`'s use of this constant) `epaPercentFunc`'s decaying
+ * learning-rate schedule advances on qualification matches only.
  */
 export const EPA_ELIM_WEIGHT = 1 / 3;
 
 /**
  * A flat, documented placeholder for "a rookie team's typical total
- * contribution to an alliance's score," in point units (Phase 3
- * hyperparameter, default unverified) — used only to give
- * `EPA_INIT_COMPONENT_TOTAL` below a defensible point-unit magnitude to
- * scale from.
+ * contribution to an alliance's score," in point units (unverified default)
+ * — used only to give `EPA_INIT_COMPONENT_TOTAL` below a defensible
+ * point-unit magnitude to scale from.
  */
 const EPA_INIT_TYPICAL_TEAM_SHARE = 20;
 
@@ -267,9 +150,8 @@ const EPA_INIT_TYPICAL_TEAM_SHARE = 20;
  * A team's cold-start TOTAL contribution (summed across every component),
  * before any observation exists. `EPA_NORM_MEAN`/`EPA_NORM_SD`/
  * `EPA_INIT_PENALTY` are Statbotics' normalized-rating-scale constants, not
- * point units — this plan does not implement Statbotics' normalization
- * layer (D-13 skips per-season post-processing), so there is no live
- * conversion from that scale into point units at cold start. Instead, the
+ * point units — this module implements no normalization layer, so there is
+ * no live conversion from that scale into point units at cold start. Instead, the
  * SAME fractional structure Statbotics uses (how far below the normalized
  * mean a rookie starts, as a fraction: `INIT_PENALTY * NORM_SD / NORM_MEAN`)
  * is applied to the flat `EPA_INIT_TYPICAL_TEAM_SHARE` placeholder to get a
@@ -298,9 +180,7 @@ export function epaPercentFunc(matchCount: number): number {
 /**
  * The two-stage EWMA from Statbotics' `EPARating.add_obs`. `weight` is `1`
  * for a qualification-match observation and `EPA_ELIM_WEIGHT` (1/3) for an
- * elimination-match observation (D-05, quick task 260904-5px — see
- * `applyComponentUpdate`'s call site for the derivation) — no longer always
- * `1` as this comment used to claim before that adoption.
+ * elimination-match observation (see `applyComponentUpdate`'s call site).
  */
 function twoStageEwma(mean: number, observation: number, percent: number, weight: number): number {
   const newMean = (1 - percent) * mean + percent * observation;
@@ -313,21 +193,17 @@ function componentColdStartValue(componentCount: number): number {
 
 /**
  * Per-team state: a component-mean record per team, a per-team match
- * counter (increments on a QUALIFICATION match; an elimination match leaves
- * it untouched — D-05, quick task 260904-5px, closing what used to be D-08's
- * "increments on every match" divergence), an expanding-window alliance
- * score SD (Pitfall EPA-1), the season this state belongs to (derived
- * lazily from the first match's `eventKey`, since `initState` receives no
- * season parameter), and `fallbackSkipped` — a permanently-zero invariant
- * (asserted by test) left over from plan 02-01's tracer, which deliberately
- * skipped the component update for a breakdown-less match. Plan 02-02's
- * D-05 fallback (`distributeResidual`, below) means no match is skipped
- * anymore; the counter is kept only so a future regression that reopens
- * that gap fails loudly instead of silently. `priorSeasonRatings` (D-16):
- * normalized-scale ratings carried INTO `season` from the two seasons
- * before it, updated by `carrySeason` at each boundary — empty maps at the
- * cold-start season and for any team with no rating in a given prior
- * season (see `carryover.ts`).
+ * counter (increments on a qualification match; an elimination match leaves
+ * it untouched), an expanding-window alliance-score SD, the season this
+ * state belongs to (derived lazily from the first match's `eventKey`, since
+ * `initState` receives no season parameter), and `fallbackSkipped` — a
+ * permanently-zero invariant (asserted by test): every match reaches a
+ * component update via `distributeResidual`'s fallback, so a future
+ * regression that skips one fails loudly instead of silently.
+ * `priorSeasonRatings`: normalized-scale ratings carried INTO `season` from
+ * the two seasons before it, updated by `carrySeason` at each boundary —
+ * empty maps at the cold-start season and for any team with no rating in a
+ * given prior season (see `carryover.ts`).
  */
 export interface EpaState extends BreakdownParseTelemetry {
   readonly season: number | null;
@@ -336,21 +212,12 @@ export interface EpaState extends BreakdownParseTelemetry {
   readonly allianceScoreStats: ExpandingStats;
   /**
    * SEASON-WIDE expanding accumulators over each alliance's NO-FOUL total and
-   * its FOUL total (quick task 260911-l2k, `epa@10.0.0+baseline`).
-   *
-   * These are the LIVE pre-seal estimate of Statbotics' week-1
-   * `no_foul_mean`/`foul_mean` pair, and they exist for the same reason
+   * its FOUL total — the live pre-seal estimate of Statbotics' week-1
+   * `no_foul_mean`/`foul_mean` pair. They exist for the same reason
    * `allianceScoreStats` exists beside `weekOne.frozen`: `predict` needs a
    * usable rate before week 1 has provably ended, and the week-1 accumulator
-   * cannot supply one for the play that happens BEFORE week 1. Null-week
-   * preseason play precedes week 1 in every season (2024's null-week events
-   * start 2024-02-03, its week-1 events 2024-02-24), so reading the week-1 pair
-   * as its own live estimate would predict every one of those matches at a
-   * zero foul rate (D-3).
-   *
-   * LEAGUE-scoped: two number pairs, flat in team count — the D-13 rule that
-   * puts `allianceScoreStats` and `carrySeedMean` in the league row.
-   *
+   * cannot supply one for play that happens BEFORE week 1 (null-week preseason
+   * play precedes week 1 in every season). League-scoped: flat in team count.
    * Both apply the SAME exclusions `allianceScoreStats` applies plus one more;
    * see the fold site in `update`.
    */
@@ -359,58 +226,40 @@ export interface EpaState extends BreakdownParseTelemetry {
   /**
    * The OUTGOING season's alliance-score mean at the moment of the most recent
    * boundary — the point units every carried component is currently expressed
-   * in, and the denominator of the rescale ratio (quick task 260911-3kc).
-   *
-   * LEAGUE-scoped: exactly one number, captured in `carrySeason` BEFORE
-   * delegating to `epaCarryover`. `Number.NaN` means "no boundary has been
-   * crossed", which `carryRescaleRatio` treats as unreadable and therefore
-   * deferred — never as a silent 1.
+   * in, and the denominator of the rescale ratio. League-scoped: exactly one
+   * number, captured in `carrySeason` BEFORE delegating to `epaCarryover`.
+   * `Number.NaN` means "no boundary has been crossed", which
+   * `carryRescaleRatio` treats as unreadable and therefore deferred — never
+   * as a silent 1.
    */
   readonly carrySeedMean: number;
   /**
    * Teams carried across the most recent boundary that have NOT yet been
-   * materialized into the incoming season's point units.
-   *
-   * Serialized PER TEAM, as a flag on that team's own row, never in the league
-   * row: D-13 requires a league row's bytes to stay flat in team count, and a
-   * few thousand team keys would breach `MAX_LEAGUE_ROW_BYTES` outright. Same
-   * team-row/league-row split the 10 -> 11 snapshot bump made for Sigma beliefs
-   * versus their population statistics.
-   *
-   * A team leaves this set the first time it is SEEN, whether or not its
-   * rescale could be read — see `update`.
+   * materialized into the incoming season's point units. Serialized PER TEAM,
+   * as a flag on that team's own row, never in the league row, to keep the
+   * league row's bytes flat in team count. A team leaves this set the first
+   * time it is SEEN, whether or not its rescale could be read — see `update`.
    */
   readonly carryPending: ReadonlySet<string>;
   /**
-   * WEEK-1 CALIBRATION STATE (quick task 260911-j2w, `epa@9.0.0+baseline`).
-   *
-   * Statbotics' `backend/src/data/avg.py` computes every season-level `Year`
-   * aggregate from week-1 matches alone, so its `year.score_sd` (the
-   * win-probability denominator) and its `year.score_mean`/`no_foul_mean` (the
-   * `get_constants` scale anchor) are WEEK-1 numbers, not season-final ones
-   * (`docs/models/statbotics-breakdown-reference.md` section 21). A week-1
-   * aggregate is knowable the moment week 1 ends, so reading it from week 2
-   * onward costs no walk-forward legitimacy at all.
-   *
-   * LEAGUE-scoped: an accumulator, a frozen `{mean, sd}` and a boolean, none of
-   * which scale with team count — the same D-13 rule that puts
-   * `allianceScoreStats` and `carrySeedMean` in the league row.
-   *
-   * `epaWeekOne.ts` owns the fold rule, the seal rule, the 0-indexing evidence
-   * and the null-week policy. Nothing here re-derives any of them.
+   * WEEK-1 CALIBRATION STATE. Statbotics' `backend/src/data/avg.py` computes
+   * every season-level `Year` aggregate from week-1 matches alone, so its
+   * `year.score_sd` (the win-probability denominator) and its
+   * `year.score_mean`/`no_foul_mean` (the `get_constants` scale anchor) are
+   * WEEK-1 numbers, not season-final ones. A week-1 aggregate is knowable the
+   * moment week 1 ends, so reading it from week 2 onward costs no
+   * walk-forward legitimacy. League-scoped. `epaWeekOne.ts` owns the fold
+   * rule, the seal rule, the 0-indexing evidence and the null-week policy;
+   * nothing here re-derives any of them.
    */
   readonly weekOne: EpaWeekOneState;
   readonly fallbackSkipped: number;
   readonly priorSeasonRatings: EpaCarryoverPriorRatings;
-  // `breakdownParseFailureCount` (D-Q2, `BreakdownParseTelemetry`, extended
-  // above): cumulative over the algorithm's whole lifetime, incremented only
-  // for a "malformed" `tryParseBreakdownPair` outcome (T-03-18b). Kept
-  // SEPARATE from `fallbackSkipped` immediately above — that field is a
-  // permanently-zero invariant about a code path that must never run (a
-  // breakdown-less match reaching a code path that dropped it entirely),
-  // while this one is a genuine, expected-nonzero data-quality counter that
-  // must mean the same thing — "observed since this algorithm started" — on
-  // every algorithm state that carries it.
+  // Cumulative over the algorithm's whole lifetime, incremented only for a
+  // "malformed" `tryParseBreakdownPair` outcome. Kept SEPARATE from
+  // `fallbackSkipped` above — that field is a permanently-zero invariant
+  // about a code path that must never run, while this one is a genuine,
+  // expected-nonzero data-quality counter.
 }
 
 const EMPTY_PRIOR_SEASON_RATINGS: EpaCarryoverPriorRatings = {
@@ -429,44 +278,23 @@ const EMPTY_CARRY_PENDING: ReadonlySet<string> = new Set<string>();
  * permanent one agree by construction rather than by coincidence.
  */
 function carryRescaleRatioFor(state: EpaState): { ratio: number; deferred: boolean } {
-  // READ POINT (b), quick task 260911-j2w. `get_constants(year)` reads the
-  // INCOMING season's WEEK-1 mean, so once week 1 has provably ended that
-  // frozen mean IS the numerator and no estimate is required. Before the
-  // freeze, 8.0.0's live unwind applies UNCHANGED.
+  // `get_constants(year)` reads the INCOMING season's WEEK-1 mean, so once
+  // week 1 has provably ended that frozen mean IS the numerator. Before the
+  // freeze, the live unwind applies — load-bearing, not a fallback: a team
+  // first seen during week 1 would otherwise forfeit its rescale entirely.
   //
-  // The pre-freeze half is not a fallback, it is load-bearing: a team first
-  // seen during week 1 would forfeit its rescale entirely if the anchor waited
-  // for the seal, and week 1 is roughly a sixth of a season's matches. Keeping
-  // the live estimate during week 1 and switching at the boundary is what makes
-  // this a REFINEMENT of 8.0.0 rather than a reversal of it.
-  //
-  // TARGET NOW EXACT (quick task 260911-l2k), closing R3's residual gap 1.
-  // `get_constants` reads week-1 `no_foul_mean`, falling back to `score_mean`
-  // (`init.py:16-21`). Until this task the numerator was the frozen RAW
-  // alliance-score mean — fouls INCLUDED — which was a named NEIGHBOUR of that
-  // quantity rather than the quantity itself. The week-1 no-foul accumulator
-  // R3 said the gap needed now exists, so the preference order below is
-  // upstream's own, term for term:
-  //
+  // Preference order, matching upstream's own (`get_constants` reads week-1
+  // `no_foul_mean`, falling back to `score_mean`, `init.py:16-21`):
   //   1. the frozen week-1 NO-FOUL mean — `no_foul_mean`, exact;
-  //   2. the frozen week-1 RAW mean — `score_mean`, upstream's own fallback,
-  //      and `9.0.0`'s behaviour;
-  //   3. `cleanSeasonMean`'s live unwind — `8.0.0`'s behaviour, still
-  //      load-bearing during week 1 itself (a team first seen then would
-  //      otherwise forfeit its rescale entirely, and week 1 is roughly a
-  //      sixth of a season's matches).
+  //   2. the frozen week-1 RAW mean — `score_mean`, upstream's own fallback;
+  //   3. `cleanSeasonMean`'s live unwind, load-bearing during week 1 itself.
   //
-  // NAMED RESIDUAL that REMAINS, and must not disappear with the old comment:
-  // the two frozen means are taken over slightly different POPULATIONS. The
-  // raw-score accumulator folds every non-ruling-zero alliance, while the
-  // no-foul one additionally requires a PARSED breakdown (the fallback path
-  // imputes components from these very means, so folding an imputed value
-  // would be circular). Upstream derives both from a single `week_one_matches`
-  // list. Registered in `docs/models/epa-statbotics-gap.md`'s R3 entry.
-  //
-  // The arithmetic below is untouched: the chosen numerator is passed INTO
-  // `carryRescaleRatio` exactly as before, because that function's behaviour is
-  // proven by its own gate and this task changes only which number it receives.
+  // NAMED RESIDUAL: the two frozen means are taken over slightly different
+  // POPULATIONS. The raw-score accumulator folds every non-ruling-zero
+  // alliance, while the no-foul one additionally requires a PARSED breakdown
+  // (the fallback path imputes components from these very means, so folding
+  // an imputed value would be circular). Registered in
+  // `docs/models/epa-statbotics-gap.md`'s R3 entry.
   const numerator =
     state.weekOne.frozenFoul !== null
       ? state.weekOne.frozenFoul.noFoulMean
@@ -542,9 +370,7 @@ function sumComponentsAcrossTeam(
   // Sorting here makes the prediction depend only on WHICH components exist
   // and their values, never on how the record was built — which is what
   // `stateSnapshot.test.ts`'s continuation-replay digest equality actually
-  // asserts. Found by quick task 260910-5ym: collapsing 2024's map changed
-  // the component magnitudes enough to make the pre-existing order
-  // sensitivity visible as a digest mismatch.
+  // asserts.
   const result: Record<string, ComponentPrediction> = {};
   for (const name of Object.keys(totals).sort()) {
     result[name] = { mean: totals[name]! };
@@ -556,16 +382,13 @@ function sumComponentsAcrossTeam(
  * Same alliance-level sum `predict()` shows a caller, but as plain
  * `ParsedComponents` numbers rather than `ComponentPrediction` records.
  *
- * WR-03 (code review, phase 02) correction: this is NOT "exactly the
- * vector `predict()` would have shown for this alliance" (the prior
- * comment's claim, disproven by CR-01). It is a straight per-team sum
- * across EVERY registered component, including this alliance's own
- * `FOULS_COMMITTED_COMPONENT` figure, with no cross-alliance adjustment.
- * `predict()`, by contrast, EXCLUDES that figure from an alliance's own
- * total and adds the OPPONENT's instead (D-04) — the two are not
- * interchangeable. A caller that needs `predict()`'s cross-attributed
- * total (the D-05 fallback path below) must apply that adjustment itself;
- * see `fallbackObserved`.
+ * NOT the same vector `predict()` shows for this alliance: this is a
+ * straight per-team sum across EVERY registered component, including this
+ * alliance's own `FOULS_COMMITTED_COMPONENT` figure, with no cross-alliance
+ * adjustment. `predict()` excludes that figure from an alliance's own total
+ * and adds the OPPONENT's instead — the two are not interchangeable. A
+ * caller that needs `predict()`'s cross-attributed total (the fallback path
+ * below) must apply that adjustment itself; see `fallbackObserved`.
  */
 function predictedComponentTotals(
   teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>,
@@ -580,19 +403,18 @@ function predictedComponentTotals(
 }
 
 /**
- * CR-01 fix: this alliance's own currently-predicted total for
+ * This alliance's own currently-predicted total for
  * `FOULS_COMMITTED_COMPONENT`, carried forward UNCHANGED as the "observed"
- * value for a D-05 fallback match — never derived from `result.*Score`.
- * Mirrors, per team, exactly the cold-start fallback `applyComponentUpdate`
- * uses internally (`currentComponents[component] ?? coldStart`), so
- * feeding this value back in as the observation makes
+ * value for a fallback match — never derived from `result.*Score`. Mirrors,
+ * per team, exactly the cold-start fallback `applyComponentUpdate` uses
+ * internally (`currentComponents[component] ?? coldStart`), so feeding this
+ * value back in as the observation makes
  * `twoStageEwma(mean, mean, percent, 1) === mean`: a genuine no-op for a
- * component this project has no way to observe without a real breakdown
- * (D-04: it is derived from the OPPONENT's raw `foulPoints` field, equally
- * absent here) — never a silent drop, never a coerced zero (RESEARCH.md
- * Anti-Patterns). It also stays populated even for a team whose very first
- * match is a fallback match, satisfying D-05's "no component left
- * undefined" invariant (`breakdown.test.ts`).
+ * component this project has no way to observe without a real breakdown (it
+ * is derived from the OPPONENT's raw `foulPoints` field, equally absent
+ * here) — never a silent drop, never a coerced zero. It also stays populated
+ * even for a team whose very first match is a fallback match, so no
+ * component is ever left undefined (`breakdown.test.ts`).
  */
 function foulsCommittedCarryForward(
   teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>,
@@ -608,12 +430,11 @@ function foulsCommittedCarryForward(
 }
 
 /**
- * CR-01 (code review, phase 02): builds the fallback-imputed observation
- * for one alliance when a match has no `score_breakdown`, mirroring
- * `predict()`'s own cross-alliance foul attribution rather than summing
- * every registered component (including this alliance's own
- * `foulsCommitted`) straight from `result.*Score`. Two invariants
- * enforced, per the review:
+ * Builds the fallback-imputed observation for one alliance when a match has
+ * no `score_breakdown`, mirroring `predict()`'s own cross-alliance foul
+ * attribution rather than summing every registered component (including
+ * this alliance's own `foulsCommitted`) straight from `result.*Score`. Two
+ * invariants:
  *
  *   1. None of this alliance's own actual score is ever folded into its
  *      own `FOULS_COMMITTED_COMPONENT` slot — `opponentFoulsMean` is
@@ -621,9 +442,9 @@ function foulsCommittedCarryForward(
  *      split itself only ever runs over `offensiveComponents` (every
  *      registered component EXCEPT `FOULS_COMMITTED_COMPONENT`).
  *   2. The opponent's currently-predicted foul contribution to this
- *      alliance's actual score (`opponentFoulsMean`, D-04) is netted out
- *      before that split, so it is never misattributed into this
- *      alliance's own offensive components.
+ *      alliance's actual score (`opponentFoulsMean`) is netted out before
+ *      that split, so it is never misattributed into this alliance's own
+ *      offensive components.
  */
 function fallbackObserved(
   teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>,
@@ -645,10 +466,10 @@ function fallbackObserved(
 }
 
 /**
- * The season-boundary scale anchor's read path (quick task 260911-3kc): a
- * carried team still pending is materialized into the INCOMING season's point
- * units TRANSIENTLY — a temporary component map for this match's teams only,
- * used for this prediction and then discarded.
+ * The season-boundary scale anchor's read path: a carried team still pending
+ * is materialized into the INCOMING season's point units TRANSIENTLY — a
+ * temporary component map for this match's teams only, used for this
+ * prediction and then discarded.
  *
  * The early-out on an empty pending set is load-bearing, not an optimisation:
  * the common path (every team already seen) must do no work at all, and an
@@ -680,7 +501,7 @@ function predictCore(state: EpaState, match: UpcomingMatch): Prediction {
   // FOULS_COMMITTED_COMPONENT. That exclusion is what makes these the no-foul
   // quantity Statbotics scales — `no_foul_points = score - foulPoints -
   // adjustPoints` (reference section 2), and `adjust` is pinned at exactly 0
-  // per team (D-5), so both sides target the same thing.
+  // per team, so both sides target the same thing.
   const redOffensiveTotal = Object.entries(redComponents).reduce(
     (sum, [name, c]) => (name === FOULS_COMMITTED_COMPONENT ? sum : sum + c.mean),
     0
@@ -690,48 +511,33 @@ function predictCore(state: EpaState, match: UpcomingMatch): Prediction {
     0
   );
 
-  // READ POINT (a), quick task 260911-j2w. Statbotics divides by
-  // `year.score_sd`, which `avg.py` computes from week-1 matches' RAW alliance
-  // scores with fouls INCLUDED — exactly the quantity `update` below already
-  // folds, so this is an EXACT target rather than a neighbour.
+  // Statbotics divides by `year.score_sd`, which `avg.py` computes from
+  // week-1 matches' RAW alliance scores with fouls INCLUDED — exactly the
+  // quantity `update` below already folds, so this is an exact target.
   //
-  // Once week 1 has provably ended (`epaWeekOne.ts`'s seal rule) that frozen SD
-  // is used for every remaining match of the season. Until then — which is week
-  // 1 itself — the live expanding-window SD applies, byte-identical to
-  // `epa@8.0.0+baseline`. Pitfall EPA-1 still holds on BOTH branches: neither
-  // can incorporate a match that has not been replayed yet.
+  // Once week 1 has provably ended (`epaWeekOne.ts`'s seal rule) that frozen
+  // SD is used for every remaining match of the season; until then the live
+  // expanding-window SD applies. Neither branch can incorporate a match that
+  // has not been replayed yet.
   const seasonScoreSd =
     state.weekOne.frozen !== null
       ? state.weekOne.frozen.sd
       : standardDeviation(state.allianceScoreStats, EPA_FALLBACK_SCORE_SD);
   const scale = seasonScoreSd / (-EPA_K * Math.LN10);
-  // THE MARGIN CARRIES NO FOUL TERM AT ALL (quick task 260911-l2k,
-  // `epa@10.0.0+baseline`). `main.py:125-130` (reference section 14) computes
-  // `norm_diff` and `win_prob` from the foul-free scores, and only afterwards
-  // scales both published scores by `(1 + foul_rate)`.
+  // The margin carries no foul term at all. `main.py:125-130` (reference
+  // section 14) computes `norm_diff` and `win_prob` from the foul-free
+  // scores, and only afterwards scales both published scores by
+  // `(1 + foul_rate)`.
   const margin = redOffensiveTotal - blueOffensiveTotal;
   const pRedWin = 1 / (1 + Math.exp(-margin / scale));
-  // 01-REVIEW WR-05 / D-05: validated at emission, before this Prediction
-  // is returned — see predictionValidity.ts's doc comment for why this
-  // check lives here rather than at scoreSet/calibrationBins entry.
   assertValidPRedWin(pRedWin, `epa.predict (${match.matchKey})`);
 
-  // ---------------------------------------------------------------------
-  // THE FOUL SCALAR, APPLIED ONLY NOW (quick task 260911-l2k)
-  // ---------------------------------------------------------------------
-  //
-  // ONE rate for the whole match, multiplying BOTH published scores. The
-  // ORDER is the point, not a stylistic detail: a positive scalar shared by
-  // both alliances cannot change the sign of their difference, so fouls
-  // cannot move the predicted winner or the win probability. They inflate two
-  // published scores and nothing else (reference section 14, and mechanism 5
-  // of `docs/models/epa-statbotics-gap.md`).
-  //
-  // This REPLACES the cross-attribution that used to add the opponent's
-  // `foulsCommitted` mean into each alliance's score before the margin was
-  // taken. Red's and blue's foul means are different numbers, so that term
-  // moved SigmaScout's margin and therefore its predicted winner — the exact
-  // inverse of what Statbotics does.
+  // ONE foul rate for the whole match, multiplying BOTH published scores.
+  // The order is the point: a positive scalar shared by both alliances
+  // cannot change the sign of their difference, so fouls cannot move the
+  // predicted winner or the win probability — they inflate two published
+  // scores and nothing else (reference section 14; mechanism 5 of
+  // `docs/models/epa-statbotics-gap.md`).
   const foulRate = foulRateFor(state);
   const redScore = redOffensiveTotal * (1 + foulRate);
   const blueScore = blueOffensiveTotal * (1 + foulRate);
@@ -754,8 +560,8 @@ function predictCore(state: EpaState, match: UpcomingMatch): Prediction {
 }
 
 /**
- * The one rate this match's published scores are scaled by (quick task
- * 260911-l2k) — `year.get_foul_rate()`'s analogue.
+ * The one rate this match's published scores are scaled by —
+ * `year.get_foul_rate()`'s analogue.
  *
  * Reads the FROZEN week-1 record once the seal has happened, and the
  * SEASON-WIDE live pair before it, switching at exactly the match the SD
@@ -777,13 +583,12 @@ function foulRateFor(state: EpaState): number {
 /**
  * Attributes one alliance's observed component vector across its
  * rating-eligible teams by ERROR SPLIT — each teammate is credited
- * `currentMean + (allianceValue - predictedAllianceTotal) / n` (D-Q1; see the
- * file header's component-attribution bullet) — applying the two-stage EWMA.
- * `isElimination` (D-05, quick task 260904-5px) changes exactly two things
- * below: the outer EWMA weight becomes `EPA_ELIM_WEIGHT` instead of full
- * weight, and the per-team counter is left untouched instead of
- * incrementing — nothing else in this function moves. Returns new maps;
- * never mutates its inputs.
+ * `currentMean + (allianceValue - predictedAllianceTotal) / n` (see the
+ * file header's component-attribution note) — applying the two-stage EWMA.
+ * `isElimination` changes exactly two things below: the outer EWMA weight
+ * becomes `EPA_ELIM_WEIGHT` instead of full weight, and the per-team counter
+ * is left untouched instead of incrementing — nothing else in this function
+ * moves. Returns new maps; never mutates its inputs.
  *
  * The predicted total is computed ONCE per component, BEFORE the per-team
  * loop, from `teamComponents` — the pre-update snapshot. That ordering is
@@ -815,7 +620,7 @@ function applyComponentUpdate(
   const nextCounts = new Map(teamMatchCounts);
   const coldStart = componentColdStartValue(componentCount);
 
-  // D-Q1: one predicted-total pass per alliance-component, taken from the
+  // One predicted-total pass per alliance-component, taken from the
   // PRE-update snapshot (`teamComponents`, not `nextComponents`) so every
   // teammate is attributed against the same prediction. The `?? coldStart`
   // fallback is character-for-character the one the per-team loop below
@@ -825,11 +630,11 @@ function applyComponentUpdate(
   // never part of.
   const predictedAllianceTotals: Record<string, number> = {};
   for (const component of Object.keys(observed)) {
-    // D-5/D-6 (quick task 260904-6a1): `ADJUST_COMPONENT` is a scorekeeper's
-    // ruling applied to an alliance total, not a quantity any robot
-    // produces — there is no per-team share of it to learn, so no predicted
-    // total is computed for it either. Its per-team value is written
-    // directly as `0` in the loop below, never derived from this total.
+    // `ADJUST_COMPONENT` is a scorekeeper's ruling applied to an alliance
+    // total, not a quantity any robot produces — there is no per-team share
+    // of it to learn, so no predicted total is computed for it either. Its
+    // per-team value is written directly as `0` in the loop below, never
+    // derived from this total.
     if (component === ADJUST_COMPONENT) continue;
     let total = 0;
     for (const team of teams) {
@@ -843,16 +648,15 @@ function applyComponentUpdate(
     const percent = epaPercentFunc(matchCount);
     const currentComponents = nextComponents.get(team) ?? {};
     const updatedComponents: Record<string, number> = { ...currentComponents };
-    // D-5/D-6 (quick task 260904-6a1): `adjust` is pinned at exactly `0` for
-    // every team on every update, UNCONDITIONALLY — not merely "when this
-    // match's `observed` vector happens to carry an `adjust` key". A D-05
-    // fallback match's residual split (`nonFoulsComponents`, above)
-    // deliberately excludes `ADJUST_COMPONENT` entirely (D-5 seam 3), so
-    // `observed` carries no `adjust` key at all on that path; without this
-    // unconditional pin a cold-start team would leave `adjust` undefined
-    // rather than the documented `0`. Never EWMA'd toward a manufactured
-    // value: a nonzero per-team adjust estimate would be the model fitting a
-    // scorekeeper's ruling.
+    // `adjust` is pinned at exactly `0` for every team on every update,
+    // UNCONDITIONALLY — not merely "when this match's `observed` vector
+    // happens to carry an `adjust` key". A fallback match's residual split
+    // (`nonFoulsComponents`, above) deliberately excludes `ADJUST_COMPONENT`
+    // entirely, so `observed` carries no `adjust` key at all on that path;
+    // without this unconditional pin a cold-start team would leave `adjust`
+    // undefined rather than the documented `0`. Never EWMA'd toward a
+    // manufactured value: a nonzero per-team adjust estimate would be the
+    // model fitting a scorekeeper's ruling.
     updatedComponents[ADJUST_COMPONENT] = 0;
 
     for (const [component, allianceValue] of Object.entries(observed)) {
@@ -860,29 +664,22 @@ function applyComponentUpdate(
       // why no predicted total exists for it to attribute against.
       if (component === ADJUST_COMPONENT) continue;
       const currentMean = currentComponents[component] ?? coldStart;
-      // D-Q1: credit the alliance's ERROR, shared equally, on top of this
-      // team's own level — Statbotics' `post_process_attrib`
-      // (`err = observed - predicted`, `attrib = epa + err / n`). The retired
-      // form fed `allianceValue / n`, the alliance TOTAL split evenly, which
-      // pulled every team toward its alliance's mean on every match: an
-      // alliance scoring exactly its prediction still dragged its strongest
-      // robot down and lifted its weakest. Here that match is a genuine no-op,
+      // Credit the alliance's ERROR, shared equally, on top of this team's
+      // own level — Statbotics' `post_process_attrib`
+      // (`err = observed - predicted`, `attrib = epa + err / n`). An
+      // alliance scoring exactly its prediction is a genuine no-op here,
       // because `twoStageEwma(mean, mean, percent, 1) === mean`.
       const attributed = currentMean + (allianceValue - predictedAllianceTotals[component]!) / teams.length;
-      // D-05 (quick task 260904-5px): adopts Statbotics' `update_team` outer
-      // EWMA weight — full weight (1) for a qualification match,
-      // `EPA_ELIM_WEIGHT` (1/3) for an elimination match. Closes what used to
-      // be D-08's "always full weight" divergence.
+      // Statbotics' `update_team` outer EWMA weight — full weight (1) for a
+      // qualification match, `EPA_ELIM_WEIGHT` (1/3) for an elimination match.
       updatedComponents[component] = twoStageEwma(currentMean, attributed, percent, isElimination ? EPA_ELIM_WEIGHT : 1);
     }
 
     nextComponents.set(team, updatedComponents);
-    // D-05 (quick task 260904-5px): `percent` above was already computed
-    // from this UN-incremented `matchCount`, so an elimination match learns
-    // at the schedule position it arrived at and leaves the schedule exactly
-    // where it found it — the counter only advances for a qualification
-    // match. Closes what used to be D-08's "increments on every match"
-    // divergence.
+    // `percent` above was already computed from this UN-incremented
+    // `matchCount`, so an elimination match learns at the schedule position
+    // it arrived at and leaves the schedule exactly where it found it — the
+    // counter only advances for a qualification match.
     nextCounts.set(team, isElimination ? matchCount : matchCount + 1);
   }
 
@@ -890,9 +687,9 @@ function applyComponentUpdate(
 }
 
 /**
- * The season-boundary scale anchor's write path (quick task 260911-3kc): a
- * carried team still pending is materialized PERMANENTLY into the incoming
- * season's point units, and then the ordinary update runs on top.
+ * The season-boundary scale anchor's write path: a carried team still
+ * pending is materialized PERMANENTLY into the incoming season's point
+ * units, and then the ordinary update runs on top.
  *
  * Every rating-eligible team in this match leaves `carryPending` whether or not
  * the ratio could be read. A team whose rescale was DEFERRED has already been
@@ -904,12 +701,11 @@ function applyComponentUpdate(
  * The ratio is read from the PRE-update accumulator, exactly as `predict` reads
  * it, so the two agree by construction rather than by coincidence.
  *
- * `componentMap` (quick task 260911-gfe) is the map for THIS MATCH'S OWN
- * SEASON — deliberately a different season from `carrySeason`'s own optional
- * map, which is the INCOMING season's. Conflating the two would rescale a
- * carried rating into the wrong units. ABSENT MEANS RESOLVE EXACTLY AS BEFORE
- * (`componentMapForSeason(season)` inside `updateCore`); `epa.test.ts`'s seam
- * block is the proof of that inertness, not this sentence.
+ * `componentMap` is the map for THIS MATCH'S OWN SEASON — deliberately a
+ * different season from `carrySeason`'s own optional map, which is the
+ * INCOMING season's. Conflating the two would rescale a carried rating into
+ * the wrong units. Absent means resolve exactly as before
+ * (`componentMapForSeason(season)` inside `updateCore`).
  */
 function update(state: EpaState, result: MatchResult, componentMap?: SeasonComponentMap): EpaState {
   if (state.carryPending.size === 0) return updateCore(state, result, componentMap);
@@ -931,22 +727,22 @@ function update(state: EpaState, result: MatchResult, componentMap?: SeasonCompo
 }
 
 /**
- * `componentMap` (quick task 260911-gfe): the match's own season's map, or
- * absent to resolve it exactly as before. ONE resolved value governs BOTH the
- * component LIST (`componentCount`, `nonFoulsComponents`) and the PARSE
+ * `componentMap`: the match's own season's map, or absent to resolve it
+ * exactly as before. ONE resolved value governs BOTH the component LIST
+ * (`componentCount`, `nonFoulsComponents`) and the PARSE
  * (`tryParseBreakdownPair`) below — those two used to resolve the map
  * independently, and an override that changed one without the other would
  * silently fold an observation vector into a mismatched component list.
  */
 function updateCore(state: EpaState, result: MatchResult, componentMap?: SeasonComponentMap): EpaState {
-  // Case 1 (`demoTeams.ts`): a fully-demo alliance is a non-contest (a
+  // A fully-demo alliance (`demoTeams.ts`) is a non-contest (a
   // forfeit/no-show playoff bucket or an offseason bracket bye) — the WHOLE
   // MATCH is skipped, both alliances, never just the demo side's own share.
   // Checked against the RAW (pre-remap) team lists. Unlike OPR, EPA folds
-  // every comp level (at a discount for eliminations as of D-05, quick task
-  // 260904-5px — never skipped), so this is NOT a defensive no-op here — it
-  // is load-bearing for both the 36 real-event playoff matches and the 195
-  // offseason `qm` rows this corpus carries with a fully-demo alliance.
+  // every comp level (at a discount for eliminations, never skipped), so
+  // this is NOT a defensive no-op here — it is load-bearing for both the 36
+  // real-event playoff matches and the 195 offseason `qm` rows this corpus
+  // carries with a fully-demo alliance.
   if (isFullyDemoAlliance(result.redTeams) || isFullyDemoAlliance(result.blueTeams)) return state;
 
   const season = state.season ?? deriveSeasonFromEventKey(result.eventKey);
@@ -954,43 +750,36 @@ function updateCore(state: EpaState, result: MatchResult, componentMap?: SeasonC
   const redTeams = ratingEligibleTeams(result.redTeams, result.redSurrogates);
   const blueTeams = ratingEligibleTeams(result.blueTeams, result.blueSurrogates);
 
-  // D-05 (quick task 260904-5px): the same "is this an elimination match"
-  // test `opr.ts`'s own `update` already uses — `ef`/`qf`/`sf`/`f` are all
-  // eliminations, `qm` alone is a qualification match. Threaded into both
-  // `applyComponentUpdate` calls below, changing exactly the outer EWMA
-  // weight and the per-team counter increment there — nothing else in this
-  // function reads it.
+  // The same "is this an elimination match" test `opr.ts`'s own `update`
+  // already uses — `ef`/`qf`/`sf`/`f` are all eliminations, `qm` alone is a
+  // qualification match. Threaded into both `applyComponentUpdate` calls
+  // below, changing exactly the outer EWMA weight and the per-team counter
+  // increment there — nothing else in this function reads it.
   const isElimination = result.compLevel !== "qm";
 
   const seasonMap = componentMap ?? componentMapForSeason(season);
-  // D-6 (quick task 260904-6a1): `ADJUST_COMPONENT` is excluded from the
-  // cold-start divisor here and at the carrySeason boundary below — it is
-  // never seeded (pinned at 0, D-5), so counting it in the divisor would
-  // silently shrink every rookie's seeded total below
-  // `EPA_INIT_COMPONENT_TOTAL`. A change of VALUE only — every existing
-  // `componentCount` parameter/consumer is unchanged in shape.
+  // `ADJUST_COMPONENT` is excluded from the cold-start divisor here and at
+  // the carrySeason boundary below — it is never seeded (pinned at 0), so
+  // counting it in the divisor would silently shrink every rookie's seeded
+  // total below `EPA_INIT_COMPONENT_TOTAL`.
   const componentCount = seasonMap.components.filter((name) => name !== ADJUST_COMPONENT).length;
 
   const breakdownOutcome = tryParseBreakdownPair(season, result.scoreBreakdownRaw, seasonMap);
   const redParsed = breakdownOutcome.kind === "parsed" ? breakdownOutcome.red : null;
   const blueParsed = breakdownOutcome.kind === "parsed" ? breakdownOutcome.blue : null;
 
-  // D-05 fallback: a match with no score_breakdown ("absent") OR a
-  // score_breakdown that IS present but fails its season Zod schema
-  // ("malformed" — T-03-18b, self-reported offseason data;
-  // `tryParseBreakdownPair`, `breakdown/index.ts`) still updates state. CR-01
-  // fix: the residual is distributed across this alliance's own OFFENSIVE
-  // components only (never FOULS_COMMITTED_COMPONENT — see
+  // A match with no score_breakdown ("absent") OR a score_breakdown that IS
+  // present but fails its season Zod schema ("malformed" — self-reported
+  // offseason data; `tryParseBreakdownPair`, `breakdown/index.ts`) still
+  // updates state. The residual is distributed across this alliance's own
+  // OFFENSIVE components only (never FOULS_COMMITTED_COMPONENT — see
   // fallbackObserved), against the alliance's own actual score net of the
   // OPPONENT's currently-predicted foul contribution — mirroring predict()'s
-  // own cross-alliance attribution, rather than the flat, uncorrected sum
-  // this fallback used to feed distributeResidual pre-fix. Never a silent
-  // drop, never a coerced zero (RESEARCH.md Anti-Patterns).
+  // own cross-alliance attribution. Never a silent drop, never a coerced zero.
   const breakdownParseFailureCount = state.breakdownParseFailureCount + (breakdownOutcome.kind === "malformed" ? 1 : 0);
-  // D-5 EPA seam 3 (quick task 260904-6a1): the fallback split must also
-  // exclude `ADJUST_COMPONENT` — an imputed observation routed to a pinned
-  // component would simply vanish and the imputed total would no longer
-  // reconcile.
+  // The fallback split must also exclude `ADJUST_COMPONENT` — an imputed
+  // observation routed to a pinned component would simply vanish and the
+  // imputed total would no longer reconcile.
   const nonFoulsComponents = seasonMap.components.filter(
     (name) => name !== FOULS_COMMITTED_COMPONENT && name !== ADJUST_COMPONENT
   );
@@ -1004,25 +793,21 @@ function updateCore(state: EpaState, result: MatchResult, componentMap?: SeasonC
     blueParsed ??
     fallbackObserved(state.teamComponents, blueTeams, result.blueScore, redFoulsMean, nonFoulsComponents, componentCount);
 
-  // WR-01 (code review, phase 02): throw loudly rather than let a
-  // non-finite value (surviving the Zod parse boundary, or produced by
-  // distributeResidual's degenerate branch off a non-finite
-  // result.redScore/blueScore) silently poison this team's EWMA state for
-  // the rest of the season — mirrors the retired Sigma1 core's identical second
-  // gate (T-02-01) for the same scenario.
+  // Throw loudly rather than let a non-finite value (surviving the Zod parse
+  // boundary, or produced by distributeResidual's degenerate branch off a
+  // non-finite result.redScore/blueScore) silently poison this team's EWMA
+  // state for the rest of the season.
   assertFiniteComponents(redObserved, `red observation, match ${result.matchKey}`);
   assertFiniteComponents(blueObserved, `blue observation, match ${result.matchKey}`);
 
-  // `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md` +
-  // quick task 260904-6a1's sibling: an alliance whose recorded score is
-  // exactly 0 gets NO component update at all when a scorekeeper's ruling —
-  // not real play — is what produced that 0, however it was encoded. Two
-  // encodings, checked separately (`dq.ts`'s own header): every
-  // rating-eligible team disqualified (`isFullyDqZeroScoreAlliance`), OR the
-  // PARSED breakdown's own `adjust` value is negative with no DQ flags at
-  // all (`isAdjustZeroedAlliance` — the `2026bc2_sf14m1` shape: a genuine
-  // ~456-point alliance zeroed by `adjustPoints: -456`, no DQ). Combined into
-  // one per-alliance ruling-zero boolean and fed `[]` to
+  // An alliance whose recorded score is exactly 0 gets NO component update
+  // at all when a scorekeeper's ruling — not real play — is what produced
+  // that 0, however it was encoded. Two encodings, checked separately
+  // (`dq.ts`'s own header): every rating-eligible team disqualified
+  // (`isFullyDqZeroScoreAlliance`), OR the PARSED breakdown's own `adjust`
+  // value is negative with no DQ flags at all (`isAdjustZeroedAlliance` — a
+  // genuine ~456-point alliance zeroed by `adjustPoints: -456`, no DQ).
+  // Combined into one per-alliance ruling-zero boolean and fed `[]` to
   // `applyComponentUpdate`, the same no-op input that function already
   // handles for an all-surrogate alliance. Checked per-alliance, NOT
   // per-match like `isFullyDemoAlliance` above: the opposing alliance's own
@@ -1062,10 +847,10 @@ function updateCore(state: EpaState, result: MatchResult, componentMap?: SeasonC
   if (!redIsRulingZero) allianceScoreStats = foldObservation(allianceScoreStats, result.redScore);
   if (!blueIsRulingZero) allianceScoreStats = foldObservation(allianceScoreStats, result.blueScore);
 
-  // WEEK-1 CALIBRATION (quick task 260911-j2w). Seal FIRST, then fold: a match
-  // is either week 1 or past it, never both, so the order cannot change the
-  // outcome for this match. It is fixed this way only so the seal is read
-  // before any fold a future edit might make conditional on it.
+  // Seal FIRST, then fold: a match is either week 1 or past it, never both,
+  // so the order cannot change the outcome for this match. It is fixed this
+  // way only so the seal is read before any fold a future edit might make
+  // conditional on it.
   //
   // The SAME ruling-zero exclusion the season-wide accumulator applies above
   // applies here, for the same reason: a scorekeeper's ruling is not an
@@ -1075,46 +860,36 @@ function updateCore(state: EpaState, result: MatchResult, componentMap?: SeasonC
   if (!redIsRulingZero) weekOne = foldWeekOneAllianceScore(weekOne, result.week, result.redScore);
   if (!blueIsRulingZero) weekOne = foldWeekOneAllianceScore(weekOne, result.week, result.blueScore);
 
-  // ---------------------------------------------------------------------
-  // THE NO-FOUL / FOUL SPLIT (quick task 260911-l2k, `epa@10.0.0+baseline`)
-  // ---------------------------------------------------------------------
-  //
-  // Statbotics' shared cleaner, VERBATIM (reference section 2):
+  // THE NO-FOUL / FOUL SPLIT. Statbotics' shared cleaner, VERBATIM
+  // (reference section 2):
   //
   //     foul_points = breakdown.get("foulPoints", 0) + breakdown.get("adjustPoints", 0)
   //     no_foul_points = score - foul_points
   //
   // So an alliance's FOUL side is the points it RECEIVED from the opponent's
   // fouls, plus its OWN `adjustPoints`, and its no-foul side is the complement
-  // taken from the SCORE. Deriving no-foul by summing this alliance's own
-  // offensive components instead was considered and rejected (D-2): a season
-  // whose component map does not span the whole score would shift the
-  // aggregate silently, and upstream's own definition is score-based. Taking
-  // the complement also makes `noFoulMean + foulMean === scoreMean` hold by
-  // construction, so `(1 + rate) * noFoulMean` is exactly the inflation from a
-  // no-foul total to a real score.
+  // taken from the SCORE. Taking the complement makes
+  // `noFoulMean + foulMean === scoreMean` hold by construction, so
+  // `(1 + rate) * noFoulMean` is exactly the inflation from a no-foul total
+  // to a real score.
   //
   // THE CROSS-SIDE DIRECTION, WHICH IS THE EASIEST THING HERE TO GET BACKWARDS.
   // Every `breakdown/{year}.ts` sets `result[FOULS_COMMITTED_COMPONENT] =
-  // opponent.foulPoints` (D-04 — the component means "points this alliance's
-  // fouls cost the OTHER side"). So RED's parsed `foulsCommitted` holds the
-  // points BLUE received, and the points RED received therefore sit in BLUE's
+  // opponent.foulPoints` (the component means "points this alliance's fouls
+  // cost the OTHER side"). So RED's parsed `foulsCommitted` holds the points
+  // BLUE received, and the points RED received therefore sit in BLUE's
   // parsed slot. Red's foul side is `blueParsed[FOULS_COMMITTED_COMPONENT] +
   // redParsed[ADJUST_COMPONENT]`: one value from the OPPONENT's record, one
   // from its OWN.
   //
   // Getting that backwards is SILENT. The accumulators still fill, the seal
   // still fires, the rate is still finite and plausible, every test that only
-  // checks shape still passes, and the published scores are simply inflated by
-  // the wrong number. That is why the direction has its own test with
-  // deliberately ASYMMETRIC foul values — a symmetric fixture passes either
-  // way and would prove nothing.
+  // checks shape still passes, and the published scores are simply inflated
+  // by the wrong number. That is why the direction has its own test with
+  // deliberately ASYMMETRIC foul values.
   //
-  // TWO EXCLUSIONS (D-3), the second of which is not obvious:
-  //   1. a ruling-zero alliance, exactly as above — the `2026bc2_sf14m1` shape
-  //      is `adjustPoints: -456` against a 0 score, which would fold a ~456
-  //      point garbage no-foul observation into a constant every later
-  //      prediction divides by;
+  // Two exclusions, the second of which is not obvious:
+  //   1. a ruling-zero alliance, exactly as above;
   //   2. an alliance whose breakdown did NOT parse. The fallback path imputes
   //      that alliance's components FROM the foul means these accumulators
   //      feed, so folding an imputed value back in would be circular — the
@@ -1154,55 +929,42 @@ function updateCore(state: EpaState, result: MatchResult, componentMap?: SeasonC
     // Permanently zero (see EpaState's doc comment) — no code path below
     // this line increments it anymore.
     fallbackSkipped: state.fallbackSkipped,
-    // Untouched by an ordinary match update — only carrySeason (D-16)
-    // moves this forward, at a season boundary.
+    // Untouched by an ordinary match update — only carrySeason moves this
+    // forward, at a season boundary.
     priorSeasonRatings: state.priorSeasonRatings,
     breakdownParseFailureCount,
   };
 }
 
 /**
- * D-27: per team, one entry per learned component plus `TOTAL_METRIC_KEY`.
- * No `spread` — EPA carries a mean only, exactly as Statbotics' `EPARating`.
+ * Per team, one entry per learned component plus `TOTAL_METRIC_KEY`. No
+ * `spread` — EPA carries a mean only, exactly as Statbotics' `EPARating`.
  *
- * D-01 (quick task 260904-5px): `total` is the sum of every component
- * EXCEPT `FOULS_COMMITTED_COMPONENT` — this is the no-foul quantity
- * Statbotics itself publishes as `epa.total_points` (verified live:
- * `frc254`/2024's `total_points` 51.71 reconciles against auto + teleop +
- * endgame alone, with no foul term). `foulsCommitted` is still published as
- * its OWN entry below, exactly as before — it is informative on its own
- * (Statbotics publishes foul figures separately too) — only its membership
- * in `total` changes. And a team's own fouls were never that team's own
- * scoring output in the first place: they are points its fouls cost the
- * OPPONENT (D-04, `predict()`'s cross-attribution, untouched by this
- * change).
+ * `total` is the sum of every component EXCEPT `FOULS_COMMITTED_COMPONENT`
+ * — this is the no-foul quantity Statbotics itself publishes as
+ * `epa.total_points` (verified live: `frc254`/2024's `total_points` 51.71
+ * reconciles against auto + teleop + endgame alone, with no foul term).
+ * `foulsCommitted` is still published as its own entry below — it is
+ * informative on its own (Statbotics publishes foul figures separately
+ * too) — only its membership in `total` changes. A team's own fouls were
+ * never that team's own scoring output: they are points its fouls cost the
+ * OPPONENT (`predict()`'s cross-attribution, untouched by this).
  *
- * D-1 (quick task 260904-7id): also publishes `phaseAuto`/`phaseTeleop`/
- * `phaseEndgame` — the three season-declared component groups
- * (`breakdown/groups.ts`) — as first-class, value-only metrics, an explicit
- * reversal of quick task 260904-5zg's T-5zg-03 "derived groups carry no
- * tier" decision. Publishing them here is what lets the existing
+ * Also publishes `phaseAuto`/`phaseTeleop`/`phaseEndgame` — the three
+ * season-declared component groups (`breakdown/groups.ts`) — as first-class,
+ * value-only metrics. Publishing them here is what lets the existing
  * percentile/tier pass (`publish.ts`'s `withPercentiles`/`withPublishedTiers`
  * over `teamsThisSeason`, generic over metric NAMES) attach a season-wide
  * tier to them with zero harness changes — a client-side ranking would
  * render in the identical colour while meaning something else, which a
- * reader could never detect, so the tier must come from here. EPA's version
- * string is DELIBERATELY NOT bumped for this: `06f468ad` set the precedent
- * for Sigma1's own identical addition ("team metrics do not feed the
- * prediction-stream digest, so adding these keys leaves every committed
- * digest bitwise unchanged"), and `epa@4.0.0+baseline`/`5.0.0+baseline` have
- * never been published to R2 at all, so widening the published metric set
- * before a version's first publish cannot make one version string stand for
- * two different published shapes (D-13's invariant, still honored).
+ * reader could never detect, so the tier must come from here.
  *
  * Reconciliation, EPA-specific and worth stating because it is NOT a general
  * property of the grouping: `phaseAuto + phaseTeleop + phaseEndgame +
- * adjust` now equals `total` exactly, because `adjust` is pinned at exactly
- * `0` for every team (D-5/D-6, quick task 260904-6a1) and `total` already
- * excludes `foulsCommitted` (D-01 above) — the group values plus the one
- * remaining ungrouped, always-zero component partition `total` completely.
- * VPR's `total` still spans every component including fouls, so this same
- * identity does NOT hold there.
+ * adjust` equals `total` exactly, because `adjust` is pinned at exactly `0`
+ * for every team and `total` already excludes `foulsCommitted` — the group
+ * values plus the one remaining ungrouped, always-zero component partition
+ * `total` completely.
  */
 function teamMetrics(state: EpaState, teams?: readonly string[]): TeamMetrics {
   const requestedTeams = teams ?? [...state.teamComponents.keys()];
@@ -1219,11 +981,8 @@ function teamMetrics(state: EpaState, teams?: readonly string[]): TeamMetrics {
     perTeam[TOTAL_METRIC_KEY] = { value: total };
 
     // Phase groups (Auto/Teleop/Endgame), published as first-class metrics
-    // (D-1, quick task 260904-7id — see this function's own doc comment
-    // above). Mirrors the retired Sigma1 core's own group block (`teamMetrics`)
-    // in structure, skipping only its spread lookup: EPA
-    // publishes a MEAN ONLY everywhere, so there is nothing to attach here.
-    // Reads the SAME single grouping source (`componentGroupsForSeason`)
+    // (see this function's own doc comment above). Reads the SAME single
+    // grouping source (`componentGroupsForSeason`)
     // `apps/web/src/lib/metricGroups.ts` already reads client-side for its
     // own stale-artifact derived fallback — that shared source is what makes
     // a published group value and the client's derived fallback value
@@ -1241,8 +1000,8 @@ function teamMetrics(state: EpaState, teams?: readonly string[]): TeamMetrics {
         }
         // A group whose components are all absent from this team's record
         // publishes nothing at all — never a fabricated zero, tracked with a
-        // presence flag rather than inferred from a zero sum. Matches
-        // Sigma1's own rule and the client's `withDerivedGroupMetrics`.
+        // presence flag rather than inferred from a zero sum. Matches the
+        // client's `withDerivedGroupMetrics`.
         if (!present) continue;
         perTeam[COMPONENT_GROUP_METRIC_KEYS[groupId]] = { value: groupValue };
       }
@@ -1254,48 +1013,45 @@ function teamMetrics(state: EpaState, teams?: readonly string[]): TeamMetrics {
 }
 
 /**
- * D-16/D-19: carries every team's rating across a season boundary using
+ * Carries every team's rating across a season boundary using
  * `carryover.ts`'s `epaCarryover` — this function's only job is reshaping
  * `EpaState`'s fields into and out of that pure calculation.
  *
  * `boundary.isColdStart === true` is a no-op: the cold-start season has no
- * `fromSeason` state to carry from, by definition (D-18), so `state` is
- * returned unchanged (the caller — the harness season loop — is not
- * expected to call this for the cold-start season at all, but this makes
- * the contract safe to call defensively regardless).
+ * `fromSeason` state to carry from, by definition, so `state` is returned
+ * unchanged (the caller — the harness season loop — is not expected to call
+ * this for the cold-start season at all, but this makes the contract safe
+ * to call defensively regardless).
  *
- * `toSeasonMap` (quick task 260911-gfe) is the INCOMING season's map —
- * `boundary.toSeason`, NOT the season just played, and NOT the same season as
- * `update`'s own optional map. A reader who conflates the two would wire a
- * measurement arm that expresses carried ratings in the wrong season's units.
- * ABSENT MEANS RESOLVE EXACTLY AS BEFORE. Note that `AlgorithmModule`'s
- * declared `carrySeason`/`update` signatures cannot see an optional third
- * parameter at all, so a caller that wants to pass a map must hold the
- * concrete `epa` object (this module's own export, typed by `satisfies`)
- * rather than an `AlgorithmModule` reference.
+ * `toSeasonMap` is the INCOMING season's map — `boundary.toSeason`, NOT the
+ * season just played, and NOT the same season as `update`'s own optional
+ * map. A reader who conflates the two would wire a measurement arm that
+ * expresses carried ratings in the wrong season's units. Absent means
+ * resolve exactly as before. `AlgorithmModule`'s declared
+ * `carrySeason`/`update` signatures cannot see an optional third parameter
+ * at all, so a caller that wants to pass a map must hold the concrete `epa`
+ * object (this module's own export, typed by `satisfies`) rather than an
+ * `AlgorithmModule` reference.
  *
- * `allianceScoreStats` is RE-SEEDED here, not carried whole (quick task
- * 260910-4x0). RESEARCH.md's Pitfall EPA-1 fix specifies seeding the
- * expanding-window score SD "from the prior season's final value at season
- * start", and this is the one place a season boundary is already handled, so
- * the harness season loop (plan 02-03 Task 2) still needs no second boundary
- * hook for it. What changed is that this function used to pass the
- * accumulator across the boundary UNCHANGED, which is not a seed: a seed
- * fades as the new season's own data arrives, and it cannot fade while the
- * prior seasons' observation count comes with it. The result was a
- * win-probability denominator pooled across every season replayed so far,
- * against FRC point scales that move by 5x between seasons. See
- * `EPA_SCORE_SD_SEED_COUNT` for the measurement and the seed strength.
+ * `allianceScoreStats` is RE-SEEDED here, not carried whole: the
+ * expanding-window score SD seeds "from the prior season's final value at
+ * season start" rather than carrying the accumulator across the boundary
+ * UNCHANGED — a seed fades as the new season's own data arrives, and it
+ * cannot fade while the prior seasons' observation count comes with it. The
+ * alternative was a win-probability denominator pooled across every season
+ * replayed so far, against FRC point scales that move by 5x between
+ * seasons. See `EPA_SCORE_SD_SEED_COUNT` for the measurement and the seed
+ * strength.
  */
 function carrySeason(state: EpaState, boundary: SeasonBoundary, toSeasonMap?: SeasonComponentMap): EpaState {
   if (boundary.isColdStart) return state;
 
-  // Captured BEFORE delegating (quick task 260911-3kc). `epaCarryover` converts
-  // BOTH directions with the OUTGOING season's own distribution, so every
-  // carried total below leaves this function expressed in THESE units. The
-  // value survives `reseedFromPrior` and is recoverable afterwards, but
-  // capturing it here is what makes `cleanSeasonMean`'s unwind correct by
-  // construction rather than by a later re-derivation that could drift.
+  // Captured BEFORE delegating. `epaCarryover` converts BOTH directions with
+  // the OUTGOING season's own distribution, so every carried total below
+  // leaves this function expressed in THESE units. The value survives
+  // `reseedFromPrior` and is recoverable afterwards, but capturing it here
+  // is what makes `cleanSeasonMean`'s unwind correct by construction rather
+  // than by a later re-derivation that could drift.
   const carrySeedMean = state.allianceScoreStats.mean;
 
   const teamTotals = new Map<string, number>();
@@ -1308,10 +1064,9 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary, toSeasonMap?: Se
   const carryResult = epaCarryover({ teamTotals, priorSeasonRatings: state.priorSeasonRatings });
 
   const toSeasonComponents = (toSeasonMap ?? componentMapForSeason(boundary.toSeason)).components;
-  // D-5/D-6 EPA seam 4 (quick task 260904-6a1): `ADJUST_COMPONENT` is
-  // excluded from the carried-share divisor, exactly like the cold-start
-  // divisor above — without this, every team's `adjust` estimate would
-  // become nonzero again at every season boundary.
+  // `ADJUST_COMPONENT` is excluded from the carried-share divisor, exactly
+  // like the cold-start divisor above — without this, every team's `adjust`
+  // estimate would become nonzero again at every season boundary.
   const modeledToSeasonComponents = toSeasonComponents.filter((name) => name !== ADJUST_COMPONENT);
   const teamComponents = new Map<string, Readonly<Record<string, number>>>();
   const teamMatchCounts = new Map<string, number>();
@@ -1320,14 +1075,14 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary, toSeasonMap?: Se
     const share = modeledToSeasonComponents.length > 0 ? carriedTotal / modeledToSeasonComponents.length : 0;
     const record: Record<string, number> = {};
     for (const name of toSeasonComponents) {
-      // `adjust`'s carried entry is pinned at exactly 0 (D-5) — never a
-      // share of the carried total.
+      // `adjust`'s carried entry is pinned at exactly 0 — never a share of
+      // the carried total.
       record[name] = name === ADJUST_COMPONENT ? 0 : share;
     }
     teamComponents.set(team, record);
     // A new season resets each team's match counter — the percent_func's
     // fast early learning rate applies fresh, exactly as it does for any
-    // genuinely new team (D-08's counter semantics are per-season).
+    // genuinely new team.
     teamMatchCounts.set(team, 0);
   }
 
@@ -1336,10 +1091,10 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary, toSeasonMap?: Se
     teamComponents,
     teamMatchCounts,
     allianceScoreStats: reseedFromPrior(state.allianceScoreStats, EPA_SCORE_SD_SEED_COUNT),
-    // RESET, not reseeded (quick task 260911-l2k) — deliberately UNLIKE
-    // `allianceScoreStats` immediately above, and the difference is the point.
-    // A foul RATE is a property of one season's own rule set and point values:
-    // the same on-field contact is worth a different number of points from one
+    // RESET, not reseeded — deliberately UNLIKE `allianceScoreStats`
+    // immediately above, and the difference is the point. A foul RATE is a
+    // property of one season's own rule set and point values: the same
+    // on-field contact is worth a different number of points from one
     // season to the next, and a rules change can move the rate outright.
     // Carrying last season's across the boundary would be a prior-season leak
     // into a constant Statbotics derives from the INCOMING season's own week 1
@@ -1353,8 +1108,8 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary, toSeasonMap?: Se
     // UNFROZEN and UNSEALED with an empty accumulator. Deliberately NOT seeded
     // from the outgoing season the way `allianceScoreStats` is: a frozen
     // constant carried across a boundary would be last season's point scale
-    // masquerading as this one's, which is the exact defect `reseedFromPrior`
-    // exists to prevent and which quick task 260910-4x0 measured.
+    // masquerading as this one's — the exact defect `reseedFromPrior` exists
+    // to prevent.
     weekOne: emptyEpaWeekOneState(),
     carrySeedMean,
     // Exactly the carry-worthy teams: `teamComponents` above is a FRESH map
@@ -1363,298 +1118,57 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary, toSeasonMap?: Se
     carryPending: new Set(teamComponents.keys()),
     fallbackSkipped: 0,
     priorSeasonRatings: carryResult.priorSeasonRatings,
-    // D-Q2 (quick task 260818-inm): carried forward UNCHANGED, in deliberate
-    // CONTRAST to the `fallbackSkipped` reset immediately above.
-    // `fallbackSkipped` is a per-lifetime zero invariant about a code path
-    // that must never run; `breakdownParseFailureCount` is a cumulative
-    // data-quality counter that must mean the same thing — "observed since
-    // this algorithm started" — on every algorithm state that carries it,
-    // and a season boundary is not a reason to forget it.
+    // Carried forward UNCHANGED, in deliberate CONTRAST to the
+    // `fallbackSkipped` reset immediately above. `fallbackSkipped` is a
+    // per-lifetime zero invariant about a code path that must never run;
+    // `breakdownParseFailureCount` is a cumulative data-quality counter that
+    // must mean the same thing — "observed since this algorithm started" —
+    // on every algorithm state that carries it, and a season boundary is not
+    // a reason to forget it.
     breakdownParseFailureCount: state.breakdownParseFailureCount,
   };
 }
 
 export const epa = {
   id: "epa",
-  // D-13 (plan 03-03, Rule 1 fix): every published algorithm's `version`
-  // must carry the `{codeVersion}+{paramSetName}` shape — publish.ts and
-  // manifests.ts both split on it and throw otherwise. EPA has no separate
-  // tuned parameter set (D-04: frozen at
-  // Statbotics' own published constants, never searched), so "baseline" is
-  // the honest, single named set.
+  // `version` must carry the `{codeVersion}+{paramSetName}` shape —
+  // publish.ts and manifests.ts both split on it and throw otherwise. EPA
+  // has no separate tuned parameter set (frozen at Statbotics' own
+  // published constants, never searched), so "baseline" is the honest,
+  // single named set. Any change to `update`'s or `teamMetrics`'s
+  // observable output requires a version bump — no version string may stand
+  // for two structurally different computations.
   //
-  // Bumped 1.0.0 -> 1.1.0
-  // (`.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`,
-  // 2026-08-30): `update()`'s observable output changed — a whole-alliance
-  // disqualification with a recorded 0 score is now dropped as a rating
-  // observation instead of fitted as real performance
-  // (`isFullyDqZeroScoreAlliance`, `dq.ts`) — the same D-13 invariant
-  // `opr.ts`'s own version-bump comment names ("no artifact may show one
-  // code version standing for two structurally different algorithms").
+  // `carrySeason` receives the state as it stood immediately after a
+  // season's last OFFICIAL match, not the season-final state (which would
+  // let unofficial exhibition/preseason play seed the following season) —
+  // declared by `carryFrom` below and implemented once, at the replay
+  // layer, in `WalkForwardSimulator.runAll`'s `carryStates`
+  // (`packages/harness/replay.ts`). Unofficial play occurring BEFORE a
+  // season's last official match still reaches the snapshot; only the
+  // season's tail of exhibition play is excluded.
   //
-  // Bumped 1.1.0 -> 2.0.0 (D-Q1, quick task 260901-is2): `update()`'s
-  // observable output changed — `applyComponentUpdate` now attributes the
-  // alliance's ERROR shared over its rating-eligible teammates
-  // (`currentMean + (observed - predicted) / n`, Statbotics'
-  // `post_process_attrib`) instead of the alliance TOTAL split evenly. Same
-  // D-13 invariant as the 1.0.0 -> 1.1.0 bump above: no version string may
-  // stand for two different computations.
-  //
-  // MAJOR, not minor, and deliberately so: unlike the 1.1.0 bump — which
-  // changed an edge case (whole-alliance DQ zero scores, a few dozen matches
-  // a season) — this changes the attribution arithmetic for EVERY multi-team
-  // alliance in every match ever replayed. Every rating this module has ever
-  // produced moves. Measured: rating SD 12.5 -> 17.4, OLS slope vs
-  // Statbotics 0.489 -> 0.841, 2025 quals Brier 0.1950 -> 0.1589 (see the
-  // file header for the full table).
-  //
-  // Bumped 2.0.0 -> 3.0.0 (D-01, quick task 260904-5px):
-  // `teamMetrics()`'s observable output changed for every team that has ever
-  // committed a foul — the published `total` now excludes
-  // `FOULS_COMMITTED_COMPONENT`, matching Statbotics' `epa.total_points`.
-  // Same D-13 invariant as every bump above: no version string may stand for
-  // two structurally different algorithms.
-  //
-  // CORRECTION (D-05, quick task 260904-5px, added when this comment block's
-  // own next entry was written): the bump comment originally written here
-  // said a second change — D-05's elimination-match discount — would land
-  // under this SAME `3.0.0+baseline` string. That did not happen: quick task
-  // 260904-6a1's independent 4.0.0 bump landed in between, so D-05's
-  // elimination discount instead ships under `5.0.0+baseline` below, not
-  // `3.0.0+baseline`. `3.0.0+baseline` stands for the fouls-exclusion change
-  // ALONE — nothing else was published, fingerprinted, or written into a
-  // committed measurement record naming it, so the D-13 invariant still
-  // holds; this correction exists so a future reader does not trust the
-  // superseded plan stated in the original wording (this project's own
-  // named failure mode: a comment describing a model that never shipped).
-  //
-  // Bumped 3.0.0 -> 4.0.0 (D-7, quick task 260904-6a1, 2026-09-04):
-  // `update()`'s observable output changed for a SECOND, unrelated reason
-  // since 3.0.0 shipped — two distinct model-correctness changes, both
-  // discovered investigating `2026bc2_sf14m1` (BattleCry June SF14-1), a
-  // genuine ~456-point alliance zeroed to 0 by a scorekeeper's
-  // `adjustPoints: -456` with NO DQ flags at all:
-  //
-  //   1. `isAdjustZeroedAlliance` (`dq.ts`), a sibling to
-  //      `isFullyDqZeroScoreAlliance`, drops an alliance's own observation
-  //      when its recorded score is 0 and its PARSED `adjust` value is
-  //      negative — the second way a scorekeeper's ruling zeroes an
-  //      alliance, distinct from a whole-alliance DQ (which files no DQ at
-  //      all in this population).
-  //   2. `adjust` is now PINNED at exactly 0 for every team, in every match
-  //      — `applyComponentUpdate` never folds it, the cold-start divisor
-  //      excludes it (so a rookie's seeded total is unchanged), and
-  //      `carrySeason`'s carried-share divisor excludes it too. `adjust` is
-  //      a scorekeeper's ruling applied to an alliance total, not a
-  //      quantity any robot produces — there is no per-team share of it to
-  //      learn, and every prior nonzero per-team estimate was the model
-  //      fitting a ruling.
-  //
-  // MAJOR, not minor, and deliberately so: change 2 moves every team's
-  // component vector in every match ever replayed (adjust was previously
-  // folded like any other component), not merely an edge case. Same D-13
-  // invariant as every bump above: no version string may stand for two
-  // structurally different algorithms.
-  //
-  // Bumped 4.0.0 -> 5.0.0 (D-05, quick task 260904-5px, this commit):
-  // `update()`'s observable output changed for a THIRD reason — Statbotics'
-  // elimination-match discount, both halves at once (D-08, closed above; see
-  // `docs/models/epa-divergences.md` §1, retired there): `EPA_ELIM_WEIGHT`
-  // (1/3) replaces full weight for the outer EWMA blend of an
-  // elimination-match observation, and the per-team match counter no longer
-  // advances on an elimination match, so `epaPercentFunc`'s decaying
-  // learning-rate schedule is driven by qualification matches alone. This is
-  // the change the 2.0.0 -> 3.0.0 bump comment's original wording (corrected
-  // above) had expected to ship under `3.0.0+baseline`; it ships here instead
-  // because 6a1's 4.0.0 bump landed in between. Same D-13 invariant as every
-  // bump above: no version string may stand for two structurally different
-  // algorithms — nothing was published, fingerprinted, or written into a
-  // committed measurement record naming `4.0.0+baseline` between that bump
-  // landing and this one superseding it.
-  //
-  // MAJOR, not minor, and deliberately so: every elimination-match update in
-  // this module's whole history moves. Re-measured baseline figures are in
-  // `data/baselines/epa-vs-statbotics-2026-09.json` and
-  // `docs/models/epa-vs-statbotics.md` (before: `epa@2.0.0+baseline` as
-  // measured 2026-09-04; after: `epa@5.0.0+baseline`, combining the fouls
-  // exclusion, 6a1's adjust-pinning/adjust-zeroed-alliance changes, AND this
-  // elimination discount — the doc's before/after table attributes the
-  // movement to all three causes together, not to the elimination discount
-  // alone).
-  //
-  // Bumped 5.0.0 -> 6.0.0 (quick task 260908-615, 2026-09-08): `carrySeason`'s
-  // INPUT changed. A season boundary now hands this function the state as it
-  // stood immediately after that season's last OFFICIAL match, instead of the
-  // season-final state that had kept learning through offseason and preseason
-  // play — declared by the `carryFrom` member below and implemented once, at
-  // the replay layer, in `WalkForwardSimulator.runAll`'s `carryStates`
-  // (`packages/harness/replay.ts`). `carrySeason`'s own body is UNCHANGED;
-  // what moved is which state it is called with. Motivation: an exhibition
-  // blowout in November could seed a team's rating for the following
-  // February, while Statbotics' own priors are championship-frozen.
-  //
-  // MAJOR, not minor, and deliberately so: this is not an edge case. In a
-  // multi-season replay every season after the first now starts from a
-  // different prior, so every published EPA rating from the second replayed
-  // season onward moves — the whole field is re-seeded at every boundary, a
-  // wider blast radius than 5.0.0's elimination discount had. Same D-13
-  // invariant as every bump above: no version string may stand for two
-  // structurally different computations.
-  //
-  // Two limitations, named here rather than left for a reader to discover:
-  //   1. ACCEPTED (CONTEXT.md's locked decision D-CARRY — snapshot at the
-  //      last official match, NOT an exact official-only shadow state):
-  //      unofficial play occurring BEFORE a season's last official match
-  //      still reaches the snapshot. Only the season's TAIL of exhibition
-  //      play is excluded. Closing that would need a second, parallel state
-  //      threaded through every replay — deliberately not built.
-  //   2. An offseason-EXCLUDED run is unchanged by this bump ONLY when its
-  //      stream also carries no preseason Week-0 matches: `buildSeasonStream`'s
-  //      `excludeOffseason` filters the corpus's `is_offseason` column, which
-  //      TBA event type 100 does not set, while `isOfficialEventType` excludes
-  //      both 99 and 100. A `--no-offseason` stream containing Week-0 matches
-  //      now excludes them from the carry instant — correct under the locked
-  //      definition of official, and stated here rather than glossed as "no
-  //      change".
-  //
-  // Bumped 7.0.0 -> 8.0.0 (quick task 260911-3kc, 2026-09-11): the SEASON
-  // BOUNDARY SCALE ANCHOR. A carried rating now enters the new season expressed
-  // in the INCOMING season's point units instead of the outgoing season's.
-  // `carryover.ts`'s `epaCarryover` is unchanged — it still converts both
-  // directions with the outgoing distribution, which keeps its own round trip
-  // self-consistent — and the correction is composed on top, LAZILY, per team,
-  // on first sight, by `carrySeason`/`predict`/`update` above reading
-  // `epaCarryScale.ts`.
-  //
-  // THIS IS A CORRECTNESS FIX AGAINST THIS PROJECT'S OWN RECORDED REFERENCE,
-  // NOT A TUNING WIN. `02-CONTEXT.md` D-16 and `02-RESEARCH.md` transcribe
-  // Statbotics' `init.py` verbatim as converting the carry into the NEW
-  // season's point units; `carryover.ts` converted into the outgoing season's.
-  // It would have been worth fixing at neutral accuracy. That it also measures
-  // better is a second reason, not the first.
-  //
-  // MAJOR, not minor, and deliberately so: EVERY carried rating changes at
-  // every boundary where the point scale moved, so every published EPA figure
-  // from the second replayed season onward moves. Measured over nine seasons
-  // and 147,221 matches (quick task 260910-x09 for the fix, 260911-3kc for the
-  // shipped threshold): pooled winner accuracy +0.01059 [+0.00846, +0.01285],
-  // pooled Brier -0.00521 [-0.00638, -0.00412], with the effect CONCENTRATED at
-  // 2019 (+0.0794 accuracy off 2018's 5x scale collapse) exactly as the
-  // pre-registered mechanism predicted. Stated with its costs rather than
-  // without them: 2018's Brier is definitively WORSE (+0.00052 [+0.00030,
-  // +0.00076]) and the pooled ONSET window pays for the boundary before it
-  // earns it back across the season.
-  //
-  // Two limitations, named here rather than left for a reader to discover:
-  //   1. It is an APPROXIMATION of Statbotics, never a match. Statbotics runs
-  //      offline and simply knows the incoming season's scale; a walk-forward
-  //      replay must estimate it from the incoming season's own folded scores,
-  //      and a team first seen before `EPA_CARRY_RESCALE_MIN_OBS` of them exist
-  //      forfeits its rescale permanently.
-  //   2. `teamMetrics` is UNCHANGED and publishes a still-pending team's
-  //      carried rating in the OUTGOING season's units — the same behaviour the
-  //      measured arm had. A team that has not yet played in the new season is
-  //      the only case, and correcting the display would be an unmeasured
-  //      change to a published number.
-  //
-  // Bumped 9.0.0 -> 10.0.0 (quick task 260911-l2k, 2026-09-11): THE FOUL MODEL.
-  // Two things moved, and only these two.
-  //   (a) PLACEMENT. The foul term left the margin. `predictCore` used to add
-  //       the OPPOSING alliance's `foulsCommitted` mean into each alliance's
-  //       score and take the margin from those; it now computes the margin,
-  //       the scale and `pRedWin` from the two NO-FOUL totals with no foul term
-  //       anywhere, and only afterwards multiplies BOTH published scores by one
-  //       shared `(1 + foulRate)` — `main.py:125-130`, reference section 14.
-  //   (b) THE RATE. `foulMean / noFoulMean` over Statbotics' week-1 population,
-  //       frozen by the seal `epaWeekOne.ts` already owns and live-estimated
-  //       from a season-wide pair before it.
-  // As a consequence of building (b)'s accumulator, `carryRescaleRatio`'s
-  // numerator now reads the frozen week-1 NO-FOUL mean — the exact quantity
-  // `get_constants` reads — closing R3's residual gap 1.
-  //
-  // MAJOR, and it is the most straightforwardly major bump in this list: EVERY
-  // PREDICTED WINNER CAN CHANGE. Red's and blue's foul means are different
-  // numbers, so the retired cross-attribution shifted the margin of every match
-  // of every season; a single scalar shared by both sides cannot. No published
-  // predicted score, win probability or winner is guaranteed to be what 9.0.0
-  // produced.
-  //
-  // WALK-FORWARD LEGAL for exactly 9.0.0's reason, unchanged: a week-1
-  // aggregate is knowable the moment week 1 ends, the seal fires on the first
-  // match carrying a numeric week greater than 0 — which in a chronological
-  // stream PROVES every week-1 match has already been played — and no lookahead
-  // is required. Before the seal the rate comes from a season-wide expanding
-  // pair that can only contain matches already replayed.
-  //
-  // FIDELITY, NOT ACCURACY. This is Stage 3 of `epa-statbotics-gap.md`'s
-  // recommended sequence and it was adopted to match Statbotics, not to score
-  // better. A winner-accuracy or Brier regression is an expected and acceptable
-  // outcome; the before/after measurement is in
-  // `.planning/quick/260911-l2k-adopt-statbotics-foul-model-scalar-after/`
-  // and is reported as found. Nothing here was tuned, swept or selected.
-  //
-  // REPUBLISH OWED, and now THREE TIMES OVER: `8.0.0`'s debt and `9.0.0`'s are
-  // both still unpaid, and this bump adds a third. Every published EPA
-  // predicted score and win probability is stale until it is paid.
-  // `STATE_SNAPSHOT_SHAPE_VERSION` is 14 for this; SEED FIRST, DEPLOY SECOND.
-  //
-  // Bumped 8.0.0 -> 9.0.0 (quick task 260911-j2w, 2026-09-11): WEEK-1
-  // CALIBRATION. Two live-estimated season scalars are now retargeted at the
-  // FROZEN WEEK-1 aggregate Statbotics actually uses, from week 2 onward:
-  //   (a) `predict`'s norm-diff denominator, which targets `year.score_sd`;
-  //   (b) `carryRescaleRatio`'s numerator, which targets `get_constants`'s
-  //       incoming-season mean.
-  // During week 1 itself both read exactly what 8.0.0 read. `epaWeekOne.ts`
-  // owns the accumulator, the seal rule and the null-week policy.
-  //
-  // WHY THIS IS WALK-FORWARD LEGAL, stated at the version rather than buried:
-  // `backend/src/data/avg.py` computes every `Year` aggregate from week-1
-  // matches alone (`docs/models/statbotics-breakdown-reference.md` section 21),
-  // and a week-1 aggregate is knowable the moment week 1 ends. The freeze
-  // triggers on the first match carrying a numeric week greater than 0, which
-  // in a chronological stream PROVES every week-1 match has already been
-  // played. No lookahead, no season-final read. This narrows L-01 from a
-  // season-wide divergence to a one-week one.
-  //
-  // MAJOR, not minor: every published `pRedWin` from week 2 onward changes in
-  // every season, and every carried rating rescaled after a freeze changes
-  // too. Same D-13 invariant as every bump above — no version string may
-  // stand for two structurally different computations. A REPUBLISH IS OWED,
-  // on top of the one 8.0.0 already owed and which had not been run.
-  //
-  // THE GOAL IS REPRODUCTION FIDELITY, NOT ACCURACY, and the measurement is
-  // reported as found rather than as hoped. Nothing here was tuned, swept or
-  // selected against any season; the only new constant, `EPA_WEEK_ONE_MIN_OBS`,
-  // is `standardDeviation`'s own contract boundary of 2. Before/after winner
-  // accuracy and Brier, per season and pooled, event-blocked, same scorer:
-  // the quick task's SUMMARY and the two committed
-  // `*-epa-deviation-ablation.json` artifacts beside it.
-  //
-  // Three limitations, named rather than left for a reader to discover:
-  //   1. NAMED RESIDUAL GAP on the MEAN. Statbotics' `get_constants` reads
-  //      week-1 `no_foul_mean`; this frozen mean is over the RAW alliance
-  //      score, fouls INCLUDED. The SD target is exact, the mean target is a
-  //      named neighbour. Registered in `docs/models/epa-statbotics-gap.md`.
-  //   2. `avg.py`'s 2025 processor-algae correction is applied at AGGREGATE
-  //      time upstream and is NOT adopted here.
-  //   3. ONE-MATCH LAG and LATE WEEK-1 ARRIVALS — see `epaWeekOne.ts`'s
-  //      header. Both are consequences of sealing inside a chronological
-  //      stream rather than reading an offline list.
+  // A carried rating enters the new season expressed in the INCOMING
+  // season's point units (`epaCarryScale.ts`), an approximation of
+  // Statbotics rather than a match: a walk-forward replay must estimate the
+  // incoming scale from the incoming season's own folded scores, and a team
+  // first seen before `EPA_CARRY_RESCALE_MIN_OBS` of them exist forfeits
+  // its rescale permanently. `teamMetrics` publishes a still-pending team's
+  // carried rating in the OUTGOING season's units until it is first seen.
   version: "10.0.0+baseline",
   initState,
   predict,
   update,
   teamMetrics,
   carrySeason,
-  // Quick task 260908-615 — see the 5.0.0 -> 6.0.0 bump note above. EPA is the
-  // ONLY algorithm that declares this; VPR, OPR and BPR omit it and so keep
-  // carrying from the season-final state exactly as before.
+  // EPA is the only algorithm that declares this; OPR omits it and keeps
+  // carrying from the season-final state.
   carryFrom: "last-official-match",
-  // `satisfies`, not a type annotation (quick task 260911-gfe). An annotation
-  // would WIDEN this object to `AlgorithmModule<EpaState>`, whose declared
-  // `update`/`carrySeason` take two parameters, and the optional component-map
-  // third parameter would become invisible at every call site — including the
-  // measurement arm it exists for. `satisfies` keeps the conformance check
-  // (this object still has to be a valid `AlgorithmModule<EpaState>`) and keeps
-  // the concrete signatures.
+  // `satisfies`, not a type annotation. An annotation would WIDEN this object
+  // to `AlgorithmModule<EpaState>`, whose declared `update`/`carrySeason` take
+  // two parameters, and the optional component-map third parameter would
+  // become invisible at every call site — including the measurement arm it
+  // exists for. `satisfies` keeps the conformance check (this object still
+  // has to be a valid `AlgorithmModule<EpaState>`) and keeps the concrete
+  // signatures.
 } satisfies AlgorithmModule<EpaState>;
