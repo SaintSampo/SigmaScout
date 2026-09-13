@@ -1,185 +1,202 @@
+import type { ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
-  EPA_AGREEMENT_BLOCK_INTRO,
+  EPA_CARD_SIGMASCOUT_LABEL,
+  EPA_CARD_STATBOTICS_LABEL,
   EPA_COMPARISON_LEAD,
-  EPA_DIFFERENCE_ENTRIES,
-  EPA_HEAD_TO_HEAD_BLOCK_INTRO,
+  EPA_DIFFERENCE_CARDS,
+  EPA_DIFFERENCE_SECTION_HEADING,
+  EPA_HEAD_TO_HEAD_INTRO,
+  EPA_HEAD_TO_HEAD_SECTION_HEADING,
+  EPA_SAME_ITEMS,
+  EPA_SAME_SECTION_HEADING,
   headToHeadSummarySentence,
+  type EpaDifferenceCardId,
 } from "./epaComparisonContent.js";
 import type { EpaComparisonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
- * The `/methodology/epa-vs-statbotics` page body (quick task 260908-n5o
- * Task 3; revised same day after reviewing the shipped page). Takes the
- * already-parsed artifact as a PROP — never fetches, never declares its own
- * query — matching `AcknowledgmentsPage.tsx`'s own "content component takes
- * data, route owns the query" split.
+ * The `/methodology/epa-vs-statbotics` page body (quick task 260912-tib, a
+ * from-scratch rewrite). The route owns the single query; this file never
+ * fetches. Static prose (the lead, the shared list, every difference card)
+ * renders from first paint, including while the artifact is pending, on a
+ * 404, and on a fetch error — only the `results` slot waits on the artifact,
+ * filled in by the route with the appropriate branch.
  *
- * Revision: the "offseason matches in versus out" A/B section is REMOVED.
- * It compared the same quantity (`minMatchesFiltered`, season-final,
- * offseason-inclusive) that the agreement table itself used to compare —
- * a number nobody is shown anywhere on this site. `artifact.agreement` now
- * carries one row per season, each measured against a team's rating as of
- * its own last official match (the number the Teams list and a team page's
- * header actually show), so there is no second arm left to pair.
- *
- * Every number rendered here comes from `artifact` — no slope, correlation,
- * mean absolute difference, accuracy or Brier value is a literal anywhere in
- * this file (this task's own must_haves). Mirrors
- * `apps/web/src/components/compare/AccuracyTable.tsx`'s table markup and
+ * `.event-card` is this app's shared card treatment, reused from
+ * `MethodologyCards.tsx` and `CalibrationSection.tsx`. The head-to-head
+ * table markup mirrors `apps/web/src/components/compare/AccuracyTable.tsx`'s
  * classes rather than inventing a new table treatment.
+ *
+ * The published artifact's `agreement` array is intentionally unused here —
+ * this page dropped the per-season agreement table (OLS slope, Pearson
+ * correlation, mean absolute difference) by a locked decision (Jacob,
+ * 2026-09-12); the schema still requires the field so the artifact and its
+ * writer are untouched by this plan.
  */
 
-const AGREEMENT_TABLE_TESTID = "epa-comparison-agreement-table";
+const SAME_LIST_TESTID = "epa-comparison-same-list";
+const DIFFERENCE_CARDS_TESTID = "epa-comparison-difference-cards";
 const HEAD_TO_HEAD_TABLE_TESTID = "epa-comparison-head-to-head-table";
 const HEAD_TO_HEAD_SUMMARY_TESTID = "epa-comparison-head-to-head-summary";
 const PROVENANCE_TESTID = "epa-comparison-provenance";
 
-function formatSlopeOrCorrelation(value: number): string {
-  return value.toFixed(3);
+export function epaDifferenceCardTestId(id: EpaDifferenceCardId): string {
+  return `epa-difference-card-${id}`;
 }
 
-function formatMeanAbsoluteDifference(value: number): string {
-  return `${value.toFixed(2)} pts`;
-}
-
-/** Accuracy and Brier both render to four decimals, per this page's own numeric-precision rule — never the percentage form `AccuracyTable.tsx`'s Compare page uses, since that page's own precision rule is a separate decision for a separate page. */
+/** Renders to four decimals, matching `AccuracyTable.tsx`'s null-formatter convention: an empty string, never a dash glyph, so no dash character can reach the DOM from a missing value. */
 function formatFourDecimals(value: number | null): string {
-  return value === null ? "—" : value.toFixed(4);
+  return value === null ? "" : value.toFixed(4);
 }
 
 export interface EpaComparisonPageProps {
-  readonly artifact: EpaComparisonArtifact;
+  readonly results: ReactNode;
 }
 
-export function EpaComparisonPage({ artifact }: EpaComparisonPageProps) {
-  const agreementRows = artifact.agreement.slice().sort((a, b) => a.season - b.season);
-
-  const headToHeadRows = artifact.headToHead.slice().sort((a, b) => a.season - b.season);
-  const comparableRows = headToHeadRows.filter((row) => row.ourWinnerAccuracy !== null);
-  const statboticsAheadCount = comparableRows.filter(
-    (row) => row.statboticsWinnerAccuracy > (row.ourWinnerAccuracy as number)
-  ).length;
-
+export function EpaComparisonPage({ results }: EpaComparisonPageProps) {
   return (
     <div className="flex flex-col gap-[var(--spacing-lg)]">
       <p className="max-w-[72ch] text-role-body text-[var(--color-text-primary)]">{EPA_COMPARISON_LEAD}</p>
 
-      {EPA_DIFFERENCE_ENTRIES.map((entry) => (
-        <section key={entry.id} className="flex flex-col gap-[var(--spacing-xs)]">
-          <h2 className="text-role-heading text-[var(--color-text-primary)]">{entry.heading}</h2>
-          {entry.paragraphs.map((paragraph, index) => (
-            <p key={index} className="max-w-[72ch] text-role-body text-[var(--color-text-primary)]">
-              {paragraph}
-            </p>
+      <section id="same-on-both-sites" className="flex flex-col gap-[var(--spacing-sm)]">
+        <h2 className="text-role-heading text-[var(--color-text-primary)]">{EPA_SAME_SECTION_HEADING}</h2>
+        <ul
+          data-testid={SAME_LIST_TESTID}
+          className="flex max-w-[72ch] list-disc flex-col gap-[var(--spacing-xs)] pl-[var(--spacing-lg)]"
+        >
+          {EPA_SAME_ITEMS.map((item) => (
+            <li key={item.id} className="text-role-body text-[var(--color-text-primary)]">
+              {item.text}
+            </li>
           ))}
-        </section>
-      ))}
+        </ul>
+      </section>
 
-      <div data-testid={PROVENANCE_TESTID} className="text-role-body text-[var(--color-text-muted)]">
-        Measured under EPA {artifact.epaVersion} on {artifact.measuredAt.slice(0, 10)}.
-      </div>
-
-      <section className="flex flex-col gap-[var(--spacing-sm)]">
-        <h2 className="text-role-heading text-[var(--color-text-primary)]">Per-season agreement</h2>
-        <p className="max-w-[72ch] text-role-body text-[var(--color-text-primary)]">{EPA_AGREEMENT_BLOCK_INTRO}</p>
-        <div data-testid={AGREEMENT_TABLE_TESTID} className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
-          <table data-slot="table" className="zebra-rows w-auto caption-bottom text-sm">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="text-role-label">Season</TableHead>
-                <TableHead className="text-role-label numeric-cell">Teams compared</TableHead>
-                <TableHead className="text-role-label numeric-cell">OLS slope</TableHead>
-                <TableHead className="text-role-label numeric-cell">Pearson correlation</TableHead>
-                <TableHead className="text-role-label numeric-cell">Mean absolute difference</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {agreementRows.map((row) => (
-                <TableRow key={row.season}>
-                  <TableCell className="numeric-cell">{row.season}</TableCell>
-                  <TableCell className="numeric-cell">{row.joinedCount}</TableCell>
-                  <TableCell className="numeric-cell">{formatSlopeOrCorrelation(row.ordinaryLeastSquaresSlope)}</TableCell>
-                  <TableCell className="numeric-cell">{formatSlopeOrCorrelation(row.pearson)}</TableCell>
-                  <TableCell className="numeric-cell">{formatMeanAbsoluteDifference(row.meanAbsoluteDifference)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </table>
+      <section id="where-they-differ" className="flex flex-col gap-[var(--spacing-sm)]">
+        <h2 className="text-role-heading text-[var(--color-text-primary)]">{EPA_DIFFERENCE_SECTION_HEADING}</h2>
+        <div data-testid={DIFFERENCE_CARDS_TESTID} className="flex flex-col gap-[var(--spacing-md)]">
+          {EPA_DIFFERENCE_CARDS.map((card) => (
+            <article
+              key={card.id}
+              data-testid={epaDifferenceCardTestId(card.id)}
+              className="event-card flex min-w-0 flex-col gap-[var(--spacing-sm)] p-[var(--spacing-md)] shadow-sm"
+            >
+              <h3 className="text-role-body font-semibold text-[var(--color-text-primary)]">{card.title}</h3>
+              <dl className="grid gap-[var(--spacing-sm)] md:grid-cols-2">
+                <div className="flex min-w-0 flex-col gap-[var(--spacing-xs)]">
+                  <dt className="text-role-label text-[var(--color-text-muted)]">{EPA_CARD_STATBOTICS_LABEL}</dt>
+                  <dd className="text-role-body text-[var(--color-text-primary)]">{card.statbotics}</dd>
+                </div>
+                <div className="flex min-w-0 flex-col gap-[var(--spacing-xs)]">
+                  <dt className="text-role-label text-[var(--color-text-muted)]">{EPA_CARD_SIGMASCOUT_LABEL}</dt>
+                  <dd className="text-role-body text-[var(--color-text-primary)]">{card.sigmascout}</dd>
+                </div>
+                {card.notes.map((note) => (
+                  <div
+                    key={note.label}
+                    className="flex min-w-0 flex-col gap-[var(--spacing-xs)] md:col-span-2 border-t border-[var(--color-border)] pt-[var(--spacing-sm)]"
+                  >
+                    <dt className="text-role-label text-[var(--color-text-muted)]">{note.label}</dt>
+                    <dd className="text-role-body text-[var(--color-text-primary)]">{note.text}</dd>
+                  </div>
+                ))}
+              </dl>
+            </article>
+          ))}
         </div>
       </section>
 
-      <section className="flex flex-col gap-[var(--spacing-sm)]">
-        <h2 className="text-role-heading text-[var(--color-text-primary)]">Head-to-head accuracy</h2>
-        <p className="max-w-[72ch] text-role-body text-[var(--color-text-primary)]">{EPA_HEAD_TO_HEAD_BLOCK_INTRO}</p>
-        <div data-testid={HEAD_TO_HEAD_TABLE_TESTID} className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
-          <table data-slot="table" className="zebra-rows w-auto caption-bottom text-sm">
-            <TableHeader>
-              <TableRow>
-                <TableHead rowSpan={2} className="text-role-label align-bottom">
-                  Season
-                </TableHead>
-                <TableHead colSpan={2} className="text-role-label border-l text-center">
-                  SigmaScout EPA
-                </TableHead>
-                <TableHead colSpan={2} className="text-role-label border-l text-center">
-                  Statbotics EPA
-                </TableHead>
-              </TableRow>
-              <TableRow>
-                <TableHead className="text-role-label border-l">Winner accuracy</TableHead>
-                <TableHead className="text-role-label">Brier score</TableHead>
-                <TableHead className="text-role-label border-l">Winner accuracy</TableHead>
-                <TableHead className="text-role-label">Brier score</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {headToHeadRows.map((row) => (
-                <TableRow key={row.season}>
-                  <TableCell className="numeric-cell">{row.season}</TableCell>
-                  <TableCell className="numeric-cell border-l">{formatFourDecimals(row.ourWinnerAccuracy)}</TableCell>
-                  <TableCell className="numeric-cell">{formatFourDecimals(row.ourBrierScore)}</TableCell>
-                  <TableCell className="numeric-cell border-l">
-                    {formatFourDecimals(row.statboticsWinnerAccuracy)}
-                    {!row.statboticsFetched && <span className="text-[var(--color-text-muted)]"> (dated)</span>}
-                  </TableCell>
-                  <TableCell className="numeric-cell">
-                    {formatFourDecimals(row.statboticsBrierScore)}
-                    {!row.statboticsFetched && <span className="text-[var(--color-text-muted)]"> (dated)</span>}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </table>
-        </div>
-        <p data-testid={HEAD_TO_HEAD_SUMMARY_TESTID} className="max-w-[72ch] text-role-body text-[var(--color-text-primary)]">
-          {headToHeadSummarySentence(statboticsAheadCount, comparableRows.length)}
-        </p>
+      <section id="how-much-it-matters" className="flex flex-col gap-[var(--spacing-sm)]">
+        <h2 className="text-role-heading text-[var(--color-text-primary)]">{EPA_HEAD_TO_HEAD_SECTION_HEADING}</h2>
+        <p className="max-w-[72ch] text-role-body text-[var(--color-text-primary)]">{EPA_HEAD_TO_HEAD_INTRO}</p>
+        {results}
       </section>
     </div>
   );
 }
 
-/**
- * The pending branch's shape-preserving placeholder: the lead paragraph and
- * the difference headings are text-only chrome, so they render for real
- * even while the artifact is in flight (the same "gate content, never the
- * element's own existence" rule the rest of this app follows) — only the
- * two data-bearing sections below get a skeleton in their place.
- */
-export function EpaComparisonPageSkeleton() {
+export interface EpaHeadToHeadResultsProps {
+  readonly artifact: EpaComparisonArtifact;
+}
+
+export function EpaHeadToHeadResults({ artifact }: EpaHeadToHeadResultsProps) {
+  const headToHeadRows = artifact.headToHead.slice().sort((a, b) => a.season - b.season);
+  const comparableRows = headToHeadRows.filter((row) => row.ourWinnerAccuracy !== null);
+  const statboticsAheadCount = comparableRows.filter(
+    (row) => row.statboticsWinnerAccuracy > (row.ourWinnerAccuracy as number),
+  ).length;
+
   return (
-    <div className="flex flex-col gap-[var(--spacing-md)]">
-      <Skeleton className="h-9 w-64" />
-      <Skeleton className="h-24 w-full" />
-      <Skeleton className="h-24 w-full" />
+    <>
+      <div data-testid={HEAD_TO_HEAD_TABLE_TESTID} className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
+        <table data-slot="table" className="zebra-rows w-auto caption-bottom text-sm">
+          <TableHeader>
+            <TableRow>
+              <TableHead rowSpan={2} className="text-role-label align-bottom">
+                Season
+              </TableHead>
+              <TableHead colSpan={2} className="text-role-label border-l text-center">
+                SigmaScout EPA
+              </TableHead>
+              <TableHead colSpan={2} className="text-role-label border-l text-center">
+                Statbotics EPA
+              </TableHead>
+            </TableRow>
+            <TableRow>
+              <TableHead className="text-role-label border-l">Winner accuracy</TableHead>
+              <TableHead className="text-role-label">Brier score</TableHead>
+              <TableHead className="text-role-label border-l">Winner accuracy</TableHead>
+              <TableHead className="text-role-label">Brier score</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {headToHeadRows.map((row) => (
+              <TableRow key={row.season}>
+                <TableCell className="numeric-cell">{row.season}</TableCell>
+                <TableCell className="numeric-cell border-l">{formatFourDecimals(row.ourWinnerAccuracy)}</TableCell>
+                <TableCell className="numeric-cell">{formatFourDecimals(row.ourBrierScore)}</TableCell>
+                <TableCell className="numeric-cell border-l">
+                  {formatFourDecimals(row.statboticsWinnerAccuracy)}
+                  {!row.statboticsFetched && <span className="text-[var(--color-text-muted)]"> (dated)</span>}
+                </TableCell>
+                <TableCell className="numeric-cell">
+                  {formatFourDecimals(row.statboticsBrierScore)}
+                  {!row.statboticsFetched && <span className="text-[var(--color-text-muted)]"> (dated)</span>}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </table>
+      </div>
+      <p data-testid={HEAD_TO_HEAD_SUMMARY_TESTID} className="max-w-[72ch] text-role-body text-[var(--color-text-primary)]">
+        {headToHeadSummarySentence(statboticsAheadCount, comparableRows.length)}
+      </p>
+      <div data-testid={PROVENANCE_TESTID} className="text-role-body text-[var(--color-text-muted)]">
+        Measured under EPA {artifact.epaVersion} on {artifact.measuredAt.slice(0, 10)}.
+      </div>
+    </>
+  );
+}
+
+/**
+ * The pending branch's placeholder for the results slot only — the lead, the
+ * shared list and every difference card are static prose supplied by
+ * `EpaComparisonPage` itself and render regardless of query state.
+ */
+export function EpaHeadToHeadSkeleton() {
+  return (
+    <div className="flex flex-col gap-[var(--spacing-sm)]">
+      <Skeleton className="h-40 w-full" />
+      <Skeleton className="h-5 w-2/3" />
     </div>
   );
 }
 
 export {
-  AGREEMENT_TABLE_TESTID as EPA_COMPARISON_AGREEMENT_TABLE_TESTID,
+  SAME_LIST_TESTID as EPA_COMPARISON_SAME_LIST_TESTID,
+  DIFFERENCE_CARDS_TESTID as EPA_COMPARISON_DIFFERENCE_CARDS_TESTID,
   HEAD_TO_HEAD_TABLE_TESTID as EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID,
   HEAD_TO_HEAD_SUMMARY_TESTID as EPA_COMPARISON_HEAD_TO_HEAD_SUMMARY_TESTID,
   PROVENANCE_TESTID as EPA_COMPARISON_PROVENANCE_TESTID,
