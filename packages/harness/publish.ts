@@ -286,6 +286,46 @@ export function withHistoryPercentiles(rows: readonly MetricHistoryRow[], rankin
 }
 
 /**
+ * Quick task 260913-m45 Task 1: attaches this team's PER-MATCH Sigma Score
+ * to each metric-history row that has one, as the row's LAST metrics key —
+ * `sigma: { value }`, value only (no percentile: a per-match pool has no
+ * meaning, and the chart needs no tier; no spread: Sigma Score is not itself
+ * a spread field).
+ *
+ * Applied ONLY at the team-season artifact build, AFTER `withHistoryPercentiles`
+ * — never into `metricHistoryForAlgo` itself, which feeds
+ * `lastOfficialMetricsByTeam`, the ranking pools, the Teams row and
+ * `seasonStats`. Merging there would let a later spread silently overwrite
+ * the leaked sigma (T-m45-02) — the guarantee has to be structural, so this
+ * helper is applied at the one call site that builds the published
+ * `metricHistory` array and nowhere else.
+ *
+ * `sigmaByMatchKey` is a REQUIRED positional parameter that may be
+ * `undefined` (an algorithm outside `SIGMA_SCORE_ALGORITHM_IDS` passes
+ * `undefined` explicitly, rather than the caller silently omitting the
+ * argument) — a row whose `matchKey` the map does not carry, or an
+ * `undefined` map entirely, gets NO sigma key at all, never a
+ * present-and-undefined one.
+ *
+ * Returns a NEW array; a matched row becomes a NEW row object with a NEW
+ * metrics record (the old metrics spread, then the sigma entry appended
+ * last); an unmatched row passes through UNTOUCHED (the same row and the
+ * same metrics reference) — this function never mutates its input and never
+ * rounds (rounding stays at `buildTeamSeasonArtifact`'s single boundary,
+ * `roundMetricHistoryRow`).
+ */
+export function withHistorySigma(
+  rows: readonly MetricHistoryRow[],
+  sigmaByMatchKey: ReadonlyMap<string, number> | undefined
+): MetricHistoryRow[] {
+  return rows.map((row) => {
+    const sigma = sigmaByMatchKey?.get(row.matchKey);
+    if (sigma === undefined) return row;
+    return { ...row, metrics: { ...row.metrics, [SIGMA_METRIC_KEY]: { value: sigma } } };
+  });
+}
+
+/**
  * Quick task 260904-586: the Teams-list metric snapshot, scoped to official
  * play. `metricHistoryByTeam` carries one row per match a team played, IN
  * CHRONOLOGICAL STREAM ORDER (D-28) — this walks each team's row array in
@@ -2749,6 +2789,20 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     const layers = new Map<string, SigmaScoutLayer>();
     for (const algorithm of options.algorithms) layers.set(algorithm.id, new SigmaScoutLayer(rpRuleModule, algorithm.id));
 
+    /**
+     * Quick task 260913-m45 Task 1: algorithm id -> team key -> match key ->
+     * that team's Sigma Score right after `foldPlayed` for that match — the
+     * "after this match" reading `withHistorySigma` merges into the
+     * team-season build below. Populated ONLY for algorithms where
+     * `usesSigmaScore` is true (an empty map for every other algorithm).
+     * Deliberately NOT written into `metricHistoryByAlgoTeam`/
+     * `metricHistoryForAlgo`: those rows feed the ranking pools, the Teams
+     * row and `seasonStats`, where a later spread would silently overwrite a
+     * leaked per-match sigma (T-m45-02).
+     */
+    const sigmaByMatchKeyForAlgoTeam = new Map<string, Map<string, Map<string, number>>>();
+    for (const algorithm of options.algorithms) sigmaByMatchKeyForAlgoTeam.set(algorithm.id, new Map());
+
     for (const r of records) {
       // One object, both maps below — the event page and the team page cannot
       // show different numbers for this match because there is only one number.
@@ -2757,12 +2811,26 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       // opinion about cold start, so the raw record's own stamp is spread
       // in here — the single source of truth threads through this fold
       // rather than being silently dropped by it.
+      const layer = layers.get(r.algorithmId)!;
       const pr: PredictionRecord = {
-        ...layers
-          .get(r.algorithmId)!
-          .foldPlayed(r.match, r.prediction, talentAfterMatch.get(`${r.algorithmId}:${r.match.matchKey}`)),
+        ...layer.foldPlayed(r.match, r.prediction, talentAfterMatch.get(`${r.algorithmId}:${r.match.matchKey}`)),
         ...(r.coldStart === true ? { coldStart: true as const } : {}),
       };
+      // Quick task 260913-m45 Task 1: read right after THIS match's fold —
+      // the same read-after-fold instant every other history-row metric
+      // uses. One team at a time (`SigmaScoutLayer.sigmaFor`), never
+      // `consistencyByTeam()` (which scores every team the layer has ever
+      // seen and must never be called per match).
+      if (usesSigmaScore(r.algorithmId)) {
+        const byTeam = sigmaByMatchKeyForAlgoTeam.get(r.algorithmId)!;
+        for (const teamKey of new Set([...r.match.redTeams, ...r.match.blueTeams])) {
+          const sigma = layer.sigmaFor(teamKey);
+          if (sigma === undefined) continue;
+          const byMatch = byTeam.get(teamKey) ?? new Map<string, number>();
+          byMatch.set(r.match.matchKey, sigma);
+          byTeam.set(teamKey, byMatch);
+        }
+      }
       const eventMap = perAlgoEventMatches.get(r.algorithmId)!;
       const eventList = eventMap.get(r.match.eventKey) ?? [];
       eventList.push(pr);
@@ -3263,7 +3331,19 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
             metricsBasis: seasonStatsMetrics.metricsBasis,
           },
           events,
-          metricHistory: withHistoryPercentiles(metricHistoryForAlgo.get(teamKey) ?? [], rankingPools),
+          // Quick task 260913-m45 Task 1: `withHistorySigma` is applied
+          // AFTER `withHistoryPercentiles`, not before and not combined into
+          // one pass — applying it after means the per-match sigma entry
+          // never receives a pool percentile (a per-match pool has no
+          // meaning, and the chart needs no tier), and — more importantly —
+          // the SOURCE rows (`metricHistoryForAlgo`), the ranking pools built
+          // from them, and the seasonStats/Teams-row merges above never see
+          // sigma at all: this call site is the ONLY place the per-match
+          // value reaches a published row (T-m45-02).
+          metricHistory: withHistorySigma(
+            withHistoryPercentiles(metricHistoryForAlgo.get(teamKey) ?? [], rankingPools),
+            sigmaByMatchKeyForAlgoTeam.get(algorithm.id)?.get(teamKey)
+          ),
           sortTimeByMatchKey,
           actualBonusFlagsByMatchKey,
           // D-03 (Phase 6): omitted entirely when the corpus has no row, or
