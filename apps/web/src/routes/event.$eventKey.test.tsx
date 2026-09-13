@@ -13,15 +13,18 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { DEFAULT_EVENT_TAB, RootSearchSchema } from "../lib/searchParams.js";
 import { PAGE_ARTIFACT_SCHEMA_VERSION } from "../../../../packages/harness/pageArtifacts.js";
+import { componentsInGroup } from "../../../../packages/core/algorithms/breakdown/index.js";
 import { Route as EventRouteImport } from "./event.$eventKey.js";
 
-function manifestResponse() {
+const EPA_MANIFEST_ENTRY = { id: "epa", version: "7.0.0+baseline", codeVersion: "7.0.0", paramSetName: "baseline" };
+
+function manifestResponse(extraAlgorithms: readonly (typeof EPA_MANIFEST_ENTRY)[] = []) {
   return new Response(
     JSON.stringify({
       schemaVersion: 1,
       generation: "gen-1",
       computedAt: "2026-08-24T00:00:00.000Z",
-      algorithms: [{ id: "spr", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" }],
+      algorithms: [{ id: "spr", version: "2.0.0+tuned-2026-08", codeVersion: "2.0.0", paramSetName: "tuned-2026-08" }, ...extraAlgorithms],
     }),
     { status: 200 },
   );
@@ -177,7 +180,7 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
 
-  it("a populated artifact whose season is 2024, loaded at ?year=2026, renders the seven collapsed-default vpr/2024 columns (sketch 009-A drill-down, 260905-3rq) — the column set follows artifact.season, not ?year=", async () => {
+  it("spr: the Breakdown tab renders Team #, Team Name, Total and the three phase columns only, with no Fouls Committed column and no phase toggles (quick task 260913-mgn)", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
@@ -188,10 +191,29 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
     // "whichever tab is active by default".
     renderEventRoute("/event/2024casf?year=2026&algorithm=spr&tab=breakdown");
 
-    // The LABEL row's identified columns: Team #, Team Name, Total, the three
-    // phase columns, Fouls Committed. (getAllByRole would also count the
-    // group-band row's three toggle cells, so count the identified cells.)
-    await waitFor(() => expect(screen.getAllByTestId(/^breakdown-header-/)).toHaveLength(7));
+    await waitFor(() => expect(screen.getAllByTestId(/^breakdown-header-/)).toHaveLength(6));
+    expect(screen.getAllByTestId(/^breakdown-header-/).map((el) => el.getAttribute("data-testid"))).toEqual(
+      ["teamNumber", "nickname", "total", "phaseAuto", "phaseTeleop", "phaseEndgame"].map((id) => `breakdown-header-${id}`),
+    );
+    expect(screen.queryByTestId("breakdown-group-row")).toBeNull();
+  });
+
+  it("epa: a populated artifact whose season is 2024, loaded at ?year=2026, expands Auto into the 2024 auto components (sketch 009-A drill-down, 260905-3rq) — the column set follows artifact.season, not ?year=", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse([EPA_MANIFEST_ENTRY]));
+      return Promise.resolve(eventArtifactResponse({ algorithmId: EPA_MANIFEST_ENTRY.id, algorithmVersion: EPA_MANIFEST_ENTRY.version }));
+    });
+    renderEventRoute("/event/2024casf?year=2026&algorithm=epa&tab=breakdown");
+
+    const headerIds = () => screen.getAllByTestId(/^breakdown-header-/).map((el) => el.getAttribute("data-testid")?.replace("breakdown-header-", ""));
+    // Collapsed: Team #, Team Name, Total, the three phase columns, Fouls Committed.
+    await waitFor(() => expect(headerIds()).toEqual(["teamNumber", "nickname", "total", "phaseAuto", "phaseTeleop", "phaseEndgame", "foulsCommitted"]));
+    // Expanded: the Auto phase column is replaced in place by the 2024 auto components.
+    fireEvent.click(screen.getByTestId("breakdown-group-toggle-auto"));
+    await waitFor(() =>
+      expect(headerIds()).toEqual(["teamNumber", "nickname", "total", ...componentsInGroup(2024, "auto"), "phaseTeleop", "phaseEndgame", "foulsCommitted"]),
+    );
   });
 
   it("the tab-strip scroll region and the Breakdown table's own scroll region are DOM siblings, never nested in either direction", async () => {
