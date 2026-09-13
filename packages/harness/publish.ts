@@ -116,9 +116,9 @@ import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "./rounding.js";
 import {
   HISTORY_PERCENTILE_METRIC_KEYS,
-  percentileAgainstSortedPool,
   sortedPoolsByMetric,
   withPercentiles,
+  withPoolPercentiles,
   type TeamMetricWithPercentile,
   type TeamMetricsWithPercentile,
 } from "./percentiles.js";
@@ -249,13 +249,16 @@ function roundMetricHistoryRow(row: MetricHistoryRow): MetricHistoryRow {
 
 /**
  * D-06.1-A (Phase 06.1, plan 06.1-05 Task 3): attaches a `percentile` to
- * every ALLOWLISTED metric on every history row, ranked against the
- * SEASON-FINAL pool `sortedPools` was built from
- * (`percentiles.ts`'s `sortedPoolsByMetric`) — never a pool assembled from
- * the history rows themselves, and never a pool restricted to this team's
- * own events. This reads as "where this team stood at that point, against
- * the final field" — deliberately not "the field as of that match index",
- * the more expensive option 06-UAT.md records as rejected.
+ * every ALLOWLISTED metric on every history row. Since quick task
+ * 260912-tnk it is ranked against THE season ranking pool — every team's
+ * metrics as of its last official match, the same pool the Teams list and
+ * `seasonStats` rank against — through `percentiles.ts`'s
+ * `withPoolPercentiles`, so a team's last official history row and its
+ * Teams-list row resolve to the same tier by construction. Never a pool
+ * assembled from the history rows themselves, and never one restricted to
+ * this team's own events. This reads as "an earlier value ranked against the
+ * season's last-official-match field" — deliberately not "the field as of
+ * that match index", the more expensive option 06-UAT.md records as rejected.
  *
  * Returns a NEW array of NEW row objects, each carrying a NEW metrics
  * record — `rows` (and every nested metric object) is never mutated, since
@@ -264,9 +267,9 @@ function roundMetricHistoryRow(row: MetricHistoryRow): MetricHistoryRow {
  * only on its own value and the pool, never its position in `rows`.
  *
  * A metric attaches a percentile only when BOTH its name is in
- * `HISTORY_PERCENTILE_METRIC_KEYS` AND `sortedPools` has an entry for that
+ * `HISTORY_PERCENTILE_METRIC_KEYS` AND `rankingPools` has an entry for that
  * name (a metric name no team in the pool has at all is omitted from
- * `sortedPools` entirely, per `sortedPoolsByMetric`'s PD-07 contract) —
+ * `rankingPools` entirely, per `sortedPoolsByMetric`'s PD-07 contract) —
  * otherwise the metric is copied through unchanged, with no percentile key
  * and no thrown error.
  *
@@ -275,15 +278,8 @@ function roundMetricHistoryRow(row: MetricHistoryRow): MetricHistoryRow {
  * independence behavior — an internal pipeline helper, not part of the
  * published artifact's own public surface.
  */
-export function withHistoryPercentiles(rows: readonly MetricHistoryRow[], sortedPools: ReadonlyMap<string, number[]>): MetricHistoryRow[] {
-  return rows.map((row) => {
-    const newMetrics: MetricHistoryRow["metrics"] = {};
-    for (const [name, metric] of Object.entries(row.metrics)) {
-      const pool = HISTORY_PERCENTILE_METRIC_KEYS.includes(name) ? sortedPools.get(name) : undefined;
-      newMetrics[name] = pool !== undefined ? { ...metric, percentile: percentileAgainstSortedPool(pool, metric.value) } : { ...metric };
-    }
-    return { ...row, metrics: newMetrics };
-  });
+export function withHistoryPercentiles(rows: readonly MetricHistoryRow[], rankingPools: ReadonlyMap<string, readonly number[]>): MetricHistoryRow[] {
+  return rows.map((row) => ({ ...row, metrics: withPoolPercentiles(row.metrics, rankingPools, HISTORY_PERCENTILE_METRIC_KEYS) }));
 }
 
 /**
@@ -327,16 +323,20 @@ export function lastOfficialMetricsByTeam(
 /**
  * Quick task 260908-wpo: per-team basis selection for a team-season
  * artifact's `seasonStats.metrics` — reuse, not a new derivation. Takes the
- * two ALREADY percentile-widened records the caller built once per
+ * ALREADY percentile-widened official record the caller built once per
  * (algorithm, season) — `officialMetricsByTeamWithPercentiles` (from
- * `lastOfficialMetricsByTeam` + `withPercentiles`) and
- * `metricsByTeamWithPercentiles` (season-final, from `withPercentiles`
- * alone) — and derives nothing about officialness itself; that derivation
- * already happened once, in `lastOfficialMetricsByTeam` above.
+ * `lastOfficialMetricsByTeam` + `withPercentiles`) — plus the unwidened
+ * season-final `metricsByTeam` and THE season ranking pool, and derives
+ * nothing about officialness itself; that derivation already happened once,
+ * in `lastOfficialMetricsByTeam` above.
  *
  * Selection rule: the official entry wins, tagged `"last-official-match"`,
  * when it is present AND non-empty. Otherwise falls back to the season-final
- * entry (`?? {}`), tagged `"season-final"`. The emptiness check (not merely
+ * entry (`?? {}`), tagged `"season-final"`. Quick task 260912-tnk: that
+ * fallback is ranked against the SAME `rankingPools` every other published
+ * percentile uses (via `withPoolPercentiles`), never a second season-final
+ * pool, so an offseason-only team's tiers mean what everyone else's mean.
+ * The emptiness check (not merely
  * a presence check) is load-bearing: `lastOfficialMetricsByTeam` OMITS an
  * offseason-only team entirely, so a bare `officialWithPercentiles[teamKey]`
  * would be `undefined` for such a team and correctly fall through — but this
@@ -352,28 +352,31 @@ export function lastOfficialMetricsByTeam(
 export function seasonStatsMetricsForTeam(
   teamKey: string,
   officialWithPercentiles: TeamMetricsWithPercentile,
-  seasonFinalWithPercentiles: TeamMetricsWithPercentile
+  seasonFinalMetrics: TeamMetrics,
+  rankingPools: ReadonlyMap<string, readonly number[]>
 ): { metrics: Record<string, TeamMetricWithPercentile>; metricsBasis: "last-official-match" | "season-final" } {
   const official = officialWithPercentiles[teamKey];
   if (official !== undefined && Object.keys(official).length > 0) {
     return { metrics: official, metricsBasis: "last-official-match" };
   }
-  return { metrics: seasonFinalWithPercentiles[teamKey] ?? {}, metricsBasis: "season-final" };
+  return { metrics: withPoolPercentiles(seasonFinalMetrics[teamKey] ?? {}, rankingPools), metricsBasis: "season-final" };
 }
 
 /**
- * D-10, D-09, D-11, plan 07-09: attaches the SEASON-FINAL percentile to an
- * AS-OF-EVENT metrics record — the split D-10 locks and which 06.1-05
- * already established for `metricHistory` rows (`withHistoryPercentiles`
- * just above); see that function's doc comment for the shared reasoning,
- * not restated here.
+ * D-10, D-09, D-11, plan 07-09: attaches a percentile to an AS-OF-EVENT
+ * metrics record — the split D-10 locks and which 06.1-05 already
+ * established for `metricHistory` rows (`withHistoryPercentiles` above).
+ * Since quick task 260912-tnk the pool is THE season ranking pool (every
+ * team's metrics as of its last official match), shared with the Teams
+ * list, `seasonStats` and history rows, and the percentile goes through the
+ * same direction-aware `withPoolPercentiles` helper.
  *
- * `sortedPools` is always the pool built once per (algorithm, season) from
+ * `rankingPools` is always the pool built once per (algorithm, season) from
  * that season's FULL team list (`sortedPoolsByMetric`) — ranking against an
  * event's own roster is forbidden (T-07-09-01): the tier box this feeds
  * renders in the identical colour whichever pool produced the number, so a
  * reader cannot detect the substitution. A metric name with no entry in
- * `sortedPools` is copied through with NO `percentile` key — never a
+ * `rankingPools` is copied through with NO `percentile` key — never a
  * coerced `0` — inheriting `sortedPoolsByMetric`'s own PD-07 omission
  * contract.
  *
@@ -387,14 +390,9 @@ export function seasonStatsMetricsForTeam(
  */
 export function withEventPercentiles(
   metrics: Record<string, TeamMetric>,
-  sortedPools: ReadonlyMap<string, number[]>
+  rankingPools: ReadonlyMap<string, readonly number[]>
 ): Record<string, TeamMetricWithPercentile> {
-  const result: Record<string, TeamMetricWithPercentile> = {};
-  for (const [name, metric] of Object.entries(metrics)) {
-    const pool = sortedPools.get(name);
-    result[name] = pool !== undefined ? { ...metric, percentile: percentileAgainstSortedPool(pool, metric.value) } : { ...metric };
-  }
-  return result;
+  return withPoolPercentiles(metrics, rankingPools);
 }
 
 /**
@@ -2111,10 +2109,10 @@ export function withPublishedTiers(metrics: Record<string, { value: number; spre
 /**
  * D-10, D-09, D-11, plan 07-09: the metrics handed in (`metricsByTeam`) are
  * AS-OF-EVENT — the caller derives them through `metricsAsOfEvent` below —
- * while `sortedPools` is always the SEASON-FINAL pool built once per
- * (algorithm, season) at its existing single site. This is the same split
- * `withHistoryPercentiles` applies to history rows; the merge itself is
- * `withEventPercentiles`. Required rather than optional (PD-02): an
+ * while `rankingPools` is always THE season ranking pool (quick task
+ * 260912-tnk: every team's metrics as of its last official match) built once
+ * per (algorithm, season). This is the same split `withHistoryPercentiles`
+ * applies to history rows; the merge itself is `withEventPercentiles`. Required rather than optional (PD-02): an
  * optional pool is an opt-out, and an artifact published without
  * percentiles parses, uploads, and renders a page with every tier box dark.
  */
@@ -2122,7 +2120,7 @@ function buildEventTeamsStanding(
   metricsByTeam: TeamMetrics,
   teamKeys: readonly string[],
   teamInfo: ReadonlyMap<string, TeamInfo>,
-  sortedPools: ReadonlyMap<string, number[]>
+  rankingPools: ReadonlyMap<string, readonly number[]>
 ): EventTeamStandingInput[] {
   return teamKeys.map((teamKey) => {
     const info = teamInfoOrFallback(teamInfo, teamKey);
@@ -2130,7 +2128,7 @@ function buildEventTeamsStanding(
       teamKey,
       teamNumber: info.teamNumber,
       nickname: info.nickname,
-      metrics: withEventPercentiles(metricsByTeam[teamKey] ?? {}, sortedPools),
+      metrics: withEventPercentiles(metricsByTeam[teamKey] ?? {}, rankingPools),
     };
   });
 }
@@ -2857,26 +2855,30 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
     for (const algorithm of options.algorithms) {
       const state = records.finalStates.get(algorithm.id);
       const version = algorithm.version;
+      // Season-final metrics (the algorithm's final state). NOT a ranking pool
+      // (quick task 260912-tnk): still the swing rating axis for
+      // `swingMetricByTeam`, the `metricsAsOfEvent` fallback, and an
+      // offseason-only team's `seasonStats` values.
       const metricsByTeam = state !== undefined ? algorithm.teamMetrics(state, teamsThisSeason) : {};
-      // D-04 (Phase 6): the mid-rank percentile pass, run exactly once per
-      // (algorithm, season) at this single reuse point — before either
-      // downstream consumer reads `metricsByTeam`. Only the per-team
-      // artifact's `seasonStats.metrics` below consumes the widened result
-      // this phase; `teamsRows` (the teams/{year} artifact) deliberately
-      // keeps reading the unwidened `metricsByTeam` — see percentiles.ts's
-      // file header and 06-RESEARCH.md's Open Question 2 for why widening
-      // the teams artifact's published surface is out of this phase's scope.
-      const metricsByTeamWithPercentiles = withPercentiles(metricsByTeam, teamsThisSeason);
-      // D-06.1-A (Phase 06.1, plan 06.1-05 Task 3): the season-final sorted
-      // pool per metric name, built exactly ONCE per (algorithm, season)
-      // here — never once per team — from the SAME pool membership list
-      // (`teamsThisSeason`) `withPercentiles` above is given, so the two
-      // rankings can never disagree about who is in the field. This ranks
-      // an as-of-that-match metricHistory value against the SEASON-FINAL
-      // field ("where this team stood at that point, against the final
-      // field"), deliberately not "the field as of that match index" — the
-      // more expensive option 06-UAT.md records as rejected.
-      const sortedPools = sortedPoolsByMetric(metricsByTeam, teamsThisSeason);
+      const metricHistoryForAlgo = metricHistoryByAlgoTeam.get(algorithm.id)!;
+      // THE season ranking pool (quick task 260912-tnk), built exactly ONCE
+      // per (algorithm, season): every team's metrics as of its LAST OFFICIAL
+      // match (quick task 260904-586's Teams-list snapshot), over the
+      // `teamsThisSeason` membership list. Every published percentile ranks
+      // against it through `goodnessPercentileAgainstPools` — the teams row's
+      // tier, `seasonStats` (including an offseason-only team's season-final
+      // fallback, which is ranked against this pool, not a second one), every
+      // `metricHistory` row, and every event standing — so the same value for
+      // the same team gets the same tier on every page. An offseason-only team
+      // is absent from `officialMetricsByTeam` and so from the pool, never
+      // counted as a zero.
+      //
+      // Before 260912-tnk, history rows and event standings ranked against a
+      // second, season-final pool, which is how spr 2026 team 6919 read Epic
+      // on the Teams list and Legendary on its last official event card.
+      const officialMetricsByTeam = lastOfficialMetricsByTeam(metricHistoryForAlgo, officialEventKeys);
+      const rankingPools = sortedPoolsByMetric(officialMetricsByTeam, teamsThisSeason);
+      const officialMetricsByTeamWithPercentiles = withPercentiles(officialMetricsByTeam, teamsThisSeason, rankingPools);
       // D-10, plan 07-09: this algorithm's per-event state capture, bound
       // once here for the event loop below — never rebuilt per event.
       const stateByEventForAlgo = stateByAlgoEvent.get(algorithm.id)!;
@@ -2886,32 +2888,6 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       const preEventStateForAlgo = preEventStateByAlgoEvent.get(algorithm.id)!;
       const eventMatchesForAlgo = perAlgoEventMatches.get(algorithm.id)!;
       const teamMatchesForAlgo = perAlgoTeamMatches.get(algorithm.id)!;
-      const metricHistoryForAlgo = metricHistoryByAlgoTeam.get(algorithm.id)!;
-      // Quick task 260904-586: the Teams-list metric snapshot, scoped to
-      // official play — the team's metrics as of its LAST OFFICIAL match,
-      // rather than the season-final `metricsByTeam` above (which keeps
-      // learning through offseason/preseason play). Widened by the SAME
-      // `withPercentiles` helper against the UNCHANGED `teamsThisSeason`
-      // pool — `withPercentiles` narrows the ranking pool on its own by
-      // skipping any team with no value, so an offseason-only team (absent
-      // from `officialMetricsByTeam` entirely) is simply excluded from every
-      // metric's ranking, never counted as a zero. `metricsByTeamWithPercentiles`
-      // above and `sortedPools` below are untouched by this.
-      //
-      // Quick task 260908-wpo: as of this change, the per-team artifact's
-      // `seasonStats.metrics` no longer stays season-final — the earlier
-      // version of this comment said it did, and that stopped being true.
-      // `seasonStatsMetricsForTeam` (below, per-team, at the team-artifact
-      // call site) now reads THIS `officialMetricsByTeamWithPercentiles`
-      // record when a team has any official play, tagging the result
-      // `metricsBasis: "last-official-match"`, and falls back to the
-      // season-final `metricsByTeamWithPercentiles` ONLY for a team with no
-      // official play at all (tagged `"season-final"`), so an offseason-only
-      // team's page never publishes an empty metrics object. `metricHistory`
-      // and `sortedPools` genuinely DO stay season-final, unchanged by this —
-      // it is only `seasonStats.metrics` that moved.
-      const officialMetricsByTeam = lastOfficialMetricsByTeam(metricHistoryForAlgo, officialEventKeys);
-      const officialMetricsByTeamWithPercentiles = withPercentiles(officialMetricsByTeam, teamsThisSeason);
 
       // D-08 (Phase 6): scheduled-match predictions for THIS algorithm,
       // computed once per event key here and shared by both the event
@@ -3163,10 +3139,10 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
         const eventTeamKeys = matchDerivedTeamKeys.length > 0 ? matchDerivedTeamKeys : [...registeredTeamKeys!].sort();
         // D-10, plan 07-09: the value is AS-OF-EVENT (this event's last
         // chronological match, or the season-final fallback for an event
-        // with no completed matches — PD-04); the pool is SEASON-FINAL
-        // (`sortedPools`, already in scope above).
+        // with no completed matches — PD-04); the pool is THE season ranking
+        // pool (`rankingPools`, quick task 260912-tnk, already in scope above).
         const asOfEventMetrics = metricsAsOfEvent(algorithm, stateByEventForAlgo, e.event_key, eventTeamKeys, metricsByTeam);
-        const teamsStanding = buildEventTeamsStanding(asOfEventMetrics, eventTeamKeys, teamInfo, sortedPools);
+        const teamsStanding = buildEventTeamsStanding(asOfEventMetrics, eventTeamKeys, teamInfo, rankingPools);
         const eventArtifact = buildEventArtifact({
           eventKey: e.event_key,
           season,
@@ -3275,11 +3251,11 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
         // that way — an offseason event keeps its own section, its matches
         // and its metric-history rows.
         const stats = teamStatsOfficial.get(teamKey);
-        // Quick task 260908-wpo: official-with-fallback, not the bare
-        // season-final `metricsByTeamWithPercentiles[teamKey] ?? {}` this
-        // replaced — see `seasonStatsMetricsForTeam`'s doc comment for the
-        // full selection rule and why the emptiness check matters.
-        const seasonStatsMetrics = seasonStatsMetricsForTeam(teamKey, officialMetricsByTeamWithPercentiles, metricsByTeamWithPercentiles);
+        // Quick task 260908-wpo: official-with-fallback — see
+        // `seasonStatsMetricsForTeam`'s doc comment for the full selection
+        // rule and why the emptiness check matters. Quick task 260912-tnk:
+        // the season-final fallback is ranked against `rankingPools` too.
+        const seasonStatsMetrics = seasonStatsMetricsForTeam(teamKey, officialMetricsByTeamWithPercentiles, metricsByTeam, rankingPools);
         const teamSeasonArtifact = buildTeamSeasonArtifact({
           teamKey,
           teamNumber: info.teamNumber,
@@ -3318,7 +3294,7 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           // shim for pre-republish artifacts.
           swingFactor: usesSigmaScore(algorithm.id) ? undefined : swingByTeamForAlgo.get(teamKey),
           events,
-          metricHistory: withHistoryPercentiles(metricHistoryForAlgo.get(teamKey) ?? [], sortedPools),
+          metricHistory: withHistoryPercentiles(metricHistoryForAlgo.get(teamKey) ?? [], rankingPools),
           sortTimeByMatchKey,
           actualBonusFlagsByMatchKey,
           // D-03 (Phase 6): omitted entirely when the corpus has no row, or
@@ -3709,6 +3685,13 @@ export function buildSingleEventPublish(db: Corpus, eventKey: string, algorithm:
     // so the Sigma talent prior is captured here too rather than left to be
     // discovered missing later.
     const talentAfterMatch = new Map<string, Map<string, number>>();
+    // Quick task 260912-tnk: THE season ranking pool's source record — every
+    // team's metrics as of its LAST OFFICIAL match, exactly
+    // `lastOfficialMetricsByTeam`'s rule on the seasons path, from the same
+    // `isOfficialEventType` predicate. Captured in the hook this replay
+    // already runs rather than by building full metric history.
+    const officialEventKeys = new Set(selectEventMeta(db, season).filter((e) => isOfficialEventType(e.event_type)).map((e) => e.event_key));
+    const lastOfficialMetrics: TeamMetrics = {};
     const onMatchComplete = (match: MatchResult, _algorithmId: string, state: unknown): void => {
       if (!preEventCaptureSeen.has(match.eventKey)) {
         preEventCaptureSeen.add(match.eventKey);
@@ -3717,9 +3700,20 @@ export function buildSingleEventPublish(db: Corpus, eventKey: string, algorithm:
       lastState = state;
       hasLastState = true;
       stateByEventKey.set(match.eventKey, state);
-      if (usesSigmaScore(algorithm.id)) {
-        const involvedTeams = [...match.redTeams, ...match.blueTeams];
-        const metrics = algorithm.teamMetrics(state, involvedTeams);
+      const isOfficial = officialEventKeys.has(match.eventKey);
+      const wantsTalent = usesSigmaScore(algorithm.id);
+      if (!isOfficial && !wantsTalent) return;
+      const involvedTeams = [...match.redTeams, ...match.blueTeams];
+      // ONE `teamMetrics` call serves both the pool capture and the Sigma
+      // talent prior below.
+      const metrics = algorithm.teamMetrics(state, involvedTeams);
+      if (isOfficial) {
+        for (const teamKey of involvedTeams) {
+          const teamMetrics = metrics[teamKey];
+          if (teamMetrics !== undefined) lastOfficialMetrics[teamKey] = teamMetrics;
+        }
+      }
+      if (wantsTalent) {
         const talent = new Map<string, number>();
         for (const teamKey of involvedTeams) {
           const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
@@ -3775,13 +3769,18 @@ export function buildSingleEventPublish(db: Corpus, eventKey: string, algorithm:
     const eventTeamKeys = matchDerivedTeamKeys.length > 0 ? matchDerivedTeamKeys : [...registeredTeamKeys!].sort();
 
     // D-10, plan 07-09 Task 2: derived exactly as the seasons path's own
-    // per-algorithm block derives them — season-final metrics over the
-    // WHOLE season's team list, the pool built from that same map, and the
-    // as-of-event record through the shared helper.
+    // per-algorithm block derives them. Quick task 260912-tnk: the pool is
+    // THE season ranking pool — every team's last-official-match metrics
+    // over the season's non-demo team list, matching publishSeasons's
+    // `teamsThisSeason` filter — and the season-final metrics are kept only
+    // as `metricsAsOfEvent`'s fallback.
     const seasonFinalMetrics = finalState !== undefined ? algorithm.teamMetrics(finalState, teamsThisSeason) : {};
-    const sortedPools = sortedPoolsByMetric(seasonFinalMetrics, teamsThisSeason);
+    const rankingPools = sortedPoolsByMetric(
+      lastOfficialMetrics,
+      teamsThisSeason.filter((teamKey) => !isDemoTeamKey(teamKey))
+    );
     const asOfEventMetrics = metricsAsOfEvent(algorithm, stateByEventKey, eventKey, eventTeamKeys, seasonFinalMetrics);
-    const teamsStanding = buildEventTeamsStanding(asOfEventMetrics, eventTeamKeys, teamInfo, sortedPools);
+    const teamsStanding = buildEventTeamsStanding(asOfEventMetrics, eventTeamKeys, teamInfo, rankingPools);
     // D-08 (Phase 6)/D-13, plan 07-08: this single-event mode had no
     // sort-time read at all before that plan — `--event <key>` is an
     // explicit request to publish that one event, so this call is made with

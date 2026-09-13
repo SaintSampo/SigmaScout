@@ -15,11 +15,13 @@ import { TOTAL_METRIC_KEY, type TeamMetrics } from "../core/algorithms/types.js"
 import { MetricHistoryRowSchema, MetricValueSchema } from "./metricHistorySchema.js";
 import {
   EmptyPoolError,
+  goodnessPercentileAgainstPools,
   HISTORY_PERCENTILE_METRIC_KEYS,
   percentileAgainstSortedPool,
   percentileRanks,
   sortedPoolsByMetric,
   withPercentiles,
+  withPoolPercentiles,
 } from "./percentiles.js";
 import { SWING_METRIC_KEY } from "./swingFactor.js";
 
@@ -242,6 +244,82 @@ describe("sortedPoolsByMetric (D-06.1-A, plan 06.1-03 Task 1)", () => {
     const snapshot = structuredClone(metrics);
     sortedPoolsByMetric(metrics, ["frc1", "frc2", "frc3"]);
     expect(metrics).toEqual(snapshot);
+  });
+
+  it("pools values at display precision (quick task 260912-tnk) — two values that print the same collapse to one number", () => {
+    const metrics: TeamMetrics = { frc1: { total: { value: 10.004 } }, frc2: { total: { value: 9.996 } }, frc3: { total: { value: 12.3456 } } };
+    const pools = sortedPoolsByMetric(metrics, ["frc1", "frc2", "frc3"]);
+    expect(pools.get("total")).toEqual([10, 10, 12.35]);
+  });
+});
+
+/**
+ * Quick task 260912-tnk: the single direction-aware, display-precision
+ * ranking helper every published pool-ranked percentile goes through.
+ */
+describe("goodnessPercentileAgainstPools (quick task 260912-tnk)", () => {
+  it("a declared lower-is-better name (swing) inverts exactly as withPercentiles does", () => {
+    const metrics: TeamMetrics = { frc1: { [SWING_METRIC_KEY]: { value: 10 } }, frc2: { [SWING_METRIC_KEY]: { value: 20 } } };
+    const pools = sortedPoolsByMetric(metrics, ["frc1", "frc2"]);
+    const widened = withPercentiles(metrics, ["frc1", "frc2"]);
+    expect(goodnessPercentileAgainstPools(pools, SWING_METRIC_KEY, 10)).toBe(75);
+    expect(goodnessPercentileAgainstPools(pools, SWING_METRIC_KEY, 10)).toBe(widened.frc1?.[SWING_METRIC_KEY]?.percentile);
+    expect(goodnessPercentileAgainstPools(pools, SWING_METRIC_KEY, 20)).toBe(widened.frc2?.[SWING_METRIC_KEY]?.percentile);
+  });
+
+  it("two values that collide at 2 decimals share a percentile", () => {
+    const metrics: TeamMetrics = {};
+    for (let i = 0; i < 20; i++) metrics[`frc${i}`] = { total: { value: i * 3.7 } };
+    const pools = sortedPoolsByMetric(metrics, Object.keys(metrics));
+    expect(goodnessPercentileAgainstPools(pools, "total", 37.0012)).toBe(goodnessPercentileAgainstPools(pools, "total", 36.9951));
+  });
+
+  it("for every pool member, equals withPercentiles's percentile for that team exactly", () => {
+    const metrics: TeamMetrics = {};
+    for (let i = 0; i < 40; i++) metrics[`frc${i}`] = { total: { value: ((i * 7919) % 101) + 0.123456 * (i % 3) } };
+    const teamKeys = Object.keys(metrics);
+    const pools = sortedPoolsByMetric(metrics, teamKeys);
+    const widened = withPercentiles(metrics, teamKeys);
+    for (const teamKey of teamKeys) {
+      expect(goodnessPercentileAgainstPools(pools, "total", metrics[teamKey]!.total!.value), teamKey).toBe(widened[teamKey]?.total?.percentile);
+    }
+  });
+
+  it("returns undefined when no pool exists for the name — never a coerced 0", () => {
+    const pools = sortedPoolsByMetric({ frc1: { total: { value: 1 } } }, ["frc1"]);
+    expect(goodnessPercentileAgainstPools(pools, "auto", 1)).toBeUndefined();
+  });
+});
+
+describe("withPoolPercentiles (quick task 260912-tnk)", () => {
+  const pools = sortedPoolsByMetric(
+    { frc1: { total: { value: 10 }, auto: { value: 1 } }, frc2: { total: { value: 20 }, auto: { value: 2 } } },
+    ["frc1", "frc2"]
+  );
+
+  it("widens every metric with a pool when no allowlist is given, through goodnessPercentileAgainstPools", () => {
+    const result = withPoolPercentiles({ total: { value: 20 }, auto: { value: 1 } }, pools);
+    expect(result.total?.percentile).toBe(goodnessPercentileAgainstPools(pools, "total", 20));
+    expect(result.auto?.percentile).toBe(goodnessPercentileAgainstPools(pools, "auto", 1));
+  });
+
+  it("respects the allowlist — a metric outside it is copied with no percentile key even when a pool exists", () => {
+    const result = withPoolPercentiles({ total: { value: 20 }, auto: { value: 1 } }, pools, ["total"]);
+    expect(result.total).toHaveProperty("percentile");
+    expect(result.auto).toEqual({ value: 1 });
+  });
+
+  it("a metric with no pool carries no percentile key", () => {
+    const result = withPoolPercentiles({ teleop: { value: 5, spread: 1 } }, pools);
+    expect(result.teleop).toEqual({ value: 5, spread: 1 });
+  });
+
+  it("returns new objects and never mutates its input", () => {
+    const input = { total: { value: 20 } };
+    const snapshot = structuredClone(input);
+    const result = withPoolPercentiles(input, pools);
+    expect(input).toEqual(snapshot);
+    expect(result.total).not.toBe(input.total);
   });
 });
 

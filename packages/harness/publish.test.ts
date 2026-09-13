@@ -69,6 +69,7 @@ import {
   artifactKey,
   decodeTeamsRowMetrics,
   preScheduleKey,
+  publishedTierForPercentile,
   PublishedPreScheduleArtifactSchema,
   TeamsArtifactSchema,
 } from "./pageArtifacts.js";
@@ -78,7 +79,12 @@ import { roundPmf, roundTo, ROUNDING_RULE } from "./rounding.js";
 import type { ScoreSlice } from "./score.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
 import { seasonBoundaryFor } from "./seasonBoundary.js";
-import { HISTORY_PERCENTILE_METRIC_KEYS, percentileAgainstSortedPool, sortedPoolsByMetric } from "./percentiles.js";
+import {
+  goodnessPercentileAgainstPools,
+  HISTORY_PERCENTILE_METRIC_KEYS,
+  percentileAgainstSortedPool,
+  sortedPoolsByMetric,
+} from "./percentiles.js";
 
 vi.mock("./r2Client.js", () => ({
   putObject: vi.fn(async () => undefined),
@@ -2301,13 +2307,21 @@ function historyRow(overrides: Partial<MetricHistoryRow> = {}): MetricHistoryRow
   };
 }
 
-describe("withHistoryPercentiles (Phase 06.1, plan 06.1-05 Task 3, D-06.1-A)", () => {
-  it("attaches a percentile to an allowlisted metric with a pool entry, agreeing exactly with percentileAgainstSortedPool", () => {
+describe("withHistoryPercentiles (Phase 06.1, plan 06.1-05 Task 3, D-06.1-A; one ranking helper since 260912-tnk)", () => {
+  it("attaches a percentile to an allowlisted metric with a pool entry, agreeing exactly with goodnessPercentileAgainstPools", () => {
     const pool = new Map([[TOTAL_METRIC_KEY, [5, 10, 10, 20]]]);
     const rows = [historyRow({ metrics: { [TOTAL_METRIC_KEY]: { value: 10 } } })];
     const result = withHistoryPercentiles(rows, pool);
-    const expected = percentileAgainstSortedPool(pool.get(TOTAL_METRIC_KEY)!, 10);
+    const expected = goodnessPercentileAgainstPools(pool, TOTAL_METRIC_KEY, 10);
+    expect(expected).toBe(percentileAgainstSortedPool(pool.get(TOTAL_METRIC_KEY)!, 10));
     expect(result[0]?.metrics[TOTAL_METRIC_KEY]?.percentile).toBe(expected);
+  });
+
+  it("ranks at display precision — an unrounded row value that prints as a pool member shares that member's percentile", () => {
+    const pool = new Map([[TOTAL_METRIC_KEY, [5, 10, 10, 20]]]);
+    const rows = [historyRow({ metrics: { [TOTAL_METRIC_KEY]: { value: 10.0012 } } })];
+    const result = withHistoryPercentiles(rows, pool);
+    expect(result[0]?.metrics[TOTAL_METRIC_KEY]?.percentile).toBe(percentileAgainstSortedPool([5, 10, 10, 20], 10));
   });
 
   it("a metric name outside the allowlist receives no percentile key, even when a pool exists for it", () => {
@@ -2352,7 +2366,7 @@ const INVARIANT_MIN_TEAM_COUNT = 50;
 const CORPUS_PATH = "data/corpus.sqlite";
 const CORPUS_AVAILABLE = existsSync(CORPUS_PATH);
 
-describe("withHistoryPercentiles — real-corpus season-final agreement invariant (Phase 06.1, plan 06.1-05 Task 3, D-06.1-A)", () => {
+describe("withHistoryPercentiles — real-corpus pool-member agreement invariant (Phase 06.1, plan 06.1-05 Task 3, D-06.1-A; one ranking helper since 260912-tnk)", () => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} is absent — run pnpm ingest --years 2022-2026 first`, () => {});
     return;
@@ -2410,7 +2424,7 @@ describe("withHistoryPercentiles — real-corpus season-final agreement invarian
     expect(teams.length).toBeGreaterThanOrEqual(INVARIANT_MIN_TEAM_COUNT);
   });
 
-  it(`for every team whose last metricHistory row's ${TOTAL_METRIC_KEY} value equals its season-final value, withHistoryPercentiles's row percentile equals the season-final percentile exactly (filtered-set floor: ${INVARIANT_MIN_TEAM_COUNT})`, () => {
+  it(`for every team whose last metricHistory row's ${TOTAL_METRIC_KEY} value equals its pooled value, withHistoryPercentiles's row percentile equals that pool member's percentile exactly (filtered-set floor: ${INVARIANT_MIN_TEAM_COUNT})`, () => {
     const filteredTeamKeys: string[] = [];
     for (const teamKey of teams) {
       const rows = historyByTeam.get(teamKey);
@@ -2430,11 +2444,11 @@ describe("withHistoryPercentiles — real-corpus season-final agreement invarian
       const rows = historyByTeam.get(teamKey)!;
       const [widenedLastRow] = withHistoryPercentiles([rows[rows.length - 1]!], sortedPools);
       const rowPercentile = widenedLastRow?.metrics[TOTAL_METRIC_KEY]?.percentile;
-      const seasonFinalPercentile = percentileAgainstSortedPool(
-        sortedPools.get(TOTAL_METRIC_KEY)!,
-        metricsByTeam[teamKey]![TOTAL_METRIC_KEY]!.value
-      );
-      expect(rowPercentile, `team ${teamKey}: row percentile should equal season-final percentile exactly`).toBe(seasonFinalPercentile);
+      // Computed through the ONE ranking helper, so display-precision
+      // rounding cannot make this comparison flaky.
+      const poolMemberPercentile = goodnessPercentileAgainstPools(sortedPools, TOTAL_METRIC_KEY, metricsByTeam[teamKey]![TOTAL_METRIC_KEY]!.value);
+      expect(poolMemberPercentile, `team ${teamKey}: pool has a ${TOTAL_METRIC_KEY} entry`).toBeDefined();
+      expect(rowPercentile, `team ${teamKey}: row percentile should equal the pool member's percentile exactly`).toBe(poolMemberPercentile);
     }
   });
 
@@ -2877,34 +2891,50 @@ describe("lastOfficialMetricsByTeam — direct (quick task 260904-586)", () => {
  * — tested in isolation before the end-to-end `publishSeasons` describe
  * block below wires it in.
  */
-describe("seasonStatsMetricsForTeam — direct (quick task 260908-wpo)", () => {
+describe("seasonStatsMetricsForTeam — direct (quick task 260908-wpo; unified pool since 260912-tnk)", () => {
+  // THE season ranking pool: last-official-match totals of three teams.
+  const rankingPools = sortedPoolsByMetric({ frc1: { total: { value: 313.95 } }, frc2: { total: { value: 200 } }, frc3: { total: { value: 100 } } }, [
+    "frc1",
+    "frc2",
+    "frc3",
+  ]);
+
   it("official present and non-empty wins, tagged last-official-match", () => {
     const official = { frc1: { total: { value: 313.95, percentile: 99.9 } } };
-    const seasonFinal = { frc1: { total: { value: 251.37, percentile: 99.3 } } };
-    const result = seasonStatsMetricsForTeam("frc1", official, seasonFinal);
+    const seasonFinal = { frc1: { total: { value: 251.37 } } };
+    const result = seasonStatsMetricsForTeam("frc1", official, seasonFinal, rankingPools);
     expect(result.metrics).toBe(official.frc1);
     expect(result.metricsBasis).toBe("last-official-match");
   });
 
-  it("official absent falls back to season-final, tagged season-final", () => {
+  it("official absent falls back to season-final values, tagged season-final, ranked against the SAME ranking pool", () => {
     const official = {};
-    const seasonFinal = { frc1: { total: { value: 251.37, percentile: 99.3 } } };
-    const result = seasonStatsMetricsForTeam("frc1", official, seasonFinal);
-    expect(result.metrics).toBe(seasonFinal.frc1);
+    const seasonFinal = { frc1: { total: { value: 251.37 } } };
+    const result = seasonStatsMetricsForTeam("frc1", official, seasonFinal, rankingPools);
+    expect(result.metrics.total?.value).toBe(251.37);
+    expect(result.metrics.total?.percentile).toBe(goodnessPercentileAgainstPools(rankingPools, "total", 251.37));
+    // 251.37 sits above two of the three pooled totals: (2 + 0) / 3 -> 66.7.
+    expect(result.metrics.total?.percentile).toBe(66.7);
     expect(result.metricsBasis).toBe("season-final");
+    expect(seasonFinal.frc1.total).not.toHaveProperty("percentile");
   });
 
   it("official present but empty ALSO falls back to season-final — the trap: a presence-only check would publish the empty object instead", () => {
     const official = { frc1: {} };
-    const seasonFinal = { frc1: { total: { value: 251.37, percentile: 99.3 } } };
-    const result = seasonStatsMetricsForTeam("frc1", official, seasonFinal);
-    expect(result.metrics).toBe(seasonFinal.frc1);
+    const seasonFinal = { frc1: { total: { value: 251.37 } } };
+    const result = seasonStatsMetricsForTeam("frc1", official, seasonFinal, rankingPools);
+    expect(result.metrics.total?.value).toBe(251.37);
     expect(Object.keys(result.metrics).length).toBeGreaterThan(0);
     expect(result.metricsBasis).toBe("season-final");
   });
 
+  it("a fallback metric with no pool carries no percentile key, never a coerced 0", () => {
+    const result = seasonStatsMetricsForTeam("frc1", {}, { frc1: { autoPoints: { value: 4 } } }, rankingPools);
+    expect(result.metrics.autoPoints).toEqual({ value: 4 });
+  });
+
   it("neither record has an entry for the team — returns empty metrics, tagged season-final (never throws)", () => {
-    const result = seasonStatsMetricsForTeam("frc404", {}, {});
+    const result = seasonStatsMetricsForTeam("frc404", {}, {}, rankingPools);
     expect(result.metrics).toEqual({});
     expect(result.metricsBasis).toBe("season-final");
   });
@@ -3049,6 +3079,173 @@ describe("publishSeasons — Teams-list official-play scoping (quick task 260904
     expect(row?.eventCount).toBe(0);
     expect(row?.matchCount).toBe(0);
     expect(row?.metrics).toEqual({});
+  });
+});
+
+/**
+ * Quick task 260912-tnk: a rarity tier is a function of (metric value, the ONE
+ * season ranking pool) on every surface. Before this task the Teams list and
+ * `seasonStats` ranked against every team's last-official-match metrics while
+ * `metricHistory` rows and event standings ranked against the season-final
+ * metrics — so a team could read Epic in the Teams list and Legendary on its
+ * own last official event card (spr 2026 team 6919, measured live).
+ *
+ * The fixture separates the two pools on purpose: a late, lopsided offseason
+ * event moves several teams' season-final values away from their official
+ * ones, and one team plays ONLY that offseason event. `epa` is per-team
+ * independent, so a team's as-of-event value is exactly its value after its
+ * last match at that event.
+ *
+ * Iterates the PUBLISHED teams rows, never a hardcoded list (the
+ * iteration-list trap), with a non-vacuous floor.
+ */
+describe("publishSeasons — one ranking pool across every tier surface (quick task 260912-tnk)", () => {
+  const OFFICIAL_A = "2026tnka";
+  const OFFICIAL_B = "2026tnkb";
+  const OFFSEASON = "2026tnkz";
+  const OFFSEASON_ONLY_TEAM = "frc99";
+  const MIN_OFFICIAL_TEAMS = 9;
+
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-one-pool-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function seedMatches(eventKey: string, sortTimeBase: number, rows: readonly [number[], number[], number, number][]): void {
+    rows.forEach(([red, blue, redScore, blueScore], i) => {
+      upsertMatch(
+        db,
+        seasonMatch({
+          matchKey: `${eventKey}_qm${i + 1}`,
+          eventKey,
+          matchNumber: i + 1,
+          sortTime: sortTimeBase + i * 1_000,
+          redTeams: red.map((n) => `frc${n}`),
+          blueTeams: blue.map((n) => `frc${n}`),
+          redScore,
+          blueScore,
+          winner: redScore > blueScore ? "red" : redScore < blueScore ? "blue" : "tie",
+        })
+      );
+    });
+  }
+
+  function seedSeparatingSeason(): void {
+    upsertEvent(db, seasonEvent({ eventKey: OFFICIAL_A, name: "Official A", startDate: "2026-03-01" }));
+    seedMatches(OFFICIAL_A, 1_000, [
+      [[1, 2, 3], [4, 5, 6], 120, 80],
+      [[7, 8, 9], [10, 1, 2], 90, 130],
+      [[3, 5, 7], [4, 6, 8], 150, 60],
+      [[9, 10, 4], [2, 6, 3], 70, 110],
+    ]);
+    upsertEvent(db, seasonEvent({ eventKey: OFFICIAL_B, name: "Official B", startDate: "2026-03-15" }));
+    seedMatches(OFFICIAL_B, 10_000, [
+      [[1, 4, 7], [2, 5, 8], 200, 40],
+      [[3, 6, 9], [10, 7, 1], 55, 140],
+      [[2, 4, 10], [5, 8, 9], 95, 105],
+    ]);
+    upsertEvent(
+      db,
+      seasonEvent({ eventKey: OFFSEASON, name: "Offseason", startDate: "2026-07-01", eventType: OFFSEASON_EVENT_TYPE, isOffseason: true })
+    );
+    seedMatches(OFFSEASON, 20_000, [
+      [[1, 2, 99], [7, 8, 9], 400, 5],
+      [[99, 7, 3], [1, 2, 4], 10, 300],
+    ]);
+  }
+
+  function findTeamsArtifact(year: number) {
+    const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/teams/${year}/`));
+    expect(call, `expected a v1/teams/${year}/... putObject call`).toBeDefined();
+    return TeamsArtifactSchema.parse(JSON.parse(call![2] as string));
+  }
+
+  it("the Teams-list tier, the seasonStats percentile, the last official history row and the event standing all agree, for every published team", async () => {
+    seedSeparatingSeason();
+    await publishSeasons(db, {
+      seasons: [2026],
+      algorithms: [epa],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+      includeOffseason: true,
+    });
+
+    const teamsArtifact = findTeamsArtifact(2026);
+    const rankedRows = teamsArtifact.teams.filter((row) => row.metrics[TOTAL_METRIC_KEY] !== undefined);
+    expect(rankedRows.length, "non-vacuous floor of teams with official play").toBeGreaterThanOrEqual(MIN_OFFICIAL_TEAMS);
+    expect(
+      rankedRows.some((row) => Object.values(row.metrics).some((m) => m.tier !== undefined)),
+      "at least one published tier is not Common"
+    ).toBe(true);
+
+    // The pool exactly as a consumer of the published artifact can rebuild it:
+    // every published teams row's (rounded) metrics. Rounding is idempotent, so
+    // this equals the pipeline's own pool.
+    const publishedMetricsByTeam: TeamMetrics = Object.fromEntries(teamsArtifact.teams.map((row) => [row.teamKey, row.metrics]));
+    const pools = sortedPoolsByMetric(
+      publishedMetricsByTeam,
+      teamsArtifact.teams.map((row) => row.teamKey)
+    );
+
+    for (const row of rankedRows) {
+      const teamArtifact = findTeamArtifact(row.teamKey, 2026);
+      const seasonMetrics = teamArtifact.seasonStats.metrics;
+      expect(teamArtifact.seasonStats.metricsBasis, `${row.teamKey} basis`).toBe("last-official-match");
+
+      // 1. last official history row == seasonStats, exactly, on the allowlisted keys.
+      const lastOfficialRow = teamArtifact.metricHistory.filter((r) => r.eventKey !== OFFSEASON).at(-1);
+      expect(lastOfficialRow, `${row.teamKey} has an official history row`).toBeDefined();
+      for (const key of HISTORY_PERCENTILE_METRIC_KEYS) {
+        const rowMetric = lastOfficialRow!.metrics[key];
+        if (rowMetric === undefined) continue;
+        expect(rowMetric.percentile, `${row.teamKey} ${key}: history row percentile vs seasonStats`).toBe(seasonMetrics[key]?.percentile);
+      }
+
+      // 2. Teams-row tier == the tier of the seasonStats percentile, every key.
+      for (const [key, metric] of Object.entries(seasonMetrics)) {
+        expect(row.metrics[key]?.tier, `${row.teamKey} ${key}: teams-row tier vs seasonStats`).toBe(publishedTierForPercentile(metric.percentile));
+      }
+
+      // 3. The standing on the team's last official event ranks against the same pool.
+      const eventArtifact = findEventArtifact(lastOfficialRow!.eventKey, epa.id);
+      const standing = eventArtifact.teams.find((t) => t.teamKey === row.teamKey);
+      expect(standing, `${row.teamKey} standing on ${lastOfficialRow!.eventKey}`).toBeDefined();
+      for (const [key, metric] of Object.entries(standing!.metrics)) {
+        expect(metric.percentile, `${row.teamKey} ${key}: event standing percentile`).toBe(goodnessPercentileAgainstPools(pools, key, metric.value));
+      }
+    }
+
+    // The offseason-only team is ranked against the SAME pool, not a second one.
+    const offseasonOnly = findTeamArtifact(OFFSEASON_ONLY_TEAM, 2026);
+    expect(offseasonOnly.seasonStats.metricsBasis).toBe("season-final");
+    const offseasonTotal = offseasonOnly.seasonStats.metrics[TOTAL_METRIC_KEY];
+    expect(offseasonTotal, "offseason-only team has a season-final total").toBeDefined();
+    expect(offseasonTotal!.percentile).toBe(goodnessPercentileAgainstPools(pools, TOTAL_METRIC_KEY, offseasonTotal!.value));
+
+    // DISCRIMINATOR: the fixture genuinely separates the two pools — the old
+    // season-final pool (every team's LAST history row, offseason included)
+    // would have given at least one team a different percentile.
+    const seasonFinalByTeam: TeamMetrics = {};
+    for (const teamsRow of teamsArtifact.teams) {
+      const last = findTeamArtifact(teamsRow.teamKey, 2026).metricHistory.at(-1);
+      if (last !== undefined) seasonFinalByTeam[teamsRow.teamKey] = last.metrics;
+    }
+    const seasonFinalPools = sortedPoolsByMetric(seasonFinalByTeam, Object.keys(seasonFinalByTeam));
+    const separated = rankedRows.some((row) => {
+      const official = findTeamArtifact(row.teamKey, 2026).seasonStats.metrics[TOTAL_METRIC_KEY]!;
+      return goodnessPercentileAgainstPools(seasonFinalPools, TOTAL_METRIC_KEY, official.value) !== official.percentile;
+    });
+    expect(separated, "the fixture must separate the season-final pool from the last-official-match pool").toBe(true);
   });
 });
 
@@ -3581,13 +3778,13 @@ describe("withEventPercentiles — direct (plan 07-09 Task 1)", () => {
 
 /**
  * Plan 07-09 Task 1 (D-10, Wave 0 case): the as-of-event value merged with
- * the season-final percentile, proven end-to-end from a seeded corpus to
+ * the season-pool percentile (every team's last official match since 260912-tnk), proven end-to-end from a seeded corpus to
  * published JSON bytes. `opr` is used throughout — its event-scoped fit
  * (D-01, headlines each team's MOST RECENT event) is what makes a genuinely
  * different as-of-event vs season-final value cheap to construct without
  * hand-tuning Sigma1/EPA's cross-match state evolution.
  */
-describe("publishSeasons — D-10 as-of-event value + season-final percentile on published event artifacts (plan 07-09 Task 1)", () => {
+describe("publishSeasons — D-10 as-of-event value + season-pool percentile on published event artifacts (plan 07-09 Task 1; one pool since 260912-tnk)", () => {
   let dir: string;
   let db: Corpus;
 
@@ -3646,12 +3843,12 @@ describe("publishSeasons — D-10 as-of-event value + season-final percentile on
     expect(lateRow?.metrics.total?.value).toBe(roundedSeasonFinalValue);
   });
 
-  it("Test 8: the published percentile is ranked against the season-final pool, never the early event's own (smaller) roster", async () => {
+  it("Test 8: the published percentile is ranked against the season ranking pool (every team's last official match, quick task 260912-tnk), never the early event's own (smaller) roster", async () => {
     const { earlyEventKey, teamKeys } = seedTwoEventSeason(db);
     // Widen the season pool beyond the early event's own six-team roster:
     // two teams (frc7/frc8) that compete ONLY at the late event, so the
-    // early event's own roster (six teams) and the season-final pool
-    // (eight teams) provably differ in membership.
+    // early event's own roster (six teams) and the season pool (eight
+    // teams) provably differ in membership.
     upsertMatch(
       db,
       seasonMatch({
@@ -3674,30 +3871,34 @@ describe("publishSeasons — D-10 as-of-event value + season-final percentile on
     const publishedPercentile = earlyRow.metrics.total?.percentile;
     expect(publishedPercentile).toBeDefined();
 
-    // Independently replay to compute both pools in-test.
+    // Independently replay to compute both pools in-test. Every event in this
+    // fixture is official, so the season ranking pool is every team's
+    // metrics after its own last match.
     const stream = buildSeasonStream(db, 2026, {});
     const stateByEventKey = new Map<string, unknown>();
+    const lastOfficialMetrics: TeamMetrics = {};
     const onMatchComplete = (match: MatchResult, _algorithmId: string, state: unknown): void => {
       stateByEventKey.set(match.eventKey, state);
+      const involved = [...match.redTeams, ...match.blueTeams];
+      const metrics = opr.teamMetrics(state as Parameters<typeof opr.teamMetrics>[0], involved);
+      for (const teamKey of involved) if (metrics[teamKey] !== undefined) lastOfficialMetrics[teamKey] = metrics[teamKey]!;
     };
     const simulator = new WalkForwardSimulator(stream);
     const teamsThisSeason = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
-    const records = simulator.runAll([opr], teamsThisSeason, undefined, onMatchComplete);
-    const finalState = records.finalStates.get(opr.id);
-    const seasonFinalMetrics =
-      finalState !== undefined ? opr.teamMetrics(finalState as Parameters<typeof opr.teamMetrics>[0], teamsThisSeason) : {};
-    const seasonFinalPool = sortedPoolsByMetric(seasonFinalMetrics, teamsThisSeason).get(TOTAL_METRIC_KEY)!;
+    simulator.runAll([opr], teamsThisSeason, undefined, onMatchComplete);
+    const rankingPools = sortedPoolsByMetric(lastOfficialMetrics, teamsThisSeason);
+    expect(rankingPools.get(TOTAL_METRIC_KEY), "the season pool holds all eight teams").toHaveLength(8);
 
     const earlyState = stateByEventKey.get(earlyEventKey);
     const asOfEarlyMetrics = earlyState !== undefined ? opr.teamMetrics(earlyState as Parameters<typeof opr.teamMetrics>[0], teamKeys) : {};
     const asOfEarlyValue = asOfEarlyMetrics["frc1"]![TOTAL_METRIC_KEY]!.value;
 
-    const seasonFinalPoolPercentile = percentileAgainstSortedPool(seasonFinalPool, asOfEarlyValue);
+    const seasonPoolPercentile = goodnessPercentileAgainstPools(rankingPools, TOTAL_METRIC_KEY, asOfEarlyValue);
     // The FORBIDDEN number: ranked against the early event's own roster alone.
-    const eventRosterPool = sortedPoolsByMetric(asOfEarlyMetrics, teamKeys).get(TOTAL_METRIC_KEY)!;
-    const eventRosterPoolPercentile = percentileAgainstSortedPool(eventRosterPool, asOfEarlyValue);
+    const eventRosterPools = sortedPoolsByMetric(asOfEarlyMetrics, teamKeys);
+    const eventRosterPoolPercentile = goodnessPercentileAgainstPools(eventRosterPools, TOTAL_METRIC_KEY, asOfEarlyValue);
 
-    expect(publishedPercentile).toBe(seasonFinalPoolPercentile);
+    expect(publishedPercentile).toBe(seasonPoolPercentile);
     expect(publishedPercentile, "the published percentile must NOT equal the forbidden event-roster-ranked one").not.toBe(
       eventRosterPoolPercentile
     );
@@ -4725,6 +4926,44 @@ describe("publishSeasons and --event agree on the SigmaScout layer (2026-09-09)"
       expect(eventRow?.redBonusRp, `redBonusRp on ${seasonsRow.matchKey}`).toEqual(seasonsRow.redBonusRp);
       expect(eventRow?.blueBonusRp, `blueBonusRp on ${seasonsRow.matchKey}`).toEqual(seasonsRow.blueBonusRp);
     }
+  });
+
+  it("--event publishes the SAME standings percentiles as the full seasons publish, against the one last-official-match pool (quick task 260912-tnk)", async () => {
+    const { lateEventKey } = seedTwoEventSeason(db);
+    // A later offseason event, so a season-final pool would differ from the
+    // last-official-match pool both paths must now rank against.
+    const offseasonEventKey = "2026off";
+    upsertEvent(db, seasonEvent({ eventKey: offseasonEventKey, name: "Offseason", eventType: OFFSEASON_EVENT_TYPE, isOffseason: true }));
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: `${offseasonEventKey}_qm1`,
+        eventKey: offseasonEventKey,
+        sortTime: 20_000,
+        redTeams: ["frc1", "frc2", "frc6"],
+        blueTeams: ["frc3", "frc4", "frc5"],
+        redScore: 400,
+        blueScore: 5,
+        winner: "red",
+      })
+    );
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true, includeOffseason: true });
+
+    let compared = 0;
+    for (const eventKey of [offseasonEventKey, lateEventKey]) {
+      const fromSeasons = findEventArtifact(eventKey, spr.id);
+      const fromEvent = JSON.parse(buildSingleEventPublish(db, eventKey, spr).body) as EventArtifact;
+      expect(fromEvent.teams.map((t) => t.teamKey).sort()).toEqual(fromSeasons.teams.map((t) => t.teamKey).sort());
+      for (const seasonsTeam of fromSeasons.teams) {
+        const eventTeam = fromEvent.teams.find((t) => t.teamKey === seasonsTeam.teamKey)!;
+        expect(Object.keys(eventTeam.metrics).sort(), `${eventKey} ${seasonsTeam.teamKey} metric keys`).toEqual(Object.keys(seasonsTeam.metrics).sort());
+        for (const [key, metric] of Object.entries(seasonsTeam.metrics)) {
+          expect(eventTeam.metrics[key]?.percentile, `${eventKey} ${seasonsTeam.teamKey} ${key} percentile`).toBe(metric.percentile);
+          if (metric.percentile !== undefined) compared++;
+        }
+      }
+    }
+    expect(compared, "non-vacuous: at least one standings percentile compared").toBeGreaterThan(0);
   });
 
   it("agrees for OPR too — the layer is algorithm-independent, so parity cannot be a BPR-only property", async () => {

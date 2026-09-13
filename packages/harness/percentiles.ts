@@ -11,21 +11,25 @@
  * for a metric receives no `percentile` key at all on that metric — never a
  * coerced `0`, which would read as bottom-of-field.
  *
- * `packages/harness/publish.ts` calls `withPercentiles(metricsByTeam,
- * teamsThisSeason)` exactly once, immediately after `metricsByTeam` is
- * assembled and before either downstream consumer (the teams/{year}
- * artifact's `teamsRows`, the per-team loop's `seasonStats.metrics`) reads
- * it — this is what makes the ranking pass run once per (algorithm, season)
- * rather than being duplicated. This phase wires only the per-team
- * artifact's CONSUMPTION of the result (RESEARCH.md Open Question 2): the
- * teams-table artifact's own tier boxes are a later phase's decision, and
- * widening that artifact's published surface here is beyond what D-04
- * authorizes — this module's shape supports both, `publish.ts` uses one.
+ * ONE POOL, ONE HELPER (quick task 260912-tnk). A rarity tier is a function
+ * of (metric value, the one season ranking pool) on every surface of the
+ * site. `packages/harness/publish.ts` builds that pool exactly once per
+ * (algorithm, season) with `sortedPoolsByMetric`, from every team's metrics
+ * as of its LAST OFFICIAL match (`lastOfficialMetricsByTeam`), and every
+ * published percentile is ranked against it: the teams/{year} row's tier,
+ * the team-season artifact's `seasonStats.metrics` (including an
+ * offseason-only team's season-final fallback), every `metricHistory` row,
+ * and every event artifact standing, on both the seasons and `--event`
+ * paths. Each of those percentiles goes through
+ * `goodnessPercentileAgainstPools`, which applies metric direction and ranks
+ * at display precision, so a number cannot change tier between pages. The
+ * live Worker's global rebuild re-derives Teams-row tiers through the same
+ * helper (`apps/worker/src/scheduled.ts` `rederiveTeamsRowTiers`).
  */
 import { COMPONENT_GROUP_METRIC_KEYS } from "../core/algorithms/breakdown/index.js";
 import { TOTAL_METRIC_KEY, type TeamMetric, type TeamMetrics } from "../core/algorithms/types.js";
 import { goodnessPercentile, metricDirectionOrDefault } from "./metricDirection.js";
-import { roundTo, ROUNDING_RULE } from "./rounding.js";
+import { roundMetric, roundTo, ROUNDING_RULE } from "./rounding.js";
 
 /**
  * A `TeamMetric` widened with the percentile rank this pass computes.
@@ -115,38 +119,81 @@ export function percentileRanks(values: readonly number[]): number[] {
  * the LENIENT accessor, never the strict one (see `metricDirection.ts`'s
  * file header for why a throw here would turn a multi-hour manual
  * `pnpm publish:seasons` run into a hard crash on an unrecognized name).
+ *
+ * Quick task 260912-tnk: every percentile is produced by
+ * `goodnessPercentileAgainstPools` against `sortedPools` — the one pool the
+ * caller already built, or `sortedPoolsByMetric(metricsByTeam, teamKeys)`
+ * when omitted — so a teams row, a history row and an event standing
+ * carrying the same value always carry the same percentile. For a pool
+ * member this is exactly `percentileRanks`'s mid-rank percentile at display
+ * precision (see `sortedPoolsByMetric`).
  */
-export function withPercentiles(metricsByTeam: TeamMetrics, teamKeys: readonly string[]): TeamMetricsWithPercentile {
-  const metricNames = new Set<string>();
-  for (const teamKey of teamKeys) {
-    const metrics = metricsByTeam[teamKey];
-    if (!metrics) continue;
-    for (const name of Object.keys(metrics)) metricNames.add(name);
-  }
-
-  // percentileByMetric[metricName] -> Map<teamKey, percentile>
-  const percentileByMetric = new Map<string, Map<string, number>>();
-  for (const name of metricNames) {
-    const entries: { teamKey: string; value: number }[] = [];
-    for (const teamKey of teamKeys) {
-      const value = metricsByTeam[teamKey]?.[name]?.value;
-      if (value !== undefined) entries.push({ teamKey, value });
-    }
-    const rawPercentiles = percentileRanks(entries.map((e) => e.value));
-    const direction = metricDirectionOrDefault(name);
-    const byTeam = new Map<string, number>();
-    entries.forEach((entry, i) => byTeam.set(entry.teamKey, goodnessPercentile(rawPercentiles[i]!, direction)));
-    percentileByMetric.set(name, byTeam);
-  }
-
+export function withPercentiles(
+  metricsByTeam: TeamMetrics,
+  teamKeys: readonly string[],
+  sortedPools: ReadonlyMap<string, readonly number[]> = sortedPoolsByMetric(metricsByTeam, teamKeys)
+): TeamMetricsWithPercentile {
+  const inPool = new Set(teamKeys);
   const result: TeamMetricsWithPercentile = {};
   for (const [teamKey, metrics] of Object.entries(metricsByTeam)) {
     const newMetrics: Record<string, TeamMetricWithPercentile> = {};
+    const ranked = inPool.has(teamKey);
     for (const [name, metric] of Object.entries(metrics)) {
-      const pct = percentileByMetric.get(name)?.get(teamKey);
+      const pct = ranked && metric.value !== undefined ? goodnessPercentileAgainstPools(sortedPools, name, metric.value) : undefined;
       newMetrics[name] = pct !== undefined ? { ...metric, percentile: pct } : { ...metric };
     }
     result[teamKey] = newMetrics;
+  }
+  return result;
+}
+
+/**
+ * Quick task 260912-tnk: THE single function every pool-ranked published
+ * percentile goes through — the teams row's tier, `seasonStats`, every
+ * `metricHistory` row, every event standing, and the live Worker's Teams-row
+ * tier re-derivation. Keeping it single is what makes the tier a function of
+ * (value, pool) and nothing else.
+ *
+ * Ranks `roundMetric(value)` against `sortedPools.get(metricName)` with
+ * `percentileAgainstSortedPool`'s mid-rank formula, then applies the metric's
+ * declared direction through `goodnessPercentile` with the LENIENT
+ * `metricDirectionOrDefault`, so a lower-is-better metric can never tier
+ * inverted on one surface and upright on another. The query is rounded to
+ * display precision because the pool is (see `sortedPoolsByMetric`), and two
+ * teams that print the same number must share a percentile.
+ *
+ * Returns `undefined` when the map has no pool for `metricName` — never a
+ * coerced 0, which would read as bottom-of-field (PD-07's absence contract).
+ */
+export function goodnessPercentileAgainstPools(
+  sortedPools: ReadonlyMap<string, readonly number[]>,
+  metricName: string,
+  value: number
+): number | undefined {
+  const pool = sortedPools.get(metricName);
+  if (pool === undefined) return undefined;
+  return goodnessPercentile(percentileAgainstSortedPool(pool, roundMetric(value)), metricDirectionOrDefault(metricName));
+}
+
+/**
+ * Quick task 260912-tnk: one team's metric record, each metric widened with
+ * its percentile against `sortedPools` through
+ * `goodnessPercentileAgainstPools`. A metric receives a percentile only when
+ * (no `allowlist` is given, or its name is in it) AND a pool exists for that
+ * name; otherwise it is copied with no `percentile` key at all.
+ *
+ * Returns a NEW record of NEW metric objects — `metrics` and its nested
+ * objects are never mutated, since callers reuse history rows across loops.
+ */
+export function withPoolPercentiles(
+  metrics: Readonly<Record<string, TeamMetric>>,
+  sortedPools: ReadonlyMap<string, readonly number[]>,
+  allowlist?: readonly string[]
+): Record<string, TeamMetricWithPercentile> {
+  const result: Record<string, TeamMetricWithPercentile> = {};
+  for (const [name, metric] of Object.entries(metrics)) {
+    const pct = allowlist === undefined || allowlist.includes(name) ? goodnessPercentileAgainstPools(sortedPools, name, metric.value) : undefined;
+    result[name] = pct !== undefined ? { ...metric, percentile: pct } : { ...metric };
   }
   return result;
 }
@@ -169,12 +216,17 @@ export class EmptyPoolError extends Error {
 
 /**
  * D-06.1-A: ranks an arbitrary query `value` — typically a team's metric
- * value at some EARLIER point in the season — against `sortedValues`, a
- * pool built from the SEASON-FINAL distribution for that metric. This reads
- * as "where this team stood at that point, against the final field" — it is
- * deliberately NOT "the field as of that match index" (the rejected
+ * value at some EARLIER point in the season — against `sortedValues`. Since
+ * quick task 260912-tnk that pool is the season's last-official-match field
+ * (every team's metrics as of its last official match), so this reads as
+ * "an earlier value ranked against the season's last-official-match field".
+ * It is deliberately NOT "the field as of that match index" (the rejected
  * alternative from 06-UAT.md F-06-3, not planned, not sketched, and not
  * left as a TODO anywhere in this codebase).
+ *
+ * Direction-unaware and unrounded on purpose: published percentiles never
+ * call this directly — they go through `goodnessPercentileAgainstPools`,
+ * which rounds the query and applies direction.
  *
  * Reuses `percentileRanks`'s exact mid-rank formula —
  * `(countStrictlyBelow + 0.5 * countEqual) / n * 100` — and its
@@ -212,13 +264,25 @@ export function percentileAgainstSortedPool(sortedValues: readonly number[], val
 
 /**
  * Builds, once per `(algorithm, season)`, an ascending sorted-values array
- * per metric name — the pool `percentileAgainstSortedPool` queries many
- * times (once per `metricHistory` row) rather than re-sorting per row.
+ * per metric name — THE season ranking pool (quick task 260912-tnk) that
+ * `goodnessPercentileAgainstPools` queries for every published percentile
+ * (teams rows, `seasonStats`, every `metricHistory` row, every event
+ * standing) rather than re-sorting per row.
  *
- * The pool for each metric name is exactly `teamKeys` — never
- * `Object.keys(metricsByTeam)` alone — matching `withPercentiles`'s own
- * pool-scoping rule: a `metricsByTeam` record containing a team outside
- * `teamKeys` must not widen the pool.
+ * The pool for each metric name is exactly the teams in `teamKeys` that have
+ * a value for it — never `Object.keys(metricsByTeam)` alone — matching
+ * `withPercentiles`'s own pool-scoping rule: a `metricsByTeam` record
+ * containing a team outside `teamKeys` must not widen the pool.
+ *
+ * Values are pooled at DISPLAY precision (`roundMetric`), for two reasons.
+ * Two teams that print the same number must share a percentile. And the live
+ * Worker only ever sees rounded published values, so its tier re-derivation
+ * can reproduce the offline tiers exactly only if the offline pool is rounded
+ * too — otherwise a rounding-created tie near a tier cut would resolve
+ * differently on the two sides. `publish.ts`'s `rankableTeamRows` comment
+ * (quick task 260905-ttv) already ranks ROUNDED metrics for the same reason.
+ * Published values themselves are not rounded here; `buildTeamsArtifact` and
+ * `buildTeamSeasonArtifact` still own that boundary.
  *
  * A metric name no team in `teamKeys` has a value for is OMITTED entirely
  * from the returned map (PD-07) — never mapped to an empty array. An empty
@@ -236,9 +300,11 @@ export function sortedPoolsByMetric(metricsByTeam: TeamMetrics, teamKeys: readon
     const metrics = metricsByTeam[teamKey];
     if (!metrics) continue;
     for (const [name, metric] of Object.entries(metrics)) {
+      if (metric.value === undefined) continue;
+      const value = roundMetric(metric.value);
       const values = valuesByMetric.get(name);
-      if (values) values.push(metric.value);
-      else valuesByMetric.set(name, [metric.value]);
+      if (values) values.push(value);
+      else valuesByMetric.set(name, [value]);
     }
   }
   for (const values of valuesByMetric.values()) values.sort((a, b) => a - b);
@@ -270,3 +336,4 @@ export function sortedPoolsByMetric(metricsByTeam: TeamMetrics, teamKeys: readon
  * projection lands over.
  */
 export const HISTORY_PERCENTILE_METRIC_KEYS: readonly string[] = [...Object.values(COMPONENT_GROUP_METRIC_KEYS), TOTAL_METRIC_KEY];
+
