@@ -34,15 +34,36 @@ import {
 const EM_DASH = "—";
 const EN_DASH = "–";
 
-/** The one shared-list id this task's thin content carries. */
-const EXPECTED_SAME_ITEM_IDS = ["rating-update"];
+/** The full six-item shared-list id set, in copy-deck order. */
+const EXPECTED_SAME_ITEM_IDS = [
+  "rating-update",
+  "elimination-matches",
+  "win-probability-curve",
+  "fouls-in-predictions",
+  "new-season-carryover",
+  "no-uncertainty-range",
+];
 
-/** The one difference-card id this task's thin content carries. */
-const EXPECTED_DIFFERENCE_CARD_IDS = ["week-one-numbers"];
+/** The full seven-card difference-card id set, in copy-deck order. */
+const EXPECTED_DIFFERENCE_CARD_IDS = [
+  "week-one-numbers",
+  "score-pieces",
+  "new-season-start",
+  "score-data-cleanup",
+  "season-adjustments",
+  "ranking-points",
+  "offseason-events",
+];
 
-/** The full note-label mapping for the cards that exist so far. */
+/** The full note-label mapping for every card in the copy deck. */
 const EXPECTED_NOTE_LABELS: Record<string, EpaNoteLabel[]> = {
   "week-one-numbers": ["Why", "What it changes"],
+  "score-pieces": ["Why"],
+  "new-season-start": ["Why"],
+  "score-data-cleanup": ["What it changes"],
+  "season-adjustments": ["Why"],
+  "ranking-points": ["Why"],
+  "offseason-events": ["What it changes"],
 };
 
 /** The only decimal numbers (digit-dot-digit) copy on this page is allowed to state. */
@@ -195,6 +216,62 @@ describe("liability gate over every exported string", () => {
         expect(ALLOWED_DECIMALS, `${where} states a decimal number "${match}" outside the allowed set`).toContain(match);
       }
     }
+  });
+});
+
+describe("fact gate over the shared list", () => {
+  const requiredPhrases = ["one third", "logistic", "70 percent", "30 percent", "40 percent"];
+
+  it.each(requiredPhrases)("the shared list states the phrase %j somewhere", (phrase) => {
+    const joined = EPA_SAME_ITEMS.map((item) => item.text).join(" ");
+    expect(joined, `the shared list never states "${phrase}"`).toContain(phrase);
+  });
+});
+
+describe("fact gate per difference card", () => {
+  function cardProse(id: string): string {
+    const card = EPA_DIFFERENCE_CARDS.find((candidate) => candidate.id === id);
+    expect(card, `no card found with id "${id}"`).toBeDefined();
+    return [card?.title ?? "", card?.statbotics ?? "", card?.sigmascout ?? "", ...(card?.notes.map((note) => note.text) ?? [])].join(" ");
+  }
+
+  it("week-one-numbers contains 'week 1' and 'never changes a winner pick'", () => {
+    const prose = cardProse("week-one-numbers");
+    expect(prose, "week-one-numbers is missing 'week 1'").toContain("week 1");
+    expect(prose, "week-one-numbers is missing 'never changes a winner pick'").toContain("never changes a winner pick");
+  });
+
+  it("score-pieces contains 75.2, 74.0 and 73.5", () => {
+    const prose = cardProse("score-pieces");
+    expect(prose, "score-pieces is missing 75.2").toContain("75.2");
+    expect(prose, "score-pieces is missing 74.0").toContain("74.0");
+    expect(prose, "score-pieces is missing 73.5").toContain("73.5");
+  });
+
+  it("new-season-start contains 250", () => {
+    const prose = cardProse("new-season-start");
+    expect(prose, "new-season-start is missing 250").toContain("250");
+  });
+
+  it("score-data-cleanup contains 'have not been adopted' and never implies a deliberate reason", () => {
+    const prose = cardProse("score-data-cleanup");
+    expect(prose, "score-data-cleanup is missing 'have not been adopted'").toContain("have not been adopted");
+    expect(prose, "score-data-cleanup implies a deliberate reason").not.toMatch(/\b(deliberate|on purpose|chose|choice)\b/i);
+  });
+
+  it("season-adjustments contains 'deliberate'", () => {
+    const prose = cardProse("season-adjustments");
+    expect(prose, "season-adjustments is missing 'deliberate'").toMatch(/\bdeliberate\b/);
+  });
+
+  it("ranking-points contains 'deliberate'", () => {
+    const prose = cardProse("ranking-points");
+    expect(prose, "ranking-points is missing 'deliberate'").toMatch(/\bdeliberate\b/);
+  });
+
+  it("offseason-events contains 'last official match'", () => {
+    const prose = cardProse("offseason-events");
+    expect(prose, "offseason-events is missing 'last official match'").toContain("last official match");
   });
 });
 
