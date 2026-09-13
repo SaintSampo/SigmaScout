@@ -206,6 +206,8 @@ carries `basis: "last-official-match"` so the object names the quantity it measu
 that lacks the arm. The offseason-inclusive arm keeps gating the committed tolerance bands via
 `--check` and is unchanged; it is simply no longer the number on the page.
 
+**Since quick task 260912-tib (2026-09-12) this arm is not rendered anywhere.** The rewritten page shows only the head-to-head win-probability table, by Jacob's decision. The arm is still composed, validated and published inside the artifact, because its schema requires it.
+
 ## Per-season measured table (production arm: offseason-inclusive, 2022-2026)
 
 `our` / `their` are each side's team count after demo-key exclusion, before the join;
@@ -642,6 +644,10 @@ next run of it corrects that page.
 
 **Republish debt: `v1/methodology/epa-vs-statbotics.json` is stale as of this task** and still
 carries the cold 2022 figure. This task did not republish.
+
+**PAID 2026-09-11 by commit `ce23485e`** (the Phase 9 production window). The artifact was republished
+from the warm arm under `epa@10.0.0+baseline`, and live 2022 moved from −2.39 pp to −0.18 pp against
+Statbotics. See `docs/publish-budget.md`.
 
 #### What was measured and REFUTED, reported as found
 

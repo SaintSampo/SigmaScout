@@ -1001,6 +1001,10 @@ RP slot or a season aggregate feeds something that affects a SCORE or a WIN PROB
 Each stage is sized as its own quick task: one coherent change, independently verifiable. The order
 is most-foundational-and-riskiest first, and each entry states WHY it sits where it does.
 
+**PAID 2026-09-11.** Commit `ce23485e` republished every season, and the methodology artifact, under
+`epa@10.0.0+baseline`, so the debt described in the next paragraph is zero as of that commit. The
+rule it states still applies to any future stage that changes a published EPA number.
+
 **Republish debt is cumulative, and it is already nonzero.** `epa@8.0.0+baseline` ALREADY owes a
 republish. Every stage below that changes a published EPA number adds to that debt, and **the
 published methodology numbers are stale until it is paid.** Do not read a stage's "no republish
