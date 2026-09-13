@@ -7,7 +7,7 @@ status: completed
 stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
 last_updated: "2026-09-13T03:54:31.153Z"
 last_activity: 2026-09-13
-last_activity_desc: "Completed fast tasks: site-wide semibold body text fix (22746c44) and stale EPA doc debts marked paid (f7180f2f)"
+last_activity_desc: "Completed quick task 260913-g66: Match Band corrected and split from win odds, Swing Score removed (59a02fe5); republish, Worker deploy, web ship owed"
 progress:
   total_phases: 12
   completed_phases: 12
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 Phase: 08
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-09-13 - Completed fast tasks: site-wide semibold body text fix (22746c44) and stale EPA doc debts marked paid (f7180f2f)
+Last activity: 2026-09-13 - Completed quick task 260913-g66: Match Band corrected and split from win odds, Swing Score removed (59a02fe5); republish, Worker deploy, web ship owed
 
 Progress: [██████████] 100%
 
@@ -547,6 +547,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 143 | fast: text-role-body font-semibold rendered at 400 on six call sites (home page buttons and podium labels, SPR and Acknowledgments links, EPA vs Statbotics card titles) because unlayered .text-role-body beats Tailwind's utility layer. One two-class rule .text-role-body.font-semibold in theme.css fixes every call site; the per-site font-semibold! on the EPA page reverted. Verified in browser, all compute 600, plain body 400 | 2026-09-13 | 22746c44 | — |
 | 144 | fast: marked three stale EPA doc debts PAID. epa-divergences.md header (9.0.0 unpaid republish, now 10.0.0 republished by ce23485e) and section 4 page-copy debt (paid by 260912-tib); epa-vs-statbotics.md cold-arm methodology republish debt (paid by ce23485e) and the agreement arm no longer rendered; epa-statbotics-gap.md cumulative republish debt. Originals kept as history | 2026-09-13 | f7180f2f | — |
 | 145 | fast: EPA vs Statbotics head-to-head table drops its (dated) markers; one muted line directly under the table names the exact date the Statbotics column was last pulled (September 4, 2026 today), built from the artifact's statboticsCapturedAt, never typed. Statbotics API data endpoints returned 500/503 on 2026-09-13 so no fresher pull was possible; watcher killed at Jacob's call | 2026-09-13 | a55eaa18 | — |
+| 146 | Match Band corrected and split from win odds, Swing Score removed from the site. SPR band now sqrt(rosterSize x sum Sigma^2): measured coverage 47.1% to 71.6% over 131,961 alliance results 2024 to 2026 (measure:match-band). Win/tie/loss spread keeps the uncorrected variance, RP digests pinned on unmodified source still green for opr, epa, spr. Wire keys renamed to red/blueMatchBandVariance; OPR and EPA publish no band and no swingFactor; bubble chart shows Sigma Score or a no-Sigma state. Sigma page drops overlap-is-win-probability and teaches shares back into an alliance. Commits 5ca97a41 c09d2a5c 5614d36e 59a02fe5. Republish, Worker deploy and web ship OWED | 2026-09-13 | 59a02fe5 | [260913-g66-match-band-correction-win-odds-separatio](./quick/260913-g66-match-band-correction-win-odds-separatio/) |
 
 ### Roadmap Evolution
 
