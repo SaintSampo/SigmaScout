@@ -7,9 +7,11 @@
  *            nothing about anything below.
  *   LEVEL 2  SigmaScout features computed from predicted-vs-actual scores
  *            alone — the Match Band and ranking points. No algorithm models
- *            them, no algorithm may import them, and every algorithm has them
- *            identically. OPR models no uncertainty whatsoever and still gets
- *            a band and a working rank simulation.
+ *            them and no algorithm may import them. OPR models no uncertainty
+ *            whatsoever and still gets a working rank simulation from its
+ *            Swing win-odds variance, but since quick task 260913-g66 it
+ *            publishes NO display band: the Match Band is Sigma-only (SPR),
+ *            built by `sigmaMatchBandVariance`.
  *
  * ---------------------------------------------------------------------------
  * WHY THIS IS A MODULE AND NOT A LOOP BODY
@@ -59,6 +61,7 @@ import {
 import { allianceSwingBandVariance, SwingFactorAccumulator, type SwingBelief } from "./swingFactor.js";
 import {
   SigmaScoreAccumulator,
+  sigmaMatchBandVariance,
   usesSigmaScore,
   type SigmaBelief,
   type SigmaPopulation,
@@ -72,7 +75,12 @@ import {
 export interface UpcomingLayerRecord {
   readonly match: UpcomingMatch;
   readonly prediction: Prediction;
-  readonly swingBand?: { red?: number; blue?: number };
+  /**
+   * The PUBLISHED display band (quick task 260913-g66): each alliance's
+   * `sigmaMatchBandVariance`. Sigma algorithms only — absent for OPR and EPA.
+   * Never the win-odds variance the ranking-point pmf reads.
+   */
+  readonly matchBand?: { red?: number; blue?: number };
 }
 
 /**
@@ -87,8 +95,9 @@ export class SigmaScoutLayer {
   /**
    * Present ONLY for an algorithm in `SIGMA_SCORE_ALGORITHM_IDS` (BPR today).
    * When present it is the source of this algorithm's per-team consistency
-   * figure AND of its match bands; `#swing` is then still folded, but only so
-   * the D1 seed's shape stays uniform across algorithms.
+   * figure, its win-odds variance AND its published match band; `#swing` is
+   * then still folded, but only so the D1 seed's shape stays uniform across
+   * algorithms. When absent (OPR, EPA) no match band is published at all.
    */
   readonly #sigma: SigmaScoreAccumulator | undefined;
   readonly #rp: RpMomentsAccumulator | undefined;
@@ -156,7 +165,11 @@ export class SigmaScoutLayer {
     return this.#sigma.scoreByTeam();
   }
 
-  /** One alliance's band variance from history so far, in whichever metric this layer publishes. */
+  /**
+   * One alliance's WIN-ODDS variance from history so far, in whichever metric
+   * this layer uses. This is what `#rpFieldsFor` reads; the published display
+   * band is derived from it by `#matchBandFields` for Sigma layers only.
+   */
   #bandVarianceFor(roster: readonly string[]): number | undefined {
     if (this.#sigma === undefined) return this.#swing.bandVarianceFor(roster);
     return this.#sigma.bandVarianceFor(roster);
@@ -274,6 +287,7 @@ export class SigmaScoutLayer {
       for (const [teamKey, talent] of talentAfterMatch) this.#sigma.observeTalent(teamKey, talent);
     }
 
+    // Win odds: the UNCORRECTED variance, exactly as before 260913-g66.
     const derivedRp = this.#rpFieldsFor(match, prediction, redBandVariance, blueBandVariance);
     this.#foldObservedThresholds(match);
 
@@ -281,15 +295,26 @@ export class SigmaScoutLayer {
       match,
       // An algorithm that produced its own RP keeps it; ours fills the gap.
       prediction: prediction.redRpPmf !== undefined ? prediction : { ...prediction, ...derivedRp },
-      ...(redBandVariance !== undefined || blueBandVariance !== undefined
-        ? {
-            swingBand: {
-              ...(redBandVariance !== undefined ? { red: redBandVariance } : {}),
-              ...(blueBandVariance !== undefined ? { blue: blueBandVariance } : {}),
-            },
-          }
-        : {}),
+      ...this.#matchBandFields(match, redBandVariance, blueBandVariance),
     };
+  }
+
+  /**
+   * The published display band for one match, derived from the two win-odds
+   * variances (quick task 260913-g66). Sigma layers only: an OPR or EPA layer
+   * returns no `matchBand` key at all, the same absent-key convention the band
+   * has always used for "nothing to draw".
+   */
+  #matchBandFields(
+    match: { redTeams: readonly string[]; blueTeams: readonly string[] },
+    redWinOddsVariance: number | undefined,
+    blueWinOddsVariance: number | undefined
+  ): { matchBand?: { red?: number; blue?: number } } {
+    if (this.#sigma === undefined) return {};
+    const red = sigmaMatchBandVariance(match.redTeams.length, redWinOddsVariance);
+    const blue = sigmaMatchBandVariance(match.blueTeams.length, blueWinOddsVariance);
+    if (red === undefined && blue === undefined) return {};
+    return { matchBand: { ...(red !== undefined ? { red } : {}), ...(blue !== undefined ? { blue } : {}) } };
   }
 
   /**
@@ -310,15 +335,15 @@ export class SigmaScoutLayer {
     return {
       match,
       prediction: { ...prediction, ...upcomingRp },
-      ...(red !== undefined || blue !== undefined
-        ? { swingBand: { ...(red !== undefined ? { red } : {}), ...(blue !== undefined ? { blue } : {}) } }
-        : {}),
+      ...this.#matchBandFields(match, red, blue),
     };
   }
 
   /**
    * The RP fields for one match, given each alliance's band as its score
-   * variance. Empty when this season registers no rules, when the event type
+   * variance. The band arguments are the WIN-ODDS variance (the uncorrected
+   * sum), never the published display band (quick task 260913-g66).
+   * Empty when this season registers no rules, when the event type
    * awards no RP, or when either band is undefined — a band is undefined only
    * when a rostered team has too little play to have a Swing Factor, and an
    * alliance whose score variance is unknown has no honest pmf.

@@ -863,7 +863,7 @@ describe("runTick — global rebuild (D-16)", () => {
    * (and with it its district/state rank scopes) and its Swing Factor until the
    * next offline publish.
    */
-  it("260908-5wd: a TOUCHED team's row keeps its offline-published swingFactor and region fields", async () => {
+  it("260908-5wd: a TOUCHED team's row keeps its offline-published region fields, and a stale swingFactor does not survive (260913-g66)", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([window]);
     const d1 = new FakeD1Database();
@@ -921,8 +921,11 @@ describe("runTick — global rebuild (D-16)", () => {
     // Quick task 260912-tnk: the published Sigma entry survives, value and tier.
     expect(decodeTeamsRowMetrics(touched!.metrics as never, written.metricKeys).sigma).toEqual({ value: 3.25, tier: "epic" });
 
+    // Quick task 260913-g66: the retired per-team swing field is stripped on
+    // parse and never rewritten, so a stale artifact's value does not ride
+    // forward through a live tick.
+    expect(touched!, "a live tick must not carry a retired per-team swing field forward").not.toHaveProperty("swingFactor");
     // Publisher-owned: preserved through the tick.
-    expect(touched!.swingFactor, "a live tick must not delete a published Swing Factor").toBe(27.5);
     expect(touched!.country).toBe("USA");
     expect(touched!.stateProv).toBe("CA");
     expect(touched!.districtKey).toBe("2026fim");
@@ -959,12 +962,12 @@ describe("260912-tnk: live Teams-row tiers", () => {
     expect(touchedTeamsRowMetrics(undefined, { total: { value: 12 } })).toEqual({ total: { value: 12 } });
   });
 
-  it("the prior row's Sigma and Swing entries (value and tier) are carried forward unchanged, after the fresh entries", () => {
+  it("the prior row's Sigma entry (value and tier) is carried forward unchanged after the fresh entries, and a stale Swing entry is not (260913-g66)", () => {
     const prior = { total: { value: 100, tier: "epic" as const }, sigma: { value: 3.25, tier: "legendary" as const }, swing: { value: 9.5, tier: "rare" as const } };
     const result = touchedTeamsRowMetrics(prior, { total: { value: 101 } });
     expect(result.sigma).toEqual({ value: 3.25, tier: "legendary" });
-    expect(result.swing).toEqual({ value: 9.5, tier: "rare" });
-    expect(Object.keys(result)).toEqual(["total", "sigma", "swing"]);
+    expect(result).not.toHaveProperty("swing");
+    expect(Object.keys(result)).toEqual(["total", "sigma"]);
   });
 
   it("a Sigma entry is never re-tiered and a fresh Sigma entry wins over the carried one", () => {

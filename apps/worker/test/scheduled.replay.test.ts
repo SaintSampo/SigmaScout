@@ -32,6 +32,7 @@ import { makeSigma1 } from "../../../packages/core/algorithms/sigma1/index.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
 import { roundMetric, roundProbability, roundTo, ROUNDING_RULE } from "../../../packages/harness/rounding.js";
 import { SigmaScoutLayer } from "../../../packages/harness/sigmaScoutLayer.js";
+import { usesSigmaScore } from "../../../packages/harness/sigmaScore.js";
 import { TOTAL_METRIC_KEY } from "../../../packages/core/algorithms/types.js";
 import type { AlgorithmModule, MatchResult, Prediction } from "../../../packages/core/algorithms/types.js";
 import type { Env } from "../src/env.js";
@@ -481,7 +482,7 @@ describe("scheduled.replay — offline equivalence (D-14)", () => {
         const key = artifactKey({ page: "event", eventKey: EVENT_KEY, algorithmId, version: offlineModule.version });
         const publishedText = await r2.get(key);
         expect(publishedText, `no published event artifact found at ${key} for algorithm "${algorithmId}"`).not.toBeNull();
-        const published = JSON.parse(await publishedText!.text()) as { matches: { matchKey: string; pRedWin: number; predictedRedScore: number; predictedBlueScore: number; redSwingBandVariance?: number; blueSwingBandVariance?: number }[] };
+        const published = JSON.parse(await publishedText!.text()) as { matches: { matchKey: string; pRedWin: number; predictedRedScore: number; predictedBlueScore: number; redMatchBandVariance?: number; blueMatchBandVariance?: number }[] };
         expect(published.matches).toHaveLength(MATCH_FIXTURES.length);
 
         // Order both streams identically (chronological match order, the
@@ -524,23 +525,29 @@ describe("scheduled.replay — offline equivalence (D-14)", () => {
             if (total !== undefined) talent.set(teamKey, total);
           }
           const enriched = layer.foldPlayed(r.match, r.prediction, talent);
-          const red = enriched.swingBand?.red;
-          const blue = enriched.swingBand?.blue;
+          const red = enriched.matchBand?.red;
+          const blue = enriched.matchBand?.blue;
           return {
             matchKey: r.match.matchKey,
             red: red === undefined ? undefined : roundTo(red, ROUNDING_RULE.variance),
             blue: blue === undefined ? undefined : roundTo(blue, ROUNDING_RULE.variance),
           };
         });
-        const onlineBands = onlineOrdered.map((row) => ({ matchKey: row.matchKey, red: row.redSwingBandVariance, blue: row.blueSwingBandVariance }));
+        const onlineBands = onlineOrdered.map((row) => ({ matchKey: row.matchKey, red: row.redMatchBandVariance, blue: row.blueMatchBandVariance }));
 
-        // Non-vacuity: a fixture where no team ever reaches two played matches
-        // would make both sides all-undefined and the digest comparison would
-        // pass while proving nothing.
-        expect(
-          offlineBands.filter((b) => b.red !== undefined || b.blue !== undefined).length,
-          `algorithm "${algorithmId}": the fixture produced no band at all, so the band digest below would be vacuous`
-        ).toBeGreaterThan(0);
+        const offlineBanded = offlineBands.filter((b) => b.red !== undefined || b.blue !== undefined).length;
+        const onlineBanded = onlineBands.filter((b) => b.red !== undefined || b.blue !== undefined).length;
+        if (usesSigmaScore(algorithmId)) {
+          // Non-vacuity: a fixture that produced no band at all would make both
+          // sides all-undefined and the digest comparison would pass while
+          // proving nothing.
+          expect(offlineBanded, `algorithm "${algorithmId}": the fixture produced no band at all, so the band digest below would be vacuous`).toBeGreaterThan(0);
+        } else {
+          // Quick task 260913-g66: OPR and EPA publish no display band, offline
+          // or live. Both streams must be EMPTY, not merely equal.
+          expect(offlineBanded, `algorithm "${algorithmId}": offline published a band for a non-Sigma algorithm`).toBe(0);
+          expect(onlineBanded, `algorithm "${algorithmId}": the live tick published a band for a non-Sigma algorithm`).toBe(0);
+        }
         expect(
           computeBandStreamDigestLocal(onlineBands),
           `algorithm "${algorithmId}": online (deployed-tick) and offline Match Band streams diverged`

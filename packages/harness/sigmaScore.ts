@@ -4,8 +4,10 @@
  *
  * SHIPPED FOR BPR ONLY (quick task 260910-u7g measured it; the ship decision is
  * the developer's, 2026-09-10). `SIGMA_SCORE_ALGORITHM_IDS` is the single place
- * that scope is declared — OPR and EPA publish no consistency metric at all and
- * keep their existing Swing-derived match bands untouched.
+ * that scope is declared — OPR and EPA publish no consistency metric at all and,
+ * since quick task 260913-g66, no match band either. Their Swing Factor survives
+ * only as the internal win-odds variance their ranking-point pmf and rank
+ * simulation read; it is never published. See `sigmaMatchBandVariance`.
  *
  * Consumers: `sigmaScoutLayer.ts` (bands and the per-team figure), `publish.ts`
  * (the published `sigma` metric), and `scripts/compareSigmaScore.ts` (the
@@ -148,8 +150,10 @@ export const SIGMA_METRIC_KEY = "sigma";
  *
  * OPR and EPA therefore publish NO consistency metric at all and show no column
  * — also a developer decision, over the alternative of leaving Swing visible
- * for them. They keep their Swing-derived MATCH BANDS unchanged; only the
- * per-team published figure goes away.
+ * for them. Since quick task 260913-g66 they also publish NO match band: their
+ * Swing Factor supplies only the internal win-odds variance their ranking-point
+ * pmf and rank simulation read. The display band is Sigma-only, built by
+ * `sigmaMatchBandVariance`.
  *
  * 260912-ivg (BPR -> SPR identifier cutover): Stages 1-4 held this as a
  * transitional two-member set — the deployed browser-READ tier's pre-rename
@@ -163,6 +167,49 @@ export const SIGMA_SCORE_ALGORITHM_IDS: ReadonlySet<string> = new Set(["spr"]);
 /** Whether this algorithm publishes Sigma Score rather than a Swing Factor. */
 export function usesSigmaScore(algorithmId: string): boolean {
   return SIGMA_SCORE_ALGORITHM_IDS.has(algorithmId);
+}
+
+/**
+ * The PUBLISHED Match Band variance for one alliance, from its win-odds
+ * variance (quick task 260913-g66). The single display-band helper: the
+ * offline layer (`SigmaScoutLayer.foldPlayed` / `enrichUpcoming`), the live
+ * Worker and the Sigma methodology page all call this one function.
+ *
+ * UNDO THE EVEN-SPLIT SHRINKAGE (measured 2026-09-12).
+ *
+ * A robot's Sigma Score is the 1 standard deviation of its EVEN-SPLIT SHARE of
+ * the alliance's miss: `SigmaScoreAccumulator.foldMatch` folds
+ * `(actual - predicted) / rosterSize` into every roster member. So the sum of
+ * `rosterSize` shares' variances — `bandVarianceFor`, the win-odds variance —
+ * estimates `Var(alliance) / rosterSize`, not `Var(alliance)`, and a band drawn
+ * from it is `sqrt(rosterSize)` too narrow. Multiplying by `rosterSize` turns
+ * the shares back into a whole alliance. The same shrinkage, and the same
+ * correction, as `empiricalMoments.ts`'s RP variances.
+ *
+ * Measured by walk-forward replay through `SigmaScoutLayer.foldPlayed` over
+ * 2024 to 2026 at alliance level: SPR's share of results inside 1 band was
+ * 47.1% before this correction and 71.7% after (72.2% on warm rosters), against
+ * a 68.3% target.
+ *
+ * DISPLAY ONLY. The win and tie spread keeps the UNCORRECTED sum on purpose:
+ * widening it by the same factor worsened Brier from 0.1559 to 0.1631, because
+ * red's and blue's misses in one match are correlated (+0.21 for SPR) and the
+ * margin's variance is therefore smaller than the two alliance variances
+ * added. So `#rpFieldsFor` and the Worker's `rpFieldsFor` keep receiving the
+ * win-odds variance, and only the published band is corrected.
+ *
+ * OPR and EPA publish no display band at all; their Swing Factor supplies only
+ * the internal win-odds variance. Callers gate on `usesSigmaScore` before
+ * calling this.
+ *
+ * Returns `undefined` when the win-odds variance is undefined, the roster is
+ * empty, or either input is non-finite — no band rather than a wrong one.
+ */
+export function sigmaMatchBandVariance(rosterSize: number, winOddsVariance: number | undefined): number | undefined {
+  if (winOddsVariance === undefined) return undefined;
+  if (!Number.isFinite(rosterSize) || !Number.isFinite(winOddsVariance)) return undefined;
+  if (rosterSize < 1) return undefined;
+  return rosterSize * winOddsVariance;
 }
 
 import { isFullyDemoAlliance } from "../core/algorithms/demoTeams.js";
@@ -540,6 +587,11 @@ export class SigmaScoreAccumulator {
   /**
    * One alliance's band variance — the quadrature sum of its roster's Sigma
    * Scores.
+   *
+   * This is the WIN-ODDS variance the ranking-point pmf reads, not the
+   * published display band: the display band is
+   * `sigmaMatchBandVariance(roster.length, this)`, which undoes the even-split
+   * shrinkage (quick task 260913-g66).
    *
    * Unlike Swing Factor's all-or-nothing rule there is no undefined case here
    * beyond an empty roster, because Sigma always has a figure. The rule Swing

@@ -389,26 +389,26 @@ const EventMatchSchema = z
     /** D-18 item 3, plan 07-07 Task 1: the blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
     blueScoreVarianceOwn: z.number().optional(),
     /**
-     * SIGMASCOUT-LAYER match band (quick task 260908-5wd): this alliance's
-     * variance as `Σ its three teams' Swing Factor²`, walk-forward as of this
-     * match — so a match's band never uses matches that came after it.
+     * PUBLISHED MATCH BAND (renamed by quick task 260913-g66): this alliance's
+     * display-band variance, `roster size × Σ its roster's Sigma Score²`,
+     * walk-forward as of this match — so a match's band never uses matches that
+     * came after it. Built by `sigmaMatchBandVariance` in
+     * `packages/harness/sigmaScore.ts`, which carries the measured even-split
+     * correction.
+     *
+     * SIGMA ALGORITHMS ONLY (SPR): absent on every OPR and EPA row, which publish
+     * no display band. NOT the win-odds variance the ranking-point pmf and rank
+     * simulation read — that stays the uncorrected sum and is never published.
      *
      * DELIBERATELY DISTINCT FROM `redScoreVarianceOwn`, which is the
-     * ALGORITHM's own predictive variance and is published only by the
-     * algorithms that model one (VPR, BPR — never OPR or EPA). This field is
-     * the scouting-heuristic layer built on top of whatever the algorithm
-     * predicted, computed identically for EVERY algorithm from nothing but its
-     * predicted and actual scores. See `packages/harness/swingFactor.ts` for
-     * the two-level split and the measured constants.
-     *
-     * Absent for the opening matches of a team's season, where no roster member
-     * yet has the two observations a centred swing needs — an honest "we do not
-     * know yet" rather than a fabricated width. Rounded once, at the publish
-     * boundary, at `ROUNDING_RULE.variance`.
+     * ALGORITHM's own predictive variance. The retired Swing-era band keys are
+     * stripped on parse (no schema here is strict), so a stale artifact
+     * carrying them renders no band rather than a wrong one. Rounded once, at
+     * the publish boundary, at `ROUNDING_RULE.variance`.
      */
-    redSwingBandVariance: z.number().optional(),
-    /** The blue alliance's counterpart to `redSwingBandVariance` — see its doc comment for the full contract. */
-    blueSwingBandVariance: z.number().optional(),
+    redMatchBandVariance: z.number().optional(),
+    /** The blue alliance's counterpart to `redMatchBandVariance` — see its doc comment for the full contract. */
+    blueMatchBandVariance: z.number().optional(),
     /**
      * D-03, plan 08-02 Task 1: this alliance's predicted distribution over
      * its TOTAL ranking points for this match — index `i` is the predicted
@@ -494,7 +494,7 @@ const EventMatchSchema = z
      * stamp `packages/harness/replay.ts`'s `WalkForwardSimulator` attached to
      * this match's `PredictionRecord`, carried through unchanged to the
      * artifact. Present ONLY when `true`, omitted otherwise — mirrors
-     * `redSwingBandVariance`'s presence-means-something convention above,
+     * `redMatchBandVariance`'s presence-means-something convention above,
      * rather than a boolean written `false` on the overwhelming majority of
      * rows. Read by both match tables' Call column to render the neutral
      * em-dash with a distinct accessible label; see
@@ -645,26 +645,26 @@ const EventUpcomingMatchSchema = z
     redScoreVarianceOwn: z.number().optional(),
     blueScoreVarianceOwn: z.number().optional(),
     /**
-     * SIGMASCOUT-LAYER match band (quick task 260908-5wd): this alliance's
-     * variance as `Σ its three teams' Swing Factor²`, walk-forward as of this
-     * match — so a match's band never uses matches that came after it.
+     * PUBLISHED MATCH BAND (renamed by quick task 260913-g66): this alliance's
+     * display-band variance, `roster size × Σ its roster's Sigma Score²`,
+     * walk-forward as of this match — so a match's band never uses matches that
+     * came after it. Built by `sigmaMatchBandVariance` in
+     * `packages/harness/sigmaScore.ts`, which carries the measured even-split
+     * correction.
+     *
+     * SIGMA ALGORITHMS ONLY (SPR): absent on every OPR and EPA row, which publish
+     * no display band. NOT the win-odds variance the ranking-point pmf and rank
+     * simulation read — that stays the uncorrected sum and is never published.
      *
      * DELIBERATELY DISTINCT FROM `redScoreVarianceOwn`, which is the
-     * ALGORITHM's own predictive variance and is published only by the
-     * algorithms that model one (VPR, BPR — never OPR or EPA). This field is
-     * the scouting-heuristic layer built on top of whatever the algorithm
-     * predicted, computed identically for EVERY algorithm from nothing but its
-     * predicted and actual scores. See `packages/harness/swingFactor.ts` for
-     * the two-level split and the measured constants.
-     *
-     * Absent for the opening matches of a team's season, where no roster member
-     * yet has the two observations a centred swing needs — an honest "we do not
-     * know yet" rather than a fabricated width. Rounded once, at the publish
-     * boundary, at `ROUNDING_RULE.variance`.
+     * ALGORITHM's own predictive variance. The retired Swing-era band keys are
+     * stripped on parse (no schema here is strict), so a stale artifact
+     * carrying them renders no band rather than a wrong one. Rounded once, at
+     * the publish boundary, at `ROUNDING_RULE.variance`.
      */
-    redSwingBandVariance: z.number().optional(),
-    /** The blue alliance's counterpart to `redSwingBandVariance` — see its doc comment for the full contract. */
-    blueSwingBandVariance: z.number().optional(),
+    redMatchBandVariance: z.number().optional(),
+    /** The blue alliance's counterpart to `redMatchBandVariance` — see its doc comment for the full contract. */
+    blueMatchBandVariance: z.number().optional(),
     redRpPmf: z.array(z.number()).optional(),
     blueRpPmf: z.array(z.number()).optional(),
     /** D-15, plan 09-07 — see `EventMatchSchema.matchOutcomePmf` for the full contract; this is the sibling on a not-yet-played row, following the same optional-when-live-artifact convention as `redRpPmf` above. */
@@ -817,26 +817,26 @@ const TeamSeasonMatchSchema = z
     /** D-01 (Phase 6): the blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
     blueScoreVarianceOwn: z.number().optional(),
     /**
-     * SIGMASCOUT-LAYER match band (quick task 260908-5wd): this alliance's
-     * variance as `Σ its three teams' Swing Factor²`, walk-forward as of this
-     * match — so a match's band never uses matches that came after it.
+     * PUBLISHED MATCH BAND (renamed by quick task 260913-g66): this alliance's
+     * display-band variance, `roster size × Σ its roster's Sigma Score²`,
+     * walk-forward as of this match — so a match's band never uses matches that
+     * came after it. Built by `sigmaMatchBandVariance` in
+     * `packages/harness/sigmaScore.ts`, which carries the measured even-split
+     * correction.
+     *
+     * SIGMA ALGORITHMS ONLY (SPR): absent on every OPR and EPA row, which publish
+     * no display band. NOT the win-odds variance the ranking-point pmf and rank
+     * simulation read — that stays the uncorrected sum and is never published.
      *
      * DELIBERATELY DISTINCT FROM `redScoreVarianceOwn`, which is the
-     * ALGORITHM's own predictive variance and is published only by the
-     * algorithms that model one (VPR, BPR — never OPR or EPA). This field is
-     * the scouting-heuristic layer built on top of whatever the algorithm
-     * predicted, computed identically for EVERY algorithm from nothing but its
-     * predicted and actual scores. See `packages/harness/swingFactor.ts` for
-     * the two-level split and the measured constants.
-     *
-     * Absent for the opening matches of a team's season, where no roster member
-     * yet has the two observations a centred swing needs — an honest "we do not
-     * know yet" rather than a fabricated width. Rounded once, at the publish
-     * boundary, at `ROUNDING_RULE.variance`.
+     * ALGORITHM's own predictive variance. The retired Swing-era band keys are
+     * stripped on parse (no schema here is strict), so a stale artifact
+     * carrying them renders no band rather than a wrong one. Rounded once, at
+     * the publish boundary, at `ROUNDING_RULE.variance`.
      */
-    redSwingBandVariance: z.number().optional(),
-    /** The blue alliance's counterpart to `redSwingBandVariance` — see its doc comment for the full contract. */
-    blueSwingBandVariance: z.number().optional(),
+    redMatchBandVariance: z.number().optional(),
+    /** The blue alliance's counterpart to `redMatchBandVariance` — see its doc comment for the full contract. */
+    blueMatchBandVariance: z.number().optional(),
     redRpPmf: z.array(z.number()).optional(),
     blueRpPmf: z.array(z.number()).optional(),
     // D-09 (Phase 6): relaxed from required to optional so an unplayed
@@ -1178,26 +1178,6 @@ const TeamsTableRowRawSchema = z.object({
   /** OFFICIAL matches played — same scoping as `eventCount` above. */
   matchCount: z.number().int().nonnegative(),
   record: RecordSchema,
-  /**
-   * SIGMASCOUT-LAYER Swing Factor (quick task 260908-5wd): how much this team's
-   * share of its alliance's score swings from match to match, recency-weighted
-   * (6-match half-life) and centred on the team's own mean so a MODEL that is
-   * consistently wrong about a robot does not read as a robot that is
-   * inconsistent.
-   *
-   * A scouting heuristic layered on top of the algorithm, not a term in it, and
-   * computed identically for OPR, EPA, BPR and VPR from nothing but predicted
-   * and actual scores — which is why every algorithm has one. Distinct from
-   * `TeamMetric.spread`, which is the ALGORITHM's own uncertainty about its
-   * rating and exists only for algorithms that model one.
-   *
-   * Absent for a team with fewer than two played matches: one observation
-   * cannot separate model bias from robot swing. Season-final, and rounded once
-   * at the publish boundary at `ROUNDING_RULE.metric`. See
-   * `packages/harness/swingFactor.ts` for the estimator and its measured
-   * constants (including the honest r ≈ 0.59 ceiling).
-   */
-  swingFactor: z.number().optional(),
   metrics: z.union([MetricsRecordSchema, z.array(PositionalMetricEntrySchema)]),
   /**
    * Quick task 260905-ttv: this team's INFERRED home region
@@ -1347,26 +1327,6 @@ export const TeamSeasonArtifactSchema = AlgorithmScopedPreambleSchema.extend({
      */
     metricsBasis: z.enum(["last-official-match", "season-final"]).optional(),
   }),
-  /**
-   * SIGMASCOUT-LAYER Swing Factor (quick task 260908-5wd): how much this team's
-   * share of its alliance's score swings from match to match, recency-weighted
-   * (6-match half-life) and centred on the team's own mean so a MODEL that is
-   * consistently wrong about a robot does not read as a robot that is
-   * inconsistent.
-   *
-   * A scouting heuristic layered on top of the algorithm, not a term in it, and
-   * computed identically for OPR, EPA, BPR and VPR from nothing but predicted
-   * and actual scores — which is why every algorithm has one. Distinct from
-   * `TeamMetric.spread`, which is the ALGORITHM's own uncertainty about its
-   * rating and exists only for algorithms that model one.
-   *
-   * Absent for a team with fewer than two played matches: one observation
-   * cannot separate model bias from robot swing. Season-final, and rounded once
-   * at the publish boundary at `ROUNDING_RULE.metric`. See
-   * `packages/harness/swingFactor.ts` for the estimator and its measured
-   * constants (including the honest r ≈ 0.59 ceiling).
-   */
-  swingFactor: z.number().optional(),
   events: z.array(TeamSeasonEventSchema),
   /** D-28: the team's metric-history series, one row per match, using `MetricHistoryRowSchema`'s own field names (reused directly, not re-derived) so the team page's plot never has to translate between the sidecar and the published file. */
   metricHistory: z.array(MetricHistoryRowSchema),

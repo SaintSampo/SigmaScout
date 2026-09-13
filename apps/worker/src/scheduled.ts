@@ -146,8 +146,8 @@ import {
   withSigmaPopulation,
   withSwingBeliefs,
 } from "../../../packages/harness/stateSnapshot.js";
-import { SWING_METRIC_KEY, SwingFactorAccumulator } from "../../../packages/harness/swingFactor.js";
-import { SIGMA_METRIC_KEY, SigmaScoreAccumulator, usesSigmaScore } from "../../../packages/harness/sigmaScore.js";
+import { SwingFactorAccumulator } from "../../../packages/harness/swingFactor.js";
+import { SIGMA_METRIC_KEY, SigmaScoreAccumulator, sigmaMatchBandVariance, usesSigmaScore } from "../../../packages/harness/sigmaScore.js";
 import { TOTAL_METRIC_KEY } from "../../../packages/core/algorithms/types.js";
 import {
   artifactKey,
@@ -524,11 +524,13 @@ function liveBonusRpFields(compLevel: MatchResult["compLevel"], prediction: Pred
 }
 
 /**
- * One alliance-pair's Match Band for one match — each side's variance as
- * `Sigma its three robots' Swing Factors squared`, walk-forward as of that
- * match. A side is absent when any of its robots has too little play to have a
- * Swing Factor; `allianceSwingBandVariance`'s all-or-nothing rule is what keeps
- * a partial sum from rendering as a confident-looking narrow band.
+ * One alliance-pair's PUBLISHED Match Band for one match (quick task
+ * 260913-g66) — each side's display variance as
+ * `sigmaMatchBandVariance(roster size, Σ its robots' Sigma Score²)`,
+ * walk-forward as of that match. Sigma algorithms only: an OPR or EPA match
+ * gets an empty band and its rows carry no band keys. Never the win-odds
+ * variance `rpFieldsFor` reads — that is the uncorrected sum and stays inside
+ * the tick.
  */
 interface MatchBand {
   readonly red?: number;
@@ -536,11 +538,11 @@ interface MatchBand {
 }
 
 /** Emits the band fields exactly as `publish.ts` does, so a live row and an offline row for the same match are byte-identical. */
-function swingBandFields(band: MatchBand | undefined) {
+function matchBandFields(band: MatchBand | undefined) {
   if (band === undefined) return {};
   return {
-    ...(band.red !== undefined ? { redSwingBandVariance: roundTo(band.red, ROUNDING_RULE.variance) } : {}),
-    ...(band.blue !== undefined ? { blueSwingBandVariance: roundTo(band.blue, ROUNDING_RULE.variance) } : {}),
+    ...(band.red !== undefined ? { redMatchBandVariance: roundTo(band.red, ROUNDING_RULE.variance) } : {}),
+    ...(band.blue !== undefined ? { blueMatchBandVariance: roundTo(band.blue, ROUNDING_RULE.variance) } : {}),
   };
 }
 
@@ -554,8 +556,6 @@ interface PerAlgorithmFold {
   readonly newBands: ReadonlyMap<string, MatchBand>;
   /** Match Band per still-upcoming match key (shape 10). */
   readonly upcomingBands: ReadonlyMap<string, MatchBand>;
-  /** Per-team Swing Factor after this tick's folds — the team artifact's own field. */
-  readonly swingByTeam: ReadonlyMap<string, number>;
 }
 
 function buildEventMatchRow(match: MatchResult, prediction: Prediction, band: MatchBand | undefined) {
@@ -588,7 +588,7 @@ function buildEventMatchRow(match: MatchResult, prediction: Prediction, band: Ma
     redBonusRpPmf: prediction.redBonusRpPmf ? roundPmf(prediction.redBonusRpPmf) : undefined,
     blueBonusRpPmf: prediction.blueBonusRpPmf ? roundPmf(prediction.blueBonusRpPmf) : undefined,
     ...liveBonusRpFields(match.compLevel, prediction),
-    ...swingBandFields(band),
+    ...matchBandFields(band),
     actualWinner: match.winner,
     actualRedScore: match.redScore,
     actualBlueScore: match.blueScore,
@@ -619,7 +619,7 @@ function buildEventUpcomingRow(match: UpcomingMatch, prediction: Prediction, ban
     redBonusRpPmf: prediction.redBonusRpPmf ? roundPmf(prediction.redBonusRpPmf) : undefined,
     blueBonusRpPmf: prediction.blueBonusRpPmf ? roundPmf(prediction.blueBonusRpPmf) : undefined,
     ...liveBonusRpFields(match.compLevel, prediction),
-    ...swingBandFields(band),
+    ...matchBandFields(band),
   };
 }
 
@@ -730,7 +730,7 @@ function buildTeamSeasonMatchRow(match: MatchResult, prediction: Prediction, sea
     variance: prediction.variance !== undefined ? roundTo(prediction.variance, ROUNDING_RULE.variance) : undefined,
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
-    ...swingBandFields(band),
+    ...matchBandFields(band),
     actualWinner: match.winner,
     actualRedScore: match.redScore,
     actualBlueScore: match.blueScore,
@@ -777,8 +777,6 @@ interface MergeTeamSeasonArtifactParams {
   readonly matchIndexByKey: ReadonlyMap<string, number>;
   /** Match Band per newly-folded match key (shape 10). */
   readonly bands: ReadonlyMap<string, MatchBand>;
-  /** This team's Swing Factor after the tick's folds, or `undefined` below two played matches. */
-  readonly swingFactor: number | undefined;
   readonly stamp: Stamp;
 }
 
@@ -795,7 +793,7 @@ interface MergeTeamSeasonArtifactParams {
  * D1/R2/KV fake rig to prove a property of ten lines of pure merge logic.
  */
 export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): unknown {
-  const { existing, teamKey, season, algorithmId, algorithmVersion, eventKey, matches, predictions, metrics, matchIndexByKey, bands, swingFactor, stamp } = params;
+  const { existing, teamKey, season, algorithmId, algorithmVersion, eventKey, matches, predictions, metrics, matchIndexByKey, bands, stamp } = params;
 
   let record = existing?.seasonStats.record ?? { wins: 0, losses: 0, ties: 0 };
   for (const match of matches) record = incrementRecord(record, teamKey, match);
@@ -825,8 +823,9 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
   // time a live tick touched a team. Measured against the schema, a touched
   // team was silently losing `ranks` (its rank cards), `robotImageUrl` (its
   // photo, replaced by the no-photo tile), `activeYears` (narrowing its year
-  // dropdown) and, as of this task, `swingFactor` (its ±) — for the rest of the
-  // event, until the next offline publish put them back.
+  // dropdown) and, at the time, its Swing Factor — for the rest of the event,
+  // until the next offline publish put them back. (Quick task 260913-g66
+  // retired that per-team field; the schema now strips it on parse.)
   //
   // `existing` has already been through `TeamSeasonArtifactSchema.parse`, which
   // strips unknown keys, so this spread carries exactly the schema's own
@@ -849,13 +848,6 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
     nickname: existing?.nickname ?? "",
     season,
     seasonStats: { record, metrics: roundTeamMetricRecord(metrics) },
-    // Tick-owned as of shape 10, so it is named here rather than left to the
-    // spread. When this tick cannot produce one (a team below two played
-    // matches), the published value is preserved instead of being overwritten
-    // with nothing — the spread above already carries it, and clobbering a good
-    // offline Swing Factor with `undefined` would be the very data loss the
-    // spread was introduced to stop.
-    ...(swingFactor !== undefined ? { swingFactor: roundMetric(swingFactor) } : {}),
     events,
     metricHistory: [...(existing?.metricHistory ?? []), ...newMetricHistoryRows],
   };
@@ -1110,11 +1102,27 @@ async function processEvent(
         const sigma = usesSigmaScore(algorithmId)
           ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(rows), readSigmaPopulation(rows))
           : undefined;
-        // One alliance's band, from whichever estimator this algorithm is on.
-        // ONE accessor so the played loop, the upcoming loop and the persisted
-        // rows below cannot disagree about which one that is.
-        const bandFor = (roster: readonly string[]): number | undefined =>
+        // One alliance's WIN-ODDS variance, from whichever estimator this
+        // algorithm is on. ONE accessor so the played loop, the upcoming loop
+        // and the persisted rows below cannot disagree about which one that is.
+        // This is what `rpFieldsFor` reads, exactly as before quick task
+        // 260913-g66; the published display band is derived from it by
+        // `displayBandFor` below, for Sigma algorithms only.
+        const winOddsVarianceFor = (roster: readonly string[]): number | undefined =>
           sigma === undefined ? swing.bandVarianceFor(roster) : sigma.bandVarianceFor(roster);
+        // The published Match Band for one match, through the SAME helper
+        // `SigmaScoutLayer.foldPlayed` / `enrichUpcoming` use offline, so a live
+        // band and an offline band cannot drift. OPR and EPA publish none.
+        const displayBandFor = (
+          view: { redTeams: readonly string[]; blueTeams: readonly string[] },
+          redWinOddsVariance: number | undefined,
+          blueWinOddsVariance: number | undefined
+        ): MatchBand => {
+          if (sigma === undefined) return {};
+          const red = sigmaMatchBandVariance(view.redTeams.length, redWinOddsVariance);
+          const blue = sigmaMatchBandVariance(view.blueTeams.length, blueWinOddsVariance);
+          return { ...(red !== undefined ? { red } : {}), ...(blue !== undefined ? { blue } : {}) };
+        };
 
         // RANKING POINTS (shape 15, plan 09-08, D-21). Resumed from the very
         // same rows, for the identical reason the two accumulators above are:
@@ -1138,7 +1146,7 @@ async function processEvent(
         // than silently contribute nothing to it.
         const rpKnownTeams = new Set(rpBeliefs.keys());
 
-        // ONE accessor for this tick's RP, alongside `bandFor` and for the
+        // ONE accessor for this tick's RP, alongside `winOddsVarianceFor` and for the
         // identical stated reason: the played loop, the upcoming loop and the
         // persisted rows cannot be allowed to disagree about what RP means
         // this tick. Field-for-field the same call
@@ -1226,16 +1234,13 @@ async function processEvent(
         const newPredictions = new Map<string, Prediction>();
         for (const result of newlyFoldedResults) {
           const prediction = algorithm.predict(state, toLeakProofUpcoming(result));
-          // Read the band BEFORE folding this match in, in the same place
+          // Read the win odds BEFORE folding this match in, in the same place
           // `predict` already happens — predict-before-update, for the same
           // reason: a band says how unsure we were when we predicted this, and
           // this match's own result is not an admissible input to that.
-          const redBandVariance = bandFor(result.redTeams);
-          const blueBandVariance = bandFor(result.blueTeams);
-          newBands.set(result.matchKey, {
-            ...(redBandVariance !== undefined ? { red: redBandVariance } : {}),
-            ...(blueBandVariance !== undefined ? { blue: blueBandVariance } : {}),
-          });
+          const redWinOddsVariance = winOddsVarianceFor(result.redTeams);
+          const blueWinOddsVariance = winOddsVarianceFor(result.blueTeams);
+          newBands.set(result.matchKey, displayBandFor(result, redWinOddsVariance, blueWinOddsVariance));
           // RP from the PRE-FOLD accumulator, same predict-before-update
           // position as the band above. The ENRICHED prediction is what goes
           // into `newPredictions`, never a parallel map: all three row
@@ -1246,7 +1251,7 @@ async function processEvent(
           // was extracted to prevent (D-21).
           newPredictions.set(result.matchKey, {
             ...prediction,
-            ...rpFieldsFor(result, prediction, redBandVariance, blueBandVariance),
+            ...rpFieldsFor(result, prediction, redWinOddsVariance, blueWinOddsVariance),
           });
           state = algorithm.update(state, result);
           swing.foldMatch(result, prediction);
@@ -1272,24 +1277,20 @@ async function processEvent(
         for (const match of stillUpcomingViews) {
           const prediction = algorithm.predict(state, match);
           // Read only — an unplayed match has no residual of its own, so its
-          // band is built from everything played so far.
-          const redBandVariance = bandFor(match.redTeams);
-          const blueBandVariance = bandFor(match.blueTeams);
-          upcomingBands.set(match.matchKey, {
-            ...(redBandVariance !== undefined ? { red: redBandVariance } : {}),
-            ...(blueBandVariance !== undefined ? { blue: blueBandVariance } : {}),
-          });
+          // win odds and band are built from everything played so far.
+          const redWinOddsVariance = winOddsVarianceFor(match.redTeams);
+          const blueWinOddsVariance = winOddsVarianceFor(match.blueTeams);
+          upcomingBands.set(match.matchKey, displayBandFor(match, redWinOddsVariance, blueWinOddsVariance));
           // Read-only for RP too: an unplayed match has no result to fold.
           // This is what makes `buildEventUpcomingRow`'s already-present pmf
           // field lines carry real values instead of `undefined`.
           upcomingPredictions.set(match.matchKey, {
             ...prediction,
-            ...rpFieldsFor(match, prediction, redBandVariance, blueBandVariance),
+            ...rpFieldsFor(match, prediction, redWinOddsVariance, blueWinOddsVariance),
           });
         }
 
         const touchedMetrics = algorithm.teamMetrics(state, touchedTeams);
-        const swingByTeam = sigma === undefined ? swing.swingByTeam() : sigma.scoreByTeam();
 
         // The beliefs ride back into the rows after the algorithm serializer
         // has run, so no algorithm's serializer knows they exist. Swing is
@@ -1313,7 +1314,7 @@ async function processEvent(
         budget.consume(1);
         await writeScopedState(env.DB, changedRows); // may throw -- caught below, reverts the claim and aborts the WHOLE event (zero artifact puts)
 
-        perAlgorithm.set(algorithmId, { algorithm, newPredictions, upcomingPredictions, touchedMetrics, newBands, upcomingBands, swingByTeam });
+        perAlgorithm.set(algorithmId, { algorithm, newPredictions, upcomingPredictions, touchedMetrics, newBands, upcomingBands });
       }
 
       return await runPhaseBAndReport(env, budget, window, eventKey, eventType, newlyFoldedResults, stillUpcomingViews, touchedTeams, realTouchedTeams, matchIndexByKey, perAlgorithm, touchedTeamsByAlgorithm, stamp, stillUpcoming.length === 0);
@@ -1425,11 +1426,6 @@ async function runPhaseBAndReport(
           metrics: info.touchedMetrics[teamKey] ?? {},
           matchIndexByKey,
           bands: info.newBands,
-          // Shape 10: recomputed this tick, so a live-updated team's tile
-          // carries a current Swing Factor rather than the one frozen at the
-          // last full publish. `undefined` below two played matches, which the
-          // merge below preserves as absent rather than writing a fake 0.
-          swingFactor: info.swingByTeam.get(teamKey),
           stamp,
         });
         await writeArtifactObject(env, budget, "team", teamParams, mergedTeam);
@@ -1469,8 +1465,9 @@ type TierableTeamMetric = { value: number; spread?: number; percentile?: number;
  *   the prior row's published `tier` for the SAME key when the prior row has
  *   that entry and it carries a tier. A key the prior row lacks gets no tier,
  *   and "common" is never written (absence means Common or unranked).
- * - The prior row's `SIGMA_METRIC_KEY` / `SWING_METRIC_KEY` entries (value and
- *   tier) are carried forward unchanged. The live tick does not compute the
+ * - The prior row's `SIGMA_METRIC_KEY` entry (value and tier) is carried
+ *   forward unchanged. (Quick task 260913-g66 dropped the Swing metric key from
+ *   this carry: no algorithm publishes it any more.) The live tick does not compute the
  *   season-final consistency figure, so the published one is kept rather than
  *   dropped; before this task a touched spr team lost its Sigma value and tier
  *   until the next publish.
@@ -1505,7 +1502,7 @@ export function touchedTeamsRowMetrics(
   }
   // Appended after the fresh entries (a fresh entry of the same key wins), so
   // the consistency metric keeps publish.ts's position at the end of the record.
-  for (const key of [SIGMA_METRIC_KEY, SWING_METRIC_KEY]) {
+  for (const key of [SIGMA_METRIC_KEY]) {
     const carried = priorMetrics?.[key];
     if (carried !== undefined && !(key in result)) result[key] = carried;
   }
@@ -1564,8 +1561,9 @@ async function runGlobalRebuild(env: Env, budget: SubrequestBudget, algorithmMod
         // (quick task 260908-5wd): this row used to be constructed field-by-
         // field, so a touched team silently lost every optional field the
         // offline publisher wrote — `country`, `stateProv`, `districtKey`
-        // (its region, and with it its district/state rank scopes) and, as of
-        // this task, `swingFactor`. Tick-owned fields stay listed below.
+        // (its region, and with it its district/state rank scopes) and, at the
+        // time, its Swing Factor (retired by quick task 260913-g66). Tick-owned
+        // fields stay listed below.
         return {
           ...prior,
           teamKey,
@@ -1575,7 +1573,7 @@ async function runGlobalRebuild(env: Env, budget: SubrequestBudget, algorithmMod
           // limitation. Preserved from the last offline/incremental value.
           record: prior?.record ?? { wins: 0, losses: 0, ties: 0 },
           // Quick task 260912-tnk: fresh values, with the prior row's
-          // published tiers and Sigma/Swing entry carried forward — see
+          // published tiers and Sigma entry carried forward — see
           // `touchedTeamsRowMetrics` for why tiers are carried, not re-derived.
           metrics: touchedTeamsRowMetrics(prior?.metrics, roundTeamMetricRecord(info.metrics)),
           eventCount: prior?.eventCount ?? 0,

@@ -427,13 +427,15 @@ export interface UpcomingPredictionRecord {
   readonly match: UpcomingMatch;
   readonly prediction: Prediction;
   /**
-   * The SigmaScout-layer band for a not-yet-played match (quick task
-   * 260908-5wd), from every rostered team's play SO FAR — walk-forward for a
-   * match that has not happened. Attached where the scheduled predictions are
+   * The PUBLISHED display band for a not-yet-played match (renamed from its
+   * Swing-era name by quick task 260913-g66), from every rostered team's play SO
+   * FAR — walk-forward for a match that has not happened. Sigma algorithms
+   * only (absent for OPR and EPA), and never the win-odds variance. Attached by
+   * `SigmaScoutLayer.enrichUpcoming` where the scheduled predictions are
    * grouped, so the team artifact's upcoming rows and the event artifact's
    * carry the same number for the same match.
    */
-  readonly swingBand?: { red?: number; blue?: number };
+  readonly matchBand?: { red?: number; blue?: number };
 }
 
 export interface EventTeamStandingInput {
@@ -529,13 +531,6 @@ export interface BuildEventArtifactParams {
   /** D-08: not-yet-played matches with their predicted parameters. Defaults to `[]` — a fully-historical event has none, which is a valid artifact, not a missing one. */
   readonly upcoming?: readonly UpcomingPredictionRecord[];
   /** D-07: the event's standings-style team list. Defaults to `[]`. See `EventArtifactSchema`'s own doc comment in `pageArtifacts.ts` for why this field is REQUIRED (not optional) as of this plan. */
-  /**
-   * Season-final Swing Factor per team (quick task 260908-5wd), used ONLY for
-   * the `upcoming` rows — an unplayed match has no residual of its own, so its
-   * band is built from everything played so far, which is walk-forward for it
-   * by definition. Played rows carry their own as-of-then band on the record.
-   */
-  readonly swingByTeam?: ReadonlyMap<string, number>;
   readonly teams?: readonly EventTeamStandingInput[];
   /** D-04: a short opaque string identifying the publish run that produced this object. */
   readonly generation: string;
@@ -768,24 +763,25 @@ export function makeRankingPointFiller(
 }
 
 /**
- * One upcoming row's SigmaScout band as a SPREADABLE object, rounded once at
- * the publish boundary. Returns `{}` when any roster member has no Swing Factor
- * yet, so the key is genuinely absent on the wire rather than
- * present-and-undefined — this file's standing convention.
+ * One row's published display band as a SPREADABLE object, rounded once at the
+ * publish boundary (quick task 260913-g66). Returns `{}` for a side with no
+ * band, so the key is genuinely absent on the wire rather than
+ * present-and-undefined — this file's standing convention. Played rows, upcoming
+ * rows and team-season rows all read the record's `matchBand` through this one
+ * function, so the three can never disagree about a match's band.
  */
-function upcomingSwingBandFields(
-  side: "red" | "blue",
-  roster: readonly string[],
-  swingByTeam: ReadonlyMap<string, number> | undefined
-): Record<string, number> {
-  if (swingByTeam === undefined) return {};
-  const variance = allianceSwingBandVariance(roster, swingByTeam);
-  if (variance === undefined) return {};
-  return { [`${side}SwingBandVariance`]: roundTo(variance, ROUNDING_RULE.variance) };
+function matchBandFields(matchBand: { red?: number; blue?: number } | undefined): {
+  redMatchBandVariance?: number;
+  blueMatchBandVariance?: number;
+} {
+  return {
+    ...(matchBand?.red !== undefined ? { redMatchBandVariance: roundTo(matchBand.red, ROUNDING_RULE.variance) } : {}),
+    ...(matchBand?.blue !== undefined ? { blueMatchBandVariance: roundTo(matchBand.blue, ROUNDING_RULE.variance) } : {}),
+  };
 }
 
 export function buildEventArtifact(params: BuildEventArtifactParams): EventArtifact {
-  const matches = params.predictions.map(({ match, prediction, swingBand, coldStart }) => ({
+  const matches = params.predictions.map(({ match, prediction, matchBand, coldStart }) => ({
     matchKey: match.matchKey,
     compLevel: match.compLevel,
     setNumber: match.setNumber,
@@ -820,13 +816,12 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
       prediction.redScoreVarianceOwn !== undefined ? roundTo(prediction.redScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
     blueScoreVarianceOwn:
       prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
-    // SIGMASCOUT-LAYER band (quick task 260908-5wd) — `Σ the three teams' Swing
-    // Factor²`, walk-forward, attached to the shared `PredictionRecord` so the
-    // event page and the team page publish the identical number. Unlike
-    // `redScoreVarianceOwn` above, EVERY algorithm has one: it is derived from
-    // predicted-vs-actual scores alone, not from anything the model models.
-    ...(swingBand?.red !== undefined ? { redSwingBandVariance: roundTo(swingBand.red, ROUNDING_RULE.variance) } : {}),
-    ...(swingBand?.blue !== undefined ? { blueSwingBandVariance: roundTo(swingBand.blue, ROUNDING_RULE.variance) } : {}),
+    // PUBLISHED MATCH BAND (quick task 260913-g66) — roster size times the sum
+    // of the roster's squared Sigma Scores, walk-forward, attached to the shared
+    // `PredictionRecord` so the event page and the team page publish the
+    // identical number. Sigma algorithms only: OPR and EPA rows carry no band.
+    // Never the win-odds variance the ranking-point pmf reads.
+    ...matchBandFields(matchBand),
     // D-03, plan 08-02 Task 1: each alliance's predicted distribution over
     // its total ranking points for this match — the same quantity, same
     // field names, same rounding rule as the `upcoming` builder's own pair
@@ -888,7 +883,7 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
       : {}),
   }));
 
-  const upcoming = (params.upcoming ?? []).map(({ match, prediction }) => ({
+  const upcoming = (params.upcoming ?? []).map(({ match, prediction, matchBand }) => ({
     matchKey: match.matchKey,
     compLevel: match.compLevel,
     setNumber: match.setNumber,
@@ -906,12 +901,12 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
       prediction.redScoreVarianceOwn !== undefined ? roundTo(prediction.redScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
     blueScoreVarianceOwn:
       prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
-    // SIGMASCOUT-LAYER band for a not-yet-played match: built from every
-    // team's play SO FAR, which is exactly the walk-forward answer for a match
-    // that has not happened. Absent while any roster member still has fewer
-    // than two observations.
-    ...upcomingSwingBandFields("red", match.redTeams, params.swingByTeam),
-    ...upcomingSwingBandFields("blue", match.blueTeams, params.swingByTeam),
+    // PUBLISHED MATCH BAND for a not-yet-played match (quick task 260913-g66),
+    // read from the upcoming record `SigmaScoutLayer.enrichUpcoming` built from
+    // every team's play SO FAR — the same record the team artifact's upcoming
+    // rows read, and the same band `--event` now publishes too. Sigma
+    // algorithms only.
+    ...matchBandFields(matchBand),
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
     // D-15, plan 09-07: see the `matches` row builder's identical three
@@ -1061,13 +1056,6 @@ function findRpOutcomeRp(
 // ---------------------------------------------------------------------------
 
 export interface TeamsArtifactTeamInput {
-  /**
-   * This team's SigmaScout-layer Swing Factor (quick task 260908-5wd),
-   * season-final. Present for every algorithm, absent for a team with fewer
-   * than two played matches. See `swingFactor.ts` for why this is separate from
-   * `TeamMetric.spread`.
-   */
-  readonly swingFactor?: number;
   readonly teamKey: string;
   readonly teamNumber: number;
   readonly nickname: string;
@@ -1112,11 +1100,6 @@ export function buildTeamsArtifact(params: BuildTeamsArtifactParams): TeamsArtif
     nickname: t.nickname,
     record: t.record,
     metrics: roundTeamMetricRecord(t.metrics),
-    // Quick task 260908-5wd: the SigmaScout-layer Swing Factor, conditionally
-    // spread so a team with fewer than two played matches has the key genuinely
-    // ABSENT rather than present-and-undefined. Rounded once, here, at
-    // ROUNDING_RULE.metric — the same rule the value it sits beside uses.
-    ...(t.swingFactor !== undefined ? { swingFactor: roundMetric(t.swingFactor) } : {}),
     eventCount: t.eventCount,
     matchCount: t.matchCount,
     // Quick task 260905-ttv: conditionally spread, never assigned `undefined`
@@ -1275,13 +1258,6 @@ export interface BuildTeamSeasonArtifactParams {
      */
     metricsBasis: "last-official-match" | "season-final";
   };
-  /**
-   * This team's SigmaScout-layer Swing Factor (quick task 260908-5wd),
-   * season-final. Present for every algorithm, absent for a team with fewer
-   * than two played matches. See `swingFactor.ts` for why this is separate from
-   * `TeamMetric.spread`.
-   */
-  readonly swingFactor?: number;
   readonly events: readonly TeamSeasonEventInput[];
   readonly metricHistory: readonly MetricHistoryRow[];
   readonly generation: string;
@@ -1363,15 +1339,11 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
           prediction.redScoreVarianceOwn !== undefined ? roundTo(prediction.redScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
         blueScoreVarianceOwn:
           prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
-        // SIGMASCOUT-LAYER band — the SAME `record.swingBand` object the event
+        // PUBLISHED MATCH BAND — the SAME `record.matchBand` object the event
         // artifact reads, so this row and the event page's row for this match
         // carry byte-identical numbers by construction rather than by care.
-        ...(record.swingBand?.red !== undefined
-          ? { redSwingBandVariance: roundTo(record.swingBand.red, ROUNDING_RULE.variance) }
-          : {}),
-        ...(record.swingBand?.blue !== undefined
-          ? { blueSwingBandVariance: roundTo(record.swingBand.blue, ROUNDING_RULE.variance) }
-          : {}),
+        // Sigma algorithms only (quick task 260913-g66).
+        ...matchBandFields(record.matchBand),
         redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
         blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
         // D-08 (Phase 6): the Match column's human label, published directly
@@ -1467,9 +1439,6 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
     teamKey: params.teamKey,
     teamNumber: params.teamNumber,
     nickname: params.nickname,
-    // Quick task 260908-5wd: conditionally spread — see `buildTeamsArtifact`'s
-    // matching field for the absent-vs-undefined contract and the rounding.
-    ...(params.swingFactor !== undefined ? { swingFactor: roundMetric(params.swingFactor) } : {}),
     season: params.season,
     seasonStats: {
       record: params.seasonStats.record,
@@ -2901,16 +2870,17 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       // from everything played so far — walk-forward for it by definition.
       const layerForAlgo = layers.get(algorithm.id)!;
       // Sigma Score where this algorithm publishes it, Swing Factor otherwise —
-      // ONE accessor so the band, the per-team figure and the metric entry
-      // below cannot disagree about which estimator this algorithm is on.
+      // ONE accessor so the presim win-odds variance and the metric entry below
+      // cannot disagree about which estimator this algorithm is on. (The
+      // published match band no longer reads this map: it rides each upcoming
+      // record's `matchBand`, quick task 260913-g66.)
       const swingByTeamForAlgo = layerForAlgo.consistencyByTeam();
       const consistencyMetricKey = usesSigmaScore(algorithm.id) ? SIGMA_METRIC_KEY : SWING_METRIC_KEY;
       // Quick task 260909-tgf: the published `swing` metric (value + tier on
       // the teams row, value + percentile on the team-season artifact),
       // computed ONCE here per (algorithm, season) and consumed by BOTH
-      // artifacts below -- the same "one computation feeds both" property
-      // the top-level `swingFactor` comment above already claims for the raw
-      // value, extended to the tier. The rating axis is the SEASON-FINAL
+      // artifacts below -- one computation feeds both, so the Teams table and
+      // the team page cannot disagree on value or tier. The rating axis is the SEASON-FINAL
       // `metricsByTeam` (not `officialMetricsByTeam`): `swingByTeamForAlgo`
       // is itself season-final -- `layerForAlgo.swingByTeam()` reflects
       // everything played -- so pairing it with a season-final rating keeps
@@ -2921,8 +2891,9 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
       // publishes NOTHING here (developer decision, 2026-09-10 — OPR and EPA
       // show no consistency column, rather than keeping a Swing column the
       // measurement did not support). Their Swing Factors are still computed,
-      // because their MATCH BANDS are built from them; only the per-team
-      // published figure goes away.
+      // because their internal WIN-ODDS variance (the rank simulation's RP pmf)
+      // is built from them; since quick task 260913-g66 they publish no match
+      // band and no per-team figure.
       const swingMetricForAlgo = usesSigmaScore(algorithm.id)
         ? swingMetricByTeam({
             swingByTeam: swingByTeamForAlgo,
@@ -2969,20 +2940,6 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           teamNumber: info.teamNumber,
           nickname: info.nickname,
           record: { wins: stats?.wins ?? 0, losses: stats?.losses ?? 0, ties: stats?.ties ?? 0 },
-          // Quick task 260908-5wd: SigmaScout-layer, season-final, present for
-          // every algorithm. `swingByTeamForAlgo` omits any team with fewer
-          // than two played matches, so `.get` returning undefined is the
-          // honest "not enough play to say" case, not a lookup failure.
-          //
-          // Quick task 260909-tgf: KEPT unchanged alongside the new `swing`
-          // metric entry merged into `metrics` below -- see the team-season
-          // artifact's identical `swingFactor` field (below in this file) for
-          // the three load-bearing reasons this top-level field is never
-          // removed or deprecated.
-          // Sigma-enabled algorithms carry their figure in the metric entry
-          // alone; this legacy top-level field stays a SWING-only back-compat
-          // shim for pre-republish artifacts.
-          swingFactor: usesSigmaScore(algorithm.id) ? undefined : swingByTeamForAlgo.get(teamKey),
           // Quick task 260904-586: the team's metrics as of its LAST
           // OFFICIAL match, not the season-final snapshot — ranked (via
           // `officialMetricsByTeamWithPercentiles` above) against the field
@@ -3018,9 +2975,8 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           // the key stays genuinely absent, never present-and-undefined. Note
           // also that the swing entry is SEASON-FINAL while the rest of this
           // record is the LAST-OFFICIAL-MATCH snapshot (260904-586 / 260908-wpo)
-          // -- not new, the top-level `swingFactor` on this same row has
-          // always been season-final, but now that it sits INSIDE the metrics
-          // record beside official-scoped values, this says so plainly.
+          // -- it sits INSIDE the metrics record beside official-scoped
+          // values, so this says so plainly.
           metrics: withPublishedTiers({
             ...(officialMetricsByTeamWithPercentiles[teamKey] ?? {}),
             ...(swingMetricForAlgo[teamKey] !== undefined ? { [consistencyMetricKey]: swingMetricForAlgo[teamKey] } : {}),
@@ -3150,7 +3106,6 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
           algorithmVersion: version,
           predictions,
           upcoming,
-          swingByTeam: swingByTeamForAlgo,
           teams: teamsStanding,
           generation,
           computedAt,
@@ -3277,22 +3232,6 @@ export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions)
             },
             metricsBasis: seasonStatsMetrics.metricsBasis,
           },
-          // Quick task 260908-5wd: SigmaScout-layer Swing Factor, the SAME
-          // per-team value the `/teams` artifact publishes for this team — one
-          // computation, so the team page and the Teams table cannot disagree.
-          //
-          // Quick task 260909-tgf: KEPT unchanged, deliberately, alongside the
-          // new `swing` metric entry above. It is load-bearing in three ways:
-          // `apps/worker/src/scheduled.ts` writes it on every live tick and
-          // computes no percentiles at all (so a live-rebuilt row has a swing
-          // value and no metric entry); `apps/web/src/components/event/
-          // eventMatchAxis.ts` reads it; and it is the stale-artifact fallback
-          // that keeps swing rendering (value only, no tier) between this
-          // commit and the developer's republish.
-          // Sigma-enabled algorithms carry their figure in the metric entry
-          // alone; this legacy top-level field stays a SWING-only back-compat
-          // shim for pre-republish artifacts.
-          swingFactor: usesSigmaScore(algorithm.id) ? undefined : swingByTeamForAlgo.get(teamKey),
           events,
           metricHistory: withHistoryPercentiles(metricHistoryForAlgo.get(teamKey) ?? [], rankingPools),
           sortTimeByMatchKey,

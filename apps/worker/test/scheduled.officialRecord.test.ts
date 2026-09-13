@@ -23,7 +23,7 @@ import {
   PRESEASON_EVENT_TYPE,
 } from "../../../packages/core/algorithms/eventTypes.js";
 import type { MatchResult, Prediction, TeamMetric } from "../../../packages/core/algorithms/types.js";
-import type { TeamSeasonArtifact } from "../../../packages/harness/pageArtifacts.js";
+import { TeamSeasonArtifactSchema, type TeamSeasonArtifact } from "../../../packages/harness/pageArtifacts.js";
 
 const TEAM = "frc1";
 const SEASON = 2026;
@@ -74,7 +74,6 @@ function mergeOne(match: MatchResult): TeamSeasonArtifact {
     metrics: METRICS,
     matchIndexByKey: new Map([[match.matchKey, 0]]),
     bands: new Map(),
-    swingFactor: undefined,
     stamp: { generation: "test-generation", computedAt: "2026-09-08T00:00:00.000Z" },
   }) as TeamSeasonArtifact;
 }
@@ -137,7 +136,6 @@ describe("mergeTeamSeasonArtifact — official-only seasonStats.record (quick ta
       metrics: METRICS,
       matchIndexByKey: new Map([["2026ex_qm1", 1]]),
       bands: new Map(),
-      swingFactor: undefined,
       stamp: { generation: "test-generation", computedAt: "2026-09-08T00:00:00.000Z" },
     }) as TeamSeasonArtifact;
 
@@ -197,13 +195,21 @@ describe("mergeTeamSeasonArtifact — preserves offline-published fields (quick 
       metrics: METRICS,
       matchIndexByKey: new Map([[match.matchKey, 0]]),
       bands: new Map(),
-      swingFactor: undefined,
       stamp: { generation: "live-generation", computedAt: "2026-09-08T00:00:00.000Z" },
     }) as TeamSeasonArtifact;
   }
 
-  it("keeps the Swing Factor a live tick does not compute", () => {
-    expect(mergeOnto(existingArtifact()).swingFactor).toBe(33.25);
+  it("does not carry a stale artifact's retired per-team swing field forward (quick task 260913-g66)", () => {
+    // `runTick` parses `existing` through `TeamSeasonArtifactSchema` before
+    // merging, which strips the retired key; merging the parsed object is the
+    // production path. `ranks` is dropped here only because this fixture's
+    // loose shape is not what that test is about.
+    const { ranks: _ranks, ...stale } = existingArtifact() as unknown as Record<string, unknown>;
+    const parsed = TeamSeasonArtifactSchema.parse(stale);
+    expect(parsed).not.toHaveProperty("swingFactor");
+    expect(mergeOnto(parsed)).not.toHaveProperty("swingFactor");
+    // The merge itself never writes one either.
+    expect(mergeOne(makeMatch())).not.toHaveProperty("swingFactor");
   });
 
   it("keeps the robot photo, the active-years list and the rank scopes", () => {

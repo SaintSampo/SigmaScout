@@ -1706,7 +1706,7 @@ describe("buildTeamSeasonArtifact", () => {
 });
 
 describe("buildTeamSeasonArtifact — swing metric (quick task 260909-tgf)", () => {
-  it("seasonStats.metrics.swing.percentile round-trips, and the top-level swingFactor field stays present and unchanged", () => {
+  it("seasonStats.metrics.swing.percentile round-trips, and no top-level per-team swing field is published (quick task 260913-g66)", () => {
     const artifact = buildTeamSeasonArtifact({
       teamKey: "frc254",
       teamNumber: 254,
@@ -1719,13 +1719,12 @@ describe("buildTeamSeasonArtifact — swing metric (quick task 260909-tgf)", () 
         metrics: { total: { value: 50 }, [SWING_METRIC_KEY]: { value: 8.42, percentile: 97 } },
         metricsBasis: "last-official-match",
       },
-      swingFactor: 8.42,
       events: [],
       metricHistory: [],
       generation: "g1",
     });
     expect(artifact.seasonStats.metrics[SWING_METRIC_KEY]?.percentile).toBe(97);
-    expect(artifact.swingFactor).toBe(roundTo(8.42, ROUNDING_RULE.metric));
+    expect(artifact).not.toHaveProperty("swingFactor");
   });
 
   it("rounds the swing value at ROUNDING_RULE.metric exactly once, matching the metrics beside it", () => {
@@ -4747,7 +4746,7 @@ describe("publishSeasons — EPA carries from the last official match (quick tas
   });
 });
 
-describe("SigmaScout-layer swing band (quick task 260908-5wd)", () => {
+describe("SigmaScout-layer match band (quick task 260908-5wd, renamed and Sigma-only since 260913-g66)", () => {
   // The guarantee this task exists to provide: one match, ONE shared
   // PredictionRecord, and therefore the SAME band on an event page and a team
   // page. Both builders are handed the identical object here, exactly as
@@ -4755,7 +4754,7 @@ describe("SigmaScout-layer swing band (quick task 260908-5wd)", () => {
   it("publishes a byte-identical band on the event artifact and the team artifact from one shared record", () => {
     const match = fixtureMatch();
     const prediction = fixturePrediction();
-    const shared: PredictionRecord = { match, prediction, swingBand: { red: 812.3456789, blue: 640.1234567 } };
+    const shared: PredictionRecord = { match, prediction, matchBand: { red: 812.3456789, blue: 640.1234567 } };
 
     const eventArtifact = buildEventArtifact({
       eventKey: "2026casj",
@@ -4782,14 +4781,14 @@ describe("SigmaScout-layer swing band (quick task 260908-5wd)", () => {
 
     const eventRow = eventArtifact.matches[0];
     const teamRow = teamArtifact.events[0]?.matches[0];
-    expect(eventRow?.redSwingBandVariance).toBe(teamRow?.redSwingBandVariance);
-    expect(eventRow?.blueSwingBandVariance).toBe(teamRow?.blueSwingBandVariance);
+    expect(eventRow?.redMatchBandVariance).toBe(teamRow?.redMatchBandVariance);
+    expect(eventRow?.blueMatchBandVariance).toBe(teamRow?.blueMatchBandVariance);
     // Rounded once, at ROUNDING_RULE.variance (4dp), on both surfaces.
-    expect(eventRow?.redSwingBandVariance).toBe(812.3457);
-    expect(eventRow?.blueSwingBandVariance).toBe(640.1235);
+    expect(eventRow?.redMatchBandVariance).toBe(812.3457);
+    expect(eventRow?.blueMatchBandVariance).toBe(640.1235);
   });
 
-  it("omits the band keys entirely for a record with no swingBand — absent on the wire, never present-and-undefined", () => {
+  it("omits the band keys entirely for a record with no matchBand — absent on the wire, never present-and-undefined", () => {
     const artifact = buildEventArtifact({
       eventKey: "2026casj",
       season: 2026,
@@ -4799,62 +4798,55 @@ describe("SigmaScout-layer swing band (quick task 260908-5wd)", () => {
       generation: "g1",
       computedAt: "2026-09-08T00:00:00.000Z",
     });
-    expect(artifact.matches[0]).not.toHaveProperty("redSwingBandVariance");
-    expect(artifact.matches[0]).not.toHaveProperty("blueSwingBandVariance");
+    expect(artifact.matches[0]).not.toHaveProperty("redMatchBandVariance");
+    expect(artifact.matches[0]).not.toHaveProperty("blueMatchBandVariance");
   });
 
-  it("builds an upcoming row's band from the season-final swing map, and omits it when a roster member has none", () => {
+  it("reads an upcoming row's band from the upcoming record's matchBand, rounded once, per side", () => {
     const upcomingMatch = fixtureUpcoming();
-    const full = new Map([...upcomingMatch.redTeams, ...upcomingMatch.blueTeams].map((t) => [t, 10] as const));
     const withBand = buildEventArtifact({
       eventKey: "2026casj",
       season: 2026,
-      algorithmId: "opr",
+      algorithmId: "spr",
       algorithmVersion: "4.0.0+baseline",
       predictions: [],
-      upcoming: [{ match: upcomingMatch, prediction: fixturePrediction() }],
-      swingByTeam: full,
+      upcoming: [{ match: upcomingMatch, prediction: fixturePrediction(), matchBand: { red: 900.123456, blue: 750 } }],
       generation: "g1",
       computedAt: "2026-09-08T00:00:00.000Z",
     });
-    // Three members at 10 each -> variance 300.
-    expect(withBand.upcoming[0]?.redSwingBandVariance).toBe(300);
+    expect(withBand.upcoming[0]?.redMatchBandVariance).toBe(900.1235);
+    expect(withBand.upcoming[0]?.blueMatchBandVariance).toBe(750);
 
-    const partial = new Map(full);
-    partial.delete(upcomingMatch.redTeams[0] as string);
-    const withoutBand = buildEventArtifact({
+    const oneSided = buildEventArtifact({
+      eventKey: "2026casj",
+      season: 2026,
+      algorithmId: "spr",
+      algorithmVersion: "4.0.0+baseline",
+      predictions: [],
+      upcoming: [{ match: upcomingMatch, prediction: fixturePrediction(), matchBand: { blue: 300 } }],
+      generation: "g1",
+      computedAt: "2026-09-08T00:00:00.000Z",
+    });
+    expect(oneSided.upcoming[0]).not.toHaveProperty("redMatchBandVariance");
+    // The blue alliance is untouched by red's gap.
+    expect(oneSided.upcoming[0]?.blueMatchBandVariance).toBe(300);
+  });
+
+  it("omits an upcoming row's band keys entirely when the record carries no matchBand (OPR, EPA)", () => {
+    const artifact = buildEventArtifact({
       eventKey: "2026casj",
       season: 2026,
       algorithmId: "opr",
       algorithmVersion: "4.0.0+baseline",
       predictions: [],
-      upcoming: [{ match: upcomingMatch, prediction: fixturePrediction() }],
-      swingByTeam: partial,
+      upcoming: [{ match: fixtureUpcoming(), prediction: fixturePrediction() }],
       generation: "g1",
       computedAt: "2026-09-08T00:00:00.000Z",
     });
-    expect(withoutBand.upcoming[0]).not.toHaveProperty("redSwingBandVariance");
-    // The blue alliance is untouched by red's gap.
-    expect(withoutBand.upcoming[0]?.blueSwingBandVariance).toBe(300);
+    expect(artifact.upcoming[0]).not.toHaveProperty("redMatchBandVariance");
+    expect(artifact.upcoming[0]).not.toHaveProperty("blueMatchBandVariance");
   });
 
-  it("publishes the per-team Swing Factor on the team artifact, rounded once, absent when the team has none", () => {
-    const base = {
-      teamKey: "frc254",
-      teamNumber: 254,
-      nickname: "The Cheesy Poofs",
-      season: 2026,
-      algorithmId: "opr" as const,
-      algorithmVersion: "4.0.0+baseline",
-      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 10 } }, metricsBasis: "last-official-match" as const },
-      events: [],
-      metricHistory: [],
-      generation: "g1",
-      computedAt: "2026-09-08T00:00:00.000Z",
-    };
-    expect(buildTeamSeasonArtifact({ ...base, swingFactor: 12.3456 }).swingFactor).toBe(12.35);
-    expect(buildTeamSeasonArtifact(base)).not.toHaveProperty("swingFactor");
-  });
 });
 
 /**
@@ -4893,7 +4885,7 @@ describe("publishSeasons and --event agree on the SigmaScout layer (2026-09-09)"
     await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
 
     const fromSeasons = findEventArtifact(lateEventKey, spr.id);
-    const banded = fromSeasons.matches.filter((m) => m.redSwingBandVariance !== undefined);
+    const banded = fromSeasons.matches.filter((m) => m.redMatchBandVariance !== undefined);
     expect(banded.length, "seasons path publishes at least one banded row on the late event").toBeGreaterThan(0);
   });
 
@@ -4907,8 +4899,8 @@ describe("publishSeasons and --event agree on the SigmaScout layer (2026-09-09)"
     expect(fromEvent.matches.map((m) => m.matchKey)).toEqual(fromSeasons.matches.map((m) => m.matchKey));
     for (const seasonsRow of fromSeasons.matches) {
       const eventRow = fromEvent.matches.find((m) => m.matchKey === seasonsRow.matchKey);
-      expect(eventRow?.redSwingBandVariance, `red band on ${seasonsRow.matchKey}`).toBe(seasonsRow.redSwingBandVariance);
-      expect(eventRow?.blueSwingBandVariance, `blue band on ${seasonsRow.matchKey}`).toBe(seasonsRow.blueSwingBandVariance);
+      expect(eventRow?.redMatchBandVariance, `red band on ${seasonsRow.matchKey}`).toBe(seasonsRow.redMatchBandVariance);
+      expect(eventRow?.blueMatchBandVariance, `blue band on ${seasonsRow.matchKey}`).toBe(seasonsRow.blueMatchBandVariance);
     }
   });
 
@@ -4966,7 +4958,7 @@ describe("publishSeasons and --event agree on the SigmaScout layer (2026-09-09)"
     expect(compared, "non-vacuous: at least one standings percentile compared").toBeGreaterThan(0);
   });
 
-  it("agrees for OPR too — the layer is algorithm-independent, so parity cannot be a BPR-only property", async () => {
+  it("agrees for OPR too — ranking-point parity cannot be an SPR-only property, and neither path publishes an OPR band", async () => {
     const { lateEventKey } = seedTwoEventSeason(db);
     await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
     const fromSeasons = findEventArtifact(lateEventKey, opr.id);
@@ -4975,9 +4967,42 @@ describe("publishSeasons and --event agree on the SigmaScout layer (2026-09-09)"
 
     for (const seasonsRow of fromSeasons.matches) {
       const eventRow = fromEvent.matches.find((m) => m.matchKey === seasonsRow.matchKey);
-      expect(eventRow?.redSwingBandVariance, `red band on ${seasonsRow.matchKey}`).toBe(seasonsRow.redSwingBandVariance);
+      expect(eventRow, `no OPR band on --event ${seasonsRow.matchKey}`).not.toHaveProperty("redMatchBandVariance");
+      expect(seasonsRow, `no OPR band on seasons ${seasonsRow.matchKey}`).not.toHaveProperty("redMatchBandVariance");
       expect(eventRow?.redRpPmf, `redRpPmf on ${seasonsRow.matchKey}`).toEqual(seasonsRow.redRpPmf);
     }
+  });
+
+  it("OPR publishes no band on any row and no per-team swing field on any team or teams artifact (quick task 260913-g66)", async () => {
+    seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const calls = vi.mocked(putObject).mock.calls.map(([, key, body]) => ({ key: key as string, body: String(body) }));
+    const eventBodies = calls.filter((c) => c.key.startsWith("v1/event/"));
+    const teamBodies = calls.filter((c) => c.key.startsWith("v1/team/"));
+    const teamsBodies = calls.filter((c) => c.key.startsWith("v1/teams/"));
+    // Non-vacuous: every surface under test was actually written.
+    expect(eventBodies.length).toBeGreaterThan(0);
+    expect(teamBodies.length).toBeGreaterThan(0);
+    expect(teamsBodies.length).toBeGreaterThan(0);
+
+    for (const { key, body } of [...eventBodies, ...teamBodies, ...teamsBodies]) {
+      expect(body.includes("MatchBandVariance"), `band key on ${key}`).toBe(false);
+      expect(body.includes("SwingBandVariance"), `retired band key on ${key}`).toBe(false);
+      expect(body.includes("swingFactor"), `per-team swing field on ${key}`).toBe(false);
+    }
+    // The ranking-point pmf still rides OPR's rows: its Swing win-odds variance is live.
+    const played = eventBodies.flatMap((c) => (JSON.parse(c.body) as EventArtifact).matches);
+    expect(played.some((m) => m.redRpPmf !== undefined)).toBe(true);
+  });
+
+  it("SPR publishes no top-level per-team swing field on team or teams artifacts either", async () => {
+    seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
+    const calls = vi.mocked(putObject).mock.calls.map(([, key, body]) => ({ key: key as string, body: String(body) }));
+    const teamSurfaces = calls.filter((c) => c.key.startsWith("v1/team/") || c.key.startsWith("v1/teams/"));
+    expect(teamSurfaces.length).toBeGreaterThan(0);
+    for (const { key, body } of teamSurfaces) expect(body.includes("swingFactor"), `per-team swing field on ${key}`).toBe(false);
   });
 });
 
