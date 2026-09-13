@@ -81,6 +81,27 @@ describe("EventSection", () => {
     expect(snapshot.textContent).not.toContain("88.20");
   });
 
+  it("puts Total on its own first line and Auto, Teleop and Endgame together on the line below (2026-09-13)", () => {
+    renderWithRouter(
+      <EventSection
+        event={makeEvent()}
+        domain={DOMAIN}
+        teamKey="frc118"
+        algorithmId="spr"
+        season={2024}
+        metricHistory={[
+          makeHistoryRow({
+            metrics: { total: { value: 61.4 }, phaseAuto: { value: 12 }, phaseTeleop: { value: 30 }, phaseEndgame: { value: 19.4 } },
+          }),
+        ]}
+      />,
+    );
+    const [totalLine, phaseLine] = Array.from(screen.getByTestId("event-snapshot-2024casj").children);
+    expect(totalLine?.textContent).toBe("Total61.40");
+    expect(Array.from(phaseLine?.children ?? []).map((pair) => pair.firstElementChild?.textContent)).toEqual(["Auto", "Teleop", "Endgame"]);
+    expect(phaseLine?.className).toContain("flex-nowrap");
+  });
+
   it("renders no snapshot element when no metricHistory row matches this event", () => {
     renderWithRouter(
       <EventSection

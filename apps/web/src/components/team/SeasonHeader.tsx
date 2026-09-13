@@ -83,6 +83,16 @@ function SigmaScoreTile({ sigmaScore, tier }: { sigmaScore?: number; tier?: Tier
   );
 }
 
+/** One labelled, tier-boxed metric tile. `items-start` (2026-09-01 redesign): flex-col stretch was widening each tier box to the full grid track — the box should hug its value like every other metric cell on the site. */
+function MetricGridCell({ tile }: { tile: { label: string; metric?: TeamSeasonArtifact["seasonStats"]["metrics"][string] } }) {
+  return (
+    <div data-testid="metric-grid-cell" className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
+      <span className="text-role-label text-[var(--color-text-muted)]">{tile.label}</span>
+      <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric?.percentile)} />
+    </div>
+  );
+}
+
 /** A rate over zero matches is undefined, never a coerced zero — same rule `teams-table/rowModel.ts`'s own `winRate()` applies. */
 function winRateOf(record: { wins: number; losses: number; ties: number }): number | null {
   const totalMatches = record.wins + record.losses + record.ties;
@@ -172,7 +182,7 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   const groupTiles = publishesComponents
     ? METRIC_GROUPS.map((group) => ({ key: group.id, label: group.label, metric: metrics[group.metricKey] }))
     : [];
-  const tiles = [...groupTiles, { key: TOTAL_KEY, label: metricLabel(TOTAL_KEY), metric: metrics[TOTAL_KEY] }];
+  const totalTile = { key: TOTAL_KEY, label: metricLabel(TOTAL_KEY), metric: metrics[TOTAL_KEY] };
   const tbaUrl = `https://www.thebluealliance.com/team/${teamNumber}`;
 
   return (
@@ -287,23 +297,32 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
         </span>
         {/* Left-justified with fixed gaps (2026-09-01 user request: "don't
             space out the chosen metrics") — the old equal-track grid spread
-            four tiles across the whole card width. */}
-        <div data-testid="season-header-metric-grid" className="flex flex-wrap gap-x-[var(--spacing-2xl)] gap-y-[var(--spacing-sm)]">
-          {/* `items-start` on each cell (2026-09-01 redesign): flex-col stretch was widening each tier box to the full grid track — the box should hug its value like every other metric cell on the site. */}
-          {tiles.map((tile) => (
-            <div key={tile.key} data-testid="metric-grid-cell" className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
-              <span className="text-role-label text-[var(--color-text-muted)]">{tile.label}</span>
-              <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric?.percentile)} />
+            four tiles across the whole card width.
+
+            2026-09-13 (user request): Total leads on its own line, and Auto,
+            Teleop and Endgame follow together on the line below. The phase
+            line never wraps; it tightens its gap on narrow screens instead,
+            so the three always read as one group. */}
+        <div data-testid="season-header-metric-grid" className="flex flex-col gap-[var(--spacing-sm)]">
+          <div className="flex flex-wrap gap-x-[var(--spacing-2xl)] gap-y-[var(--spacing-sm)]">
+            <MetricGridCell tile={totalTile} />
+            {/* Sigma Score's own tile, published for SPR only; see
+                `sigmaScore`'s derivation above for why it is not a suffix on
+                Total. It sits on Total's line because it is a whole-team
+                figure, not a phase. Quick task 260909-tgf: the tile IS
+                tier-boxed, exactly like the tiles beside it. The percentile
+                behind it is the team's residual against the Sigma Score
+                expected at its own rating, inverted at the pipeline so a LOW
+                Sigma Score (a steadier robot) earns the HIGH tier. */}
+            <SigmaScoreTile sigmaScore={sigmaScore} tier={sigmaTier} />
+          </div>
+          {groupTiles.length > 0 && (
+            <div className="flex min-w-0 flex-nowrap gap-x-[var(--spacing-md)] sm:gap-x-[var(--spacing-2xl)]">
+              {groupTiles.map((tile) => (
+                <MetricGridCell key={tile.key} tile={tile} />
+              ))}
             </div>
-          ))}
-          {/* Sigma Score's own tile, published for SPR only; see
-              `sigmaScore`'s derivation above for why it is not a suffix on
-              Total. Quick task 260909-tgf: the tile IS tier-boxed, exactly
-              like the tiles beside it. The percentile behind it is the team's
-              residual against the Sigma Score expected at its own rating,
-              inverted at the pipeline so a LOW Sigma Score (a steadier robot)
-              earns the HIGH tier. */}
-          <SigmaScoreTile sigmaScore={sigmaScore} tier={sigmaTier} />
+          )}
         </div>
       </div>
     </div>

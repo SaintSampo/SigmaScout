@@ -129,7 +129,7 @@ describe("SeasonHeader — identity (TEAM-02, E1)", () => {
 describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
   afterEach(() => cleanup());
 
-  it("renders four phase tiles — Auto, Teleop, Endgame, Total — read straight from the published group metrics", () => {
+  it("renders four phase tiles — Total, then Auto, Teleop, Endgame — read straight from the published group metrics", () => {
     const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
       // The pipeline publishes each phase group as a first-class metric with
       // its own spread and percentile (`breakdown/groups.ts`); the client
@@ -145,11 +145,18 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
 
     const cells = screen.getAllByTestId("metric-grid-cell");
     expect(cells).toHaveLength(4);
-    expect(cells.map((c) => c.querySelector("span")?.textContent)).toEqual(["Auto", "Teleop", "Endgame", "Total"]);
+    expect(cells.map((c) => c.querySelector("span")?.textContent)).toEqual(["Total", "Auto", "Teleop", "Endgame"]);
 
-    const autoCell = cells.at(0);
+    const autoCell = cells.at(1);
     if (autoCell === undefined) throw new Error("expected four grid cells");
     expect(autoCell.textContent).toContain("12.34");
+
+    // 2026-09-13: Total leads on its own line; the three phases share the next, which never wraps.
+    const [totalCell, ...phaseCells] = cells;
+    expect(totalCell?.parentElement?.querySelectorAll('[data-testid="metric-grid-cell"]')).toHaveLength(1);
+    const phaseLine = phaseCells[0]?.parentElement;
+    expect(phaseCells.every((cell) => cell.parentElement === phaseLine)).toBe(true);
+    expect(phaseLine?.className).toContain("flex-nowrap");
   });
 
   it("gives every phase group its own rarity tier, and no phase tile carries a plus-minus", () => {
@@ -164,9 +171,9 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
-    const autoCell = cells.at(0);
-    const teleopCell = cells.at(1);
-    const totalCell = cells.at(3);
+    const autoCell = cells.at(1);
+    const teleopCell = cells.at(2);
+    const totalCell = cells.at(0);
     if (autoCell === undefined || teleopCell === undefined || totalCell === undefined) throw new Error("expected four grid cells");
 
     // A group's published `spread` is the ALGORITHM's own confidence, so it no
@@ -191,7 +198,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     // — so each tile's entire text is its label and nothing else. Asserting
     // the exact label list (rather than "is empty") keeps this test proving
     // the tiles still exist and are still labelled.
-    expect(cells.map((cell) => cell.textContent)).toEqual(["Auto", "Teleop", "Endgame", "Total"]);
+    expect(cells.map((cell) => cell.textContent)).toEqual(["Total", "Auto", "Teleop", "Endgame"]);
   });
 
   it("D-3 (260904-5zg; stale-artifact fallback as of 260904-7id): an EPA fixture carrying components but no phaseAuto/phaseTeleop/phaseEndgame — the shape of a browser's cached pre-republish artifact — renders real derived sums, where before the three tiles were blank", () => {
@@ -213,8 +220,8 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
 
     const cells = screen.getAllByTestId("metric-grid-cell");
     expect(cells).toHaveLength(4);
-    expect(cells.map((c) => c.querySelector("span")?.textContent)).toEqual(["Auto", "Teleop", "Endgame", "Total"]);
-    const [autoCell, teleopCell, endgameCell] = cells;
+    expect(cells.map((c) => c.querySelector("span")?.textContent)).toEqual(["Total", "Auto", "Teleop", "Endgame"]);
+    const [, autoCell, teleopCell, endgameCell] = cells;
     expect(autoCell?.textContent).toContain("10"); // 4 + 6
     expect(teleopCell?.textContent).toContain("13"); // 5 + 2 + 2 + 2 + 2
     expect(endgameCell?.textContent).toContain("4"); // 3 + 1
@@ -232,7 +239,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
-    const [autoCell] = cells;
+    const [, autoCell] = cells;
     // Published phase value and tier survive; the published spread does not
     // render (2026-09-09) — it is the algorithm's own confidence.
     expect(autoCell?.textContent).toContain("12.34");
@@ -251,7 +258,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     render(<SeasonHeader artifact={artifact} algorithmId="epa" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
-    const [autoCell] = cells;
+    const [, autoCell] = cells;
     expect(autoCell?.textContent?.includes("±")).toBe(false);
     expect(autoCell?.querySelector('[class*="metric-tier"]')).toBeNull();
   });
@@ -268,7 +275,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     render(<SeasonHeader artifact={artifact} algorithmId="epa" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
-    const [autoCell, teleopCell] = cells;
+    const [, autoCell, teleopCell] = cells;
     // EPA carries no spread anywhere, published or derived — the ± glyph
     // never appears, even on a metric that DOES now carry a real tier.
     expect(teleopCell?.textContent?.includes("±")).toBe(false);
@@ -406,7 +413,7 @@ describe("SeasonHeader — Sigma Score has its OWN tile (developer decision 2026
 
     render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
     expect(screen.getByTestId("sigma-score-tile").textContent).toContain("41.25");
-    const totalCell = screen.getAllByTestId("metric-grid-cell").at(-1);
+    const totalCell = screen.getAllByTestId("metric-grid-cell").at(0);
     expect(totalCell?.textContent).toContain("60.50");
     // SPR's own spread of 2.50 must not appear anywhere.
     expect(totalCell?.textContent).not.toContain("2.50");
@@ -431,8 +438,8 @@ describe("SeasonHeader — Sigma Score has its OWN tile (developer decision 2026
     render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
 
     const cells = screen.getAllByTestId("metric-grid-cell");
-    // VPR always shows four tiles (Auto/Teleop/Endgame/Total); Total is last.
-    const totalCell = cells.at(-1);
+    // VPR always shows four tiles (Total, then Auto/Teleop/Endgame); Total is first.
+    const totalCell = cells.at(0);
     expect(totalCell?.textContent).toContain("60.50");
     expect(totalCell?.textContent).not.toContain("±");
   });

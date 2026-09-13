@@ -56,17 +56,11 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
   /**
    * D-06.1-A (plan 06.1-06, Task 3): the per-event metric line's tiles.
    */
-  const tiles =
-    snapshot === undefined
+  const totalTile = snapshot === undefined ? undefined : { key: TOTAL_KEY, label: "Total", metric: snapshot.metrics[TOTAL_KEY] };
+  const groupTiles =
+    snapshot === undefined || metricKeys.length <= 1
       ? []
-      : [
-          ...METRIC_GROUPS.map((group) => ({
-            key: group.id,
-            label: group.label,
-            metric: metricKeys.length > 1 ? snapshot.metrics[group.metricKey] : undefined,
-          })),
-          { key: TOTAL_KEY, label: "Total", metric: snapshot.metrics[TOTAL_KEY] },
-        ];
+      : METRIC_GROUPS.map((group) => ({ key: group.id, label: group.label, metric: snapshot.metrics[group.metricKey] }));
 
   return (
     <section
@@ -111,44 +105,58 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
       </p>
 
       {snapshot !== undefined && (
-        <div data-testid={`event-snapshot-${event.eventKey}`} className="flex min-w-0 flex-wrap items-baseline gap-[var(--spacing-md)]">
+        <div data-testid={`event-snapshot-${event.eventKey}`} className="flex min-w-0 flex-col gap-[var(--spacing-xs)]">
           {/*
             Same four-way grouping as the season header: this line previously
             spilled all 13 of 2024's raw components across three wrapped rows.
+            2026-09-13 (user request): Total leads on its own line, and Auto,
+            Teleop and Endgame share the line below it. That line never wraps;
+            below `sm` each label stacks over its value so the three still fit
+            side by side on a phone.
           */}
-          {tiles.map((tile) => {
-            if (tile.metric === undefined) return null;
-            return (
-              <span key={tile.key} className="flex items-baseline gap-[var(--spacing-xs)]">
-                <span className="text-role-label text-[var(--color-text-muted)]">{tile.label}</span>
-                {/*
-                  D-06.1-A (plan 06.1-06, Task 3): the tier comes from THIS
-                  history row's own published percentile
-                  (`MetricValueSchema.percentile`, plan 06.1-03/06.1-05) —
-                  which ranks this as-of-this-event value against the
-                  season's last-official-match field for that metric (quick
-                  task 260912-tnk: the ONE pool the Teams list and the season
-                  header rank against, so an equal value carries an equal
-                  tier on all three) — never from the team's own
-                  `TeamMetricSchema.percentile`/`tier`, which describes a
-                  different value. That substitution is exactly the defect
-                  F-06-3 was filed to prevent.
-
-                  G-06.1-28 (plan 06.1-08, Task 1, option-a): the caption that
-                  used to state this basis on every event card was removed
-                  per user request (UAT test 28 — clutter, not disagreement
-                  with the tiers themselves). The basis is now DELIBERATELY
-                  NOT stated anywhere on this surface — a signed accepted
-                  risk (T-06.1-24, signed Jacob Williams, 2026-08-26; the
-                  full disposition lives in that plan's threat register), not
-                  an oversight. A future reader who wants to relocate the
-                  explanation should start there, not assume it was dropped
-                  by mistake.
-                */}
-                <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric.percentile)} />
-              </span>
-            );
-          })}
+          {totalTile?.metric !== undefined && (
+            <span className="flex items-baseline gap-[var(--spacing-xs)]">
+              <span className="text-role-label text-[var(--color-text-muted)]">{totalTile.label}</span>
+              <MetricValue metric={totalTile.metric} tier={tierForPercentile(totalTile.metric.percentile)} />
+            </span>
+          )}
+          {groupTiles.some((tile) => tile.metric !== undefined) && (
+            <div className="flex min-w-0 flex-nowrap items-end gap-x-[var(--spacing-sm)] sm:items-baseline sm:gap-x-[var(--spacing-md)]">
+              {groupTiles.map((tile) => {
+                if (tile.metric === undefined) return null;
+                return (
+                  <span key={tile.key} className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)] sm:flex-row sm:items-baseline">
+                    <span className="text-role-label text-[var(--color-text-muted)]">{tile.label}</span>
+                    {/*
+                      D-06.1-A (plan 06.1-06, Task 3): the tier comes from THIS
+                      history row's own published percentile
+                      (`MetricValueSchema.percentile`, plan 06.1-03/06.1-05) —
+                      which ranks this as-of-this-event value against the
+                      season's last-official-match field for that metric (quick
+                      task 260912-tnk: the ONE pool the Teams list and the season
+                      header rank against, so an equal value carries an equal
+                      tier on all three) — never from the team's own
+                      `TeamMetricSchema.percentile`/`tier`, which describes a
+                      different value. That substitution is exactly the defect
+                      F-06-3 was filed to prevent.
+    
+                      G-06.1-28 (plan 06.1-08, Task 1, option-a): the caption that
+                      used to state this basis on every event card was removed
+                      per user request (UAT test 28 — clutter, not disagreement
+                      with the tiers themselves). The basis is now DELIBERATELY
+                      NOT stated anywhere on this surface — a signed accepted
+                      risk (T-06.1-24, signed Jacob Williams, 2026-08-26; the
+                      full disposition lives in that plan's threat register), not
+                      an oversight. A future reader who wants to relocate the
+                      explanation should start there, not assume it was dropped
+                      by mistake.
+                    */}
+                    <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric.percentile)} />
+                  </span>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
