@@ -78,9 +78,38 @@ export const DEMO_TEAM_KEYS: ReadonlySet<string> = new Set(
  */
 export const DEMO_PSEUDO_TEAM_KEY = "demo-pseudo-unregistered";
 
-/** True for exactly the 30 keys in `DEMO_TEAM_KEYS`. */
+/**
+ * A roster key TBA emits that names no team registration at all (todo
+ * `stray-team-scope-keys-in-live-d1`, 2026-09-13): no number (`frc`), a zero
+ * number (`frc0`), or a character no team key can hold (`frc58 /`). FRC team
+ * numbers start at 1, and a letter suffix (`frc1678B`, a team's second robot)
+ * IS a real key, so neither shape is caught here.
+ *
+ * Measured against `data/corpus.sqlite`: exactly those three keys, in 27
+ * matches across 2016cafc2, 2016ohsc, 2019wiwi, 2023azrl4, 2023onsc and
+ * 2024mdsev. The 18 PLAYED ones are all at offseason events after their
+ * season's last official match. The other 9 are unplayed placeholders.
+ *
+ * `DEMO_PSEUDO_TEAM_KEY` is excluded explicitly: it is this module's own
+ * internal identity, not something TBA sent.
+ */
+export function isPlaceholderTeamKey(teamKey: string): boolean {
+  if (teamKey === DEMO_PSEUDO_TEAM_KEY || !teamKey.startsWith("frc")) return false;
+  const rest = teamKey.slice(3);
+  return /^0*$/.test(rest) || /[^0-9A-Za-z]/.test(rest);
+}
+
+/**
+ * True for the 30 keys in `DEMO_TEAM_KEYS` AND for every `isPlaceholderTeamKey`
+ * key. A placeholder is handled exactly like a demo robot everywhere this
+ * predicate is read: a fully-placeholder alliance is a non-contest (the
+ * `2016ohsc` quarterfinals played against three `frc0` slots), a placeholder
+ * beside real teammates is an unidentified robot remapped to the shared
+ * pseudo entity (`2016cafc2`'s `frc` slot), and neither ever gets a published
+ * page or a state row.
+ */
 export function isDemoTeamKey(teamKey: string): boolean {
-  return DEMO_TEAM_KEYS.has(teamKey);
+  return DEMO_TEAM_KEYS.has(teamKey) || isPlaceholderTeamKey(teamKey);
 }
 
 /**

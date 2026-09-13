@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEMO_PSEUDO_TEAM_KEY, DEMO_TEAM_KEYS, isDemoTeamKey, isFullyDemoAlliance, remapDemoTeams } from "./demoTeams.js";
+import { DEMO_PSEUDO_TEAM_KEY, DEMO_TEAM_KEYS, isDemoTeamKey, isFullyDemoAlliance, isPlaceholderTeamKey, remapDemoTeams } from "./demoTeams.js";
 
 describe("DEMO_TEAM_KEYS / isDemoTeamKey", () => {
   it("carries exactly 30 keys, frc9970 through frc9999", () => {
@@ -20,6 +20,28 @@ describe("DEMO_TEAM_KEYS / isDemoTeamKey", () => {
     expect(isDemoTeamKey("frc254")).toBe(false);
     expect(isDemoTeamKey("frc997")).toBe(false);
     expect(isDemoTeamKey("frc99700")).toBe(false);
+  });
+});
+
+describe("isPlaceholderTeamKey", () => {
+  it("is true for the three placeholder keys TBA actually sent: a bare prefix, a zero number, and a key holding a character no team key can", () => {
+    expect(isPlaceholderTeamKey("frc")).toBe(true);
+    expect(isPlaceholderTeamKey("frc0")).toBe(true);
+    expect(isPlaceholderTeamKey("frc58 /")).toBe(true);
+  });
+
+  it("is false for real team keys, letter-suffixed second robots, and the module's own pseudo key", () => {
+    expect(isPlaceholderTeamKey("frc1")).toBe(false);
+    expect(isPlaceholderTeamKey("frc10")).toBe(false);
+    expect(isPlaceholderTeamKey("frc1678B")).toBe(false);
+    expect(isPlaceholderTeamKey("frc9985")).toBe(false);
+    expect(isPlaceholderTeamKey(DEMO_PSEUDO_TEAM_KEY)).toBe(false);
+  });
+
+  it("makes isDemoTeamKey true, so a placeholder is excluded, remapped and dropped exactly like a demo robot", () => {
+    expect(isDemoTeamKey("frc0")).toBe(true);
+    expect(isFullyDemoAlliance(["frc0", "frc0", "frc0"])).toBe(true);
+    expect(remapDemoTeams(["frc", "frc4584", "frc5285"])).toEqual([DEMO_PSEUDO_TEAM_KEY, "frc4584", "frc5285"]);
   });
 });
 
