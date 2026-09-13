@@ -54,6 +54,7 @@ import {
   seasonStatsMetricsForTeam,
   withEventPercentiles,
   withHistoryPercentiles,
+  withHistorySigma,
   withPublishedTiers,
   type ActualBonusFlags,
   type BuildEventArtifactParams,
@@ -2352,6 +2353,147 @@ describe("withHistoryPercentiles (Phase 06.1, plan 06.1-05 Task 3, D-06.1-A; one
     const result = withHistoryPercentiles(rows, pool);
     expect(result.map((r) => r.matchKey)).toEqual(["m1", "m2", "m3"]);
     expect(result[1]?.metrics[TOTAL_METRIC_KEY]?.percentile).toBe(result[2]?.metrics[TOTAL_METRIC_KEY]?.percentile);
+  });
+});
+
+describe("withHistorySigma (quick task 260913-m45)", () => {
+  it("appends sigma.value as the LAST key to a row whose matchKey is in the map, and every existing entry (including a total percentile) survives", () => {
+    const rows = [historyRow({ matchKey: "m1", metrics: { [TOTAL_METRIC_KEY]: { value: 10, percentile: 42 } } })];
+    const sigmaByMatchKey = new Map([["m1", 12.5]]);
+
+    const result = withHistorySigma(rows, sigmaByMatchKey);
+
+    expect(result[0]?.metrics).toEqual({
+      [TOTAL_METRIC_KEY]: { value: 10, percentile: 42 },
+      [SIGMA_METRIC_KEY]: { value: 12.5 },
+    });
+    expect(Object.keys(result[0]!.metrics).at(-1)).toBe(SIGMA_METRIC_KEY);
+  });
+
+  it("a row whose matchKey is absent from the map gets no sigma key at all", () => {
+    const rows = [historyRow({ matchKey: "m1" })];
+    const sigmaByMatchKey = new Map([["m2", 12.5]]);
+
+    const result = withHistorySigma(rows, sigmaByMatchKey);
+
+    expect(result[0]?.metrics).not.toHaveProperty(SIGMA_METRIC_KEY);
+  });
+
+  it("an undefined map gives every row no sigma key at all — never present-and-undefined", () => {
+    const rows = [historyRow({ matchKey: "m1" })];
+
+    const result = withHistorySigma(rows, undefined);
+
+    expect(result[0]?.metrics).not.toHaveProperty(SIGMA_METRIC_KEY);
+  });
+
+  it("does not mutate the input rows or their nested metric objects", () => {
+    const rows = [historyRow({ matchKey: "m1", metrics: { [TOTAL_METRIC_KEY]: { value: 10 } } })];
+    const clone = structuredClone(rows);
+
+    withHistorySigma(rows, new Map([["m1", 5]]));
+
+    expect(rows).toEqual(clone);
+  });
+
+  it("preserves row order and passes an unmatched row through untouched (same metrics reference)", () => {
+    const untouched = historyRow({ matchKey: "m2", metrics: { [TOTAL_METRIC_KEY]: { value: 20 } } });
+    const rows = [historyRow({ matchKey: "m1", metrics: { [TOTAL_METRIC_KEY]: { value: 10 } } }), untouched];
+
+    const result = withHistorySigma(rows, new Map([["m1", 5]]));
+
+    expect(result.map((r) => r.matchKey)).toEqual(["m1", "m2"]);
+    expect(result[1]?.metrics).toBe(untouched.metrics);
+  });
+});
+
+/**
+ * Quick task 260913-m45 Task 1: SPR metric-history rows now carry each
+ * match's per-match Sigma Score (`SigmaScoutLayer.sigmaFor`, read right after
+ * `foldPlayed`), merged in ONLY at the team-season artifact build — after
+ * `withHistoryPercentiles`, never into `metricHistoryForAlgo` itself — so
+ * ranking pools, the Teams row and seasonStats never see it (T-m45-02).
+ */
+describe("publishSeasons — metric history rows carry the per-match Sigma Score (quick task 260913-m45)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-history-sigma-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("SPR: every metricHistory row across all six team-season artifacts carries a value-only sigma entry, as the LAST metrics key (24 rows: 6 teams x 4 matches)", async () => {
+    const { teamKeys } = seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    let compared = 0;
+    for (const teamKey of teamKeys) {
+      const artifact = findTeamArtifact(teamKey, 2026);
+      expect(artifact.metricHistory.length, `${teamKey} has published history rows`).toBeGreaterThan(0);
+      for (const row of artifact.metricHistory) {
+        const sigma = row.metrics[SIGMA_METRIC_KEY];
+        expect(sigma, `${teamKey} ${row.matchKey} has a sigma entry`).toBeDefined();
+        expect(Object.keys(sigma!)).toEqual(["value"]);
+        expect(Number.isFinite(sigma!.value)).toBe(true);
+        expect(sigma!.value).toBeGreaterThan(0);
+        expect(Object.keys(row.metrics).at(-1), `${teamKey} ${row.matchKey} sigma must be the LAST metrics key`).toBe(SIGMA_METRIC_KEY);
+        compared++;
+      }
+    }
+    expect(compared).toBe(24);
+  });
+
+  it("the last history row's sigma value equals seasonStats.metrics.sigma.value exactly, since every team plays the season's final match", async () => {
+    const { teamKeys } = seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    for (const teamKey of teamKeys) {
+      const artifact = findTeamArtifact(teamKey, 2026);
+      const lastRow = artifact.metricHistory.at(-1)!;
+      expect(lastRow.matchKey, `${teamKey}'s last history row is the season's final match`).toBe("2026lat_qm2");
+      expect(lastRow.metrics[SIGMA_METRIC_KEY]?.value).toBe(artifact.seasonStats.metrics[SIGMA_METRIC_KEY]?.value);
+    }
+  });
+
+  it("at least one team's four sigma values are not all equal — the values are per-match, not the season-final value stamped on every row", async () => {
+    const { teamKeys } = seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const anyVaries = teamKeys.some((teamKey) => {
+      const artifact = findTeamArtifact(teamKey, 2026);
+      const values = artifact.metricHistory.map((row) => row.metrics[SIGMA_METRIC_KEY]?.value);
+      return new Set(values).size > 1;
+    });
+    expect(anyVaries).toBe(true);
+  });
+
+  it("seasonStats.metrics.sigma keeps exactly value and percentile, unchanged by the per-match merge", async () => {
+    const { teamKeys } = seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    for (const teamKey of teamKeys) {
+      const artifact = findTeamArtifact(teamKey, 2026);
+      expect(Object.keys(artifact.seasonStats.metrics[SIGMA_METRIC_KEY] ?? {}).sort()).toEqual(["percentile", "value"]);
+    }
+  });
+
+  it("OPR: no v1/team/ putObject body contains the sigma key", async () => {
+    seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const calls = vi.mocked(putObject).mock.calls.map(([, key, body]) => ({ key: key as string, body: String(body) }));
+    const teamBodies = calls.filter((c) => c.key.startsWith("v1/team/"));
+    expect(teamBodies.length, "non-vacuous: OPR team artifacts were actually written").toBeGreaterThan(0);
+    for (const { key, body } of teamBodies) {
+      expect(body.includes(`"${SIGMA_METRIC_KEY}"`), `no sigma key on ${key}`).toBe(false);
+    }
   });
 });
 
