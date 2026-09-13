@@ -98,8 +98,9 @@ describe("softCredit", () => {
   it("is enabled in the shipped live port, and the version reflects it", () => {
     expect(SPR_PARAMS.softCredit).toBe(true);
     // predict()'s observable output changed (adjust drop + softCredit), so
-    // D-13 requires a MAJOR bump rather than reusing 2.0.0.
-    expect(SPR_VERSION).toBe("3.0.0+baseline");
+    // D-13 required a MAJOR bump past 2.0.0. 4.0.0 is the later demo-team
+    // exclusion, which leaves softCredit enabled.
+    expect(SPR_VERSION).toBe("4.0.0+baseline");
   });
 
   it("shipped research params enable it too, so the two modules match", async () => {

@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import { spr, correctionsOf, type SprState, type SprTeamState } from "./spr.js";
 import { accuracyCall, scoreSet } from "../scoring/brier.js";
 import type { MatchResult, UpcomingMatch } from "./types.js";
+import { DEMO_PSEUDO_TEAM_KEY } from "./demoTeams.js";
 
 const SIX = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
 
@@ -401,4 +402,37 @@ describe("spr scoring target: malformed breakdown yields adjust = 0, never skips
       expect(next.scaleCount).toBe(before.scaleCount + 1);
     });
   }
+});
+
+describe("spr — off-season demo team and placeholder exclusion (demoTeams.ts)", () => {
+  it("a fully-demo alliance is a non-contest: the whole match is skipped, scale and link temperature included", () => {
+    const before = spr.update(spr.initState(SIX), result());
+    const after = spr.update(before, result({ blueTeams: ["frc9970", "frc9971", "frc9972"], redScore: 120, blueScore: 0 }));
+    expect(after).toBe(before);
+  });
+
+  it("an alliance of TBA placeholder slots is skipped the same way", () => {
+    const before = spr.update(spr.initState(SIX), result());
+    expect(spr.update(before, result({ blueTeams: ["frc0", "frc0", "frc0"] }))).toBe(before);
+  });
+
+  it("a demo slot beside real teammates trains the shared pseudo entity, never a per-key team", () => {
+    const next = spr.update(spr.initState(SIX), result({ redTeams: ["frc1", "frc9985", "frc3"] }));
+    expect(next.teams.has("frc9985")).toBe(false);
+    expect(next.teams.has(DEMO_PSEUDO_TEAM_KEY)).toBe(true);
+    for (const phaseTeams of Object.values(next.phaseTeams)) expect(phaseTeams.has("frc9985")).toBe(false);
+  });
+
+  it("the update is identical to one where the pseudo key was listed directly", () => {
+    const viaDemo = spr.update(spr.initState(SIX), result({ redTeams: ["frc1", "frc", "frc3"] }));
+    const viaPseudo = spr.update(spr.initState(SIX), result({ redTeams: ["frc1", DEMO_PSEUDO_TEAM_KEY, "frc3"] }));
+    expect(sortedTeams(viaDemo)).toEqual(sortedTeams(viaPseudo));
+  });
+
+  it("predict prices a demo slot with the same pseudo entity update trains", () => {
+    const state = spr.update(spr.initState(SIX), result({ redTeams: ["frc1", "frc9985", "frc3"] }));
+    const viaDemo = spr.predict(state, upcoming({ redTeams: ["frc1", "frc9990", "frc3"] }));
+    const viaPseudo = spr.predict(state, upcoming({ redTeams: ["frc1", DEMO_PSEUDO_TEAM_KEY, "frc3"] }));
+    expect(viaDemo).toEqual(viaPseudo);
+  });
 });

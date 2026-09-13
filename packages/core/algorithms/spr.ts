@@ -83,6 +83,7 @@ import {
   tryParseBreakdownPair,
   type ComponentGroupId,
 } from "./breakdown/index.js";
+import { isFullyDemoAlliance, remapDemoTeams } from "./demoTeams.js";
 
 export interface SprParams {
   /** Observation noise sd on alliance output, normalized units. */
@@ -230,8 +231,21 @@ export const SPR_PARAMS: SprParams = {
  * The paramSetName stays `baseline`: no promoted-version override ever
  * touched BPR, and `softCredit` is a structural correction rather than a tuned
  * value.
+ *
+ * Bumped 3.0.0 -> 4.0.0 (2026-09-13, todo stray-team-scope-keys-in-live-d1):
+ * the Off-Season Demo Team exclusion OPR and EPA have carried since 2026-08-29,
+ * which this module predated. A fully-demo alliance skips the match, and every
+ * demo or placeholder slot reads and trains one shared pseudo entity (see
+ * `update`). It moves `pRedWin` on nearly every official match from 2018 on,
+ * through the shared scale and link temperature, and flips 88 official picks.
+ * Walk-forward A/B on the publish path (10 seasons, offseason included, the
+ * published scorer): pooled accuracy 0.753673 -> 0.753793 (+0.012pp) and
+ * pooled Brier 0.163091 -> 0.163076, both strict improvements, so Rule A
+ * passes. Per season it is mixed and tiny (2023 accuracy -0.043pp; 2019, 2025
+ * and 2026 Brier up by at most 0.00003). Like the two changes above, this is a
+ * correctness argument, not a performance claim.
  */
-export const SPR_VERSION = "3.0.0+baseline";
+export const SPR_VERSION = "4.0.0+baseline";
 
 /**
  * The two-timescale state, described by what the FROZEN PARAMETERS actually do
@@ -539,8 +553,8 @@ function initState(teams: string[]): SprState {
 
 function predict(state: SprState, match: UpcomingMatch): Prediction {
   const p = SPR_PARAMS;
-  const red = viewOfMap(state.teams, match.redTeams, p);
-  const blue = viewOfMap(state.teams, match.blueTeams, p);
+  const red = viewOfMap(state.teams, remapDemoTeams(match.redTeams), p);
+  const blue = viewOfMap(state.teams, remapDemoTeams(match.blueTeams), p);
 
   const d = red.mu - blue.mu;
   const v = red.pv + blue.pv + 2 * p.obsSd ** 2;
@@ -712,7 +726,20 @@ function foldPhases(
   return { phaseTeams: teams, phaseScale: scales, phaseScaleCount: counts };
 }
 
-function update(state: SprState, result: MatchResult): SprState {
+function update(state: SprState, rawResult: MatchResult): SprState {
+  // The Off-Season Demo Team exclusion OPR and EPA have applied since
+  // 2026-08-29 (`demoTeams.ts`), which this module predated. A fully-demo
+  // alliance, placeholder slots included, is a non-contest, so the whole match
+  // is skipped: no rating, no scale and no link-temperature step. Otherwise
+  // every demo or placeholder slot reads and folds the one shared pseudo
+  // entity, so 30 fictional keys never become 30 learned teams. `predict`
+  // applies the same remap, so a demo slot is priced by the entity it trains.
+  if (isFullyDemoAlliance(rawResult.redTeams) || isFullyDemoAlliance(rawResult.blueTeams)) return state;
+  const result: MatchResult = {
+    ...rawResult,
+    redTeams: remapDemoTeams(rawResult.redTeams),
+    blueTeams: remapDemoTeams(rawResult.blueTeams),
+  };
   const p = SPR_PARAMS;
 
   const { redFoul, blueFoul, redAdjust, blueAdjust } = correctionsOf(result.scoreBreakdownRaw);
