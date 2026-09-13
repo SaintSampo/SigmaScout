@@ -57,7 +57,7 @@ import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import { NICKNAME_COLUMN_WIDTH_NARROW_PX, TEAM_NUMBER_COLUMN_WIDTH_NARROW_PX } from "@/components/teams-table/columns";
 import { useIsMobile } from "@/lib/breakpoints";
 import { METRIC_GROUPS, withDerivedGroupMetrics, type ComponentGroupId, type DerivedGroupMetric } from "@/lib/metricGroups";
-import { hasGroupedTeamsView, metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
+import { hasGroupedTeamsView, metricKeysFor, publishesComponentMetrics, TOTAL_KEY } from "@/lib/metricKeys";
 import { metricDisplayLabel } from "@/lib/metricLabels";
 import { teamNumberFromKey } from "@/lib/teamKey";
 import { tierForPercentile } from "@/lib/tiers";
@@ -165,6 +165,9 @@ export function buildBreakdownRows(artifact: EventArtifact, algorithmId: string)
 export function visibleMetricKeys(algorithmId: string, season: number, expanded: ExpandedGroups): readonly string[] {
   const declared = metricKeysFor(algorithmId, season);
   if (!hasGroupedTeamsView(algorithmId)) return declared;
+  if (!publishesComponentMetrics(algorithmId)) {
+    return [TOTAL_KEY, ...METRIC_GROUPS.map((group) => group.metricKey)];
+  }
   const grouped = new Set<string>(METRIC_GROUPS.flatMap((group) => [...componentsInGroup(season, group.id)]));
   const ungrouped = declared.filter((key) => key !== TOTAL_KEY && !grouped.has(key));
   return [
@@ -411,6 +414,7 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
   // 07-UAT.md G-2: same sitewide breakpoint hook `TeamsTable.tsx`/`InsightsTab.tsx` reuse.
   const isNarrow = useIsMobile();
   const isGrouped = hasGroupedTeamsView(algorithmId);
+  const isExpandable = publishesComponentMetrics(algorithmId);
   const [expanded, setExpanded] = useState<ExpandedGroups>(NO_GROUPS_EXPANDED);
   const [sort, setSort] = useState<BreakdownSort>(DEFAULT_BREAKDOWN_SORT);
 
@@ -430,10 +434,10 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
    * two can never disagree about how many columns follow the last group.
    */
   const ungroupedCount = useMemo(() => {
-    if (!isGrouped) return 0;
+    if (!isExpandable) return 0;
     const grouped = new Set<string>(METRIC_GROUPS.flatMap((group) => [...componentsInGroup(season, group.id)]));
     return metricKeysFor(algorithmId, season).filter((key) => key !== TOTAL_KEY && !grouped.has(key)).length;
-  }, [isGrouped, algorithmId, season]);
+  }, [isExpandable, algorithmId, season]);
 
   function toggleGroup(groupId: ComponentGroupId) {
     const collapsing = expanded[groupId];
@@ -478,7 +482,7 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
           }}
         >
           <TableHeader>
-            {isGrouped && (
+            {isExpandable && (
               <TableRow data-testid="breakdown-group-row">
                 <TableHead
                   aria-hidden="true"

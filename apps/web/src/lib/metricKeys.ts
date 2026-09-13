@@ -109,6 +109,26 @@ export function publishesGroupMetrics(algorithmId: string): boolean {
 }
 
 /**
+ * Whether this algorithm's EVENT artifacts publish per-team component
+ * metrics (the season components, including `foulsCommitted`) that the
+ * event Breakdown tab can expand a phase into. True for EPA; false for SPR,
+ * whose phase components are display-only and whose event artifacts publish
+ * exactly `total`, `phaseAuto`, `phaseTeleop` and `phaseEndgame` (plus
+ * sigma), verified 2026-09-13, so expansion there would reveal only empty
+ * columns; false for OPR, which publishes Total alone. Derived from the
+ * algorithm id, never from inspecting fetched rows — the same column-set
+ * discipline `metricKeysFor` states above.
+ *
+ * Distinct from `hasGroupedTeamsView` below, which still answers whether the
+ * phase columns and sort buttons show at all. Consumed by the event
+ * Breakdown tab only — the Teams list components view does not read it
+ * (quick task 260913-mgn scoped this change to the event Breakdown page).
+ */
+export function publishesComponentMetrics(algorithmId: string): boolean {
+  return algorithmId === "epa";
+}
+
+/**
  * Whether the grouped Teams-table view can render REAL values (published or
  * exactly derived) for this algorithm — true for every algorithm that has
  * components to group, false only for OPR, which publishes Total alone and
