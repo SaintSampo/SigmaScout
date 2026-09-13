@@ -3,7 +3,55 @@ id: quick-tasks-append-corrupts-state-frontmatter
 created: 2026-09-12
 source: observed twice on 2026-09-12, once destructively
 priority: high
+resolved_date: 2026-09-13
+resolved_by: local patch to ~/.claude/gsd-core/bin/gsd-tools.cjs (routeQuickTasksAppend), STATE.md body fix, CLAUDE.md ban lifted
 ---
+
+## Resolution (2026-09-13)
+
+**Every incident now has a reproduced mechanism, and all of them are fixed or refused.**
+
+| incident | cause | reproduced on |
+|---|---|---|
+| 2: `current_phase` 09 reset to 08 | the helper wrote through `readModifyWriteStateMd`, which re-derives the whole frontmatter from the body on every write. The body still said `Phase: 08` after Phase 9 sealed | a scratch copy of HEAD: one append flipped `current_phase: 09` to `08` |
+| 1: two frontmatter blocks, stale one first | two steps. The hand script broke line 1 (see the attribution section below). A later helper run could not strip a frontmatter that no longer started at line 1, so `syncStateFrontmatter` prepended a fresh block derived from `Phase: 08` | the `88cac8f5` blob: one helper run left 3 `---` lines, `current_phase: 08` on line 5 and the stranded `09` on line 22 |
+| 3, 4: row over the opening `---` | hand-written script (attribution section below) | already reproduced 2026-09-12 |
+
+**The fix** is a local patch to `routeQuickTasksAppend` in the installed `gsd-tools.cjs`. The file
+carries a `LOCAL PATCH (SigmaScout, 2026-09-13)` comment, and GSD's update backs up modified files
+for `/gsd-update --reapply`.
+
+- **No frontmatter re-derivation.** The helper takes the same STATE.md lock, but it writes the
+  file byte-exact: the new row, plus `last_updated` and `last_activity` edited in place. It writes
+  through tmp+rename, not `platformWriteSync`, whose markdown normaliser can add blank lines
+  elsewhere in the file.
+- **Refuses already-corrupt files.** If line 1 is not `---`, the closing `---` is missing, or
+  `gsd_state_version` appears other than once, it exits 1 and writes nothing.
+- **Checks the append before writing.** It confirms exactly one line was added, that the line is
+  the row, and that it sits below the Quick Tasks heading. After writing, it reads the file back.
+- **Flags.** Unknown flags (`--id`, `--description`), flags with no value, and stray positionals
+  exit 1. `--dry-run` is honored. `--dir <quick dir>` fills the Directory link after checking the
+  directory exists. `--commit <rev>` stamps a verified commit instead of whatever HEAD is. A `|` in
+  the description is refused, because the table parser does not honor `\|`.
+- **Numbering** (pitfall 4, duplicate ids) was already fixed by the earlier max+1 patch in
+  `markdown-table.cjs`. That patch is still present.
+
+**Verified** on scratch copies. The clean HEAD file changed only in the row and `last_updated`
+(`current_phase` stayed 09). A CRLF copy stayed pure CRLF (599/599). The `88cac8f5` blob and the
+two-block file were refused with identical bytes and no lock or tmp file left. The old `--id` form,
+a pipe, a bad `--commit`, a bad `--dir` and a valueless flag all exit 1 with no change. fast.md's
+exact `--task "$TASK"` call and the legacy positional form both still append. A `--dry-run`
+against the real checkout wrote nothing.
+
+**Data fix.** STATE.md's body now says `Phase: 09` and `Current focus: Phase 09`. Other gsd-tools
+state commands still re-derive frontmatter from the body, and with the stale line they would have
+reset `current_phase` too. After the fix, re-deriving from this body gives the stored
+`current_phase`. One stale body line is left on purpose: Session Continuity's `Stopped at:` still
+describes 260911-j2w. `readModifyWriteStateMd`'s preservation step already keeps the frontmatter
+value when that line is unchanged, and the line belongs to the session-handoff workflows.
+
+**Not fixed, still live elsewhere:** the table parser still splits on raw `|`. If a pipe ever gets
+into a row by hand, every append fails loud until it is reworded.
 
 # `quick-tasks-append` rewrites STATE.md's frontmatter with stale values, and once split the file in two
 

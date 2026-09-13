@@ -23,11 +23,11 @@ current_phase_name: analytic-ranking-points-browser-side-simulation
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward backtests scored on winner accuracy first and Brier second — delivered on pages that load fast.
-**Current focus:** Phase 08 — simulation-compare
+**Current focus:** Phase 09 — analytic-ranking-points-browser-side-simulation
 
 ## Current Position
 
-Phase: 08
+Phase: 09
 Plan: Not started
 Status: All phases complete
 Last activity: 2026-09-13 - Completed quick task 260913-mgn: SPR event Breakdown drops the blank Fouls Committed column and the phase expand buttons

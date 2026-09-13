@@ -214,19 +214,26 @@ Applies to every agent and every workflow, including work inside isolated worktr
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 
-### Do not run `quick-tasks-append` (added 2026-09-12)
+### Append Quick Tasks rows with the patched `quick-tasks-append` (updated 2026-09-13)
 
-`gsd-tools quick-tasks-append` is **banned on this checkout** until
-`.planning/todos/pending/quick-tasks-append-corrupts-state-frontmatter.md` is closed. It corrupted
-`.planning/STATE.md` four times on 2026-09-12 — splitting the frontmatter in two, resetting
-`current_phase`, and twice writing its row over the file's opening `---` — and nothing in its output
-says it touched the frontmatter.
+The 2026-09-12 ban is lifted: `.planning/todos/completed/quick-tasks-append-corrupts-state-frontmatter.md`
+is closed. Use the helper, not a hand-written script. Three of the four corruptions came from a
+script whose regex lost its `\|` escapes.
 
-Append the Quick Tasks row with a small script instead, and before committing verify all four:
-frontmatter parses (`gsd-tools query frontmatter.get .planning/STATE.md milestone`), both `---`
-delimiters are present, no row number is duplicated, and every numbered row has exactly 5 cells.
-Re-read the table's last row number immediately before writing — concurrent sessions claim numbers.
-Never put a `|` in a description.
+```
+gsd-tools quick-tasks-append --task "<description>" --dir <quick dir name> --commit <your commit>
+```
+
+The installed helper (`~/.claude/gsd-core/bin/gsd-tools.cjs`) carries a local patch. It writes
+the row and `last_updated`/`last_activity` only, and never re-derives frontmatter. It refuses a
+STATE.md whose line 1 is not `---` or that holds two state blocks. It rejects unknown flags,
+stray arguments and `|` in the description, and it honors `--dry-run`. Every refusal exits 1 and
+writes nothing. Pass `--commit` so a concurrent session's commit never gets stamped.
+
+**The patch lives outside the repo.** After any GSD update, run `/gsd-update --reapply`, then
+confirm `grep -c "LOCAL PATCH (SigmaScout" ~/.claude/gsd-core/bin/gsd-tools.cjs` prints `1`. If
+it prints `0`, the unpatched helper is back. It still misreads `--id`/`--description` as a row
+and writes on `--dry-run`, so do not probe it with either flag.
 
 ## Architecture
 
