@@ -48,6 +48,7 @@ import { columnPinningFeature, columnSizingFeature, createColumnHelper, tableFea
 import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { MetricValue } from "@/components/MetricValue";
+import { TotalSigmaValue, totalColumnHeader, totalColumnWidth } from "@/components/TotalSigmaValue";
 import { EmptyState } from "@/components/StateViews";
 import { SkeletonRows } from "@/components/Skeletons";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -63,6 +64,7 @@ import { tierForPercentile } from "@/lib/tiers";
 import { componentsInGroup } from "../../../../../packages/core/algorithms/breakdown/index.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
+import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 
 type EventTeam = EventArtifact["teams"][number];
 type EventTeamMetrics = EventTeam["metrics"];
@@ -252,8 +254,22 @@ const WRAPPING_HEADER_CLASS_NAME = "h-auto min-h-10 py-2 align-top whitespace-no
 export const BREAKDOWN_METRIC_COLUMN_WIDTH_PX = 110;
 export const BREAKDOWN_TOTAL_COLUMN_WIDTH_PX = 118;
 
-function metricColumnWidth(key: string): number {
-  return key === TOTAL_KEY ? BREAKDOWN_TOTAL_COLUMN_WIDTH_PX : BREAKDOWN_METRIC_COLUMN_WIDTH_PX;
+/**
+ * Quick task 260913-jkp: Total's own width now also depends on whether it
+ * renders the split pill. `totalColumnWidth` (from `TotalSigmaValue.tsx`)
+ * widens Total to `TOTAL_SIGMA_COLUMN_WIDTH_PX` under a Sigma-enabled
+ * algorithm and leaves `BREAKDOWN_TOTAL_COLUMN_WIDTH_PX` unchanged otherwise;
+ * every other component column keeps `BREAKDOWN_METRIC_COLUMN_WIDTH_PX`. Used
+ * by the column definitions below AND by the group-header spacer cell and
+ * the skeleton, so all three can never disagree about Total's width.
+ */
+function metricColumnWidth(key: string, algorithmId: string): number {
+  return key === TOTAL_KEY ? totalColumnWidth(algorithmId, BREAKDOWN_TOTAL_COLUMN_WIDTH_PX) : BREAKDOWN_METRIC_COLUMN_WIDTH_PX;
+}
+
+/** Total's header reads "Total ± Sigma" under a Sigma-enabled algorithm (`TotalSigmaValue.tsx`'s `totalColumnHeader`); every other component column keeps its ordinary friendly label. */
+function breakdownColumnHeader(key: string, algorithmId: string): string {
+  return key === TOTAL_KEY ? totalColumnHeader(algorithmId) : metricLabel(key);
 }
 
 /**
@@ -310,17 +326,31 @@ function buildBreakdownColumns(algorithmId: string, season: number, isNarrow: bo
         </Link>
       ),
     }),
-    ...metricKeys.map((key) =>
-      columnHelper.accessor((row) => row.metrics[key], {
+    ...metricKeys.map((key) => {
+      const isTotal = key === TOTAL_KEY;
+      return columnHelper.accessor((row) => row.metrics[key], {
         id: key,
-        header: metricLabel(key),
-        size: metricColumnWidth(key),
+        header: breakdownColumnHeader(key, algorithmId),
+        size: metricColumnWidth(key, algorithmId),
+        // Quick task 260913-jkp: only the TOTAL column renders the split
+        // pill — component columns (including an expanded phase's own
+        // components) stay single tier-boxed values, unchanged.
         cell: (info) => {
           const entry = info.getValue();
-          return <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />;
+          if (!isTotal) {
+            return <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />;
+          }
+          const sigmaEntry = info.row.original.metrics[SIGMA_METRIC_KEY];
+          return (
+            <TotalSigmaValue
+              total={entry}
+              totalTier={tierForPercentile(entry?.percentile)}
+              sigma={sigmaEntry !== undefined ? { value: sigmaEntry.value, tier: tierForPercentile(sigmaEntry.percentile) } : undefined}
+            />
+          );
         },
-      }),
-    ),
+      });
+    }),
   ]);
 }
 
@@ -352,7 +382,14 @@ const BREAKDOWN_SKELETON_ROW_COUNT = 8;
  * interaction that does nothing.
  */
 export function BreakdownTabSkeleton({ algorithmId, season }: { algorithmId: string; season: number }) {
-  const headers = ["Team #", "Team Name", ...visibleMetricKeys(algorithmId, season, NO_GROUPS_EXPANDED).map(metricLabel)];
+  // Quick task 260913-jkp: Total's header now varies by algorithm too (the
+  // same `breakdownColumnHeader` the live table uses), so nothing shifts
+  // once real data lands under a Sigma-enabled algorithm.
+  const headers = [
+    "Team #",
+    "Team Name",
+    ...visibleMetricKeys(algorithmId, season, NO_GROUPS_EXPANDED).map((key) => breakdownColumnHeader(key, algorithmId)),
+  ];
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
@@ -479,7 +516,11 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
                     background: "var(--color-bg-surface)",
                   }}
                 />
-                <TableHead aria-hidden="true" className="h-auto py-1" style={{ width: BREAKDOWN_TOTAL_COLUMN_WIDTH_PX, background: "var(--color-bg-surface)" }} />
+                <TableHead
+                  aria-hidden="true"
+                  className="h-auto py-1"
+                  style={{ width: metricColumnWidth(TOTAL_KEY, algorithmId), background: "var(--color-bg-surface)" }}
+                />
                 {METRIC_GROUPS.map((group) => {
                   const isExpanded = expanded[group.id];
                   const span = isExpanded ? componentsInGroup(season, group.id).length : 1;

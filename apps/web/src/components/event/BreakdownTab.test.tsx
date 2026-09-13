@@ -17,7 +17,9 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
+import { totalColumnHeader } from "@/components/TotalSigmaValue";
 import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 import {
   BreakdownTab,
   buildBreakdownRows,
@@ -500,5 +502,65 @@ describe("buildBreakdownRows — ordering and tie-break (EVNT-03 ordering/adjace
     const row = buildBreakdownRows(artifact, "spr")[0] as BreakdownRow;
     expect(row.teamNumber).toBe(42);
     expect(row.nickname).toBe("Team 42");
+  });
+});
+
+describe("BreakdownTab — Total renders the split pill under Sigma-enabled algorithms (quick task 260913-jkp)", () => {
+  it("spr with a published sigma entry: the Total header reads 'Total ± Sigma', and the Total cell renders the pill", async () => {
+    const artifact = makeArtifact([team({ metrics: { [TOTAL_KEY]: { value: 60.5, percentile: 90 }, [SIGMA_METRIC_KEY]: { value: 8.42, percentile: 97 } } })]);
+    renderBreakdown(artifact, "spr", 2024);
+
+    await waitFor(() => expect(screen.getByTestId(`breakdown-header-${TOTAL_KEY}`)).toBeDefined());
+    // Total is the DEFAULT sort column (`DEFAULT_BREAKDOWN_SORT`), so its
+    // header button also renders the active sort's accent arrow glyph —
+    // `toContain`, not `toBe`, the same way this file's other header-text
+    // assertions (e.g. "Auto" on `phaseAuto`) already read.
+    expect(screen.getByTestId(`breakdown-header-${TOTAL_KEY}`).textContent).toContain(totalColumnHeader("spr"));
+    expect(totalColumnHeader("spr")).toBe("Total ± Sigma");
+
+    const cell = await screen.findByTestId(`breakdown-cell-${TOTAL_KEY}`);
+    const pill = cell.querySelector('[data-testid="total-sigma-pill"]');
+    expect(pill).not.toBeNull();
+    expect(pill?.textContent).toContain("60.50");
+    expect(pill?.textContent).toContain("±8.42");
+    expect(pill?.querySelector(".metric-tier--legendary")).not.toBeNull();
+
+    // Component columns stay single tier-boxed values, never a pill.
+    expect(screen.queryByTestId("breakdown-cell-phaseAuto")?.querySelector('[data-testid="total-sigma-pill"]')).toBeFalsy();
+  });
+
+  it("spr with no sigma entry for this team: the Total cell renders one plain tier-boxed value, no pill", async () => {
+    const artifact = makeArtifact([team({ metrics: { [TOTAL_KEY]: { value: 60.5, percentile: 90 } } })]);
+    renderBreakdown(artifact, "spr", 2024);
+
+    const cell = await screen.findByTestId(`breakdown-cell-${TOTAL_KEY}`);
+    expect(cell.querySelector('[data-testid="total-sigma-pill"]')).toBeNull();
+    expect(cell.textContent).toContain("60.50");
+  });
+
+  it("opr: the Total header stays 'Total' and the Total cell never renders a pill, sigma entry or not", async () => {
+    const artifact = makeArtifact([team({ metrics: { [TOTAL_KEY]: { value: 42.5 } } })], { algorithmId: "opr" });
+    renderBreakdown(artifact, "opr", 2024);
+
+    // opr is not grouped (`hasGroupedTeamsView`), so Total is not a sort
+    // button and carries no accent arrow — an exact match is correct here.
+    await waitFor(() => expect(screen.getByTestId(`breakdown-header-${TOTAL_KEY}`).textContent).toBe("Total"));
+    const cell = await screen.findByTestId(`breakdown-cell-${TOTAL_KEY}`);
+    expect(cell.querySelector('[data-testid="total-sigma-pill"]')).toBeNull();
+    expect(cell.textContent).toBe("42.50");
+  });
+
+  it("sorting by Total gives the same row order whether or not the artifact carries a sigma entry", () => {
+    const withSigma = makeArtifact([
+      team({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 }, [SIGMA_METRIC_KEY]: { value: 3 } } }),
+      team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 30 }, [SIGMA_METRIC_KEY]: { value: 5 } } }),
+    ]);
+    const withoutSigma = makeArtifact([
+      team({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 } } }),
+      team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 30 } } }),
+    ]);
+    expect(buildBreakdownRows(withSigma, "spr").map((row) => row.teamNumber)).toEqual(
+      buildBreakdownRows(withoutSigma, "spr").map((row) => row.teamNumber),
+    );
   });
 });
