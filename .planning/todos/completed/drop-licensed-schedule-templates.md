@@ -166,7 +166,9 @@ k's structure is generated once per shape and memoized in a bounded, transparent
 instead of about 17.6 minutes without sharing.
 
 The behaviour change: 101-200-team events, formerly split into two template blocks, are now
-scheduled whole (the generator's `pairKey` supports up to 1,023 teams).
+scheduled whole, up to `MAX_SCHEDULE_TEAMS` = 1,024 teams (the capacity of the generator's `pairKey`).
 
 Owed, and not done by this task: the republish from the main context (every published pre-schedule
 band moves), and the orchestrator's local deletion of the gitignored `data/schedule-templates/`.
+That deletion must wait until this branch is on main AND no publish from pre-merge code is still
+pending, because until then main's publish path still reads that cache.
