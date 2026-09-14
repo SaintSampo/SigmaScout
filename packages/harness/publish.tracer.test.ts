@@ -115,7 +115,7 @@ describe("artifactKey", () => {
   });
 });
 
-describe("EventArtifactSchema validation gate (T-04-04)", () => {
+describe("EventArtifactSchema validation gate", () => {
   it("throws from the schema parse on a deliberately malformed artifact (missing generation) — proof a validation failure happens before any upload can occur", () => {
     const malformed = {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,

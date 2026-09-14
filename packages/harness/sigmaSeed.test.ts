@@ -97,7 +97,7 @@ function seedRows(layer: SigmaScoutLayer): StateRow[] {
   return population === undefined ? rows : withSigmaPopulation(rows, population);
 }
 
-describe("the D1 seed carries the Sigma Score beliefs (shape 11, the gap plan 09-08 filed)", () => {
+describe("the D1 seed carries the Sigma Score beliefs (shape 11)", () => {
   it("seed rows built the way publish.ts builds them round-trip sigmaBeliefs() back out WARMED, not at the prior", () => {
     const layer = foldedLayer();
     const beliefs = layer.sigmaBeliefs();

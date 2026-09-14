@@ -67,7 +67,7 @@ function expectNormalized(pmf: readonly number[] | undefined, label: string): vo
   expect(Math.abs(pmf!.reduce((a, b) => a + b, 0) - 1), label).toBeLessThan(1e-9);
 }
 
-describe("tracer: the lattice family through SigmaScoutLayer (260914-01x)", () => {
+describe("tracer: the lattice family through SigmaScoutLayer", () => {
   const fixture = JSON.parse(readFileSync(DIGEST_SLICE_FIXTURE_PATH, "utf8")) as DigestSliceFixture;
   const spr = resolvePublishAlgorithms(undefined).find((a) => a.id === "spr") as AlgorithmModule<unknown>;
   const lattice = RP_RULE_MODULES[fixture.sliceSeason]!;

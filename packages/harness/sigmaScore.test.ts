@@ -309,7 +309,7 @@ describe("allianceSigmaBandVariance", () => {
   });
 });
 
-describe("publishesRankingPoints (quick task 260913-it4)", () => {
+describe("publishesRankingPoints", () => {
   it("is true for spr and false for opr and epa", () => {
     expect(publishesRankingPoints("spr")).toBe(true);
     expect(publishesRankingPoints("opr")).toBe(false);

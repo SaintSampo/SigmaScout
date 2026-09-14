@@ -72,7 +72,7 @@ function makeTrackingAlgorithm(
   };
 }
 
-describe("WalkForwardSimulator.runAll — carryStates (quick task 260908-615)", () => {
+describe("WalkForwardSimulator.runAll — carryStates", () => {
   it("declaring algorithm carries the post-last-official state; non-declaring algorithm carries its final state, reference-identical", () => {
     const matches = [
       makeMatch({ matchKey: "2024off_qm1", eventKey: "2024off", eventType: 0 }),

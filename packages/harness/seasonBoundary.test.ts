@@ -21,7 +21,7 @@ describe("seasonBoundaryFor", () => {
     });
   });
 
-  it("reports a truthful two-year gap across a non-contiguous corpus (the case 260903-3bv exists for), unchanged", () => {
+  it("reports a truthful two-year gap across a non-contiguous corpus, unchanged", () => {
     expect(seasonBoundaryFor([2019, 2020, 2022], 2)).toEqual({
       fromSeason: 2020,
       toSeason: 2022,

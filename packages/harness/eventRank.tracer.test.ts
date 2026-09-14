@@ -52,7 +52,7 @@ function minimalPrediction(): Prediction {
   return { winner: "red", pRedWin: 0.5, redScore: 1, blueScore: 0 };
 }
 
-describe("event standing — corpus-backed end-to-end tracer (plan 06.1-01, Tasks 1 & 3)", () => {
+describe("event standing — corpus-backed end-to-end tracer", () => {
   if (!CORPUS_AVAILABLE) {
     it.skip(
       `skipped: ${CORPUS_PATH} is absent — run pnpm ingest --year 2024 then pnpm ingest:rankings --year 2024 first`,

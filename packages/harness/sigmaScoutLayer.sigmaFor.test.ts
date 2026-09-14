@@ -43,7 +43,7 @@ function fixturePrediction(overrides: Partial<Prediction> = {}): Prediction {
   };
 }
 
-describe("SigmaScoutLayer.sigmaFor (quick task 260913-m45)", () => {
+describe("SigmaScoutLayer.sigmaFor", () => {
   it("is a finite positive number before any fold, for a Sigma-enabled layer", () => {
     const layer = new SigmaScoutLayer(undefined, "spr");
     const value = layer.sigmaFor("frc1");
