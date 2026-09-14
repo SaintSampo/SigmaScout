@@ -43,6 +43,15 @@ test.describe("Static shell — JavaScript enabled", () => {
     // The real Ribbon renders identifiable chrome (the "Primary" nav) that
     // only exists once React has taken over from the static shell.
     await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole("banner").getByText("SigmaScout")).toHaveCount(1);
+    // Exactly one banner landmark: the shell's <header> was replaced, not
+    // stacked beside the Ribbon's.
+    await expect(page.getByRole("banner")).toHaveCount(1);
+    // The real wordmark, exactly once. Since the Pine redesign (40618556) it
+    // renders "ΣigmaScout" (the Σ in its own accent span), so plain-text
+    // "SigmaScout" is the static shell's wordmark only; Ribbon.test.tsx pins
+    // the home link's accessible name to "ΣigmaScout".
+    await expect(page.getByRole("banner").getByRole("link", { name: "ΣigmaScout", exact: true })).toHaveCount(1);
+    // No leftover: the static shell's own wordmark is gone.
+    await expect(page.getByRole("banner").getByText("SigmaScout", { exact: true })).toHaveCount(0);
   });
 });
