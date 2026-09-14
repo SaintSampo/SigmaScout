@@ -36,20 +36,16 @@ interface SampledBreakdownRow {
 }
 
 /**
- * One season's named, capped reconciliation tolerance — the breakdown-side
- * mirror of `rp/reconciliation.test.ts`'s `KNOWN_TOLERANCES`. A season with
- * NO entry here stays at an EFFECTIVE rate of exactly 0 — unchanged
- * behaviour, since `breakdownToleranceFor` returns `undefined` and the
- * assertion below falls back to "any exception fails".
+ * One season's named, capped reconciliation tolerance. A season with no
+ * entry here stays at an effective rate of exactly 0.
  *
- * `rate` is the measured EXCEPTION rate (mismatches / sampled sides) as a
+ * `rate` is the measured exception rate (mismatches / sampled sides) as a
  * decimal fraction, plus a small stated margin — never a guess. `maxAbsGap`
- * caps the absolute size of any TOLERATED exception; an exception larger
+ * caps the absolute size of any tolerated exception; an exception larger
  * than this fails regardless of `rate`, which is what keeps a genuine
- * regression (e.g. a broken component extractor producing a huge gap)
- * failing even under an otherwise-satisfied rate budget. These tolerances
- * cover MEASURED ARTIFACTS IN TBA's OWN ARITHMETIC and MUST NEVER be
- * widened to cover a component-map error.
+ * regression failing even under an otherwise-satisfied rate budget. These
+ * tolerances cover measured artifacts in TBA's own arithmetic and must
+ * never be widened to cover a component-map error.
  */
 interface BreakdownTolerance {
   readonly season: number;
@@ -62,29 +58,22 @@ interface BreakdownTolerance {
 }
 
 /**
- * 2018: TBA's own roll-up-identity residual, measured over the FULL official
- * qual population — 196 / 28,312 sides (0.6923%), every exception carrying
- * the SAME sign. Proven to be TBA's own arithmetic, not a component-map
- * defect, three ways (see `2018.ts`'s file header): our auto/teleop halves
- * both reconcile exactly against TBA's own halves, and all 196 mismatching
- * sides also fail TBA's OWN four-term identity (`totalPoints ==
- * autoPoints + teleopPoints + foulPoints + adjustPoints`). `0.008` keeps a
- * small margin above the measured rate.
+ * 2018: TBA's own roll-up-identity residual, measured over the full
+ * official qual population, every exception carrying the same sign.
+ * Proven to be TBA's own arithmetic, not a component-map defect, three
+ * ways (see `2018.ts`'s file header). `0.008` keeps a small margin above
+ * the measured rate.
  */
 const KNOWN_BREAKDOWN_TOLERANCES: readonly BreakdownTolerance[] = [
-  // 2016: TBA's own roll-up-identity residual, measured over the FULL
-  // official non-offseason population, ALL comp levels — 3 / 26,604 sides
-  // (0.01128%), and ALL THREE are ELIMINATION matches. Proven to be TBA's
-  // arithmetic, not a component-map defect, the same three ways 2018's
-  // entry above is (see `2016.ts`'s file header). `direction` is
-  // deliberately OMITTED: the three observed signs are MIXED, so recording
-  // one from a sampled window alone would encode a sampling artifact as a
-  // fact. `maxAbsGap: 25` is the exact observed magnitude, so any LARGER
-  // gap still fails regardless of rate. MUST NEVER be widened to cover a
-  // component-map error.
+  // 2016: TBA's own roll-up-identity residual, measured over the full
+  // official non-offseason population, all comp levels, all exceptions
+  // eliminations. Proven to be TBA's arithmetic, not a component-map
+  // defect, the same three ways 2018's entry above is. `direction` is
+  // deliberately omitted: the observed signs are mixed. `maxAbsGap: 25` is
+  // the exact observed magnitude, so any larger gap still fails.
   //
-  // 2017 gets NO entry: 0 exceptions / 30,880 sides over the same full
-  // all-comp-level population, so its absence here is a measured result.
+  // 2017 gets no entry: 0 exceptions over the same full all-comp-level
+  // population, so its absence here is a measured result.
   { season: 2016, rate: 0.001, maxAbsGap: 25 },
   { season: 2018, rate: 0.008, maxAbsGap: 2, direction: "positive" },
 ];
@@ -94,16 +83,14 @@ function breakdownToleranceFor(season: number): BreakdownTolerance | undefined {
 }
 
 /**
- * Offseason events (`is_offseason = 1`, TBA `event_type = 99`) are excluded
- * from the sample — same discipline `selectMatchesChronological`'s
- * `excludeOffseason` option already applies for anything feeding ratings or
- * scoring. Offseason breakdowns are self-reported by event organizers
- * rather than FMS-generated and are not guaranteed to follow the official
- * season schema: a live corpus check found offseason matches missing
- * fields as basic as `adjustPoints` entirely. That is a genuine data-shape
- * difference in the corpus, not a component-map defect, so this
- * reconciliation proof is scoped to official (non-offseason) matches, the
- * population every per-season map is actually built to parse.
+ * Offseason events are excluded from the sample — same discipline
+ * `selectMatchesChronological`'s `excludeOffseason` option already applies
+ * for anything feeding ratings or scoring. Offseason breakdowns are
+ * self-reported by event organizers rather than FMS-generated and are not
+ * guaranteed to follow the official season schema (a live corpus check
+ * found offseason matches missing fields as basic as `adjustPoints`
+ * entirely). That is a genuine data-shape difference, not a component-map
+ * defect, so this reconciliation proof is scoped to official matches.
  */
 function sampleBreakdowns(year: number, limit: number): SampledBreakdownRow[] {
   const db = openCorpusReadOnly(CORPUS_PATH);
@@ -302,13 +289,13 @@ describe("prototype-pollution regression (T-02-04)", () => {
    * fixed allowlist loop, so a `__proto__`, `constructor`, or `prototype`
    * key in third-party TBA JSON cannot reach `Object.prototype`.
    *
-   * The vector is injected into the raw JSON *string* and driven through
+   * The vector is injected into the raw JSON string and driven through
    * `parseBreakdown`, which owns the real `JSON.parse` boundary — the
    * actual path a poisoned corpus row would take. This matters: an object
-   * *literal* written `{ __proto__: {...} }`
-   * sets the object's prototype and creates NO own property, so a
-   * literal-based fixture silently tests nothing. `assertVectorIsLive`
-   * below fails loudly if that ever regresses into a tautology.
+   * literal written `{ __proto__: {...} }` sets the object's prototype and
+   * creates no own property, so a literal-based fixture silently tests
+   * nothing. `assertVectorIsLive` below fails loudly if that ever
+   * regresses into a tautology.
    */
   const POISON_KEYS = ["__proto__", "constructor", "prototype"] as const;
   const POISON_JSON = POISON_KEYS.map((k) => `"${k}":{"polluted":true}`).join(",") + ",";
