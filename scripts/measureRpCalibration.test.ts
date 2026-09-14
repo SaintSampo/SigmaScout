@@ -1,31 +1,16 @@
 /**
- * Unit tests for `measureRpCalibration.ts`'s pure helpers — the isEntryPoint
- * guard lets this file import
- * `buildRpCalibrationRecord`/`RP_RELIABILITY_BUCKET_EDGES` without the script
- * trying to open a corpus.
+ * Unit tests for `measureRpCalibration.ts`'s pure helpers (its entry-point
+ * guard keeps the import from opening a corpus), covering what no console
+ * output would reveal:
  *
- * What is tested here is everything that could be silently wrong in a way no
- * console output would reveal:
- *
- *   - a bonus with zero observations must be OMITTED from `bonuses`, never
- *     emitted with a `NaN` figure (T-09-04) — a `NaN` would format as a dash
- *     downstream and read identically to "no data";
- *   - `bonuses` must stay in the CALLER's bonusNames order, never re-sorted —
- *     a silent alphabetisation would desynchronize this record from the
- *     season module's own order the rest of the site uses;
- *   - the same-scorer fix (D-11) must be structurally true: exactly one
- *     `SigmaScoutLayer` construction in the file, with the algorithm id as
- *     its second argument, and no direct call to `rpPmfForMatch`/
- *     `RpMomentsAccumulator` outside a comment;
- *   - the COMMITTED attribution record and its document must stay in step
- *     even though the code that produced them is gone (09-06 Task 4).
- *
- * Task 2 Step 5 (2026-09-11): `buildRpCalibrationRecord`'s wire record no
- * longer carries `reliabilityBins` — dropped after real measured bytes
- * showed attaching it pushed `compare-2016.json` over the committed compare
- * budget with nothing on the Compare page ever reading it.
- * `RP_RELIABILITY_BUCKET_EDGES` stays exported and tested below because
- * `reliabilityTable` (the CONSOLE report) still uses it.
+ *   - a bonus with zero observations is omitted, never emitted with `NaN`
+ *     (which would read as "no data");
+ *   - `bonuses` keep the caller's bonusNames order, never re-sorted;
+ *   - the same-scorer construction is structurally true: every
+ *     `SigmaScoutLayer` gets the algorithm id as its second argument, and no
+ *     direct `rpPmfForMatch`/`RpMomentsAccumulator` call exists outside a
+ *     comment;
+ *   - the committed attribution record and its document stay in step.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -35,17 +20,10 @@ import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
 
 /**
- * The frozen baselines under `data/baselines/` record the premier algorithm under
- * the id it carried WHEN THE MEASUREMENT RAN. Quick task 260912-ivg renamed the live
- * id to `spr` and deliberately did NOT rewrite those files — they are a
- * record of what was measured and when, and rewriting them would falsify the audit
- * trail the sealed 2016-2022 / 2023-2026 holdout rests on.
- *
- * So the id is resolved on READ, exactly as `publish.test.ts`'s
- * `FROZEN_BASELINE_ALGORITHM_ID_ALIASES` already does. The cross-product pins below
- * stay derived from the LIVE `PUBLISHED_ALGORITHM_IDS` — a newly-published algorithm
- * must still widen them rather than slip past — while a frozen record's older name
- * for the same algorithm resolves to its current one.
+ * Frozen baselines keep the premier algorithm's id from when they were measured
+ * and are never rewritten (the sealed holdout's audit trail rests on them), so
+ * the id is resolved on read. The pins below stay derived from the live
+ * `PUBLISHED_ALGORITHM_IDS`, so a newly published algorithm widens them.
  */
 const FROZEN_BASELINE_ALGORITHM_ID_ALIASES: Readonly<Record<string, string>> = { bpr: "spr" };
 const liveAlgorithmId = (frozenId: string): string => FROZEN_BASELINE_ALGORITHM_ID_ALIASES[frozenId] ?? frozenId;
@@ -220,9 +198,7 @@ describe("widened emitter (Task 2, D-09) — one runAll, disjoint per-algorithm 
     const algoB = makeAlgorithm("algoB");
     const teams = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
 
-    // Exactly ONE runAll for both algorithms sharing one chronological
-    // stream — the shape this task's widened emitter relies on to cost one
-    // replay instead of one per algorithm.
+    // One runAll for both algorithms over one stream: one replay, not one per algorithm.
     const records = new WalkForwardSimulator(matches).runAll([algoA, algoB], teams);
 
     const forA = records.filter((r) => r.algorithmId === "algoA");
@@ -233,8 +209,7 @@ describe("widened emitter (Task 2, D-09) — one runAll, disjoint per-algorithm 
     expect(forA.every((r) => r.algorithmId !== "algoB")).toBe(true);
     expect(forB.every((r) => r.algorithmId !== "algoA")).toBe(true);
 
-    // Chronologically ordered per algorithm — each algorithm's own subsequence
-    // preserves the match stream's original order.
+    // Each algorithm's subsequence preserves the stream's order.
     expect(forA.map((r) => r.match.matchKey)).toEqual(["2024test_qm1", "2024test_qm2", "2024test_qm3"]);
     expect(forB.map((r) => r.match.matchKey)).toEqual(["2024test_qm1", "2024test_qm2", "2024test_qm3"]);
   });
@@ -243,38 +218,15 @@ describe("widened emitter (Task 2, D-09) — one runAll, disjoint per-algorithm 
 describe("same-scorer structural assertions (D-11)", () => {
   it("constructs SigmaScoutLayer exactly two times — control and the --marginal-arm layer — and EVERY one carries a resolved algorithm id as the second argument", () => {
     const matches = [...SOURCE.matchAll(/new SigmaScoutLayer\(/g)];
-    // Two: quick task 260912-2uz added the measurement-only negative-binomial
-    // arm (control + 1), multiplying LAYERS (never replays) off the SAME one
-    // walk-forward pass per season. Quick task 260913-qyn's three outcome-arm
-    // layers (win, tie, win+tie) briefly added a third and fourth and fifth
-    // construction here during Task 1/Task 2's measurement; WIN+TIE shipped
-    // (`data/baselines/rp-outcome-arms-2026-09.json`) and the four-layer fold
-    // that produced them — along with `SigmaScoutLayer`'s measurement-only
-    // third constructor argument — was deleted at ship time, so the shipped
-    // WIN+TIE behavior is now the DEFAULT two-argument construction rather
-    // than a separate layer. The count is asserted so a THIRD construction —
-    // a second replay, or a layer built some other way — has to be justified
-    // here rather than appearing silently.
-    //
-    // 2026-09-14, quick task 260914-01x: this was FIVE while `--bonus-arms`
-    // existed (control, the NB arm, and the lattice, meanShift and
-    // lattice+meanShift layers off the same one replay). lattice+meanShift
-    // shipped (`data/baselines/rp-bonus-arms-2026-09.json`), the three
-    // bonus-arm constructions were deleted with the flag, and the count is
-    // back to 2.
+    // Two: control and the negative-binomial arm, off one walk-forward pass.
+    // A third construction must be justified here rather than appear silently.
     expect(matches).toHaveLength(2);
     expect(SOURCE).not.toMatch(/rpMeanShift|latticeRuleModule/);
-    // The second argument is the resolved algorithm id — 09-01's same-scorer
-    // fix, and the premise of every figure this script produces. The third
-    // argument this site briefly carried (an arm's model config, then
-    // 260913-qyn's `rpOutcomeArms`) is gone with the rest of the temporary
-    // selectable surface: there is one production model again, and the
-    // marginal arm is a variant RULE MODULE rather than a config.
+    // The second argument is the resolved algorithm id; the marginal arm is a
+    // variant rule module, not a config.
     expect(SOURCE).toMatch(/new SigmaScoutLayer\(ruleModule, \w+\.id\)/);
     expect(SOURCE).toMatch(/new SigmaScoutLayer\(armRuleModule, \w+\.id\)/);
-    // No construction may be one-argument: that is the exact defect the
-    // SAME-SCORER FIX header records, and it once manufactured a phantom
-    // ~0.003 regression on this very question.
+    // A one-argument construction once manufactured a phantom ~0.003 regression.
     expect(SOURCE).not.toMatch(/new SigmaScoutLayer\([A-Za-z]+\)/);
   });
 
@@ -284,8 +236,6 @@ describe("same-scorer structural assertions (D-11)", () => {
   });
 
   it("scores both arms with the SAME brier helper — no second scoring implementation anywhere in the file", () => {
-    // One definition of each scoring helper. A parallel implementation is the
-    // failure the SAME-SCORER FIX header exists to prevent.
     expect([...SOURCE.matchAll(/function brier\(/g)]).toHaveLength(1);
     expect([...SOURCE.matchAll(/function rate\(/g)]).toHaveLength(1);
     expect([...SOURCE.matchAll(/function meanPredicted\(/g)]).toHaveLength(1);
@@ -300,15 +250,10 @@ describe("same-scorer structural assertions (D-11)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The committed record and its document, after the code that produced them
-// was deleted (09-06 Task 4, D-06)
+// The committed attribution record and its document
 // ---------------------------------------------------------------------------
 //
-// The arms, the bar and the ship-decision rule are gone. The record they
-// produced is not, and neither is the document that reads it. Everything below
-// is pure over the committed JSON and references no deleted symbol — which is
-// exactly why the record was schema'd against plain strings rather than
-// against the config type in the first place.
+// Pure over the committed JSON; the code that produced the record is gone.
 
 const ATTRIBUTION_RAW = JSON.parse(
   readFileSync(new URL("../data/baselines/rp-attribution-2026-09.json", import.meta.url), "utf8")
@@ -385,8 +330,7 @@ describe("data/baselines/rp-attribution-2026-09.json — the committed record ou
   });
 
   it("records that the pre-committed rule accepted nothing — the reason there is one model again", () => {
-    // Not a re-derivation: the rule that produced this is deleted. This asserts
-    // the committed OUTCOME, which is what the collapse was carried out against.
+    // Asserts the committed outcome; the rule that produced it is deleted.
     expect(record.decision.acceptedFields).toEqual([]);
     expect([...record.decision.revertedFields].sort()).toEqual(["marginal", "tie", "win"]);
   });
@@ -412,9 +356,7 @@ describe("docs/models/rp-attribution.md cannot drift off the record it describes
     };
     const selection = section("## SELECTION SLICE");
     const reporting = section("## REPORTING SLICE");
-    // Matched as WHOLE TOKENS rather than substrings: a Brier score of
-    // 0.202011 contains "2020" and a raw substring check would read that as a
-    // selection season leaking into the reporting section.
+    // Whole tokens, not substrings: a Brier of 0.202011 contains "2020".
     const mentionsYear = (text: string, year: number): boolean => new RegExp(`\b${year}\b`).test(text);
     for (const s of record.reportingSlice.seasons) expect(mentionsYear(selection, s), `selection section mentions reporting season ${s}`).toBe(false);
     for (const s of record.selectionSlice.seasons) expect(mentionsYear(reporting, s), `reporting section mentions selection season ${s}`).toBe(false);
@@ -422,7 +364,7 @@ describe("docs/models/rp-attribution.md cannot drift off the record it describes
 });
 
 // ---------------------------------------------------------------------------
-// THE COLLAPSE WAS A REFACTOR, AND THIS IS THE PROOF (09-06 Task 4, D-06)
+// The re-emitted baseline equals the attribution record's chosen arm exactly
 // ---------------------------------------------------------------------------
 
 describe("data/baselines/rp-calibration-2026-09b.json — re-emitted from the collapsed single-path code", () => {
@@ -431,11 +373,8 @@ describe("data/baselines/rp-calibration-2026-09b.json — re-emitted from the co
   );
 
   it("is per-bonus EXACTLY equal to the chosen arm's pre-collapse figures — `===`, never a tolerance", () => {
-    // A tolerance would hide precisely the deletion this gate exists to catch:
-    // a branch removed that was still doing something would move a figure by a
-    // small amount, and "close enough" would wave it through. If any figure
-    // moves, the right response is to find the branch, NOT to widen the
-    // comparison or regenerate either file until they agree.
+    // No tolerance: a removed branch that still mattered moves a figure slightly.
+    // If one moves, find the branch; never widen this or regenerate either file.
     const record = RpAttributionRecordSchema.parse(ATTRIBUTION_RAW);
     const chosenArm = record.decision.acceptedFields.length === 0 ? "control" : "";
     expect(chosenArm, "the chosen arm must be identifiable from the committed decision").not.toBe("");
@@ -460,8 +399,7 @@ describe("data/baselines/rp-calibration-2026-09b.json — re-emitted from the co
         compared++;
       }
     }
-    // The derived census, not a hardcoded 30: a newly-registered season must
-    // widen this gate rather than slip past it.
+    // A derived census, not a hardcoded 30, so a newly registered season widens this gate.
     const bonusTotal = record.reportingSlice.seasons.reduce((sum, s) => sum + RP_RULE_MODULES[s]!.bonusNames.length, 0);
     expect(compared).toBe(bonusTotal * PUBLISHED_ALGORITHM_IDS.length);
   });
@@ -483,15 +421,14 @@ describe("data/baselines/rp-calibration-2026-09b.json — re-emitted from the co
     const frozen = JSON.parse(
       readFileSync(new URL("../data/baselines/rp-calibration-2026-09.json", import.meta.url), "utf8")
     ) as { rpLayer?: string; records: unknown[] };
-    // The frozen file predates the label entirely, which is exactly why the
-    // schema's new field is optional.
+    // The frozen file predates the label, which is why the schema field is optional.
     expect(frozen.rpLayer).toBeUndefined();
     expect(frozen.records.length).toBeGreaterThan(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// The measurement-only negative-binomial arm (quick task 260912-2uz)
+// The measurement-only negative-binomial arm
 // ---------------------------------------------------------------------------
 
 describe("--marginal-arm slice guard — the 2023-2026 reporting slice is unspendable", () => {
@@ -503,8 +440,7 @@ describe("--marginal-arm slice guard — the 2023-2026 reporting slice is unspen
 
   it("refuses a RANGE that merely spans the reporting slice rather than silently trimming it — the guard reads the PARSED list, so asking for it is never quietly answered with something else", () => {
     const parsed = parseSeasons("2016-2026");
-    // Proves the parse really does carry the forbidden seasons into the guard,
-    // rather than the guard being tested against a hand-built array.
+    // Through the real parse, so the forbidden seasons reach the guard.
     expect(parsed).toContain(2023);
     expect(parsed).toContain(2026);
     expect(() => assertMarginalArmSliceAllowed(parsed)).toThrow(/2023, 2024, 2025, 2026/);
@@ -580,12 +516,8 @@ describe("--marginal-arm eligibility partition — derived at runtime from bonus
   });
 
   it("2016 capture is PARTIALLY reachable, not unreachable — its attackedTowerEndStrength clause honours the declaration while its scaled-sum clause does not", () => {
-    // Got wrong first and caught by the measurement's own in-flight
-    // consistency check, which reported capture as an "unreachable" cell whose
-    // Brier had nonetheless moved. A bonus with one reachable clause and one
-    // blocked clause IS reachable; classifying it otherwise understates the
-    // arm's reach and buries a real movement in the tie-by-construction
-    // category.
+    // One reachable clause plus one blocked clause is reachable; otherwise a real
+    // movement is buried among the ties by construction.
     const partition = deriveMarginalArmEligibility(RP_RULE_MODULES[2016]!);
     const capture = partition.bonusReach.find((b) => b.name === "capture")!;
     expect(capture.canMove).toBe(true);
@@ -625,10 +557,7 @@ describe("--marginal-arm eligibility partition — derived at runtime from bonus
 });
 
 describe("--marginal-arm variant rule module (the D-3 seam)", () => {
-  // 2026-09-14, quick task 260914-01x: the production family these three
-  // tests pin moved from "gaussian" to "lattice" when lattice+meanShift
-  // shipped (`data/baselines/rp-bonus-arms-2026-09.json`). The seam's
-  // contract is unchanged: poisoned variables keep the production family.
+  // Poisoned variables keep the production family, which is "lattice".
   it("flips marginalFamily only on eligible variables and leaves poisoned ones declaring the production family (lattice)", () => {
     const original = RP_RULE_MODULES[2016]!;
     const partition = deriveMarginalArmEligibility(original);
@@ -665,11 +594,8 @@ describe("--marginal-arm variant rule module (the D-3 seam)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// applyRpOutcomeArmBar — 260913-qyn's pre-committed outcome-arm acceptance
-// bar, COMMITTED BEFORE any WIN/TIE/WIN+TIE arm figure exists (Task 1 Step 1
-// of quick task 260913-qyn). These tests exercise the bar in complete
-// isolation from any real measurement — every figure below is hand-picked to
-// exercise one accept/reject boundary, never a number this script produced.
+// applyRpOutcomeArmBar: every figure is hand-picked to hit one accept/reject
+// boundary, never a measured number.
 // ---------------------------------------------------------------------------
 
 describe("applyRpOutcomeArmBar (260913-qyn's pre-committed outcome-arm bar)", () => {
@@ -774,8 +700,7 @@ describe("applyRpOutcomeArmBar (260913-qyn's pre-committed outcome-arm bar)", ()
 });
 
 // ---------------------------------------------------------------------------
-// applyRpBonusArmBar — 260914-01x's pre-committed bonus-arm bar, committed
-// before any lattice or mean-shift figure exists. Every figure is hand-picked.
+// applyRpBonusArmBar: every figure is hand-picked.
 // ---------------------------------------------------------------------------
 
 describe("applyRpBonusArmBar (260914-01x's pre-committed bonus-arm bar)", () => {
@@ -877,9 +802,7 @@ describe("applyRpBonusArmBar (260914-01x's pre-committed bonus-arm bar)", () => 
 });
 
 // ---------------------------------------------------------------------------
-// The bonus-arm reader half (260914-01x): the slice and algorithm guards and
-// the record schema, kept after `--bonus-arms` and its four-layer fold, lattice
-// variant module and outcome-half identity check were deleted at ship time.
+// The bonus-arm reader half: the slice and algorithm guards and the record schema.
 // ---------------------------------------------------------------------------
 
 describe("assertBonusArmSliceAllowed", () => {
@@ -966,8 +889,7 @@ describe("the hand-written marginal-resolution merges carry the lattice counter"
 });
 
 // ---------------------------------------------------------------------------
-// rankedProbabilityScore / outcomeBrier / the summary builders — Task 1 Step
-// 3's total-RP and outcome scorers (260913-qyn).
+// rankedProbabilityScore / outcomeBrier / the summary builders
 // ---------------------------------------------------------------------------
 
 describe("rankedProbabilityScore", () => {
@@ -1080,7 +1002,7 @@ describe("buildRpCalibrationRecord — the optional third argument (260913-qyn)"
     const raw: unknown = JSON.parse(readFileSync(new URL("../data/baselines/rp-calibration-2026-09c.json", import.meta.url), "utf8"));
     const parsed = RpCalibrationMeasurementSchema.parse(raw);
     expect(parsed.records.length).toBeGreaterThan(0);
-    // Frozen, pre-260913-qyn: no record carries the new blocks.
+    // Frozen before the total-RP and outcome blocks existed.
     for (const r of parsed.records) {
       expect(r.calibration.totalRp).toBeUndefined();
       expect(r.calibration.outcome).toBeUndefined();
@@ -1090,10 +1012,7 @@ describe("buildRpCalibrationRecord — the optional third argument (260913-qyn)"
   it("the committed data/baselines/rp-calibration-2026-09d.json parses, carries its own frozen rpLayer label, and every spr record has non-empty totalRp/outcome blocks", () => {
     const raw: unknown = JSON.parse(readFileSync(new URL("../data/baselines/rp-calibration-2026-09d.json", import.meta.url), "utf8"));
     const parsed = RpCalibrationMeasurementSchema.parse(raw);
-    // Re-pinned 2026-09-14 (quick task 260914-01x, design point 9 of
-    // 260913-qyn) to -09d's OWN frozen literal: SHIPPED_RP_LAYER_LABEL gained
-    // marginal=lattice and meanShift=fully-warm-walk-forward when
-    // lattice+meanShift shipped, after this file was emitted.
+    // Pinned to -09d's own frozen literal; the shipped label changed after it was emitted.
     expect(parsed.rpLayer).toBe("winSource=algorithm-pRedWin, tieModel=discrete-integer-margin, marginal=gaussian");
     expect(parsed.rpLayer).not.toBe(SHIPPED_RP_LAYER_LABEL);
     const sprRecords = parsed.records.filter((r) => liveAlgorithmId(r.algorithmId) === "spr");
@@ -1107,10 +1026,8 @@ describe("buildRpCalibrationRecord — the optional third argument (260913-qyn)"
   });
 
   it("the committed data/baselines/rp-calibration-2026-09e.json parses, carries the shipped rpLayer label, and every spr record has non-empty totalRp/outcome blocks", () => {
-    // Emitted 2026-09-14 (quick task 260914-01x) from the tree that shipped
-    // lattice+meanShift, and the file RP_CALIBRATION_MEASUREMENT_PATH now
-    // points at. When the label next changes, re-pin this to its own frozen
-    // literal, as the -09b and -09d blocks above do.
+    // The file RP_CALIBRATION_MEASUREMENT_PATH points at. When the label next
+    // changes, re-pin this to its own frozen literal, as the -09d block does.
     const raw: unknown = JSON.parse(readFileSync(new URL("../data/baselines/rp-calibration-2026-09e.json", import.meta.url), "utf8"));
     const parsed = RpCalibrationMeasurementSchema.parse(raw);
     expect(parsed.rpLayer).toBe(SHIPPED_RP_LAYER_LABEL);
@@ -1128,9 +1045,7 @@ describe("buildRpCalibrationRecord — the optional third argument (260913-qyn)"
     const raw: unknown = JSON.parse(
       readFileSync(new URL("../apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json", import.meta.url), "utf8")
     );
-    // Wrap in a one-record measurement to reuse the same public schema this
-    // file already imports, rather than reaching for pageArtifacts.ts's
-    // deliberately module-private CompareRpCalibrationSchema.
+    // Wrapped to reuse the public schema; pageArtifacts.ts's CompareRpCalibrationSchema is module-private.
     const wrapped = {
       measuredAt: new Date().toISOString(),
       command: "test",
@@ -1140,10 +1055,7 @@ describe("buildRpCalibrationRecord — the optional third argument (260913-qyn)"
       records: [{ season: 2026, algorithmId: "spr", calibration: raw }],
     };
     const parsed = RpCalibrationMeasurementSchema.parse(wrapped);
-    // Refreshed 2026-09-13 (quick task 260913-qyn Task 3): this fixture feeds
-    // pageArtifacts.test.ts's round-trip test and RpCalibrationSection.test.tsx's
-    // populated-render tests, both of which need a real record carrying the
-    // new blocks — so it is no longer bonus-only.
+    // pageArtifacts.test.ts and RpCalibrationSection.test.tsx need this fixture to carry both blocks.
     expect(parsed.records[0]!.calibration.totalRp).toBeDefined();
     expect(parsed.records[0]!.calibration.totalRp!.count).toBeGreaterThan(0);
     expect(parsed.records[0]!.calibration.outcome).toBeDefined();
@@ -1152,12 +1064,8 @@ describe("buildRpCalibrationRecord — the optional third argument (260913-qyn)"
 });
 
 // ---------------------------------------------------------------------------
-// Outcome-arm guards and RpOutcomeArmRecordSchema (260913-qyn) — the READER
-// half that survives the ship-time collapse. `assertBonusHalfIdentical`,
-// which used to have its own describe block here, was deleted at ship time
-// along with the four-layer fold it guarded; the bonus-half identity it once
-// enforced live is now proven by
-// `sigmaScoutLayer.outcomeArms.test.ts`'s pinned bonus-half digest.
+// Outcome-arm guards and RpOutcomeArmRecordSchema. Bonus-half identity is
+// pinned by `sigmaScoutLayer.outcomeArms.test.ts`'s bonus-half digest.
 // ---------------------------------------------------------------------------
 
 describe("assertOutcomeArmSliceAllowed", () => {
