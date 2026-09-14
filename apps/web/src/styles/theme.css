@@ -2,51 +2,38 @@
 @import "tw-animate-css";
 
 /*
- * Every colour is a token — never a hardcoded hex literal in component code.
- * shadcn's own semantic vars (`--color-background`, `--color-primary`, etc.,
- * used by every generated `src/components/ui/*` primitive) are declared
- * below as `var(--color-*)` ALIASES of this file's own tokens, never the
- * reverse — a future dark pass only ever edits the contract block above it.
+ * Every colour is a token, never a hex literal in component code. shadcn's
+ * semantic vars (used by the generated `src/components/ui/*` primitives) are
+ * `var(--color-*)` ALIASES of this file's tokens, never the reverse.
  *
- * `--color-accent` is the one accent token: full strength for
- * `--color-primary`/`--color-ring` (CTA buttons, focus rings, active ribbon
- * indicator), 10% opacity via Tailwind's own `/10` modifier for the search
- * dropdown's keyboard-highlighted row — never a second baked colour.
+ * `--color-accent` is the one accent: full strength for
+ * `--color-primary`/`--color-ring`, and Tailwind's `/10` modifier for the
+ * search dropdown's highlighted row, never a second baked colour.
  */
 @theme {
-  /* Colour, GREEN-tinted chrome: accent green-800 #2E7D32 (4.90:1 on page,
-   * 4.56:1 on surface, 5.13:1 white-on-it) — the seed #4CAF50 fails WCAG as
-   * ink so it is never used directly. Surface green-50 #E8F5E9 (text
-   * 15.87:1, muted 6.74:1), border green-100 #C8E6C9. Page ground stays
-   * neutral; distinct from TBA's/Statbotics' blue navigation. Accent means
-   * "interactive and/or currently active", nothing else. */
+  /* Accent green-800 #2E7D32 (4.90:1 on page, 5.13:1 with white); the seed
+   * #4CAF50 fails WCAG as ink so it is never used. Accent means "interactive
+   * and/or currently active", nothing else. */
   --color-bg-page: #f8fafc; /* Dominant (60%) — slate-50, deliberately still neutral */
-  /* Surfaces are neutral white; green is ink (wordmark, links, active
-   * states), not paint, so the tier palette stays the loudest colour in any
-   * table. The one green SURFACE on the site is the ribbon (--ribbon-* below). */
+  /* Surfaces are neutral white; green is ink, not paint, so the tier palette
+   * stays the loudest colour in any table. The one green SURFACE is the
+   * ribbon (--ribbon-* below). */
   --color-bg-surface: #ffffff; /* Secondary (30%) — white cards on the slate-50 page */
   --color-bg-inset: #f1f5f9; /* slate-100 — chips, skeletons, tab rails, hover fills on white cards */
   --color-accent: #2e7d32; /* Accent (10%) — Material green-800, WCAG-checked ink */
   --color-destructive: #dc2626; /* red-600 */
-  /* Tailwind slate-600 (#475569) — measured 7.25:1 contrast against
-   * --color-bg-page (#f8fafc), clearing WCAG AA's 4.5:1 floor for the 12px
-   * sigma-spread suffix text, which must stay legible while visually
-   * receding behind the primary metric value. */
+  /* slate-600, 7.25:1 on --color-bg-page: clears AA for 12px suffix text
+   * that must stay legible while receding behind the primary value. */
   --color-text-muted: #475569;
   --color-text-primary: #0f172a; /* slate-900 — body/heading text */
 
-  /* Tailwind slate-300 (#cbd5e1) — a distinguishable form-control border
-   * against both bg-page and bg-surface without a third gray in the palette. */
   --color-border: #e2e8f0; /* slate-200 — neutral hairline alongside the white surface */
   --color-input: var(--color-border);
 
-  /* Ribbon: the site's one remaining green surface. The deep green is
-   * green-900-family ink the white wordmark sits on; the LIGHT green
-   * (#81C784, Material green-300 — passes contrast on this dark ground,
-   * never on white) marks the Σ and the active nav underline. Ribbon-only
-   * vocabulary, with one deliberate echo: `.event-chip--champs` reuses
-   * `--ribbon-bg` so the season's summit wears the brand's own green.
-   * Nothing else may. */
+  /* Ribbon: the site's one green surface. The light green (Material
+   * green-300) passes contrast on this dark ground, never on white; it marks
+   * the Σ and the active nav underline. Ribbon-only, except that
+   * `.event-chip--champs` reuses `--ribbon-bg`. Nothing else may. */
   --ribbon-bg: #14532d;
   --ribbon-ink: #ffffff;
   --ribbon-ink-muted: rgba(255, 255, 255, 0.72);
@@ -55,62 +42,45 @@
   --ribbon-control-border: rgba(255, 255, 255, 0.25);
 
   /* FRC alliance colours + the match-table "loser ink" (validated ΔE 29.9
-   * protan — safe as-is). FRC domain vocabulary (what an alliance IS), not
-   * a palette choice, and NOT part of the 60/30/10 accent split above — do
-   * not adjust these to match the site's accent or any future palette pass. */
+   * protan). Domain vocabulary, not a palette choice: never adjust these to
+   * match the site's accent. */
   --alliance-red: #DC2626;
   --alliance-red-soft: rgba(220, 38, 38, 0.3);
   --alliance-blue: #2563EB;
   --alliance-blue-soft: rgba(37, 99, 235, 0.3);
   --loser-ink: #94A3B8;
 
-  /* Ground, not figure: the team's whole alliance line rides a 10% tint of
-   * that alliance's hue, the team's own number rides a 20% tint on top of
-   * it, and the numbers themselves stay neutral `--color-text-primary`
-   * throughout — see `.match-alliance-*` below. Each is `color-mix`-derived
-   * from `--alliance-red`/`--alliance-blue` above, not a restated literal,
-   * so a future alliance-colour change carries into the ground tint with no
-   * second edit. Contrasts: 15.28:1 (red 10%), 15.50:1 (blue 10%), 13.06:1
-   * (20% own-number) — all above AA. The own number's 20% composites ON TOP
-   * of its line's own 10% (both backgrounds are painted, wrapper and nested
-   * span), so its EFFECTIVE tint is deeper than a bare 20% alone — that is
-   * the intended rendering, not a bug. */
+  /* Ground, not figure: the team's alliance line rides a 10% tint, its own
+   * number a 20% tint on top (so its effective tint is deeper, by intent),
+   * and the numbers stay `--color-text-primary`. `color-mix`-derived so an
+   * alliance-colour change carries through. Contrasts: 15.28:1 (red 10%),
+   * 15.50:1 (blue 10%), 13.06:1 (20% own number). */
   --alliance-red-ground: color-mix(in srgb, var(--alliance-red) 10%, transparent);
   --alliance-blue-ground: color-mix(in srgb, var(--alliance-blue) 10%, transparent);
   --alliance-red-ground-own: color-mix(in srgb, var(--alliance-red) 20%, transparent);
   --alliance-blue-ground-own: color-mix(in srgb, var(--alliance-blue) 20%, transparent);
 
-  /* Predicted bonus-dot fill (F10, quick task 260914-01x, sketch 012 C): the
-   * dot fills from the bottom to its odds. 60% alliance colour, twice the 30%
-   * soft tint, because at 30% a 40% and a 60% dot read alike at 14px. The
-   * letter crosses the fill line, so it takes a 950 ink that clears 4.5:1 on
-   * both sides (WCAG, fill composited on the dot's white ground): red
-   * #450A0A 16.14:1 on white, 5.94:1 on the fill; blue #172554 14.69:1 on
-   * white, 5.77:1 on the fill. The fill is color-mix-derived so an alliance
-   * colour change carries through. */
+  /* Predicted bonus-dot fill, from the bottom to the odds. 60% alliance
+   * colour, because at the 30% soft tint a 40% and a 60% dot read alike at
+   * 14px. The letter crosses the fill line, so its 950 ink clears 4.5:1 on
+   * both sides: red 16.14:1 on white, 5.94:1 on the fill; blue 14.69:1 on
+   * white, 5.77:1 on the fill. */
   --alliance-red-fill: color-mix(in srgb, var(--alliance-red) 60%, transparent);
   --alliance-blue-fill: color-mix(in srgb, var(--alliance-blue) 60%, transparent);
   --alliance-red-dot-ink: #450a0a;
   --alliance-blue-dot-ink: #172554;
 
   /*
-   * Rarity-tier tokens (`colour-and-tiers.md`'s decided palette) for
-   * `MetricValue.tsx`'s boxed metric cells. Common (0-50th percentile) gets
-   * an EDGE-only token, `--tier-common-edge`, with no matching fill or
-   * foreground — it changes only the box boundary and leaves text
-   * inheriting, so Common is still the absence of the three coloured fills
-   * below, just no longer the absence of a box. The edge sits around 1.4:1
-   * against the white surface, under WCAG 1.4.11's 3:1 non-text floor —
-   * acceptable ONLY because the ring is redundant (a reader who can't
-   * resolve it sees the same plain cell and loses no information). This
-   * does NOT transfer to any future tier whose ring would be its only signal.
+   * Rarity-tier tokens for `MetricValue.tsx`'s boxed metric cells. Common
+   * (0-50th percentile) gets only an edge, no fill or foreground. The edge
+   * is about 1.4:1 on white, under WCAG 1.4.11's 3:1 non-text floor, which is
+   * acceptable ONLY because the ring is redundant; that does not transfer to
+   * a tier whose ring would be its only signal.
    *
-   * THE RARE PAIR'S IDENTITY HUE IS SKY (`#0EA5E9`) — LOAD-BEARING, not a
-   * style choice: an ordinary/classic blue measures ΔE 1.3 under
-   * deuteranopia against the epic purple pair, making Rare and Epic — 45%
-   * of the field combined — the same colour to roughly 6% of male users.
-   * Do not "fix" it back toward a conventional blue. Re-validate any change
-   * to either value with the dataviz skill's palette validator before shipping.
+   * THE RARE PAIR'S IDENTITY HUE IS SKY (`#0EA5E9`), and that is load-bearing:
+   * a classic blue measures ΔE 1.3 under deuteranopia against the epic
+   * purple, making Rare and Epic the same colour to roughly 6% of male
+   * users. Re-validate any change with the dataviz skill's palette validator.
    */
   --tier-common-edge: #CBD5E1;
   --tier-rare-bg: #E0F2FE;
@@ -121,20 +91,15 @@
   --tier-legendary-fg: #B45309;
 
   /*
-   * Bubble-chart MARK tokens: solid dot colours for the Teams page's
-   * bubble-chart view, where a tier's colour is the ONLY signal (no text
-   * label rides alongside a dot the way it does in a tiered table cell).
-   * The identity hues (sky/purple/amber) fail the 3:1 non-text contrast
-   * floor on white as a small solid dot (sky 2.77:1, amber 2.15:1), so all
-   * three marks reuse the darker `--tier-*-fg` values instead (rare 5.93:1,
-   * epic 6.98:1, legendary 5.02:1 contrast). Their adjacent CVD separation
-   * (epic vs rare, 7.8 deutan / 13.0 tritan) is inside the WARN band, legal
-   * only with secondary encoding — `TeamsBubbleChart.tsx`'s key row (four
-   * text-labelled swatches) supplies that; identity is never colour-alone
-   * here. `--tier-neutral-mark` (#7D8DA3) is interpolated along the slate
-   * ramp (no chroma added) to clear ΔE 16.1 against rare while staying the
-   * visibly quiet one. Re-run the dataviz skill's `validate_palette.js`
-   * before changing any of these four values.
+   * Bubble-chart MARK tokens: solid dots where a tier's colour is the only
+   * signal. The identity hues fail the 3:1 non-text floor as small dots on
+   * white (sky 2.77:1, amber 2.15:1), so the marks reuse the darker
+   * `--tier-*-fg` values (rare 5.93:1, epic 6.98:1, legendary 5.02:1). Epic
+   * vs rare CVD separation (7.8 deutan / 13.0 tritan) is in the WARN band,
+   * legal only because `TeamsBubbleChart.tsx`'s text-labelled key row adds a
+   * secondary encoding. `--tier-neutral-mark` is a chroma-free slate that
+   * clears ΔE 16.1 against rare while staying quiet. Re-run the dataviz
+   * skill's `validate_palette.js` before changing any of these four.
    */
   --tier-neutral-mark: #7D8DA3;
   --tier-rare-mark: #0369A1;
@@ -142,60 +107,41 @@
   --tier-legendary-mark: #B45309;
 
   /*
-   * Compare page calibration-chart series colours — the reliability-diagram
-   * line colours, a validated trio used verbatim, never re-derived. It
-   * passes every dataviz palette-validator check on both the page and
-   * section-card surface. `--compare-algo-epa` measures indistinguishable
-   * from `--tier-epic-fg` under CVD, and neither value may move to fix that
-   * (both palettes are separately locked) — instead the two colour systems
-   * are kept off one rendered surface, enforced by
-   * `comparePalette.test.ts` rather than left to memory.
+   * Compare page calibration-chart series colours: a validated trio used
+   * verbatim. `--compare-algo-epa` is indistinguishable from `--tier-epic-fg`
+   * under CVD and neither may move, so `comparePalette.test.ts` keeps the two
+   * colour systems off one rendered surface.
    */
   --compare-algo-opr: #EA580C;
   --compare-algo-epa: #7C3AED;
   --compare-algo-spr: #0D9488;
 
   /*
-   * Rank-distribution plot cell marks: the Simulation tab's per-team
-   * histogram bar, 10th-90th percentile band overlay, and median tick. All
-   * three derive from existing neutrals — deliberately NOT accent-coloured,
-   * since nothing on a rank distribution is clickable and it carries no
-   * identity to colour-code the way the red/blue match plot does.
+   * Simulation tab rank-distribution marks (histogram bar, 10th-90th band,
+   * median tick): neutrals, not accent, since nothing here is clickable.
    *
-   * The `18%` inside `--sim-band-overlay` is the SAME NUMBER as
-   * `SIM_GEOMETRY.BAND_OPACITY` in `apps/web/src/lib/simAxis.ts`, coupled by
-   * an assertion in `simAxis.test.ts` — no consumer may apply `BAND_OPACITY`
-   * a second time as a CSS opacity on top of this token (that would render
-   * the band at about 3.2% and make it invisible).
+   * The `18%` in `--sim-band-overlay` is `SIM_GEOMETRY.BAND_OPACITY` in
+   * `lib/simAxis.ts` (pinned by `simAxis.test.ts`); never apply
+   * `BAND_OPACITY` again as a CSS opacity, which would make the band invisible.
    */
   --sim-hist-bar: color-mix(in srgb, var(--color-text-muted) 55%, transparent);
   --sim-band-overlay: color-mix(in srgb, var(--color-text-muted) 18%, transparent);
   --sim-median-tick: var(--color-text-primary);
 
-  /* Start-match picker's selected-row background: a purpose-specific
-   * `color-mix` of `--color-accent`, not a new hue — no `--color-*`,
-   * `--accent`, `--alliance-*` or `--tier-*` VALUE may change here. The
-   * selected row's left border uses `--color-accent` directly. */
+  /* Start-match picker's selected-row background: a `color-mix` of
+   * `--color-accent`, not a new hue. */
   --sim-picker-selected-bg: color-mix(in srgb, var(--color-accent) 8%, transparent);
 
   /*
-   * District/Champ Locks status chips — green = locked on district points,
+   * District/Champ Locks status chips: green = locked on district points,
    * blue = locked by an award, red = eliminated, purple = prequalified.
-   * `contending` and `unknown` stay plain text, no chip.
    *
-   * A DELIBERATELY SEPARATE token vocabulary from `--color-accent`/
-   * `--alliance-*`/`--tier-*`: this status meaning is its own domain, and
-   * reusing an existing token would silently tie an unrelated future
-   * repaint to this vocabulary by accident. Soft-tint background + solid
-   * ink foreground mirrors `.result-chip` below: `--lock-status-eliminated-fg`
-   * is `.result-chip--loss`'s rose-700, `--lock-status-prequalified-fg` is
-   * `--tier-epic-fg`'s purple-700 — both already-measured AA-passing inks,
-   * restated as their own tokens so the two vocabularies never drift into
-   * each other. `--lock-status-locked-fg` reuses `--color-accent`'s
-   * green-800 (4.56:1 on white) as a deliberate override of the
-   * accent-reservation rule for this one status meaning.
-   * `--lock-status-locked-award-fg` is blue-700, darker than
-   * `--alliance-blue`'s blue-600, so it clears AA as small text on its tint.
+   * A separate vocabulary from `--color-accent`/`--alliance-*`/`--tier-*` so
+   * a repaint of one never moves the other; values that match an existing
+   * AA-passing ink (rose-700, purple-700) are restated, not referenced. The
+   * locked green is the accent's green-800, a deliberate exception to the
+   * accent-reservation rule. The award blue is blue-700, darker than
+   * `--alliance-blue`, so it clears AA as small text on its tint.
    */
   --lock-status-locked-bg: rgba(76, 175, 80, 0.16);
   --lock-status-locked-fg: #2e7d32;
@@ -206,19 +152,14 @@
   --lock-status-prequalified-bg: rgba(147, 51, 234, 0.12);
   --lock-status-prequalified-fg: #7e22ce;
 
-  /* shadcn semantic aliases — every one of these is a `var(--color-*)`
-   * reference back to a contract token above, never an independent value.
-   * Names match what the generated `src/components/ui/*` primitives reference. */
+  /* shadcn semantic aliases, each a `var(--color-*)` reference back to a token above. */
   --color-background: var(--color-bg-page);
   --color-foreground: var(--color-text-primary);
   --color-primary: var(--color-accent);
-  /* Text on a solid --color-accent fill (the "Apply filters" CTA): white on
-   * green-800 clears WCAG AA's 4.5:1 floor. A literal, not a token
-   * reference, since no contract token names "white text on a colored fill". */
+  /* Text on a solid --color-accent fill: white on green-800 clears AA. */
   --color-primary-foreground: #ffffff;
-  /* Aliased to the INSET tint, not the surface: with the surface white, a
-   * badge/skeleton/tab-rail/hover fill aliased to surface would be
-   * invisible on the white cards it sits on. */
+  /* The INSET tint, not the surface: a badge/skeleton/hover fill aliased to
+   * the white surface would be invisible on the white cards it sits on. */
   --color-secondary: var(--color-bg-inset);
   --color-secondary-foreground: var(--color-text-primary);
   --color-accent-foreground: var(--color-text-primary);
@@ -237,53 +178,34 @@
   --spacing-2xl: 48px;
   --spacing-3xl: 64px;
 
-  /* shadcn preset radius (0.375rem/6px) — matches Tailwind v4's own built-in
-   * --radius-sm/md/lg "md" step, so no override of Tailwind's radius scale
-   * is declared here. */
+  /* shadcn preset radius (6px), Tailwind v4's own "md" step, so Tailwind's radius scale is not overridden. */
   --radius: 0.375rem;
 
-  /* Overriding Tailwind's own `--font-sans` token (not a plain
-   * `body { font-family }` rule) is the FIX for a real minifier defect: a
-   * plain rule with the unquoted two-word family name `Inter Variable` was
-   * silently DROPPED by Vite's production CSS minifier, while redeclaring
-   * `--font-sans` inside a custom-property value survives minification and
-   * reaches the same result through Tailwind's Preflight/`--default-font-family`
-   * chain. `'Inter Variable'` is the exact family name
-   * `@fontsource-variable/inter`'s own `@font-face` rules register. The
-   * tabular-numeral treatment below (`.numeric-cell`) is unaffected — it
-   * sets a font FEATURE, not a family. */
+  /* Override Tailwind's `--font-sans` token, never a plain
+   * `body { font-family }` rule: Vite's production CSS minifier drops that
+   * rule, while the custom-property value survives. `Inter Variable` is the
+   * family name `@fontsource-variable/inter` registers. */
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
 }
 
 /*
- * `overflow-y: scroll` on `html` serves two requirements: it reserves the
- * scrollbar gutter unconditionally so switching tabs (tall vs. short
- * content) never shifts a centered layout sideways, AND it keeps the page
- * scrollbar as `html`'s own rather than the viewport's — CSS's
- * viewport-propagation rule only promotes `overflow` to the viewport when
- * `html`'s own `overflow` is `visible`. That matters because Radix's
- * Select/Dropdown scroll lock sets `body { overflow: hidden }` while a
- * filter menu is open; without this rule that lock removed the page
- * scrollbar outright while the gutter still reserved the now-empty space,
- * leaving a white double-width strip.
+ * `overflow-y: scroll` on `html` reserves the scrollbar gutter so switching
+ * tabs never shifts a centered layout sideways, AND keeps the scrollbar
+ * `html`'s own rather than the viewport's, so Radix's Select/Dropdown scroll
+ * lock (`body { overflow: hidden }`) cannot remove it and leave an empty
+ * double-width strip.
  */
 html {
   overflow-y: scroll;
 }
 
 /*
- * react-remove-scroll(-bar) (used by Radix's Select/Dropdown scroll lock)
- * measures the page's scrollbar width on every lock and adds a compensating
- * `margin-right: <gap>px !important` to `body[data-scroll-locked]` so
- * removing the scrollbar doesn't shift layout. With the rule above the
- * scrollbar is never removed, so that compensation is now always wrong —
- * on a non-overlay scrollbar it stacks the reserved gutter width and the
- * compensating margin, producing a double-width strip. The applied rule is
- * `margin-right`, not `padding-right`, and is not driven by the
- * `--removed-body-scroll-bar-size` custom property (write-only from the
- * library's own code — nothing reads it back). Hooking the documented
- * `data-scroll-locked` attribute with higher specificity neutralises
- * whatever margin it computed.
+ * react-remove-scroll-bar (inside Radix's scroll lock) adds a compensating
+ * `margin-right: <gap>px !important` to `body[data-scroll-locked]`. With the
+ * rule above the scrollbar is never removed, so that margin would stack on
+ * the reserved gutter. The library applies `margin-right` (not
+ * `padding-right`) and never reads `--removed-body-scroll-bar-size`, so this
+ * higher-specificity rule is the override that works.
  */
 html body[data-scroll-locked] {
   margin-right: 0 !important;
@@ -294,25 +216,21 @@ body {
   color: var(--color-text-primary);
 }
 
-/* Alternate-row striping for the Compare page's two wide numeric tables — a
- * row-tracking aid for tables whose columns are many and cells are all bare
- * numbers. Uses the existing page tint, no new colour. */
+/* Alternate-row striping: a row-tracking aid for the Compare page's two wide numeric tables. */
 .zebra-rows tbody tr:nth-child(even) {
   background-color: var(--color-bg-inset);
 }
 
-/* These tables size to their CONTENT (`w-auto` at the call site); this rule
- * gives the cells breathing room instead of letting `width: 100%` invent
- * it. Numeric columns right-align under their own right-aligned headers so
- * the digit columns line up as one block. */
+/* These tables size to their CONTENT (`w-auto` at the call site), so the
+ * cells need their own padding; numeric columns right-align under
+ * right-aligned headers. */
 .zebra-rows th,
 .zebra-rows td {
   padding-inline: var(--spacing-md);
 }
-/* Headers WRAP here, overriding `TableHead`'s sitewide `whitespace-nowrap`:
- * "Brier score (lower is better)" is the widest header in the accuracy
- * table, and wrapping it to two lines is what lets `w-auto` above produce a
- * table that FITS rather than one that scrolls. */
+/* Headers WRAP here, overriding `TableHead`'s `whitespace-nowrap`, so a long
+ * header like "Brier score (lower is better)" lets the table fit rather
+ * than scroll. */
 .zebra-rows thead th {
   white-space: normal;
 }
@@ -322,24 +240,15 @@ body {
 }
 
 /*
- * `touch-action: pan-x` alone permits ONLY horizontal panning — a vertical
- * touch gesture starting on an element bearing it never reaches the page's
- * own vertical scroller. Tailwind's `touch-pan-x`/`touch-pan-y` utilities
- * both set the same single-value `touch-action` property and so overwrite
- * each other; this custom utility emits BOTH axis keywords plus
- * `pinch-zoom` in one declaration, since CSS Pointer Events' `touch-action`
- * only permits the keywords explicitly listed (`pan-x` alone also disables
- * pinch-zoom, an accessibility regression on dense data tables).
+ * `touch-action` permits only the keywords listed, so `pan-x` alone blocks
+ * vertical page scrolling and pinch-zoom, and Tailwind's `touch-pan-x`/
+ * `touch-pan-y` overwrite each other. This utility lists both axes plus
+ * `pinch-zoom` in one declaration.
  *
- * `overscroll-x-contain` (Tailwind's built-in `overscroll-behavior-x:
- * contain`) is UNTOUCHED wherever it appears alongside this class — that is
- * the separate property stopping the PAGE from panning sideways
- * (`apps/web/e2e/no-page-pan.spec.ts`'s guarded invariant); this rule must
- * never be read as license to weaken it.
- *
- * A passing Playwright/CDP touch-emulation test does not prove real-device
- * gesture arbitration on iOS Safari — verify on a real phone, not just
- * automated touch specs.
+ * `overscroll-x-contain` alongside this class is a separate property that
+ * stops the PAGE panning sideways (`e2e/no-page-pan.spec.ts`); never weaken it.
+ * Touch emulation does not prove iOS Safari gesture handling: verify on a
+ * real phone.
  */
 @utility touch-pan-xy {
   touch-action: pan-x pan-y pinch-zoom;
@@ -351,11 +260,9 @@ body {
   font-feature-settings: "tnum";
 }
 
-/* Tap target: 44×44px minimum for every icon-only control on mobile
- * (search trigger, filter-sheet trigger, sort-direction toggle,
- * column-scroll affordance), WCAG 2.5.5/2.5.8. Expressed as minimums, not
- * visible padding, so a small glyph can sit inside a large hit area
- * without looking oversized. */
+/* Tap target: 44×44px minimum for icon-only controls on mobile (WCAG
+ * 2.5.5/2.5.8), as minimums rather than padding so a small glyph can sit in
+ * a large hit area. */
 .tap-target {
   min-width: 44px;
   min-height: 44px;
@@ -369,10 +276,8 @@ body {
   line-height: 1.5;
 }
 
-/* The one weight override the Body role allows. `.text-role-body` is
- * unlayered CSS, which beats everything in Tailwind's `@layer utilities`, so
- * `text-role-body font-semibold` used to render at 400; this pairing makes
- * the semibold request land. Every other role already sets 600 itself. */
+/* `.text-role-body` is unlayered, so it beats Tailwind's `@layer utilities`
+ * and `font-semibold` alone would render at 400; this pairing makes it land. */
 .text-role-body.font-semibold {
   font-weight: 600;
 }
@@ -395,10 +300,8 @@ body {
   line-height: 1.2;
 }
 
-/* Sigma spread suffix: the one deliberate exception, Body's weight (400) at
- * Label's size (12px). Consumed by MetricValue.tsx for the " ± {spread}"
- * suffix; the suffix's colour resolves through --color-text-muted, never a
- * literal. */
+/* The ± suffix: the one deliberate exception, Body's weight (400) at
+ * Label's size (12px). */
 .text-role-spread-suffix {
   font-size: 12px;
   font-weight: 400;
@@ -406,12 +309,9 @@ body {
 }
 
 /*
- * Table column headers: the uppercase-mini treatment every data table on
- * the site shares — 11px/600, letterspaced, muted ink. Applied by
- * `ui/table.tsx`'s `TableHead` default classes. Declared AFTER
- * `.text-role-label` deliberately: many header call sites still pass
- * `text-role-label`, and at equal specificity the later declaration wins,
- * so this treatment takes precedence wherever both land on one element.
+ * Table column headers, applied by `ui/table.tsx`'s `TableHead`. Declared
+ * AFTER `.text-role-label` on purpose: many header call sites also pass
+ * `text-role-label`, and at equal specificity the later rule wins.
  */
 .th-cell-label {
   font-size: 11px;
@@ -422,8 +322,7 @@ body {
   color: var(--color-text-muted);
 }
 /* Sortable headers wrap their label in a <button>, and the UA stylesheet
-   sets `text-transform: none` on buttons (font/color/letter-spacing already
-   inherit via Tailwind's preflight) — re-inherit so sortable and inert
+   sets `text-transform: none` on buttons; re-inherit so sortable and inert
    headers read identically. */
 .th-cell-label button {
   text-transform: inherit;
@@ -433,15 +332,9 @@ body {
 }
 
 /*
- * The standard content card: white surface, hairline border, small radius,
- * whisper of shadow. Tables and panels sit inside one of these instead of
- * directly on the page.
- *
- * No `overflow` here on purpose: several hosts are themselves scroll
- * containers (`overflow-x-auto` utilities, TeamsTable's inline
- * `overflow: auto`), and an unlayered `overflow: hidden` would beat those
- * layered utilities and kill scrolling. Corner clipping is a non-issue —
- * every header/cell backing inside is the same white as the card.
+ * The standard content card. No `overflow` on purpose: several hosts are
+ * scroll containers, and an unlayered `overflow: hidden` would beat their
+ * layered utilities and kill scrolling.
  */
 .data-card {
   background-color: var(--color-bg-surface);
@@ -451,19 +344,12 @@ body {
 }
 
 /*
- * The rank-card row's fixed width plus its own per-tier colour, placed
- * AFTER `.data-card` in source order — LOAD-BEARING, not incidental. Each
- * card also carries `.data-card` for border/radius/shadow, and a tier
- * modifier below sets `background-color`; at equal specificity the LATER
- * rule wins, so the tier's fill paints over `.data-card`'s own
- * `background-color` only because this block is declared after it. Moving
- * this block above `.data-card` would silently make every tiered card look
- * like a plain white one.
+ * Rank cards, which also carry `.data-card`. This block must stay AFTER
+ * `.data-card`: at equal specificity the later rule wins, so moving it above
+ * would make every tiered card plain white.
  *
- * A card is NOT `.metric-tier`: that class's `min-width: 58px`,
- * `display: inline-block` and `text-align: right` are tuned for a numeric
- * cell inside an aligned table column, not a standalone card. Do not
- * "simplify" the two together.
+ * A card is NOT `.metric-tier`, whose geometry is sized for a numeric cell
+ * in an aligned table column; do not merge the two.
  */
 .rank-card {
   display: flex;
@@ -490,11 +376,9 @@ body {
 }
 
 /*
- * Event-type chips: ONE chip vocabulary for officialness across the site.
- * Filled = official season; the single dark chip = Championship; dashed
- * outline + muted ink = unofficial (preseason Week 0 and offseason).
- * `.event-row-unofficial` mutes the whole row's ink so unofficial events
- * visibly recede from the season proper.
+ * Event-type chips, one vocabulary for officialness: filled = official
+ * season, dark = Championship, dashed + muted = unofficial (Week 0 and
+ * offseason). `.event-row-unofficial` mutes the whole row.
  */
 .event-chip {
   display: inline-block;
@@ -534,15 +418,10 @@ body {
 }
 
 /*
- * The RIBBON's own nav size. Deliberately a separate role from
- * `.text-role-nav`, which is also worn by the event and team tab strips —
- * those sit on white at 14px body text and are correctly sized there. The
- * ribbon is a different context: a 78px-tall dark bar carrying a 28px
- * wordmark, where 14px links read as secondary chrome rather than primary
- * navigation. 17px is the largest size that keeps the three links plus both
- * dropdowns plus the search box on one row at the 1024px laptop width, and
- * puts the nav a little over 60% of the wordmark — enough to read as
- * primary, not so much that it competes with the brand.
+ * The RIBBON's own nav size, separate from `.text-role-nav` (also worn by the
+ * tab strips on white). Beside the 28px wordmark 14px reads as secondary;
+ * 17px is the largest size that keeps the links, both dropdowns and the
+ * search box on one row at 1024px.
  */
 .text-role-ribbon-nav {
   font-size: 17px;
@@ -552,19 +431,15 @@ body {
 }
 
 /*
- * The rarity-tier box: `.metric-tier` shape and its three colour modifiers,
- * applied by `MetricValue.tsx`'s `tier` prop and `TierKeyRow.tsx`'s key row.
- * Geometry (padding, radius, min-width) is shared by every tier; colour
- * comes only from the modifier class, never a component-level literal.
+ * The rarity-tier box, applied by `MetricValue.tsx` and `TierKeyRow.tsx`.
+ * Geometry is shared by every tier; colour comes only from the modifier.
  */
 .metric-tier {
   display: inline-block;
   padding: 3px 8px;
   border-radius: 5px;
-  /* This min-width exists to keep a COLUMN of boxes aligned despite varying
-   * digit counts, not to hold any one worst-case string. 58px holds the
-   * real worst-case value string ("-284.89", 7 characters at 14px
-   * tabular-nums) with its raised superscript spread. */
+  /* Keeps a COLUMN of boxes aligned despite varying digit counts; 58px holds
+   * the worst-case value string ("-284.89" at 14px tabular-nums). */
   min-width: 58px;
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -582,25 +457,17 @@ body {
   color: var(--tier-legendary-fg);
 }
 /*
- * Common's ring: a hairline inset ring, no fill, no foreground colour — the
- * text keeps inheriting. `box-shadow: inset` is LOAD-BEARING, not a
- * stylistic pick: a `border` would add 2px of width and height to Common
- * cells ONLY, shifting every column that mixes tiers out of alignment with
- * Rare/Epic/Legendary. An inset shadow paints inside the existing box and
- * contributes nothing to layout. Do not swap this for `border`.
+ * Common's hairline ring, no fill or foreground. `box-shadow: inset`, never
+ * `border`: a border would add 2px to Common cells only and misalign every
+ * column that mixes tiers.
  */
 .metric-tier--common {
   box-shadow: inset 0 0 0 1px var(--tier-common-edge);
 }
 
 /*
- * The split pill: one rounded shape cut in two, Total's half on the left,
- * Sigma's half on the right, no gap between them. Geometry lives here;
- * colour comes entirely from the existing `.metric-tier--*` modifier
- * classes (background/color/box-shadow only, no geometry), so each half
- * tiers independently and two Common halves meeting at the seam is the
- * accepted look. `--color-bg-inset`/`--color-text-muted` are the only
- * tokens the neutral (untiered) Alliances Combined Total band uses.
+ * The split pill: Total's half left, Sigma's half right, no gap. Colour comes
+ * from the `.metric-tier--*` modifiers, so each half tiers independently.
  */
 .metric-pill {
   display: inline-flex;
@@ -633,18 +500,12 @@ body {
 }
 
 /*
- * Bubble-chart tone classes: the SVG dot marks and the key-row swatches
- * share this one class family rather than two separate colour declarations
- * that could drift apart. `fill` is what an SVG `<path>` reads;
- * `background-color` is what an HTML `<span>` swatch reads — setting BOTH
- * on one rule is intentional, since each consumer ignores the property it
- * doesn't understand.
+ * Bubble-chart tones, shared by the SVG dots (`fill`) and the key-row
+ * swatches (`background-color`) so the two cannot drift.
  *
- * `fill-opacity: 0.8` exists only so a lower tone's path can show through
- * where an upper tone's path is drawn on top of it (BUBBLE_TONE_DRAW_ORDER
- * paints neutral first, legendary last) — it does NOT darken where two dots
- * of the SAME tone overlap, since they are one path with one fill-opacity.
- * This chart is not a density plot and no copy may read as if it were.
+ * `fill-opacity: 0.8` only lets a lower tone show through an upper one
+ * (BUBBLE_TONE_DRAW_ORDER); same-tone dots are one path and do not darken
+ * where they overlap. This chart is not a density plot and no copy may say so.
  */
 .bubble-tone {
   fill-opacity: 0.8;
@@ -666,20 +527,7 @@ body {
   background-color: var(--tier-legendary-mark);
 }
 
-/*
- * Every rule below is ADDITIVE ONLY: new classes built entirely from
- * tokens already declared above; no existing `--color-*`, `--accent`,
- * `--alliance-*` or `--tier-*` VALUE is added, removed or changed.
- */
-
-/*
- * Event section cards (`EventSection.tsx`) — a surface genuinely distinct
- * from the page background (not just a border on the same colour), paired
- * with Tailwind's `shadow-sm` utility at the call site for elevation, so
- * each event reads as a separate object rather than a run-on list. The
- * 48px `--spacing-2xl` gap between sections is what this card treatment
- * makes actually *read* as separation.
- */
+/* Event section cards (`EventSection.tsx`), paired with `shadow-sm` at the call site so each event reads as a separate object. */
 .event-card {
   background-color: var(--color-bg-surface);
   border: 1px solid var(--color-border);
@@ -687,17 +535,9 @@ body {
 }
 
 /*
- * Alternating match-row stripe (`MatchTable.tsx`, `EventMatchTable.tsx`) —
- * "a zebra tint on alternate rows reinforces the block" (chart-craft.md).
- * BOTH alternating states are painted explicitly, each from an existing
- * token (`.match-row-untinted` from `--color-bg-surface`, `.match-row-tint`
- * from `--color-bg-page`) rather than leaving the untinted row
- * `transparent` to borrow its ancestor's background — a card ancestor
- * (team page) and no card ancestor (event page's Quals/Elims tabs) resolve
- * `transparent` differently, and on the event page that made every tinted
- * row render invisible against the identically-coloured page background.
- * Painting both states explicitly makes the stripe self-contained and
- * correct on any backdrop.
+ * Alternating match-row stripe (`MatchTable.tsx`, `EventMatchTable.tsx`).
+ * BOTH states are painted, never `transparent`: without a card ancestor the
+ * tinted row would vanish against the identically coloured page.
  */
 .match-row-untinted {
   background-color: var(--color-bg-surface);
@@ -706,11 +546,7 @@ body {
   background-color: var(--color-bg-page);
 }
 
-/*
- * A bounded-categorical alliance chip (`MatchTable.tsx`'s Confidence
- * column) — uses the SAME `--alliance-*` tokens the plotted band/tick/dot
- * marks already use, rather than introducing a new colour system.
- */
+/* Alliance chip (`MatchTable.tsx`'s Confidence column), on the same `--alliance-*` tokens as the plotted marks. */
 .alliance-chip {
   display: inline-block;
   border-radius: 999px;
@@ -727,30 +563,19 @@ body {
 }
 
 /*
- * Team-page match table roster lines (`MatchTable.tsx`). Two numbers, not
- * one: the wrapper carries "this is my alliance" at 10%, the nested
- * own-number span carries "this one is me" at 20% on top of it.
- *
- * `.match-alliance-nums` wraps all three numbers on ONE roster line (both
- * the team's own line and the opposing line get this wrapper, so the 10px
- * gap is uniform whether or not the line is marked) — measured against
- * real 4- and 5-digit roster data (`1690` beside `10935`).
+ * Match table roster lines: the wrapper carries "my alliance" at 10%, the
+ * own-number span "me" at 20% on top. Both lines get the wrapper so the gap
+ * is uniform whether or not a line is marked.
  */
 .match-alliance-nums {
   display: inline-flex;
   gap: 10px;
 }
 /*
- * Even-width roster lines: the event table lays three roster numbers of
- * 1–5 digits on each of two stacked lines; a plain gap made every line a
- * different width, so red and blue never agreed on where they ended.
- * Fixing the LINE's width and letting `space-between` absorb the
- * difference makes both alliances occupy exactly the same box.
- *
- * 17ch, with `.numeric-cell`'s tabular figures making a `ch` an exact
- * digit: three 5-digit numbers (15ch) still leave 1ch per gap, and the
- * common 3- and 4-digit rosters spread comfortably rather than crowding
- * one edge. The 4px `gap` is the floor `space-between` starts from.
+ * Even-width roster lines in the event table: a fixed LINE width with
+ * `space-between` makes red and blue occupy the same box. With tabular
+ * figures a `ch` is one digit, so 17ch fits three 5-digit numbers with 1ch
+ * per gap; the 4px `gap` is the floor.
  */
 .match-alliance-nums--even {
   width: 17ch;
@@ -758,27 +583,20 @@ body {
   justify-content: space-between;
 }
 .match-alliance-num {
-  /* Horizontal padding only, on EVERY number (marked line or not) — so the
-     own number's own ground (below) does not shift its neighbours' spacing
-     relative to the unmarked line above it. */
+  /* Horizontal padding on EVERY number, so the own number's ground does not
+     shift spacing relative to the unmarked line. */
   padding: 0 1px;
   border-radius: 3px;
 }
 .match-alliance-nums--mine {
   /*
-   * `padding: 0 5px` — HORIZONTAL ONLY. This cell's vertical rhythm is
-   * locked: `MATCH_GEOMETRY.Y_RED`/`Y_BLUE` put each alliance band's centre
-   * on this roster line's own centre, and vertical padding here grows the
-   * line and pushes the blue roster line off its own band. Height comes
-   * from line-height alone — do not add padding/margin-top/-bottom/-block
-   * or line-height here.
+   * HORIZONTAL padding only: `MATCH_GEOMETRY.Y_RED`/`Y_BLUE` centre each
+   * alliance band on its roster line, so any vertical padding, margin or
+   * line-height here pushes the blue line off its band.
    *
-   * `margin-left: -5px` cancels the pill's own left padding so the marked
-   * line's first digit stays x-aligned with the unmarked line above it.
-   *
-   * `border-radius: 999px` is deliberately NOT `var(--radius)` (6px): this
-   * cell's box vocabulary is already spoken for by tier values, and the two
-   * shapes must not read as the same object.
+   * `margin-left: -5px` keeps the marked line's first digit aligned with the
+   * unmarked line. The pill radius is not `var(--radius)` so it never reads
+   * as a tier box.
    */
   padding: 0 5px;
   margin-left: -5px;
@@ -798,13 +616,9 @@ body {
 }
 
 /*
- * Per-bonus RP dots (`BonusRpDots.tsx`) — one per bonus ranking point that
- * season, drawn above each alliance's predicted and actual score.
- *
- * Three states, and the third is load-bearing. `earned` is solid, `missed`
- * is hollow, and `unknown` is DASHED — because a plain hollow dot would
- * assert "this alliance will not earn this bonus", a claim unpublished data
- * cannot support. See `lib/bonusRp.ts`'s BonusRpState.
+ * Per-bonus RP dots (`BonusRpDots.tsx`). `earned` is solid, `missed` hollow,
+ * and `unknown` DASHED, because a hollow dot would assert "will not earn
+ * this bonus" without data to support it (see `lib/bonusRp.ts`).
  */
 .bonus-dot {
   display: inline-flex;
@@ -843,12 +657,9 @@ body {
   color: var(--alliance-blue);
 }
 
-/* Predicted: filled from the bottom to the odds, no threshold (F10, quick
-   task 260914-01x). Alliance border on a white ground; the fill child is
-   absolutely placed inside the border and clipped by the dot's radius, and
-   its whole-pixel height comes from `bonusDotFillPx`. The letter sits above
-   the fill in the dark dot ink, which clears 4.5:1 on either side of the
-   fill line. */
+/* Predicted: filled from the bottom to the odds, no threshold. The fill child
+   sits inside the border, clipped by the radius, at `bonusDotFillPx`'s
+   whole-pixel height; the letter sits above it in the dark dot ink. */
 .bonus-dot--predicted {
   position: relative;
   overflow: hidden;
@@ -875,8 +686,7 @@ body {
   position: relative;
 }
 
-/* Unknown: no per-bonus data published. Dashed and desaturated so it reads
-   as "not answered" rather than as an answer of "no". */
+/* Unknown: dashed and desaturated so it reads as "not answered", not "no". */
 .bonus-dot--unknown {
   border-style: dashed;
   border-color: var(--color-border);
@@ -884,10 +694,7 @@ body {
   background-color: transparent;
 }
 
-/*
- * Video column control and player (`MatchVideoCell.tsx`). A small mark in
- * the row, never a filled green chip — green is ink here, not paint.
- */
+/* Video column control and player (`MatchVideoCell.tsx`): a small mark, never a filled green chip. */
 .match-video-trigger {
   display: inline-flex;
   align-items: center;
@@ -910,13 +717,12 @@ body {
   outline-offset: 2px;
 }
 
-/* The dialog's own max-width — wide enough for a 16:9 frame to read clearly, narrower than the viewport on desktop. */
 .match-video-dialog {
   width: 100%;
   max-width: 640px;
 }
 
-/* 16:9 aspect ratio, sized to the dialog's own width (the plan's explicit sizing rule) — the iframe fills it via absolute positioning. */
+/* 16:9, sized to the dialog's width; the iframe fills it. */
 .match-video-frame {
   position: relative;
   width: 100%;
@@ -931,13 +737,9 @@ body {
 }
 
 /*
- * Compare page calibration-chart series colour utility classes: Tailwind v4
- * only reliably keeps a custom property in the built stylesheet when
- * something in THIS file consumes it, independent of whether any component
- * applies the generated class. `CalibrationChart.tsx` applies these classes
- * to its `<Line>` strokes, dot fills and size-key swatches — never a raw
- * `var(--compare-algo-*)` string typed directly into a component, so the
- * token can never silently be pruned out from under a real render.
+ * Calibration-chart series classes. Tailwind v4 only reliably keeps a custom
+ * property in the build when something in THIS file consumes it, so
+ * `CalibrationChart.tsx` applies these classes, never a raw `var()` string.
  */
 .compare-algo-opr {
   color: var(--compare-algo-opr);
@@ -950,17 +752,9 @@ body {
 }
 
 /*
- * Rank-distribution plot cell utility classes — follow this file's
- * established `.alliance-chip--*` precedent of consuming every custom token
- * from a CSS rule inside this same stylesheet, so a `--sim-*` token used
- * only from TSX is not left at the mercy of the build's theme handling.
- * The plot cell applies these classes to its bar/band/tick marks rather
- * than writing an inline `var()` reference at the call site.
- *
- * No width, height, position, radius or opacity here — layout, size and
- * stacking are the plot cell's own job, and an opacity declaration here
- * would be the double-application `--sim-band-overlay`'s own comment above
- * forbids.
+ * Rank-distribution mark classes, consuming the `--sim-*` tokens in this
+ * file for the same build-retention reason. Colour only: an opacity here
+ * would be the double application forbidden above.
  */
 .sim-hist-bar {
   background-color: var(--sim-hist-bar);
@@ -973,11 +767,9 @@ body {
 }
 
 /*
- * Match-result chips (team page Result column). Win/loss wear the
- * emerald/rose pair reserved for exactly this meaning (distinct from
- * alliance red/blue AND from the green chrome accent family); a tie is a
- * neutral fact and wears muted ink. Same soft-bg + strong-fg construction
- * as `.alliance-chip` above.
+ * Match-result chips. Win/loss wear the emerald/rose pair reserved for this
+ * meaning (distinct from alliance red/blue and the accent green); a tie wears
+ * muted ink.
  */
 .result-chip {
   display: inline-block;
@@ -1001,11 +793,8 @@ body {
 }
 
 /*
- * District/Champ Locks status chips — applies the `--lock-status-*` tokens
- * declared above. Same geometry as `.result-chip` (soft tint + solid ink,
- * status word stays visible, never colour alone). Only the four named
- * statuses get a modifier; `contending` and `unknown` render as plain text
- * with no chip class at all.
+ * District/Champ Locks status chips. The status word stays visible, never
+ * colour alone; `contending` and `unknown` render as plain text with no chip.
  */
 .lock-status-chip {
   display: inline-block;
@@ -1033,25 +822,16 @@ body {
   color: var(--lock-status-prequalified-fg);
 }
 
-/*
- * Home page podium: pooled accuracy as a gold/silver/bronze podium. One-off
- * medal vocabulary for the front door — NOT the tier palette, even where a
- * value coincides; do not cross-reference these with --tier-* semantics.
- */
+/* Home page podium: a one-off medal vocabulary, NOT the tier palette, even where a value coincides. */
 .podium-step { border-radius: 8px 8px 0 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; padding: 10px 14px 12px; }
 .podium-step--gold { background: #fef3c7; color: #b45309; }
 .podium-step--silver { background: #e2e8f0; color: #475569; }
 .podium-step--bronze { background: #ffedd5; color: #9a3412; }
 
 /*
- * Match-table Call column: the check and cross glyphs wear the same
- * emerald/rose ink the Result chips use — one correctness vocabulary — sat
- * inside a soft-tinted, rounded badge (the SAME tint+ink construction
- * `.result-chip` above uses), so "correct/incorrect" reads identically
- * wherever it appears. The badge is a fixed square so every row's glyph
- * lands on the same centre, and an unplayed row gets the neutral `--none`
- * badge rather than an empty cell, keeping the column a column instead of
- * a ragged scatter.
+ * Match-table Call column: the Result chips' emerald/rose ink, one
+ * correctness vocabulary. A fixed square keeps every glyph on one centre,
+ * and an unplayed row gets the neutral badge rather than an empty cell.
  */
 .call-badge {
   display: inline-flex;
@@ -1068,15 +848,9 @@ body {
 .call-none { background-color: var(--color-bg-inset); color: var(--color-text-muted); }
 
 /*
- * Compare page: the winning accuracy / Brier value in a season row.
- *
- * Gold, not neutral: the winning figure wears the Legendary amber tier
- * tokens. The borrowed meaning is deliberate -- "best of the group" is what
- * Legendary already says elsewhere on the site, and this table has no
- * percentile tiers of its own to collide with.
- *
- * Emphasis is still WITHHELD entirely on a near-tie -- this only restyles
- * the cases that already qualified, it never adds new ones.
+ * Compare page: the winning accuracy / Brier value in a season row wears the
+ * Legendary tier tokens, borrowing its "best of the group" meaning (this
+ * table has no percentile tiers to collide with). A near-tie gets no pill.
  */
 .compare-leader-pill {
   display: inline-block;
