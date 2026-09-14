@@ -117,7 +117,122 @@ with `wrangler delete --config apps/worker/wrangler.probe.toml` once this todo c
 — `params.rp` states the arm, the ablated arm self-labels in `warnings`, and an unrecognised `rp`
 value runs **enabled** and says so, so a typo cannot silently measure the wrong arm.
 
-## DIRECTION CHOSEN — horizon repricing (Jacob, 2026-09-13)
+## COMPONENT PROFILE — where the RP overhead goes (2026-09-14, quick task 260914-nhc)
+
+**Headline: request pacing decides `cpuTime` far more than any RP component does. At a cron-like
+pace the dominant component is `analyticRpPmf` itself, and its cost is first-execution work, not
+the arithmetic.**
+
+### Provenance
+
+- Probe versions `36d5fb70` (warm pass) and `28051f5c` (cold pass, which adds only a per-isolate
+  request counter in the logs), built from `67f0b739` plus the `algorithms=` and counter commits.
+- The probe was re-mirrored to the post-teardown tick first, adding display band, prediction Maps and
+  touched metrics/Sigma. Live D1 generation `3ba2b580`, spr shape 16, `spr@4.0.0+baseline`.
+- All runs use `folded=2&upcoming=60&teamCount=21&algorithms=spr`. **`algorithms=spr` is new and
+  load-bearing**: live D1's opr/epa league rows are still shape 15, so reading all three made every
+  response a 500. A live tick loads only spr anyway.
+- Nine arms were interleaved round-robin with warm-up excluded; percentiles are nearest-rank.
+- Fold counters were constant within every arm, `bandsProduced` was 124 in every arm, and
+  `rpGatesOpened` was additive. There were zero non-ok outcomes.
+- `rpPmfsProduced` is **34 of 62**, so these figures still under-price a roster where every team is
+  warm.
+
+### Pacing is the first-order effect
+
+| Pass | Spacing | n per arm | all p50 / p90 | none p50 / p90 | all % over 10 ms |
+|---|---|---|---|---|---|
+| warm | 200 ms | 60 | 5 / 7 | 3 / 4 | 0% |
+| cron-like | 30 s (2 arms) | 18–19 | 23 / 51 | 9 / 34 | 100% |
+| cron-like | 30 s (9 arms) | 12 | 15 / 33 | 6 / 16 | 92% |
+
+A live tick does this work only when a match folds, about every 7 minutes, so it is at least as cold
+as the 30 s passes. **The 2026-09-12 figures (13 ms on, 6 ms off) sit between the warm and cold
+passes, and are not directly comparable to either.**
+
+### Fresh vs reused isolates (the cold 9-arm pass, per-isolate counter from `wrangler tail` logs)
+
+- 22 of 117 requests landed on a brand-new isolate, with a median of 28 ms; reused isolates had a
+  median of 10 ms. A reused isolate still runs cold at this spacing.
+- On fresh isolates the `none` arm is already about 18 ms. Every fresh-isolate tick is over budget
+  whether RP runs or not, and nothing inside the tick can fix that.
+- **Reused isolates are the cleaner comparison and the one RP decides.** There `none` has a mean of
+  6.7 ms (p50 6), under budget, and `all` has a mean of 16.2 ms (p50 14), over budget.
+
+Reused-isolate component differences (mean ± SE, measured rounds only):
+
+| Component | Difference | Resolved? |
+|---|---|---|
+| **total RP** (`all − none`) | **9.5 ± 2.1 ms** | resolved |
+| **upcoming-loop RP** (`all − skipUpcomingPmf`) | **7.2 ± 2.1 ms** | resolved |
+| both loops (`all − skipBothPmf`) | 6.9 ± 2.2 ms | resolved |
+| **`analyticRpPmf` formula** (`all − skipFormula`) | **6.0 ± 2.5 ms** | resolved |
+| wrapper: gates, `momentsFor`, warm check, mean-shift apply | 1.0 ± 1.6 ms | below resolution at n≈9 |
+| folded-loop RP (2 matches) | 2.6 ± 2.3 ms | below resolution |
+| resume (`fromBeliefs`, mean-shift resume) | 0.4 ± 0.5 ms | below resolution |
+| beliefs write-back passengers | 0.1 ± 2.6 ms | below resolution |
+| observe | 2.6 ± 2.5 ms | **confounded**: skipping it cuts gates 34 → 9, so it also removes about 25 formula calls |
+
+Warm pass for contrast: total 1.8 ± 0.3, upcoming 1.3 ± 0.2, formula 0.7 ± 0.3 ms.
+
+### Why the formula is expensive cold: Node benchmark of the CURRENT engine
+
+Same machine as the 2026-09-13 benchmark, 2026 rule module with lattice marginals, 34 calls with
+realistic hub/tower moments:
+
+| Node flags | first 34 calls | steady state |
+|---|---|---|
+| default | 2.73 ms (80 µs/call) | **7.5 µs/call** (was 4.6 µs before lattice marginals shipped) |
+| `--no-opt --no-maglev` | 2.49 ms | 26.4 µs/call |
+| `--no-opt --no-maglev --no-sparkplug` | 2.92 ms | 35.5 µs/call |
+| `--jitless` | 3.21 ms | 35.7 µs/call |
+
+The first 34 calls cost about 2.5–3 ms **under every flag set**, and interpretation alone would cost
+only about 1.2 ms. So most of the cold cost is first-call work: lazy compilation, inline-cache
+warm-up and first-touch allocation. Workers on a reused-but-cold isolate measured about 6.0 ms / 34 ≈
+**175 µs per call**. That is consistent with this first-call cost on slower hardware, paid again
+every tick because the compiled code does not survive the ~minutes between ticks.
+
+### What it does NOT say
+
+- Nothing below resolution is "free". It is below resolution at n≈9–12.
+- Fresh-isolate arms have n of 0–5 each and cannot be compared per component.
+- 30 s spacing is not the real cadence; the real one is colder.
+- Still Phase A only: no Phase B, TBA parse, or second concurrent event.
+
+### Implications for an output-identical cheaper tick (not implemented)
+
+- **The formula's cold path is the target, not its arithmetic.** Micro-optimizing the warm math
+  (7.5 µs) cannot move a 175 µs cold call. The lever is less code and fewer allocations executed
+  for the first time per tick: fewer distinct functions and closures on the lattice path, no
+  per-call array-of-arrays variance blocks, and shared precomputed lattice tables per rule module.
+  This is uncertain, so measure it with this same cold pass.
+- **The wrapper, resume and beliefs are not worth optimizing** at current resolution.
+- **Fresh isolates cost about 18 ms before any RP work.** That share (about 15–19% of ticks here)
+  either fits under the platform's flexibility for inconsistent overage, or needs the non-RP cold
+  path (deserialize, predict, band) looked at separately. Budget termination follows from hitting
+  the limit *consistently*, and on reused isolates `none` is under budget.
+- **Pricing upcoming RP outside the Worker** (for example in the browser, from published state)
+  removes the single resolved dominant term, about 7 ms of 9.5, entirely.
+
+### Reproduce
+
+```
+node .planning/quick/260914-nhc-profile-the-worker-tick-rp-overhead-per-/measure/measure-arms.mjs --rounds 12 --warmup 1 --delay-ms 30000 --out <dir>
+```
+
+Run `wrangler tail sigmascout-state-probe --format json` alongside it, then `analyze-arms.mjs`. For
+the fresh/reused split, parse `isolateRequest=N` from each tail event's logs. Arms come from
+`rpSkip=` (see `docs/worker-operations.md`, "Pre-event probe"). **The probe is LEFT DEPLOYED** at
+`28051f5c`.
+
+## DIRECTION CHOSEN — horizon repricing (Jacob, 2026-09-13) — REJECTED by Jacob 2026-09-14
+
+> Jacob, 2026-09-14: "I don't like horizon repricing." He wants every upcoming row on the site kept
+> correct and current. Alternatives under consideration are pricing upcoming matches in the browser
+> from published state, cheapening the cold path with output kept identical (profile above), and
+> splitting the tick across invocations. The section below is kept as the record of what was
+> proposed.
 
 ### A correctness defect found while pricing the directions, and it changes the problem
 
