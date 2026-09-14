@@ -39,7 +39,7 @@ async function labelRect(tab: Locator): Promise<{ x: number; width: number }> {
   });
 }
 
-test.describe("G-5 — tab strip triggers size to their own content, with a uniform visual gap", () => {
+test.describe("tab strip triggers size to their own content, with a uniform visual gap", () => {
   test("no trigger's label overflows its own box, and the gap between adjacent labels is uniform", async ({ page }) => {
     await page.goto(EVENT_URL, { waitUntil: "networkidle" });
     const strip = page.locator('[data-testid="event-tab-strip-scroll"]');
@@ -83,7 +83,7 @@ test.describe("G-5 — tab strip triggers size to their own content, with a unif
       maxGap - minGap,
       `visual gaps between adjacent tab labels are not uniform: [${gaps.map((g) => g.toFixed(1)).join(", ")}]px (spread ${(maxGap - minGap).toFixed(
         1,
-      )}px) — this reproduces G-5's "box widths force-equalized while label text varies" defect`,
+      )}px) — this reproduces the "box widths force-equalized while label text varies" defect`,
     ).toBeLessThanOrEqual(TOLERANCE_PX);
   });
 });

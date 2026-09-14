@@ -53,7 +53,7 @@ async function assertVerticalPanPermittedAndOverscrollUnchanged(locator: Locator
 
   expect(
     touchAction,
-    `${label}: computed touch-action is "${touchAction}" — "pan-x" alone blocks every vertical touch gesture starting here (07-UAT.md G-4)`,
+    `${label}: computed touch-action is "${touchAction}" — "pan-x" alone blocks every vertical touch gesture starting here`,
   ).not.toBe("pan-x");
   // Chromium canonicalizes a computed `touch-action: pan-x pan-y pinch-zoom`
   // down to the single equivalent keyword "manipulation" (confirmed live,
@@ -76,7 +76,7 @@ async function assertVerticalPanPermittedAndOverscrollUnchanged(locator: Locator
 }
 
 for (const region of REGIONS) {
-  test(`${region.name}: touch-action permits vertical panning (G-4)`, async ({ page }) => {
+  test(`${region.name}: touch-action permits vertical panning`, async ({ page }) => {
     await page.goto(region.url, { waitUntil: "networkidle" });
     const locator = page.locator(`[data-testid="${region.testId}"]`);
     await locator.waitFor({ state: "visible", timeout: 15_000 });
@@ -85,7 +85,7 @@ for (const region of REGIONS) {
   });
 }
 
-test("team page match-table scroller: touch-action permits vertical panning (G-4)", async ({ page }) => {
+test("team page match-table scroller: touch-action permits vertical panning", async ({ page }) => {
   await page.goto(TEAM_URL, { waitUntil: "networkidle" });
   const locator = page.locator('[data-testid^="match-table-scroll-"]').first();
   await locator.waitFor({ state: "visible", timeout: 15_000 });

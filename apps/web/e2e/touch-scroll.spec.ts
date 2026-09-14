@@ -157,7 +157,7 @@ test("a pinned cell's background is opaque, not transparent", async ({ page }) =
  * `touch-action` inside a different-axis outer scroller. A real-device
  * human check remains a separate, outstanding verification step.
  */
-test.describe("team page — per-event-section touch scroll (D-10)", () => {
+test.describe("team page — per-event-section touch scroll", () => {
   const TEAM_URL = "/team/118?year=2024&algorithm=vpr";
   const SCROLLER_TESTID_PATTERN = '[data-testid^="match-table-scroll-"]';
 

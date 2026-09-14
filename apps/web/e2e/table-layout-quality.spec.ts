@@ -140,7 +140,7 @@ async function gotoTable(page: Page, spec: TableSpec): Promise<void> {
 }
 
 for (const spec of TABLES) {
-  test.describe(`G-3 layout quality — ${spec.name}`, () => {
+  test.describe(`layout quality — ${spec.name}`, () => {
     test("declared vs actual: every sized column's rendered width equals its declared size", async ({ page }) => {
       await gotoTable(page, spec);
 
@@ -185,7 +185,7 @@ for (const spec of TABLES) {
             const gap = next.box.x - (current.box.x + current.box.width);
             expect(
               Math.abs(gap),
-              `${spec.name} ${rowKind} row: gap of ${gap}px between pinned "${current.id}" and pinned "${next.id}" — a non-zero gap here is the exact "page-coloured stripe between pinned headers" 07-UAT.md G-1 found on a real phone`,
+              `${spec.name} ${rowKind} row: gap of ${gap}px between pinned "${current.id}" and pinned "${next.id}" — a non-zero gap here is the exact "page-coloured stripe between pinned headers" defect found on a real phone`,
             ).toBeLessThanOrEqual(SUBPIXEL_TOLERANCE_PX);
           }
         }
@@ -194,7 +194,7 @@ for (const spec of TABLES) {
   });
 }
 
-test.describe("G-3 layout quality — pinned width bound (tables with pinned columns)", () => {
+test.describe("layout quality — pinned width bound (tables with pinned columns)", () => {
   for (const spec of TABLES.filter((s) => s.columns.some((c) => c.pinned))) {
     test(`${spec.name}: pinned columns never consume more than ${MAX_PINNED_FRACTION_OF_VIEWPORT * 100}% of the viewport`, async ({ page }) => {
       await gotoTable(page, spec);
@@ -221,7 +221,7 @@ test.describe("G-3 layout quality — pinned width bound (tables with pinned col
       const fraction = pinnedTotal / viewport.width;
       expect(
         fraction,
-        `${spec.name}: pinned columns total ${pinnedTotal}px of a ${viewport.width}px viewport (${(fraction * 100).toFixed(1)}%) — this reproduces G-2's "no room for a single metric column" complaint regardless of which exact columns are pinned`,
+        `${spec.name}: pinned columns total ${pinnedTotal}px of a ${viewport.width}px viewport (${(fraction * 100).toFixed(1)}%) — this reproduces the "no room for a single metric column" complaint regardless of which exact columns are pinned`,
       ).toBeLessThanOrEqual(MAX_PINNED_FRACTION_OF_VIEWPORT);
     });
   }
@@ -311,7 +311,7 @@ test.describe("nickname ellipsis — overflowing nickname text truncates with an
   });
 });
 
-test.describe("G-2 part 2 — at least one full data column visible at scroll 0 (no scrolling)", () => {
+test.describe("at least one full data column visible at scroll 0 (no scrolling)", () => {
   for (const spec of TABLES) {
     test(`${spec.name}: at least one data column is fully visible inside the scroll region at scroll 0`, async ({ page }) => {
       await gotoTable(page, spec);
@@ -365,7 +365,7 @@ test.describe("G-2 part 2 — at least one full data column visible at scroll 0 
           1,
         )}px scroller (total ${totalVisiblePx.toFixed(
           1,
-        )}px of data-column pixels visible) — this is the exact "zero data pixels visible on first paint" G-2 part 2 defect (07-UAT.md). Columns:\n${report.join("\n")}`,
+        )}px of data-column pixels visible) — this is the exact "zero data pixels visible on first paint" defect. Columns:\n${report.join("\n")}`,
       ).toBeGreaterThan(0);
     });
   }

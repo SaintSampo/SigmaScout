@@ -68,12 +68,12 @@ for (const width of [1440, 1280] as const) {
       overflow,
       `at ${width}px: scroller=${scrollerWidth.toFixed(1)}px table=${tableWidth.toFixed(1)}px overflow=${overflow.toFixed(
         1,
-      )}px — expected <= ${bound}px (07-UAT.md G-10's measured post-fix bound). If this now FAILS because overflow is 0 or negative, G-10's own residual-overflow finding is stale — update this file's comment and bound rather than leaving a falsely pessimistic assertion in place.`,
+      )}px — expected <= ${bound}px (the measured post-fix bound). If this now FAILS because overflow is 0 or negative, the residual-overflow finding is stale — update this file's comment and bound rather than leaving a falsely pessimistic assertion in place.`,
     ).toBeLessThanOrEqual(bound);
 
     expect(
       overflow,
-      `at ${width}px: overflow ${overflow.toFixed(1)}px did not improve on the G-7 (pre-G-10) ${priorBound}px baseline`,
+      `at ${width}px: overflow ${overflow.toFixed(1)}px did not improve on the prior ${priorBound}px baseline`,
     ).toBeLessThan(priorBound);
 
     expect(overflow, `at ${width}px: overflow ${overflow.toFixed(1)}px did not improve on the ${PRE_FIX_OVERFLOW_PX}px original baseline`).toBeLessThan(
@@ -102,7 +102,7 @@ test("Breakdown desktop header wrap: no header cell's wrapped text is clipped (s
   }
 });
 
-test("Breakdown desktop (1440px): G-1's declared==actual holds after the container widen, and the teamNumber/nickname headers abut with a 0px gap", async ({ page }) => {
+test("Breakdown desktop (1440px): the declared==actual column width holds after the container widen, and the teamNumber/nickname headers abut with a 0px gap", async ({ page }) => {
   await measureOverflow(page, 1440);
 
   const teamNumberHeader = page.getByTestId("breakdown-header-teamNumber");

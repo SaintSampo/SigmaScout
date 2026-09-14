@@ -121,21 +121,21 @@ async function assertFullRowAlternation(rows: Locator[]): Promise<void> {
         curr[c],
         `row ${r} cell ${c}: effective background "${curr[c]}" is IDENTICAL to the previous row's cell ${c} ("${prev[c]}") — full rows: ${JSON.stringify(
           rowColors,
-        )}. A stripe that only alternates on the sticky first cell (index 0) while every other cell stays the same colour is exactly the diagnosed G-9 defect: the untinted row inherits its background from an ancestor, and on this table there is no .event-card ancestor to inherit a distinct colour from.`,
+        )}. A stripe that only alternates on the sticky first cell (index 0) while every other cell stays the same colour is exactly the diagnosed defect: the untinted row inherits its background from an ancestor, and on this table there is no .event-card ancestor to inherit a distinct colour from.`,
       ).not.toBe(prev[c]);
     }
   }
 }
 
 for (const target of TARGETS) {
-  test(`G-9 — ${target.name}: full-row zebra alternation across the first ${CELL_SAMPLE_COUNT} cells, not just the sticky column`, async ({ page }) => {
+  test(`${target.name}: full-row zebra alternation across the first ${CELL_SAMPLE_COUNT} cells, not just the sticky column`, async ({ page }) => {
     await page.goto(target.url, { waitUntil: "networkidle" });
     const rows = await firstBodyRows(page, target.regionTestId, 3);
     await assertFullRowAlternation(rows);
   });
 }
 
-test("G-9 — team page: full-row zebra alternation unregressed (already correct via .event-card ancestor)", async ({ page }) => {
+test("team page: full-row zebra alternation unregressed (already correct via .event-card ancestor)", async ({ page }) => {
   await page.goto(TEAM_URL, { waitUntil: "networkidle" });
   const rows = page.locator('[data-testid^="match-row-"]');
   await rows.first().waitFor({ state: "visible", timeout: 15_000 });
@@ -153,7 +153,7 @@ test("G-9 — team page: full-row zebra alternation unregressed (already correct
  * direction the moment the two happened to diverge.
  */
 for (const target of TARGETS) {
-  test(`G-9 — ${target.name}: the sticky first cell's background matches its own row's stripe state`, async ({ page }) => {
+  test(`${target.name}: the sticky first cell's background matches its own row's stripe state`, async ({ page }) => {
     await page.goto(target.url, { waitUntil: "networkidle" });
     const rows = await firstBodyRows(page, target.regionTestId, 2);
     for (const row of rows) {

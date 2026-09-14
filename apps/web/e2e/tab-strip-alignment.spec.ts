@@ -17,7 +17,7 @@ const EVENT_URL = "/event/2024new?algorithm=vpr&tab=insights";
 /** Real-world subpixel/font-hinting tolerance for position comparisons. */
 const TOLERANCE_PX = 2;
 
-test.describe("G-6 — the tab strip start-aligns (falls back from center) while it overflows its scroll region", () => {
+test.describe("the tab strip start-aligns (falls back from center) while it overflows its scroll region", () => {
   test("justify-content is not plain center while the strip overflows, and the leading tab is reachable at scrollLeft 0", async ({ page }) => {
     await page.goto(EVENT_URL, { waitUntil: "networkidle" });
     const strip = page.locator('[data-testid="event-tab-strip-scroll"]');
@@ -33,10 +33,10 @@ test.describe("G-6 — the tab strip start-aligns (falls back from center) while
     const justifyContent = await tabsList.evaluate((el) => getComputedStyle(el).justifyContent);
     expect(
       justifyContent,
-      `TabsList computed justify-content is "${justifyContent}" while the strip overflows — plain "center" pushes the leading tab past the scroll origin, making it unreachable by scrolling (07-UAT.md G-6)`,
+      `TabsList computed justify-content is "${justifyContent}" while the strip overflows — plain "center" pushes the leading tab past the scroll origin, making it unreachable by scrolling`,
     ).not.toBe("center");
 
-    // The concrete, observable consequence of G-6's bug (an unreachable
+    // The concrete, observable consequence of the bug (an unreachable
     // leading tab), not just the CSS property's name: at scrollLeft 0, the
     // first tab's own left edge must not sit to the LEFT of the scroller's
     // own left edge — if it does, no amount of native scrolling can reach it
