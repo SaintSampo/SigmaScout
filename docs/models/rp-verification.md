@@ -1,4 +1,4 @@
-# Sigma1 RP verification (SC-4)
+# RP threshold verification (SC-4)
 
 *2026-09-13: the code this record measured was deleted by quick task 260913-it4, restorable from the commit recorded in that task's SUMMARY.*
 
@@ -6,7 +6,8 @@ SC-4 reads "verified against the official 2022–2026 game manuals." This docume
 claim's verification status is answerable in one read, per bonus threshold, rather than
 reconstructed from source comments and a summary file — the gap `03-VERIFICATION.md` raised and
 `03-08-PLAN.md` closes. Every quantified figure below is reproduced from
-`pnpm rp:conservative-branch` (`packages/harness/rpConservativeBranch.ts`) or from
+a conservative-branch measurement script (since deleted; the Conservative-Branch Understatement
+section names the commit to restore it from) or from
 the Sigma1 core's own RP reconciliation test's console output — nothing here is
 estimated.
 
@@ -190,6 +191,7 @@ Genuinely remaining after this plan — named here rather than left implicit:
 
 ---
 *Phase: 03-tuning-ranking-points-versioning (plan 03-08)*
-*Figures quoted from `pnpm rp:conservative-branch` (`reports/rpConservativeBranch.json`, gitignored,
-regenerate to reproduce) and the Sigma1 core's own RP reconciliation test's
+*Figures quoted from a conservative-branch measurement script (since deleted; the
+Conservative-Branch Understatement section names the commit to restore it from) and the Sigma1
+core's own RP reconciliation test's
 console output, both against `data/corpus.sqlite`.*
