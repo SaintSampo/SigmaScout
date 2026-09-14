@@ -1,87 +1,44 @@
 /**
  * Statbotics' WEEK 1 population, and the single place this project writes
- * down what "week 1" means in corpus terms (quick task 260911-j2w Task 2).
+ * down what "week 1" means in corpus terms.
  *
- * ---------------------------------------------------------------------------
- * WHY THIS MODULE EXISTS: THE OFF-BY-ONE
- * ---------------------------------------------------------------------------
- * `backend/src/data/avg.py` computes EVERY season-level `Year` aggregate
- * Statbotics reads — `score_mean`, `score_sd`, `no_foul_mean`, `foul_mean`,
- * and all ten `comp_*_mean` slots — from one filtered list
- * (`docs/models/statbotics-breakdown-reference.md` §21, verbatim):
+ * THE OFF-BY-ONE: Statbotics' `avg.py` computes every season-level `Year`
+ * aggregate (`score_mean`, `score_sd`, `no_foul_mean`, `foul_mean`, all ten
+ * `comp_*_mean` slots) from matches where `m.week == 1`
+ * (`docs/models/statbotics-breakdown-reference.md` §21). **This corpus
+ * stores TBA's week 0-INDEXED** (`packages/corpus/schema.sql`,
+ * `packages/spr/data.ts`), so **Statbotics' week 1 is this corpus's
+ * `week === 0`.** Getting that backwards fails silently — the model still
+ * runs and every downstream assertion still passes, just calibrated on the
+ * wrong week — which is why the mapping is a named, corpus-backed-tested
+ * constant rather than an inline `=== 0` at the read site.
  *
- *     week_one_matches = [
- *         m for m in matches if m.week == 1 and m.status == MatchStatus.COMPLETED
- *     ]
+ * THE NULL-WEEK POLICY: championship, preseason and offseason events all
+ * carry `week = null`, a heterogeneous bucket spanning both before and after
+ * week 1. **A null-week match is never part of the week-1 population, and
+ * never triggers the week-1 freeze** — it is unplaced, and treating unplaced
+ * play as either would be a guess. `isStatboticsWeekOne` takes
+ * `number | null` and answers `false` for `null` explicitly.
  *
- * Its filter is `week == 1`. **This corpus stores TBA's week 0-INDEXED**:
- * `packages/corpus/schema.sql` and `packages/spr/data.ts` both record that
- * corpus week 0 is competition "Week 1", and the corpus itself confirms it —
- * 2024's `week = 0` events run 2024-02-24 to 2024-03-03, which is FRC's own
- * Week 1, while `week = 1` events do not begin until 2024-03-05.
+ * THE FREEZE RULE: a week-1 aggregate is KNOWABLE the moment week 1 ends.
+ * Matches stream in chronological order, so the FIRST match carrying a
+ * numeric week greater than 0 proves every week-1 match has already passed —
+ * the freeze trigger needs no lookahead, which is what makes it
+ * walk-forward-legal rather than a season-final read wearing a new name.
+ * Before the seal, `frozen` is `null` and every caller falls back to its
+ * live expanding estimate, so a week-1 prediction can never be informed by
+ * an unplayed week-1 match.
  *
- * So **Statbotics' week 1 is this corpus's `week === 0`.**
+ * ONE-MATCH LAG: the seal happens inside `update`, so the very first week-2
+ * match of a season is predicted before its own fold seals the aggregate,
+ * and still reads the live estimate (one match per season out of roughly
+ * sixteen thousand). Left as-is deliberately — closing it would mean a
+ * second, lazily-computed read path in `predict` that could drift.
  *
- * Getting that backwards is the whole risk of adopting these constants,
- * because nothing visibly fails when you do. The model still runs, the
- * ratings still look plausible, every downstream assertion still passes, and
- * the reproduction is silently calibrated on the wrong week. That is why the
- * mapping is a named constant with a corpus-backed test
- * (`epaWeekOne.test.ts`) rather than an inline `=== 0` at the read site.
- *
- * ---------------------------------------------------------------------------
- * THE NULL-WEEK POLICY
- * ---------------------------------------------------------------------------
- * Championship, preseason and offseason events all carry `week = null` in this
- * corpus. In 2024 that is 143 events and 6,255 played matches, and the bucket
- * is HETEROGENEOUS: its start dates span 2024-02-03 to 2024-12-27, so some
- * null-week play happens BEFORE week 1 and some happens long after.
- *
- * **A null-week match is never part of the week-1 population, and never
- * triggers the week-1 freeze.** It is neither week 1 nor "after week 1"; it is
- * unplaced, and treating unplaced play as either would be a guess. Every
- * consumer of this module must apply that rule, which is why
- * `isStatboticsWeekOne` takes `number | null` rather than `number` and
- * answers `false` for `null` explicitly.
- *
- * ---------------------------------------------------------------------------
- * THE FREEZE RULE, AND WHY IT IS WALK-FORWARD LEGAL (quick task 260911-j2w
- * Task 3)
- * ---------------------------------------------------------------------------
- * A week-1 aggregate is KNOWABLE the moment week 1 ends. Reading it for any
- * week-2-or-later match therefore reads nothing that has not already been
- * played, which is what narrows this whole class of divergence from a
- * season-wide problem to a one-week one
- * (`docs/models/statbotics-breakdown-reference.md` §21).
- *
- * Matches stream in chronological order, so the FIRST match carrying a numeric
- * week greater than 0 proves every week-1 match has already passed. That is the
- * freeze trigger, and it needs no lookahead — which is precisely what makes
- * this a walk-forward-legal refinement rather than a season-final read wearing
- * a new name.
- *
- * DURING WEEK 1 ITSELF the frozen value does not exist, and every caller falls
- * back to its live expanding estimate. So a week-1 prediction can never be
- * informed by a week-1 match that has not been played yet. That is the whole
- * safety argument, and it is why `frozen` is `null` rather than a partial
- * aggregate before the seal.
- *
- * ONE-MATCH LAG, stated rather than hidden. The seal happens inside `update`,
- * so the very first week-2 match of a season is PREDICTED before its own fold
- * seals the aggregate, and therefore still reads the live estimate. One match
- * per season out of roughly sixteen thousand. It is left as-is deliberately:
- * closing it would mean a second, lazily-computed read path in `predict` that
- * could drift from the sealed value.
- *
- * LATE WEEK-1 ARRIVALS. Week-0 and week-1 EVENT windows never overlap by start
- * date in any corpus season (pinned by `epaWeekOne.test.ts`), but a multi-day
- * week-0 event can still run a match on the day a week-1 event opens. Once
- * sealed, this state ignores such arrivals entirely rather than reopening: a
- * frozen constant that keeps moving is not a constant, and every prediction
- * already made against it would be inconsistent with every later one. The cost
- * is that the aggregate can cover slightly fewer matches than Statbotics'
- * offline `week_one_matches` list, which is a named consequence of being
- * walk-forward rather than offline.
+ * LATE WEEK-1 ARRIVALS: once sealed, this state ignores late-arriving week-1
+ * matches (a multi-day week-0 event running into a week-1 event's start
+ * date) rather than reopening — a frozen constant that keeps moving is not a
+ * constant.
  *
  * This module must stay importable by the Cloudflare Worker: no Node-only
  * APIs, no better-sqlite3, no Cloudflare bindings.
@@ -118,19 +75,13 @@ export interface EpaWeekOneAggregate {
 }
 
 /**
- * The frozen week-1 FOUL aggregate (quick task 260911-l2k): Statbotics'
- * `year.get_foul_rate()` and `year.no_foul_mean` targets.
+ * The frozen week-1 FOUL aggregate: Statbotics' `year.get_foul_rate()` and
+ * `year.no_foul_mean` targets, frozen by the same seal as `score_sd`
+ * (`docs/models/statbotics-breakdown-reference.md` §21).
  *
- * `avg.py` writes both `year.foul_mean` and `year.no_foul_mean` from the SAME
- * `week_one_matches` list that writes `score_sd`
- * (`docs/models/statbotics-breakdown-reference.md` section 21), so this record
- * is frozen by the same seal, at the same moment, from the same population.
- *
- * `noFoulMean` is kept BESIDE the rate rather than discarded because the two
- * have different consumers: the rate is `predictCore`'s post-win-probability
- * scalar, and `noFoulMean` is `carryRescaleRatioFor`'s numerator — the exact
- * quantity `get_constants` reads (`init.py:16-21`), where the raw-score mean
- * on `EpaWeekOneAggregate` above is only its named neighbour.
+ * `noFoulMean` is kept BESIDE the rate because the two have different
+ * consumers: the rate is `predictCore`'s post-win-probability scalar, and
+ * `noFoulMean` is `carryRescaleRatioFor`'s numerator.
  */
 export interface EpaWeekOneFoulAggregate {
   /** `foul_mean / no_foul_mean` — `get_foul_rate()` (`year.py:176-177`). */
@@ -140,20 +91,16 @@ export interface EpaWeekOneFoulAggregate {
 }
 
 /**
- * League-scoped week-1 calibration state. Three facts, all flat in team count,
- * which is the D-13 rule that puts them in the LEAGUE row rather than on a team
- * row (`packages/harness/stateSnapshot.ts`'s 10 -> 11 and 11 -> 12 blocks).
+ * League-scoped week-1 calibration state. Three facts, all flat in team
+ * count, which puts them in the LEAGUE row rather than on a team row
+ * (`packages/harness/stateSnapshot.ts`).
  */
 export interface EpaWeekOneState {
   /** Welford accumulator over WEEK-1 alliance scores only, separate from the season-wide expanding one. */
   readonly stats: ExpandingStats;
   /** The frozen aggregate, or `null` while week 1 is still running (or if the seal found too little data). */
   readonly frozen: EpaWeekOneAggregate | null;
-  /**
-   * Welford accumulator over WEEK-1 alliance NO-FOUL totals (quick task
-   * 260911-l2k) — `score - foulPoints - adjustPoints`, the quantity
-   * `avg.py` averages into `year.no_foul_mean`.
-   */
+  /** Welford accumulator over WEEK-1 alliance NO-FOUL totals — `score - foulPoints - adjustPoints`, the quantity `avg.py` averages into `year.no_foul_mean`. */
   readonly noFoulStats: ExpandingStats;
   /**
    * Welford accumulator over WEEK-1 alliance FOUL totals —
@@ -182,37 +129,25 @@ export const EPA_WEEK_ONE_MIN_OBS = 2;
 
 /**
  * Minimum week-1 FOUL/NO-FOUL observations before a foul-rate freeze takes
- * effect (quick task 260911-l2k).
+ * effect.
  *
  * 1 is a MEAN's own contract boundary, exactly as `EPA_WEEK_ONE_MIN_OBS = 2`
- * above is `standardDeviation`'s: a mean is defined at one observation, a
- * variance is not, and the foul record needs only means. This is a legality
- * floor, not a tuned threshold: nothing was searched, and no value was chosen
- * by looking at an accuracy number.
- *
- * It is deliberately a SEPARATE constant from `EPA_WEEK_ONE_MIN_OBS` rather
- * than a reuse of it. The two gates govern different records with different
- * mathematical requirements, and collapsing them would silently impose a
- * variance's contract on a quantity that has none.
+ * above is `standardDeviation`'s. A SEPARATE constant from
+ * `EPA_WEEK_ONE_MIN_OBS` deliberately: the two gates govern different
+ * records with different mathematical requirements.
  */
 export const EPA_WEEK_ONE_MIN_FOUL_OBS = 1;
 
 /**
- * The foul rate used when no usable week-1 foul information exists — before
- * the seal with an empty season-wide accumulator, or after a seal that refused
- * a degenerate rate.
+ * The foul rate used when no usable week-1 foul information exists.
  *
- * 0 means "publish each alliance's plain no-foul total", which is the honest
- * statement of having observed no foul inflation at all. It is NOT a tuned
- * value and was not chosen by looking at an accuracy number; it is the
- * identity element of the `(1 + rate)` scalar, i.e. the only value that leaves
- * a published score untouched.
+ * 0 means "publish each alliance's plain no-foul total" — the identity
+ * element of the `(1 + rate)` scalar. NOT a tuned value.
  *
- * Upstream's own guard is different and weaker: `get_foul_rate()` returns
- * `(self.foul_mean or 0) / (self.no_foul_mean or 1)`, substituting a
- * denominator of 1 and thereby publishing `foul_mean` ITSELF as a rate when
- * the no-foul mean is missing. This project refuses the divide instead (D-5),
- * which is the `sealWeekOneIfPast` precedent.
+ * Upstream's own guard is weaker: `get_foul_rate()` returns `(self.foul_mean
+ * or 0) / (self.no_foul_mean or 1)`, substituting a denominator of 1 and
+ * publishing `foul_mean` ITSELF as a rate when the no-foul mean is missing.
+ * This project refuses the divide instead.
  */
 export const EPA_FALLBACK_FOUL_RATE = 0;
 
@@ -246,18 +181,17 @@ export function foldWeekOneAllianceScore(state: EpaWeekOneState, week: number | 
 }
 
 /**
- * Folds one alliance's NO-FOUL / FOUL split into the week-1 accumulators, under
- * exactly the gates `foldWeekOneAllianceScore` above applies (quick task
- * 260911-l2k).
+ * Folds one alliance's NO-FOUL / FOUL split into the week-1 accumulators,
+ * under exactly the gates `foldWeekOneAllianceScore` above applies.
  *
  * Both values are dropped together when either is non-finite, deliberately:
- * they are two halves of ONE observation of one alliance's score, and folding
- * half of it would break the `noFoulMean + foulMean === scoreMean` identity the
- * complement construction exists to guarantee.
+ * they are two halves of ONE observation of one alliance's score, and
+ * folding half of it would break the `noFoulMean + foulMean === scoreMean`
+ * identity the complement construction exists to guarantee.
  *
- * The CALLER owns the two exclusions this function cannot see — a ruling-zero
- * alliance and an alliance whose breakdown did not parse (`epa.ts`'s `update`,
- * D-3). This function only knows about weeks and finiteness.
+ * The CALLER owns the two exclusions this function cannot see — a
+ * ruling-zero alliance and an alliance whose breakdown did not parse
+ * (`epa.ts`'s `update`). This function only knows about weeks and finiteness.
  */
 export function foldWeekOneFoulSplit(
   state: EpaWeekOneState,
@@ -280,23 +214,18 @@ export function foldWeekOneFoulSplit(
  * no_foul_mean`, or `null` when the quantity is not one a prediction may be
  * multiplied by.
  *
- * THE ONE DIVIDE. Both the seal below and `epa.ts`'s live pre-seal read call
- * this — a second copy of the ratio drifting from the first is exactly the
- * failure `carryover.ts`'s own `populationMeanSd` comment warns about, and it
- * would be invisible: two slightly different rates, both plausible, applied on
- * different sides of a seal.
+ * THE ONE DIVIDE — both the seal below and `epa.ts`'s live pre-seal read
+ * call this, so a second copy of the ratio can never drift from the first.
  *
- * Refused, rather than fudged (D-5):
+ * Refused, rather than fudged:
  *   - a non-finite input on either side;
- *   - a no-foul mean that is not strictly positive — that is the degenerate
- *     divide upstream papers over with `(self.no_foul_mean or 1)`;
- *   - a negative foul mean, which would DEFLATE both published scores; a
- *     negative aggregate foul total is not a thing the sport produces, so it
- *     is a defect to refuse rather than a number to ship.
+ *   - a no-foul mean that is not strictly positive — the degenerate divide
+ *     upstream papers over with `(self.no_foul_mean or 1)`;
+ *   - a negative foul mean, which would DEFLATE both published scores; the
+ *     sport cannot produce one, so it is a defect to refuse.
  *
- * A rate of exactly 0 is a real answer and is returned as one: it means no
- * foul points were observed, and the published score is the plain no-foul
- * total. Only `null` means "unusable".
+ * A rate of exactly 0 is a real answer: no foul points were observed. Only
+ * `null` means "unusable".
  */
 export function foulRateFrom(noFoulMean: number, foulMean: number): number | null {
   if (!Number.isFinite(noFoulMean) || !Number.isFinite(foulMean)) return null;
@@ -310,22 +239,18 @@ export function foulRateFrom(noFoulMean: number, foulMean: number): number | nul
 /**
  * Seals the week-1 aggregate the first time a match proves week 1 is over.
  *
- * `week === null` never seals (the null-week policy above: unplaced play is
- * neither week 1 nor after it), and `week === 0` never seals (that IS week 1).
- * A seal that finds fewer than `EPA_WEEK_ONE_MIN_OBS` observations, or a
- * non-finite or non-positive spread, records `sealed` and leaves `frozen` at
- * `null` — the caller keeps its live estimate, and the state says so rather
- * than handing back a degenerate constant. A zero SD would make the logistic
- * scale infinite; that is a defect to refuse, not a number to ship.
+ * `week === null` never seals (unplaced play is neither week 1 nor after
+ * it), and `week === 0` never seals (that IS week 1). A seal that finds
+ * fewer than `EPA_WEEK_ONE_MIN_OBS` observations, or a non-finite or
+ * non-positive spread, records `sealed` and leaves `frozen` at `null` — a
+ * zero SD would make the logistic scale infinite, a defect to refuse.
  *
- * ONE SEAL MOMENT, TWO RECORDS (quick task 260911-l2k). `frozen` (mean/sd) and
- * `frozenFoul` (rate/no-foul mean) are frozen in this one call, from the same
- * week-1 population, because `avg.py` derives all of them from the same
- * `week_one_matches` list. Their GATES are independent on purpose:
- * `EPA_WEEK_ONE_MIN_OBS` (2) is `standardDeviation`'s contract and governs
- * `frozen`; `EPA_WEEK_ONE_MIN_FOUL_OBS` (1) is a mean's and governs
- * `frozenFoul`. Either may come out `null` while the other freezes, and
- * `sealed` is set either way so neither is ever retried.
+ * ONE SEAL MOMENT, TWO RECORDS. `frozen` (mean/sd) and `frozenFoul`
+ * (rate/no-foul mean) are frozen in this one call, from the same week-1
+ * population. Their GATES are independent on purpose: `EPA_WEEK_ONE_MIN_OBS`
+ * (2) is `standardDeviation`'s contract and governs `frozen`;
+ * `EPA_WEEK_ONE_MIN_FOUL_OBS` (1) is a mean's and governs `frozenFoul`.
+ * Either may come out `null` while the other freezes.
  */
 export function sealWeekOneIfPast(state: EpaWeekOneState, week: number | null): EpaWeekOneState {
   if (state.sealed) return state;
@@ -341,9 +266,9 @@ export function sealWeekOneIfPast(state: EpaWeekOneState, week: number | null): 
 }
 
 /**
- * The `frozenFoul` half of the seal above. Returns `null` — not a substituted
- * value — whenever the week-1 foul population cannot produce a rate a
- * prediction may be multiplied by (D-5).
+ * The `frozenFoul` half of the seal above. Returns `null` — not a
+ * substituted value — whenever the week-1 foul population cannot produce a
+ * rate a prediction may be multiplied by.
  */
 function sealFoulRecord(state: EpaWeekOneState): EpaWeekOneFoulAggregate | null {
   if (state.noFoulStats.count < EPA_WEEK_ONE_MIN_FOUL_OBS) return null;
