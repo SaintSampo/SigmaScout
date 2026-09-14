@@ -1,8 +1,6 @@
 /**
- * `prequalified.ts`'s behavior contract (quick task 260905-lic revision
- * R2a) -- verbatim curated team lists per season, verified against
- * `260905-lic-RESEARCH-awards.md` §Q3's own enumerations. The 2016-2020
- * lists, backfilled 2026-09-13, are sourced in `prequalified.ts`'s header.
+ * `prequalified.ts`'s behavior contract -- verbatim curated team lists per
+ * season. Sources for each season's list are in `prequalified.ts`'s header.
  */
 import { describe, expect, it } from "vitest";
 import { prequalifiedTeams } from "./prequalified.js";
