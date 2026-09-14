@@ -1,32 +1,29 @@
 /**
- * 07-20-PLAN.md Task 1 — the sibling-scroll-region evidence at phone width,
- * for ledger rows 1, 2, 3, 5 and 7 (UI-SPEC's E2/E3/E4/E5/E6 `overflow`
- * rows). Proves, against the widest real data that exists in five seasons
- * of corpus data, that the tab strip's own scroll region, each tab's own
- * table scroll region, and the page's vertical scroll are three SIBLING
- * regions — never nested, never trapping one another — under a real CDP
- * touch drag at 390px (and, for the shared structural cases, at 360px too).
+ * The sibling-scroll-region evidence at phone width. Proves, against the
+ * widest real data that exists in five seasons of corpus data, that the
+ * tab strip's own scroll region, each tab's own table scroll region, and
+ * the page's vertical scroll are three SIBLING regions — never nested,
+ * never trapping one another — under a real CDP touch drag at 390px (and,
+ * for the shared structural cases, at 360px too).
  *
  * Runs against the DEPLOYED origin (`playwright.config.ts`'s `baseURL`):
- * `https://data.sigmascout.org`'s R2 CORS policy (Phase 5 D-18) does not
- * allow-list `localhost`/`*.pages.dev`, so there is nothing to scroll
- * without the real, deployed artifact.
+ * `https://data.sigmascout.org`'s R2 CORS policy does not allow-list
+ * `localhost`/`*.pages.dev`, so there is nothing to scroll without the
+ * real, deployed artifact.
  *
  * THE BOUNDARY THIS SPEC DOES NOT CROSS: every drag here is dispatched via
  * `e2e/support/touchDrag.ts`'s CDP `Input.dispatchTouchEvent` helper — a
  * synthesized gesture in a desktop Chromium engine wearing a phone viewport,
  * not iOS Safari's arbitration of a directional `touch-action: pan-x` inside
- * a different-axis outer scroller (06-RESEARCH.md Pitfall 6). This spec is
- * necessary evidence and is not proof of real-hardware touch behavior — see
- * `07-20-SUMMARY.md` for the still-outstanding real-device human check.
+ * a different-axis outer scroller. This spec is necessary evidence and is
+ * not proof of real-hardware touch behavior.
  *
  * The ancestor walk (`assertNoIntermediateScroller`) closes a gap
  * `.contains()` alone cannot: two regions can mutually fail `.contains()`
  * while still having a THIRD scroller sandwiched between them. Walking every
  * ancestor from a candidate scroll element up to (never including)
  * `document.body` and asserting none has a computed `overflow-x`/`overflow-y`
- * of `auto`/`scroll` rules that third case out — the exact shape
- * 07-RESEARCH.md's Open Question 5 resolved against.
+ * of `auto`/`scroll` rules that third case out.
  */
 import { test, expect } from "@playwright/test";
 import { touchDrag } from "./support/touchDrag.js";
@@ -35,7 +32,7 @@ import { runSimulation, selectStartMatch, SIMULATION_TEST_IDS } from "./support/
 
 const TAB_STRIP = '[data-testid="event-tab-strip-scroll"]';
 
-/** The primary multi-tab structural target (`measured_ground_truth`): 2024 is the widest component season, so this one event exercises all five tabs' structural sibling/no-trap invariants at once. `2024new` also carries pmfs on all 125 of its qm rows (confirmed live, 08-15-PLAN.md Task 2), so it doubles as the sixth (`simulation`) tab's own structural fixture — one event exercising all six tabs' invariants at once, exactly as it already did for the first five. */
+/** The primary multi-tab structural target: 2024 is the widest component season, so this one event exercises all five tabs' structural sibling/no-trap invariants at once. `2024new` also carries pmfs on all 125 of its qm rows, so it doubles as the sixth (`simulation`) tab's own structural fixture — one event exercising all six tabs' invariants at once. */
 const STRUCTURAL_EVENT_KEY = "2024new";
 
 const TAB_SCROLL_TESTID: Record<string, string> = {
@@ -44,18 +41,17 @@ const TAB_SCROLL_TESTID: Record<string, string> = {
   quals: "quals-table-scroll",
   alliances: "alliances-table-scroll",
   elims: "elims-table-scroll",
-  // 08-15-PLAN.md Task 2, PD-02: the Simulation tab's scroll region does not
-  // exist until a run completes — `RankDistributionTable.tsx`'s own
+  // The Simulation tab's scroll region does not exist until a run
+  // completes — `RankDistributionTable.tsx`'s own
   // scroll-region testid, the same one `simulation-tab.spec.ts`'s S3 evidence
   // asserts against.
   simulation: SIMULATION_TEST_IDS.rankTableScroll,
 };
 
-// PD-02, 08-15-PLAN.md Task 2: `simulation` joins as the sixth element,
-// behind a real run (see the shared `beforeEach` below) rather than a
-// parallel, weaker structural block of its own — the tab's scroll region
-// does not exist until a run completes, which is exactly why 08-09
-// deliberately left this file untouched and routed the work here.
+// `simulation` joins as the sixth element, behind a real run (see the
+// shared `beforeEach` below) rather than a parallel, weaker structural
+// block of its own — the tab's scroll region does not exist until a run
+// completes.
 const TABS = ["insights", "breakdown", "quals", "alliances", "elims", "simulation"] as const;
 
 function eventUrl(eventKey: string, tab: string): string {
@@ -63,9 +59,9 @@ function eventUrl(eventKey: string, tab: string): string {
 }
 
 // `assertNoIntermediateScroller`, `assertOverflows`, `assertNoPagePan` and
-// `visibleMidpoint` moved verbatim to `./support/scrollRegions.js`
-// (08-15-PLAN.md Task 1, PD-03) — the Compare page and the Simulation tab
-// need the identical definitions, and a second hand-maintained copy of a
+// `visibleMidpoint` moved verbatim to `./support/scrollRegions.js` — the
+// Compare page and the Simulation tab need the identical definitions, and
+// a second hand-maintained copy of a
 // nested-scroll definition is exactly the drift `touchDrag.ts`'s own
 // extraction was done to prevent. Both hard-won findings that used to live
 // in this file's own doc comments (the coupled-axis false positive, and "a
@@ -163,14 +159,13 @@ for (const tab of TABS) {
   test.describe(`sibling scroll regions — ${tab} tab (${STRUCTURAL_EVENT_KEY})`, () => {
     test.beforeEach(async ({ page }) => {
       await page.goto(eventUrl(STRUCTURAL_EVENT_KEY, tab), { waitUntil: "networkidle" });
-      // 08-15-PLAN.md Task 2, PD-02: every other tab's scroll region exists
-      // the moment its panel mounts, so waiting on the shared testid below is
-      // enough. `simulation` is the one exception — its rank-table scroll
-      // region does not exist until a run completes (08-09 deliberately
-      // built the branch this produces and routed the real run here) — so
-      // this beforeEach drives a REAL run for `simulation` only, through the
-      // same Task 1 driver `simulation-tab.spec.ts` uses, before waiting on
-      // the shared testid.
+      // Every other tab's scroll region exists the moment its panel
+      // mounts, so waiting on the shared testid below is enough.
+      // `simulation` is the one exception — its rank-table scroll region
+      // does not exist until a run completes — so this beforeEach drives a
+      // REAL run for `simulation` only, through the same driver
+      // `simulation-tab.spec.ts` uses, before waiting on the shared
+      // testid.
       if (tab === "simulation") {
         await page.getByTestId("start-match-picker").waitFor({ state: "visible", timeout: 15_000 });
         await selectStartMatch(page, 0);
@@ -254,8 +249,8 @@ for (const tab of TABS) {
 
     // The bounded 8-row Alliances table may not fill the 844px phone
     // viewport at all, so a vertical drag over it would prove nothing about
-    // page-scroll-versus-table-scroll arbitration (07-20-PLAN.md's own
-    // stated reason) — this case runs on the four roster/match tabs only.
+    // page-scroll-versus-table-scroll arbitration — this case runs on the
+    // four roster/match tabs only.
     if (tab !== "alliances") {
       test("a vertical drag over the table region advances the page's vertical scroll rather than being swallowed by the table", async ({ page }) => {
         const region = page.locator(`[data-testid="${TAB_SCROLL_TESTID[tab]}"]`);
@@ -371,10 +366,7 @@ test.describe("E4 — Breakdown tab at the app's widest column set", () => {
 });
 
 // ---------------------------------------------------------------------------
-// E2 — the tab strip itself: SIX short labels (08-15-PLAN.md Task 2, S0),
-// horizontally scrollable. Grown from five to six because six triggers is
-// now the shipped truth (08-09) — the one expectation this plan strengthens
-// rather than relaxes, per this plan's own third prohibition.
+// E2 — the tab strip itself: SIX short labels, horizontally scrollable.
 // ---------------------------------------------------------------------------
 
 const EXPECTED_TAB_LABELS = ["Insights", "Breakdown", "Quals", "Alliances", "Elims", "Simulation"] as const;
