@@ -1,13 +1,6 @@
 /**
- * The walk-forward mean shift through the real `SigmaScoutLayer` (quick task
- * 260914-01x, SD-03, CD-04).
- *
- * SHIPPED 2026-09-14 as half of lattice+meanShift, the arm the committed
- * bonus-arm bar accepted with the lowest pooled total-RP RPS
- * (`data/baselines/rp-bonus-arms-2026-09.json`). The measurement-only third
- * constructor argument is deleted, so every claim below is asserted on the
- * DEFAULT two-argument layer. The unshifted comparison a control layer used to
- * provide is rebuilt here from the test's own `RpMomentsAccumulator`,
+ * The walk-forward mean shift through the real `SigmaScoutLayer`. The unshifted
+ * reference is rebuilt from the test's own `RpMomentsAccumulator`,
  * `SigmaScoreAccumulator` and `analyticRpPmf`, never from the layer under test.
  *
  * Three claims:
