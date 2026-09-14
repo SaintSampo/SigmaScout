@@ -42,32 +42,29 @@ function illustrativeSigma(misses: readonly number[], talent = 40): number {
 }
 
 /**
- * The `/methodology/sigma` page body (quick task 260910-u7g): every prose
- * string comes from `sigmaContent.ts`, and the six drawings are hand
- * authored inline SVG. Static, no artifact, no network — this page takes no
- * props and reads nothing from the server, because everything it explains is
- * a fact about how the site computes a number rather than a number the site
- * publishes.
+ * The `/methodology/sigma` page body: every prose string comes from
+ * `sigmaContent.ts`, and the six drawings are hand authored inline SVG.
+ * Static, no artifact, no network — this page takes no props and reads
+ * nothing from the server, because everything it explains is a fact about
+ * how the site computes a number rather than a number the site publishes.
  *
  * WHY THE FIGURES CALL THE SHIPPING CODE
  *
  * The quantities the drawings depend on are computed at render time by the
  * shipping modules in `packages/harness/` themselves, never retyped here:
  *
- *   - F2's band width is `SigmaScoreAccumulator` over the illustrative
- *     miss array, and its dot opacities are the variance half life raised to
- *     each observation's age.
+ *   - F2's band width is `SigmaScoreAccumulator` over the illustrative miss
+ *     array, and its dot opacities are the variance half life raised to each
+ *     observation's age.
  *   - F3's two `±` labels are `SigmaScoreAccumulator` over each row's own
  *     dots, so a label can never drift from the marks beside it.
  *   - F4's alliance bar is the square root of
- *     `sigmaMatchBandVariance(rosterSize, allianceSigmaBandVariance(...))`, the
- *     same two functions `SigmaScoutLayer.enrichUpcoming` composes to publish a
- *     Match Band (quick task 260913-g66). The example Sigma values come from
+ *     `sigmaMatchBandVariance(rosterSize, allianceSigmaBandVariance(...))`,
+ *     the same two functions `SigmaScoutLayer.enrichUpcoming` composes to
+ *     publish a Match Band. The example Sigma values come from
  *     `SIGMA_ALLIANCE_EXAMPLE_SIGMAS`, the array the prose quotes, so the
  *     number in the paragraph, the width on screen and the production band
- *     are one computation. The retired "three at 10 give 17.32" drawing
- *     treated three shares of one miss as independent; it was wrong by the
- *     square root of the roster size.
+ *     are one computation.
  *
  * Neither the scale nor the half life is therefore typed anywhere in this
  * file as a number. If either constant moves, these pictures move with it.
@@ -80,24 +77,20 @@ function illustrativeSigma(misses: readonly number[], talent = 40): number {
  * geometry the shipped match table draws, not a lookalike that could drift
  * away from it.
  *
- * DESIGN CONSTRAINTS (`.claude/skills/sketch-findings-sigmascout/`, references
- * `uncertainty-display.md` and `chart-craft.md`), each of which this file is
- * checked against by `src/routes/methodology.sigma.test.tsx`:
+ * DESIGN CONSTRAINTS, each of which this file is checked against by
+ * `src/routes/methodology.sigma.test.tsx`:
  *
  *   - Every colour is a custom property. A literal hex value in this file
  *     fails the route test's source scan.
  *   - Alliance red and blue are FRC domain vocabulary and mean "alliance".
- *     Marks that are NOT alliances (a team's misses in F2 and F3, a single
+ *     Marks that are not alliances (a team's misses in F2 and F3, a single
  *     robot's Sigma in F4) wear neutral ink instead, so the colour encoding
  *     stays honest.
  *   - Green is ink, not paint. Nothing here is clickable, so the accent
  *     token never appears.
- *   - ONE shared value axis per figure, drawn once and labelled, since every
+ *   - One shared value axis per figure, drawn once and labelled, since every
  *     axis here is zoomed rather than starting at a meaningful zero.
- *   - Coupled geometry derives from one computed source. `chart-craft.md`
- *     records the shipped drift this prevents: a dot that sat 4.5px off its
- *     band's centre because two numbers that had to agree were maintained
- *     separately.
+ *   - Coupled geometry derives from one computed source.
  *   - No numeric label carries a leading minus, because a minus sign is a
  *     banned character on this page. Direction is named in words above and
  *     below the zero line and magnitudes are labelled unsigned.
@@ -105,7 +98,7 @@ function illustrativeSigma(misses: readonly number[], talent = 40): number {
  * Fixed pixel widths inside a horizontally scrollable wrapper, deliberately,
  * rather than a responsive `width: 100%`: shrinking a 640px drawing onto a
  * 390px phone would take every label below legible size. The shipped match
- * plot already makes this same trade at 470px.
+ * plot already makes this same trade.
  */
 
 /** The one width every figure on this page shares. */
@@ -409,24 +402,22 @@ function LevelAndSigmaFigure(): ReactElement {
 /* ------------------------------------------------------------------ */
 
 /**
- * The figure carrying SIGMA'S DISTINCTIVE IDEA, with no equivalent on the page
- * this replaced.
- *
  * Four rows for one example robot at four points in its season: never played,
- * then after 2, 6 and 20 matches. Its misses are deliberately NEARLY IDENTICAL,
- * because that is precisely the case the old estimator got catastrophically
- * wrong — two similar matches used to read as near perfect consistency.
+ * then after 2, 6 and 20 matches. Its misses are deliberately nearly
+ * identical, because that is precisely the case a naive consistency estimate
+ * gets catastrophically wrong — two similar matches read as near perfect
+ * consistency.
  *
- * EVERY DRAWN VALUE IS A REAL ACCUMULATOR READING. The figure seeds a
+ * Every drawn value is a real accumulator reading. The figure seeds a
  * population first, because the talent scaled prior is deliberately withheld
- * until the population is known; drawing it without one would show the fallback
- * path while claiming to show the prior.
+ * until the population is known; drawing it without one would show the
+ * fallback path while claiming to show the prior.
  *
- * A property this figure made visible, and worth stating because it is not
- * obvious: with a 2 match volatility half life the effective sample never grows
- * beyond about 3.4 observations no matter how many matches are played, so the
- * peer figure keeps a small share of the answer permanently. The reading slides
- * a long way toward the robot's own behaviour and never entirely arrives.
+ * A property this figure makes visible: with a short volatility half life the
+ * effective sample never grows past a small number of observations no matter
+ * how many matches are played, so the peer figure keeps a small share of the
+ * answer permanently. The reading slides a long way toward the robot's own
+ * behaviour and never entirely arrives.
  */
 const F2B_CALM_MISSES = [9, 9.4, 8.7, 9.2, 8.9, 9.1, 9.3, 8.8, 9.0, 9.2, 8.6, 9.4, 9.1, 8.9, 9.2, 9.0, 8.8, 9.3, 9.1, 8.95];
 const F2B_MATCH_COUNTS = [0, 2, 6, 20];
@@ -591,9 +582,9 @@ const F4_AXIS_Y = 196;
 
 function SharesToAllianceFigure(): ReactElement {
   // Each robot's Sigma is the prose's own example array, paired with a roster
-  // label. The alliance width is the SHIPPING composition's answer, the one
+  // label. The alliance width is the shipping composition's answer, the one
   // `SigmaScoutLayer.enrichUpcoming` publishes: the summed squares, times the
-  // roster size, square rooted. ±34.47 is measured here, not typed here.
+  // roster size, square rooted — measured here, not typed here.
   const robots = F4_ROSTER.map((label, index) => ({ label, sigma: SIGMA_ALLIANCE_EXAMPLE_SIGMAS[index] as number }));
   const roster = robots.map((robot) => robot.label);
   const sigmaByRobot = new Map<string, number>(robots.map((robot) => [robot.label, robot.sigma]));
@@ -702,14 +693,12 @@ const F5_EXAMPLE_MATCHES: readonly ExampleMatch[] = [
 ];
 const F5_TOP = 18;
 /**
- * `chart-craft.md`'s "grouping is proximity" finding: two marks in the same
- * row must be markedly closer to each other than to the neighbouring row, or
- * a reader pairs them wrongly. The two alliance band centres are 22px apart
- * (that spacing is `MATCH_GEOMETRY`'s, locked so each band shares a baseline
- * with its own roster text in the shipped table). 26px of gap puts the rows
- * 64px apart, a ratio of about 2.9, which beats the shipped table's own ~2.1
- * because this figure has no roster text to align against and can afford the
- * room. The zebra tint on alternate rows reinforces the block on top of that.
+ * Grouping is proximity: two marks in the same row must be markedly closer to
+ * each other than to the neighbouring row, or a reader pairs them wrongly.
+ * The alliance band centres come from `MATCH_GEOMETRY`'s own locked spacing;
+ * this figure's row gap widens the separation further since it has no roster
+ * text to align against. The zebra tint on alternate rows reinforces the
+ * block on top of that.
  */
 const F5_ROW_GAP = 26;
 const F5_AXIS_Y = 264;
