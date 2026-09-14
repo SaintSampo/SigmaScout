@@ -32,7 +32,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **ALGO-03**: Sigma1 (Kalman-filter family) produces a mean and variance for each team metric, displayed as X ± Y (1 standard deviation)
 - [x] **ALGO-04**: Sigma1 hyperparameters are set by an offline optimizer searching against backtest score on tune seasons
 - [x] **ALGO-05**: Sigma1 adapts online within a season; the harness validates adaptation improves holdout score (on vs off)
-- [x] **ALGO-06**: Algorithm versions are first-class in the data model: the site can display metrics and predictions from any past algorithm version unchanged
+- [x] **ALGO-06**: Algorithm versions are first-class in the data model: every published artifact is keyed by algorithm id and version, and a version identifies one fixed output — any change to published numbers ships under a new version. Only the current version of each algorithm stays published; superseded versions are deleted
 - [x] **ALGO-07**: Every match gets a predicted winner, win probability, and predicted alliance scores; Sigma predictions carry variance
 - [x] **ALGO-08**: Ranking points are predicted per match with variance, using each season's RP rules (2022–2026)
 
@@ -41,6 +41,19 @@ team per season as a no-variance baseline" (no longer true) to the event-scoped,
 matches-only definition the code now implements. This is a requirement-text correction, not a new
 requirement — the `[x]` completion mark and ID are unchanged. See `docs/models/opr-baseline-change.md`
 for the full baseline-change narrative.
+
+**Re-issued 2026-09-14 (Jacob's decision, per the re-run v1.0 milestone audit):** ALGO-06's text above
+was changed from "the site can display metrics and predictions from any past algorithm version
+unchanged". **Unlike ALGO-01 and NAV-01, this is a deliberate scope reduction, not only a text
+correction.** Keeping every past version published costs too much storage for what it buys. The
+bpr, vpr and `spr@3.0.0` generations are already deleted (a full-bucket census on 2026-09-14 found 0
+orphan versions), and the site has no version selector. What the requirement keeps is the identity
+half of D-13 (`03-CONTEXT.md`): a version names one fixed output. That half was broken before this
+re-issue: `spr@4.0.0+baseline` was republished in place at generations `2dcc057f`, `4645739b` and
+`3ba2b580` with different ranking-point odds and per-match layers, and the version never changed. It
+maps to one output today (`3ba2b580`), and from this date any republish that changes published numbers
+must bump the version (e.g. `spr@4.1.0`) and delete the superseded one. No automated guard enforces the
+bump yet; it is a publishing rule. The `[x]` mark and ID are unchanged.
 
 ### Teams
 
