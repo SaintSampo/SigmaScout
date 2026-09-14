@@ -2,13 +2,12 @@ import { padAxisDomain, type AxisDomain } from "../team/matchAxis.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
- * Pure module, no React import (07-12-PLAN.md Task 1, D-12/D-13) — the
- * event-scoped sibling of `../team/matchAxis.ts`, holding the machinery
- * `QualsTab` (this plan), `ElimsTab` (07-13) and `AlliancesTab` (07-14) all
- * share: the normalized merged row type, the D-13 client-side merge of
- * `matches[]`/`upcoming[]` (the wire shape stays split so Phase 8's rank
+ * Pure module, no React import — the event-scoped sibling of
+ * `../team/matchAxis.ts`, holding the machinery `QualsTab`, `ElimsTab` and
+ * `AlliancesTab` all share: the normalized merged row type, the client-side
+ * merge of `matches[]`/`upcoming[]` (the wire shape stays split so the rank
  * simulation reads `upcoming[]` unchanged), the total-order comparator, the
- * comp-level predicates, and the D-12 per-tab axis domain.
+ * comp-level predicates, and the per-tab axis domain.
  */
 
 export type EventMatch = EventArtifact["matches"][number];
@@ -16,18 +15,16 @@ export type EventUpcomingMatch = EventArtifact["upcoming"][number];
 export type EventCompLevel = EventMatch["compLevel"];
 
 /**
- * One event-scoped match row, normalized from EITHER `EventMatch` or
- * `EventUpcomingMatch` (07-12-PLAN.md Decision 1). `played` is set from
- * WHICH SOURCE ARRAY the row came from — the fact that is actually known —
- * and never inferred from the presence of an actual score. The optional
+ * One event-scoped match row, normalized from either `EventMatch` or
+ * `EventUpcomingMatch`. `played` is set from which source array the row came
+ * from — the fact that is actually known — and never inferred from the
+ * presence of an actual score. The optional
  * `redMatchBandVariance`/`blueMatchBandVariance` pair carries the published
- * Match Band variance directly (260913-nvn) — the row reads it verbatim
- * rather than relabelling it into a second field name. `sortTime` carries
- * the published epoch-seconds key
- * verbatim, optional because 07-07 declared it optional for the
- * pre-republish window, and is NEVER defaulted, coerced or synthesized at
- * any point (07-08's T-07-08-13) — this type is where a well-meaning
- * default would be easiest to add and hardest to notice.
+ * Match Band variance directly — the row reads it verbatim rather than
+ * relabelling it into a second field name. `sortTime` carries the published
+ * epoch-seconds key verbatim, optional for the pre-republish window, and is
+ * never defaulted, coerced or synthesized at any point — this type is where
+ * a well-meaning default would be easiest to add and hardest to notice.
  */
 export interface EventMatchRow {
   matchKey: string;
@@ -41,11 +38,11 @@ export interface EventMatchRow {
   predictedRedScore: number;
   predictedBlueScore: number;
   /**
-   * The published Match Band variance (quick task 260913-g66): the number of
-   * robots on the alliance times the sum of their squared Sigma Scores. Sigma
-   * algorithms (SPR) only; absent for OPR and EPA, and absent on stale
-   * artifacts that carry only the retired pre-rename band keys. Display band
-   * only, never the win-odds variance.
+   * The published Match Band variance: the number of robots on the alliance
+   * times the sum of their squared Sigma Scores. Sigma algorithms (SPR) only;
+   * absent for OPR and EPA, and absent on stale artifacts that carry only the
+   * retired pre-rename band keys. Display band only, never the win-odds
+   * variance.
    */
   redMatchBandVariance?: number;
   blueMatchBandVariance?: number;
@@ -55,30 +52,29 @@ export interface EventMatchRow {
   actualRedScore?: number;
   actualBlueScore?: number;
   /**
-   * D-01/D-03 (quick task 260909-t5q): true iff this PLAYED match was a
-   * cold start (every one of its six robots making its corpus-global first
-   * appearance) — carried verbatim from `EventMatchSchema.coldStart`. Never
-   * set for an unplayed row: `EventUpcomingMatchSchema` publishes no such
-   * field, matching this row type's existing played-only fields
-   * (`actualWinner`, `video`) just above.
+   * True iff this played match was a cold start (every one of its six robots
+   * making its corpus-global first appearance) — carried verbatim from
+   * `EventMatchSchema.coldStart`. Never set for an unplayed row:
+   * `EventUpcomingMatchSchema` publishes no such field, matching this row
+   * type's existing played-only fields (`actualWinner`, `video`) just above.
    */
   coldStart?: true;
   /**
-   * Quick 260905-jj8: the per-bonus RP fields, carried verbatim from
-   * whichever source row published them (`TeamSeasonMatchSchema.redBonusRp`
-   * and `.actualRedBonusRp` document the positional-alignment and
-   * three-state contracts). All optional — an artifact predating the fields
-   * simply leaves them absent, and the dots render `unknown`.
+   * The per-bonus RP fields, carried verbatim from whichever source row
+   * published them (`TeamSeasonMatchSchema.redBonusRp` and
+   * `.actualRedBonusRp` document the positional-alignment and three-state
+   * contracts). All optional — an artifact predating the fields simply leaves
+   * them absent, and the dots render `unknown`.
    */
   redBonusRp?: readonly number[];
   blueBonusRp?: readonly number[];
   actualRedBonusRp?: readonly boolean[] | null;
   actualBlueBonusRp?: readonly boolean[] | null;
   /**
-   * Quick task 260906-7eu: the raw video key carried verbatim from
-   * `EventMatchSchema.video`, absent for an unplayed row by construction —
-   * `EventUpcomingMatchSchema` publishes no such field, so copying it
-   * unconditionally in `toRow` would be reading a field that cannot exist.
+   * The raw video key carried verbatim from `EventMatchSchema.video`, absent
+   * for an unplayed row by construction — `EventUpcomingMatchSchema`
+   * publishes no such field, so copying it unconditionally in `toRow` would
+   * be reading a field that cannot exist.
    */
   video?: string;
 }
@@ -96,9 +92,8 @@ export function isQualCompLevel(compLevel: EventCompLevel): boolean {
 
 /**
  * Membership of the closed set `ef`/`qf`/`sf`/`f`, stated explicitly rather
- * than as "not `qm`" — so a competition level added to the published enum
- * in a future season does not silently classify itself as an elimination
- * match on 07-13's tab.
+ * than as "not `qm`" — so a competition level added to the published enum in
+ * a future season does not silently classify itself as an elimination match.
  */
 export function isElimCompLevel(compLevel: EventCompLevel): boolean {
   return compLevel === "ef" || compLevel === "qf" || compLevel === "sf" || compLevel === "f";
@@ -109,20 +104,18 @@ export function isElimCompLevel(compLevel: EventCompLevel): boolean {
  * `selectMatchesChronological` and `publish.ts`'s `sortTeamSeasonMatches`
  * both already use — published time first, bracket chain beneath it.
  *
- * Step 1: compare timestamp PRESENCE. When one row carries `sortTime` and
- * the other does not, the row that CARRIES it sorts first. This step exists
- * for correctness, not tidiness: comparing timestamp values only when both
- * rows happen to carry one, without this leading presence split, is
- * NON-TRANSITIVE. A timed row and an untimed row would be ordered by their
+ * Step 1: compare timestamp presence. When one row carries `sortTime` and the
+ * other does not, the row that carries it sorts first. This step exists for
+ * correctness, not tidiness: comparing timestamp values only when both rows
+ * happen to carry one, without this leading presence split, is
+ * non-transitive. A timed row and an untimed row would be ordered by their
  * bracket position while two timed rows are ordered by time, and those two
  * verdicts can contradict each other across three rows. An inconsistent
- * comparator does not throw in V8 — it silently returns an order that
- * varies with input arrangement, which would destroy the total-order
- * property `mergeEventMatches` depends on. Splitting the rows into a timed
- * class and an untimed class first makes each class internally total and
- * the whole comparator consistent. Sorting the untimed rows last also
- * matches `sortTeamSeasonMatches`' own documented treatment of a match
- * absent from its time map.
+ * comparator does not throw in V8 — it silently returns an order that varies
+ * with input arrangement, which would destroy the total-order property
+ * `mergeEventMatches` depends on. Splitting the rows into a timed class and
+ * an untimed class first makes each class internally total and the whole
+ * comparator consistent.
  *
  * Step 2: when both rows carry `sortTime` and the values differ, order by
  * ascending time.
@@ -131,25 +124,20 @@ export function isElimCompLevel(compLevel: EventCompLevel): boolean {
  * through to the chain: comp-level rank, then `setNumber`, then
  * `matchNumber`, then `matchKey` compared with `localeCompare`. The chain is
  * retained rather than replaced because the timestamp is not total on its
- * own: the corpus carries 114 groups of elimination matches sharing an
- * identical `sort_time`, which is exactly why `selectMatchesChronological`
- * breaks its own timestamp ties with this same chain. Because the chain
- * ends in a comparison over a unique key, the whole comparator remains a
- * total order.
+ * own: the corpus carries many groups of elimination matches sharing an
+ * identical `sort_time`. Because the chain ends in a comparison over a unique
+ * key, the whole comparator remains a total order.
  *
- * This leading comparison closes a correctness finding 07-13 measured and
- * routed here: the bracket-chain-only comparator this plan originally
- * shipped is wall-clock play order for 2023-2026 but SERIES-MAJOR for a
- * 2022-style best-of-three bracket (`2022nhgrs` plays
- * `qf1m1 qf2m1 qf3m1 qf4m1 qf1m2 …` and the chain alone renders
- * `qf1m1 qf1m2 qf2m1 qf2m2 …`, moving 8 of 14 rows; corpus-wide 312 of
- * 1,342 events and 2,274 of 19,651 elimination rows).
+ * This leading comparison closes a real correctness finding: a
+ * bracket-chain-only comparator is wall-clock play order for a
+ * single-match-per-round bracket but series-major for a best-of-three
+ * bracket, where the chain alone would interleave two different series'
+ * matches instead of playing one series through before the next.
  *
- * Implemented as an explicit branch on field presence, never a sentinel —
- * no infinity substitute, no zero substitute, no current clock reading, no
- * time parsed out of the match key (07-08's T-07-08-13, honored here by
- * construction: these row objects are handed to the renderer, so a
- * substituted number could reach a cell).
+ * Implemented as an explicit branch on field presence, never a sentinel — no
+ * infinity substitute, no zero substitute, no current clock reading, no time
+ * parsed out of the match key, since these row objects are handed to the
+ * renderer and a substituted number could reach a cell.
  */
 export function compareEventMatchRows(a: EventMatchRow, b: EventMatchRow): number {
   const aHasTime = a.sortTime !== undefined;
@@ -188,8 +176,8 @@ function toRow(match: EventMatch | EventUpcomingMatch, played: boolean): EventMa
     redMatchBandVariance: match.redMatchBandVariance,
     blueMatchBandVariance: match.blueMatchBandVariance,
     sortTime: match.sortTime,
-    // Quick 260905-jj8: both source schemas publish the predicted per-bonus
-    // marginals; copied verbatim, never defaulted (absent stays absent).
+    // Both source schemas publish the predicted per-bonus marginals; copied
+    // verbatim, never defaulted (absent stays absent).
     redBonusRp: match.redBonusRp,
     blueBonusRp: match.blueBonusRp,
     played,
@@ -202,8 +190,8 @@ function toRow(match: EventMatch | EventUpcomingMatch, played: boolean): EventMa
     row.actualRedBonusRp = playedMatch.actualRedBonusRp;
     row.actualBlueBonusRp = playedMatch.actualBlueBonusRp;
     row.coldStart = playedMatch.coldStart;
-    // Quick task 260906-7eu: played-only, matching this branch's other
-    // played-only fields above — EventUpcomingMatchSchema has no `video` key.
+    // Played-only, matching this branch's other played-only fields above —
+    // EventUpcomingMatchSchema has no `video` key.
     row.video = playedMatch.video;
   }
   return row;
@@ -212,14 +200,14 @@ function toRow(match: EventMatch | EventUpcomingMatch, played: boolean): EventMa
 /**
  * Filters both input arrays by `includeCompLevel`, normalizes each survivor
  * into an `EventMatchRow`, collapses any `matchKey` appearing in both arrays
- * to the PLAYED row — an actual result supersedes a schedule entry — and
+ * to the played row — an actual result supersedes a schedule entry — and
  * returns the survivors sorted by `compareEventMatchRows`. Mutates neither
  * input array.
  *
- * D-13's own reasoning: the artifact keeps `matches[]` and `upcoming[]`
- * separate on the wire exactly as published so Phase 8's rank simulation
- * reads `upcoming[]` unchanged, and this function is the browser-side
- * interleave D-13 chose instead of a schema-level merge.
+ * The artifact keeps `matches[]` and `upcoming[]` separate on the wire
+ * exactly as published so the rank simulation reads `upcoming[]` unchanged,
+ * and this function is the browser-side interleave used instead of a
+ * schema-level merge.
  */
 export function mergeEventMatches(
   matches: readonly EventMatch[],
@@ -232,21 +220,21 @@ export function mergeEventMatches(
     if (!includeCompLevel(match.compLevel)) continue;
     byMatchKey.set(match.matchKey, toRow(match, false));
   }
-  // Played rows are applied SECOND so a shared matchKey collapses to the
+  // Played rows are applied second so a shared matchKey collapses to the
   // played row — an actual result supersedes a schedule entry.
   for (const match of matches) {
     if (!includeCompLevel(match.compLevel)) continue;
     byMatchKey.set(match.matchKey, toRow(match, true));
   }
 
-  // Quick task 260913-g66: the band is the published Match Band, computed once
-  // at publish time (and live by the Worker, through the same helper) as the
-  // number of robots on the alliance times the sum of their squared Sigma
-  // Scores, and attached to the one record both the event artifact and the team
-  // artifact are built from. So this reads it rather than deriving it, and a
-  // match's band is byte-identical on both pages by construction.
+  // The band is the published Match Band, computed once at publish time (and
+  // live by the Worker, through the same helper) as the number of robots on
+  // the alliance times the sum of their squared Sigma Scores, and attached to
+  // the one record both the event artifact and the team artifact are built
+  // from. So this reads it rather than deriving it, and a match's band is
+  // byte-identical on both pages by construction.
   //
-  // It is published for Sigma algorithms (SPR) ONLY. OPR and EPA rows carry no
+  // It is published for Sigma algorithms (SPR) only. OPR and EPA rows carry no
   // band and draw none. Only the new keys are read, with no fallback to the
   // retired pre-rename band keys, so a stale artifact renders no band rather
   // than an old, too-narrow one.
@@ -254,21 +242,19 @@ export function mergeEventMatches(
 }
 
 /**
- * The per-tab score domain (D-12): walks the rows once, considering each
- * row's two predicted scores; each alliance's band extents where that
- * alliance's variance field is present (predicted score plus and minus the
- * square root of the variance, clamped at zero below); and each actual
- * score where present. Delegates to `padAxisDomain` for the padding/floor
- * policy shared with the team page's `computeAxisDomain` — mirrors that
- * function's own treatment of an absent variance, which is to contribute
- * the point value rather than a zero-width band around it.
+ * The per-tab score domain: walks the rows once, considering each row's two
+ * predicted scores; each alliance's band extents where that alliance's
+ * variance field is present (predicted score plus and minus the square root
+ * of the variance, clamped at zero below); and each actual score where
+ * present. Delegates to `padAxisDomain` for the padding/floor policy shared
+ * with the team page's `computeAxisDomain` — mirrors that function's own
+ * treatment of an absent variance, which is to contribute the point value
+ * rather than a zero-width band around it.
  */
 export function computeEventAxisDomain(rows: readonly EventMatchRow[]): AxisDomain {
   // Tracked as `undefined` rather than an infinity sentinel — this loop
-  // gathers real score EXTENTS (a different job from the comparator's
-  // sortTime handling above), but a literal infinity constant anywhere in
-  // this module is exactly the shape this file's own no-fabricated-time
-  // grep gate exists to flag, so the "no observation yet" state is
+  // gathers real score extents (a different job from the comparator's
+  // sortTime handling above), so the "no observation yet" state is
   // represented by absence instead.
   let min: number | undefined;
   let max: number | undefined;

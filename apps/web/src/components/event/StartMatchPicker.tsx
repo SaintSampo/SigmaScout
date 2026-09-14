@@ -5,91 +5,77 @@ import { SIMULATION_DRAWS, type SimulationInputs } from "../../lib/simulationInp
 import type { EventMatchRow } from "./eventMatchAxis.js";
 
 /**
- * The start-match picker (08-11-PLAN.md Task 2, EVNT-07, D-01/D-13). A
- * compact, terser sibling of `EventMatchTable` — it reuses that table's
- * row-identity vocabulary (`matchLabel`, `formatScheduledTime`, the roster
- * number degrade) but deliberately carries none of its band/tick/dot plot,
- * because a picker whose only job is "which match" gains nothing from the
- * model's opinion of the outcome. Consumed by `SimulationTab.tsx` (Task 3),
- * whose selected `matchKey` state this component reports through but never
- * owns, and by 08-13 (the run control) and 08-14 (the rank table), both of
- * which read the same selection back out of `SimulationTab`.
+ * The start-match picker. A compact, terser sibling of `EventMatchTable` — it
+ * reuses that table's row-identity vocabulary (`matchLabel`,
+ * `formatScheduledTime`, the roster number degrade) but deliberately carries
+ * none of its band/tick/dot plot, because a picker whose only job is "which
+ * match" gains nothing from the model's opinion of the outcome. Consumed by
+ * `SimulationTab.tsx`, whose selected `matchKey` state this component reports
+ * through but never owns; the run control and the rank table both read the
+ * same selection back out of `SimulationTab`.
  *
  * This component constructs no Web Worker, imports nothing from
  * `apps/web/src/workers/`, and calls `simulateRanks` nowhere.
  */
 
-/** 08-UI-SPEC.md's Copywriting Contract, verbatim — never paraphrased. The literal draw count is guarded against `SIMULATION_DRAWS` by a test so the two cannot drift apart. One imprecision is shipped knowingly: the contract says "matches after it," while D-13 simulates the chosen match and everything after it; `simulationScopeText` below states the scope exactly once a match is chosen, and deviating from an approved copy row silently would be worse than this small imprecision in a pre-selection hint. */
+/** Verbatim copy — never paraphrased. The literal draw count is guarded against `SIMULATION_DRAWS` by a test so the two cannot drift apart. One imprecision is shipped knowingly: the copy says "matches after it," while the simulation includes the chosen match and everything after it; `simulationScopeText` below states the scope exactly once a match is chosen. */
 export const START_MATCH_PICKER_HINT = `Pick a match to simulate from. Matches after it are simulated ${SIMULATION_DRAWS}×.`;
 
-/** 08-UI-SPEC.md's Copywriting Contract, verbatim. */
+/** Verbatim copy. */
 export const START_MATCH_STATUS_PLAYED = "Played";
-/** 08-UI-SPEC.md's Copywriting Contract, verbatim. */
+/** Verbatim copy. */
 export const START_MATCH_STATUS_UPCOMING = "Upcoming";
 
 export const START_MATCH_PICKER_TESTID = "start-match-picker";
-/**
- * Identifies the ONE match the picker is currently showing. Before
- * 2026-09-01 the picker rendered every match as its own row and this prefix
- * appeared once per match; it now appears exactly once, on the selected
- * match's summary — the same identity, on the only row that still exists.
- */
+/** Identifies the one match the picker is currently showing — it appears exactly once, on the selected match's summary. */
 export const START_MATCH_ROW_TESTID_PREFIX = "start-match-row-";
 export const START_MATCH_SLIDER_TESTID = "start-match-slider";
 export const START_MATCH_NUMBER_INPUT_TESTID = "start-match-number";
 /** The hint/scope disclosure line's testid — not independently exported (no other plan mounts a child there), so it is a literal string rather than a fifth constant. */
 const START_MATCH_SCOPE_TESTID = "start-match-scope";
-/** The pre-schedule stop's own summary, in the position `StartMatchSummary` occupies for a match selection (quick task 260905-tll Task 6). */
+/** The pre-schedule stop's own summary, in the position `StartMatchSummary` occupies for a match selection. */
 export const START_MATCH_PRE_SCHEDULE_TESTID = "start-match-pre-schedule";
 
 /**
- * What the picker is pointing at (quick task 260905-tll Task 6, C-02). An
- * explicit union rather than an overloaded `string | null`: the tab folds
- * this selection's KIND into its freshness signature, and a magic match key
- * or a null standing in for "before the schedule" would be
- * indistinguishable from "nothing is selected" — which is a real, separate
- * state this picker can also be in.
+ * What the picker is pointing at. An explicit union rather than an
+ * overloaded `string | null`: the tab folds this selection's kind into its
+ * freshness signature, and a magic match key or a null standing in for
+ * "before the schedule" would be indistinguishable from "nothing is
+ * selected" — which is a real, separate state this picker can also be in.
  */
 export type StartSelection = { readonly kind: "preSchedule" } | { readonly kind: "match"; readonly matchKey: string };
 
-/**
- * The leftmost stop's label. CONTEXT names this phrase verbatim, so it is
- * not paraphrased anywhere it appears.
- */
+/** The leftmost stop's label — not paraphrased anywhere it appears. */
 export const PRE_SCHEDULE_STOP_LABEL = "Before schedule release";
 
 /**
  * The pre-schedule stop's scope line — the counterpart to
  * `simulationScopeText`, replacing it while that stop is selected.
  *
- * Deliberately carries no `±` glyph: Phase 7 D-01 reserves it for exactly
- * one standard deviation of full predictive variance, and a rank
- * distribution is a different quantity (the same rule
- * `simulation-and-compare.md` states for rank spreads). Plain language
- * leads, the mechanism follows — the reader is told this is the view before
- * a schedule exists BEFORE being told how it was produced, because the
- * first fact is the one that changes how they read the table.
+ * Deliberately carries no `±` glyph: that glyph is reserved for exactly one
+ * standard deviation of full predictive variance, and a rank distribution is
+ * a different quantity. Plain language leads, the mechanism follows — the
+ * reader is told this is the view before a schedule exists before being told
+ * how it was produced, because the first fact is the one that changes how
+ * they read the table.
  */
 export function preScheduleScopeText(scheduleCount: number, draws: number): string {
   return `Before the schedule is released: how the field is likely to rank when nobody yet knows who plays whom. Computed ahead of time across ${scheduleCount} randomly generated schedules, ${draws} draws in total.`;
 }
 
 /**
- * The minted line that replaces the hint once a start match is selected
- * (flagged planner assumption 3, 08-11-PLAN.md — no Copywriting Contract row
- * existed for this state), then discloses D-12's two honesty gaps — the
- * excluded-match count and the incomplete-baseline-team count — each omitted
- * entirely when its own count is zero, because a disclosure that always
- * renders teaches a reader to stop reading it. This is the ONLY surface on
- * this site that discloses either count.
+ * The minted line that replaces the hint once a start match is selected, then
+ * discloses two honesty gaps — the excluded-match count and the
+ * incomplete-baseline-team count — each omitted entirely when its own count
+ * is zero, because a disclosure that always renders teaches a reader to stop
+ * reading it. This is the only surface on this site that discloses either
+ * count.
  *
- * 2026-09-01 (user-authored wording): the lead sentence now says plainly
- * that the chosen match is itself simulated. The old phrasing ("from Qual 1
- * onward") left a reader guessing whether the selected match was included or
- * excluded — it IS included: `buildSimulationInputs` collects remaining
- * matches from the start index INCLUSIVE, and accumulates starting ranking
- * points only from matches STRICTLY BEFORE it. "and every Qual after it"
- * states that boundary in words.
+ * The lead sentence says plainly that the chosen match is itself simulated:
+ * `buildSimulationInputs` collects remaining matches from the start index
+ * inclusive, and accumulates starting ranking points only from matches
+ * strictly before it. "and every Qual after it" states that boundary in
+ * words.
  */
 export function simulationScopeText(inputs: SimulationInputs, startMatchNumber: number): string {
   let text = `Simulating qualification match ${startMatchNumber} and every Qual after it ${SIMULATION_DRAWS} times.`;
@@ -121,31 +107,26 @@ export interface StartMatchPickerProps {
   /** The sidecar's own schedule count and total draw count, for the pre-schedule scope line. Read only when `hasPreScheduleStop` is true. */
   preScheduleScheduleCount?: number;
   preScheduleDraws?: number;
-  /** The assembled `SimulationInputs` for the CURRENT selection, or `null` when nothing is selected. */
+  /** The assembled `SimulationInputs` for the current selection, or `null` when nothing is selected. */
   inputs: SimulationInputs | null;
-  /** The selected row's own qualification match NUMBER, or `null` when nothing is selected — the scope line names it directly. */
+  /** The selected row's own qualification match number, or `null` when nothing is selected — the scope line names it directly. */
   startMatchNumber: number | null;
-  /** PD-09: inert for the duration of a run, so a mid-run click cannot change the start match under a running simulation (08-13 wires the real value; `SimulationTab` passes `false` until then). Named for the effect, not for its one known cause — a caller freezing the picker for a different reason needs no new prop. Rows stay READABLE while inert: their labels and team numbers remain in the document so a reader can still see which match a running simulation started from. */
+  /** Inert for the duration of a run, so a mid-run click cannot change the start match under a running simulation. Named for the effect, not for its one known cause — a caller freezing the picker for a different reason needs no new prop. Rows stay readable while inert: their labels and team numbers remain in the document so a reader can still see which match a running simulation started from. */
   disabled: boolean;
 }
 
 /**
  * The selected match, spelled out: its label, both alliances' team numbers,
- * its played/upcoming status and its scheduled time — the same four facts
- * the old per-match rows carried, now shown once for the one match the
- * slider is pointing at.
+ * its played/upcoming status and its scheduled time — shown once for the one
+ * match the slider is pointing at.
  *
- * WR-05 (260902-post-phase08-ungoverned-ui/REVIEW.md): `selected` (a REQUIRED
- * prop, not derived here) drives `data-selected` and the accent selection
- * treatment. Before this fix `data-selected` was a hardcoded `"true"` and the
- * accent border/background always rendered — so with NOTHING selected
- * (`selectedMatchKey === null`), the slider's fallback-to-row-0 preview
- * rendered as if row 0 were chosen, directly contradicting the "Pick a
- * match" hint sitting above it. The left border's WIDTH stays unconditional
- * (only its COLOUR toggles to transparent when unselected) so the row never
- * shifts horizontally by three pixels the moment a reader actually picks a
- * match — reserving the space is `chart-craft.md`'s discipline for exactly
- * this kind of state toggle.
+ * `selected` (a required prop, not derived here) drives `data-selected` and
+ * the accent selection treatment: with nothing selected the slider's
+ * fallback-to-row-0 preview must not render as if row 0 were chosen,
+ * directly contradicting the "Pick a match" hint sitting above it. The left
+ * border's width stays unconditional (only its colour toggles to transparent
+ * when unselected) so the row never shifts horizontally the moment a reader
+ * actually picks a match.
  */
 function StartMatchSummary({ row, selected }: { row: EventMatchRow; selected: boolean }) {
   return (
@@ -191,7 +172,7 @@ function StartMatchSummary({ row, selected }: { row: EventMatchRow; selected: bo
  * `StartMatchSummary` fills for a match selection. It carries the same
  * selection treatment (the accent left border and tint) so the two stops
  * read as the same control in two positions rather than as two different
- * widgets — and the border WIDTH is unconditional here for the same reason
+ * widgets — and the border width is unconditional here for the same reason
  * it is there: nothing shifts horizontally when the selection moves.
  *
  * It names no teams and no time because the pre-schedule stop genuinely has
@@ -210,22 +191,19 @@ function PreScheduleSummary() {
 }
 
 /**
- * The chronological picker (UI-SPEC's Simulation Tab Contract, "1.
- * Start-match picker"). Renders, top to bottom: the hint line when nothing
- * is selected, or the minted scope line when something is; then a SLIDER
- * across the event's qualification schedule paired with a typed match
+ * The chronological picker. Renders, top to bottom: the hint line when
+ * nothing is selected, or the minted scope line when something is; then a
+ * slider across the event's qualification schedule paired with a typed match
  * number; then a summary of the one match the slider currently points at.
  *
- * 2026-09-01 (user request): this replaced a bounded, 320px scrolling list
- * of every qualification match. A real event runs 80-140 quals, so choosing
- * a start match meant scrolling a long list inside a short window — the
- * slider reaches any match in one gesture, and the number input reaches an
- * exact one without any gesture at all. The FACTS shown are unchanged;
- * they are simply shown for the selected match rather than for all of them.
+ * A real event runs 80-140 quals, so a scrolling list of every match would
+ * mean scrolling a long list inside a short window — the slider reaches any
+ * match in one gesture, and the number input reaches an exact one without any
+ * gesture at all.
  *
  * The number input is typed against a match's own `matchNumber` (what a
- * reader would say out loud — "Qual 47"), not the slider's array index,
- * with a local draft so a half-typed value never snaps out from under the
+ * reader would say out loud — "Qual 47"), not the slider's array index, with
+ * a local draft so a half-typed value never snaps out from under the
  * keyboard; the draft is dropped on blur so the field always returns to
  * showing the real selection.
  */
@@ -250,36 +228,35 @@ export function StartMatchPicker({
 
   const selectedMatchKey = selection?.kind === "match" ? selection.matchKey : null;
   const selectedIndex = rows.findIndex((row) => row.matchKey === selectedMatchKey);
-  // WR-05: two separate facts kept apart. The slider must park SOMEWHERE
-  // even with no selection (hence the fallback to index 0 below, unchanged),
-  // but nothing downstream runs until `SimulationTab`'s own `selectedMatchKey`
-  // is genuinely non-null — so a row rendered under the "Pick a match" hint
-  // is a PREVIEW of where the slider sits, not a choice the reader made.
+  // Two separate facts kept apart. The slider must park somewhere even with
+  // no selection (hence the fallback to index 0 below), but nothing
+  // downstream runs until `SimulationTab`'s own `selectedMatchKey` is
+  // genuinely non-null — so a row rendered under the "Pick a match" hint is a
+  // preview of where the slider sits, not a choice the reader made.
   // `hasSelection` is what lets the summary distinguish the two.
   const hasSelection = selectedIndex >= 0;
   const activeIndex = hasSelection ? selectedIndex : 0;
   const activeRow = rows[activeIndex];
 
-  // The slider's coordinate space (C-02). With the stop present, position 0
-  // IS "Before schedule release" and position `i + 1` is `rows[i]`; without
-  // it, position `i + 1` is `rows[i]` and the minimum is 1 — the exact
-  // range this control had before the stop existed, so an event with no
-  // sidecar is untouched by this change.
+  // The slider's coordinate space. With the stop present, position 0 is
+  // "Before schedule release" and position `i + 1` is `rows[i]`; without it,
+  // position `i + 1` is `rows[i]` and the minimum is 1 — the exact range this
+  // control had before the stop existed, so an event with no sidecar is
+  // untouched by this change.
   const sliderMin = hasPreScheduleStop ? 0 : 1;
   const sliderValue = isPreScheduleSelected ? 0 : activeIndex + 1;
 
-  // PD-09's guard lives in the HANDLERS, not only on the controls. `inert`
-  // and `disabled` are presentation-layer defences that a programmatic
-  // change event walks straight past (measured: a `fireEvent.change` on the
-  // disabled number input still moved the selection mid-run), and PD-09's
-  // whole point is that a running simulation's start match cannot move.
+  // This guard lives in the handlers, not only on the controls. `inert` and
+  // `disabled` are presentation-layer defences that a programmatic change
+  // event walks straight past, and a running simulation's start match must
+  // not be able to move.
   function selectPosition(position: number): void {
     if (disabled) return;
     setDraft(null);
     if (position === 0) {
       // Only reachable when the stop exists — the slider's own `min` keeps
       // position 0 out of range otherwise — but checked rather than assumed,
-      // because a programmatic change event is exactly what PD-09 is about.
+      // since a programmatic change event can bypass the slider's own range.
       if (hasPreScheduleStop) onSelect({ kind: "preSchedule" });
       return;
     }
