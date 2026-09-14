@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 09
 status: completed
 stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
-last_updated: "2026-09-14T05:57:04.275Z"
+last_updated: "2026-09-14T06:42:26.637Z"
 last_activity: 2026-09-14
 last_activity_desc: "Completed quick task 260913-rh5: republished spr@4.0.0 and the Swing teardown (generation 2dcc057f), D1 seeded, Worker fcc7ca73; R2 deletions left to Jacob"
 progress:
@@ -574,6 +574,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 170 | Locks page follows a ribbon year change (district key carried to the new year or cleared) | 2026-09-14 | 10aabbac | — |
 | 171 | Locks header copy: Lock Line, Teams/Points units, District Points (Available/Total) | 2026-09-14 | bda4d153 | — |
 | 172 | Locks status label Eliminated renamed to Out of range | 2026-09-14 | 1d8a1cb8 | — |
+| 173 | Rarity tier key above the teams table | 2026-09-14 | 202f6815 | — |
 
 ### Roadmap Evolution
 
