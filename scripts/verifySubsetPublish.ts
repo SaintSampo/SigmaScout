@@ -680,11 +680,11 @@ export interface SubsetEntryObserved {
   playedQmRowCount?: number;
   /** Check 14: count of played `qm` rows carrying BOTH `redRpPmf` and `blueRpPmf`. */
   playedQmBothPmfCount?: number;
-  /** Check 14: histogram of observed pmf array lengths across every `redRpPmf`/`blueRpPmf` array found in `matches` and `upcoming` combined — D-03 records the measured shape as always length 7. */
+  /** Check 14: histogram of observed pmf array lengths across every `redRpPmf`/`blueRpPmf` array found in `matches` and `upcoming` combined; the measured shape is always length 7. */
   pmfLengthHistogram?: Record<number, number>;
   /** Check 15: count of played `qm` rows where the `actualRedRp` key is present (number or `null`). */
   playedActualRpKeyCount?: number;
-  /** Check 15: count of played `qm` rows where `actualRedRp` is present and `null` — D-12: a `null` is a legitimate "not derivable" value, never a defect. */
+  /** Check 15: count of played `qm` rows where `actualRedRp` is present and `null`; a `null` is a legitimate "not derivable" value, never a defect. */
   playedActualRpNullCount?: number;
   name?: string;
   nameLength?: number;
@@ -728,7 +728,7 @@ export function verifyEntry(
     failures.push(`provenance: eventKey expected "${entry.eventKey}", observed "${artifact.eventKey}"`);
   }
 
-  // Check 4 — identity (D-18 item 8).
+  // Check 4 — identity.
   observed.name = artifact.name;
   observed.nameLength = artifact.name?.length;
   observed.location = "location" in artifact ? (artifact.location ?? null) : undefined;
@@ -760,7 +760,7 @@ export function verifyEntry(
     failures.push(`array shape: teams.length expected ${entry.expectTeams}, observed ${artifact.teams.length}`);
   }
 
-  // Check 6 — rank / record / rp (D-18 item 6).
+  // Check 6 — rank / record / rp.
   const rankedTeams = artifact.teams.filter((t) => t.rank !== undefined);
   observed.rankedTeams = rankedTeams.length;
   if (rankedTeams.length !== entry.expectRankedTeams) {
@@ -778,7 +778,7 @@ export function verifyEntry(
     if (rpCount !== 0) failures.push(`rp: expected ZERO teams with "rp" on a no-ranking event, observed ${rpCount}`);
   }
 
-  // Check 7 — percentile (D-10, 07-09).
+  // Check 7 — percentile.
   let percentileCount = 0;
   let percentileMin: number | undefined;
   let percentileMax: number | undefined;
@@ -800,7 +800,7 @@ export function verifyEntry(
     failures.push('percentile: expected at least one metric carrying "percentile", observed 0');
   }
 
-  // Check 8 — per-alliance own variance (D-18 item 3).
+  // Check 8 — per-alliance own variance.
   const playedRowsWithBothVariance = artifact.matches.filter(
     (m) => m.redScoreVarianceOwn !== undefined && m.blueScoreVarianceOwn !== undefined
   ).length;
@@ -835,7 +835,7 @@ export function verifyEntry(
     failures.push('sortTime: upcoming.length > 0 but no upcoming row carries sortTime');
   }
 
-  // Check 10 — alliances (D-18 item 7, D-15/D-16/D-17).
+  // Check 10 — alliances.
   if (!("alliances" in artifact) || artifact.alliances === undefined) {
     failures.push('alliances: "alliances" key absent');
   } else {
@@ -880,7 +880,7 @@ export function verifyEntry(
 
   observed.metricsKeyCount = artifact.teams[0] !== undefined ? Object.keys(artifact.teams[0].metrics).length : 0;
 
-  // Check 14 — D-03 RP-pmf presence/absence on played qm rows (08-05 Task 1).
+  // Check 14 — RP-pmf presence/absence on played qm rows.
   // The exact structural analog of check 8: an AND-based positive count
   // (both redRpPmf AND blueRpPmf present) mirrors playedRowsWithBothVariance
   // above; the negative half counts EITHER field across matches AND upcoming
@@ -907,7 +907,7 @@ export function verifyEntry(
         failures.push(`rpPmf: ${emptyPmfCount} row(s) carry a present-but-EMPTY pmf array — should be omitted entirely, never []`);
       }
     } else if (entry.expectPlayedQmRpPmf === "partial") {
-      // 2026-09-10: spr's honest current state on RP-eligible events — see
+      // spr's honest current state on RP-eligible events — see
       // the field's doc comment. Some rows must carry both, none may carry
       // exactly one; full coverage is NOT asserted while the cold-start ->
       // no-band -> no-pmf chain remains open.
@@ -943,11 +943,11 @@ export function verifyEntry(
     observed.pmfLengthHistogram = histogram;
   }
 
-  // Check 15 — D-12 actual-RP key presence and null accounting (08-05 Task 1).
+  // Check 15 — actual-RP key presence and null accounting.
   // Algorithm-independent (sourced from MatchResult.redRpEarned/blueRpEarned,
   // never anything a model produces), so this check runs regardless of
   // expectPlayedQmRpPmf. AND-based key-presence count, mirroring check 14's
-  // own positive-half shape; the null count is informational (D-12: null is
+  // own positive-half shape; the null count is informational (null is
   // a legitimate "not derivable" value, never a defect) and is reported
   // whenever at least one alliance's actualRedRp/actualBlueRp is present and
   // null on a given row.
@@ -1094,7 +1094,7 @@ async function verifyOneEntry(
 // ---------------------------------------------------------------------------
 
 const PLAYOFF_COMP_LEVELS = new Set(["ef", "qf", "sf", "f"]);
-/** D-18.4: these four own properties must never appear on a playoff-comp-level match row — see `packages/harness/pageArtifacts.ts`'s `TeamSeasonMatchSchema` doc comments for the full per-bonus contract these fields carry on a QUALIFICATION row. */
+/** These four own properties must never appear on a playoff-comp-level match row — see `packages/harness/pageArtifacts.ts`'s `TeamSeasonMatchSchema` doc comments for the full per-bonus contract these fields carry on a QUALIFICATION row. */
 const BONUS_RP_OWN_PROPERTIES = ["redBonusRp", "blueBonusRp", "actualRedBonusRp", "actualBlueBonusRp"] as const;
 
 export interface TeamMetricCensusRow {
@@ -1138,7 +1138,7 @@ export function verifyTeamEntry(
   const failures: string[] = [];
   const observed: TeamEntryObserved = {};
 
-  // Check 11 — playoff bonus-RP absence (D-18.4), over the RAW JSON.
+  // Check 11 — playoff bonus-RP absence, over the RAW JSON.
   let playoffRowCount = 0;
   const stalePropertiesFound = new Set<string>();
   const rawEvents = Array.isArray((raw as { events?: unknown }).events) ? ((raw as { events: unknown[] }).events) : [];
@@ -1172,7 +1172,7 @@ export function verifyTeamEntry(
   // Check 12 — generation uniformity (reported by the caller across every fetched entry in the run; recorded here per-entry).
   observed.generation = artifact.generation;
 
-  // Check 13 — the metric census (raw material for Task 4's old-vs-new spread comparison).
+  // Check 13 — the metric census.
   const metricCensus: TeamMetricCensusRow[] = Object.entries(artifact.seasonStats.metrics).map(([name, metric]) => ({
     name,
     value: metric.value,
