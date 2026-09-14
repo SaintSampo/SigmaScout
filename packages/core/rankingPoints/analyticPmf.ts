@@ -245,7 +245,7 @@ function assertPairwiseDisjoint(footprints: readonly Set<string>[], season: numb
     for (let j = i + 1; j < footprints.length; j++) {
       if (intersects(footprints[i]!, footprints[j]!)) {
         throw new Error(
-          `analyticRpPmf: season ${season} bonus "${bonusName}"'s ${label} are not pairwise disjoint — the exact form used here requires independence between them (F4 boundary)`
+          `analyticRpPmf: season ${season} bonus "${bonusName}"'s ${label} are not pairwise disjoint — the exact form used here requires independence between them`
         );
       }
     }
@@ -450,7 +450,7 @@ function groupContribution(
   }
 
   throw new Error(
-    `analyticRpPmf: season ${season} has a multi-bonus group {${group.map((p) => p.name).join(", ")}} with no exact joint form implemented — F4 (dependence between distinct threshold variables) is deliberately out of scope; a silent product-of-independents fallback is the one outcome this throw exists to prevent`
+    `analyticRpPmf: season ${season} has a multi-bonus group {${group.map((p) => p.name).join(", ")}} with no exact joint form implemented — dependence between distinct threshold variables is deliberately out of scope; a silent product-of-independents fallback is the one outcome this throw exists to prevent`
   );
 }
 

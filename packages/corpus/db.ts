@@ -233,7 +233,7 @@ export function openCorpus(path: string): Corpus {
     // lock doesn't block the next openCorpus call in this same process.
     db.close();
     throw new Error(
-      `Corpus at ${path} predates the winner_imputed column (D-03, 01-REVIEW WR-06). ` +
+      `Corpus at ${path} predates the winner_imputed column. ` +
         `schema.sql is applied with CREATE TABLE IF NOT EXISTS, so an existing database is never migrated. ` +
         `Delete ${path} along with its -wal and -shm siblings and re-run pnpm ingest — ` +
         `the corpus is gitignored and disposable by design.`

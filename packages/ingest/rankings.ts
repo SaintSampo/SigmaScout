@@ -119,7 +119,7 @@ export function normalizeEventRankings(
       `Event ${eventKey}: TBA's ranking-score sort-order vocabulary has moved. ` +
         `Expected sort_order_info[${RANKING_SCORE_SORT_ORDER_INDEX}].name === "${RANKING_SCORE_SORT_ORDER_NAME}", ` +
         `observed ${observedDescription}. Refusing to store a ranking-score value read from an unasserted ` +
-        `position (D-18.6) — a human must confirm TBA's new vocabulary before this pipeline reads it again.`
+        `position — a human must confirm TBA's new vocabulary before this pipeline reads it again.`
     );
   }
 

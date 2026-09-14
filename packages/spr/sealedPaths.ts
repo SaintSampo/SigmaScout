@@ -70,7 +70,7 @@ export function assertSealed(paths: readonly string[], run: CommandRunner): Seal
       throw new Error(
         `holdout: ${path} has uncommitted changes (${status}).\n` +
           "Commit it first - the seal must predate the evaluation, and it covers\n" +
-          "the MODEL as well as the parameters (260908-vqr F-15).",
+          "the MODEL as well as the parameters.",
       );
     }
 

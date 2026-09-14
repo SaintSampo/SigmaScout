@@ -117,11 +117,11 @@ export const AlgorithmsManifestSchema = z.object({
 
 export type AlgorithmsManifest = z.infer<typeof AlgorithmsManifestSchema>;
 
-/** Thrown when an algorithm's `version` string does not carry D-13's `{codeVersion}+{paramSetName}` shape — mirrors `pageArtifacts.ts`'s `MissingVersionSeparatorError` discipline. */
+/** Thrown when an algorithm's `version` string does not carry the `{codeVersion}+{paramSetName}` shape — mirrors `pageArtifacts.ts`'s `MissingVersionSeparatorError` discipline. */
 export class MissingManifestVersionSeparatorError extends Error {
   constructor(algorithmId: string, version: string) {
     super(
-      `algorithm "${algorithmId}"'s version "${version}" does not carry D-13's ` +
+      `algorithm "${algorithmId}"'s version "${version}" does not carry the ` +
         `"{codeVersion}+{paramSetName}" shape (no "+" found)`
     );
     this.name = "MissingManifestVersionSeparatorError";

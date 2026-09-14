@@ -96,7 +96,7 @@ export class LeagueRowShapeVersionError extends Error {
     super(
       `deserializeState: algorithm "${algorithmId}" league row does not declare snapshotShapeVersion ` +
         `${STATE_SNAPSHOT_SHAPE_VERSION} (found ${JSON.stringify(found)}) — this is either a retired-shape row ` +
-        `(per-team data stored inside the league row, pre plan-04-08) or a stale version, and reading it as the ` +
+        `(per-team data stored inside the league row) or a stale version, and reading it as the ` +
         `current shape would silently misinterpret or drop data rather than fail loudly. Re-seed this algorithm ` +
         `from a fresh publish run.`
     );
@@ -741,7 +741,7 @@ export class SeedRowTooLargeError extends Error {
       `emitSeedSql: algorithm "${algorithmId}" row (scopeKind="${scopeKind}", scopeKey="${scopeKey}") is ${tupleLength} bytes as a single ` +
         `INSERT tuple, over the ${maxStatementLength}-byte per-statement budget (D1's hard limit is ${D1_STATEMENT_LIMIT}). ` +
         `A single row cannot be split across statements, so this cannot be fixed by batching — it means per-key data is being ` +
-        `stored in a row meant for aggregates. Move it into scopeKind:"team" rows (D-13).`
+        `stored in a row meant for aggregates. Move it into scopeKind:"team" rows.`
     );
     this.name = "SeedRowTooLargeError";
   }

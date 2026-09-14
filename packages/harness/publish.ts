@@ -1290,7 +1290,7 @@ interface PreScheduleSidecarArgs {
 function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: string; body: string } | undefined {
   const label = `publish: presim skip ${args.eventKey} [${args.algorithm.id}]`;
   if (!isRpEligibleEventType(args.eventType)) {
-    console.log(`${label}: event_type ${args.eventType} is not RP-eligible (PD-06)`);
+    console.log(`${label}: event_type ${args.eventType} is not RP-eligible`);
     return undefined;
   }
   if (args.roster.length < MIN_SCHEDULE_TEAMS || args.roster.length > MAX_SCHEDULE_TEAMS) {
@@ -1312,7 +1312,7 @@ function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: s
       } else {
         // The cold-start season's first event: its pre-event state is internal to the algorithm and
         // not exposed. Never substitute a later state.
-        console.log(`${label}: no pre-event walk-forward state was captured (PD-04 — the cold-start season's first event)`);
+        console.log(`${label}: no pre-event walk-forward state was captured (the cold-start season's first event)`);
         return undefined;
       }
     } else {

@@ -343,7 +343,7 @@ export const opr: AlgorithmModule<OprState> = {
         throw new Error(
           `opr: solveEventOpr produced a non-finite rating for team ${team} at event ${eventKey} ` +
             `(${observations.length} accumulated observations) — the run aborts rather than propagating ` +
-            `a corrupt rating through the rest of this event (01-REVIEW WR-01, D-03).`
+            `a corrupt rating through the rest of this event.`
         );
       }
     }

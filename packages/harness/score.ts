@@ -339,7 +339,7 @@ export function aggregateScores(
         if (exceedsAbsoluteLimit || exceedsShareLimit) {
           const boundCrossed = exceedsAbsoluteLimit ? "QUARANTINE_ABSOLUTE_LIMIT" : "QUARANTINE_SHARE_LIMIT";
           throw new Error(
-            `score: algorithm "${algorithmId}" season ${season} (${view}) quarantined ${quarantinedCount} of ${candidateCount} candidates, crossing ${boundCrossed} — refusing to publish a Brier score computed on a materially narrowed population (D-07)`
+            `score: algorithm "${algorithmId}" season ${season} (${view}) quarantined ${quarantinedCount} of ${candidateCount} candidates, crossing ${boundCrossed} — refusing to publish a Brier score computed on a materially narrowed population`
           );
         }
 

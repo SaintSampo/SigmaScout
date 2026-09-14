@@ -651,7 +651,7 @@ function buildWarnings(params: {
   }
   if (!rpEnabled) {
     warnings.push(
-      `rp=0 — ABLATED ARM: plan 09-08's four additions (the RpMomentsAccumulator resume, rpFieldsFor, foldObservedRp, and the withRpBeliefs passenger) and shape 16's mean shift (resume, apply, observeMatch, withRpMeanShift) were all skipped. Bands, both predict loops and the Sigma fold still ran, because they predate Phase 9. Compare this cpuTime against an otherwise-identical rp=1 run; it is not a measurement of the tick as deployed`
+      `rp=0 — ABLATED ARM: the ranking-point additions (the RpMomentsAccumulator resume, rpFieldsFor, foldObservedRp, and the withRpBeliefs passenger) and shape 16's mean shift (resume, apply, observeMatch, withRpMeanShift) were all skipped. Bands, both predict loops and the Sigma fold still ran, because they are not part of the ranking-point path. Compare this cpuTime against an otherwise-identical rp=1 run; it is not a measurement of the tick as deployed`
     );
   }
   if (!eventOverrideSupplied && discoveredEventKey === undefined) {

@@ -110,7 +110,7 @@ export type ArtifactKeyParams = TeamsPageParams | TeamPageParams | EventsPagePar
 export class MissingVersionSeparatorError extends Error {
   constructor(algorithmId: string, version: string) {
     super(
-      `artifactKey: algorithm "${algorithmId}"'s version "${version}" does not carry D-13's "{codeVersion}+{paramSetName}" shape (no "+" found)`
+      `artifactKey: algorithm "${algorithmId}"'s version "${version}" does not carry the "{codeVersion}+{paramSetName}" shape (no "+" found)`
     );
     this.name = "MissingVersionSeparatorError";
   }
