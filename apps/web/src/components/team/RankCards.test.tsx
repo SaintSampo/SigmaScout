@@ -14,7 +14,7 @@ afterEach(() => cleanup());
 
 const DEFAULT_PROPS = { season: 2024, algorithmId: "opr" as const };
 
-describe("RankCards — rendering four scopes in order (quick task 260905-ttv)", () => {
+describe("RankCards — rendering four scopes in order", () => {
   it("renders four cards, in the order world, country, district, state", () => {
     const ranks: Ranks = [
       { scope: "world", rank: 12, total: 3481 },
@@ -72,7 +72,7 @@ describe("RankCards — rendering four scopes in order (quick task 260905-ttv)",
   });
 });
 
-describe("RankCards — graceful absence (quick task 260905-ttv)", () => {
+describe("RankCards — graceful absence", () => {
   it("renders nothing at all when ranks is undefined — no heading, no empty row, no skeleton", () => {
     const { container } = renderWithRouter(<RankCards ranks={undefined} {...DEFAULT_PROPS} />);
     expect(container.textContent).toBe("");
@@ -86,7 +86,7 @@ describe("RankCards — graceful absence (quick task 260905-ttv)", () => {
   });
 });
 
-describe("RankCards — no basis caption (quick task 260905-ttv, rank cards v2)", () => {
+describe("RankCards — no basis caption (rank cards v2)", () => {
   it("renders no element with data-testid=rank-cards-basis anywhere, in both the four-card and single-card cases", () => {
     const fourCards: Ranks = [
       { scope: "world", rank: 1, total: 10 },
@@ -103,7 +103,7 @@ describe("RankCards — no basis caption (quick task 260905-ttv, rank cards v2)"
   });
 });
 
-describe("RankCards — fixed width and label truncation (quick task 260905-ttv)", () => {
+describe("RankCards — fixed width and label truncation", () => {
   it("all four cards share the same fixed-width class regardless of label length", () => {
     const ranks: Ranks = [
       { scope: "world", rank: 1, total: 10 },
@@ -132,7 +132,7 @@ describe("RankCards — fixed width and label truncation (quick task 260905-ttv)
   });
 });
 
-describe("RankCards — tier colour (quick task 260905-ttv; World card by Total percentile since 260912-tnk)", () => {
+describe("RankCards — tier colour (World card by Total percentile)", () => {
   it("a regional card at rank 1 of 3481 carries the Legendary modifier class", () => {
     const ranks: Ranks = [{ scope: "country", value: "USA", rank: 1, total: 3481 }];
     renderWithRouter(<RankCards ranks={ranks} {...DEFAULT_PROPS} />);
@@ -192,7 +192,7 @@ describe("RankCards — tier colour (quick task 260905-ttv; World card by Total 
   });
 });
 
-describe("RankCards — links (quick task 260905-ttv)", () => {
+describe("RankCards — links", () => {
   it("the World card links to /teams with the page's current year and algorithm and no region params", () => {
     const ranks: Ranks = [{ scope: "world", rank: 12, total: 3481 }];
     renderWithRouter(<RankCards ranks={ranks} season={2024} algorithmId="opr" />);
@@ -272,7 +272,7 @@ describe("RankCards — links (quick task 260905-ttv)", () => {
  * item 6 ("clicking a rank card lands on a table showing the same number")
  * a promise proven by a test, not a comment.
  */
-describe("RankCards — the district/state agreement invariant (quick task 260905-ttv)", () => {
+describe("RankCards — the district/state agreement invariant", () => {
   function buildFixtureRows(): RankableTeamRow[] {
     return [
       { teamKey: "frc1114", teamNumber: 1114, metrics: { total: { value: 50 } }, country: "USA", stateProv: "MI", districtKey: "fim" },

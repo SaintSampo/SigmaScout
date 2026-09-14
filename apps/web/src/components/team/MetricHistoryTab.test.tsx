@@ -70,7 +70,7 @@ describe("MetricHistoryTab", () => {
     await waitFor(() => expect(screen.getByTestId("fake-chart")).toBeDefined());
   });
 
-  describe("skeleton legend spacer (quick task 260913-m45)", () => {
+  describe("skeleton legend spacer", () => {
     it("reserves a text-free METRIC_HISTORY_LEGEND_HEIGHT_PX spacer while pending, for an spr artifact whose rows draw a sigma band", async () => {
       const loadChart = vi.fn(() => new Promise<{ default: ComponentType<MetricHistoryChartProps> }>(() => {}));
       const sprArtifact = artifact({

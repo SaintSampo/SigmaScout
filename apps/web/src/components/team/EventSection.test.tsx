@@ -81,7 +81,7 @@ describe("EventSection", () => {
     expect(snapshot.textContent).not.toContain("88.20");
   });
 
-  it("puts Total on its own first line and Auto, Teleop and Endgame together on the line below (2026-09-13)", () => {
+  it("puts Total on its own first line and Auto, Teleop and Endgame together on the line below", () => {
     renderWithRouter(
       <EventSection
         event={makeEvent()}
@@ -159,7 +159,7 @@ describe("EventSection", () => {
     expect(heading.textContent).toBe(longName);
   });
 
-  it("carries an elevation class and a surface class distinct from the page background (06-09-PLAN.md Task 3 polish pass)", () => {
+  it("carries an elevation class and a surface class distinct from the page background", () => {
     renderWithRouter(<EventSection event={makeEvent()} domain={DOMAIN} teamKey="frc118" algorithmId="spr" season={2024} metricHistory={[]} />);
     const section = screen.getByTestId("event-section-2024casj");
     expect(section.className).toContain("shadow-sm");
@@ -167,7 +167,7 @@ describe("EventSection", () => {
     expect(section.className).not.toContain("bg-[var(--color-bg-page)]");
   });
 
-  it("renders 'Rank 5 of 32' when the event fixture carries rank and totalTeams (TEAM-04/F-06-3, plan 06.1-01)", () => {
+  it("renders 'Rank 5 of 32' when the event fixture carries rank and totalTeams", () => {
     renderWithRouter(
       <EventSection
         event={makeEvent({ rank: 5, totalTeams: 32 })}
@@ -182,7 +182,7 @@ describe("EventSection", () => {
     expect(standing.textContent).toBe("Rank 5 of 32");
   });
 
-  it("renders no standing element when the event fixture carries neither rank nor totalTeams (TEAM-04/F-06-3, plan 06.1-01)", () => {
+  it("renders no standing element when the event fixture carries neither rank nor totalTeams", () => {
     renderWithRouter(
       <EventSection event={makeEvent()} domain={DOMAIN} teamKey="frc118" algorithmId="spr" season={2024} metricHistory={[]} />,
     );
@@ -241,7 +241,7 @@ describe("EventSection", () => {
    * with a visible on-page statement of what those tiers are ranked
    * against.
    */
-  describe("per-event metric tiers and basis caption (plan 06.1-06, D-06.1-A/F-06-3)", () => {
+  describe("per-event metric tiers and basis caption", () => {
     it("renders a tier box carrying the epic modifier class for a snapshot metric with a percentile in the Epic band", () => {
       renderWithRouter(
         <EventSection
@@ -257,7 +257,7 @@ describe("EventSection", () => {
       expect(snapshot.querySelector(".metric-tier--epic")).not.toBeNull();
     });
 
-    it("renders the common tier ring for a snapshot metric with a percentile in the Common band (260904-7rt, sketch 008 winner C)", () => {
+    it("renders the common tier ring for a snapshot metric with a percentile in the Common band (sketch 008 winner C)", () => {
       renderWithRouter(
         <EventSection
           event={makeEvent()}
@@ -272,7 +272,7 @@ describe("EventSection", () => {
       expect(snapshot.querySelector(".metric-tier--common")).not.toBeNull();
     });
 
-    it("renders a (Common, ringed) value for a snapshot metric at exactly percentile 0 — the boundary is tiered by band, never dropped as falsy (06.1-REVIEW IN-02; ringed since 260904-7rt, sketch 008 winner C)", () => {
+    it("renders a (Common, ringed) value for a snapshot metric at exactly percentile 0 — the boundary is tiered by band, never dropped as falsy (sketch 008 winner C)", () => {
       renderWithRouter(
         <EventSection
           event={makeEvent()}
@@ -304,7 +304,7 @@ describe("EventSection", () => {
       expect(snapshot.textContent).toContain("61.40");
     });
 
-    it("renders no per-event tier-basis caption even when a rendered tile carries a percentile (G-06.1-28, plan 06.1-08, option-a)", () => {
+    it("renders no per-event tier-basis caption even when a rendered tile carries a percentile", () => {
       renderWithRouter(
         <EventSection
           event={makeEvent()}

@@ -85,7 +85,7 @@ describe("BonusRpDots, predicted kind", () => {
   });
 });
 
-describe("BonusRpDots, actual kind (unchanged by F10)", () => {
+describe("BonusRpDots, actual kind (unchanged by the fill-to-odds dots)", () => {
   it("renders earned and missed states with their labels and classes, and no fill", () => {
     render(<BonusRpDots season={2024} side="red" kind="actual" matchKey="m1" states={["earned", "missed"]} applicable />);
     const [earned, missed] = dots("bonus-rp-actual-m1-red");

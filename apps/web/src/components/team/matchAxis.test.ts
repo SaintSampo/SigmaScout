@@ -109,7 +109,7 @@ describe("computeAxisDomain", () => {
     expect(domain.max).toBeGreaterThanOrEqual(270);
   });
 
-  it("widens for the Match Band MatchTable draws, and ignores the algorithm's own variance (260913-g66)", () => {
+  it("widens for the Match Band MatchTable draws, and ignores the algorithm's own variance", () => {
     const banded = computeAxisDomain([
       makeEvent([makeMatch({ matchKey: "m1", predictedRedScore: 250, predictedBlueScore: 250, redMatchBandVariance: 10000 })]),
     ]);

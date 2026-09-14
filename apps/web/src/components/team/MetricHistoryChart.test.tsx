@@ -37,7 +37,7 @@ const EVENT_NAMES: Record<string, string> = {
 };
 
 describe("MetricHistoryChart", () => {
-  it("renders NO Area band when points carry only a spread — the band is built from sigma (quick task 260913-m45), never spread", () => {
+  it("renders NO Area band when points carry only a spread — the band is built from sigma, never spread", () => {
     const rows = [
       row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, spread: 5 }),
       row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 110, spread: 6 }),
@@ -96,7 +96,7 @@ describe("MetricHistoryChart", () => {
     expect(container.textContent?.toLowerCase()).not.toContain("spread");
   });
 
-  describe("legend (quick task 260913-m45)", () => {
+  describe("legend", () => {
     it("renders a two-item legend labelling Total and ± Sigma, sized to METRIC_HISTORY_LEGEND_HEIGHT_PX, when the band draws", () => {
       const rows = [
         row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: 100, sigma: 5 }),
@@ -211,7 +211,7 @@ describe("MetricHistoryChart", () => {
     expect(container.querySelectorAll(".recharts-area").length).toBe(1);
   });
 
-  it("G-13 (07-UAT.md): renders no float-noise Y-axis tick labels for an extreme, negative domain", () => {
+  it("renders no float-noise Y-axis tick labels for an extreme, negative domain", () => {
     // Mirrors the live-reported case (frc4788/2026/vpr): a deeply negative
     // total alongside a small positive one, the exact domain shape that
     // surfaced Recharts' own floating-point interval-arithmetic noise
@@ -235,7 +235,7 @@ describe("MetricHistoryChart", () => {
     }
   });
 
-  it("G-13 (07-UAT.md): widens the Y axis for a wide extreme label, narrower for a typical short one — never a fixed magic number", () => {
+  it("widens the Y axis for a wide extreme label, narrower for a typical short one — never a fixed magic number", () => {
     const extremeRows = [
       row({ matchKey: "m1", eventKey: "2024casj", matchIndex: 0, value: -1354.13, sigma: 155.53 }),
       row({ matchKey: "m2", eventKey: "2024casj", matchIndex: 1, value: 62.69, sigma: 5 }),
@@ -306,7 +306,7 @@ describe("MetricHistoryChart", () => {
     expect(Math.min(...ticks)).toBeLessThanOrEqual(-85);
   });
 
-  it("a band dipping below zero gets round Y ticks through zero, never ticks anchored at the band edge (quick task 260913-m45)", () => {
+  it("a band dipping below zero gets round Y ticks through zero, never ticks anchored at the band edge", () => {
     // The look check found a band lower edge of -18.71 rendering ticks
     // -18.71, 131.29, 281.29: every label offset by the edge. The ladder must
     // step through 0 and cover both band edges.

@@ -28,7 +28,7 @@ function renderWithRouter(children: ReactNode, initialEntry = "/team/1114?year=2
   render(<RouterProvider router={router} />);
 }
 
-describe("YearMismatchEmptyState (D-19)", () => {
+describe("YearMismatchEmptyState", () => {
   it("renders exactly two year link chips whose href contains /team/1114 and the respective year", async () => {
     renderWithRouter(<YearMismatchEmptyState teamNumber={1114} nickname="Simbotics" year={2025} activeYears={[2023, 2024]} />);
 

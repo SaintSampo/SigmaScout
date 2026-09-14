@@ -28,7 +28,7 @@ describe("buildMetricSeries", () => {
     expect(points.map((p) => p.x)).toEqual([1, 2, 3]);
   });
 
-  it("carries value/sigma/matchKey/eventKey through for the requested metric key — sigma removed is the whole point (2026-09-09)", () => {
+  it("carries value/sigma/matchKey/eventKey through for the requested metric key — sigma removed is the whole point", () => {
     const rows = [
       row({
         matchKey: "m1",
@@ -104,7 +104,7 @@ describe("detectEventBands", () => {
   });
 });
 
-describe("sigmaBandFor (quick task 260913-m45)", () => {
+describe("sigmaBandFor", () => {
   it("returns [value - sigma, value + sigma] when both are defined", () => {
     expect(sigmaBandFor({ value: 120, sigma: 12.5 })).toEqual([107.5, 132.5]);
   });
@@ -118,7 +118,7 @@ describe("sigmaBandFor (quick task 260913-m45)", () => {
   });
 });
 
-describe("drawsSigmaBand (quick task 260913-m45)", () => {
+describe("drawsSigmaBand", () => {
   it("is true for spr rows carrying both a total value and a sigma entry", () => {
     const rows = [row({ matchKey: "m1", eventKey: "A", matchIndex: 0, metrics: { total: { value: 100 }, [SIGMA_METRIC_KEY]: { value: 8 } } })];
     expect(drawsSigmaBand(rows, "spr")).toBe(true);
@@ -135,7 +135,7 @@ describe("drawsSigmaBand (quick task 260913-m45)", () => {
   });
 });
 
-describe("niceYAxis (quick task 260913-m45)", () => {
+describe("niceYAxis", () => {
   // Every tick must be a whole multiple of one step, with zero on the ladder.
   function expectLadder(ticks: readonly number[], domain: readonly [number, number]) {
     const step = ticks[1]! - ticks[0]!;
