@@ -1,81 +1,34 @@
 /**
- * 2017 (FIRST STEAMWORKS) component map. Field inventory confirmed directly
- * against `data/corpus.sqlite` (2026-09-07, `2017abca_qm1`, 34 keys per
- * side). Every component here is a BARE FIELD READ with no arithmetic, so
- * this file takes `2019.ts`'s plain key-lookup shape rather than `2018.ts`'s
- * extractor-function shape — only `2018.ts`'s header discipline (named
- * hazards, measured figures, an explicit never-read list) is carried over.
+ * 2017 (FIRST STEAMWORKS) component map. Every component is a bare field
+ * read, no arithmetic.
  *
- * **Inert until a publish lands.** `FIRST_SEASON` in
- * `apps/web/src/lib/seasons.ts` is still 2019 and no 2017 artifacts exist in
- * R2, so registering this map makes 2017 computable by the harness and the
- * corpus suites — it does NOT make 2017 visible on the site. Publish, then
- * reveal.
+ * `kPaBonusPoints` and `rotorBonusPoints` are always 0 in quals and real
+ * points in playoffs, where TBA counts them inside its own `teleopPoints`
+ * and `totalPoints` roll-ups — they are read as first-class components for
+ * that reason; omitting them mismatches thousands of playoff sides against
+ * TBA's own totals. `reconciliation.test.ts`'s window is not
+ * comp-level-filtered and is playoff-inclusive, so it catches a regression
+ * here even though the RP reconciliation suite is qual-scoped.
  *
- * **THE CENTRAL FACT — the two playoff-only bonus fields.**
- * `kPaBonusPoints` and `rotorBonusPoints` are **always 0 in qualification
- * matches** and are **real points in playoff matches**, where TBA counts
- * them INSIDE its own `teleopPoints` roll-up and therefore inside
- * `totalPoints`. They are read here as first-class components (`kPaBonus`,
- * `rotorBonus`) for exactly that reason. Measured 2026-09-07 over official
- * playoff matches: including them gives **0 mismatches** against TBA's own
- * `teleopPoints`; omitting them gives **1,195 / 5,500 mismatching sides**.
+ * The roll-up identity `sum(own components) + adjust + foulPoints ===
+ * totalPoints` holds with 0 mismatches, so 2017 takes no
+ * `KNOWN_BREAKDOWN_TOLERANCES` entry — any exception appearing later is a
+ * component-map error, not an occasion to add a tolerance. corr(red, blue)
+ * on `totalPoints` is +0.3293, inside the normal cross-season band, so 2017
+ * needs no normalization treatment.
  *
- * **This suite PROVES that inclusion rather than trusting it.**
- * `reconciliation.test.ts`'s 2,000-row window is ordered by `match_key`
- * ascending with **no `comp_level` filter**, and within an event `f` < `qf`
- * < `qm` < `sf`, so finals and quarterfinals sort BEFORE quals. The 2017
- * window spans `2017abca_f1m1` .. `2017code_qm15` and contains **51 `f` +
- * 185 `qf` + 123 `sf` + 1,641 `qm`** — it is playoff-inclusive, so dropping
- * either bonus component turns the suite red on a playoff match key. The
- * **RP** suite (`sigma1/rp/reconciliation.test.ts`), by contrast, genuinely
- * IS qual-scoped, which is why the hazard still deserves naming here: a
- * reader who generalises "the reconciliations are qual-scoped" from the RP
- * side to this side would conclude these two fields are optional detail.
- * They are not.
+ * Never read here: the roll-up totals (double-counting), the per-robot and
+ * touchpad string fields (positional correspondence to the teams array is
+ * unverified), `tba_rpEarned`, the rotor-engaged and `*RankingPointAchieved`
+ * booleans (read by the RP module instead), and the raw fuel counts (their
+ * scored value is already in the fuel point fields).
  *
- * **The measured residual: there is none.** The roll-up identity
- * `sum(own components) + adjust + foulPoints === totalPoints` holds with
- * **0 mismatches over 30,880 official non-offseason alliance-sides, ALL comp
- * levels** (measured 2026-09-07). 2017 therefore takes **no
- * `KNOWN_BREAKDOWN_TOLERANCES` entry of any kind** — stated explicitly so a
- * future reader knows the absence is a measured result rather than an
- * oversight, and so that any exception appearing later is treated as a
- * component-map error rather than as an occasion to add a tolerance.
+ * `diagnosticKeys` lists only `foulCount`/`techFoulCount`; a consumer treats
+ * every listed name as a foul field, so listing any other raw count here
+ * would publish a bogus foul rate.
  *
- * **Additivity.** corr(red, blue) on `totalPoints` = **+0.3293**, inside the
- * normal +0.24..+0.52 band observed across seasons, so 2017 needs no
- * normalization treatment. 2018 (**-0.4567**) remains the only
- * anti-additive season.
- *
- * **Never read**, and deliberately so:
- *  - The roll-ups `autoPoints`, `teleopPoints`, `totalPoints` (BD-1) —
- *    reading any of them alongside their parts would double-count.
- *  - The per-robot fields `robot1Auto`/`robot2Auto`/`robot3Auto` and
- *    `touchpadFar`/`touchpadMiddle`/`touchpadNear` (Pitfall Sigma1-2 /
- *    Assumption A1) — positional correspondence to `red_teams`/`blue_teams`
- *    array order is unverified, the same discipline every other component
- *    map in this package applies.
- *  - `tba_rpEarned`.
- *  - The `rotor1Auto`/`rotor2Auto` and `rotor1Engaged`..`rotor4Engaged`
- *    booleans and the `kPaRankingPointAchieved`/`rotorRankingPointAchieved`
- *    booleans — these belong to the RP module (`sigma1/rp/2017.ts`), which
- *    reads the latter two as recorded bonus flags. None is a point value and
- *    none is ever emitted as a component.
- *  - The raw fuel counts `autoFuelHigh`/`autoFuelLow`/`teleopFuelHigh`/
- *    `teleopFuelLow` — counts, not point values (Pitfall Sigma1-1). The
- *    scored value of that fuel is already in
- *    `autoFuelPoints`/`teleopFuelPoints`.
- *
- * `diagnosticKeys` lists ONLY `foulCount` and `techFoulCount`. The field has
- * no consumer today (260913-nvn); when it had one, that consumer treated
- * every listed name as a FOUL field and incremented a foul-match counter
- * when any one of them exceeded zero, so listing any other raw count here
- * would have published a bogus foul rate.
- *
- * Validated at the parse boundary with Zod (T-02-01, ASVS V5): every read
- * field must be a finite number, or `parse` throws rather than coercing an
- * absent/malformed field to 0.
+ * Validated at the parse boundary with Zod: every read field must be a
+ * finite number, or `parse` throws rather than coercing a malformed field.
  */
 import { z } from "zod";
 import type { ParsedComponents, SeasonComponentMap } from "./constants.js";
@@ -83,15 +36,8 @@ import { ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT } from "./constants.js";
 
 /**
  * Only the subset of TBA's `score_breakdown.{side}` object this map reads.
- * Unknown extra fields (`autoPoints`, `teleopPoints`, `totalPoints`,
- * `autoFuelHigh`/`autoFuelLow`/`teleopFuelHigh`/`teleopFuelLow`,
- * `robot1Auto`/`robot2Auto`/`robot3Auto`,
- * `touchpadFar`/`touchpadMiddle`/`touchpadNear`, `rotor1Auto`/`rotor2Auto`,
- * `rotor1Engaged`..`rotor4Engaged`, `kPaRankingPointAchieved`,
- * `rotorRankingPointAchieved`, `tba_rpEarned`, `rp`, etc.) are ignored, not
- * rejected — zod's default "strip" mode drops them without erroring.
- * Deliberately NOT `.passthrough()`/`.loose()`, matching every other season
- * map's discipline.
+ * Unknown extra fields are ignored, not rejected — zod's default "strip"
+ * mode drops them without erroring. Deliberately not `.passthrough()`.
  */
 const SideBreakdownSchema = z.object({
   autoMobilityPoints: z.number().finite(),
@@ -100,18 +46,11 @@ const SideBreakdownSchema = z.object({
   teleopFuelPoints: z.number().finite(),
   teleopRotorPoints: z.number().finite(),
   teleopTakeoffPoints: z.number().finite(),
-  /**
-   * Always 0 in quals, real points in playoffs, counted by TBA inside its
-   * own `teleopPoints`. See "THE CENTRAL FACT" in the file header — these
-   * two are load-bearing, not optional detail.
-   */
+  /** Always 0 in quals, real points in playoffs; load-bearing, see file header. */
   kPaBonusPoints: z.number().finite(),
   rotorBonusPoints: z.number().finite(),
   adjustPoints: z.number().finite(),
-  /**
-   * Points this alliance RECEIVED from the opponent's fouls — NOT points
-   * this alliance committed. See `foulsCommitted`'s comment below.
-   */
+  /** Points this alliance RECEIVED from the opponent's fouls, not points it committed. */
   foulPoints: z.number().finite(),
 });
 
@@ -136,9 +75,7 @@ const OWN_FIELD_COMPONENT_MAP: Readonly<Record<string, keyof z.infer<typeof Side
 export const breakdown2017: SeasonComponentMap = {
   components: [...Object.keys(OWN_FIELD_COMPONENT_MAP), FOULS_COMMITTED_COMPONENT],
 
-  // Raw count fields — not point values, never emitted as a component
-  // (Pitfall Sigma1-1). Held to exactly these two: this list's single
-  // consumer treats every name in it as a foul field.
+  // Held to exactly these two: a consumer treats every listed name as a foul field.
   diagnosticKeys: ["foulCount", "techFoulCount"],
 
   parse(rawBreakdownJson: unknown, side: "red" | "blue"): ParsedComponents {
@@ -146,21 +83,15 @@ export const breakdown2017: SeasonComponentMap = {
     const own = parsed[side];
     const opponent = side === "red" ? parsed.blue : parsed.red;
 
-    // Object.create(null) + a fixed allowlist loop (T-02-04): third-party
-    // TBA JSON is never spread onto the result, so a `__proto__` key in the
-    // raw payload cannot reach Object.prototype via this map.
+    // Object.create(null) + a fixed allowlist loop: raw TBA JSON is never
+    // spread onto the result, so a `__proto__` key cannot reach Object.prototype.
     const result: ParsedComponents = Object.create(null) as ParsedComponents;
     for (const [canonical, tbaKey] of Object.entries(OWN_FIELD_COMPONENT_MAP)) {
       result[canonical] = own[tbaKey];
     }
 
-    // Same D-04 derivation every existing map uses: the quantity a per-team
-    // "fouls committed" component must represent is what THIS alliance cost
-    // the OPPONENT, which is the opposing alliance's own `foulPoints`
-    // (points IT received) for the same match — season-agnostic, no
-    // per-season foul point-value table needed. `foulCount`/`techFoulCount`
-    // are raw counts, not point values, and are never read here; they are
-    // aliased above in `diagnosticKeys` only.
+    // Fouls committed by this alliance = points the OPPONENT received, i.e.
+    // the opposing alliance's own foulPoints for the same match.
     result[FOULS_COMMITTED_COMPONENT] = opponent.foulPoints;
 
     return result;

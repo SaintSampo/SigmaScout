@@ -1,28 +1,18 @@
 /**
- * 2020 (Infinite Recharge) component map. Field inventory verified against
- * `data/corpus.sqlite` this session (2026-09-03) via
- * `docs/data/tba-field-recon-2019-2020.md`'s live-query field recon
- * (34 distinct `score_breakdown` keys sampled from `2020isde1`) and
- * corpus-wide roll-up-identity reconciliation (0 mismatches / 4,663 sides,
- * the full non-offseason breakdown-bearing population): 2020's season was
- * cancelled by COVID-19 before any District Championship or Championship
- * was played, so the corpus carries `base` tier only (event_type 0, 1, 100).
+ * 2020 (Infinite Recharge) component map. 2020's season was cancelled by
+ * COVID-19 before any District Championship or Championship was played, so
+ * the corpus carries `base` tier only.
  *
- * Never read (Pitfall Sigma1-2 / Assumption A1): `endgameRobot1/2/3`,
- * `initLineRobot1/2/3` — per-robot fields, positional correspondence to
- * `red_teams`/`blue_teams` array order is unverified, same discipline every
- * other component map in this package applies.
+ * Never read: the per-robot fields (positional correspondence to the teams
+ * array is unverified, same discipline every other component map applies).
  *
- * Validated at the parse boundary with Zod (T-02-01, ASVS V5): every read
- * field must be a finite number, or `parse` throws rather than coercing an
- * absent/malformed field to 0.
+ * Validated at the parse boundary with Zod: every read field must be a
+ * finite number, or `parse` throws rather than coercing a malformed field.
  *
- * Roll-up avoidance (BD-1): `autoPoints` equals
- * `autoInitLinePoints + autoCellPoints` and `teleopPoints` equals
- * `teleopCellPoints + controlPanelPoints + endgamePoints` — neither roll-up
- * key is read, since emitting both the parts and the sum would double-count
- * and break the reconciliation invariant (reconciliation.test.ts). Verified
- * against the corpus rather than trusted: 0 mismatches / 4,663 sides.
+ * `autoPoints` equals `autoInitLinePoints + autoCellPoints` and
+ * `teleopPoints` equals `teleopCellPoints + controlPanelPoints +
+ * endgamePoints` — neither roll-up key is read, since emitting both the
+ * parts and the sum would double-count.
  */
 import { z } from "zod";
 import type { ParsedComponents, SeasonComponentMap } from "./constants.js";
@@ -30,14 +20,8 @@ import { ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT } from "./constants.js";
 
 /**
  * Only the subset of TBA's `score_breakdown.{side}` object this map reads.
- * Unknown extra fields (`autoPoints`, `teleopPoints`, `totalPoints`,
- * `autoCellsBottom/Inner/Outer`, `teleopCellsBottom/Inner/Outer`,
- * `endgameRobot1/2/3`, `initLineRobot1/2/3`, `stage1/2/3Activated`,
- * `shieldOperationalRankingPoint`, `shieldEnergizedRankingPoint`,
- * `tba_numRobotsHanging`, `endgameRungIsLevel`, `rp`, etc.) are ignored, not
- * rejected — zod's default "strip" mode drops them without erroring.
- * Deliberately NOT `.passthrough()`/`.loose()`, matching every other season
- * map's discipline.
+ * Unknown extra fields are ignored, not rejected — zod's default "strip"
+ * mode drops them without erroring. Deliberately not `.passthrough()`.
  */
 const SideBreakdownSchema = z.object({
   autoInitLinePoints: z.number().finite(),
@@ -46,10 +30,7 @@ const SideBreakdownSchema = z.object({
   controlPanelPoints: z.number().finite(),
   endgamePoints: z.number().finite(),
   adjustPoints: z.number().finite(),
-  /**
-   * Points this alliance RECEIVED from the opponent's fouls — NOT points
-   * this alliance committed. See `foulsCommitted`'s comment below.
-   */
+  /** Points this alliance RECEIVED from the opponent's fouls, not points it committed. */
   foulPoints: z.number().finite(),
 });
 
@@ -80,21 +61,14 @@ export const breakdown2020: SeasonComponentMap = {
     const own = parsed[side];
     const opponent = side === "red" ? parsed.blue : parsed.red;
 
-    // Object.create(null) + a fixed allowlist loop (T-02-04): third-party
-    // TBA JSON is never spread onto the result, so a `__proto__` key in the
-    // raw payload cannot reach Object.prototype via this map.
+    // Object.create(null) + a fixed allowlist loop: raw TBA JSON is never
+    // spread onto the result, so a `__proto__` key cannot reach Object.prototype.
     const result: ParsedComponents = Object.create(null) as ParsedComponents;
     for (const [canonical, tbaKey] of Object.entries(OWN_FIELD_COMPONENT_MAP)) {
       result[canonical] = own[tbaKey];
     }
 
-    // Same D-04 derivation every existing map uses: the quantity a per-team
-    // "fouls committed" component must represent is what THIS alliance cost
-    // the OPPONENT, which is the opposing alliance's own `foulPoints`
-    // (points IT received) for the same match — season-agnostic, no
-    // per-season foul point-value table needed. `foulCount`/`techFoulCount`
-    // are raw counts, not point values, and are never read here; they are
-    // aliased above in `diagnosticKeys` only.
+    // Fouls committed by this alliance = points the OPPONENT received.
     result[FOULS_COMMITTED_COMPONENT] = opponent.foulPoints;
 
     return result;
