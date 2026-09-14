@@ -26,11 +26,14 @@ import {
   withSigmaBeliefs,
   withSigmaPopulation,
   withRpBeliefs,
+  withRpMeanShift,
   STATE_SNAPSHOT_SHAPE_VERSION,
+  StateRowSchema,
   type StateRow,
 } from "../../../packages/harness/stateSnapshot.js";
 import { SigmaScoreAccumulator } from "../../../packages/harness/sigmaScore.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
+import { RP_MEAN_SHIFT_WARMUP_OBSERVATIONS } from "../../../packages/core/rankingPoints/meanShift.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
@@ -653,6 +656,98 @@ describe("stateProbe — Group 5: the rp ablation arm", () => {
       const arm = await runArm(`${ARM_QUERY}&rp=${value}`);
       expect(arm.body.params.rp, `rp=${value} should ablate`).toBe(false);
       expect(arm.body.fold.rpPmfsProduced, `rp=${value} should produce no pmfs`).toBe(0);
+    }
+  });
+});
+
+// Group 6 — the mean shift (shape 16, quick task 260914-01x).
+//
+// The probe cannot expose its pmfs, so the mirror of `scheduled.ts` is proven
+// through two counters an independent computation can predict EXACTLY: how
+// many residuals `observeMatch` booked, and how many alliances `apply` moved.
+// Every seeded team has history of both 2026 variables, so every synthetic
+// roster is fully warm.
+
+/** A past-warmup passenger, hand-built: the probe prices from whatever D1 holds, so what matters here is that it RESUMES one. */
+const SEEDED_SHIFT = {
+  season: 2026,
+  variables: {
+    hubTotalCount: { count: RP_MEAN_SHIFT_WARMUP_OBSERVATIONS + 40, sum: 480 },
+    totalTowerPoints: { count: RP_MEAN_SHIFT_WARMUP_OBSERVATIONS + 40, sum: 360 },
+  },
+};
+
+function seedMeanShift(db: FakeD1Database, shift: typeof SEEDED_SHIFT): void {
+  const key = "spr::league::league";
+  const row = db.algorithmState.get(key)!;
+  const [withShift] = withRpMeanShift(
+    [
+      StateRowSchema.parse({
+        algorithmId: row.algorithm_id,
+        algorithmVersion: row.algorithm_version,
+        scopeKind: row.scope_kind,
+        scopeKey: row.scope_key,
+        stateJson: row.state_json,
+        generation: row.generation,
+        computedAt: row.computed_at,
+      }),
+    ],
+    shift
+  );
+  db.algorithmState.set(key, { ...row, state_json: withShift!.stateJson });
+}
+
+async function runShiftArm(query: string, shift: typeof SEEDED_SHIFT | undefined): Promise<{ body: ArmBody & { fold: { rpMeanShiftObservations: number; rpMeanShiftedAlliances: number } }; writes: number; status: number }> {
+  const db = new FakeD1Database();
+  seedAllAlgorithms(db);
+  if (shift !== undefined) seedMeanShift(db, shift);
+  const response = await stateProbe.fetch(new Request(`https://probe/?${query}`), { DB: db as unknown as D1Database });
+  return { body: JSON.parse(await response.text()), writes: db.writeStatementCount, status: response.status };
+}
+
+describe("stateProbe — Group 6: the mean shift mirrors scheduled.ts (shape 16)", () => {
+  const variableCount = RP_RULE_MODULES[2026]!.thresholdVariables.length;
+
+  it("resumes a seeded past-warmup shift and applies it to every alliance priced, in both loops", async () => {
+    const arm = await runShiftArm(`${ARM_QUERY}&rp=1`, SEEDED_SHIFT);
+    expect(arm.status).toBe(200);
+    expect(arm.body.fold.error).toBeUndefined();
+    expect(arm.body.fold.rpPmfsProduced).toBe(ARM_FOLDED + ARM_UPCOMING);
+    // Two alliances per match, every roster fully warm, both variables past warmup.
+    expect(arm.body.fold.rpMeanShiftedAlliances).toBe(2 * (ARM_FOLDED + ARM_UPCOMING));
+    // Played matches only: two sides, one residual per variable per side.
+    expect(arm.body.fold.rpMeanShiftObservations).toBe(ARM_FOLDED * 2 * variableCount);
+    expect(arm.writes).toBe(0);
+  });
+
+  it("with no passenger it resumes a FRESH shift: residuals still book, nothing is applied", async () => {
+    const arm = await runShiftArm(`${ARM_QUERY}&rp=1`, undefined);
+    expect(arm.body.fold.rpMeanShiftedAlliances).toBe(0);
+    expect(arm.body.fold.rpMeanShiftObservations).toBe(ARM_FOLDED * 2 * variableCount);
+    expect(arm.writes).toBe(0);
+  });
+
+  it("a passenger from ANOTHER season is discarded, exactly as fromState discards it in the Worker", async () => {
+    const arm = await runShiftArm(`${ARM_QUERY}&rp=1`, { ...SEEDED_SHIFT, season: 2025 });
+    expect(arm.body.fold.rpMeanShiftedAlliances).toBe(0);
+    expect(arm.body.fold.rpMeanShiftObservations).toBe(ARM_FOLDED * 2 * variableCount);
+  });
+
+  it("rp=0 ablates the mean shift with the rest of the RP path", async () => {
+    const arm = await runShiftArm(`${ARM_QUERY}&rp=0`, SEEDED_SHIFT);
+    expect(arm.body.fold.rpMeanShiftedAlliances).toBe(0);
+    expect(arm.body.fold.rpMeanShiftObservations).toBe(0);
+    expect(arm.writes).toBe(0);
+  });
+
+  it("the probe's source performs the same four mean-shift operations scheduled.ts does", () => {
+    // Behavioural counters above prove resume, apply and observe; the
+    // write-back only reaches rows the probe discards, so it is pinned here.
+    const probe = stripComments(readFileSync(STATE_PROBE_SRC, "utf8"));
+    const worker = stripComments(readFileSync(resolve(__dirname, "../src/scheduled.ts"), "utf8"));
+    for (const operation of ["RpMeanShiftAccumulator.fromState(", "readRpMeanShift(", ".apply(", "rosterIsFullyWarm(", ".observeMatch(", "withRpMeanShift("]) {
+      expect(worker, `scheduled.ts no longer calls ${operation}`).toContain(operation);
+      expect(probe, `stateProbe.ts no longer mirrors ${operation}`).toContain(operation);
     }
   });
 });

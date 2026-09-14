@@ -49,7 +49,7 @@
  * equal to the real one by `stateProbe.test.ts`'s own equivalence test.
  *
  * ARMS: `?rp=0` ablates exactly the operations added to the live tick's
- * Phase A for ranking-point folding, so that work's share of the tick's CPU
+ * Phase A for ranking-point folding (the mean shift of shape 16 included), so that work's share of the tick's CPU
  * cost can be measured as the difference between two otherwise-identical
  * runs instead of inferred — see `runSprFold`'s own comment for the
  * operation list. `rp` absent is ON and byte-identical to the pre-flag probe.
@@ -74,14 +74,17 @@ import {
   readSigmaBeliefs,
   readSigmaPopulation,
   readRpBeliefs,
+  readRpMeanShift,
   withSigmaBeliefs,
   withSigmaPopulation,
   withRpBeliefs,
+  withRpMeanShift,
   STATE_SNAPSHOT_SHAPE_VERSION,
   type StateStamp,
 } from "../../../packages/harness/stateSnapshot.js";
 import { SigmaScoreAccumulator, usesSigmaScore } from "../../../packages/harness/sigmaScore.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
+import { RpMeanShiftAccumulator, rosterIsFullyWarm } from "../../../packages/core/rankingPoints/meanShift.js";
 import { analyticRpPmf } from "../../../packages/core/rankingPoints/analyticPmf.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import { isRpEligibleEventType } from "../../../packages/core/rankingPoints/constants.js";
@@ -346,6 +349,10 @@ interface FoldResult {
   readonly bandsProduced: number;
   readonly rpPmfsProduced: number;
   readonly rpObservedFolds: number;
+  /** Residuals the mean shift booked in the played loop, summed over every variable (shape 16). */
+  readonly rpMeanShiftObservations: number;
+  /** Alliances whose moments the mean shift actually moved, in both loops. 0 before the warmup or with a cold roster. */
+  readonly rpMeanShiftedAlliances: number;
   readonly changedRowsDiscarded: number;
   readonly error?: { readonly name: string; readonly message: string };
 }
@@ -467,11 +474,13 @@ async function readAndDeserializeAll(
  *
  *   SKIPPED when off:
  *     1. the accumulator resume: `RP_RULE_MODULES[season]`, `readRpBeliefs`,
- *        `RpMomentsAccumulator.fromBeliefs`, and the `rpKnownTeams` set
- *     2. `rpFieldsFor` — the `analyticRpPmf` call and its gates — in both
- *        the played and the upcoming loop
- *     3. `foldObservedRp` — the per-side `rpRuleModule.parse` + `rp.fold`
- *     4. `withRpBeliefs` on the serialize-and-discard path
+ *        `RpMomentsAccumulator.fromBeliefs`, the `rpKnownTeams` set, and
+ *        (shape 16) `readRpMeanShift` + `RpMeanShiftAccumulator.fromState`
+ *     2. `rpFieldsFor` — the mean shift's `apply`, the `analyticRpPmf` call
+ *        and its gates — in both the played and the upcoming loop
+ *     3. `observeMatch` then `foldObservedRp` — the mean shift's residual
+ *        booking, then the per-side `rpRuleModule.parse` + `rp.fold`
+ *     4. `withRpBeliefs` and `withRpMeanShift` on the serialize-and-discard path
  *
  *   KEPT in both arms — these predate the ranking-point work and are not
  *   its cost to bear:
@@ -503,6 +512,8 @@ function runSprFold(
       bandsProduced: 0,
       rpPmfsProduced: 0,
       rpObservedFolds: 0,
+      rpMeanShiftObservations: 0,
+      rpMeanShiftedAlliances: 0,
       changedRowsDiscarded: 0,
       error: { name: "EmptyRoster", message: "no teams available (discovery found none and no teams= override was supplied) — cannot build synthetic matches" },
     };
@@ -526,11 +537,18 @@ function runSprFold(
     const rpRuleModule = rpEnabled ? RP_RULE_MODULES[season] : undefined;
     const rpBeliefs = rpEnabled ? readRpBeliefs(sprRows) : undefined;
     const rp = rpRuleModule !== undefined && rpBeliefs !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs) : undefined;
+    // Shape 16: mirrors `scheduled.ts`'s resume exactly, gated with the
+    // accumulator above so `rp=0` ablates it too.
+    const rpMeanShift = rp !== undefined && rpRuleModule !== undefined ? RpMeanShiftAccumulator.fromState(rpRuleModule, readRpMeanShift(sprRows)) : undefined;
     const rpKnownTeams = new Set(rpBeliefs?.keys() ?? []);
 
     let bandsProduced = 0;
     let rpPmfsProduced = 0;
     let rpObservedFolds = 0;
+    let rpMeanShiftedAlliances = 0;
+    const shiftObservationTotal = (): number =>
+      rpMeanShift === undefined ? 0 : Object.values(rpMeanShift.toState().variables).reduce((total, v) => total + v.count, 0);
+    const shiftObservationsAtResume = shiftObservationTotal();
 
     const rpFieldsFor = (
       view: { redTeams: readonly string[]; blueTeams: readonly string[]; eventType: number; matchKey: string; compLevel: MatchResult["compLevel"] },
@@ -538,7 +556,7 @@ function runSprFold(
       redBandVariance: number | undefined,
       blueBandVariance: number | undefined
     ): Partial<Prediction> => {
-      if (rp === undefined || rpRuleModule === undefined) return {};
+      if (rp === undefined || rpRuleModule === undefined || rpMeanShift === undefined) return {};
       if (!isRpEligibleEventType(view.eventType)) return {};
       if (redBandVariance === undefined || blueBandVariance === undefined) return {};
       // The partial-roster gate — mirrors `scheduled.ts`'s exactly.
@@ -548,9 +566,18 @@ function runSprFold(
         if (!rpKnownTeams.has(teamKey)) return {};
       }
 
+      // The mean shift per alliance, fully-warm rosters only — mirrors
+      // `scheduled.ts`'s `rpFieldsFor` exactly. `apply` returns its input
+      // unchanged when it shifts nothing, which is what the counter reads.
+      const redMoments = rp.momentsFor(view.redTeams, prediction.redScore, redBandVariance);
+      const blueMoments = rp.momentsFor(view.blueTeams, prediction.blueScore, blueBandVariance);
+      const red = rpMeanShift.apply(redMoments, rosterIsFullyWarm(rp, view.redTeams));
+      const blue = rpMeanShift.apply(blueMoments, rosterIsFullyWarm(rp, view.blueTeams));
+      if (red !== redMoments) rpMeanShiftedAlliances++;
+      if (blue !== blueMoments) rpMeanShiftedAlliances++;
       const pmf = analyticRpPmf({
-        red: rp.momentsFor(view.redTeams, prediction.redScore, redBandVariance),
-        blue: rp.momentsFor(view.blueTeams, prediction.blueScore, blueBandVariance),
+        red,
+        blue,
         ruleModule: rpRuleModule,
         eventType: view.eventType,
         compLevel: view.compLevel,
@@ -615,6 +642,8 @@ function runSprFold(
 
       state = spr.update(state, result);
       sigma?.foldMatch(result, prediction);
+      // Mirrors `scheduled.ts`: after the RP fields, before the threshold fold.
+      if (rp !== undefined) rpMeanShift?.observeMatch(rp, result);
       foldObservedRp(result);
       // Talent after the fold, from the post-update state — mirrors
       // `scheduled.ts`'s ordering exactly (predict-before-update for the
@@ -650,6 +679,7 @@ function runSprFold(
     // away rather than calling `writeScopedState` (this file's header).
     let candidateRows = serializeState("spr", spr.version, state, PROBE_STAMP);
     if (rp !== undefined) candidateRows = withRpBeliefs(candidateRows, rp.beliefsByTeam());
+    if (rpMeanShift !== undefined) candidateRows = withRpMeanShift(candidateRows, rpMeanShift.toState());
     if (sigma !== undefined) {
       candidateRows = withSigmaPopulation(withSigmaBeliefs(candidateRows, sigma.beliefsByTeam()), sigma.population());
     }
@@ -658,7 +688,18 @@ function runSprFold(
     // `stateProbe.test.ts`'s static scan forbids.
     const changedRowsDiscarded = selectChangedRows(sprRows, candidateRows).length;
 
-    return { algorithmId: "spr", matchesFolded, upcomingPriced, bandsProduced, rpPmfsProduced, rpObservedFolds, changedRowsDiscarded };
+    const rpMeanShiftObservations = shiftObservationTotal() - shiftObservationsAtResume;
+    return {
+      algorithmId: "spr",
+      matchesFolded,
+      upcomingPriced,
+      bandsProduced,
+      rpPmfsProduced,
+      rpObservedFolds,
+      rpMeanShiftObservations,
+      rpMeanShiftedAlliances,
+      changedRowsDiscarded,
+    };
   } catch (err) {
     return {
       algorithmId: "spr",
@@ -667,6 +708,8 @@ function runSprFold(
       bandsProduced: 0,
       rpPmfsProduced: 0,
       rpObservedFolds: 0,
+      rpMeanShiftObservations: 0,
+      rpMeanShiftedAlliances: 0,
       changedRowsDiscarded: 0,
       error: { name: err instanceof Error ? err.name : "UnknownError", message: err instanceof Error ? err.message : String(err) },
     };
@@ -696,7 +739,7 @@ function buildWarnings(params: {
   }
   if (!rpEnabled) {
     warnings.push(
-      `rp=0 — ABLATED ARM: plan 09-08's four additions (the RpMomentsAccumulator resume, rpFieldsFor, foldObservedRp, and the withRpBeliefs passenger) were all skipped. Bands, both predict loops and the Sigma fold still ran, because they predate Phase 9. Compare this cpuTime against an otherwise-identical rp=1 run; it is not a measurement of the tick as deployed`
+      `rp=0 — ABLATED ARM: plan 09-08's four additions (the RpMomentsAccumulator resume, rpFieldsFor, foldObservedRp, and the withRpBeliefs passenger) and shape 16's mean shift (resume, apply, observeMatch, withRpMeanShift) were all skipped. Bands, both predict loops and the Sigma fold still ran, because they predate Phase 9. Compare this cpuTime against an otherwise-identical rp=1 run; it is not a measurement of the tick as deployed`
     );
   }
   if (!eventOverrideSupplied && discoveredEventKey === undefined) {
@@ -749,6 +792,8 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ body: ProbeR
           bandsProduced: 0,
           rpPmfsProduced: 0,
           rpObservedFolds: 0,
+          rpMeanShiftObservations: 0,
+          rpMeanShiftedAlliances: 0,
           changedRowsDiscarded: 0,
           error: { name: "SprNotDeserialized", message: "spr state was not available — see algorithms[] for the read/deserialize failure; the fold was skipped rather than measuring a fiction" },
         };

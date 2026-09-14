@@ -104,8 +104,14 @@ export class UnknownStateAlgorithmError extends Error {
  * reads named fields and ignores extras, so a stale row still carrying a
  * retired passenger key reads identically (`stateSnapshot.test.ts` pins this
  * with an unknown passenger key).
+ *
+ * 15 -> 16 (2026-09-14, quick task 260914-01x): the spr LEAGUE row gains
+ * `sigmascoutRpMeanShift`, the ranking-point mean shift (`withRpMeanShift`).
+ * The bump is load-bearing even though a shape-15 row simply lacks the key: a
+ * Worker reading one would resume a FRESH shift, price every live match
+ * without it while the artifacts it serves carry it, and nothing would error.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 15;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 16;
 
 /**
  * Thrown when `deserializeState`'s league row does not declare the current

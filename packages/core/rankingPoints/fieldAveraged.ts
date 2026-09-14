@@ -224,10 +224,20 @@ export function fieldStatistics(
  * is exact only when the joint is diagonal. This function builds a
  * strictly diagonal block and an all-zero cross-covariance, so that
  * assertion passes by construction.
+ *
+ * `meanShift` (quick task 260914-01x, CD-05) is the season's walk-forward RP
+ * mean shift, one alliance-level amount per variable in
+ * `stats.variableNames` order. It is added ONCE to each alliance's mean
+ * vector, own and opponent alike, because it corrects an alliance total, not
+ * a per-team belief. The caller passes it only when every team in the event
+ * roster is fully warm, decided once per event
+ * (`preSchedule.ts`'s `fieldMeanShiftVector`). Absent, every expression
+ * below is exactly today's.
  */
 export function fieldAveragedAllianceMoments(
   contribution: FieldTeamContribution,
-  stats: FieldStatistics
+  stats: FieldStatistics,
+  meanShift?: readonly number[]
 ): FieldAveragedAlliancePair {
   const A = ALLIANCE_SIZE;
   const names = stats.variableNames;
@@ -244,10 +254,16 @@ export function fieldAveragedAllianceMoments(
     const fieldVariance = stats.meanOfVariableVariances[v] ?? 0;
     const spread = stats.varianceOfVariableMeans[v] ?? 0;
 
-    ownMeanVector.push(ownMean + (A - 1) * fieldMean);
+    if (meanShift === undefined) {
+      ownMeanVector.push(ownMean + (A - 1) * fieldMean);
+      opponentMeanVector.push(A * fieldMean);
+    } else {
+      const shift = meanShift[v] ?? 0;
+      ownMeanVector.push(ownMean + (A - 1) * fieldMean + shift);
+      opponentMeanVector.push(A * fieldMean + shift);
+    }
     ownVariances.push(A * (ownVariance + (A - 1) * fieldVariance) + (A - 1) * spread);
 
-    opponentMeanVector.push(A * fieldMean);
     opponentVariances.push(A * (A * fieldVariance) + A * spread);
   }
 
@@ -291,9 +307,10 @@ export function fieldAveragedMatchPmf(
   contribution: FieldTeamContribution,
   stats: FieldStatistics,
   ruleModule: RpRuleModule,
-  eventType: number
+  eventType: number,
+  meanShift?: readonly number[]
 ): readonly number[] {
-  const { own, opponent } = fieldAveragedAllianceMoments(contribution, stats);
+  const { own, opponent } = fieldAveragedAllianceMoments(contribution, stats, meanShift);
   // No `pRedWin` passed: this prices a hypothetical field-averaged match
   // with no real `Prediction` to read a win probability from, so it keeps
   // `analyticRpPmf`'s score-draw fallback — the correct limit for a team's

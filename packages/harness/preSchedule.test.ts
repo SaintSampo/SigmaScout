@@ -20,6 +20,7 @@ import {
   buildPreScheduleArtifact,
   buildFieldAveragedPreScheduleArtifact,
   buildFieldContributions,
+  fieldMeanShiftVector,
   PreSchedulePricingError,
   toSimMatchInput,
   type FieldAveragedPreScheduleBuildParams,
@@ -27,6 +28,7 @@ import {
   type PreScheduleBuildParams,
 } from "./preSchedule.js";
 import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
+import { RP_MEAN_SHIFT_WARMUP_OBSERVATIONS, RpMeanShiftAccumulator } from "../core/rankingPoints/meanShift.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
 import { fieldStatistics } from "../core/rankingPoints/fieldAveraged.js";
 
@@ -412,6 +414,71 @@ describe("buildFieldAveragedPreScheduleArtifact (plan 09-09 Task 2)", () => {
   });
 });
 
+describe("the field-averaged presim and the mean shift (quick task 260914-01x, CD-05)", () => {
+  const PAST_WARMUP = RP_MEAN_SHIFT_WARMUP_OBSERVATIONS + 50;
+  /** Hand-set: shift = sum / count = 2 for the first variable and -1 for the second. */
+  const shiftState = (count: number) => ({
+    season: FA_RULE.season,
+    variables: { [FA_VARIABLE_NAMES[0]!]: { count, sum: 2 * count }, [FA_VARIABLE_NAMES[1]!]: { count, sum: -count } },
+  });
+
+  function params(meanShift?: readonly number[]): FieldAveragedPreScheduleBuildParams {
+    return {
+      eventKey: "2023gaalb",
+      season: 2023,
+      eventType: FA_REGIONAL_EVENT_TYPE,
+      algorithmId: "spr",
+      algorithmVersion: "3.0.0+baseline",
+      matchesPerTeam: 12,
+      pricedFrom: "pre-event-walk-forward",
+      draws: 1000,
+      generation: "gen-test",
+      computedAt: "2026-09-11T00:00:00.000Z",
+      ruleModule: FA_RULE,
+      contributions: buildFieldContributions(faInputs())!,
+      ...(meanShift !== undefined ? { meanShift } : {}),
+    };
+  }
+
+  it("fieldMeanShiftVector returns sum / count per variable when every roster team is warm and the shift is past warmup", () => {
+    const inputs = faInputs();
+    const vector = fieldMeanShiftVector({
+      roster: inputs.roster,
+      rpAccumulator: inputs.rpAccumulator,
+      meanShift: RpMeanShiftAccumulator.fromState(FA_RULE, shiftState(PAST_WARMUP)),
+    });
+    expect(FA_VARIABLE_NAMES).toHaveLength(2);
+    expect(vector).toEqual([2, -1]);
+  });
+
+  it("is all-or-nothing per event: ONE team without history, no shift, even when the others are warm", () => {
+    const inputs = faInputs();
+    expect(
+      fieldMeanShiftVector({
+        roster: [...inputs.roster, "frc404"],
+        rpAccumulator: inputs.rpAccumulator,
+        meanShift: RpMeanShiftAccumulator.fromState(FA_RULE, shiftState(PAST_WARMUP)),
+      })
+    ).toBeUndefined();
+  });
+
+  it("returns undefined before the warmup, and with no accumulator or no shift at all", () => {
+    const inputs = faInputs();
+    const base = { roster: inputs.roster, rpAccumulator: inputs.rpAccumulator };
+    expect(fieldMeanShiftVector({ ...base, meanShift: RpMeanShiftAccumulator.fromState(FA_RULE, shiftState(RP_MEAN_SHIFT_WARMUP_OBSERVATIONS - 1)) })).toBeUndefined();
+    expect(fieldMeanShiftVector({ ...base, meanShift: undefined })).toBeUndefined();
+    expect(fieldMeanShiftVector({ ...base, rpAccumulator: undefined, meanShift: RpMeanShiftAccumulator.fromState(FA_RULE, shiftState(PAST_WARMUP)) })).toBeUndefined();
+  });
+
+  it("an absent shift builds a byte-identical artifact; a present one moves the per-team pmfs", () => {
+    const today = JSON.stringify(buildFieldAveragedPreScheduleArtifact(params()));
+    expect(JSON.stringify(buildFieldAveragedPreScheduleArtifact(params(undefined)))).toBe(today);
+    const shifted = buildFieldAveragedPreScheduleArtifact(params([2, -1]))!;
+    expect(JSON.stringify(shifted)).not.toBe(today);
+    expect(shifted.roster).toEqual(JSON.parse(today).roster);
+  });
+});
+
 describe("preSchedule.ts's static import surface (plan 09-09 Task 2)", () => {
   /**
    * A SET-EQUALITY pin on the module specifiers `preSchedule.ts` statically
@@ -429,6 +496,9 @@ describe("preSchedule.ts's static import surface (plan 09-09 Task 2)", () => {
     "../core/rankingPoints/fieldAveraged.js",
     "../core/rankingPoints/empiricalMoments.js",
     "../core/rankingPoints/constants.js",
+    // 2026-09-14, quick task 260914-01x: the mean-shift leaf, for
+    // `fieldMeanShiftVector`'s fully-warm check. A leaf with no pricing math.
+    "../core/rankingPoints/meanShift.js",
     "./scheduleTemplates.js",
     "./rounding.js",
     "../core/algorithms/simulation/rankSimulation.js",

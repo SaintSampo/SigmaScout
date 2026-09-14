@@ -33,6 +33,7 @@ import {
   type FieldTeamContribution,
 } from "../core/rankingPoints/fieldAveraged.js";
 import type { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
+import { rosterIsFullyWarm, type RpMeanShiftAccumulator } from "../core/rankingPoints/meanShift.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 import { loadScheduleTemplate, type ScheduleTemplateMatch } from "./scheduleTemplates.js";
 import { roundPmf } from "./rounding.js";
@@ -444,6 +445,43 @@ export function buildFieldContributions(inputs: FieldContributionInputs): FieldT
   });
 }
 
+/**
+ * The field-averaged presim's per-variable mean shift, or `undefined` (quick
+ * task 260914-01x, CD-05).
+ *
+ * ALL-OR-NOTHING, DECIDED ONCE PER EVENT, following `buildFieldContributions`'
+ * roster rule above. A field-averaged match has no real roster, so the
+ * per-alliance fully-warm check the real-match path applies has nothing to
+ * check. The shift applies only when EVERY team in the event roster has
+ * complete history; one cold team and the whole event prices unshifted.
+ *
+ * Each entry is `sum / count` for a variable past the warmup and `0` for one
+ * not yet past it. `undefined` when nothing would shift, so the caller's
+ * absent path stays byte-identical to the pre-shift model. The vector comes
+ * out of `RpMeanShiftAccumulator.apply` itself, on zero means, so this path
+ * cannot drift from the warmup rule the real-match path uses.
+ */
+export function fieldMeanShiftVector(inputs: {
+  readonly roster: readonly string[];
+  readonly rpAccumulator: RpMomentsAccumulator | undefined;
+  readonly meanShift: RpMeanShiftAccumulator | undefined;
+}): readonly number[] | undefined {
+  const { rpAccumulator, meanShift } = inputs;
+  if (rpAccumulator === undefined || meanShift === undefined) return undefined;
+  if (!rosterIsFullyWarm(rpAccumulator, inputs.roster)) return undefined;
+  const names = rpAccumulator.variableNames;
+  const zeros = {
+    variableNames: [...names],
+    meanVector: names.map(() => 0),
+    varianceBlock: names.map(() => names.map(() => 0)),
+    scoreMean: 0,
+    scoreVariance: 0,
+    scoreCrossCovariance: names.map(() => 0),
+  };
+  const shifted = meanShift.apply(zeros, true);
+  return shifted === zeros ? undefined : [...shifted.meanVector];
+}
+
 export interface FieldAveragedPreScheduleBuildParams {
   readonly eventKey: string;
   readonly season: number;
@@ -459,6 +497,8 @@ export interface FieldAveragedPreScheduleBuildParams {
   readonly ruleModule: RpRuleModule;
   /** `buildFieldContributions`' output — already sorted, already all-or-nothing checked. The roster IS its team keys. */
   readonly contributions: readonly FieldTeamContribution[];
+  /** `fieldMeanShiftVector`'s output. Absent prices exactly as before the mean shift shipped. */
+  readonly meanShift?: readonly number[];
 }
 
 /**
@@ -505,7 +545,7 @@ export function buildFieldAveragedPreScheduleArtifact(
   const perTeamPmf = sortedRoster.map((teamKey) =>
     // Rounded through the same `roundPmf` as every other published pmf —
     // identical quantity, identical `ROUNDING_RULE.pmf` precision.
-    roundPmf(fieldAveragedMatchPmf(byTeam.get(teamKey) as FieldTeamContribution, stats, params.ruleModule, params.eventType))
+    roundPmf(fieldAveragedMatchPmf(byTeam.get(teamKey) as FieldTeamContribution, stats, params.ruleModule, params.eventType, params.meanShift))
   );
 
   const seed = fnv1a32(`${params.eventKey}|${params.algorithmVersion}|fieldAveraged`);

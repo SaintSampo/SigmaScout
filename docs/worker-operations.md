@@ -223,6 +223,29 @@ diverging silently.
 publish:seasons, no deploy", and each bump since inherited that debt. Live folding is currently
 down-level and latent only because nothing is live.
 
+**Shape 16, 2026-09-14 (quick task `260914-01x`).** The table above is history: the 2026-09-12
+seed closed it and live D1 has read shape 15 since. Shape 16 adds `sigmascoutRpMeanShift` to the
+**spr league row**: the ranking-point mean shift, a count and a sum per threshold variable. The
+Worker resumes it at tick start (`readRpMeanShift` → `RpMeanShiftAccumulator.fromState`), applies it
+to fully-warm alliances in `rpFieldsFor`, books each played match's residuals with `observeMatch`
+just before `foldObservedRp`, and writes it back beside `withRpBeliefs`. That mirrors
+`SigmaScoutLayer` field for field and costs no extra subrequests.
+
+- **Order.** Publish, then seed `seed-spr.sql`, then deploy the Worker. Seed first, deploy second,
+  as above. Only `seed-spr.sql` carries the passenger, because opr and epa publish no ranking
+  points. The live tier is spr only (`LIVE_ALGORITHM_IDS = "spr"`), so a shape-15 opr or epa row
+  never reaches the Worker. It does reach the probe, which reads all three.
+- **Why the bump is load-bearing.** A shape-15 row has no passenger. Without the bump the Worker
+  would resume a fresh shift and price every live match unshifted while the artifacts it serves
+  are shifted, and nothing would error. The bump turns that into `LeagueRowShapeVersionError`.
+- **The probe is a separate deployment.** Redeploy it (`pnpm --filter worker run deploy:probe`)
+  after the seed, or it reports `LeagueRowShapeVersionError` against the new rows. Until opr and
+  epa are re-seeded at shape 16, it also reports that error for them. Expected; nothing is broken.
+- **Proof.** `apps/worker/test/scheduled.rp.test.ts`'s mean-shift block folds a generated 120-match
+  prior event through the real Worker (at least 200 warm observations per variable) and checks
+  that the live rows equal the offline layer's. It was seen failing with the write-back removed,
+  and again with the Worker's `apply` removed.
+
 **The D1 write cap.** Roughly **four seed passes exhaust D1's 100,000 daily row-write cap**
 (hit once already, 2026-09-10). That is benign when nothing is live and decidedly not benign
 during an event, where exhausting it would reject the tick's own state writes. Count passes

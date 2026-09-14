@@ -45,6 +45,11 @@ import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof
 import { isOfficialEventType } from "../../../packages/core/algorithms/eventTypes.js";
 import { roundPmf } from "../../../packages/harness/rounding.js";
 import { SigmaScoutLayer } from "../../../packages/harness/sigmaScoutLayer.js";
+import { SigmaScoreAccumulator } from "../../../packages/harness/sigmaScore.js";
+import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
+import { RP_MEAN_SHIFT_WARMUP_OBSERVATIONS } from "../../../packages/core/rankingPoints/meanShift.js";
+import { analyticRpPmf } from "../../../packages/core/rankingPoints/analyticPmf.js";
+import type { Prediction, UpcomingMatch } from "../../../packages/core/algorithms/types.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import { EVENT_TYPE_TIERS, isRpEligibleEventType } from "../../../packages/core/rankingPoints/constants.js";
 import { TOTAL_METRIC_KEY } from "../../../packages/core/algorithms/types.js";
@@ -716,4 +721,362 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
     expect(isRpEligibleEventType(99)).toBe(false);
     expect(Object.keys(EVENT_TYPE_TIERS)).not.toContain("99");
   });
+});
+
+// ---------------------------------------------------------------------------
+// The walk-forward mean shift, live (shape 16, quick task 260914-01x, CD-09).
+//
+// The describe block above cannot see the mean shift at all: its prior event
+// is four matches, far short of the 200-observation warmup, so a Worker that
+// dropped the shift entirely would still pass it. This block generates a
+// prior event long enough to pass the warmup NATURALLY (no hand-seeded
+// passenger), folds it through the real Worker, then runs a live event one
+// match per tick. Each live tick must resume the shift the previous tick
+// wrote to the league row. Remove the write-back and the live ticks price
+// unshifted while the offline layer prices shifted, and the digests diverge.
+// ---------------------------------------------------------------------------
+
+const MS_PRIOR_EVENT_KEY = "2026msprior";
+const MS_LIVE_EVENT_KEY = "2026mslive";
+const MS_PRIOR_MATCHES = 120;
+const MS_LIVE_PLAYED = 6;
+const MS_LIVE_UPCOMING = 2;
+
+/** A roster rotation over the six fixture teams, alternating two alliance splits so partners vary. */
+function msRoster(k: number): { red: string[]; blue: string[] } {
+  const teams = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
+  const r = k % 6;
+  const rotated = [...teams.slice(r), ...teams.slice(0, r)];
+  const red = k % 2 === 0 ? rotated.slice(0, 3) : [rotated[0]!, rotated[2]!, rotated[4]!];
+  return { red, blue: teams.filter((t) => !red.includes(t)) };
+}
+
+/**
+ * Match `k` of the generated stream (the prior event, then the live event).
+ * Both threshold inputs TREND UP, so recency-weighted beliefs lag and the
+ * residuals are positive on balance: a nonzero shift by construction. Tower
+ * points stay on their 5-point lattice inside [0, 120].
+ */
+function msFixture(eventKey: string, matchNumber: number, k: number): MatchFixture {
+  const { red, blue } = msRoster(k);
+  const hub = (side: number) => Math.max(0, Math.round(60 + 0.9 * k + (((k * 37 + side * 11) % 31) - 15)));
+  const tower = (side: number) => 5 * Math.min(24, Math.max(0, Math.round(4 + 0.06 * k + (((k * 13 + side * 7) % 9) - 4))));
+  const redHub = hub(0);
+  const blueHub = hub(1);
+  const redTower = tower(0);
+  const blueTower = tower(1);
+  const redScore = redHub + redTower + 20;
+  const blueScore = blueHub + blueTower + 20 === redScore ? redScore - 1 : blueHub + blueTower + 20;
+  return fixture(eventKey, matchNumber, red, blue, redScore, blueScore, redHub, blueHub, redTower, blueTower);
+}
+
+const MS_PRIOR_FIXTURES: readonly MatchFixture[] = Array.from({ length: MS_PRIOR_MATCHES }, (_, i) => msFixture(MS_PRIOR_EVENT_KEY, i + 1, i));
+const MS_LIVE_FIXTURES: readonly MatchFixture[] = Array.from({ length: MS_LIVE_PLAYED + MS_LIVE_UPCOMING }, (_, i) =>
+  msFixture(MS_LIVE_EVENT_KEY, i + 1, MS_PRIOR_MATCHES + i)
+);
+
+/** A not-yet-played TBA match: negative scores, no winner, no breakdown. */
+function toUpcomingTbaMatch(f: MatchFixture): unknown {
+  return {
+    key: matchKeyOf(f),
+    event_key: f.eventKey,
+    comp_level: "qm",
+    set_number: 1,
+    match_number: f.matchNumber,
+    time: Math.floor(NOW_MS / 1000) + f.matchNumber * 60,
+    predicted_time: null,
+    actual_time: null,
+    winning_alliance: "",
+    alliances: {
+      red: { team_keys: f.redTeams, surrogate_team_keys: [], dq_team_keys: [], score: -1 },
+      blue: { team_keys: f.blueTeams, surrogate_team_keys: [], dq_team_keys: [], score: -1 },
+    },
+    score_breakdown: null,
+  };
+}
+
+function toUpcomingMatchView(f: MatchFixture): UpcomingMatch {
+  return {
+    matchKey: matchKeyOf(f),
+    eventKey: f.eventKey,
+    compLevel: "qm",
+    setNumber: 1,
+    matchNumber: f.matchNumber,
+    redTeams: f.redTeams,
+    blueTeams: f.blueTeams,
+    redSurrogates: [],
+    blueSurrogates: [],
+    eventType: EVENT_TYPE,
+    week: null,
+  };
+}
+
+interface MsRow {
+  readonly matchKey: string;
+  readonly red: readonly number[] | undefined;
+  readonly blue: readonly number[] | undefined;
+  readonly redBonus: readonly number[] | undefined;
+  readonly blueBonus: readonly number[] | undefined;
+}
+
+function msDigest(rows: readonly MsRow[]): string {
+  return createHash("sha256")
+    .update(rows.map((r) => JSON.stringify([r.matchKey, r.red ?? null, r.blue ?? null, r.redBonus ?? null, r.blueBonus ?? null])).join("\n"))
+    .digest("hex");
+}
+
+function msRowOf(matchKey: string, prediction: Prediction): MsRow {
+  return {
+    matchKey,
+    red: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
+    blue: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
+    redBonus: prediction.redBonusRpPmf ? roundPmf(prediction.redBonusRpPmf) : undefined,
+    blueBonus: prediction.blueBonusRpPmf ? roundPmf(prediction.blueBonusRpPmf) : undefined,
+  };
+}
+
+interface MsOffline {
+  /** Live played rows, then the live upcoming rows as of after the last played match. */
+  readonly shifted: MsRow[];
+  /** The same rows priced WITHOUT the mean shift, from the test's own accumulators. */
+  readonly unshifted: MsRow[];
+  /** Prior-event rows from both arms, for the reference's own faithfulness check. */
+  readonly priorShifted: MsRow[];
+  readonly priorUnshifted: MsRow[];
+  /** The layer's mean-shift state immediately before the first live match. */
+  readonly stateBeforeLive: ReturnType<SigmaScoutLayer["rpMeanShiftState"]>;
+}
+
+/**
+ * The offline arm: the REAL `SigmaScoutLayer` over the whole chronological
+ * stream. Beside it runs an unshifted reference built from the test's own
+ * `RpMomentsAccumulator`, `SigmaScoreAccumulator` and `analyticRpPmf` (the
+ * construction `sigmaScoutLayer.meanShift.test.ts` uses), which is what proves
+ * the shift actually moves the live rows rather than being carried inertly.
+ */
+function msOffline(): MsOffline {
+  const layer = new SigmaScoutLayer(RULES_2026, "spr");
+  const reference = new RpMomentsAccumulator(RULES_2026);
+  const referenceSigma = new SigmaScoreAccumulator();
+  let state = spr.initState([...ALL_TEAMS]);
+  const out: MsOffline = { shifted: [], unshifted: [], priorShifted: [], priorUnshifted: [], stateBeforeLive: undefined };
+  let stateBeforeLive: MsOffline["stateBeforeLive"];
+
+  const unshiftedFields = (view: { redTeams: readonly string[]; blueTeams: readonly string[] }, prediction: Prediction): Prediction => {
+    const redVariance = referenceSigma.bandVarianceFor(view.redTeams);
+    const blueVariance = referenceSigma.bandVarianceFor(view.blueTeams);
+    if (redVariance === undefined || blueVariance === undefined) return prediction;
+    const pmf = analyticRpPmf({
+      red: reference.momentsFor(view.redTeams, prediction.redScore, redVariance),
+      blue: reference.momentsFor(view.blueTeams, prediction.blueScore, blueVariance),
+      ruleModule: RULES_2026,
+      eventType: EVENT_TYPE,
+      compLevel: "qm",
+      pRedWin: prediction.pRedWin,
+    });
+    return {
+      ...prediction,
+      redRpPmf: pmf.redPmf,
+      blueRpPmf: pmf.bluePmf,
+      ...(pmf.redBonusPmf !== undefined ? { redBonusRpPmf: pmf.redBonusPmf } : {}),
+      ...(pmf.blueBonusPmf !== undefined ? { blueBonusRpPmf: pmf.blueBonusPmf } : {}),
+    };
+  };
+
+  const played = [...MS_PRIOR_FIXTURES, ...MS_LIVE_FIXTURES.slice(0, MS_LIVE_PLAYED)];
+  for (const f of played) {
+    const result = toMatchResult(f);
+    if (f.eventKey === MS_LIVE_EVENT_KEY && stateBeforeLive === undefined) stateBeforeLive = layer.rpMeanShiftState();
+    const prediction = spr.predict(state, toLeakProofUpcoming(result));
+    const unshifted = unshiftedFields(result, prediction);
+    state = spr.update(state, result);
+    const roster = [...result.redTeams, ...result.blueTeams];
+    const metrics = spr.teamMetrics(state, roster);
+    const talent = new Map<string, number>();
+    for (const teamKey of roster) {
+      const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+      if (total !== undefined) talent.set(teamKey, total);
+    }
+    const enriched = layer.foldPlayed(result, prediction, talent);
+
+    referenceSigma.foldMatch(result, prediction);
+    for (const [teamKey, total] of talent) referenceSigma.observeTalent(teamKey, total);
+    for (const side of ["red", "blue"] as const) {
+      const parsed = RULES_2026.parse(JSON.parse(result.scoreBreakdownRaw!), side, result.eventType);
+      reference.fold(side === "red" ? result.redTeams : result.blueTeams, parsed.thresholdVariables);
+    }
+
+    const target = f.eventKey === MS_LIVE_EVENT_KEY ? [out.shifted, out.unshifted] : [out.priorShifted, out.priorUnshifted];
+    target[0]!.push(msRowOf(result.matchKey, enriched.prediction));
+    target[1]!.push(msRowOf(result.matchKey, unshifted));
+  }
+
+  for (const f of MS_LIVE_FIXTURES.slice(MS_LIVE_PLAYED)) {
+    const view = toUpcomingMatchView(f);
+    const prediction = spr.predict(state, view);
+    out.shifted.push(msRowOf(view.matchKey, layer.enrichUpcoming(view, prediction).prediction));
+    out.unshifted.push(msRowOf(view.matchKey, unshiftedFields(view, prediction)));
+  }
+  return { ...out, stateBeforeLive };
+}
+
+describe("scheduled.rp — the mean shift survives the live Worker (shape 16, quick task 260914-01x)", () => {
+  let msRevealedPrior = 0;
+  let msRevealedLive = 0;
+
+  function msTbaStub(): ReturnType<typeof vi.fn> {
+    return vi.fn(async (url: unknown) => {
+      const u = String(url);
+      const matchesRoute = /\/event\/([^/]+)\/matches$/.exec(u);
+      if (matchesRoute) {
+        const eventKey = matchesRoute[1]!;
+        const body =
+          eventKey === MS_PRIOR_EVENT_KEY
+            ? MS_PRIOR_FIXTURES.slice(0, msRevealedPrior).map(toTbaMatch)
+            : [
+                ...MS_LIVE_FIXTURES.slice(0, msRevealedLive).map(toTbaMatch),
+                // Every live match not yet played is still on the schedule.
+                ...MS_LIVE_FIXTURES.slice(msRevealedLive).map(toUpcomingTbaMatch),
+              ];
+        const revealed = eventKey === MS_PRIOR_EVENT_KEY ? msRevealedPrior : msRevealedLive;
+        return {
+          status: 200,
+          ok: true,
+          headers: { get: (name: string) => (name === "etag" ? `etag-${eventKey}-${revealed}` : null) },
+          json: async () => body,
+        };
+      }
+      const detailRoute = /\/event\/([^/]+)$/.exec(u);
+      if (detailRoute) {
+        return {
+          status: 200,
+          ok: true,
+          headers: { get: () => null },
+          json: async () => ({ key: detailRoute[1]!, name: "Test Event", year: SEASON, event_type: EVENT_TYPE, start_date: "2026-08-01" }),
+        };
+      }
+      throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
+    });
+  }
+
+  afterEach(() => {
+    msRevealedPrior = 0;
+    msRevealedLive = 0;
+  });
+
+  /** Drives the prior event (one tick folds all of it), then the live event one played match per tick. */
+  async function driveMeanShiftFixture(): Promise<{ r2: FakeR2Bucket; d1: FakeD1Database }> {
+    const windows = [MS_PRIOR_EVENT_KEY, MS_LIVE_EVENT_KEY].map((eventKey) => ({
+      eventKey,
+      season: SEASON,
+      startMs: NOW_MS - 3_600_000,
+      endMs: NOW_MS + 3_600_000,
+      inferred: false,
+    }));
+    const kv = new FakeKvNamespace(
+      new Map([
+        [LIVE_WINDOWS_MANIFEST_KEY, JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", windows })],
+        [ALGORITHMS_MANIFEST_KEY, algorithmsManifestJson()],
+      ])
+    );
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", msTbaStub());
+    // spr only, the tracked production tier (`LIVE_ALGORITHM_IDS = "spr"`).
+    const env = { ...makeEnv(kv, d1, r2), LIVE_ALGORITHM_IDS: "spr" } as Env;
+    const tick = (i: number) =>
+      runTick(env, { nowMs: NOW_MS + i * 60_000, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER, subrequestCap: 1000, subrequestReserve: 0 });
+
+    msRevealedPrior = MS_PRIOR_FIXTURES.length;
+    expect((await tick(0)).eventsFailed).toBe(0);
+    for (let i = 0; i < MS_LIVE_PLAYED; i++) {
+      msRevealedLive = i + 1;
+      expect((await tick(1 + i)).eventsFailed).toBe(0);
+    }
+    return { r2, d1 };
+  }
+
+  async function msPublishedRows(r2: FakeR2Bucket): Promise<MsRow[]> {
+    const key = artifactKey({ page: "event", eventKey: MS_LIVE_EVENT_KEY, algorithmId: "spr", version: spr.version });
+    const object = await r2.get(key);
+    expect(object, `no published event artifact at ${key}`).not.toBeNull();
+    const artifact = JSON.parse(await object!.text()) as {
+      matches: (PublishedMatchRow & { matchKey: string })[];
+      upcoming: (PublishedMatchRow & { matchKey: string })[];
+    };
+    const byKey = new Map([...artifact.matches, ...artifact.upcoming].map((m) => [m.matchKey, m]));
+    return MS_LIVE_FIXTURES.map((f) => {
+      const row = byKey.get(matchKeyOf(f));
+      expect(row, `live artifact is missing ${matchKeyOf(f)}`).toBeDefined();
+      return { matchKey: row!.matchKey, red: row!.redRpPmf, blue: row!.blueRpPmf, redBonus: row!.redBonusRpPmf, blueBonus: row!.blueBonusRpPmf };
+    });
+  }
+
+  it(
+    "non-vacuity: the generated prior event passes the warmup NATURALLY, and the shift moves the live rows",
+    () => {
+      const offline = msOffline();
+      const state = offline.stateBeforeLive;
+      expect(state, "the offline layer exposes no mean-shift state").toBeDefined();
+      expect(Object.keys(state!.variables).sort()).toEqual(RULES_2026.thresholdVariables.map((v) => v.name).sort());
+      for (const [name, v] of Object.entries(state!.variables)) {
+        expect(v.count, `${name}: warm observations before the live event`).toBeGreaterThanOrEqual(RP_MEAN_SHIFT_WARMUP_OBSERVATIONS);
+        expect(v.sum, `${name}: a zero shift would make the parity test below vacuous`).not.toBe(0);
+      }
+
+      // The reference is faithful: on early prior rows, before any variable
+      // can have reached the warmup, it reproduces the layer exactly.
+      const early = offline.priorShifted.slice(0, 40);
+      expect(early.filter((r) => r.red !== undefined).length).toBeGreaterThan(20);
+      expect(msDigest(early)).toBe(msDigest(offline.priorUnshifted.slice(0, 40)));
+
+      // And every live row, played and upcoming, carries a pmf that the
+      // shift actually changed.
+      expect(offline.shifted.every((r) => r.red !== undefined && r.blue !== undefined)).toBe(true);
+      for (let i = 0; i < offline.shifted.length; i++) {
+        expect(JSON.stringify(offline.shifted[i]), `${offline.shifted[i]!.matchKey} is identical with and without the shift`).not.toBe(
+          JSON.stringify(offline.unshifted[i])
+        );
+      }
+    },
+    60_000
+  );
+
+  it(
+    "spr: live played AND upcoming RP rows EQUAL the offline SigmaScoutLayer's, which carry the mean shift",
+    async () => {
+      const { r2 } = await driveMeanShiftFixture();
+      const offline = msOffline();
+      const online = await msPublishedRows(r2);
+      expect(online.filter((r) => r.red !== undefined).length, "the live arm produced no pmf at all").toBe(MS_LIVE_PLAYED + MS_LIVE_UPCOMING);
+      expect(
+        msDigest(online),
+        "the live Worker's RP rows diverged from the offline layer's — it priced the live event without the mean shift the publisher applies (check the league-row resume and write-back)"
+      ).toBe(msDigest(offline.shifted));
+      expect(msDigest(online)).not.toBe(msDigest(offline.unshifted));
+    },
+    120_000
+  );
+
+  it(
+    "the spr league row the Worker wrote carries the same mean-shift state the offline layer ends with",
+    async () => {
+      const { d1 } = await driveMeanShiftFixture();
+      const league = d1.algorithmState.get("spr::league::league");
+      expect(league, "the Worker wrote no spr league row").toBeDefined();
+      const json = JSON.parse(league!.state_json) as { snapshotShapeVersion: number; sigmascoutRpMeanShift?: unknown };
+      expect(json.snapshotShapeVersion).toBe(16);
+
+      const layer = new SigmaScoutLayer(RULES_2026, "spr");
+      let state = spr.initState([...ALL_TEAMS]);
+      for (const f of [...MS_PRIOR_FIXTURES, ...MS_LIVE_FIXTURES.slice(0, MS_LIVE_PLAYED)]) {
+        const result = toMatchResult(f);
+        const prediction = spr.predict(state, toLeakProofUpcoming(result));
+        state = spr.update(state, result);
+        layer.foldPlayed(result, prediction);
+      }
+      expect(json.sigmascoutRpMeanShift).toEqual(layer.rpMeanShiftState());
+    },
+    120_000
+  );
 });

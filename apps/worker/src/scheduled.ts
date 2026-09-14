@@ -89,14 +89,17 @@ import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
 import { isBonusRpCompLevel, isRpEligibleEventType } from "../../../packages/core/rankingPoints/constants.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
+import { RpMeanShiftAccumulator, rosterIsFullyWarm } from "../../../packages/core/rankingPoints/meanShift.js";
 import { analyticRpPmf } from "../../../packages/core/rankingPoints/analyticPmf.js";
 import {
   deserializeState,
   readSigmaBeliefs,
   readSigmaPopulation,
   readRpBeliefs,
+  readRpMeanShift,
   serializeState,
   withRpBeliefs,
+  withRpMeanShift,
   withSigmaBeliefs,
   withSigmaPopulation,
 } from "../../../packages/harness/stateSnapshot.js";
@@ -1023,6 +1026,13 @@ async function processEvent(
         const rpRuleModule = publishesRankingPoints(algorithmId) ? RP_RULE_MODULES[window.season] : undefined;
         const rpBeliefs = readRpBeliefs(rows);
         const rp = rpRuleModule !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs) : undefined;
+        // The walk-forward mean shift (shape 16, quick task 260914-01x),
+        // resumed from the league row these same rows carry. Mirrors
+        // `SigmaScoutLayer`'s `#rpMeanShift` field for field: built exactly
+        // when the RP accumulator is. A shape-15 row never reaches here
+        // (`deserializeState` throws first), and `fromState` discards another
+        // season's state, so a stale shift cannot leak into a new season.
+        const rpMeanShift = rpRuleModule !== undefined ? RpMeanShiftAccumulator.fromState(rpRuleModule, readRpMeanShift(rows)) : undefined;
         // Teams whose beliefs this tick actually resumed, plus the teams it
         // folds as it goes. The partial-roster gate below reads this; see its
         // own comment for why an unresumed team must suppress the pmf rather
@@ -1040,7 +1050,7 @@ async function processEvent(
           redBandVariance: number | undefined,
           blueBandVariance: number | undefined
         ): Partial<Prediction> => {
-          if (rp === undefined || rpRuleModule === undefined) return {};
+          if (rp === undefined || rpRuleModule === undefined || rpMeanShift === undefined) return {};
           if (!isRpEligibleEventType(view.eventType)) return {};
           if (redBandVariance === undefined || blueBandVariance === undefined) return {};
           // The partial-roster gate — the RP counterpart of
@@ -1058,8 +1068,10 @@ async function processEvent(
           }
 
           const pmf = analyticRpPmf({
-            red: rp.momentsFor(view.redTeams, prediction.redScore, redBandVariance),
-            blue: rp.momentsFor(view.blueTeams, prediction.blueScore, blueBandVariance),
+            // The mean shift applies per alliance, only to a fully-warm
+            // roster, exactly as `SigmaScoutLayer.#rpFieldsFor` applies it.
+            red: rpMeanShift.apply(rp.momentsFor(view.redTeams, prediction.redScore, redBandVariance), rosterIsFullyWarm(rp, view.redTeams)),
+            blue: rpMeanShift.apply(rp.momentsFor(view.blueTeams, prediction.blueScore, blueBandVariance), rosterIsFullyWarm(rp, view.blueTeams)),
             ruleModule: rpRuleModule,
             eventType: view.eventType,
             compLevel: view.compLevel,
@@ -1131,6 +1143,10 @@ async function processEvent(
           });
           state = algorithm.update(state, result);
           sigma?.foldMatch(result, prediction);
+          // After this match's RP fields were read above and before its
+          // thresholds are folded: the residual is taken against the mean the
+          // match was priced from. Mirrors `SigmaScoutLayer.foldPlayed`.
+          if (rp !== undefined) rpMeanShift?.observeMatch(rp, result);
           foldObservedRp(result);
           // Talent after the fold, read from the post-update state — the
           // exact ordering `SigmaScoutLayer.foldPlayed` uses offline. Talent
@@ -1183,6 +1199,9 @@ async function processEvent(
         // place, after `serializeState`, at zero additional D1 subrequests:
         // these are the rows the tick already reads and already writes back.
         if (rp !== undefined) candidateRows = withRpBeliefs(candidateRows, rp.beliefsByTeam());
+        // Shape 16: the mean shift rides back on the LEAGUE row, the one row
+        // every tick already reads and writes, at zero additional subrequests.
+        if (rpMeanShift !== undefined) candidateRows = withRpMeanShift(candidateRows, rpMeanShift.toState());
         if (sigma !== undefined) {
           candidateRows = withSigmaPopulation(withSigmaBeliefs(candidateRows, sigma.beliefsByTeam()), sigma.population());
         }

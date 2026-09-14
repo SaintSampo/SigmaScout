@@ -320,3 +320,36 @@ describe("fieldAveragedRankInputs", () => {
     expect(() => fieldAveragedRankInputs(ROSTER, PER_TEAM_PMF.slice(0, 2), 9)).toThrow(/one index space/);
   });
 });
+
+describe("the mean shift in the field-averaged moments (quick task 260914-01x, CD-05)", () => {
+  it("adds the shift ONCE to each alliance's mean, own and opponent, and moves nothing else (hand-computed)", () => {
+    const stats = fieldStatistics(THREE_TEAM_FIELD, ONE_VARIABLE);
+    const plain = fieldAveragedAllianceMoments(THREE_TEAM_FIELD[1]!, stats);
+    const shifted = fieldAveragedAllianceMoments(THREE_TEAM_FIELD[1]!, stats, [7]);
+
+    // own = 20 + 2*20 + 7; opponent = 3*20 + 7. Once per alliance, not once per team.
+    expect(shifted.own.meanVector[0]).toBeCloseTo(67, 12);
+    expect(shifted.opponent.meanVector[0]).toBeCloseTo(67, 12);
+    for (const side of ["own", "opponent"] as const) {
+      expect(shifted[side].varianceBlock).toEqual(plain[side].varianceBlock);
+      expect(shifted[side].scoreMean).toBe(plain[side].scoreMean);
+      expect(shifted[side].scoreVariance).toBe(plain[side].scoreVariance);
+      expect(shifted[side].scoreCrossCovariance).toEqual(plain[side].scoreCrossCovariance);
+    }
+  });
+
+  it("the absent path is byte-identical to the pre-shift model, in the moments and in the pmf", () => {
+    const names = RULE_2023.thresholdVariables.map((v) => v.name);
+    const roster: FieldTeamContribution[] = [
+      contribution("frc1", [10, 4], [1, 0.5], 40, 4),
+      contribution("frc2", [20, 8], [2, 1.5], 50, 9),
+    ];
+    const stats = fieldStatistics(roster, names);
+    expect(JSON.stringify(fieldAveragedAllianceMoments(roster[0]!, stats, undefined))).toBe(JSON.stringify(fieldAveragedAllianceMoments(roster[0]!, stats)));
+    const today = fieldAveragedMatchPmf(roster[0]!, stats, RULE_2023, REGIONAL_EVENT_TYPE);
+    expect(fieldAveragedMatchPmf(roster[0]!, stats, RULE_2023, REGIONAL_EVENT_TYPE, undefined)).toEqual(today);
+    // A positive shift on both variables raises the expected RP (more bonus odds on the own side).
+    const shiftedMean = pmfMean(fieldAveragedMatchPmf(roster[0]!, stats, RULE_2023, REGIONAL_EVENT_TYPE, [6, 6]));
+    expect(shiftedMean).not.toBe(pmfMean(today));
+  });
+});

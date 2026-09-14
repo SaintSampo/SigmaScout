@@ -116,6 +116,7 @@ import {
   type SigmaPopulation,
 } from "./sigmaScore.js";
 import type { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
+import { RpMeanShiftAccumulator, rosterIsFullyWarm, type RpMeanShiftState } from "../core/rankingPoints/meanShift.js";
 import { analyticRpPmf } from "../core/rankingPoints/analyticPmf.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 // The level-2 SigmaScout layer — Sigma Score, the band and ranking points, for
@@ -137,6 +138,7 @@ import {
   emitSeedSql,
   serializeState,
   withRpBeliefs,
+  withRpMeanShift,
   withSigmaBeliefs,
   withSigmaPopulation,
   type StateStamp,
@@ -770,12 +772,20 @@ function eventMatchBonusRpFields(
  * BAKED arm is the arm the publisher actually builds, rather than a
  * re-creation of it — the retired rewind-gap script's same-scorer convention,
  * applied to the pricing closure. No behaviour change.
+ *
+ * `meanShift` (quick task 260914-01x, CD-05): the season's walk-forward RP
+ * mean shift, read at the same instant as `accumulator`. Each synthetic
+ * alliance is a real 3-team roster, so it gets the same per-alliance
+ * fully-warm check `SigmaScoutLayer.#rpFieldsFor` applies. The publisher
+ * always passes it; absent means the pre-shift pricing, byte for byte, which
+ * is what the measurement scripts that call this still get.
  */
 export function makeRankingPointFiller(
   accumulator: RpMomentsAccumulator | undefined,
   ruleModule: RpRuleModule | undefined,
   sigmaByTeam: ReadonlyMap<string, number>,
-  roster: readonly string[]
+  roster: readonly string[],
+  meanShift?: RpMeanShiftAccumulator
 ): ((match: UpcomingMatch, prediction: Prediction) => Prediction) | undefined {
   if (accumulator === undefined || ruleModule === undefined) return undefined;
 
@@ -802,9 +812,11 @@ export function makeRankingPointFiller(
     const red = allianceSigmaBandVariance(match.redTeams, sigmaByTeam);
     const blue = allianceSigmaBandVariance(match.blueTeams, sigmaByTeam);
     if (red === undefined || blue === undefined) return prediction;
+    const redMoments = accumulator.momentsFor(match.redTeams, prediction.redScore, red);
+    const blueMoments = accumulator.momentsFor(match.blueTeams, prediction.blueScore, blue);
     const pmf = analyticRpPmf({
-      red: accumulator.momentsFor(match.redTeams, prediction.redScore, red),
-      blue: accumulator.momentsFor(match.blueTeams, prediction.blueScore, blue),
+      red: meanShift === undefined ? redMoments : meanShift.apply(redMoments, rosterIsFullyWarm(accumulator, match.redTeams)),
+      blue: meanShift === undefined ? blueMoments : meanShift.apply(blueMoments, rosterIsFullyWarm(accumulator, match.blueTeams)),
       ruleModule,
       eventType: match.eventType,
       compLevel: match.compLevel,
@@ -2635,6 +2647,8 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
   let finalSeasonStates = new Map<string, unknown>();
   /** Shape 15 (plan 09-08): the per-team RP beliefs that ride the SAME seed, from the SAME population, keyed by algorithm id. */
   let finalSeasonRp = new Map<string, ReadonlyMap<string, RpTeamBeliefs>>();
+  /** Shape 16 (quick task 260914-01x): the RP mean shift that rides the LEAGUE row of the same seed. Sparse: absent for an algorithm that publishes no ranking points. */
+  let finalSeasonRpMeanShift = new Map<string, RpMeanShiftState>();
   /**
    * Shape 11: the per-team Sigma Score beliefs, and the league-wide talent
    * population behind them, that ride the SAME seed — keyed by algorithm id.
@@ -3404,7 +3418,15 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
               seasonFinalState: state,
               generation,
               computedAt,
-              fillRankingPoints: makeRankingPointFiller(layerForAlgo.rpAccumulator, rpRuleModule, sigmaByTeamForAlgo, eventTeamKeys),
+              // The mean shift at the same instant as the accumulator beside it,
+              // rebuilt through the resume path the Worker uses (quick task 260914-01x).
+              fillRankingPoints: makeRankingPointFiller(
+                layerForAlgo.rpAccumulator,
+                rpRuleModule,
+                sigmaByTeamForAlgo,
+                eventTeamKeys,
+                rpRuleModule === undefined ? undefined : RpMeanShiftAccumulator.fromState(rpRuleModule, layerForAlgo.rpMeanShiftState())
+              ),
             })
           : undefined;
         sidecarMs += performance.now() - sidecarStart;
@@ -3562,6 +3584,13 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     finalSeasonRp = new Map(
       options.algorithms.map((algorithm) => [algorithm.id, layers.get(algorithm.id)!.rpVariableBeliefs()])
     );
+    // Shape 16: the mean shift, from the same layers at the same instant, for
+    // the same reason. Collected sparsely, like the Sigma maps below.
+    finalSeasonRpMeanShift = new Map();
+    for (const algorithm of options.algorithms) {
+      const shift = layers.get(algorithm.id)!.rpMeanShiftState();
+      if (shift !== undefined) finalSeasonRpMeanShift.set(algorithm.id, shift);
+    }
     // Shape 11: the Sigma Score beliefs and their population, read from the
     // same `layers` map and therefore the same offseason-inclusive population
     // the line above takes, for the identical reason — the Worker
@@ -3645,6 +3674,13 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       );
       const sigmaPopulation = finalSeasonSigmaPopulation.get(algorithm.id);
       if (sigmaPopulation !== undefined) rows = withSigmaPopulation(rows, sigmaPopulation);
+      // Shape 16 (quick task 260914-01x): the RP mean shift rides the LEAGUE
+      // row beside the Sigma population, and closes the same kind of gap. A
+      // seeded Worker without it resumes a fresh shift, prices every live
+      // match unshifted while the artifacts it serves are shifted, and nothing
+      // errors. A handful of numbers, so it cannot scale with team count.
+      const rpMeanShift = finalSeasonRpMeanShift.get(algorithm.id);
+      if (rpMeanShift !== undefined) rows = withRpMeanShift(rows, rpMeanShift);
       const outPath = join(SEED_OUT_DIR, `seed-${algorithm.id}.sql`);
       emitSeedSql(rows, { algorithmId: algorithm.id, out: outPath });
       seedFiles.push(outPath);

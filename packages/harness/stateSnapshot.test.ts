@@ -433,7 +433,7 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     expect(() => deserializeState("opr", rows)).not.toThrow();
   });
 
-  it("STATE_SNAPSHOT_SHAPE_VERSION is 15, and a league row declaring ANY earlier shape throws (shape 15 added the live Worker's ranking-point beliefs, plan 09-08, 2026-09-11)", () => {
+  it("STATE_SNAPSHOT_SHAPE_VERSION is 16, and a league row declaring ANY earlier shape throws (shape 16 added the spr league row's ranking-point mean shift, quick task 260914-01x, 2026-09-14)", () => {
     // Pinned by literal value, not relative to the constant. Every earlier
     // shape must fail LOUDLY at load rather than silently deserialize with a
     // field missing or carrying a value from the wrong shape — several of the
@@ -441,7 +441,7 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     // "never folded" state, a legal-looking zero rate), so this check is the
     // only thing standing between a stale seeded row and a live/offline
     // divergence that neither side can detect on its own.
-    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(15);
+    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(16);
 
     // NOT an iteration over a list that can silently skip: the range is derived
     // from the current version, so a future bump cannot leave the newest stale
@@ -1367,6 +1367,17 @@ describe("the ranking-point mean-shift league passenger (quick task 260914-01x)"
     expect(readRpMeanShift(withRawLeaguePassenger({ season: 2026 }))).toBeUndefined();
     // JSON cannot carry NaN or Infinity; a hand-written row can still hold a non-finite-looking value as null.
     expect(readRpMeanShift(bad({ ...SHIFT.variables, totalTowerPoints: { count: 3, sum: null } }))).toBeUndefined();
+  });
+
+  it("shape 16 is the guard: a shape-15 league row throws with or without the passenger, and a current row carrying it deserializes (seed first, deploy second)", () => {
+    const current = withRpMeanShift(rows(), SHIFT);
+    expect(() => deserializeState("spr", current)).not.toThrow();
+    const stale = (withPassenger: boolean) =>
+      (withPassenger ? current : rows()).map((row) =>
+        row.scopeKind === "league" ? { ...row, stateJson: JSON.stringify({ ...JSON.parse(row.stateJson), snapshotShapeVersion: 15 }) } : row
+      );
+    expect(() => deserializeState("spr", stale(false))).toThrow(LeagueRowShapeVersionError);
+    expect(() => deserializeState("spr", stale(true))).toThrow(LeagueRowShapeVersionError);
   });
 
   it("coexists with the Sigma population on the same league row", () => {

@@ -190,7 +190,9 @@ describe("publish.ts's seed block chains every level-2 passenger (structural)", 
     // and the artifacts it serves if it goes missing. `withSigmaPopulation` is
     // listed beside the others deliberately: it writes the LEAGUE row rather
     // than a team row, which is exactly why it is the one easy to forget.
-    for (const passenger of ["withSigmaBeliefs(", "withSigmaPopulation(", "withRpBeliefs("]) {
+    // `withRpMeanShift` joined 2026-09-14 (shape 16, quick task 260914-01x):
+    // another LEAGUE-row passenger, so exactly as easy to forget.
+    for (const passenger of ["withSigmaBeliefs(", "withSigmaPopulation(", "withRpBeliefs(", "withRpMeanShift("]) {
       expect(body, `publish.ts's seed block no longer chains ${passenger}`).toContain(passenger);
     }
   });
