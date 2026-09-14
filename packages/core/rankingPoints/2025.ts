@@ -147,7 +147,7 @@ const BONUS_PREDICATES: readonly BonusPredicate[] = [
       branch: "conservative",
       errorDirection: "understates",
       note:
-        "Evaluated at the strict all-4-levels count because coopertitionCriteriaMet is not a tracked threshold variable; the coop branch would require only CORAL_BONUS_COOP_LEVELS_REQUIRED (3) of the four. pnpm rp:conservative-branch measures a pooled-season meanRpUnderstatement of 0.095405 RP per alliance-match (understatedRate 9.5405%) — see docs/models/sigma1-rp-verification.md's Conservative-Branch Understatement section.",
+        "Evaluated at the strict all-4-levels count because coopertitionCriteriaMet is not a tracked threshold variable; the coop branch would require only CORAL_BONUS_COOP_LEVELS_REQUIRED (3) of the four. A pooled-season measurement recorded a meanRpUnderstatement of 0.095405 RP per alliance-match (understatedRate 9.5405%) — see docs/models/rp-verification.md's Conservative-Branch Understatement section.",
     },
   },
   {

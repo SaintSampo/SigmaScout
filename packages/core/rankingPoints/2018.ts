@@ -88,7 +88,7 @@ const BONUS_PREDICATES: readonly BonusPredicate[] = [
       branch: "numeric-proxy",
       errorDirection: "overstates",
       note:
-        "The numeric fallback (autoRunPoints >= 15 && autoSwitchOwnershipSec >= 1) over-fires relative to the exact autoSwitchAtZero boolean parse() reads: 99.813%/99.648%/99.594% agreement at base/districtChampionship/championship, 0 false negatives at every tier, 43/9/11 false positives — the one deliberate departure in this codebase from the usual conservative-branch convention (see file header). pnpm rp:conservative-branch measures this as a pooled-season overstatedRate of 0.2225%, the only nonzero overstatedRate anywhere in the RP layer.",
+        "The numeric fallback (autoRunPoints >= 15 && autoSwitchOwnershipSec >= 1) over-fires relative to the exact autoSwitchAtZero boolean parse() reads: 99.813%/99.648%/99.594% agreement at base/districtChampionship/championship, 0 false negatives at every tier, 43/9/11 false positives — the one deliberate departure in this codebase from the usual conservative-branch convention (see file header). A pooled-season measurement recorded this as an overstatedRate of 0.2225%, the only nonzero overstatedRate anywhere in the RP layer.",
     },
   },
   {

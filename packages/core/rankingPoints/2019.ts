@@ -66,7 +66,7 @@ const BONUS_PREDICATES: readonly BonusPredicate[] = [
     name: "completeRocket",
     value: false,
     reason:
-      "F12: no threshold-variable-only fallback exists for completedRocketNear || completedRocketFar (both booleans, unreachable from predictThresholds). Predicted 0.0000 against an observed ~5.15% (pnpm rp:conservative-branch measures a pooled-season understatedRate of 4.7324%). Deferred out of Phase 9 deliberately — see 09-CONTEXT.md's deferred list.",
+      "No threshold-variable-only fallback exists for completedRocketNear || completedRocketFar (both booleans, unreachable from predictThresholds). Predicted 0.0000 against an observed ~5.15% (a pooled-season measurement recorded an understatedRate of 4.7324%). Left constant on purpose.",
   },
 ];
 

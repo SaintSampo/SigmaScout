@@ -89,7 +89,7 @@ const BONUS_PREDICATES: readonly BonusPredicate[] = [
       branch: "conservative",
       errorDirection: "understates",
       note:
-        "Evaluated at the stricter non-coop threshold table because coopertition (BOTH alliances' coopertitionCriteriaMet) is not a tracked threshold variable. pnpm rp:conservative-branch measures a pooled-season meanRpUnderstatement of 0.105362 RP per alliance-match (understatedRate 10.5362%) — see docs/models/sigma1-rp-verification.md's Conservative-Branch Understatement section.",
+        "Evaluated at the stricter non-coop threshold table because coopertition (BOTH alliances' coopertitionCriteriaMet) is not a tracked threshold variable. A pooled-season measurement recorded a meanRpUnderstatement of 0.105362 RP per alliance-match (understatedRate 10.5362%) — see docs/models/rp-verification.md's Conservative-Branch Understatement section.",
     },
   },
 ];
