@@ -12,39 +12,21 @@ import { useSyncExternalStore } from "react";
  * browser spreads one tick's ink over 3 device pixels and the next one's
  * over 4, with softer edges. Same ink, different apparent weight.
  *
- * Measured in headless Chromium across dpr 1 / 1.25 / 1.5 / 2 (2026-09-09),
- * sampling the rendered pixel row under twelve ticks at fractional offsets:
- *
- *   dpr 1.00  raw [2,2,2,2,…]        — never broken; every tick already 2 device px
- *   dpr 1.25  raw [4,3,3,4,3,3,…]    — cycles, because integer CSS px × 1.25 cycles
- *                                      through four device-grid phases
- *   dpr 1.50  raw [4,3,3,4,3,4,…]
- *   dpr 2.00  raw [4,4,4,4,…]        — never broken
- *
- * Rounding the tick's `left` to a whole CSS pixel does NOT fix this — it was
- * measured byte-identical to the unrounded case at every dpr above, because
- * whole CSS pixels are exactly what cycles through the phases. Neither does
- * converting to exact device pixels and dividing back (`round(x·dpr)/dpr`):
- * Chrome quantizes CSS lengths to 1/64px, 3/1.25 = 2.4 is not a multiple of
- * 1/64, and the residue made the spread WORSE (measured [5,3,3,5,…]). SVG
- * `shape-rendering: crispEdges` was measured worst of all at dpr 1.25
- * ([2,3,3,2,3,2,…] with hard edges, so the difference reads as a step rather
- * than a blur).
+ * Measured in headless Chromium: dpr 1 and dpr 2 never break (every tick
+ * already lands on a whole device pixel), but dpr 1.25 and 1.5 cycle
+ * through mixed device-pixel widths across a run of ticks. Rounding the
+ * tick's `left` to a whole CSS pixel does NOT fix this, since whole CSS
+ * pixels are exactly what cycles through the phases; neither does
+ * converting to exact device pixels and dividing back, since Chrome
+ * quantizes CSS lengths to 1/64px and the residue makes the spread worse;
+ * SVG `shape-rendering: crispEdges` was measured worst of all.
  *
  * What does work is leaving the width alone — 2px is exactly representable,
  * so it is never the problem — and putting every tick on the SAME phase of
  * the device grid. Snapping `left` to a multiple of `devicePixelPhaseStep`
- * measured uniform at every dpr tested: dpr 1 → 2 device px, dpr 1.25 → 3,
- * dpr 1.5 → 3, dpr 2 → 4, with identical ink coverage on all twelve ticks.
- *
- * Re-measured against the REAL page rather than the repro — a local build of
- * `/event/2024casf?tab=quals`, 56 ticks sampled per run, in headless Chromium:
- *
- *              before        after
- *   dpr 1.00   [2]           [2]     unchanged, never broken
- *   dpr 1.25   [3,4] mixed   [3]     uniform
- *   dpr 1.50   [3,4] mixed   [3]     uniform
- *   dpr 2.00   [4]           [4]     unchanged, never broken
+ * measured uniform at every dpr tested, confirmed against a real event page
+ * (56 sampled ticks per run): mixed device-pixel widths before the snap,
+ * uniform after, at every fractional dpr.
  */
 
 /**

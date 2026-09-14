@@ -1,7 +1,7 @@
 /**
  * The match page's "metrics as they stood just before this match" resolver
- * (260909-tiq-PLAN.md Task 2) — the load-bearing correctness point this
- * plan's whole match-page objective rests on.
+ * — the load-bearing correctness point the match page's data model rests
+ * on.
  *
  * `MetricHistoryRowSchema.metrics` (`packages/harness/metricHistorySchema.ts`)
  * is documented as that team's metric AFTER this row's match — each row is a
@@ -38,8 +38,7 @@ type MetricHistoryRowMetrics = MetricHistoryRows[number]["metrics"];
  *   not happened yet.
  *
  * The two are never conflated — every `PreMatchMetrics` carries exactly one
- * of these, and callers render different wording for each (260909-tiq-PLAN.md
- * Task 2's `<behavior>` contract).
+ * of these, and callers render different wording for each.
  */
 export type PreMatchBasis = "before-this-match" | "latest-played";
 
@@ -52,8 +51,7 @@ export interface PreMatchMetrics {
 
 export interface PreMatchMetricsOptions {
   /**
-   * Named field, not a bare positional boolean (the PD-01 precedent in
-   * `event.$eventKey.tsx`'s `resolveActiveTab`): this function has exactly
+   * Named field, not a bare positional boolean: this function has exactly
    * two branches whose only difference is this flag, and a transposed bare
    * boolean at a call site would compile cleanly while silently resolving
    * the wrong branch.

@@ -1,25 +1,17 @@
 /**
- * The Compare page's Calibration section — sketch 006 variant C's TRUE form
- * (2026-09-01 rebuild, user correction of 08-10): per-algorithm
- * PLAIN-LANGUAGE CARDS. Each published algorithm gets one card carrying a
- * headline sentence anchored at the ~70% confidence bin, a bin-by-bin list
- * of readable rows ("predicted 74% → actual 71%", sample counts, sparse
- * tags, empties named rather than hidden), and a small deviation-bars
- * chart as supporting evidence — plain inline SVG, no Recharts, no lazy
- * chunk. What 08-10 shipped (one sentence over a demoted three-series
- * reliability diagram with a clickable legend) was a different reading of
- * "C" and is replaced wholesale; that reliability-diagram component was
- * deleted with it (WR-07, 260902-post-phase08-ungoverned-ui/REVIEW.md).
+ * The Compare page's Calibration section: per-algorithm PLAIN-LANGUAGE
+ * CARDS. Each published algorithm gets one card carrying a headline
+ * sentence anchored at the ~70% confidence bin, a bin-by-bin list of
+ * readable rows ("predicted 74% → actual 71%", sample counts, sparse tags,
+ * empties named rather than hidden), and a small deviation-bars chart as
+ * supporting evidence — plain inline SVG, no Recharts, no lazy chunk.
  *
- * Still true from the original section contract:
- *  - a LOCAL year `Select` (the Compare page's documented NAV-02 exception),
- *    defaulting to the most recent season;
- *  - 08-06's single `compLevelView` state consumed as a prop, never
- *    re-declared here;
- *  - every rendered number derives from the fetched artifacts at run time
- *    (D-10 discipline) via `calibrationCards.ts`;
- *  - series colour only ever through `var(--compare-algo-*)` tokens
- *    (`comparePalette.test.ts` enforces the no-raw-hex rule file-wide).
+ * A LOCAL year `Select` defaults to the most recent season; the shared
+ * `compLevelView` state is consumed as a prop, never re-declared here;
+ * every rendered number derives from the fetched artifacts at run time via
+ * `calibrationCards.ts`; series colour only ever goes through
+ * `var(--compare-algo-*)` tokens (`comparePalette.test.ts` enforces the
+ * no-raw-hex rule file-wide).
  */
 import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -44,14 +36,11 @@ export const CALIBRATION_EMPTY_RANGE_TEXT = "No matches landed in this confidenc
 export const CALIBRATION_SPARSE_TAG = "small sample";
 
 /**
- * The Copywriting Contract's concept explainer, with Decision 2's ONE
- * correction: the UI-SPEC's own row has the diagonal orientation inverted.
- * Its own worked case — OPR predicted 85.3%, observed 52.8% — plots BELOW
- * the diagonal (observed < predicted) and that same document calls it "a
- * 32.5pp overconfidence gap," so BELOW must be the more-confident clause and
- * ABOVE must be the too-cautious one. Every other word is the approved copy,
- * unchanged. (The variant-C cards state each bin in words, so the "line"
- * imagery here maps to each card's deviation bars: below zero = more
+ * The concept explainer. The diagonal orientation: OPR's worked case —
+ * predicted 85.3%, observed 52.8% — plots BELOW the diagonal (observed <
+ * predicted), so BELOW is the more-confident clause and ABOVE is the
+ * too-cautious one. (The variant-C cards state each bin in words, so the
+ * "line" imagery here maps to each card's deviation bars: below zero = more
  * confident than reality, above zero = too cautious.)
  */
 export const CALIBRATION_EXPLAINER =
@@ -59,7 +48,7 @@ export const CALIBRATION_EXPLAINER =
 
 export interface CalibrationSectionProps {
   readonly artifactsByYear: ReadonlyMap<number, CompareArtifact>;
-  /** 08-06's single compLevelView state, read here as a prop — declared nowhere in this file as its own state. */
+  /** The shared compLevelView state, read here as a prop — declared nowhere in this file as its own state. */
   readonly compLevelView: CompareCompLevelView;
 }
 
@@ -73,13 +62,10 @@ function MiniDeviationChart({ card, algorithmId, d }: { card: CalibrationCardMod
   const x1 = MINI_W - MINI_MARGIN.right;
   const yZero = MINI_H / 2;
   const yScale = (MINI_H / 2 - MINI_MARGIN.top) / d;
-  // IN-02 (260902-post-phase08-ungoverned-ui/REVIEW.md): the divisor used to
-  // be a hardcoded `10` while the render below iterates `card.rows`, whose
-  // length comes from the PUBLISHED bin count — a mismatch could overflow
-  // the SVG on one side. Derived from the row count actually being rendered
-  // instead, guarded against zero so the division can never produce a
-  // non-finite width. All five published artifacts carry ten bins today, so
-  // this is a latent-not-live fix — nothing currently renders differently.
+  // The divisor is derived from the row count actually being rendered
+  // (guarded against zero so the division can never produce a non-finite
+  // width), rather than hardcoded, since a mismatch with the PUBLISHED bin
+  // count would overflow the SVG on one side.
   const slotW = (x1 - x0) / Math.max(card.rows.length, 1);
   const barW = slotW * 0.62;
 
@@ -136,13 +122,9 @@ function CalibrationCard({ algorithmId, card, d }: { algorithmId: PublishedAlgor
       </div>
       <p data-testid={calibrationCardSentenceTestId(algorithmId)} className="text-role-body text-[var(--color-text-primary)]">
         {card.headline === null ? (
-          // WR-07 step 3 (260902-post-phase08-ungoverned-ui/REVIEW.md): this
-          // used to be a second string inlined here, DIFFERENT from
-          // `calibrationSeries.ts`'s own `NO_USABLE_BINS_SENTENCE` — the
-          // exact drift this finding is about. Rendering the shared constant
-          // is a DELIBERATE, user-visible copy change (recorded in this
-          // task's SUMMARY): the plain-language sentence replaces the
-          // jargon one, and now has exactly one home.
+          // Renders the shared constant `NO_USABLE_BINS_SENTENCE` rather
+          // than a second inlined string, so this card and
+          // `calibrationSeries.ts` can never drift apart.
           NO_USABLE_BINS_SENTENCE
         ) : (
           <>
