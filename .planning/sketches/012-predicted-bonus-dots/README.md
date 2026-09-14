@@ -2,7 +2,7 @@
 sketch: 012
 name: predicted-bonus-dots
 question: "Once the F4 fix makes bonus odds honest, how should a predicted bonus dot render, given that a large share of alliances are genuine toss-ups?"
-winner: "B"
+winner: "C"
 tags: [match-table, bonus-rp, uncertainty, prediction, event-page, team-page]
 ---
 
@@ -32,8 +32,8 @@ open .planning/sketches/012-predicted-bonus-dots/index.html
 ## Variants
 
 - **A: Solid at 50% (today).** Two states. The exact odds are only in the tooltip.
-- **B: Three states. ★ Selected (Jacob, 2026-09-14).** Full alliance colour when likely (⅔ or more), a light tint for a toss-up (⅓ to ⅔), hollow when unlikely (under ⅓).
-- **C: Fill to the odds.** The dot fills from the bottom to the probability. Continuous.
+- **B: Three states.** Full alliance colour when likely (⅔ or more), a light tint for a toss-up (⅓ to ⅔), hollow when unlikely (under ⅓).
+- **C: Fill to the odds. ★ Selected (Jacob, 2026-09-14).** The dot fills from the bottom to the probability. Continuous.
 - **D: Numbers.** A small percentage chip: tinted from ⅔, outlined from ⅓, muted below.
 
 ## What the data says
@@ -57,20 +57,21 @@ middle band, which is a coin flip. A two-state dot can only call those one way o
   toss-up. Even at 2x it was indistinguishable from solid and hollow. B now gives "likely" full ink.
 - **The same faintness affects today's actual dots**: earned versus not earned is a 30% tint against
   none. That was visible on the board, but it is outside this sketch's question.
-- **C is unreadable at dot size.** 40% and 60% look the same.
+- **C loses resolution at dot size.** With the 30% tint, 40% and 60% look alike. See the decision notes.
 
 ## Decision
 
-**B, three states.** Jacob chose it over D (numbers), A (keep the 50% rule) and C (fill). Before
-building it, note:
+**C, fill to the odds.** Jacob chose it (2026-09-14), after first picking B. Before building it,
+note:
 
-- The cut-offs are ⅓ and ⅔. `PREDICTED_BONUS_THRESHOLD` becomes two thresholds, and the pinned tests
-  in `bonusRp.test.ts` (including the attribution record's `dotThreshold`) move with it.
-- "Likely" uses full alliance ink with a white letter. The toss-up tint is today's
-  `--alliance-*-soft`. The white letter on `#DC2626`/`#2563EB` at 8px needs a contrast check.
+- There is no threshold any more. `PREDICTED_BONUS_THRESHOLD` and `bonusStatesFromProbabilities`'s
+  earned/missed mapping go away for predicted dots, and the pinned tests in `bonusRp.test.ts`
+  (including the attribution record's `dotThreshold`) move with them. The `unknown` dashed state stays.
+- The fill needs a stronger tint than today's 30% `--alliance-*-soft`, or 40% and 60% read alike at
+  14px. Tune it by eye at real size, and check the letter's contrast where it crosses the fill line.
+- Round the fill height to whole pixels so neighbouring dots don't blur differently.
 - The actual dots keep their two states. Their faint earned tint is a separate question.
-- Ship it with or after the F4 fix. On today's odds almost every dot would render hollow, so the new
-  states would have nothing to show.
+- Ship it with or after the F4 fix. On today's odds most dots would render nearly empty.
 
 ## Data
 

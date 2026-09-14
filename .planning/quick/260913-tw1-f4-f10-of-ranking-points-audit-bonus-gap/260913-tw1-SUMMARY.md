@@ -15,7 +15,7 @@ key-files:
     - .planning/sketches/MANIFEST.md
 decisions:
   - "F4: the integer shape of the threshold variables dominates the multi-variable bonus gap (70.9% closed, Brier -0.0928). Independence explains none of it (-1.0%, Brier +0.0006). Jacob chose lattice marginals plus a walk-forward mean shift, as two inert knobs."
-  - "F10: sketch 012 variant B, three-state predicted bonus dots with cut-offs at 1/3 and 2/3. Not built; ship with or after the F4 fix."
+  - "F10: sketch 012 variant C, predicted bonus dots fill to the odds (Jacob first picked B, then changed to C). Not built; ship with or after the F4 fix."
 metrics: {completed: 2026-09-14, tasks: 4, commits: 4}
 status: complete
 ---
@@ -53,7 +53,8 @@ alliances are true toss-ups, earned 52-59% of the time, and the ⅓/⅔ bands co
 calibrated. The shipped 30% tint turned out too faint at 14px to carry three states, so "likely" gets
 full ink.
 
-**Decision (Jacob):** variant B, three states. Not built.
+**Decision (Jacob):** variant C, fill to the odds. He first picked B, then changed to C. Not built. Its build
+needs a stronger fill tint than today's 30%, because at 14px 40% and 60% look alike.
 
 ## Commits
 
