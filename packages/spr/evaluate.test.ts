@@ -39,7 +39,7 @@ function match(over: Partial<BprMatch> & Pick<BprMatch, "matchKey">): BprMatch {
 
 const YEARS = new Set([2016]);
 
-describe("the no-call rule (D-Q3)", () => {
+describe("the no-call rule", () => {
   it("puts a 0.5 prediction against a decided match IN the denominator and counts it a miss", () => {
     // Two identical teams on both sides with identical priors: the model has
     // no basis to prefer either alliance, so it predicts exactly 0.5.
@@ -85,7 +85,7 @@ describe("ties", () => {
   });
 });
 
-describe("D-07 surrogate exclusion", () => {
+describe("surrogate exclusion", () => {
   const stream = (surrogate: boolean): BprMatch[] => [
     match({
       matchKey: "m1",

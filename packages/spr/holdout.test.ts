@@ -37,7 +37,7 @@ describe("assertSealed", () => {
     for (const p of result.paths) expect(p.blob).toBe(`blob-${p.path}`);
   });
 
-  it("covers the model and the shipped port, not just the parameter file (F-15)", () => {
+  it("covers the model and the shipped port, not just the parameter file", () => {
     // The whole point of the rewrite: model.ts changed twice after the sealed
     // holdout ran, unchecked, because the seal only looked at the params.
     expect(SEALED_CODE_PATHS).toContain("packages/spr/model.ts");
@@ -167,7 +167,7 @@ describe("paired statistics", () => {
     expect(meanBrierDelta([tie, clean])).toBeCloseTo(0.125, 12);
   });
 
-  it("scores a 0.5 no-call as a miss rather than half credit (D-Q3)", () => {
+  it("scores a 0.5 no-call as a miss rather than half credit", () => {
     // Incumbent abstains at exactly 0.5, candidate calls it right: +1, because
     // accuracyCall returns false (not null) for a no-call on a decided match.
     const units = [unit({ actualWinner: "red", pIncumbent: 0.5, pCandidate: 0.8 })];
