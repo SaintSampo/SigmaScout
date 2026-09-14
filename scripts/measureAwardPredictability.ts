@@ -4440,7 +4440,7 @@ export function formatReport(report: ExperimentReport): string {
   lines.push(`  the no-age arm by under ${NOISE_MARGIN_PP.toFixed(1)}pp is two fits disagreeing, not a feature working.`);
   lines.push("");
   lines.push("  THE ROOKIE TYPES — 10 Rookie All Star, 14 Highest Rookie Seed, 15 Rookie Inspiration.");
-  lines.push("  In 5n8 both baselines were STRUCTURALLY PINNED AT 0.0% there: B1 cannot pick a team");
+  lines.push("  In the previous measurement both baselines were STRUCTURALLY PINNED AT 0.0% there: B1 cannot pick a team");
   lines.push("  with no prior wins, B2 cannot pick a team with no rating. Beating a structural zero");
   lines.push("  proved nothing, and the apparent wins were artifacts of the all-zero feature vector.");
   lines.push("  RB1 and RB2 are not pinned there, so those rows now carry a baseline that can score:");
@@ -4456,7 +4456,7 @@ export function formatReport(report: ExperimentReport): string {
     );
   }
   lines.push("");
-  lines.push("  If RB1 beats either arm on those types, THAT is the result — exactly the way 5n8");
+  lines.push("  If RB1 beats either arm on those types, THAT is the result — exactly the way the previous measurement");
   lines.push("  reported that the fit lost to B1 on the flagship judged awards.");
   lines.push("");
   lines.push(...formatPracticalAnswer(report));
