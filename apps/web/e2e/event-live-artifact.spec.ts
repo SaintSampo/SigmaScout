@@ -330,7 +330,9 @@ test.describe("ledger row 8 (behavioral half) — the shipped 2022ilpe eliminati
 
     const labels: string[] = [];
     for (let i = 0; i < ACTUAL_SHIPPED_ORDER.length; i++) {
-      const label = await rows.nth(i).locator("span").first().innerText();
+      // The round label is the Match column's link to that match's own page
+      // (9000521b); the roster-number links beside it go to /team/ instead.
+      const label = await rows.nth(i).locator('a[href^="/match/"]').innerText();
       labels.push(label);
     }
     expect(labels).toEqual([...ACTUAL_SHIPPED_ORDER]);
