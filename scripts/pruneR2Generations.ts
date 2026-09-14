@@ -1,13 +1,10 @@
 /**
- * Census-driven R2 generation prune (quick task 260912-tay, 2026-09-12).
+ * Census-driven R2 generation prune.
  *
- * WHY THIS EXISTS. The prior tool (deleted in 260913-nvn) cleaned up by
- * enumerate-then-sample: it predicted a superset of keys from the corpus,
- * deleted them one by one, then censused a 60-key stratified sample. That
- * sample reported "nothing orphaned" on 2026-09-10 and again on 2026-09-11,
- * while a full bucket listing still showed 11,002 epa 5.0.0+baseline objects
- * and 214 epa 6.0.0+baseline objects. Enumerate-then-sample is structurally
- * blind to three things a listing sees trivially:
+ * WHY A FULL LISTING, NOT ENUMERATE-THEN-SAMPLE. Predicting a superset of
+ * keys from the corpus and sampling a small slice to verify nothing was
+ * missed is structurally blind to three things a full listing sees
+ * trivially:
  *
  *   1. season slices a single-range `--seasons` argument skipped;
  *   2. corpus drift — a key published from a corpus that has since changed is
@@ -125,11 +122,11 @@ const GENERATION_ARG = /^[a-z0-9][a-z0-9-]*@[^/@]+$/;
 
 // The team shape is anchored from the END (`/{year}/{final segment}`) rather than
 // requiring a slash-free team-key segment: `artifactKey` does not validate
-// `teamKey`, and the 2026-09-12 full listing found a real published team key with
-// a trailing space and slash (`v1/team/frc58 //2019/...`) under every generation,
-// live ones included. A slash-free pattern filed those as `other`, which made
-// UNKNOWN_KEY_SHAPE refuse five otherwise-valid orphan generations. Selection is
-// still exact generation equality; this only decides whether a selected key is a
+// `teamKey`, and a full bucket listing has found a real published team key with
+// a trailing space and slash under every generation, live ones included. A
+// slash-free pattern would file those as `other`, which makes UNKNOWN_KEY_SHAPE
+// refuse otherwise-valid orphan generations. Selection is still exact
+// generation equality; this only decides whether a selected key is a
 // published shape.
 const KIND_PREFIXES: ReadonlyArray<readonly [KeyKind, RegExp]> = [
   ["teams", /^v1\/teams\/\d{4}\//],
