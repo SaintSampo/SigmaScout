@@ -1,30 +1,22 @@
 /**
- * 2026 component map (D-02). Structurally different from every other
- * season and the reason D-02 requires per-season maps rather than a
- * generic parser (Pitfall Sigma1-1): the foul fields are renamed entirely
- * (`majorFoulCount`/`minorFoulCount` replace `foulCount`/`techFoulCount`,
- * which are ABSENT from every sampled 2026 breakdown — this module never
- * reads `techFoulCount`), and the bulk of scoring lives inside a nested
- * `hubScore` object rather than flat top-level `*Points` fields.
+ * 2026 component map. Structurally different from every other season and
+ * the reason each season needs its own map rather than a generic parser:
+ * the foul fields are renamed entirely (`majorFoulCount`/`minorFoulCount`
+ * replace `foulCount`/`techFoulCount`, which are absent from every 2026
+ * breakdown), and the bulk of scoring lives inside a nested `hubScore`
+ * object rather than flat top-level `*Points` fields.
  *
- * Field inventory verified directly against `data/corpus.sqlite` this
- * session (2026-08-13, live query, including a worked example:
- * `2026alhu_f1m1` red — autoTower 0 + endGameTower 0 + hubAuto 100 +
- * hubTransition 53 + hubShift1 0 + hubShift2 104 + hubShift3 0 +
- * hubShift4 56 + hubEndgame 141 + adjust 0 = 454; plus foulsCommitted
- * (blue's parse of this match's opponent field, i.e. red's own
- * `foulPoints` = 15) = 469 = red.totalPoints). All alliance-level — the
- * per-robot `autoTowerRobot1/2/3`/`endGameTowerRobot1/2/3` fields exist in
- * the raw JSON but are deliberately never read (RESEARCH.md Pitfall
- * Sigma1-2 / Assumption A1).
+ * All alliance-level — the per-robot fields exist in the raw JSON but are
+ * deliberately never read (positional correspondence to the teams array is
+ * unverified).
  *
- * Roll-up avoidance: `totalAutoPoints`, `totalTeleopPoints`, and
- * `totalTowerPoints` are top-level roll-ups — never read. Inside
- * `hubScore`, `teleopPoints` is itself a roll-up of
- * `transitionPoints + shift1..4Points + endgamePoints` and must NOT be
- * emitted alongside its parts. `hubScore.totalCount`, every `hubScore.*Count`
- * field, and `hubScore.uncounted` are counts, not points, and are never
- * read. `penalties` is a string field, not numeric, and is never read.
+ * `totalAutoPoints`, `totalTeleopPoints`, and `totalTowerPoints` are
+ * top-level roll-ups — never read. Inside `hubScore`, `teleopPoints` is
+ * itself a roll-up of `transitionPoints + shift1..4Points + endgamePoints`
+ * and must not be emitted alongside its parts. `hubScore.totalCount`, every
+ * `hubScore.*Count` field, and `hubScore.uncounted` are counts, not points,
+ * and are never read. `penalties` is a string field, not numeric, and is
+ * never read.
  */
 import { z } from "zod";
 import type { ParsedComponents, SeasonComponentMap } from "./constants.js";
@@ -33,12 +25,8 @@ import { ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT } from "./constants.js";
 /**
  * Only the subset of TBA's `score_breakdown.{side}` object this map reads,
  * including the nested `hubScore` sub-object's point fields. Unknown extra
- * fields (`energizedAchieved`, `superchargedAchieved`, `traversalAchieved`,
- * `penalties`, `g206Penalty`, `rp`, `hubScore.totalPoints`, every
- * `hubScore.*Count`/`uncounted`, the `RobotN` per-robot fields, etc.) are
- * ignored, not rejected — zod's default "strip" mode for `.object()` drops
- * them without erroring. Deliberately NOT `.passthrough()`/`.loose()`, for
- * the same typing reason `2024.ts` documents.
+ * fields are ignored, not rejected — zod's default "strip" mode drops them
+ * without erroring. Deliberately not `.passthrough()`.
  */
 const HubScoreSchema = z.object({
   transitionPoints: z.number().finite(),
@@ -55,10 +43,7 @@ const SideBreakdownSchema = z.object({
   endGameTowerPoints: z.number().finite(),
   hubScore: HubScoreSchema,
   adjustPoints: z.number().finite(),
-  /**
-   * Points this alliance RECEIVED from the opponent's fouls — NOT points
-   * this alliance committed. See `foulsCommitted`'s comment below.
-   */
+  /** Points this alliance RECEIVED from the opponent's fouls, not points it committed. */
   foulPoints: z.number().finite(),
 });
 
@@ -86,9 +71,8 @@ const OWN_FIELD_COMPONENT_MAP: Readonly<Record<string, (side: Side2026) => numbe
 export const breakdown2026: SeasonComponentMap = {
   components: [...Object.keys(OWN_FIELD_COMPONENT_MAP), FOULS_COMMITTED_COMPONENT],
 
-  // Renamed foul count fields (Pitfall Sigma1-1) — not point values, never
-  // emitted as a component. Recorded for plan 02-06's identifiability
-  // report. `foulCount`/`techFoulCount` do not exist in 2026's schema at
+  // Renamed foul count fields — not point values, never emitted as a
+  // component. `foulCount`/`techFoulCount` do not exist in 2026's schema at
   // all; do not add them here.
   diagnosticKeys: ["majorFoulCount", "minorFoulCount"],
 
@@ -97,19 +81,16 @@ export const breakdown2026: SeasonComponentMap = {
     const own = parsed[side];
     const opponent = side === "red" ? parsed.blue : parsed.red;
 
-    // Object.create(null) + a fixed allowlist loop (T-02-04): third-party
-    // TBA JSON is never spread onto the result, so a `__proto__` key in the
-    // raw payload cannot reach Object.prototype via this map.
+    // Object.create(null) + a fixed allowlist loop: raw TBA JSON is never
+    // spread onto the result, so a `__proto__` key cannot reach Object.prototype.
     const result: ParsedComponents = Object.create(null) as ParsedComponents;
     for (const [canonical, extract] of Object.entries(OWN_FIELD_COMPONENT_MAP)) {
       result[canonical] = extract(own);
     }
 
-    // Same D-04 derivation every other season module uses: the opposing
-    // alliance's own `foulPoints` (points IT received) is exactly what THIS
-    // alliance's fouls cost the opponent. The rename to
-    // majorFoulCount/minorFoulCount does not touch this derivation — it
-    // never read foulCount/techFoulCount in the first place.
+    // Fouls committed by this alliance = points the OPPONENT received. The
+    // rename to majorFoulCount/minorFoulCount does not touch this
+    // derivation — it never read foulCount/techFoulCount in the first place.
     result[FOULS_COMMITTED_COMPONENT] = opponent.foulPoints;
 
     return result;
