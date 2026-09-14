@@ -1,16 +1,16 @@
 /**
- * SigV4-signed R2 object PUT/GET over native `fetch` (D-25, plan 04-01 Task
- * 3). No new dependency: signing is implemented with `node:crypto`'s
- * `createHash`/`createHmac`, matching `.claude/CLAUDE.md`'s standing
- * preference for native `fetch` over an HTTP client library. Region is
- * `"auto"`, service is `"s3"` — R2's S3-compatible endpoint convention.
+ * SigV4-signed R2 object PUT/GET over native `fetch`. No new dependency:
+ * signing is implemented with `node:crypto`'s `createHash`/`createHmac`,
+ * matching `.claude/CLAUDE.md`'s standing preference for native `fetch`
+ * over an HTTP client library. Region is `"auto"`, service is `"s3"` — R2's
+ * S3-compatible endpoint convention.
  *
- * Credential surface (T-04-01/T-04-02): `CLOUDFLARE_ACCOUNT_ID`,
- * `R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY` are read from
- * `process.env` exactly once, inside `credentialsFromEnv`, and the secret
- * access key is touched only inside `signRequest`'s HMAC chain — never
- * logged, returned, or embedded in a request body, mirroring
- * `packages/ingest/tbaClient.ts`'s file-header rule for the TBA key.
+ * Credential surface: `CLOUDFLARE_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, and
+ * `R2_SECRET_ACCESS_KEY` are read from `process.env` exactly once, inside
+ * `credentialsFromEnv`, and the secret access key is touched only inside
+ * `signRequest`'s HMAC chain — never logged, returned, or embedded in a
+ * request body, mirroring `packages/ingest/tbaClient.ts`'s file-header rule
+ * for the TBA key.
  *
  * The `+`/`@` characters `packages/harness/pageArtifacts.ts`'s `artifactKey`
  * puts in every published key are legal URI path characters but must be
@@ -18,18 +18,16 @@
  * actual HTTP request path — `encodePath`/`uriEncode` below do this once, so
  * the signed path and the requested path can never drift apart.
  *
- * Listing and delete retry (quick task 260912-tay, 2026-09-12). `listObjects`
- * adds a paginated, signed ListObjectsV2 walk — the one new R2 capability, and
- * the only measurement that can PROVE a bulk cleanup: the earlier 60-key
- * samples reported "nothing orphaned" over a bucket that a full listing showed
- * still held thousands of superseded objects. One canonical query string
- * (`canonicalQueryString`) is both signed and sent after `?`, so the two cannot
- * drift apart; with no params there is no `?` at all, so every object-level URL
- * and signature is byte-identical to before. `deleteObject` now shares the PUT
- * path's transient-retry policy, because `docs/publish-budget.md`'s git history records "two
- * transient R2 500s" interrupting a past single-shot delete pass. Deletion
- * stays single-key: there is no bulk or prefix DELETE in this file, and none
- * may be added.
+ * `listObjects` is a paginated, signed ListObjectsV2 walk — the only
+ * measurement that can PROVE a bulk cleanup: a small key sample can report
+ * "nothing orphaned" over a bucket that a full listing shows still holds
+ * superseded objects. One canonical query string (`canonicalQueryString`)
+ * is both signed and sent after `?`, so the two cannot drift apart; with no
+ * params there is no `?` at all, so every object-level URL and signature is
+ * byte-identical to a call with no query. `deleteObject` shares the PUT
+ * path's transient-retry policy, since a transient R2 5xx has interrupted a
+ * single-shot delete pass before. Deletion stays single-key: there is no
+ * bulk or prefix DELETE in this file, and none may be added.
  */
 import { createHash, createHmac } from "node:crypto";
 
@@ -158,16 +156,15 @@ function signRequest(
 }
 
 /**
- * Retry policy for R2 writes (plan 05-02 deviation, 2026-08-24).
+ * Retry policy for R2 writes.
  *
- * A full `publish:seasons` run makes on the order of 55,000 sequential PUTs.
- * Before this, `putObject` issued exactly one `fetch` with no retry, so a
- * single transient 5xx anywhere in that run aborted the whole publish — which
- * is exactly what happened on 2026-08-24 (`PUT "v1/team/frc8285/2022/opr@..."
- * failed with status 500`) after R2 had been verified healthy either side of
- * the failure. At that request count a bare single-shot write is not a
- * reasonable bet, and the same path backs the live-event cron tick, where an
- * aborted run means stale published data during a match.
+ * A full `publish:seasons` run makes on the order of tens of thousands of
+ * sequential PUTs. A single `fetch` with no retry means a single transient
+ * 5xx anywhere in that run aborts the whole publish — and R2 has produced
+ * exactly that failure after being verified healthy either side of it. At
+ * that request count a bare single-shot write is not a reasonable bet, and
+ * the same path backs the live-event cron tick, where an aborted run means
+ * stale published data during a match.
  *
  * Only *transient* classes are retried: 5xx (server-side), 429 (throttling)
  * and 408 (request timeout), plus network-level `fetch` rejections. A 4xx
@@ -247,7 +244,7 @@ async function sendWithRetry(
 /**
  * PUTs `body` to `{bucket}/{key}` on R2's S3-compatible endpoint.
  * `options.contentType`/`options.cacheControl` are sent verbatim as the
- * `Content-Type`/`Cache-Control` headers (D-26 — the publisher passes
+ * `Content-Type`/`Cache-Control` headers (the publisher passes
  * `application/json` and `public, max-age=60`). Throws on any non-2xx
  * response, with the status and the key in the message.
  *
@@ -325,19 +322,17 @@ export async function getObject(bucket: string, key: string): Promise<string> {
 }
 
 /**
- * DELETEs `{bucket}/{key}` from R2's S3-compatible endpoint (plan 04-07's
- * replay rig: establishing a genuinely cold-started published-artifact
- * baseline for an already-published historical event, alongside its D1
- * `algorithm_state` reset — deleting only, never a bulk/prefix operation).
- * S3's DELETE is idempotent (a missing key is not an error): both a 204 (or
- * 200) and a 404 are treated as success, matching that contract.
+ * DELETEs `{bucket}/{key}` from R2's S3-compatible endpoint — deleting only,
+ * never a bulk/prefix operation. S3's DELETE is idempotent (a missing key
+ * is not an error): both a 204 (or 200) and a 404 are treated as success,
+ * matching that contract.
  *
- * Transient failures (5xx, 429, 408, network rejections) are retried with the
- * same policy as `putObject` (quick task 260912-tay): `docs/publish-budget.md`'s git history
- * logs "two transient R2 500s" interrupting a past delete pass that made one
- * attempt per key, and a census-driven cleanup issues hundreds of thousands of
- * single-key DELETEs. A permanent status throws immediately; an exhausted
- * retry throws with the key, the status and `after N attempts`.
+ * Transient failures (5xx, 429, 408, network rejections) are retried with
+ * the same policy as `putObject`: a census-driven cleanup can issue
+ * hundreds of thousands of single-key DELETEs, and a transient R2 5xx has
+ * interrupted a one-attempt-per-key delete pass before. A permanent status
+ * throws immediately; an exhausted retry throws with the key, the status
+ * and `after N attempts`.
  */
 export async function deleteObject(bucket: string, key: string): Promise<void> {
   const credentials = credentialsFromEnv();
