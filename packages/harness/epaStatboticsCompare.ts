@@ -1,9 +1,9 @@
 /**
- * Pure, network-free, corpus-free statistics for quick task 260904-4aa
- * (SC-2: "EPA runs walk-forward at any point in a season, and spot-checked
- * teams land within a documented tolerance of published Statbotics
- * numbers"). This module holds the arithmetic only — no `fetch`, no
- * `node:fs`, no corpus import — so every function here is testable with
+ * Pure, network-free, corpus-free statistics verifying EPA runs
+ * walk-forward at any point in a season, and that spot-checked teams land
+ * within a documented tolerance of published Statbotics numbers. This
+ * module holds the arithmetic only — no `fetch`, no `node:fs`, no corpus
+ * import — so every function here is testable with
  * hand-computed synthetic fixtures and no network access or 460MB SQLite
  * file. `scripts/epaVsStatbotics.ts` is the impure driver that gathers real
  * `ours`/`theirs` series (via a walk-forward replay and a live Statbotics
@@ -256,11 +256,11 @@ export interface SpotCheckOptions {
 }
 
 /**
- * SC-2's "spot-checked teams" — the top `topCount` (default 15) teams by
+ * The "spot-checked teams" set — the top `topCount` (default 15) teams by
  * Statbotics value, plus a deterministic sample of `sampleCount` (default
  * 15) more drawn from the remainder via a fixed-seed Fisher-Yates shuffle
- * (`mulberry32`, the same PRNG the retired rewind-gap script used),
- * so re-running this script prints the identical named rows every time.
+ * (`mulberry32`), so re-running this script prints the identical named
+ * rows every time.
  */
 export function selectSpotCheckTeams(pairs: readonly TeamPair[], options: SpotCheckOptions): TeamPair[] {
   const topCount = options.topCount ?? 15;
