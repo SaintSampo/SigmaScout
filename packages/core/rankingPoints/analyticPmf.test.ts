@@ -70,7 +70,7 @@ function moments2026(
 /** The plan's "full 2026 end-to-end case" fixture: both alliances symmetric at hub mean 230/var 16900, tower mean 50/var 100, score mean 100/var 50. */
 const SYMMETRIC_2026 = moments2026(230, 16900, 50, 100, 100, 50);
 
-describe("analyticRpPmf — Task 1 tracer (2026)", () => {
+describe("analyticRpPmf — tracer (2026)", () => {
   it("Test 1: the nested-threshold trap is non-vacuous — P(both) equals P(supercharged), and is NOT the independent product", () => {
     // hubTotalCount mean 230, variance 16900 (sd 130), base tier:
     // energized T=100 -> z=(100-230)/130=-1 -> P(energized)=1-Phi(-1)=0.841344746
@@ -293,7 +293,7 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
   });
 });
 
-describe("analyticRpPmf — Task 2 (D-07's remaining six mechanism classes)", () => {
+describe("analyticRpPmf — the remaining six mechanism classes", () => {
   it("singleThreshold — 2022 hangarBonus, endgamePoints mean 12 variance 16 (threshold 16, z = (16-12)/4 = 1)", () => {
     const moments = buildRuleModuleMoments(rp2022, { endgamePoints: { mean: 12, variance: 16 } });
     const result = allianceBonusRpPmf(moments, rp2022, 0);
@@ -374,7 +374,7 @@ describe("analyticRpPmf — Task 2 (D-07's remaining six mechanism classes)", ()
   });
 });
 
-describe("analyticPmf.ts's exported surface is pinned (09-06 Task 4, D-06)", () => {
+describe("analyticPmf.ts's exported surface is pinned", () => {
   it("exports exactly this set of names — one set equality, so a leftover export and an accidental deletion BOTH fail with a readable diff", () => {
     // Set equality catches both a leftover export and a missing one.
     const source = readFileSync(new URL("./analyticPmf.ts", import.meta.url), "utf8");
@@ -413,7 +413,7 @@ describe("analyticPmf.ts's exported surface is pinned (09-06 Task 4, D-06)", () 
   });
 });
 
-describe("clauseProbability derives its marginal family from its terms (quick task 260911-w7k Task 2)", () => {
+describe("clauseProbability derives its marginal family from its terms", () => {
   /** A declared family that is not closed under scaled addition. */
   const NOT_GAUSSIAN: MarginalFamily = "negative-binomial";
 
@@ -535,7 +535,7 @@ describe("clauseProbability derives its marginal family from its terms (quick ta
   });
 });
 
-describe("matchOutcomeDistribution — 260913-qyn's SHIPPED pRedWin input and unconditional discrete-margin tie", () => {
+describe("matchOutcomeDistribution — the SHIPPED pRedWin input and unconditional discrete-margin tie", () => {
   const BASE = { redScoreMean: 110, redScoreVariance: 50, blueScoreMean: 100, blueScoreVariance: 50, winRp: 3, tieRp: 1 };
 
   it("with no pRedWin supplied, the decisive share falls back to the score-draw comparison and the tie is the genuine discrete-margin probability (Test 4's 'ordinary' row, same numbers)", () => {
@@ -554,7 +554,7 @@ describe("matchOutcomeDistribution — 260913-qyn's SHIPPED pRedWin input and un
     expect(result.pBlueWin).toBeCloseTo(0.263466801, 6);
   });
 
-  it("at meanD 0, varianceD 36.5^2, pTie is within 1e-6 of 0.0109297 (F7's measured base rate is 0.0109277)", () => {
+  it("at meanD 0, varianceD 36.5^2, pTie is within 1e-6 of 0.0109297 (the measured base rate is 0.0109277)", () => {
     const result = matchOutcomeDistribution({
       redScoreMean: 100,
       redScoreVariance: 36.5 * 36.5,
@@ -604,8 +604,8 @@ describe("matchOutcomeDistribution — 260913-qyn's SHIPPED pRedWin input and un
   });
 });
 
-describe("analyticRpPmf — 260913-qyn's SHIPPED pRedWin forwarding to matchOutcomeDistribution", () => {
-  it("with no pRedWin supplied, the outcome's tie is the genuine discrete-margin probability (no longer Task 1's pre-260913-qyn zero)", () => {
+describe("analyticRpPmf — the SHIPPED pRedWin forwarding to matchOutcomeDistribution", () => {
+  it("with no pRedWin supplied, the outcome's tie is the genuine discrete-margin probability", () => {
     const result = analyticRpPmf({ red: SYMMETRIC_2026, blue: SYMMETRIC_2026, ruleModule: rp2026, eventType: 0, compLevel: "qm" });
     expect(result.outcome!.pTie).toBeGreaterThan(0);
   });
@@ -624,7 +624,7 @@ describe("analyticRpPmf — 260913-qyn's SHIPPED pRedWin forwarding to matchOutc
   });
 });
 
-describe("MarginalResolutionTally — the negativeBinomial counter is live again (quick task 260912-2uz)", () => {
+describe("MarginalResolutionTally — the negativeBinomial counter is live again", () => {
   it("an all-negative-binomial 2026 module over overdispersed moments counts every fit on the negativeBinomial axis, with zero gaussian and zero fallbacks", () => {
     const nbModule = ruleModuleWithDeclaredFamily(rp2026, "negative-binomial");
     const tally = emptyMarginalResolutionTally();
