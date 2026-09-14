@@ -148,7 +148,7 @@ function headerIds(): string[] {
   return screen.getAllByTestId(/^breakdown-header-/).map((el) => (el.getAttribute("data-testid") as string).replace("breakdown-header-", ""));
 }
 
-describe("BreakdownTab — column set (EVNT-03, collapsed default per sketch 009-A)", () => {
+describe("BreakdownTab — column set (collapsed default per sketch 009-A)", () => {
   it("spr/2024: Team #, Team Name, Total and the three phase columns only, with no group band row and no phase toggles, still sortable", async () => {
     const artifact = makeArtifact([team({ metrics: sprMetrics2024() })]);
     renderBreakdown(artifact, "spr", 2024);
@@ -180,7 +180,7 @@ describe("BreakdownTab — column set (EVNT-03, collapsed default per sketch 009
     }
   });
 
-  it("opr/2024: exactly Team #, Team Name, Total — no group row, no sort affordance; OPR is deliberately unchanged (user decision 2026-09-05)", async () => {
+  it("opr/2024: exactly Team #, Team Name, Total — no group row, no sort affordance; OPR is deliberately unchanged", async () => {
     const artifact = makeArtifact([team({ metrics: { [TOTAL_KEY]: { value: 20 } } })], { algorithmId: "opr" });
     renderBreakdown(artifact, "opr", 2024);
 
@@ -247,7 +247,7 @@ describe("visibleMetricKeys: three shapes (unit)", () => {
   });
 });
 
-describe("BreakdownTab — partial data (EVNT-03)", () => {
+describe("BreakdownTab — partial data", () => {
   it("a team missing one declared component key renders a blank cell once its group is expanded; the column header for that key stays present", async () => {
     const metrics = fullEpaMetrics2024();
     delete metrics.endgame;
@@ -269,7 +269,7 @@ describe("BreakdownTab — partial data (EVNT-03)", () => {
   });
 });
 
-describe("BreakdownTab — tier boundaries (EVNT-03 boundary)", () => {
+describe("BreakdownTab — tier boundaries", () => {
   async function renderWithPercentile(percentile: number | undefined) {
     const metrics: ArtifactTeam["metrics"] = { [TOTAL_KEY]: { value: 10, ...(percentile === undefined ? {} : { percentile }) } };
     const outOfRange = percentile !== undefined && (percentile < 0 || percentile > 100);
@@ -303,7 +303,7 @@ describe("BreakdownTab — tier boundaries (EVNT-03 boundary)", () => {
     expect((await renderWithPercentile(50)).className).toContain("metric-tier--rare");
   });
 
-  it("percentile 49.9 renders the common tier ring (260904-7rt, sketch 008 winner C)", async () => {
+  it("percentile 49.9 renders the common tier ring (sketch 008 winner C)", async () => {
     expect((await renderWithPercentile(49.9)).className).toContain("metric-tier--common");
   });
 
@@ -324,7 +324,7 @@ describe("BreakdownTab — tier boundaries (EVNT-03 boundary)", () => {
   });
 });
 
-describe("BreakdownTab — tier key row and model-estimates caption (D-11)", () => {
+describe("BreakdownTab — tier key row and model-estimates caption", () => {
   it("TierKeyRow renders exactly once, and the caption renders exactly once naming the selected algorithm and the per-alliance framing", async () => {
     const artifact = makeArtifact([team()]);
     renderBreakdown(artifact, "spr", 2024);
@@ -350,7 +350,7 @@ describe("BreakdownTab — tier key row and model-estimates caption (D-11)", () 
   });
 });
 
-describe("BreakdownTab — empty and zero-one-many (EVNT-03 empty)", () => {
+describe("BreakdownTab — empty and zero-one-many", () => {
   it("an empty teams array renders the EmptyState and no table element", async () => {
     const artifact = makeArtifact([]);
     renderBreakdown(artifact);
@@ -377,7 +377,7 @@ describe("BreakdownTab — empty and zero-one-many (EVNT-03 empty)", () => {
   });
 });
 
-describe("BreakdownTab — long text (EVNT-03/UI-SPEC E4 long-text)", () => {
+describe("BreakdownTab — long text", () => {
   it("a 60-character nickname renders in full inside the cell's title attribute and carries a truncation class", async () => {
     const longNickname = "A".repeat(60);
     const artifact = makeArtifact([team({ nickname: longNickname })]);
@@ -390,7 +390,7 @@ describe("BreakdownTab — long text (EVNT-03/UI-SPEC E4 long-text)", () => {
   });
 });
 
-describe("BreakdownTab — no sticky columns (2026-09-13)", () => {
+describe("BreakdownTab — no sticky columns", () => {
   function assertNoStickyColumns() {
     const region = screen.getByTestId("breakdown-table-scroll");
     const cells = within(region).getByRole("table").querySelectorAll("th, td");
@@ -426,7 +426,7 @@ describe("BreakdownTab — no sticky columns (2026-09-13)", () => {
   });
 });
 
-describe("BreakdownTab — derived phase fallback (stale pre-260904-7id cache shape)", () => {
+describe("BreakdownTab — derived phase fallback (stale cache shape)", () => {
   it("a row with components but no published phase entries renders an honest value-only phase cell: summed value, no ±, no tier box", async () => {
     const artifact = makeArtifact([team({ metrics: fullEpaMetrics2024() })], { algorithmId: "epa" });
     renderBreakdown(artifact, "epa", 2024);
@@ -451,7 +451,7 @@ describe("BreakdownTab — derived phase fallback (stale pre-260904-7id cache sh
   });
 });
 
-describe("BreakdownTab — sorting (260905-3rq, sketch 009-B folded in)", () => {
+describe("BreakdownTab — sorting (sketch 009-B folded in)", () => {
   function rowNumbers(): number[] {
     return screen.getAllByTestId("breakdown-row").map((el) => Number(el.getAttribute("data-team-number")));
   }
@@ -527,7 +527,7 @@ describe("sortBreakdownRows — the three rowModel rules generalized to any key 
   });
 });
 
-describe("buildBreakdownRows — ordering and tie-break (EVNT-03 ordering/adjacency), independent of rendering", () => {
+describe("buildBreakdownRows — ordering and tie-break, independent of rendering", () => {
   it("orders by total descending", () => {
     const artifact = makeArtifact([
       team({ teamKey: "frc1", teamNumber: 1, nickname: "Low", metrics: { [TOTAL_KEY]: { value: 10 } } }),
@@ -577,7 +577,7 @@ describe("buildBreakdownRows — ordering and tie-break (EVNT-03 ordering/adjace
   });
 });
 
-describe("BreakdownTab — Total renders the split pill under Sigma-enabled algorithms (quick task 260913-jkp)", () => {
+describe("BreakdownTab — Total renders the split pill under Sigma-enabled algorithms", () => {
   it("spr with a published sigma entry: the Total header reads 'Total ± Sigma', and the Total cell renders the pill", async () => {
     const artifact = makeArtifact([team({ metrics: { [TOTAL_KEY]: { value: 60.5, percentile: 90 }, [SIGMA_METRIC_KEY]: { value: 8.42, percentile: 97 } } })]);
     renderBreakdown(artifact, "spr", 2024);
@@ -637,7 +637,7 @@ describe("BreakdownTab — Total renders the split pill under Sigma-enabled algo
   });
 });
 
-describe("BreakdownTab: clean SPR table (quick task 260913-mgn)", () => {
+describe("BreakdownTab: clean SPR table", () => {
   function rowTeamNumbers(): number[] {
     return screen.getAllByTestId("breakdown-row").map((el) => Number(el.getAttribute("data-team-number")));
   }
