@@ -6,52 +6,40 @@
  * rookie baseline of `NORM_MEAN - 0.2 * NORM_SD`, converted into the new
  * season's point units, floored at non-negative.
  *
- * This module does NOT port Statbotics' per-season post-processing (the
+ * This module does not port Statbotics' per-season post-processing (the
  * 2018 switch/scale sigmoid, the per-year clamps) — `epa.ts`'s file header
  * documents the same exclusion for the rest of the algorithm.
  *
- * SCALE ANCHOR. `normalizedToSeasonUnits` needs a `seasonScoreMean`/
- * `seasonScoreSd` to convert a normalized rating into point units, but at
- * the moment a boundary is carried, `toSeason` has not been observed yet —
- * there is no live point-unit scale for it, the same gap `epa.ts`'s
- * `EPA_INIT_COMPONENT_TOTAL` comment already names for pure intra-season
- * cold start.
+ * `normalizedToSeasonUnits` needs a `seasonScoreMean`/`seasonScoreSd` to
+ * convert a normalized rating into point units, but at the moment a
+ * boundary is carried, `toSeason` has not been observed yet — there is no
+ * live point-unit scale for it. `epaCarryover` below converts both
+ * directions with the outgoing season's own per-team point-total
+ * distribution, which keeps this function's round trip self-consistent.
+ * The conversion into the incoming season's units is composed on top of
+ * this function rather than inside it: lazily, per team, on first sight in
+ * the new season (`epa.carrySeason` marks every carried team pending;
+ * `epa.predict`/`epa.update` then read `epaCarryScale.ts`'s
+ * `cleanSeasonMean` + `carryRescaleRatio` and apply the factor through
+ * `materializePendingTeams`).
  *
- * `epaCarryover` below converts BOTH directions with the OUTGOING season's
- * own per-team point-total distribution (mean/sd across every team with a
- * rating in `fromSeason`), which keeps this function's round trip
- * self-consistent. The conversion into the INCOMING season's units is
- * composed ON TOP of this function rather than inside it: lazily, per team,
- * on first sight in the new season. Follow the path: `epa.carrySeason`
- * captures `EpaState.carrySeedMean` BEFORE calling `epaCarryover` and marks
- * every carried team pending; `epa.predict` and `epa.update` then read
- * `epaCarryScale.ts`'s `cleanSeasonMean` + `carryRescaleRatio` and apply the
- * factor through `materializePendingTeams`.
+ * Statbotics runs offline and simply knows the incoming season's scale; we
+ * estimate it from that season's own folded alliance scores, only once at
+ * least `EPA_CARRY_RESCALE_MIN_OBS` of them exist, and a team first seen
+ * before that threshold forfeits its rescale permanently. This is the
+ * closest walk-forward-legal approximation of Statbotics' conversion, and
+ * is never identical to it — see `docs/models/epa-divergences.md` §8.
  *
- * THE WALK-FORWARD CONSTRAINT, stated plainly rather than glossed:
- * **Statbotics runs offline and simply KNOWS the incoming season's scale. We
- * do not.** We ESTIMATE it from that season's own folded alliance scores,
- * and only once at least `EPA_CARRY_RESCALE_MIN_OBS` of them exist; a team
- * first seen before that threshold forfeits its rescale permanently. This is
- * the closest walk-forward-legal approximation of Statbotics' conversion and
- * is NEVER identical to it. Measured effect, including the two places it is
- * WORSE: `docs/models/epa-divergences.md` §8.
- *
- * Module ownership note: `EPA_NORM_MEAN`/`EPA_NORM_SD`/`EPA_INIT_PENALTY`/
- * `EPA_MEAN_REVERSION` are defined HERE, not in `epa.ts`, and re-exported by
- * `epa.ts` for its own unrelated intra-season cold-start seed
- * (`EPA_INIT_COMPONENT_TOTAL`). This module owning them and `epa.ts`
- * importing back is the only acyclic direction: `epa.carrySeason` needs
- * this module's `epaCarryover`, so the reverse would be a circular import
- * that breaks at module-init time (`EPA_ROOKIE_BASELINE` below dereferences
- * `EPA_NORM_MEAN` at the top level, before a circularly-imported `epa.ts`
- * would have finished initializing its own top-level constants).
+ * `EPA_NORM_MEAN`/`EPA_NORM_SD`/`EPA_INIT_PENALTY`/`EPA_MEAN_REVERSION` are
+ * defined here, not in `epa.ts`, and re-exported by `epa.ts` for its own
+ * unrelated intra-season cold-start seed. This module owning them and
+ * `epa.ts` importing back is the only acyclic direction: `epa.carrySeason`
+ * needs this module's `epaCarryover`, so the reverse would be a circular import.
  *
  * `EPA_MEAN_REVERSION`/`EPA_CARRY_LAST_YEAR_WEIGHT`/
- * `EPA_CARRY_PRIOR_YEAR_WEIGHT` are FROZEN at Statbotics' own published
+ * `EPA_CARRY_PRIOR_YEAR_WEIGHT` are frozen at Statbotics' own published
  * values — they are the baseline the project's "beats EPA" claim is
- * measured against, and "beats EPA" has to mean "beats what Statbotics
- * actually ships."
+ * measured against.
  */
 
 /**
@@ -110,17 +98,14 @@ export const EPA_ROOKIE_BASELINE = EPA_NORM_MEAN - EPA_INIT_PENALTY * EPA_NORM_S
  *
  *   - Both inputs present: `0.7 * lastYear + 0.3 * yearBefore`, then
  *     reverted 40% toward `EPA_ROOKIE_BASELINE`.
- *   - Exactly one input present: that rating alone (the missing season
- *     contributes nothing — never read as 0, since a 0-weighted blend
- *     would drag the result toward zero rather than leaving it as "no
- *     opinion from that season"), then the same 40% reversion.
- *   - Neither input present (a team with no rating history at all):
- *     `EPA_ROOKIE_BASELINE` — an unobserved team is an absence of
- *     evidence, not evidence of average ability.
+ *   - Exactly one input present: that rating alone (never read as 0, since
+ *     a 0-weighted blend would drag the result toward zero rather than
+ *     leaving it as "no opinion from that season"), then the same reversion.
+ *   - Neither input present: `EPA_ROOKIE_BASELINE` — an unobserved team is
+ *     an absence of evidence, not evidence of average ability.
  *
- * Operates entirely in normalized (`EPA_NORM_MEAN`/`EPA_NORM_SD`-scale)
- * units — converting to/from a season's point units is
- * `normalizedToSeasonUnits`'s job, not this function's.
+ * Operates entirely in normalized units — converting to/from a season's
+ * point units is `normalizedToSeasonUnits`'s job, not this function's.
  */
 export function carryNormalizedRating(lastYear: number | null, yearBefore: number | null): number {
   if (lastYear === null && yearBefore === null) {
@@ -140,19 +125,15 @@ export function carryNormalizedRating(lastYear: number | null, yearBefore: numbe
 
 /**
  * Converts a normalized-scale rating into point units for a season whose
- * per-team point-total distribution is `seasonScoreMean`/`seasonScoreSd`
- * (see file header for what supplies these at a real season boundary): a
+ * per-team point-total distribution is `seasonScoreMean`/`seasonScoreSd`: a
  * z-score conversion, `seasonScoreMean + ((normalized - EPA_NORM_MEAN) /
  * EPA_NORM_SD) * seasonScoreSd`, floored at 0.
  *
  * The floor exists because a starting rating below zero would predict a
- * team actively SUBTRACTING from its alliance's score before it has played
- * a single match this season — no observation supports that; zero (a team
- * expected to contribute nothing yet) is the correct floor, not a
- * negative number.
+ * team actively subtracting from its alliance's score before it has
+ * played a single match this season; zero is the correct floor.
  *
- * `seasonScoreSd <= 0` (a degenerate scale — e.g. a single team, or every
- * team's total happened to be identical) falls back to treating every
+ * `seasonScoreSd <= 0` (a degenerate scale) falls back to treating every
  * normalized rating as exactly at the mean, rather than dividing by zero.
  */
 export function normalizedToSeasonUnits(normalized: number, seasonScoreMean: number, seasonScoreSd: number): number {
@@ -163,10 +144,8 @@ export function normalizedToSeasonUnits(normalized: number, seasonScoreMean: num
 
 /**
  * Population mean/sd (matches `expandingStats.ts`'s population convention,
- * not sample). Exported (pure widening, no behaviour change) so
- * a caller could reuse this exact scale-conversion math rather than
- * re-deriving it — two copies of a scale conversion is exactly the drift
- * this project's failure log (REBUILD_SPEC.md) warns about.
+ * not sample). Exported so a caller could reuse this exact scale-conversion
+ * math rather than re-deriving it.
  */
 export function populationMeanSd(values: readonly number[]): { mean: number; sd: number } {
   if (values.length === 0) return { mean: 0, sd: 0 };
@@ -179,8 +158,7 @@ export function populationMeanSd(values: readonly number[]): { mean: number; sd:
 /**
  * The inverse of `normalizedToSeasonUnits`: converts a season's own
  * observed point total into a normalized rating, using that same season's
- * team-total mean/sd. Exported (pure widening) for the same reason as
- * `populationMeanSd` above.
+ * team-total mean/sd. Exported for the same reason as `populationMeanSd` above.
  */
 export function normalizedFromPoints(points: number, seasonScoreMean: number, seasonScoreSd: number): number {
   const zScore = seasonScoreSd > 0 ? (points - seasonScoreMean) / seasonScoreSd : 0;
@@ -210,16 +188,14 @@ export interface EpaCarryoverResult {
 }
 
 /**
- * The season-boundary math, independent of `EpaState`'s shape:
- * converts `fromSeason`'s final point totals into normalized ratings,
- * blends them against the two preceding seasons' normalized ratings per
+ * The season-boundary math, independent of `EpaState`'s shape: converts
+ * `fromSeason`'s final point totals into normalized ratings, blends them
+ * against the two preceding seasons' normalized ratings per
  * `carryNormalizedRating`, and converts the result back into point units
- * per `normalizedToSeasonUnits`. Only teams with SOME carry-worthy history
- * (a rating in `teamTotals` or `priorSeasonRatings.lastSeason`) appear in
- * the result — a team with no history at all is a genuine first-timer for
- * `toSeason` and stays on the ordinary intra-season cold-start path
- * `epa.ts`'s `applyComponentUpdate` already implements, untouched by this
- * function.
+ * per `normalizedToSeasonUnits`. Only teams with some carry-worthy history
+ * appear in the result — a team with no history at all is a genuine
+ * first-timer for `toSeason` and stays on the ordinary intra-season
+ * cold-start path `epa.ts`'s `applyComponentUpdate` already implements.
  */
 export function epaCarryover(input: EpaCarryoverInput): EpaCarryoverResult {
   const { mean, sd } = populationMeanSd([...input.teamTotals.values()]);
