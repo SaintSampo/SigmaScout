@@ -1,31 +1,29 @@
 /**
- * The offline Districts-page publish tool (quick task 260905-lic Task 2;
- * widened by revision R2a with award-based qualification), shaped exactly
- * like `scripts/publishAlgorithmsManifest.ts`: `parseArgs` from
- * `node:util`, deep relative imports with explicit `.js` extensions, a
- * `main()` guarded on being the process entry point, non-zero exit on
- * failure. Per the plan's own context: "District artifacts are refreshed
- * only by an offline `pnpm ingest:districts` + `pnpm publish:districts`. The
- * live Worker cron does not touch them."
+ * The offline Districts-page publish tool, shaped exactly like
+ * `scripts/publishAlgorithmsManifest.ts`: `parseArgs` from `node:util`,
+ * deep relative imports with explicit `.js` extensions, a `main()` guarded
+ * on being the process entry point, non-zero exit on failure. District
+ * artifacts are refreshed only by an offline `pnpm ingest:districts` +
+ * `pnpm publish:districts`; the live Worker cron does not touch them.
  *
- * REVISION R2a: every team's lock verdicts now run through
+ * AWARD-BASED QUALIFICATION: every team's lock verdicts run through
  * `computeLocksWithQualifiers` rather than the plain points-only
- * `computeLocks` — an award-qualified team (research Q1/Q5: Impact/
- * Chairman's at a district event for the district lock; any of Impact/
- * Winner/EI/RAS at the DCMP for the champ lock) reports `"lockedAward"`
- * regardless of its own points standing, and a curated FIRST Championship
- * pre-qualification (`prequalified.ts`, champ lock only) reports
- * `"prequalified"`. `2025fsc`'s documented special allocation
- * (`qualification.ts`'s `specialAllocationNote`) overrides its champ lock to
- * `"unknown"` with an explanatory note, bypassing the ordinary cut-line math
- * entirely for that one district-year. Award data comes from the corpus's
- * `event_awards` table — until the orchestrator's real
- * `pnpm ingest:districts -- --awards-only` (or `pnpm ingest:awards`) run,
- * that table is empty for every event, so every team's `qualifyingAwards`
- * is `[]` and every award-qualified set is empty; this is a genuinely valid,
- * degenerate input (an ordinary points-only run), not an error state — the
- * curated `prequalified.ts` lists are unaffected either way, since they are
- * pure declared data with no ingest dependency at all.
+ * `computeLocks` — an award-qualified team (Impact/Chairman's at a district
+ * event for the district lock; any of Impact/Winner/EI/RAS at the DCMP for
+ * the champ lock) reports `"lockedAward"` regardless of its own points
+ * standing, and a curated FIRST Championship pre-qualification
+ * (`prequalified.ts`, champ lock only) reports `"prequalified"`. `2025fsc`'s
+ * documented special allocation (`qualification.ts`'s
+ * `specialAllocationNote`) overrides its champ lock to `"unknown"` with an
+ * explanatory note, bypassing the ordinary cut-line math entirely for that
+ * one district-year. Award data comes from the corpus's `event_awards`
+ * table — until the orchestrator's real `pnpm ingest:districts --
+ * --awards-only` (or `pnpm ingest:awards`) run, that table is empty for
+ * every event, so every team's `qualifyingAwards` is `[]` and every
+ * award-qualified set is empty; this is a genuinely valid, degenerate input
+ * (an ordinary points-only run), not an error state — the curated
+ * `prequalified.ts` lists are unaffected either way, since they are pure
+ * declared data with no ingest dependency at all.
  *
  * Never reads, prints or interpolates `.env` or any value from it —
  * `putObject` (`packages/harness/r2Client.js`) reads its own credentials
@@ -34,10 +32,9 @@
  * validates (through `DistrictsIndexArtifactSchema`/`DistrictArtifactSchema`)
  * and prints per-object byte sizes without ever calling `putObject`.
  *
- * Write ordering (artifacts-before-index, the same load-bearing rule the
- * retune/republish skill establishes): every `v1/district/{key}.json` is
- * written before `v1/districts/{year}.json` is overwritten, so the index
- * never points at a detail object that is not there yet.
+ * Write ordering: every `v1/district/{key}.json` is written before
+ * `v1/districts/{year}.json` is overwritten, so the index never points at
+ * a detail object that is not there yet.
  *
  * ROOKIE BONUS, A DOCUMENTED GAP: this corpus carries no `rookie_year` per
  * team (nothing in `packages/corpus/schema.sql`'s `teams` table, and no
@@ -49,8 +46,7 @@
  * get. `maxRemainingDistrict`/`maxRemainingChamp` below therefore do NOT add
  * a speculative future rookie bonus: doing so with no reliable rookie
  * signal would inflate ~every non-rookie team's ceiling (the vast majority),
- * making the tool less useful without making it more correct. Flagged here,
- * not silently dropped -- see the SUMMARY for the same note.
+ * making the tool less useful without making it more correct.
  */
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
@@ -95,7 +91,7 @@ const CORPUS_PATH = "data/corpus.sqlite";
 // ---------------------------------------------------------------------------
 // TBA event_points shape — parsed here, not modelled column-by-column in the
 // corpus schema (schema.sql's own stated reason). Live shape probed against
-// 2026fnc and cross-checked against every ingested season by this task's own
+// 2026fnc and cross-checked against every ingested season by this task
 // reconciliation.test.ts; no season-specific variant has been observed.
 // ---------------------------------------------------------------------------
 
@@ -123,7 +119,7 @@ function districtTierForEventType(eventType: number): DistrictTier {
  * DIVISION (`event_type` 5) is `"dcmp"` for POINT purposes, but its "Winner"
  * award crowns a division champion, not the DCMP winning alliance — only the
  * parent DCMP event (`event_type` 2) presents the Winner/Impact/EI/RAS awards
- * that advance a team to the FIRST Championship (research Q2/Q5: TBA's own
+ * that advance a team to the FIRST Championship (TBA's own
  * `district_advancement_helper` reads DCMP qualifiers from the parent event).
  * Counting division Winners was a live bug: 2026fim division winners
  * (e.g. frc5460 at 2026micmp4) rendered champ-`lockedAward` without having
@@ -175,7 +171,7 @@ interface EventRow {
   start_date: string | null;
 }
 
-/** Every event belonging to district `abbreviation` (the bare, non-year-prefixed key `events.district_key` stores) for `year` — the authoritative "this district's full event list" this task needs, since Task 1 stores no separate district-events table. */
+/** Every event belonging to district `abbreviation` (the bare, non-year-prefixed key `events.district_key` stores) for `year` — the authoritative "this district's full event list" this task needs, since no separate district-events table exists. */
 function selectDistrictEvents(db: Corpus, abbreviation: string, year: number): DistrictEventMeta[] {
   const rows = db
     .prepare(`SELECT event_key, name, week, event_type, start_date FROM events WHERE district_key = ? AND year = ? ORDER BY event_key ASC`)
@@ -213,7 +209,7 @@ export interface ComposeDistrictArtifactOptions {
   readonly events: readonly DistrictEventMeta[];
   /** `eventKey -> registered team keys`, scoped to `events` above (`selectEventTeamsForEvents`'s own shape). */
   readonly registrations: ReadonlyMap<string, readonly string[]>;
-  /** `eventKey -> award recipients at that event`, scoped to `events` above (`selectEventAwardsForEvents`'s own shape, revision R2a). An event with no upserted awards (including every event, before the orchestrator's real awards ingest runs) is simply absent from this map — `buildDistrictArtifact` treats that identically to an empty array. */
+  /** `eventKey -> award recipients at that event`, scoped to `events` above (`selectEventAwardsForEvents`'s own shape). An event with no upserted awards (including every event, before the orchestrator's real awards ingest runs) is simply absent from this map — `buildDistrictArtifact` treats that identically to an empty array. */
   readonly awards: ReadonlyMap<string, readonly CorpusEventAward[]>;
   readonly teamMeta: ReadonlyMap<string, { teamNumber: number; nickname: string | null }>;
 }
@@ -248,10 +244,10 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
     }
   }
 
-  // revision R2a: award-based qualification. Walk every district event's
+  // Award-based qualification. Walk every district event's
   // award recipients ONCE, building (a) each team's display-ready
   // qualifyingAwards list and (b) the two award-qualified team-key sets
-  // computeLocksWithQualifiers needs — one per tier, since research Q1/Q5
+  // computeLocksWithQualifiers needs — one per tier, since
   // declares different consuming-award-type sets for the district-event tier
   // (Impact only) and the DCMP tier (Impact/Winner/EI/RAS, all four).
   const teamQualifyingAwards = new Map<string, DistrictArtifact["teams"][number]["qualifyingAwards"]>();
@@ -277,7 +273,7 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
   }
 
   // Championship pre-qualification (Hall of Fame, prior-year Championship
-  // results) — champ tier ONLY, never district/DCMP (research Q3). Pure
+  // results) — champ tier ONLY, never district/DCMP. Pure
   // declared data with no ingest dependency: populated even when
   // event_awards is entirely empty.
   const champPrequalified = prequalifiedTeams(season);
@@ -329,7 +325,7 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
   });
 
   // Pass 1: districtLock, using maxRemainingDistrict (regular-tier events only).
-  // No prequalification concept at the district/DCMP tier (research Q3) —
+  // No prequalification concept at the district/DCMP tier —
   // the qualifiers' prequalified set is always empty here.
   const districtLockInputs: LockTeamInput[] = perTeam.map((t) => ({
     teamKey: t.ranking.teamKey,
@@ -338,7 +334,7 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
   }));
   // Hoisted so both this tier's computeLocksWithQualifiers call and its
   // cutLinePointsWithQualifiers call (below) provably share identical
-  // inputs -- the fix for the 260913-l8q cut-line bug.
+  // inputs -- fixes a cut-line bug where they could otherwise diverge.
   const districtQualifiers: QualifierSets = { awardQualified: districtAwardQualified, prequalified: new Set() };
   const districtLocks = computeLocksWithQualifiers(districtLockInputs, district.dcmpSlots, districtQualifiers);
   const districtLockByTeam = new Map(districtLocks.map((r) => [r.teamKey, r] as const));
@@ -493,7 +489,7 @@ export function composeYear(db: Corpus, season: number, generation: string, comp
       db,
       events.map((e) => e.eventKey)
     );
-    // revision R2a: award recipients for this district's own events (regular
+    // Award recipients for this district's own events (regular
     // and DCMP alike — selectEventAwardsForEvents is not tier-scoped, the
     // same shape selectEventTeamsForEvents already reads). Empty for every
     // event until the orchestrator's real awards ingest runs — a valid,
