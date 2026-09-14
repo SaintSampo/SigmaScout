@@ -490,6 +490,47 @@ describe("stateProbe — Group 4: the shape-mismatch report is readable, not an 
     // Still zero writes on a failing run.
     expect(db.writeStatementCount).toBe(0);
   });
+
+  it("algorithms=spr reads spr alone, so a stale opr/epa row cannot fail a live-tier measurement, and the fold is byte-identical", async () => {
+    const staleOthers = () => {
+      const db = new FakeD1Database();
+      seedAllAlgorithms(db);
+      for (const id of ["opr", "epa"]) {
+        const key = `${id}::league::league`;
+        const existing = db.algorithmState.get(key)!;
+        const stale = JSON.parse(existing.state_json) as Record<string, unknown>;
+        stale.snapshotShapeVersion = STATE_SNAPSHOT_SHAPE_VERSION - 1;
+        db.algorithmState.set(key, { ...existing, state_json: JSON.stringify(stale) });
+      }
+      return db;
+    };
+    const run = async (query: string) => {
+      const db = staleOthers();
+      const response = await stateProbe.fetch(new Request(`https://probe/?folded=2&upcoming=5&season=2026${query}`), { DB: db as unknown as D1Database });
+      const body = (await response.json()) as { ok: boolean; params: { algorithms: string[] }; algorithms: { id: string; ok: boolean }[]; fold: unknown; warnings: string[] };
+      return { status: response.status, body, writes: db.writeStatementCount };
+    };
+
+    const all = await run("");
+    expect(all.status).toBe(500);
+    expect(all.body.params.algorithms).toEqual(["opr", "epa", "spr"]);
+
+    const sprOnly = await run("&algorithms=spr");
+    expect(sprOnly.status).toBe(200);
+    expect(sprOnly.body.ok).toBe(true);
+    expect(sprOnly.body.params.algorithms).toEqual(["spr"]);
+    expect(sprOnly.body.algorithms.map((a) => a.id)).toEqual(["spr"]);
+    expect(sprOnly.body.warnings).toEqual(all.body.warnings);
+    expect(sprOnly.body.fold).toEqual(all.body.fold);
+    expect(sprOnly.writes).toBe(0);
+
+    const typo = await run("&algorithms=opr,sprr");
+    expect(typo.body.params.algorithms).toEqual(["opr", "spr"]);
+    expect(typo.body.warnings.filter((w) => w.startsWith("algorithms="))).toEqual([
+      `algorithms= named unknown id(s) ["sprr"]; ignored (accepted: opr, epa, spr)`,
+      "algorithms= omitted spr; spr was added back because the fold needs it",
+    ]);
+  });
 });
 
 // Group 5: the `rp` ablation arm.

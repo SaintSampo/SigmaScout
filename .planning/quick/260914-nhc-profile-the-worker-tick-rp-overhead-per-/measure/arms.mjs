@@ -8,7 +8,7 @@
  */
 
 /** Common query shared by every arm request. `folded=2` mirrors the live tick's typical newly-folded count; `upcoming=60` is where the CPU goes (see docs/worker-operations.md). */
-export const COMMON_QUERY = "season=2026&teamCount=21&folded=2&upcoming=60";
+export const COMMON_QUERY = "season=2026&teamCount=21&folded=2&upcoming=60&algorithms=spr";
 
 /**
  * The nine arms, in a fixed order. `query` is the arm-specific fragment

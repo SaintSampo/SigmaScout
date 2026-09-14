@@ -254,6 +254,30 @@ function parseTeamsParam(raw: string | null): readonly string[] | undefined {
   return keys.length > 0 ? keys : undefined;
 }
 
+/**
+ * `algorithms=spr` narrows the read+deserialize loop to the live tier, which is
+ * what a real tick loads (`DEFAULT_LIVE_ALGORITHM_IDS`). Absent or empty reads
+ * every published algorithm, as before. Unknown ids are ignored and warned;
+ * `spr` is always kept, because the fold cannot run without it.
+ */
+function parseAlgorithmsParam(raw: string | null): { ids: readonly string[]; warnings: readonly string[] } {
+  if (raw === null || raw.trim() === "") return { ids: PUBLISHED_ALGORITHM_IDS, warnings: [] };
+  const requested = raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 0);
+  const known = new Set<string>(PUBLISHED_ALGORITHM_IDS);
+  const warnings: string[] = [];
+  const unknown = requested.filter((id) => !known.has(id));
+  if (unknown.length > 0) warnings.push(`algorithms= named unknown id(s) ${JSON.stringify(unknown)}; ignored (accepted: ${PUBLISHED_ALGORITHM_IDS.join(", ")})`);
+  const kept = new Set(requested.filter((id) => known.has(id)));
+  if (!kept.has("spr")) {
+    kept.add("spr");
+    warnings.push(`algorithms= omitted spr; spr was added back because the fold needs it`);
+  }
+  return { ids: PUBLISHED_ALGORITHM_IDS.filter((id) => kept.has(id)), warnings };
+}
+
 interface ProbeParams {
   readonly season: number;
   readonly eventType: number;
@@ -268,6 +292,8 @@ interface ProbeParams {
   readonly rpUnrecognized: string | undefined;
   /** The resolved ablation arm: `rp` layered under `rpSkip`'s six components (see `resolveRpArm`). */
   readonly rpArm: RpArmResolution;
+  /** The algorithms read and deserialized (see `parseAlgorithmsParam`). */
+  readonly algorithms: { readonly ids: readonly string[]; readonly warnings: readonly string[] };
 }
 
 function parseParams(url: URL): ProbeParams {
@@ -285,7 +311,8 @@ function parseParams(url: URL): ProbeParams {
   const rpRaw = search.get("rp");
   const rp = parseRpParam(rpRaw);
   const rpArm = resolveRpArm(rpRaw, search.get("rpSkip"));
-  return { season, eventType, eventOverride, teamsOverride, teamCount, folded, upcoming, rpEnabled: rp.enabled, rpUnrecognized: rp.unrecognized, rpArm };
+  const algorithms = parseAlgorithmsParam(search.get("algorithms"));
+  return { season, eventType, eventOverride, teamsOverride, teamCount, folded, upcoming, rpEnabled: rp.enabled, rpUnrecognized: rp.unrecognized, rpArm, algorithms };
 }
 
 // Discovery reads scope keys only, never state_json. It is overhead a real
@@ -463,6 +490,8 @@ interface ProbeResponseBody {
     readonly rp: boolean;
     /** The resolved component arm: `id` ("all" | "none" | "skip:a,b,c") plus which of the six components actually ran. Read this before trusting a `cpuTime` — a typo in `rpSkip` skips nothing. */
     readonly rpArm: { readonly id: string; readonly ran: RpArmRan };
+    /** The algorithms read and deserialized. `algorithms=spr` matches the live tick. */
+    readonly algorithms: readonly string[];
   };
   readonly discovery: {
     readonly teamKeysFound: number;
@@ -480,13 +509,14 @@ const PROBE_STAMP: StateStamp = { generation: "probe", computedAt: "1970-01-01T0
 async function readAndDeserializeAll(
   db: D1Database,
   eventKey: string,
-  teamKeys: readonly string[]
+  teamKeys: readonly string[],
+  algorithmIds: readonly string[]
 ): Promise<{ algorithms: AlgorithmProbeResult[]; sprRows: StateRow[] | undefined; sprState: SprState | undefined }> {
   const algorithms: AlgorithmProbeResult[] = [];
   let sprRows: StateRow[] | undefined;
   let sprState: SprState | undefined;
 
-  for (const algorithmId of PUBLISHED_ALGORITHM_IDS) {
+  for (const algorithmId of algorithmIds) {
     const rowsRead = { league: 0, team: 0, event: 0 };
     let leagueRowPresent = false;
     try {
@@ -934,7 +964,7 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ body: ProbeR
   const eventKey = params.eventOverride ?? discoveredEventKey ?? `${params.season}probe`;
   const teamKeys = (params.teamsOverride ?? discoveredTeamKeys).slice(0, params.teamCount);
 
-  const { algorithms, sprRows, sprState } = await readAndDeserializeAll(env.DB, eventKey, teamKeys);
+  const { algorithms, sprRows, sprState } = await readAndDeserializeAll(env.DB, eventKey, teamKeys, params.algorithms.ids);
 
   const fold: FoldResult =
     sprRows !== undefined && sprState !== undefined
@@ -975,6 +1005,7 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ body: ProbeR
     // rp=0-override notice) — kept separate so the rp=0 warning above always
     // sorts first when both fire (the rp=0&rpSkip=... override case).
     ...params.rpArm.warnings,
+    ...params.algorithms.warnings,
   ];
 
   const ok = algorithms.every((a) => a.ok) && fold.error === undefined;
@@ -992,6 +1023,7 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ body: ProbeR
       upcoming: params.upcoming,
       rp: params.rpArm.ran.resume,
       rpArm: { id: params.rpArm.id, ran: params.rpArm.ran },
+      algorithms: params.algorithms.ids,
     },
     discovery: {
       teamKeysFound: discoveredTeamKeys.length,
