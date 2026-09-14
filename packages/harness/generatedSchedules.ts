@@ -1,31 +1,21 @@
 /**
- * A RULES-BASED random qualification-schedule generator, the shared
- * matches-per-team helpers, and the balance measurements used to check what it
- * produces.
+ * A rules-based random qualification-schedule generator, the shared
+ * matches-per-team helpers, and the balance measurements used to check it.
  *
- * ---------------------------------------------------------------------------
- * WHAT THIS IS FOR
- * ---------------------------------------------------------------------------
+ * The pre-schedule sidecar needs a PAIRING STRUCTURE (which slot plays with and
+ * against which, in which match) onto which `buildPreScheduleArtifact` shuffles
+ * the real roster; this module is its only source. `publish.ts` reads the
+ * matches-per-team helpers and servable roster range from here.
+ * `docs/models/rung2-generated-schedules.md` is its measurement record.
  *
- * The pre-schedule sidecar needs a PAIRING STRUCTURE — which slot plays with
- * and against which, in which match — onto which `buildPreScheduleArtifact`
- * shuffles the real roster. This module is the ONLY shipped source of that
- * structure (quick task 260913-pnp): `preSchedule.ts` generates one structure
- * per schedule through `generateSchedule`, and `publish.ts` reads its
- * matches-per-team helpers and servable roster range from here. It reads no
- * files. `docs/models/rung2-generated-schedules.md` is its measurement record.
- *
- * ---------------------------------------------------------------------------
- * THE RULES, STATED BEFORE THEY ARE MEASURED
- * ---------------------------------------------------------------------------
+ * THE RULES
  *
  * 1. EXACT APPEARANCE COUNT. A schedule for `numTeams` at `matchesPerTeam` has
  *    `ceil(numTeams * matchesPerTeam / 6)` matches — six slots each. Every team
  *    gets exactly `matchesPerTeam` RANKING-CREDITED appearances. The leftover
  *    `rows*6 - numTeams*matchesPerTeam` slots are SURROGATE appearances, given
  *    to that many DISTINCT teams, one flagged appearance each (40 teams at
- *    11 → 4 surrogate slots on 4 distinct teams; 76 at 10 → 2 on 2; every
- *    team's non-surrogate count exactly `matchesPerTeam` in both).
+ *    11 → 4 surrogate slots on 4 distinct teams).
  *
  * 2. NO TEAM TWICE IN A MATCH. Enforced by construction — a team placed in a
  *    match is removed from that match's candidate pool.
@@ -37,24 +27,18 @@
  *    where `excessPartnerPairs` counts, over unordered team pairs, how many
  *    times beyond the first they share an ALLIANCE, `excessOpponentPairs` the
  *    same for facing each other, and `backToBackCount` how many consecutive-
- *    match appearances occur. Partners are weighted heaviest because two teams
- *    on the same alliance have their outcomes coupled far more tightly than two
- *    teams merely facing each other, so a repeated partnership distorts a rank
- *    band more than a repeated matchup does.
+ *    match appearances occur. Partners weigh heaviest because alliance partners'
+ *    outcomes are coupled far more tightly than opponents', so a repeated
+ *    partnership distorts a rank band more than a repeated matchup.
  *
- * 4. SPREAD. Each team's appearances are pushed toward the natural spacing
- *    `matchCount / matchesPerTeam` by a per-candidate recency penalty, and
- *    back-to-back appearances are additionally penalised in the objective
- *    above.
+ * 4. SPREAD. A per-candidate recency penalty pushes each team's appearances
+ *    toward the natural spacing `matchCount / matchesPerTeam`.
  *
- * The construction is a GREEDY RANDOMISED one with restarts: build
- * `restarts` candidate schedules from the supplied seeded stream, score each by
- * the objective, return the best. Deliberately not a research project — no
- * simulated annealing, no ILP, no round-robin algebra.
+ * Construction is greedy and randomised with restarts: build `restarts`
+ * candidates from the seeded stream and return the best by the objective.
  *
- * PURE: no I/O, no clock, no `Math.random`. The only entropy is the `rng`
- * callback the caller supplies, so the same seed always yields the same
- * schedule.
+ * PURE: no I/O, no clock, no `Math.random`; the only entropy is the caller's
+ * `rng`, so the same seed always yields the same schedule.
  */
 
 /** Six slots per match: two alliances of three. */
@@ -80,41 +64,32 @@ export const MIN_SCHEDULE_TEAMS = SLOTS_PER_MATCH;
 /** The largest roster `generateSchedule` serves: `pairKey`'s index capacity. A larger roster would make two different pairs share a key silently. */
 export const MAX_SCHEDULE_TEAMS = 1024;
 
-/**
- * The matches-per-team a real schedule's shape implies —
- * `trunc(qualMatchCount * 6 / numTeams)`, TRUNCATED, clamped into the closed
- * interval 1..14. The clamp range is kept so published `matchesPerTeam` values
- * do not move.
- */
+/** The matches-per-team a real schedule implies: `trunc(qualMatchCount * 6 / numTeams)`, clamped to 1..14 so published `matchesPerTeam` values do not move. */
 export function matchesPerTeamFor(numTeams: number, qualMatchCount: number): number {
   const truncated = Math.trunc((qualMatchCount * 6) / numTeams);
   return Math.min(14, Math.max(1, truncated));
 }
 
-/**
- * The matches-per-team to assume when the real schedule is unknown —
- * 10 for TBA event type 3 (Championship Division), 12 otherwise. This is
- * the Statbotics convention, named here as the source rather than invented.
- */
+/** Matches-per-team when the real schedule is unknown: 10 for TBA event type 3 (Championship Division), 12 otherwise (the Statbotics convention). */
 export function defaultMatchesPerTeam(eventType: number): number {
   return eventType === 3 ? 10 : 12;
 }
 
-/** Candidate schedules built per call before the best is returned. Small on purpose: the marginal gain past a handful is far below the seed noise the experiment measures. */
+/** Candidate schedules built per call. Small on purpose: the gain past a handful is far below seed noise. */
 export const DEFAULT_RESTARTS = 4;
 
-/** Weights of the objective in the module header. Exported so the objective a result was selected under is readable, not buried. */
+/** Weights of the objective in the module header. */
 export const PARTNER_WEIGHT = 3;
 export const OPPONENT_WEIGHT = 1;
 export const BACK_TO_BACK_WEIGHT = 1;
 
-/** The per-candidate greedy cost weights. Not the objective — the objective picks between finished schedules; these steer one schedule's construction. */
+/** Greedy cost weights that steer one schedule's construction; the objective only picks between finished schedules. */
 const GREEDY_REPEAT_PARTNER_WEIGHT = 6;
 const GREEDY_RECENCY_WEIGHT = 2;
 const GREEDY_URGENCY_WEIGHT = 12;
 const GREEDY_JITTER = 0.35;
 
-/** `ceil(numTeams * matchesPerTeam / 6)` — the fewest six-slot matches that give every team its appearances. */
+/** The fewest six-slot matches that give every team its appearances. */
 export function scheduleMatchCount(numTeams: number, matchesPerTeam: number): number {
   return Math.ceil((numTeams * matchesPerTeam) / SLOTS_PER_MATCH);
 }
@@ -245,11 +220,9 @@ function buildCandidate(numTeams: number, matchesPerTeam: number, rng: () => num
     }
   }
 
-  // Rule 1's surrogate flags. The flag lands on each surrogate team's
-  // appearance nearest the row just after two complete rounds
-  // (`floor(2 * numTeams / 6)`). WHERE the flag sits has no effect on the
-  // sidecar: a surrogate is excluded from ranking credit wherever it appears,
-  // and the rank simulation has no notion of match order.
+  // Rule 1's surrogate flags, on each surrogate team's appearance nearest the
+  // row after two complete rounds. Placement has no effect on the sidecar: the
+  // rank simulation has no notion of match order.
   const surrogateTargetRow = Math.floor((2 * numTeams) / SLOTS_PER_MATCH);
   for (const t of surrogateTeams) {
     const mine = appearances[t]!;
@@ -299,15 +272,7 @@ export function objectiveOf(matches: readonly ScheduleMatch[], numTeams: number)
   return PARTNER_WEIGHT * b.excessPartnerPairs + OPPONENT_WEIGHT * b.excessOpponentPairs + BACK_TO_BACK_WEIGHT * b.backToBackCount;
 }
 
-/**
- * Generates a schedule for `numTeams` at `matchesPerTeam`: zero-based slot
- * indices with positional surrogate flags, the shape
- * `buildPreScheduleArtifact` consumes.
- *
- * Throws `GeneratedScheduleError` for a roster outside
- * `MIN_SCHEDULE_TEAMS..MAX_SCHEDULE_TEAMS` or fewer than one match per team,
- * before any construction work.
- */
+/** Throws `GeneratedScheduleError` for a roster outside `MIN_SCHEDULE_TEAMS..MAX_SCHEDULE_TEAMS` or fewer than one match per team, before any construction. */
 export function generateSchedule(
   numTeams: number,
   matchesPerTeam: number,
@@ -330,7 +295,7 @@ export function generateSchedule(
 }
 
 // ---------------------------------------------------------------------------
-// Balance measurement — the side-by-side "how close did we get" numbers
+// Balance measurement
 // ---------------------------------------------------------------------------
 
 export interface ScheduleBalance {
