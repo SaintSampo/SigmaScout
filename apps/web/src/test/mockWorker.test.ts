@@ -60,7 +60,7 @@ describe("mockWorker — the double's own contract", () => {
     }
   });
 
-  it("M4: failOnConstruct throws from the constructor — the construction half of UI-SPEC's S2", () => {
+  it("M4: failOnConstruct throws from the constructor — the construction half of the error state", () => {
     const constructError = new Error("simulated unsupported-browser construction failure");
     const handle = installMockWorker({ failOnConstruct: constructError });
     try {
@@ -70,7 +70,7 @@ describe("mockWorker — the double's own contract", () => {
     }
   });
 
-  it("M5: a throwing script surfaces on onerror and delivers no further messages — the mid-run half of UI-SPEC's S2", async () => {
+  it("M5: a throwing script surfaces on onerror and delivers no further messages — the mid-run half of the error state", async () => {
     const thrown = new Error("simulated mid-run failure");
     let onmessageCalls = 0;
     const handle = installMockWorker({
