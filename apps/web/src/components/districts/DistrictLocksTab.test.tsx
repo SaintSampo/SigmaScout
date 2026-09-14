@@ -120,7 +120,7 @@ describe("DistrictLocksTab", () => {
         <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
-    expect((await screen.findByTestId("district-district-lock-status")).textContent).toBe("Eliminated");
+    expect((await screen.findByTestId("district-district-lock-status")).textContent).toBe("Out of range");
   });
 
   it("renders an unattainable row (pointsToLock null but not locked/eliminated) as 'Not attainable this season', never a number", async () => {
@@ -164,7 +164,7 @@ describe("DistrictLocksTab", () => {
         <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="spr" season={2026} />
       </TestHarness>,
     );
-    expect((await screen.findByTestId("district-champ-lock-status")).textContent).toBe("Eliminated");
+    expect((await screen.findByTestId("district-champ-lock-status")).textContent).toBe("Out of range");
   });
 
   it("shows the conservatism caveat, plainly worded", async () => {

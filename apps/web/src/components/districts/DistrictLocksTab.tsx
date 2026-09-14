@@ -79,7 +79,7 @@ const STATUS_LABEL: Record<LockVerdict["status"], string> = {
   locked: "Locked",
   lockedAward: "Locked (Award)",
   prequalified: "Prequalified",
-  eliminated: "Eliminated",
+  eliminated: "Out of range",
   contending: "Contending",
   unknown: "Capacity not published",
 };
