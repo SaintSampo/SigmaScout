@@ -4,10 +4,10 @@
  * (`apps/web/src/lib/artifactOrigin.ts`) — never the R2 bucket directly,
  * never `packages/harness/r2Client.ts` — and resolves each algorithm's
  * published version from the public algorithms manifest rather than a
- * hand-typed one (PD-02). Parses every artifact through the publisher's own
+ * hand-typed one. Parses every artifact through the publisher's own
  * `EventArtifactSchema` / `TeamSeasonArtifactSchema` and asserts its checks
  * against two committed expectation tables whose numbers are direct corpus
- * measurements, never adjusted to match an observed result (PD-03):
+ * measurements, never adjusted to match an observed result:
  *
  * - `PUBLISHED_SUBSET` (event-level, checks 1-10, 14, 15): fifteen `spr`
  *   entries chosen for their shapes (interleaved eliminations, empty
@@ -19,11 +19,10 @@
  * Both tables still accept `expectAbsent` + `version` entries (a 404 check
  * against a retired `{id}@{version}` prefix); none are listed today, because
  * every retired prefix is already gone from the bucket by full-listing census.
- * The earlier retirement-control tables (sigma1, vpr, bpr) are in git history.
  *
  * This script needs NO credential of any kind: it never reads an
  * environment variable, never constructs a signed request, and never
- * imports from `packages/harness/r2Client.ts` (PD-01). Staleness under
+ * imports from `packages/harness/r2Client.ts`. Staleness under
  * `public, max-age=60` is closed by construction, not by waiting: every
  * fetch carries a per-run cache-busting query parameter and
  * `cache: "no-store"`, and the caller is expected to additionally compare
@@ -54,23 +53,22 @@ import {
 
 /**
  * `apps/web/src/lib/artifactOrigin.ts` is the single authority for this
- * value in the client — `https://data.sigmascout.org` (Phase 4 D-25). This
- * script cannot import that file: it reads `import.meta.env`, a Vite
- * construct with no Node equivalent. The value is therefore duplicated here,
- * deliberately, rather than hidden (PD-01).
+ * value in the client. This script cannot import that file: it reads
+ * `import.meta.env`, a Vite construct with no Node equivalent. The value is
+ * therefore duplicated here, deliberately, rather than hidden.
  */
 export const DEFAULT_ARTIFACT_ORIGIN = "https://data.sigmascout.org";
 
 export const ALGORITHMS_MANIFEST_KEY = "v1/manifest/algorithms.json";
 
 // ---------------------------------------------------------------------------
-// The committed expectation table (PD-03)
+// The committed expectation table
 // ---------------------------------------------------------------------------
 
 export interface SubsetEntry {
   readonly eventKey: string;
   readonly algorithmId: string;
-  /** The one-line reason this event is in the subset, lifted from 07-10-PLAN.md's <subset_selection>. */
+  /** The one-line reason this event is in the subset. */
   readonly note: string;
   readonly expectMatches: number;
   readonly expectUpcoming: number;
@@ -86,36 +84,29 @@ export interface SubsetEntry {
   /** Optional assertion that at least one alliance carries no `name` key. */
   readonly expectSomeAllianceWithoutName?: boolean;
   /**
-   * D-03/08-05 check 14: whether this entry's played `qm` rows are expected
-   * to carry `redRpPmf`/`blueRpPmf`. Decided by `isRpEligibleEventType`
-   * against the event's own `event_type` (PD-05, 08-05-PLAN.md) — NOT by
-   * algorithm id. `"present"` requires every played `qm` row to carry BOTH
-   * fields; `"absent"` requires ZERO rows (across `matches` and `upcoming`
-   * combined) to carry either field. Left `undefined` on an entry with zero
-   * played `qm` rows (e.g. `2025cmptx`), which has nothing to assert.
+   * Whether this entry's played `qm` rows are expected to carry
+   * `redRpPmf`/`blueRpPmf`. Decided by `isRpEligibleEventType` against the
+   * event's own `event_type` — NOT by algorithm id. `"present"` requires
+   * every played `qm` row to carry BOTH fields; `"absent"` requires ZERO
+   * rows (across `matches` and `upcoming` combined) to carry either field.
+   * Left `undefined` on an entry with zero played `qm` rows, which has
+   * nothing to assert.
    *
-   * `"partial"` (added 2026-09-10): at least one played `qm` row carries
-   * BOTH fields, and NO row anywhere carries exactly one of them. This is
-   * the honest current claim for EVERY algorithm on RP-eligible events:
-   * the RP layer (commit 160401fe) gives all three algorithms pmfs, but
-   * coverage is uniformly incomplete — 57/72 played qm rows at `2024casf`
-   * for opr, epa AND spr (then bpr) alike (live-measured 2026-09-10 at generation
-   * `2f1a8885`; the other 15 pmf pairs in the histogram are degenerate
-   * length-1 ELIMINATION pmfs, not qual coverage). The 15 uncovered qual
-   * rows are the cold-start -> no-band -> no-pmf chain filed with the
-   * simulation rethink. Since quick task 260913-it4 OPR and EPA publish no
-   * ranking-point pmfs at all, so their `2024casf` arms expect `"absent"`;
-   * only Sigma algorithms can be `"partial"`. When that chain is
-   * resolved, the Sigma entries
-   * should be promoted back to `"present"`; `"partial"` exists so the gap
-   * stays measured without leaving the whole subset red-for-known-reasons.
+   * `"partial"`: at least one played `qm` row carries BOTH fields, and NO
+   * row anywhere carries exactly one of them — the honest current claim on
+   * RP-eligible events, where coverage is not yet complete for every
+   * qualification row. OPR and EPA publish no ranking-point pmfs at all, so
+   * their arms expect `"absent"`; only Sigma algorithms can be `"partial"`.
+   * When coverage completes, the Sigma entries should be promoted back to
+   * `"present"`; `"partial"` exists so the gap stays measured without
+   * leaving the whole subset red-for-known-reasons.
    */
   readonly expectPlayedQmRpPmf?: "present" | "partial" | "absent";
   /**
-   * D-12/08-05 check 15: whether this entry's played `qm` rows are expected
-   * to carry the `actualRedRp`/`actualBlueRp` KEYS (value may be a number or
-   * `null` — a `null` is a pass, not a failure; see check 15's doc comment
-   * in `verifyEntry`). Algorithm-independent — sourced from
+   * Whether this entry's played `qm` rows are expected to carry the
+   * `actualRedRp`/`actualBlueRp` KEYS (value may be a number or `null` — a
+   * `null` is a pass, not a failure; see check 15's doc comment in
+   * `verifyEntry`). Algorithm-independent — sourced from
    * `MatchResult.redRpEarned`/`blueRpEarned`, not anything a model produces
    * — so every live presence entry with at least one played `qm` row carries
    * `"present"` regardless of `expectPlayedQmRpPmf`. Left `undefined` on an
@@ -123,10 +114,9 @@ export interface SubsetEntry {
    */
   readonly expectPlayedQmActualRp?: "present";
   /**
-   * PD-05 (plan 07-19): when `true`, this entry is checked for ABSENCE
-   * (a 404) rather than for any of the presence-shaped fields above — the
-   * live third of the standing D-05 assertion, re-runnable rather than a
-   * one-shot SUMMARY observation. Requires a literal `version` (below):
+   * When `true`, this entry is checked for ABSENCE (a 404) rather than for
+   * any of the presence-shaped fields above, re-runnable rather than a
+   * one-shot observation. Requires a literal `version` (below):
    * `resolvePublishedVersions` cannot supply one for an id no manifest
    * names once the retired id is dropped from `v1/manifest/algorithms.json`.
    */
@@ -136,7 +126,7 @@ export interface SubsetEntry {
    * "construction time" — never left to convention) when `expectAbsent` is
    * `true`. A hardcoded literal here is a historical record of what was
    * deleted and cannot go stale, because nothing will ever publish under
-   * this exact `{algorithmId}@{version}` pair again (PD-05).
+   * this exact `{algorithmId}@{version}` pair again.
    */
   readonly version?: string;
 }
@@ -160,15 +150,15 @@ function describeAbsenceCapableEntry(entry: AbsenceCapableEntry): string {
 }
 
 /**
- * PD-05 (plan 07-19), Test 8: throws, naming the offending entry, if any
- * `expectAbsent: true` entry in `entries` lacks a non-empty literal
- * `version`. Called immediately after each expectation table is defined
- * (module load / "construction time"), so a malformed entry fails at
- * import time — before `pnpm verify:subset` ever issues a single fetch —
- * rather than merely by convention. `resolvePublishedVersions` cannot
- * supply a version for an id no manifest names once the retired id is
- * dropped from `v1/manifest/algorithms.json`, which is exactly why this
- * field cannot be optional-and-silently-undefined for an absence entry.
+ * Throws, naming the offending entry, if any `expectAbsent: true` entry in
+ * `entries` lacks a non-empty literal `version`. Called immediately after
+ * each expectation table is defined (module load / "construction time"), so
+ * a malformed entry fails at import time — before `pnpm verify:subset` ever
+ * issues a single fetch — rather than merely by convention.
+ * `resolvePublishedVersions` cannot supply a version for an id no manifest
+ * names once the retired id is dropped from `v1/manifest/algorithms.json`,
+ * which is exactly why this field cannot be optional-and-silently-undefined
+ * for an absence entry.
  */
 export function assertSubsetEntryShape<T extends AbsenceCapableEntry>(entries: readonly T[], tableName: string): void {
   for (const entry of entries) {
@@ -184,23 +174,17 @@ export function assertSubsetEntryShape<T extends AbsenceCapableEntry>(entries: r
 
 /**
  * The event-level expectation table. Every number came from a direct corpus
- * measurement (07-10-PLAN.md's <subset_selection> table, extended by 07-17
- * and 07-19); none may be adjusted to match an observed result.
+ * measurement; none may be adjusted to match an observed result.
  *
  * The fifteen `spr` entries expect `"partial"` RP pmfs on RP-eligible events
  * (see `expectPlayedQmRpPmf`'s doc comment) and `"absent"` on offseasons. The
- * `opr`/`epa` arms at `2024casf` expect no pmfs at all: since quick task
- * 260913-it4 only `spr` publishes ranking-point odds.
+ * `opr`/`epa` arms at `2024casf` expect no pmfs at all: only `spr` publishes
+ * ranking-point odds.
  *
- * `2025isios`'s `expectAlliances` was corrected from `"populated"` to
- * `"empty"` by plan 07-19 (WINDOWS.md ledger #13): confirmed live against TBA
- * (`GET /event/2025isios/alliances` -> 200, `[]`) as real production state, a
- * stale seed value rather than an adjustment to a still-running check.
- *
- * `2024auwarp` (event type 99, offseason, `start_date` 2024-08-23) is the
- * third of D-08's three named events, corpus-measured by 07-17: 47 `qm` + 13
- * `sf` + 2 `f` played rows (62 total) and zero scheduled, a 25-team roster,
- * zero `event_rankings` rows and zero `event_alliances` rows.
+ * `2024auwarp` (event type 99, offseason, `start_date` 2024-08-23) is
+ * corpus-measured: 47 `qm` + 13 `sf` + 2 `f` played rows (62 total) and zero
+ * scheduled, a 25-team roster, zero `event_rankings` rows and zero
+ * `event_alliances` rows.
  */
 export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
   {
@@ -537,17 +521,17 @@ export interface TeamSubsetEntry {
   readonly note: string;
   /** Exact count of `ef`/`qf`/`sf`/`f` match rows expected across this team-season's `events[].matches[]`, measured directly from the corpus. */
   readonly expectPlayoffRows: number;
-  /** PD-05 (plan 07-19): same shape and same rule as `SubsetEntry.expectAbsent` — see its doc comment. */
+  /** Same shape and same rule as `SubsetEntry.expectAbsent` — see its doc comment. */
   readonly expectAbsent?: boolean;
-  /** PD-05 (plan 07-19): required literal version when `expectAbsent` is `true` — see `SubsetEntry.version`'s doc comment. */
+  /** Required literal version when `expectAbsent` is `true` — see `SubsetEntry.version`'s doc comment. */
   readonly version?: string;
 }
 
 /**
  * One team-season per season (2022-2026) chosen for having playoff matches,
  * plus a low-match team — both selected to have played ZERO
- * offseason/preseason matches that season (PD-08). `frc4206` (2024) is the
- * 2024 playoff entry and the veteran (25 playoff rows, 83 total matches, the
+ * offseason/preseason matches that season. `frc4206` (2024) is the 2024
+ * playoff entry and the veteran (25 playoff rows, 83 total matches, the
  * corpus-measured 2024 maximum among zero-offseason teams). All counts
  * measured read-only against `data/corpus.sqlite`.
  */
@@ -657,8 +641,7 @@ export interface FreshFetchResult {
 /**
  * Fetches `key` from `origin`, appending a per-run cache-busting query
  * parameter and sending `cache: "no-store"` — both required so a CDN body
- * cached under `public, max-age=60` cannot masquerade as a fresh read
- * (PD-01, threat T-07-10-02).
+ * cached under `public, max-age=60` cannot masquerade as a fresh read.
  */
 export async function fetchArtifactFresh(origin: string, key: string, runId: string): Promise<FreshFetchResult> {
   const url = `${origin}/${key}?cb=${runId}`;
@@ -988,10 +971,10 @@ export function verifyEntry(
 // ---------------------------------------------------------------------------
 
 /**
- * PD-05 (plan 07-19): the absence path for a flipped `expectAbsent: true`
- * entry. Deliberately bypasses manifest resolution entirely and uses the
- * entry's own literal `version` — `resolvePublishedVersions` cannot supply
- * one for an id no manifest names once the retired id is dropped from
+ * The absence path for a flipped `expectAbsent: true` entry. Deliberately
+ * bypasses manifest resolution entirely and uses the entry's own literal
+ * `version` — `resolvePublishedVersions` cannot supply one for an id no
+ * manifest names once the retired id is dropped from
  * `v1/manifest/algorithms.json`. A 200 is the failure: it means either the
  * enumeration missed this key, or a Worker re-created it.
  */
@@ -1107,7 +1090,7 @@ async function verifyOneEntry(
 }
 
 // ---------------------------------------------------------------------------
-// verifyTeamEntry — checks 11 through 13 (plan 07-17, PD-03)
+// verifyTeamEntry — checks 11 through 13
 // ---------------------------------------------------------------------------
 
 const PLAYOFF_COMP_LEVELS = new Set(["ef", "qf", "sf", "f"]);
@@ -1206,7 +1189,7 @@ export function verifyTeamEntry(
   return { observed, failures };
 }
 
-/** PD-05 (plan 07-19): the team-level absence path, mirroring `verifyAbsenceEntry` exactly — see its doc comment. */
+/** The team-level absence path, mirroring `verifyAbsenceEntry` exactly — see its doc comment. */
 async function verifyAbsenceTeamEntry(origin: string, entry: TeamSubsetEntry, runId: string): Promise<TeamSubsetEntryResult> {
   const version = entry.version;
   if (version === undefined) {
@@ -1392,21 +1375,15 @@ function filterTeamSubset(options: CliOptions): readonly TeamSubsetEntry[] {
 }
 
 /**
- * Print-only, no assertion (PD-08's published corroboration, Task 4): for
- * one team entry ALREADY verified under its own (renamed) algorithm id,
- * fetches the SAME team-season under `legacyAlgorithmId` and prints both
- * metric tables side by side with the per-metric spread ratio
- * (renamed/legacy) — the direct read that lets a low-match team's WIDER
- * `spread` ratio (relative to a veteran's) be seen against real published
- * bytes, isolating D-01/D-02's `√(P+R)` redefinition from the
- * offseason-inclusion methodology change.
+ * Print-only, no assertion: for one team entry ALREADY verified under its
+ * own algorithm id, fetches the SAME team-season under `legacyAlgorithmId`
+ * and prints both metric tables side by side with the per-metric spread
+ * ratio.
  *
- * After plan 07-19, the retired id's objects no longer exist — this flag is
- * a HISTORICAL facility only (it will 404 against any `legacyAlgorithmId`
- * that has since been deleted), kept for the same reason `--compare-legacy`
- * itself was kept rather than removed after each prior rename step: a
- * record of what the tool could observe at the moment it ran, not a claim
- * that running it again will observe the same thing.
+ * A HISTORICAL facility: it will 404 against any `legacyAlgorithmId` that
+ * has since been deleted, so a successful run is a record of what the tool
+ * could observe at that moment, not a claim that running it again will
+ * observe the same thing.
  */
 async function printLegacyComparison(
   origin: string,
