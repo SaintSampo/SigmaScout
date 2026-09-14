@@ -34,8 +34,8 @@
  *     whole screen is identity columns," independent of any single pixel
  *     constant either side might later drift toward.
  *
- *     Since 2026-09-13 the event tables (Insights, Breakdown) have no pinned
- *     columns at all — classes 2 and 3 above run against TeamsTable only.
+ *     The event tables (Insights, Breakdown) have no pinned columns at
+ *     all — classes 2 and 3 above run against TeamsTable only.
  *
  * Runs on `phone-390`/`pixel-10` only (both at 390px UI-SPEC's own named
  * width, matching this repo's existing narrow-viewport convention rather
@@ -76,7 +76,7 @@ interface TableSpec {
   rowTestId: string;
   /** Declared-size columns to check, header-row order — must include every pinned column, in pinned order, first. */
   columns: ColumnSpec[];
-  /** This table's leading identity column ids, in order — never pinned since 2026-09-13 on the event tables, but still excluded from the "data column" checks below the same way a pinned identity column used to be. */
+  /** This table's leading identity column ids, in order — not pinned on the event tables, but still excluded from the "data column" checks below the same way a pinned identity column is. */
   identityColumnIds: readonly string[];
 }
 
@@ -157,8 +157,8 @@ for (const spec of TABLES) {
     });
 
     // Generated only for specs that declare at least one pinned column —
-    // since 2026-09-13 the event tables (Insights, Breakdown) pin nothing,
-    // so this class of check runs against TeamsTable only.
+    // the event tables (Insights, Breakdown) pin nothing, so this class
+    // of check runs against TeamsTable only.
     if (spec.columns.some((c) => c.pinned)) {
       test("sticky offset correctness: each pinned column's right edge meets the next pinned column's left edge with a 0px gap", async ({ page }) => {
         await gotoTable(page, spec);
@@ -330,8 +330,8 @@ test.describe("G-2 part 2 — at least one full data column visible at scroll 0 
       // visible on first paint") is about.
       //
       // Specs with NO pinned column at all (Insights, Breakdown — no column
-      // is frozen since 2026-09-13) have no `data-pinned` attribute to key
-      // off, so this excludes each of the spec's own `identityColumnIds` by
+      // is frozen) have no `data-pinned` attribute to key off, so this
+      // excludes each of the spec's own `identityColumnIds` by
       // testid suffix instead — the same "identity columns are not the data
       // this check is about" rule, expressed without `data-pinned`.
       const hasPinnedColumns = spec.columns.some((c) => c.pinned);
