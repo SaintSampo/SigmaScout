@@ -253,8 +253,8 @@ describe("serializeState/deserializeState — round-trip losslessness (continuat
 // Per-algorithm scope shape
 // ---------------------------------------------------------------------------
 
-describe("serializeState — D-09 scope shape", () => {
-  it("OprState's per-event accumulation emits 'event' rows (never a per-team accumulation row); its lastEventByTeam bookkeeping emits one 'team' row per tracked team (plan 04-08, D-13)", () => {
+describe("serializeState — per-algorithm scope shape", () => {
+  it("OprState's per-event accumulation emits 'event' rows (never a per-team accumulation row); its lastEventByTeam bookkeeping emits one 'team' row per tracked team", () => {
     seedFixtureSeason(db);
     const allMatches = buildSeasonStream(db, 2024);
     const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
@@ -307,7 +307,7 @@ describe("serializeState — stability (unchanged state produces identical state
 // Unknown passenger keys and algorithm ids
 // ---------------------------------------------------------------------------
 
-describe("deserializeState — an extra unknown passenger key on a team row is ignored (quick task 260913-it4)", () => {
+describe("deserializeState — an extra unknown passenger key on a team row is ignored", () => {
   // A stale D1 row can carry a retired team-row passenger; an unknown key must change nothing.
   it("spr: a row carrying an unknown key deserializes to a state whose predictions and continuation digest equal the clean row's", () => {
     seedFixtureSeason(db);
@@ -381,8 +381,8 @@ describe("deserializeState — missing league row", () => {
 // fails loudly.
 // ---------------------------------------------------------------------------
 
-describe("deserializeState — league row shape version (D-13, plan 04-08)", () => {
-  it("throws LeagueRowShapeVersionError when the league row has no snapshotShapeVersion at all (the retired pre-04-08 shape)", () => {
+describe("deserializeState — league row shape version", () => {
+  it("throws LeagueRowShapeVersionError when the league row has no snapshotShapeVersion at all (the retired shape)", () => {
     const retiredShapeLeagueRow: StateRow = StateRowSchema.parse({
       algorithmId: "epa",
       algorithmVersion: epa.version,
@@ -422,7 +422,7 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
     expect(() => deserializeState("opr", rows)).not.toThrow();
   });
 
-  it("STATE_SNAPSHOT_SHAPE_VERSION is 16, and a league row declaring ANY earlier shape throws (shape 16 added the spr league row's ranking-point mean shift, quick task 260914-01x, 2026-09-14)", () => {
+  it("STATE_SNAPSHOT_SHAPE_VERSION is 16, and a league row declaring ANY earlier shape throws (shape 16 added the spr league row's ranking-point mean shift)", () => {
     // Pinned by literal value. Stale shapes fail silently otherwise (a valid pmf,
     // a legal zero rate), so this is the only guard against live/offline drift.
     expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(16);
@@ -466,7 +466,7 @@ function expandMap<V>(source: ReadonlyMap<string, V>, targetCount: number, keyPr
   return result;
 }
 
-describe("serializeState — league row byte size is independent of team count (D-13, plan 04-08)", () => {
+describe("serializeState — league row byte size is independent of team count", () => {
   it("epa: league row byte length is identical at N teams and 10N teams, and at/under MAX_LEAGUE_ROW_BYTES", () => {
     seedFixtureSeason(db);
     const allMatches = buildSeasonStream(db, 2024);
@@ -567,7 +567,7 @@ describe("serializeState/deserializeState — Map members survive by size", () =
     expect(JSON.parse(frc3Row.stateJson)).not.toHaveProperty("current");
   });
 
-  it("OprState's lastEventByTeam round-trips with identical size and entries (plan 04-08, D-13)", () => {
+  it("OprState's lastEventByTeam round-trips with identical size and entries", () => {
     seedFixtureSeason(db);
     const allMatches = buildSeasonStream(db, 2024);
     const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
@@ -582,7 +582,7 @@ describe("serializeState/deserializeState — Map members survive by size", () =
     expect([...reconstructed.lastEventByTeam.entries()].sort()).toEqual([...finalState.lastEventByTeam.entries()].sort());
   });
 
-  it("OprState's allianceScoreStats round-trips with identical count/mean/m2 (D-Q4)", () => {
+  it("OprState's allianceScoreStats round-trips with identical count/mean/m2", () => {
     // Lost in the round trip, a re-seeded Worker would silently use the cold-start scale all season.
     seedFixtureSeason(db);
     const allMatches = buildSeasonStream(db, 2024);
@@ -670,7 +670,7 @@ describe("emitSeedSql", () => {
 
   // No published algorithm throws SeedRowTooLargeError at realistic season scale
   // (a per-team map in the league row would).
-  it("serializing a realistic season-scale epa/opr state and passing rows to emitSeedSql raises no SeedRowTooLargeError (D-13)", () => {
+  it("serializing a realistic season-scale epa/opr state and passing rows to emitSeedSql raises no SeedRowTooLargeError", () => {
     seedFixtureSeason(db);
     const allMatches = buildSeasonStream(db, 2024);
     const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
@@ -806,7 +806,7 @@ describe("emitSeedSql", () => {
   });
 });
 
-describe("deserializeSprState — shape-version guard (quick task 260908-5wd)", () => {
+describe("deserializeSprState — shape-version guard", () => {
   it("throws LeagueRowShapeVersionError for an SPR league row declaring an older shape", () => {
     const rows = [
       {
@@ -954,7 +954,7 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
     expect(JSON.parse(frc1Row.stateJson).carryPending).toBe(true);
   });
 
-  it("keeps carryPending OUT of the league row — D-13's bytes-must-not-grow-with-team-count rule", () => {
+  it("keeps carryPending OUT of the league row — the bytes-must-not-grow-with-team-count rule", () => {
     const rows = serializeState("epa", epa.version, carriedEpaState(), STAMP);
     const league = JSON.parse(rows.find((r) => r.scopeKind === "league")!.stateJson);
     expect(league).not.toHaveProperty("carryPending");
@@ -1160,7 +1160,7 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
 
 // ──────── Ranking-point beliefs (shape 15) ───────────────
 
-describe("ranking-point belief persistence (shape 15, plan 09-08)", () => {
+describe("ranking-point belief persistence (shape 15)", () => {
   /** Two variables on purpose, to exercise the per-variable nesting. */
   const BELIEFS = {
     hubTotalCount: { weight: 3.5, weightSquares: 2.25, mean: 41.75, m2: 180.5 },
@@ -1257,7 +1257,7 @@ describe("ranking-point belief persistence (shape 15, plan 09-08)", () => {
   });
 });
 
-describe("the ranking-point mean-shift league passenger (quick task 260914-01x)", () => {
+describe("the ranking-point mean-shift league passenger", () => {
   const SHIFT = { season: 2026, variables: { hubTotalCount: { count: 212, sum: 403.25 }, totalTowerPoints: { count: 0, sum: 0 } } };
 
   function rows(): StateRow[] {
