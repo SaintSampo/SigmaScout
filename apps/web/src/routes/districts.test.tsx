@@ -194,4 +194,46 @@ describe("/districts route", () => {
     await waitFor(() => expect(screen.getByTestId("district-locks-panel")).toBeDefined());
     expect(screen.getByTestId("district-locks-panel").hasAttribute("hidden")).toBe(false);
   });
+
+  it("a year change carries ?district= to the same district in the new year, or clears it when that year has none", async () => {
+    const indexFor = (year: number, abbreviations: string[]) =>
+      new Response(
+        JSON.stringify({
+          schemaVersion: 1,
+          generation: "gen-1",
+          computedAt: "2026-09-05T00:00:00.000Z",
+          year,
+          districts: abbreviations.map((abbreviation) => ({
+            districtKey: `${year}${abbreviation}`,
+            abbreviation,
+            displayName: abbreviation,
+            dcmpSlots: 54,
+            cmpSlots: 19,
+            teamCount: 90,
+            eventCount: 7,
+          })),
+        }),
+        { status: 200 },
+      );
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/v1/districts/2026")) return Promise.resolve(indexFor(2026, ["fnc", "fim"]));
+      if (url.includes("/v1/districts/2025")) return Promise.resolve(indexFor(2025, ["fnc"]));
+      if (url.includes("/v1/districts/2024")) return Promise.resolve(indexFor(2024, ["fim"]));
+      const detail = /\/v1\/district\/(\w+)\.json/.exec(url);
+      if (detail?.[1] !== undefined) return Promise.resolve(districtDetailResponse(detail[1]));
+      return new Promise<Response>(() => {});
+    });
+    const router = renderDistrictsRoute("/districts?year=2026&algorithm=spr&district=2026fnc");
+    const districtOf = () => (router.state.location.search as Record<string, unknown>).district;
+    await waitFor(() => expect(screen.getByTestId("district-locks-panel")).toBeDefined());
+
+    void router.navigate({ to: "/districts", search: (prev: Record<string, unknown>) => ({ ...prev, year: 2025 }) } as never);
+    await waitFor(() => expect(districtOf()).toBe("2025fnc"));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("/v1/district/2025fnc.json")));
+
+    void router.navigate({ to: "/districts", search: (prev: Record<string, unknown>) => ({ ...prev, year: 2024 }) } as never);
+    await waitFor(() => expect(districtOf()).toBeUndefined());
+    expect(await screen.findByText("Pick a district")).toBeDefined();
+  });
 });

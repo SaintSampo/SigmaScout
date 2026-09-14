@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -114,13 +114,29 @@ function DistrictsPage() {
 
   const indexQuery = useQuery({ ...districtsIndexQueryOptions({ year }), placeholderData: keepPreviousData });
 
-  // `enabled: district !== undefined` — with no `?district=`, render an
-  // empty state prompting a selection, not a silently auto-picked
+  // District keys are year-prefixed ("2026fnc"), so a ribbon year change
+  // leaves `?district=` pointing at the old season. Once this year's index
+  // resolves, carry the selection to the same district in the new year, or
+  // clear it when that district has no entry for the year.
+  const districtIsStale = district !== undefined && !district.startsWith(String(year));
+  const indexForYear = indexQuery.isPlaceholderData ? undefined : indexQuery.data;
+  const staleAbbreviation = districtIsStale ? district.slice(4) : undefined;
+  const carriedDistrict =
+    staleAbbreviation === undefined ? undefined : indexForYear?.districts.find((row) => row.abbreviation === staleAbbreviation)?.districtKey;
+  const effectiveDistrict = districtIsStale ? carriedDistrict : district;
+
+  useEffect(() => {
+    if (!districtIsStale || indexForYear === undefined) return;
+    void navigate({ search: (prev) => ({ ...prev, district: carriedDistrict }), replace: true });
+  }, [districtIsStale, indexForYear, carriedDistrict, navigate]);
+
+  // `enabled: effectiveDistrict !== undefined` — with no `?district=`, render
+  // an empty state prompting a selection, not a silently auto-picked
   // district. The detail fetch never fires until a real district key
-  // exists in the URL.
+  // exists for the selected year.
   const districtQuery = useQuery({
-    ...districtQueryOptions({ districtKey: district ?? "", year }),
-    enabled: district !== undefined,
+    ...districtQueryOptions({ districtKey: effectiveDistrict ?? "", year }),
+    enabled: effectiveDistrict !== undefined,
     placeholderData: keepPreviousData,
   });
 
@@ -150,7 +166,7 @@ function DistrictsPage() {
       error: districtError,
       isPending: districtQuery.isPending,
       data: districtQuery.data,
-      districtKey: district ?? "",
+      districtKey: effectiveDistrict ?? "",
       onRetry: () => void districtQuery.refetch(),
       renderPending: () => <DistrictsTabSkeleton />,
       renderPopulated: (artifact) => <DistrictLocksTab artifact={artifact} which="district" algorithm={algorithm} season={year} />,
@@ -163,7 +179,7 @@ function DistrictsPage() {
       error: districtError,
       isPending: districtQuery.isPending,
       data: districtQuery.data,
-      districtKey: district ?? "",
+      districtKey: effectiveDistrict ?? "",
       onRetry: () => void districtQuery.refetch(),
       renderPending: () => <DistrictsTabSkeleton />,
       renderPopulated: (artifact) => <DistrictLocksTab artifact={artifact} which="champ" algorithm={algorithm} season={year} />,
@@ -188,10 +204,12 @@ function DistrictsPage() {
       {!indexIs404 && !indexOtherError && indexQuery.data !== undefined && (
         <>
           <div className="mb-[var(--spacing-lg)]">
-            <DistrictSelect districts={indexQuery.data.districts} value={district} onValueChange={handleDistrictChange} />
+            <DistrictSelect districts={indexQuery.data.districts} value={effectiveDistrict} onValueChange={handleDistrictChange} />
           </div>
 
-          {district === undefined ? (
+          {districtIsStale && indexForYear === undefined ? (
+            <DistrictsTabSkeleton />
+          ) : effectiveDistrict === undefined ? (
             <EmptyState heading="Pick a district" body="Choose a district above to see its district and championship locks." />
           ) : (
             <Tabs value={activeTab} onValueChange={handleTabChange}>
