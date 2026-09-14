@@ -1,25 +1,20 @@
 /**
- * D-09/D-V3: `selectionsFor` MUST return an event selection for every algorithm
- * that keeps event-scoped state, and MUST NOT for any algorithm that does not.
+ * `selectionsFor` MUST return an event selection for every algorithm that
+ * keeps event-scoped state, and MUST NOT for any algorithm that does not.
  *
  * Both halves are load-bearing and both fail silently, which is why this file
  * exists rather than relying on the integration suite:
  *
- *   - A MISSING selection for an algorithm that HAS event state (OPR today;
- *     Sigma1 between quick tasks 260902-varopr and 260903-750) destroys data.
- *     The tick deserializes with an EMPTY accumulator, `update()` rebuilds it
- *     from the one or two matches that tick happened to see, and
- *     `selectChangedRows` writes the result back — so an event's whole
- *     accumulated history is overwritten one tick at a time. The rows stay
- *     well-formed and the tick reports success.
+ *   - A MISSING selection for an algorithm that HAS event state (OPR)
+ *     destroys data. The tick deserializes with an EMPTY accumulator,
+ *     `update()` rebuilds it from the one or two matches that tick happened
+ *     to see, and `selectChangedRows` writes the result back — so an event's
+ *     whole accumulated history is overwritten one tick at a time. The rows
+ *     stay well-formed and the tick reports success.
  *   - A SPURIOUS selection for an algorithm that has NO event state (EPA,
  *     SPR) spends a subrequest per tick fetching a row that is never written,
  *     against a free-plan budget of 50 per invocation. That one also reports
  *     success forever.
- *
- * The retired Sigma1 core (deleted by quick task 260913-it4) moved from the
- * first category to the second at D-Y3 (quick task 260903-750). The tests below
- * assert the CURRENT membership in both directions.
  */
 import { describe, expect, it } from "vitest";
 import { EVENT_SCOPED_ALGORITHM_IDS, selectionsFor } from "../src/scheduled.js";
