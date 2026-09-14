@@ -1,89 +1,39 @@
 /**
- * The FIRST district point model's declared per-component ceilings (quick
- * task 260905-lic Task 2) — the ONE table `reconciliation.test.ts` proves is
- * never exceeded by any real TBA-reported `district_rankings.event_points_raw`
- * component in the ingested corpus, which is what makes the District/Champ
- * Locks tabs' "mathematically guaranteed" verdict actually true rather than a
- * guess.
+ * The FIRST district point model's declared per-component ceilings — the
+ * one table `reconciliation.test.ts` proves is never exceeded by any real
+ * TBA-reported `district_rankings.event_points_raw` component in the
+ * ingested corpus, which is what makes the District/Champ Locks tabs'
+ * "mathematically guaranteed" verdict actually true rather than a guess.
  *
- * SOURCE: verified 2026-09-05 against the official FIRST district point
- * model (2026 Admin Manual, District Tournaments section, via
- * frcmanual.com/2026/district-tournaments): qualification max 22 (min 4),
- * alliance selection max 16 (17 minus captain/draft position, so position 1
- * earns 16), playoff max 30 (20 double-elim + 10 finals), District
- * Championship multiplier 3x, rookie bonus 10 (first-year) / 5
- * (second-year). Award points: 10 for the FIRST Impact Award (Chairman's
- * before 2025), 8 each for Engineering Inspiration and Rookie All-Star,
- * 5 for every other judged team award. All of these agree with the maximum
- * value TBA ever actually reported per component across the full ingested
- * corpus (2016-2020 and 2022-2026, 2021 permanently excluded; qual=22,
- * alliance=16, elim=30 in every season).
+ * qual/alliance/elim are verified against the official FIRST district point
+ * model (Admin Manual, District Tournaments section) and agree with the
+ * maximum TBA ever actually reported per component across every ingested
+ * season (2016-2020, 2022-2026; 2021 excluded).
  *
- * 2018 re-verified independently, 2026-09-07 (quick task 260907-12k):
- * `data/corpus.sqlite`, 1,543 `district_rankings` team rows and 3,724
- * `event_points_raw` entries for `district.year = 2018`, gave district tier
- * 22/16/30/15 and dcmp tier 66/48/90/30 observed, rookie bonus 10, DCMP
- * weight 3 confirmed by the exact 3x ratio on qual/alliance/elim — the same
- * numbers every other registered season already carries. These were
- * re-derived from the corpus, not copied forward from 2019's row; they
- * happen to agree with it.
- *
- * 2017 and 2016 measured independently the same day, 2026-09-07 (quick
- * task 260907-203), the same way and from the same corpus: 2016 gave 1,170
- * `district_rankings` team rows and 2,770 `event_points_raw` entries; 2017
- * gave 1,438 and 3,486. Both seasons give district tier 22/16/30/15 and
- * dcmp tier 66/48/90/30 observed, rookie bonus 10, and DCMP weight 3
- * confirmed by the exact 3x ratio on qual/alliance/elim. Like 2018's, these
- * were re-derived from the corpus rather than copied forward from 2019's
- * row; they happen to agree with it. Both seasons' observed dcmp AWARD
- * maximum is 30 rather than 45 = 3x15, exactly as 2018's is — the declared
- * ceiling stays 15 for both, for the reason the next two paragraphs give.
- *
- * THE MEASUREMENT TRAP, recorded because the 2016/2017 measurement hit it
- * and caught it: an `event_points_raw` entry's TIER must be read from that
- * entry's OWN `district_cmp` boolean, never inferred by joining to
- * `events` and testing `event_type == 2`. Classifying by `event_type`
- * misclassifies entries and yields a bogus DISTRICT-tier qual maximum of
- * 66 — which is the DCMP-tier figure (3 x 22) wearing the district tier's
- * name. Taken at face value it would silently triple every regular-event
- * ceiling this table declares, in the one direction (too HIGH) that only
- * delays a verdict, so nothing downstream would fail loudly.
+ * THE MEASUREMENT TRAP: an `event_points_raw` entry's tier must be read
+ * from that entry's own `district_cmp` boolean, never inferred by joining
+ * to `events` and testing `event_type == 2` — that misclassification yields
+ * a bogus district-tier qual maximum of 66 (the dcmp-tier figure wearing
+ * the district tier's name).
  *
  * THE AWARD CEILING IS A DELIBERATE JUDGMENT CALL. The official model has
- * no stated per-event cap on award points, and one team CAN win multiple
- * judged awards at one event: the corpus itself shows 15 (Impact 10 + a
- * 5-point judged award) in 2019/2020 and 13 (an 8-pointer + a 5-pointer) in
- * 2022. From 2023 on the observed maximum is exactly 10, but the per-award
- * values did not change and no rule forbids stacking (the rookie-only
- * awards were only retired for 2024/2025), so 10 is the observed maximum,
- * not a theoretical ceiling. A ceiling that is too LOW is the one direction
- * this model must never err in — it understates a rival's reachable total
- * and can declare a false "locked" guarantee — while a ceiling that is too
- * high only delays a verdict, so every season declares award=15, the
- * highest stack ever demonstrated (Impact + one judged). No larger stack
- * (e.g. Impact + two judged, 20) appears anywhere in ~12,000 ingested
- * team-season rows across eight seasons.
+ * no stated per-event cap on award points, and a team can win multiple
+ * judged awards at one event. A ceiling too LOW is the one direction this
+ * model must never err in — it would understate a rival's reachable total
+ * and could declare a false "locked" guarantee — while too high only
+ * delays a verdict. Every season declares award=15, the highest stack ever
+ * observed in the corpus (Impact + one judged award).
  *
- * The "dcmp" (District Championship) tier's every observed maximum is at or
- * below exactly 3x the same season's "district" maximum (qual 66/22,
- * alliance 48/16, elim 90/30 in every season with real DCMP data; 2019's
- * award 45/15 hits the ratio exactly) — confirming the manual's stated 3x
- * weight directly against every ingested season. The AWARD component is
- * the one place the ratio does not always close, and 2016, 2017 and 2018
- * are all three exceptions worth naming rather than smoothing over: each
- * season's observed dcmp award maximum is 30, not 45 = 3x15, because no
- * team in any of those seasons collected the full award stack — Impact plus
- * a second judged award — at a District Championship. The declared ceiling
- * stays 15 in all three regardless, for the reason given above: a ceiling
- * set too low is the only direction this model must never err in, while one
- * set too high (relative to what any single team in those seasons actually
- * reached) only delays a verdict, never produces a wrong one.
+ * The "dcmp" tier's every observed maximum is at or below exactly 3x the
+ * same season's "district" maximum, confirming the manual's stated 3x
+ * weight. Award is the one component where the ratio does not always close
+ * — 2016-2018's observed dcmp award maximum is 30, not 45, because no team
+ * in those seasons collected the full award stack at a DCMP — but the
+ * declared ceiling stays 15 regardless, for the same never-err-low reason.
  *
- * INERT ON THE SITE TODAY: `FIRST_SEASON` in `apps/web/src/lib/seasons.ts`
- * is still 2019 and no 2016, 2017 or 2018 artifacts exist in R2, so the
- * 2016, 2017 and 2018 rows below are consumed only by the harness and by
- * `reconciliation.test.ts`'s corpus proof until a publish for those seasons
- * lands. Publish, then reveal — in that order.
+ * Inert on the site today: 2016-2018 artifacts don't exist in R2, so those
+ * rows are consumed only by the harness and by `reconciliation.test.ts`'s
+ * corpus proof until a publish for those seasons lands.
  */
 
 /** The two event tiers this point model distinguishes — a regular district event, or a District Championship (weighted). */
@@ -134,11 +84,10 @@ const DISTRICT_BASE_MAXIMA: Readonly<Record<number, SeasonDistrictBaseMaxima>> =
 };
 
 /**
- * The District Championship weight, declared per-season (not a single
- * hardcoded constant reused everywhere) per this plan's own instruction —
- * every registered season carries the value 3, confirmed directly against
- * 2026fnc's live breakdown and against every other ingested season's
- * qual/alliance/elim ratios (see file header).
+ * The District Championship weight, declared per-season rather than one
+ * hardcoded constant — every registered season carries the value 3,
+ * confirmed against every ingested season's qual/alliance/elim ratios (see
+ * file header).
  */
 const DCMP_WEIGHT: Readonly<Record<number, number>> = {
   2016: 3,

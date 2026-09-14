@@ -1,22 +1,16 @@
 /**
- * Pure district/champ lock math (quick task 260905-lic Task 2, `locks.test.ts`
- * written first). No corpus import, no I/O. `floor(T) = T.pointTotal` (the
- * worst case: T scores nothing more). `ceiling(R) = R.pointTotal +
- * R.maxRemaining`. `threatCount(T)` counts every OTHER team `R` with
- * `ceiling(R) >= floor(T)` -- the `>=` rule, not `>`: a tie is settled by a
- * tiebreaker this model does not carry, so a tie must count as a possible
+ * Pure district/champ lock math. No corpus import, no I/O. `floor(T) =
+ * T.pointTotal` (worst case: T scores nothing more). `ceiling(R) =
+ * R.pointTotal + R.maxRemaining`. `threatCount(T)` counts every other team
+ * `R` with `ceiling(R) >= floor(T)` — `>=` not `>`, since a tie is settled
+ * by a tiebreaker this model does not carry and must count as a possible
  * loss. `status(T) === "locked"` exactly when `threatCount(T) < slots`.
  *
- * PERFORMANCE (must_haves: FiM ships ~500 teams, one sort plus a scan, not a
- * quadratic pairwise loop): every team's own ceiling is `>= its own floor`
- * (`maxRemaining >= 0`), so a team always counts itself among "teams whose
- * ceiling is >= this floor" -- which means `threatCount(T)` is exactly
- * `(count of ALL teams with ceiling >= floor(T)) - 1`, computable via one
- * binary search into a SINGLE sorted-ceilings array shared by every team,
- * rather than re-scanning the rival set per team. The symmetric fact holds
- * for elimination: a team's own floor is never `> its own ceiling`, so
- * `eliminationCount(T)` is exactly `count of ALL teams with floor >
- * ceiling(T)`, against one shared sorted-floors array. Both are O(log n) per
+ * Every team's own ceiling is always `>= its own floor`, so `threatCount(T)`
+ * is `(count of all teams with ceiling >= floor(T)) - 1`, computable by one
+ * binary search into a single sorted-ceilings array shared by every team
+ * rather than a quadratic pairwise scan. The symmetric fact holds for
+ * elimination against a shared sorted-floors array. Both are O(log n) per
  * team after one O(n log n) sort, so the whole district resolves in
  * O(n log n).
  */
@@ -28,15 +22,12 @@ export interface LockTeamInput {
 }
 
 /**
- * `"lockedAward"` and `"prequalified"` join the four base statuses (revision
- * R2a, `260905-lic-RESEARCH-awards.md` Q1/Q5): `"lockedAward"` is a team the
- * points math alone would not yet guarantee, but an award already does --
- * the award is what guarantees it, so it reports `"lockedAward"` rather than
- * `"locked"` even when it is ALSO points-safe (a team can be both; the
- * award is still what's cited). `"prequalified"` is a Championship-only
- * (never district/DCMP-tier) curated pre-qualification (Hall of Fame,
- * prior-year Championship results) that needs no points at all and is
- * never removed from anyone's `slots` allocation.
+ * `"lockedAward"` and `"prequalified"` join the four base statuses:
+ * `"lockedAward"` is a team the points math alone would not yet guarantee,
+ * but an award already does (a team can be both; the award is still what's
+ * cited). `"prequalified"` is a Championship-only curated pre-qualification
+ * (Hall of Fame, prior-year Championship results) that needs no points at
+ * all and is never removed from anyone's `slots` allocation.
  */
 export type LockStatus = "locked" | "lockedAward" | "prequalified" | "eliminated" | "contending" | "unknown";
 
@@ -137,19 +128,14 @@ export function computeLocks(teams: readonly LockTeamInput[], slots: number | nu
 }
 
 /**
- * Award-qualified and pre-qualified team keys for one `computeLocksWithQualifiers`
- * call (revision R2a, research Q5's slot arithmetic). `awardQualified` is a
- * CONSUMING set: each member reduces the pool's available `slots` by one
- * (research: `points_slots = max(slots - |consuming award qualifiers ∩
- * ranked|, 0)`) AND is itself removed from the points-competing pool (it is
- * neither a threat to, nor threatened by, anyone else). `prequalified` is a
- * NON-CONSUMING set: each member is likewise removed from the pool, but does
- * NOT reduce `slots` -- research Q5: `HALL_OF_FAME`/`PRIOR_YEAR_CMP_*` both
- * carry `eats_district_slot: False`. The two sets are expected to be
- * disjoint in practice (a district-event award qualifier and a
- * Championship pre-qualification are different tiers' concepts) but this
- * function does not enforce that -- membership in EITHER set alone is
- * sufficient to report that team `"lockedAward"`/`"prequalified"`.
+ * Award-qualified and pre-qualified team keys for one
+ * `computeLocksWithQualifiers` call. `awardQualified` is a CONSUMING set:
+ * each member reduces the pool's available `slots` by one and is itself
+ * removed from the points-competing pool. `prequalified` is a
+ * NON-CONSUMING set: each member is likewise removed from the pool but does
+ * not reduce `slots`. The two sets are expected to be disjoint in practice
+ * but this function does not enforce that — membership in either alone is
+ * sufficient to report `"lockedAward"`/`"prequalified"`.
  */
 export interface QualifierSets {
   readonly awardQualified: ReadonlySet<string>;
@@ -157,38 +143,27 @@ export interface QualifierSets {
 }
 
 /**
- * `computeLocks`'s award/pre-qualification-aware wrapper (revision R2a).
- * Every team in `qualifiers.prequalified` reports `"prequalified"`; every
- * remaining team in `qualifiers.awardQualified` reports `"lockedAward"` (a
- * team that is BOTH award-qualified and points-safe still reports
- * `"lockedAward"` -- the award is what guarantees it, research's own
- * framing). Every other team runs through the ordinary `computeLocks` pure
- * points math, but against a NARROWED pool (both qualified sets excluded)
- * and a NARROWED `slots` count (`slots` minus the number of ranked
- * award-qualified teams, floored at zero) -- research Q5's
- * `calculate_cutoffs`. `slots: null` still yields `"unknown"` for every
- * points-competing team, but a prequalified/award-qualified team's status is
- * unaffected by an unpublished capacity: the guarantee those two statuses
- * express does not come from the points-based slot count at all.
+ * `computeLocks`'s award/pre-qualification-aware wrapper. Every team in
+ * `qualifiers.prequalified` reports `"prequalified"`; every remaining team
+ * in `qualifiers.awardQualified` reports `"lockedAward"` (a team that is
+ * both award-qualified and points-safe still reports `"lockedAward"` — the
+ * award is what guarantees it). Every other team runs through the ordinary
+ * `computeLocks` pure points math, against a narrowed pool (both qualified
+ * sets excluded) and a narrowed `slots` count. `slots: null` still yields
+ * `"unknown"` for every points-competing team, but a prequalified/
+ * award-qualified team's status is unaffected by an unpublished capacity.
  *
  * PROPERTY (locks.test.ts): adding an award qualifier to a district never
- * IMPROVES a non-qualified rival's status -- removing one ranked team from
- * both the pool and the slot count is, at worst, a wash for everyone still
- * in the pool (one fewer competitor, but also one fewer slot to compete
- * for), and at best it is strictly worse for a rival whose own ceiling was
- * never actually threatened by the now-removed team in the first place.
+ * improves a non-qualified rival's status.
  */
 /**
- * The narrowed pool/slot-count derivation shared by `computeLocksWithQualifiers`
- * and `cutLinePointsWithQualifiers` (fix 260913-l8q: the NC 2026 172-vs-231
- * bug). Both award-qualified and prequalified teams are removed from the
- * pool; only award-qualified (consuming) membership reduces `pointsSlots`,
- * floored at zero. Extracted so the verdicts and the published cut line can
- * never drift apart -- before this fix, `scripts/publishDistricts.ts`'s
- * `cutLinePointsFor` read the raw, un-narrowed ranking at rank `slots`,
- * which could name a cut line a team ranked ABOVE it had already been
- * `"eliminated"` below (live proof: 2026fnc champ published 172 while the
- * pool-consistent value is 231).
+ * The narrowed pool/slot-count derivation shared by
+ * `computeLocksWithQualifiers` and `cutLinePointsWithQualifiers`. Both
+ * award-qualified and prequalified teams are removed from the pool; only
+ * award-qualified (consuming) membership reduces `pointsSlots`, floored at
+ * zero. Extracted so the verdicts and the published cut line can never
+ * drift apart — a past bug let a published cut line name a team the
+ * verdicts had already marked `"eliminated"`.
  */
 function qualifierPool(teams: readonly LockTeamInput[], slots: number, qualifiers: QualifierSets): { pool: LockTeamInput[]; pointsSlots: number } {
   const awardQualifiedRankedCount = teams.filter((t) => qualifiers.awardQualified.has(t.teamKey)).length;
@@ -228,26 +203,18 @@ export function computeLocksWithQualifiers(
 }
 
 /**
- * The published cut line: the point total a points-competing team must reach
- * to be safe, sharing `qualifierPool`'s exact pool/slot derivation with
- * `computeLocksWithQualifiers` above so the two can never disagree (fix
- * 260913-l8q). Returns `null` for a `null` `slots` (capacity not published),
- * a `pointsSlots` of zero (every slot is already consumed by ranked
- * award-qualified teams), or an empty pool. Otherwise the pool is sorted
- * descending by `pointTotal` and the value at index
- * `min(pointsSlots, pool.length) - 1` is returned -- the same clamp
- * `computeLocks`'s own pointsSlots-sized cutoff implies, so a pool smaller
- * than `pointsSlots` still returns its lowest-scoring member's total rather
- * than `undefined`.
+ * The published cut line: the point total a points-competing team must
+ * reach to be safe, sharing `qualifierPool`'s exact pool/slot derivation
+ * with `computeLocksWithQualifiers` so the two can never disagree. Returns
+ * `null` for a `null` `slots`, a `pointsSlots` of zero, or an empty pool.
+ * Otherwise the pool is sorted descending by `pointTotal` and the value at
+ * index `min(pointsSlots, pool.length) - 1` is returned, the same clamp
+ * `computeLocks`'s own pointsSlots-sized cutoff implies.
  *
  * INVARIANT (locks.test.ts's seeded property test): for every non-null
- * result `c`, every `computeLocksWithQualifiers` result run against the SAME
- * `teams`/`slots`/`qualifiers` satisfies both `pointTotal > c` implies not
- * `"eliminated"`, and `pointTotal < c` implies not `"locked"`. This is what
- * broke before the fix: `scripts/publishDistricts.ts`'s old `cutLinePointsFor`
- * read the raw ranking at rank `slots` -- ignoring the narrowed pool and
- * slot count the verdicts above actually use -- so a published cut line
- * could sit below a team the verdicts had already marked `"eliminated"`.
+ * result `c`, every `computeLocksWithQualifiers` result run against the
+ * same inputs satisfies `pointTotal > c` implies not `"eliminated"`, and
+ * `pointTotal < c` implies not `"locked"`.
  */
 export function cutLinePointsWithQualifiers(teams: readonly LockTeamInput[], slots: number | null, qualifiers: QualifierSets): number | null {
   if (slots === null) return null;
