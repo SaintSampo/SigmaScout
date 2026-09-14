@@ -1150,14 +1150,14 @@ export function buildRpCalibrationRecord(
 export const RP_ATTRIBUTION_PATH = "data/baselines/rp-attribution-2026-09.json";
 
 /**
- * The dot threshold, DUPLICATED here as a default rather than imported.
- * `apps/web/src/lib/bonusRp.ts` is the publisher of
- * `PREDICTED_BONUS_THRESHOLD`, and an offline measurement script importing
- * from the web app would couple the pipeline to the client bundle for one
- * float. The two are kept honest by an EQUALITY PIN on the web side
- * (`apps/web/src/lib/bonusRp.test.ts` asserts the committed record's
- * `dotThreshold` equals the constant), so a change to either fails loudly
- * instead of letting the measurement drift off the constant it describes.
+ * The dot threshold the attribution measurement was scored against.
+ *
+ * It used to mirror `PREDICTED_BONUS_THRESHOLD` in `apps/web/src/lib/bonusRp.ts`.
+ * F10 retired that web constant on 2026-09-14 (quick task 260914-01x):
+ * predicted bonus dots now fill to their probability with no threshold. The
+ * committed attribution record (`RP_ATTRIBUTION_PATH`) stays frozen at 0.5 and
+ * describes the threshold that was retired. Its pin is now the literal 0.5 in
+ * `apps/web/src/lib/bonusRp.test.ts`, not an equality against a live constant.
  */
 export const RP_DOT_THRESHOLD_DEFAULT = 0.5;
 

@@ -292,6 +292,9 @@ slice, and the later reporting slice stays unspent.
 
 Decision (Jacob, 2026-09-13): build candidates 1 and 3 as two separate knobs. Each starts inert and
 must earn promotion on its own. Ranges are declared from the game rules, not from season data.
+**Shipped 2026-09-14 (quick task 260914-01x):** both knobs were accepted by a bar committed before
+any figure existed, and lattice+meanShift shipped in code. It is published in the next generation.
+See the outcome section at the end of this document.
 
 ## Reproducing this record
 
@@ -311,3 +314,267 @@ npx tsx experiments/260913-tw1/bonusGapAttribution.ts --aggregate
 
 Each season takes seconds to under a minute. 2016 is the slowest, because of the 5-dimensional Monte
 Carlo.
+
+---
+
+## Outcome: lattice marginals and the mean shift measured and shipped (2026-09-14, quick task 260914-01x)
+
+Everything above is the tw1 probe. This section is the real build: both knobs were built in
+`packages/core`, measured through `scripts/measureRpCalibration.ts`'s publisher-identical scorer
+against a bar committed first, and the arm that bar chose shipped. **It is shipped in code and
+published in the next generation.** Until that publish lands, the live site still shows the
+pre-lattice odds.
+
+### The bar, then the record
+
+The bar is `applyRpBonusArmBar` in `scripts/measureRpCalibration.ts`, committed in `012bea91`
+before any code that could produce an arm figure. An arm is accepted only when BOTH its pooled
+bonus Brier AND its pooled total-RP RPS are strictly lower than control's, with no tolerance. The
+accepted arm with the lowest pooled RPS ships. Ties break on bonus Brier, then on the order
+lattice, meanShift, lattice+meanShift. If no arm is accepted, nothing ships.
+
+The record is `data/baselines/rp-bonus-arms-2026-09.json` (`4921dabf`). It comes from one run of
+`--seasons 2016-2020,2022 --algorithm spr --bonus-arms` at `8b1fed09`, with a clean packages and
+scripts tree at start and end. There was no re-run. A test (`fa766899`) re-applies the bar to the
+record's own pooled figures and requires the recorded verdict. The measurement code refuses any
+season from 2023 on and any algorithm other than `spr` before the corpus opens. **The 2023-2026
+slice was never used to accept anything.**
+
+### Pooled, 2016-2020 and 2022 (267,324 bonus and 137,482 total-RP observations)
+
+| arm | bonus Brier | delta | total-RP RPS | delta | mean predicted bonus | mean predicted RP | verdict |
+|---|---:|---:|---:|---:|---:|---:|---|
+| control | 0.179914 | — | 0.159627 | — | 0.1104 | 1.2146 | — |
+| lattice | 0.126571 | -0.053343 | 0.143114 | -0.016513 | 0.2068 | 1.4021 | accepted |
+| meanShift | 0.166592 | -0.013322 | 0.155001 | -0.004626 | 0.1386 | 1.2694 | accepted |
+| lattice+meanShift | **0.124278** | **-0.055636** | **0.141956** | **-0.017670** | 0.2513 | 1.4887 | **accepted, shipped** |
+
+Observed bonus rate 0.2668, actual mean RP 1.5231. All three arms were accepted, and
+lattice+meanShift has the lowest RPS, so it shipped with no override.
+
+By cell class (share of the gap to observed closed, and Brier):
+
+| arm | multi-variable closed | multi-variable Brier | single-variable closed | single-variable Brier |
+|---|---:|---:|---:|---:|
+| control | — | 0.2185 | — | 0.1606 |
+| lattice | 75.3% | 0.1270 | 26.7% | 0.1522 |
+| meanShift | 16.1% | 0.1988 | 26.9% | 0.1534 |
+| lattice+meanShift | **104.8%** | 0.1258 | 55.9% | 0.1474 |
+
+**The multi-variable pool overshoots at 104.8%.** Its mean prediction now sits slightly above
+observed rather than far below it, and its Brier still improves.
+
+**Why lattice closes 75.3% here where the probe closed 70.9%.** The ranges come from the game rules,
+not from season data. The probe used robust ranges taken from each season's data, with a width
+rule; this build declares each range from the manual. The two are different models, so they should
+not agree exactly.
+
+### Per season (reported, not a gate)
+
+Bonus Brier and total-RP RPS per arm, then the mean predicted bonus rate and mean predicted RP under
+control and the shipped arm against what happened.
+
+| season | control Brier / RPS | lattice | meanShift | lattice+meanShift | bonus rate: control, shipped, observed | RP: control, shipped, actual |
+|---|---|---|---|---|---|---|
+| 2016 | 0.3864 / 0.2276 | 0.1577 / 0.1596 | 0.3695 / 0.2208 | 0.1411 / 0.1544 | 0.0240, 0.3439, 0.4148 | 1.048, 1.688, 1.830 |
+| 2017 | 0.0487 / 0.1232 | 0.0489 / 0.1217 | 0.0464 / 0.1224 | **0.0526** / 0.1224 | 0.0215, 0.1085, 0.0592 | 1.043, 1.217, 1.118 |
+| 2018 | 0.1919 / 0.1587 | 0.1346 / 0.1386 | 0.1593 / 0.1478 | 0.1433 / 0.1405 | 0.1016, 0.3220, 0.2883 | 1.203, 1.644, 1.577 |
+| 2019 | 0.1322 / 0.1464 | 0.1206 / 0.1422 | 0.1249 / 0.1438 | 0.1173 / 0.1408 | 0.1247, 0.1889, 0.2303 | 1.249, 1.378, 1.479 |
+| 2020 | 0.1294 / 0.1704 | 0.1240 / 0.1692 | 0.1256 / 0.1695 | 0.1210 / 0.1685 | 0.0430, 0.0871, 0.1465 | 1.043, 1.087, 1.146 |
+| 2022 | 0.1813 / 0.1496 | 0.1781 / 0.1486 | 0.1733 / 0.1467 | 0.1710 / 0.1459 | 0.2864, 0.3370, 0.3884 | 1.573, 1.674, 1.779 |
+
+**2017's bonus Brier is 0.0039 worse under the shipped arm** (0.0487 to 0.0526), driven by `rotor`
+below. Its RPS still improves. Every other season improves on both figures.
+
+### Per cell (reported, not a gate)
+
+Each arm cell gives mean predicted, the Brier change against control, and the share of the gap
+closed.
+
+| season | bonus | class | n | observed | control mean / Brier | lattice | meanShift | lattice+meanShift |
+|---|---|---|---:|---:|---|---|---|---|
+| 2016 | breach | multi | 22158 | 0.6998 | 0.0247 / 0.6607 | 0.5003, -0.4432, 70.4% | 0.0420, -0.0270, 2.6% | 0.6102, -0.4689, 86.7% |
+| 2016 | capture | multi | 22158 | 0.1298 | 0.0232 / 0.1121 | 0.0527, -0.0143, 27.7% | 0.0358, -0.0069, 11.7% | 0.0775, -0.0218, 50.9% |
+| 2017 | kPa | multi | 25386 | 0.0305 | 0.0015 / 0.0292 | 0.0017, -0.0001, 0.5% | 0.0016, -0.0001, 0.3% | 0.0018, -0.0002, 0.9% |
+| 2017 | rotor | multi | 25386 | 0.0879 | 0.0416 / 0.0682 | 0.1827, +0.0006, 304.6% | 0.0571, -0.0045, 33.5% | 0.2152, **+0.0080**, **374.7%** |
+| 2018 | autoQuest | multi | 28312 | 0.4889 | 0.1802 / 0.3056 | 0.4626, -0.1145, 91.5% | 0.2826, -0.0630, 33.2% | 0.6127, -0.0935, **140.1%** |
+| 2018 | faceTheBoss | single | 28312 | 0.0877 | 0.0229 / 0.0783 | 0.0217, -0.0003, -2.0% | 0.0311, -0.0023, 12.5% | 0.0314, -0.0038, 13.1% |
+| 2019 | habDocking | single | 29858 | 0.4132 | 0.2494 / 0.2171 | 0.3275, -0.0233, 47.7% | 0.2941, -0.0145, 27.3% | 0.3778, -0.0297, 78.4% |
+| 2019 | completeRocket | constant | 29858 | 0.0473 | 0.0000 / 0.0473 | 0.0000, 0.0000, 0.0% | 0.0000, 0.0000, 0.0% | 0.0000, 0.0000, 0.0% |
+| 2020 | shieldOperational | single | 7640 | 0.1465 | 0.0430 / 0.1294 | 0.0706, -0.0054, 26.7% | 0.0572, -0.0038, 13.7% | 0.0871, -0.0084, 42.6% |
+| 2022 | cargoBonus | multi | 24128 | 0.3399 | 0.2206 / 0.1655 | 0.2391, -0.0059, 15.6% | 0.2623, -0.0111, 35.0% | 0.2832, -0.0151, 52.5% |
+| 2022 | hangarBonus | single | 24128 | 0.4368 | 0.3523 / 0.1970 | 0.3543, -0.0003, 2.3% | 0.3895, -0.0048, 44.1% | 0.3907, -0.0053, 45.5% |
+
+**2018 `autoQuest` overshoots** at 140.1% of the gap closed under the shipped arm, but its Brier
+still improves by 0.0935.
+
+### The 2017 rotor check
+
+| arm | mean predicted | observed | Brier | overshoot |
+|---|---:|---:|---:|---|
+| control | 0.0416 | 0.0879 | 0.0682 | no |
+| lattice | 0.1827 | 0.0879 | 0.0688 | **yes** |
+| meanShift | 0.0571 | 0.0879 | 0.0637 | no |
+| lattice+meanShift | 0.2152 | 0.0879 | 0.0762 | **yes** |
+
+**Rotor overshoots, and this is a real cost of the ship.** Under the shipped arm its gap closes
+374.7% and its Brier gets 0.0080 worse. Under lattice alone the Brier is only 0.0006 worse. The
+probe saw the same overshoot (234.0% under its shape arm).
+
+The likely cause is not fixed. The lattice evaluates `rotor` by summing auto and teleop rotor points
+as independent terms. The real game caps an alliance at four rotors in total, across both periods.
+Summing the two independently puts probability on combinations the field cannot produce, so the
+four-rotor tail gets too much mass. The bar is pooled and does not gate on one cell, so rotor did not
+block the ship. It is recorded here as a known defect.
+
+### Lattice declarations (rules only)
+
+Every threshold variable in all ten registered seasons declares a lattice support in its season
+module. Each value is taken from the game rules and the manuals and carries a one-line rule citation
+beside it. `packages/core/rankingPoints/rules.test.ts` pins the 34 pairs by set equality. No script
+or test reads 2023-2026 corpus data to derive or check them.
+
+| Season | Variable | step | min | max | Rule basis |
+|---|---|---:|---:|---:|---|
+| 2016 | position1crossings .. position5crossings | 1 | 0 | 2 | a DEFENSE is damaged at 2 crossings and further crossings do not count |
+| 2016 | attackedTowerEndStrength | 1 | (none) | (none) | strength counts down with no floor and its start is tier-dependent |
+| 2016 | teleopChallengePoints | 5 | 0 | 15 | CHALLENGE 5 per robot, 3 robots |
+| 2016 | teleopScalePoints | 15 | 0 | 45 | SCALE 15 per robot, 3 robots |
+| 2017 | autoFuelPoints | 1 | 0 | (none) | no fuel cap |
+| 2017 | teleopFuelPoints | 1 | 0 | (none) | no fuel cap |
+| 2017 | autoRotorPoints | 60 | 0 | 120 | 60 per rotor turning at end of AUTO; AUTO gears can finish rotors 1 and 2 only |
+| 2017 | teleopRotorPoints | 40 | 0 | 160 | 40 per rotor, 4 rotors, counted apart from AUTO rotors |
+| 2018 | autoRunPoints | 5 | 0 | 15 | AUTO-RUN 5 per robot, 3 robots |
+| 2018 | autoSwitchOwnershipSec | 1 | 0 | 15 | AUTO lasts 15 s, recorded in whole seconds |
+| 2018 | endgamePoints | 5 | 0 | 90 | PARK 5, CLIMB 30 per robot (LEVITATE credits one climb), 3 robots |
+| 2019 | habClimbPoints | 3 | 0 | 36 | HAB climb 3/6/12 per robot, 3 robots |
+| 2020 | endgamePoints | 5 | 0 | 90 | PARK 5, HANG 25 per robot, LEVEL 15 once |
+| 2022 | matchCargoTotal | 1 | 0 | (none) | no cargo cap |
+| 2022 | autoCargoTotal | 1 | 0 | (none) | no AUTO cargo cap (human players may score too) |
+| 2022 | endgamePoints | 1 | 0 | 45 | LOW 4 / MID 6 / HIGH 10 / TRAVERSAL 15 per robot, gcd 1 |
+| 2023 | totalChargeStationPoints | 2 | 0 | 42 | AUTO DOCKED 8 / ENGAGED 12 (1 robot); endgame PARK 2 / DOCKED 6 / ENGAGED 10 per robot |
+| 2023 | linkPoints | 5 | 0 | 45 | LINK 5; 3 rows of 9 nodes, so 9 links |
+| 2024 | noteCount | 1 | 0 | (none) | no NOTE cap |
+| 2024 | endGameTotalStagePoints | 1 | 0 | 31 | ONSTAGE 3 (4 SPOTLIT), HARMONY 2 per additional robot, TRAP 5 (3 traps) |
+| 2024 | onStageRobotCount | 1 | 0 | 3 | 3 robots |
+| 2025 | trough | 1 | 0 | (none) | manual sets no L1 limit |
+| 2025 | botRow, midRow, topRow | 1 | 0 | 12 | 12 BRANCHES per level |
+| 2025 | endGameBargePoints | 2 | 0 | 36 | PARK 2 / SHALLOW 6 / DEEP 12 per robot |
+| 2025 | autoLineCount | 1 | 0 | 3 | 3 robots |
+| 2025 | autoCoralCount | 1 | 0 | (none) | no AUTO coral limit |
+| 2026 | hubTotalCount | 1 | 0 | (none) | manual sets no FUEL cap |
+| 2026 | totalTowerPoints | 5 | 0 | 120 | AUTO LEVEL 1 15 (2 robots max); TELEOP LEVEL 1/2/3 10/20/30 per robot |
+
+### How the build differs from the probe
+
+- **Rule ranges, not robust ranges.** The probe took each range from the season's data. The build
+  declares it from the rules. This is why lattice closes 75.3% of the multi-variable gap here and
+  70.9% in the probe.
+- **The bounded family whenever a max exists.** When a variable declares both min and max, it gets a
+  beta-binomial matched to mean and variance, with a binomial fallback when the variance is at or
+  below binomial and the overdispersion clamped at rho 0.999. The probe also required a narrow range
+  before using the bounded family. Without a max, the variable gets a discretized Gaussian on its
+  step.
+- **Mass below min is lumped onto min.** The discretized Gaussian puts all probability below a
+  declared min onto min. Single-variable tails use the closed form, and a pmf is built only for
+  convolution, over plus or minus 8 sd with both tails lumped onto the end points.
+- **`attackedTowerEndStrength` is unbounded.** 2016 tower strength counts down with no floor and
+  starts at a tier-dependent value, so it declares `step: 1` with no min or max. It is the only
+  variable allowed to omit min.
+- **Multi-term clauses use exact lattice convolution.** Linear combinations and divisors (2016
+  `capture`, 2017 `rotor`, 2023 `sustainabilityBonus`) are summed exactly, with steps aligned, so the
+  family works where negative binomial throws. An out-of-range observed or fitted mean never throws;
+  it is clamped into support.
+
+### The mean shift
+
+For each threshold variable, the model keeps a running mean of (observed minus predicted alliance
+mean). It is per season, walk-forward and league-wide. Its population is exactly the probe's: bonus
+comp levels, RP-eligible event types, a breakdown present, and both sides parsing inside one try.
+Any parse failure skips the whole match. A side counts only when every roster team has history
+before this match's fold. The residual is taken against the unshifted mean read before the fold. The
+shift applies only to fully-warm rosters, and only after 200 prior observations of that variable.
+
+What it did on the selection slice, from the record:
+
+| season | sides scored | sides shifted | active after | final mean residuals |
+|---|---:|---:|---|---|
+| 2016 | 22158 | 20545 | 2016mndu2_qm12 | crossings +0.04 to +0.08, tower strength -0.53, challenge +0.74, scale +0.41 |
+| 2017 | 25386 | 23693 | 2017miket_qm21 | auto fuel +0.25, teleop fuel +0.29, auto rotor +3.76, teleop rotor +3.90 |
+| 2018 | 28312 | 26453 | 2018mawor_qm30 | auto run +0.75, switch seconds +0.54, endgame +3.13 |
+| 2019 | 29858 | 27956 | 2019nhgrs_qm20 | hab climb +0.76 |
+| 2020 | 7640 | 6696 | 2020isde2_qm44 | endgame +3.38 |
+| 2022 | 24128 | 22523 | 2022miket_qm15 | match cargo +1.68, auto cargo +0.28, endgame +1.19 |
+
+**Pre-schedule pricing.** Synthetic three-team rosters of real teams (`makeRankingPointFiller`) use
+the same per-alliance fully-warm check. The field-averaged presim has no real roster, so it applies
+the shift only when every team in the event roster has complete history. That is all-or-nothing and
+decided once per event, following `buildFieldContributions`' existing convention. When no shift is
+passed, the output is byte-identical to before.
+
+**It is live state.** The shift serializes onto the spr league row as `sigmascoutRpMeanShift`, and
+`STATE_SNAPSHOT_SHAPE_VERSION` is now 16 (`98c5bfa4`). The Worker and the state probe resume it,
+apply it, observe before the fold, and write it back, as `SigmaScoutLayer` does. A parity test
+builds a 120-match prior event, reaches at least 200 warm observations, and checks that live rows
+equal the offline layer. With the Worker's write-back removed, that test goes red.
+
+### Resolution tallies
+
+| arm | lattice fits | gaussian fits | degenerate | fallbacks (including degenerate) |
+|---|---:|---:|---:|---:|
+| control | 0 | 434261 | 39365 | 39365 |
+| lattice | 434261 | 0 | 39365 | 151155 |
+| meanShift | 0 | 434261 | 39365 | 39365 |
+| lattice+meanShift | 434261 | 0 | 39365 | 201940 |
+
+**Adding the mean shift roughly doubles 2016's lattice fallbacks**, from 43,560 to 90,956 (not
+counting degenerate fits). The cause is not diagnosed. The tally counts fallbacks but does not
+record which reason fired (mean outside support, under-dispersed binomial or clamped
+overdispersion), so this record cannot say.
+
+### Worker CPU
+
+A scratchpad benchmark (not committed) timed ranking-point pricing against Gaussian-declared
+modules. The lattice pricing costs **+0.22 ms per 130-match tick**. The mean shift costs about
+**+0.07 to 0.14 ms per tick**. Both are well inside the plan's 1.0 ms gate. The live tick is not
+observed until the Worker is deployed.
+
+### What was deleted at ship
+
+In `f79a55aa`: the `--bonus-arms` and `--emit-bonus-arms` flags, the four-layer fold,
+`ruleModuleWithLatticeArm`, `assertOutcomeHalfIdentical`, `bonusCellClass`, and
+`SigmaScoutLayer`'s measurement-only third constructor argument. The layer now builds the mean shift
+whenever it publishes RP, and all 34 variables declare `lattice`. The reader half stays, for any
+future bonus-arm re-measurement: `applyRpBonusArmBar`, `RpBonusArmRecordSchema`, the slice and
+algorithm guards, and the record test. The Gaussian and negative-binomial families stay in the
+`MarginalFamily` union. `analyticPmfGolden` now runs against Gaussian-declared variants and keeps
+characterizing that engine, with its JSON untouched. Winner predictions are byte-identical: the
+level-1 digest is unedited and the outcome-half digest was pinned before the flip and is unchanged
+after it.
+
+### The published scorecard, re-emitted
+
+`RP_CALIBRATION_MEASUREMENT_PATH` now points at `data/baselines/rp-calibration-2026-09e.json`,
+measured with `--seasons 2016-2020,2022-2026 --algorithm spr` from the post-ship tree (`589ef10a`).
+It covers the same ten seasons as `-09d`, because it is the published scorecard. **Its 2023-2026
+figures are that scorecard's existing scope, not an acceptance use.** They were measured after the
+ship decision, and nothing was changed in response to them. `-09d` stays frozen.
+
+| scope | observations | mean predicted bonus | observed | bonus Brier | total-RP RPS |
+|---|---:|---|---:|---|---|
+| all ten seasons | 558,192 | 0.1384 to **0.2505** | 0.2941 | 0.1809 to **0.1365** | 0.1581 to **0.1424** |
+| 2016-2020, 2022 | 267,324 | 0.1104 to 0.2513 | 0.2668 | 0.1799 to 0.1243 | 0.1596 to 0.1420 |
+| 2023-2026 (reported) | 290,868 | 0.1641 to 0.2498 | 0.3193 | 0.1818 to 0.1477 | 0.1562 to 0.1429 |
+
+Two cross-checks held. The `-09e` selection-slice pooled figures equal the shipped arm's figures in
+the record to within 1.3e-15. The outcome blocks equal `-09d`'s in every one of the ten seasons. In
+the reporting slice, 2026's bonus Brier is 0.00002 worse (0.085824 to 0.085844) and every other
+figure improves.
+
+### Owed, done by the next step (Task 9)
+
+A full publish of all seasons, the D1 seed (shape 16) before the Worker deploy, the Worker deploy,
+the push, and a check by content on the live site. Until then this model is shipped in code only.
+
+The same quick task shipped F10: predicted bonus dots now fill to their odds (`a25ac39f`). See
+`.planning/sketches/012-predicted-bonus-dots/README.md`.

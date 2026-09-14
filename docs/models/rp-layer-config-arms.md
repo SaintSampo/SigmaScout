@@ -395,7 +395,106 @@ ranking-points-audit.md`'s "F6 / F7 decision" subsection.
 
 ---
 
+## Lattice marginals and the mean shift, measured and shipped on the bonus half (2026-09-14, quick task 260914-01x)
+
+The two sections above changed the win/tie/loss half. This one changes the bonus half. It follows
+the same discipline: a bar committed before any figure, arms measured on the selection slice only,
+and the accepted arm shipped with no override. **It is shipped in code and published in the next
+generation.**
+
+**Why a fourth family.** The ranking-points audit's F4 attribution (`docs/models/
+rp-bonus-gap-attribution.md`, quick task 260913-tw1) found the integer shape of the threshold
+variables to be the main cause of the bonus under-prediction, and the mean deficit second. Jacob
+chose to build both as separate knobs. `lattice` is a new member of the `marginal` family union. It
+is not negative binomial, whose disposition (measured to help, declined on cost, 2026-09-12) is
+unchanged.
+
+**The two knobs.**
+
+- **`lattice`.** Each threshold variable declares a lattice support (step, and min and max where the
+  rules cap the value) in its season module, taken from the game rules. With both bounds, the
+  variable gets a bounded beta-binomial or binomial. Otherwise it gets a discretized Gaussian on its
+  step. Multi-term and divisor clauses are summed by exact lattice convolution.
+- **`meanShift`.** A per-season, walk-forward, league-wide running mean of (observed minus
+  predicted alliance mean) per threshold variable. It is built from fully-warm rosters, applied to
+  fully-warm rosters, and active after 200 prior observations of that variable.
+
+**The bar, committed before any arm was measured.** `applyRpBonusArmBar` (`scripts/
+measureRpCalibration.ts`, bar commit `012bea91`, dated 2026-09-14, older in git than the
+measurement code and every arm figure) accepts an arm only when BOTH its pooled bonus Brier AND its
+pooled total-RP RPS are strictly lower than control's, with no tolerance. The accepted arm with the
+lowest RPS ships. Ties break on bonus Brier, then the order lattice, meanShift, lattice+meanShift.
+If none is accepted, nothing ships.
+
+**The slice and the guards.** 2016-2020 and 2022, `--algorithm spr` only. `assertBonusArmSliceAllowed`
+refuses any season from 2023 on, and the algorithm guard requires exactly `spr`. Both run on the
+parsed list before the corpus opens. The 2023-2026 slice was never used to accept anything.
+
+**The measurement.** One replay per season folds every record through four layers, scored by the
+same helpers and gates the published scorecard uses. The outcome half was asserted identical across
+all four arms on every folded record. Pooled over 267,324 bonus and 137,482 total-RP observations
+(`data/baselines/rp-bonus-arms-2026-09.json`, run once at `8b1fed09` with a clean tree):
+
+| arm | bonus Brier | Brier delta | total-RP RPS | RPS delta | accepted |
+|---|---|---|---|---|---|
+| control | 0.179914 | — | 0.159627 | — | — |
+| lattice | 0.126571 | -0.053343 | 0.143114 | -0.016513 | yes |
+| meanShift | 0.166592 | -0.013322 | 0.155001 | -0.004626 | yes |
+| lattice+meanShift | 0.124278 | -0.055636 | 0.141956 | -0.017670 | **yes — shipped** |
+
+All three arms cleared the bar, and lattice+meanShift has the lowest RPS, so it shipped.
+
+**Costs, reported and not gating** (the per-season and per-cell tables are in the attribution
+doc's outcome section):
+
+- 2017 `rotor` overshoots. Its gap closes 374.7% and its Brier gets 0.0080 worse under the shipped
+  arm, and 0.0006 worse under lattice alone. The likely cause, not fixed: summing auto and teleop
+  rotors as independent terms ignores the joint cap of four rotors.
+- The 2017 season's bonus Brier is 0.0039 worse.
+- The multi-variable pool overshoots, at 104.8% of the gap closed.
+- 2018 `autoQuest` reaches 140.1% of the gap closed, but its Brier still improves (-0.0935).
+- Adding the mean shift roughly doubles 2016's lattice fallbacks, from 43,560 to 90,956. The cause
+  is not diagnosed, and the tally does not record a reason.
+- Worker CPU: the lattice pricing costs +0.22 ms per 130-match tick, and the mean shift about +0.07
+  to 0.14 ms.
+
+The lattice arm closes 75.3% of the multi-variable gap here, where the tw1 probe closed 70.9%. The
+ranges come from the game rules, not from season data, so the two are different models.
+
+**What shipped.** Both knobs, unconditionally, at every ranking-point call site. All 34 variables
+declare `lattice` (`f79a55aa`). `SigmaScoutLayer` builds the mean shift whenever it publishes RP. The
+live Worker (`apps/worker/src/scheduled.ts`) and the state probe resume, apply, observe and write
+back the shift as the layer does. It rides the spr league row as `sigmascoutRpMeanShift`, and
+`STATE_SNAPSHOT_SHAPE_VERSION` is 16 (`98c5bfa4`). The pre-schedule pricer applies it per synthetic
+alliance, and the field-averaged presim applies it all-or-nothing per event. The measurement seam
+was deleted: `--bonus-arms`, `--emit-bonus-arms`, the four-layer fold, `ruleModuleWithLatticeArm`,
+`assertOutcomeHalfIdentical` and the layer's third constructor argument. `applyRpBonusArmBar`,
+`RpBonusArmRecordSchema`, the slice and algorithm guards and the record test remain as the reader
+half. `SHIPPED_RP_LAYER_LABEL` gained `marginal=lattice, meanShift=fully-warm-walk-forward`, and
+`-09d`'s rpLayer test was re-pinned to its own frozen literal. Winner predictions are byte-identical.
+
+**The published measurement.** `RP_CALIBRATION_MEASUREMENT_PATH` now points at
+`data/baselines/rp-calibration-2026-09e.json`, measured `--seasons 2016-2020,2022-2026 --algorithm
+spr` from the post-ship tree. It has the same ten seasons as `-09d`, because it is the published
+scorecard. Its 2023-2026 figures are that scorecard's existing scope, not an acceptance use, and
+nothing was changed in response to them. Over all ten seasons, the mean predicted bonus rate moved
+from 0.1384 to 0.2505 against an observed 0.2941. Bonus Brier moved from 0.1809 to 0.1365, and
+total-RP RPS from 0.1581 to 0.1424. The selection-slice figures equal the arm record's shipped
+figures to within 1.3e-15, and the outcome blocks equal `-09d`'s in every season. `-09b`, `-09c`
+and `-09d` are byte-untouched.
+
+**Owed.** A full publish, the D1 seed (shape 16) before the Worker deploy, the Worker deploy, the
+push, and a check on the live site. These are Task 9 of the same quick task.
+
+Arm record: `data/baselines/rp-bonus-arms-2026-09.json`. Published measurement:
+`data/baselines/rp-calibration-2026-09e.json`. Bar commit: `012bea91`. Record commit: `4921dabf`.
+Ship commit: `f79a55aa`. Worker commit: `98c5bfa4`. Re-emit commit: `589ef10a`. Audit disposition:
+`.planning/todos/pending/ranking-points-audit.md`'s "F4 decision" subsection.
+
+---
+
 *Phase: 09-analytic-ranking-points-browser-side-simulation*
 *Plan: 09-05 (outcome section added by 09-06, 2026-09-11; total-RP re-measurement added by quick
-task 260913-qyn, 2026-09-13)*
+task 260913-qyn, 2026-09-13; lattice and mean-shift section added by quick task 260914-01x,
+2026-09-14)*
 *Written: 2026-09-11*

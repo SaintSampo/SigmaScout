@@ -631,11 +631,11 @@ Jacob made the four decisions below.
 
 | Finding | State |
 |---|---|
-| **F4** dependence between threshold variables | **MEASURED 2026-09-13, decided: lattice marginals and a mean shift, as two knobs.** The integer shape of the threshold variables dominates, closing 70.9% of the pooled multi-variable gap, while dependence between them closes -1.0%. See docs/models/rp-bonus-gap-attribution.md |
+| **F4** dependence between threshold variables | **SHIPPED 2026-09-14 (quick task 260914-01x), in code; published in the next generation.** Lattice marginals and the walk-forward mean shift were measured against a bar committed first, all three arms were accepted, and lattice+meanShift shipped. Pooled over 2016-2020 and 2022, bonus Brier 0.179914 to 0.124278 and total-RP RPS 0.159627 to 0.141956. Measured 2026-09-13: the integer shape of the threshold variables dominates, closing 70.9% of the pooled multi-variable gap, while dependence between them closes -1.0%. See docs/models/rp-bonus-gap-attribution.md |
 | **F6 / F7** win and tie half | **CLOSED 2026-09-13** (quick task 260913-qyn) — total-RP scorer built, WIN/TIE/WIN+TIE measured against the pre-committed bar on the 2016-2020,2022 selection slice, all three accepted, WIN+TIE shipped (lowest pooled RPS). See below |
 | **F8** cold-start gate | **SUPERSEDED.** Sigma Score always has a value (its prior covers a team with no matches), so the band gate never refuses a match under SPR, and OPR/EPA publish no RP at all. 2026casnv: RP pmf on 89 of 89 SPR rows |
 | **F9** partial-roster mean | **CLOSED, decision.** Now live rather than latent, because F8 no longer holds cold rosters back. Jacob, 2026-09-13: *cold robots should be treated as contributing nothing to RP, but we should still try to predict RP with known robots.* That is exactly what `momentsFor` does, so there is nothing to change |
-| **F10** bonus-dot display threshold | **DECIDED 2026-09-14 (Jacob): sketch 012 variant C, fill to the odds.** The dot fills from the bottom to the predicted probability, with no threshold, and the exact percentage stays in the tooltip. Not built yet. Ship it with or after the F4 fix. See `.planning/sketches/012-predicted-bonus-dots/README.md` |
+| **F10** bonus-dot display threshold | **SHIPPED 2026-09-14 (quick task 260914-01x, `a25ac39f`), in code; live on the next push.** Decided by Jacob the same day: sketch 012 variant C, fill to the odds. The dot fills from the bottom to the predicted probability in whole pixels, with no threshold, and the exact percentage stays in the tooltip and aria-label. Shipped together with the F4 fix. See `.planning/sketches/012-predicted-bonus-dots/README.md` |
 | **F12** 2019 `completeRocket` always false | **CLOSED, decision.** Declared `constant` in `2019.ts` on purpose. Old season, 4.7% observed under SPR. Not worth a predictor |
 | **F13** excluded matches award 0 RP | **CLOSED.** The wrong note was corrected 2026-09-10, and with F8 superseded no match is excluded for this reason |
 
@@ -726,3 +726,38 @@ before promoting the lattice knob. Build after the F6/F7 session (260913-qyn) la
 touch `marginals.ts` and `analyticPmf.ts`. The correlated joint and continuity-correction-only
 versions were not chosen. F10 is revisited now, against the probabilities this fix is expected to
 produce.
+
+**Outcome, 2026-09-14 (quick task 260914-01x): both knobs shipped, and F10 with them.** The
+bonus-arm bar (`applyRpBonusArmBar`) was committed as code and tests in `012bea91`, before any arm
+was measured. Both knobs were built inert, and each declared lattice range was taken from the game
+rules. The four arms were measured once on the 2016-2020,2022 selection slice under SPR (267,324
+bonus and 137,482 total-RP observations, `data/baselines/rp-bonus-arms-2026-09.json`). The 2023-2026
+slice was refused in code and never used to accept anything.
+
+| arm | bonus Brier | delta | total-RP RPS | delta | verdict |
+|---|---:|---:|---:|---:|---|
+| control | 0.179914 | — | 0.159627 | — | — |
+| lattice | 0.126571 | -0.053343 | 0.143114 | -0.016513 | accepted |
+| meanShift | 0.166592 | -0.013322 | 0.155001 | -0.004626 | accepted |
+| lattice+meanShift | 0.124278 | -0.055636 | 0.141956 | -0.017670 | **accepted, shipped** |
+
+lattice+meanShift shipped unconditionally, in `SigmaScoutLayer`, the live Worker (state shape 16),
+the state probe and pre-schedule pricing. The measurement seam was deleted.
+`RP_CALIBRATION_MEASUREMENT_PATH` now points at `data/baselines/rp-calibration-2026-09e.json`.
+Across all ten seasons, the mean predicted bonus rate moved from 0.1384 to 0.2505 against an
+observed 0.2941, so the 2.1x under-prediction is now about 1.17x. That scorecard's 2023-2026
+figures are its existing published scope, not an acceptance use.
+
+The costs are recorded, not fixed. The rotor check found an overshoot. 2017 `rotor` closes 374.7% of
+its gap with Brier 0.0080 worse, likely because summing auto and teleop rotors independently ignores
+the joint cap of four rotors. The 2017 season's bonus Brier is 0.0039 worse. The multi-variable pool
+overshoots at 104.8%. 2018 `autoQuest` reaches 140.1% with Brier still better. The mean shift
+roughly doubles 2016's lattice fallbacks, for a reason not yet diagnosed. Full tables:
+`docs/models/rp-bonus-gap-attribution.md`'s outcome section.
+
+F10 shipped in `a25ac39f`. Predicted dots fill to the odds with a 60% alliance fill and dark letter
+ink. Letter contrast on the fill is 5.94:1 for red and 5.77:1 for blue. Unknown dots stay dashed, and
+actual dots are unchanged.
+
+Both are shipped in code and published in the next generation. The publish, the D1 seed, the Worker
+deploy and the push are the same quick task's last step.
