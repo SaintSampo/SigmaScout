@@ -1,17 +1,16 @@
 /**
- * The transitional-manifest tool (plan 07-17, PD-01). `v1/manifest/algorithms.json`
- * is one shared, algorithm-agnostic key — every other published page artifact
+ * The transitional-manifest tool. `v1/manifest/algorithms.json` is one
+ * shared, algorithm-agnostic key — every other published page artifact
  * carries an algorithm segment in its own key and is therefore additive by
  * construction, but this one object is overwritten in place on every
- * `publishSeasons` run that does not pass `--skip-state`. During a rename
- * transition (07-16 renamed the published identity to `vpr`) that
- * single-key overwrite would strand one of two deployed readers no matter
- * which order (manifest write, client cutover) happens in — see
- * `07-17-PLAN.md`'s "The manifest problem, stated before it is solved" for
- * the full argument. This tool composes a manifest that names BOTH ids at
- * once, so neither the deployed browser (`useAlgorithmVersion`'s exact-id
- * `find`) nor the deployed Worker (`buildAlgorithmModules`'s exact-id filter
- * against `LIVE_ALGORITHM_IDS`) is ever left with an entry it does not carry.
+ * `publishSeasons` run that does not pass `--skip-state`. During an
+ * algorithm-id rename transition, that single-key overwrite would strand
+ * one of two deployed readers no matter which order (manifest write,
+ * client cutover) happens in. This tool composes a manifest that names
+ * BOTH ids at once, so neither the deployed browser
+ * (`useAlgorithmVersion`'s exact-id `find`) nor the deployed Worker
+ * (`buildAlgorithmModules`'s exact-id filter against `LIVE_ALGORITHM_IDS`)
+ * is ever left with an entry it does not carry.
  *
  * `ALGORITHMS_MANIFEST_KEY` is declared a third time here, deliberately, not
  * imported — `apps/worker/src/liveWindows.ts` and
@@ -83,9 +82,9 @@ export class EmptyManifestError extends Error {
 }
 
 /**
- * Thrown (WR-01, added retroactively by code review) when a post-write fetch of
- * `ALGORITHMS_MANIFEST_KEY` back through the public origin does not carry the same
- * `algorithms` entries this run just composed and PUT. This is the single shared,
+ * Thrown when a post-write fetch of `ALGORITHMS_MANIFEST_KEY` back through
+ * the public origin does not carry the same `algorithms` entries this run
+ * just composed and PUT. This is the single shared,
  * algorithm-agnostic manifest every Worker cron tick and every browser page reads to
  * resolve which algorithms are live — a stale KV propagation racing the R2 write, a
  * truncated body, or a transient 5xx treated as success would otherwise degrade the
@@ -275,7 +274,7 @@ export async function run(options: CliOptions): Promise<AlgorithmsManifest> {
   });
   console.log(`publishAlgorithmsManifest: published "${ALGORITHMS_MANIFEST_KEY}" to bucket "${options.bucket}" (${body.length} bytes).`);
 
-  // WR-01: this object is the single, shared, algorithm-agnostic manifest every browser page and
+  // This object is the single, shared, algorithm-agnostic manifest every browser page and
   // every Worker cron tick reads — a bad or truncated write here degrades the whole site silently.
   // Re-fetch through the public origin (cache-busted, via the same `fetchLiveManifest` helper used
   // above) and assert the entries actually landed as composed before declaring success.
