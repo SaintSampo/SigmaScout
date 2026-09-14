@@ -1,40 +1,40 @@
 /**
- * Convert a validated TBA event/match into a corpus row (D-05, DATA-02).
+ * Convert a validated TBA event/match into a corpus row.
  *
  * - `score_breakdown` is stored verbatim as text; only totals, winner, and
- *   RP awards are normalized here (D-05). A missing breakdown stays
+ *   RP awards are normalized here. A missing breakdown stays
  *   `null`/`hasScoreBreakdown: false` — never coerced to a zero-valued
- *   breakdown (RESEARCH.md Anti-Patterns, Pitfall 4).
+ *   breakdown.
  * - `redRpEarned`/`blueRpEarned` read `score_breakdown.{color}.rp`
- *   directly, falling back to the legacy `tba_rpEarned` name — per
- *   docs/data/tba-field-recon.md, `rp` is present for every 2022-2026
- *   season sampled, so no season-specific derivation is needed here.
- * - `sortTime` follows RESEARCH.md Pattern 3's fallback chain:
- *   actual_time, then predicted_time, then time, then a deterministic
- *   composite of event start date + comp-level play order + match number.
- * - The `replayed` flag (Pitfall 1 — TBA exposes no such field) is computed
- *   by `detectReplay` below, a pure diff over score-bearing fields. It is
+ *   directly, falling back to the legacy `tba_rpEarned` name — `rp` is
+ *   present for every recent season sampled, so no season-specific
+ *   derivation is needed here.
+ * - `sortTime` follows a fallback chain: actual_time, then predicted_time,
+ *   then time, then a deterministic composite of event start date +
+ *   comp-level play order + match number.
+ * - The `replayed` flag (TBA exposes no such field) is computed by
+ *   `detectReplay` below, a pure diff over score-bearing fields. It is
  *   invoked by `packages/corpus/db.ts`'s `upsertMatch`, the only place that
  *   can see the previously-stored row — wiring it there (not leaving it to
  *   each call site) means a caller cannot bypass the check by upserting
  *   directly.
- * - The `winnerImputed` flag (D-01, 01-REVIEW WR-06): a played, non-tied
- *   match whose TBA `winning_alliance` is empty (or some other non-red/blue
- *   value) is treated as a reporting gap rather than as a statement about
- *   the match — the winner is derived from the score comparison instead of
- *   being left `null`, which would otherwise silently drop the match from
+ * - The `winnerImputed` flag: a played, non-tied match whose TBA
+ *   `winning_alliance` is empty (or some other non-red/blue value) is
+ *   treated as a reporting gap rather than as a statement about the match
+ *   — the winner is derived from the score comparison instead of being
+ *   left `null`, which would otherwise silently drop the match from
  *   `selectMatchesChronological`'s `WHERE m.winner IS NOT NULL` clause. A
- *   TBA-reported `winning_alliance` is never overwritten or re-derived. The
- *   measured population of this case is 0 corpus-wide as of 2026-08-19, so
- *   this is a forward-looking guard rather than a repair.
- * - `videoKey` (quick task 260906-7eu): the `key` of the FIRST entry of
- *   `match.videos` whose `type` is exactly `"youtube"`, stored verbatim
- *   including any trailing timestamp suffix TBA carries on older rows — D-05's
- *   standing verbatim-storage rule, since the suffix is real provenance the
- *   client's parser (Task 2) can use. `null` when `videos` is absent, null,
- *   empty, or contains no youtube entry. Never validated, stripped or
- *   canonicalized here — that belongs to the client-side parser, where a junk
- *   value degrades to "no button" instead of aborting an ingest run.
+ *   TBA-reported `winning_alliance` is never overwritten or re-derived.
+ *   This is measured to be a rare case corpus-wide, so this is a
+ *   forward-looking guard rather than a repair.
+ * - `videoKey`: the `key` of the FIRST entry of `match.videos` whose `type`
+ *   is exactly `"youtube"`, stored verbatim including any trailing
+ *   timestamp suffix TBA carries on older rows — this project's standing
+ *   verbatim-storage rule, since the suffix is real provenance the
+ *   client's parser can use. `null` when `videos` is absent, null, empty,
+ *   or contains no youtube entry. Never validated, stripped or
+ *   canonicalized here — that belongs to the client-side parser, where a
+ *   junk value degrades to "no button" instead of aborting an ingest run.
  */
 import type { CompLevel } from "../core/algorithms/types.js";
 import type { TbaEvent, TbaMatch } from "./schemas.js";
@@ -53,11 +53,11 @@ export interface CorpusEvent {
   stateProv: string | null;
   /**
    * TBA's short district abbreviation (`ne`, `fim`, `ont`) — deliberately
-   * NOT `district.key`, which is year-prefixed (`2024ne`). D-11 requires a
-   * year change to preserve active filters, so a year-scoped identifier
-   * would silently invalidate every district filter on every year switch.
-   * The abbreviation is stable across seasons and is what an FRC user
-   * recognizes (plan 05-02).
+   * NOT `district.key`, which is year-prefixed (`2024ne`). A year change
+   * must preserve active filters, so a year-scoped identifier would
+   * silently invalidate every district filter on every year switch. The
+   * abbreviation is stable across seasons and is what an FRC user
+   * recognizes.
    */
   districtKey: string | null;
 }
@@ -100,7 +100,7 @@ export function normalizeEvent(event: TbaEvent): CorpusEvent {
     name: event.name,
     // `?? null` collapses `undefined` (field absent from TBA's response) and
     // `null` (field present but empty) into one corpus value — the corpus
-    // never stores the difference between "absent" and "null" (plan 05-02).
+    // never stores the difference between "absent" and "null".
     week: event.week ?? null,
     country: event.country ?? null,
     stateProv: event.state_prov ?? null,
@@ -121,9 +121,9 @@ function isPlayed(match: TbaMatch): boolean {
 }
 
 /**
- * The FIRST youtube entry's `key` out of TBA's `videos` array (quick task
- * 260906-7eu), or `null` when `videos` is absent, null, empty, or contains
- * no youtube entry. A youtube entry appearing after a `tba`-type entry is
+ * The FIRST youtube entry's `key` out of TBA's `videos` array, or `null`
+ * when `videos` is absent, null, empty, or contains no youtube entry. A
+ * youtube entry appearing after a `tba`-type entry is
  * still selected — this scans the whole array rather than assuming position
  * 0. Stored verbatim; see this file's header comment for why no
  * validation/canonicalization happens here.
@@ -137,16 +137,15 @@ function extractVideoKey(videos: TbaMatch["videos"]): string | null {
 }
 
 /**
- * Out-of-scope fix authorized at 07-17's checkpoint:decision (not part of
- * that plan — see its own commit message): `2024orbb`/`2025orbb` (Oregon
- * BunnyBots, an offseason event running a non-FRC custom game, event_type
- * 99) self-report a `rp` field that is NOT a ranking-point count at all —
- * observed values include `32.5`, `34.5`, `12.5` alongside `85`, `108` —
- * nothing FRC-shaped, since BunnyBots has no RP rules to report against.
- * Requiring `Number.isInteger` degrades this to `null` (D-02's established
- * "not derivable" contract) rather than rounding/truncating a fabricated RP
- * value into existence — mirrors `tryParseBreakdownPair`'s degrade-not-throw
- * precedent for other self-reported offseason breakdown shapes
+ * `2024orbb`/`2025orbb` (Oregon BunnyBots, an offseason event running a
+ * non-FRC custom game, event_type 99) self-report a `rp` field that is NOT
+ * a ranking-point count at all — observed values include `32.5`, `34.5`,
+ * `12.5` alongside `85`, `108` — nothing FRC-shaped, since BunnyBots has no
+ * RP rules to report against. Requiring `Number.isInteger` degrades this
+ * to `null` (the established "not derivable" contract) rather than
+ * rounding/truncating a fabricated RP value into existence — mirrors
+ * `tryParseBreakdownPair`'s degrade-not-throw precedent for other
+ * self-reported offseason breakdown shapes
  * (`packages/core/algorithms/breakdown/index.ts`).
  */
 function extractRp(breakdown: unknown, color: "red" | "blue"): number | null {
@@ -172,8 +171,8 @@ export function normalizeMatch(match: TbaMatch, eventStartDate: string): CorpusM
       winner = "tie";
     } else {
       // TBA's `winning_alliance` is empty (or some other non-red/blue
-      // value) on a played, non-tied match. D-01/01-REVIEW WR-06: derive
-      // the winner from the score comparison rather than leaving it null.
+      // value) on a played, non-tied match. Derive the winner from the
+      // score comparison rather than leaving it null.
       winner = redScore! > blueScore! ? "red" : "blue";
       winnerImputed = true;
     }
@@ -232,9 +231,9 @@ export interface ReplayDetectionResult {
 }
 
 /**
- * TBA exposes no "this match was replayed" field (RESEARCH.md Pitfall 1),
- * so D-08's flag is synthesized here by diffing an incoming upsert against
- * the row already stored for that match key.
+ * TBA exposes no "this match was replayed" field, so this flag is
+ * synthesized here by diffing an incoming upsert against the row already
+ * stored for that match key.
  *
  * A replay is detected only when the *previously stored* row was already
  * complete (had a winner) AND the incoming winner/scores/raw breakdown
