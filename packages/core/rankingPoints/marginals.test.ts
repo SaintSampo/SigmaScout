@@ -186,8 +186,8 @@ describe("declared vs resolved — three separate facts, never conflated (D-09 o
 describe("fitAllianceMarginals — reads only the diagonal", () => {
   it("off-diagonal entries are read as nothing — a non-zero off-diagonal does not change the resulting fits", () => {
     const variables: readonly RpThresholdVariable[] = [
-      { name: "a", unit: "count", marginalFamily: "gaussian" },
-      { name: "b", unit: "count", marginalFamily: "gaussian" },
+      { name: "a", unit: "count", marginalFamily: "gaussian", lattice: { step: 1, min: 0 } },
+      { name: "b", unit: "count", marginalFamily: "gaussian", lattice: { step: 1, min: 0 } },
     ];
     const moments: AllianceRpMoments = {
       variableNames: ["a", "b"],

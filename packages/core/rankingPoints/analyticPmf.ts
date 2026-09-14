@@ -53,8 +53,11 @@ import { eventTierFor, isBonusRpCompLevel, resolveRpThreshold } from "./constant
 import type { AllianceRpMoments } from "./moments.js";
 import type { FittedMarginal } from "./marginals.js";
 import {
+  divideLatticePmf,
   fitAllianceMarginals,
   fitMarginal,
+  latticeSumTail,
+  materializeLatticeMarginal,
   poissonBinomialAtLeast,
   probAtLeast,
   probAtMost,
@@ -80,12 +83,14 @@ export interface MarginalResolutionTally {
   negativeBinomial: number;
   gaussian: number;
   degenerate: number;
+  /** Fits that resolved to the lattice family (quick task 260914-01x). A lattice shape fallback also counts in `fallbacks`. */
+  lattice: number;
   fallbacks: number;
 }
 
 /** A fresh, all-zero `MarginalResolutionTally` — for callers that want their own counter rather than sharing `SigmaScoutLayer`'s running one. */
 export function emptyMarginalResolutionTally(): MarginalResolutionTally {
-  return { negativeBinomial: 0, gaussian: 0, degenerate: 0, fallbacks: 0 };
+  return { negativeBinomial: 0, gaussian: 0, degenerate: 0, lattice: 0, fallbacks: 0 };
 }
 
 /** Increments `tally` by one fitted marginal's resolved family and (separately) its fallback status. */
@@ -99,6 +104,9 @@ function accumulateMarginalResolution(tally: MarginalResolutionTally, marginal: 
       break;
     case "degenerate":
       tally.degenerate += 1;
+      break;
+    case "lattice":
+      tally.lattice += 1;
       break;
   }
   if (marginal.fallbackReason !== undefined) tally.fallbacks += 1;
@@ -210,6 +218,11 @@ function familyForClauseSum(
       throw new Error(
         `analyticRpPmf: season ${season} bonus "${bonusName}" sums scaled terms all declaring "negative-binomial" over variables {${clause.terms.map((term) => term.variable).join(", ")}}, which is not closed under scaled addition — a sum of independent negative binomials is negative binomial only when every p matches, and a divided term is not even integer-supported, so implement that joint explicitly or declare "gaussian" on every variable appearing in a multi-term or divisor-bearing clause`
       );
+    case "lattice":
+      // Not closed under scaled addition either, but it needs no refit: the
+      // caller sums the terms exactly by lattice convolution instead, each
+      // term's lattice divided by its own divisor (quick task 260914-01x).
+      return "lattice";
     default: {
       // `never` so a third union member fails to compile here, before it
       // can fail at runtime on real data — whoever adds that member gets a
@@ -242,6 +255,8 @@ function familyForClauseSum(
  * associative, and `RpLinearTerm.divisor` is always a divisor, never a
  * multiplier), fits it with the family `familyForClauseSum` derives from
  * those terms' declarations, and compares against the resolved threshold.
+ * A clause whose terms all declare "lattice" is summed exactly on the
+ * lattice instead (`latticeSumTail`), never refitted from combined moments.
  * A single term with a divisor takes this route deliberately: `X / c` is
  * not `X`, so closure under scaling is load-bearing there and identity is
  * not available.
@@ -273,6 +288,14 @@ function clauseProbability(
     return clause.direction === "gte" ? probAtLeast(only, threshold) : probAtMost(only, threshold);
   }
 
+  const family = familyForClauseSum(marginals, clause, season, bonusName);
+  if (family === "lattice") {
+    // Exact sum on the lattice: each term materialized, divided by its own
+    // divisor, and summed in declared term order.
+    const terms = marginals.map((marginal, i) => divideLatticePmf(materializeLatticeMarginal(marginal), clause.terms[i]!.divisor ?? 1));
+    return latticeSumTail(terms, resolveRpThreshold(clause.threshold, tier), clause.direction);
+  }
+
   // Left-to-right in declared term order, dividing rather than multiplying
   // by a precomputed coefficient — a threshold comparison is exactly where
   // that float difference becomes observable.
@@ -283,7 +306,6 @@ function clauseProbability(
     mean += marginals[i]!.mean / divisor;
     variance += marginals[i]!.variance / (divisor * divisor);
   }
-  const family = familyForClauseSum(marginals, clause, season, bonusName);
   const combined = fitMarginal(mean, variance, family);
   const threshold = resolveRpThreshold(clause.threshold, tier);
   return clause.direction === "gte" ? probAtLeast(combined, threshold) : probAtMost(combined, threshold);
@@ -828,6 +850,7 @@ export function analyticRpPmf(input: AnalyticRpPmfInput): AnalyticRpPmfResult {
     tally.negativeBinomial += callTally.negativeBinomial;
     tally.gaussian += callTally.gaussian;
     tally.degenerate += callTally.degenerate;
+    tally.lattice += callTally.lattice;
     tally.fallbacks += callTally.fallbacks;
   }
 

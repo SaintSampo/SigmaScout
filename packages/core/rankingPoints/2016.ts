@@ -193,26 +193,36 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     name: "position1crossings",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: a DEFENSE is damaged at 2 crossings and further crossings do not count.
+    lattice: { step: 1, min: 0, max: 2 },
   },
   {
     name: "position2crossings",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: a DEFENSE is damaged at 2 crossings and further crossings do not count.
+    lattice: { step: 1, min: 0, max: 2 },
   },
   {
     name: "position3crossings",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: a DEFENSE is damaged at 2 crossings and further crossings do not count.
+    lattice: { step: 1, min: 0, max: 2 },
   },
   {
     name: "position4crossings",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: a DEFENSE is damaged at 2 crossings and further crossings do not count.
+    lattice: { step: 1, min: 0, max: 2 },
   },
   {
     name: "position5crossings",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: a DEFENSE is damaged at 2 crossings and further crossings do not count.
+    lattice: { step: 1, min: 0, max: 2 },
   },
   // The OPPONENT side's `towerEndStrength`, exposed as an own-alliance
   // variable because it measures THIS alliance's offensive output against
@@ -221,6 +231,8 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     name: "attackedTowerEndStrength",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: strength counts down one per boulder with no floor, and its start is tier-dependent, so no bound is declared.
+    lattice: { step: 1 },
   },
   // Point values, not counts — the rule converts them to a robot count with
   // the per-robot divisors above rather than reading a count field, because
@@ -229,11 +241,15 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     name: "teleopChallengePoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: CHALLENGE 5 per robot, 3 robots.
+    lattice: { step: 5, min: 0, max: 15 },
   },
   {
     name: "teleopScalePoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: SCALE 15 per robot, 3 robots.
+    lattice: { step: 15, min: 0, max: 45 },
   },
 ];
 

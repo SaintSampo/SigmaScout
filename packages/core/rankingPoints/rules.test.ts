@@ -412,3 +412,79 @@ describe("eventTierFor", () => {
     expect(() => eventTierFor(6)).toThrow();
   });
 });
+
+/**
+ * Lattice declarations (quick task 260914-01x, SD-01 / CD-01), pinned
+ * literally from the plan's rule table: a set equality over every
+ * (season, variable) pair, so a renamed, dropped or newly-registered variable
+ * fails here instead of being skipped by an iteration.
+ */
+describe("lattice declarations — the exact pinned rule-derived supports", () => {
+  const LATTICE_DECLARATIONS: Readonly<Record<string, { step: number; min?: number; max?: number }>> = {
+    "2016:position1crossings": { step: 1, min: 0, max: 2 },
+    "2016:position2crossings": { step: 1, min: 0, max: 2 },
+    "2016:position3crossings": { step: 1, min: 0, max: 2 },
+    "2016:position4crossings": { step: 1, min: 0, max: 2 },
+    "2016:position5crossings": { step: 1, min: 0, max: 2 },
+    "2016:attackedTowerEndStrength": { step: 1 },
+    "2016:teleopChallengePoints": { step: 5, min: 0, max: 15 },
+    "2016:teleopScalePoints": { step: 15, min: 0, max: 45 },
+    "2017:autoFuelPoints": { step: 1, min: 0 },
+    "2017:teleopFuelPoints": { step: 1, min: 0 },
+    "2017:autoRotorPoints": { step: 60, min: 0, max: 120 },
+    "2017:teleopRotorPoints": { step: 40, min: 0, max: 160 },
+    "2018:autoRunPoints": { step: 5, min: 0, max: 15 },
+    "2018:autoSwitchOwnershipSec": { step: 1, min: 0, max: 15 },
+    "2018:endgamePoints": { step: 5, min: 0, max: 90 },
+    "2019:habClimbPoints": { step: 3, min: 0, max: 36 },
+    "2020:endgamePoints": { step: 5, min: 0, max: 90 },
+    "2022:matchCargoTotal": { step: 1, min: 0 },
+    "2022:autoCargoTotal": { step: 1, min: 0 },
+    "2022:endgamePoints": { step: 1, min: 0, max: 45 },
+    "2023:totalChargeStationPoints": { step: 2, min: 0, max: 42 },
+    "2023:linkPoints": { step: 5, min: 0, max: 45 },
+    "2024:noteCount": { step: 1, min: 0 },
+    "2024:endGameTotalStagePoints": { step: 1, min: 0, max: 31 },
+    "2024:onStageRobotCount": { step: 1, min: 0, max: 3 },
+    "2025:trough": { step: 1, min: 0 },
+    "2025:botRow": { step: 1, min: 0, max: 12 },
+    "2025:midRow": { step: 1, min: 0, max: 12 },
+    "2025:topRow": { step: 1, min: 0, max: 12 },
+    "2025:endGameBargePoints": { step: 2, min: 0, max: 36 },
+    "2025:autoLineCount": { step: 1, min: 0, max: 3 },
+    "2025:autoCoralCount": { step: 1, min: 0 },
+    "2026:hubTotalCount": { step: 1, min: 0 },
+    "2026:totalTowerPoints": { step: 5, min: 0, max: 120 },
+  };
+
+  const declared = new Map<string, { step: number; min?: number; max?: number }>();
+  for (const season of RP_REGISTERED_SEASONS) {
+    for (const variable of RP_RULE_MODULES[season]!.thresholdVariables) declared.set(`${season}:${variable.name}`, variable.lattice);
+  }
+
+  it("the (season, variable) set equals the 34 tabled rows exactly, and every support equals its literal", () => {
+    expect(Object.keys(LATTICE_DECLARATIONS)).toHaveLength(34);
+    expect(new Set(declared.keys())).toEqual(new Set(Object.keys(LATTICE_DECLARATIONS)));
+    for (const [key, lattice] of declared) expect(lattice, key).toEqual(LATTICE_DECLARATIONS[key]);
+  });
+
+  it("every lattice has a finite positive step, finite bounds, min <= max, and an integer (max - min) / step where both exist", () => {
+    for (const [key, lattice] of declared) {
+      expect(Number.isFinite(lattice.step) && lattice.step > 0, `${key} step`).toBe(true);
+      if (lattice.min !== undefined) expect(Number.isFinite(lattice.min), `${key} min`).toBe(true);
+      if (lattice.max !== undefined) {
+        expect(Number.isFinite(lattice.max), `${key} max`).toBe(true);
+        expect(lattice.min, `${key} declares max without min`).toBeDefined();
+      }
+      if (lattice.min !== undefined && lattice.max !== undefined) {
+        expect(lattice.max >= lattice.min, `${key} max >= min`).toBe(true);
+        expect(Number.isInteger((lattice.max - lattice.min) / lattice.step), `${key} (max - min) / step`).toBe(true);
+      }
+    }
+  });
+
+  it("exactly one variable, 2016 attackedTowerEndStrength, omits min (CD-01: no rule floor)", () => {
+    const withoutMin = [...declared].filter(([, lattice]) => lattice.min === undefined).map(([key]) => key);
+    expect(withoutMin).toEqual(["2016:attackedTowerEndStrength"]);
+  });
+});

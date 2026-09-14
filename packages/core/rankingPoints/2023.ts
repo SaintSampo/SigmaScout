@@ -78,11 +78,15 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     name: "totalChargeStationPoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: Table 6-2: AUTO DOCKED 8 / ENGAGED 12 (1 ROBOT max); endgame PARK 2 / DOCKED 6 / ENGAGED 10 per robot; gcd 2.
+    lattice: { step: 2, min: 0, max: 42 },
   },
   {
     name: "linkPoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: Table 6-2: LINK 5; 3 ROWS of 9 NODES, so 9 links.
+    lattice: { step: 5, min: 0, max: 45 },
   },
 ];
 

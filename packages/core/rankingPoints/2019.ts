@@ -63,6 +63,8 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     name: "habClimbPoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: HAB climb 3/6/12 per robot, 3 robots.
+    lattice: { step: 3, min: 0, max: 36 },
   },
 ];
 

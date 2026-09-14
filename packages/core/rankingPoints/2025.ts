@@ -119,26 +119,36 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     name: "trough",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: manual sets no L1 limit.
+    lattice: { step: 1, min: 0 },
   },
   {
     name: "botRow",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: 12 BRANCHES per level.
+    lattice: { step: 1, min: 0, max: 12 },
   },
   {
     name: "midRow",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: 12 BRANCHES per level.
+    lattice: { step: 1, min: 0, max: 12 },
   },
   {
     name: "topRow",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: 12 BRANCHES per level.
+    lattice: { step: 1, min: 0, max: 12 },
   },
   {
     name: "endGameBargePoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: Table 6-2: PARK 2 / SHALLOW 6 / DEEP 12 per robot.
+    lattice: { step: 2, min: 0, max: 36 },
   },
   // Added 2026-09-09 so `autoBonus` can be PREDICTED at all. Before this it
   // was hardcoded `false` in `predictThresholds` below, honestly documented as
@@ -151,11 +161,15 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     name: "autoLineCount",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: 3 robots.
+    lattice: { step: 1, min: 0, max: 3 },
   },
   {
     name: "autoCoralCount",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: no AUTO coral limit.
+    lattice: { step: 1, min: 0 },
   },
 ];
 

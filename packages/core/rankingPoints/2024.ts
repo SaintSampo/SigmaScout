@@ -101,16 +101,22 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     name: "noteCount",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: no NOTE cap.
+    lattice: { step: 1, min: 0 },
   },
   {
     name: "endGameTotalStagePoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: Table 6-2: ONSTAGE 3 (4 SPOTLIT), HARMONY 2 per extra ROBOT, TRAP 5 x 3: 12 + 4 + 15.
+    lattice: { step: 1, min: 0, max: 31 },
   },
   {
     name: "onStageRobotCount",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: 3 robots.
+    lattice: { step: 1, min: 0, max: 3 },
   },
 ];
 

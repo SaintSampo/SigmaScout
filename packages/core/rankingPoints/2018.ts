@@ -67,6 +67,8 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     name: "autoRunPoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: AUTO-RUN 5 per robot, 3 robots.
+    lattice: { step: 5, min: 0, max: 15 },
   },
   // `count`, not `points`: ownership seconds are a raw quantity, not a
   // derived point value.
@@ -74,11 +76,15 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     name: "autoSwitchOwnershipSec",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: AUTO lasts 15 s, recorded in whole seconds.
+    lattice: { step: 1, min: 0, max: 15 },
   },
   {
     name: "endgamePoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: PARK 5, CLIMB 30 per robot (LEVITATE credits one climb), 3 robots.
+    lattice: { step: 5, min: 0, max: 90 },
   },
 ];
 

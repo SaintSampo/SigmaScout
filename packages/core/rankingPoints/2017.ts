@@ -79,11 +79,15 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     name: "autoFuelPoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: no fuel cap.
+    lattice: { step: 1, min: 0 },
   },
   {
     name: "teleopFuelPoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: no fuel cap.
+    lattice: { step: 1, min: 0 },
   },
   // Point values, not counts — converted to a rotor count with the
   // per-rotor divisors above; TBA's 2017 breakdown has no count field.
@@ -91,11 +95,15 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     name: "autoRotorPoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: 60 per rotor turning at end of AUTO; AUTO gears (three preloads plus the reserve) finish rotors 1 and 2 only.
+    lattice: { step: 60, min: 0, max: 120 },
   },
   {
     name: "teleopRotorPoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: 40 per rotor, 4 rotors, counted apart from AUTO rotors.
+    lattice: { step: 40, min: 0, max: 160 },
   },
 ];
 

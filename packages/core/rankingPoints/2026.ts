@@ -76,11 +76,15 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     name: "hubTotalCount",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: manual sets no FUEL cap.
+    lattice: { step: 1, min: 0 },
   },
   {
     name: "totalTowerPoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: Table 6-4: AUTO LEVEL 1 15 (2 ROBOTS max); TELEOP LEVEL 1/2/3 10/20/30 per robot: 2 x 15 + 3 x 30.
+    lattice: { step: 5, min: 0, max: 120 },
   },
 ];
 

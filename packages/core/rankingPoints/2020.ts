@@ -60,6 +60,8 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     name: "endgamePoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: PARK 5, HANG 25 per robot, LEVEL 15 once.
+    lattice: { step: 5, min: 0, max: 90 },
   },
 ];
 

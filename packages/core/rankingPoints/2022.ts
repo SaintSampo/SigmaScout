@@ -72,16 +72,22 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     name: "matchCargoTotal",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: no cargo cap.
+    lattice: { step: 1, min: 0 },
   },
   {
     name: "autoCargoTotal",
     unit: "count",
     marginalFamily: "gaussian",
+    // Rule: no AUTO cargo cap (human players may score too).
+    lattice: { step: 1, min: 0 },
   },
   {
     name: "endgamePoints",
     unit: "points",
     marginalFamily: "gaussian",
+    // Rule: LOW 4 / MID 6 / HIGH 10 / TRAVERSAL 15 per robot, gcd 1.
+    lattice: { step: 1, min: 0, max: 45 },
   },
 ];
 

@@ -37,8 +37,31 @@ import type { CompLevel } from "../algorithms/types.js";
  * `scripts/measureRpCalibration.ts`, never by editing the production tree.
  * Keeping the family declared per-variable (rather than a global switch) is
  * what lets that measurement arm reach exactly the variables it wants to.
+ *
+ * `"lattice"` (quick task 260914-01x) is the integer-shape family: a bounded
+ * beta-binomial/binomial on the variable's declared `lattice` support when
+ * the rules cap it, otherwise a Gaussian discretized onto the declared step.
+ * Multi-term and divisor-bearing clauses are summed by exact lattice
+ * convolution in `analyticPmf.ts`, so unlike negative binomial it may appear
+ * in any clause. Inert until a module declares it.
  */
-export type MarginalFamily = "negative-binomial" | "gaussian";
+export type MarginalFamily = "negative-binomial" | "gaussian" | "lattice";
+
+/**
+ * The lattice a threshold variable's value lives on, as a RULE FACT taken
+ * from the game manual, never from season data: every value is
+ * `min + k * step` for a non-negative integer `k`, and never exceeds `max`.
+ * `min` and `max` are optional because not every rule sets them (2016
+ * `attackedTowerEndStrength` has no floor; uncapped scoring has no ceiling).
+ * Where both exist, `(max - min) / step` is an integer, pinned in
+ * `rules.test.ts`. The family only reads this when `marginalFamily` is
+ * `"lattice"`.
+ */
+export interface RpLatticeSupport {
+  readonly step: number;
+  readonly min?: number;
+  readonly max?: number;
+}
 
 /**
  * One named scalar a season's RP rules threshold on, tracked in its own
@@ -56,6 +79,12 @@ export interface RpThresholdVariable {
    * cannot compile without naming a family.
    */
   readonly marginalFamily: MarginalFamily;
+  /**
+   * The value lattice this variable lives on, a rule fact with a one-line
+   * rule citation beside every declaration (see `RpLatticeSupport`).
+   * Required, so a new season module cannot compile without stating it.
+   */
+  readonly lattice: RpLatticeSupport;
 }
 
 /**
