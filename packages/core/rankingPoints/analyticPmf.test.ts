@@ -1,33 +1,13 @@
 /**
- * D-07's mitigation, paid at the pmf layer. Every expected value below was
- * computed from this plan's "## The closed form, specified"/"## Hand-computed
- * reference values" sections at PLANNING time — none was produced by running
- * `analyticPmf.ts` and pasting its output. Assertions land at 6 decimal
- * places (09-03's `erf` is Abramowitz-Stegun 7.1.26, max absolute error
- * 1.5e-7) except for structural identities (sums, exact zeros, exact
- * equalities between two computed quantities), which are exact.
+ * Every expected value below was computed by hand from the closed form, never
+ * pasted from `analyticPmf.ts`'s output. Assertions land at 6 decimal places
+ * (the erf approximation's max error is 1.5e-7) except structural identities,
+ * which are exact.
  *
- * Task 1's tracer carries eight behaviors, all exercised on 2026 alone: the
- * nested-threshold non-vacuity case, the full 2026 end-to-end pmf, an
- * asymmetric-inputs proof that symmetry alone is not evidence, the outcome
- * half in isolation, the two short-circuits, the independence precondition,
- * and the normalization guarantee.
- *
- * Task 2 adds a SECOND describe block below — one test per remaining
- * mechanism class (`singleThreshold`, `linearCombination`,
- * `conjunctionDistinct`, `countOfIndicators`, `dataDependentMixture`,
- * `constant`), each asserting a per-bonus probability against a value
- * derived from the closed form at planning time. This file fails for a
- * DIFFERENT reason than its sibling `analyticPmf.seasons.test.ts`: "this
- * mechanism's arithmetic is wrong" here, versus "the contract between the
- * declarations and the pmf layer has drifted" there. The shared
- * `buildRuleModuleMoments` fixture builder is imported from the non-test
- * sibling module `analyticPmfFixtures.ts` (NOT from
- * `analyticPmf.seasons.test.ts` — importing one `.test.ts` file from another
- * re-executes its top-level `describe()` calls and silently duplicates every
- * test in it; see `analyticPmfFixtures.ts`'s own header), so there is one
- * fixture builder in the tree and not two that can drift about what
- * "diagonal" means.
+ * This file catches wrong mechanism arithmetic; `analyticPmf.seasons.test.ts`
+ * catches drift between declarations and the pmf layer. The fixture builder
+ * comes from `analyticPmfFixtures.ts`, never from a `.test.ts` file, whose
+ * import would re-run and duplicate its tests.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -43,15 +23,7 @@ import { rp2026 as rp2026Shipped } from "./2026.js";
 import { RP_REGISTERED_SEASONS, RP_RULE_MODULES, type MarginalFamily, type RpRuleModule } from "./rules.js";
 import type { AllianceRpMoments } from "./moments.js";
 
-/**
- * Test-only fixture helper (09-05 Task 3): clones `ruleModule` with every
- * threshold variable's `marginalFamily` overridden to `family`. Needed
- * because Task 3's Commit 1 (mechanism) lands BEFORE Commit 2 (the 34
- * declarations themselves flip) — at this point in the file's own
- * git history every real season module still declares `"gaussian"`, so the
- * mechanism tests below need a synthetic NB-declared module to exercise
- * `resolveDeclaredFamily`'s `"negative-binomial"` branch at all.
- */
+/** Clones `ruleModule` with every threshold variable's `marginalFamily` overridden to `family`. */
 function ruleModuleWithDeclaredFamily(ruleModule: RpRuleModule, family: MarginalFamily): RpRuleModule {
   return {
     ...ruleModule,
@@ -60,16 +32,11 @@ function ruleModuleWithDeclaredFamily(ruleModule: RpRuleModule, family: Marginal
 }
 
 /**
- * PINNED TO GAUSSIAN, 2026-09-14 (quick task 260914-01x, Task 5). Every real
- * season module declares `"lattice"` since lattice+meanShift shipped
- * (`data/baselines/rp-bonus-arms-2026-09.json`, the committed bonus-arm bar's
- * verdict). The hand-computed expectations in this file (Tests 1-8, the six
- * mechanism classes, the family guards and the outcome forwarding) were
- * derived from the Gaussian closed form, so they run against gaussian-declared
- * variants of the real modules and keep characterizing the retained Gaussian
- * engine. Lattice arithmetic is covered by `analyticPmf.lattice.test.ts` and
- * `marginals.lattice.test.ts`; the one production-declaration test at the end
- * of this file reads the shipped modules directly.
+ * Pinned to Gaussian: real season modules declare `"lattice"`, but the
+ * hand-computed expectations here derive from the Gaussian closed form.
+ * Lattice arithmetic is covered by `analyticPmf.lattice.test.ts` and
+ * `marginals.lattice.test.ts`; the last test in this file reads the shipped
+ * modules directly.
  */
 const rp2016 = ruleModuleWithDeclaredFamily(rp2016Shipped, "gaussian");
 const rp2017 = ruleModuleWithDeclaredFamily(rp2017Shipped, "gaussian");
@@ -151,14 +118,10 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
       eventType: 0,
       compLevel: "qm",
     });
-    // SHIPPED 2026-09-13 (quick task 260913-qyn, WIN+TIE arm): meanD=0,
-    // varianceD=100 (scoreVariance 50 + 50), sd=10, so the outcome half is no
-    // longer a clean 50/50 win/loss split — `tieProbability(0, 100) =
-    // Phi(0.05) - Phi(-0.05) = 0.039877746`, and `pRedWin = pBlueWin =
-    // (1 - 0.039877746) / 2 = 0.480061127`. The outcome pmf's tie mass lands
-    // at index `tieRp=1`, so it no longer convolves symmetrically with the
-    // bonus-only pmf the way the pre-260913-qyn all-mass-at-{0,3} split did —
-    // these values are the real convolution, not a hand-re-derivation of it.
+    // meanD=0, varianceD=100 (scoreVariance 50 + 50), sd=10:
+    // `tieProbability(0, 100) = Phi(0.05) - Phi(-0.05) = 0.039877746`, and
+    // `pRedWin = pBlueWin = (1 - 0.039877746) / 2 = 0.480061127`. The tie mass
+    // lands at index `tieRp=1`, so the pmf below is the real convolution.
     expect(result.outcome!.pRedWin).toBeCloseTo(0.480061127, 6);
     expect(result.outcome!.pTie).toBeCloseTo(0.039877746, 6);
     expect(result.outcome!.pBlueWin).toBeCloseTo(0.480061127, 6);
@@ -191,13 +154,8 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
   });
 
   it("Test 4: the outcome half on its own — the three rows of the outcome-half table", () => {
-    // SHIPPED 2026-09-13 (quick task 260913-qyn, WIN+TIE arm): the
-    // `varianceD > 0` branch now computes a genuine discrete integer-margin
-    // tie probability rather than a structural zero. meanD=10, varianceD=100,
-    // sd=10; pRedWinEffective (no `pRedWin` supplied) is the score-draw
-    // expression `1 - Phi(-1) = Phi(1) = 0.841344736` (Phi(1) computed to
-    // more digits than the pre-260913-qyn pin above, since it now composes
-    // with the tie split rather than standing alone); rawPTie =
+    // meanD=10, varianceD=100, sd=10; pRedWinEffective (no `pRedWin`
+    // supplied) is `1 - Phi(-1) = Phi(1) = 0.841344736`; rawPTie =
     // `tieProbability(10, 100) = Phi(1.05) - Phi(0.95) = 0.024197032`; the
     // decisive share splits proportionally against `1 - rawPTie`:
     // `pRedWin = 0.841344736 * (1 - 0.024197032) = 0.820986691`,
@@ -418,13 +376,7 @@ describe("analyticRpPmf — Task 2 (D-07's remaining six mechanism classes)", ()
 
 describe("analyticPmf.ts's exported surface is pinned (09-06 Task 4, D-06)", () => {
   it("exports exactly this set of names — one set equality, so a leftover export and an accidental deletion BOTH fail with a readable diff", () => {
-    // Phase 9's collapse deleted a temporary config type, its production
-    // default, its label function, its support assertion, its family resolver,
-    // and the two outcome-half helpers that only existed to serve branches the
-    // pre-committed bar refused. A set equality is the assertion that catches
-    // both directions: a branch deleted but its helper left behind reads as a
-    // leftover export, and a helper deleted that something still needed reads
-    // as a missing one.
+    // Set equality catches both a leftover export and a missing one.
     const source = readFileSync(new URL("./analyticPmf.ts", import.meta.url), "utf8");
     const exported = new Set(
       [...source.matchAll(/^export (?:function|const|interface|type|class) (\w+)/gm)].map((m) => m[1]!)
@@ -453,16 +405,8 @@ describe("analyticPmf.ts's exported surface is pinned (09-06 Task 4, D-06)", () 
       .split("\n")
       .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
       .join("\n");
-    // `tieProbability`/`TIE_MARGIN_HALF_WIDTH` were REINTRODUCED and SHIPPED
-    // (2026-09-13, quick task 260913-qyn, WIN+TIE arm) — `tieProbability` now
-    // runs unconditionally from `matchOutcomeDistribution`'s `varianceD > 0`
-    // branch; see `RpOutcomeInput`'s own doc comment.
-    // `splitOutcomeProbabilities` was NOT reintroduced as a named function:
-    // the proportional split is inlined directly in
-    // `matchOutcomeDistribution`, so that name still names nothing in this
-    // file. The config object, its default, its support assertion and its
-    // label function stay dead — 260913-qyn's design points explicitly forbid
-    // reintroducing a config object, labels or a support assertion.
+    // The proportional outcome split is inlined in `matchOutcomeDistribution`, so
+    // `splitOutcomeProbabilities` names nothing; the config surface stays deleted.
     for (const dead of ["RpLayerConfig", "RP_LAYER_CONFIG_DEFAULT", "assertSupportedRpLayerConfig", "resolveDeclaredFamily", "describeRpLayerConfig", "splitOutcomeProbabilities"]) {
       expect(codeOnly, `deleted symbol "${dead}" still appears on a code line`).not.toContain(dead);
     }
@@ -470,18 +414,7 @@ describe("analyticPmf.ts's exported surface is pinned (09-06 Task 4, D-06)", () 
 });
 
 describe("clauseProbability derives its marginal family from its terms (quick task 260911-w7k Task 2)", () => {
-  /**
-   * THE CAST IS GONE (2026-09-12, quick task 260912-2uz). These guards used to
-   * be unreachable from real data — `MarginalFamily` had one member, so no
-   * declaration could disagree with another and no single declared family
-   * could be one that is not closed under scaled addition — and reaching them
-   * required an explicit `as unknown as MarginalFamily`. The prior comment
-   * said a second union member would make them reachable with no cast
-   * whatsoever, and said the tests should then be rewritten to use it. That is
-   * exactly what happened: `"negative-binomial"` is back in the union, so this
-   * is now an ordinary well-typed declaration and both guards are live against
-   * declarations a measurement arm really produces.
-   */
+  /** A declared family that is not closed under scaled addition. */
   const NOT_GAUSSIAN: MarginalFamily = "negative-binomial";
 
   /** Clones `ruleModule`, overriding only the NAMED variables' declared families — so a mixed-declaration module is expressible, which no real season module is. */
@@ -496,12 +429,9 @@ describe("clauseProbability derives its marginal family from its terms (quick ta
   }
 
   /**
-   * 2017 is the fixture season for both guards because BOTH its bonuses are
-   * `linearCombination` with two terms (`kPa` sums two fuel-point variables
-   * undivided, `rotor` sums two rotor-point variables by their own per-rotor
-   * divisors). Every clause therefore takes the MULTI-TERM path, which is the
-   * only path that derives a family at all — the single-term fast path skips
-   * derivation entirely by design.
+   * 2017 is the fixture season because both its bonuses are two-term
+   * `linearCombination`s, so every clause takes the multi-term path, the only
+   * one that derives a family.
    */
   const MOMENTS_2017 = {
     autoFuelPoints: { mean: 20, variance: 9 },
@@ -737,9 +667,8 @@ describe("MarginalResolutionTally — the negativeBinomial counter is live again
   });
 
   it("the production declaration never touches the negativeBinomial axis — the restore is inert for production declarations", () => {
-    // 2026-09-14 (quick task 260914-01x, Task 5): production is "lattice" now,
-    // so this reads the SHIPPED module and counts every fit on the lattice
-    // axis. hubTotalCount declares no max, so it takes the discretized
+    // Reads the shipped module, so every fit counts on the lattice axis.
+    // hubTotalCount declares no max, so it takes the discretized
     // Gaussian and resolves to lattice with no fallback. totalTowerPoints is
     // bounded {step 5, min 0, max 120}: 24 steps, mean 10 and variance 4 in
     // step units, below the binomial variance 24 * (10/24) * (14/24) = 5.83,

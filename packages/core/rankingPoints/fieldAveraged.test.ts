@@ -1,12 +1,6 @@
 /**
- * Tests for the field-averaged pre-schedule predictor (plan 09-09 Task 1).
- *
- * EVERY expectation below is a HAND-COMPUTED LITERAL, derived from the
- * formulas in plan 09-09's `## The rung-1 construction, specified` section —
- * never produced by running the implementation and pasting its output. That is
- * the discipline D-07 imposed on 09-04's own tests, for the same reason: a
- * test whose expectation came out of the code it tests asserts only that the
- * code equals itself.
+ * Tests for the field-averaged pre-schedule predictor. Every expectation is a
+ * hand-computed literal, never pasted from the implementation's output.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -60,9 +54,8 @@ describe("fieldStatistics", () => {
     expect(stats.meanOfVariableVariances[0]).toBeCloseTo(2, 12);
     // POPULATION variance: ((10-20)^2 + 0 + (30-20)^2) / 3 = 200/3
     expect(stats.varianceOfVariableMeans[0]).toBeCloseTo(200 / 3, 12);
-    // Dividing by n-1 would give 100. Asserted in BOTH directions on purpose
-    // (T-09-09-04): a positive-only assertion passes against a sample-variance
-    // implementation on a two-team field and fails silently on every real one.
+    // Dividing by n-1 would give 100; asserted in both directions so a
+    // sample-variance implementation cannot pass.
     expect(stats.varianceOfVariableMeans[0]).not.toBeCloseTo(100, 6);
     // (40 + 50 + 60) / 3
     expect(stats.meanOfScoreMeans).toBeCloseTo(50, 12);
@@ -104,9 +97,7 @@ describe("fieldAveragedAllianceMoments", () => {
     // opponent scoreVariance = A*meanOfBandVariances + A*varianceOfScoreMeans
     expect(opponent.scoreVariance).toBeCloseTo(3 * (29 / 3) + 3 * (200 / 3), 12);
 
-    // Every off-diagonal and every cross-covariance entry is EXACTLY zero —
-    // `analyticRpPmf` throws on either, so this is the assertion that keeps
-    // the field-averaged moments admissible at all (T-09-09-05).
+    // Every off-diagonal and cross-covariance entry is exactly zero; `analyticRpPmf` throws on either.
     for (const moments of [own, opponent]) {
       expect(moments.scoreCrossCovariance).toEqual([0]);
       for (let i = 0; i < moments.varianceBlock.length; i++) {
@@ -156,9 +147,8 @@ describe("fieldAveragedMatchPmf", () => {
     const pmfB = fieldAveragedMatchPmf(roster[2]!, stats, RULE_2023, REGIONAL_EVENT_TYPE);
     expect(pmfA).toEqual(pmfB);
 
-    // The outcome half at even odds plus the expected bonus RP, computed from
-    // 09-04's OWN `matchOutcomeDistribution` and `allianceBonusRpPmf` on the
-    // same moments — never from a second derivation of either.
+    // The outcome half plus the expected bonus RP, from the real
+    // `matchOutcomeDistribution` and `allianceBonusRpPmf` on the same moments.
     const outcome = matchOutcomeDistribution({
       redScoreMean: own.scoreMean,
       redScoreVariance: own.scoreVariance,
@@ -167,12 +157,8 @@ describe("fieldAveragedMatchPmf", () => {
       winRp: RULE_2023.winRp,
       tieRp: RULE_2023.tieRp,
     });
-    // SHIPPED 2026-09-13 (quick task 260913-qyn, WIN+TIE arm): a symmetric
-    // mean means `pTie` is now genuinely nonzero (no `pRedWin` input is
-    // supplied here, so it falls back to the score-draw comparison — see
-    // `RpOutcomeInput`'s own doc comment), so the decisive split is no
-    // longer exactly 0.5. It is still EXACTLY EVEN between red and blue,
-    // which is the property this "identical field" test is actually for.
+    // `pTie` is nonzero, so the decisive split is not 0.5, but it is exactly
+    // even between red and blue, the property this test is for.
     expect(outcome.pRedWin).toBe(outcome.pBlueWin);
     expect(outcome.pRedWin).toBeCloseTo((1 - outcome.pTie) / 2, 12);
     const expectedBonusRp = pmfMean(allianceBonusRpPmf(own, RULE_2023, REGIONAL_EVENT_TYPE).pmf);
@@ -181,13 +167,8 @@ describe("fieldAveragedMatchPmf", () => {
   });
 
   it("Test 4 — all variances zero degenerates to a point mass at the index analyticRpPmf would place it", () => {
-    // `FieldStatistics` is constructed DIRECTLY here rather than through
-    // `fieldStatistics`. That is the only way to hold every variance at zero
-    // while the team's own score mean differs from the field's: a population
-    // variance computed over a roster that INCLUDES the team cannot be zero
-    // unless every score mean is equal. Constructing the statistics by hand
-    // exercises exactly the degeneracy this test is for — a fully determined
-    // outcome with no uncertainty anywhere.
+    // `FieldStatistics` is built by hand: it is the only way to hold every
+    // variance at zero while the team's score mean differs from the field's.
     const zeroStats: FieldStatistics = {
       variableNames: names,
       teamCount: 4,
@@ -216,10 +197,8 @@ describe("fieldAveragedMatchPmf", () => {
   });
 
   it("Test 5 — a strictly higher own score mean strictly raises the pmf mean", () => {
-    // (a) Statistics held FIXED, only the team's own score mean moved. This
-    // isolates the sign of `scoreMean_t + (A-1)*meanOfScoreMeans` against
-    // `A*meanOfScoreMeans` — a sign error there inverts the favourite in
-    // every match of every event and produces completely plausible output.
+    // (a) Statistics held fixed, only the team's own score mean moved: a sign
+    // error here inverts the favourite everywhere with plausible output.
     const stats: FieldStatistics = {
       variableNames: names,
       teamCount: 20,
@@ -297,8 +276,7 @@ describe("fieldAveragedRankInputs", () => {
       expect(matches[i]!.blueTeamKeys).toEqual([]);
       expect(matches[i]!.blueRpPmf).toEqual([1]);
       expect(matches[i]!.redRpPmf.length).toBe(matchesPerTeam * 2 + 1);
-      // 09-07's coupled-draw sub-object is deliberately absent: a solo row has
-      // no opposing alliance for the coupling to couple to.
+      // No coupled-draw `outcome`: a solo row has no opposing alliance.
       expect(Object.prototype.hasOwnProperty.call(matches[i]!, "outcome")).toBe(false);
       expect(baselines[i]!).toEqual({ teamKey: ROSTER[i], earnedRpSum: 0, matchesPlayed: 0 });
     }

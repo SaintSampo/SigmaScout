@@ -1,59 +1,20 @@
 /**
- * The pre-change behaviour oracle's replay test (quick task 260911-w7k Task 1).
- * Reads the committed `analyticPmfGolden.json` — captured from
- * `analyticPmf.ts` UNMODIFIED at the commit the file itself names, BEFORE that
- * task rewrote `clauseProbability` — and re-runs the SAME grid builder against
- * the LIVE engine, asserting EXACT equality of every bonus probability, every
- * pmf entry and all three resolved-family tally counts.
+ * Characterization oracle: replays the grid in `analyticPmfFixtures.ts`
+ * against the live engine and asserts exact equality with the committed
+ * `analyticPmfGolden.json` (every bonus probability, pmf entry and tally
+ * count). Its values came from running the module, deliberately: it catches
+ * "the engine no longer reproduces what shipped", while the hand-computed
+ * `analyticPmf.test.ts` catches arithmetic that disagrees with the spec.
  *
- * ---------------------------------------------------------------------------
- * THIS FILE'S VALUES WERE PRODUCED BY RUNNING THE MODULE. THAT IS DELIBERATE.
- * ---------------------------------------------------------------------------
+ * Regenerate the JSON only when the grid itself changes (bumping
+ * `GOLDEN_GRID_VERSION` in the same edit), never to turn a failing assertion
+ * green. No tolerance anywhere: every numeric assertion is `toBe`.
+ * Non-vacuity and non-saturation are asserted in the two blocks at the bottom.
  *
- * Its sibling `analyticPmf.test.ts` owes D-07's hand-computed test debt: every
- * expected value in THAT file was computed from the specification at planning
- * time and none was produced by running `analyticPmf.ts`. This file is the
- * opposite by design, and the two therefore fail for different reasons:
- * `analyticPmf.test.ts` fails when "this mechanism's arithmetic disagrees with
- * the specification", and this file fails when "today's engine no longer
- * reproduces the engine that shipped". A characterization oracle cannot answer
- * the first question and a hand-computed test cannot answer the second, so
- * neither replaces the other.
- *
- * **Regeneration prohibition** (`scripts/rpPredictThresholdsGolden.ts`'s own
- * header, applied here verbatim in spirit): the golden file is regenerated
- * ONLY when the GRID itself changes — the pattern set, the scale ladder or the
- * event types in `analyticPmfFixtures.ts`, with `GOLDEN_GRID_VERSION` bumped in
- * the same edit — and NEVER in response to a failing assertion below.
- * Regenerating to make this test green launders a behavior regression into the
- * oracle that exists to catch exactly that. If it goes red and the cause is not
- * an obvious, nameable transcription slip, stop and report.
- *
- * **No tolerance anywhere.** Every numeric assertion is `toBe`. A tolerance
- * would hide precisely the mistake this file exists to catch: quick task
- * 260911-w7k's whole premise is that deriving a clause's marginal family from
- * its terms' declarations moves NO number, and a comparison that tolerated a
- * small drift could not tell that premise from its failure.
- *
- * **Non-vacuity and non-saturation are asserted, not argued** (the two
- * `describe` blocks at the bottom). 09-02's `predictThresholdsGolden.test.ts`
- * proved its own non-vacuity by a manual perturb-and-revert recorded in a
- * SUMMARY; this file automates the equivalent, so the evidence re-runs on every
- * CI pass instead of living in a document.
- *
- * ---------------------------------------------------------------------------
- * GAUSSIAN-DECLARED VARIANTS, 2026-09-14 (quick task 260914-01x, Task 5)
- * ---------------------------------------------------------------------------
- *
- * Every real season module declares `"lattice"` since lattice+meanShift
- * shipped (`data/baselines/rp-bonus-arms-2026-09.json`, accepted by the
- * committed bonus-arm bar with the lowest pooled total-RP RPS). The grid now
- * runs against gaussian-declared variants of the real modules
- * (`gaussianDeclared` below), so this file characterizes the RETAINED
- * Gaussian engine. The JSON is NOT regenerated: the grid did not change, and
- * the Gaussian engine must still reproduce it byte for byte. Lattice
- * arithmetic is covered by the hand-computed `analyticPmf.lattice.test.ts`
- * and `marginals.lattice.test.ts`.
+ * The grid runs against gaussian-declared variants of the real modules
+ * (`gaussianDeclared`), since the JSON pins the Gaussian engine; lattice
+ * arithmetic is covered by `analyticPmf.lattice.test.ts` and
+ * `marginals.lattice.test.ts`.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -137,11 +98,7 @@ describe.each(RP_REGISTERED_SEASONS)("analyticPmfGolden — season %i", (season)
           expect(actualRow.pmf[i], `${where}: pmf[${i}]`).toBe(expectedRow.pmf[i]);
         }
 
-        // The tally is pinned per row for one specific reason: it is the
-        // evidence that `clauseProbability`'s combined fit is not, and never
-        // was, fed to `accumulateMarginalResolution`. If a future edit started
-        // tallying the clause-level fit, these counts would rise and this
-        // assertion would name the row it happened in.
+        // Pinned per row: these counts rise if a clause-level combined fit is ever tallied.
         expect(actualRow.tally.gaussian, `${where}: tally.gaussian`).toBe(expectedRow.tally.gaussian);
         expect(actualRow.tally.degenerate, `${where}: tally.degenerate`).toBe(expectedRow.tally.degenerate);
         expect(actualRow.tally.fallbacks, `${where}: tally.fallbacks`).toBe(expectedRow.tally.fallbacks);
@@ -151,13 +108,8 @@ describe.each(RP_REGISTERED_SEASONS)("analyticPmfGolden — season %i", (season)
 });
 
 describe("analyticPmfGolden — the oracle is sensitive to its own inputs (automated non-vacuity)", () => {
-  // A characterization test that has never been observed to respond to a
-  // changed input is evidence of nothing. Perturbing every mean by 1.01x must
-  // move at least one bonus probability in every season, in a row whose
-  // numbers move continuously with their inputs. The structural patterns
-  // (`zero-variance`, `non-finite`) are excluded on purpose — see
-  // `isNumericLadderPattern`'s own doc comment for why asserting this over
-  // them would be asserting the wrong thing.
+  // Perturbing every mean by 1.01x must move at least one bonus probability in
+  // every season. Structural patterns are excluded (see `isNumericLadderPattern`).
   it.each(RP_REGISTERED_SEASONS)(
     "season %i: a 1.01x mean perturbation changes at least one committed bonus probability",
     (season) => {
@@ -182,17 +134,9 @@ describe("analyticPmfGolden — the oracle is sensitive to its own inputs (autom
 });
 
 describe("analyticPmfGolden — the oracle is not a wall of saturated 0s and 1s (automated non-saturation)", () => {
-  // A grid of nothing but exact 0s and 1s would replay perfectly while being
-  // blind to any change in a Gaussian fit — every probability would be pinned
-  // by a comparison's sign rather than by the distribution's shape. Every
-  // season must put at least one probability strictly inside (0.001, 0.999).
-  //
-  // There is deliberately NO exception list here: all ten registered seasons
-  // satisfy this bound as captured, so adding a `STRUCTURALLY_SATURATED` escape
-  // hatch before one is needed would just be a pre-built place to hide a future
-  // regression. If a future season genuinely cannot satisfy it, add that season
-  // with a one-line reason and assert the list is exactly that set — never
-  // relax the bound itself.
+  // A grid of only 0s and 1s would replay perfectly while blind to any change in
+  // a fit, so every season must put a probability strictly inside (0.001, 0.999).
+  // No exception list; never relax the bound itself.
   it.each(RP_REGISTERED_SEASONS)(
     "season %i: at least one committed bonus probability lies strictly inside (0.001, 0.999)",
     (season) => {
