@@ -97,7 +97,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe("combineAlliancePicks — D-15 combination arithmetic (EVNT-05)", () => {
+describe("combineAlliancePicks — combination arithmetic", () => {
   // The values sum, and this function makes no uncertainty claim: spread is
   // the algorithm's own confidence and must never reach the screen in any
   // form, including summed. The real Sigma replacement wires in alongside
@@ -144,7 +144,7 @@ describe("combineAlliancePicks — D-15 combination arithmetic (EVNT-05)", () =>
   });
 });
 
-describe("buildAllianceRows — ordering (EVNT-05 ordering)", () => {
+describe("buildAllianceRows — ordering", () => {
   it("orders rows by ascending allianceNumber even when the fixture's own array is declared in the order 3, 1, 2", () => {
     const artifact = makeArtifact(FOUR_TEAMS, [
       alliance({ allianceNumber: 3, picks: ["frc1"] }),
@@ -167,8 +167,8 @@ describe("buildAllianceRows — ordering (EVNT-05 ordering)", () => {
   });
 });
 
-describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G-8)", () => {
-  it("renders exactly SIX column headers (no Pick 3) for a spr/2024 fixture where no alliance has a backup pick (Task 2, 260902-ixg: measured on 2026iscmp, pickBackup was 240px and empty in all 8 of 8 rows); Combined Total reads 'Combined Total ± Sigma' under a Sigma-enabled algorithm (quick task 260913-jkp)", async () => {
+describe("AlliancesTab — seven-column anatomy", () => {
+  it("renders exactly SIX column headers (no Pick 3) for a spr/2024 fixture where no alliance has a backup pick (measured on 2026iscmp, pickBackup was 240px and empty in all 8 of 8 rows); Combined Total reads 'Combined Total ± Sigma' under a Sigma-enabled algorithm", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]), "spr", 2024);
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(6));
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
@@ -195,7 +195,7 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     ]);
   });
 
-  it("renders exactly SEVEN column headers, Pick 3 included, when at least one alliance in the table has a backup pick (Task 2 — the other direction: a column that disappears when it should appear is the worse bug)", async () => {
+  it("renders exactly SEVEN column headers, Pick 3 included, when at least one alliance in the table has a backup pick (the other direction: a column that disappears when it should appear is the worse bug)", async () => {
     const artifact = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4"] })], { algorithmId: "opr", algorithmVersion: "2.0.0+baseline" });
     renderAlliances(artifact, "opr", 2024);
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(7));
@@ -210,7 +210,7 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     ]);
   });
 
-  it("Alliance # is 88px wide and Record is 72px wide (Task 3, 260902-ixg) — for a Sigma-enabled (SPR) fixture the pick columns now hold the split pill at 214px and Combined Total is 180px (quick task 260913-jkp, replacing the retired VPR-era spread-carrying widths)", async () => {
+  it("Alliance # is 88px wide and Record is 72px wide — for a Sigma-enabled (SPR) fixture the pick columns hold the split pill at 214px and Combined Total is 180px", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]));
     const allianceHeader = await screen.findByTestId("alliances-header-allianceNumber");
     const recordHeader = await screen.findByTestId("alliances-header-record");
@@ -221,7 +221,7 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     expect((await screen.findByTestId("alliances-header-combined")).style.width).toBe("180px");
   });
 
-  it("D-7 (260904-5zg): for a spread-less (EPA) fixture the pick columns shrink to 150px and Combined Total to 128px (header-bound, not value-bound — see COMBINED_COLUMN_WIDTH_SPREADLESS_PX's own doc comment) — the measured, algorithm-dependent reduction VPR's own worst case does not allow", async () => {
+  it("for a spread-less (EPA) fixture the pick columns shrink to 150px and Combined Total to 128px (header-bound, not value-bound — see COMBINED_COLUMN_WIDTH_SPREADLESS_PX's own doc comment) — the measured, algorithm-dependent reduction VPR's own worst case does not allow", async () => {
     const artifact = makeArtifact(FOUR_TEAMS, [alliance()], { algorithmId: "epa", algorithmVersion: "2.0.0+baseline" });
     renderAlliances(artifact, "epa", 2024);
     expect((await screen.findByTestId("alliances-header-pick0")).style.width).toBe("150px");
@@ -230,7 +230,7 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     expect((await screen.findByTestId("alliances-header-combined")).style.width).toBe("128px");
   });
 
-  it("the table itself is pinned to the sum of its own column sizes (982px on this no-backup SPR fixture, up from 860 pre-260913-jkp: 3 * 214 pick columns + 180 combined + 88 alliance # + 72 record), not stretched to `100%` of its container (Task 3, 260902-ixg: live-measured — `width:100%` was silently undoing the column tightening the moment the column sum fell below the page's available width, table-layout:fixed then redistributing the freed space proportionally back across every column)", async () => {
+  it("the table itself is pinned to the sum of its own column sizes (982px on this no-backup SPR fixture: 3 * 214 pick columns + 180 combined + 88 alliance # + 72 record), not stretched to `100%` of its container (live-measured — `width:100%` was silently undoing the column tightening the moment the column sum fell below the page's available width, table-layout:fixed then redistributing the freed space proportionally back across every column)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]));
     const scrollRegion = await screen.findByTestId("alliances-table-scroll");
     const table = scrollRegion.querySelector("table");
@@ -254,7 +254,7 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     expect(combinedWithText).toBe(combinedWithoutText);
   });
 
-  it("an alliance with exactly three picks renders an empty Backup cell (the placeholder span present, no text) when a SIBLING alliance in the table has a backup pick — Task 2's column only hides when NO row has one", async () => {
+  it("an alliance with exactly three picks renders an empty Backup cell (the placeholder span present, no text) when a SIBLING alliance in the table has a backup pick — the backup-pick column only hides when NO row has one", async () => {
     renderAlliances(
       makeArtifact(FOUR_TEAMS, [
         alliance({ allianceNumber: 1, picks: ["frc1", "frc2", "frc3", "frc4"] }), // forces the column to render
@@ -267,14 +267,14 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     expect(backupCell.textContent).toBe("");
   });
 
-  it("the Combined Total cell has NO tier box when no event team publishes a percentile to interpolate against (07-UAT.md G-8)", async () => {
+  it("the Combined Total cell has NO tier box when no event team publishes a percentile to interpolate against", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
     const cell = await screen.findByTestId("alliances-cell-combined");
     expect(cell.querySelector(".metric-tier")).toBeNull();
     expect(screen.queryByTestId("alliances-combined-approx-marker")).toBeNull();
   });
 
-  it("the Combined Total cell renders the 3x-heuristic APPROXIMATE tier — no visible marker (2026-09-01 user request), the disclosure riding the cell title instead", async () => {
+  it("the Combined Total cell renders the 3x-heuristic APPROXIMATE tier — no visible marker, the disclosure riding the cell title instead", async () => {
     // Every event team at value 10, percentile 99 (Legendary): combined 30 / 3 = 10 matches
     // exactly, so the interpolated percentile is exactly 99, not merely "some non-common value".
     const highPercentileTeams = FOUR_TEAMS.map((t) => ({
@@ -291,7 +291,7 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     expect(disclosed?.getAttribute("aria-label")).toBe(disclosed?.getAttribute("title"));
   });
 
-  it("the approximate-tier disclosure carries a ROLE, so the aria-label is legal and actually exposed (CR-01/CR-02, review 260902)", async () => {
+  it("the approximate-tier disclosure carries a ROLE, so the aria-label is legal and actually exposed", async () => {
     // `aria-label` is a PROHIBITED attribute on `role="generic"` — a bare
     // <span>'s implicit role — so browsers drop it from the accessibility
     // tree entirely and the disclosure reaches no screen-reader user. The
@@ -317,7 +317,7 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     expect(cell.querySelector("[aria-label]")).toBeNull();
   });
 
-  it("the Combined Total cell renders the common tier ring AND the approximation disclosure when the interpolated percentile lands in Common (260904-7rt, sketch 008 winner C — supersedes 07-UAT.md G-8's no-box behaviour)", async () => {
+  it("the Combined Total cell renders the common tier ring AND the approximation disclosure when the interpolated percentile lands in Common (sketch 008 winner C)", async () => {
     // Every event team at value 10, percentile 10 (Common): combined 30 / 3 = 10 matches
     // exactly, interpolated percentile 10 -> Common -> the hairline ring, per
     // MetricValue's own contract. The disclosure tracks "a box is drawn",
@@ -339,7 +339,7 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     expect(screen.queryByTestId("tier-key-row")).toBeNull();
   });
 
-  it("no independence-caveat element renders anywhere on the tab (2026-09-02 user decision — the caveat is retired, see 07-UI-SPEC.md)", async () => {
+  it("no independence-caveat element renders anywhere on the tab (the caveat is retired)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]));
     await screen.findByTestId("alliances-table-scroll");
     expect(screen.queryByTestId("alliances-independence-caveat")).toBeNull();
@@ -355,7 +355,7 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     expect(link.getAttribute("href")).toContain("year=2024");
   });
 
-  it("no nickname text renders anywhere on the tab, even though every fixture team carries one (07-UAT.md G-8)", async () => {
+  it("no nickname text renders anywhere on the tab, even though every fixture team carries one", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
     await screen.findByTestId("alliances-table-scroll");
     expect(screen.queryByText("Alpha")).toBeNull();
@@ -364,7 +364,7 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     expect(screen.queryByText("Delta")).toBeNull();
   });
 
-  it("each pick cell shows the team's own total metric, tiered by its OWN exact published percentile (07-UAT.md G-8)", async () => {
+  it("each pick cell shows the team's own total metric, tiered by its OWN exact published percentile", async () => {
     const teams = [
       team({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 74.76, spread: 3.47, percentile: 99.6, tier: "legendary" as const } } }),
       team({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 67.89, spread: 3.49, percentile: 99, tier: "legendary" as const } } }),
@@ -396,7 +396,7 @@ const FIVE_TEAMS: ArtifactTeam[] = [
   team({ teamKey: "frc5", teamNumber: 5, nickname: "Epsilon" }),
 ];
 
-describe("AlliancesTab — the all-or-nothing rule, both measured causes (EVNT-05 empty)", () => {
+describe("AlliancesTab — the all-or-nothing rule, both measured causes", () => {
   it("a three-pick alliance whose third pick's team key has NO row in teams renders a blank Combined Total, never the two-term sum", async () => {
     // frc9 is never in the teams array at all — the live 2024cmptx shape.
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc9"] })]));
@@ -415,7 +415,7 @@ describe("AlliancesTab — the all-or-nothing rule, both measured causes (EVNT-0
     expect(cell.textContent).not.toContain("20.00");
   });
 
-  it("a two-pick alliance (modelled on 2024vabrb) renders a blank Combined Total through the SAME rule, with no special case — Captain/Pick 1 filled, Pick 2 blank, no Pick 3 column at all (Task 2, 260902-ixg: nothing in this fixture has a backup pick)", async () => {
+  it("a two-pick alliance (modelled on 2024vabrb) renders a blank Combined Total through the SAME rule, with no special case — Captain/Pick 1 filled, Pick 2 blank, no Pick 3 column at all (nothing in this fixture has a backup pick)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2"] })]));
     expect((await screen.findByTestId("alliances-cell-combined")).textContent).toBe("");
     expect(screen.getByTestId("alliances-cell-pick2").textContent).toBe("");
@@ -427,7 +427,7 @@ describe("AlliancesTab — the all-or-nothing rule, both measured causes (EVNT-0
     expect(screen.getByTestId("alliances-cell-pick1").textContent?.startsWith("2")).toBe(true);
   });
 
-  it("a one-pick alliance renders a blank Combined Total and blank Pick 1/Pick 2 cells, no Pick 3 column at all, with the single pick in Captain (Task 2, 260902-ixg: nothing in this fixture has a backup pick)", async () => {
+  it("a one-pick alliance renders a blank Combined Total and blank Pick 1/Pick 2 cells, no Pick 3 column at all, with the single pick in Captain (nothing in this fixture has a backup pick)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1"] })]));
     expect((await screen.findByTestId("alliances-cell-combined")).textContent).toBe("");
     expect(screen.getByTestId("alliances-cell-pick1").textContent).toBe("");
@@ -449,7 +449,7 @@ describe("AlliancesTab — the all-or-nothing rule, both measured causes (EVNT-0
   });
 });
 
-describe("AlliancesTab — the incomplete-combination notice (Claude's Discretion, no UI-SPEC row)", () => {
+describe("AlliancesTab — the incomplete-combination notice", () => {
   it("a fixture where every alliance combines renders NO incomplete-notice element at all", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
     await screen.findByTestId("alliances-table-scroll");
@@ -495,7 +495,7 @@ describe("AlliancesTab — the incomplete-combination notice (Claude's Discretio
     expect(icon?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("the notice renders BENEATH the table's scroll region in document order (re-pinned 2026-09-02: the independence caveat this test used to anchor against is retired, see 07-UI-SPEC.md)", async () => {
+  it("the notice renders BENEATH the table's scroll region in document order", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc9"] })]));
     const scrollRegion = await screen.findByTestId("alliances-table-scroll");
     const notice = await screen.findByTestId("alliances-incomplete-notice");
@@ -504,7 +504,7 @@ describe("AlliancesTab — the incomplete-combination notice (Claude's Discretio
   });
 });
 
-describe("AlliancesTab — ordering, adjacency and identity (EVNT-05 adjacency)", () => {
+describe("AlliancesTab — ordering, adjacency and identity", () => {
   it("two alliances sharing an identical allianceNumber render as two separate rows, in ascending first-pick team-key order, neither renumbered", () => {
     const artifact = makeArtifact(FOUR_TEAMS, [
       alliance({ allianceNumber: 1, picks: ["frc3"] }),
@@ -563,13 +563,13 @@ describe("AlliancesTab — ordering, adjacency and identity (EVNT-05 adjacency)"
 });
 
 // ---------------------------------------------------------------------------
-// 07-UAT.md G-8 — the Record column: TBA's own playoff win-loss-tie record,
+// The Record column: TBA's own playoff win-loss-tie record,
 // published on EventAllianceSchema.record via packages/corpus/db.ts's
 // parseAllianceRecord. Absence discipline: undefined renders blank,
 // never a fabricated 0-0-0, and a REAL 0-0-0 is distinguishable from it.
 // ---------------------------------------------------------------------------
 
-describe("formatAllianceRecord — the wins-losses-ties formatter (07-UAT.md G-8)", () => {
+describe("formatAllianceRecord — the wins-losses-ties formatter", () => {
   it("joins wins, losses and ties with hyphens", () => {
     expect(formatAllianceRecord({ wins: 4, losses: 3, ties: 0 })).toBe("4-3-0");
   });
@@ -584,7 +584,7 @@ describe("formatAllianceRecord — the wins-losses-ties formatter (07-UAT.md G-8
   });
 });
 
-describe("AlliancesTab — Record column (07-UAT.md G-8)", () => {
+describe("AlliancesTab — Record column", () => {
   it("renders the published wins-losses-ties record in the Record cell", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"], record: { wins: 4, losses: 3, ties: 0 } })]));
     expect((await screen.findByTestId("alliances-cell-record")).textContent).toBe("4-3-0");
@@ -616,7 +616,7 @@ describe("AlliancesTab — Record column (07-UAT.md G-8)", () => {
 // the collapse.
 // ---------------------------------------------------------------------------
 
-describe("hasAllianceData — D-17's collapse of two distinguishable absences (EVNT-05)", () => {
+describe("hasAllianceData — the collapse of two distinguishable absences", () => {
   it("returns false for an artifact with no alliances key at all", () => {
     const artifact = makeArtifact(FOUR_TEAMS, undefined);
     expect(hasAllianceData(artifact)).toBe(false);
@@ -648,7 +648,7 @@ function teamWithSigma(overrides: Partial<ArtifactTeam> & { total: number; sigma
   });
 }
 
-describe("AlliancesTab — each pick's own Sigma Score pill (quick task 260913-jkp)", () => {
+describe("AlliancesTab — each pick's own Sigma Score pill", () => {
   it("a pick whose team row publishes a sigma entry renders the split pill with that pick's own value and tier", async () => {
     const teams = [
       teamWithSigma({ teamKey: "frc1", teamNumber: 1, total: 74.76, sigma: 8.42, sigmaPercentile: 97 }),
@@ -692,7 +692,7 @@ describe("AlliancesTab — each pick's own Sigma Score pill (quick task 260913-j
   });
 });
 
-describe("AlliancesTab — Combined Total's neutral Sigma band (quick task 260913-jkp, CONTEXT \"Alliances Combined Total\")", () => {
+describe("AlliancesTab — Combined Total's neutral Sigma band", () => {
   /** Recomputes the expected band through the SAME shipping helpers `buildAllianceRows` composes, never a re-typed sum of squares. */
   function expectedBand(sigmas: readonly number[]): number {
     const roster = sigmas.map((_, index) => `frcBand${index}`);
@@ -771,7 +771,7 @@ describe("AlliancesTab — Combined Total's neutral Sigma band (quick task 26091
 // — see EventMatchTable.test.tsx's identical assertion.
 // ---------------------------------------------------------------------------
 
-describe("AlliancesTab — no sticky columns (2026-09-13)", () => {
+describe("AlliancesTab — no sticky columns", () => {
   function assertNoStickyColumns() {
     const region = screen.getByTestId("alliances-table-scroll");
     const cells = within(region).getByRole("table").querySelectorAll("th, td");
