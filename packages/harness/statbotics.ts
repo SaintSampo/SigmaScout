@@ -1,32 +1,19 @@
 /**
- * D-04's reference row: a clearly-labelled Statbotics per-season accuracy
- * figure alongside our own numbers, so every report shows the target before
- * our own EPA reimplementation exists (Phase 2).
+ * A clearly-labelled Statbotics per-season accuracy figure alongside our own
+ * numbers, so every report shows the target.
  *
- * Plan 01's recon (docs/data/tba-field-recon.md) found `api.statbotics.io/v3/year/{year}`
- * reproducibly returns HTTP 500 across three URL shapes; re-confirmed live
- * during plan 01's execution (2026-08-13) and again on 2026-08-14 (Phase 2's
- * D-14). `statboticsReference` still always attempts a live fetch first — a
- * future Statbotics fix is picked up automatically with no code change —
- * but never lets a fetch failure fail the run (T-01-12): any network error,
+ * `api.statbotics.io/v3/year/{year}` has been observed to reproducibly
+ * return HTTP 500. `statboticsReference` still always attempts a live fetch
+ * first — a future Statbotics fix is picked up automatically with no code
+ * change — but never lets a fetch failure fail the run: any network error,
  * non-2xx status, or schema-validation failure falls back to
  * `STATBOTICS_REFERENCE_FALLBACK`, a dated manual constant. The returned
  * object always records which path produced the value (`fetched: true | false`).
  *
- * **Quick task 260904-4aa correction.** The endpoint itself was never the
- * only problem: `StatboticsYearResponseSchema` parsed `{ epa_acc: number }`,
- * a shape live `/v3/year/{season}` has never returned in its current v3
- * form (verified live 2026-09-04) — winner-prediction accuracy lives at
- * `metrics.win_prob.season.acc`, with Statbotics' own Brier score
- * (directly comparable to ours) alongside it at
- * `metrics.win_prob.season.mse`. That meant every call to
- * `statboticsReference` was catching its OWN parse failure and returning
- * the fallback unconditionally — the API coming back up on its own changed
- * nothing, because the parse failed before the fallback was ever reached.
- * Fixed below by repointing the schema at the live shape; `mse` is
- * additionally now surfaced on `StatboticsReference`, and every fallback
- * constant is replaced with a live-fetched, individually-verified value
- * (see `STATBOTICS_REFERENCE_FALLBACK`'s own doc comment).
+ * Winner-prediction accuracy lives at `metrics.win_prob.season.acc` in the
+ * live v3 response shape, with Statbotics' own Brier score (directly
+ * comparable to ours) alongside it at `metrics.win_prob.season.mse` — the
+ * shape `StatboticsYearResponseSchema` parses below.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -58,61 +45,23 @@ const StatboticsYearResponseSchema = z.object({
 });
 
 /**
- * Quick task 260904-4aa: replaces the prior 0.70/0.71 dated-manual-constant
- * ESTIMATES (never individually verified — see git history for the retired
- * "KNOWN STUB" comment this replaces) with values fetched live from
- * `/v3/year/{season}` and verified 2026-09-04 against
- * `metrics.win_prob.season.{acc,mse}` for every one of 2022-2026. Every
- * value here is 6-9 winner-accuracy points HIGHER than the estimate it
- * replaces (e.g. 2022: 0.70 -> 0.7815), which makes the target SigmaScout
- * is measured against materially harder — that is the correction, not a
- * problem with it. `sourceLabel` says "fetched and verified" rather than
- * "unverified estimate", and `fetched: false` still marks every artifact
- * that falls back to one of these (a live fetch is always attempted first;
- * this is the fallback path only, per this module's own contract).
+ * Every value below was fetched live from `/v3/year/{season}` and verified
+ * against `metrics.win_prob.season.{acc,mse}` for every season the corpus
+ * carries (2016-2020 and 2022-2026; 2021 is permanently excluded).
+ * `sourceLabel` says "fetched and verified", and `fetched: false` still
+ * marks every artifact that falls back to one of these (a live fetch is
+ * always attempted first; this is the fallback path only).
  *
- * **2018 and 2019 added 2026-09-07 (quick task 260907-12k), each fetched and
- * verified live the same day.** No site page reads these constants — they
- * are consumed by harness report runs only, so registering a season here
- * changes nothing on the site and is independent of `FIRST_SEASON` in
- * `apps/web/src/lib/seasons.ts` (still 2019; no 2016, 2017 or 2018
- * artifacts exist in R2).
+ * No site page reads these constants — they are consumed by harness report
+ * runs only, so registering a season here changes nothing on the site.
  *
- * **2016, 2017 and 2020 added 2026-09-07 (quick task 260907-203)**, each
- * fetched live from `GET /v3/year/{season}` the same day and read from
- * `metrics.win_prob.season`: 2016 acc 0.7312 / mse 0.1799 over 13,286
- * matches, 2017 acc 0.6694 / mse 0.2023 over 15,429, 2020 acc 0.7262 /
- * mse 0.1834 over 4,634 (2020's small count is the cancelled season, not a
- * fetch problem). **The 2020 row CLOSES the named gap quick task 260907-12k
- * recorded** — that gap paragraph is deleted rather than left standing,
- * because a file that still claims an open gap it has already filled is the
- * "docs describe a deleted model" defect this project logs against itself.
- * With 2020 filled, every season the corpus carries (2016-2020, 2022-2026;
- * 2021 is permanently excluded) now resolves offline.
- *
- * **2017 is the hardest season any of these numbers describes.** Its 0.6694
- * is the LOWEST Statbotics winner accuracy of any season in this table —
- * below even 2018's 0.7435, and 5.7 accuracy points below the second-lowest
- * (2020's 0.7262), a gap wider than the entire spread of the 2016/2018/2019/
- * 2020 cluster. Its Brier score agrees independently: 0.2023 is the WORST
- * (highest) `mse` in the table. That is third-party evidence that 2017, and
- * not only 2018, is genuinely hard to predict — a useful anchor for any
- * future headline claim, and a reason not to read a weak SigmaScout 2017
- * result as a SigmaScout-specific failure.
- *
- * **Endpoint correction.** The correct path is `/v3/year/{season}`. An
- * earlier probe of `/v3/season/{season}` returned 404 — that is a
- * WRONG-PATH result, not evidence any season is unavailable from
- * Statbotics, and must never be re-recorded as such.
- *
- * **2018 corroborates this project's own anti-additivity finding.**
- * Statbotics' own 2018 winner accuracy (0.7435) sits well below its 2022
- * (0.7815) — independent, third-party confirmation that 2018 is a
- * genuinely harder season to predict, consistent with this project's own
- * measurement that 2018 is the only corpus season whose red and blue
- * alliance scores are *anti*-correlated (corr(red, blue) totalPoints
- * -0.4567, against +0.24..+0.52 in every other season). Useful as an anchor
- * for any future 2018 headline claim.
+ * 2017 is the hardest season any of these numbers describes: its accuracy
+ * (0.6694) is the LOWEST in the table and its Brier score (0.2023) is the
+ * WORST — third-party evidence that 2017 is genuinely hard to predict, a
+ * useful anchor for any future headline claim. 2018's accuracy (0.7435)
+ * corroborates this project's own anti-additivity finding: 2018 is the
+ * only corpus season whose red and blue alliance scores are
+ * *anti*-correlated.
  */
 export const STATBOTICS_REFERENCE_FALLBACK: Readonly<Record<number, StatboticsReference>> = {
   2016: {
@@ -255,13 +204,11 @@ export interface StatboticsReferenceOptions {
  * Returns the Statbotics reference row for a season. Always attempts a live
  * fetch first; any failure (network error, non-2xx status, schema mismatch)
  * falls back to the dated constant. Never throws for a Statbotics-side
- * failure is context for our numbers, not an input to
- * them (T-01-12). Throws only if `season` has neither a live result nor a
- * fallback constant — see `STATBOTICS_REFERENCE_FALLBACK`'s own keys for the
- * currently-covered set, which as of 2026-09-07 is every season the corpus
- * carries (2016-2020 and 2022-2026; 2021 is permanently excluded). There is
- * no longer a named gap: 2020's, the last one, was filled by quick task
- * 260907-203.
+ * failure: it is context for our numbers, not an input to them. Throws
+ * only if `season` has neither a live result nor a fallback constant — see
+ * `STATBOTICS_REFERENCE_FALLBACK`'s own keys for the currently-covered set,
+ * which is every season the corpus carries (2016-2020 and 2022-2026; 2021
+ * is permanently excluded).
  */
 export async function statboticsReference(
   season: number,
@@ -294,22 +241,22 @@ export async function statboticsReference(
 }
 
 // ---------------------------------------------------------------------------
-// Quick task 260904-4aa (SC-2): per-team Statbotics EPA, for a direct
-// per-team comparison against our own `epa.teamMetrics()` output. This is a
-// DIFFERENT endpoint and a DIFFERENT contract from `statboticsReference`
-// above: that function's whole point is "never let a Statbotics outage fail
-// a report run", so it swallows every failure into a dated fallback. There
-// is no honest fallback for a per-team reference series — an empty result
-// would silently read as "perfect agreement over zero teams" — so this
-// function throws on any fetch or validation failure instead.
+// Per-team Statbotics EPA, for a direct per-team comparison against our own
+// `epa.teamMetrics()` output. This is a DIFFERENT endpoint and a DIFFERENT
+// contract from `statboticsReference` above: that function's whole point is
+// "never let a Statbotics outage fail a report run", so it swallows every
+// failure into a dated fallback. There is no honest fallback for a per-team
+// reference series — an empty result would silently read as "perfect
+// agreement over zero teams" — so this function throws on any fetch or
+// validation failure instead.
 // ---------------------------------------------------------------------------
 
 /**
  * One Statbotics team-year row, narrowed to exactly the fields
  * `scripts/epaVsStatbotics.ts` consumes. `totalPoints` is Statbotics'
- * `epa.total_points` — a NO-FOUL figure (verified live 2026-09-04:
- * `frc254`/2024 total_points 51.71 == auto 15.94 + teleop 29.48 + endgame
- * 6.28) — comparable to our own `total` metric only after our side's
+ * `epa.total_points` — a NO-FOUL figure (verified live: `frc254`/2024
+ * total_points 51.71 == auto 15.94 + teleop 29.48 + endgame 6.28) —
+ * comparable to our own `total` metric only after our side's
  * `foulsCommitted` component is subtracted out (see `epaStatboticsCompare.ts`).
  */
 export interface StatboticsTeamYearRow {
@@ -342,16 +289,13 @@ const StatboticsTeamYearsPageSchema = z.array(StatboticsTeamYearRawSchema);
 const TEAM_YEARS_DEFAULT_PAGE_SIZE = 1000;
 
 /**
- * Rule 3 (blocking-issue) fix, found running this comparison for real:
- * `/v3/team_years` returned one transient HTTP 503 mid-page (season 2025,
- * offset 3000) that a re-request 5 seconds later resolved cleanly — a
- * genuine transient hiccup, not a real outage (the endpoint's live status is
- * this function's own `<precondition>`, checked once before any paging
- * starts). A multi-season, multi-arm comparison run (Task 2) makes a single
- * flaky page costly to lose an entire long replay over, so a page-level
- * retry with a short fixed backoff is applied to non-2xx responses only —
- * a schema-validation failure is never retried, since retrying cannot fix a
- * shape mismatch.
+ * `/v3/team_years` has been observed to return a transient HTTP 503
+ * mid-page that a re-request resolves cleanly — a genuine transient
+ * hiccup, not a real outage. A multi-season, multi-arm comparison run makes
+ * a single flaky page costly to lose an entire long replay over, so a
+ * page-level retry with a short fixed backoff is applied to non-2xx
+ * responses only — a schema-validation failure is never retried, since
+ * retrying cannot fix a shape mismatch.
  */
 const TEAM_YEARS_MAX_FETCH_ATTEMPTS = 3;
 const TEAM_YEARS_RETRY_DELAY_MS = 2000;
@@ -391,10 +335,10 @@ function writeTeamYearsCache(cachePath: string, cache: Record<number, Statbotics
  * Fetches every Statbotics team-year row for `season`, paging
  * `/v3/team_years?year={season}&limit={pageSize}&offset={n}` until a page
  * returns fewer rows than `pageSize`. Every row is Zod-validated at the
- * fetch boundary (T-4aa-01), picking only the fields this comparison
- * consumes and stripping everything else — matching this file's existing
- * boundary discipline. Throws on a non-2xx status or a schema-validation
- * failure; there is no honest partial-series fallback (see file header).
+ * fetch boundary, picking only the fields this comparison consumes and
+ * stripping everything else — matching this file's existing boundary
+ * discipline. Throws on a non-2xx status or a schema-validation failure;
+ * there is no honest partial-series fallback (see file header).
  */
 export async function fetchStatboticsTeamYears(
   season: number,
