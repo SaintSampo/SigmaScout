@@ -1,65 +1,35 @@
 /**
- * READ-ONLY PRE-EVENT STATE PROBE.
+ * READ-ONLY PRE-EVENT STATE PROBE, a separate Worker (`wrangler.probe.toml`)
+ * that answers before an event, not in front of visitors:
  *
- * A separate Worker deployment (`wrangler.probe.toml`) that answers two
- * questions nothing else in this system answers, and that would otherwise
- * be answered for the first time during a live event, in front of visitors:
+ *   1. Can the deployed bundle deserialize the rows in live D1? That depends
+ *      on which `STATE_SNAPSHOT_SHAPE_VERSION` was deployed, so only the
+ *      deployed runtime can settle it.
+ *   2. What does a tick that folds the ranking-point path cost in real CPU
+ *      time? An idle tick never reads a league row, so its `cpuTime` cannot say.
  *
- *   1. Can the deployed bundle read the rows now sitting in live D1? Whether
- *      the currently-deployed Worker bundle can deserialize live rows is a
- *      deploy-ordering property (which `STATE_SNAPSHOT_SHAPE_VERSION` it was
- *      built against), not a code property, and only something running
- *      inside the deployed runtime can settle it.
- *   2. What does a tick that actually folds the ranking-point path cost, in
- *      real Workers CPU time? A live tick with no live events never reads a
- *      league row at all, so its reported `cpuTime` says nothing about this
- *      question.
- *
- * THE TWO-LAYER WRITE GUARANTEE (state this in exactly these terms — the
- * absence of write bindings is the structural guarantee for R2/KV, but is
- * FALSE for D1):
- *
- *   | Surface | What stops a write                         | Strength           |
- *   |---------|---------------------------------------------|--------------------|
- *   | R2      | binding absent from wrangler.probe.toml —   | structural         |
- *   |         | env.ARTIFACTS does not exist                 |                    |
- *   | KV      | binding absent — env.MANIFEST does not exist | structural         |
- *   | D1      | this file never calls a write helper, and no | TEST-ENFORCED ONLY |
- *   |         | write helper is in its import graph          | (stateProbe.test)  |
- *
- * Workers has no read-only D1 binding — this probe needs `DB` bound to read
- * state at all, and a bound D1 is writable. The guarantee that this file
- * never actually writes to it is held by `apps/worker/test/stateProbe.test.ts`
- * (static import-graph + comment-stripped source scan, plus a fake-D1
- * write-count assertion), not by the binding list. THIS FILE MUST NEVER:
+ * WRITE GUARANTEE, two layers: R2 and KV are structurally unwritable (their
+ * bindings are absent from `wrangler.probe.toml`). D1 is NOT: Workers has no
+ * read-only D1 binding, so "never writes D1" is enforced only by
+ * `test/stateProbe.test.ts` (import graph, comment-stripped source scan,
+ * fake-D1 write count). THIS FILE MUST NEVER:
  *   - call `writeScopedState` / `writeEventCursor` / any `artifactWriter.ts`
- *     export, or import `scheduled.ts` at all (importing it would pull
- *     those write helpers into this file's import graph even if unused,
- *     which is the one thing the test above exists to forbid);
- *   - time itself with `Date.now()`/`performance.now()` — Cloudflare freezes
- *     both between I/O operations as a Spectre mitigation, so a self-timed
- *     probe would report `durationMs: 0` and be believed. Timing comes from
- *     the runtime's own `cpuTime`, read off `wrangler tail` by a human, not
- *     from anything this file computes.
+ *     export, or import `scheduled.ts` (that pulls the write helpers into
+ *     the import graph);
+ *   - time itself with `Date.now()`/`performance.now()`: Cloudflare freezes
+ *     both between I/O operations, so it would report `durationMs: 0`.
+ *     Timing is the runtime's `cpuTime`, read off `wrangler tail`.
  *
- * `selectionsFor` (`scheduled.ts`) is exactly the helper this file needs to
- * build a read selection, but importing it would pull `scheduled.ts` (and
- * therefore the write helpers above) into this file's import graph — so this
- * file carries its own `probeSelectionsFor`, a deliberate duplicate pinned
- * equal to the real one by `stateProbe.test.ts`'s own equivalence test.
+ * Hence `probeSelectionsFor` duplicates `scheduled.ts`'s `selectionsFor`,
+ * pinned equal by `stateProbe.test.ts`.
  *
- * ARMS: `?rp=0` ablates exactly the operations added to the live tick's
- * Phase A for ranking-point folding (the mean shift of shape 16 included), so that work's share of the tick's CPU
- * cost can be measured as the difference between two otherwise-identical
- * runs instead of inferred — see `runSprFold`'s own comment for the
- * operation list. `rp` absent is ON and byte-identical to the pre-flag probe.
+ * ARMS: `?rp=0` skips exactly the tick's Phase A ranking-point operations
+ * (mean shift included; list in `runSprFold`), so their CPU share is measured
+ * as a difference between two runs. `rp` absent is ON.
  *
- * SCOPE: this probe prices Phase A only (state read, fold, serialize,
- * discard) — never Phase B (artifact merge, R2 reads/writes), TBA polling,
- * the KV manifest read, or the global rebuild. See
- * `docs/worker-operations.md`'s "Pre-event probe" section for the full
- * runbook, the same-commit ordering rule, and the conditions under which a
- * reported `cpuTime` is not a measurement at all.
+ * SCOPE: Phase A only (state read, fold, serialize, discard), never Phase B,
+ * TBA polling, the KV read or the global rebuild. Runbook:
+ * `docs/worker-operations.md`, "Pre-event probe".
  */
 import {
   readScopedState,
@@ -96,20 +66,12 @@ import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof
 import { TOTAL_METRIC_KEY, type MatchResult, type UpcomingMatch, type Prediction } from "../../../packages/core/algorithms/types.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/manifestSchemas.js";
 
-// `opr`/`epa` are imported for their side of `PUBLISHED_ALGORITHM_IDS`'
-// read-and-deserialize loop below (dispatched by id, never referenced by
-// name directly) — referencing them here keeps them out of an
-// unused-import lint trap while making plain that all three published
-// algorithms are in this file's graph on purpose.
+// `opr`/`epa` are dispatched by id in the deserialize loop below; referenced
+// here so all three published algorithms stay in the graph on purpose.
 void opr;
 void epa;
 
-/**
- * This probe's ENTIRE binding surface: one D1 database, declared LOCALLY
- * rather than reusing `./env.js`'s `Env` — so a future edit cannot reach
- * `env.ARTIFACTS`/`env.MANIFEST` by autocomplete when `wrangler.probe.toml`
- * declares neither binding at all.
- */
+/** The probe's entire binding surface, declared locally (not `./env.js`'s `Env`) so no edit can reach bindings `wrangler.probe.toml` does not declare. */
 interface ProbeEnv {
   readonly DB: D1Database;
 }
@@ -124,7 +86,7 @@ const DEFAULT_EVENT_TYPE = 0; // TBA event_type 0 = Regional, RP-eligible.
 const DEFAULT_TEAM_COUNT = 21;
 const DEFAULT_FOLDED = 2;
 const DEFAULT_UPCOMING = 60;
-/** `folded + upcoming` combined ceiling, so a pathological query string cannot make one probe request price an unbounded number of synthetic matches. */
+/** `folded + upcoming` ceiling, so a query string cannot price unboundedly many synthetic matches. */
 const MAX_FOLDED_PLUS_UPCOMING = 200;
 /** The opr selection spends one key on its event row, so the team side of any selection this probe builds must leave room for it. */
 const MAX_TEAM_COUNT = MAX_SCOPE_KEYS_PER_READ - 1;
@@ -139,11 +101,7 @@ function clampInt(raw: string | null, fallback: number, min: number, max: number
   return Math.min(max, Math.max(min, parseIntParam(raw, fallback)));
 }
 
-/**
- * `rp` — the ablation arm selector. Recognized values only; anything else is
- * ON and warned about, so a typo'd arm can never be silently measured as
- * the other one. Absent/empty is ON, which keeps existing measurements comparable.
- */
+/** `rp`, the ablation arm. Unrecognized values are ON with a warning, so a typo is never silently measured as the other arm; absent is ON. */
 const RP_ON_VALUES = new Set(["1", "on", "true", "yes"]);
 const RP_OFF_VALUES = new Set(["0", "off", "false", "no"]);
 
@@ -172,9 +130,9 @@ interface ProbeParams {
   readonly teamCount: number;
   readonly folded: number;
   readonly upcoming: number;
-  /** Ablation arm. True = today's behaviour, byte-identical. False = every ranking-point operation added to the tick's Phase A is skipped; see `runSprFold`. */
+  /** Ablation arm: false skips every Phase A ranking-point operation (see `runSprFold`). */
   readonly rp: boolean;
-  /** The `rp=` value that was neither an on- nor an off-value, if any — surfaced as a warning rather than being silently coerced. */
+  /** An `rp=` value that was neither on nor off, surfaced as a warning. */
   readonly rpUnrecognized: string | undefined;
 }
 
@@ -194,11 +152,8 @@ function parseParams(url: URL): ProbeParams {
   return { season, eventType, eventOverride, teamsOverride, teamCount, folded, upcoming, rp: rp.enabled, rpUnrecognized: rp.unrecognized };
 }
 
-// Discovery — scope_key-only, never state_json. These two queries cannot
-// deserialize anything; `readScopedState` below remains the only reader of a
-// state payload in this file. Discovery is overhead a real tick never pays,
-// so it is counted in `discovery` below rather than folded into `algorithms`
-// or `fold`.
+// Discovery reads scope keys only, never state_json. It is overhead a real
+// tick never pays, so it is counted separately in `discovery`.
 
 interface DiscoveryRow {
   readonly scope_kind: string;
@@ -221,13 +176,10 @@ async function discoverEventKey(db: D1Database): Promise<string | undefined> {
   return row?.scope_key;
 }
 
-// probeSelectionsFor — a deliberate duplicate of `scheduled.ts`'s
-// `selectionsFor`. See this file's header for why importing the real one is
-// not an option. `stateProbe.test.ts` asserts these two produce deep-equal
-// output, so a future edit to either that drifts from the other fails a
-// named test instead of silently reading a different row set than a real tick.
+// probeSelectionsFor duplicates `scheduled.ts`'s `selectionsFor` (see the
+// header); `stateProbe.test.ts` asserts deep-equal output.
 
-/** Mirrors `scheduled.ts`'s `EVENT_SCOPED_ALGORITHM_IDS` — which published algorithms keep EVENT-scoped state, alongside their team rows. */
+/** Mirrors `scheduled.ts`'s `EVENT_SCOPED_ALGORITHM_IDS`. */
 const PROBE_EVENT_SCOPED_ALGORITHM_IDS = new Set(["opr"]);
 
 export function probeSelectionsFor(algorithmId: string, eventKey: string, touchedTeams: readonly string[]): ScopeSelection[] {
@@ -240,10 +192,8 @@ export function probeSelectionsFor(algorithmId: string, eventKey: string, touche
 }
 
 // ---------------------------------------------------------------------------
-// Synthetic match fixtures — season-2026-SHAPED. A non-2026 `season` param
-// folds no observed thresholds (rp2026.parse's schema will not recognize
-// this shape) and must raise a warning rather than pass silently; see
-// `buildResponse` below.
+// Synthetic match fixtures, 2026-shaped. Another `season` folds no observed
+// thresholds and must warn (see `buildResponse`).
 // ---------------------------------------------------------------------------
 
 const SYNTHETIC_RED_SCORE = 120;
@@ -253,7 +203,7 @@ const SYNTHETIC_RED_TOWER = 50;
 const SYNTHETIC_BLUE_HUB = 110;
 const SYNTHETIC_BLUE_TOWER = 38;
 
-/** The 2026 score-breakdown shape `rp2026.parse` actually reads — copied from `apps/worker/test/scheduled.rp.test.ts`'s `breakdownOf` helper (same shape, this file's own synthetic scores). */
+/** The 2026 score-breakdown shape `rp2026.parse` reads (same shape as `scheduled.rp.test.ts`'s `breakdownOf`). */
 function synthesizeBreakdown(): unknown {
   const side = (hub: number, tower: number) => ({
     autoTowerPoints: Math.round(tower / 2),
@@ -267,12 +217,9 @@ function synthesizeBreakdown(): unknown {
 }
 
 /**
- * Rosters cycled 6-at-a-time from `teamKeys`, so every team on the discovered
- * (or overridden) roster carries beliefs. Wraps around when `teamKeys` has
- * fewer than 6 entries — a roster that small is already flagged by the
- * "roster smaller than requested" warning, and a wrapped match (a team
- * appearing on both alliances) is still a valid `predict`/`update` input,
- * just not a realistic one.
+ * Rosters cycled 6 at a time from `teamKeys`, so every team carries beliefs.
+ * Wraps when fewer than 6 (already warned); a team on both alliances is still
+ * a valid, if unrealistic, input.
  */
 function rosterAt(teamKeys: readonly string[], index: number): { red: string[]; blue: string[] } {
   const n = teamKeys.length;
@@ -349,7 +296,7 @@ interface FoldResult {
   readonly bandsProduced: number;
   readonly rpPmfsProduced: number;
   readonly rpObservedFolds: number;
-  /** Residuals the mean shift booked in the played loop, summed over every variable (shape 16). */
+  /** Residuals the mean shift booked in the played loop, summed over every variable. */
   readonly rpMeanShiftObservations: number;
   /** Alliances whose moments the mean shift actually moved, in both loops. 0 before the warmup or with a cold roster. */
   readonly rpMeanShiftedAlliances: number;
@@ -368,7 +315,7 @@ interface ProbeResponseBody {
     readonly teamCount: number;
     readonly folded: number;
     readonly upcoming: number;
-    /** Which ablation arm produced this body. Echoed so a `cpuTime` read off `wrangler tail` can never be attributed to the wrong arm. */
+    /** The ablation arm, echoed so a `cpuTime` from `wrangler tail` is never attributed to the wrong arm. */
     readonly rp: boolean;
   };
   readonly discovery: {
@@ -381,7 +328,7 @@ interface ProbeResponseBody {
   readonly warnings: readonly string[];
 }
 
-/** A literal, never a clock read — see this file's header on why the probe must not time itself. `serializeState`/`withSigmaBeliefs`/etc. all thread a stamp through, and this probe's rows are discarded, so the stamp's actual value is inert; it exists only because the shared serializer contract requires one. */
+/** A literal, never a clock read. The serializers require a stamp; the probe's rows are discarded, so its value is inert. */
 const PROBE_STAMP: StateStamp = { generation: "probe", computedAt: "1970-01-01T00:00:00.000Z" };
 
 async function readAndDeserializeAll(
@@ -404,8 +351,7 @@ async function readAndDeserializeAll(
       leagueRowPresent = leagueRow !== undefined;
 
       if (leagueRow === undefined) {
-        // NEVER cold-start via initState here — that would measure a
-        // fiction, not a real tick (this file's header).
+        // NEVER cold-start via initState here: that would measure a fiction.
         algorithms.push({
           id: algorithmId,
           ok: false,
@@ -423,9 +369,8 @@ async function readAndDeserializeAll(
       try {
         snapshotShapeVersionObserved = (JSON.parse(leagueRow.stateJson) as Record<string, unknown>).snapshotShapeVersion;
       } catch {
-        // A field read off the already-fetched league row, not a second
-        // deserializer — if this JSON.parse fails, deserializeState below
-        // will fail identically and surface the real error.
+        // If this parse fails, deserializeState below fails identically and
+        // surfaces the real error.
       }
 
       const state = deserializeState(algorithmId, rows);
@@ -462,36 +407,21 @@ async function readAndDeserializeAll(
 }
 
 /**
- * The fold, `spr` only — matching `wrangler.toml`'s tracked
- * `LIVE_ALGORITHM_IDS`. Drives the same sequence a live tick drives, in the
- * same order: resume Sigma/RP accumulators from the rows just read, price
- * `folded` played matches (predict, band, RP fields, update, fold), then
- * price `upcoming` still-upcoming matches (predict, band, RP fields —
- * read-only), then serialize-and-discard.
+ * The fold, `spr` only (matching `wrangler.toml`'s `LIVE_ALGORITHM_IDS`), in
+ * a live tick's order: resume Sigma/RP accumulators, price `folded` played
+ * matches (predict, band, RP fields, update, fold), price `upcoming` matches
+ * read-only, then serialize and discard.
  *
- * `rpEnabled` is the ablation arm: `false` skips exactly the ranking-point
- * operations, so their share of tick cost can be measured, not inferred.
- *
- *   SKIPPED when off:
- *     1. the accumulator resume: `RP_RULE_MODULES[season]`, `readRpBeliefs`,
- *        `RpMomentsAccumulator.fromBeliefs`, the `rpKnownTeams` set, and
- *        (shape 16) `readRpMeanShift` + `RpMeanShiftAccumulator.fromState`
- *     2. `rpFieldsFor` — the mean shift's `apply`, the `analyticRpPmf` call
- *        and its gates — in both the played and the upcoming loop
- *     3. `observeMatch` then `foldObservedRp` — the mean shift's residual
- *        booking, then the per-side `rpRuleModule.parse` + `rp.fold`
- *     4. `withRpBeliefs` and `withRpMeanShift` on the serialize-and-discard path
- *
- *   KEPT in both arms — these predate the ranking-point work and are not
- *   its cost to bear:
- *     - the whole upcoming-repricing loop, which existed before ranking
- *       points were added into it
- *     - every `bandFor` call in both loops (`bandsProduced` must come out
- *       identical in the two arms — `stateProbe.test.ts` asserts exactly
- *       that; ablating the bands would overstate ranking points' share of
- *       the overrun)
- *     - `spr.predict`/`spr.update`, the Sigma fold, the talent read, and
- *       `serializeState` + the Sigma passengers.
+ * `rpEnabled` false skips exactly the ranking-point operations:
+ *     1. the accumulator resume (`RP_RULE_MODULES[season]`, `readRpBeliefs`,
+ *        `RpMomentsAccumulator.fromBeliefs`, `rpKnownTeams`, `readRpMeanShift`,
+ *        `RpMeanShiftAccumulator.fromState`)
+ *     2. `rpFieldsFor` (mean shift `apply`, `analyticRpPmf` and its gates) in both loops
+ *     3. `observeMatch` then `foldObservedRp`
+ *     4. `withRpBeliefs` and `withRpMeanShift`
+ * Both arms keep the upcoming loop, every `bandFor` call (`bandsProduced` must
+ * match across arms, asserted by `stateProbe.test.ts`), predict/update, the
+ * Sigma fold, the talent read and `serializeState` with the Sigma passengers.
  */
 function runSprFold(
   sprRows: StateRow[],
@@ -520,25 +450,17 @@ function runSprFold(
   }
 
   try {
-    // Resumed from the rows just read — a fresh accumulator would price
-    // these synthetic matches from nothing, answering a different question
-    // than "what does a real tick's resumed fold cost".
+    // Resumed from the rows just read, as a real tick resumes.
     const sigma = usesSigmaScore("spr") ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(sprRows), readSigmaPopulation(sprRows)) : undefined;
     const bandFor = (roster: readonly string[]): number | undefined => (sigma === undefined ? undefined : sigma.bandVarianceFor(roster));
 
-    // Indexed lookup, never `rpRuleModuleForSeason` (which throws for an
-    // unmapped season) — an unregistered season yields no accumulator and a
-    // named warning at the response level, never a failed probe.
-    //
-    // Operation 1 of the ablation set: gating the module lookup and belief
-    // read here is what makes operations 2-4 fall out, since `rpFieldsFor`,
-    // `foldObservedRp` and `withRpBeliefs` below are all already guarded on
-    // `rp === undefined`.
+    // Indexed lookup, never `rpRuleModuleForSeason` (which throws): an
+    // unregistered season yields no accumulator and a warning. Gating here
+    // (ablation operation 1) disables operations 2-4, which all guard on `rp`.
     const rpRuleModule = rpEnabled ? RP_RULE_MODULES[season] : undefined;
     const rpBeliefs = rpEnabled ? readRpBeliefs(sprRows) : undefined;
     const rp = rpRuleModule !== undefined && rpBeliefs !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs) : undefined;
-    // Shape 16: mirrors `scheduled.ts`'s resume exactly, gated with the
-    // accumulator above so `rp=0` ablates it too.
+    // Mirrors `scheduled.ts`'s resume, gated with the accumulator so `rp=0` ablates it.
     const rpMeanShift = rp !== undefined && rpRuleModule !== undefined ? RpMeanShiftAccumulator.fromState(rpRuleModule, readRpMeanShift(sprRows)) : undefined;
     const rpKnownTeams = new Set(rpBeliefs?.keys() ?? []);
 
@@ -559,16 +481,14 @@ function runSprFold(
       if (rp === undefined || rpRuleModule === undefined || rpMeanShift === undefined) return {};
       if (!isRpEligibleEventType(view.eventType)) return {};
       if (redBandVariance === undefined || blueBandVariance === undefined) return {};
-      // The partial-roster gate — mirrors `scheduled.ts`'s exactly.
-      // Removing it would over-price as surely as tripping it under-prices;
-      // it is part of what this probe exists to measure, not overhead to strip out.
+      // The partial-roster gate, mirroring `scheduled.ts`: part of what the
+      // probe measures, not overhead to strip.
       for (const teamKey of [...view.redTeams, ...view.blueTeams]) {
         if (!rpKnownTeams.has(teamKey)) return {};
       }
 
-      // The mean shift per alliance, fully-warm rosters only — mirrors
-      // `scheduled.ts`'s `rpFieldsFor` exactly. `apply` returns its input
-      // unchanged when it shifts nothing, which is what the counter reads.
+      // The mean shift per alliance, fully-warm rosters only. `apply` returns
+      // its input unchanged when it shifts nothing, which the counter reads.
       const redMoments = rp.momentsFor(view.redTeams, prediction.redScore, redBandVariance);
       const blueMoments = rp.momentsFor(view.blueTeams, prediction.blueScore, blueBandVariance);
       const red = rpMeanShift.apply(redMoments, rosterIsFullyWarm(rp, view.redTeams));
@@ -581,7 +501,6 @@ function runSprFold(
         ruleModule: rpRuleModule,
         eventType: view.eventType,
         compLevel: view.compLevel,
-        // Mirrors `scheduled.ts`'s `rpFieldsFor` exactly.
         pRedWin: prediction.pRedWin,
       });
 
@@ -605,7 +524,7 @@ function runSprFold(
       };
     };
 
-    /** Mirrors `scheduled.ts`'s `foldObservedRp` exactly, including its degrade-to-a-counted-skip try/catch. */
+    /** Mirrors `scheduled.ts`'s `foldObservedRp`, including its skip-on-parse-failure try/catch. */
     const foldObservedRp = (result: MatchResult): void => {
       if (rp === undefined || rpRuleModule === undefined) return;
       if (!isRpEligibleEventType(result.eventType)) return;
@@ -634,10 +553,8 @@ function runSprFold(
       if (redBandVariance !== undefined) bandsProduced++;
       if (blueBandVariance !== undefined) bandsProduced++;
       const fields = rpFieldsFor(result, prediction, redBandVariance, blueBandVariance);
-      // One increment per match, not per alliance — `rpFieldsFor`'s gates
-      // are all-or-nothing for a given match, either both alliances get a
-      // pmf or neither does. `stateProbe.test.ts` asserts this counter by
-      // equality against `folded + upcoming` (and `=== 0` with `rp=0`).
+      // One increment per match: `rpFieldsFor`'s gates are all-or-nothing
+      // per match. `stateProbe.test.ts` pins this to `folded + upcoming`.
       if (fields.redRpPmf !== undefined) rpPmfsProduced++;
 
       state = spr.update(state, result);
@@ -645,9 +562,7 @@ function runSprFold(
       // Mirrors `scheduled.ts`: after the RP fields, before the threshold fold.
       if (rp !== undefined) rpMeanShift?.observeMatch(rp, result);
       foldObservedRp(result);
-      // Talent after the fold, from the post-update state — mirrors
-      // `scheduled.ts`'s ordering exactly (predict-before-update for the
-      // band/RP reads above, talent read only once the fold has happened).
+      // Talent after the fold, from the post-update state, as `scheduled.ts` orders it.
       if (sigma !== undefined) {
         const roster2 = [...result.redTeams, ...result.blueTeams];
         const metrics = spr.teamMetrics(state, roster2);
@@ -674,18 +589,15 @@ function runSprFold(
       upcomingPriced++;
     }
 
-    // Serialize-and-discard: the write payload's construction is part of a
-    // real tick's CPU, so this probe pays it too — then throws the rows
-    // away rather than calling `writeScopedState` (this file's header).
+    // Serialize and discard: building the write payload is real tick CPU, but
+    // the rows are never written.
     let candidateRows = serializeState("spr", spr.version, state, PROBE_STAMP);
     if (rp !== undefined) candidateRows = withRpBeliefs(candidateRows, rp.beliefsByTeam());
     if (rpMeanShift !== undefined) candidateRows = withRpMeanShift(candidateRows, rpMeanShift.toState());
     if (sigma !== undefined) {
       candidateRows = withSigmaPopulation(withSigmaBeliefs(candidateRows, sigma.beliefsByTeam()), sigma.population());
     }
-    // `selectChangedRows` is a pure comparison with no write helper anywhere
-    // in its own graph, so importing it does not change what
-    // `stateProbe.test.ts`'s static scan forbids.
+    // `selectChangedRows` is a pure comparison with no write helper in its graph.
     const changedRowsDiscarded = selectChangedRows(sprRows, candidateRows).length;
 
     const rpMeanShiftObservations = shiftObservationTotal() - shiftObservationsAtResume;
@@ -755,8 +667,7 @@ function buildWarnings(params: {
   if (resolvedTeamCount < requestedTeamCount) {
     warnings.push(`roster smaller than requested: found/used ${resolvedTeamCount} team(s) against a requested teamCount of ${requestedTeamCount} — the fold below prices a smaller roster than a real tick's peak`);
   }
-  // Gated on `rpEnabled`: in the ablated arm a 0 here is the requested
-  // outcome, and the `rp=0` warning above already says what happened.
+  // In the ablated arm a 0 here is the requested outcome.
   if (rpEnabled && fold.error === undefined && folded + upcoming > 0 && fold.rpPmfsProduced === 0) {
     warnings.push(`rpPmfsProduced is 0 — every RP pmf was suppressed (the partial-roster gate, an ineligible event type, or no registered rule module); the reported cpuTime is NOT evidence about the RP path`);
   }
@@ -771,9 +682,7 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ body: ProbeR
   const url = new URL(request.url);
   const params = parseParams(url);
 
-  // Discovery — always runs, even when `teams`/`event` are overridden, so
-  // `discovery` below is honest about what the corpus actually holds
-  // regardless of which value the fold uses.
+  // Discovery always runs, even with overrides, so `discovery` reports what D1 holds.
   const discoveredTeamKeys = await discoverRoster(env.DB, params.teamCount);
   const discoveredEventKey = await discoverEventKey(env.DB);
 
