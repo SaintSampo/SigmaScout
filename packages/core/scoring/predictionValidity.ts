@@ -1,23 +1,24 @@
 /**
  * Dependency-free leaf enforcing `Prediction.pRedWin`'s documented closed
- * interval [0, 1] as a runtime fact, not merely a type comment (01-REVIEW
- * WR-05). Mirrors `packages/core/algorithms/breakdown/constants.ts`'s
+ * interval [0, 1] as a runtime fact, not merely a type comment. Mirrors
+ * `packages/core/algorithms/breakdown/constants.ts`'s
  * `assertFiniteComponents` in framing and hoisting rationale — one shared
  * implementation every algorithm calls, rather than three copies that can
  * drift.
  *
- * Per D-05, the check runs where `predict()` returns — NOT at `scoreSet`'s
- * or `calibrationBins`'s entry (`packages/core/scoring/brier.ts`,
+ * The check runs where `predict()` returns — NOT at `scoreSet`'s or
+ * `calibrationBins`'s entry (`packages/core/scoring/brier.ts`,
  * `packages/core/scoring/calibration.ts`, both deliberately untouched by
- * this module). Phase 2 writes per-match prediction JSONL sidecars, so a
- * scoring-boundary-only check would let a malformed `pRedWin` reach an
- * artifact on disk before anything notices; an emission-time check can also
- * name the algorithm and match that produced the value, rather than only
- * reporting that a final aggregated score is `NaN`.
+ * this module) — because per-match prediction sidecars are written before
+ * scoring, so a scoring-boundary-only check would let a malformed
+ * `pRedWin` reach an artifact on disk before anything notices; an
+ * emission-time check can also name the algorithm and match that produced
+ * the value, rather than only reporting that a final aggregated score is
+ * `NaN`.
  *
- * Per D-09, this module deliberately does NOT decide what happens to a
- * malformed prediction once caught here: a single bad `pRedWin` is a
- * per-prediction anomaly, handled by harness-side quarantine-and-count
+ * This module deliberately does NOT decide what happens to a malformed
+ * prediction once caught here: a single bad `pRedWin` is a per-prediction
+ * anomaly, handled by harness-side quarantine-and-count
  * (`packages/harness/score.ts`'s `aggregateScores`) — deliberately UNLIKE
  * the OPR solver's `denom`/`residual` guard (`opr.ts`'s
  * `applyObservation`), which aborts the whole run outright because shared
