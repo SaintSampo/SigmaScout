@@ -1,0 +1,1511 @@
+{
+  "measuredAt": "2026-09-14T05:11:24.022Z",
+  "command": "npx tsx scripts/measureRpCalibration.ts --seasons 2016-2020,2022 --algorithm spr --bonus-arms --emit-bonus-arms data/baselines/rp-bonus-arms-2026-09.json",
+  "corpusIdentity": {
+    "path": "data/corpus.sqlite",
+    "sizeBytes": 591257600,
+    "mtime": "2026-09-13T23:51:32.579Z"
+  },
+  "tree": {
+    "headAtStart": "8b1fed097479bd30335d5c5740ee3f3fc85dd890",
+    "statusAtStart": "",
+    "headAtEnd": "8b1fed097479bd30335d5c5740ee3f3fc85dd890",
+    "statusAtEnd": ""
+  },
+  "algorithmVersions": {
+    "spr": "4.0.0+baseline"
+  },
+  "seasons": [
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2022
+  ],
+  "arms": [
+    {
+      "arm": "control",
+      "pooled": {
+        "arm": "control",
+        "bonusCount": 267324,
+        "bonusBrier": 0.179913617415328,
+        "totalRpCount": 137482,
+        "totalRpRps": 0.15962672811257442
+      },
+      "meanPredictedBonus": 0.11036493749242572,
+      "observedBonusRate": 0.26681854229324714,
+      "totalRp": {
+        "count": 137482,
+        "rankedProbabilityScore": 0.15962672811257442,
+        "meanPredictedRp": 1.214596794854789,
+        "meanActualRp": 1.5230793849376645,
+        "excludedNullActual": 0,
+        "excludedOutOfSupport": 0
+      },
+      "multiVariablePool": {
+        "n": 147528,
+        "observed": 0.29441868662220055,
+        "meanPredicted": 0.08526639627711846,
+        "brier": 0.2185435080745321,
+        "gapClosedShare": null
+      },
+      "singleVariablePool": {
+        "n": 89938,
+        "observed": 0.29441392959594387,
+        "meanPredicted": 0.18817424937461802,
+        "brier": 0.16056551405096123,
+        "gapClosedShare": null
+      },
+      "perSeason": [
+        {
+          "season": 2016,
+          "bonusCount": 44316,
+          "bonusBrier": 0.386424004197309,
+          "meanPredictedBonus": 0.02396281185554735,
+          "observedBonusRate": 0.4148388843758462,
+          "totalRp": {
+            "count": 22158,
+            "rankedProbabilityScore": 0.2275602275613957,
+            "meanPredictedRp": 1.0479256237110968,
+            "meanActualRp": 1.8296326383247585,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 160192,
+            "degenerate": 17072,
+            "lattice": 0,
+            "fallbacks": 17072
+          }
+        },
+        {
+          "season": 2017,
+          "bonusCount": 50772,
+          "bonusBrier": 0.04867796009234721,
+          "meanPredictedBonus": 0.021544557338706156,
+          "observedBonusRate": 0.05920586149846372,
+          "totalRp": {
+            "count": 25386,
+            "rankedProbabilityScore": 0.12320819814399109,
+            "meanPredictedRp": 1.0430891146774122,
+            "meanActualRp": 1.1184117229969275,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 91179,
+            "degenerate": 10365,
+            "lattice": 0,
+            "fallbacks": 10365
+          }
+        },
+        {
+          "season": 2018,
+          "bonusCount": 56624,
+          "bonusBrier": 0.19194693274845215,
+          "meanPredictedBonus": 0.1015581166066505,
+          "observedBonusRate": 0.28832297259112744,
+          "totalRp": {
+            "count": 28312,
+            "rankedProbabilityScore": 0.15868951506038223,
+            "meanPredictedRp": 1.2031162332133065,
+            "meanActualRp": 1.576645945182255,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 79938,
+            "degenerate": 4998,
+            "lattice": 0,
+            "fallbacks": 4998
+          }
+        },
+        {
+          "season": 2019,
+          "bonusCount": 59716,
+          "bonusBrier": 0.13220347100645807,
+          "meanPredictedBonus": 0.12467593857659214,
+          "observedBonusRate": 0.23025654765891887,
+          "totalRp": {
+            "count": 29858,
+            "rankedProbabilityScore": 0.1463835620315793,
+            "meanPredictedRp": 1.249351877153186,
+            "meanActualRp": 1.4785987005157746,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 28165,
+            "degenerate": 1693,
+            "lattice": 0,
+            "fallbacks": 1693
+          }
+        },
+        {
+          "season": 2020,
+          "bonusCount": 7640,
+          "bonusBrier": 0.12944987543736597,
+          "meanPredictedBonus": 0.04302945816753733,
+          "observedBonusRate": 0.14646596858638744,
+          "totalRp": {
+            "count": 7640,
+            "rankedProbabilityScore": 0.17037930290665648,
+            "meanPredictedRp": 1.0430294581675412,
+            "meanActualRp": 1.1464659685863874,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 6430,
+            "degenerate": 1210,
+            "lattice": 0,
+            "fallbacks": 1210
+          }
+        },
+        {
+          "season": 2022,
+          "bonusCount": 48256,
+          "bonusBrier": 0.18125252112084408,
+          "meanPredictedBonus": 0.2864489413059379,
+          "observedBonusRate": 0.38838693633952254,
+          "totalRp": {
+            "count": 24128,
+            "rankedProbabilityScore": 0.14964038354810283,
+            "meanPredictedRp": 1.5728978826118827,
+            "meanActualRp": 1.7787632625994696,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 68357,
+            "degenerate": 4027,
+            "lattice": 0,
+            "fallbacks": 4027
+          }
+        }
+      ],
+      "perCell": [
+        {
+          "season": 2016,
+          "bonus": "breach",
+          "cellClass": "multi-variable",
+          "n": 22158,
+          "observed": 0.6998375304630382,
+          "meanPredicted": 0.024681018423643324,
+          "brier": 0.6607056335526311,
+          "gapClosedShare": null
+        },
+        {
+          "season": 2016,
+          "bonus": "capture",
+          "cellClass": "multi-variable",
+          "n": 22158,
+          "observed": 0.1298402382886542,
+          "meanPredicted": 0.02324460528745157,
+          "brier": 0.11214237484198956,
+          "gapClosedShare": null
+        },
+        {
+          "season": 2017,
+          "bonus": "kPa",
+          "cellClass": "multi-variable",
+          "n": 25386,
+          "observed": 0.030489246041125028,
+          "meanPredicted": 0.001503267890568947,
+          "brier": 0.029153859621407593,
+          "gapClosedShare": null
+        },
+        {
+          "season": 2017,
+          "bonus": "rotor",
+          "cellClass": "multi-variable",
+          "n": 25386,
+          "observed": 0.08792247695580241,
+          "meanPredicted": 0.041585846786843246,
+          "brier": 0.06820206056328613,
+          "gapClosedShare": null
+        },
+        {
+          "season": 2018,
+          "bonus": "autoQuest",
+          "cellClass": "multi-variable",
+          "n": 28312,
+          "observed": 0.4889446171234812,
+          "meanPredicted": 0.1801749226132841,
+          "brier": 0.3055630492029325,
+          "gapClosedShare": null
+        },
+        {
+          "season": 2018,
+          "bonus": "faceTheBoss",
+          "cellClass": "single-variable",
+          "n": 28312,
+          "observed": 0.08770132805877366,
+          "meanPredicted": 0.022941310600018413,
+          "brier": 0.07833081629397254,
+          "gapClosedShare": null
+        },
+        {
+          "season": 2019,
+          "bonus": "habDocking",
+          "cellClass": "single-variable",
+          "n": 29858,
+          "observed": 0.41318909504990287,
+          "meanPredicted": 0.24935187715318427,
+          "brier": 0.21708294174498124,
+          "gapClosedShare": null
+        },
+        {
+          "season": 2019,
+          "bonus": "completeRocket",
+          "cellClass": "constant",
+          "n": 29858,
+          "observed": 0.047324000267934895,
+          "meanPredicted": 0,
+          "brier": 0.047324000267934895,
+          "gapClosedShare": null
+        },
+        {
+          "season": 2020,
+          "bonus": "shieldOperational",
+          "cellClass": "single-variable",
+          "n": 7640,
+          "observed": 0.14646596858638744,
+          "meanPredicted": 0.04302945816753733,
+          "brier": 0.12944987543736597,
+          "gapClosedShare": null
+        },
+        {
+          "season": 2022,
+          "bonus": "cargoBonus",
+          "cellClass": "multi-variable",
+          "n": 24128,
+          "observed": 0.3399370026525199,
+          "meanPredicted": 0.2205848916425879,
+          "brier": 0.16553141787011183,
+          "gapClosedShare": null
+        },
+        {
+          "season": 2022,
+          "bonus": "hangarBonus",
+          "cellClass": "single-variable",
+          "n": 24128,
+          "observed": 0.4368368700265252,
+          "meanPredicted": 0.3523129909692915,
+          "brier": 0.19697362437157817,
+          "gapClosedShare": null
+        }
+      ]
+    },
+    {
+      "arm": "lattice",
+      "pooled": {
+        "arm": "lattice",
+        "bonusCount": 267324,
+        "bonusBrier": 0.12657109616122447,
+        "totalRpCount": 137482,
+        "totalRpRps": 0.14311419863895217
+      },
+      "meanPredictedBonus": 0.20678490928999144,
+      "observedBonusRate": 0.26681854229324714,
+      "totalRp": {
+        "count": 137482,
+        "rankedProbabilityScore": 0.14311419863895217,
+        "meanPredictedRp": 1.4020785927687704,
+        "meanActualRp": 1.5230793849376645,
+        "excludedNullActual": 0,
+        "excludedOutOfSupport": 0
+      },
+      "multiVariablePool": {
+        "n": 147528,
+        "observed": 0.29441868662220055,
+        "meanPredicted": 0.24267069068510513,
+        "brier": 0.12698064153804398,
+        "gapClosedShare": 0.7525822172364646
+      },
+      "singleVariablePool": {
+        "n": 89938,
+        "observed": 0.29441392959594387,
+        "meanPredicted": 0.21656971953619583,
+        "brier": 0.15220809474725375,
+        "gapClosedShare": 0.26727744381781277
+      },
+      "perSeason": [
+        {
+          "season": 2016,
+          "bonusCount": 44316,
+          "bonusBrier": 0.15767606286397146,
+          "meanPredictedBonus": 0.2765028138432405,
+          "observedBonusRate": 0.4148388843758462,
+          "totalRp": {
+            "count": 22158,
+            "rankedProbabilityScore": 0.1596493891743538,
+            "meanPredictedRp": 1.5530056276864763,
+            "meanActualRp": 1.8296326383247585,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 0,
+            "degenerate": 17072,
+            "lattice": 160192,
+            "fallbacks": 60632
+          }
+        },
+        {
+          "season": 2017,
+          "bonusCount": 50772,
+          "bonusBrier": 0.048938489018749365,
+          "meanPredictedBonus": 0.09219665027135163,
+          "observedBonusRate": 0.05920586149846372,
+          "totalRp": {
+            "count": 25386,
+            "rankedProbabilityScore": 0.12170635216506086,
+            "meanPredictedRp": 1.184393300542702,
+            "meanActualRp": 1.1184117229969275,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 0,
+            "degenerate": 10365,
+            "lattice": 91179,
+            "fallbacks": 54736
+          }
+        },
+        {
+          "season": 2018,
+          "bonusCount": 56624,
+          "bonusBrier": 0.1345889610132051,
+          "meanPredictedBonus": 0.24210863767796117,
+          "observedBonusRate": 0.28832297259112744,
+          "totalRp": {
+            "count": 28312,
+            "rankedProbabilityScore": 0.13864221842691576,
+            "meanPredictedRp": 1.484217275355919,
+            "meanActualRp": 1.576645945182255,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 0,
+            "degenerate": 4998,
+            "lattice": 79938,
+            "fallbacks": 19075
+          }
+        },
+        {
+          "season": 2019,
+          "bonusCount": 59716,
+          "bonusBrier": 0.12055246032836733,
+          "meanPredictedBonus": 0.16373442378668554,
+          "observedBonusRate": 0.23025654765891887,
+          "totalRp": {
+            "count": 29858,
+            "rankedProbabilityScore": 0.14215489664557282,
+            "meanPredictedRp": 1.3274688475733691,
+            "meanActualRp": 1.4785987005157746,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 0,
+            "degenerate": 1693,
+            "lattice": 28165,
+            "fallbacks": 11222
+          }
+        },
+        {
+          "season": 2020,
+          "bonusCount": 7640,
+          "bonusBrier": 0.12403136811689361,
+          "meanPredictedBonus": 0.07064237933365988,
+          "observedBonusRate": 0.14646596858638744,
+          "totalRp": {
+            "count": 7640,
+            "rankedProbabilityScore": 0.1692325743192777,
+            "meanPredictedRp": 1.0706423793336626,
+            "meanActualRp": 1.1464659685863874,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 0,
+            "degenerate": 1210,
+            "lattice": 6430,
+            "fallbacks": 1356
+          }
+        },
+        {
+          "season": 2022,
+          "bonusCount": 48256,
+          "bonusBrier": 0.17812787305350525,
+          "meanPredictedBonus": 0.2967015487473563,
+          "observedBonusRate": 0.38838693633952254,
+          "totalRp": {
+            "count": 24128,
+            "rankedProbabilityScore": 0.1486174310323128,
+            "meanPredictedRp": 1.5934030974947098,
+            "meanActualRp": 1.7787632625994696,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 0,
+            "degenerate": 4027,
+            "lattice": 68357,
+            "fallbacks": 4134
+          }
+        }
+      ],
+      "perCell": [
+        {
+          "season": 2016,
+          "bonus": "breach",
+          "cellClass": "multi-variable",
+          "n": 22158,
+          "observed": 0.6998375304630382,
+          "meanPredicted": 0.5002732710965911,
+          "brier": 0.21753519142319303,
+          "gapClosedShare": 0.7044177819397192
+        },
+        {
+          "season": 2016,
+          "bonus": "capture",
+          "cellClass": "multi-variable",
+          "n": 22158,
+          "observed": 0.1298402382886542,
+          "meanPredicted": 0.0527323565898906,
+          "brier": 0.09781693430475183,
+          "gapClosedShare": 0.2766318888702161
+        },
+        {
+          "season": 2017,
+          "bonus": "kPa",
+          "cellClass": "multi-variable",
+          "n": 25386,
+          "observed": 0.030489246041125028,
+          "meanPredicted": 0.0016521073667135435,
+          "brier": 0.029048027680265005,
+          "gapClosedShare": 0.00513487850475528
+        },
+        {
+          "season": 2017,
+          "bonus": "rotor",
+          "cellClass": "multi-variable",
+          "n": 25386,
+          "observed": 0.08792247695580241,
+          "meanPredicted": 0.18274119317598947,
+          "brier": 0.06882895035723353,
+          "gapClosedShare": 3.0463015086432845
+        },
+        {
+          "season": 2018,
+          "bonus": "autoQuest",
+          "cellClass": "multi-variable",
+          "n": 28312,
+          "observed": 0.4889446171234812,
+          "meanPredicted": 0.46256181105339217,
+          "brier": 0.1911012954580721,
+          "gapClosedShare": 0.9145550663191211
+        },
+        {
+          "season": 2018,
+          "bonus": "faceTheBoss",
+          "cellClass": "single-variable",
+          "n": 28312,
+          "observed": 0.08770132805877366,
+          "meanPredicted": 0.021655464302532228,
+          "brier": 0.0780766265683371,
+          "gapClosedShare": -0.01985555822780812
+        },
+        {
+          "season": 2019,
+          "bonus": "habDocking",
+          "cellClass": "single-variable",
+          "n": 29858,
+          "observed": 0.41318909504990287,
+          "meanPredicted": 0.3274688475733711,
+          "brier": 0.19378092038879977,
+          "gapClosedShare": 0.4767962458287774
+        },
+        {
+          "season": 2019,
+          "bonus": "completeRocket",
+          "cellClass": "constant",
+          "n": 29858,
+          "observed": 0.047324000267934895,
+          "meanPredicted": 0,
+          "brier": 0.047324000267934895,
+          "gapClosedShare": 0
+        },
+        {
+          "season": 2020,
+          "bonus": "shieldOperational",
+          "cellClass": "single-variable",
+          "n": 7640,
+          "observed": 0.14646596858638744,
+          "meanPredicted": 0.07064237933365988,
+          "brier": 0.12403136811689361,
+          "gapClosedShare": 0.26695526612709874
+        },
+        {
+          "season": 2022,
+          "bonus": "cargoBonus",
+          "cellClass": "multi-variable",
+          "n": 24128,
+          "observed": 0.3399370026525199,
+          "meanPredicted": 0.23914807008431244,
+          "brier": 0.15958483262085232,
+          "gapClosedShare": 0.15553288739216165
+        },
+        {
+          "season": 2022,
+          "bonus": "hangarBonus",
+          "cellClass": "single-variable",
+          "n": 24128,
+          "observed": 0.4368368700265252,
+          "meanPredicted": 0.35425502741040144,
+          "brier": 0.19667091348615634,
+          "gapClosedShare": 0.02297618688080973
+        }
+      ]
+    },
+    {
+      "arm": "meanShift",
+      "pooled": {
+        "arm": "meanShift",
+        "bonusCount": 267324,
+        "bonusBrier": 0.16659193184349658,
+        "totalRpCount": 137482,
+        "totalRpRps": 0.1550010958190856
+      },
+      "meanPredictedBonus": 0.13856534418381936,
+      "observedBonusRate": 0.26681854229324714,
+      "totalRp": {
+        "count": 137482,
+        "rankedProbabilityScore": 0.1550010958190856,
+        "meanPredictedRp": 1.2694304859442938,
+        "meanActualRp": 1.5230793849376645,
+        "excludedNullActual": 0,
+        "excludedOutOfSupport": 0
+      },
+      "multiVariablePool": {
+        "n": 147528,
+        "observed": 0.29441868662220055,
+        "meanPredicted": 0.11892256297438349,
+        "brier": 0.19877599881362987,
+        "gapClosedShare": 0.16091703629797904
+      },
+      "singleVariablePool": {
+        "n": 89938,
+        "observed": 0.29441392959594387,
+        "meanPredicted": 0.21678750025695634,
+        "brier": 0.1533945166131628,
+        "gapClosedShare": 0.26932734382039947
+      },
+      "perSeason": [
+        {
+          "season": 2016,
+          "bonusCount": 44316,
+          "bonusBrier": 0.3694738720189674,
+          "meanPredictedBonus": 0.038857404943754996,
+          "observedBonusRate": 0.4148388843758462,
+          "totalRp": {
+            "count": 22158,
+            "rankedProbabilityScore": 0.22081746648406234,
+            "meanPredictedRp": 1.07771480988751,
+            "meanActualRp": 1.8296326383247585,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 160192,
+            "degenerate": 17072,
+            "lattice": 0,
+            "fallbacks": 17072
+          },
+          "meanShift": {
+            "scoredSides": 22158,
+            "shiftedSides": 20545,
+            "variables": {
+              "position1crossings": {
+                "finalCount": 20745,
+                "finalMeanResidual": 0.040408002735605686,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              },
+              "position2crossings": {
+                "finalCount": 20745,
+                "finalMeanResidual": 0.07186357473548342,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              },
+              "position3crossings": {
+                "finalCount": 20745,
+                "finalMeanResidual": 0.08389133166324672,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              },
+              "position4crossings": {
+                "finalCount": 20745,
+                "finalMeanResidual": 0.08417343566242556,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              },
+              "position5crossings": {
+                "finalCount": 20745,
+                "finalMeanResidual": 0.058921799200403614,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              },
+              "attackedTowerEndStrength": {
+                "finalCount": 20745,
+                "finalMeanResidual": -0.5258207019465285,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              },
+              "teleopChallengePoints": {
+                "finalCount": 20745,
+                "finalMeanResidual": 0.7401126537988205,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              },
+              "teleopScalePoints": {
+                "finalCount": 20745,
+                "finalMeanResidual": 0.4063243184389214,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              }
+            }
+          }
+        },
+        {
+          "season": 2017,
+          "bonusCount": 50772,
+          "bonusBrier": 0.04639574620599002,
+          "meanPredictedBonus": 0.029365277254796606,
+          "observedBonusRate": 0.05920586149846372,
+          "totalRp": {
+            "count": 25386,
+            "rankedProbabilityScore": 0.12235195994601121,
+            "meanPredictedRp": 1.0587305545095884,
+            "meanActualRp": 1.1184117229969275,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 91179,
+            "degenerate": 10365,
+            "lattice": 0,
+            "fallbacks": 10365
+          },
+          "meanShift": {
+            "scoredSides": 25386,
+            "shiftedSides": 23693,
+            "variables": {
+              "autoFuelPoints": {
+                "finalCount": 23893,
+                "finalMeanResidual": 0.24865092285315596,
+                "activatedAfterMatch": "2017miket_qm21"
+              },
+              "teleopFuelPoints": {
+                "finalCount": 23893,
+                "finalMeanResidual": 0.285965622029467,
+                "activatedAfterMatch": "2017miket_qm21"
+              },
+              "autoRotorPoints": {
+                "finalCount": 23893,
+                "finalMeanResidual": 3.755160943247888,
+                "activatedAfterMatch": "2017miket_qm21"
+              },
+              "teleopRotorPoints": {
+                "finalCount": 23893,
+                "finalMeanResidual": 3.9028744372234225,
+                "activatedAfterMatch": "2017miket_qm21"
+              }
+            }
+          }
+        },
+        {
+          "season": 2018,
+          "bonusCount": 56624,
+          "bonusBrier": 0.15930860206140104,
+          "meanPredictedBonus": 0.15684642383345432,
+          "observedBonusRate": 0.28832297259112744,
+          "totalRp": {
+            "count": 28312,
+            "rankedProbabilityScore": 0.14777950789375355,
+            "meanPredictedRp": 1.3136928476668988,
+            "meanActualRp": 1.576645945182255,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 79938,
+            "degenerate": 4998,
+            "lattice": 0,
+            "fallbacks": 4998
+          },
+          "meanShift": {
+            "scoredSides": 28312,
+            "shiftedSides": 26453,
+            "variables": {
+              "autoRunPoints": {
+                "finalCount": 26654,
+                "finalMeanResidual": 0.7504474305179878,
+                "activatedAfterMatch": "2018mawor_qm30"
+              },
+              "autoSwitchOwnershipSec": {
+                "finalCount": 26654,
+                "finalMeanResidual": 0.5365692091529719,
+                "activatedAfterMatch": "2018mawor_qm30"
+              },
+              "endgamePoints": {
+                "finalCount": 26654,
+                "finalMeanResidual": 3.1316788297448106,
+                "activatedAfterMatch": "2018mawor_qm30"
+              }
+            }
+          }
+        },
+        {
+          "season": 2019,
+          "bonusCount": 59716,
+          "bonusBrier": 0.12494272615701292,
+          "meanPredictedBonus": 0.14706339496423323,
+          "observedBonusRate": 0.23025654765891887,
+          "totalRp": {
+            "count": 29858,
+            "rankedProbabilityScore": 0.1437774742118342,
+            "meanPredictedRp": 1.2941267899284634,
+            "meanActualRp": 1.4785987005157746,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 28165,
+            "degenerate": 1693,
+            "lattice": 0,
+            "fallbacks": 1693
+          },
+          "meanShift": {
+            "scoredSides": 29858,
+            "shiftedSides": 27956,
+            "variables": {
+              "habClimbPoints": {
+                "finalCount": 28156,
+                "finalMeanResidual": 0.7571196400163996,
+                "activatedAfterMatch": "2019nhgrs_qm20"
+              }
+            }
+          }
+        },
+        {
+          "season": 2020,
+          "bonusCount": 7640,
+          "bonusBrier": 0.12561565166604777,
+          "meanPredictedBonus": 0.05719148781604273,
+          "observedBonusRate": 0.14646596858638744,
+          "totalRp": {
+            "count": 7640,
+            "rankedProbabilityScore": 0.1695303667190386,
+            "meanPredictedRp": 1.0571914878160493,
+            "meanActualRp": 1.1464659685863874,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 6430,
+            "degenerate": 1210,
+            "lattice": 0,
+            "fallbacks": 1210
+          },
+          "meanShift": {
+            "scoredSides": 7640,
+            "shiftedSides": 6696,
+            "variables": {
+              "endgamePoints": {
+                "finalCount": 6897,
+                "finalMeanResidual": 3.3837645253252857,
+                "activatedAfterMatch": "2020isde2_qm44"
+              }
+            }
+          }
+        },
+        {
+          "season": 2022,
+          "bonusCount": 48256,
+          "bonusBrier": 0.17331189805046018,
+          "meanPredictedBonus": 0.3259418702458349,
+          "observedBonusRate": 0.38838693633952254,
+          "totalRp": {
+            "count": 24128,
+            "rankedProbabilityScore": 0.1466722116884236,
+            "meanPredictedRp": 1.6518837404916709,
+            "meanActualRp": 1.7787632625994696,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 68357,
+            "degenerate": 4027,
+            "lattice": 0,
+            "fallbacks": 4027
+          },
+          "meanShift": {
+            "scoredSides": 24128,
+            "shiftedSides": 22523,
+            "variables": {
+              "matchCargoTotal": {
+                "finalCount": 22723,
+                "finalMeanResidual": 1.681276263973041,
+                "activatedAfterMatch": "2022miket_qm15"
+              },
+              "autoCargoTotal": {
+                "finalCount": 22723,
+                "finalMeanResidual": 0.2798399393855554,
+                "activatedAfterMatch": "2022miket_qm15"
+              },
+              "endgamePoints": {
+                "finalCount": 22723,
+                "finalMeanResidual": 1.1855191844054,
+                "activatedAfterMatch": "2022miket_qm15"
+              }
+            }
+          }
+        }
+      ],
+      "perCell": [
+        {
+          "season": 2016,
+          "bonus": "breach",
+          "cellClass": "multi-variable",
+          "n": 22158,
+          "observed": 0.6998375304630382,
+          "meanPredicted": 0.0419565024040501,
+          "brier": 0.6337279041494169,
+          "gapClosedShare": 0.025587376663559105
+        },
+        {
+          "season": 2016,
+          "bonus": "capture",
+          "cellClass": "multi-variable",
+          "n": 22158,
+          "observed": 0.1298402382886542,
+          "meanPredicted": 0.03575830748346018,
+          "brier": 0.10521983988851501,
+          "gapClosedShare": 0.11739413561029675
+        },
+        {
+          "season": 2017,
+          "bonus": "kPa",
+          "cellClass": "multi-variable",
+          "n": 25386,
+          "observed": 0.030489246041125028,
+          "meanPredicted": 0.001600048550351635,
+          "brier": 0.029075755956013506,
+          "gapClosedShare": 0.0033388785184339733
+        },
+        {
+          "season": 2017,
+          "bonus": "rotor",
+          "cellClass": "multi-variable",
+          "n": 25386,
+          "observed": 0.08792247695580241,
+          "meanPredicted": 0.05713050595924155,
+          "brier": 0.06371573645596627,
+          "gapClosedShare": 0.33547237068637004
+        },
+        {
+          "season": 2018,
+          "bonus": "autoQuest",
+          "cellClass": "multi-variable",
+          "n": 28312,
+          "observed": 0.4889446171234812,
+          "meanPredicted": 0.28262992246096813,
+          "brier": 0.24260798896320268,
+          "gapClosedShare": 0.3318168902884362
+        },
+        {
+          "season": 2018,
+          "bonus": "faceTheBoss",
+          "cellClass": "single-variable",
+          "n": 28312,
+          "observed": 0.08770132805877366,
+          "meanPredicted": 0.031062925205940548,
+          "brier": 0.07600921515959859,
+          "gapClosedShare": 0.12541093910443551
+        },
+        {
+          "season": 2019,
+          "bonus": "habDocking",
+          "cellClass": "single-variable",
+          "n": 29858,
+          "observed": 0.41318909504990287,
+          "meanPredicted": 0.29412678992846647,
+          "brier": 0.20256145204609097,
+          "gapClosedShare": 0.27328902034645064
+        },
+        {
+          "season": 2019,
+          "bonus": "completeRocket",
+          "cellClass": "constant",
+          "n": 29858,
+          "observed": 0.047324000267934895,
+          "meanPredicted": 0,
+          "brier": 0.047324000267934895,
+          "gapClosedShare": 0
+        },
+        {
+          "season": 2020,
+          "bonus": "shieldOperational",
+          "cellClass": "single-variable",
+          "n": 7640,
+          "observed": 0.14646596858638744,
+          "meanPredicted": 0.05719148781604273,
+          "brier": 0.12561565166604777,
+          "gapClosedShare": 0.13691519165871374
+        },
+        {
+          "season": 2022,
+          "bonus": "cargoBonus",
+          "cellClass": "multi-variable",
+          "n": 24128,
+          "observed": 0.3399370026525199,
+          "meanPredicted": 0.2623363267366619,
+          "brier": 0.15447195087399934,
+          "gapClosedShare": 0.34981731567864444
+        },
+        {
+          "season": 2022,
+          "bonus": "hangarBonus",
+          "cellClass": "single-variable",
+          "n": 24128,
+          "observed": 0.4368368700265252,
+          "meanPredicted": 0.3895474137550106,
+          "brier": 0.19215184522692097,
+          "gapClosedShare": 0.44051956915638674
+        }
+      ]
+    },
+    {
+      "arm": "lattice+meanShift",
+      "pooled": {
+        "arm": "lattice+meanShift",
+        "bonusCount": 267324,
+        "bonusBrier": 0.12427754505300412,
+        "totalRpCount": 137482,
+        "totalRpRps": 0.14195631508465764
+      },
+      "meanPredictedBonus": 0.2513419453483122,
+      "observedBonusRate": 0.26681854229324714,
+      "totalRp": {
+        "count": 137482,
+        "rankedProbabilityScore": 0.14195631508465764,
+        "meanPredictedRp": 1.4887165897956722,
+        "meanActualRp": 1.5230793849376645,
+        "excludedNullActual": 0,
+        "excludedOutOfSupport": 0
+      },
+      "multiVariablePool": {
+        "n": 147528,
+        "observed": 0.29441868662220055,
+        "meanPredicted": 0.3045374861946468,
+        "brier": 0.1257758034997706,
+        "gapClosedShare": 1.0483800562535135
+      },
+      "singleVariablePool": {
+        "n": 89938,
+        "observed": 0.29441392959594387,
+        "meanPredicted": 0.2475252722427499,
+        "brier": 0.14736727206559577,
+        "gapClosedShare": 0.558652122676647
+      },
+      "perSeason": [
+        {
+          "season": 2016,
+          "bonusCount": 44316,
+          "bonusBrier": 0.1410703347478487,
+          "meanPredictedBonus": 0.3438630333224388,
+          "observedBonusRate": 0.4148388843758462,
+          "totalRp": {
+            "count": 22158,
+            "rankedProbabilityScore": 0.15437293223343135,
+            "meanPredictedRp": 1.6877260666448775,
+            "meanActualRp": 1.8296326383247585,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 0,
+            "degenerate": 17072,
+            "lattice": 160192,
+            "fallbacks": 108028
+          },
+          "meanShift": {
+            "scoredSides": 22158,
+            "shiftedSides": 20545,
+            "variables": {
+              "position1crossings": {
+                "finalCount": 20745,
+                "finalMeanResidual": 0.040408002735605686,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              },
+              "position2crossings": {
+                "finalCount": 20745,
+                "finalMeanResidual": 0.07186357473548342,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              },
+              "position3crossings": {
+                "finalCount": 20745,
+                "finalMeanResidual": 0.08389133166324672,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              },
+              "position4crossings": {
+                "finalCount": 20745,
+                "finalMeanResidual": 0.08417343566242556,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              },
+              "position5crossings": {
+                "finalCount": 20745,
+                "finalMeanResidual": 0.058921799200403614,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              },
+              "attackedTowerEndStrength": {
+                "finalCount": 20745,
+                "finalMeanResidual": -0.5258207019465285,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              },
+              "teleopChallengePoints": {
+                "finalCount": 20745,
+                "finalMeanResidual": 0.7401126537988205,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              },
+              "teleopScalePoints": {
+                "finalCount": 20745,
+                "finalMeanResidual": 0.4063243184389214,
+                "activatedAfterMatch": "2016mndu2_qm12"
+              }
+            }
+          }
+        },
+        {
+          "season": 2017,
+          "bonusCount": 50772,
+          "bonusBrier": 0.052598875048724444,
+          "meanPredictedBonus": 0.10848870936584008,
+          "observedBonusRate": 0.05920586149846372,
+          "totalRp": {
+            "count": 25386,
+            "rankedProbabilityScore": 0.12240320222006848,
+            "meanPredictedRp": 1.216977418731682,
+            "meanActualRp": 1.1184117229969275,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 0,
+            "degenerate": 10365,
+            "lattice": 91179,
+            "fallbacks": 56651
+          },
+          "meanShift": {
+            "scoredSides": 25386,
+            "shiftedSides": 23693,
+            "variables": {
+              "autoFuelPoints": {
+                "finalCount": 23893,
+                "finalMeanResidual": 0.24865092285315596,
+                "activatedAfterMatch": "2017miket_qm21"
+              },
+              "teleopFuelPoints": {
+                "finalCount": 23893,
+                "finalMeanResidual": 0.285965622029467,
+                "activatedAfterMatch": "2017miket_qm21"
+              },
+              "autoRotorPoints": {
+                "finalCount": 23893,
+                "finalMeanResidual": 3.755160943247888,
+                "activatedAfterMatch": "2017miket_qm21"
+              },
+              "teleopRotorPoints": {
+                "finalCount": 23893,
+                "finalMeanResidual": 3.9028744372234225,
+                "activatedAfterMatch": "2017miket_qm21"
+              }
+            }
+          }
+        },
+        {
+          "season": 2018,
+          "bonusCount": 56624,
+          "bonusBrier": 0.14331724218661118,
+          "meanPredictedBonus": 0.3220491539602461,
+          "observedBonusRate": 0.28832297259112744,
+          "totalRp": {
+            "count": 28312,
+            "rankedProbabilityScore": 0.14045992333694227,
+            "meanPredictedRp": 1.6440983079204936,
+            "meanActualRp": 1.576645945182255,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 0,
+            "degenerate": 4998,
+            "lattice": 79938,
+            "fallbacks": 19391
+          },
+          "meanShift": {
+            "scoredSides": 28312,
+            "shiftedSides": 26453,
+            "variables": {
+              "autoRunPoints": {
+                "finalCount": 26654,
+                "finalMeanResidual": 0.7504474305179878,
+                "activatedAfterMatch": "2018mawor_qm30"
+              },
+              "autoSwitchOwnershipSec": {
+                "finalCount": 26654,
+                "finalMeanResidual": 0.5365692091529719,
+                "activatedAfterMatch": "2018mawor_qm30"
+              },
+              "endgamePoints": {
+                "finalCount": 26654,
+                "finalMeanResidual": 3.1316788297448106,
+                "activatedAfterMatch": "2018mawor_qm30"
+              }
+            }
+          }
+        },
+        {
+          "season": 2019,
+          "bonusCount": 59716,
+          "bonusBrier": 0.1173293861944379,
+          "meanPredictedBonus": 0.1888950612167923,
+          "observedBonusRate": 0.23025654765891887,
+          "totalRp": {
+            "count": 29858,
+            "rankedProbabilityScore": 0.1407733867690802,
+            "meanPredictedRp": 1.377790122433589,
+            "meanActualRp": 1.4785987005157746,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 0,
+            "degenerate": 1693,
+            "lattice": 28165,
+            "fallbacks": 12330
+          },
+          "meanShift": {
+            "scoredSides": 29858,
+            "shiftedSides": 27956,
+            "variables": {
+              "habClimbPoints": {
+                "finalCount": 28156,
+                "finalMeanResidual": 0.7571196400163996,
+                "activatedAfterMatch": "2019nhgrs_qm20"
+              }
+            }
+          }
+        },
+        {
+          "season": 2020,
+          "bonusCount": 7640,
+          "bonusBrier": 0.12100998615210627,
+          "meanPredictedBonus": 0.0870793691189261,
+          "observedBonusRate": 0.14646596858638744,
+          "totalRp": {
+            "count": 7640,
+            "rankedProbabilityScore": 0.1685313664907646,
+            "meanPredictedRp": 1.0870793691189236,
+            "meanActualRp": 1.1464659685863874,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 0,
+            "degenerate": 1210,
+            "lattice": 6430,
+            "fallbacks": 1384
+          },
+          "meanShift": {
+            "scoredSides": 7640,
+            "shiftedSides": 6696,
+            "variables": {
+              "endgamePoints": {
+                "finalCount": 6897,
+                "finalMeanResidual": 3.3837645253252857,
+                "activatedAfterMatch": "2020isde2_qm44"
+              }
+            }
+          }
+        },
+        {
+          "season": 2022,
+          "bonusCount": 48256,
+          "bonusBrier": 0.17104596264352906,
+          "meanPredictedBonus": 0.33699138163372655,
+          "observedBonusRate": 0.38838693633952254,
+          "totalRp": {
+            "count": 24128,
+            "rankedProbabilityScore": 0.14593096049510523,
+            "meanPredictedRp": 1.6739827632674475,
+            "meanActualRp": 1.7787632625994696,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "marginalResolution": {
+            "negativeBinomial": 0,
+            "gaussian": 0,
+            "degenerate": 4027,
+            "lattice": 68357,
+            "fallbacks": 4156
+          },
+          "meanShift": {
+            "scoredSides": 24128,
+            "shiftedSides": 22523,
+            "variables": {
+              "matchCargoTotal": {
+                "finalCount": 22723,
+                "finalMeanResidual": 1.681276263973041,
+                "activatedAfterMatch": "2022miket_qm15"
+              },
+              "autoCargoTotal": {
+                "finalCount": 22723,
+                "finalMeanResidual": 0.2798399393855554,
+                "activatedAfterMatch": "2022miket_qm15"
+              },
+              "endgamePoints": {
+                "finalCount": 22723,
+                "finalMeanResidual": 1.1855191844054,
+                "activatedAfterMatch": "2022miket_qm15"
+              }
+            }
+          }
+        }
+      ],
+      "perCell": [
+        {
+          "season": 2016,
+          "bonus": "breach",
+          "cellClass": "multi-variable",
+          "n": 22158,
+          "observed": 0.6998375304630382,
+          "meanPredicted": 0.6102093968062245,
+          "brier": 0.1918291388043315,
+          "gapClosedShare": 0.8672483608488339
+        },
+        {
+          "season": 2016,
+          "bonus": "capture",
+          "cellClass": "multi-variable",
+          "n": 22158,
+          "observed": 0.1298402382886542,
+          "meanPredicted": 0.07751666983865477,
+          "brier": 0.09031153069136591,
+          "gapClosedShare": 0.5091396619464784
+        },
+        {
+          "season": 2017,
+          "bonus": "kPa",
+          "cellClass": "multi-variable",
+          "n": 25386,
+          "observed": 0.030489246041125028,
+          "meanPredicted": 0.001756406837484168,
+          "brier": 0.028965161501254954,
+          "gapClosedShare": 0.008733151788095334
+        },
+        {
+          "season": 2017,
+          "bonus": "rotor",
+          "cellClass": "multi-variable",
+          "n": 25386,
+          "observed": 0.08792247695580241,
+          "meanPredicted": 0.2152210118941961,
+          "brier": 0.07623258859619292,
+          "gapClosedShare": 3.7472549141838716
+        },
+        {
+          "season": 2018,
+          "bonus": "autoQuest",
+          "cellClass": "multi-variable",
+          "n": 28312,
+          "observed": 0.4889446171234812,
+          "meanPredicted": 0.6127048272344252,
+          "brier": 0.21205591264487322,
+          "gapClosedShare": 1.4008172185008811
+        },
+        {
+          "season": 2018,
+          "bonus": "faceTheBoss",
+          "cellClass": "single-variable",
+          "n": 28312,
+          "observed": 0.08770132805877366,
+          "meanPredicted": 0.03139348068606314,
+          "brier": 0.07457857172835093,
+          "gapClosedShare": 0.1305152533571782
+        },
+        {
+          "season": 2019,
+          "bonus": "habDocking",
+          "cellClass": "single-variable",
+          "n": 29858,
+          "observed": 0.41318909504990287,
+          "meanPredicted": 0.3777901224335846,
+          "brier": 0.18733477212094093,
+          "gapClosedShare": 0.7839381486651378
+        },
+        {
+          "season": 2019,
+          "bonus": "completeRocket",
+          "cellClass": "constant",
+          "n": 29858,
+          "observed": 0.047324000267934895,
+          "meanPredicted": 0,
+          "brier": 0.047324000267934895,
+          "gapClosedShare": 0
+        },
+        {
+          "season": 2020,
+          "bonus": "shieldOperational",
+          "cellClass": "single-variable",
+          "n": 7640,
+          "observed": 0.14646596858638744,
+          "meanPredicted": 0.0870793691189261,
+          "brier": 0.12100998615210627,
+          "gapClosedShare": 0.4258642405183188
+        },
+        {
+          "season": 2022,
+          "bonus": "cargoBonus",
+          "cellClass": "multi-variable",
+          "n": 24128,
+          "observed": 0.3399370026525199,
+          "meanPredicted": 0.28324288204671594,
+          "brier": 0.15042700187553423,
+          "gapClosedShare": 0.5249843498697219
+        },
+        {
+          "season": 2022,
+          "bonus": "hangarBonus",
+          "cellClass": "single-variable",
+          "n": 24128,
+          "observed": 0.4368368700265252,
+          "meanPredicted": 0.39073988122073255,
+          "brier": 0.19166492341152314,
+          "gapClosedShare": 0.45462762334205037
+        }
+      ]
+    }
+  ],
+  "rotorCheck": [
+    {
+      "arm": "control",
+      "n": 25386,
+      "observed": 0.08792247695580241,
+      "meanPredicted": 0.041585846786843246,
+      "brier": 0.06820206056328613,
+      "overshoot": false
+    },
+    {
+      "arm": "lattice",
+      "n": 25386,
+      "observed": 0.08792247695580241,
+      "meanPredicted": 0.18274119317598947,
+      "brier": 0.06882895035723353,
+      "overshoot": true
+    },
+    {
+      "arm": "meanShift",
+      "n": 25386,
+      "observed": 0.08792247695580241,
+      "meanPredicted": 0.05713050595924155,
+      "brier": 0.06371573645596627,
+      "overshoot": false
+    },
+    {
+      "arm": "lattice+meanShift",
+      "n": 25386,
+      "observed": 0.08792247695580241,
+      "meanPredicted": 0.2152210118941961,
+      "brier": 0.07623258859619292,
+      "overshoot": true
+    }
+  ],
+  "marginalResolution": {
+    "control": {
+      "negativeBinomial": 0,
+      "gaussian": 434261,
+      "degenerate": 39365,
+      "lattice": 0,
+      "fallbacks": 39365
+    },
+    "lattice": {
+      "negativeBinomial": 0,
+      "gaussian": 0,
+      "degenerate": 39365,
+      "lattice": 434261,
+      "fallbacks": 151155
+    },
+    "meanShift": {
+      "negativeBinomial": 0,
+      "gaussian": 434261,
+      "degenerate": 39365,
+      "lattice": 0,
+      "fallbacks": 39365
+    },
+    "lattice+meanShift": {
+      "negativeBinomial": 0,
+      "gaussian": 0,
+      "degenerate": 39365,
+      "lattice": 434261,
+      "fallbacks": 201940
+    }
+  },
+  "barVerdicts": [
+    {
+      "arm": "control",
+      "accepted": false,
+      "bonusBrierDelta": 0,
+      "rpsDelta": 0
+    },
+    {
+      "arm": "lattice",
+      "accepted": true,
+      "bonusBrierDelta": -0.05334252125410352,
+      "rpsDelta": -0.01651252947362225
+    },
+    {
+      "arm": "meanShift",
+      "accepted": true,
+      "bonusBrierDelta": -0.013321685571831415,
+      "rpsDelta": -0.004625632293488807
+    },
+    {
+      "arm": "lattice+meanShift",
+      "accepted": true,
+      "bonusBrierDelta": -0.055636072362323874,
+      "rpsDelta": -0.017670413027916776
+    }
+  ],
+  "ship": "lattice+meanShift"
+}
