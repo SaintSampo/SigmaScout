@@ -1,12 +1,11 @@
 /**
- * Brier score and winner accuracy (EVAL-02), with the boundary contracts
- * D-09/D-10/D-11 and this plan's must_haves require made explicit rather
- * than inherited from whatever a comparison operator happens to do:
+ * Brier score and winner accuracy, with the boundary contracts made explicit
+ * rather than inherited from whatever a comparison operator happens to do:
  *
  *   - A predicted probability of exactly 0.5 expresses no preference against
  *     a match that HAD a winner. It enters the winner-accuracy denominator
- *     and is always counted incorrect (D-Q3): a model that declines to call
- *     a decided match has failed to predict it. It is still counted as an
+ *     and is always counted incorrect: a model that declines to call a
+ *     decided match has failed to predict it. It is still counted as an
  *     explicit "no-call" so the abstention rate stays visible separately
  *     from the miss rate.
  *   - An actual tie has no winner to have predicted. It is excluded from
@@ -16,27 +15,13 @@
  *   - An empty set returns `null` metrics, never `0` (a real, terrible
  *     score) and never `NaN` (which does not survive `JSON.stringify`).
  *
- * Why the no-call rule changed (D-Q3, quick task 260901-is2). The retired
- * contract excluded a 0.5 prediction from the denominator on the grounds
- * that "counting it either way would inject an arbitrary bias into the
- * headline metric". That reasoning was backwards in practice, for two
- * reasons:
- *
- *   1. It is the USER's decision that abstention is failure. A predictor
- *      that answers "I don't know" has not predicted the match, and the
- *      headline accuracy is a claim about how often the model is right
- *      about matches — not about how often it is right when it deigns to
- *      answer.
- *   2. It was a live comparison defect, not a neutral convention. OPR
- *      declines roughly 7% of every season (1,012–1,305 matches; its
- *      event-scoped, quals-only design matrix has no rank at the start of
- *      each event, so the predicted margin is exactly 0 and `0/scale === 0`
- *      for any scale). VPR and EPA abstain on ≈0 matches after 2022. The
- *      old denominator therefore scored OPR on a strictly EASIER
- *      population — every match it found hardest was silently deleted from
- *      its own denominator — which made every OPR-vs-VPR accuracy
- *      comparison invalid. Counting a no-call as a miss puts all three
- *      algorithms on the same population.
+ * A no-call is counted as a miss, not excluded from the denominator: it is
+ * the USER's decision that abstention is failure, and excluding it would
+ * score any event-scoped algorithm (whose predicted margin is exactly 0 at
+ * the start of every event, before that event has a rank) on a strictly
+ * EASIER population than an algorithm that always states a preference —
+ * every match it found hardest silently deleted from its own denominator,
+ * invalidating any cross-algorithm accuracy comparison.
  *
  * Brier scoring is deliberately UNCHANGED by that decision: a 0.5
  * prediction against a decided match already scores 0.25, which is the
@@ -56,9 +41,9 @@ export interface ScoreSetResult {
   brierScore: number | null;
   /**
    * Fraction of non-tie predictions whose favored side matched the actual winner.
-   * A `pRedWin === 0.5` no-call is IN this denominator and never in the numerator
-   * (D-Q3). `null` iff the denominator is 0, which now happens only for a set of
-   * ties (or an empty set).
+   * A `pRedWin === 0.5` no-call is IN this denominator and never in the numerator.
+   * `null` iff the denominator is 0, which happens only for a set of ties (or an
+   * empty set).
    */
   winnerAccuracy: number | null;
   /** Total predictions scored — the Brier population, including ties and no-calls. */
@@ -68,7 +53,7 @@ export interface ScoreSetResult {
   /**
    * Predictions with `pRedWin === 0.5` — no preference expressed. Reported so the
    * abstention rate stays visible, but NOT excluded from winner accuracy: against a
-   * decided match a no-call is counted as a miss (D-Q3).
+   * decided match a no-call is counted as a miss.
    */
   noCallCount: number;
 }
@@ -82,17 +67,14 @@ export function outcomeTarget(actualWinner: MatchOutcome): number {
 
 /**
  * The winner-accuracy correctness rule for ONE prediction, extracted so
- * `scoreSet` below and the retired Sigma1 tuner's own per-event accuracy
- * blocks (quick task 260904-oiu, OBJ-RANK) share the EXACT SAME rule and
- * cannot drift apart — a private re-derivation in the tuner is exactly the
- * failure mode this predicate exists to close.
+ * every caller shares the EXACT SAME rule and cannot drift apart.
  *
  *   - Returns `null` for a prediction excluded from the accuracy denominator
  *     ENTIRELY: an actual tie has no winner to have predicted.
  *   - Returns `true` for a correct STRICT call.
- *   - Returns `false` otherwise, including a `pRedWin === 0.5` no-call
- *     (D-Q3): an abstention against a decided match is counted as a miss,
- *     never silently credited to whichever side an operator rounds toward.
+ *   - Returns `false` otherwise, including a `pRedWin === 0.5` no-call: an
+ *     abstention against a decided match is counted as a miss, never
+ *     silently credited to whichever side an operator rounds toward.
  */
 export function accuracyCall(prediction: ScoredPrediction): boolean | null {
   if (prediction.actualWinner === "tie") return null;
@@ -131,9 +113,8 @@ export function scoreSet(predictions: readonly ScoredPrediction[]): ScoreSetResu
     if (isTie) tieCount += 1;
     if (isNoCall) noCallCount += 1;
 
-    // D-Q3: every non-tie prediction is in the denominator, including a
-    // no-call. `accuracyCall` returns `null` for exactly the excluded (tied)
-    // case, so this is byte-identical to the retired inline branch.
+    // Every non-tie prediction is in the denominator, including a no-call.
+    // `accuracyCall` returns `null` for exactly the excluded (tied) case.
     const call = accuracyCall(prediction);
     if (call !== null) {
       accuracyDenominator += 1;
