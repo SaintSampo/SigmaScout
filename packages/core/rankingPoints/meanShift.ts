@@ -1,49 +1,22 @@
 /**
- * THE WALK-FORWARD MEAN SHIFT — a league-wide, per-season correction to the
- * alliance mean of every RP threshold variable.
+ * The walk-forward mean shift: a league-wide, per-season correction to the
+ * alliance mean of every RP threshold variable. A recency-weighted belief
+ * lags what an alliance actually scores, which under-predicts bonus odds;
+ * this measures that lag as it happens and adds it back.
  *
- * Quick task 260913-tw1 found the bonus-RP odds under-predict about 2.1x, and
- * that a mean deficit is the second-largest cause: an alliance's recency-
- * weighted belief lags what it actually scores. This module measures that lag
- * as it happens and adds it back.
+ * Accumulated per variable: a running count and sum of `observed alliance
+ * value - predicted alliance mean` (the unshifted `momentsFor` mean, read
+ * before the match is folded), over qualification matches at RP-eligible
+ * event types whose breakdown parses on both sides. A side counts only when
+ * its roster is fully warm, because a cold team's zero mean would book a huge
+ * fake deficit.
  *
- * ---------------------------------------------------------------------------
- * WHAT IS ACCUMULATED
- * ---------------------------------------------------------------------------
+ * `apply` shifts only fully warm rosters and only past
+ * `RP_MEAN_SHIFT_WARMUP_OBSERVATIONS`; otherwise it returns the same object,
+ * keeping a cold or early prediction bitwise-identical to an unshifted one.
  *
- * For each threshold variable, a running count and sum of
- * `observed alliance value - predicted alliance mean`, where the predicted
- * mean is `RpMomentsAccumulator.momentsFor`'s UNSHIFTED mean read before this
- * match is folded. One per season, league-wide, never per team.
- *
- * The population is exactly the tw1 probe's scored population (quick task
- * 260914-01x, CD-04): a qualification match (`isBonusRpCompLevel`) at an
- * RP-eligible event type, with a score breakdown, whose BOTH sides parse. Any
- * throw skips the whole match. A side counts only when every team on its
- * roster already has history of every variable (`rosterIsFullyWarm`), because
- * a cold team's zero mean would book a huge fake deficit.
- *
- * ---------------------------------------------------------------------------
- * HOW IT IS APPLIED
- * ---------------------------------------------------------------------------
- *
- * `apply` adds `sum / count` to a variable's alliance mean only when the
- * roster is fully warm AND at least `RP_MEAN_SHIFT_WARMUP_OBSERVATIONS` prior
- * observations of that variable exist. Variance, score moments and
- * cross-covariance are untouched. When nothing shifts it returns the very
- * object it was given, which is what keeps a cold or early prediction
- * bitwise-identical to one made without this module.
- *
- * ---------------------------------------------------------------------------
- * ORDER
- * ---------------------------------------------------------------------------
- *
- * `observeMatch` MUST run after this match's RP fields are read and BEFORE
- * `RpMomentsAccumulator.fold` for this match. Called later, the residual is
- * taken against a mean that already contains the observation, and a match
- * informs its own shift.
- *
- * A leaf: types, two gate predicates, and nothing else.
+ * Order: `observeMatch` runs after the match's RP fields are read and before
+ * `RpMomentsAccumulator.fold`, or a match informs its own shift.
  */
 
 import type { CompLevel } from "../algorithms/types.js";
@@ -52,13 +25,7 @@ import { isBonusRpCompLevel, isRpEligibleEventType } from "./constants.js";
 import type { AllianceRpMoments } from "./moments.js";
 import type { RpMomentsAccumulator } from "./empiricalMoments.js";
 
-/**
- * Observations of a variable required before its shift applies.
- *
- * The tw1 probe's `MEAN_DEFICIT_WARMUP`. STRUCTURAL, NEVER TUNED: it exists so
- * the first few noisy residuals of a season cannot swing every prediction, and
- * the arm that carries it is measured with this value fixed.
- */
+/** Observations of a variable required before its shift applies, so a season's first noisy residuals cannot swing every prediction. Structural, not fitted. */
 export const RP_MEAN_SHIFT_WARMUP_OBSERVATIONS = 200;
 
 /** One variable's running residual total. */
@@ -117,13 +84,8 @@ export class RpMeanShiftAccumulator {
   }
 
   /**
-   * Books this match's residuals. MUST be called after this match's RP fields
-   * are read and BEFORE `beliefs.fold` for this match (see the module header).
-   *
-   * Nothing is added for an elimination match, an RP-ineligible event type, a
-   * missing breakdown, or a breakdown either side of which fails to parse. A
-   * side whose roster is not fully warm adds nothing. A non-finite observed
-   * value adds nothing for that variable, the same skip `fold` applies.
+   * Books this match's residuals; call before `beliefs.fold` for this match.
+   * A non-finite observed value adds nothing for that variable.
    */
   observeMatch(beliefs: RpMomentsAccumulator, match: RpMeanShiftMatch): void {
     if (!isBonusRpCompLevel(match.compLevel)) return;
@@ -188,12 +150,9 @@ export class RpMeanShiftAccumulator {
 
   /**
    * Rebuilds an accumulator from `toState()`'s output, the resume path.
-   *
-   * Returns a FRESH accumulator for `undefined`, a state from another season
-   * (a stale league row must not carry last season's lag forward), or any
-   * malformed entry (all-or-nothing: a half-read state would shift some
-   * variables and not others). An undeclared variable name is dropped; a
-   * declared variable absent from the state starts at zero.
+   * Returns a fresh accumulator for `undefined`, another season's state (last
+   * season's lag must not carry forward), or any malformed entry
+   * (all-or-nothing, so no variable is shifted from a half-read state).
    */
   static fromState(ruleModule: RpRuleModule, state: RpMeanShiftState | undefined): RpMeanShiftAccumulator {
     const accumulator = new RpMeanShiftAccumulator(ruleModule);
