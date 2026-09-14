@@ -18,7 +18,9 @@ commits:
 bar_verdict: win ACCEPTED, tie ACCEPTED, win+tie ACCEPTED; shipped win+tie (lowest pooled RPS)
 shipped: win+tie
 republish_owed: true
-worker_deploy_owed: true
+worker_deploy_owed: false
+pushed: 98193cba (2026-09-14)
+worker_deployed: ccb8a12f (2026-09-14, from a clean worktree at 98193cba)
 ---
 
 # Quick Task 260913-qyn: Total-RP scorecard and the F6/F7 fixes, Summary
@@ -85,10 +87,12 @@ better for both scores.
 - **`compare-rp-scorecard-never-visually-verified.md` is in `completed/`**, so the addendum went
   there.
 
-## Owed, needs Jacob
+## Owed
 
-- **Republish.** Every event's RP pmf, outcome decomposition and presim sidecars change, and the
+Pushed at `98193cba` and Worker `ccb8a12f` deployed on 2026-09-14. Pages serves the new card code.
+No Worker tick was observed on the new version (the log tail was blocked); no live event runs in September.
+
+- **Republish**, handed to another agent. Every event's RP pmf, outcome decomposition and presim sidecars change, and the
   Compare card's new figures appear only after it.
-- **Worker deploy**, so live ticks price the same way as the publisher.
 - **A visual check** of the new Compare card rows once the republish is live. The sandbox could
   not reach the artifact origin.

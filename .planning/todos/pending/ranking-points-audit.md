@@ -695,8 +695,8 @@ discrete integer-margin tie probability rather than the prior structural zero. T
 at `data/baselines/rp-calibration-2026-09d.json` (ten SPR records, every one carrying `totalRp` and
 `outcome` blocks) and the Compare page's RP card now leads with plain-language total-RP and tie
 sentences. Full figures, the bar's own doc-comment, and what shipped or was deleted per arm:
-`docs/models/rp-layer-config-arms.md`'s dated 2026-09-13 section. Republish, Worker deploy and presim
-refresh are owed.
+`docs/models/rp-layer-config-arms.md`'s dated 2026-09-13 section. Pushed at `98193cba` and Worker `ccb8a12f` deployed
+2026-09-14; the republish (and with it the presim refresh) is still owed.
 
 ### F4 decision — measure which cause dominates before fixing anything
 
