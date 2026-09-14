@@ -1,58 +1,17 @@
 /**
- * Quick task 260913-g66: the published Match Band is separated from the
- * internal win-odds variance.
+ * The published Match Band is display-only and separate from the win-odds
+ * variance.
  *
- * THE RP PIN (Step A, D1a). The digests in `PINNED_RP_DIGESTS` were captured
- * on UNMODIFIED source, before any line of the separation was written. They
- * hash every ranking-point and simulation field the layer produces
- * (`redRpPmf`, `blueRpPmf`, `matchOutcomePmf`, `redOutcomeRp`, `blueOutcomeRp`,
- * `redBonusRpPmf`, `blueBonusRpPmf`, `redBonusRp`, `blueBonusRp`) over the
- * committed 2022 digest slice, played AND upcoming passes, raw floats, no
- * rounding. The separation is display-only: win odds must keep today's
- * uncorrected variance, so these fields must be byte-identical afterwards.
+ * THE RP PIN. `PINNED_RP_DIGESTS` hashes the nine ranking-point and simulation
+ * fields the layer produces over the committed 2022 digest slice, played and
+ * upcoming passes, raw floats. A mismatch is a finding about the code (e.g. the
+ * corrected display band reaching `#rpFieldsFor`), not a fixture to refresh;
+ * the pin changes only on a developer-decided model change. The mean shift is
+ * live on this slice (its three 2022 variables pass warmup after
+ * `2022azva_qm48`). OPR and EPA publish no RP fields, asserted by absence.
  *
- * NEVER EDIT THE PINNED DIGESTS. A mismatch here is a finding about the code
- * (something fed the corrected display band into `#rpFieldsFor`), not a
- * fixture to refresh.
- *
- * Quick task 260913-it4 REMOVED the opr and epa entries, by developer decision
- * (2026-09-13) rather than as a refresh: OPR and EPA publish no ranking-point
- * odds at all any more, so their pins are replaced by absence assertions over
- * the same played and upcoming passes.
- *
- * Quick task 260913-qyn REPLACED the spr entry (2026-09-13), also by
- * developer decision rather than a refresh, following the 260913-it4
- * precedent: WIN+TIE was measured against the pre-committed
- * `applyRpOutcomeArmBar` on the selection slice (2016-2020,2022) and
- * ACCEPTED — pooled totalRp RPS -0.000676 and outcome Brier -0.002277
- * against control, the lowest RPS of the three accepted arms
- * (`data/baselines/rp-outcome-arms-2026-09.json`, ship: win+tie) — so the
- * algorithm's own `pRedWin` now replaces the score-draw comparison as the
- * decisive share, and a genuine discrete integer-margin tie probability
- * replaces the prior structural zero, on `matchOutcomePmf`/`redOutcomeRp`/
- * `blueOutcomeRp`. `redRpPmf`/`blueRpPmf` (which convolve the outcome half
- * with the unchanged bonus half) move accordingly. `redBonusRpPmf`,
- * `blueBonusRpPmf`, `redBonusRp` and `blueBonusRp` are UNCHANGED — proven so
- * by `sigmaScoutLayer.outcomeArms.test.ts`'s own pinned bonus-half digest,
- * captured on the control arm before this collapse.
- *
- * Quick task 260914-01x REPLACED the spr entry again (2026-09-14), by
- * developer decision rather than a refresh, following the same precedent:
- * four bonus arms were measured against the pre-committed
- * `applyRpBonusArmBar` on the selection slice (2016-2020,2022), every arm
- * was ACCEPTED, and lattice+meanShift shipped with the lowest pooled
- * total-RP RPS — bonus Brier 0.179914 to 0.124278, RPS 0.159627 to 0.141956
- * (`data/baselines/rp-bonus-arms-2026-09.json`, ship: lattice+meanShift).
- * Lattice marginals and the walk-forward mean shift change the bonus half
- * (`redBonusRpPmf`, `blueBonusRpPmf`, `redBonusRp`, `blueBonusRp`) and so
- * `redRpPmf`/`blueRpPmf`. The mean shift is live on this slice: its three
- * 2022 variables pass the 200-observation warmup after `2022azva_qm48`.
- * `matchOutcomePmf`, `redOutcomeRp` and `blueOutcomeRp` are UNCHANGED —
- * proven by `sigmaScoutLayer.outcomeArms.test.ts`'s outcome-half digest,
- * captured on the pre-flip tree.
- *
- * The slice is read from the committed fixture ONLY, never the corpus, so the
- * digest is deterministic whether or not `data/corpus.sqlite` is present.
+ * The slice comes from the committed fixture only, never the corpus, so the
+ * digest is deterministic.
  */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -80,14 +39,7 @@ function loadFixture(): DigestSliceFixture {
   return JSON.parse(readFileSync(DIGEST_SLICE_FIXTURE_PATH, "utf8")) as DigestSliceFixture;
 }
 
-/**
- * spr REPLACED 2026-09-14 (quick task 260914-01x, lattice+meanShift shipped —
- * see this file's header comment and `data/baselines/rp-bonus-arms-2026-09.json`).
- * Was `fee852b6c27c82b198b733937e97a7a353fa3e0fe72efc3f1e502cc5ec172cfa`
- * (260913-qyn, WIN+TIE). Captured on the shipped lattice+meanShift source.
- * Never edit except on another developer-decided model change, following
- * this same precedent.
- */
+/** Pinned digest, captured on the shipped lattice+meanShift source. Never edit except on a developer-decided model change. */
 const PINNED_RP_DIGESTS: Readonly<Record<string, string>> = {
   spr: "0172067f94b2ea52338eff58f9683973634b57ef0e925c0adee95a569b511caa",
 };
@@ -172,7 +124,7 @@ describe("RP and simulation fields are byte-identical to pre-260913-g66 output (
       expect(rpDigest(run)).toBe(PINNED_RP_DIGESTS[algorithm.id]);
   });
 
-  /** Quick task 260913-it4: the same played and upcoming passes carry none of the nine RP fields. */
+  /** The same played and upcoming passes carry none of the nine RP fields. */
   function expectNoRpFields(id: string): void {
     const run = runLayer(byId(id), fixture);
     // Non-vacuity: both passes produced rows (played, then every slice match as upcoming).
@@ -271,7 +223,7 @@ describe("the layer publishes a Sigma-only display band (D1b, D3)", () => {
     expect("matchBand" in enriched).toBe(false);
   });
 
-  /** OPR and EPA: no band, no pmf, no consistency figure and no RP beliefs (quick tasks 260913-g66 and 260913-it4). */
+  /** OPR and EPA: no band, no pmf, no Sigma figure and no RP beliefs. */
   function expectNoLevelTwoFeatures(id: string): void {
     const algorithm = byId(id);
     const { records, finalState } = replay(algorithm);
