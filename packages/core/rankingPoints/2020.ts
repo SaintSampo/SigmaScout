@@ -1,47 +1,30 @@
 /**
- * 2020 (Infinite Recharge) RP rule module (D-09, D-12). Threshold DERIVED
- * from data, not cited from a manual — see below for why. Verification
- * method: corpus reconciliation (`reconciliation.test.ts`) against TBA's own
- * recorded `shieldOperationalRankingPoint` flag, full population (n=7,640
- * alliance-sides, 2026-09-03 measurement). Field inventory:
- * `docs/data/tba-field-recon-2019-2020.md`. Threshold sweep and rate tables:
- * `docs/data/tba-rp-thresholds-2019-2020.md`, `docs/data/tba-rp-rates-2019-2020.md`.
+ * 2020 (Infinite Recharge) RP rule module. Threshold derived from data via
+ * corpus reconciliation against TBA's own recorded flag, not cited from a
+ * manual.
  *
- * Shield Operational Bonus: `endgamePoints >= 65`. **100.00% agreement,
- * 0 mismatches / 7,640 sides** — this is a MEASUREMENT.
+ * Shield Operational Bonus: `endgamePoints >= 65`, 100% agreement measured
+ * over the corpus. 2020 was cancelled by COVID-19 before any District
+ * Championship or Championship event was played, so the corpus has no data
+ * at those tiers — the uniform 65/65/65 triple's higher tiers are an
+ * extrapolation, never independently confirmed, and never will be for this
+ * season.
  *
- * **Tier caveat — must be read before trusting the uniform 65/65/65
- * triple.** 2020 was cancelled by COVID-19 before any District
- * Championship or Championship event was played: the corpus's only
- * `event_type`s are 0 (Regional), 1 (District) and 100 (Preseason), all
- * mapping to `base`. The `districtChampionship`/`championship` entries
- * below carry 65 as an ASSUMPTION extrapolated from the base-tier
- * measurement, never independently confirmed — there is no data for those
- * tiers and there never will be for this season. Say so explicitly rather
- * than letting the uniform triple imply verification it does not have.
+ * The rule is derived from data rather than the control-panel mechanic's
+ * manual reading because the intuitive rule (key on `stage2Activated`)
+ * scores below always-guessing-false: that flag is only weakly related to
+ * the real RP. Shield Operational is an endgame bonus (robots hanging on the
+ * generator switch), and the endgame point total is the correct signal.
  *
- * **Why this rule is derived from data rather than cited from a manual
- * reading of the control panel mechanic:** the intuitive rule — key the
- * bonus on the control-panel stage-2 flag (`stage2Activated`) — scores only
- * **85.21%**, which is BELOW the **85.35%** obtained by always guessing
- * `false`. `stage2Activated` is true only ~0.5% of sampled sides while the
- * real RP fires 14.7% of the time: the two are only weakly related. Shield
- * Operational is an ENDGAME bonus (robots hanging on the generator switch),
- * not a control-panel bonus — the endgame point total is the correct signal.
+ * Deliberately never read: the roll-up totals, per-robot fields (positional
+ * correspondence is unverified), per-goal breakdown detail, and endgame
+ * informational fields not part of the measured rule.
  *
- * Deliberately never read: `autoPoints`/`teleopPoints` (roll-ups),
- * `endgameRobot1/2/3`/`initLineRobot1/2/3` (per-robot fields — Pitfall
- * Sigma1-2/Assumption A1, same discipline `breakdown/2020.ts` already
- * applies), `autoCellsBottom/Inner/Outer`/`teleopCellsBottom/Inner/Outer`
- * (per-goal breakdown detail, not RP-relevant), `tba_numRobotsHanging`/
- * `endgameRungIsLevel` (informational endgame detail, not part of the
- * measured rule).
+ * Threshold comparisons are `>=` throughout.
  *
- * Threshold comparison semantics are `>=` throughout.
- *
- * Per D RP-4: Shield Energized (`shieldEnergizedRankingPoint`) is NOT
- * modelled. It fired 0 times in 7,640 sides this corpus — see
- * `bonusNames`/`diagnosticKeys` below for how it is deliberately excluded
+ * Shield Energized (`shieldEnergizedRankingPoint`) is not modelled — it
+ * fired 0 times in this corpus, so there is no positive example to derive a
+ * rule from; see `bonusNames`/`diagnosticKeys` below for how it is excluded
  * rather than folded in as an always-false bonus.
  */
 import { z } from "zod";
@@ -50,12 +33,8 @@ import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor }
 
 /**
  * Only the subset of TBA's `score_breakdown.{side}` object this module
- * reads. Unknown extra fields (`autoPoints`, `teleopPoints`, `totalPoints`,
- * per-cell/per-robot detail fields, `stage1/2/3Activated`,
- * `shieldEnergizedRankingPoint`, `tba_shieldEnergizedRankingPointFromFoul`,
- * `rp`, etc.) are ignored, not rejected — zod's default "strip" mode drops
- * them without erroring. Deliberately NOT `.passthrough()`/`.loose()`,
- * matching `breakdown/2020.ts`'s discipline.
+ * reads. Unknown extra fields are ignored, not rejected — zod's default
+ * "strip" mode drops them without erroring. Deliberately not `.passthrough()`.
  */
 const SideSchema = z.object({
   endgamePoints: z.number().finite(),
@@ -68,17 +47,14 @@ const Rp2020Schema = z.object({
 });
 
 /**
- * Shield Operational Bonus threshold: `endgamePoints >= 65`. Base tier is a
- * MEASUREMENT (0 mismatches / 7,640 sides); districtChampionship and
- * championship are an ASSUMPTION — see file header's tier caveat. Uniform
- * across tiers because there is no data suggesting otherwise, not because
- * uniformity was confirmed at the higher tiers.
+ * Shield Operational Bonus threshold: `endgamePoints >= 65`. Base tier is
+ * measured; districtChampionship and championship are an extrapolation —
+ * see file header's tier caveat.
  */
 const SHIELD_OPERATIONAL_THRESHOLD: RpTieredThreshold = { base: 65, districtChampionship: 65, championship: 65 };
 
-// 09-05 Task 3 (D-01): flips to "negative-binomial" — MEASURED evidence
-// class (09-RESEARCH.md's broader corpus probe). See constants.ts's
-// `MarginalFamily` doc comment for the evidence-class framework.
+// Gaussian marginal; see constants.ts's `MarginalFamily` doc for the
+// evidence-class framework.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "endgamePoints",
@@ -88,16 +64,12 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
 ];
 
 /**
- * Shield Energized is deliberately ABSENT (D RP-4): it fired 0/7,640 times
- * in this corpus, so there is no positive example to derive or verify a
- * rule from. Keeping it out of `bonusNames` means it also gets no threshold
- * variable and no entry in `recordedBonusFlags` below — a recorded flag with
- * no recomputed twin would break the paired shape
- * `reconciliation.test.ts` relies on. `maxRp` therefore derives to
- * `2 + 1 = 3`, never a hand-written literal.
- *
- * D-02, D-07: 2020 declares exactly ONE bonus, `singleThreshold`, no
- * untracked gate.
+ * Shield Energized is deliberately absent — it fired 0 times in this
+ * corpus, so there is nothing to derive a rule from. Keeping it out of
+ * `bonusNames` means it also gets no threshold variable and no entry in
+ * `recordedBonusFlags` below, since a recorded flag with no recomputed twin
+ * would break the paired shape `reconciliation.test.ts` relies on. `maxRp`
+ * derives to `2 + 1 = 3`, never a hand-written literal.
  */
 const BONUS_PREDICATES: readonly BonusPredicate[] = [
   {
@@ -120,13 +92,9 @@ export const rp2020: RpRuleModule = {
   winRp: 2,
   tieRp: 1,
 
-  // Diagnostic-only: `shieldEnergizedRankingPoint` is TBA's recorded flag
-  // for the un-modelled bonus above (always false in this corpus's 7,640
-  // sides); `stage2Activated`/`stage3Activated` are the control-panel
-  // stage-activation fields whose weak correlation with the real RP is the
-  // reason this module derives its rule from `endgamePoints` instead (see
-  // file header). None of the three feeds `bonusFlags` or
-  // `thresholdVariables`.
+  // Diagnostic-only: shieldEnergized (un-modelled, see file header) and the
+  // control-panel stage-activation fields whose weak RP correlation is why
+  // this rule uses endgamePoints instead. None feeds bonusFlags or thresholdVariables.
   diagnosticKeys: ["shieldEnergizedRankingPoint", "stage2Activated", "stage3Activated"],
 
   parse(rawBreakdownJson: unknown, side: "red" | "blue", eventType: number): RpParsedResult {
@@ -158,7 +126,7 @@ export const rp2020: RpRuleModule = {
     };
   },
 
-  /** Fully computable from the one tracked threshold variable alone — no untracked alliance-level gate (see `RpRuleModule.predictThresholds`'s doc comment for the general contract). Delegates to the shared declarative evaluator (D-02, D-07); see `BONUS_PREDICATES` above. */
+  /** Fully computable from the one tracked threshold variable alone — no untracked gate. Delegates to the shared declarative evaluator; see `BONUS_PREDICATES` above. */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
     return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
   },

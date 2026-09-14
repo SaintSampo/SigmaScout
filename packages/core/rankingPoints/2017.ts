@@ -1,76 +1,26 @@
 /**
- * 2017 (FIRST STEAMWORKS) RP rule module (D-09, D-12). Both bonuses measured
- * EXACT at ALL THREE event tiers — MEASURED, not assumed — using
- * `EVENT_TYPE_TIERS` (0/1/100 = base, 2/5 = districtChampionship, 3/4 =
- * championship), full official qual population:
+ * 2017 (FIRST STEAMWORKS) RP rule module. Both bonuses are exact and flat
+ * across event tiers (measured 0 FP/FN at every tier, full official qual
+ * population), so `reconciliation.test.ts` adds no tolerance entry for 2017
+ * and a later mismatch is a rule error, not an occasion to add one.
+ * `predictThresholds` is identical to `parse`'s rule logic — no boolean
+ * input, no fallback, no conservative branch needed for either bonus.
  *
- * | rule | base (n=20,240) | districtChampionship (n=2,446) | championship (n=2,700) |
- * |---|---|---|---|
- * | `kPa = autoFuelPoints + teleopFuelPoints >= 40` | 100.000% 0FP 0FN | 100.000% 0FP 0FN | 100.000% 0FP 0FN |
- * | `rotor = autoRotorPoints / 60 + teleopRotorPoints / 40 >= 4` | 100.000% 0FP 0FN | 100.000% 0FP 0FN | 100.000% 0FP 0FN |
+ * The obvious rotor rule, `autoRotorPoints + teleopRotorPoints >= 160`, is
+ * wrong: an auto rotor and a teleop rotor are worth different point values,
+ * so a point sum cannot recover a rotor count. Dividing each half by its
+ * own per-rotor value first (60 auto, 40 teleop) is what makes the rule
+ * exact. Fuel needs no such care — both halves share a unit and the summed
+ * points are integral, so `>= 40` on the plain sum is correct.
  *
- * Both thresholds are FLAT across tiers as a MEASURED fact, which is why
- * both threshold triples below state the same number three times rather
- * than tiering. **2017 adds NO `KNOWN_TOLERANCES` entry to
- * `reconciliation.test.ts`** — 0 false positives and 0 false negatives at
- * every tier for both bonuses, so the absence of an entry is a measured
- * result, not an oversight, and any mismatch appearing later is a rule
- * error rather than an occasion to add a tolerance.
+ * Deliberately never read: the roll-up totals, `tba_rpEarned`, per-robot and
+ * touchpad string fields (positional correspondence to the teams array is
+ * unverified), and the rotor-engaged booleans (the rule uses the point
+ * fields and known per-rotor values instead). The two
+ * `*RankingPointAchieved` booleans are read only as `recordedBonusFlags`,
+ * TBA's own answer kept for comparison, never as an input to `bonusFlags`.
  *
- * **Inert until a publish lands.** `FIRST_SEASON` in
- * `apps/web/src/lib/seasons.ts` is still 2019 and no 2017 artifacts exist in
- * R2, so registering this module makes 2017 computable by the harness and
- * the corpus suites — it does NOT make 2017 visible on the site.
- *
- * **`predictThresholds` is IDENTICAL to `parse`'s rule logic.** No boolean
- * input, no numeric fallback, no conservative branch, no asymmetry of any
- * kind — the two code paths evaluate the same two inequalities over the same
- * four variables. **2017 is the first season in this project where both
- * bonuses are simultaneously EXACT and FULLY REACHABLE from
- * `predictThresholds`**: 2018 is exact but needs a numeric fallback for
- * `autoQuest`'s `autoSwitchAtZero` boolean half (`analyticPmf.ts`'s closed
- * form, plan 09-04, fits marginals from threshold variables, never a raw
- * breakdown — this used to read "the Monte Carlo joint draw in
- * `rp/distribution.ts` samples threshold variables", a module this repo no
- * longer has), and 2019 needs the hard-coded-false conservative branch for
- * `completeRocket`. Neither compromise is needed here, and none is
- * introduced for symmetry's sake.
- *
- * **THE REJECTED RULE, recorded by name with its numbers.**
- * `autoRotorPoints + teleopRotorPoints >= 160` is the obvious rotor rule and
- * it is **WRONG**: it produces **14 false positives** (8 base / 2
- * districtChampionship / 4 championship), every single one at
- * `autoRotorPoints = 120, teleopRotorPoints = 40`. That side ran TWO auto
- * rotors at 60 points each plus ONE teleop rotor at 40 — 160 points, but
- * only **THREE** rotors, not four. An auto rotor and a teleop rotor are
- * worth different amounts, so a point SUM cannot recover a rotor COUNT;
- * dividing each half by its OWN per-rotor value first is exactly what makes
- * the shipped rule exact. Observed values confirm the divisors:
- * `autoRotorPoints` takes only {0, 60, 120} and `teleopRotorPoints` only
- * {0, 40, 80, 120, 160}, so both quotients are whole rotor counts and their
- * sum is a rotor count in 0..4.
- *
- * Fuel is the opposite case and needs no such care: `kPa` is scored by
- * POINTS, both halves are in the same unit, and the summed fuel points are
- * integral across the population (**0 non-integral in 25,386 sides**), so
- * the plain sum is the right quantity and `>= 40` is an exact boundary.
- *
- * Deliberately never read: the three total-shaped roll-up fields
- * (`autoPoints`, `teleopPoints`, `totalPoints`), `tba_rpEarned`, the
- * per-robot string fields `robot1Auto`/`robot2Auto`/`robot3Auto` and
- * `touchpadFar`/`touchpadMiddle`/`touchpadNear` (Pitfall Sigma1-2 /
- * Assumption A1 — positional correspondence to `red_teams`/`blue_teams`
- * array order is unverified), the `rotor1Auto`/`rotor2Auto` booleans, and
- * the `rotor1Engaged`..`rotor4Engaged` booleans. The rotor rule is computed
- * from the two rotor POINT fields and their known per-rotor values rather
- * than by counting those engaged booleans, so the booleans are genuinely
- * unread rather than an alternative path left dangling. The two
- * `*RankingPointAchieved` booleans ARE read, but only as
- * `recordedBonusFlags` — TBA's own answer, kept alongside the recomputed
- * one so `reconciliation.test.ts` is a comparison rather than a restatement
- * (D-12), never as an input to `bonusFlags`.
- *
- * Threshold comparison semantics are `>=` throughout.
+ * Threshold comparisons are `>=` throughout.
  */
 import { z } from "zod";
 import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
@@ -78,15 +28,8 @@ import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor }
 
 /**
  * Only the subset of TBA's `score_breakdown.{side}` object this module
- * reads. Unknown extra fields (`autoPoints`, `teleopPoints`, `totalPoints`,
- * `autoMobilityPoints`, `teleopTakeoffPoints`, `kPaBonusPoints`,
- * `rotorBonusPoints`, `autoFuelHigh`/`autoFuelLow`/`teleopFuelHigh`/
- * `teleopFuelLow`, `robot1Auto`/`robot2Auto`/`robot3Auto`,
- * `touchpadFar`/`touchpadMiddle`/`touchpadNear`, `rotor1Auto`/`rotor2Auto`,
- * `rotor1Engaged`..`rotor4Engaged`, `tba_rpEarned`, `rp`, etc.) are ignored,
- * not rejected — zod's default "strip" mode drops them without erroring.
- * Deliberately NOT `.passthrough()`/`.loose()`, matching
- * `breakdown/2017.ts`'s discipline.
+ * reads. Unknown extra fields are ignored, not rejected — zod's default
+ * "strip" mode drops them without erroring. Deliberately not `.passthrough()`.
  */
 const SideSchema = z.object({
   autoFuelPoints: z.number().finite(),
@@ -115,13 +58,11 @@ const KPA_FUEL_POINTS_THRESHOLD: RpTieredThreshold = { base: 40, districtChampio
 const ROTOR_COUNT_THRESHOLD: RpTieredThreshold = { base: 4, districtChampionship: 4, championship: 4 };
 
 /**
- * Per-rotor point values, used to convert each rotor POINT field back into a
- * rotor COUNT. These are unit conversions, not thresholds, so they are not
- * `RpTieredThreshold`s. Confirmed by the observed value sets:
- * `autoRotorPoints` in {0, 60, 120} and `teleopRotorPoints` in
- * {0, 40, 80, 120, 160}. Dividing each half by its own value — rather than
- * summing the points — is what makes the rule exact; see "THE REJECTED
- * RULE" in the file header.
+ * Per-rotor point values, used to convert each rotor point field back into a
+ * rotor count. Not thresholds. Confirmed by the observed value sets:
+ * `autoRotorPoints` in {0, 60, 120}, `teleopRotorPoints` in
+ * {0, 40, 80, 120, 160}. Dividing each half by its own value, rather than
+ * summing the points, is what makes the rule exact — see the file header.
  */
 const AUTO_ROTOR_POINTS_PER_ROTOR = 60;
 const TELEOP_ROTOR_POINTS_PER_ROTOR = 40;
@@ -131,14 +72,8 @@ function rotorCount(autoRotorPoints: number, teleopRotorPoints: number): number 
   return autoRotorPoints / AUTO_ROTOR_POINTS_PER_ROTOR + teleopRotorPoints / TELEOP_ROTOR_POINTS_PER_ROTOR;
 }
 
-// 09-05 Task 3 (D-01): all four variables below flip to "negative-binomial".
-// autoFuelPoints/teleopFuelPoints are STRUCTURAL-ONLY evidence (not
-// individually measured). autoRotorPoints/teleopRotorPoints are
-// DERIVED-INTEGER evidence: they feed `rotorCount` (divisors above), one of
-// the three D-03 linear combinations 09-RESEARCH.md verified 100%
-// integer-valued with ZERO exceptions across 25,386 alliance-sides. See
-// constants.ts's `MarginalFamily` doc comment for the evidence-class
-// framework.
+// Gaussian marginals for all four variables; see constants.ts's
+// `MarginalFamily` doc for the evidence-class framework.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "autoFuelPoints",
@@ -150,9 +85,8 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     unit: "points",
     marginalFamily: "gaussian",
   },
-  // Point values, not counts — the rule converts them to a rotor count with
-  // the per-rotor divisors above rather than reading a count field, because
-  // TBA's 2017 breakdown carries no rotor-count field at all.
+  // Point values, not counts — converted to a rotor count with the
+  // per-rotor divisors above; TBA's 2017 breakdown has no count field.
   {
     name: "autoRotorPoints",
     unit: "points",
@@ -166,14 +100,10 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
 ];
 
 /**
- * D-02, D-07: both bonuses are `linearCombination` — `kPa` sums
- * `autoFuelPoints`/`teleopFuelPoints` with no divisor (both already in the
- * same point unit); `rotor` sums `autoRotorPoints`/`teleopRotorPoints`
- * divided by their own per-rotor point values (`RpLinearTerm.divisor`,
- * never a multiplier — see "THE REJECTED RULE" in the file header for why
- * a plain point sum is wrong here). Neither bonus gates on an untracked
- * signal — 2017 is exact and fully reachable for both, per the file
- * header.
+ * Both bonuses are `linearCombination`: `kPa` sums the two fuel fields with
+ * no divisor (same point unit); `rotor` sums the two rotor fields divided by
+ * their own per-rotor point values (`RpLinearTerm.divisor`) — see the file
+ * header for why a plain point sum is wrong for rotor.
  */
 const BONUS_PREDICATES: readonly BonusPredicate[] = [
   {
@@ -244,12 +174,10 @@ export const rp2017: RpRuleModule = {
   },
 
   /**
-   * Identical to `parse`'s rule logic — both bonuses are exact AND fully
-   * reachable from the four tracked threshold variables, so there is no
-   * fallback, no conservative branch and no asymmetry here. See the file
-   * header: 2017 is the first season in this project for which that is true
-   * of every one of its bonuses. Delegates to the shared declarative
-   * evaluator (D-02, D-07); see `BONUS_PREDICATES` above.
+   * Identical to `parse`'s rule logic — both bonuses are exact and fully
+   * reachable from the four tracked threshold variables, so no fallback or
+   * conservative branch is needed. Delegates to the shared declarative
+   * evaluator; see `BONUS_PREDICATES` above.
    */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
     return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
