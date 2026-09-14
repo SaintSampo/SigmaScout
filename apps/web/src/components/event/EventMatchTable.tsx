@@ -1,10 +1,8 @@
 import { cn } from "@/lib/utils";
 import { SkeletonRows } from "../Skeletons.js";
 import { predictionPercent } from "../../lib/predictionPercent.js";
-// 260913-nvn Task 3b: the five leaf plot/chip/score-line/badge components
-// below were byte-identical twins of these team-page originals (151 lines of
-// duplication) — this file now imports and reuses them instead of carrying
-// its own copies that could silently drift apart.
+// The five leaf plot/chip/score-line/badge components below are shared
+// with the team-page originals, reused here rather than duplicated.
 import {
   AllianceChip,
   AllianceRow,
@@ -23,12 +21,11 @@ import type { PublishedAlgorithmId } from "../../../../../packages/harness/publi
 import type { EventMatchRow } from "./eventMatchAxis.js";
 
 /**
- * The generalized event-scoped match-plot table (07-12-PLAN.md, D-12/D-13) —
- * the team page's `MatchTable` anatomy with the this-team bold-highlight
- * rule dropped by being made UNREPRESENTABLE rather than merely unapplied:
+ * The generalized event-scoped match-plot table — the team page's
+ * `MatchTable` anatomy with the this-team bold-highlight rule dropped by
+ * being made UNREPRESENTABLE rather than merely unapplied:
  * `EventMatchTableProps` carries no team-key prop at all, so this component
- * structurally cannot privilege one team over another. Consumed unchanged
- * by 07-13's Elims tab.
+ * structurally cannot privilege one team over another.
  *
  * Every vertical position comes from `matchAxis.ts`'s `allianceMarkPositions`
  * and `MATCH_GEOMETRY`, and every horizontal position from that same
@@ -39,11 +36,11 @@ export interface EventMatchTableProps {
   rows: readonly EventMatchRow[];
   domain: AxisDomain;
   season: number;
-  /** Carried onto each roster-number link so the destination keeps the reader's algorithm (2026-09-01). */
+  /** Carried onto each roster-number link so the destination keeps the reader's algorithm. */
   algorithm: PublishedAlgorithmId;
 }
 
-/** Match, plot, Conf., Pred. Score, Actual, Call — the same six columns `MatchTable` uses, so a reader moving between the team page and an event page sees one table. Shared by the header and the skeleton so the two can never disagree about the column count. (A seventh Video column shipped in quick task 260906-7eu and was unwired in 260907-1w7; `MatchVideoCell` and its parser remain in the tree, unrendered.) */
+/** Match, plot, Conf., Pred. Score, Actual, Call — the same six columns `MatchTable` uses, so a reader moving between the team page and an event page sees one table. Shared by the header and the skeleton so the two can never disagree about the column count. (A seventh Video column was unwired; `MatchVideoCell` and its parser remain in the tree, unrendered.) */
 export const EVENT_MATCH_TABLE_COLUMN_COUNT = 6;
 
 const EVENT_MATCH_TABLE_HEADERS = ["Match", "", "Confidence", "Prediction", "Actual", "Call"] as const;
@@ -58,14 +55,14 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
     <tr data-testid={`match-row-${row.matchKey}`} className={cn(tinted ? "match-row-tint" : "match-row-untinted")}>
       <td className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         <div className="flex min-w-0 flex-col gap-[1px]">
-          {/* 260909-tiq-PLAN.md Task 3: the Match-column label is now a link
-              to that match's own page, carrying the reader's current
-              algorithm and season — the SAME `text-role-label
-              text-[var(--color-text-primary)]` treatment plus `hover:underline`
-              the roster-number links below already use, so both lines of the
-              cell read as the same affordance. Never joins the
-              `.match-alliance-num*` class family (that is the roster-number
-              links' own class, asserted distinct by this file's own test). */}
+          {/* The Match-column label is a link to that match's own page,
+              carrying the reader's current algorithm and season — the SAME
+              `text-role-label text-[var(--color-text-primary)]` treatment
+              plus `hover:underline` the roster-number links below already
+              use, so both lines of the cell read as the same affordance.
+              Never joins the `.match-alliance-num*` class family (that is
+              the roster-number links' own class, asserted distinct by this
+              file's own test). */}
           <Link
             to="/match/$matchKey"
             params={{ matchKey: row.matchKey }}
@@ -75,16 +72,15 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
             {matchLabel(row)}
           </Link>
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
-            {/* 2026-09-08: `.match-alliance-nums--even` (theme.css) fixes the
-                line's width and distributes the leftover space, so red and
-                blue occupy the same box no matter how many digits each roster
-                carries — replacing the text-node space that made every line a
-                different width. */}
+            {/* `.match-alliance-nums--even` (theme.css) fixes the line's
+                width and distributes the leftover space, so red and blue
+                occupy the same box no matter how many digits each roster
+                carries. */}
             <span className="match-alliance-nums match-alliance-nums--even">
               {row.redTeams.map((rosterKey) => (
-                /* 2026-09-01 (user request): every roster number is the way
-                   to that team's page. Plain ink (the alliance rows already
-                   carry colour); underline on hover marks it interactive. */
+                /* Every roster number links to that team's page. Plain ink
+                   (the alliance rows already carry colour); underline on
+                   hover marks it interactive. */
                 <Link
                   key={rosterKey}
                   to="/team/$teamNumber"
@@ -98,16 +94,15 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
             </span>
           </span>
           <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
-            {/* 2026-09-08: `.match-alliance-nums--even` (theme.css) fixes the
-                line's width and distributes the leftover space, so red and
-                blue occupy the same box no matter how many digits each roster
-                carries — replacing the text-node space that made every line a
-                different width. */}
+            {/* `.match-alliance-nums--even` (theme.css) fixes the line's
+                width and distributes the leftover space, so red and blue
+                occupy the same box no matter how many digits each roster
+                carries. */}
             <span className="match-alliance-nums match-alliance-nums--even">
               {row.blueTeams.map((rosterKey) => (
-                /* 2026-09-01 (user request): every roster number is the way
-                   to that team's page. Plain ink (the alliance rows already
-                   carry colour); underline on hover marks it interactive. */
+                /* Every roster number links to that team's page. Plain ink
+                   (the alliance rows already carry colour); underline on
+                   hover marks it interactive. */
                 <Link
                   key={rosterKey}
                   to="/team/$teamNumber"
@@ -185,7 +180,7 @@ export function EventMatchTable({ rows, domain, season, algorithm }: EventMatchT
     <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
       <thead>
         <tr>
-          {/* No column in this table is frozen during horizontal scroll (2026-09-13, user request); Match scrolls with the rest of the row. */}
+          {/* No column in this table is frozen during horizontal scroll; Match scrolls with the rest of the row. */}
           <th className="p-[var(--spacing-sm)] text-left">
             <span className="text-role-label text-[var(--color-text-muted)]">Match</span>
           </th>
@@ -208,11 +203,10 @@ export function EventMatchTable({ rows, domain, season, algorithm }: EventMatchT
 }
 
 /**
- * The pending state's placeholder (07-12-PLAN.md Task 2) — the real header
- * labels above `SkeletonRows` sized by `EVENT_MATCH_TABLE_COLUMN_COUNT`, so
- * the pending state has the shape of the table that is loading rather than
- * a spinner. Reuses `SkeletonRows` verbatim rather than a second skeleton
- * primitive.
+ * The pending state's placeholder — the real header labels above
+ * `SkeletonRows` sized by `EVENT_MATCH_TABLE_COLUMN_COUNT`, so the pending
+ * state has the shape of the table that is loading rather than a spinner.
+ * Reuses `SkeletonRows` verbatim rather than a second skeleton primitive.
  */
 export function EventMatchTableSkeleton({ rowCount }: { rowCount: number }) {
   return (
