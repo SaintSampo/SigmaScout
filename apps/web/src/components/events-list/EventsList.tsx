@@ -12,21 +12,19 @@ import { hasOutOfBandWeek } from "./filterModel";
 import type { EventRow, EventSortDirection, EventSortKey } from "./filterModel";
 
 /**
- * The events list with its loading, empty, error and partial-row states
- * (05-07-PLAN.md Task 2). A season's events are in the low hundreds — no
- * virtualization here, unlike the Teams table (05-UI-SPEC.md "Events list"
- * populated row).
+ * The events list with its loading, empty, error and partial-row states. A
+ * season's events are in the low hundreds — no virtualization here, unlike
+ * the Teams table.
  *
- * `events` arrives already filtered and sorted by the caller (`events.tsx`,
- * Task 3) — this component renders that array plainly and reports header
- * clicks back up via `onSortChange` rather than owning any sort/filter
- * state of its own, since sort lives in the URL (D-14).
+ * `events` arrives already filtered and sorted by the caller (`events.tsx`)
+ * — this component renders that array plainly and reports header clicks
+ * back up via `onSortChange` rather than owning any sort/filter state of
+ * its own, since sort lives in the URL.
  *
- * 07-15-PLAN.md Task 2: the event-name cell is now a router `Link` to
- * `/event/{eventKey}` — the navigation that makes the whole of Phase 7
- * reachable from the deployed site. Only the name cell links (PD-06);
- * every other cell stays inert, matching `teams-table/columns.tsx`'s own
- * cell-level-link precedent rather than a whole-row anchor.
+ * The event-name cell is a router `Link` to `/event/{eventKey}`. Only the
+ * name cell links; every other cell stays inert, matching
+ * `teams-table/columns.tsx`'s own cell-level-link precedent rather than a
+ * whole-row anchor.
  */
 
 const SKELETON_ROWS = 8;
@@ -39,31 +37,18 @@ interface ColumnDef {
 
 const COLUMNS: ColumnDef[] = [
   { key: "name", label: "Event" },
-  // WR-04 (260902-post-phase08-ungoverned-ui/REVIEW.md): this column's label
-  // used to read "Type" over a `week` sort key, with a comment claiming "the
-  // chip is a presentation of the same axis" — it is not. The `TypeChip` cell
-  // it heads encodes OFFICIALNESS (offseason/champs/week-0/week-N), while the
-  // sort key orders by raw week with nulls last; those are related but
-  // distinct axes, and a reader clicking a header labelled "Type" reasonably
-  // expects clicking to group by type, not order by week number. Relabelled
-  // for the axis the key actually sorts. This also matches TBA's own
-  // convention of listing events by week with championships at the end, so
-  // the honest label is also the familiar one. The chip cell itself is
-  // unchanged and still does NOT participate in the sort.
+  // Labelled "Week", not "Type": the `TypeChip` cell this heads encodes
+  // OFFICIALNESS (offseason/champs/week-0/week-N), while the sort key orders
+  // by raw week with nulls last — related but distinct axes. The chip cell
+  // itself does NOT participate in the sort.
   { key: "week", label: "Week", numeric: true },
   { key: "startDate", label: "Date" },
   { key: null, label: "Location" },
   { key: null, label: "District" },
   { key: "teamCount", label: "Teams", numeric: true },
-  // WR-04: this column's cell renders `playedMatchCount/matchCount` (the
-  // played-over-total form below), but the sort key used to be bare
-  // `matchCount` — the TOTAL, not the LEADING number a reader actually sees
-  // first in that cell. Switched to `playedMatchCount` so the sort follows
-  // the number the cell leads with. Verified at plan time before this edit:
-  // `playedMatchCount` is already a member of `EventSortKey`
-  // (`filterModel.ts:197`) and of `EVENT_SORT_KEYS` (`searchParams.ts:161`),
-  // and `compareSortValues` compares it numerically like any other numeric
-  // key — no URL-contract or schema widening was needed for this change.
+  // Sorts by `playedMatchCount`, not the total `matchCount`, because the
+  // cell renders `playedMatchCount/matchCount` and the sort should follow
+  // the number the cell leads with.
   { key: "playedMatchCount", label: "Matches", numeric: true },
 ];
 
@@ -76,7 +61,7 @@ export interface EventsListProps {
   status: "pending" | "error" | "success";
   events: readonly EventRow[];
   year: number;
-  /** Threaded from the route rather than read a second time via a cross-route search hook (06-05's stated preference) — carried on the row link's `search` so the destination lands with the reader's current algorithm. */
+  /** Threaded from the route rather than read a second time via a cross-route search hook — carried on the row link's `search` so the destination lands with the reader's current algorithm. */
   algorithm: PublishedAlgorithmId;
   hasActiveFilter: boolean;
   onClearFilters: () => void;
@@ -100,11 +85,9 @@ function ColumnHeaderRow({ sortKey, sortDir, onSortChange }: Pick<EventsListProp
       {/*
         `h-11` (44px), not the table's default `h-10` (40px): the sort
         controls' hit-area overlay below is `inset-0`, so the CELL is the tap
-        target and the cell must itself meet the project's own
-        `.tap-target` floor of 44px (`theme.css`). Buying those 4px from the
-        header row is deliberate — the alternative, growing the overlay past
-        the cell instead, put it on top of the first result row and ate
-        clicks meant for it. See the overlay's own comment below.
+        target and must itself meet the project's `.tap-target` floor of
+        44px. Growing the overlay past the cell instead (an earlier version)
+        put it on top of the first result row and ate clicks meant for it.
       */}
       <TableRow className="h-11">
         {COLUMNS.map((column) => {
@@ -124,46 +107,28 @@ function ColumnHeaderRow({ sortKey, sortDir, onSortChange }: Pick<EventsListProp
               className={`relative ${column.numeric ? "numeric-cell text-role-label" : "text-role-label"}`}
             >
               {/*
-                260902-rax Task 2: the visible button below is UNTOUCHED —
-                same markup, same normal-flow flex layout it always had —
-                deliberately, because this table has no `table-layout:
-                fixed` (unlike TeamsTable.tsx's own G-1 fix): column widths
-                come from the browser's auto-layout content measurement,
-                which only counts NORMAL-FLOW content. An earlier version of
-                this fix made the button itself `position: absolute` to
-                fill the cell, and that silently pulled the header text out
-                of the width calculation entirely — TEAMS's column visibly
-                narrowed to fit its numeric body cells instead of its own
-                "TEAMS" label, crowding it against MATCHES. Caught by
-                re-measuring after the change, not before.
-                The fix instead ADDS a second, invisible full-cell button
-                purely to catch pointer/touch input across the whole
-                header cell — `aria-hidden` + `tabIndex={-1}` remove it
-                from the accessibility tree and tab order entirely, so
-                keyboard/AT users only ever see the one real, visible
-                button (unaffected `getByRole("button", { name })` lookups).
-                A `position: absolute` sibling paints above a static one by
-                default regardless of DOM order, so this overlay
-                intercepts clicks landing anywhere in the cell — including
-                directly over the visible label — without changing what
-                fires (the same `onSortChange` call).
-                Height: the overlay is `inset-0` — exactly its own cell,
-                never a pixel more. The header ROW carries `h-11` (44px) so
-                that cell is already >=44px on its own.
+                The visible button below is UNTOUCHED — same normal-flow flex
+                layout — because this table has no `table-layout: fixed`, so
+                column widths come from the browser's auto-layout content
+                measurement, which only counts NORMAL-FLOW content. Making the
+                visible button itself `position: absolute` would pull the
+                header text out of that measurement and narrow the column to
+                fit its body cells instead of its own label.
 
-                It is deliberately NOT `-bottom-2` (an 8px overhang past the
-                th, which is what the first version of this fix shipped).
-                That overhang did produce a >=44px box without growing the
-                row, but it landed ON the first body row: measured live,
-                clicks in the top 7px of row 1 (y 222-229) fired
-                `onSortChange` instead of opening the event, and only clicks
-                >=8px in behaved. An absolutely positioned sibling paints and
-                hit-tests above the static row beneath it, so the overhang
-                silently stole a strip of the first result. The original
-                verification read that same behaviour ("a click 3px below the
-                visible cell still fires onSortChange") as PROOF the overhang
-                worked, because it never asked what else occupies that space.
-                Growing the row by 4px is the honest way to buy the target.
+                Instead a second, invisible full-cell button catches
+                pointer/touch input across the whole header cell —
+                `aria-hidden` + `tabIndex={-1}` remove it from the
+                accessibility tree and tab order, so keyboard/AT users only
+                ever see the one real, visible button. It paints above the
+                static button by default (absolutely positioned siblings do),
+                so it intercepts clicks anywhere in the cell without changing
+                what fires.
+
+                The overlay is `inset-0` — exactly its own cell, never an
+                overhang past the `th`: an overhang lands on the row below and
+                silently steals a strip of the first result's click target.
+                The header ROW's own `h-11` buys the 44px tap-target floor
+                instead.
               */}
               <button
                 type="button"
@@ -194,19 +159,12 @@ function isUnofficial(event: EventRow): boolean {
 }
 
 /**
- * The Type chip (2026-09-01 redesign, decision E1): ONE officialness
- * vocabulary — filled neutral chip = official season week, the single dark
- * chip = Championship, dashed outline = unofficial (Week 0 preseason /
- * offseason). Week display stays +1 (TBA publishes week 0-indexed) and a
- * null week on a non-champs official event renders nothing at all, never a
- * guessed label.
- *
- * WR-01 (2026-09-02): the same "never a guessed label" rule now also covers a
- * week TBA indexed OUTSIDE the season scale. `2026isde1`'s raw week 16 was
- * being incremented into "Week 17" — a confident claim about a week of the
- * season that does not exist, and the only visible type label that row
- * carried. These are official district events, so they keep the official
- * `--week` chip treatment; only the text stops asserting a season week.
+ * The Type chip: ONE officialness vocabulary — filled neutral chip =
+ * official season week, the single dark chip = Championship, dashed outline
+ * = unofficial (Week 0 preseason / offseason). Week display stays +1 (TBA
+ * publishes week 0-indexed) and a null week, or a week TBA indexed OUTSIDE
+ * the season scale (`hasOutOfBandWeek`), renders "Other" or nothing rather
+ * than a guessed label.
  */
 function TypeChip({ event }: { event: EventRow }) {
   if (event.isOffseason) return <span className="event-chip event-chip--unofficial">Offseason</span>;
@@ -218,11 +176,11 @@ function TypeChip({ event }: { event: EventRow }) {
 }
 
 /**
- * Location string with junk-region suppression (2026-09-01 redesign): TBA
- * sometimes carries a numeric province code in `state_prov` (İstanbul's
- * "34"), which read as noise — any region containing a digit is dropped and
- * the row shows the country alone. Real 2-3 letter regions ("BC", "NSW")
- * and full names pass through untouched.
+ * Location string with junk-region suppression: TBA sometimes carries a
+ * numeric province code in `state_prov` (İstanbul's "34"), which reads as
+ * noise — any region containing a digit is dropped and the row shows the
+ * country alone. Real 2-3 letter regions ("BC", "NSW") and full names pass
+ * through untouched.
  */
 function displayLocation(event: EventRow): string {
   const region = event.stateProv !== null && /\d/.test(event.stateProv) ? null : event.stateProv;
@@ -235,14 +193,12 @@ function EventRowView({ event, year, algorithm }: { event: EventRow; year: numbe
     <TableRow className={isUnofficial(event) ? "event-row-unofficial" : undefined}>
       <TableCell className="max-w-[22rem] p-0">
         {/*
-          07-15-PLAN.md Task 2, PD-06: only the name cell links — the header
-          row already carries per-cell sort buttons a row-level anchor would
-          swallow, and one linked cell keeps the row's other text selectable.
-          `tab` comes from the imported `DEFAULT_EVENT_TAB` constant, never a
-          hardcoded id, so 07-18's one-constant flip moves this entry point
-          with no edit here. The accent ink marks it as the row's one link;
-          `.event-row-unofficial a` (theme.css) overrides it to muted on
-          unofficial rows.
+          Only the name cell links — the header row already carries per-cell
+          sort buttons a row-level anchor would swallow, and one linked cell
+          keeps the row's other text selectable. `tab` comes from the
+          imported `DEFAULT_EVENT_TAB` constant, never a hardcoded id. The
+          accent ink marks it as the row's one link; `.event-row-unofficial a`
+          (theme.css) overrides it to muted on unofficial rows.
         */}
         <Link
           to="/event/$eventKey"
