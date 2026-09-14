@@ -41,15 +41,11 @@
  *
  * EVERY METRIC CARRIES ITS OWN MEASURED NOISE BAND: `NOISE_MARGIN_PP = 1`
  * was measured for top-1 accuracy only and does not transfer to a recall
- * cutoff, MRR or rank percentile. Running this script at `--iterations 200`
- * vs `--iterations 1500` (same data/features/walk-forward, only optimizer
- * budget differs) and taking the max absolute movement per metric at pooled
- * `n >= 30` gives: R@1 0.77pp, R@3 1.50pp, MRR 0.0046, norm% 0.17pp — R@3
- * needed a wider band than the inherited 1.0pp constant, or a 1.2pp gap
- * would have read as a result. `RANK_NOISE_BANDS` holds one band per metric,
- * `null` for the five unmeasured (R@5, R@10, meanRank, medRank, Brier
- * skill) — those print "CANNOT BE SCORED" rather than borrow a number
- * measured on something else.
+ * cutoff, MRR or rank percentile — R@3 in particular needed a wider band
+ * than the inherited 1.0pp constant, or noise would have read as a result.
+ * `RANK_NOISE_BANDS` holds one measured band per metric, `null` for the
+ * five unmeasured (R@5, R@10, meanRank, medRank, Brier skill) — those print
+ * "CANNOT BE SCORED" rather than borrow a number measured on something else.
  *
  * The report ends with a `PRACTICAL ANSWER` block stating, per flagship
  * judged award type, the ORDERING result and the CALIBRATION result
@@ -463,16 +459,16 @@ export function replayPreEventRatings<P>(
  * IMPLICIT AGE DETECTOR assembled from the ABSENCE of the two selected
  * features rather than from a third feature.
  *
- * That is why type 10 / 14 / 15 scored 12-18% in 5n8 against baselines of
- * exactly 0.0%: B1 can never pick a rookie (no prior wins) and B2 can never
- * pick one (no rating, ranked last), so those two baselines are structurally
- * pinned at zero and beating them proves nothing.
+ * That is why type 10 / 14 / 15 score far above their baselines of exactly
+ * 0.0%: B1 can never pick a rookie (no prior wins) and B2 can never pick one
+ * (no rating, ranked last), so those two baselines are structurally pinned
+ * at zero and beating them proves nothing.
  *
- * 260912-7bp does NOT fix that by deleting the hazard — this function is
- * unchanged. It fixes it by adding baselines that are NOT pinned at zero
+ * This hazard is not fixed by removing the feature — this function is
+ * unchanged. It is fixed by adding baselines that are NOT pinned at zero
  * (`pickMostDecoratedRookie`, `pickStrongestRookie`) and scoring both arms
- * against the best of all four. The all-zero vector is still findable; it just
- * no longer wins by default.
+ * against the best of all four. The all-zero vector is still findable; it
+ * just no longer wins by default.
  *
  * Returns one row per candidate, in the order candidates were supplied.
  */
@@ -1764,11 +1760,11 @@ export type Predictor = Arm | "b1" | "b2" | "rb1" | "rb2";
 export type RankPredictor = Predictor | "b0";
 
 /**
- * Print order for the rank block. B1 is listed IMMEDIATELY beside the two arms
- * by design: the load-bearing requirement of 260912-i13 is that a model
- * ordering is never shown without the decoration ordering next to it, because a
- * ranking compared only against random would look spectacular everywhere and
- * mean nothing. That is 7bp's structural-zero lesson in rank form.
+ * Print order for the rank block. B1 is listed IMMEDIATELY beside the two
+ * arms by design: a model ordering is never shown without the decoration
+ * ordering next to it, because a ranking compared only against random would
+ * look spectacular everywhere and mean nothing — the same structural-zero
+ * lesson in rank form.
  */
 export const RANK_PREDICTORS: readonly RankPredictor[] = [
   "model",
@@ -1867,13 +1863,10 @@ export function bestBaseline(c: Cell): number {
  * award type counts as PREDICTABLE only if the named arm's pooled top-1 beats
  * the BEST OF ALL FOUR baselines (B1, B2, RB1, RB2) with pooled n >= 30.
  * Anything else is "not demonstrated" — not "promising", not "directionally
- * positive".
- *
- * 5n8's rule was "beats B1 and B2". 7bp widened it to all four and applies the
- * widened rule to BOTH arms, so the no-age and age numbers are scored by one
- * rule and their comparison means something. This is what stops a rookie award
- * being "won" against two baselines that are structurally incapable of scoring
- * above zero there.
+ * positive". The rule applies to BOTH arms, so the no-age and age numbers
+ * are scored by one rule and their comparison means something — this is
+ * what stops a rookie award being "won" against baselines structurally
+ * incapable of scoring above zero there.
  */
 export function isPredictable(c: Cell, arm: Arm = "model"): boolean {
   return c.n >= THIN_PRIOR_INSTANCES && cellAccuracy(c, arm) > bestBaseline(c);
@@ -1884,12 +1877,11 @@ export function isPredictable(c: Cell, arm: Arm = "model"): boolean {
  * rule is a STRICT INEQUALITY with no margin, so a type can pass it on a 0.1pp
  * gap that is pure optimizer noise.
  *
- * Measured 2026-09-12: raising `--iterations` from 200 to 1500 moved every
- * pooled accuracy by at most 0.6pp — the fit is converged — but that was still
- * enough to FLIP two verdicts (type 27 Imagery in, type 17 Quality out). This
- * number is printed beside every PREDICTABLE line so a sub-1pp "win" cannot be
- * read as a result. Anything under about 1pp here is a coin flip, not a
- * finding, whichever side of the inequality it happens to land on.
+ * Raising `--iterations` on an already-converged fit still measurably flips
+ * individual verdicts, so this number is printed beside every PREDICTABLE
+ * line so a sub-1pp "win" cannot be read as a result. Anything under about
+ * 1pp here is a coin flip, not a finding, whichever side of the inequality
+ * it happens to land on.
  */
 export function verdictMarginPp(c: Cell, arm: Arm = "model"): number {
   return 100 * (cellAccuracy(c, arm) - bestBaseline(c));
@@ -1946,15 +1938,12 @@ export interface RankNoiseBand {
 }
 
 /**
- * The measured noise bands (see file header for how they were measured). A
- * difference inside its metric's band prints as "no difference", never as
- * "slightly better" — the same discipline top-1 accuracy already applied,
- * extended to metrics that had never had it. `NOISE_MARGIN_PP = 1` is too
- * tight for R@3 specifically: type 4 FIRST Dean's List Finalist moves R@3 up
- * to 1.50pp on an already-converged fit, so a 1.2pp R@3 "win" scored against
- * the shared 1.0pp constant would have read as a result and been noise. The
- * normalized rank percentile is the most stable metric by a factor of four
- * or more (with the caveat, already printed beside every RB row, that the
+ * The measured noise bands (see file header for methodology). A difference
+ * inside its metric's band prints as "no difference", never as "slightly
+ * better" — the same discipline top-1 accuracy already applied. R@3 needed a
+ * wider band than the shared 1.0pp constant or a real win would have read
+ * as noise; the normalized rank percentile is the most stable metric by a
+ * wide margin (with the caveat, printed beside every RB row, that the
  * rookie baselines' percentile uses a different denominator). R@5, R@10,
  * meanRank, medRank and the Brier skill score are `null` because they were
  * not measured — inventing a band for them would be the same fabrication
@@ -2777,13 +2766,12 @@ export function loadSprParams(path: string): BprParams {
  *   THE MODEL MAY PREDICT ONLY THE DCMP AWARDS THAT GO TO ALREADY-QUALIFIED
  *   POWERHOUSES AND BE USELESS ON EXACTLY THE ~50% THAT DECIDE A BERTH.
  *
- * The chain's central finding is that this model's predictive power comes
- * almost entirely from PRIOR DECORATION, which identifies perennial winners;
- * separately measured, award points land overwhelmingly on teams already safely
- * qualified (mean 16.39 award points well above the cut against 1.33 well
- * below). A pooled DCMP accuracy number would hide that completely. So every
- * DCMP result is STRATIFIED by whether the actual winner was INSIDE or OUTSIDE
- * the district points cut, and the pooled row is never emitted without both.
+ * This model's predictive power comes almost entirely from PRIOR DECORATION,
+ * which identifies perennial winners, and award points land overwhelmingly
+ * on teams already safely qualified. A pooled DCMP accuracy number would
+ * hide that completely. So every DCMP result is STRATIFIED by whether the
+ * actual winner was INSIDE or OUTSIDE the district points cut, and the
+ * pooled row is never emitted without both.
  */
 
 /**
@@ -2797,8 +2785,8 @@ export const DCMP_EVENT_TYPES: ReadonlySet<number> = new Set([2, 5]);
 /**
  * The three award types that carry an AUTOMATIC WORLDS BERTH when won at a
  * District Championship. Type 10 Rookie All Star is ALSO a `ROOKIE_AWARD_TYPES`
- * member and is therefore read against RB1/RB2 and NEVER against B1/B2 — that
- * is 260912-7bp's structural-zero lesson and it applies here unchanged.
+ * member and is therefore read against RB1/RB2 and NEVER against B1/B2 — the
+ * same structural-zero rule applies here unchanged.
  */
 export const BERTH_AWARD_TYPES: readonly number[] = [0, 9, 10];
 
@@ -3091,7 +3079,7 @@ export const STRATUM_ROWS: readonly StratumRow[] = [...STRATA, DCMP_ALL];
  * The stratum is a fact about THE AWARD, not about the candidate pool, so it is
  * assigned from `recipients` regardless of pool membership. An UNREACHABLE
  * instance therefore still lands in a stratum and still scores 0 at every k,
- * consistent with the two-denominator rule 260912-i13 established.
+ * consistent with the two-denominator rule below.
  */
 export function assignStratum(
   eventKey: string,
@@ -3122,28 +3110,24 @@ const emptyStratumCounts = (): Record<Stratum, number> => ({
 });
 
 /**
- * THE PREMISE CONTROL. It is a control, not a formality: if these numbers do not
- * reproduce, the join or the cut is wrong and NOTHING downstream is trustworthy.
+ * THE PREMISE CONTROL. It is a control, not a formality: if these numbers do
+ * not reproduce, the join or the cut is wrong and NOTHING downstream is
+ * trustworthy.
  *
  * TWO DENOMINATORS, AND THE DIFFERENCE BETWEEN THEM IS NOT A DISCREPANCY.
  *
- *   RECIPIENTS — one count per (award, winning team). This is the denominator
- *   the 519 / 49.9% opportunity figures were measured on, so it is the one the
- *   assertion below checks. Measured on this corpus: 519 recipients, 260 (50.1%)
- *   OUTSIDE.
+ *   RECIPIENTS — one count per (award, winning team). This is the
+ *   denominator the figures below (`PREMISE_RECIPIENTS_EXPECTED` and its
+ *   tolerance) were measured on, so it is the one the assertion checks.
  *
- *   INSTANCES — one count per `(event, award_type)`, which is this script's unit
- *   of prediction and merges same-type awards at one event (Michigan hands its
+ *   INSTANCES — one count per `(event, award_type)`, this script's unit of
+ *   prediction, merging same-type awards at one event (Michigan hands its
  *   state-championship Impact Award to five teams under one event key).
- *   519 recipients merge into 301 instances, about 1.72 recipients each. Under
- *   the any-recipient OUTSIDE rule an instance is OUTSIDE if ANY of its winners
- *   was below the cut, so the instance-level OUTSIDE share is MECHANICALLY
- *   HIGHER than the recipient-level one — measured at 68.4%, not about 50%.
+ *   Under the any-recipient OUTSIDE rule an instance is OUTSIDE if ANY of
+ *   its winners was below the cut, so the instance-level OUTSIDE share is
+ *   MECHANICALLY HIGHER than the recipient-level one.
  *
- * THAT IS EXPECTED ARITHMETIC, NOT A BROKEN JOIN — the original tolerances
- * (+/-10%-of-519, 45-55%) were set against the pre-measured RECIPIENT numbers
- * but described as bounds on the INSTANCE count; checking the instance count
- * against 519 would fail on a CORRECT implementation. The assertion therefore
+ * That is expected arithmetic, not a broken join. The assertion therefore
  * runs on the recipient denominator the figures were actually measured on,
  * and BOTH counts are printed so no reader mistakes one for the other.
  */
@@ -3476,7 +3460,7 @@ function rankMetricFormat(metric: Exclude<RankMetric, "brierSkill">, v: number):
  * meaning: on the rookie types it would read "BETTER" for the model on a 46pp
  * gap that is purely the denominator.
  *
- * That is 260912-7bp's structural-zero artifact wearing yet another set of
+ * That is the same structural-zero artifact wearing yet another set of
  * clothes, and this function is where it is refused. `recall@k` and MRR are
  * unaffected: both keep every scored instance as their denominator, so an
  * abstaining RB scores 0 and stays in, and the two predictors really are
@@ -3494,10 +3478,10 @@ export function isMetricComparable(
  * The per-type READING block: the no-age arm against the ordering it actually
  * has to beat, metric by metric, EACH AGAINST ITS OWN MEASURED BAND.
  *
- * This is where 260912-i13's load-bearing requirement stops being a comment. A
- * model ordering compared only against random looks spectacular everywhere and
- * means nothing, so every line here names the reference predictor it was scored
- * against — B1 for a judged award, the better of RB1/RB2 for a rookie one.
+ * A model ordering compared only against random looks spectacular everywhere
+ * and means nothing, so every line here names the reference predictor it was
+ * scored against — B1 for a judged award, the better of RB1/RB2 for a
+ * rookie one.
  */
 function printRankReadings(c: Cell, awardType: number): string[] {
   const reference = rankReferencePredictor(awardType, c);
