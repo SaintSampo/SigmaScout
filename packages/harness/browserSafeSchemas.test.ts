@@ -1,85 +1,25 @@
 /**
- * Plan 05-01 Task 3, Step 1: a static import-graph scan proving the two
- * browser-facing entry points — `pageArtifacts.ts` (the published-artifact
- * schemas `apps/web` parses) and `publishedAlgorithms.ts` (the published
- * algorithm id list) — never transitively reach a Node built-in import or
- * any file under `packages/core/algorithms/` (which would drag the whole
- * algorithm implementation into a browser bundle). This is a REAL guard,
- * not a vacuous one: temporarily re-pointing `pageArtifacts.ts`'s import
- * back at `./metricHistory.js` (which imports `node:fs`/`node:path`) makes
- * this test fail, naming that file — see 05-01-PLAN.md's acceptance
- * criteria, which requires this to be verified by hand once and reverted.
+ * A static import-graph scan proving every browser-facing entry point
+ * never transitively reaches a Node built-in import (which would break the
+ * web build) or, for the two strictest entry points, any file under
+ * `packages/core/algorithms/` (which would drag the whole algorithm
+ * implementation into a browser bundle). This is a REAL guard, not a
+ * vacuous one: temporarily re-pointing an entry point's import at a
+ * Node-importing module makes the relevant test fail, naming that file.
  *
- * Plan 05-05 Task 1 extends this with a THIRD entry point:
- * `packages/core/algorithms/breakdown/index.ts` — `apps/web/src/lib/metricKeys.ts`
- * now imports `componentMapForSeason` from it directly, so the client bundles
- * this module (and every season file under `breakdown/`) on purpose. Unlike
- * the first two entry points, this one legitimately LIVES inside
- * `packages/core/algorithms/` — the existing "never reaches a file under
- * packages/core/algorithms/" assertion does not apply to it (it would
- * trivially fail on the entry point itself). It is checked ONLY for Node
- * built-in imports, so a future Node import added to a season module still
- * breaks the web build with a clear, named failure here rather than a
- * confusing bundler error far from its cause.
- *
- * Plan 06.1-08 Task 3 (G-06.1-26) extends this with a FOURTH entry point:
- * `packages/core/rankingPoints/constants.ts` —
- * `apps/web/src/components/team/MatchTable.tsx` now imports
- * `isBonusRpCompLevel` from it directly (PD-19), so the client bundles this
- * module too. Like the breakdown entry point, this one legitimately LIVES
- * under `packages/core/algorithms/` and is checked ONLY for Node built-in
- * imports — at the time of writing it has zero runtime imports of its own
- * (only a type-only `CompLevel` import), so this guard is what catches a
- * future Node-only import added there before it reaches the web build.
- *
- * Plan 08-03 Task 1 extends this with a SIXTH entry point:
- * `packages/core/algorithms/simulation/rankSimulation.ts` — `apps/web`'s
- * first Web Worker (08-07's simulation Worker) imports `simulateRanks` from
- * it directly, so the client bundles this module too. Like the breakdown
- * and rp/constants entry points, this one legitimately LIVES under
- * `packages/core/algorithms/` and is checked ONLY for Node built-in
- * imports; at the time of writing it has zero import statements of any
- * kind, so this guard is what catches a future Node-only import added
- * there before it reaches the web build.
- *
- * Quick task 260905-ldu extends this with a SEVENTH entry point:
- * `packages/harness/teamRanks.ts` — a different case from the previous
- * three. This module does NOT live under `packages/core/algorithms/`; it
- * lives here in `packages/harness/`, alongside `pageArtifacts.ts`. But its
- * design deliberately imports `isOfficialEventType`/`TOTAL_METRIC_KEY` FROM
- * `packages/core/algorithms/eventTypes.ts` and `types.ts` (both of which are
- * themselves import-nothing leaves, per their own header comments), so
- * checking it against the stricter "never reaches a file under
- * packages/core/algorithms/" assertion (the one `pageArtifacts.ts` and
- * `publishedAlgorithms.ts` are held to) would trivially fail on its own
- * intended design. It is checked ONLY for Node built-in imports, exactly
- * like the breakdown/rp-constants/rank-simulation entry points above.
- *
- * Plan 09-03 Task 3 extends this with an EIGHTH entry point:
- * `packages/core/rankingPoints/marginals.ts` — D-08: the RP module becomes
- * browser-safe in Phase 9 so the browser runs the SAME pure function real
- * matches do, which is deliverable 8's precondition for pricing the
- * pre-schedule rank simulation client-side. Like the breakdown/rp-constants/
- * rank-simulation entry points above, this one legitimately LIVES under
- * `packages/core/algorithms/`'s SIBLING directory `packages/core/
- * rankingPoints/` and is checked ONLY for Node built-in imports; its one
- * import is a type-only import of `MarginalFamily`/`RpThresholdVariable`
- * from `./constants.ts`, which itself type-imports `algorithms/types.js` —
- * so the stricter "never reaches a file under packages/core/algorithms/"
- * assertion the `ENTRY_POINTS` pair is held to would fail on this module's
- * own intended design (exactly the same reason `RP_CONSTANTS_ENTRY_POINT`
- * above is checked the same restricted way).
- *
- * Plan 09-04 Task 1 extends this with a NINTH entry point:
- * `packages/core/rankingPoints/analyticPmf.ts` — D-08: the closed-form RP
- * pmf engine that replaces `distribution.ts`'s Monte Carlo. Like
- * `marginals.ts` immediately above, it legitimately LIVES under
- * `packages/core/rankingPoints/` (`marginals.ts`'s own sibling, not
- * `packages/core/algorithms/`) and is checked ONLY for Node built-in
- * imports; its imports are type-only or value imports of sibling leaves
- * (`./constants.ts`, `./moments.ts`, `./marginals.ts`,
- * `../algorithms/types.ts`), never a matrix library, a hashing routine or a
- * seeded generator — the closed form consumes no randomness at all.
+ * Two check strengths, by where an entry point LIVES:
+ * - `pageArtifacts.ts` and `publishedAlgorithms.ts` live in
+ *   `packages/harness/` and are held to the FULL assertion: no Node
+ *   built-in, and no file under `packages/core/algorithms/` at all.
+ * - Every other entry point below legitimately LIVES under
+ *   `packages/core/algorithms/` or its sibling `packages/core/
+ *   rankingPoints/` (the client bundles it on purpose, importing a specific
+ *   function from it), so the stricter "never reaches algorithms/"
+ *   assertion would trivially fail on the entry point itself. These are
+ *   checked ONLY for Node built-in imports, so a future Node-only import
+ *   added anywhere in their reachable graph still breaks the web build with
+ *   a clear, named failure here rather than a confusing bundler error far
+ *   from its cause.
  *
  * Scope: static `import`/`export ... from` specifiers only — this repo has
  * no dynamic imports in the modules under scan.
