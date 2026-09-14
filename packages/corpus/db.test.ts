@@ -146,7 +146,7 @@ describe("selectMatchesChronological — total order under sort_time ties", () =
   });
 });
 
-describe("selectMatchesChronological — eventType round trip (plan 03-03 Task 1)", () => {
+describe("selectMatchesChronological — eventType round trip", () => {
   it("carries the event_type its event row was upserted with", () => {
     upsertEvent(db, event({ eventKey: "2024casj", eventType: 3 }));
     upsertMatch(db, match({ matchKey: "2024casj_qm1", eventKey: "2024casj" }));
@@ -186,7 +186,7 @@ describe("selectMatchesChronological — offseason exclusion", () => {
   });
 });
 
-describe("upsertMatch — winner_imputed round trip (D-01/D-03, 01-REVIEW WR-06)", () => {
+describe("upsertMatch — winner_imputed round trip", () => {
   it("a true winnerImputed flag survives a write/read round trip as 1", () => {
     upsertEvent(db, event());
     upsertMatch(db, match({ winnerImputed: true }));
@@ -234,7 +234,7 @@ describe("openCorpus — single-writer lock", () => {
   });
 });
 
-describe("openCorpus — atomic write-lock acquisition (WR-03)", () => {
+describe("openCorpus — atomic write-lock acquisition", () => {
   it("creates the lock file containing the current process id when none exists", () => {
     const dir = mkdtempSync(join(tmpdir(), "sigmascout-lock-"));
     const freshPath = join(dir, "corpus.sqlite");
@@ -334,7 +334,7 @@ describe("openCorpus — atomic write-lock acquisition (WR-03)", () => {
     }
   });
 
-  it("WR-01 regression proof: does not let two concurrent stale-lock reclaimers both believe they hold the lock", async () => {
+  it("regression proof: does not let two concurrent stale-lock reclaimers both believe they hold the lock", async () => {
     const dir = mkdtempSync(join(tmpdir(), "sigmascout-lock-reclaim-race-"));
     const freshPath = join(dir, "corpus.sqlite");
     const lockPath = `${freshPath}.lock`;
@@ -418,7 +418,7 @@ describe("upsertTeam and recordIngestRun", () => {
   });
 });
 
-describe("upsertEvent — EVNT-01 location/calendar fields round trip (plan 05-02)", () => {
+describe("upsertEvent — location/calendar fields round trip", () => {
   it("round-trips name, week, country, stateProv and districtKey", () => {
     upsertEvent(
       db,
@@ -499,7 +499,7 @@ describe("upsertEvent — EVNT-01 location/calendar fields round trip (plan 05-0
   });
 });
 
-describe("selectScheduledMatches (D-08, plan 04-02 Task 3)", () => {
+describe("selectScheduledMatches", () => {
   it("returns only rows whose winner is NULL, partitioning exactly with selectMatchesChronological", () => {
     upsertEvent(db, event({ eventKey: "2026casj" }));
     upsertMatch(
@@ -597,7 +597,7 @@ describe("selectScheduledMatches (D-08, plan 04-02 Task 3)", () => {
   });
 });
 
-describe("team_media — corpus table and accessors (plan 06-03 Task 1)", () => {
+describe("team_media — corpus table and accessors", () => {
   it("an existing corpus file created before this change gains the table on open, with 0 rows", () => {
     const dir = mkdtempSync(join(tmpdir(), "sigmascout-team-media-migration-"));
     const freshPath = join(dir, "corpus.sqlite");
@@ -842,7 +842,7 @@ function alliance(overrides: AllianceOverrides = {}) {
   };
 }
 
-describe("event_alliances — corpus table and accessors (plan 07-02 Task 1)", () => {
+describe("event_alliances — corpus table and accessors", () => {
   it("an existing corpus file created before this change gains the table on open, with 0 rows", () => {
     const dir = mkdtempSync(join(tmpdir(), "sigmascout-event-alliances-migration-"));
     const freshPath = join(dir, "corpus.sqlite");
@@ -994,7 +994,7 @@ describe("event_alliances — corpus table and accessors (plan 07-02 Task 1)", (
   });
 });
 
-describe("parseAllianceRecord — the alliance playoff win-loss-tie record, absence discipline (07-UAT.md G-8)", () => {
+describe("parseAllianceRecord — the alliance playoff win-loss-tie record, absence discipline", () => {
   it("a real TBA status object round-trips its record, extra keys (status/level/double_elim_round) ignored", () => {
     const statusRaw = JSON.stringify({ record: { losses: 3, ties: 0, wins: 4 }, status: "eliminated", level: "f", double_elim_round: "Finals" });
     expect(parseAllianceRecord(statusRaw)).toEqual({ wins: 4, losses: 3, ties: 0 });
@@ -1060,7 +1060,7 @@ function createLegacyEventRankingsTable(rawDb: Database.Database): void {
   `);
 }
 
-describe("event_rankings — record and ranking-score columns (plan 07-02 Task 2)", () => {
+describe("event_rankings — record and ranking-score columns", () => {
   it("a CorpusEventRanking written without any of the four new fields stores NULL in all four columns, read back as null", () => {
     upsertEvent(db, event({ eventKey: "2024casj" }));
     upsertTeam(db, { teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs" });
@@ -1283,7 +1283,7 @@ describe("event_rankings — record and ranking-score columns (plan 07-02 Task 2
   });
 });
 
-describe("matches.video_key — additive migration (quick task 260906-7eu)", () => {
+describe("matches.video_key — additive migration", () => {
   it("hasMatchVideoColumn is true on a freshly-opened corpus", () => {
     expect(hasMatchVideoColumn(db)).toBe(true);
   });
@@ -1365,7 +1365,7 @@ describe("matches.video_key — additive migration (quick task 260906-7eu)", () 
   });
 });
 
-describe("teams.rookie_year — additive migration (quick task 260912-7bp)", () => {
+describe("teams.rookie_year — additive migration", () => {
   it("hasTeamRookieYearColumn is true on a freshly-opened corpus", () => {
     expect(hasTeamRookieYearColumn(db)).toBe(true);
   });
