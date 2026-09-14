@@ -137,7 +137,7 @@ export default defineConfig({
       // event-scroll-regions.spec.ts also runs at this narrower (360px),
       // more adversarial width, so its sibling-scroll-region evidence
       // spans two widths rather than one.
-      testMatch: /touch-scroll\.spec\.ts|no-page-pan\.spec\.ts|event-scroll-regions\.spec\.ts|table-layout-quality\.spec\.ts|touch-action-vertical-scroll\.spec\.ts|tab-strip-trigger-sizing\.spec\.ts|tab-strip-alignment\.spec\.ts/,
+      testMatch: /touch-scroll\.spec\.ts|no-page-pan\.spec\.ts|event-scroll-regions\.spec\.ts|table-layout-quality\.spec\.ts|touch-action-vertical-scroll\.spec\.ts|tab-strip-trigger-sizing\.spec\.ts/,
       use: { ...devices["Pixel 10"] },
     },
     {
@@ -146,7 +146,7 @@ export default defineConfig({
       // site's real-device UAT names specifically — see this file's header
       // comment for the full rationale. Every spec below reuses this same
       // 390px real-device-reported width.
-      testMatch: /event-scroll-regions\.spec\.ts|event-header-overflow\.spec\.ts|table-layout-quality\.spec\.ts|touch-action-vertical-scroll\.spec\.ts|tab-strip-trigger-sizing\.spec\.ts|tab-strip-alignment\.spec\.ts/,
+      testMatch: /event-scroll-regions\.spec\.ts|event-header-overflow\.spec\.ts|table-layout-quality\.spec\.ts|touch-action-vertical-scroll\.spec\.ts|tab-strip-trigger-sizing\.spec\.ts/,
       use: { ...devices["iPhone 17"], browserName: "chromium", viewport: { width: 390, height: 844 } },
     },
     {
@@ -162,9 +162,8 @@ export default defineConfig({
       //    `/v1` proxy to reach real published artifact bytes.
       // NOT assigned here: table-layout-quality (a narrow-viewport defect
       // class, not one that needs re-proving at desktop width),
-      // tab-strip-alignment / tab-strip-trigger-sizing (both open with a
-      // premise guard asserting the strip OVERFLOWS; at 1440px the strip
-      // does not overflow), event-scroll-regions / touch-action-vertical-scroll
+      // tab-strip-trigger-sizing (a phone-width check of the wrapping tab
+      // strip), event-scroll-regions / touch-action-vertical-scroll
       // / touch-scroll (all drive real touch drags via `touchDrag`, which
       // needs `hasTouch` — this plain-chromium project has no device
       // descriptor and so no `hasTouch: true`).
@@ -200,7 +199,7 @@ export default defineConfig({
       // of which need this project's local-origin `/v1` proxy to reach
       // real published artifact bytes.
       testMatch:
-        /no-page-pan\.spec\.ts|event-header-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|table-layout-quality\.spec\.ts|tab-strip-alignment\.spec\.ts|tab-strip-trigger-sizing\.spec\.ts|event-scroll-regions\.spec\.ts|touch-action-vertical-scroll\.spec\.ts|touch-scroll\.spec\.ts|simulation-tab\.spec\.ts|compare-narrow-legibility\.spec\.ts/,
+        /no-page-pan\.spec\.ts|event-header-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|table-layout-quality\.spec\.ts|tab-strip-trigger-sizing\.spec\.ts|event-scroll-regions\.spec\.ts|touch-action-vertical-scroll\.spec\.ts|touch-scroll\.spec\.ts|simulation-tab\.spec\.ts|compare-narrow-legibility\.spec\.ts/,
       use: { ...devices["iPhone 17"], browserName: "chromium", viewport: { width: 390, height: 844 }, baseURL: LOCAL_URL },
     },
   ],

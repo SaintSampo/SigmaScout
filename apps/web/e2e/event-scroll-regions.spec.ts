@@ -98,7 +98,7 @@ test.describe("E5 — Quals tab at phone width, highest-risk item on this tab", 
       console.log(`[event-scroll-regions] quals density screenshot: ${shot}`);
 
       const matchHeader = region.getByRole("columnheader", { name: "Match", exact: true });
-      const actualHeader = region.getByRole("columnheader", { name: "Actual", exact: true });
+      const actualHeader = region.getByRole("columnheader", { name: "Actual RP", exact: true });
       const matchBefore = await matchHeader.boundingBox();
       const actualBefore = await actualHeader.boundingBox();
       if (matchBefore === null || actualBefore === null) throw new Error("header cell missing a bounding box");
@@ -196,56 +196,49 @@ for (const tab of TABS) {
       await assertNoPagePan(page);
     });
 
-    test("a horizontal drag inside the table region advances only that region, leaving the tab strip and the document at rest", async ({ page }) => {
-      const region = page.locator(`[data-testid="${TAB_SCROLL_TESTID[tab]}"]`);
-      await assertOverflows(region);
+    // Not generated for `simulation`: its rank table is sized to exactly its
+    // card's width with `overflow-x: hidden`, so it never scrolls
+    // horizontally by design (855741c1, "should not ever have a horizontal
+    // scroll bar") and a drag assertion against it would prove nothing.
+    if (tab !== "simulation") {
+      test("a horizontal drag inside the table region advances only that region, leaving the tab strip and the document at rest", async ({ page }) => {
+        const region = page.locator(`[data-testid="${TAB_SCROLL_TESTID[tab]}"]`);
+        await assertOverflows(region);
 
-      // [Rule 1 - Bug, found live running this task's own required e2e pass]
-      // `visibleMidpoint` below calls `scrollIntoViewIfNeeded()`, which is
-      // this TEST'S OWN setup step to bring an off-screen region into a
-      // draggable position — it is not part of the gesture under test. The
-      // "before" snapshot must be taken AFTER that setup scroll settles, or
-      // the assertion below measures this test's own scaffolding rather than
-      // the drag's actual effect on the document.
-      const { box, midY } = await visibleMidpoint(page, region);
+        // [Rule 1 - Bug, found live running this task's own required e2e pass]
+        // `visibleMidpoint` below calls `scrollIntoViewIfNeeded()`, which is
+        // this TEST'S OWN setup step to bring an off-screen region into a
+        // draggable position — it is not part of the gesture under test. The
+        // "before" snapshot must be taken AFTER that setup scroll settles, or
+        // the assertion below measures this test's own scaffolding rather than
+        // the drag's actual effect on the document.
+        const { box, midY } = await visibleMidpoint(page, region);
 
-      const strip = page.locator(TAB_STRIP);
-      const regionBefore = await region.evaluate((el) => el.scrollLeft);
-      const stripBefore = await strip.evaluate((el) => el.scrollLeft);
-      const documentLeftBefore = await page.evaluate(() => document.documentElement.scrollLeft);
-      const documentTopBefore = await page.evaluate(() => document.documentElement.scrollTop);
+        const strip = page.locator(TAB_STRIP);
+        const regionBefore = await region.evaluate((el) => el.scrollLeft);
+        const stripBefore = await strip.evaluate((el) => el.scrollLeft);
+        const documentLeftBefore = await page.evaluate(() => document.documentElement.scrollLeft);
+        const documentTopBefore = await page.evaluate(() => document.documentElement.scrollTop);
 
-      await touchDrag(page, { x: box.x + box.width - 20, y: midY }, { x: box.x + 20, y: midY });
+        await touchDrag(page, { x: box.x + box.width - 20, y: midY }, { x: box.x + 20, y: midY });
 
-      const regionAfter = await region.evaluate((el) => el.scrollLeft);
-      const stripAfter = await strip.evaluate((el) => el.scrollLeft);
-      const documentLeftAfter = await page.evaluate(() => document.documentElement.scrollLeft);
-      const documentTopAfter = await page.evaluate(() => document.documentElement.scrollTop);
+        const regionAfter = await region.evaluate((el) => el.scrollLeft);
+        const stripAfter = await strip.evaluate((el) => el.scrollLeft);
+        const documentLeftAfter = await page.evaluate(() => document.documentElement.scrollLeft);
+        const documentTopAfter = await page.evaluate(() => document.documentElement.scrollTop);
 
-      expect(regionAfter).toBeGreaterThan(regionBefore);
-      expect(stripAfter).toBe(stripBefore);
-      expect(documentLeftAfter).toBe(documentLeftBefore);
-      expect(documentLeftAfter).toBe(0);
-      expect(documentTopAfter).toBe(documentTopBefore);
-    });
+        expect(regionAfter).toBeGreaterThan(regionBefore);
+        expect(stripAfter).toBe(stripBefore);
+        expect(documentLeftAfter).toBe(documentLeftBefore);
+        expect(documentLeftAfter).toBe(0);
+        expect(documentTopAfter).toBe(documentTopBefore);
+      });
+    }
 
-    test("a horizontal drag inside the tab strip advances only the strip, leaving the table region at rest", async ({ page }) => {
-      const strip = page.locator(TAB_STRIP);
-      await assertOverflows(strip);
-      const region = page.locator(`[data-testid="${TAB_SCROLL_TESTID[tab]}"]`);
-
-      const stripBefore = await strip.evaluate((el) => el.scrollLeft);
-      const regionBefore = await region.evaluate((el) => el.scrollLeft);
-
-      const box = await strip.boundingBox();
-      if (box === null) throw new Error("tab strip has no bounding box");
-      await touchDrag(page, { x: box.x + box.width - 20, y: box.y + box.height / 2 }, { x: box.x + 20, y: box.y + box.height / 2 });
-
-      const stripAfter = await strip.evaluate((el) => el.scrollLeft);
-      const regionAfter = await region.evaluate((el) => el.scrollLeft);
-      expect(stripAfter).toBeGreaterThan(stripBefore);
-      expect(regionAfter).toBe(regionBefore);
-    });
+    // There is no "a drag inside the tab strip advances only the strip" case:
+    // the strip's tabs wrap instead of overflowing (3df8e116, "I should not be
+    // able to scroll the events tab bar, it shouldn't move"), so the strip
+    // never has anything to scroll. E2 below asserts that it does not overflow.
 
     // The bounded 8-row Alliances table may not fill the 844px phone
     // viewport at all, so a vertical drag over it would prove nothing about
@@ -327,18 +320,19 @@ test.describe("E3 — Insights tab at the widest real rosters", () => {
 });
 
 // ---------------------------------------------------------------------------
-// E4 — Breakdown, the widest column set that exists anywhere in the app
-// (2024: 13 components + Total = 14 metric columns behind 2 identity columns = 16)
+// E4 — Breakdown under SPR: Team #, Team Name, Total and the three phase
+// columns = 6 (a013ca1e: SPR Breakdown shows Total and the three phases only,
+// pinned by BreakdownTab.test.tsx "spr desktop geometry ... six header cells")
 // ---------------------------------------------------------------------------
 
-test.describe("E4 — Breakdown tab at the app's widest column set", () => {
-  test("2024new: exactly 16 header columns, every column scrolls with a full-width drag (no sticky columns)", async ({ page }) => {
+test.describe("E4 — Breakdown tab, SPR column set", () => {
+  test("2024new: exactly 6 header columns, every column scrolls with a full-width drag (no sticky columns)", async ({ page }) => {
     await page.goto(eventUrl("2024new", "breakdown"), { waitUntil: "networkidle" });
     const region = page.locator('[data-testid="breakdown-table-scroll"]');
     await region.waitFor({ state: "visible", timeout: 15_000 });
 
     const headerCells = region.locator("thead th");
-    expect(await headerCells.count()).toBe(16);
+    expect(await headerCells.count()).toBe(6);
 
     await assertOverflows(region);
 
@@ -366,13 +360,16 @@ test.describe("E4 — Breakdown tab at the app's widest column set", () => {
 });
 
 // ---------------------------------------------------------------------------
-// E2 — the tab strip itself: SIX short labels, horizontally scrollable.
+// E2 — the tab strip itself: six labels that WRAP rather than scroll
+// (3df8e116, user: "I should not be able to scroll the events tab bar, it
+// shouldn't move"). Labels renamed Qualifications/Playoffs in ed49b8a0 and
+// 3f160098, pinned by event.$eventKey.test.tsx's six-tabs-in-order test.
 // ---------------------------------------------------------------------------
 
-const EXPECTED_TAB_LABELS = ["Insights", "Breakdown", "Quals", "Alliances", "Elims", "Simulation"] as const;
+const EXPECTED_TAB_LABELS = ["Insights", "Breakdown", "Qualifications", "Alliances", "Playoffs", "Simulation"] as const;
 
-test.describe("E2 — the tab strip: 6 tabs, scrollable at phone width", () => {
-  test(`${STRUCTURAL_EVENT_KEY}: exactly 6 role="tab" elements in the declared order, and the strip overflows at 390px`, async ({ page }) => {
+test.describe("E2 — the tab strip: 6 tabs, wrapping at phone width", () => {
+  test(`${STRUCTURAL_EVENT_KEY}: exactly 6 role="tab" elements in the declared order, and the strip does not overflow at phone width`, async ({ page }) => {
     await page.goto(eventUrl(STRUCTURAL_EVENT_KEY, "insights"), { waitUntil: "networkidle" });
     const strip = page.locator(TAB_STRIP);
     await strip.waitFor({ state: "visible", timeout: 15_000 });
@@ -382,10 +379,10 @@ test.describe("E2 — the tab strip: 6 tabs, scrollable at phone width", () => {
     const labels = await tabs.allTextContents();
     expect(labels.map((l) => l.trim())).toEqual([...EXPECTED_TAB_LABELS]);
 
-    // The premise guard: the strip must actually overflow BEFORE any of the
-    // three measurements below run against it — a strip that never overflows
-    // would make every one of them vacuous.
-    await assertOverflows(strip);
+    // The tabs wrap onto a second line instead of running off the end, so
+    // the strip's scroll region never has anything to scroll.
+    const { scrollWidth, clientWidth } = await strip.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+    expect(scrollWidth, `tab strip scrollWidth ${scrollWidth}px exceeds clientWidth ${clientWidth}px — the tabs should wrap, not scroll`).toBeLessThanOrEqual(clientWidth);
     await assertNoPagePan(page);
   });
 
@@ -417,18 +414,13 @@ test.describe("E2 — the tab strip: 6 tabs, scrollable at phone width", () => {
     }
   });
 
-  test("after scrolling the strip fully to its right end, the Simulation trigger is reachable — its bounding box sits entirely inside the viewport, with non-empty text", async ({ page }) => {
+  test("without any scrolling, the Simulation trigger is reachable — its bounding box sits entirely inside the viewport, with non-empty text", async ({ page }) => {
     await page.goto(eventUrl(STRUCTURAL_EVENT_KEY, "insights"), { waitUntil: "networkidle" });
     const strip = page.locator(TAB_STRIP);
     await strip.waitFor({ state: "visible", timeout: 15_000 });
-    await assertOverflows(strip);
 
     const simulationTrigger = page.getByRole("tab", { name: "Simulation", exact: true });
-    await expect(simulationTrigger, "the Simulation trigger must exist in the strip before it can be scrolled to").toBeAttached();
-
-    const stripBox = await strip.boundingBox();
-    if (stripBox === null) throw new Error("tab strip has no bounding box");
-    await touchDrag(page, { x: stripBox.x + stripBox.width - 20, y: stripBox.y + stripBox.height / 2 }, { x: stripBox.x + 20, y: stripBox.y + stripBox.height / 2 }, 20);
+    await expect(simulationTrigger, "the Simulation trigger must exist in the strip").toBeAttached();
 
     const viewport = page.viewportSize();
     if (!viewport) throw new Error("no viewport size");

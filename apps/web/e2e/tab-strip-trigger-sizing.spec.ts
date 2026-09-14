@@ -10,6 +10,11 @@
  * own table) and at least one trigger's own scrollWidth exceeds its
  * clientWidth ("Breakdown" overflowing its box). See this task's commit
  * message / SUMMARY for the captured failure output.
+ *
+ * Since 3df8e116 the strip WRAPS at phone width instead of scrolling (user:
+ * "I should not be able to scroll the events tab bar, it shouldn't move"),
+ * so DOM-adjacent labels can sit on different lines. The gap is a same-line
+ * measurement: a pair split across a line break has no visual gap to compare.
  */
 import { test, expect, type Locator } from "@playwright/test";
 
@@ -28,14 +33,14 @@ const TOLERANCE_PX = 2;
  * label-rect measurement can distinguish "boxes are uniform but text isn't"
  * from "boxes size to their own content."
  */
-async function labelRect(tab: Locator): Promise<{ x: number; width: number }> {
+async function labelRect(tab: Locator): Promise<{ x: number; y: number; width: number }> {
   return tab.evaluate((el) => {
     const textNode = Array.from(el.childNodes).find((n) => n.nodeType === Node.TEXT_NODE && (n.textContent ?? "").trim().length > 0);
     if (!textNode) throw new Error(`tab "${el.textContent}" has no direct text node to measure`);
     const range = document.createRange();
     range.selectNodeContents(textNode);
     const rect = range.getBoundingClientRect();
-    return { x: rect.x, width: rect.width };
+    return { x: rect.x, y: rect.y, width: rect.width };
   });
 }
 
@@ -49,7 +54,7 @@ test.describe("tab strip triggers size to their own content, with a uniform visu
     const count = await tabs.count();
     expect(count).toBeGreaterThan(1);
 
-    const measurements: { label: string; labelBox: { x: number; width: number }; scrollWidth: number; clientWidth: number }[] = [];
+    const measurements: { label: string; labelBox: { x: number; y: number; width: number }; scrollWidth: number; clientWidth: number }[] = [];
     for (let i = 0; i < count; i++) {
       const tab = tabs.nth(i);
       const label = (await tab.innerText()).trim();
@@ -70,13 +75,16 @@ test.describe("tab strip triggers size to their own content, with a uniform visu
     // The visual gap between each pair of adjacent LABELS must be uniform —
     // 07-UAT.md's own measurement found gaps ranging 6-22px purely from
     // force-equalized box widths against varying label widths, even though
-    // padding and the list's own gap are already uniform.
+    // padding and the list's own gap are already uniform. Only pairs on the
+    // same line are compared: the strip wraps at phone width (see header).
     const gaps: number[] = [];
     for (let i = 0; i < measurements.length - 1; i++) {
       const current = measurements[i]!;
       const next = measurements[i + 1]!;
+      if (Math.abs(next.labelBox.y - current.labelBox.y) > TOLERANCE_PX) continue;
       gaps.push(next.labelBox.x - (current.labelBox.x + current.labelBox.width));
     }
+    expect(gaps.length, "fewer than two same-line label gaps, so there is nothing to compare for uniformity").toBeGreaterThan(1);
     const maxGap = Math.max(...gaps);
     const minGap = Math.min(...gaps);
     expect(
