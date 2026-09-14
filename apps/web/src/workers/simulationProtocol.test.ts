@@ -54,7 +54,7 @@ function buildFixture(): { matches: SimMatchInput[]; baselines: SimTeamBaseline[
   return { matches, baselines };
 }
 
-describe("simulationProtocol — Task 1 TRACER: the real round trip", () => {
+describe("simulationProtocol — TRACER: the real round trip", () => {
   const { matches, baselines } = buildFixture();
   const collected: SimulationOutboundMessage[] = [];
 
@@ -137,10 +137,10 @@ describe("simulationProtocol — Task 1 TRACER: the real round trip", () => {
   });
 });
 
-describe("simulationProtocol — Task 1: chunking equivalence and clone survival", () => {
+describe("simulationProtocol — chunking equivalence and clone survival", () => {
   const { matches, baselines } = buildFixture();
 
-  it("Test 4: chunking is NOT a behavior change — chunked histograms are entry-for-entry identical to one unchunked simulateRanks call over the same seed (PD-01, load-bearing)", async () => {
+  it("Test 4: chunking is NOT a behavior change — chunked histograms are entry-for-entry identical to one unchunked simulateRanks call over the same seed (load-bearing)", async () => {
     const direct = simulateRanks(matches, baselines, SIMULATION_DRAWS, mulberry32(DEFAULT_SIMULATION_SEED));
 
     const collected: SimulationOutboundMessage[] = [];
@@ -249,7 +249,7 @@ describe("simulationProtocol — Task 1: chunking equivalence and clone survival
   });
 });
 
-describe("simulationProtocol — D-15 (plan 09-07): the coupled shape needs no protocol change", () => {
+describe("simulationProtocol — the coupled shape needs no protocol change", () => {
   const { matches: legacyMatches, baselines } = buildFixture();
   // The SAME fixture as Test 4, with `outcome` attached to every match —
   // proves the Worker protocol needed no change for the coupled shape,
@@ -316,7 +316,7 @@ describe("simulationProtocol — D-15 (plan 09-07): the coupled shape needs no p
   });
 });
 
-describe("simulationProtocol — Task 2: the Vite seam, constructed through createSimulationWorker()", () => {
+describe("simulationProtocol — the Vite seam, constructed through createSimulationWorker()", () => {
   const { matches, baselines } = buildFixture();
 
   it("Test 6: the round trip through createSimulationWorker() — same terminal conditions as Test 1, plus the URL/options contract the mock instance recorded", async () => {
@@ -372,7 +372,7 @@ describe("simulationProtocol — Task 2: the Vite seam, constructed through crea
   });
 });
 
-describe("simulationProtocol — Task 3: input validation and error translation, asserted rather than assumed", () => {
+describe("simulationProtocol — input validation and error translation, asserted rather than assumed", () => {
   it("P7: a non-conforming payload yields exactly one INVALID_REQUEST_ERROR_NAME error, no progress, no result, and no throw escapes runSimulationJob", () => {
     const badPayloads: unknown[] = [null, "not a request", { type: "nope" }];
     for (const payload of badPayloads) {
