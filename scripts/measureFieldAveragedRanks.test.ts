@@ -1,15 +1,7 @@
 /**
- * The rung-1 acceptance criterion's OWN unit tests (plan 09-09 Task 3),
- * against SYNTHETIC per-team quantile tables whose verdict is known by
- * construction.
- *
- * The point is that the pass/fail logic is proven on inputs whose answer is
- * known before it is ever pointed at a real event: a criterion evaluated for
- * the first time on the data it will decide is a criterion nobody can check.
- *
- * Boundary values are asserted as PASSING, not failing — `<=` and `>=` are
- * inclusive, and an off-by-one here would silently tighten a criterion that
- * was fixed in advance.
+ * The field-averaged acceptance criterion, tested on synthetic quantile tables
+ * whose verdict is known by construction. Boundary values must pass: `<=` and
+ * `>=` are inclusive, and an off-by-one would silently tighten the criterion.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -42,12 +34,7 @@ interface RowSpec {
   readonly p90Diff?: number;
 }
 
-/**
- * Builds `specs.length` rows, spread round-robin across the six synthetic
- * events. Baked quantiles are held at a fixed, plausible triple and the
- * field-averaged side is the baked side plus the requested signed difference —
- * so each row's contribution to every clause is exactly what its spec says.
- */
+/** Rows round-robin across the six events: a fixed baked triple, and the field side offset by each spec's signed difference. */
 function table(specs: readonly RowSpec[]): TeamQuantileRow[] {
   return specs.map((spec, i) => ({
     eventKey: EVENT_KEYS[i % EVENT_KEYS.length]!,
@@ -84,11 +71,8 @@ describe("evaluateRungOneCriterion — sample size", () => {
 
 describe("evaluateRungOneCriterion — clause 1 (median rank), both halves, at the boundary", () => {
   it("PASSES when exactly 95% of teams are at 0.5 and the rest at 1.0 — the boundary values are INSIDE", () => {
-    // 120 teams: 114 at exactly 0.5 (114/120 = 0.95 exactly), 6 at exactly
-    // 1.0. The signs alternate so clause 3's mean signed difference is 0 and
-    // the overall verdict is decided by clause 1 alone, which is what this
-    // case is for. (All-positive would fail clause 3 at a mean shift of
-    // 0.525, correctly but for an unrelated reason.)
+    // 120 teams: 114 at exactly 0.5 (0.95 exactly), 6 at exactly 1.0. Signs
+    // alternate so clause 3's mean is 0 and clause 1 alone decides.
     const specs = [
       ...rows(57, CLAUSE_1_MEDIAN_TIGHT),
       ...rows(57, -CLAUSE_1_MEDIAN_TIGHT),
@@ -121,9 +105,8 @@ describe("evaluateRungOneCriterion — clause 1 (median rank), both halves, at t
   });
 
   it("FAILS clause 1's 95% half at 94%, even with every team inside the 1.0 hard bound", () => {
-    // 120 teams: 113 at 0.5 (94.17%), 7 at 1.0 — every team within the hard
-    // bound, so this can only fail on the tight-rate half. Signs alternate so
-    // clause 3 is not what fails.
+    // 120 teams: 113 at 0.5 (94.17%), 7 at 1.0, all within the hard bound, so
+    // only the tight rate can fail; signs alternate to keep clause 3 passing.
     const verdict = evaluateRungOneCriterion(
       table([
         ...rows(57, CLAUSE_1_MEDIAN_TIGHT),
@@ -174,9 +157,7 @@ describe("evaluateRungOneCriterion — clause 2 (band edges) is an AND over both
 
 describe("evaluateRungOneCriterion — clause 3 is SIGNED, not absolute", () => {
   it("PASSES clause 3 when half the teams are +1.0 and half are -1.0 (mean signed difference 0), while clause 1 fails", () => {
-    // This is the case that proves the evaluator does not silently average
-    // ABSOLUTE values — which would make clause 3 a fourth copy of clause 1
-    // and stop it detecting the systematic shift it exists to detect.
+    // Proves clause 3 averages signed, not absolute, values.
     const verdict = evaluateRungOneCriterion(table([...rows(60, 1.0), ...rows(60, -1.0)]));
     expect(verdict.clause3.meanSignedMedianDiff).toBeCloseTo(0, 12);
     expect(verdict.clause3.pass).toBe(true);
@@ -236,16 +217,12 @@ describe("evaluateRungOneCriterion — pooling is across the SAMPLE, not the mea
     expect(verdict.clause1.tightCount).toBe(68);
     expect(verdict.clause1.tightRate).toBeCloseTo(68 / 70, 12);
 
-    // The MEAN OF THE SIX PER-EVENT RATES is (1 + 0.92 + 1 + 1 + 1 + 1)/6 =
-    // 0.98666..., which is NOT the pooled figure. Asserting the two differ is
-    // what makes "pooled, not the mean of rates" a tested property rather
-    // than a convention nobody checks.
+    // The mean of the six per-event rates is 0.98666..., not the pooled figure.
     const meanOfRates = verdict.perEvent.reduce((t, e) => t + e.tightRate, 0) / verdict.perEvent.length;
     expect(meanOfRates).toBeCloseTo(5.92 / 6, 12);
     expect(verdict.clause1.tightRate).not.toBeCloseTo(meanOfRates, 6);
 
-    // The per-event breakdown is still returned, so a single bad event cannot
-    // hide inside the pool.
+    // The per-event breakdown is still returned.
     expect(verdict.perEvent.find((e) => e.eventKey === "evB")!.tightRate).toBeCloseTo(0.92, 12);
     expect(verdict.perEvent.find((e) => e.eventKey === "evA")!.tightRate).toBe(1);
   });
@@ -277,12 +254,8 @@ describe("evaluateRungOneCriterion — the verdict carries every input to every 
 
 describe("resolveScheduleSplit — the DEFAULT path, pinned as a regression on unchanged behaviour", () => {
   /**
-   * THIS TABLE IS A REGRESSION PIN, NOT A NEW SPECIFICATION. Every expectation
-   * below is the expression that was inline in `measureEvent` before
-   * `--schedules` existed — `20` schedules and
-   * `Math.max(1, Math.round(draws / 20))` draws each. If one of these moves,
-   * the default path changed, and every figure in the committed n=20 record
-   * stops being reproducible.
+   * A regression pin: `20` schedules and `Math.max(1, Math.round(draws / 20))`
+   * draws each. If one moves, the committed n=20 record stops being reproducible.
    */
   const DEFAULT_TABLE: readonly number[] = [1, 19, 20, 21, 999, 1000, 200000];
 
@@ -348,14 +321,8 @@ describe("resolveScheduleSplit — an invalid count THROWS, naming the script an
 
 describe("the binding noise floors are exported from this module, with no module cycle left", () => {
   /**
-   * The binding floors used to live in the retired rung-2 script, which this
-   * module imported back from, closing an ES module cycle. Quick task
-   * 260913-pnp moved them here and removed the cycle.
-   *
-   * These assertions pin that every binding the floors are computed from is
-   * exported from this module and initialised — a missing or undefined export
-   * fails in a second, instead of ten minutes into a run that has already
-   * replayed five seasons.
+   * Every binding the floors are computed from is exported and initialised, so
+   * a missing export fails here in a second rather than minutes into a replay.
    */
   it("resolves every binding the floors are computed from, rather than handing back undefined", () => {
     expect(typeof measureResamplingFloor).toBe("function");
@@ -366,8 +333,7 @@ describe("the binding noise floors are exported from this module, with no module
 
   it("DRAWS_PER_SCHEDULE loads as 50 — the shipped pairing the binding floor derives its own draw count from", () => {
     expect(DRAWS_PER_SCHEDULE).toBe(50);
-    // The same number the default split produces, which is what makes the
-    // default run comparable against the floor at all.
+    // Equal to the default split's draws, so the default run is comparable against the floor.
     expect(resolveScheduleSplit(1000).drawsPerSchedule).toBe(DRAWS_PER_SCHEDULE);
   });
 
