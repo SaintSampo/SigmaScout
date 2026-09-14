@@ -2,75 +2,26 @@
  * Measures the SigmaScout RP layer's published bonus probabilities against
  * what actually happened.
  *
- * `packages/core/rankingPoints/empiricalMoments.ts` documents three deliberate
- * simplifications — a DIAGONAL covariance block, a ZERO score cross-covariance,
- * and variance about each team's own mean — and states their expected
- * consequence in advance:
+ * Per season it reports reliability per bonus (mean predicted vs observed,
+ * Brier, a bucketed table), how often predictions below 0.05 or above 0.95 come
+ * true (a too-narrow distribution is wrong more often than its confidence), and
+ * observed P(A and B) against P(A)*P(B), the dependence the model's
+ * independent thresholds drop (see `empiricalMoments.ts`'s simplifications).
  *
- *   > All three make the predicted distribution NARROWER and less correlated
- *   > than reality. The published effect is bonus probabilities pulled toward
- *   > the extremes.
+ * Walk-forward through the same `SigmaScoutLayer` the publisher runs, built
+ * with the same two arguments (rule module and algorithm id); the id selects the
+ * band-variance source, so omitting it silently scores from the wrong variance.
  *
- * That is a falsifiable claim with a stated direction, and this script is what
- * checks it rather than leaving it as an assertion in a header. It reports
- * three things per season:
+ * `data/baselines/rp-calibration-2026-09.json` predates the closed-form engine;
+ * a comparison against it measures the engine swap and must be labelled
+ * cross-generation.
  *
- *   1. RELIABILITY per bonus — mean predicted probability against observed
- *      frequency, plus a Brier score and a bucketed reliability table. This is
- *      the ordinary "is it calibrated" question.
+ * `--attribution-out`'s reader half (schema and digest builder) is pure over
+ * committed JSON, so its drift guard is independent of the scoring code.
  *
- *   2. THE EXTREMES CLAIM — what fraction of predictions land below 0.05 or
- *      above 0.95, and what actually happened in those buckets. If the
- *      distribution really is too narrow, confident predictions should be
- *      WRONG more often than their confidence implies.
- *
- *   3. THE CORRELATION CLAIM, which is the one the diagonal block is actually
- *      about. The model draws thresholds independently, so its implied joint is
- *      the product of its marginals. Reality need not be: an alliance good at
- *      one threshold is probably good at the other. Comparing observed
- *      P(A and B) against observed P(A)*P(B) measures the real dependence the
- *      model is throwing away, and its sign says which way the simplification
- *      errs.
- *
- * Walk-forward throughout, driven through the SAME `SigmaScoutLayer` the
- * publisher runs, so these are the published numbers and not a re-derivation
- * that could disagree with them.
- *
- * ---------------------------------------------------------------------------
- * SAME-SCORER INVARIANT
- * ---------------------------------------------------------------------------
- *
- * This script constructs its `SigmaScoutLayer` with the SAME TWO constructor
- * arguments the publisher (`packages/harness/publish.ts`) always uses (the
- * rule module AND the algorithm id) — the second argument is the only thing
- * that selects the correct band-variance source per algorithm
- * (`sigmaScoutLayer.ts`'s `usesSigmaScore` check), so a script that omitted
- * it would silently score every prediction from the wrong variance while
- * looking like it agreed with the publisher.
- *
- * CROSS-GENERATION WARNING, still live: 09-01's frozen
- * `data/baselines/rp-calibration-2026-09.json` was captured BEFORE 09-04
- * replaced the 4,000-draw Monte Carlo with the closed form. Any comparison
- * against that file measures the engine swap, not a modelling change, and must
- * be labelled cross-generation wherever it is reported.
- *
- * `--attribution-out`'s READER half below (the record's schema and its digest
- * builder) is pure over committed JSON, so `data/baselines/rp-attribution-
- * 2026-09.json` and `docs/models/rp-attribution.md` keep their drift guard
- * independent of any scoring code above it.
- *
- * ---------------------------------------------------------------------------
- * `--marginal-arm`
- * ---------------------------------------------------------------------------
- *
- * A measurement-only second arm whose ELIGIBLE threshold variables declare
- * `"negative-binomial"` instead of `"gaussian"`. NOT a selectable production
- * surface: there is one production model, and the arm is a variant rule
- * module handed to a second `SigmaScoutLayer`. (Written when every season
- * module declared `"gaussian"`; since 2026-09-14, quick task 260914-01x,
- * they declare `"lattice"`, so a re-run compares NB against lattice.) See the block above
- * `assertMarginalArmSliceAllowed` for the full design and for why the
- * 2023-2026 reporting slice is refused by construction.
+ * `--marginal-arm` scores a measurement-only second layer whose eligible
+ * threshold variables declare `"negative-binomial"` instead of the season
+ * module's family (see `assertMarginalArmSliceAllowed` for the refused slice).
  *
  * Usage:
  *   npx tsx scripts/measureRpCalibration.ts [--seasons 2024-2026] [--algorithm spr] [--emit-artifact <path>] [--marginal-arm]
@@ -109,11 +60,7 @@ export interface Observation {
   readonly actual: boolean;
 }
 
-/**
- * Exported so the slice guard can be tested against the SAME parse the CLI
- * performs — a guard tested against a hand-built array would not prove that a
- * spec like `2016-2026` reaches it with the forbidden seasons still present.
- */
+/** Exported so the slice guard is tested against the CLI's own parse. */
 export function parseSeasons(spec: string): number[] {
   const seasons: number[] = [];
   for (const part of spec.split(",")) {
@@ -148,63 +95,23 @@ function meanPredicted(observations: readonly Observation[]): number {
 }
 
 // ---------------------------------------------------------------------------
-// THE MEASUREMENT-ONLY NEGATIVE-BINOMIAL ARM
+// The measurement-only negative-binomial arm
 // ---------------------------------------------------------------------------
 //
-// `--marginal-arm` scores a second arm whose threshold variables declare
-// `"negative-binomial"` instead of `"gaussian"`, to RE-TEST the recorded
-// refusal of that family — `clauseProbability` used to refit a clause's
-// combined moments as a hardcoded Gaussian, so most cells could not have
-// responded to a family change while still reporting as ties. This is what
-// finally asks the question on cells capable of answering it.
-//
-// THREE PROPERTIES THIS SEAM IS BUILT AROUND, each of which has a recorded
-// failure behind it:
-//
-//   1. NO PRODUCTION SURFACE. The arm is a VARIANT RULE MODULE built here and
-//      handed to a second `SigmaScoutLayer` — same class, same two-argument
-//      construction as the publisher. Nothing here reintroduces a selectable
-//      surface, and every season module in the tree still declares
-//      `"gaussian"`.
-//
-//   2. ONE REPLAY, ONE SCORER. The arms multiply LAYERS, never replays: one
-//      `buildSeasonStream` and one `WalkForwardSimulator.runAll` per season,
-//      folded through both layers, and scored by the SAME
-//      `brier`/`rate`/`meanPredicted` helpers the control path uses. See this
-//      file's SAME-SCORER INVARIANT header — a scorer mismatch manufactured a
-//      phantom regression on this exact question once already, and the
-//      two-argument construction is what prevents its band-variance half.
-//
-//   3. THE REPORTING SLICE IS UNSPENDABLE. See
-//      `assertMarginalArmSliceAllowed` below.
+// No production surface: the arm is a variant rule module handed to a second
+// `SigmaScoutLayer` with the publisher's two-argument construction. The arms
+// multiply layers, never replays (one stream and one simulator run per season),
+// and share the control path's `brier`/`rate`/`meanPredicted` helpers.
 
-/**
- * The first season of the RESERVED REPORTING SLICE. 2023-2026 was already
- * spent once on this exact question, and the recorded decision forbids
- * spending it again — a second use would further weaken it as an honest
- * check on anything later.
- */
+/** The first season of the reporting slice, already spent on this question and not to be spent again. */
 export const RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON = 2023;
 
 /**
  * Refuses the negative-binomial arm on any season at or above
- * `RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON`.
- *
- * READS THE PARSED SEASON LIST, NOT THE RULE-MODULE-FILTERED ONE, AND IS
- * CALLED BEFORE THE CORPUS IS OPENED. Both are deliberate. A wide spec like
- * `--seasons 2016-2026` must be REFUSED rather than silently trimmed to the
- * allowed part: silent trimming would let someone believe they had asked for
- * the reporting slice and got it, and would make "did this run touch 2023?" a
- * question about this function's internals rather than about the command that
- * was typed. Refusing before the corpus opens means the prohibited run cannot
- * even begin to produce a figure.
- *
- * This is a structural guard, not a warning, a default or a documentation
- * note, and it has NO override flag by design. The prohibition is the point:
- * a selection-slice result cannot promote anything on its own — that is what
- * the slice split is for — so no result, however promising, authorises
- * reaching for the reporting slice to confirm it. That is a fresh decision for
- * Jacob to make with the selection-slice magnitude in hand.
+ * `RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON`. It reads the parsed season list
+ * (a spanning spec is refused, never trimmed) and runs before the corpus opens.
+ * There is no override flag by design: spending the reporting slice is Jacob's
+ * decision, not a flag's.
  */
 export function assertMarginalArmSliceAllowed(parsedSeasons: readonly number[]): void {
   const forbidden = parsedSeasons.filter((s) => s >= RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON);
@@ -236,17 +143,10 @@ export interface MarginalArmEligibility {
 }
 
 /**
- * Every clause a predicate contains, as a flat list paired with a label.
- * Exhaustive over `BonusPredicate`'s seven kinds — the `default` arm is a
- * `never` check, so an eighth predicate kind fails to COMPILE here rather than
- * being silently skipped and quietly widening the arm's reach.
- *
- * `singleThreshold` contributes one implicit single-term clause over its own
- * variable. `nestedSameVariable` contributes the same shape, and that is not
- * an approximation: nested thresholds route through interval enumeration,
- * which calls `probAtLeast` on the fitted marginal directly and therefore
- * honours the declared family exactly as a single-term clause does.
- * `constant` contributes NO clauses — it reads no variable at all.
+ * Every clause a predicate contains. The `never` default makes a new predicate
+ * kind a compile error. `nestedSameVariable` is exactly a single-term clause
+ * (interval enumeration calls `probAtLeast` on the fitted marginal);
+ * `constant` has no clauses.
  */
 function clausesOf(predicate: BonusPredicate): readonly RpThresholdClause[] {
   switch (predicate.kind) {
@@ -276,42 +176,18 @@ function isSingleUnscaled(clause: RpThresholdClause): boolean {
 }
 
 /**
- * DERIVES the negative-binomial eligibility partition from
- * `ruleModule.bonusPredicates` at runtime. Never hardcoded from a table: the
- * season modules are the truth, and a derivation that tracks them cannot drift
- * from them the way a pasted table would.
+ * Derives the negative-binomial eligibility partition from
+ * `ruleModule.bonusPredicates` at runtime, so it tracks the season modules.
  *
- * THE RULE IS MATH-FORCED, not a policy choice. Negative binomial is NOT
- * closed under scaled addition — a sum of independent NBs is NB only when
- * every `p` matches, and `X / divisor` is not even integer-supported — so
- * `analyticPmf.ts`'s `familyForClauseSum` THROWS on an NB clause sum rather
- * than inventing a closure or falling back to a Gaussian. (That fallback is
- * the exact hardcode whose removal made this re-test possible; reintroducing
- * it would make the measurement meaningless a second time.)
+ * Negative binomial is not closed under scaled addition, so `analyticPmf.ts`'s
+ * `familyForClauseSum` throws on an NB clause sum (a Gaussian fallback there
+ * would make the measurement meaningless). A variable is eligible only if every
+ * clause it appears in is a single unscaled term; any multi-term or divided
+ * appearance poisons it, since a mixed clause also throws.
  *
- * So a variable is ELIGIBLE only if EVERY clause it appears in is a single
- * unscaled term. A variable appearing in ANY multi-term clause or ANY
- * divisor-bearing term is POISONED and keeps declaring `"gaussian"` —
- * INCLUDING when it also appears alone in some other clause, because a MIXED
- * clause throws on `familyForClauseSum`'s distinct-families check instead.
- *
- * A bonus CAN MOVE when AT LEAST ONE of its clauses is a single unscaled term
- * over an eligible variable — not when ALL of them are. That distinction was
- * got wrong first and CAUGHT BY THE MEASUREMENT, which is worth recording:
- * this function originally required every clause to honour the declaration,
- * and the in-flight consistency check then reported 2016 `capture` as an
- * "unreachable" cell whose Brier had nonetheless moved. It had. `capture` is a
- * `conjunctionDistinct` whose FIRST clause is `attackedTowerEndStrength <= T`
- * — a single unscaled term over an eligible variable, which honours the
- * declared family through `clauseProbability`'s single-term reuse path — while
- * its SECOND clause is a scaled sum that derives Gaussian. A bonus made of a
- * reachable clause AND a blocked one is PARTIALLY reachable, and counting it
- * as unreachable would have understated the arm's reach and buried a real
- * movement in the category that is supposed to tie by construction.
- *
- * A `constant` predicate has no clauses at all and is inert by construction —
- * it ties with control as a structural fact about the predicate, which is
- * never evidence about the family.
+ * A bonus can move when at least ONE of its clauses is a single unscaled term
+ * over an eligible variable (2016 `capture` is partially reachable this way).
+ * A `constant` predicate ties with control by construction.
  */
 export function deriveMarginalArmEligibility(ruleModule: RpRuleModule): MarginalArmEligibility {
   const poisonReasonByVariable = new Map<string, string>();
@@ -378,16 +254,11 @@ export function deriveMarginalArmEligibility(ruleModule: RpRuleModule): Marginal
 }
 
 /**
- * Builds the NB arm's VARIANT RULE MODULE by spreading the real one and
- * flipping `marginalFamily` on the ELIGIBLE variables only. The original
- * module is never mutated, and every poisoned variable keeps its production
- * family (`"lattice"` since 2026-09-14, quick task 260914-01x).
- *
- * An object spread drops the prototype, which is safe here because no season
- * module's `parse` or `evaluateBonuses` uses `this` — verified by grepping
- * every registered season module (the only `this` occurrences are inside
- * prose comments). If that ever changes, clone differently rather than
- * abandoning this seam: the seam is what keeps the arm out of production.
+ * Builds the NB arm's variant rule module: a spread copy with `marginalFamily`
+ * flipped on eligible variables only; poisoned variables keep their production
+ * family and the original is never mutated. The spread drops the prototype,
+ * which is safe while no season module's `parse` or `evaluateBonuses` uses
+ * `this`.
  */
 export function ruleModuleWithMarginalArm(ruleModule: RpRuleModule, eligible: readonly string[]): RpRuleModule {
   const eligibleSet = new Set(eligible);
@@ -401,42 +272,20 @@ export function ruleModuleWithMarginalArm(ruleModule: RpRuleModule, eligible: re
 }
 
 // ---------------------------------------------------------------------------
-// THE OUTCOME-ARM ACCEPTANCE BAR
+// The outcome-arm acceptance bar
 // ---------------------------------------------------------------------------
 //
-// PRE-COMMITTED BEFORE ANY ARM FIGURE EXISTS. `applyRpOutcomeArmBar` lands in
-// git history strictly before the WIN/TIE/WIN+TIE outcome-half arms it judges
-// can produce a single number, so that no accept/reject line here can ever be
-// read as fitted to a result that was already in hand.
-//
-// APPLIED MECHANICALLY, WITH NO OVERRIDE. An arm is accepted if and only if
-// its pooled total-RP RPS AND its pooled outcome Brier are BOTH strictly
-// lower than control's — no tolerance, no "close enough", no partial credit
-// for improving one score while tying or losing on the other. Among accepted
-// arms, the one with the lowest pooled RPS ships; an exact RPS tie between two
-// accepted arms breaks on lower pooled Brier, and a further tie breaks on the
-// fixed preference order WIN, TIE, WIN+TIE (never on measurement order or
-// insertion order, which would make the ship choice depend on how the caller
-// happened to list its arms). WIN+TIE ships only when WIN+TIE is ITSELF
-// accepted by the same two-sided rule as any other arm — a combined arm that
-// improves RPS but not Brier (or vice versa) is rejected exactly like a
-// single-fix arm would be, never granted credit for the pieces it is built
-// from. When nothing is accepted, `control` ships, which is this codebase's
-// existing "when nothing clears the bar, change nothing" convention.
+// Applied mechanically, with no override. An arm is accepted only if its pooled
+// total-RP RPS AND its pooled outcome Brier are both strictly lower than
+// control's. Among accepted arms the lowest pooled RPS ships, then lower pooled
+// Brier, then the fixed order WIN, TIE, WIN+TIE (never input order). A combined
+// arm must be accepted on its own. When nothing is accepted, `control` ships.
 export type ArmName = "control" | "win" | "tie" | "win+tie";
 
-/** Preference order for breaking an exact RPS-and-Brier tie between two accepted arms. `control` never appears here — it is never itself a candidate to ship over an accepted arm. */
+/** Preference order for an exact RPS-and-Brier tie between accepted arms; `control` is never a candidate. */
 const ARM_TIE_BREAK_ORDER: readonly ArmName[] = ["win", "tie", "win+tie"];
 
-/**
- * One arm's pooled figures on the selection slice — pooled across every
- * season and every scored (match, alliance) or (match) observation, NEVER
- * per-season. The bar is deliberately blind to per-season figures: those are
- * reported alongside the verdict for a human reader, but the accept/reject
- * decision itself is a single pooled comparison per arm, so a mixed
- * per-season result (better on some seasons, worse on others) cannot be
- * gamed into acceptance by how the seasons happen to be weighted.
- */
+/** One arm's figures pooled over every observation on the selection slice; the bar never reads per-season figures. */
 export interface ArmPooledFigures {
   readonly arm: ArmName;
   readonly totalRpCount: number;
@@ -445,7 +294,7 @@ export interface ArmPooledFigures {
   readonly outcomeBrier: number;
 }
 
-/** One arm's accept/reject verdict against control, plus its signed deltas (arm minus control; negative is an improvement in both scores). `control`'s own verdict is always `accepted: false` — control cannot accept itself. */
+/** One arm's verdict and signed deltas (arm minus control; negative is better). Control's own verdict is always `accepted: false`. */
 export interface ArmVerdict {
   readonly arm: ArmName;
   readonly accepted: boolean;
@@ -460,21 +309,10 @@ export interface RpOutcomeArmBarResult {
 }
 
 /**
- * Applies the pre-committed outcome-arm bar to one set of pooled figures.
- * `pooled` must contain exactly one `"control"` entry; every other entry is
- * judged against it.
- *
- * THROWS, rather than silently comparing, when an arm's `totalRpCount` or
- * `outcomeCount` differs from control's — the two arms must have scored the
- * IDENTICAL observation set (the same discipline `assertBonusHalfIdentical`
- * enforced for the bonus half during Task 2's measurement, before it was
- * deleted at ship time), so a count mismatch means the comparison itself is
- * void, not that one arm happened to do better on a smaller sample. THROWS
- * on a non-finite `totalRpRps` or `outcomeBrier` on
- * any arm (control included) rather than letting a `NaN` propagate into an
- * accept decision that would silently evaluate to `false` on every
- * comparison — a `NaN` compared with `<` is never `true`, which would make a
- * broken measurement look identical to an honestly-rejected arm.
+ * Applies the outcome-arm bar. `pooled` must contain exactly one `"control"`
+ * entry. Throws when an arm's `totalRpCount` or `outcomeCount` differs from
+ * control's (the comparison is then void), or when any figure is non-finite (a
+ * NaN would read as an honest rejection).
  */
 export function applyRpOutcomeArmBar(pooled: readonly ArmPooledFigures[]): RpOutcomeArmBarResult {
   const control = pooled.find((p) => p.arm === "control");
@@ -519,21 +357,15 @@ export function applyRpOutcomeArmBar(pooled: readonly ArmPooledFigures[]): RpOut
 }
 
 // ---------------------------------------------------------------------------
-// THE BONUS-ARM ACCEPTANCE BAR (quick task 260914-01x, 2026-09-14)
+// The bonus-arm acceptance bar
 // ---------------------------------------------------------------------------
 //
-// PRE-COMMITTED BEFORE ANY ARM FIGURE EXISTS. `applyRpBonusArmBar` lands in
-// git before the lattice and mean-shift knobs it judges can produce a number.
-// Applied mechanically, with no override.
-//
-// An arm is accepted if and only if its pooled bonus Brier AND its pooled
-// total-RP RPS are BOTH strictly lower than control's, with no tolerance.
-// "Pooled" means observation-weighted over the whole selection slice
-// (2016-2020 plus 2022), never a mean of per-season figures. Among accepted
-// arms the lowest pooled RPS ships; an exact RPS tie breaks on lower pooled
-// bonus Brier, then on the fixed order lattice, meanShift, lattice+meanShift.
-// lattice+meanShift ships only when it is itself accepted. When nothing is
-// accepted, `control` ships and nothing changes for F4.
+// Applied mechanically, with no override. An arm is accepted only if its pooled
+// bonus Brier AND its pooled total-RP RPS are both strictly lower than
+// control's, pooled over the selection slice (2016-2020 plus 2022). Among
+// accepted arms the lowest pooled RPS ships, then lower pooled bonus Brier,
+// then the fixed order lattice, meanShift, lattice+meanShift. A combined arm
+// must be accepted on its own. When nothing is accepted, `control` ships.
 export type BonusArmName = "control" | "lattice" | "meanShift" | "lattice+meanShift";
 
 /** Tie-break order between accepted arms that tie exactly on RPS and bonus Brier. `control` is never a candidate. */
@@ -562,7 +394,7 @@ export interface RpBonusArmBarResult {
 }
 
 /**
- * Applies the pre-committed bonus-arm bar. `pooled` must contain a `"control"`
+ * Applies the bonus-arm bar. `pooled` must contain a `"control"`
  * entry. Throws when control is missing, when any figure is non-finite (a NaN
  * would read as an honest rejection), or when an arm's `bonusCount` or
  * `totalRpCount` differs from control's (the comparison is then void).
@@ -610,40 +442,18 @@ export function applyRpBonusArmBar(pooled: readonly BonusArmPooledFigures[]): Rp
 }
 
 // ---------------------------------------------------------------------------
-// THE OUTCOME-ARM COMPARISON'S READER HALF. The measurement flag that
-// produced the committed record (`data/baselines/rp-outcome-arms-2026-09.json`,
-// ship: win+tie) is deleted, per this codebase's "the measurement seam is
-// deleted at ship time" discipline.
-//
-// What remains is the READER half: the slice and algorithm guards below
-// (`assertOutcomeArmSliceAllowed`, `assertOutcomeArmAlgorithmAllowed`),
-// `applyRpOutcomeArmBar` and `RpOutcomeArmRecordSchema` (both above/below
-// this block), which any FUTURE outcome-arm re-measurement should reuse
-// rather than re-deriving the selection slice or the acceptance rule from
-// scratch — and the committed record itself, which
-// `measureRpCalibration.test.ts` re-applies the bar against to prove its
-// verdict was never hand-transcribed.
+// The outcome-arm comparison's reader half: slice and algorithm guards, the
+// bar and the record schema, for reuse by any future re-measurement. The test
+// re-applies the bar to `data/baselines/rp-outcome-arms-2026-09.json`.
 // ---------------------------------------------------------------------------
 
-/**
- * The first season of the RESERVED REPORTING SLICE for the outcome-arm
- * comparison — the same 2023 boundary `RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON`
- * uses, on its OWN axis. A future re-measurement reusing this guard should
- * keep the discipline of never spending both reservations' worth of
- * reporting-slice protection in one pass.
- */
+/** The first season of the outcome-arm comparison's reporting slice (same boundary as the marginal arm, its own axis). */
 export const RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON = 2023;
 
 /** The selection slice `--outcome-arms` runs on — 2016-2020 plus 2022, named in `assertOutcomeArmSliceAllowed`'s own error message. */
 export const RP_OUTCOME_ARM_SELECTION_SEASONS = [2016, 2017, 2018, 2019, 2020, 2022];
 
-/**
- * Refuses any season at or above `RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON` for
- * the outcome-arm comparison. READS THE PARSED SEASON LIST, BEFORE
- * `openCorpusReadOnly` — a wide spec like `--seasons 2016-2026` is REFUSED
- * rather than silently trimmed, and there is no override flag, for the same
- * reasons `assertMarginalArmSliceAllowed` gives for its own axis.
- */
+/** Refuses any season at or above `RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON`, as `assertMarginalArmSliceAllowed` does on its axis. */
 export function assertOutcomeArmSliceAllowed(parsedSeasons: readonly number[]): void {
   const forbidden = parsedSeasons.filter((s) => s >= RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON);
   if (forbidden.length === 0) return;
@@ -652,13 +462,7 @@ export function assertOutcomeArmSliceAllowed(parsedSeasons: readonly number[]): 
   );
 }
 
-/**
- * Requires the resolved algorithm list to be EXACTLY `["spr"]` — the
- * outcome half (`matchOutcomePmf`) exists only for the one algorithm
- * `SigmaScoutLayer` publishes ranking points for, so any other resolved list
- * (including the empty default of every published algorithm) would silently
- * measure zero observations rather than failing loudly.
- */
+/** Requires exactly `["spr"]`: `matchOutcomePmf` exists only for SPR, so any other list would silently measure zero observations. */
 export function assertOutcomeArmAlgorithmAllowed(algorithmIds: readonly string[]): void {
   if (algorithmIds.length === 1 && algorithmIds[0] === "spr") return;
   throw new Error(
@@ -668,7 +472,7 @@ export function assertOutcomeArmAlgorithmAllowed(algorithmIds: readonly string[]
 
 const RpOutcomeArmNameSchema = z.enum(["control", "win", "tie", "win+tie"]);
 
-/** Structurally identical to `TotalRpSummary` — a standalone zod schema because `TotalRpSummary` is a plain TS type, not a schema. */
+/** Mirrors the plain TS type `TotalRpSummary`. */
 const RpOutcomeArmTotalSchema = z.object({
   count: z.number().int().nonnegative(),
   rankedProbabilityScore: z.number().finite(),
@@ -678,7 +482,7 @@ const RpOutcomeArmTotalSchema = z.object({
   excludedOutOfSupport: z.number().int().nonnegative(),
 });
 
-/** Structurally identical to `OutcomeSummary` — see `RpOutcomeArmTotalSchema`'s own comment. */
+/** Mirrors the plain TS type `OutcomeSummary`. */
 const RpOutcomeArmOutcomeSchema = z.object({
   count: z.number().int().nonnegative(),
   brierScore: z.number().finite(),
@@ -706,7 +510,7 @@ const RpOutcomeArmVerdictSchema = z.object({
   brierDelta: z.number().finite(),
 });
 
-/** F6, per arm — descriptive only, never a gate (see the console report of the same name). */
+/** Per-arm gap figures, descriptive only, never a gate. */
 const RpOutcomeArmF6GapSchema = z.object({
   arm: RpOutcomeArmNameSchema,
   n: z.number().int().nonnegative(),
@@ -716,15 +520,7 @@ const RpOutcomeArmF6GapSchema = z.object({
   favouriteDisagreements: z.number().int().nonnegative(),
 });
 
-/**
- * `--emit-outcome-arms`'s committed record shape. Every
- * figure is pooled AND per-season, so a reader can audit the bar's own
- * pooled-comparison decision against the per-season detail without
- * re-running the replay. `ship` is `applyRpOutcomeArmBar`'s own mechanical
- * choice over the pooled figures, stored rather than re-derived, so a
- * reader of the committed record never has to re-run the bar to know what
- * it decided.
- */
+/** The committed outcome-arm record: figures pooled and per-season; `ship` is `applyRpOutcomeArmBar`'s stored choice. */
 export const RpOutcomeArmRecordSchema = z.object({
   measuredAt: z.string().min(1),
   command: z.string().min(1),
@@ -743,23 +539,14 @@ export const RpOutcomeArmRecordSchema = z.object({
 export type RpOutcomeArmRecord = z.infer<typeof RpOutcomeArmRecordSchema>;
 
 // ---------------------------------------------------------------------------
-// THE BONUS-ARM COMPARISON'S READER HALF (quick task 260914-01x)
+// The bonus-arm comparison's reader half: `applyRpBonusArmBar` (above), the
+// guards and `RpBonusArmRecordSchema`, for reuse by any future re-measurement.
+// Lattice marginals and the walk-forward mean shift are the model's
+// unconditional behavior; the test re-applies the bar to
+// `data/baselines/rp-bonus-arms-2026-09.json`.
 // ---------------------------------------------------------------------------
-//
-// The `--bonus-arms` measurement that produced the committed record
-// (`data/baselines/rp-bonus-arms-2026-09.json`, ship: lattice+meanShift) was
-// deleted at ship time, 2026-09-14, with its four-layer fold, its lattice
-// variant module and its outcome-half identity check: lattice marginals and
-// the walk-forward mean shift are now the model's unconditional behavior.
-//
-// What remains is the READER half: `applyRpBonusArmBar` (above), the slice
-// and algorithm guards and `RpBonusArmRecordSchema` (below). Any future
-// bonus-arm re-measurement must reuse them rather than re-deriving the
-// selection slice or the acceptance rule, and `measureRpCalibration.test.ts`
-// re-applies the bar to the committed record to prove its verdict was never
-// hand-transcribed.
 
-/** The first season of the reserved reporting slice, on the bonus-arm axis. Same 2023 boundary as the other two arm guards. */
+/** The first season of the reporting slice on the bonus-arm axis. */
 export const RP_BONUS_ARM_FORBIDDEN_FROM_SEASON = 2023;
 
 /** The selection slice the bonus arms run on. */
@@ -768,11 +555,7 @@ export const RP_BONUS_ARM_SELECTION_SEASONS = [2016, 2017, 2018, 2019, 2020, 202
 /** Every bonus arm in measurement order. */
 export const BONUS_ARM_NAMES: readonly BonusArmName[] = ["control", "lattice", "meanShift", "lattice+meanShift"];
 
-/**
- * Refuses any season at or above `RP_BONUS_ARM_FORBIDDEN_FROM_SEASON`. Reads the
- * PARSED list and runs before `openCorpusReadOnly`, so a wide spec is refused,
- * never trimmed, and nothing from the reporting slice is read. No override.
- */
+/** Refuses any season at or above `RP_BONUS_ARM_FORBIDDEN_FROM_SEASON`; a spanning spec is refused, never trimmed. */
 export function assertBonusArmSliceAllowed(parsedSeasons: readonly number[]): void {
   const forbidden = parsedSeasons.filter((s) => s >= RP_BONUS_ARM_FORBIDDEN_FROM_SEASON);
   if (forbidden.length === 0) return;
@@ -905,7 +688,7 @@ export const RpBonusArmRecordSchema = z.object({
 });
 export type RpBonusArmRecord = z.infer<typeof RpBonusArmRecordSchema>;
 
-/** Adds every counter of `from` into `into`, including `lattice`. The one merge, so a new counter cannot be dropped by a hand-written copy. */
+/** The one tally merge, so a new counter cannot be dropped by a hand-written copy. */
 function mergeMarginalResolutionTally(into: MarginalResolutionTally, from: MarginalResolutionTally): void {
   into.negativeBinomial += from.negativeBinomial;
   into.gaussian += from.gaussian;
@@ -918,14 +701,7 @@ function formatTally(t: MarginalResolutionTally): string {
   return `negativeBinomial=${t.negativeBinomial}  gaussian=${t.gaussian}  degenerate=${t.degenerate}  lattice=${t.lattice}  (fallbacks counted separately: ${t.fallbacks})`;
 }
 
-/**
- * Exported (promoted from the module-local `BUCKET_EDGES`) so the artifact
- * emitter (`buildRpCalibrationRecord` below) and any future consumer share
- * ONE bucket definition rather than a second hand-copied literal. The final
- * edge is `1.0000001`, not `1`, so a prediction of exactly `1.0` lands in the
- * last bucket instead of falling off the end — unchanged from the original
- * `BUCKET_EDGES`.
- */
+/** One shared bucket definition. The final edge is `1.0000001` so a prediction of exactly `1.0` lands in the last bucket. */
 export const RP_RELIABILITY_BUCKET_EDGES = [0, 0.05, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0000001];
 
 function reliabilityTable(observations: readonly Observation[]): string[] {
@@ -948,31 +724,18 @@ function reliabilityTable(observations: readonly Observation[]): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// THE TOTAL-RP AND OUTCOME SCORERS
+// The total-RP and outcome scorers
 // ---------------------------------------------------------------------------
 //
-// The per-bonus bar scored bonuses only, so it was blind to the win source
-// and tie model. These two scorers can SEE the win/tie half:
-// `rankedProbabilityScore` grades
-// `redRpPmf`/`blueRpPmf` (a distribution over the RP TOTAL) against the
-// actual alliance RP, and `outcomeBrier` grades `matchOutcomePmf` (the
-// win/tie/loss split) against `match.winner`. Both are PURE and read no
-// state, so they are exercised directly against hand-picked pmfs in
-// `measureRpCalibration.test.ts` before ever touching a real replay.
+// Unlike per-bonus scoring, these see the win/tie half: `rankedProbabilityScore`
+// grades `redRpPmf`/`blueRpPmf` against the actual alliance RP, and
+// `outcomeBrier` grades `matchOutcomePmf` against `match.winner`. Both are pure.
 
 /**
- * The ranked probability score of one discrete RP pmf against the actual
- * integer RP earned: `RPS = (1/maxRp) * sum_{k=0}^{maxRp-1} (cdf(k) - [actual <= k])^2`,
- * with `maxRp = pmf.length - 1`. Bounded `[0, 1]`; 0 is a perfect point-mass
- * prediction, 1 is the worst possible (a point mass at the opposite end of
- * the support from the actual). Every selection-slice season has `maxRp` 4,
- * so this normalisation cannot bias an arm comparison run on that slice; it
- * keeps 2025-2026 (`maxRp` 6) comparable on the published card.
- *
- * `actual` must already be validated as an in-support integer — callers
- * route a null or out-of-support actual through the summary builders below,
- * which exclude it before this function ever sees it, rather than this
- * function silently coercing an invalid input.
+ * `RPS = (1/maxRp) * sum_{k=0}^{maxRp-1} (cdf(k) - [actual <= k])^2`, with
+ * `maxRp = pmf.length - 1`, bounded `[0, 1]` (0 is a perfect point mass). The
+ * normalisation keeps 2025-2026 (`maxRp` 6) comparable with `maxRp` 4 seasons.
+ * `actual` must be an in-support integer; the summary builders exclude the rest.
  */
 export function rankedProbabilityScore(pmf: readonly number[], actual: number): number {
   const maxRp = pmf.length - 1;
@@ -988,11 +751,8 @@ export function rankedProbabilityScore(pmf: readonly number[], actual: number): 
 }
 
 /**
- * The three-outcome Brier score of `matchOutcomePmf`
- * (`[pRedWin, pTie, pBlueWin]`) against `match.winner`: the sum of the three
- * squared errors against a one-hot actual vector. 0 is perfect, 2 is worst.
- * NOT comparable to the site's binary win Brier — a caller or renderer must
- * never place the two side by side as if they were the same quantity.
+ * Three-outcome Brier of `[pRedWin, pTie, pBlueWin]` against a one-hot winner;
+ * 0 is perfect, 2 is worst. Not comparable to the site's binary win Brier.
  */
 export function outcomeBrier(pmf3: readonly number[], winner: "red" | "blue" | "tie"): number {
   const actual = winner === "red" ? [1, 0, 0] : winner === "tie" ? [0, 1, 0] : [0, 0, 1];
@@ -1004,36 +764,28 @@ export function outcomeBrier(pmf3: readonly number[], winner: "red" | "blue" | "
   return sum;
 }
 
-/** One alliance-side's total-RP observation: its predicted RP-total pmf, and the actual integer RP earned (or `null` when not derivable — D-02's convention). */
+/** One alliance-side's predicted RP-total pmf and actual RP (`null` when not derivable). */
 export interface TotalRpObservation {
   readonly pmf: readonly number[];
   readonly actual: number | null;
 }
 
-/** One match's outcome observation: the predicted win/tie/loss split, and what actually happened. */
 export interface MatchOutcomeObservation {
   readonly pmf3: readonly number[];
   readonly winner: "red" | "blue" | "tie";
 }
 
-/** The RP scorecard's total-RP block — see `RpCalibrationTotalSchema` (publish.ts) for the wire shape this mirrors. */
+/** Mirrors `RpCalibrationTotalSchema` (publish.ts). */
 export type TotalRpSummary = NonNullable<RpCalibrationRecord["totalRp"]>;
 
-/** The RP scorecard's outcome block — see `RpCalibrationOutcomeSchema` (publish.ts) for the wire shape this mirrors. */
+/** Mirrors `RpCalibrationOutcomeSchema` (publish.ts). */
 export type OutcomeSummary = NonNullable<RpCalibrationRecord["outcome"]>;
 
 /**
- * Builds the total-RP block from one (season, algorithm)'s raw alliance-side
- * observations, or `undefined` when zero observations SCORED (the same
- * absence discipline `bonuses` already uses — never a coerced zero).
- *
- * An observation with a `null` actual increments `excludedNullActual`; an
- * observation whose actual is a non-integer or falls outside `[0, pmf.length
- * - 1]` increments `excludedOutOfSupport` (an offseason event's non-standard
- * RP, e.g. Oregon BunnyBots — the same population `toIntegerRpOrNull`
- * degrades to `null` for a non-integer, but a corpus-legal integer can still
- * exceed a season's own `maxRp`). Neither excluded observation enters
- * `count` or either mean.
+ * The total-RP block, or `undefined` when nothing scored (never a coerced zero).
+ * A `null` actual counts in `excludedNullActual`; a non-integer or
+ * out-of-`[0, maxRp]` actual (offseason RP such as Oregon BunnyBots) counts in
+ * `excludedOutOfSupport`. Neither enters `count` or the means.
  */
 export function buildTotalRpSummary(observations: readonly TotalRpObservation[]): TotalRpSummary | undefined {
   let excludedNullActual = 0;
@@ -1069,13 +821,7 @@ export function buildTotalRpSummary(observations: readonly TotalRpObservation[])
   };
 }
 
-/**
- * Builds the outcome block from one (season, algorithm)'s raw match-outcome
- * observations, or `undefined` when zero observations scored — every
- * observation here already carries a non-null `match.winner`, so there is no
- * exclusion count to track (unlike `buildTotalRpSummary`, whose actual can be
- * null or out of support).
- */
+/** The outcome block, or `undefined` when nothing scored; every observation already has a winner, so nothing is excluded. */
 export function buildOutcomeSummary(observations: readonly MatchOutcomeObservation[]): OutcomeSummary | undefined {
   if (observations.length === 0) return undefined;
   const brierScore = observations.reduce((sum, o) => sum + outcomeBrier(o.pmf3, o.winner), 0) / observations.length;
@@ -1085,23 +831,10 @@ export function buildOutcomeSummary(observations: readonly MatchOutcomeObservati
 }
 
 /**
- * Pure: builds one (season, algorithm) publishable calibration record from
- * this season's bonus names and the per-bonus observations folded during the
- * walk-forward loop. Built from the SAME `brier`/`rate`/`meanPredicted`
- * helpers the console report above already uses — never a parallel
- * computation.
- *
- * A bonus with zero observations is OMITTED from `bonuses` rather than
- * emitted with `NaN` figures — the same "absence, not a coerced zero"
- * discipline the wire schema documents.
- *
- * `outcomeObservations` is an OPTIONAL third argument carrying the raw
- * total-RP and outcome observations folded during the SAME walk-forward
- * loop; each block is added to the returned record only when
- * `buildTotalRpSummary`/`buildOutcomeSummary` returns a defined summary
- * (i.e. its count is above 0) — the same absence discipline `bonuses`
- * already uses. Omitting the argument entirely produces a record with
- * neither key.
+ * Builds one (season, algorithm) publishable calibration record with the same
+ * `brier`/`rate`/`meanPredicted` helpers as the console report. A bonus with no
+ * observations, and a total-RP or outcome block with none, is omitted rather
+ * than emitted with `NaN`.
  */
 export function buildRpCalibrationRecord(
   bonusNames: readonly string[],
@@ -1127,10 +860,8 @@ export function buildRpCalibrationRecord(
     });
   }
 
-  // The wire record does NOT carry a `reliabilityBins` array — attaching one
-  // to every slice pushed a real artifact over its byte budget, and nothing
-  // on the Compare page ever read it. `RP_RELIABILITY_BUCKET_EDGES` remains
-  // exported and used by `reliabilityTable` below for the console report only.
+  // No `reliabilityBins` on the wire: they pushed an artifact over its byte
+  // budget and nothing reads them; the buckets are console-only.
   const totalRp = outcomeObservations?.totalRp !== undefined ? buildTotalRpSummary(outcomeObservations.totalRp) : undefined;
   const outcome = outcomeObservations?.outcome !== undefined ? buildOutcomeSummary(outcomeObservations.outcome) : undefined;
 
@@ -1150,43 +881,21 @@ export function buildRpCalibrationRecord(
 export const RP_ATTRIBUTION_PATH = "data/baselines/rp-attribution-2026-09.json";
 
 /**
- * The dot threshold the attribution measurement was scored against.
- *
- * It used to mirror `PREDICTED_BONUS_THRESHOLD` in `apps/web/src/lib/bonusRp.ts`.
- * F10 retired that web constant on 2026-09-14 (quick task 260914-01x):
- * predicted bonus dots now fill to their probability with no threshold. The
- * committed attribution record (`RP_ATTRIBUTION_PATH`) stays frozen at 0.5 and
- * describes the threshold that was retired. Its pin is now the literal 0.5 in
- * `apps/web/src/lib/bonusRp.test.ts`, not an equality against a live constant.
+ * The dot threshold the frozen attribution record was scored against. Bonus
+ * dots now fill to their probability with no threshold, so this describes the
+ * record only; `apps/web/src/lib/bonusRp.test.ts` pins the literal 0.5.
  */
 export const RP_DOT_THRESHOLD_DEFAULT = 0.5;
 
 /**
- * The shipped RP-layer combination, in words, so a reader can compare it
- * across measurements without cross-referencing the config that produced
- * each one.
- *
- * Written into the measurement's own header by the emitter below and read
- * by nothing. It costs zero wire bytes: `buildCompareArtifact` attaches
- * per-slice calibration records, never the measurement header.
- *
- * `data/baselines/rp-calibration-2026-09b.json` (frozen, pre-WIN+TIE) pins
- * the OLD literal instead of this constant — see
- * `measureRpCalibration.test.ts`'s own comment on that pin. So does
- * `-09d` (frozen, pre-lattice): 2026-09-14, quick task 260914-01x, added
- * `marginal=lattice` and `meanShift=fully-warm-walk-forward` when
- * lattice+meanShift shipped (`data/baselines/rp-bonus-arms-2026-09.json`).
+ * The shipped RP-layer combination in words, written into the measurement
+ * header (zero wire bytes; `buildCompareArtifact` never attaches the header).
+ * The frozen `-09b` and `-09d` calibration baselines pin older literals.
  */
 export const SHIPPED_RP_LAYER_LABEL =
   "winSource=algorithm-pRedWin, tieModel=discrete-integer-margin, marginal=lattice, meanShift=fully-warm-walk-forward";
 
-/**
- * One scored cell under one arm, plus F10's dot-eligible share.
- *
- * The three figures are `null` — never `NaN` — when `count` is 0. A
- * non-finite number in a committed measurement formats downstream as a dash
- * and reads identically to "no data" (T-09-06-08); a `null` says which it is.
- */
+/** One scored cell under one arm. Figures are `null`, never `NaN`, when `count` is 0, so "no data" stays distinguishable. */
 export interface RpAttributionCell {
   readonly arm: string;
   readonly algorithmId: string;
@@ -1196,11 +905,11 @@ export interface RpAttributionCell {
   readonly meanPredicted: number | null;
   readonly observedFrequency: number | null;
   readonly brierScore: number | null;
-  /** F10 UPSTREAM: the share of this cell's alliance-sides whose predicted probability reaches the dot threshold. */
+  /** The share of this cell's alliance-sides whose predicted probability reaches the dot threshold. */
   readonly dotEligibleShare: number | null;
 }
 
-/** One bonus's movement between 09-01's frozen pre-engine-swap file and the `control` arm at HEAD. */
+/** One bonus's movement between the frozen pre-engine-swap file and the `control` arm. */
 export interface RpCrossGenerationCell {
   readonly algorithmId: string;
   readonly season: number;
@@ -1212,13 +921,13 @@ export interface RpCrossGenerationCell {
   readonly observedFrequency: number | null;
 }
 
-/** F6 and F7's descriptive population figures, per arm, on the reporting slice. NEITHER IS A GATE. */
+/** Descriptive population figures per arm on the reporting slice; not gates. */
 export interface RpOutcomeCoherence {
   readonly arm: string;
   readonly n: number;
-  /** F6: mean |pmf-implied pRedWin - published pRedWin|. Zero BY CONSTRUCTION under the `win` arm. */
+  /** Mean |pmf-implied pRedWin - published pRedWin|; zero by construction under the `win` arm. */
   readonly meanAbsPRedWinDiff: number | null;
-  /** F7: mean predicted tie probability, against the audit's measured base rate of 1206/110362. */
+  /** Mean predicted tie probability (measured base rate 1206/110362). */
   readonly meanPredictedTie: number | null;
 }
 
@@ -1244,17 +953,9 @@ const RpArmVerdictSchema = z.object({
 });
 
 /**
- * THE RECORD'S SCHEMA DELIBERATELY REFERENCES NO LAYER-CONFIG TYPE.
- *
- * Every arm's configuration is stored as a PLAIN MAP OF FIELD NAME TO MEMBER
- * STRING (`z.record(z.string(), z.string())`), and so is the decision's ship
- * config. This is not tidiness. D-06 deletes that type at the end of this
- * plan, and a record schema, a digest builder or a document sync test typed
- * against it would die with it — taking the committed measurement's drift
- * guard down at exactly the moment the code that produced the measurement
- * stops existing. A measurement that outlives its generating code is how this
- * project already carries its other measured rejections, and it only works if
- * the record stands on its own.
+ * Arm and ship configs are plain string maps, never a layer-config type, so the
+ * committed record and its drift guard stand on their own without the code
+ * that produced them.
  */
 export const RpAttributionRecordSchema = z.object({
   measuredAt: z.string().min(1),
@@ -1310,28 +1011,9 @@ export const RpAttributionRecordSchema = z.object({
 export type RpAttributionRecord = z.infer<typeof RpAttributionRecordSchema>;
 
 /**
- * THE WRITER HALF IS GONE, THE READER HALF REMAINS. The bar, the arms and
- * the config surface they selected between were all deleted once the bar
- * refused every one of them.
- *
- * Everything below this point is PURE OVER THE COMMITTED JSON and
- * references nothing that was deleted. That is what lets
- * `data/baselines/rp-attribution-2026-09.json` and its document keep a
- * working drift guard after the code that produced them stopped existing —
- * the record was deliberately schema'd against plain strings rather than
- * against a layer-config type for exactly this moment.
- */
-
-/**
- * The machine-readable block `docs/models/rp-attribution.md` carries, and that
- * its sync test deep-equals against this function applied to the committed
- * record. A figure edited in the prose without regenerating the block fails
- * that test — this project's own failure log carries "the README described a
- * model that had been deleted", and this is the test class that prevents it.
- *
- * PURE OVER THE COMMITTED JSON. It references no layer-config type, so it
- * survives the record and the document unchanged even as the code around it
- * evolves.
+ * The machine-readable block `docs/models/rp-attribution.md` carries; its sync
+ * test deep-equals it against this function over the committed record, so prose
+ * edited without regenerating the block fails. Pure over the committed JSON.
  */
 export function buildRpAttributionDigest(record: RpAttributionRecord): unknown {
   const pooled = (arm: string, cells: readonly RpAttributionCell[]): { n: number; meanPredicted: number | null; observedFrequency: number | null } => {
@@ -1344,10 +1026,8 @@ export function buildRpAttributionDigest(record: RpAttributionRecord): unknown {
       observedFrequency: mine.reduce((sum, c) => sum + c.observedFrequency! * c.count, 0) / n,
     };
   };
-  // The arm-naming convention the measurement used: accepted fields joined in
-  // this fixed order, or "control" for none. Inlined here rather than imported
-  // because the registry that owned it is deleted — and frozen, because the
-  // committed record it reads is frozen.
+  // The record's arm-naming convention: accepted fields joined in this fixed
+  // order, or "control" for none. Frozen with the record.
   const ARM_FIELD_ORDER = ["win", "tie", "marginal"];
   const accepted = ARM_FIELD_ORDER.filter((f) => record.decision.acceptedFields.includes(f));
   const shipped = accepted.length === 0 ? "control" : accepted.join("+");
@@ -1386,22 +1066,13 @@ export function buildRpAttributionDigest(record: RpAttributionRecord): unknown {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const seasonsSpec = args[args.indexOf("--seasons") + 1] ?? "2023-2026";
-  // Task 2 widening (D-09): absent --algorithm resolves to EVERY published
-  // algorithm — `resolvePublishAlgorithms(undefined)`'s own documented
-  // default. `--algorithm` accepts a comma-separated list.
+  // Absent --algorithm resolves to every published algorithm; it accepts a comma-separated list.
   const algorithmIdsCsv = args.indexOf("--algorithm") === -1 ? undefined : args[args.indexOf("--algorithm") + 1]!;
   const emitArtifactPath = args.indexOf("--emit-artifact") === -1 ? undefined : args[args.indexOf("--emit-artifact") + 1];
   const marginalArm = args.includes("--marginal-arm");
 
-  // THE SLICE GUARD COMES FIRST, and it reads the PARSED list — before the
-  // rule-module filter, before `openCorpusReadOnly`, before any replay. See
-  // `assertMarginalArmSliceAllowed` for why a wide spec is refused rather
-  // than trimmed, and why there is no override. (260913-qyn's own
-  // `assertOutcomeArmSliceAllowed`/`assertOutcomeArmAlgorithmAllowed` guards
-  // that used to gate `--outcome-arms` here were removed with that flag at
-  // ship time — they remain exported, tested directly, and ready for reuse
-  // by any future outcome-arm re-measurement; see this file's "OUTCOME-ARM
-  // COMPARISON'S READER HALF" section.)
+  // The slice guard reads the parsed list, before the rule-module filter, the
+  // corpus and any replay.
   const parsedSeasons = parseSeasons(seasonsSpec);
   if (marginalArm) assertMarginalArmSliceAllowed(parsedSeasons);
 
@@ -1418,25 +1089,18 @@ async function main(): Promise<void> {
 
   const db = openCorpusReadOnly(CORPUS_PATH);
   try {
-    // Pooled PER ALGORITHM across seasons, for that algorithm's own headline
-    // claims — mixing algorithms into one pooled figure would average away
-    // exactly the per-algorithm comparison this script exists to make.
+    // Pooled per algorithm across seasons; mixing algorithms would average away the comparison.
     const allMarginalByAlgo = new Map<string, Observation[]>(algorithms.map((a) => [a.id, []]));
     const allPairsByAlgo = new Map<string, { p1: number; p2: number; a1: boolean; a2: boolean }[]>(algorithms.map((a) => [a.id, []]));
     const emittedRecords: { season: number; algorithmId: string; calibration: RpCalibrationRecord }[] = [];
-    // F6 GAP — descriptive only, NEVER a gate: |matchOutcomePmf[0] - pRedWin|
-    // pooled across every season, per algorithm, so the console can report
-    // how much the control arm's score-draw win probability disagrees with
-    // the algorithm's own published pRedWin, without that figure deciding
-    // anything.
+    // Descriptive only, never a gate: |matchOutcomePmf[0] - pRedWin| per
+    // algorithm, the score-draw win probability against the published pRedWin.
     const f6DiffsByAlgo = new Map<string, number[]>(algorithms.map((a) => [a.id, []]));
     const f6FavouriteDisagreementsByAlgo = new Map<string, number>(algorithms.map((a) => [a.id, 0]));
     const f6TotalByAlgo = new Map<string, number>(algorithms.map((a) => [a.id, 0]));
     const marginalTally = emptyMarginalResolutionTally();
-    // The NB arm's own running tally, kept on its own axis so the control
-    // arm's resolution counts are never contaminated by it.
+    // Kept apart so the control arm's resolution counts are never contaminated.
     const armTally = emptyMarginalResolutionTally();
-    /** One reachable/unreachable cell of the NB arm's result, accumulated across seasons for the closing report. */
     const armCells: {
       season: number;
       algorithmId: string;
@@ -1450,35 +1114,22 @@ async function main(): Promise<void> {
 
     for (const season of seasons) {
       const ruleModule = RP_RULE_MODULES[season]!;
-      // Built ONCE per season and shared across every algorithm — the
-      // publisher's own `Map<string, SigmaScoutLayer>` shape (`publish.ts`'s
-      // season loop), folded from one shared record list, so a
-      // multi-algorithm pass costs one replay instead of one per algorithm.
+      // One replay per season shared across every algorithm, as in publish.ts's season loop.
       const stream = buildSeasonStream(db, season, { includeOffseason: true });
       const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
       const records = new WalkForwardSimulator(stream).runAll(algorithms, teams);
       const actualFlags = actualBonusFlagsForSeason(stream, season);
 
-      // SAME-SCORER FIX (see header): the second constructor argument selects
-      // the Sigma band variance exactly the way the publisher's own layer
-      // construction does (publish.ts's season loop) — without it this script
-      // silently scored a different band than the one it published.
+      // The algorithm id selects the Sigma band variance, exactly as the publisher's layers do.
       const layers = new Map(algorithms.map((a) => [a.id, new SigmaScoutLayer(ruleModule, a.id)]));
       const perBonusByAlgo = new Map<string, Observation[][]>(algorithms.map((a) => [a.id, ruleModule.bonusNames.map(() => [])]));
       const pairsByAlgo = new Map<string, { p1: number; p2: number; a1: boolean; a2: boolean }[]>(algorithms.map((a) => [a.id, []]));
-      // Total-RP / outcome observations (260913-qyn), reset per season —
-      // population is EVERY played bonus-RP-eligible match whose folded
-      // prediction carries a pmf, NOT gated on actualBonusFlagsForSeason
-      // (design point 5: the bonus loop's own `continue` below must not skip
-      // these scorers).
+      // Total-RP and outcome observations, per season.
       const totalRpByAlgo = new Map<string, TotalRpObservation[]>(algorithms.map((a) => [a.id, []]));
       const outcomeByAlgo = new Map<string, MatchOutcomeObservation[]>(algorithms.map((a) => [a.id, []]));
 
-      // THE NB ARM MULTIPLIES LAYERS, NEVER REPLAYS. `records` above is the
-      // one and only walk-forward pass for this season; the arm folds the SAME
-      // records through a second layer per algorithm, built from the variant
-      // rule module and constructed with the SAME two arguments the control
-      // layer and the publisher use.
+      // The NB arm folds the same `records` through a second, variant-module
+      // layer per algorithm; it never replays.
       const eligibility = marginalArm ? deriveMarginalArmEligibility(ruleModule) : undefined;
       const armRuleModule = eligibility === undefined ? undefined : ruleModuleWithMarginalArm(ruleModule, eligibility.eligible);
       const armLayers =
@@ -1493,11 +1144,8 @@ async function main(): Promise<void> {
         const enriched = layer.foldPlayed(r.match, r.prediction);
         const armEnriched = armLayers === undefined ? undefined : armLayers.get(r.algorithmId)!.foldPlayed(r.match, r.prediction);
 
-        // TOTAL-RP AND OUTCOME SCORING (260913-qyn design point 5) — runs
-        // BEFORE the bonus-flag `continue` below, on purpose: this
-        // population is every played bonus-RP-eligible match whose folded
-        // prediction carries a pmf, never gated on
-        // `actualBonusFlagsForSeason`'s own per-match derivability.
+        // Runs before the bonus-flag `continue` below: this population is every
+        // played bonus-RP-eligible match with a pmf, not gated on bonus flags.
         if (isBonusRpCompLevel(r.match.compLevel)) {
           const pred = enriched.prediction;
           if (pred.redRpPmf !== undefined && pred.blueRpPmf !== undefined) {
@@ -1508,8 +1156,6 @@ async function main(): Promise<void> {
           if (pred.matchOutcomePmf !== undefined) {
             outcomeByAlgo.get(r.algorithmId)!.push({ pmf3: pred.matchOutcomePmf, winner: r.match.winner });
 
-            // F6 GAP — descriptive only, NOT a gate (see the pooled
-            // declaration's own comment above).
             const diff = Math.abs(pred.matchOutcomePmf[0]! - pred.pRedWin);
             f6DiffsByAlgo.get(r.algorithmId)!.push(diff);
             const pmfFavoursRed = pred.matchOutcomePmf[0]! > 0.5;
@@ -1540,18 +1186,13 @@ async function main(): Promise<void> {
             perBonus[i]!.push(observation);
             allMarginal.push(observation);
           }
-          // The correlation claim needs the FIRST TWO bonuses of a season
-          // together on the same alliance — the pair the diagonal block claims
-          // are independent.
+          // The correlation claim uses the season's first two bonuses on the same alliance.
           if (predictedBonuses.length >= 2) {
             pairs.push({ p1: predictedBonuses[0]!, p2: predictedBonuses[1]!, a1: actualBonuses[0]!, a2: actualBonuses[1]! });
           }
 
-          // The arm's observations are gated by the CONTROL arm's own
-          // conditions above, so the two arms provably see the same
-          // (match, alliance, bonus) triples — the identical-observation-set
-          // requirement, enforced by construction and then asserted per bonus
-          // after the season.
+          // Gated by the control arm's conditions above, so both arms see the
+          // same observations; asserted per bonus after the season.
           if (armPerBonus !== undefined && armEnriched !== undefined) {
             const armPredicted = side === "red" ? armEnriched.prediction.redBonusRp : armEnriched.prediction.blueBonusRp;
             if (armPredicted !== undefined && armPredicted.length === actualBonuses.length) {
@@ -1577,10 +1218,8 @@ async function main(): Promise<void> {
           }),
         });
 
-        // The fallback ladder's running diagnostic: how often a fit resolved to
-        // something other than what its variable declared. Read from
-        // `FittedMarginal.resolved`, never `.declared`, with fallbacks on a
-        // separate axis.
+        // How often a fit resolved to something other than its declared family
+        // (`FittedMarginal.resolved`, never `.declared`).
         const layerTally = layers.get(algorithm.id)!.rpMarginalResolutionTally;
         mergeMarginalResolutionTally(marginalTally, layerTally);
 
@@ -1593,11 +1232,8 @@ async function main(): Promise<void> {
           for (const [i, name] of ruleModule.bonusNames.entries()) {
             const controlObservations = perBonus[i]!;
             const armObservations = armPerBonus[i]!;
-            // THE IDENTICAL-OBSERVATION-SET ASSERTION, in flight. The layer's
-            // eligibility gates run before any family branch, so the counts
-            // cannot legitimately differ; an inequality means the seam is
-            // wrong and the whole comparison is void, so it throws rather than
-            // reporting a number nobody can trust.
+            // Eligibility gates run before any family branch, so differing
+            // counts mean the seam is wrong and the comparison is void.
             if (controlObservations.length !== armObservations.length) {
               throw new Error(
                 `--marginal-arm: season ${season} [${algorithm.id}] bonus "${name}" scored ${controlObservations.length} control observations against ${armObservations.length} arm observations — the two arms must see the identical observation set, so this comparison is void`
@@ -1723,11 +1359,8 @@ async function main(): Promise<void> {
         `   A run where most fits fell back (non-positive mean, or variance <= mean) is a result about the FIT'S APPLICABILITY, not a verdict on the family.\n`
       );
 
-      // ---- THE THREE CATEGORIES, NEVER POOLED ----
-      //
-      // Pooling structurally-inert ties with live cells is what made plan
-      // 09-06's verdict worthless: 24 of 30 cells could not have moved, and
-      // their ties were reported as evidence the family does not help.
+      // ---- Three categories, never pooled: structurally inert ties must not
+      // read as evidence the family does not help. ----
       const fmt = (x: number): string => (Number.isFinite(x) ? x.toFixed(6) : "—");
       const reachable = armCells.filter((c) => c.canMove);
       const unreachable = armCells.filter((c) => !c.canMove);
@@ -1768,10 +1401,7 @@ async function main(): Promise<void> {
       console.log(`   Reachable cells that DID move: ${moved.length}.\n`);
     }
 
-    // ---- F6 GAP — descriptive only, NEVER a gate. Reports how much the
-    // control arm's score-draw win probability (matchOutcomePmf[0])
-    // disagrees with the algorithm's own published pRedWin, pooled across
-    // every season for that algorithm.
+    // ---- The pmf-vs-pRedWin gap, descriptive only, never a gate. ----
     for (const algorithm of algorithms) {
       const diffs = f6DiffsByAlgo.get(algorithm.id) ?? [];
       if (diffs.length === 0) continue;
@@ -1788,11 +1418,8 @@ async function main(): Promise<void> {
       );
     }
 
-    // ---- Grand-pooled headline, across EVERY algorithm AND season — the
-    // single figure 09-01-SUMMARY.md sets beside ranking-points-audit.md
-    // F2's recorded 0.1507 / 0.3109. Computed directly from the emitted
-    // records so it matches whatever byte the measurement file itself
-    // carries, never a separate re-derivation.
+    // ---- Grand-pooled headline over every algorithm and season, computed from
+    // the emitted records so it matches the measurement file. ----
     const grandPooled = emittedRecords.flatMap((r) =>
       r.calibration.bonuses.map((b) => ({ p: b.meanPredicted, o: b.observedFrequency, n: b.count }))
     );
@@ -1804,29 +1431,14 @@ async function main(): Promise<void> {
       console.log(`n=${totalN}  mean predicted=${grandMeanPredicted.toFixed(4)}  observed=${grandObserved.toFixed(4)}`);
     }
 
-    // The `--outcome-arms` bar application and `--emit-outcome-arms` writer
-    // that used to run here were deleted at ship time (260913-qyn Task 2) —
-    // see this file's "OUTCOME-ARM COMPARISON'S READER HALF" section for
-    // what remains, and `data/baselines/rp-outcome-arms-2026-09.json` for
-    // the one measurement they produced.
-
     if (emitArtifactPath !== undefined) {
       const candidate = {
         measuredAt: new Date().toISOString(),
         command: `npx tsx scripts/measureRpCalibration.ts ${args.join(" ")}`,
         corpusIdentity: CORPUS_PATH,
-        // The stream above is built with `includeOffseason: true` and this
-        // task does not change that — the number's population is recorded
-        // here rather than quietly altered.
+        // The stream is built with `includeOffseason: true`; the population is recorded.
         offseasonIncluded: true,
         algorithmVersions: Object.fromEntries(algorithms.map((a) => [a.id, a.version])),
-        // D-05 after D-06: the shipped combination has no config object left
-        // to describe it, so it is recorded as a LABEL in the measurement's own
-        // header. Written by this emitter, read by nothing, and costing ZERO
-        // wire bytes — `buildCompareArtifact` attaches per-slice calibration
-        // records and never the measurement's header. That is how D-05's
-        // self-describing requirement is answered once D-06 has deleted the
-        // thing it was describing.
         rpLayer: SHIPPED_RP_LAYER_LABEL,
         records: emittedRecords,
       };
@@ -1839,9 +1451,7 @@ async function main(): Promise<void> {
   }
 }
 
-// Guard: only auto-run `main()` when this file is the process entry point, so
-// the pure helpers above can be imported by the test file without the harness
-// trying to open a corpus.
+// Only auto-run `main()` as the entry point, so tests can import the helpers without a corpus.
 const isEntryPoint = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isEntryPoint) {
   main().catch((err) => {
