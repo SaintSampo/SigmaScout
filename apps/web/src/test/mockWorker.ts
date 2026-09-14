@@ -3,13 +3,12 @@
  *
  * Hand-rolled because jsdom (this repo's Vitest test environment,
  * `apps/web/vitest.config.ts` -> `environment: "jsdom"`) implements no
- * `Worker` API at all (08-RESEARCH.md Pitfall 1), and the official
- * `@vitest/web-worker` package is deliberately NOT used here: it has an
- * open, documented jsdom-collision bug (vitest-dev/vitest#7023) where its
- * `postMessage` scope collides with jsdom's own `window.postMessage` —
- * exactly this repo's test environment. A ~15-line hand-rolled class
- * sidesteps the bug entirely and needs no new dependency
- * (08-RESEARCH.md's Don't-Hand-Roll row 3).
+ * `Worker` API at all, and the official `@vitest/web-worker` package is
+ * deliberately NOT used here: it has an open, documented jsdom-collision
+ * bug (vitest-dev/vitest#7023) where its `postMessage` scope collides with
+ * jsdom's own `window.postMessage` — exactly this repo's test environment.
+ * A ~15-line hand-rolled class sidesteps the bug entirely and needs no new
+ * dependency.
  *
  * WHAT THIS PROVES: which messages arrive, in what order, and that every
  * message survives the same `structuredClone` boundary a real browser
@@ -20,8 +19,7 @@
  * deferred by a microtask (`queueMicrotask`), never by a real thread hop. A
  * green test against this double is evidence about the MESSAGE CONTRACT
  * only; it is never evidence that a visitor's page stays responsive during
- * a run. That property (SC-2's "without blocking the page") is 08-13's to
- * measure, on a real browser with a real Worker.
+ * a run. That property is measured on a real browser with a real Worker.
  */
 
 /** `(message, ctx) => void` — the job a `MockWorkerInstance` runs on `postMessage`, forwarding outbound messages via `ctx.post(...)`. */
@@ -33,11 +31,11 @@ export interface MockWorkerOptions {
   /**
    * When set, every `new Worker(...)` call while installed throws this
    * error from the constructor, before any instance state exists — the
-   * construction half of UI-SPEC's S2 error state (an unsupported browser
-   * throws synchronously from `new Worker(...)`, which is exactly why
-   * `createSimulationWorker.ts`'s doc comment tells 08-13 to wrap
-   * construction in `try`/`catch`). Exists for 08-13's Error-state test and
-   * 08-15's forced-failure evidence — not unused test scaffolding.
+   * construction half of the error state (an unsupported browser throws
+   * synchronously from `new Worker(...)`, which is exactly why
+   * `createSimulationWorker.ts`'s doc comment says to wrap construction in
+   * `try`/`catch`). Exists for the Error-state test and forced-failure
+   * evidence — not unused test scaffolding.
    */
   failOnConstruct?: Error;
 }
@@ -54,15 +52,15 @@ export interface MockWorkerHandle {
  * `postMessage` enforces (`structuredClone`), so a payload that could not
  * actually cross a Worker boundary in a browser — most notably a function,
  * which is exactly the shape a request carrying an `rng` instead of a
- * numeric `seed` would have (`simulationProtocol.ts`'s PD-03) — fails HERE,
- * in the test suite, instead of only in a visitor's browser with a
- * `DataCloneError` nothing at compile time would have caught.
+ * numeric `seed` would have — fails HERE, in the test suite, instead of
+ * only in a visitor's browser with a `DataCloneError` nothing at compile
+ * time would have caught.
  *
  * Falls back to pass-through ONLY if `structuredClone` is unavailable in
  * the running environment. That fallback is a documented limitation, not a
  * silent one: a pass-through here would quietly hide exactly the class of
  * bug this double exists to catch. Callers that need to know which branch
- * ran can check `typeof structuredClone` themselves (Task 1 Test 5 does).
+ * ran can check `typeof structuredClone` themselves.
  */
 function cloneMessage(message: unknown): unknown {
   if (typeof structuredClone === "function") {
@@ -99,12 +97,10 @@ export class MockWorkerInstance {
   }
 
   /**
-   * Whether `terminate()` has been called on this instance (08-13-PLAN.md
-   * Task 1, H9/H10 — a caller needs an externally-observable way to assert
-   * that a Worker was terminated on the terminal-message/new-run/unmount
-   * paths, and `#terminated` was previously private with no public read
-   * surface at all). Read-only by design: nothing outside `terminate()`
-   * itself may flip this flag.
+   * Whether `terminate()` has been called on this instance — a caller
+   * needs an externally-observable way to assert that a Worker was
+   * terminated on the terminal-message/new-run/unmount paths. Read-only by
+   * design: nothing outside `terminate()` itself may flip this flag.
    */
   get terminated(): boolean {
     return this.#terminated;
@@ -119,8 +115,7 @@ export class MockWorkerInstance {
    * the installed `script` does not run until a later microtask.
    *
    * A throw from `script` is caught and dispatched to `onerror` — the
-   * mid-run half of UI-SPEC's S2 error state, and the shape 08-15's
-   * forced-failure evidence is built on. This double does not "catch and
+   * mid-run half of the error state. This double does not "catch and
    * continue" the way `runSimulationJob`'s own `try`/`catch` translates a
    * thrown error into one `error` message and stops: this is a SEPARATE
    * boundary, modeling what happens if the worker SCRIPT ITSELF throws
@@ -155,12 +150,11 @@ export class MockWorkerInstance {
   }
 
   /**
-   * The ONLY cancellation mechanism this protocol offers
-   * (`simulationProtocol.ts`'s PD-06: a `cancel` message could never be
-   * read mid-run, since the real draw loop is synchronous and does not
-   * return to its own message queue until it has already finished).
-   * Delivers nothing further in either direction after this call, modeling
-   * a real terminated Worker's semantics.
+   * The ONLY cancellation mechanism this protocol offers (a `cancel`
+   * message could never be read mid-run, since the real draw loop is
+   * synchronous and does not return to its own message queue until it has
+   * already finished). Delivers nothing further in either direction after
+   * this call, modeling a real terminated Worker's semantics.
    */
   terminate(): void {
     this.#terminated = true;
