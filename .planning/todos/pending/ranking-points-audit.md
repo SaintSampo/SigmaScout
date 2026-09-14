@@ -631,7 +631,7 @@ Jacob made the four decisions below.
 
 | Finding | State |
 |---|---|
-| **F4** dependence between threshold variables | **OPEN, decided: measure the split first.** See below |
+| **F4** dependence between threshold variables | **MEASURED 2026-09-13, fix decision pending.** The integer shape of the threshold variables dominates, closing 70.9% of the pooled multi-variable gap, while dependence between them closes -1.0%. See docs/models/rp-bonus-gap-attribution.md |
 | **F6 / F7** win and tie half | **OPEN, decided: score total RP, then re-ship.** See below |
 | **F8** cold-start gate | **SUPERSEDED.** Sigma Score always has a value (its prior covers a team with no matches), so the band gate never refuses a match under SPR, and OPR/EPA publish no RP at all. 2026casnv: RP pmf on 89 of 89 SPR rows |
 | **F9** partial-roster mean | **CLOSED, decision.** Now live rather than latent, because F8 no longer holds cold rosters back. Jacob, 2026-09-13: *cold robots should be treated as contributing nothing to RP, but we should still try to predict RP with known robots.* That is exactly what `momentsFor` does, so there is nothing to change |
@@ -672,23 +672,21 @@ bonuses alone, and neither fix touches a bonus (0 improved, 0 regressed, 30 tied
 
 ### F4 decision — measure which cause dominates before fixing anything
 
-The bonuses the model gets most wrong under SPR (`-09c`) almost all require several threshold
-variables at once, and the diagonal block treats those variables as independent:
+Measured 2026-09-13 (260913-tw1) on 2016-2020 and 2022, SPR through `SigmaScoutLayer`, walk-forward.
+The integer shape of the threshold variables explains most of the multi-variable bonus gap, and
+dependence between the variables explains none of it: putting the measured correlations back moves
+the pooled mean the wrong way and makes Brier slightly worse.
 
-| Bonus | Predicate kind | Predicted | Observed |
-|---|---|---|---|
-| 2016 `breach` | `countOfIndicators`, 5 positions | 2.5% | 70.0% |
-| 2025 `coralBonus` | `countOfIndicators`, 4 levels | 0.7% | 17.7% |
-| 2025 `autoBonus` | `conjunctionDistinct` | 17.9% | 62.5% |
-| 2024 `ensembleBonus` | `conjunctionDistinct` | 1.3% | 10.9% |
-| 2026 `energized` (control) | `singleThreshold` | 55.2% | 57.7% |
+| Suspect removed on its own | Multi-variable share closed | Multi-variable Brier delta | Control share closed |
+|---|---:|---:|---:|
+| Independence (walk-forward residual correlation) | -1.0% | +0.0006 | 0.0% |
+| Gate/selector oracle (coop analogue) | -2.1% | -0.0082 | 0.0% |
+| Integer shape (bounded lattice marginals) | 70.9% | -0.0928 | 35.2% |
+| Mean deficit (fully-warm rosters only) | 16.1% | -0.0198 | 26.9% |
 
-This reframes F4. The audit measured dependence **between** bonuses (P(both)) and called it
-secondary. Dependence **within** a multi-variable bonus was never measured, and it is the likeliest
-explanation for the table above. It is not proven: the same bonuses also carry the conservative
-coopertition branch and bounded counts ("3 of 3 robots") modelled as a smooth Gaussian.
+Coopertition does not exist in 2016-2022, so the coop branch was not measured; the gate/selector
+oracle on 2018 `autoQuest` and 2022 `cargoBonus` stood in for it.
 
-**Next step:** one offline probe on 2016-2022 that re-scores each multi-variable bonus with each
-suspect removed in turn: observed joint dependence, the coop branch evaluated as achieved, and an
-exact bounded-count marginal. It reports how much of each bonus's gap each suspect accounts for.
-Nothing published changes. The fix is chosen from the result, and F10 is revisited after it.
+Full per-cell results, supporting measurements and fix candidates: `docs/models/rp-bonus-gap-attribution.md`.
+
+**Fix decision:** pending, asked 2026-09-13.
