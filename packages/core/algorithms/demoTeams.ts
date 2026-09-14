@@ -1,60 +1,49 @@
 /**
- * Off-season Demo Team exclusion (`.planning/todos/pending/exclude-offseason-demo-teams.md`,
- * developer-directed 2026-08-29). TBA publishes 30 synthetic team keys,
- * `frc9970`-`frc9999`, every one named `Off-Season Demo Team {n}` — not real
- * teams, but real ROBOTS: a practice bot, a borrowed machine, or an
- * unregistered entry that genuinely occupied an alliance slot and genuinely
- * contributed to that alliance's observed score. That distinction is why
- * this module exports two different predicates rather than one blunt
- * "is this team real" filter:
+ * Off-season Demo Team exclusion. TBA publishes 30 synthetic team keys,
+ * `frc9970`-`frc9999`, every one named `Off-Season Demo Team {n}` — not
+ * real teams, but real robots: a practice bot, a borrowed machine, or an
+ * unregistered entry that genuinely occupied an alliance slot and
+ * genuinely contributed to that alliance's observed score. That
+ * distinction is why this module exports two different predicates rather
+ * than one blunt "is this team real" filter:
  *
- *   - `isFullyDemoAlliance` (case 1, 428 alliances): every slot on the
- *     alliance is a demo team — a forfeit/no-show playoff bucket, or an
- *     offseason bracket bye. A real alliance "beating" three placeholders is
- *     not evidence of anything, so callers drop the WHOLE MATCH from rating
- *     updates when either alliance is fully demo (never just the demo side's
- *     own row) — see `update()` call sites in `opr.ts`/`epa.ts`/`spr.ts`.
- *   - `remapDemoTeams` (case 2, 7,684 mixed alliances): a demo robot filling
- *     ONE slot beside two real robots. The match IS real evidence about
- *     those two real teammates, and the demo robot's own contribution to the
- *     observed score is real — deleting its column while keeping the
- *     alliance's full observed score would force the remaining real
- *     teammates to silently absorb its share, systematically INFLATING
- *     every real team that ever shared an alliance with one (the mixed-case
- *     bug this module exists to avoid; see `ratingEligibleTeams` in
- *     `opr.ts`, the surrogate precedent that inflates in exactly this way
- *     and is NOT reused for demo teams for that reason). Instead, every demo
- *     key is remapped to ONE shared pseudo-entity column before it reaches
- *     any algorithm's design matrix / per-team state — this keeps the
- *     alliance arithmetic balanced (the real teammates' share is computed
- *     exactly as if a normal third teammate occupied that slot) while
- *     refusing to pretend 30 distinct fictional teams have 30 distinct
- *     learnable skills. `DEMO_PSEUDO_TEAM_KEY` is NEVER published — no team
- *     page, no teams-list row, no search hit, no ranking (`publish.ts`
- *     filters `isDemoTeamKey` out of every team list before any page is
- *     built; the pseudo key itself never reaches `teamsThisSeason` because
- *     it is never a corpus-sourced key — it only exists inside an
- *     algorithm's OWN internal state).
+ *   - `isFullyDemoAlliance`: every slot on the alliance is a demo team — a
+ *     forfeit/no-show playoff bucket, or an offseason bracket bye. A real
+ *     alliance "beating" three placeholders is not evidence of anything,
+ *     so callers drop the whole match from rating updates when either
+ *     alliance is fully demo — see `update()` call sites in
+ *     `opr.ts`/`epa.ts`/`spr.ts`.
+ *   - `remapDemoTeams`: a demo robot filling one slot beside two real
+ *     robots. The match is real evidence about those two real teammates,
+ *     and the demo robot's own contribution to the observed score is real
+ *     — deleting its column while keeping the alliance's full observed
+ *     score would force the remaining real teammates to silently absorb
+ *     its share, systematically inflating every real team that ever
+ *     shared an alliance with one. Instead, every demo key is remapped to
+ *     one shared pseudo-entity column before it reaches any algorithm's
+ *     design matrix / per-team state — this keeps the alliance arithmetic
+ *     balanced while refusing to pretend 30 distinct fictional teams have
+ *     30 distinct learnable skills. `DEMO_PSEUDO_TEAM_KEY` is never
+ *     published: `publish.ts` filters `isDemoTeamKey` out of every team
+ *     list before any page is built, and the pseudo key itself is never a
+ *     corpus-sourced key — it only exists inside an algorithm's own
+ *     internal state.
  *
- * A single alliance can carry TWO demo teammates beside one real teammate
- * (measured directly against `data/corpus.sqlite`: 715 red + 725 blue
- * alliance-rows carry exactly 2 of 3 slots as demo teams — not a rare edge
- * case). `remapDemoTeams` deliberately does NOT deduplicate in that case —
- * the returned array keeps the pseudo key's slot count intact (e.g.
- * `[real1, pseudo, pseudo]`, length 3, matching the original 3-slot
- * alliance). Each algorithm's existing per-team iteration then treats this
- * exactly like two independent teammates that happen to share one identity:
- * OPR's design-matrix column accumulates to 2 (`solveEventOpr` increments
- * rather than overwrites, fixed alongside this module), and EPA's/Sigma1's
- * per-teammate loops divide the observed share by the TRUE slot count
- * (`teams.length`, unchanged by the remap) and apply their own per-team
- * update twice to the same shared state entry. Deduplicating the array to a
- * single pseudo slot instead would shrink the apparent alliance size and
- * reproduce the exact "fewer columns, same total score" inflation bug this
- * module exists to avoid — so it is deliberately NOT done. The one accepted
- * imprecision is that the pseudo entity's OWN learned rating becomes an
- * average across a varying number of simultaneous occurrences — irrelevant,
- * since that identity is never published or queried.
+ * A single alliance can carry two demo teammates beside one real teammate,
+ * not a rare edge case. `remapDemoTeams` deliberately does not deduplicate
+ * in that case — the returned array keeps the pseudo key's slot count
+ * intact (e.g. `[real1, pseudo, pseudo]`). Each algorithm's existing
+ * per-team iteration then treats this exactly like two independent
+ * teammates that happen to share one identity: OPR's design-matrix column
+ * accumulates to 2, and EPA's per-teammate loop divides the observed share
+ * by the true slot count and applies its own per-team update twice to the
+ * same shared state entry. Deduplicating to a single pseudo slot instead
+ * would shrink the apparent alliance size and reproduce the exact
+ * "fewer columns, same total score" inflation bug this module exists to
+ * avoid. The one accepted imprecision is that the pseudo entity's own
+ * learned rating becomes an average across a varying number of
+ * simultaneous occurrences — irrelevant, since that identity is never
+ * published or queried.
  */
 
 /** Inclusive numeric bounds of TBA's "Off-Season Demo Team" block. */
@@ -71,24 +60,19 @@ export const DEMO_TEAM_KEYS: ReadonlySet<string> = new Set(
 
 /**
  * The shared identity every demo key collapses to inside an algorithm's
- * internal state. Deliberately NOT of the form `frc\d+` — nothing downstream
- * that pattern-matches a real team key (there is no such strict validator in
- * this codebase today, but this is future-proofing stated explicitly) could
- * mistake it for a real team. Never published — see this file's header.
+ * internal state. Deliberately not of the form `frc\d+` so nothing
+ * downstream that pattern-matches a real team key could mistake it for
+ * one. Never published — see this file's header.
  */
 export const DEMO_PSEUDO_TEAM_KEY = "demo-pseudo-unregistered";
 
 /**
- * A roster key TBA emits that names no team registration at all (todo
- * `stray-team-scope-keys-in-live-d1`, 2026-09-13): no number (`frc`), a zero
- * number (`frc0`), or a character no team key can hold (`frc58 /`). FRC team
- * numbers start at 1, and a letter suffix (`frc1678B`, a team's second robot)
- * IS a real key, so neither shape is caught here.
- *
- * Measured against `data/corpus.sqlite`: exactly those three keys, in 27
- * matches across 2016cafc2, 2016ohsc, 2019wiwi, 2023azrl4, 2023onsc and
- * 2024mdsev. The 18 PLAYED ones are all at offseason events after their
- * season's last official match. The other 9 are unplayed placeholders.
+ * A roster key TBA emits that names no team registration at all: no
+ * number (`frc`), a zero number (`frc0`), or a character no team key can
+ * hold (`frc58 /`). FRC team numbers start at 1, and a letter suffix
+ * (`frc1678B`, a team's second robot) is a real key, so neither shape is
+ * caught here. The played occurrences are all at offseason events after
+ * their season's last official match; the rest are unplayed placeholders.
  *
  * `DEMO_PSEUDO_TEAM_KEY` is excluded explicitly: it is this module's own
  * internal identity, not something TBA sent.
@@ -100,13 +84,12 @@ export function isPlaceholderTeamKey(teamKey: string): boolean {
 }
 
 /**
- * True for the 30 keys in `DEMO_TEAM_KEYS` AND for every `isPlaceholderTeamKey`
- * key. A placeholder is handled exactly like a demo robot everywhere this
- * predicate is read: a fully-placeholder alliance is a non-contest (the
- * `2016ohsc` quarterfinals played against three `frc0` slots), a placeholder
- * beside real teammates is an unidentified robot remapped to the shared
- * pseudo entity (`2016cafc2`'s `frc` slot), and neither ever gets a published
- * page or a state row.
+ * True for the 30 keys in `DEMO_TEAM_KEYS` and for every
+ * `isPlaceholderTeamKey` key. A placeholder is handled exactly like a demo
+ * robot everywhere this predicate is read: a fully-placeholder alliance is
+ * a non-contest, a placeholder beside real teammates is an unidentified
+ * robot remapped to the shared pseudo entity, and neither ever gets a
+ * published page or a state row.
  */
 export function isDemoTeamKey(teamKey: string): boolean {
   return DEMO_TEAM_KEYS.has(teamKey) || isPlaceholderTeamKey(teamKey);
