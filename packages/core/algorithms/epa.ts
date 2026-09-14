@@ -860,40 +860,32 @@ function updateCore(state: EpaState, result: MatchResult, componentMap?: SeasonC
   if (!redIsRulingZero) weekOne = foldWeekOneAllianceScore(weekOne, result.week, result.redScore);
   if (!blueIsRulingZero) weekOne = foldWeekOneAllianceScore(weekOne, result.week, result.blueScore);
 
-  // THE NO-FOUL / FOUL SPLIT. Statbotics' shared cleaner, VERBATIM
+  // THE NO-FOUL / FOUL SPLIT. Statbotics' shared cleaner, verbatim
   // (reference section 2):
   //
   //     foul_points = breakdown.get("foulPoints", 0) + breakdown.get("adjustPoints", 0)
   //     no_foul_points = score - foul_points
   //
-  // So an alliance's FOUL side is the points it RECEIVED from the opponent's
-  // fouls, plus its OWN `adjustPoints`, and its no-foul side is the complement
-  // taken from the SCORE. Taking the complement makes
-  // `noFoulMean + foulMean === scoreMean` hold by construction, so
-  // `(1 + rate) * noFoulMean` is exactly the inflation from a no-foul total
-  // to a real score.
+  // An alliance's foul side is the points it RECEIVED from the opponent's
+  // fouls plus its OWN `adjustPoints`; its no-foul side is the complement
+  // taken from the score, so `noFoulMean + foulMean === scoreMean` holds by
+  // construction and `(1 + rate) * noFoulMean` is exactly the inflation to a
+  // real score.
   //
-  // THE CROSS-SIDE DIRECTION, WHICH IS THE EASIEST THING HERE TO GET BACKWARDS.
+  // THE CROSS-SIDE DIRECTION IS THE EASIEST THING HERE TO GET BACKWARDS.
   // Every `breakdown/{year}.ts` sets `result[FOULS_COMMITTED_COMPONENT] =
-  // opponent.foulPoints` (the component means "points this alliance's fouls
-  // cost the OTHER side"). So RED's parsed `foulsCommitted` holds the points
-  // BLUE received, and the points RED received therefore sit in BLUE's
-  // parsed slot. Red's foul side is `blueParsed[FOULS_COMMITTED_COMPONENT] +
-  // redParsed[ADJUST_COMPONENT]`: one value from the OPPONENT's record, one
-  // from its OWN.
+  // opponent.foulPoints` ("points this alliance's fouls cost the OTHER
+  // side"), so RED's own foul side is `blueParsed[FOULS_COMMITTED_COMPONENT]
+  // + redParsed[ADJUST_COMPONENT]` — one value from the OPPONENT's record,
+  // one from its own. Getting that backwards is silent: accumulators still
+  // fill, the seal still fires, every shape-only test still passes, and
+  // published scores are simply inflated by the wrong number — which is why
+  // the direction has its own test with deliberately asymmetric foul values.
   //
-  // Getting that backwards is SILENT. The accumulators still fill, the seal
-  // still fires, the rate is still finite and plausible, every test that only
-  // checks shape still passes, and the published scores are simply inflated
-  // by the wrong number. That is why the direction has its own test with
-  // deliberately ASYMMETRIC foul values.
-  //
-  // Two exclusions, the second of which is not obvious:
-  //   1. a ruling-zero alliance, exactly as above;
-  //   2. an alliance whose breakdown did NOT parse. The fallback path imputes
-  //      that alliance's components FROM the foul means these accumulators
-  //      feed, so folding an imputed value back in would be circular — the
-  //      rate would be partly an average of itself.
+  // Two exclusions: a ruling-zero alliance (as above), and an alliance whose
+  // breakdown did NOT parse — the fallback path imputes that alliance's
+  // components FROM the foul means these accumulators feed, so folding an
+  // imputed value back in would be circular.
   let allianceNoFoulStats = state.allianceNoFoulStats;
   let allianceFoulStats = state.allianceFoulStats;
   if (redParsed !== null && blueParsed !== null) {
@@ -1118,13 +1110,8 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary, toSeasonMap?: Se
     carryPending: new Set(teamComponents.keys()),
     fallbackSkipped: 0,
     priorSeasonRatings: carryResult.priorSeasonRatings,
-    // Carried forward UNCHANGED, in deliberate CONTRAST to the
-    // `fallbackSkipped` reset immediately above. `fallbackSkipped` is a
-    // per-lifetime zero invariant about a code path that must never run;
-    // `breakdownParseFailureCount` is a cumulative data-quality counter that
-    // must mean the same thing — "observed since this algorithm started" —
-    // on every algorithm state that carries it, and a season boundary is not
-    // a reason to forget it.
+    // Carried forward UNCHANGED, unlike the `fallbackSkipped` reset above —
+    // see EpaState's doc comment for why the two counters diverge here.
     breakdownParseFailureCount: state.breakdownParseFailureCount,
   };
 }
@@ -1136,25 +1123,21 @@ export const epa = {
   // has no separate tuned parameter set (frozen at Statbotics' own
   // published constants, never searched), so "baseline" is the honest,
   // single named set. Any change to `update`'s or `teamMetrics`'s
-  // observable output requires a version bump — no version string may stand
-  // for two structurally different computations.
+  // observable output requires a version bump.
   //
-  // `carrySeason` receives the state as it stood immediately after a
-  // season's last OFFICIAL match, not the season-final state (which would
-  // let unofficial exhibition/preseason play seed the following season) —
-  // declared by `carryFrom` below and implemented once, at the replay
-  // layer, in `WalkForwardSimulator.runAll`'s `carryStates`
-  // (`packages/harness/replay.ts`). Unofficial play occurring BEFORE a
-  // season's last official match still reaches the snapshot; only the
-  // season's tail of exhibition play is excluded.
+  // `carrySeason` receives the state as of the season's last OFFICIAL match
+  // (via `carryFrom` below), not the season-final state — that would let
+  // unofficial exhibition/preseason play seed the following season.
+  // Implemented once, at the replay layer, in `WalkForwardSimulator.runAll`'s
+  // `carryStates` (`packages/harness/replay.ts`).
   //
   // A carried rating enters the new season expressed in the INCOMING
-  // season's point units (`epaCarryScale.ts`), an approximation of
-  // Statbotics rather than a match: a walk-forward replay must estimate the
-  // incoming scale from the incoming season's own folded scores, and a team
-  // first seen before `EPA_CARRY_RESCALE_MIN_OBS` of them exist forfeits
-  // its rescale permanently. `teamMetrics` publishes a still-pending team's
-  // carried rating in the OUTGOING season's units until it is first seen.
+  // season's point units (`epaCarryScale.ts`), an approximation: a
+  // walk-forward replay must estimate the incoming scale from the incoming
+  // season's own folded scores, and a team first seen before
+  // `EPA_CARRY_RESCALE_MIN_OBS` of them exist forfeits its rescale
+  // permanently. `teamMetrics` publishes a still-pending team's carried
+  // rating in the OUTGOING season's units until it is first seen.
   version: "10.0.0+baseline",
   initState,
   predict,
