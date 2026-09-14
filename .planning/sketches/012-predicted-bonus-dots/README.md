@@ -2,7 +2,7 @@
 sketch: 012
 name: predicted-bonus-dots
 question: "Once the F4 fix makes bonus odds honest, how should a predicted bonus dot render, given that a large share of alliances are genuine toss-ups?"
-winner: null
+winner: "B"
 tags: [match-table, bonus-rp, uncertainty, prediction, event-page, team-page]
 ---
 
@@ -32,7 +32,7 @@ open .planning/sketches/012-predicted-bonus-dots/index.html
 ## Variants
 
 - **A: Solid at 50% (today).** Two states. The exact odds are only in the tooltip.
-- **B: Three states.** Full alliance colour when likely (⅔ or more), a light tint for a toss-up (⅓ to ⅔), hollow when unlikely (under ⅓).
+- **B: Three states. ★ Selected (Jacob, 2026-09-14).** Full alliance colour when likely (⅔ or more), a light tint for a toss-up (⅓ to ⅔), hollow when unlikely (under ⅓).
 - **C: Fill to the odds.** The dot fills from the bottom to the probability. Continuous.
 - **D: Numbers.** A small percentage chip: tinted from ⅔, outlined from ⅓, muted below.
 
@@ -58,6 +58,19 @@ middle band, which is a coin flip. A two-state dot can only call those one way o
 - **The same faintness affects today's actual dots**: earned versus not earned is a 30% tint against
   none. That was visible on the board, but it is outside this sketch's question.
 - **C is unreadable at dot size.** 40% and 60% look the same.
+
+## Decision
+
+**B, three states.** Jacob chose it over D (numbers), A (keep the 50% rule) and C (fill). Before
+building it, note:
+
+- The cut-offs are ⅓ and ⅔. `PREDICTED_BONUS_THRESHOLD` becomes two thresholds, and the pinned tests
+  in `bonusRp.test.ts` (including the attribution record's `dotThreshold`) move with it.
+- "Likely" uses full alliance ink with a white letter. The toss-up tint is today's
+  `--alliance-*-soft`. The white letter on `#DC2626`/`#2563EB` at 8px needs a contrast check.
+- The actual dots keep their two states. Their faint earned tint is a separate question.
+- Ship it with or after the F4 fix. On today's odds almost every dot would render hollow, so the new
+  states would have nothing to show.
 
 ## Data
 
