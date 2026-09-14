@@ -10,11 +10,9 @@
  *            algorithm models them and no algorithm may import them.
  *
  * All three level-2 features are published for SIGMA algorithms only (SPR
- * today). OPR and EPA get none of the three: no Sigma Score, no Match Band
- * (quick task 260913-g66) and, since quick task 260913-it4, no ranking-point
- * odds — the retired per-robot consistency accumulator that used to supply
- * their win-odds variance was deleted with no replacement (developer decision,
- * 2026-09-13). Gated by `usesSigmaScore` and `publishesRankingPoints`.
+ * today). OPR and EPA get none of the three: no Sigma Score, no Match Band,
+ * and no ranking-point odds — they have no per-robot score variance to build
+ * RP odds from. Gated by `usesSigmaScore` and `publishesRankingPoints`.
  *
  * ---------------------------------------------------------------------------
  * WHY THIS IS A MODULE AND NOT A LOOP BODY
@@ -22,8 +20,7 @@
  *
  * Level-2 per-match math lives only here, and `publishSeasons` calls it.
  * Adding a level-2 field in a caller's loop instead recreates the
- * drop-a-field defect a second write path caused on 2026-09-09 (see git
- * history at 260913-nvn's base commit for the incident).
+ * drop-a-field defect a second write path once caused.
  *
  * ---------------------------------------------------------------------------
  * PREDICT BEFORE UPDATE
@@ -68,9 +65,9 @@ export interface UpcomingLayerRecord {
   readonly match: UpcomingMatch;
   readonly prediction: Prediction;
   /**
-   * The PUBLISHED display band (quick task 260913-g66): each alliance's
-   * `sigmaMatchBandVariance`. Sigma algorithms only — absent for OPR and EPA.
-   * Never the win-odds variance the ranking-point pmf reads.
+   * The PUBLISHED display band: each alliance's `sigmaMatchBandVariance`.
+   * Sigma algorithms only — absent for OPR and EPA. Never the win-odds
+   * variance the ranking-point pmf reads.
    */
   readonly matchBand?: { red?: number; blue?: number };
 }
@@ -94,13 +91,13 @@ export class SigmaScoutLayer {
   readonly #rp: RpMomentsAccumulator | undefined;
   readonly #ruleModule: RpRuleModule | undefined;
   /**
-   * Running resolved-family mix (09-05 Task 3, D-01) across every pmf this
-   * layer instance has built. IN-MEMORY ONLY — never put on `Prediction`,
-   * never written to any artifact. 09-06 reads it after a run to report
-   * what share of the `"negative-binomial"` arm actually resolved to
-   * negative binomial rather than silently falling back to Gaussian. D-06
-   * A permanent diagnostic of the fallback ladder: it says how often a fit
-   * resolved to something other than what its variable declared.
+   * Running resolved-family mix across every pmf this layer instance has
+   * built. IN-MEMORY ONLY — never put on `Prediction`, never written to any
+   * artifact. A permanent diagnostic of the fallback ladder: it says how
+   * often a fit resolved to something other than what its variable
+   * declared, e.g. how much of a `"negative-binomial"` arm actually
+   * resolved to negative binomial rather than silently falling back to
+   * Gaussian.
    */
   readonly #rpMarginalResolutionTally: MarginalResolutionTally = emptyMarginalResolutionTally();
 
@@ -125,8 +122,8 @@ export class SigmaScoutLayer {
   }
 
   /**
-   * The resolved-family mix (09-05 Task 3, D-01) accumulated across every
-   * `#rpFieldsFor` call this layer instance has made so far. Read-only:
+   * The resolved-family mix accumulated across every `#rpFieldsFor` call
+   * this layer instance has made so far. Read-only:
    * reading it never mutates it. Returns a fresh copy each read, so a
    * caller cannot accidentally mutate this layer's own running counts.
    * In-memory only — see this field's own doc comment.
@@ -169,7 +166,7 @@ export class SigmaScoutLayer {
    * Call this right after `foldPlayed` for a match: the value it returns at
    * that instant is this team's Sigma Score "after this match", the same
    * "after this match" meaning every other metric a metric-history row
-   * already publishes (quick task 260913-m45).
+   * already publishes.
    *
    * `undefined` for a layer with no Sigma accumulator (an algorithm outside
    * `SIGMA_SCORE_ALGORITHM_IDS`) — the same absent-key convention every
@@ -191,7 +188,7 @@ export class SigmaScoutLayer {
 
   /**
    * Every team's RAW running RP state, for the D1 seed the live Worker
-   * resumes from (shape 15, plan 09-08).
+   * resumes from (shape 15).
    *
    * Distinct from anything the publisher renders: this is raw running
    * state, not a finished figure. Dropping a single-observation team from a
@@ -280,7 +277,7 @@ export class SigmaScoutLayer {
       for (const [teamKey, talent] of talentAfterMatch) this.#sigma.observeTalent(teamKey, talent);
     }
 
-    // Win odds: the UNCORRECTED variance, exactly as before 260913-g66.
+    // Win odds: the UNCORRECTED variance.
     const derivedRp = this.#rpFieldsFor(match, prediction, redBandVariance, blueBandVariance);
     this.#foldObservedThresholds(match);
 
@@ -294,9 +291,9 @@ export class SigmaScoutLayer {
 
   /**
    * The published display band for one match, derived from the two win-odds
-   * variances (quick task 260913-g66). Sigma layers only: an OPR or EPA layer
-   * returns no `matchBand` key at all, the same absent-key convention the band
-   * has always used for "nothing to draw".
+   * variances. Sigma layers only: an OPR or EPA layer returns no `matchBand`
+   * key at all, the same absent-key convention the band has always used for
+   * "nothing to draw".
    */
   #matchBandFields(
     match: { redTeams: readonly string[]; blueTeams: readonly string[] },
@@ -335,7 +332,7 @@ export class SigmaScoutLayer {
   /**
    * The RP fields for one match, given each alliance's band as its score
    * variance. The band arguments are the WIN-ODDS variance (the uncorrected
-   * sum), never the published display band (quick task 260913-g66).
+   * sum), never the published display band.
    * Empty when this layer publishes no ranking points (no rules for the
    * season, or an algorithm without a Sigma Score), when the event type awards
    * no RP, or when either band is undefined — an upcoming band is undefined
@@ -358,30 +355,27 @@ export class SigmaScoutLayer {
       ruleModule: this.#ruleModule,
       eventType: match.eventType,
       compLevel: match.compLevel,
-      // D-01 (09-05 Task 3): the layer's own running accumulator, folded
-      // into by every call. In-memory only — see rpMarginalResolutionTally's
-      // own doc comment.
+      // The layer's own running accumulator, folded into by every call.
+      // In-memory only — see rpMarginalResolutionTally's own doc comment.
       tally: this.#rpMarginalResolutionTally,
-      // WIN SHIPPED 2026-09-13 (quick task 260913-qyn) — the algorithm's own
-      // published win probability replaces the score-draw comparison as the
-      // outcome split's decisive share. See `analyticPmf.ts`'s
-      // `RpOutcomeInput.pRedWin` doc comment and
-      // `data/baselines/rp-outcome-arms-2026-09.json`.
+      // The algorithm's own published win probability is the outcome split's
+      // decisive share. See `analyticPmf.ts`'s `RpOutcomeInput.pRedWin` doc
+      // comment.
       pRedWin: prediction.pRedWin,
     });
 
-    // D-15 (plan 09-07): compose the five decomposition fields the rank
-    // simulation's coupled draw consumes, from 09-04's exported halves
-    // (`pmf.outcome`, `pmf.redBonusPmf`/`pmf.blueBonusPmf`) plus this
-    // season's own winRp/tieRp constants — read from `#ruleModule`, never
-    // hardcoded (2/1 in 2016-2024, 3/1 in 2025-2026). This function is the
-    // ONE place in the pipeline that knows both the decomposition and the
-    // season's RP constants, which is why the outcome-RP vectors are
-    // composed here rather than in either transport. Gated on `pmf.outcome`
-    // actually being present (absent only for the non-qualification
-    // short-circuit, which fits no marginal at all) — an algorithm or
-    // configuration that produces no decomposition keeps every one of these
-    // five keys absent rather than empty.
+    // Composes the five decomposition fields the rank simulation's coupled
+    // draw consumes, from the exported halves (`pmf.outcome`,
+    // `pmf.redBonusPmf`/`pmf.blueBonusPmf`) plus this season's own
+    // winRp/tieRp constants — read from `#ruleModule`, never hardcoded (2/1
+    // in 2016-2024, 3/1 in 2025-2026). This function is the ONE place in the
+    // pipeline that knows both the decomposition and the season's RP
+    // constants, which is why the outcome-RP vectors are composed here
+    // rather than in either transport. Gated on `pmf.outcome` actually being
+    // present (absent only for the non-qualification short-circuit, which
+    // fits no marginal at all) — an algorithm or configuration that produces
+    // no decomposition keeps every one of these five keys absent rather than
+    // empty.
     const decomposition: Partial<Prediction> =
       pmf.outcome !== undefined && pmf.redBonusPmf !== undefined && pmf.blueBonusPmf !== undefined
         ? {
