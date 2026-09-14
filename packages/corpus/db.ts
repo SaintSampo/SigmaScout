@@ -1,14 +1,13 @@
 /**
- * better-sqlite3 wrapper with typed queries (DATA-01/DATA-02). Applies
- * schema.sql idempotently, enables WAL, and wires the diff-on-upsert
- * replay detector (RESEARCH.md Pitfall 1): TBA exposes no "this match was
- * replayed" field, so a match already carrying a winner whose score-bearing
- * fields change on a later upsert is flagged `replayed = true` (D-08) while
- * only the final result is kept. The diff itself (`detectReplay`) is a pure
- * function in packages/ingest/normalize.ts; this module is the only place
- * that can see the previously-stored row, so it reads that row and calls
- * the pure detector before every write — a caller cannot bypass the check
- * by upserting directly.
+ * better-sqlite3 wrapper with typed queries. Applies schema.sql
+ * idempotently, enables WAL, and wires the diff-on-upsert replay detector:
+ * TBA exposes no "this match was replayed" field, so a match already
+ * carrying a winner whose score-bearing fields change on a later upsert is
+ * flagged `replayed = true` while only the final result is kept. The diff
+ * itself (`detectReplay`) is a pure function in packages/ingest/normalize.ts;
+ * this module is the only place that can see the previously-stored row, so
+ * it reads that row and calls the pure detector before every write — a
+ * caller cannot bypass the check by upserting directly.
  */
 import Database from "better-sqlite3";
 import { mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -44,23 +43,22 @@ function isProcessAlive(pid: number): boolean {
 }
 
 /**
- * Single-writer lock (T-01-08): a `<path>.lock` file records the owning
- * PID. A second concurrent `openCorpus` on the same file fails fast with a
- * readable message instead of interleaving writes into a half-built
- * corpus. A lock file left behind by a crashed process (owning PID no
- * longer alive) is treated as stale and reclaimed automatically, so an
- * interrupted run can always be resumed.
+ * Single-writer lock: a `<path>.lock` file records the owning PID. A second
+ * concurrent `openCorpus` on the same file fails fast with a readable
+ * message instead of interleaving writes into a half-built corpus. A lock
+ * file left behind by a crashed process (owning PID no longer alive) is
+ * treated as stale and reclaimed automatically, so an interrupted run can
+ * always be resumed.
  *
- * WR-03: the success path is a single atomic exclusive-create syscall
- * attempt (`wx`), not a separate existence probe followed by a write — the
- * probe-then-write ordering left a TOCTOU window where two concurrent
- * callers could both observe "no lock file" and both believe they'd
- * acquired it. Only on `EEXIST` does this fall into the stale-lock
- * detection below. WR-01 (03.1-REVIEW.md): the stale-lock RECLAIM path is
- * atomic too — it unlinks the stale file and retries the same `wx`
- * exclusive-create from the top, rather than overwriting with a plain
- * write, so two concurrent reclaimers of the same stale lock cannot both
- * succeed either.
+ * The success path is a single atomic exclusive-create syscall attempt
+ * (`wx`), not a separate existence probe followed by a write — probe-then
+ * -write leaves a TOCTOU window where two concurrent callers could both
+ * observe "no lock file" and both believe they'd acquired it. Only on
+ * `EEXIST` does this fall into the stale-lock detection below. The
+ * stale-lock RECLAIM path is atomic too — it unlinks the stale file and
+ * retries the same `wx` exclusive-create from the top, rather than
+ * overwriting with a plain write, so two concurrent reclaimers of the same
+ * stale lock cannot both succeed either.
  */
 function acquireWriteLock(lockPath: string): void {
   try {
@@ -76,10 +74,10 @@ function acquireWriteLock(lockPath: string): void {
 
   const ownerPid = Number(readFileSync(lockPath, "utf8").trim());
   if (Number.isFinite(ownerPid) && isProcessAlive(ownerPid)) {
-    // 01-REVIEW IN-03: include the lock's age so a human debugging a
-    // PID-reuse false positive (Windows recycles PIDs quickly) can judge
-    // staleness — an hours-old lock "held" by a live PID is likely an
-    // unrelated process that inherited the number, not a live ingest.
+    // Include the lock's age so a human debugging a PID-reuse false
+    // positive (Windows recycles PIDs quickly) can judge staleness — an
+    // hours-old lock "held" by a live PID is likely an unrelated process
+    // that inherited the number, not a live ingest.
     let lockedSince = "unknown time";
     try {
       lockedSince = statSync(lockPath).mtime.toISOString();
@@ -94,14 +92,14 @@ function acquireWriteLock(lockPath: string): void {
   }
   // Stale lock from a process that no longer exists (or unparseable
   // contents) — reclaim it with the same atomic exclusive-create
-  // discipline as the fast path above (WR-01, 03.1-REVIEW.md): unlink the
-  // stale file, then retry acquisition from the top rather than
-  // overwriting it with a plain `writeFileSync`. If a second concurrent
-  // caller raced us into this same stale-reclaim branch, at most one of us
-  // wins the retried `wx` write; the loser's retry hits `EEXIST` again,
-  // this time against the WINNER's freshly-written (and therefore alive)
-  // pid, so it falls through to the "already open" throw above instead of
-  // silently believing it also holds the lock.
+  // discipline as the fast path above: unlink the stale file, then retry
+  // acquisition from the top rather than overwriting it with a plain
+  // `writeFileSync`. If a second concurrent caller raced us into this same
+  // stale-reclaim branch, at most one of us wins the retried `wx` write;
+  // the loser's retry hits `EEXIST` again, this time against the winner's
+  // freshly-written (and therefore alive) pid, so it falls through to the
+  // "already open" throw above instead of silently believing it also
+  // holds the lock.
   try {
     unlinkSync(lockPath);
   } catch (unlinkErr) {
@@ -117,11 +115,11 @@ function acquireWriteLock(lockPath: string): void {
 
 /**
  * True when the given handle's `matches` table already carries the
- * `winner_imputed` column (D-03). `schema.sql` is applied with `CREATE
- * TABLE IF NOT EXISTS`, so a database created before this column existed is
- * never migrated — this predicate is the single source of truth both
+ * `winner_imputed` column. `schema.sql` is applied with `CREATE TABLE IF
+ * NOT EXISTS`, so a database created before this column existed is never
+ * migrated — this predicate is the single source of truth both
  * `openCorpus`'s open-time guard and `integrity.test.ts`'s skip guard read,
- * so the two cannot drift (per this plan's `key_links`).
+ * so the two cannot drift.
  */
 export function hasWinnerImputedColumn(db: Corpus): boolean {
   const columns = db.prepare(`PRAGMA table_info(matches)`).all() as { name: string }[];
@@ -129,9 +127,9 @@ export function hasWinnerImputedColumn(db: Corpus): boolean {
 }
 
 /**
- * The five EVNT-01 location/calendar columns `events` gained in plan 05-02,
- * paired with the SQL type used when adding a missing one via `ALTER TABLE
- * ... ADD COLUMN` below.
+ * The five location/calendar columns `events` gained, paired with the SQL
+ * type used when adding a missing one via `ALTER TABLE ... ADD COLUMN`
+ * below.
  */
 const EVENT_LOCATION_COLUMNS: readonly [string, string][] = [
   ["name", "TEXT"],
@@ -143,9 +141,7 @@ const EVENT_LOCATION_COLUMNS: readonly [string, string][] = [
 
 /**
  * True when the given handle's `events` table already carries all five
- * EVNT-01 location/calendar columns (plan 05-02) — mirrors
- * `hasWinnerImputedColumn`'s `PRAGMA table_info` shape, scanning `events`
- * instead of `matches` and checking a set of columns instead of one.
+ * location/calendar columns.
  */
 export function hasEventLocationColumns(db: Corpus): boolean {
   const columns = db.prepare(`PRAGMA table_info(events)`).all() as { name: string }[];
@@ -154,13 +150,11 @@ export function hasEventLocationColumns(db: Corpus): boolean {
 }
 
 /**
- * The four D-18.6 columns `event_rankings` gained in plan 07-02 — TBA's own
- * `record` object (wins/losses/ties) plus the RP `sort_orders[0]` value,
- * renamed `ranking_score`. Named for its headline fields but governs all
- * four columns including the ranking score, so a reader does not assume a
- * fifth un-migrated column exists somewhere. Paired with the SQL type used
- * when adding a missing one via `ALTER TABLE ... ADD COLUMN` below, mirroring
- * `EVENT_LOCATION_COLUMNS`'s shape exactly.
+ * The four columns `event_rankings` gained — TBA's own `record` object
+ * (wins/losses/ties) plus the RP `sort_orders[0]` value, renamed
+ * `ranking_score`. Named for its headline fields but governs all four
+ * columns including the ranking score, so a reader does not assume a fifth
+ * un-migrated column exists somewhere.
  */
 const EVENT_RANKING_RECORD_COLUMNS: readonly [string, string][] = [
   ["record_wins", "INTEGER"],
@@ -171,12 +165,8 @@ const EVENT_RANKING_RECORD_COLUMNS: readonly [string, string][] = [
 
 /**
  * True when the given handle's `event_rankings` table already carries all
- * four D-18.6 record/ranking-score columns (plan 07-02) — the `PRAGMA
- * table_info(event_rankings)` analog of `hasEventLocationColumns`, scanning
- * `event_rankings` instead of `events`. Exported because `integrity.test.ts`
- * reads it in plan 07-02 Task 3, so guard and test are single-sourced
- * exactly as `hasEventLocationColumns` and `hasWinnerImputedColumn` already
- * are.
+ * four record/ranking-score columns. Exported because `integrity.test.ts`
+ * reads it too, so guard and test are single-sourced.
  */
 export function hasEventRankingRecordColumns(db: Corpus): boolean {
   const columns = db.prepare(`PRAGMA table_info(event_rankings)`).all() as { name: string }[];
@@ -184,21 +174,14 @@ export function hasEventRankingRecordColumns(db: Corpus): boolean {
   return EVENT_RANKING_RECORD_COLUMNS.every(([name]) => existing.has(name));
 }
 
-/**
- * The single `matches.video_key` column added by quick task 260906-7eu,
- * paired with the SQL type used when adding it via `ALTER TABLE ... ADD
- * COLUMN` below — a one-entry list purely to mirror `EVENT_LOCATION_COLUMNS`
- * / `EVENT_RANKING_RECORD_COLUMNS`'s shape exactly rather than special-casing
- * a single-column migration.
- */
+/** The single `matches.video_key` column, paired with its `ALTER TABLE ... ADD COLUMN` SQL type. */
 const MATCH_VIDEO_COLUMNS: readonly [string, string][] = [["video_key", "TEXT"]];
 
 /**
  * True when the given handle's `matches` table already carries the
- * `video_key` column (quick task 260906-7eu) — the `PRAGMA table_info`
- * predicate `openCorpus`'s additive-migration guard and `db.test.ts`'s
- * migration test both read, so the two cannot drift, mirroring
- * `hasEventLocationColumns`/`hasEventRankingRecordColumns`'s exact shape.
+ * `video_key` column — the `PRAGMA table_info` predicate `openCorpus`'s
+ * additive-migration guard and `db.test.ts`'s migration test both read, so
+ * the two cannot drift.
  */
 export function hasMatchVideoColumn(db: Corpus): boolean {
   const columns = db.prepare(`PRAGMA table_info(matches)`).all() as { name: string }[];
@@ -206,20 +189,14 @@ export function hasMatchVideoColumn(db: Corpus): boolean {
   return MATCH_VIDEO_COLUMNS.every(([name]) => existing.has(name));
 }
 
-/**
- * The single `teams.rookie_year` column added by quick task 260912-7bp,
- * paired with the SQL type used when adding it via `ALTER TABLE ... ADD
- * COLUMN` below — a one-entry list purely to mirror `MATCH_VIDEO_COLUMNS`'s
- * shape exactly rather than special-casing a single-column migration.
- */
+/** The single `teams.rookie_year` column, paired with its `ALTER TABLE ... ADD COLUMN` SQL type. */
 const TEAM_ROOKIE_YEAR_COLUMNS: readonly [string, string][] = [["rookie_year", "INTEGER"]];
 
 /**
  * True when the given handle's `teams` table already carries the
- * `rookie_year` column (quick task 260912-7bp) — the `PRAGMA table_info`
- * predicate `openCorpus`'s additive-migration guard and `db.test.ts`'s
- * migration test both read, so the two cannot drift, mirroring
- * `hasMatchVideoColumn`'s exact shape.
+ * `rookie_year` column — the `PRAGMA table_info` predicate `openCorpus`'s
+ * additive-migration guard and `db.test.ts`'s migration test both read, so
+ * the two cannot drift.
  */
 export function hasTeamRookieYearColumn(db: Corpus): boolean {
   const columns = db.prepare(`PRAGMA table_info(teams)`).all() as { name: string }[];
@@ -235,9 +212,9 @@ export function openCorpus(path: string): Corpus {
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
   db.pragma("busy_timeout = 5000");
-  // D-02/01-REVIEW WR-04: a match written before its event row must fail at
-  // write time — where the ordering bug is — rather than silently
-  // vanishing from selectMatchesChronological's inner join at read time.
+  // A match written before its event row must fail at write time — where
+  // the ordering bug is — rather than silently vanishing from
+  // selectMatchesChronological's inner join at read time.
   db.pragma("foreign_keys = ON");
   db.exec(readFileSync(SCHEMA_PATH, "utf8"));
 
@@ -263,17 +240,16 @@ export function openCorpus(path: string): Corpus {
     );
   }
 
-  // plan 05-02 (EVNT-01): unlike winner_imputed above, this is deliberately
-  // an ADDITIVE migration, not a rebuild guard. winner_imputed is a
-  // *derived* value — an existing row's value would be wrong until
-  // recomputed from source, so only a rebuild can produce it correctly.
-  // The five EVNT-01 columns are *new source fields* that are honestly NULL
-  // until the very --events-only refetch (packages/ingest/cli.ts) fills
-  // them — NULL here is already the schema's legitimate value, so an
-  // in-place `ALTER TABLE ADD COLUMN` is correct and an existing corpus
-  // does not need to be deleted and re-ingested from scratch. This
-  // exception is scoped to additive nullable columns; it must not become a
-  // general migration framework.
+  // Unlike winner_imputed above, this is deliberately an ADDITIVE migration,
+  // not a rebuild guard. winner_imputed is a *derived* value — an existing
+  // row's value would be wrong until recomputed from source, so only a
+  // rebuild can produce it correctly. These five columns are *new source
+  // fields* that are honestly NULL until the --events-only refetch
+  // (packages/ingest/cli.ts) fills them — NULL here is already the
+  // schema's legitimate value, so an in-place `ALTER TABLE ADD COLUMN` is
+  // correct and an existing corpus does not need to be re-ingested from
+  // scratch. This exception is scoped to additive nullable columns; it
+  // must not become a general migration framework.
   if (!hasEventLocationColumns(db)) {
     const columns = db.prepare(`PRAGMA table_info(events)`).all() as { name: string }[];
     const existing = new Set(columns.map((column) => column.name));
@@ -293,16 +269,13 @@ export function openCorpus(path: string): Corpus {
     }
   }
 
-  // plan 07-02 (D-18.6): the same additive-nullable-column exception as the
-  // EVNT-01 block above, applied to event_rankings' four new source fields
-  // (TBA's own record.{wins,losses,ties} and sort_orders[0], renamed
-  // ranking_score) rather than a derived value — every statement here is an
-  // add-a-column statement, nothing removes a table, removes rows, or
-  // copies data into a replacement table, so it is safe against a
-  // populated, unrecoverable corpus. Must run after the schema.sql exec
-  // above (which creates event_rankings already carrying these columns on
-  // a fresh corpus) and after the hasWinnerImputedColumn guard (a corpus
-  // that fails that guard must not be partially migrated first).
+  // The same additive-nullable-column exception as above, applied to
+  // event_rankings' four new source fields (TBA's own
+  // record.{wins,losses,ties} and sort_orders[0], renamed ranking_score).
+  // Must run after the schema.sql exec above (which creates event_rankings
+  // already carrying these columns on a fresh corpus) and after the
+  // hasWinnerImputedColumn guard (a corpus that fails that guard must not
+  // be partially migrated first).
   if (!hasEventRankingRecordColumns(db)) {
     const columns = db.prepare(`PRAGMA table_info(event_rankings)`).all() as { name: string }[];
     const existing = new Set(columns.map((column) => column.name));
@@ -322,13 +295,10 @@ export function openCorpus(path: string): Corpus {
     }
   }
 
-  // quick task 260906-7eu: the same additive-nullable-column exception as
-  // the two blocks above, applied to matches.video_key — a new SOURCE fact
-  // (TBA's own videos[] entry), not a derived one, so an existing row's NULL
-  // is already correct rather than stale. This takes the
-  // hasEventLocationColumns treatment, NOT hasWinnerImputedColumn's rebuild
-  // guard. The live corpus is gitignored, large, and must not be rebuilt or
-  // fully re-ingested by this migration.
+  // The same additive-nullable-column exception as above, applied to
+  // matches.video_key — a new SOURCE fact (TBA's own videos[] entry), not a
+  // derived one, so an existing row's NULL is already correct rather than
+  // stale.
   if (!hasMatchVideoColumn(db)) {
     const columns = db.prepare(`PRAGMA table_info(matches)`).all() as { name: string }[];
     const existing = new Set(columns.map((column) => column.name));
@@ -348,17 +318,12 @@ export function openCorpus(path: string): Corpus {
     }
   }
 
-  // quick task 260912-7bp: the same additive-nullable-column exception as
-  // the blocks above, applied to teams.rookie_year — a new SOURCE fact
-  // (TBA's own rookie_year, which the ingest schema was silently stripping
-  // until this task widened it), not a derived one, so an existing row's
-  // NULL is already correct rather than stale and is filled by the
-  // --teams-only refresh. This takes the hasMatchVideoColumn treatment,
-  // NOT hasWinnerImputedColumn's rebuild guard: the live corpus is
-  // gitignored, large, and must not be rebuilt by this migration. Without
-  // this block the widened upsertTeam would throw `no such column:
-  // rookie_year` on its first write against the existing corpus, because
-  // schema.sql is applied with CREATE TABLE IF NOT EXISTS.
+  // The same additive-nullable-column exception as above, applied to
+  // teams.rookie_year — a new SOURCE fact (TBA's own rookie_year), not a
+  // derived one, filled by the --teams-only refresh. Without this block the
+  // widened upsertTeam would throw `no such column: rookie_year` on its
+  // first write against the existing corpus, because schema.sql is applied
+  // with CREATE TABLE IF NOT EXISTS.
   if (!hasTeamRookieYearColumn(db)) {
     const columns = db.prepare(`PRAGMA table_info(teams)`).all() as { name: string }[];
     const existing = new Set(columns.map((column) => column.name));
@@ -382,14 +347,14 @@ export function openCorpus(path: string): Corpus {
 }
 
 /**
- * Opens the corpus for read-only access (T-01-13): no write lock is
- * acquired (multiple readers, including one running alongside an open
- * writer under WAL, are safe) and the schema is not (re-)applied — the
- * corpus must already exist (`fileMustExist: true` gives a clear error
- * rather than silently creating an empty file). A write attempted through
- * this handle fails at the SQLite layer itself (`better-sqlite3`'s
- * `readonly` mode), turning "the harness only reads the corpus it scores"
- * from a convention into a runtime guarantee.
+ * Opens the corpus for read-only access: no write lock is acquired
+ * (multiple readers, including one running alongside an open writer under
+ * WAL, are safe) and the schema is not (re-)applied — the corpus must
+ * already exist (`fileMustExist: true` gives a clear error rather than
+ * silently creating an empty file). A write attempted through this handle
+ * fails at the SQLite layer itself (`better-sqlite3`'s `readonly` mode),
+ * turning "the harness only reads the corpus it scores" from a convention
+ * into a runtime guarantee.
  */
 export function openCorpusReadOnly(path: string): Corpus {
   return new Database(path, { readonly: true, fileMustExist: true });
@@ -400,11 +365,10 @@ export interface CorpusTeam {
   teamNumber: number;
   nickname: string | null;
   /**
-   * TBA's own `rookie_year` (quick task 260912-7bp). Optional, not
-   * required: TBA reports null for some teams, and existing call sites that
-   * legitimately have no rookie year to offer must keep compiling — an
-   * omitted field stores NULL, which is this column's honest value for "not
-   * refetched yet".
+   * TBA's own `rookie_year`. Optional, not required: TBA reports null for
+   * some teams, and existing call sites that legitimately have no rookie
+   * year to offer must keep compiling — an omitted field stores NULL,
+   * which is this column's honest value for "not refetched yet".
    */
   rookieYear?: number | null;
 }
@@ -588,7 +552,7 @@ export interface ChronologicalQueryOptions {
   eventKey?: string;
   /** Restrict to a single season. */
   year?: number;
-  /** Drop matches belonging to an event flagged is_offseason (D-06's default for anything feeding ratings or scoring). */
+  /** Drop matches belonging to an event flagged is_offseason (the default for anything feeding ratings or scoring). */
   excludeOffseason?: boolean;
 }
 
@@ -688,11 +652,10 @@ interface ScheduledMatchRow {
 export type ScheduledMatchQueryOptions = ChronologicalQueryOptions;
 
 /**
- * D-08: the not-yet-played counterpart to `selectMatchesChronological` —
+ * The not-yet-played counterpart to `selectMatchesChronological` —
  * together the two cover every row of an event, disjointly. Scheduled
  * matches ARE stored (`schema.sql` declares `winner` nullable, "NULL if
- * unplayed"); nothing before Phase 4 needed to read them back, since the
- * walk-forward harness only ever replays completed matches.
+ * unplayed"); the walk-forward harness only ever replays completed matches.
  *
  * The SQL selects ONLY the columns an `UpcomingMatch` needs — deliberately
  * omitting `winner`, `red_score`, `blue_score`, `red_rp_earned`,
@@ -763,10 +726,10 @@ export function selectScheduledMatches(
 }
 
 /**
- * Count of `matches` rows with no matching `events` row (D-04). This
- * population is never legitimate — `openCorpus`'s `foreign_keys = ON`
- * pragma (D-02) prevents new orphans going forward, so this count is
- * asserted at 0, forever, by `integrity.test.ts`.
+ * Count of `matches` rows with no matching `events` row. This population
+ * is never legitimate — `openCorpus`'s `foreign_keys = ON` pragma prevents
+ * new orphans going forward, so this count is asserted at 0, forever, by
+ * `integrity.test.ts`.
  */
 export function selectOrphanMatchCount(db: Corpus): number {
   const row = db
@@ -781,11 +744,10 @@ export function selectOrphanMatchCount(db: Corpus): number {
 
 /**
  * Count of `matches` rows whose winner was derived from the score
- * comparison rather than reported by TBA (D-01/D-03). Unlike
- * `selectOrphanMatchCount`, a nonzero value here is valid TBA data the
- * project wants surfaced, not an invariant violation — `integrity.test.ts`
- * reports this count and never asserts it, so correct behavior can never
- * turn the suite red (D-04's explicit asymmetry).
+ * comparison rather than reported by TBA. Unlike `selectOrphanMatchCount`,
+ * a nonzero value here is valid TBA data the project wants surfaced, not
+ * an invariant violation — `integrity.test.ts` reports this count and
+ * never asserts it, so correct behavior can never turn the suite red.
  */
 export function selectImputedWinnerCount(db: Corpus): number {
   const row = db.prepare(`SELECT COUNT(*) as n FROM matches WHERE winner_imputed = 1`).get() as { n: number };
@@ -818,10 +780,10 @@ export interface IngestRunRecord {
 }
 
 /**
- * Upserts an ingest run's provenance row (T-01-06). Called once to start a
- * run (completed: false, finishedAt: null), then again as progress is made
- * and once more to mark completion — each call is durable immediately, so
- * an interrupted process leaves an accurate, identifiable partial record
+ * Upserts an ingest run's provenance row. Called once to start a run
+ * (completed: false, finishedAt: null), then again as progress is made and
+ * once more to mark completion — each call is durable immediately, so an
+ * interrupted process leaves an accurate, identifiable partial record
  * rather than an all-or-nothing write.
  */
 export function recordIngestRun(db: Corpus, run: IngestRunRecord): void {
@@ -861,7 +823,7 @@ interface IngestRunRow {
   completed: number;
 }
 
-/** Runs previously started but never marked complete — evidence of an interrupted process (T-01-06). */
+/** Runs previously started but never marked complete — evidence of an interrupted process. */
 export function findIncompleteIngestRuns(db: Corpus): IngestRunRecord[] {
   const rows = db
     .prepare(`SELECT * FROM ingest_runs WHERE completed = 0 ORDER BY started_at ASC`)
@@ -881,15 +843,15 @@ export function findIncompleteIngestRuns(db: Corpus): IngestRunRecord[] {
 export interface CorpusTeamMedia {
   teamKey: string;
   year: number;
-  /** NULL is a real, stored answer: "checked, none found" (D-03, TEAM-02). */
+  /** NULL is a real, stored answer: "checked, none found". */
   imageUrl: string | null;
   mediaType: string | null;
   fetchedAt: string;
 }
 
 /**
- * Upserts a team's resolved robot-photo answer for a year (TEAM-02, plan
- * 06-03). Overwrites every non-key column on conflict, so a re-run with a
+ * Upserts a team's resolved robot-photo answer for a year. Overwrites
+ * every non-key column on conflict, so a re-run with a
  * newly-uploaded photo replaces the prior answer. `imageUrl: null` is
  * written as SQL NULL, never skipped — recording "checked, none found" is
  * what stops every subsequent run from treating a photoless team as
@@ -919,9 +881,9 @@ interface TeamMediaRow {
 }
 
 /**
- * Every stored team-media answer for a season, keyed by team key (TEAM-02,
- * plan 06-03). This is the shape plan 06-04's publisher pass consumes. A
- * photoless team's entry is present with `imageUrl: null`, not absent.
+ * Every stored team-media answer for a season, keyed by team key — the
+ * shape the publisher pass consumes. A photoless team's entry is present
+ * with `imageUrl: null`, not absent.
  */
 export function selectTeamMediaForYear(
   db: Corpus,
@@ -944,14 +906,12 @@ export interface CorpusEventRanking {
   totalTeams: number;
   fetchedAt: string;
   /**
-   * D-18.6 (plan 07-02): TBA ranking entry's own `record` object and the RP
-   * `sort_orders[0]` value, renamed `ranking_score`. Optional, not
-   * required — `packages/ingest/cli.ts`'s existing `ingestSeasonRankingsOnly`
-   * call site must keep compiling unchanged at this plan's commit, three
-   * waves before 07-04 widens it to actually supply them. Omitting a field
-   * writes SQL NULL over whatever was there (see `upsertEventRanking`'s own
-   * doc comment for why that is harmless before 07-04 and the intended
-   * refresh semantics after it).
+   * TBA ranking entry's own `record` object and the RP `sort_orders[0]`
+   * value, renamed `ranking_score`. Optional, not required —
+   * `packages/ingest/cli.ts`'s `ingestSeasonRankingsOnly` call site can
+   * still compile without supplying them. Omitting a field writes SQL NULL
+   * over whatever was there (see `upsertEventRanking`'s own doc comment
+   * for the refresh semantics).
    */
   recordWins?: number | null;
   recordLosses?: number | null;
@@ -960,16 +920,13 @@ export interface CorpusEventRanking {
 }
 
 /**
- * Upserts one team's TBA-computed standing at one event (TEAM-04, F-06-3,
- * plan 06.1-01; D-18.6 record/ranking-score fields added plan 07-02).
- * Mirrors `upsertTeamMedia`'s upsert-on-conflict shape: overwrites every
- * non-key column on conflict, so a re-run over an already-ingested event
- * refreshes every field in place rather than duplicating rows (the
+ * Upserts one team's TBA-computed standing at one event. Mirrors
+ * `upsertTeamMedia`'s upsert-on-conflict shape: overwrites every non-key
+ * column on conflict, so a re-run over an already-ingested event refreshes
+ * every field in place rather than duplicating rows (the
  * `(event_key, team_key)` primary key makes this idempotent). A caller
- * omitting the four D-18.6 fields writes NULL over whatever was there —
- * harmless before 07-04 widens `ingestSeasonRankingsOnly` to always supply
- * them (every row's four columns are already NULL until then), and the
- * intended refresh semantics afterward.
+ * omitting the four record/ranking-score fields writes NULL over whatever
+ * was there.
  */
 export function upsertEventRanking(db: Corpus, ranking: CorpusEventRanking): void {
   db.prepare(
@@ -1009,13 +966,12 @@ interface EventRankingRow {
 
 /**
  * Every stored event ranking for a season, nested `event_key -> team_key ->
- * {rank, totalTeams, recordWins, recordLosses, recordTies, rankingScore}`
- * (TEAM-04, F-06-3, plan 06.1-01; D-18.6 fields added plan 07-02) — the
- * shape `packages/harness/publish.ts`'s per-team artifact assembly looks up
- * by key, never by array position (this plan's `must_haves.truths`:
- * SQLite's row order is never load-bearing). Joins `events` to filter by
- * season, mirroring `selectTeamKeysForYear`'s join-to-`events` shape, since
- * `event_rankings` itself carries no `year` column. The four D-18.6 fields
+ * {rank, totalTeams, recordWins, recordLosses, recordTies, rankingScore}` —
+ * the shape `packages/harness/publish.ts`'s per-team artifact assembly
+ * looks up by key, never by array position (SQLite's row order is never
+ * load-bearing). Joins `events` to filter by season, mirroring
+ * `selectTeamKeysForYear`'s join-to-`events` shape, since `event_rankings`
+ * itself carries no `year` column. The four record/ranking-score fields
  * read `null` for any row that never had them written.
  */
 export function selectEventRankingsForSeason(
@@ -1083,12 +1039,11 @@ export interface CorpusEventAlliance {
 }
 
 /**
- * The read shape 07-08 maps onto 07-07's `EventAllianceSchema` (D-15, D-16,
- * plan 07-02 Task 1) — deliberately omits `declines`, which no Phase 7
- * consumer reads (see `selectEventAlliancesForSeason`'s own doc comment).
- * `07-UAT.md` G-8 (plan 07-21) widens this with `record`, DERIVED from
- * `statusRaw` rather than exposing that raw column itself — the only field
- * any Phase 7 consumer needs out of TBA's `status` object is the playoff
+ * The read shape maps onto `EventAllianceSchema` — deliberately omits
+ * `declines`, which no consumer reads (see
+ * `selectEventAlliancesForSeason`'s own doc comment). `record` is DERIVED
+ * from `statusRaw` rather than exposing that raw column itself — the only
+ * field any consumer needs out of TBA's `status` object is the playoff
  * win-loss-tie record.
  */
 export interface EventAllianceSelection {
@@ -1162,8 +1117,8 @@ export function parseAllianceRecord(statusRaw: string | null): { wins: number; l
 }
 
 /**
- * Upserts one playoff alliance's selection for one event (D-18.7, plan
- * 07-02 Task 1). Mirrors `upsertEventRanking`'s upsert-on-conflict shape:
+ * Upserts one playoff alliance's selection for one event. Mirrors
+ * `upsertEventRanking`'s upsert-on-conflict shape:
  * overwrites every non-key column on conflict, so a re-run over an
  * already-ingested event refreshes the row in place rather than duplicating
  * it (the `(event_key, alliance_number)` primary key makes this
@@ -1201,18 +1156,18 @@ interface EventAllianceRow {
 }
 
 /**
- * Every stored alliance for a season, keyed by event key (D-15, D-16, plan
- * 07-02 Task 1), each event's alliances ordered ascending by
- * `alliance_number` through an explicit `ORDER BY` — seed order is a stated
- * contract here, never an artifact of SQLite's row order. Joins `events` to
- * filter by season, mirroring `selectEventRankingsForSeason`'s join (this
- * table carries no `year` column either). An event with no upserted
- * alliances is absent from the returned map entirely — no key, no
- * zero-length placeholder entry. `declines` is intentionally not selected —
- * no Phase 7 consumer reads it — a future consumer widens this SELECT
- * rather than re-ingesting. `status_raw` IS now selected (07-UAT.md G-8,
- * plan 07-21) and run through `parseAllianceRecord` below to populate
- * `record` — the raw column itself is never exposed past this function.
+ * Every stored alliance for a season, keyed by event key, each event's
+ * alliances ordered ascending by `alliance_number` through an explicit
+ * `ORDER BY` — seed order is a stated contract here, never an artifact of
+ * SQLite's row order. Joins `events` to filter by season, mirroring
+ * `selectEventRankingsForSeason`'s join (this table carries no `year`
+ * column either). An event with no upserted alliances is absent from the
+ * returned map entirely — no key, no zero-length placeholder entry.
+ * `declines` is intentionally not selected — no consumer reads it, a
+ * future consumer widens this SELECT rather than re-ingesting.
+ * `status_raw` IS selected and run through `parseAllianceRecord` below to
+ * populate `record` — the raw column itself is never exposed past this
+ * function.
  */
 export function selectEventAlliancesForSeason(
   db: Corpus,
@@ -1241,7 +1196,7 @@ export function selectEventAlliancesForSeason(
 }
 
 export interface SelectTeamKeysForYearOptions {
-  /** Drop matches belonging to an event flagged is_offseason — mirrors selectScheduledMatches' clause (plan 06-03). */
+  /** Drop matches belonging to an event flagged is_offseason — mirrors selectScheduledMatches' clause. */
   excludeOffseason?: boolean;
 }
 
@@ -1252,8 +1207,8 @@ interface TeamKeysRow {
 
 /**
  * The sorted, distinct set of team keys appearing on any match (played or
- * scheduled) in a season (plan 06-03) — the media pass's scope, so it
- * agrees with the publish pass's own scope on which teams count.
+ * scheduled) in a season — the media pass's scope, so it agrees with the
+ * publish pass's own scope on which teams count.
  */
 export function selectTeamKeysForYear(
   db: Corpus,
@@ -1289,19 +1244,16 @@ interface CorpusSeasonRow {
 }
 
 /**
- * D-4 (quick task 260903-n2o): the distinct, non-offseason seasons actually
- * present in the corpus — the CORRECT source for `aggregateScores`'
- * `corpusSeasons`, never a `--seasons` CLI range. Eligibility is a property
- * of the data available, not of what a given run chose to publish or
- * replay; sourcing it from the CLI range made a single-season republish
- * capable of flipping a live key's eligibility (`publish.ts:1981`'s
- * pre-fix `seasonsSorted` argument).
+ * The distinct, non-offseason seasons actually present in the corpus — the
+ * correct source for `aggregateScores`' `corpusSeasons`, never a
+ * `--seasons` CLI range. Eligibility is a property of the data available,
+ * not of what a given run chose to publish or replay; sourcing it from the
+ * CLI range let a single-season republish flip a live key's eligibility.
  *
  * Mirrors `selectTeamKeysForYear`'s join-to-`events` shape. The
  * non-offseason filter matches the population `aggregateScores` actually
- * scores by default (D-06 excludes offseason matches) — a season that
- * exists only as offseason exhibitions is not a genuine prior for headline
- * eligibility purposes.
+ * scores by default — a season that exists only as offseason exhibitions
+ * is not a genuine prior for headline eligibility purposes.
  */
 export interface CorpusDistrict {
   /** TBA's year-prefixed key, e.g. "2026fnc" -- see schema.sql's doc comment for why this is NOT the same thing as events.district_key. */
@@ -1309,17 +1261,17 @@ export interface CorpusDistrict {
   year: number;
   abbreviation: string;
   displayName: string;
-  /** NULL is the honest stored answer for "TBA published no official_advancement_counts for this district-year" (quick task 260905-lic Task 1) -- never a guessed 0. */
+  /** NULL is the honest stored answer for "TBA published no official_advancement_counts for this district-year" -- never a guessed 0. */
   dcmpSlots: number | null;
   cmpSlots: number | null;
   fetchedAt: string;
 }
 
 /**
- * Upserts one district-year's capacity/metadata (quick task 260905-lic Task
- * 1), sourced from TBA's `/districts/{year}`. Mirrors `upsertEventRanking`'s
- * upsert-on-conflict shape: overwrites every non-key column on conflict, so a
- * re-run refreshes the row in place rather than duplicating it.
+ * Upserts one district-year's capacity/metadata, sourced from TBA's
+ * `/districts/{year}`. Mirrors `upsertEventRanking`'s upsert-on-conflict
+ * shape: overwrites every non-key column on conflict, so a re-run
+ * refreshes the row in place rather than duplicating it.
  */
 export function upsertDistrict(db: Corpus, district: CorpusDistrict): void {
   db.prepare(
@@ -1353,7 +1305,7 @@ interface DistrictRow {
   fetched_at: string;
 }
 
-/** Every stored district for a season (quick task 260905-lic Task 1) -- used both by Task 2's publish pass and by the ingest CLI's 304 fallback path (re-deriving the districtKey list already stored, when TBA's own list 304s). */
+/** Every stored district for a season -- used both by the publish pass and by the ingest CLI's 304 fallback path (re-deriving the districtKey list already stored, when TBA's own list 304s). */
 export function selectDistrictsForYear(db: Corpus, year: number): CorpusDistrict[] {
   const rows = db
     .prepare(
@@ -1380,20 +1332,20 @@ export interface CorpusDistrictRanking {
   rookieBonus: number;
   adjustments: number;
   /**
-   * TBA's `event_points` array, stored VERBATIM as JSON (quick task
-   * 260905-lic Task 1) -- following `matches.score_breakdown_raw` /
-   * `event_alliances.status_raw`'s provenance precedent. Task 2's publish
-   * layer parses this with its own season-aware Zod schema rather than this
-   * accessor modelling the per-component point model.
+   * TBA's `event_points` array, stored verbatim as JSON -- following
+   * `matches.score_breakdown_raw` / `event_alliances.status_raw`'s
+   * provenance precedent. The publish layer parses this with its own
+   * season-aware Zod schema rather than this accessor modelling the
+   * per-component point model.
    */
   eventPointsRaw: string;
   fetchedAt: string;
 }
 
 /**
- * Upserts one team's district point ranking (quick task 260905-lic Task 1),
- * sourced from TBA's `/district/{key}/rankings`. Mirrors `upsertDistrict`'s
- * upsert-on-conflict shape.
+ * Upserts one team's district point ranking, sourced from TBA's
+ * `/district/{key}/rankings`. Mirrors `upsertDistrict`'s upsert-on-conflict
+ * shape.
  */
 export function upsertDistrictRanking(db: Corpus, ranking: CorpusDistrictRanking): void {
   db.prepare(
@@ -1429,7 +1381,7 @@ interface DistrictRankingRow {
   fetched_at: string;
 }
 
-/** Every stored district ranking for a district, ordered ascending by rank (quick task 260905-lic Task 1) -- the shape Task 2's publish pass reads. */
+/** Every stored district ranking for a district, ordered ascending by rank -- the shape the publish pass reads. */
 export function selectDistrictRankings(db: Corpus, districtKey: string): CorpusDistrictRanking[] {
   const rows = db
     .prepare(
@@ -1456,10 +1408,9 @@ export interface CorpusEventTeam {
 }
 
 /**
- * Upserts one team's registration at one event (quick task 260905-lic Task
- * 1), sourced from TBA's `/event/{key}/teams/keys` -- the only way to know a
- * team has an event still ahead of it. Mirrors `upsertDistrict`'s
- * upsert-on-conflict shape.
+ * Upserts one team's registration at one event, sourced from TBA's
+ * `/event/{key}/teams/keys` -- the only way to know a team has an event
+ * still ahead of it. Mirrors `upsertDistrict`'s upsert-on-conflict shape.
  */
 export function upsertEventTeam(db: Corpus, eventTeam: CorpusEventTeam): void {
   db.prepare(
@@ -1477,10 +1428,9 @@ interface EventTeamRow {
 
 /**
  * Every stored event-registration row for a set of event keys, keyed by
- * event key (quick task 260905-lic Task 1) -- mirrors
- * `selectEventAlliancesForSeason`'s absence discipline: an event with no
- * upserted registrations is absent from the returned map entirely, no key,
- * no zero-length placeholder entry.
+ * event key -- mirrors `selectEventAlliancesForSeason`'s absence
+ * discipline: an event with no upserted registrations is absent from the
+ * returned map entirely, no key, no zero-length placeholder entry.
  */
 export function selectEventTeamsForEvents(db: Corpus, eventKeys: string[]): Map<string, string[]> {
   const result = new Map<string, string[]>();
@@ -1505,10 +1455,10 @@ export interface CorpusEventAward {
 }
 
 /**
- * Upserts one award recipient row (quick task 260905-lic revision R2a),
- * sourced from TBA's `/event/{key}/awards`. Mirrors `upsertEventTeam`'s
- * upsert-on-conflict shape; the `(event_key, award_type, team_key)` primary
- * key makes a re-run idempotent.
+ * Upserts one award recipient row, sourced from TBA's
+ * `/event/{key}/awards`. Mirrors `upsertEventTeam`'s upsert-on-conflict
+ * shape; the `(event_key, award_type, team_key)` primary key makes a
+ * re-run idempotent.
  */
 export function upsertEventAward(db: Corpus, award: CorpusEventAward): void {
   db.prepare(
@@ -1536,10 +1486,9 @@ interface EventAwardRow {
 
 /**
  * Every stored award-recipient row for a set of event keys, keyed by event
- * key (quick task 260905-lic revision R2a) -- mirrors
- * `selectEventTeamsForEvents`'s absence discipline: an event with no
- * upserted awards is absent from the returned map entirely, no key, no
- * zero-length placeholder entry.
+ * key -- mirrors `selectEventTeamsForEvents`'s absence discipline: an
+ * event with no upserted awards is absent from the returned map entirely,
+ * no key, no zero-length placeholder entry.
  */
 export function selectEventAwardsForEvents(db: Corpus, eventKeys: string[]): Map<string, CorpusEventAward[]> {
   const result = new Map<string, CorpusEventAward[]>();
@@ -1564,8 +1513,8 @@ export function selectEventAwardsForEvents(db: Corpus, eventKeys: string[]): Map
 }
 
 /**
- * One stored row of `event_awards_all` (quick task 260912-5n8 T1) — the
- * UNFILTERED award table that lives alongside `CorpusEventAward` above and
+ * One stored row of `event_awards_all` — the unfiltered award table that
+ * lives alongside `CorpusEventAward` above and
  * does not replace it. `teamKey` and `awardee` are BOTH nullable because
  * TBA's own `recipient_list` entry is (`tbaAwardRecipientSchema`): a
  * person-only award carries `team_key: null`, a team-only award carries
@@ -1587,8 +1536,7 @@ export interface CorpusEventAwardAll {
 
 /**
  * Replaces every `event_awards_all` row for ONE event, in a single
- * transaction: DELETE by `event_key`, then INSERT each supplied row (quick
- * task 260912-5n8 T1).
+ * transaction: DELETE by `event_key`, then INSERT each supplied row.
  *
  * This is deliberately NOT an upsert, unlike `upsertEventAward` above. The
  * table's primary key is positional (`award_index`, `recipient_index`), so
@@ -1652,10 +1600,10 @@ interface EventAwardAllRow {
 
 /**
  * Every stored `event_awards_all` row for one season, ordered
- * deterministically by (event_key, award_index, recipient_index) — quick
- * task 260912-5n8 T1. Selects on the denormalized `year` column so a
- * walk-forward scan ("every award strictly before season Y") needs no join
- * to `events`, which is the whole reason that column is denormalized.
+ * deterministically by (event_key, award_index, recipient_index). Selects
+ * on the denormalized `year` column so a walk-forward scan ("every award
+ * strictly before season Y") needs no join to `events`, which is the whole
+ * reason that column is denormalized.
  */
 export function selectEventAwardsAllForYear(db: Corpus, year: number): CorpusEventAwardAll[] {
   const rows = db
