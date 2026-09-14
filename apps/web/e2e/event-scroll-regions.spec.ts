@@ -77,7 +77,7 @@ function eventUrl(eventKey: string, tab: string): string {
 test.describe("E5 — Quals tab at phone width, highest-risk item on this tab", () => {
   const CASES = [
     { eventKey: "2023cur", label: "the widest non-championship-excluded quals slate", rowCount: 130 },
-    { eventKey: "2025flta", label: "07-12's own routed merge-at-width target (63 played + 21 upcoming)", rowCount: 84 },
+    { eventKey: "2025flta", label: "merge-at-width target (63 played + 21 upcoming)", rowCount: 84 },
   ] as const;
 
   for (const { eventKey, label, rowCount } of CASES) {
@@ -95,7 +95,7 @@ test.describe("E5 — Quals tab at phone width, highest-risk item on this tab", 
       const shot = testInfo.outputPath(`quals-${eventKey}-${rowCount}-rows.png`);
       await page.screenshot({ path: shot, fullPage: true });
       // eslint-disable-next-line no-console -- Task 3's checkpoint names this exact path for the human judgement call.
-      console.log(`[07-20] quals density screenshot: ${shot}`);
+      console.log(`[event-scroll-regions] quals density screenshot: ${shot}`);
 
       const matchHeader = region.getByRole("columnheader", { name: "Match", exact: true });
       const actualHeader = region.getByRole("columnheader", { name: "Actual", exact: true });
@@ -135,7 +135,7 @@ test.describe("E6 — Elims tab at phone width, the widest elimination slate in 
     const shot = testInfo.outputPath("elims-2022mirr-60-rows.png");
     await page.screenshot({ path: shot, fullPage: true });
     // eslint-disable-next-line no-console -- Task 3's checkpoint names this exact path for the human judgement call.
-    console.log(`[07-20] elims density screenshot: ${shot}`);
+    console.log(`[event-scroll-regions] elims density screenshot: ${shot}`);
 
     const { box, midY } = await visibleMidpoint(page, region);
     await touchDrag(page, { x: box.x + box.width - 20, y: midY }, { x: box.x + 20, y: midY });
@@ -296,7 +296,7 @@ test.describe("E3 — Insights tab at the widest real rosters", () => {
   ] as const;
 
   for (const { eventKey, rowCount } of CASES) {
-    test(`${eventKey}: exactly ${rowCount} rows, every column including rank and Team # scrolls with a full-width drag (no sticky columns, 2026-09-13)`, async ({ page }) => {
+    test(`${eventKey}: exactly ${rowCount} rows, every column including rank and Team # scrolls with a full-width drag (no sticky columns)`, async ({ page }) => {
       await page.goto(eventUrl(eventKey, "insights"), { waitUntil: "networkidle" });
       const region = page.locator('[data-testid="insights-table-scroll"]');
       await region.waitFor({ state: "visible", timeout: 15_000 });
@@ -332,7 +332,7 @@ test.describe("E3 — Insights tab at the widest real rosters", () => {
 // ---------------------------------------------------------------------------
 
 test.describe("E4 — Breakdown tab at the app's widest column set", () => {
-  test("2024new: exactly 16 header columns, every column scrolls with a full-width drag (no sticky columns, 2026-09-13)", async ({ page }) => {
+  test("2024new: exactly 16 header columns, every column scrolls with a full-width drag (no sticky columns)", async ({ page }) => {
     await page.goto(eventUrl("2024new", "breakdown"), { waitUntil: "networkidle" });
     const region = page.locator('[data-testid="breakdown-table-scroll"]');
     await region.waitFor({ state: "visible", timeout: 15_000 });

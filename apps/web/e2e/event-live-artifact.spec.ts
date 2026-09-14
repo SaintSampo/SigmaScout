@@ -18,7 +18,7 @@ async function resolveVprVersion(request: APIRequestContext): Promise<string> {
   expect(response.ok(), `manifest fetch failed: ${response.status()}`).toBe(true);
   const manifest = (await response.json()) as { algorithms: { id: string; version: string }[] };
   const vpr = manifest.algorithms.find((a) => a.id === "vpr");
-  if (vpr === undefined) throw new Error("manifest carries no vpr entry — 07-16/07-17/07-18 have not all landed");
+  if (vpr === undefined) throw new Error("manifest carries no vpr entry — the prerequisite publish has not landed");
   return vpr.version;
 }
 
@@ -34,8 +34,8 @@ async function fetchEventArtifact(request: APIRequestContext, eventKey: string, 
 // artifact, with a real ranked-artifact control.
 // ---------------------------------------------------------------------------
 
-test.describe("ledger row 4 — D-08 fallback ordering, real artifact + control", () => {
-  test("2025isios (offseason, reachable only via 07-09's --include-offseason + 07-17's republish): no team carries a rank, and the Insights tab renders the fallback banner", async ({
+test.describe("ledger row 4 — no-ranking fallback ordering, real artifact + control", () => {
+  test("2025isios (offseason, reachable only via --include-offseason and a republish): no team carries a rank, and the Insights tab renders the fallback banner", async ({
     page,
     request,
   }) => {
@@ -45,7 +45,7 @@ test.describe("ledger row 4 — D-08 fallback ordering, real artifact + control"
     // Absence via the property's own absence/undefined, never a falsy check —
     // a published rank of 0 could not be mistaken for absence this way.
     const anyRanked = artifact.teams.some((team) => team.rank !== undefined);
-    expect(anyRanked, "2025isios unexpectedly carries a rank on at least one team — the D-08 fallback fixture no longer exhibits the shape under test").toBe(false);
+    expect(anyRanked, "2025isios unexpectedly carries a rank on at least one team — the no-ranking fallback fixture no longer exhibits the shape under test").toBe(false);
 
     await page.goto("/event/2025isios?tab=insights&algorithm=vpr", { waitUntil: "networkidle" });
     const banner = page.getByTestId("insights-fallback-banner");
@@ -62,7 +62,7 @@ test.describe("ledger row 4 — D-08 fallback ordering, real artifact + control"
     const artifact = await fetchEventArtifact(request, "2024new", version);
     expect(artifact.teams.length).toBe(75);
     const allRanked = artifact.teams.every((team) => team.rank !== undefined);
-    expect(allRanked, "2024new no longer publishes a rank on every team — the D-08 control fixture no longer exhibits the shape under test").toBe(true);
+    expect(allRanked, "2024new no longer publishes a rank on every team — the no-ranking control fixture no longer exhibits the shape under test").toBe(true);
 
     await page.goto("/event/2024new?tab=insights&algorithm=vpr", { waitUntil: "networkidle" });
     await expect(page.getByTestId("insights-row").first()).toBeVisible();

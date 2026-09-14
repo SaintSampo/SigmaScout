@@ -60,7 +60,7 @@ test.describe("S3 — the rank-distribution table at its largest real roster (20
     const expectedPitch = PLOT_W / S3_TEAM_COUNT;
     expect(Math.abs(measuredPitch - expectedPitch), `measured slot pitch ${measuredPitch}px vs expected ${expectedPitch}px`).toBeLessThanOrEqual(0.5);
     // eslint-disable-next-line no-console -- printed for the SUMMARY's measured-figure obligation.
-    console.log(`[08-15] S3 measured slot pitch at ${S3_TEAM_COUNT} teams: ${measuredPitch.toFixed(2)}px (PLOT_W/N = ${expectedPitch.toFixed(2)}px)`);
+    console.log(`[simulation-tab] measured slot pitch at ${S3_TEAM_COUNT} teams: ${measuredPitch.toFixed(2)}px (PLOT_W/N = ${expectedPitch.toFixed(2)}px)`);
 
     let maxDistinctBarPositions = 0;
     const rowCount = await rows.count();
@@ -103,14 +103,14 @@ test.describe("S3 — the rank-distribution table at its largest real roster (20
     const tableText = (await page.locator('[data-testid="rank-distribution-table-scroll"]').innerText()).trim();
     expect(tableText).not.toContain("±");
 
-    expect(elapsedMs, `measured elapsed ${elapsedMs}ms must clear a generous ceiling (PD-06) — only a real hang or a pathological regression trips this`).toBeLessThan(60_000);
+    expect(elapsedMs, `measured elapsed ${elapsedMs}ms must clear a generous ceiling — only a real hang or a pathological regression trips this`).toBeLessThan(60_000);
     // eslint-disable-next-line no-console -- printed for the SUMMARY's SC-2 obligation, complementing 08-13's representative capture.
-    console.log(`[08-15] S3 worst-case measurement: event=${S3_EVENT_KEY} teamCount=${S3_TEAM_COUNT} remainingMatches=${S3_REMAINING_MATCHES} elapsedMs=${elapsedMs}`);
+    console.log(`[simulation-tab] worst-case measurement: event=${S3_EVENT_KEY} teamCount=${S3_TEAM_COUNT} remainingMatches=${S3_REMAINING_MATCHES} elapsedMs=${elapsedMs}`);
 
     const shot = testInfo.outputPath(`simulation-tab-${S3_EVENT_KEY}-${S3_TEAM_COUNT}-rows-desktop.png`);
     await page.screenshot({ path: shot, fullPage: true });
     // eslint-disable-next-line no-console -- Task 4's checkpoint names this exact path for the human judgement call.
-    console.log(`[08-15] S3 desktop screenshot: ${shot}`);
+    console.log(`[simulation-tab] desktop screenshot: ${shot}`);
   });
 
   test("390x844: the same 78-row table, its own scroll region overflows, passes the ancestor walk, and Team # moves across a full-width drag exactly like Nickname and Median (no column is pinned)", async ({
@@ -155,12 +155,12 @@ test.describe("S3 — the rank-distribution table at its largest real roster (20
 
     expect(elapsedMs).toBeLessThan(60_000);
     // eslint-disable-next-line no-console -- printed for the SUMMARY's SC-2 obligation.
-    console.log(`[08-15] S3 worst-case measurement (390px): event=${S3_EVENT_KEY} teamCount=${S3_TEAM_COUNT} remainingMatches=${S3_REMAINING_MATCHES} elapsedMs=${elapsedMs}`);
+    console.log(`[simulation-tab] worst-case measurement (390px): event=${S3_EVENT_KEY} teamCount=${S3_TEAM_COUNT} remainingMatches=${S3_REMAINING_MATCHES} elapsedMs=${elapsedMs}`);
 
     const shot = testInfo.outputPath(`simulation-tab-${S3_EVENT_KEY}-${S3_TEAM_COUNT}-rows-phone.png`);
     await page.screenshot({ path: shot, fullPage: true });
     // eslint-disable-next-line no-console -- Task 4's checkpoint names this exact path for the human judgement call.
-    console.log(`[08-15] S3 phone screenshot: ${shot}`);
+    console.log(`[simulation-tab] phone screenshot: ${shot}`);
   });
 });
 
@@ -252,7 +252,7 @@ test.describe("S1 — the start-match picker at its real maximum (2022oncmp, 134
     // the at-boundary chaining feel is Task 4's checkpoint judgement to make.
     const overscrollBehaviorY = await picker.evaluate((el) => getComputedStyle(el).overscrollBehaviorY);
     // eslint-disable-next-line no-console -- printed per this task's own instruction; never asserted.
-    console.log(`[08-15] S1 picker computed overscroll-behavior-y: ${overscrollBehaviorY}`);
+    console.log(`[simulation-tab] picker computed overscroll-behavior-y: ${overscrollBehaviorY}`);
   });
 });
 
@@ -261,7 +261,7 @@ const S1_CONTROL_EVENT_KEY = "2024wvrox";
 const SIMULATION_UNAVAILABLE_HEADING = "Rank simulation isn't available for this event";
 
 test.describe("S1 control — 2024wvrox, the largest qualification slate in the corpus (135 rows), renders the unavailable state and zero picker rows", () => {
-  test("PD-01's retarget mechanism, made legible as a control: TBA event type 99 is deliberately absent from EVENT_TYPE_TIERS, so the RP algorithm emits no pmf here, so hasSimulatableRankInputs is false and 08-09's unavailable branch renders instead of a picker", async ({ page }) => {
+  test("the event-type gate, made legible as a control: TBA event type 99 is deliberately absent from EVENT_TYPE_TIERS, so the RP algorithm emits no pmf here, so hasSimulatableRankInputs is false and the unavailable branch renders instead of a picker", async ({ page }) => {
     await page.goto(`/event/${S1_CONTROL_EVENT_KEY}?algorithm=vpr&tab=simulation`, { waitUntil: "networkidle" });
     await expect(page.getByText(SIMULATION_UNAVAILABLE_HEADING)).toBeVisible();
     expect(await page.locator(`[data-testid^="${SIMULATION_TEST_IDS.rowPrefix}"]`).count()).toBe(0);

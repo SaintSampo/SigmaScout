@@ -40,7 +40,7 @@ const RUN_CONTROL_TESTID = "run-control";
 const RUN_LABEL_UPDATE = "Update simulation";
 const START_MATCH_ROW_TESTID = `start-match-row-${FIRST_QUAL_MATCH_KEY}`;
 
-test.describe("SC-2 measurement — 2023cur, real Worker, real published bytes", () => {
+test.describe("Simulation round-trip measurement — 2023cur, real Worker, real published bytes", () => {
   test("a full round trip from the first qualification match prints a shape-only, real-browser measurement", async ({ page, browserName }) => {
     await page.goto(EVENT_URL);
 
@@ -93,13 +93,13 @@ test.describe("SC-2 measurement — 2023cur, real Worker, real published bytes",
 
     const version = page.context().browser()?.version() ?? "unknown";
 
-    // Printed for transcription into the phase SUMMARY (SC-2's only durable
-    // "recorded" home — no committed benchmark file exists, per D-07's
+    // Printed for transcription into the phase SUMMARY (the measurement's only durable
+    // "recorded" home — no committed benchmark file exists, an
     // accepted consequence). This is the whole reason this spec prints
     // rather than only asserting.
     // eslint-disable-next-line no-console
     console.log(
-      `[SC-2 measurement] event=${EVENT_KEY} season=2023 teamCount=${teamCount} remainingMatches=${remainingMatches} ` +
+      `[simulation-run measurement] event=${EVENT_KEY} season=2023 teamCount=${teamCount} remainingMatches=${remainingMatches} ` +
         `elapsedMs=${elapsedMs} computeMs=${computeMs} sentence="${completionText}" browser=${browserName}/${version} os=${process.platform}`
     );
   });
