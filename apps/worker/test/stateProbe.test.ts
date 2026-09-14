@@ -1,8 +1,8 @@
 /**
- * Quick task 260912-3e6, Task 2. Pins two properties of `src/stateProbe.ts`
- * that a naive "it returns 200" test would not catch:
+ * Pins two properties of `src/stateProbe.ts` that a naive "it returns 200"
+ * test would not catch:
  *
- *   1. It genuinely cannot write to D1, EVEN THOUGH `wrangler.probe.toml`
+ *   1. It genuinely cannot write to D1, even though `wrangler.probe.toml`
  *      binds `DB` read-write (Workers has no read-only D1 binding — see
  *      `stateProbe.ts`'s own header for the two-layer guarantee this file
  *      is the "test-enforced" half of).
@@ -11,9 +11,9 @@
  *      probe reports are not all suppressed to zero while still returning
  *      `ok: true`.
  *
- * Three of the four groups below are BEHAVIORAL for exactly that reason: a
- * test that would still pass if the probe silently stopped exercising the RP
- * path is worthless.
+ * Three of the four groups below are behavioral for exactly that reason: a
+ * test that would still pass if the probe silently stopped exercising the
+ * RP path is worthless.
  */
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -44,13 +44,9 @@ const __dirname = dirname(__filename);
 const STATE_PROBE_SRC = resolve(__dirname, "../src/stateProbe.ts");
 const WRANGLER_PROBE_TOML = resolve(__dirname, "../wrangler.probe.toml");
 
-// ---------------------------------------------------------------------------
-// Comment stripping — following `liveAlgorithmTier.test.ts`'s
-// `extractVarsValue` precedent ("drop comment lines BEFORE matching"),
-// extended to block comments since `stateProbe.ts`'s own header (which MUST
-// name `writeScopedState`/`writeEventCursor`/`scheduled.ts` in prose, per its
-// own design) lives inside a `/** */` block.
-// ---------------------------------------------------------------------------
+// Comment stripping, extended to block comments since `stateProbe.ts`'s own
+// header (which must name `writeScopedState`/`writeEventCursor`/
+// `scheduled.ts` in prose) lives inside a `/** */` block.
 
 function stripComments(source: string): string {
   const noBlockComments = source.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -63,11 +59,8 @@ function stripComments(source: string): string {
     .join("\n");
 }
 
-// ---------------------------------------------------------------------------
 // Transitive local import graph walker — `readFileSync` + a relative-
-// specifier regex, resolving `.js` -> `.ts`, the same on-disk-file-reading
-// shape `liveAlgorithmTier.test.ts` already uses for `wrangler.toml`.
-// ---------------------------------------------------------------------------
+// specifier regex, resolving `.js` -> `.ts`.
 
 const LOCAL_IMPORT_RE = /from\s+["'](\.\.?\/[^"']+)["']/g;
 
@@ -181,8 +174,8 @@ describe("stateProbe — Group 1: the no-write property, STATIC", () => {
 });
 
 describe("stateProbe — Group 2: selection-rule equivalence with the real tick", () => {
-  // The test file itself MAY import scheduled.ts freely (only the probe's
-  // OWN graph is constrained, per Group 1 above) — that is what lets this
+  // The test file itself may import scheduled.ts freely (only the probe's
+  // own graph is constrained, per Group 1 above) — that is what lets this
   // group compare the probe's duplicate against the real thing at all.
   const EVENT_KEY = "2026testevt";
   const TEAMS = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
@@ -197,16 +190,12 @@ describe("stateProbe — Group 2: selection-rule equivalence with the real tick"
   });
 });
 
-// ---------------------------------------------------------------------------
-// Group 3 + 4 fixtures: a fake D1Database, deliberately DUPLICATED from
-// `apps/worker/test/stateStore.test.ts` rather than imported (that file
-// exports none of these classes; `scheduled.rp.test.ts`'s header already
-// sets this codebase's precedent for the exact same cross-boundary
-// situation). Extended here to COUNT WRITE STATEMENTS — any `batch()` call,
-// and any `run()` whose SQL is not a SELECT — which is the behavioral half
-// of Group 1's static "no write helper is reachable" proof: this proves no
-// write was actually ISSUED, against a probe wired to a live-shaped D1.
-// ---------------------------------------------------------------------------
+// Group 3 + 4 fixtures: a fake D1Database, deliberately duplicated from
+// `apps/worker/test/stateStore.test.ts` rather than imported. Extended
+// here to count write statements — any `batch()` call, and any `run()`
+// whose SQL is not a SELECT — which is the behavioral half of Group 1's
+// static "no write helper is reachable" proof: this proves no write was
+// actually issued, against a probe wired to a live-shaped D1.
 
 interface FakeAlgorithmStateRow {
   algorithm_id: string;
@@ -325,9 +314,8 @@ const SEED_STAMP = { generation: "seed", computedAt: "2026-01-01T00:00:00.000Z" 
 const SEED_EVENT_KEY = "2026seedevt";
 /**
  * 21 teams — matches `stateProbe.ts`'s own `DEFAULT_TEAM_COUNT`, so a probe
- * request with NO `teamCount=` override (the exact request shape this
- * plan's Task 2 spec drives) finds a full-sized roster and never trips the
- * "roster smaller than requested" warning.
+ * request with no `teamCount=` override finds a full-sized roster and
+ * never trips the "roster smaller than requested" warning.
  */
 const SEED_ROSTER = Array.from({ length: 21 }, (_, i) => `frc${i + 1}`);
 
@@ -395,15 +383,15 @@ const SEED_MATCHES: readonly MatchResult[] = Array.from({ length: SEED_MATCH_COU
 });
 
 /**
- * Seeds a fresh `FakeD1Database` with REAL rows for all three published
- * algorithms — built via `initState`/`update`/`serializeState` and, for spr,
- * real `SigmaScoreAccumulator`/`RpMomentsAccumulator`
- * instances that folded the SAME seed matches — never hand-written JSON.
+ * Seeds a fresh `FakeD1Database` with real rows for all three published
+ * algorithms — built via `initState`/`update`/`serializeState` and, for
+ * spr, real `SigmaScoreAccumulator`/`RpMomentsAccumulator` instances that
+ * folded the same seed matches — never hand-written JSON.
  *
- * Folding the seed matches through the SAME 6-team roster the probe's own
- * `rosterAt` cycles through (n=6, so every synthetic match uses the whole
- * roster) is what makes the seeded RP beliefs cover the probe's own fold, so
- * the partial-roster gate does not fire on the very first synthetic match.
+ * Folding the seed matches through the same 6-team roster the probe's own
+ * `rosterAt` cycles through is what makes the seeded RP beliefs cover the
+ * probe's own fold, so the partial-roster gate does not fire on the very
+ * first synthetic match.
  */
 function seedAllAlgorithms(db: FakeD1Database): void {
   let oprState = opr.initState([...SEED_ROSTER]);
@@ -530,25 +518,19 @@ describe("stateProbe — Group 4: the shape-mismatch report is readable, not an 
   });
 });
 
-// ---------------------------------------------------------------------------
-// Group 5 — quick task 260912-iur. The `rp` ablation arm.
+// Group 5 — the `rp` ablation arm.
 //
-// Group 3 above is deliberately LEFT UNTOUCHED by that task: it was written
+// Group 3 above is deliberately left untouched by this arm: it was written
 // before the flag existed, passes no `rp` param, and still asserts
-// `rpPmfsProduced === 7` and `warnings === []`. That it still passes verbatim
-// is the default-ON regression proof — the thing that keeps the existing
-// 13 ms p50 / 28 ms p90 measurements comparable.
+// `rpPmfsProduced === 7` and `warnings === []`. That it still passes
+// verbatim is the default-ON regression proof.
 //
-// The load-bearing assertion in THIS group is `bandsProduced`, pinned EQUAL
-// across the two arms. Task 1 established from `git log -S` that the band
-// calls predate Phase 9 (`63596da3` 2026-09-09, `447395a1` 2026-09-10, both
-// before Phase 9's first commit on 2026-09-11) while `rpFieldsFor`,
-// `foldObservedRp`, the `RpMomentsAccumulator` resume and `withRpBeliefs` are
-// all `+` lines in `dc30636e`. An ablation that also dropped the bands would
-// silently bill Phase 9 for work that was already there, and the arm
-// difference would overstate its share of the overrun. This assertion is what
-// makes that a test failure rather than a wrong number in a runbook.
-// ---------------------------------------------------------------------------
+// The load-bearing assertion in this group is `bandsProduced`, pinned
+// equal across the two arms: the band calls predate the ranking-point
+// work, so an ablation that also dropped the bands would silently bill
+// ranking points for work that was already there, overstating its share
+// of the overrun. This assertion is what makes that a test failure rather
+// than a wrong number in a runbook.
 
 interface ArmBody {
   ok: boolean;
@@ -620,15 +602,15 @@ describe("stateProbe — Group 5: the rp ablation arm", () => {
     // made BOTH arms produce 0 would satisfy the off-arm equality above.
     expect(on.body.fold.rpPmfsProduced).not.toBe(off.body.fold.rpPmfsProduced);
 
-    // Both loops still run in both arms — the upcoming-repricing loop is
-    // `dabe9acd` (04-06), not Phase 9's, so ablating RP must not shorten it.
+    // Both loops still run in both arms — the upcoming-repricing loop
+    // predates ranking points, so ablating RP must not shorten it.
     expect(off.body.fold.matchesFolded).toBe(on.body.fold.matchesFolded);
     expect(off.body.fold.upcomingPriced).toBe(on.body.fold.upcomingPriced);
     expect(off.body.fold.matchesFolded).toBe(ARM_FOLDED);
     expect(off.body.fold.upcomingPriced).toBe(ARM_UPCOMING);
 
-    // THE TASK 1 ASSERTION. Bands predate Phase 9 and are billed to neither
-    // arm differently. Two alliances per match, every roster banded.
+    // Bands predate ranking points and are billed to neither arm
+    // differently. Two alliances per match, every roster banded.
     expect(off.body.fold.bandsProduced).toBe(on.body.fold.bandsProduced);
     expect(on.body.fold.bandsProduced).toBe(2 * (ARM_FOLDED + ARM_UPCOMING));
 
