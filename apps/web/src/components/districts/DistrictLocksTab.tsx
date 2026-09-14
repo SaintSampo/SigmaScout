@@ -156,60 +156,75 @@ function AwardsCell({ awards, which }: { awards: QualifyingAward[]; which: Distr
   );
 }
 
-function DistrictScheduleStrip({ artifact }: { artifact: DistrictArtifact }) {
-  const stats = computeDistrictLocksHeaderStats(artifact.teams, "district", artifact.year);
+/**
+ * The Locks page's ONE header card per tab (quick task 260914-3zj) — a
+ * single wrapping stat row (capacity, Lock Line, then the tab's own stats),
+ * and on the district tab the played/upcoming event chip row below that
+ * stat row, inside the same card. Content is unchanged from the former
+ * two-card layout; only the nesting merged.
+ */
+function LocksHeaderCard({ artifact, which, slots, cutLine }: { artifact: DistrictArtifact; which: DistrictLockKind; slots: number | null; cutLine: number | null }) {
+  const districtStats = which === "district" ? computeDistrictLocksHeaderStats(artifact.teams, "district", artifact.year) : null;
+  const champStats = which === "champ" ? computeChampLocksHeaderStats(artifact.teams, artifact.year) : null;
   // Rounded separately so the two displayed numbers always add up.
-  const availablePoints = Math.round(stats.pointsPool.remainingEstimate);
-  const totalPoints = Math.round(stats.pointsPool.distributed) + availablePoints;
+  const availablePoints = districtStats === null ? null : Math.round(districtStats.pointsPool.remainingEstimate);
+  const totalPoints = districtStats === null || availablePoints === null ? null : Math.round(districtStats.pointsPool.distributed) + availablePoints;
 
   return (
-    <div className="data-card flex flex-col gap-[var(--spacing-md)] p-[var(--spacing-md)]" data-testid="district-locks-header-stats">
-      <div className="flex flex-wrap items-center gap-[var(--spacing-lg)]">
+    <div className="data-card flex flex-col gap-[var(--spacing-md)] p-[var(--spacing-md)]" data-testid={`${which}-locks-header-stats`}>
+      <div className="flex flex-wrap items-center gap-[var(--spacing-lg)]" data-testid={`${which}-locks-header-stat-row`}>
         <div>
-          <span className="text-role-label text-[var(--color-text-muted)]">Pre-DCMP points remaining</span>
-          <p className="text-role-heading" data-testid="district-locks-ceiling">
-            {stats.perTeamCeiling === null
-              ? "Not yet known"
-              : `${formatPoints(stats.maxRemainingAcrossRoster)} / ${formatPoints(stats.perTeamCeiling)} per team`}
-          </p>
+          <span className="text-role-label text-[var(--color-text-muted)]">{LOCK_KIND_LABEL[which]} capacity</span>
+          <p className="text-role-heading">{slots === null ? "Capacity not published" : `${slots} Teams`}</p>
         </div>
         <div>
-          <span className="text-role-label text-[var(--color-text-muted)]">District Points (Available/Total)</span>
-          <p className="text-role-heading" data-testid="district-locks-points-pool">
-            {formatPoints(availablePoints)}/{formatPoints(totalPoints)}
-          </p>
+          <span className="text-role-label text-[var(--color-text-muted)]">Lock Line</span>
+          <p className="text-role-heading">{cutLine === null ? "—" : `${formatPoints(cutLine)} Points`}</p>
         </div>
+        {districtStats !== null && (
+          <>
+            <div>
+              <span className="text-role-label text-[var(--color-text-muted)]">Pre-DCMP points remaining</span>
+              <p className="text-role-heading" data-testid="district-locks-ceiling">
+                {districtStats.perTeamCeiling === null
+                  ? "Not yet known"
+                  : `${formatPoints(districtStats.maxRemainingAcrossRoster)} / ${formatPoints(districtStats.perTeamCeiling)} per team`}
+              </p>
+            </div>
+            <div>
+              <span className="text-role-label text-[var(--color-text-muted)]">District Points (Available/Total)</span>
+              <p className="text-role-heading" data-testid="district-locks-points-pool">
+                {formatPoints(availablePoints ?? 0)}/{formatPoints(totalPoints ?? 0)}
+              </p>
+            </div>
+          </>
+        )}
+        {champStats !== null && (
+          <div>
+            <span className="text-role-label text-[var(--color-text-muted)]">Remaining district points</span>
+            <p className="text-role-heading" data-testid="champ-locks-remaining-district-points">
+              {champStats.preDcmpCeiling === null
+                ? formatPoints(champStats.maxRemainingAcrossRoster)
+                : `${formatPoints(champStats.maxRemainingAcrossRoster)} / ${formatPoints(champStats.preDcmpCeiling)} pre-DCMP`}
+            </p>
+          </div>
+        )}
       </div>
-      <div className="flex flex-wrap gap-[var(--spacing-sm)]" data-testid="district-locks-schedule-strip">
-        {stats.schedule.map((event) => (
-          <span
-            key={event.eventKey}
-            data-testid="district-locks-schedule-event"
-            data-played={event.played}
-            className="event-chip event-chip--week"
-          >
-            {event.eventName}: {event.played ? "Played" : "Upcoming"}
-            {event.maxPoints !== null && ` (${formatPoints(event.maxPoints)} max)`}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ChampRemainingDistrictPoints({ artifact }: { artifact: DistrictArtifact }) {
-  const stats = computeChampLocksHeaderStats(artifact.teams, artifact.year);
-
-  return (
-    <div className="data-card flex items-center gap-[var(--spacing-lg)] p-[var(--spacing-md)]" data-testid="champ-locks-header-stats">
-      <div>
-        <span className="text-role-label text-[var(--color-text-muted)]">Remaining district points</span>
-        <p className="text-role-heading" data-testid="champ-locks-remaining-district-points">
-          {stats.preDcmpCeiling === null
-            ? formatPoints(stats.maxRemainingAcrossRoster)
-            : `${formatPoints(stats.maxRemainingAcrossRoster)} / ${formatPoints(stats.preDcmpCeiling)} pre-DCMP`}
-        </p>
-      </div>
+      {districtStats !== null && (
+        <div className="flex flex-wrap gap-[var(--spacing-sm)]" data-testid="district-locks-schedule-strip">
+          {districtStats.schedule.map((event) => (
+            <span
+              key={event.eventKey}
+              data-testid="district-locks-schedule-event"
+              data-played={event.played}
+              className="event-chip event-chip--week"
+            >
+              {event.eventName}: {event.played ? "Played" : "Upcoming"}
+              {event.maxPoints !== null && ` (${formatPoints(event.maxPoints)} max)`}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -284,17 +299,7 @@ export function DistrictLocksTab({ artifact, which, algorithm, season }: Distric
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]" data-testid={`district-${which}-locks-tab`}>
-      <div className="data-card flex flex-wrap items-center gap-[var(--spacing-lg)] p-[var(--spacing-md)]">
-        <div>
-          <span className="text-role-label text-[var(--color-text-muted)]">{LOCK_KIND_LABEL[which]} capacity</span>
-          <p className="text-role-heading">{slots === null ? "Capacity not published" : `${slots} Teams`}</p>
-        </div>
-        <div>
-          <span className="text-role-label text-[var(--color-text-muted)]">Lock Line</span>
-          <p className="text-role-heading">{cutLine === null ? "—" : `${formatPoints(cutLine)} Points`}</p>
-        </div>
-      </div>
-      {which === "district" ? <DistrictScheduleStrip artifact={artifact} /> : <ChampRemainingDistrictPoints artifact={artifact} />}
+      <LocksHeaderCard artifact={artifact} which={which} slots={slots} cutLine={cutLine} />
       <p className="text-role-body text-[var(--color-text-muted)]">{DISTRICT_LOCKS_CAVEAT}</p>
       <div className="flex justify-end">
         <button
