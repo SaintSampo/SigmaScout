@@ -99,7 +99,7 @@ describe("sortEventKeys", () => {
   });
 });
 
-describe("no-starvation property (D-15, T-04-29)", () => {
+describe("no-starvation property", () => {
   const events = Array.from({ length: 40 }, (_, i) => `event${String(i).padStart(2, "0")}`);
   const PER_TICK_CAP = 6;
   const EXPECTED_TICKS = Math.ceil(events.length / PER_TICK_CAP);

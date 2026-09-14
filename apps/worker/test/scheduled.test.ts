@@ -575,7 +575,7 @@ describe("runTick — no-starvation under a restrictive budget", () => {
   });
 });
 
-describe("runTick — algorithm module construction (Pitfall 4)", () => {
+describe("runTick — algorithm module construction", () => {
   it("constructs the algorithm modules exactly once per tick, not once per event", async () => {
     const windowA: WindowFixture = { eventKey: "2026aaaa", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const windowB: WindowFixture = { eventKey: "2026bbbb", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
@@ -610,7 +610,7 @@ describe("runTick — algorithm module construction (Pitfall 4)", () => {
   });
 });
 
-describe("runTick — off-season demo team exclusion (gap 1, exclude-offseason-demo-teams-SUMMARY.md)", () => {
+describe("runTick — off-season demo team exclusion", () => {
   it("a live match containing a demo team writes no team/{demoKey} artifact and acquires no D1 state for it, while real teammates ARE updated and the event page stays untouched", async () => {
     const window: WindowFixture = { eventKey: "2026demo", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([window]);
@@ -723,7 +723,7 @@ describe("runTick — off-season demo team exclusion (gap 1, exclude-offseason-d
   });
 });
 
-describe("runTick — global rebuild (D-16)", () => {
+describe("runTick — global rebuild", () => {
   it("fires on the event-boundary trigger (an event completing its last scheduled match this tick)", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([window]);
@@ -776,7 +776,7 @@ describe("runTick — global rebuild (D-16)", () => {
     expect(result.globalRebuildRan).toBe(false);
   });
 
-  it("260902-pbe: reads an object-form (pre-republish) teams artifact, merges touched teams, and writes it back POSITIONALLY — an untouched row's metrics survive the decode/re-encode round trip exactly", async () => {
+  it("reads an object-form (pre-republish) teams artifact, merges touched teams, and writes it back POSITIONALLY — an untouched row's metrics survive the decode/re-encode round trip exactly", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([window]);
     const d1 = new FakeD1Database();
@@ -851,7 +851,7 @@ describe("runTick — global rebuild (D-16)", () => {
    * region (and with it its district/state rank scopes) and its per-team
    * consistency figure until the next offline publish.
    */
-  it("260908-5wd: a TOUCHED team's row keeps its offline-published region fields, and a stale unknown per-team field does not survive (260913-g66)", async () => {
+  it("a TOUCHED team's row keeps its offline-published region fields, and a stale unknown per-team field does not survive", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([window]);
     const d1 = new FakeD1Database();
@@ -929,7 +929,7 @@ describe("runTick — global rebuild (D-16)", () => {
  * rows carry their published tiers forward (`touchedTeamsRowMetrics`'s doc
  * comment has the numbers).
  */
-describe("260912-tnk: live Teams-row tiers", () => {
+describe("live Teams-row tiers", () => {
   it("a touched metric keeps the prior row's published tier on the same key, with the fresh value", () => {
     const result = touchedTeamsRowMetrics({ total: { value: 180, tier: "legendary" }, phaseAuto: { value: 20, spread: 1, tier: "rare" } }, {
       total: { value: 190.5, spread: 2 },
@@ -950,7 +950,7 @@ describe("260912-tnk: live Teams-row tiers", () => {
     expect(touchedTeamsRowMetrics(undefined, { total: { value: 12 } })).toEqual({ total: { value: 12 } });
   });
 
-  it("the prior row's Sigma entry (value and tier) is carried forward unchanged after the fresh entries, and a stale retired consistency entry is not (260913-g66)", () => {
+  it("the prior row's Sigma entry (value and tier) is carried forward unchanged after the fresh entries, and a stale retired consistency entry is not", () => {
     const prior = { total: { value: 100, tier: "epic" as const }, sigma: { value: 3.25, tier: "legendary" as const }, legacyConsistency: { value: 9.5, tier: "rare" as const } };
     const result = touchedTeamsRowMetrics(prior, { total: { value: 101 } });
     expect(result.sigma).toEqual({ value: 3.25, tier: "legendary" });
@@ -1045,7 +1045,7 @@ describe("260912-tnk: live Teams-row tiers", () => {
   });
 });
 
-describe("260913-jkp: live ticks keep the published Sigma entry", () => {
+describe("live ticks keep the published Sigma entry", () => {
   it("carries the prior Sigma entry forward, as the last key, over a fresh record that lacks it", () => {
     const result = touchedEventTeamMetrics({ total: { value: 10, percentile: 40 }, sigma: { value: 27.8, percentile: 83.2 } }, { total: { value: 12.34 } });
     expect(result).toEqual({ total: { value: 12.34 }, sigma: { value: 27.8, percentile: 83.2 } });
@@ -1135,7 +1135,7 @@ describe("260913-jkp: live ticks keep the published Sigma entry", () => {
   });
 });
 
-describe("runTick — official-play scope on the global rebuild feed (quick task 260904-586)", () => {
+describe("runTick — official-play scope on the global rebuild feed", () => {
   it("event_type 99 (offseason): event + team artifacts are written, but no teams/{year} object is written at all", async () => {
     const window: WindowFixture = { eventKey: "2026off", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([window]);

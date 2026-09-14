@@ -72,7 +72,7 @@ describe("pollEventMatches", () => {
     }
   });
 
-  it("requests against env.TBA_BASE_URL (D-20's override point), never a hardcoded host", async () => {
+  it("requests against env.TBA_BASE_URL (the base-URL override point), never a hardcoded host", async () => {
     fetchMock.mockResolvedValue({ status: 200, ok: true, headers: { get: () => null }, json: async () => [] });
     const counter = new TbaRequestCounter();
     const ctx = createTbaContext({ ...makeEnv(), TBA_BASE_URL: "https://fixture.example.invalid/api/v3" }, counter);

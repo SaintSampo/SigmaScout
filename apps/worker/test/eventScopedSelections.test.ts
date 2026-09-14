@@ -22,7 +22,7 @@ import { EVENT_SCOPED_ALGORITHM_IDS, selectionsFor } from "../src/scheduled.js";
 const EVENT_KEY = "2026casj";
 const TEAMS = ["frc254", "frc1678", "frc604"];
 
-describe("selectionsFor — event-scoped state must be loaded, and only where it exists (D-09/D-Y3)", () => {
+describe("selectionsFor — event-scoped state must be loaded, and only where it exists", () => {
   it("OPR's existing behaviour is unchanged: event row plus team rows, in that order", () => {
     expect(selectionsFor("opr", EVENT_KEY, TEAMS)).toEqual([
       { scopeKind: "event", scopeKeys: [EVENT_KEY] },

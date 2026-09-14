@@ -409,7 +409,7 @@ describe("liveAlgorithmTier — tracked config's live tier fits the measured bud
       `LIVE_ALGORITHM_IDS="${ids.join(",")}" estimates ${estimated} subrequests for one ordinary 3v3 match ` +
         `(6 touched teams), which exceeds the ~${usable} actually available per tick (SUBREQUEST_CAP 50, ` +
         `SUBREQUEST_RESERVE 4, minus ${TICK_FIXED_SUBREQUEST_COST} tick-fixed + ${EVENT_PREFLIGHT_SUBREQUEST_COST} ` +
-        "event-preflight costs). See docs/publish-budget.md's \"Worker runtime budget (D-21/D-23, plan 04-07)\" " +
+        "event-preflight costs). See docs/publish-budget.md's \"Worker runtime budget\" " +
         "section for the measured arithmetic this regression guard protects — with all three algorithms live, " +
         "the event defers every tick, forever."
     ).toBeLessThanOrEqual(usable);
@@ -541,7 +541,7 @@ describe("liveAlgorithmTier — the three decided misconfiguration behaviors", (
  * the WRONG MODEL and write results to the wrong artifacts. These pin the
  * two halves: `spr` builds a real module, and an unknown id is loud.
  */
-describe("buildAlgorithmModules — no silent Sigma1 fallthrough (quick task 260908-5wd)", () => {
+describe("buildAlgorithmModules — no silent Sigma1 fallthrough", () => {
   function manifestOf(ids: readonly string[]) {
     return {
       schemaVersion: 1,

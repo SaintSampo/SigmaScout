@@ -407,7 +407,7 @@ afterEach(() => {
   revealedCount = 0;
 });
 
-describe("scheduled.replay — offline equivalence (D-14)", () => {
+describe("scheduled.replay — offline equivalence", () => {
   it(
     "drives runTick over a recorded fixture slice, one match per tick, and matches an independent offline WalkForwardSimulator replay's prediction-stream digest for opr/epa/spr",
     async () => {

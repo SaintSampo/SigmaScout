@@ -77,7 +77,7 @@ function mergeOne(match: MatchResult): TeamSeasonArtifact {
   }) as TeamSeasonArtifact;
 }
 
-describe("mergeTeamSeasonArtifact — official-only seasonStats.record (quick task 260908-615)", () => {
+describe("mergeTeamSeasonArtifact — official-only seasonStats.record", () => {
   it("folds an OFFICIAL match into the record, exactly as before", () => {
     const artifact = mergeOne(makeMatch({ eventType: 0 }));
     expect(artifact.seasonStats.record).toEqual({ wins: 1, losses: 0, ties: 0 });
@@ -156,7 +156,7 @@ describe("mergeTeamSeasonArtifact — official-only seasonStats.record (quick ta
  * live tick touching it, with no error and no log line — the team page
  * would simply get worse mid-event until the next offline publish.
  */
-describe("mergeTeamSeasonArtifact — preserves offline-published fields (quick task 260908-5wd)", () => {
+describe("mergeTeamSeasonArtifact — preserves offline-published fields", () => {
   function existingArtifact(): TeamSeasonArtifact {
     return {
       schemaVersion: 1,
@@ -198,7 +198,7 @@ describe("mergeTeamSeasonArtifact — preserves offline-published fields (quick 
     }) as TeamSeasonArtifact;
   }
 
-  it("does not carry a stale artifact's retired or unknown per-team field forward (quick task 260913-g66)", () => {
+  it("does not carry a stale artifact's retired or unknown per-team field forward", () => {
     // `runTick` parses `existing` through `TeamSeasonArtifactSchema` before
     // merging, which strips the retired key; merging the parsed object is the
     // production path. `ranks` is dropped here only because this fixture's
@@ -243,7 +243,7 @@ describe("mergeTeamSeasonArtifact — preserves offline-published fields (quick 
  * tiered entry (`touchedEventTeamMetrics` carries it forward). A required
  * parameter (may be `undefined`), so no caller can opt out by omission.
  */
-describe("mergeTeamSeasonArtifact — Sigma on appended history rows (quick task 260913-m45)", () => {
+describe("mergeTeamSeasonArtifact — Sigma on appended history rows", () => {
   it("appends sigma.value as the LAST key on every NEW history row when sigmaAfterTick is defined", () => {
     const match = makeMatch();
     const merged = mergeTeamSeasonArtifact({

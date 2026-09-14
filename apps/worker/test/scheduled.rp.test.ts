@@ -455,7 +455,7 @@ afterEach(() => {
   revealedLive = 0;
 });
 
-describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
+describe("scheduled.rp — ranking points on live rows", () => {
   async function driveFixture(): Promise<{ r2: FakeR2Bucket; lastSubrequests: number }> {
     const kv = new FakeKvNamespace(
       new Map([
@@ -563,7 +563,7 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
   }
 
   it(
-    "opr and epa: neither the live tick nor the offline layer produces a ranking-point pmf (quick task 260913-it4)",
+    "opr and epa: neither the live tick nor the offline layer produces a ranking-point pmf",
     async () => {
       const { r2 } = await driveFixture();
       await expectNoRpLiveOrOffline(r2, "opr");
@@ -573,14 +573,14 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
   );
 
   it(
-    "09-07's decomposition fields reach live PLAYED rows alongside the totals",
+    "the decomposition fields reach live PLAYED rows alongside the totals",
     async () => {
       const { r2 } = await driveFixture();
       const rows = await publishedLiveRows(r2, "spr");
       const decomposed = rows.filter((r) => r?.matchOutcomePmf !== undefined);
       expect(
         decomposed.length,
-        "no played row carried 09-07's decomposition, so the rank simulation would silently fall back to the legacy path on every live row"
+        "no played row carried the decomposition, so the rank simulation would silently fall back to the legacy path on every live row"
       ).toBeGreaterThan(0);
       for (const row of decomposed) {
         expect(row.matchOutcomePmf).toHaveLength(3);
@@ -593,7 +593,7 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
   );
 
   it(
-    "TIE SHIPPED (260913-qyn, WIN+TIE arm): some live decomposed row carries a nonzero matchOutcomePmf[1] — a live tick is not silently stuck on the pre-260913-qyn structural zero",
+    "TIE SHIPPED (WIN+TIE arm): some live decomposed row carries a nonzero matchOutcomePmf[1] — a live tick is not silently stuck on a structural zero",
     async () => {
       const { r2 } = await driveFixture();
       const rows = await publishedLiveRows(r2, "spr");
@@ -601,7 +601,7 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
       expect(decomposed.length, "no played row carried the decomposition, so the tie assertion below would be vacuous").toBeGreaterThan(0);
       expect(
         decomposed.some((row) => row.matchOutcomePmf![1]! > 0),
-        "no live row carried a nonzero tie probability — WIN+TIE shipped 2026-09-13 (data/baselines/rp-outcome-arms-2026-09.json), so every varianceD > 0 row should"
+        "no live row carried a nonzero tie probability — WIN+TIE ships (data/baselines/rp-outcome-arms-2026-09.json), so every varianceD > 0 row should"
       ).toBe(true);
     },
     60_000
@@ -870,7 +870,7 @@ function msOffline(): MsOffline {
   return { ...out, stateBeforeLive };
 }
 
-describe("scheduled.rp — the mean shift survives the live Worker (shape 16, quick task 260914-01x)", () => {
+describe("scheduled.rp — the mean shift survives the live Worker (shape 16)", () => {
   let msRevealedPrior = 0;
   let msRevealedLive = 0;
 
