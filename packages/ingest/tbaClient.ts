@@ -1,34 +1,29 @@
 /**
- * ETag-conditional TBA v3 fetch (DATA-01). Base URL and `X-TBA-Auth-Key`
- * header per RESEARCH.md's "TBA client with ETag conditional requests"
- * example (sourced from TBA's own "Efficiently Querying the TBA API" blog
- * post). The API key is a parameter read from the environment by the
- * caller — this module never logs it and never embeds it in a returned
- * value.
+ * ETag-conditional TBA v3 fetch. Base URL and `X-TBA-Auth-Key` header per
+ * TBA's own "Efficiently Querying the TBA API" blog post. The API key is a
+ * parameter read from the environment by the caller — this module never
+ * logs it and never embeds it in a returned value.
  *
- * Hardened for a full 2022-2026 backfill (Plan 03 Task 2): every outbound
- * request is throttled and tallied so a five-season run stays measurable
- * and bounded (T-01-04), and the client exposes helpers for exactly the
- * eleven capabilities COVERAGE.md marks INTEGRATE — status, teams-list
- * (paginated), team-detail, events-list, event-detail, event-teams,
- * event-matches, match-detail, team-media (plan 06-03, Phase 6),
- * event-rankings (plan 06.1-01, Phase 6.1), and event-alliances (plan
- * 07-03, Phase 7) — and none marked OPT-OUT. District data (quick task
- * 260905-lic, Task 1) adds four more: districts-list, district-rankings,
- * district-events-keys, event-teams-keys. Revision R2a adds a fifth:
- * event-awards.
+ * Hardened for a full multi-season backfill: every outbound request is
+ * throttled and tallied so a run stays measurable and bounded, and the
+ * client exposes helpers for exactly the capabilities `COVERAGE.md` marks
+ * INTEGRATE — status, teams-list (paginated), team-detail, events-list,
+ * event-detail, event-teams, event-matches, match-detail, team-media,
+ * event-rankings, event-alliances, districts-list, district-rankings,
+ * district-events-keys, event-teams-keys, and event-awards — and none
+ * marked OPT-OUT.
  */
 
 const TBA_BASE = "https://www.thebluealliance.com/api/v3";
-/** Exported so a caller building a `TbaClientContext` can name the real default explicitly (plan 04-07's `baseUrl` override — see `TbaClientContext.baseUrl`'s own doc comment for why this exists and what it does NOT change). */
+/** Exported so a caller building a `TbaClientContext` can name the real default explicitly (see `TbaClientContext.baseUrl`'s own doc comment for why this exists and what it does NOT change). */
 export const DEFAULT_TBA_BASE_URL = TBA_BASE;
 
 /**
  * Minimum time between outbound TBA requests. Conditional requests
  * (If-None-Match) already make a *repeat* run cheap (304s), but this bounds
  * the *first* run, which is the one that actually downloads a full
- * season's worth of payloads against a free, volunteer-run service
- * (T-01-04). Enforced inside tbaFetch so no call site can bypass it.
+ * season's worth of payloads against a free, volunteer-run service.
+ * Enforced inside tbaFetch so no call site can bypass it.
  */
 export const THROTTLE_INTERVAL_MS = 100;
 
@@ -36,7 +31,7 @@ export type TbaFetchResult =
   | { status: 304 }
   | { status: 200; etag: string | undefined; body: unknown };
 
-/** Tallies a run's request volume against TBA — persisted to `ingest_runs` so cost is measured, not assumed (T-01-06). */
+/** Tallies a run's request volume against TBA — persisted to `ingest_runs` so cost is measured, not assumed. */
 export class TbaRequestCounter {
   #cacheHits = 0;
   #fresh = 0;
@@ -106,12 +101,12 @@ export interface TbaClientContext {
   apiKey: string;
   counter: TbaRequestCounter;
   /**
-   * D-20 (plan 04-07): overrides `DEFAULT_TBA_BASE_URL` — the ONE substitution
-   * point that lets the replay rig point a real deployed Worker at a recorded
-   * fixture endpoint instead of the real TBA API, without touching
+   * Overrides `DEFAULT_TBA_BASE_URL` — the ONE substitution point that lets
+   * the replay rig point a real deployed Worker at a recorded fixture
+   * endpoint instead of the real TBA API, without touching
    * `THROTTLE_INTERVAL_MS`'s spacing or `tbaFetch`'s conditional-request
-   * (ETag) handling, which stay identical regardless of which base URL is in
-   * effect (D-22: one politeness policy, applied to whichever host is
+   * (ETag) handling, which stay identical regardless of which base URL is
+   * in effect (one politeness policy, applied to whichever host is
    * configured). Left `undefined` by every production caller (the real
    * ingest pipeline, `apps/worker/src/tbaPoll.ts`'s production default) —
    * only a rig/test ever sets this.
@@ -119,13 +114,12 @@ export interface TbaClientContext {
   baseUrl?: string;
 }
 
-// --- The eleven capabilities COVERAGE.md marks INTEGRATE --------------
+// --- The capabilities COVERAGE.md marks INTEGRATE --------------
 // status, teams-list (paginated), team-detail, events-list, event-detail,
-// event-teams, event-matches, match-detail, team-media (Phase 6),
-// event-rankings (Phase 6.1), event-alliances (Phase 7) — each new
-// addition should get a parenthetical here naming the phase that added
-// it, so the next addition has an obvious place to append rather than an
-// obvious place to forget (T-07-03-09).
+// event-teams, event-matches, match-detail, team-media, event-rankings,
+// event-alliances — each new addition should get a doc comment here, so
+// the next addition has an obvious place to append rather than an
+// obvious place to forget.
 
 /** `GET /status` — datafeed health, checked once at the start of a run. */
 export function fetchStatus(ctx: TbaClientContext, cachedEtag?: string): Promise<TbaFetchResult> {
@@ -186,7 +180,7 @@ export function fetchMatchDetail(
   return tbaFetch(`/match/${matchKey}`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
 }
 
-/** `GET /team/{key}/media/{year}` (D-03, TEAM-02, plan 06-03) — the robot-photo source array for a team's season. */
+/** `GET /team/{key}/media/{year}` — the robot-photo source array for a team's season. */
 export function fetchTeamMedia(
   ctx: TbaClientContext,
   teamKey: string,
@@ -197,11 +191,10 @@ export function fetchTeamMedia(
 }
 
 /**
- * `GET /event/{key}/rankings` (TEAM-04, F-06-3, plan 06.1-01) — every team's
- * standing for one event, in one response. Event-scoped, not team-scoped
- * (06.1-RESEARCH.md Pitfall 5) — mirrors `fetchEventMatches`'s shape exactly,
- * never `fetchTeamMedia`'s team-key-loop shape: one request per event covers
- * every team at it.
+ * `GET /event/{key}/rankings` — every team's standing for one event, in one
+ * response. Event-scoped, not team-scoped — mirrors `fetchEventMatches`'s
+ * shape exactly, never `fetchTeamMedia`'s team-key-loop shape: one request
+ * per event covers every team at it.
  */
 export function fetchEventRankings(
   ctx: TbaClientContext,
@@ -212,11 +205,10 @@ export function fetchEventRankings(
 }
 
 /**
- * `GET /event/{key}/alliances` (D-18.7, EVNT-05, plan 07-03) — every
- * playoff alliance selection for one event, in one response. Event-scoped,
- * not team-scoped — mirrors `fetchEventRankings`'s shape exactly, never
- * `fetchTeamMedia`'s per-entity loop: one request per event covers every
- * alliance at it.
+ * `GET /event/{key}/alliances` — every playoff alliance selection for one
+ * event, in one response. Event-scoped, not team-scoped — mirrors
+ * `fetchEventRankings`'s shape exactly, never `fetchTeamMedia`'s per-entity
+ * loop: one request per event covers every alliance at it.
  */
 export function fetchEventAlliances(
   ctx: TbaClientContext,
@@ -226,7 +218,7 @@ export function fetchEventAlliances(
   return tbaFetch(`/event/${eventKey}/alliances`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
 }
 
-/** `GET /districts/{year}` (quick task 260905-lic Task 1) -- every district active in a season, including each district's official_advancement_counts capacity, in one response. */
+/** `GET /districts/{year}` -- every district active in a season, including each district's official_advancement_counts capacity, in one response. */
 export function fetchDistrictsList(
   ctx: TbaClientContext,
   year: number,
@@ -236,8 +228,8 @@ export function fetchDistrictsList(
 }
 
 /**
- * `GET /district/{districtKey}/rankings` (quick task 260905-lic Task 1) --
- * every team's district point standing, in one response. `districtKey` is
+ * `GET /district/{districtKey}/rankings` -- every team's district point
+ * standing, in one response. `districtKey` is
  * TBA's year-prefixed key (e.g. "2026fnc"), not the bare abbreviation
  * `events.district_key` stores.
  */
@@ -250,7 +242,7 @@ export function fetchDistrictRankings(
 }
 
 /**
- * `GET /district/{districtKey}/events/keys` (quick task 260905-lic Task 1) --
+ * `GET /district/{districtKey}/events/keys` --
  * the authoritative membership list of event keys belonging to a
  * district-year, a bare array of strings.
  */
@@ -263,7 +255,7 @@ export function fetchDistrictEventKeys(
 }
 
 /**
- * `GET /event/{eventKey}/teams/keys` (quick task 260905-lic Task 1) -- an
+ * `GET /event/{eventKey}/teams/keys` -- an
  * event's registered team keys, a bare array of strings. This is the only
  * way to know a team has an event still ahead of it (`event_teams`'s whole
  * purpose).
@@ -277,7 +269,7 @@ export function fetchEventTeamKeys(
 }
 
 /**
- * `GET /event/{eventKey}/awards` (quick task 260905-lic revision R2a) --
+ * `GET /event/{eventKey}/awards` --
  * every award given out at one event, in one response. Event-scoped, not
  * team-scoped -- mirrors `fetchEventAlliances`'s shape exactly: one request
  * per event covers every award and every recipient at it.
