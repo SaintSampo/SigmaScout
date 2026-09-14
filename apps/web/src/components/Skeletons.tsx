@@ -2,15 +2,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { TableCell, TableRow } from "@/components/ui/table";
 
 /**
- * The D-16 first-load state: header, ribbon and column headers render
+ * The first-load state: header, ribbon and column headers render
  * immediately from the shell while the artifact downloads — only the body
  * rows are placeholders. `SkeletonRows` renders just that placeholder body,
  * meant to be dropped inside a `<TableBody>` the caller's own column headers
- * already sit above (05-03-PLAN.md Task 2).
+ * already sit above.
  *
- * Both the Teams table and the Events list (wave 4) consume this, which is
- * why it takes a row and column count rather than hard-coding either — the
- * two surfaces have different column sets and row-count guesses.
+ * Both the Teams table and the Events list consume this, which is why it
+ * takes a row and column count rather than hard-coding either — the two
+ * surfaces have different column sets and row-count guesses.
  */
 export function SkeletonRows({ rows, columns }: { rows: number; columns: number }) {
   return (
@@ -29,11 +29,10 @@ export function SkeletonRows({ rows, columns }: { rows: number; columns: number 
 }
 
 /**
- * The tier-boxed metric grid's own pending shape (06-07-PLAN.md Task 2),
- * nested inside `SeasonHeaderSkeleton` below (06-UI-SPEC.md E2 loading) — a
- * fixed handful of placeholder cells, not sized off a real column count
- * (the real count is algorithm/season-dependent and unknown before the
- * artifact resolves).
+ * The tier-boxed metric grid's own pending shape, nested inside
+ * `SeasonHeaderSkeleton` below — a fixed handful of placeholder cells, not
+ * sized off a real column count (the real count is algorithm/season-
+ * dependent and unknown before the artifact resolves).
  */
 const METRIC_GRID_SKELETON_CELL_COUNT = 6;
 
@@ -48,13 +47,9 @@ export function MetricGridSkeleton() {
 }
 
 /**
- * The team page's pending-state header block (06-01-PLAN.md Task 3 first
- * shipped this as `TeamHeaderSkeleton`; 06-07-PLAN.md Task 2 supersedes it
- * with this richer shape now that the real header has grown a robot image,
- * a TBA link, a tier key row and D-17's metric grid) — a name/number
- * placeholder, a square block standing in for the robot image (D-03), and a
- * nested `MetricGridSkeleton`. Shown instead of a single full-page spinner
- * (06-UI-SPEC.md E1 loading).
+ * The team page's pending-state header block — a name/number placeholder,
+ * a square block standing in for the robot image, and a nested
+ * `MetricGridSkeleton`. Shown instead of a single full-page spinner.
  */
 export function SeasonHeaderSkeleton() {
   return (
@@ -72,11 +67,10 @@ export function SeasonHeaderSkeleton() {
 }
 
 /**
- * One event-section-shaped skeleton card (06-01-PLAN.md Task 3) — a header
- * bar plus a few skeleton rows, joining `SkeletonRows`' family. The route
- * renders 2-3 of these during the pending state (06-UI-SPEC.md E5 loading)
- * so the page's overall shape is visible immediately rather than a single
- * spinner.
+ * One event-section-shaped skeleton card — a header bar plus a few
+ * skeleton rows, joining `SkeletonRows`' family. The route renders 2-3 of
+ * these during the pending state so the page's overall shape is visible
+ * immediately rather than a single spinner.
  */
 export function EventSectionSkeleton() {
   return (

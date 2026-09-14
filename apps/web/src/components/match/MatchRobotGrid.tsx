@@ -13,15 +13,15 @@ import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArt
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 
 /**
- * The match page's six-robot grid (260909-tiq-PLAN.md Task 2, D-02). A PURE
- * function of its props — no fetching inside this component, so its test
- * needs no query client; `match.$matchKey.tsx` is the one place that fetches
- * the six team-season artifacts and builds `byTeamKey`.
+ * The match page's six-robot grid. A PURE function of its props — no
+ * fetching inside this component, so its test needs no query client;
+ * `match.$matchKey.tsx` is the one place that fetches the six team-season
+ * artifacts and builds `byTeamKey`.
  *
- * Reuses `SeasonHeader.tsx`'s robot-image Avatar pattern verbatim (D-02): the
- * error-triggered fallback branch, where `AvatarImage` is rendered only when
- * `robotImageUrl` is present and Radix itself swaps to `AvatarFallback` on
- * any load failure.
+ * Reuses `SeasonHeader.tsx`'s robot-image Avatar pattern verbatim: the
+ * error-triggered fallback branch, where `AvatarImage` is rendered only
+ * when `robotImageUrl` is present and Radix itself swaps to
+ * `AvatarFallback` on any load failure.
  */
 export interface MatchRobotRecord {
   artifact?: TeamSeasonArtifact;
@@ -97,7 +97,7 @@ function RobotMetricCells({ preMatch, isPending }: { preMatch: PreMatchMetrics |
         return (
           <div key={cell.key} className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
             <span className="text-role-label text-[var(--color-text-muted)]">{cell.label}</span>
-            {/* Plan-wide rule 3: `metric` and `tier` ONLY. MetricValue renders no plus-minus of any kind (260913-g66 removed its last one). */}
+            {/* `metric` and `tier` ONLY. MetricValue renders no plus-minus of any kind. */}
             <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />
           </div>
         );
@@ -128,7 +128,7 @@ function RobotCard({
   return (
     <div data-testid={`robot-card-${teamKey}`} className={cn("data-card flex min-w-0 flex-col gap-[var(--spacing-sm)] p-[var(--spacing-md)]")}>
       <div className="flex min-w-0 items-center gap-[var(--spacing-sm)]">
-        {/* Robot image (D-02) — the identical error-triggered fallback branch
+        {/* Robot image — the identical error-triggered fallback branch
             `SeasonHeader.tsx` renders: `AvatarImage` only when
             `robotImageUrl` is present, Radix itself swaps to
             `AvatarFallback` on any load failure. */}

@@ -1,13 +1,13 @@
 /**
- * The team header's last-OFFICIAL-match snapshot (2026-09-01 user request):
- * the top-of-page Auto/Teleop/Endgame/Total tiles should show the team's
- * stats as calculated after their last OFFICIAL match — not the
- * season-final values, which keep learning through offseason (eventType 99)
- * and preseason "Week 0" (eventType 100) play.
+ * The team header's last-OFFICIAL-match snapshot: the top-of-page
+ * Auto/Teleop/Endgame/Total tiles should show the team's stats as
+ * calculated after their last OFFICIAL match — not the season-final
+ * values, which keep learning through offseason (eventType 99) and
+ * preseason "Week 0" (eventType 100) play.
  *
  * `metricHistory` rows carry each metric AFTER each match in chronological
- * order (D-28), so the snapshot is simply the LAST row whose event is
- * official — the same walk-forward-state reading `EventSection.tsx`'s
+ * order, so the snapshot is simply the LAST row whose event is official —
+ * the same walk-forward-state reading `EventSection.tsx`'s
  * `endOfEventMetrics` established, scoped to official events. The team
  * artifact carries no per-event officialness flag; the events/{year}
  * artifact does, so the caller passes its rows.
@@ -24,8 +24,8 @@ type EventRows = EventsArtifact["events"];
 
 /**
  * True for an event that is part of the official season. Delegates to the
- * shared `isOfficialEventType` predicate (quick task 260904-586) for the
- * `eventType` check, but KEEPS the pre-existing `!row.isOffseason` conjunct
+ * shared `isOfficialEventType` predicate for the `eventType` check, but
+ * KEEPS the pre-existing `!row.isOffseason` conjunct
  * alongside it — a published events artifact whose two fields ever disagree
  * (e.g. `isOffseason: true` with an `eventType` outside 99/100) still
  * resolves the conservative way, so this file's current behaviour is
@@ -37,11 +37,10 @@ function isOfficialEvent(row: EventRows[number]): boolean {
 
 /**
  * The snapshot ROW, not just its metrics — the last-official-match row,
- * exposed whole (quick task 260908-5wd) because the row's `matchKey` is what
- * bounds the browser-computed per-robot consistency figure's observation
- * window to the same span the snapshot's own values describe. Without it the
- * header would print an as-of-then value beside a whole-season `±`, which is
- * the two-as-of-instants defect IN-01 names.
+ * exposed whole because the row's `matchKey` is what bounds the
+ * browser-computed per-robot consistency figure's observation window to
+ * the same span the snapshot's own values describe. Without it the header
+ * would print an as-of-then value beside a whole-season `±`.
  */
 export function officialSnapshotRow(
   metricHistory: MetricHistoryRows,
