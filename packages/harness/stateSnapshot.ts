@@ -36,6 +36,7 @@ import type { OprObservation, OprState } from "../core/algorithms/opr.js";
 import type { ExpandingStats } from "../core/scoring/expandingStats.js";
 import type { SigmaBelief, SigmaPopulation } from "./sigmaScore.js";
 import type { RpTeamBeliefs, RpVariableBelief } from "../core/rankingPoints/empiricalMoments.js";
+import type { RpMeanShiftState, RpMeanShiftVariableState } from "../core/rankingPoints/meanShift.js";
 
 // ---------------------------------------------------------------------------
 // The row shape
@@ -750,6 +751,62 @@ export function withRpBeliefs(rows: readonly StateRow[], beliefs: ReadonlyMap<st
     if (belief === undefined) return row;
     const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
     return { ...row, stateJson: JSON.stringify({ ...parsed, [RP_BELIEF_KEY]: belief }) };
+  });
+}
+
+/**
+ * The key the LEAGUE row carries the ranking-point mean shift under
+ * (`meanShift.ts`), in the `sigmascout{Feature}` passenger style.
+ */
+const RP_MEAN_SHIFT_KEY = "sigmascoutRpMeanShift";
+
+/**
+ * Reads the ranking-point mean shift out of the LEAGUE row, or `undefined`.
+ * The exact inverse of `withRpMeanShift`. Team rows are ignored.
+ *
+ * ALL-OR-NOTHING. A missing or non-integer season, a variables entry that is
+ * not an object, a count that is not a non-negative integer, or a non-finite
+ * sum reads the WHOLE state as `undefined`: a half-read shift would move some
+ * variables and not others, which is plausible and wrong. `undefined` is a
+ * real answer, and the caller starts a fresh accumulator from it.
+ */
+export function readRpMeanShift(rows: readonly StateRow[]): RpMeanShiftState | undefined {
+  for (const row of rows) {
+    if (row.scopeKind !== "league") continue;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
+    } catch {
+      return undefined;
+    }
+    const raw = parsed[RP_MEAN_SHIFT_KEY];
+    if (raw === null || typeof raw !== "object") return undefined;
+    const { season, variables } = raw as { season?: unknown; variables?: unknown };
+    if (typeof season !== "number" || !Number.isInteger(season)) return undefined;
+    if (variables === null || typeof variables !== "object" || Array.isArray(variables)) return undefined;
+    const out: Record<string, RpMeanShiftVariableState> = {};
+    for (const [name, entry] of Object.entries(variables as Record<string, unknown>)) {
+      if (entry === null || typeof entry !== "object") return undefined;
+      const { count, sum } = entry as { count?: unknown; sum?: unknown };
+      if (typeof count !== "number" || !Number.isInteger(count) || count < 0) return undefined;
+      if (typeof sum !== "number" || !Number.isFinite(sum)) return undefined;
+      out[name] = { count, sum };
+    }
+    return { season, variables: out };
+  }
+  return undefined;
+}
+
+/**
+ * Injects the ranking-point mean shift into the LEAGUE row, returning new rows
+ * rather than mutating them. A count and a sum per threshold variable, so it
+ * cannot scale with team count and stays far inside `MAX_LEAGUE_ROW_BYTES`.
+ */
+export function withRpMeanShift(rows: readonly StateRow[], state: RpMeanShiftState): StateRow[] {
+  return rows.map((row) => {
+    if (row.scopeKind !== "league") return row;
+    const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
+    return { ...row, stateJson: JSON.stringify({ ...parsed, [RP_MEAN_SHIFT_KEY]: state }) };
   });
 }
 

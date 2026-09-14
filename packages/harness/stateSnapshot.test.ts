@@ -40,6 +40,8 @@ import {
   type StateStamp,
   readRpBeliefs,
   withRpBeliefs,
+  readRpMeanShift,
+  withRpMeanShift,
 } from "./stateSnapshot.js";
 import { emptyEpaWeekOneState } from "../core/algorithms/epaWeekOne.js";
 
@@ -1308,5 +1310,69 @@ describe("ranking-point belief persistence (shape 15, plan 09-08)", () => {
     const all = withRpBeliefs(withSigmaBeliefs(teamRows(), new Map([["frc1", sigma]])), new Map([["frc1", BELIEFS]]));
     expect(readSigmaBeliefs(all).get("frc1")).toEqual(sigma);
     expect(readRpBeliefs(all).get("frc1")).toEqual(BELIEFS);
+  });
+});
+
+describe("the ranking-point mean-shift league passenger (quick task 260914-01x)", () => {
+  const SHIFT = { season: 2026, variables: { hubTotalCount: { count: 212, sum: 403.25 }, totalTowerPoints: { count: 0, sum: 0 } } };
+
+  function rows(): StateRow[] {
+    return serializeState("spr", spr.version, spr.initState(["frc1", "frc2"]) as any, STAMP);
+  }
+
+  function withRawLeaguePassenger(value: unknown): StateRow[] {
+    return rows().map((row) =>
+      row.scopeKind === "league" ? { ...row, stateJson: JSON.stringify({ ...JSON.parse(row.stateJson), sigmascoutRpMeanShift: value }) } : row
+    );
+  }
+
+  it("round-trips through withRpMeanShift and readRpMeanShift, including a variable with count 0", () => {
+    expect(readRpMeanShift(withRpMeanShift(rows(), SHIFT))).toEqual(SHIFT);
+  });
+
+  it("writes only the league row and returns new rows without mutating the input", () => {
+    const input = rows();
+    const before = input.map((r) => r.stateJson);
+    const out = withRpMeanShift(input, SHIFT);
+    expect(out).not.toBe(input);
+    expect(input.map((r) => r.stateJson)).toEqual(before);
+    for (let i = 0; i < input.length; i++) {
+      if (input[i]!.scopeKind === "league") {
+        expect(out[i]!.stateJson).toContain("sigmascoutRpMeanShift");
+        expect(out[i]!.stateJson.length).toBeLessThan(MAX_LEAGUE_ROW_BYTES);
+      } else {
+        expect(out[i]).toBe(input[i]);
+      }
+    }
+  });
+
+  it("reads undefined when absent, and ignores a passenger smuggled onto a team row", () => {
+    expect(readRpMeanShift(rows())).toBeUndefined();
+    const teamOnly = rows().map((row) =>
+      row.scopeKind === "team" ? { ...row, stateJson: JSON.stringify({ ...JSON.parse(row.stateJson), sigmascoutRpMeanShift: SHIFT }) } : row
+    );
+    expect(teamOnly.some((r) => r.scopeKind === "team")).toBe(true);
+    expect(readRpMeanShift(teamOnly)).toBeUndefined();
+  });
+
+  it("is all-or-nothing: a non-integer or negative count, a non-finite sum, or a missing season reads as undefined", () => {
+    const bad = (variables: unknown, season: unknown = 2026) => withRawLeaguePassenger({ season, variables });
+    expect(readRpMeanShift(bad({ ...SHIFT.variables, totalTowerPoints: { count: 1.5, sum: 2 } }))).toBeUndefined();
+    expect(readRpMeanShift(bad({ ...SHIFT.variables, totalTowerPoints: { count: -1, sum: 2 } }))).toBeUndefined();
+    expect(readRpMeanShift(bad({ ...SHIFT.variables, totalTowerPoints: { count: 3, sum: "2" } }))).toBeUndefined();
+    expect(readRpMeanShift(bad({ ...SHIFT.variables, totalTowerPoints: { count: 3 } }))).toBeUndefined();
+    expect(readRpMeanShift(bad({ ...SHIFT.variables, totalTowerPoints: null }))).toBeUndefined();
+    expect(readRpMeanShift(withRawLeaguePassenger({ variables: SHIFT.variables }))).toBeUndefined();
+    expect(readRpMeanShift(bad(SHIFT.variables, "2026"))).toBeUndefined();
+    expect(readRpMeanShift(withRawLeaguePassenger({ season: 2026 }))).toBeUndefined();
+    // JSON cannot carry NaN or Infinity; a hand-written row can still hold a non-finite-looking value as null.
+    expect(readRpMeanShift(bad({ ...SHIFT.variables, totalTowerPoints: { count: 3, sum: null } }))).toBeUndefined();
+  });
+
+  it("coexists with the Sigma population on the same league row", () => {
+    const population = { sumSquares: 12.5, talentSquares: 99.25, count: 40 };
+    const all = withRpMeanShift(withSigmaPopulation(rows(), population), SHIFT);
+    expect(readSigmaPopulation(all)).toEqual(population);
+    expect(readRpMeanShift(all)).toEqual(SHIFT);
   });
 });
