@@ -1,33 +1,22 @@
 /**
- * 2019 (Destination: Deep Space) RP rule module. Thresholds derived from
- * data via corpus reconciliation against TBA's own recorded flags
- * (`reconciliation.test.ts`), not cited from the game manual.
+ * 2019 (Destination: Deep Space) RP rule module. Thresholds are derived by corpus
+ * reconciliation against TBA's recorded flags (`reconciliation.test.ts`), not cited
+ * from the game manual.
  *
- * HAB Docking Bonus: `habClimbPoints >= 15`, 100% agreement at every event
- * tier, so the threshold is uniform rather than tiered.
+ * HAB Docking Bonus: `habClimbPoints >= 15`, 100% agreement at every tier.
  *
- * Complete Rocket Bonus: recomputed as `completedRocketNear ||
- * completedRocketFar`, 98.19% agreement overall, 0% false positives at
- * every tier (a small false-negative rate is `reconciliation.test.ts`'s one
- * `KNOWN_TOLERANCES` entry for this bonus). A rejected joint
- * `hatchPanelPoints`/`cargoPoints` threshold variant scored worse and
- * introduced false positives, violating this project's never-overstate
- * direction.
+ * Complete Rocket Bonus: `completedRocketNear || completedRocketFar`, 98.19%
+ * agreement with 0% false positives at every tier (the false-negative rate is its
+ * `KNOWN_TOLERANCES` entry). A joint `hatchPanelPoints`/`cargoPoints` threshold
+ * scored worse and introduced false positives, so it is not used.
  *
- * `parse` and `predictThresholds` differ for Complete Rocket: `parse` reads
- * the two booleans directly, but `predictThresholds` receives only numeric
- * threshold-variable values and cannot reach them, so it takes the
- * conservative branch and is always `false` there (see `BONUS_PREDICATES`
- * below), following 2025's `autoBonus` precedent. The bonus contributes no
- * entry to `thresholdVariables`; the single tracked variable is
- * `habClimbPoints`.
+ * `predictThresholds` receives only numeric values and cannot reach the rocket
+ * booleans, so Complete Rocket is always `false` there and tracks no threshold
+ * variable; the single tracked variable is `habClimbPoints`.
  *
- * Deliberately never read: the roll-up totals (`autoPoints` is numerically
- * identical to `sandStormBonusPoints`, a hazard not a convenience — see
- * `breakdown/2019.ts`'s header), the per-robot fields (positional
- * correspondence is unverified), and the per-bay detail fields (the
- * rejected joint-threshold variant above already showed this level of
- * detail does not help).
+ * Deliberately never read: the roll-up totals (`autoPoints` equals
+ * `sandStormBonusPoints`, a hazard; see `breakdown/2019.ts`), the per-robot fields
+ * (positional correspondence is unverified), and the per-bay detail fields.
  *
  * Threshold comparisons are `>=` throughout.
  */
@@ -35,11 +24,7 @@ import { z } from "zod";
 import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
 import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor } from "./constants.js";
 
-/**
- * Only the subset of TBA's `score_breakdown.{side}` object this module
- * reads. Unknown extra fields are ignored, not rejected — zod's default
- * "strip" mode drops them without erroring. Deliberately not `.passthrough()`.
- */
+/** Only the fields this module reads; zod's default strip mode drops the rest (deliberately not `.passthrough()`). */
 const SideSchema = z.object({
   habClimbPoints: z.number().finite(),
   completedRocketNear: z.boolean(),
@@ -53,12 +38,10 @@ const Rp2019Schema = z.object({
   blue: SideSchema,
 });
 
-/** HAB Docking Bonus threshold: `habClimbPoints >= 15`. Not tiered — flatness measured. */
+/** HAB Docking Bonus threshold: `habClimbPoints >= 15`. Not tiered (measured). */
 const HAB_DOCKING_THRESHOLD: RpTieredThreshold = { base: 15, districtChampionship: 15, championship: 15 };
 
-// 2026-09-14, quick task 260914-01x: every variable below declares "lattice",
-// shipped by the committed bonus-arm bar (data/baselines/rp-bonus-arms-2026-09.json,
-// ship: lattice+meanShift). Any other family named above is history.
+// Every variable declares "lattice"; the shipping evidence is data/baselines/rp-bonus-arms-2026-09.json.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "habClimbPoints",
@@ -69,17 +52,7 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   },
 ];
 
-/**
- * Complete Rocket carries no threshold variable (see file header): it is
- * recomputed in `parse` from two booleans, not a numeric threshold. `maxRp`
- * still derives to `2 + 2 = 4` because `bonusNames.length` counts it
- * regardless of whether it tracks a threshold variable.
- *
- * `habDocking` is `singleThreshold`. `completeRocket` is declared
- * `constant`, `value: false` — no threshold-variable-only fallback exists
- * at all, so there is nothing to gate with an `RpUntrackedGate`; the
- * `reason` field carries that justification instead.
- */
+/** `completeRocket` is declared `constant` false (no numeric fallback exists, so no gate); `bonusNames.length` still counts it toward `maxRp`. */
 const BONUS_PREDICATES: readonly BonusPredicate[] = [
   {
     kind: "singleThreshold",
@@ -142,14 +115,7 @@ export const rp2019: RpRuleModule = {
     };
   },
 
-  /**
-   * `habDocking` is fully computable from `habClimbPoints` alone.
-   * `completeRocket` depends entirely on the two rocket booleans, which
-   * this season tracks no numeric fallback for, so it is always `false`
-   * here (declared `constant`, see `BONUS_PREDICATES` above), following
-   * 2025's `autoBonus` precedent. Delegates to the shared declarative
-   * evaluator.
-   */
+  /** `completeRocket` depends entirely on the rocket booleans, so it is always `false` here. */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
     return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
   },
