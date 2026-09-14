@@ -1,24 +1,20 @@
 /**
- * Plan 04-07 Task 2's fast, offline, CI-runnable equivalence half (D-14).
- * Drives `runTick` with the SAME hand-rolled D1/R2/KV fakes and stubbed
- * `fetch` `scheduled.test.ts` already uses (no network, no wrangler, no
- * deployed Worker) over a small recorded fixture slice, one match revealed
- * per tick — then independently replays the identical match slice offline
- * through `packages/harness`'s `WalkForwardSimulator` from a cold start, and
- * asserts the two prediction streams' digests agree for every published
- * algorithm (`opr`, `epa`, `spr`).
+ * A fast, offline, CI-runnable equivalence test. Drives `runTick` with the
+ * same hand-rolled D1/R2/KV fakes and stubbed `fetch` `scheduled.test.ts`
+ * already uses (no network, no wrangler, no deployed Worker) over a small
+ * recorded fixture slice, one match revealed per tick — then independently
+ * replays the identical match slice offline through `packages/harness`'s
+ * `WalkForwardSimulator` from a cold start, and asserts the two prediction
+ * streams' digests agree for every published algorithm (`opr`, `epa`, `spr`).
  *
- * THIS TEST vs. `scripts/replayRig.ts`'s deployed-Worker rig — both are
- * required and they prove DIFFERENT things (recorded here so a future editor
- * of either does not treat the other as redundant):
- *   - This test catches a divergence introduced by a CODE change (e.g. a
- *     future edit to `scheduled.ts`'s fold loop that quietly reorders
- *     `predict`/`update`, or a rounding drift) — it runs in seconds, in every
- *     CI run, against fakes.
- *   - The deployed rig catches a divergence introduced by the PLATFORM (a
- *     real D1/R2 round-trip, real JSON serialization over the wire, a real
- *     bundled build) — something no fake, however faithful, can exercise.
- * Neither substitutes for the other; D-14's full claim rests on both passing.
+ * This test vs. `scripts/replayRig.ts`'s deployed-Worker rig prove
+ * different things: this test catches a divergence introduced by a code
+ * change (e.g. a future edit to `scheduled.ts`'s fold loop that quietly
+ * reorders `predict`/`update`, or a rounding drift), running in seconds
+ * against fakes; the deployed rig catches a divergence introduced by the
+ * platform (a real D1/R2 round-trip, real JSON serialization over the
+ * wire, a real bundled build) that no fake can exercise. Neither
+ * substitutes for the other.
  */
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -39,18 +35,15 @@ import type { D1Database } from "@cloudflare/workers-types";
 
 /**
  * `packages/harness/replay.ts` (`WalkForwardSimulator`) and
- * `packages/harness/predictionStreamDigest.ts` (`computePredictionStreamDigest`) both
- * import `packages/corpus/db.ts` at module top level for unrelated exports
- * (`buildSeasonStream`/`selectMatchesChronological`), which pulls in
- * `better-sqlite3` and triggers the exact `URL` ambient-type collision
- * `apps/worker/src/liveWindows.ts`'s own header documents for the identical
- * reason (plan 04-06 Task 1's `manifestSchemas.ts` extraction). This file
- * lives inside apps/worker's Cloudflare-typed program, so it cannot import
- * either — the two tiny functions actually needed
+ * `packages/harness/predictionStreamDigest.ts` both import
+ * `packages/corpus/db.ts` at module top level for unrelated exports, which
+ * pulls in `better-sqlite3` and triggers the same `URL` ambient-type
+ * collision `apps/worker/src/liveWindows.ts`'s own header documents. This
+ * file lives inside apps/worker's Cloudflare-typed program, so it cannot
+ * import either — the two tiny functions actually needed
  * (`WalkForwardSimulator.run`'s predict/update loop,
  * `computePredictionStreamDigest`'s hash) are reimplemented below,
- * byte-for-byte identical to their originals (D-06's own established
- * small-duplication precedent for this exact cross-boundary situation).
+ * byte-for-byte identical to their originals.
  */
 interface OfflinePredictionRecord {
   readonly match: MatchResult;
@@ -76,27 +69,21 @@ function computePredictionStreamDigestLocal(records: readonly OfflinePredictionR
 
 
 /**
- * The SigmaScout-layer counterpart of the prediction digest above (shape 10).
- *
- * Kept SEPARATE rather than folded into `computePredictionStreamDigestLocal`,
- * which is pinned byte-for-byte to `predictionStreamDigest.ts`'s own function and must not
- * drift from it. This one exists because the prediction digest covers only
- * `pRedWin`/`redScore`/`blueScore` and would therefore not notice a live/offline
- * divergence in the Match Band AT ALL — the field the whole shape-10 bump was
- * made for. Asserting bit-equality on an estimator while testing three fields
- * that do not include it is the shape of claim this project's failure log is
- * about.
+ * The SigmaScout-layer counterpart of the prediction digest above. Kept
+ * separate rather than folded into `computePredictionStreamDigestLocal`,
+ * which is pinned byte-for-byte to `predictionStreamDigest.ts`'s own
+ * function and must not drift from it. This one exists because the
+ * prediction digest covers only `pRedWin`/`redScore`/`blueScore` and would
+ * not notice a live/offline divergence in the Match Band at all.
  */
 function computeBandStreamDigestLocal(rows: readonly { matchKey: string; red: number | undefined; blue: number | undefined }[]): string {
   return createHash("sha256").update(rows.map((r) => JSON.stringify([r.matchKey, r.red ?? null, r.blue ?? null])).join("\n")).digest("hex");
 }
 
-// ---------------------------------------------------------------------------
-// Fakes — deliberately the SAME shapes scheduled.test.ts already validates
+// Fakes — deliberately the same shapes scheduled.test.ts already validates
 // against real production SQL (this test does not re-derive its own fake
 // D1/R2 semantics, which would risk silently diverging from what the tick
 // actually issues).
-// ---------------------------------------------------------------------------
 
 interface FakeAlgorithmStateRow {
   algorithm_id: string;
@@ -213,8 +200,8 @@ class FakeD1Database {
       this.eventCursors.set(eventKey as string, { event_key: eventKey as string, tba_etag: tbaEtag ?? null, last_folded_match_key: lastFoldedMatchKey ?? null, last_polled_at: lastPolledAt ?? null, last_advanced_at: lastAdvancedAt ?? null });
       return 1;
     }
-    // writeEventCursor's own plain upsert (ON CONFLICT DO UPDATE) — used by
-    // writeTickMeta's sentinel row and the "unchanged but ETag moved" path.
+    // writeEventCursor's own plain upsert — used by writeTickMeta's
+    // sentinel row and the "unchanged but ETag moved" path.
     if (sql.includes("INSERT INTO event_cursor")) {
       const [eventKey, tbaEtag, lastFoldedMatchKey, lastPolledAt, lastAdvancedAt] = args as (string | null)[];
       this.eventCursors.set(eventKey as string, { event_key: eventKey as string, tba_etag: tbaEtag ?? null, last_folded_match_key: lastFoldedMatchKey ?? null, last_polled_at: lastPolledAt ?? null, last_advanced_at: lastAdvancedAt ?? null });
@@ -249,10 +236,9 @@ class FakeKvNamespace {
   }
 }
 
-// Quick task 260822-wqt: this test asserts D-14's equivalence property
-// across ALL THREE published algorithms, so its live tier is deliberately
-// left at all three rather than narrowed to spr — it already overrides
-// the subrequest budget (`subrequestCap: 1000, subrequestReserve: 0`) below
+// This test asserts the equivalence property across all three published
+// algorithms, so its live tier is deliberately left at all three rather
+// than narrowed to spr — it already overrides the subrequest budget below
 // precisely because it tests the equivalence property, not the deferral
 // mechanism `scheduled.test.ts` covers directly. Narrowing this to spr
 // would silently drop opr/epa fold-equivalence coverage while the suite
@@ -283,26 +269,23 @@ function algorithmsManifestJson(): string {
   return JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", algorithms });
 }
 
-/** The SAME dispatch `apps/worker/src/scheduled.ts`'s `buildAlgorithmModules` performs for these three ids — reimplemented locally (never imported: this file lives inside apps/worker's own Cloudflare-typed program, so importing `scheduled.ts` here is fine and safe, but keeping the offline comparison's module construction independent of the code path under test is what makes a real divergence between them detectable rather than tautological). */
+/** The same dispatch `apps/worker/src/scheduled.ts`'s `buildAlgorithmModules` performs for these three ids — reimplemented locally rather than imported, so keeping the offline comparison's module construction independent of the code path under test is what makes a real divergence between them detectable rather than tautological. */
 function buildOfflineModule(id: string): AlgorithmModule<any> {
   if (id === "opr") return opr;
   if (id === "epa") return epa;
   if (id === "spr") return spr;
-  // Explicit, and NOT a default branch (2026-09-09). This helper had the same
-  // defect the Worker's own `buildAlgorithmModules` did: an unknown id silently
-  // became a module of the since-retired Sigma1 core (deleted by quick task
-  // 260913-it4) wearing that id, so the offline half of this equivalence test
-  // would have compared the premier algorithm's live output against another
-  // model's — the exact live/offline split this test exists to catch, hidden
-  // inside the test itself.
+  // Explicit, and not a default branch: a default branch that built an
+  // unknown id as a different model wearing that id would let the offline
+  // half of this equivalence test compare the premier algorithm's live
+  // output against another model's — the exact live/offline split this
+  // test exists to catch, hidden inside the test itself.
   throw new Error(`buildOfflineModule: no module for algorithm id "${id}"`);
 }
 
-// ---------------------------------------------------------------------------
-// One fixture slice, defined once, projected into BOTH the raw TBA shape fed
-// to the stubbed fetch AND the MatchResult shape fed to WalkForwardSimulator
-// — a single source of truth per match so the two halves cannot drift apart.
-// ---------------------------------------------------------------------------
+// One fixture slice, defined once, projected into both the raw TBA shape
+// fed to the stubbed fetch and the MatchResult shape fed to
+// WalkForwardSimulator — a single source of truth per match so the two
+// halves cannot drift apart.
 
 const EVENT_KEY = "2026casj";
 const SEASON = 2026;
@@ -315,20 +298,12 @@ interface MatchFixture {
   readonly redScore: number;
   readonly blueScore: number;
   /**
-   * Disqualified team keys, threaded into BOTH halves of the equivalence
+   * Disqualified team keys, threaded into both halves of the equivalence
    * comparison — `dq_team_keys` on the TBA side, `redDqs`/`blueDqs` on the
-   * offline `MatchResult` side.
-   *
-   * These exist because their ABSENCE is what made this suite blind to a real
-   * production defect. `toMatchResult` used to omit `redDqs`/`blueDqs`
-   * entirely while `toTbaMatch` sent `dq_team_keys: []`, so both halves saw an
-   * empty DQ set and agreed — while the deployed Worker, which also dropped
-   * the fields, silently skipped the whole-alliance-DQ exclusion the offline
-   * publish path applies. The predicate fails open (`new Set(undefined)` is a
-   * legal empty Set, never a throw), so nothing anywhere went red.
-   *
-   * Fixture 7 below is the non-vacuous case: an equivalence suite that never
-   * feeds a DQ cannot prove the two paths treat DQs alike.
+   * offline `MatchResult` side. Their presence matters: a suite that never
+   * feeds a DQ cannot prove the two paths treat DQs alike, and a past
+   * defect (dropped DQ fields silently skipping the whole-alliance-DQ
+   * exclusion) previously went undetected for exactly this reason.
    */
   readonly redDqs?: readonly string[];
   readonly blueDqs?: readonly string[];
@@ -337,18 +312,14 @@ interface MatchFixture {
 const MATCH_FIXTURES: readonly MatchFixture[] = [
   { matchNumber: 1, redTeams: ["frc1", "frc2", "frc3"], blueTeams: ["frc4", "frc5", "frc6"], redScore: 120, blueScore: 95 },
   { matchNumber: 2, redTeams: ["frc7", "frc8", "frc1"], blueTeams: ["frc2", "frc3", "frc4"], redScore: 88, blueScore: 110 },
-  // Match 3: a FULLY-DQ'd, zero-score red alliance — the one shape that makes
-  // `isFullyDqZeroScoreAlliance` fire (it needs a non-empty team list, a score
-  // of exactly 0, and every team present in the DQ set). Without this row the
-  // equivalence assertion holds vacuously for DQ handling, which is precisely
-  // how the Worker's dropped `redDqs`/`blueDqs` survived undetected.
-  //
-  // It sits at position 3, NOT last, and that placement is load-bearing: the
-  // digest compares PREDICTIONS, and a prediction is made before its own match
-  // is folded. A DQ in the final match would change state that no later
-  // prediction ever reads, so the assertion would stay green either way. Every
-  // DQ'd team here (frc2/frc6/frc8) reappears in matches 4-7 below, so the
-  // exclusion's effect on their ratings is observed by four later predictions.
+  // Match 3: a fully-DQ'd, zero-score red alliance — the one shape that
+  // makes `isFullyDqZeroScoreAlliance` fire. It sits at position 3, not
+  // last, and that placement is load-bearing: the digest compares
+  // predictions, and a prediction is made before its own match is folded,
+  // so a DQ in the final match would change state no later prediction ever
+  // reads. Every DQ'd team here (frc2/frc6/frc8) reappears in matches 4-7
+  // below, so the exclusion's effect on their ratings is observed by four
+  // later predictions.
   { matchNumber: 3, redTeams: ["frc2", "frc6", "frc8"], blueTeams: ["frc1", "frc3", "frc5"], redScore: 0, blueScore: 118, redDqs: ["frc2", "frc6", "frc8"] },
   { matchNumber: 4, redTeams: ["frc5", "frc6", "frc7"], blueTeams: ["frc8", "frc1", "frc2"], redScore: 140, blueScore: 130 },
   { matchNumber: 5, redTeams: ["frc3", "frc4", "frc5"], blueTeams: ["frc6", "frc7", "frc8"], redScore: 75, blueScore: 100 },
@@ -428,17 +399,13 @@ function makeTbaFetchStub(): ReturnType<typeof vi.fn> {
 
 // Mutated per-tick by the driving loop below — the stubbed fetch always
 // returns exactly the matches "revealed so far," mirroring the real rig's
-// progressive-reveal mechanism against a fixture endpoint.
+// progressive-reveal mechanism.
 let revealedCount = 0;
 
 afterEach(() => {
   vi.unstubAllGlobals();
   revealedCount = 0;
 });
-
-// ---------------------------------------------------------------------------
-// The test
-// ---------------------------------------------------------------------------
 
 describe("scheduled.replay — offline equivalence (D-14)", () => {
   it(
@@ -456,11 +423,10 @@ describe("scheduled.replay — offline equivalence (D-14)", () => {
       // distinct stamp, matching production's real per-invocation behavior.
       for (let i = 0; i < MATCH_FIXTURES.length; i++) {
         revealedCount = i + 1;
-        // A real 6-team match folded across all three published algorithms in
-        // ONE tick is already close to the real SUBREQUEST_CAP by itself
-        // (Task 3's own worst-case-tick investigation is exactly about this
-        // scaling concern) — this test's purpose is the EQUIVALENCE property,
-        // not a re-test of the deferral mechanism scheduled.test.ts already
+        // A real 6-team match folded across all three published algorithms
+        // in one tick is already close to the real SUBREQUEST_CAP by
+        // itself. This test's purpose is the equivalence property, not a
+        // re-test of the deferral mechanism `scheduled.test.ts` already
         // covers directly, so the budget is generously overridden via
         // `RunTickDeps`'s own test-only injection point.
         const result = await runTick(env, { nowMs: NOW_MS + i * 60_000, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER, subrequestCap: 1000, subrequestReserve: 0 });
@@ -486,8 +452,8 @@ describe("scheduled.replay — offline equivalence (D-14)", () => {
         expect(published.matches).toHaveLength(MATCH_FIXTURES.length);
 
         // Order both streams identically (chronological match order, the
-        // SAME order matchResults/MATCH_FIXTURES already carry) before
-        // digesting — a digest is order-sensitive by design (promote.ts).
+        // same order matchResults/MATCH_FIXTURES already carry) before
+        // digesting — a digest is order-sensitive by design.
         const byKey = new Map(published.matches.map((m) => [m.matchKey, m]));
         const onlineOrdered = matchResults.map((m) => byKey.get(m.matchKey)!);
         const onlineDigestInput = onlineOrdered.map((row) => ({
@@ -498,33 +464,24 @@ describe("scheduled.replay — offline equivalence (D-14)", () => {
 
         expect(onlineDigest, `algorithm "${algorithmId}": online (deployed-tick) and offline (WalkForwardSimulator) prediction-stream digests diverged`).toBe(offlineDigest);
 
-        // THE MATCH BAND, on the same two streams (shape 11).
+        // The Match Band, on the same two streams. Built offline through
+        // the real `SigmaScoutLayer` that `publish.ts` drives, not through
+        // a hand-rolled accumulator — a second implementation of the thing
+        // under test can always drift from it.
         //
-        // Built offline through the REAL `SigmaScoutLayer` that `publish.ts`
-        // drives, not through a hand-rolled accumulator. That distinction is
-        // the whole point of this assertion and it was learned the hard way:
-        // this block previously constructed a bare accumulator of its own (the
-        // retired per-robot consistency accumulator),
-        // so when the publisher moved BPR's band onto Sigma Score the test's
-        // "offline" side kept modelling a publisher that no longer existed and
-        // compared the Worker against a stand-in. A second implementation of
-        // the thing under test can always drift from it.
-        //
-        // Talent is read from the state AFTER each match and handed to
-        // `foldPlayed`, which applies it only after folding -- the exact
+        // Talent is read from the state after each match and handed to
+        // `foldPlayed`, which applies it only after folding — the exact
         // ordering `publish.ts` uses, so talent as of after a match informs
-        // the team's NEXT match and never its own.
+        // the team's next match and never its own.
         const layer = new SigmaScoutLayer(undefined, algorithmId);
         let offlineState: unknown = offlineModule.initState([...ALL_TOUCHED_TEAMS]);
-        // Quick task 260913-m45 Task 2: per team, in match order, this
-        // algorithm's Sigma Score read right after THIS match's foldPlayed —
-        // the identical read-after-fold instant `withHistorySigma` merges
-        // offline. One match per tick makes end-of-tick (what the Worker
-        // reads) equal to after-this-match (what this reads), which is what
-        // makes the exact-equality comparison below valid; a multi-match
-        // catch-up tick would stamp every row in that tick with the tick's
-        // FINAL value, exactly as it already does for Total. Populated only
-        // for Sigma algorithms — see the opr/epa absence assertion below.
+        // Per team, in match order, this algorithm's Sigma Score read right
+        // after this match's foldPlayed — the identical read-after-fold
+        // instant `withHistorySigma` merges offline. One match per tick
+        // makes end-of-tick (what the Worker reads) equal to
+        // after-this-match (what this reads), which is what makes the
+        // exact-equality comparison below valid. Populated only for Sigma
+        // algorithms — see the opr/epa absence assertion below.
         const offlineSigmaByTeam = new Map<string, number[]>();
         const offlineBands = offlineRecords.map((r) => {
           offlineState = offlineModule.update(offlineState, r.match);
@@ -561,8 +518,8 @@ describe("scheduled.replay — offline equivalence (D-14)", () => {
           // proving nothing.
           expect(offlineBanded, `algorithm "${algorithmId}": the fixture produced no band at all, so the band digest below would be vacuous`).toBeGreaterThan(0);
         } else {
-          // Quick task 260913-g66: OPR and EPA publish no display band, offline
-          // or live. Both streams must be EMPTY, not merely equal.
+          // OPR and EPA publish no display band, offline or live. Both
+          // streams must be empty, not merely equal.
           expect(offlineBanded, `algorithm "${algorithmId}": offline published a band for a non-Sigma algorithm`).toBe(0);
           expect(onlineBanded, `algorithm "${algorithmId}": the live tick published a band for a non-Sigma algorithm`).toBe(0);
         }
@@ -571,10 +528,10 @@ describe("scheduled.replay — offline equivalence (D-14)", () => {
           `algorithm "${algorithmId}": online (deployed-tick) and offline Match Band streams diverged`
         ).toBe(computeBandStreamDigestLocal(offlineBands));
 
-        // Quick task 260913-m45 Task 2: THE SIGMA STREAM, team artifact by
-        // team artifact. For a Sigma algorithm every history row the live
-        // tick appended must carry the SAME sigma value, in the SAME order,
-        // as the offline layer's own per-match reading above.
+        // The sigma stream, team artifact by team artifact. For a Sigma
+        // algorithm every history row the live tick appended must carry
+        // the same sigma value, in the same order, as the offline layer's
+        // own per-match reading above.
         if (usesSigmaScore(algorithmId)) {
           let comparedRows = 0;
           for (const [teamKey, expectedSigmas] of offlineSigmaByTeam) {
