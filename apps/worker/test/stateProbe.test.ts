@@ -1,19 +1,12 @@
 /**
- * Pins two properties of `src/stateProbe.ts` that a naive "it returns 200"
- * test would not catch:
+ * Pins two properties of `src/stateProbe.ts` that "it returns 200" would miss:
  *
- *   1. It genuinely cannot write to D1, even though `wrangler.probe.toml`
- *      binds `DB` read-write (Workers has no read-only D1 binding — see
- *      `stateProbe.ts`'s own header for the two-layer guarantee this file
- *      is the "test-enforced" half of).
- *   2. It genuinely drives the ranking-point path — `analyticRpPmf` really
- *      runs, the partial-roster gate really opens, and the counters the
- *      probe reports are not all suppressed to zero while still returning
+ *   1. It cannot write to D1, although `wrangler.probe.toml` binds `DB`
+ *      read-write (this file is the test-enforced half of the probe's
+ *      two-layer write guarantee).
+ *   2. It really drives the ranking-point path: `analyticRpPmf` runs, the
+ *      partial-roster gate opens, and the counters are not all zero under
  *      `ok: true`.
- *
- * Three of the four groups below are behavioral for exactly that reason: a
- * test that would still pass if the probe silently stopped exercising the
- * RP path is worthless.
  */
 import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -47,9 +40,8 @@ const __dirname = dirname(__filename);
 const STATE_PROBE_SRC = resolve(__dirname, "../src/stateProbe.ts");
 const WRANGLER_PROBE_TOML = resolve(__dirname, "../wrangler.probe.toml");
 
-// Comment stripping, extended to block comments since `stateProbe.ts`'s own
-// header (which must name `writeScopedState`/`writeEventCursor`/
-// `scheduled.ts` in prose) lives inside a `/** */` block.
+// Strips block comments too: `stateProbe.ts`'s header names the forbidden
+// helpers in prose.
 
 function stripComments(source: string): string {
   const noBlockComments = source.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -76,7 +68,7 @@ function resolveLocalImport(fromFile: string, specifier: string): string {
   return resolved;
 }
 
-/** BFS/DFS over every LOCAL (relative-specifier) import reachable from `entryFile`, transitively. Non-relative (package) specifiers are never followed — this is a graph over this repo's own files only. */
+/** Every local (relative-specifier) import reachable from `entryFile`, transitively; package specifiers are never followed. */
 function collectLocalImportGraph(entryFile: string): Set<string> {
   const visited = new Set<string>();
   const stack = [entryFile];
@@ -117,9 +109,8 @@ describe("stateProbe — Group 1: the no-write property, STATIC", () => {
     expect(stripped).not.toContain("mentioned only in a line comment");
     expect(stripped).not.toContain("mentioned only in a");
     expect(stripped).not.toContain("block comment spanning multiple lines");
-    // Real code containing the identifier survives stripping — without this
-    // half, a stripper that returned "" would make every negative assertion
-    // below vacuously true.
+    // Real code survives stripping; a stripper returning "" would make every
+    // negative assertion vacuous.
     expect(stripped).toContain("writeScopedStateLookalike");
     expect(stripped).toContain('const real = "not a comment";');
   });
@@ -177,9 +168,7 @@ describe("stateProbe — Group 1: the no-write property, STATIC", () => {
 });
 
 describe("stateProbe — Group 2: selection-rule equivalence with the real tick", () => {
-  // The test file itself may import scheduled.ts freely (only the probe's
-  // own graph is constrained, per Group 1 above) — that is what lets this
-  // group compare the probe's duplicate against the real thing at all.
+  // Only the probe's graph is constrained, so this test may import scheduled.ts.
   const EVENT_KEY = "2026testevt";
   const TEAMS = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
 
@@ -193,12 +182,9 @@ describe("stateProbe — Group 2: selection-rule equivalence with the real tick"
   });
 });
 
-// Group 3 + 4 fixtures: a fake D1Database, deliberately duplicated from
-// `apps/worker/test/stateStore.test.ts` rather than imported. Extended
-// here to count write statements — any `batch()` call, and any `run()`
-// whose SQL is not a SELECT — which is the behavioral half of Group 1's
-// static "no write helper is reachable" proof: this proves no write was
-// actually issued, against a probe wired to a live-shaped D1.
+// Group 3 + 4 fixtures: a fake D1Database copied from `stateStore.test.ts`,
+// extended to count writes (any `batch()`, any non-SELECT `run()`). The
+// behavioral half of Group 1: no write was actually issued.
 
 interface FakeAlgorithmStateRow {
   algorithm_id: string;
@@ -315,11 +301,7 @@ function seedRows(db: FakeD1Database, rows: readonly StateRow[]): void {
 
 const SEED_STAMP = { generation: "seed", computedAt: "2026-01-01T00:00:00.000Z" };
 const SEED_EVENT_KEY = "2026seedevt";
-/**
- * 21 teams — matches `stateProbe.ts`'s own `DEFAULT_TEAM_COUNT`, so a probe
- * request with no `teamCount=` override finds a full-sized roster and
- * never trips the "roster smaller than requested" warning.
- */
+/** 21 teams, `stateProbe.ts`'s `DEFAULT_TEAM_COUNT`, so no "roster smaller than requested" warning. */
 const SEED_ROSTER = Array.from({ length: 21 }, (_, i) => `frc${i + 1}`);
 
 /** The 2026 score-breakdown shape `rp2026.parse` reads — same shape as `scheduled.rp.test.ts`'s `breakdownOf`. */
@@ -370,7 +352,7 @@ function seedMatch(
   };
 }
 
-/** Cycles 6-at-a-time through `SEED_ROSTER`, the same shape `stateProbe.ts`'s own `rosterAt` uses — `ceil(21/6) = 4` matches is the minimum that touches every one of the 21 seeded teams at least once (the 4th wraps and re-touches a few, which is harmless: RP beliefs are keyed by team, not by match). */
+/** Cycles 6 at a time through `SEED_ROSTER`, like `stateProbe.ts`'s `rosterAt`; `ceil(21/6) = 4` matches touch every seeded team. */
 function seedRosterAt(index: number): { red: string[]; blue: string[] } {
   const n = SEED_ROSTER.length;
   const start = (index * 6) % n;
@@ -386,15 +368,10 @@ const SEED_MATCHES: readonly MatchResult[] = Array.from({ length: SEED_MATCH_COU
 });
 
 /**
- * Seeds a fresh `FakeD1Database` with real rows for all three published
- * algorithms — built via `initState`/`update`/`serializeState` and, for
- * spr, real `SigmaScoreAccumulator`/`RpMomentsAccumulator` instances that
- * folded the same seed matches — never hand-written JSON.
- *
- * Folding the seed matches through the same 6-team roster the probe's own
- * `rosterAt` cycles through is what makes the seeded RP beliefs cover the
- * probe's own fold, so the partial-roster gate does not fire on the very
- * first synthetic match.
+ * Seeds a `FakeD1Database` with real rows for all three published algorithms
+ * (real `initState`/`update`/`serializeState` and, for spr, real accumulators),
+ * never hand-written JSON. Seeding through the probe's roster cycle makes the
+ * RP beliefs cover its fold, so the partial-roster gate stays open.
  */
 function seedAllAlgorithms(db: FakeD1Database): void {
   let oprState = opr.initState([...SEED_ROSTER]);
@@ -468,9 +445,7 @@ describe("stateProbe — Group 3: the RP path really runs, and really writes not
 
     expect(body.fold.matchesFolded).toBe(2);
     expect(body.fold.upcomingPriced).toBe(5);
-    // EQUALITY against folded + upcoming, not `> 0` — a `> 0` check would
-    // pass even if the partial-roster gate silently suppressed six of the
-    // seven matches' pmfs.
+    // Equality, not `> 0`, which would pass with six of seven pmfs suppressed.
     expect(body.fold.rpPmfsProduced).toBe(7);
     expect(body.fold.bandsProduced).toBeGreaterThan(0);
     expect(body.fold.rpObservedFolds).toBeGreaterThan(0);
@@ -478,9 +453,7 @@ describe("stateProbe — Group 3: the RP path really runs, and really writes not
 
     expect(body.warnings).toEqual([]);
 
-    // The behavioral half of Group 1: static analysis proves no write
-    // helper is REACHABLE; this proves no write was actually ISSUED against
-    // a D1 wired to record every one.
+    // The behavioral half of Group 1: no write was actually issued.
     expect(db.writeStatementCount).toBe(0);
   });
 });
@@ -514,26 +487,16 @@ describe("stateProbe — Group 4: the shape-mismatch report is readable, not an 
     expect(sprEntry?.error?.message).toContain(String(STATE_SNAPSHOT_SHAPE_VERSION));
     expect(sprEntry?.error?.message).toContain(String(STATE_SNAPSHOT_SHAPE_VERSION - 1));
 
-    // Still zero writes even on a failing run — the shape check trips before
-    // anything downstream of it, but no write helper exists in this file's
-    // graph regardless of which branch runs.
+    // Still zero writes on a failing run.
     expect(db.writeStatementCount).toBe(0);
   });
 });
 
-// Group 5 — the `rp` ablation arm.
+// Group 5: the `rp` ablation arm.
 //
-// Group 3 above is deliberately left untouched by this arm: it was written
-// before the flag existed, passes no `rp` param, and still asserts
-// `rpPmfsProduced === 7` and `warnings === []`. That it still passes
-// verbatim is the default-ON regression proof.
-//
-// The load-bearing assertion in this group is `bandsProduced`, pinned
-// equal across the two arms: the band calls predate the ranking-point
-// work, so an ablation that also dropped the bands would silently bill
-// ranking points for work that was already there, overstating its share
-// of the overrun. This assertion is what makes that a test failure rather
-// than a wrong number in a runbook.
+// Group 3 passes no `rp` param, so it is the default-ON regression proof.
+// The load-bearing assertion here is `bandsProduced` equal across arms: an
+// ablation that also dropped bands would overstate ranking points' CPU share.
 
 interface ArmBody {
   ok: boolean;
@@ -567,8 +530,7 @@ describe("stateProbe — Group 5: the rp ablation arm", () => {
     const absent = await runArm(ARM_QUERY);
     const explicit = await runArm(`${ARM_QUERY}&rp=1`);
 
-    // Byte-identical, not merely deep-equal. The whole point of the default
-    // is that adding the flag changed nothing for anyone who does not pass it.
+    // Byte-identical, not merely deep-equal: the default must change nothing.
     expect(absent.text).toBe(explicit.text);
     expect(absent.status).toBe(200);
     expect(absent.body.params.rp).toBe(true);
@@ -586,34 +548,28 @@ describe("stateProbe — Group 5: the rp ablation arm", () => {
     expect(on.body.fold.error).toBeUndefined();
     expect(off.body.fold.error).toBeUndefined();
 
-    // The arm is stated in the response, so a cpuTime read off `wrangler
-    // tail` can never be attributed to the wrong run.
+    // The arm is echoed so a `wrangler tail` cpuTime is never misattributed.
     expect(on.body.params.rp).toBe(true);
     expect(off.body.params.rp).toBe(false);
 
-    // ON arm: every match gets a pmf. EQUALITY against folded + upcoming,
-    // exactly as Group 3 asserts it.
+    // ON arm: every match gets a pmf, pinned by equality as in Group 3.
     expect(on.body.fold.rpPmfsProduced).toBe(ARM_FOLDED + ARM_UPCOMING);
     expect(on.body.fold.rpObservedFolds).toBeGreaterThan(0);
 
-    // OFF arm: 0 BY CONSTRUCTION, pinned as its own equality. `>= 0` here
-    // would pass in both arms and prove nothing at all.
+    // OFF arm: 0 by construction, pinned by equality.
     expect(off.body.fold.rpPmfsProduced).toBe(0);
     expect(off.body.fold.rpObservedFolds).toBe(0);
 
-    // Non-vacuity: the two arms genuinely differ. Without this, a bug that
-    // made BOTH arms produce 0 would satisfy the off-arm equality above.
+    // Non-vacuity: the arms differ, so both producing 0 would fail.
     expect(on.body.fold.rpPmfsProduced).not.toBe(off.body.fold.rpPmfsProduced);
 
-    // Both loops still run in both arms — the upcoming-repricing loop
-    // predates ranking points, so ablating RP must not shorten it.
+    // Both loops still run in both arms.
     expect(off.body.fold.matchesFolded).toBe(on.body.fold.matchesFolded);
     expect(off.body.fold.upcomingPriced).toBe(on.body.fold.upcomingPriced);
     expect(off.body.fold.matchesFolded).toBe(ARM_FOLDED);
     expect(off.body.fold.upcomingPriced).toBe(ARM_UPCOMING);
 
-    // Bands predate ranking points and are billed to neither arm
-    // differently. Two alliances per match, every roster banded.
+    // Bands are identical across arms: two alliances per match, every roster banded.
     expect(off.body.fold.bandsProduced).toBe(on.body.fold.bandsProduced);
     expect(on.body.fold.bandsProduced).toBe(2 * (ARM_FOLDED + ARM_UPCOMING));
 
@@ -636,8 +592,7 @@ describe("stateProbe — Group 5: the rp ablation arm", () => {
     expect(off.body.warnings[0]).toContain("ABLATED ARM");
 
     // The off arm must NOT inherit the "every RP pmf was suppressed" warning,
-    // whose three named causes (partial-roster gate, ineligible event type,
-    // no registered rule module) are all things that did not happen here.
+    // none of whose named causes happened here.
     expect(off.body.warnings.join(" ")).not.toContain("partial-roster gate");
   });
 
@@ -660,13 +615,12 @@ describe("stateProbe — Group 5: the rp ablation arm", () => {
   });
 });
 
-// Group 6 — the mean shift (shape 16, quick task 260914-01x).
+// Group 6: the mean shift.
 //
 // The probe cannot expose its pmfs, so the mirror of `scheduled.ts` is proven
-// through two counters an independent computation can predict EXACTLY: how
-// many residuals `observeMatch` booked, and how many alliances `apply` moved.
-// Every seeded team has history of both 2026 variables, so every synthetic
-// roster is fully warm.
+// through two counters an independent computation predicts exactly: residuals
+// `observeMatch` booked and alliances `apply` moved. Every seeded team has
+// history of both 2026 variables, so every synthetic roster is fully warm.
 
 /** A past-warmup passenger, hand-built: the probe prices from whatever D1 holds, so what matters here is that it RESUMES one. */
 const SEEDED_SHIFT = {
@@ -741,8 +695,8 @@ describe("stateProbe — Group 6: the mean shift mirrors scheduled.ts (shape 16)
   });
 
   it("the probe's source performs the same four mean-shift operations scheduled.ts does", () => {
-    // Behavioural counters above prove resume, apply and observe; the
-    // write-back only reaches rows the probe discards, so it is pinned here.
+    // The counters prove resume, apply and observe; the write-back only reaches
+    // discarded rows, so it is pinned here.
     const probe = stripComments(readFileSync(STATE_PROBE_SRC, "utf8"));
     const worker = stripComments(readFileSync(resolve(__dirname, "../src/scheduled.ts"), "utf8"));
     for (const operation of ["RpMeanShiftAccumulator.fromState(", "readRpMeanShift(", ".apply(", "rosterIsFullyWarm(", ".observeMatch(", "withRpMeanShift("]) {
