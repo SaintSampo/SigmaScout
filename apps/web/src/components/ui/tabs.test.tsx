@@ -36,7 +36,7 @@ function renderLineTabs() {
   );
 }
 
-describe("TabsTrigger — line variant carries no percentage-height dependency on TabsList (Task 4, 260902-ixg)", () => {
+describe("TabsTrigger — line variant carries no percentage-height dependency on TabsList", () => {
   it("does NOT carry the base `h-[calc(100%-1px)]` class value un-overridden for the line variant", () => {
     renderLineTabs();
     const trigger = screen.getAllByRole("tab")[0]!;
@@ -50,7 +50,7 @@ describe("TabsTrigger — line variant carries no percentage-height dependency o
   });
 });
 
-describe("TabsList — line variant is not pinned to a fixed h-8, so it can grow to match a tall trigger (Task 4, 260902-ixg)", () => {
+describe("TabsList — line variant is not pinned to a fixed h-8, so it can grow to match a tall trigger", () => {
   it("carries a line-scoped auto-height override alongside the shared h-8", () => {
     renderLineTabs();
     const list = screen.getByRole("tablist");
@@ -64,7 +64,7 @@ describe("TabsList — line variant is not pinned to a fixed h-8, so it can grow
   });
 });
 
-describe("TabsTrigger — transition is narrowed off layout properties (Task 4, 260902-ixg)", () => {
+describe("TabsTrigger — transition is narrowed off layout properties", () => {
   it("does not carry transition-all on the line-variant trigger", () => {
     renderLineTabs();
     const trigger = screen.getAllByRole("tab")[0]!;

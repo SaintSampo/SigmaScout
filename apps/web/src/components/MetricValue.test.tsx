@@ -62,15 +62,15 @@ describe("MetricValue", () => {
     expect(outer?.className).toMatch(/whitespace-nowrap/);
   });
 
-  it("renders no plus-minus superscript element at all (260913-g66)", () => {
+  it("renders no plus-minus superscript element at all", () => {
     const { container } = render(<MetricValue metric={{ value: 88.2, spread: 3.1 }} tier="epic" />);
 
     expect(container.textContent).not.toContain("±");
   });
 
-  // D-17 (06-07-PLAN.md Task 1): the tier prop is presentation-only — it may
+  // The tier prop is presentation-only — it may
   // never change a digit, only wrap the SAME output in `.metric-tier`.
-  describe("tier prop (D-17)", () => {
+  describe("tier prop", () => {
     it("wraps the value in the epic modifier class when tier='epic'", () => {
       const { container } = render(<MetricValue metric={{ value: 76.23 }} tier="epic" />);
 
@@ -79,11 +79,11 @@ describe("MetricValue", () => {
       expect(outer?.className).toMatch(/metric-tier--epic/);
     });
 
-    // 260904-7rt (sketch 008 winner C): Common now draws the hairline
+    // Sketch 008 winner C: Common now draws the hairline
     // outline ring, so it carries BOTH the base `.metric-tier` class and
     // the `.metric-tier--common` modifier — it no longer matches the
     // undefined-tier case (see the untiered test below for that contract).
-    it("wraps the value in the common modifier class when tier='common' (260904-7rt, sketch 008 winner C)", () => {
+    it("wraps the value in the common modifier class when tier='common' (sketch 008 winner C)", () => {
       const { container } = render(<MetricValue metric={{ value: 76.23 }} tier="common" />);
 
       const outer = container.firstElementChild;
@@ -91,7 +91,7 @@ describe("MetricValue", () => {
       expect(outer?.className).toMatch(/metric-tier--common/);
     });
 
-    it("renders byte-identical numeric text at tier='common' to the same metric rendered untiered (260904-7rt: the ring is presentation-only)", () => {
+    it("renders byte-identical numeric text at tier='common' to the same metric rendered untiered (the ring is presentation-only)", () => {
       const untiered = render(<MetricValue metric={{ value: 88.2 }} />);
       const common = render(<MetricValue metric={{ value: 88.2 }} tier="common" />);
 
@@ -139,7 +139,7 @@ describe("MetricValue", () => {
 });
 
 /**
- * theme.css drift guard for the Common outline treatment (260904-7rt, sketch
+ * theme.css drift guard for the Common outline treatment (sketch
  * 008 winner C). This treatment is a design DECISION with a sketch behind
  * it, not an incidental style — this test exists so a future edit to
  * theme.css cannot silently regress it back to Common having no rule at
@@ -150,7 +150,7 @@ describe("MetricValue", () => {
  * scope trap"), so a cwd-relative path is exactly how this test would pass
  * in one invocation and fail in the other.
  */
-describe("theme.css Common-tier drift guard (260904-7rt)", () => {
+describe("theme.css Common-tier drift guard", () => {
   const testDir = dirname(fileURLToPath(import.meta.url));
   const themeCssPath = resolve(testDir, "../styles/theme.css");
   const themeCss = readFileSync(themeCssPath, "utf-8");
@@ -174,7 +174,7 @@ describe("theme.css Common-tier drift guard (260904-7rt)", () => {
   });
 });
 
-describe("MetricValue — spread must never reach the screen (developer rule, 2026-09-09)", () => {
+describe("MetricValue — spread must never reach the screen (developer rule)", () => {
   it("renders NO ± for a metric carrying the algorithm's spread", () => {
     const { container } = render(<MetricValue metric={{ value: 183.9, spread: 36.32 }} />);
     expect(container.textContent).toBe("183.90");

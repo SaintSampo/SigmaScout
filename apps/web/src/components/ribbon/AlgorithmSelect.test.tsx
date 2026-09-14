@@ -109,9 +109,9 @@ describe("useAlgorithmOptions", () => {
     expect(algorithmDisplayLabel("epa")).toBe("EPA");
   });
 
-  // D-03 (quick task 260904-5px): the EPA ribbon option's version-gated full
+  // The EPA ribbon option's version-gated full
   // name.
-  describe("D-03: EPA's version-gated full name", () => {
+  describe("EPA's version-gated full name", () => {
     function manifestWithEpaVersion(epaVersion: string | undefined) {
       const algorithms = [
         { id: "opr", version: "2.0.0+baseline", codeVersion: "2.0.0", paramSetName: "baseline" },

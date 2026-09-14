@@ -75,7 +75,7 @@ const ISRAEL_2026_EVENTS: EventRow[] = makeArtifact([
 
 const ISRAEL_2026_KEYS = ["2026iscmp", "2026isde1", "2026isde2"];
 
-describe("out-of-band TBA week values (WR-01)", () => {
+describe("out-of-band TBA week values", () => {
   const MIXED = [...FIXTURE_EVENTS, ...ISRAEL_2026_EVENTS];
 
   it("offers NO numeric week option above the season-week bound, so no dropdown entry can read 'Week 17'", () => {

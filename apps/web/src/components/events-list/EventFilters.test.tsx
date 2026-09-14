@@ -138,13 +138,13 @@ describe("EventFilters", () => {
   });
 
   /**
-   * WR-01 (review 260902). `2026isde1`/`2026isde2`/`2026iscmp` carry raw weeks
+   * `2026isde1`/`2026isde2`/`2026iscmp` carry raw weeks
    * 16/17/18 in the published 2026 events artifact — see
    * `filterModel.test.ts`'s own pinned fixture for the verification. The blind
    * `week + 1` turned those into the dropdown's last three options, "Week 17",
    * "Week 18" and "Week 19". There is no week 17 of an FRC season.
    */
-  describe("out-of-band TBA week values (WR-01)", () => {
+  describe("out-of-band TBA week values", () => {
     const ISRAEL_EVENTS = makeRows([
       makeRow({ eventKey: "2026isde1", eventType: 1, week: 16, country: "Israel", districtKey: "isr" }),
       makeRow({ eventKey: "2026isde2", eventType: 1, week: 17, country: "Israel", districtKey: "isr" }),

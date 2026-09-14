@@ -223,7 +223,7 @@ describe("SearchBox", () => {
     expect(mockNavigate).toHaveBeenCalledWith(expect.objectContaining({ to: "/team/$teamNumber", params: { teamNumber: "1114" } }));
   });
 
-  it("a team-hit selection navigates to the real team route, carrying the selected team's number, current year and algorithm (D-15/D-16)", async () => {
+  it("a team-hit selection navigates to the real team route, carrying the selected team's number, current year and algorithm", async () => {
     mockSearch = { year: 2023, algorithm: "epa" };
     global.fetch = baseFetchMock({
       teams: [team({ teamNumber: 1114, nickname: "Simbotics" })],

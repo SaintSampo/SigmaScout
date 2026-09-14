@@ -123,7 +123,7 @@ describe("Ribbon", () => {
     expect(methodologyLink?.getAttribute("data-status")).not.toBe("active");
   });
 
-  it("desktop renders the search box itself (an input), not an icon-only trigger — 05-08-PLAN.md Task 2", async () => {
+  it("desktop renders the search box itself (an input), not an icon-only trigger", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
     await renderRibbonAt("/teams?year=2024&algorithm=spr");
 
@@ -155,7 +155,7 @@ describe("Ribbon", () => {
     }
   });
 
-  it("selecting the already-selected YEAR performs no navigation (YearSelect's NAV-02 adjacency edge)", async () => {
+  it("selecting the already-selected YEAR performs no navigation (YearSelect's adjacency edge)", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
     const { router } = await renderRibbonAt("/teams?year=2024&algorithm=spr&sort=hubShift1&sortDir=asc");
     const navigateSpy = vi.spyOn(router, "navigate");
@@ -212,7 +212,7 @@ describe("Ribbon", () => {
     }
   });
 
-  it("selecting a DIFFERENT year does navigate and preserves sort/sortDir (D-11) — contrast case proving the reselect guard above is not vacuously true", async () => {
+  it("selecting a DIFFERENT year does navigate and preserves sort/sortDir — contrast case proving the reselect guard above is not vacuously true", async () => {
     global.fetch = vi.fn(() => new Promise<Response>(() => {}));
     const { router } = await renderRibbonAt("/teams?year=2024&algorithm=spr&sort=hubShift1&sortDir=asc");
 

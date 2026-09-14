@@ -8,7 +8,7 @@ import { EmptyState, ErrorState } from "./StateViews.js";
 // plain vitest assertions are sufficient without adding a new dependency.
 
 describe("EmptyState", () => {
-  it("renders the canonical Events empty-state copy exactly (05-UI-SPEC.md Copywriting Contract)", () => {
+  it("renders the canonical Events empty-state copy exactly", () => {
     render(
       <EmptyState
         heading="No events match your filters"
@@ -20,7 +20,7 @@ describe("EmptyState", () => {
     expect(screen.getByText("Try removing a filter, or check a different year.")).toBeDefined();
   });
 
-  it("renders the D-11 year-substituted Teams empty-state copy exactly", () => {
+  it("renders the year-substituted Teams empty-state copy exactly", () => {
     render(<EmptyState heading="No teams for 2019" body="Try removing a filter, or check a different year." />);
 
     expect(screen.getByText("No teams for 2019")).toBeDefined();
@@ -72,7 +72,7 @@ describe("ErrorState", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it("renders the year-less Compare-page form when no year is supplied (08-01-PLAN.md Decision 2)", () => {
+  it("renders the year-less Compare-page form when no year is supplied", () => {
     render(<ErrorState resource="comparison data" onRetry={vi.fn()} />);
 
     expect(screen.getByText("Couldn't load comparison data.")).toBeDefined();

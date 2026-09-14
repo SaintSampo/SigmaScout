@@ -426,7 +426,7 @@ describe("DistrictLocksTab", () => {
     expect(stat.textContent).toBe("0 / 415 per team");
   });
 
-  describe("quick task 260914-3zj: one merged header card per tab", () => {
+  describe("one merged header card per tab", () => {
     it("the District Locks tab renders exactly one non-table header card, with capacity/Lock Line/ceiling/points-pool in one stat row and the chip strip below it", async () => {
       const t = team({
         teamKey: "frc40",
@@ -480,7 +480,7 @@ describe("DistrictLocksTab", () => {
     });
   });
 
-  describe("revision R3: per-event column toggle (260905-lic)", () => {
+  describe("revision R3: per-event column toggle", () => {
     it("is collapsed by default — no Rookie Bonus, Adjustments or event columns visible", async () => {
       const t = team({
         teamKey: "frc30",

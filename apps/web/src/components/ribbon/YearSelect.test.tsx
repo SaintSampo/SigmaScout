@@ -66,7 +66,7 @@ async function openAndListOptions(): Promise<string[]> {
   return options.map((option) => option.textContent ?? "");
 }
 
-describe("YearSelect — D-18 constrained year dropdown", () => {
+describe("YearSelect — constrained year dropdown", () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
@@ -245,7 +245,7 @@ function fetchMockFor(opts: { events?: () => Promise<Response>; manifest?: () =>
   });
 }
 
-describe("YearSelect — Phase 5 D-12's event-detail year-change extension point", () => {
+describe("YearSelect — event-detail year-change extension point", () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
