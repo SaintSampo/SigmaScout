@@ -1,21 +1,20 @@
 /**
- * Unit tests for `measureAwardPredictability.ts` (quick tasks 260912-5n8 T3 and
- * 260912-7bp T3). Synthetic fixtures only — no test here opens the corpus, and
- * no test here touches the network.
+ * Unit tests for `measureAwardPredictability.ts`. Synthetic fixtures only —
+ * no test here opens the corpus, and no test here touches the network.
  *
- * THE LEAK TESTS ARE THE LOAD-BEARING ONES. This whole probe is worthless if a
- * scored season's fit or features can see that season's own data: an in-sample
- * number would look like an answer and be none. Two independent leak tests
- * pin it — one on the feature builder's input set directly, one end-to-end
- * through `runExperiment` — because this project's failure log already records
- * what a missing evaluation guard costs. 7bp extends both over the seven-feature
- * age vector: `rookie_year` is a static historical fact and therefore legal, but
+ * THE LEAK TESTS ARE THE LOAD-BEARING ONES. This whole probe is worthless if
+ * a scored season's fit or features can see that season's own data: an
+ * in-sample number would look like an answer and be none. Two independent
+ * leak tests pin it — one on the feature builder's input set directly, one
+ * end-to-end through `runExperiment` — extended over the seven-feature age
+ * vector: `rookie_year` is a static historical fact and therefore legal, but
  * "it is legal" is an argument, not a substitute for the check.
  *
- * THE SECOND LOAD-BEARING GROUP IS THE ROOKIE BASELINES. An age feature added
- * while B1 and B2 stay structurally pinned at 0.0% on the rookie award types
- * would manufacture a fake win, so RB1/RB2 and the max-of-four verdict rule are
- * pinned here rather than left to the report's prose.
+ * THE SECOND LOAD-BEARING GROUP IS THE ROOKIE BASELINES. An age feature
+ * added while B1 and B2 stay structurally pinned at 0.0% on the rookie
+ * award types would manufacture a fake win, so RB1/RB2 and the
+ * max-of-four verdict rule are pinned here rather than left to the report's
+ * prose.
  */
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
@@ -898,7 +897,7 @@ describe("the rookie baselines are structurally pinned at zero", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Feature family (c): team age — quick task 260912-7bp
+// Feature family (c): team age
 // ---------------------------------------------------------------------------
 
 describe("teamAge", () => {
@@ -1000,7 +999,7 @@ describe("buildAgeFeatures", () => {
 });
 
 // ---------------------------------------------------------------------------
-// LEAK TEST 1b — the SEVEN-feature vector (quick task 260912-7bp)
+// LEAK TEST 1b — the SEVEN-feature vector
 // ---------------------------------------------------------------------------
 
 describe("walk-forward leak guard (age arm)", () => {
@@ -1038,7 +1037,7 @@ describe("walk-forward leak guard (age arm)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The rookie-aware baselines — the load-bearing half of 260912-7bp
+// The rookie-aware baselines — the load-bearing half of the age-feature work
 // ---------------------------------------------------------------------------
 
 describe("rookie baselines RB1 / RB2", () => {
@@ -1289,7 +1288,7 @@ describe("fitConditionalLogit width handling", () => {
 });
 
 // ===========================================================================
-// QUICK TASK 260912-i13 — the ranking that was being discarded
+// THE RANKING THAT WAS BEING DISCARDED
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
@@ -1881,7 +1880,7 @@ describe("walk-forward leak guard (rank metrics)", () => {
 });
 
 // ===========================================================================
-// QUICK TASK 260912-i13 T2 — are the stated probabilities honest?
+// ARE THE STATED PROBABILITIES HONEST?
 // ===========================================================================
 
 describe("softmax", () => {
@@ -2179,7 +2178,6 @@ describe("calibration exclusions, end to end", () => {
 
 // ---------------------------------------------------------------------------
 // THE MEASURED PER-METRIC NOISE BANDS, AND THE PRACTICAL ANSWER
-// (quick task 260912-i13 T3)
 // ---------------------------------------------------------------------------
 
 /** Fills one predictor's `RankStats` from the metrics the report actually prints. */
@@ -2330,8 +2328,8 @@ describe("isMetricComparable — the RB denominator mismatch", () => {
   it("refuses to score norm%, meanRank or medRank against a rookie baseline", () => {
     // Caught while running T3: without this, type 14's reading line scored the
     // model's 18.0% (of a ~40-team pool) against RB2's 64.3% (of a ~6-team
-    // rookie block) and printed "BETTER" on a 46pp gap that is purely the
-    // denominator — 260912-7bp's structural-zero artifact in a third outfit.
+    // rookie block) and printed "BETTER" on a gap that is purely the
+    // denominator — the same structural-zero artifact in a third outfit.
     for (const metric of ["norm%", "meanRank", "medRank"] as const) {
       expect(isMetricComparable(metric, "rb1")).toBe(false);
       expect(isMetricComparable(metric, "rb2")).toBe(false);
@@ -2429,8 +2427,9 @@ describe("rankReferencePredictor", () => {
   });
 
   it("reads the three rookie types against RB, never against B1", () => {
-    // 260912-7bp's lesson in rank form: B1/B2 are structurally near-bottom
-    // rankers on these types, so a rank win over them is the same artifact.
+    // The structural-zero lesson in rank form: B1/B2 are structurally
+    // near-bottom rankers on these types, so a rank win over them is the
+    // same artifact.
     const c = emptyCell();
     c.n = 100;
     setRank(c, "rb1", { r1: 0.4, r3: 0.6 });
@@ -2692,7 +2691,7 @@ describe("the full report carries the T3 output", () => {
 });
 
 // ---------------------------------------------------------------------------
-// THE DISTRICT POINTS CUT AND THE STRATUM (quick task 260912-l8t T1)
+// THE DISTRICT POINTS CUT AND THE STRATUM
 // ---------------------------------------------------------------------------
 
 /** A minimal `events` + `districts` + `district_rankings` schema, in memory. */
@@ -3042,7 +3041,7 @@ describe("the DCMP census header", () => {
 });
 
 // ---------------------------------------------------------------------------
-// TRAIN WIDE, SCORE NARROW — the stratum cells (quick task 260912-l8t T2)
+// TRAIN WIDE, SCORE NARROW — the stratum cells
 // ---------------------------------------------------------------------------
 
 const DCMP_POOL = ["frc1", "frc2", "frc3", "frc4", "frc9"] as const;
