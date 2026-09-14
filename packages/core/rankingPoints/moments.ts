@@ -1,54 +1,17 @@
 /**
- * THE SEAM between a rating algorithm and SigmaScout's ranking-point layer.
+ * The seam between a rating algorithm and the ranking-point layer: an
+ * algorithm that fills in these alliance-level numbers gets ranking points,
+ * per-bonus probabilities and the rank simulation for every registered season.
  *
- * Everything else in `packages/core/rankingPoints/` is universal: the ten
- * per-season rule modules are game-manual data entry, `rules.ts` is a registry,
- * `constants.ts` is FRC domain (event tiers, RP eligibility), `marginals.ts`
- * is per-variable probability fitting, and `analyticPmf.ts` is the closed-form
- * pmf engine (plan 09-04 — this used to name `distribution.ts`'s Monte Carlo
- * machinery, a module this repo no longer has). None of them knows what a
- * rating model is.
- *
- * This file is the one place the two halves meet. An algorithm that can fill in
- * the numbers below gets ranking points, per-bonus probabilities and the rank
- * simulation for free, for every season already registered.
- *
- * Extracted from the retired Sigma1 core's RP state on 2026-09-09, when VPR was retired and
- * the universal 84% of that work was pulled out of a dying algorithm's
- * directory. Sigma1's `buildAllianceRpMoments` remains ONE implementation of
- * this contract; it is not the contract.
- *
- * ---------------------------------------------------------------------------
- * THE ASSUMPTIONS BELOW ARE DECISIONS, NOT DEFAULTS
- * ---------------------------------------------------------------------------
- *
- * This shape was designed around Sigma1, which modelled a full per-team
- * covariance. A different algorithm may not, and the honest move is to DECIDE
- * what to supply rather than inherit VPR's answer by accident. Two places where
- * that matters:
- *
- *   - `varianceBlock` is a full T x T covariance over the threshold variables.
- *     An algorithm with no covariance structure can supply a DIAGONAL block
- *     (variances only, zero off-diagonals), which asserts the season's
- *     threshold variables are mutually independent. For 2026 that would claim
- *     `hubTotalCount` and `totalTowerPoints` are uncorrelated, which is a real
- *     claim about robots and probably false — an alliance good at one tends to
- *     be good at the other. Supplying zeros is allowed; supplying them WITHOUT
- *     noticing is the failure this comment exists to prevent.
- *
- *   - `scoreCrossCovariance` is the correlation between the alliance's total
- *     score and each threshold variable (Sigma1's D-11, learned from data
- *     rather than asserted). Zeroing it claims a high-scoring alliance is no
- *     more likely to clear a bonus threshold than a low-scoring one. Also a
- *     decision, also probably false, also fine to make deliberately.
- *
- * Sigma1 additionally summed teammates' moments under D-06's independent-teams
- * assumption. That summation is the IMPLEMENTATION's business, not this
- * contract's: this interface asks for alliance-level numbers and does not care
- * how they were reached.
+ * Two fields carry decisions, not defaults:
+ *   - A diagonal `varianceBlock` asserts the season's threshold variables are
+ *     mutually independent, which is probably false.
+ *   - A zero `scoreCrossCovariance` claims a high-scoring alliance is no more
+ *     likely to clear a bonus threshold than a low-scoring one.
+ * Supplying either is allowed; supplying it without noticing is the failure.
  */
 
-/** For one alliance: predicted RP-relevant moments, consumed by `analyticPmf.ts`'s closed-form pmf (plan 09-04 Task 3 — this used to read "ready for `distribution.ts`'s joint Monte Carlo draw," a module this repo no longer has). */
+/** For one alliance: predicted RP-relevant moments, consumed by `analyticPmf.ts`'s closed-form pmf. */
 export interface AllianceRpMoments {
   /** Threshold-variable names, in `ruleModule.thresholdVariables` order — every other array/matrix here is indexed against this order. */
   readonly variableNames: readonly string[];
