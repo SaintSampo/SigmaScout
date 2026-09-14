@@ -1,13 +1,8 @@
 /**
  * The MEASUREMENT contract, pinned on synthetic fixtures rather than the real
- * corpus (quick task 260909-03b, P3).
- *
- * Each case corresponds to one rule BPR previously got wrong in its own private
- * way, which is how it came to report a design-era figure that no other
- * algorithm's number was comparable to (260908-vqr F-01/F-08/F-12). A future
- * edit that quietly reintroduces half-credit scoring, drops the shared
- * population, or lets the D-07 surrogate exclusion touch the state stream fails
- * here rather than in a published number.
+ * corpus. A future edit that quietly reintroduces half-credit scoring, drops
+ * the shared population, or lets the surrogate exclusion touch the state
+ * stream fails here rather than in a published number.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { openCorpusReadOnly } from "../corpus/db.js";
@@ -190,8 +185,7 @@ describe("the loaded population", () => {
   });
 
   it.runIf(available)("keeps event_type 100 matches the shared harness keeps", () => {
-    // The retired private SQL dropped these — F-12's "~37/season the harness
-    // keeps" half. This asserts the filter is genuinely gone.
+    // This asserts the retired offseason filter is genuinely gone.
     expect(loaded.some((m) => m.eventType === 100)).toBe(true);
   });
 
