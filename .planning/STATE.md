@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 09
 status: completed
 stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
-last_updated: "2026-09-14T20:46:52.308Z"
+last_updated: "2026-09-14T21:14:39.855Z"
 last_activity: 2026-09-14
 last_activity_desc: "Completed quick task 260913-rh5: republished spr@4.0.0 and the Swing teardown (generation 2dcc057f), D1 seeded, Worker fcc7ca73; R2 deletions left to Jacob"
 progress:
@@ -585,6 +585,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 181 | Resolve 53h leftovers: planning ids out of ~724 test titles and ~130 runtime strings, dead rp:conservative-branch notes, rp-verification.md rename, vpr retired from e2e specs and fixtures | 2026-09-14 | d6c060db | [260914-j0n-resolve-260914-53h-leftovers-planning-id](./quick/260914-j0n-resolve-260914-53h-leftovers-planning-id/) |
 | 182 | Resolve stale e2e suite: 40 live failures fixed as stale specs or withdrawn premises, no site regressions, 170/170 pass against sigmascout.org | 2026-09-14 | 3f015c47 | [260914-liz-resolve-todo-e2e-suite-stale-against-liv](./quick/260914-liz-resolve-todo-e2e-suite-stale-against-liv/) |
 | 183 | Re-issue ALGO-06: current algorithm version only, version bump required for any change to published numbers | 2026-09-14 | 44999098 | — |
+| 184 | Cleared ALGO-05 by spending 2023-2026 (Jacob authorized). Pre-registered SPR adaptation on/off test on the research model: against the best static model re-selected on 2016-2022, adaptation HELPS on Brier +0.00126 [0.00061, 0.00188] with accuracy +0.077pp [-0.132, 0.289] inside noise. Fast form helps clearly (+0.80pp every season), online tau is undetectable against a static tau, and the scale recency EWMA HURTS against a within-season running mean (-0.27pp holdout, -0.31pp design), an open lead only. ALGO-05 re-issued to name SPR, audit 31/38. Per Jacob, removed every 2023-2026 sealed reference and guard outside .planning (SPR seal guard, RP slice guards, docs, comments); spr.ts comment-only. No live code changed | 2026-09-14 | 1a88033f | [260914-ndu-clear-algo-05-prove-whether-spr-within-s](./quick/260914-ndu-clear-algo-05-prove-whether-spr-within-s/) |
 
 ### Roadmap Evolution
 
