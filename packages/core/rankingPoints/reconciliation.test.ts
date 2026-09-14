@@ -1,23 +1,16 @@
 /**
- * Corpus-wide RP reconciliation — mirrors `breakdown/reconciliation.test.ts`'s
- * shape (`existsSync` corpus guard, `openCorpusReadOnly` with `try/finally`
- * close, `describe.each`, the offseason-exclusion discipline,
- * `it.skip`/explicit-message rather than a silent pass) but proves a
- * different invariant: every bonus flag and every summed RP total,
- * RECOMPUTED from `score_breakdown_raw`'s raw fields, reproduces TBA's own
- * recorded value.
+ * Corpus-wide RP reconciliation: every bonus flag and summed RP total, recomputed from
+ * `score_breakdown_raw`, must reproduce TBA's recorded value. Follows
+ * `breakdown/reconciliation.test.ts`'s shape (corpus guard, read-only open,
+ * offseason exclusion, explicit skip rather than a silent pass).
  *
- * Sample: FULL season population of played, non-offseason `qm` matches with
- * `has_score_breakdown = 1` per season — not a fixed-size prefix cap, which
- * would be invisible to a tier-concentrated failure signature since event
- * keys sort alphabetically and higher-tier events cluster.
+ * Sample: the full season population of played, non-offseason `qm` matches with a
+ * breakdown. A prefix cap would hide a tier-concentrated failure, because event keys
+ * sort alphabetically and higher-tier events cluster.
  *
- * KNOWN, NAMED TOLERANCES exist for a handful of seasons/bonuses with a
- * small, measured residual mismatch rate that substantial investigation
- * could not resolve to 0 — each is a documented data artifact or modeling
- * gap, not a threshold error, and each is NEVER widened to cover a NEW rule
- * change. Every other season/bonus reconciles at EXACTLY 0 mismatches
- * across every event tier present in the corpus.
+ * A few season/bonus pairs carry named tolerances for measured residuals (data
+ * artifacts or modeling gaps, never a threshold error, never widened for a rule
+ * change); everything else reconciles at exactly 0 mismatches at every tier.
  */
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -44,11 +37,7 @@ interface EliminationRow {
   blue_rp_earned: number | null;
 }
 
-/**
- * FULL season population — played, non-offseason `qm` matches with a
- * breakdown. No `LIMIT`: see file header for why a prefix cap is unsafe
- * here.
- */
+/** Full season population; no `LIMIT` (see file header). */
 function sampleQualMatches(db: ReturnType<typeof openCorpusReadOnly>, year: number): RpSampleRow[] {
   return db
     .prepare(
@@ -63,11 +52,7 @@ function sampleQualMatches(db: ReturnType<typeof openCorpusReadOnly>, year: numb
     .all(year) as RpSampleRow[];
 }
 
-/**
- * FULL elimination population, no `has_score_breakdown` filter, no
- * `LIMIT` — Pitfall 3's invariant is asserted over every played elimination
- * match, not a sample.
- */
+/** Full elimination population: no `has_score_breakdown` filter, no `LIMIT`. */
 function eliminationRows(db: ReturnType<typeof openCorpusReadOnly>, year: number): EliminationRow[] {
   return db
     .prepare(
@@ -94,62 +79,34 @@ function missingBreakdownCount(db: ReturnType<typeof openCorpusReadOnly>, year: 
   return row;
 }
 
-/**
- * Named, exact-rate tolerances for known residual reconciliation gaps (see
- * file header). Each entry's `rate` is the measured EXCEPTION rate as a
- * decimal fraction, plus a small margin, for the named `(season, bonus,
- * eventType)` population. MUST NEVER be widened to cover a rule change —
- * these cover a data artifact (2022) or an unresolved, honestly-reported
- * modeling gap (2025), not a threshold error.
- */
+/** Measured exception rate plus a small margin per `(season, bonus, eventType)`. Must never be widened to cover a rule change. */
 interface Tolerance {
   season: number;
   bonus: string;
   eventTypes: readonly number[];
-  /** Measured exception rate (mismatches / population) this session observed, plus a small margin. */
+  /** Measured exception rate (mismatches / population), plus a small margin. */
   rate: number;
 }
 
 const KNOWN_TOLERANCES: readonly Tolerance[] = [
-  // 2016 Capture Bonus: exactly ONE false positive in 22,158 sides
-  // (`2016melew_qm24` red), ZERO false negatives at every tier. `eventTypes`
-  // lists ONLY type 1 deliberately — every other tier measured EXACTLY 0,
-  // and each stays bound to 0 by the ABSENCE of an entry (`toleranceFor`
-  // returns undefined there and any mismatch fails outright). 2016 `breach`
-  // gets NO entry (0 FP / 0 FN at every tier), and 2017 gets no entry.
+  // 2016 Capture: one false positive in 22,158 sides (`2016melew_qm24` red). Only type 1 is listed;
+  // every other tier stays bound to 0 by the absence of an entry.
   { season: 2016, bonus: "capture", eventTypes: [1], rate: 0.0005 },
-  // 2022 Cargo Bonus: a small, non-tiered mismatch rate concentrated at
-  // Regional/District events, running in BOTH directions (a threshold error
-  // only ever produces mismatches in ONE direction) — consistent with a
-  // small number of anomalous events' data, not a rule-modeling gap.
+  // 2022 Cargo: small mismatch rate at Regional/District running in both directions, so a data
+  // artifact rather than a threshold error (which only misses in one direction).
   { season: 2022, bonus: "cargoBonus", eventTypes: [0, 1, 2, 3, 5, 100], rate: 0.005 },
-  // 2024 Ensemble Bonus: a ~7-7.8% residual (the on-stage-robot-count
-  // condition derived from endGameRobot{1,2,3} does not cleanly reconcile),
-  // spread across ~185 distinct events — see 2024.ts's file header for the
-  // investigation record. 0.085 keeps a small margin above the measured
-  // ceiling (7.825% at event_type 1).
+  // 2024 Ensemble: ~7-7.8% residual from the on-stage-robot-count condition, spread across ~185
+  // events; 0.085 keeps a margin above the measured ceiling.
   { season: 2024, bonus: "ensembleBonus", eventTypes: [0, 1, 2, 3, 5, 100], rate: 0.085 },
-  // 2025 Auto Bonus: TBA's autoLineRobot{1,2,3} "No" cannot be
-  // distinguished between "did not leave" and "was never enabled" (the
-  // manual requires only ENABLED robots to leave) — measured ~2% overall.
+  // 2025 Auto: "No" cannot distinguish "did not leave" from "never enabled"; ~2% overall.
   { season: 2025, bonus: "autoBonus", eventTypes: [0, 1, 2, 3, 5, 100], rate: 0.03 },
-  // 2025 Coral Bonus: the coopertition gate requires BOTH alliances'
-  // coopertitionCriteriaMet, not just `own` alliance's flag (see 2025.ts).
-  // Every residual is exclusively a false positive (0 false negatives
-  // measured); 0.005 keeps margin above the measured ceiling (0.336%).
+  // 2025 Coral: the gate needs BOTH alliances' coopertitionCriteriaMet. Residuals are all false
+  // positives; 0.005 keeps a margin above the measured ceiling.
   { season: 2025, bonus: "coralBonus", eventTypes: [0, 1, 2, 3, 5, 100], rate: 0.005 },
-  // 2025 Barge Bonus: ~4% residual, concentrated mostly at base tier
-  // (event_type 0/1), ALWAYS a false negative there (the >=14 rule never
-  // over-predicts at base tier — 0 false positives measured); a much
-  // smaller (<1%) residual also present at every other tier.
+  // 2025 Barge: ~4% residual, mostly base tier and always a false negative there; under 1% elsewhere.
   { season: 2025, bonus: "bargeBonus", eventTypes: [0, 1, 2, 3, 5, 100], rate: 0.05 },
-  // 2019 Complete Rocket Bonus: recomputed as `completedRocketNear ||
-  // completedRocketFar`, which UNDER-fires relative to TBA's own recorded
-  // flag — every disagreement measured is a false negative, 0 false
-  // positives at every tier. A conservative under-firing rule (see
-  // 2019.ts's file header), not a threshold error. Rate is tier-varying —
-  // roughly 1.4% at base against 3.0-3.8% at the higher tiers; 0.04 keeps a
-  // small margin above the measured ceiling (3.829% at event_type 3).
+  // 2019 Complete Rocket: the recomputed rule only under-fires (0 false positives at every tier).
+  // Tier-varying, about 1.4% at base to 3.8% higher; 0.04 keeps a margin above the ceiling.
   { season: 2019, bonus: "completeRocket", eventTypes: [0, 1, 2, 3, 5, 100], rate: 0.04 },
 ];
 
@@ -158,14 +115,9 @@ function toleranceFor(season: number, bonus: string, eventType: number): Toleran
 }
 
 /**
- * The summed-RP reconciliation (`(winRp|tieRp|0) + totalRp === red/blue_rp_earned`)
- * inherits every bonus-flag tolerance above: a single mismatched bonus flag
- * shifts the summed total by exactly 1, so the summed-RP mismatch rate for
- * a given season/event_type can never exceed the sum of that season's
- * per-bonus tolerated rates at that tier. Reusing the SAME named
- * constants (rather than a second, independent tolerance table) is
- * deliberate — a change to a bonus's measured rate above propagates here
- * automatically instead of risking two tables drifting apart.
+ * Summed RP inherits the bonus-flag tolerances: one mismatched flag shifts the total by
+ * exactly 1, so the summed rate cannot exceed the sum of that tier's bonus rates.
+ * Reusing the same constants keeps the two from drifting apart.
  */
 function summedRpToleranceFor(season: number, eventType: number): number {
   return KNOWN_TOLERANCES.filter((t) => t.season === season && t.eventTypes.includes(eventType)).reduce((sum, t) => sum + t.rate, 0);
@@ -208,8 +160,7 @@ describe.each(RP_REGISTERED_SEASONS)("season %i RP reconciliation (D-12)", (year
       }
     }
 
-    // Print the full per-event_type, per-bonus mismatch report before
-    // asserting — not just a pass/fail.
+    // Print the full per-event_type, per-bonus mismatch report before asserting.
     const report = [...groups.entries()]
       .map(([key, { mismatch, total }]) => {
         const [eventType, bonus] = key.split("|") as [string, string];
@@ -290,15 +241,10 @@ describe.each(RP_REGISTERED_SEASONS)("season %i RP reconciliation (D-12)", (year
 });
 
 /**
- * For a curated set of single-condition bonuses whose threshold is a clean
- * tiered scalar comparison, find sampled matches whose threshold variable
- * equals the tier's threshold EXACTLY and assert the recomputed flag is
- * `true` for all of them (`>=`, never `>`). Compound-condition bonuses
- * (quintet/coopertition-gated, or multi-variable AND conditions) are not
- * checked here — isolating a single boundary on one of several interacting
- * conditions is not well-defined. If a season/tier combination has zero
- * observed boundary matches, that is logged explicitly (a real finding, not
- * a skipped assertion that silently passes).
+ * For single-condition bonuses with a clean tiered scalar threshold, matches exactly at
+ * the threshold must recompute `true` (`>=`, never `>`). Compound conditions are
+ * skipped (a single boundary is not well-defined). A tier with no boundary matches is
+ * logged explicitly rather than silently passing.
  */
 describe("exact-boundary behaviour (>= semantics, must_haves backstop)", () => {
   if (!CORPUS_AVAILABLE) {
@@ -372,22 +318,13 @@ describe("exact-boundary behaviour (>= semantics, must_haves backstop)", () => {
 });
 
 /**
- * Elimination invariant: over the FULL elimination population per season (no
- * sampling, no `has_score_breakdown` filter), both `red_rp_earned` and
- * `blue_rp_earned` are 0 for every played match.
+ * Elimination invariant: over every played elimination match, `red_rp_earned` and
+ * `blue_rp_earned` are 0.
  *
- * Seasons for which TBA reports NO ranking-point value at all on a played
- * ELIMINATION match — `red_rp_earned`/`blue_rp_earned` are SQL `NULL`, not
- * `0`. From 2018 onward TBA populates an explicit `0` instead. The
- * SUBSTANTIVE invariant — no bonus RP is ever awarded in elimination play —
- * holds identically in both representations, and is asserted below for
- * every season regardless of which one applies. This list pins only the
- * REPRESENTATION, so a future ingest that silently stopped populating a
- * season's elimination RP (turning explicit zeros into nulls) still fails
- * loudly rather than passing under a `?? 0` coalesce.
- *
- * This is an ELIMINATION-only artifact: the QUALIFICATION populations both
- * seasons feed into the reconciliations above carry no nulls at all.
+ * Seasons listed here report elimination RP as SQL `NULL` rather than `0` (from 2018
+ * TBA populates an explicit `0`). The invariant holds in both representations; the
+ * list pins the representation so an ingest that turns zeros into nulls fails loudly
+ * instead of passing under a `?? 0`. Qualification populations carry no nulls.
  */
 const NULL_ELIMINATION_RP_SEASONS: readonly number[] = [2016, 2017];
 
@@ -413,8 +350,7 @@ describe.each(RP_REGISTERED_SEASONS)("season %i elimination RP invariant (Pitfal
       for (const side of ["red", "blue"] as const) {
         const value = side === "red" ? row.red_rp_earned : row.blue_rp_earned;
 
-        // Pitfall 3's substantive invariant, asserted for EVERY season in
-        // whichever representation that season uses.
+        // The substantive invariant, in whichever representation the season uses.
         expect(value ?? 0, `match ${row.match_key}: ${side}_rp_earned is a non-zero RP in elimination play`).toBe(0);
 
         // The representation pin — see NULL_ELIMINATION_RP_SEASONS above.
@@ -429,12 +365,9 @@ describe.each(RP_REGISTERED_SEASONS)("season %i elimination RP invariant (Pitfal
 });
 
 /**
- * 2024 threshold cross-check: the hardcoded tier table agrees
- * with TBA's own shipped per-match `melodyBonusThresholdCoop`/
- * `melodyBonusThresholdNonCoop` values for every sampled match — an
- * independent confirmation that costs nothing because TBA ships the
- * numbers. These diagnostic fields are read ONLY for this cross-check,
- * never to compute `bonusFlags` (see `2024.ts`'s file header for why).
+ * 2024 threshold cross-check: the hardcoded tier table agrees with TBA's shipped
+ * per-match `melodyBonusThresholdCoop`/`melodyBonusThresholdNonCoop` values. Those
+ * fields are read only here, never for `bonusFlags` (see `2024.ts`).
  */
 describe("2024 threshold cross-check (TBA's own shipped thresholds)", () => {
   if (!CORPUS_AVAILABLE) {
@@ -477,11 +410,9 @@ describe("2024 threshold cross-check (TBA's own shipped thresholds)", () => {
 });
 
 /**
- * 2025 Coral Bonus coopertition regression pin: synthetic fixture, no
- * corpus required, so this pins the semantics even when
- * `data/corpus.sqlite` is absent. `own.coopertitionCriteriaMet` alone is
- * NOT sufficient to relax the 4-of-4 requirement to 3-of-4 — the real rule
- * is an alliance-PAIR condition requiring BOTH sides' flags true.
+ * 2025 Coral coopertition regression pin (synthetic, runs without the corpus): the own
+ * alliance's `coopertitionCriteriaMet` alone must not relax 4-of-4 to 3-of-4; both
+ * alliances' flags are required.
  */
 describe("2025 Coral Bonus: coopertition requires BOTH alliances' criteria met (regression pin)", () => {
   const module = rpRuleModuleForSeason(2025);
@@ -508,10 +439,8 @@ describe("2025 Coral Bonus: coopertition requires BOTH alliances' criteria met (
   }
 
   it("own alliance meets coopertition criteria, opponent does NOT: 3-of-4 relaxation must NOT apply (coralBonus false, not true)", () => {
-    // own: 3 of 4 levels at >=5 (topRow=0, below threshold) — would pass
-    // under the OLD own-flag-only bug (coop path needs only 3 of 4), must
-    // FAIL under the fixed both-alliances rule (falls back to strict
-    // 4-of-4, and topRow=0 fails that).
+    // own: 3 of 4 levels at >=5 (topRow=0). Passes an own-flag-only gate, must fail the
+    // both-alliances rule (falls back to strict 4-of-4).
     const red = makeSide({ coopertitionCriteriaMet: true, reef: { trough: 5, botRow: 5, midRow: 5, topRow: 0 } });
     const blue = makeSide({ coopertitionCriteriaMet: false, reef: { trough: 0, botRow: 0, midRow: 0, topRow: 0 } });
     const rawJson = { red, blue };
@@ -530,10 +459,7 @@ describe("2025 Coral Bonus: coopertition requires BOTH alliances' criteria met (
   });
 });
 
-/**
- * Missing-breakdown population — reported, not asserted, so the fallback
- * path is scoped against a measured population rather than an estimate.
- */
+/** Missing-breakdown population: reported, not asserted, so the fallback path is scoped against a measured population. */
 describe("missing-breakdown population report (informational, Pitfall 4)", () => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} not found`, () => {});

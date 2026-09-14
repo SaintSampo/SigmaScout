@@ -1,20 +1,9 @@
-/**
- * Pure unit tests for the RP leaf module and dispatch table (D-09, D-12) —
- * no corpus access, no `parse()` calls (the five season modules are Task 1
- * stubs whose `parse` throws; Task 2 fills in the real implementation and
- * `reconciliation.test.ts` exercises it corpus-wide).
- */
+/** Pure unit tests for the RP leaf module and dispatch table; no corpus access (`reconciliation.test.ts` exercises `parse` corpus-wide). */
 import { describe, expect, it } from "vitest";
 import { eventTierFor } from "./constants.js";
 import { RP_REGISTERED_SEASONS, RP_RULE_MODULES, resolveRpThreshold, rpRuleModuleForSeason, type BonusPredicate } from "./rules.js";
 
-/**
- * Walks every `BonusPredicate` kind and collects the threshold-variable
- * names it reads — `variable`, `terms[].variable`, `clauses[].terms[].variable`,
- * `indicators[].terms[].variable`, and the `dataDependentMixture`'s three
- * clauses. Test-only (09-02 Task 3): used by the "every referenced variable
- * is declared" case below, not by the evaluator itself.
- */
+/** Test-only: collects every threshold-variable name a `BonusPredicate` reads, for the "every referenced variable is declared" case. */
 function referencedVariableNames(predicate: BonusPredicate): string[] {
   switch (predicate.kind) {
     case "singleThreshold":
@@ -77,7 +66,7 @@ describe.each(RP_REGISTERED_SEASONS)("season %i RP rule module shape", (season) 
     }
   });
 
-  // --- 09-02 Task 3: structural assertions over the declarative contract ---
+  // --- structural assertions over the declarative contract ---
 
   it("bonusNames is DERIVED from bonusPredicates (Pitfall 2) — one list, never two that can drift", () => {
     expect(module.bonusNames).toEqual(module.bonusPredicates.map((p) => p.name));
@@ -155,31 +144,11 @@ describe.each(RP_REGISTERED_SEASONS)("season %i RP rule module shape", (season) 
 });
 
 /**
- * 09-05 Task 3 (D-01): the exact sorted `season:variableName` list per
- * declared family, pinned as a literal array — a new season, a renamed
- * variable or a silently flipped family fails this test with a readable
- * diff, which is the point: family choice is data entry and a new one must
- * be deliberate. They briefly all named `"negative-binomial"`; that family was
- * measured against the unchanged Gaussian model on 2026-09-11 and REFUSED by
- * the pre-committed per-bonus bar (three cells improved, three regressed, and
- * the bar admits no regression), so every declaration was returned to
- * `"gaussian"` and the family's fit was deleted. See
- * `docs/models/rp-attribution.md`.
- *
- * 2026-09-14, quick task 260914-01x: all 34 declarations now name
- * `"lattice"`. Four arms (control, lattice, meanShift, lattice+meanShift)
- * were measured on the 2016-2020, 2022 selection slice against the bonus-arm
- * bar committed before any figure existed, every arm was accepted, and
- * lattice+meanShift shipped with the lowest pooled total-RP RPS: bonus Brier
- * 0.179914 to 0.124278, RPS 0.159627 to 0.141956
- * (`data/baselines/rp-bonus-arms-2026-09.json`). The list below was the
- * Gaussian list until then; the variables are unchanged, only the family.
- *
- * The list below is the single source of truth this test checks against, kept
- * in the SAME order `RP_REGISTERED_SEASONS` iterates (ascending season,
- * declaration order within each season's own `THRESHOLD_VARIABLES` array). It
- * stays an exact sorted list rather than a count: a count would pass while a
- * variable was renamed or silently moved between seasons.
+ * The exact `season:variableName` list per declared family, pinned literally so a
+ * new season, a renamed variable or a silently flipped family fails with a readable
+ * diff: family choice is data entry and must be deliberate. Kept in
+ * `RP_REGISTERED_SEASONS` order (ascending season, declaration order within each)
+ * and exact rather than a count, which would pass a rename or a move between seasons.
  */
 describe("marginalFamily declarations — the exact pinned per-family list", () => {
   const LATTICE_DECLARATIONS = [
@@ -346,15 +315,7 @@ describe("predictThresholds (plan 03-03) — evaluates bonuses from tracked thre
     expect(result.bonusFlags.ensembleBonus).toBe(true);
   });
 
-  // CORRECTED 2026-09-11 (plan 09-06; routed here by 09-02). This case was
-  // titled "2025: autoBonus is always false (no threshold-variable-only
-  // fallback exists)" and passed only because it supplied NEITHER auto
-  // variable, so both defaulted to 0 and the conjunction came out false for a
-  // reason that had nothing to do with the claim in its own title. The
-  // 2026-09-09 tracking fix added `autoLineCount` and `autoCoralCount`
-  // precisely so `autoBonus` COULD be predicted, so the old title asserted the
-  // opposite of what the module now does. Both directions are now supplied and
-  // asserted.
+  // Supplies both auto variables in both directions, so the conjunction cannot pass because both defaulted to 0.
   it("2025: autoBonus IS computable from its two tracked auto variables — true when both thresholds are met", () => {
     const module = rpRuleModuleForSeason(2025);
     const result = module.predictThresholds(
@@ -424,9 +385,8 @@ describe("eventTierFor", () => {
 });
 
 /**
- * Lattice declarations (quick task 260914-01x, SD-01 / CD-01), pinned
- * literally from the plan's rule table: a set equality over every
- * (season, variable) pair, so a renamed, dropped or newly-registered variable
+ * Lattice declarations pinned literally from the rule table: a set equality over
+ * every (season, variable) pair, so a renamed, dropped or newly-registered variable
  * fails here instead of being skipped by an iteration.
  */
 describe("lattice declarations — the exact pinned rule-derived supports", () => {
