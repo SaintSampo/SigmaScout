@@ -2473,7 +2473,7 @@ describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus 
     upsertMatch(db, seasonMatch());
 
     upsertEvent(db, seasonEvent({ eventKey: "2026null", name: "will be nulled" }));
-    // Simulate an un-refreshed corpus (pre-EVNT-01) whose name column is null.
+    // Simulate an un-refreshed corpus whose name column is null.
     db.prepare(`UPDATE events SET name = NULL WHERE event_key = ?`).run("2026null");
     upsertMatch(
       db,
