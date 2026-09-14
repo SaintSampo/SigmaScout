@@ -2265,9 +2265,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       // --- team/{teamKey}/{year}/{algorithm}@{version}.json, one per team ---
       for (const teamKey of teamsThisSeason) {
         const info = teamInfoOrFallback(teamInfo, teamKey);
-        // D-08/D-09 (Phase 6): played AND scheduled matches grouped together,
-        // so an event this team is only scheduled to attend still produces
-        // its own section rather than being omitted.
+        // Played and scheduled matches together, so a scheduled-only event still gets a section.
         const teamMatches: (PredictionRecord | UpcomingPredictionRecord)[] = [
           ...(teamMatchesForAlgo.get(teamKey) ?? []),
           ...(scheduledTeamMatches.get(teamKey) ?? []),
@@ -2275,16 +2273,10 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
         const byEvent = groupByEvent(teamMatches);
         const events: TeamSeasonEventInput[] = Array.from(byEvent.entries()).map(([eventKey, matches]) => {
           const meta = eventMeta.find((e) => e.event_key === eventKey);
-          // TEAM-04/F-06-3 (plan 06.1-01): looked up by key (event, then
-          // team), never by array position — a missing outer or inner
-          // entry leaves both fields undefined.
           const ranking = eventRankingsForSeason.get(eventKey)?.get(teamKey);
           return {
             eventKey,
-            // The event-name defect fix: `meta` (the same lookup the sibling
-            // eventsRows builder above already uses) is in scope here — the
-            // key-as-name fallback survives only when a corpus row's `name`
-            // column is genuinely null (an un-refreshed corpus).
+            // Key-as-name only when the corpus `name` is null.
             eventName: meta?.name ?? eventKey,
             startDate: meta?.start_date ?? "",
             rank: ranking?.rank,
@@ -2292,16 +2284,9 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
             matches: sortTeamSeasonMatches(matches, sortTimeByMatchKey),
           };
         });
-        // Quick task 260908-615: OFFICIAL play only, matching the Teams-list
-        // row above so the two surfaces cannot disagree about a team's
-        // record. The `events` array built just above is UNSCOPED and stays
-        // that way — an offseason event keeps its own section, its matches
-        // and its metric-history rows.
+        // Official play only, matching the Teams-list row; `events` above stays unscoped, so offseason
+        // events keep their sections.
         const stats = teamStatsOfficial.get(teamKey);
-        // Quick task 260908-wpo: official-with-fallback — see
-        // `seasonStatsMetricsForTeam`'s doc comment for the full selection
-        // rule and why the emptiness check matters. Quick task 260912-tnk:
-        // the season-final fallback is ranked against `rankingPools` too.
         const seasonStatsMetrics = seasonStatsMetricsForTeam(teamKey, officialMetricsByTeamWithPercentiles, metricsByTeam, rankingPools);
         const teamSeasonArtifact = buildTeamSeasonArtifact({
           teamKey,
@@ -2312,12 +2297,8 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
           algorithmVersion: version,
           seasonStats: {
             record: { wins: stats?.wins ?? 0, losses: stats?.losses ?? 0, ties: stats?.ties ?? 0 },
-            // Quick task 260909-tgf: the `sigma` entry is merged in HERE,
-            // with its `percentile` KEPT (unlike the teams row above) --
-            // the per-team artifact is small and carries full percentiles by
-            // design (`TeamMetricSchema.tier`'s own documented size
-            // argument), and the season-header tile derives its tier from
-            // this percentile via the existing client `tierForPercentile`.
+            // The sigma entry keeps its `percentile` here (unlike the Teams row): this artifact is small,
+            // and the season header derives its tier from the percentile client-side.
             metrics: {
               ...seasonStatsMetrics.metrics,
               ...(sigmaMetricForAlgo[teamKey] !== undefined ? { [SIGMA_METRIC_KEY]: sigmaMetricForAlgo[teamKey] } : {}),
@@ -2325,33 +2306,19 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
             metricsBasis: seasonStatsMetrics.metricsBasis,
           },
           events,
-          // Quick task 260913-m45 Task 1: `withHistorySigma` is applied
-          // AFTER `withHistoryPercentiles`, not before and not combined into
-          // one pass — applying it after means the per-match sigma entry
-          // never receives a pool percentile (a per-match pool has no
-          // meaning, and the chart needs no tier), and — more importantly —
-          // the SOURCE rows (`metricHistoryForAlgo`), the ranking pools built
-          // from them, and the seasonStats/Teams-row merges above never see
-          // sigma at all: this call site is the ONLY place the per-match
-          // value reaches a published row (T-m45-02).
+          // Sigma is applied after percentiles, so it gets no pool percentile, and this is the only place
+          // the per-match value reaches a row; the source rows and pools never see it.
           metricHistory: withHistorySigma(
             withHistoryPercentiles(metricHistoryForAlgo.get(teamKey) ?? [], rankingPools),
             sigmaByMatchKeyForAlgoTeam.get(algorithm.id)?.get(teamKey)
           ),
           sortTimeByMatchKey,
           actualBonusFlagsByMatchKey,
-          // D-03 (Phase 6): omitted entirely when the corpus has no row, or
-          // the stored value is null — never fetched, never guessed.
           robotImageUrl: teamMediaForSeason.get(teamKey)?.imageUrl ?? undefined,
-          // D-05 (Phase 6): from the activeYears pre-pass above.
           activeYears: activeYearsByTeam.get(teamKey),
-          // Quick task 260905-ldu: this team's World/Country/District/State
-          // rank scopes, from the once-per-algorithm pre-pass above.
           ranks: rankScopesByTeamKey.get(teamKey),
           generation,
           computedAt,
-          // Quick task 260906-7eu: the SAME once-per-season map the event
-          // artifact builder above already consumes.
           videoByMatchKey,
         });
         const key = artifactKey({ page: "team", teamKey, year: season, algorithmId: algorithm.id, version });
@@ -2364,14 +2331,10 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       timings.add(`${blockLabel} uploadWait`, uploadWaitMs);
     }
 
-    // --- compare/{year}.json — one file, every algorithm, per D-02's exception ---
-    // D-2 (quick task 260903-krp): must NOT pass this loop's own `season` —
-    // `harnessPredictions` above is built from a single season, so passing
-    // `[season]` here would make every published slice's `headlineEligible`
-    // come back false, silently, with every test still green (Finding 1).
-    // `corpusSeasons` is the corpus-held season set, never `seasonsSorted`:
-    // headline eligibility is a property of the data available, so a
-    // single-season republish must not flip a live key's badge.
+    // --- compare/{year}.json — one file, every algorithm ---
+    // `corpusSeasons` is the corpus-held season set, never `[season]` or `seasonsSorted`: passing this
+    // season alone silently makes every slice's `headlineEligible` false, and eligibility must not
+    // depend on which seasons a run republishes.
     const compareStart = performance.now();
     const slices = aggregateScores(harnessPredictions, { corpusSeasons: selectCorpusSeasons(db), eligibility: "from-corpus-seasons" });
     const compareArtifact = buildCompareArtifact({
@@ -2379,51 +2342,32 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       slices,
       generation,
       computedAt,
-      // F1/D-09/D-11 (phase 09 plan 09-01 Task 2): the ONLY `buildCompareArtifact(` call site in this file — every one passes `rpCalibration`, so a second call site added later cannot silently omit it (the exact bug sigmaScoutLayer.ts was extracted to prevent, verified by `publish.test.ts`'s call-site-count assertion).
+      // Every call site passes `rpCalibration`; `publish.test.ts` pins this.
       rpCalibration: options.rpCalibration,
     });
     const compareKey = artifactKey({ page: "compare", year: season });
     await uploader.publish("compare", compareKey, JSON.stringify(compareArtifact));
     timings.add(`season ${season} compare`, performance.now() - compareStart);
 
-    // Quick task 260908-615: these two lines read DIFFERENT maps, and the
-    // split IS the point — do not collapse them back into one read.
-    //
-    //   `liveStatesAcrossSeasons` feeds the NEXT season's `carrySeason`
-    //   boundary thread, so it takes `carryStates` — for EPA that rewinds to
-    //   the state after this season's last OFFICIAL match, so an exhibition
-    //   result cannot seed next season's prior.
-    //
-    //   `finalSeasonStates` is D-12's D1 seed, which the LIVE Worker resumes
-    //   from. The Worker continues the real, offseason-inclusive season, so
-    //   seeding it from a rewound snapshot would make live and offline
-    //   disagree about the very same season — it must stay `finalStates`.
+    // Two different maps on purpose; never collapse them. `carryStates` feeds next season's carry (for
+    // EPA it rewinds to the last official match, so exhibitions cannot seed next season's prior).
+    // `finalStates` is the D1 seed the live Worker resumes, which continues the offseason-inclusive
+    // season, so a rewound seed would make live and offline disagree.
     liveStatesAcrossSeasons = new Map(records.carryStates);
     finalSeasonStates = new Map(records.finalStates);
-    // Shape 15 (plan 09-08): the RP beliefs, read from `layers`, which walked
-    // this season's offseason-INCLUSIVE record stream — deliberately the same
-    // population `finalSeasonStates` takes, and for the same reason given just
-    // above: the Worker continues the real season, so seeding it from a
-    // rewound snapshot would make live and offline disagree about that season.
-    // Empty for an algorithm that publishes no ranking points.
+    // RP beliefs from the same offseason-inclusive population, for the same reason. Empty for an
+    // algorithm that publishes no ranking points.
     finalSeasonRp = new Map(
       options.algorithms.map((algorithm) => [algorithm.id, layers.get(algorithm.id)!.rpVariableBeliefs()])
     );
-    // Shape 16: the mean shift, from the same layers at the same instant, for
-    // the same reason. Collected sparsely, like the Sigma maps below.
+    // The mean shift, from the same layers at the same instant; collected sparsely.
     finalSeasonRpMeanShift = new Map();
     for (const algorithm of options.algorithms) {
       const shift = layers.get(algorithm.id)!.rpMeanShiftState();
       if (shift !== undefined) finalSeasonRpMeanShift.set(algorithm.id, shift);
     }
-    // Shape 11: the Sigma Score beliefs and their population, read from the
-    // same `layers` map and therefore the same offseason-inclusive population
-    // the line above takes, for the identical reason — the Worker
-    // continues the real season.
-    //
-    // Both are collected SPARSELY: a non-Sigma algorithm's layer has no Sigma
-    // accumulator, so it contributes no entry rather than an empty one, and
-    // the seed block below then writes it no Sigma key.
+    // Sigma Score beliefs and population, same population and reason. Sparse: a non-Sigma algorithm
+    // contributes no entry, so its seed gets no Sigma key.
     finalSeasonSigma = new Map();
     finalSeasonSigmaPopulation = new Map();
     for (const algorithm of options.algorithms) {
@@ -2435,12 +2379,11 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     }
   }
 
-  // Quick task 260913-nvn: every queued put settles here, once, before the
-  // manifests below point readers at this run's objects. A put that failed
-  // after r2Client's own retries rejects this await and fails the run.
+  // Every queued put settles before the manifests point readers at this run's objects; a put that
+  // failed after r2Client's retries fails the run here.
   await timings.timeAsync("uploadDrain", () => uploader.drain());
 
-  // --- Manifests (D-18/D-03) and D-12's state snapshot / D1 seed ---
+  // --- Manifests and the D1 state seed ---
   if (!options.skipState) {
     const liveWindows = buildLiveWindowsManifest(db, { seasons: seasonsSorted, generation, computedAt });
     const algorithmsManifest = buildAlgorithmsManifest({ generation, computedAt });
@@ -2458,38 +2401,17 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     }
     manifestKeys.push(liveWindowsKey, algorithmsManifestKey);
 
-    // D-12: only the FINAL season's states are seeded into D1 — earlier
-    // seasons' states were used solely for the carrySeason boundary thread
-    // above. A reader would otherwise assume all requested seasons are
-    // seeded; they are not.
+    // Only the final season's states are seeded into D1; earlier seasons only fed the carry thread.
     for (const algorithm of options.algorithms) {
       const state = finalSeasonStates.get(algorithm.id);
       if (state === undefined) continue;
-      // The level-2 passengers ride into each row after the algorithm
-      // serializer has run, so no algorithm's serializer knows they exist.
-      // Quick task 260913-it4 removed the shape-10 team-row passenger (the
-      // retired per-robot consistency accumulator's beliefs) without a shape
-      // bump; see `stateSnapshot.ts`'s 9 -> 10 history entry.
-      // Shape 15 (plan 09-08): the RP passenger chains on before
-      // `emitSeedSql`. Omitting it is not a cosmetic gap — a seeded Worker
-      // would cold-start every RP belief while the artifacts it serves already
-      // carry a full season's pmfs, so live and offline would price the same
-      // match from two different histories with both sides looking healthy.
-      // Shape 11: the Sigma passenger chains on in the same place and the same
-      // way, and closes the same gap for the premier published algorithm. A
-      // seeded Worker without it cold-starts BPR's Sigma Score bands from the
-      // flat prior while the artifacts it serves already carry fully warmed
-      // ones — no error, no missing field, just live and offline pricing the
-      // same match from two different histories with both sides looking
-      // healthy.
-      //
-      // MIND THE SCOPE SPLIT, it is not symmetric with the RP passenger:
-      // `withSigmaBeliefs` writes TEAM rows like it does, but
-      // `withSigmaPopulation` writes the LEAGUE row — three numbers that never
-      // scale with team count. Seeding the beliefs without the population is
-      // not half a fix: a resumed accumulator would fall back to the flat
-      // talent prior and compute different bands from the very beliefs it was
-      // just handed.
+      // Level-2 passengers chain onto rows after the algorithm serializer, which never knows they exist.
+      // Each one missing is a silent live/offline divergence, with no error on either side:
+      // - RP beliefs (team rows): without them the Worker cold-starts every RP belief.
+      // - Sigma beliefs (team rows): without them the Worker prices bands from the flat prior.
+      // - Sigma population (LEAGUE row): without it resumed beliefs fall back to the flat talent prior.
+      // - RP mean shift (LEAGUE row): without it the Worker prices live matches unshifted.
+      // LEAGUE-row passengers are the easy ones to forget.
       let rows = withRpBeliefs(
         withSigmaBeliefs(
           serializeState(algorithm.id, algorithm.version, state as EpaState | OprState | SprState, stamp),
@@ -2499,11 +2421,6 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       );
       const sigmaPopulation = finalSeasonSigmaPopulation.get(algorithm.id);
       if (sigmaPopulation !== undefined) rows = withSigmaPopulation(rows, sigmaPopulation);
-      // Shape 16 (quick task 260914-01x): the RP mean shift rides the LEAGUE
-      // row beside the Sigma population, and closes the same kind of gap. A
-      // seeded Worker without it resumes a fresh shift, prices every live
-      // match unshifted while the artifacts it serves are shifted, and nothing
-      // errors. A handful of numbers, so it cannot scale with team count.
       const rpMeanShift = finalSeasonRpMeanShift.get(algorithm.id);
       if (rpMeanShift !== undefined) rows = withRpMeanShift(rows, rpMeanShift);
       const outPath = join(SEED_OUT_DIR, `seed-${algorithm.id}.sql`);
@@ -2523,11 +2440,8 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       `  ${kind}: count=${stats!.count} median=${stats!.medianBytes}B p95=${stats!.p95Bytes}B max=${stats!.maxBytes}B key=${stats!.largestKey}`
     );
   }
-  // Quick task 260905-tll Task 4: the sidecar size summary, printed in the
-  // same shape as the page-kind lines above — deliberately OUTSIDE
-  // `computeSizeStats`/the machine-readable budget block's `pages`, because
-  // the sidecar is not a `PageKind` (PD-01). `--write-budget` carries these
-  // figures in the block's `run` string instead.
+  // Sidecar sizes, printed like the page kinds but kept out of `pages` (a sidecar is not a `PageKind`);
+  // `--write-budget` carries them in the block's `run` string.
   let sidecars: PageKindSizeStats | undefined;
   if (uploader.sidecarRecords.length > 0) {
     const sidecarBytesSorted = uploader.sidecarRecords.map((r) => r.bytes).sort((a, b) => a - b);
@@ -2557,7 +2471,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
 // CLI
 // ---------------------------------------------------------------------------
 
-/** Resolves the requested `--algorithm` ids (default: `PUBLISHED_ALGORITHM_IDS`) against `BASE_PUBLISH_ALGORITHMS`, throwing on an unknown id. Exported so the default-set, artifact-key and unknown-id behavior is testable without the CLI entry point. */
+/** Resolves `--algorithm` ids (default: `PUBLISHED_ALGORITHM_IDS`) against `BASE_PUBLISH_ALGORITHMS`, throwing on an unknown id. Exported for tests. */
 export function resolvePublishAlgorithms(idsCsv: string | undefined): AlgorithmModule<any>[] {
   const ids = idsCsv
     ? idsCsv
@@ -2577,28 +2491,11 @@ export function resolvePublishAlgorithms(idsCsv: string | undefined): AlgorithmM
 }
 
 /**
- * `--seasons "2022-2026"` -> `[2022, 2023, 2024, 2025, 2026]`, a single year
- * `--seasons "2026"` -> `[2026]`, or a comma-separated LIST of terms, each
- * itself a single year or a range, e.g. `--seasons "2019,2020,2022-2026"` ->
- * `[2019, 2020, 2022, 2023, 2024, 2025, 2026]` (harness CLI splits these into
- * two flags, `--seasons`/`--season`; this file accepts both spellings through
- * one flag). Terms may repeat or arrive out of order; the result is always
- * ascending and de-duplicated.
- *
- * The list form exists because the corpus is GAPPED: 2021 has no registered
- * component map (it was the at-home/remote season with no conventional 3v3
- * alliance matches, so there is nothing to ingest or score — permanent
- * exclusion, not a deferral), so a single contiguous `2019-2026` range would
- * include 2021 and throw at `componentMapForSeason(2021)`. Quick task
- * 260904-nt4 added this form specifically so `pnpm publish:seasons` can name
- * the real seven-season corpus (`2019,2020,2022-2026`) without a contiguous
- * range lying about what exists.
- *
- * This is now the ONE `--seasons` parser in the repo (the harness backtest
- * CLI's own duplicate copy was deleted in 260913-nvn).
- *
- * **EXPORTED** for direct test coverage, following the exported-for-test
- * precedent `resolvePublishAlgorithms` (above) already sets in this file.
+ * Parses `--seasons`: a year (`"2026"`), a range (`"2022-2026"`), or a comma-separated list of either
+ * (`"2019,2020,2022-2026"`). The result is ascending and de-duplicated. The list form exists because
+ * the corpus is gapped: 2021 (the remote season, no 3v3 alliance matches) has no component map, so a
+ * contiguous range across it throws at `componentMapForSeason(2021)`. The repo's only `--seasons`
+ * parser; exported for tests.
  */
 export function parseSeasonsRange(spec: string): number[] {
   const terms = spec
@@ -2646,8 +2543,7 @@ async function runSeasonsCliMode(
 ): Promise<void> {
   const seasons = parseSeasonsRange(seasonsSpec);
   const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
-  // F1/D-09/D-11 (phase 09 plan 09-01 Task 2): `loadRpCalibrationMeasurement` returns `undefined`
-  // for a path that does not exist, so a run without a committed baseline attaches nothing.
+  // `undefined` for a missing file, so a run without a committed baseline attaches nothing.
   const rpCalibration = loadRpCalibrationMeasurement(RP_CALIBRATION_MEASUREMENT_PATH);
 
   const db = openCorpusReadOnly(CORPUS_PATH);
@@ -2662,12 +2558,9 @@ async function runSeasonsCliMode(
 }
 
 /**
- * `--write-budget` (quick task 260913-nvn): replaces the fenced `json budget`
- * block in `docs/publish-budget.md` with this run's own measurements, so no
- * figure is transcribed by hand. Called only after `publishSeasons` returned
- * successfully. The `run` string is built from `process.argv` and summary
- * fields only — never from environment variables (`--env-file` is tsx's own
- * flag and never appears in `process.argv.slice(2)`).
+ * `--write-budget`: replaces the `json budget` block in `docs/publish-budget.md` with this run's
+ * measurements, only after a successful publish. The `run` string uses `process.argv` and summary
+ * fields only, never environment variables (`--env-file` is tsx's flag and never reaches `argv`).
  */
 function writePublishBudgetDoc(summary: PublishSummary, startedAt: Date, finishedAt: Date, dryRun: boolean): void {
   const durationSeconds = Math.round((finishedAt.getTime() - startedAt.getTime()) / 1000);
@@ -2697,12 +2590,7 @@ async function main(): Promise<void> {
       concurrency: { type: "string" },
       "skip-state": { type: "boolean" },
       "include-offseason": { type: "boolean" },
-      // Quick task 260905-tll Task 4 (C-05): the pre-schedule sidecar
-      // season cutoff, threaded through runSeasonsCliMode into
-      // publishSeasons — the default lives on DEFAULT_PRESCHEDULE_FROM_SEASON.
       "presim-from-season": { type: "string" },
-      // Quick task 260913-nvn: rewrite docs/publish-budget.md's json budget
-      // block from this run's measurements after a successful run.
       "write-budget": { type: "boolean" },
     },
   });
@@ -2735,10 +2623,8 @@ async function main(): Promise<void> {
   }
 }
 
-// Guard: only auto-run `main()` when this file is the process entry point —
-// importing this module (e.g. from publish.test.ts / publish.tracer.test.ts)
-// must never have the side effect of parsing `process.argv` or touching the
-// corpus/network.
+// Run `main()` only as the entry point; importing this module (tests) must never parse argv or touch
+// the corpus or network.
 const isEntryPoint = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isEntryPoint) {
   main().catch((err) => {
@@ -2747,7 +2633,5 @@ if (isEntryPoint) {
   });
 }
 
-// Re-exported so publish.test.ts's outcome-key assertion (D-08) can check
-// selectScheduledMatches's output against the SAME set toLeakProofUpcoming
-// guards, without a second hand-copied list.
+// Re-exported so publish.test.ts checks scheduled matches against the same set `toLeakProofUpcoming` guards.
 export { OUTCOME_KEYS };
