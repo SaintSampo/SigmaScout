@@ -78,5 +78,6 @@ executor was spawned.
   August freshness-rig cursors for 2026cmptx, 2026azscor and 2026scsc were deleted (3 changes). The
   read-back shows only `__scheduler_meta__` remaining.
 - **Push:** Jacob pushes. Pages is manifest-driven, so the web needs no push for this data.
-- **`verify:subset`:** the 2024casf opr/epa rpPmf expectation needs updating for it4.
+- ~~`verify:subset` expectation~~ DONE in `88b43f28`: the 2024casf opr/epa arms now expect `"absent"`.
+  Live at `2dcc057f`: 65 entries checked, 0 failing.
 - **260913-qyn:** that session's own republish is still ahead.
