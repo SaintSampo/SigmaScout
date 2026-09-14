@@ -39,9 +39,7 @@ export interface BonusRp {
  * order — which `bonusRp.test.ts` asserts season by season. It is therefore
  * NOT part of "surfacing a season on the website" (season list, districts,
  * publishing); it is the mechanical other half of registering a season's RP
- * rule module, and belongs in the SAME change. Quick task 260907-057 split it
- * out and left `main` red until this entry landed; the 2019/2020 precedent
- * (`ad70f6ef`) had already got this right by patching both together.
+ * rule module, and belongs in the SAME change.
  */
 export const BONUS_RP_BY_SEASON: Readonly<Record<number, readonly BonusRp[]>> = {
   2016: [
@@ -106,19 +104,18 @@ export type BonusRpState = "earned" | "missed" | "unknown";
 
 /**
  * The threshold at which a published predicted per-bonus PROBABILITY
- * (`TeamSeasonMatchSchema.redBonusRp`/`blueBonusRp`, plan 06.1-05) renders as
- * an `earned` dot rather than `missed` (PD-11, plan 06.1-06).
+ * (`TeamSeasonMatchSchema.redBonusRp`/`blueBonusRp`) renders as an `earned`
+ * dot rather than `missed`.
  *
  * A two-state mark cannot express a probability — a dot is either solid or
  * hollow, never "51% solid" — so SOME threshold is unavoidable the moment a
  * probability drives that binary. The exact boundary (a probability of
  * exactly one half) resolves to `earned`, matching this codebase's existing
- * half-away-from-zero rounding convention (`packages/harness/rounding.ts`)
- * and VPR's own tie handling (the retired Sigma1 core (deleted by quick task 260913-it4)), where a win probability of
- * exactly 0.5 resolves to red. The dot's own tooltip/accessible label
- * (`bonusDotLabel`) carries the real probability as a percentage, so the
- * reader is never left with only the binary — the visual is a summary, not
- * the only representation of the number.
+ * half-away-from-zero rounding convention (`packages/harness/rounding.ts`).
+ * The dot's own tooltip/accessible label (`bonusDotLabel`) carries the real
+ * probability as a percentage, so the reader is never left with only the
+ * binary — the visual is a summary, not the only representation of the
+ * number.
  */
 export const PREDICTED_BONUS_THRESHOLD = 0.5;
 

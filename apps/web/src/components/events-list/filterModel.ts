@@ -1,56 +1,51 @@
 /**
  * Pure option-list derivation, the filter predicate, and the deterministic
- * sort for the Events page (EVNT-01, 05-07-PLAN.md Task 1). Imports no
- * React — these three functions operate purely over the published
- * `EventsListRowSchema` rows and are independently testable from any
- * component that renders them.
+ * sort for the Events page. Imports no React — these three functions
+ * operate purely over the published `EventsListRowSchema` rows and are
+ * independently testable from any component that renders them.
  *
  * The null-vs-Unknown rule, written once: an event with no district is not
  * an event in a district called Unknown. `country`, `stateProv` and
- * `districtKey` are genuinely nullable in the published artifact (plan
- * 05-02) — offseason and preseason events legitimately have no week, and
- * most events have no district. Coercing a null into a placeholder bucket
- * would put a filter option in the list that answers a question the data
- * cannot answer. `filterOptions` therefore excludes null entirely from
- * every option list, and `applyEventFilters` follows directly: a filter can
- * never match an event whose value on that dimension is null, because no
- * filter value is ever offered that could equal null.
+ * `districtKey` are genuinely nullable in the published artifact —
+ * offseason and preseason events legitimately have no week, and most events
+ * have no district. Coercing a null into a placeholder bucket would put a
+ * filter option in the list that answers a question the data cannot answer.
+ * `filterOptions` therefore excludes null entirely from every option list,
+ * and `applyEventFilters` follows directly: a filter can never match an
+ * event whose value on that dimension is null, because no filter value is
+ * ever offered that could equal null.
  */
 import type { EventsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /** One row from the published `events/{year}` artifact — `EventsListRowSchema`'s inferred shape, reached through the exported `EventsArtifact` type since the row schema itself is module-private. */
 export type EventRow = EventsArtifact["events"][number];
 
-/** The week dimension's special (non-numeric) values (2026-09-01 user request): preseason "Week 0" events (eventType 100 — real events after Jan 1, not part of the official season), Championship divisions/Einstein (eventType 3/4), offseason, and (WR-01) events whose TBA week is outside the season-week scale entirely. Mirrored by `EventsSearchSchema.week`'s enum arm in `lib/searchParams.ts` — the two lists must be edited together. */
+/** The week dimension's special (non-numeric) values: preseason "Week 0" events (eventType 100 — real events after Jan 1, not part of the official season), Championship divisions/Einstein (eventType 3/4), offseason, and events whose TBA week is outside the season-week scale entirely. Mirrored by `EventsSearchSchema.week`'s enum arm in `lib/searchParams.ts` — the two lists must be edited together. */
 export const WEEK_SPECIAL_VALUES = ["week0", "champs", "offseason", "other"] as const;
 export type WeekFilterValue = number | (typeof WEEK_SPECIAL_VALUES)[number];
 
 /**
- * The highest raw `week` TBA uses for a real regular-season week — a generous
- * upper bound across seasons, since an 8-week season is already longer than
- * any run to date.
+ * The highest raw `week` TBA uses for a real regular-season week — a
+ * generous upper bound across seasons, since an 8-week season is already
+ * longer than any run to date.
  *
- * Above this, `week` is NOT a season week at all. TBA also carries out-of-band
- * indexes for districts running their own calendar: verified against
- * `v1/events/2026/vpr@2.1.0+tuned-2026-08.json` on 2026-09-02, `2026isde1`,
- * `2026isde2` and `2026iscmp` carry raw weeks 16, 17 and 18 — three official,
- * non-offseason, non-preseason district events with 208 played matches between
- * them. Rendering `week + 1` for those produced "Week 17/18/19"; there is no
- * week 17 of an FRC season, and no week filter could reach them. They belong
- * in the `"other"` bucket, which says only what the data supports: this event's
- * week is not on the season scale.
+ * Above this, `week` is NOT a season week at all: TBA also carries
+ * out-of-band indexes for districts running their own calendar. Rendering
+ * `week + 1` for those produces a "Week 17/18/19" that does not exist and no
+ * week filter could reach. They belong in the `"other"` bucket, which says
+ * only what the data supports: this event's week is not on the season scale.
  */
 export const MAX_SEASON_WEEK = 8;
 
 /**
  * The minimal shape `hasOutOfBandWeek` needs — `EventRow` satisfies this
  * structurally with no cast, but so does any other page's own week-bearing
- * shape (07-15-PLAN.md's `EventHeader`, plan 260902-ixg, needs the identical
- * rule with no `isOffseason`/`eventType` fields on `EventArtifact` at all).
- * `isOffseason`/`eventType` are optional so a caller with no opinion on them
- * (an honest "I don't know") gets the SAME answer a `false`/non-matching
- * `EventRow` would: neither excludes the row, so the check falls straight
- * through to the week-magnitude test below.
+ * shape (`EventHeader` needs the identical rule with no
+ * `isOffseason`/`eventType` fields at all). `isOffseason`/`eventType` are
+ * optional so a caller with no opinion on them (an honest "I don't know")
+ * gets the SAME answer a `false`/non-matching `EventRow` would: neither
+ * excludes the row, so the check falls straight through to the
+ * week-magnitude test below.
  */
 export interface OutOfBandWeekCandidate {
   week: number | null;
@@ -60,13 +55,11 @@ export interface OutOfBandWeekCandidate {
 
 /**
  * True when `event`'s week is an out-of-band TBA index rather than a season
- * week — the `"other"` bucket's membership test, and the one place the rule is
- * written (260902-ixg widened the parameter type so `EventHeader.tsx` could
- * import this instead of duplicating it — see `OutOfBandWeekCandidate`'s own
- * doc comment). The three other special buckets are checked FIRST and win, in
+ * week — the `"other"` bucket's membership test, and the one place the rule
+ * is written. The three other special buckets are checked FIRST and win, in
  * the same precedence `filterOptions` and `TypeChip` apply: an offseason,
- * preseason or Championship row has its own filter value and is never swept in
- * here, however TBA happened to index its week.
+ * preseason or Championship row has its own filter value and is never swept
+ * in here, however TBA happened to index its week.
  */
 export function hasOutOfBandWeek(event: OutOfBandWeekCandidate): boolean {
   if (event.isOffseason) return false;
@@ -104,29 +97,20 @@ export function filterOptions(events: readonly EventRow[]): EventFilterOptionLis
     else if (event.eventType === 100) hasWeek0 = true;
     else if (event.week !== null) weeks.add(event.week);
     if (event.country !== null) countries.add(event.country);
-    // 2026-09-01: TBA state_prov carries junk alongside real regions —
-    // pure numerics ("06", "34") and single letters ("M") were rendering as
-    // filter options. Values of 2+ letters (any script) stay, including
-    // international regions ("NSW", "HaMerkaz"); an event whose state was
-    // dropped here remains reachable through its country filter.
-    // 2026-09-01 (round 2): TBA's state_prov mixes real state/province codes
-    // with numerics ("06", "34") and longer region names ("Daan District",
-    // "HaMerkaz", "COA") the user asked out of the STATE dropdown. Keep
-    // exactly the two-letter alpha codes (US states + CA provinces and
+    // TBA's state_prov mixes real state/province codes with numerics
+    // ("06", "34") and longer region names ("Daan District", "HaMerkaz").
+    // Keep exactly the two-letter alpha codes (US states + CA provinces and
     // peers); everything else stays reachable through the country filter.
     if (event.stateProv !== null && /^[A-Za-z]{2}$/.test(event.stateProv)) states.add(event.stateProv);
     if (event.districtKey !== null) districts.add(event.districtKey);
   }
 
-  // 2026-09-01 (user request): the season's own chronology in the dropdown —
-  // Week 0, the regular-season weeks, then Champs and Offseason.
-  //
-  // WR-01 (2026-09-02): out-of-band weeks are no longer sorted to the bottom
-  // of the NUMERIC list, they leave it entirely. Presenting raw week 16 as
-  // "Week 17" put three options in the dropdown naming a week of the season
-  // that does not exist, and left the real events behind them unreachable
-  // under any honest week. They collapse into one `"other"` bucket last
-  // instead — see `MAX_SEASON_WEEK`.
+  // The season's own chronology in the dropdown — Week 0, the regular-season
+  // weeks, then Champs and Offseason. Out-of-band weeks leave the NUMERIC
+  // list entirely rather than sorting to its bottom, since presenting raw
+  // week 16 as "Week 17" would name a week of the season that does not
+  // exist. They collapse into one `"other"` bucket last instead — see
+  // `MAX_SEASON_WEEK`.
   const sortedWeeks = Array.from(weeks).sort((a, b) => a - b);
   const seasonWeeks = sortedWeeks.filter((week) => week <= MAX_SEASON_WEEK);
   const hasOther = sortedWeeks.some((week) => week > MAX_SEASON_WEEK);
@@ -146,19 +130,18 @@ export function filterOptions(events: readonly EventRow[]): EventFilterOptionLis
 }
 
 /**
- * Events the list shows at all (2026-09-01 user request): an UNOFFICIAL
- * event (offseason or preseason Week 0) with zero played matches is pure
- * noise — a scrimmage TBA never recorded results for — and is dropped
- * before filtering. Official events with zero played matches stay: an
- * upcoming season's schedule is exactly what a reader wants to see.
+ * Events the list shows at all: an UNOFFICIAL event (offseason or preseason
+ * Week 0) with zero played matches is pure noise — a scrimmage TBA never
+ * recorded results for — and is dropped before filtering. Official events
+ * with zero played matches stay: an upcoming season's schedule is exactly
+ * what a reader wants to see.
  *
- * Date-aware since 2026-09-05: `unofficial && playedMatchCount === 0`
- * cannot distinguish a past scrimmage TBA never scored from a FUTURE
- * offseason event that simply hasn't happened yet, and the original rule
- * hid both. Only unofficial events already in the past (startDate before
- * `todayIso`) are noise; one starting today or later stays visible.
- * `todayIso` is a "YYYY-MM-DD" string compared lexicographically, matching
- * the artifact's `startDate` format.
+ * Date-aware: `unofficial && playedMatchCount === 0` alone cannot
+ * distinguish a past scrimmage TBA never scored from a FUTURE offseason
+ * event that simply hasn't happened yet. Only unofficial events already in
+ * the past (startDate before `todayIso`) are noise; one starting today or
+ * later stays visible. `todayIso` is a "YYYY-MM-DD" string compared
+ * lexicographically, matching the artifact's `startDate` format.
  */
 export function isDisplayableEvent(event: EventRow, todayIso: string): boolean {
   const unofficial = event.isOffseason || event.eventType === 100;
@@ -182,7 +165,7 @@ export interface EventFilters {
  * anyFilterValue` is always true) — the exclusion rule falls directly out
  * of the comparison rather than needing a separate null check.
  */
-/** One event's membership in one week-filter value. A NUMERIC week means an official in-season week — offseason/preseason rows that happen to carry a week index are excluded from it, since they have their own filter values, as are the out-of-band weeks `"other"` collects (WR-01). */
+/** One event's membership in one week-filter value. A NUMERIC week means an official in-season week — offseason/preseason rows that happen to carry a week index are excluded from it, since they have their own filter values, as are the out-of-band weeks `"other"` collects. */
 export function weekMatches(event: EventRow, week: WeekFilterValue): boolean {
   if (week === "offseason") return event.isOffseason;
   if (week === "champs") return event.eventType === 3 || event.eventType === 4;
