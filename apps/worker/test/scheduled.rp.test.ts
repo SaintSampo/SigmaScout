@@ -1,37 +1,20 @@
 /**
- * Ranking points on live rows. The live Worker never computed ranking
- * points at all — nothing under `apps/worker/src/` constructed an RP
- * accumulator, so `prediction.redRpPmf` was never set. This file tests
- * that the live path now produces the same pmf the offline publisher
- * would have, rather than merely producing one.
+ * Ranking points on live rows: the live path must produce the same pmf the
+ * offline publisher would, not merely produce one.
  *
- * The two-arm design: a pmf is only correct relative to the history it was
- * priced from. The fixture runs two events in one season. A "prior" event
- * is folded first and the Worker persists its own RP beliefs into D1
- * exactly as production does; the "live" event is then folded one match
- * per tick, resuming those beliefs. The offline arm drives the real
- * `SigmaScoutLayer` over the identical chronological stream and the two RP
- * streams are compared by digest over the live event's rows.
+ * Two arms. A "prior" event is folded first and the Worker persists its own
+ * RP beliefs into D1; the "live" event is then folded one match per tick,
+ * resuming them. The offline arm drives the real `SigmaScoutLayer` (never a
+ * hand-rolled accumulator) over the same stream, and the live event's RP rows
+ * are compared by digest. Break `withRpBeliefs` or `readRpBeliefs` and the
+ * Worker cold-starts every tick and the digests diverge, while every pmf
+ * still sums to 1 and renders.
  *
- * That construction is what makes the state-shape bump load-bearing: break
- * `withRpBeliefs` on the write side or `readRpBeliefs` on the read side and
- * the Worker re-cold-starts on every tick, prices each match from one
- * tick's matches alone, and the digests diverge — while every published
- * pmf still sums to 1, still parses and still renders.
+ * `scheduled.replay.test.ts` is the prediction/band equivalence test; its
+ * breakdowns are all null, so it produces no RP.
  *
- * The offline arm drives the real `SigmaScoutLayer`, never a hand-rolled
- * accumulator, for the same reason `scheduled.replay.test.ts`'s band
- * digest records: a second implementation of the thing under test can
- * always drift from it.
- *
- * `scheduled.replay.test.ts` is not the RP arm, despite driving the same
- * `runTick`: its fixture carries `score_breakdown: null` on every match, so
- * it produces no RP on either side and stays green unchanged. It is the
- * prediction/band equivalence test; this is the RP one.
- *
- * The fake D1/R2/KV classes below are copied from
- * `apps/worker/test/scheduled.replay.test.ts` rather than imported — that
- * file exports none of them. Keep them in step with the original.
+ * The fake D1/R2/KV classes are copied from `scheduled.replay.test.ts`, which
+ * exports none of them. Keep them in step.
  */
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -58,19 +41,10 @@ import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 
 /**
- * The final live tick's own subrequest cost on this fixture, pinned so a
- * future edit that adds a D1 round-trip per team fails loudly here.
- *
- * RP costs zero additional subrequests by construction: the beliefs ride
- * as a passenger key inside the very team rows the tick already reads and
- * already writes back. This constant is the proof of that claim rather
- * than the claim itself — if it has to be raised to make this file pass,
- * the passenger design has been broken.
- *
- * Measured, not assumed: the same fixture was driven twice, once with the
- * RP accumulator forced to `undefined` and once with it live. Both runs
- * reported the same `subrequestsUsed` on the final live tick — the number
- * itself is a property of the fixture's event and team counts, not of RP.
+ * The final live tick's subrequest cost on this fixture. RP beliefs ride
+ * inside rows the tick already reads and writes, so RP costs zero extra
+ * subrequests (measured with RP forced off and on: same count). If this has
+ * to be raised, the passenger design is broken.
  */
 const SUBREQUESTS_PER_LIVE_TICK = 64;
 
@@ -267,12 +241,7 @@ function fixture(
   return { eventKey, matchNumber, redTeams, blueTeams, redScore, blueScore, redHub, blueHub, redTower, blueTower };
 }
 
-/**
- * The prior event — the season history the live event's Worker resumes
- * from. Four matches of history per team, so the Sigma-scored spr starts
- * the live event from warm beliefs. opr and epa publish no ranking points
- * at all, so this history only matters to spr's pmf.
- */
+/** The prior event: four matches of history per team, so spr starts the live event from warm beliefs. */
 const PRIOR_FIXTURES: readonly MatchFixture[] = [
   fixture(PRIOR_EVENT_KEY, 1, ["frc1", "frc2", "frc3"], ["frc4", "frc5", "frc6"], 120, 95, 140, 90, 42, 28),
   fixture(PRIOR_EVENT_KEY, 2, ["frc4", "frc5", "frc6"], ["frc1", "frc2", "frc3"], 105, 130, 118, 165, 31, 55),
@@ -298,7 +267,7 @@ function winnerOf(f: MatchFixture): "red" | "blue" {
   return f.redScore > f.blueScore ? "red" : "blue";
 }
 
-/** The 2026 score-breakdown shape `rp2026.parse` actually reads — see `packages/core/rankingPoints/2026.ts`'s schema. */
+/** The 2026 score-breakdown shape `rp2026.parse` reads. */
 function breakdownOf(f: MatchFixture): unknown {
   const side = (hub: number, tower: number) => ({
     autoTowerPoints: Math.round(tower / 2),
@@ -380,9 +349,8 @@ function makeTbaFetchStub(): ReturnType<typeof vi.fn> {
         status: 200,
         ok: true,
         headers: { get: () => null },
-        // `name` is required by `tbaEventSchema`; its absence is not loud —
-        // `processEvent` parses the detail inside a try/catch that degrades
-        // to `eventType = -1`, silently gating RP off on every row.
+        // `name` is required by `tbaEventSchema`; without it the detail parse
+        // silently degrades to `eventType = -1`, gating RP off on every row.
         json: async () => ({ key: detailRoute[1]!, name: "Test Event", year: SEASON, event_type: EVENT_TYPE, start_date: "2026-08-01" }),
       };
     }
@@ -428,12 +396,7 @@ function buildOfflineModule(id: string): AlgorithmModule<any> {
   throw new Error(`buildOfflineModule: no module for algorithm id "${id}"`);
 }
 
-/**
- * The RP counterpart of `scheduled.replay.test.ts`'s band-stream digest:
- * matchKey plus both ROUNDED pmfs per row. Both arms pass through the same
- * imported `roundPmf`, so a rounding difference cannot masquerade as
- * agreement (or as divergence).
- */
+/** Digest of matchKey plus both ROUNDED pmfs per row; both arms use the same `roundPmf`, so rounding cannot fake agreement or divergence. */
 function computeRpStreamDigest(
   rows: readonly { matchKey: string; red: readonly number[] | undefined; blue: readonly number[] | undefined }[]
 ): string {
@@ -505,17 +468,15 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
     vi.stubGlobal("fetch", makeTbaFetchStub());
     const env = makeEnv(kv, d1, r2);
 
-    // Phase 1 — the whole prior event. The Worker persists its own RP
-    // beliefs into D1 here; nothing is hand-seeded, so the resume path
-    // below is exercised against exactly what production would have written.
+    // Phase 1: the whole prior event. Nothing is hand-seeded; the Worker
+    // persists its own RP beliefs, as production would.
     revealedPrior = PRIOR_FIXTURES.length;
     for (let i = 0; i < PRIOR_FIXTURES.length; i++) {
       const priorResult = await runTick(env, { nowMs: NOW_MS + i * 60_000, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER, subrequestCap: 1000, subrequestReserve: 0 });
       expect(priorResult.eventsFailed).toBe(0);
     }
 
-    // Phase 2 — the live event, one match per tick. Tick N resumes what
-    // tick N-1 wrote, which is the property the shape bump exists for.
+    // Phase 2: the live event, one match per tick; tick N resumes what tick N-1 wrote.
     let lastSubrequests = 0;
     for (let i = 0; i < LIVE_FIXTURES.length; i++) {
       revealedLive = i + 1;
@@ -542,8 +503,7 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
       const { r2 } = await driveFixture();
       const rows = await publishedLiveRows(r2, "spr");
 
-      // NON-VACUITY FIRST. A fixture that silently produced no pmf at all
-      // would make every assertion below pass while proving nothing.
+      // Non-vacuity first: a fixture producing no pmf would pass everything below.
       const withPmf = rows.filter((r) => r?.redRpPmf !== undefined && r?.blueRpPmf !== undefined);
       expect(
         withPmf.length,
@@ -567,9 +527,7 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
       const { r2 } = await driveFixture();
       const algorithmId = "spr";
       const offline = offlineRpRows(algorithmId);
-      // Non-vacuity on the OFFLINE arm too: two empty streams digest
-      // identically, so the comparison below would pass on a fixture where
-      // the band gate never opened.
+      // Non-vacuity on the offline arm too: two empty streams digest identically.
       expect(
         offline.filter((r) => r.red !== undefined || r.blue !== undefined).length,
         `algorithm "${algorithmId}": the offline arm produced no pmf at all, so the digest comparison would be vacuous`
@@ -589,7 +547,7 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
     60_000
   );
 
-  /** Quick task 260913-it4: OPR and EPA publish no ranking points, live or offline. */
+  /** OPR and EPA publish no ranking points, live or offline. */
   async function expectNoRpLiveOrOffline(r2: FakeR2Bucket, algorithmId: "opr" | "epa"): Promise<void> {
     const offline = offlineRpRows(algorithmId);
     expect(offline.length, `algorithm "${algorithmId}": the offline arm produced rows`).toBe(LIVE_FIXTURES.length);
@@ -695,24 +653,21 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
   );
 
   it("a season with NO registered RP rules yields no accumulator rather than throwing — the Worker must INDEX the registry, never call rpRuleModuleForSeason", async () => {
-    // 2021 is the one season with no RP rule module. `rpRuleModuleForSeason`
-    // throws for it by design, so the Worker indexes `RP_RULE_MODULES`
-    // directly and degrades to "no RP" instead of aborting the whole event.
+    // 2021 has no RP rule module; the Worker indexes `RP_RULE_MODULES`
+    // directly (never the throwing `rpRuleModuleForSeason`) and degrades to no RP.
     expect(RP_RULE_MODULES[2021]).toBeUndefined();
     const { rpRuleModuleForSeason } = await import("../../../packages/core/rankingPoints/rules.js");
     expect(() => rpRuleModuleForSeason(2021)).toThrow();
 
-    // Recorded rather than driven end-to-end: 2021 also has no
-    // score-component map, so a 2021 fixture fails in `spr` before RP is
-    // ever consulted and would prove nothing about this gate.
+    // Not driven end-to-end: 2021 also has no score-component map, so a 2021
+    // fixture fails in `spr` before RP is consulted.
     expect(Object.keys(RP_RULE_MODULES)).not.toContain("2021");
   });
 
   it("every event type the Worker will PROCESS is RP-eligible, so the eventType gate is defence in depth rather than a live branch", () => {
-    // Recorded rather than faked as an end-to-end case: the Worker only
-    // processes official event types, and every official type is present
-    // in `EVENT_TYPE_TIERS`, so no live tick can reach `rpFieldsFor`'s
-    // eventType gate with an ineligible value.
+    // Not driven end-to-end: every official event type is in
+    // `EVENT_TYPE_TIERS`, so no live tick reaches `rpFieldsFor`'s eventType
+    // gate with an ineligible value.
     for (const eventType of [0, 1, 2, 3, 4, 5]) {
       expect(isOfficialEventType(eventType), `event type ${eventType}`).toBe(true);
       expect(isRpEligibleEventType(eventType), `event type ${eventType}`).toBe(true);
@@ -724,16 +679,13 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The walk-forward mean shift, live (shape 16, quick task 260914-01x, CD-09).
+// The walk-forward mean shift, live.
 //
-// The describe block above cannot see the mean shift at all: its prior event
-// is four matches, far short of the 200-observation warmup, so a Worker that
-// dropped the shift entirely would still pass it. This block generates a
-// prior event long enough to pass the warmup NATURALLY (no hand-seeded
-// passenger), folds it through the real Worker, then runs a live event one
-// match per tick. Each live tick must resume the shift the previous tick
-// wrote to the league row. Remove the write-back and the live ticks price
-// unshifted while the offline layer prices shifted, and the digests diverge.
+// The block above never passes the 200-observation warmup, so it cannot see
+// the shift. This block generates a prior event long enough to pass it
+// naturally (no hand-seeded passenger), then runs a live event one match per
+// tick; each tick must resume the shift the previous tick wrote to the league
+// row, or the live and offline digests diverge.
 // ---------------------------------------------------------------------------
 
 const MS_PRIOR_EVENT_KEY = "2026msprior";
@@ -848,11 +800,9 @@ interface MsOffline {
 }
 
 /**
- * The offline arm: the REAL `SigmaScoutLayer` over the whole chronological
- * stream. Beside it runs an unshifted reference built from the test's own
- * `RpMomentsAccumulator`, `SigmaScoreAccumulator` and `analyticRpPmf` (the
- * construction `sigmaScoutLayer.meanShift.test.ts` uses), which is what proves
- * the shift actually moves the live rows rather than being carried inertly.
+ * The offline arm: the real `SigmaScoutLayer` over the whole stream, beside an
+ * unshifted reference built from the test's own accumulators and
+ * `analyticRpPmf`, which proves the shift actually moves the live rows.
  */
 function msOffline(): MsOffline {
   const layer = new SigmaScoutLayer(RULES_2026, "spr");
