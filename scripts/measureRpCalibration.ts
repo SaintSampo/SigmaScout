@@ -1380,7 +1380,16 @@ async function main(): Promise<void> {
         // folded record, before any observation is scored — a mismatch
         // voids the whole comparison and must surface immediately, at the
         // match that caused it, never averaged away by later matches.
-        if (outcomeArmLayers !== undefined && isBonusRpCompLevel(r.match.compLevel)) {
+        //
+        // EVERY record folds through every arm layer, exactly as it folds
+        // through control at the top of this loop. `foldPlayed` has no
+        // compLevel gate, so control's accumulators absorb elimination matches
+        // too. The first version of this block folded the arms only on
+        // qualification matches; their histories drifted from control's after
+        // the season's first elimination match, and the guard stopped the run
+        // at 2016waamv_qm60 before any figure existed. Only the SCORING below
+        // is qualification-only.
+        if (outcomeArmLayers !== undefined) {
           const controlPred = enriched.prediction;
           const winPred = outcomeArmLayers.win.foldPlayed(r.match, r.prediction).prediction;
           const tiePred = outcomeArmLayers.tie.foldPlayed(r.match, r.prediction).prediction;
@@ -1390,23 +1399,25 @@ async function main(): Promise<void> {
           assertBonusHalfIdentical(controlPred, tiePred, r.match.matchKey, "tie");
           assertBonusHalfIdentical(controlPred, winTiePred, r.match.matchKey, "win+tie");
 
-          const predByArm: Record<ArmName, Prediction> = { control: controlPred, win: winPred, tie: tiePred, "win+tie": winTiePred };
-          for (const armName of OUTCOME_ARM_NAMES) {
-            const pred = predByArm[armName];
-            if (pred.redRpPmf !== undefined && pred.blueRpPmf !== undefined) {
-              const obs = seasonOutcomeArmTotalRp!.get(armName)!;
-              obs.push({ pmf: pred.redRpPmf, actual: toIntegerRpOrNull(r.match.redRpEarned) });
-              obs.push({ pmf: pred.blueRpPmf, actual: toIntegerRpOrNull(r.match.blueRpEarned) });
-            }
-            if (pred.matchOutcomePmf !== undefined) {
-              seasonOutcomeArmOutcome!.get(armName)!.push({ pmf3: pred.matchOutcomePmf, winner: r.match.winner });
-              const diff = Math.abs(pred.matchOutcomePmf[0]! - pred.pRedWin);
-              outcomeArmF6Diffs.get(armName)!.push(diff);
-              outcomeArmF6Total.set(armName, (outcomeArmF6Total.get(armName) ?? 0) + 1);
-              const pmfFavoursRedArm = pred.matchOutcomePmf[0]! > 0.5;
-              const pRedWinFavoursRedArm = pred.pRedWin > 0.5;
-              if (pmfFavoursRedArm !== pRedWinFavoursRedArm) {
-                outcomeArmF6Favourite.set(armName, (outcomeArmF6Favourite.get(armName) ?? 0) + 1);
+          if (isBonusRpCompLevel(r.match.compLevel)) {
+            const predByArm: Record<ArmName, Prediction> = { control: controlPred, win: winPred, tie: tiePred, "win+tie": winTiePred };
+            for (const armName of OUTCOME_ARM_NAMES) {
+              const pred = predByArm[armName];
+              if (pred.redRpPmf !== undefined && pred.blueRpPmf !== undefined) {
+                const obs = seasonOutcomeArmTotalRp!.get(armName)!;
+                obs.push({ pmf: pred.redRpPmf, actual: toIntegerRpOrNull(r.match.redRpEarned) });
+                obs.push({ pmf: pred.blueRpPmf, actual: toIntegerRpOrNull(r.match.blueRpEarned) });
+              }
+              if (pred.matchOutcomePmf !== undefined) {
+                seasonOutcomeArmOutcome!.get(armName)!.push({ pmf3: pred.matchOutcomePmf, winner: r.match.winner });
+                const diff = Math.abs(pred.matchOutcomePmf[0]! - pred.pRedWin);
+                outcomeArmF6Diffs.get(armName)!.push(diff);
+                outcomeArmF6Total.set(armName, (outcomeArmF6Total.get(armName) ?? 0) + 1);
+                const pmfFavoursRedArm = pred.matchOutcomePmf[0]! > 0.5;
+                const pRedWinFavoursRedArm = pred.pRedWin > 0.5;
+                if (pmfFavoursRedArm !== pRedWinFavoursRedArm) {
+                  outcomeArmF6Favourite.set(armName, (outcomeArmF6Favourite.get(armName) ?? 0) + 1);
+                }
               }
             }
           }
