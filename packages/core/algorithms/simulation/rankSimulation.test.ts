@@ -1,17 +1,15 @@
 /**
- * Pure unit tests for the phase 8 rank-distribution simulation core
- * (`simulateRanks`, `drawCategorical`, `mulberry32`). Fixtures build real
- * pipeline-produced pmfs via `analyticRpPmf` (`rankingPoints/analyticPmf.js`,
- * plan 09-04 Task 3 — this file's fixtures used to route through the
- * deleted `rpPmfForMatch`/`rankingPoints/distribution.js`) — no corpus
+ * Pure unit tests for the rank-distribution simulation core (`simulateRanks`,
+ * `drawCategorical`, `mulberry32`). Fixtures build real pipeline-produced
+ * pmfs via `analyticRpPmf` (`rankingPoints/analyticPmf.js`) — no corpus
  * access, no network, in-process only.
  *
  * The randomness these tests actually exercise (Test 5/Test 6's fixed-seed-
  * reproduces / different-seed-differs pair) is `simulateRanks`'s OWN `rng`
  * parameter — a SEPARATE draw from the pmf itself. The closed form has no
- * seed of its own (D-10), so the fixture builders below no longer take a
- * `matchKey`: two calls with equal score means now return byte-identical
- * pmfs, which changes nothing these tests assert.
+ * seed of its own, so the fixture builders below take no `matchKey`: two
+ * calls with equal score means return byte-identical pmfs, which changes
+ * nothing these tests assert.
  */
 import { describe, expect, it } from "vitest";
 import { analyticRpPmf, type AnalyticRpPmfInput } from "../../rankingPoints/analyticPmf.js";
@@ -27,16 +25,12 @@ import {
 } from "./rankSimulation.js";
 
 /**
- * Mirrors the deleted `rp/distribution.test.ts`'s `moments()` fixture
- * builder — same shape, same defaults — but with 2024's ACTUAL three
- * threshold variables (`noteCount`, `endGameTotalStagePoints`,
- * `onStageRobotCount`; see `2024.ts`'s `THRESHOLD_VARIABLES`), not 2022's.
- * The old fixture named 2022's variables while pairing them with
- * `RULE_2024` — the deleted Monte Carlo's `?? 0` default silently tolerated
- * a threshold variable this rule module needs (`melodyBonus`'s `noteCount`)
- * being absent from `AllianceRpMoments.variableNames`; `analyticRpPmf`
- * refuses that mismatch instead of guessing 0 for a fitted marginal that
- * was never asked for (Rule 2 — missing validation the old engine lacked).
+ * A `moments()` fixture builder using 2024's ACTUAL three threshold
+ * variables (`noteCount`, `endGameTotalStagePoints`, `onStageRobotCount`;
+ * see `2024.ts`'s `THRESHOLD_VARIABLES`). `analyticRpPmf` refuses a mismatch
+ * between a rule module's needed threshold variable (`melodyBonus`'s
+ * `noteCount`) and `AllianceRpMoments.variableNames`, rather than guessing 0
+ * for a fitted marginal that was never asked for.
  */
 function moments(overrides: Partial<AllianceRpMoments> = {}): AllianceRpMoments {
   return {
@@ -405,12 +399,12 @@ describe("simulateRanks — Test 14: zero remaining matches is a valid input", (
 });
 
 // ---------------------------------------------------------------------------
-// D-15 (plan 09-07): the coupled draw — one outcome, then bonuses per
-// alliance. Tests 15-21 continue this file's own numbering. Shared fixture
-// convention for Tests 15-17: one remaining match (frcRed vs frcBlue) plus
-// one frcRef team that plays no remaining match and whose baseline pins an
-// exact average, so a rank read off the histogram observes a per-draw
-// quantity even though the output is only a histogram.
+// The coupled draw — one outcome, then bonuses per alliance. Tests 15-21
+// continue this file's own numbering. Shared fixture convention for Tests
+// 15-17: one remaining match (frcRed vs frcBlue) plus one frcRef team that
+// plays no remaining match and whose baseline pins an exact average, so a
+// rank read off the histogram observes a per-draw quantity even though the
+// output is only a histogram.
 // ---------------------------------------------------------------------------
 
 describe("simulateRanks — Test 15: both alliances cannot win the same draw", () => {
@@ -482,11 +476,9 @@ describe("simulateRanks — Test 16: bonus RP adds on top of the outcome RP, det
 
 describe("simulateRanks — Test 17: the tie outcome is reachable and pays both alliances", () => {
   it("pays both alliances exactly tieRp, pinned via two brackets around frcRef", () => {
-    // outcomePmf: [0, 1, 0] -- the tie entry always fires. This case could
-    // not fire at all before 09-05 (today's tie branch needs exact
-    // float-equality of two continuous draws, while 1.09% of quals actually
-    // tie, F7), so it is asserted here rather than assumed to arrive free
-    // with the config flip.
+    // outcomePmf: [0, 1, 0] -- the tie entry always fires. The tie branch
+    // needs exact float-equality of two continuous draws, while 1.09% of
+    // quals actually tie, so it is asserted here rather than assumed.
     const outcome: SimMatchOutcomeInput = {
       outcomePmf: [0, 1, 0],
       redOutcomeRp: [2, 1, 0],
