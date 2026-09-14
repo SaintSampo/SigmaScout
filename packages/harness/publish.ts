@@ -1,48 +1,23 @@
 /**
- * `pnpm publish:artifacts` / `pnpm publish:seasons` entry point (D-01/D-02/
- * D-04/D-05/D-06/D-07/D-08/D-25/D-26, plan 04-01 Task 3 widened by plan
- * 04-04 Task 1 into the full offline publisher).
+ * `pnpm publish:artifacts` / `pnpm publish:seasons` entry point: the offline publisher.
  *
  *   pnpm publish:artifacts --seasons 2022-2026 [--algorithm opr,epa,spr] [--bucket <name>]
  *     [--concurrency 48] [--dry-run] [--skip-state] [--include-offseason] [--write-budget]
  *
- * `--write-budget` rewrites the fenced `json budget` block in
- * `docs/publish-budget.md` from this run's own measurements after a
- * successful run (`pnpm publish:seasons` passes it; narrow ad-hoc runs do
- * not, so they never clobber the full-run record).
+ * `--write-budget` rewrites the fenced `json budget` block in `docs/publish-budget.md`
+ * after a successful run; narrow ad-hoc runs omit it so they never clobber the full-run record.
  *
- * `--seasons` is the full-season publisher: every page kind, every requested
- * algorithm, one shared match stream per season — see `publishSeasons` below
- * for the orchestration's own `buildSeasonStream`/`WalkForwardSimulator`
- * shared primitives. A single event is refreshed by
- * running a full `pnpm publish:seasons` — there is no separate single-event
- * publish path (260913-nvn: the prior single-event mode replayed its season
- * cold, with no cross-season state, and wrote materially different numbers
- * from the full publish on 86 of 89 measured rows; deleted rather than
- * fixed).
+ * `--seasons` publishes every page kind for every requested algorithm from one shared match
+ * stream per season. There is no single-event publish path: an event is refreshed by a full
+ * `pnpm publish:seasons`, because replaying one season cold loses cross-season state.
  *
- * Every assembly function in this file (`buildEventArtifact`,
- * `buildTeamsArtifact`, `buildTeamSeasonArtifact`, `buildEventsArtifact`,
- * `buildCompareArtifact`) is pure, takes already-computed data, and PARSES
- * the candidate through its Zod schema before returning (T-04-22) — a
- * validation failure throws before any upload could possibly be attempted,
- * because the object that would have been uploaded never comes back to the
- * caller. Every numeric field that maps to one of `rounding.ts`'s
- * `ROUNDING_RULE` field classes is rounded on the way into these functions —
- * this is the only place in the codebase that rounding happens (see
- * `rounding.ts`'s file header for the full boundary argument).
+ * Every assembly function (`buildEventArtifact`, `buildTeamsArtifact`, `buildTeamSeasonArtifact`,
+ * `buildEventsArtifact`, `buildCompareArtifact`) is pure and parses its result through its Zod
+ * schema before returning, so a validation failure throws before any upload. Numeric fields are
+ * rounded on the way in, per `rounding.ts`'s `ROUNDING_RULE`; this is the only place rounding happens.
  *
- * RP pmf note (plan 09-04 Task 3 update of 04-04-PLAN.md's original "resolving
- * a discretion item"): a scheduled-match's RP pmf is produced by
- * `makeRankingPointFiller`'s call to `analyticRpPmf` (`rankingPoints/
- * analyticPmf.ts`'s closed form), never by any algorithm's own `predict()` —
- * this used to read "whatever `predict()` already computes for the promoted
- * VPR module (`rpMonteCarloDraws` from its pinned params)", describing a
- * computation VPR no longer performs (its `predict()` stopped emitting RP
- * entirely; `SigmaScoutLayer`/`makeRankingPointFiller` are the uniform,
- * algorithm-independent source for every algorithm now). The 10 ms Worker
- * question this raised is answered by the subrequest/CPU budget and D-15's
- * deferral mechanism (plans 04-05/04-07), not by changing the model here.
+ * A scheduled match's RP pmf comes from `makeRankingPointFiller`'s call to `analyticRpPmf`, never
+ * from an algorithm's own `predict()`, so it is the same for every algorithm.
  */
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -119,10 +94,7 @@ import type { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoment
 import { RpMeanShiftAccumulator, rosterIsFullyWarm, type RpMeanShiftState } from "../core/rankingPoints/meanShift.js";
 import { analyticRpPmf } from "../core/rankingPoints/analyticPmf.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
-// The level-2 SigmaScout layer — Sigma Score, the band and ranking points, for
-// Sigma algorithms only. `publishSeasons` is the only orchestration in this
-// file that drives it; see that module's header for the regression that
-// extracting it prevents.
+// The level-2 layer (Sigma Score, the band and ranking points), driven only by `publishSeasons`.
 import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "./rounding.js";
 import {
@@ -166,47 +138,20 @@ const DEFAULT_BUCKET = "sigmascout-artifacts";
 const DEFAULT_CONCURRENCY = 48;
 const SEED_OUT_DIR = join("reports", "publish");
 /**
- * C-05 (quick task 260905-tll Task 4): the default first season that gets
- * pre-schedule sidecars. A PARAMETER end to end — settable per run via
- * `--presim-from-season` / `PublishSeasonsOptions.preScheduleFromSeason` —
- * and this default is the ONLY place the cutoff appears; nothing inside the
- * per-event logic hardcodes it.
+ * Default first season that gets pre-schedule sidecars; overridable per run via
+ * `--presim-from-season`. This default is the only place the cutoff appears.
  */
 const DEFAULT_PRESCHEDULE_FROM_SEASON = 2026;
 /**
- * C-08: K synthetic qualification schedules per covered event.
- *
- * Raised 20 -> 1,000 on 2026-09-12 (quick task 260912-5hs), the developer's
- * decision, recorded in `preschedule-schedule-count-and-acceptance-bar`. At 20
- * two runs of the IDENTICAL construction disagreed on 73% of teams and moved
- * the worst team 10.61 ranks, so the published band was mostly sampling noise;
- * at 1,000 the worst team moves 1.17 and the pooled mean 0.275, below what a
- * reader can perceive on an integer rank scale. 4,000 was priced and declined —
- * it buys 1.17 -> 0.71, invisible on that scale, for ~68 more minutes on every
- * republish.
- *
- * This was only affordable once 260912-2ur stopped publishing the priced
- * `schedules` block: with it, a sidecar here would be ~18 MB and the 641
- * sidecars a publish writes would want ~11.5 GB against a 10 GB R2 free tier.
- * Aggregate-only the same object is ~24 KB, so raising the count 50x still
- * ships SMALLER than the shipped 20 did.
+ * Synthetic qualification schedules per covered event. At 20, two identical runs moved the worst
+ * team 10.61 ranks (sampling noise); at 1,000 it moves 1.17, below what an integer rank shows.
+ * Affordable only because sidecars are aggregate-only (~24 KB each).
  */
 const PRESIM_SCHEDULE_COUNT = 1000;
 /**
- * Draws per schedule, deliberately unchanged at 50.
- *
- * Measured 2026-09-12: pricing dominates drawing about 4 to 1 — drawing is
- * 23.5% of per-schedule cost on a 75-team event and 20.9% on an 18-team one —
- * so cutting draws to fund more schedules buys only ~1.11x on the binding
- * noise floor AND costs draw-side resolution. There is nothing to reclaim on
- * this axis.
- *
- * NOTE the baked total is now 1,000 x 50 = 50,000 draws and NO LONGER matches
- * the client engine's `SIMULATION_DRAWS`. That match used to be the stated
- * reason for this value; it is intentionally abandoned rather than preserved.
- * The two are not the same quantity: the baked path estimates a distribution
- * over ALL schedules a team might get and wants samples accordingly, while the
- * live path simulates the ONE schedule that actually exists.
+ * Draws per schedule. Pricing, not drawing, dominates per-schedule cost, so fewer draws buy little.
+ * The baked total (1,000 x 50) intentionally differs from the client's `SIMULATION_DRAWS`: the baked
+ * path samples over all schedules a team might get, the live path simulates the one that exists.
  */
 const PRESIM_DRAWS_PER_SCHEDULE = 50;
 
@@ -218,40 +163,18 @@ export const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = PUB
 // ---------------------------------------------------------------------------
 
 /**
- * Out-of-scope fix authorized at 07-17's checkpoint:decision (not part of
- * that plan — see its own commit message). Defence-in-depth guard on
- * `TeamSeasonMatchSchema.actualRedRp`/`actualBlueRp`'s `.int()` assertion
- * (pageArtifacts.ts): `MatchResult.redRpEarned`/`blueRpEarned` is sourced
- * from the corpus's `matches.red_rp_earned`/`blue_rp_earned` columns, which
- * SQLite's loose type affinity does NOT enforce as integers — a
- * non-integer value written before `packages/ingest/normalize.ts`'s
- * `extractRp` started rejecting one (2024orbb/2025orbb, Oregon BunnyBots'
- * non-FRC `rp` field) would otherwise reach `.parse()` here and throw,
- * aborting the whole publish batch. Degrades to `null` — D-02's established
- * "not derivable" value — rather than rounding/truncating a fabricated RP
- * into existence; this function does not trust `extractRp`'s own discipline
- * alone, mirroring the `isBonusRpCompLevel` defence-in-depth precedent a
- * few lines below.
- *
- * EXPORTED (2026-09-13, quick task 260913-qyn) so
- * `scripts/measureRpCalibration.ts`'s total-RP scorer imports this SAME
- * function for its own actual-RP conversion, rather than re-deriving an
- * integer-or-null policy that could silently drift from the publisher's own.
+ * Guards `TeamSeasonMatchSchema.actualRedRp`/`actualBlueRp`'s `.int()`: SQLite does not enforce
+ * integer RP columns, and a stray non-integer (2024orbb/2025orbb's non-FRC `rp` field) would throw
+ * inside `.parse()` and abort the whole publish. Degrades to `null` ("not derivable") instead of
+ * rounding a fabricated RP. Exported so `scripts/measureRpCalibration.ts` shares this exact policy.
  */
 export function toIntegerRpOrNull(value: number | null): number | null {
   return value !== null && Number.isInteger(value) ? value : null;
 }
 
 /**
- * Rounds a `TeamMetrics`-shaped record's `value`/`spread` at
- * `ROUNDING_RULE.metric` — used for `EventTeamSchema.metrics`,
- * `TeamsTableRowSchema.metrics`, and `RecordAndMetricsSchema.metrics`.
- * `percentile` (D-04, Phase 6), when present on the input metric, passes
- * through UNCHANGED — it is already rounded once, at
- * `percentiles.ts`'s `withPercentiles`, and is never re-rounded here. A
- * plain `TeamMetric` (no `percentile`) is a valid input too, so every
- * existing call site — which never had a percentile to carry — is
- * unaffected.
+ * Rounds a metrics record's `value`/`spread` at `ROUNDING_RULE.metric`. `percentile` passes through
+ * unchanged: it was already rounded once in `percentiles.ts`.
  */
 function roundTeamMetricRecord(metrics: Record<string, TeamMetricWithPercentile>): Record<string, TeamMetricWithPercentile> {
   const result: Record<string, TeamMetricWithPercentile> = {};
@@ -260,10 +183,7 @@ function roundTeamMetricRecord(metrics: Record<string, TeamMetricWithPercentile>
       value: roundMetric(m.value),
       ...(m.spread !== undefined ? { spread: roundMetric(m.spread) } : {}),
       ...(m.percentile !== undefined ? { percentile: m.percentile } : {}),
-      // `tier` passes through unchanged, exactly like `percentile`. It is a
-      // categorical label, not a number, so there is nothing to round — but
-      // it must be copied explicitly: this function rebuilds each metric
-      // field-by-field, so anything not named here is silently dropped.
+      // Copied explicitly: this rebuilds each metric field by field, so an unnamed field is dropped.
       ...(m.tier !== undefined ? { tier: m.tier } : {}),
     };
   }
@@ -276,68 +196,24 @@ function roundMetricHistoryRow(row: MetricHistoryRow): MetricHistoryRow {
 }
 
 /**
- * D-06.1-A (Phase 06.1, plan 06.1-05 Task 3): attaches a `percentile` to
- * every ALLOWLISTED metric on every history row. Since quick task
- * 260912-tnk it is ranked against THE season ranking pool — every team's
- * metrics as of its last official match, the same pool the Teams list and
- * `seasonStats` rank against — through `percentiles.ts`'s
- * `withPoolPercentiles`, so a team's last official history row and its
- * Teams-list row resolve to the same tier by construction. Never a pool
- * assembled from the history rows themselves, and never one restricted to
- * this team's own events. This reads as "an earlier value ranked against the
- * season's last-official-match field" — deliberately not "the field as of
- * that match index", the more expensive option 06-UAT.md records as rejected.
- *
- * Returns a NEW array of NEW row objects, each carrying a NEW metrics
- * record — `rows` (and every nested metric object) is never mutated, since
- * `metricHistoryForAlgo`'s rows are reused across the per-team loop this is
- * called inside. Row order is preserved exactly; a row's percentile depends
- * only on its own value and the pool, never its position in `rows`.
- *
- * A metric attaches a percentile only when BOTH its name is in
- * `HISTORY_PERCENTILE_METRIC_KEYS` AND `rankingPools` has an entry for that
- * name (a metric name no team in the pool has at all is omitted from
- * `rankingPools` entirely, per `sortedPoolsByMetric`'s PD-07 contract) —
- * otherwise the metric is copied through unchanged, with no percentile key
- * and no thrown error.
- *
- * Exported (like `computeSizeStats`/`OUTCOME_KEYS` above it in this file)
- * for direct unit testing of its allowlist/pool/immutability/order-
- * independence behavior — an internal pipeline helper, not part of the
- * published artifact's own public surface.
+ * Attaches a `percentile` to every allowlisted metric on every history row, ranked against the
+ * season ranking pool (every team as of its last official match, the pool the Teams list uses), so
+ * a team's last official history row and its Teams-list row get the same tier by construction.
+ * Never mutates `rows`: they are reused across the per-team loop. A metric absent from
+ * `HISTORY_PERCENTILE_METRIC_KEYS` or from `rankingPools` is copied through with no percentile.
+ * Exported for unit tests.
  */
 export function withHistoryPercentiles(rows: readonly MetricHistoryRow[], rankingPools: ReadonlyMap<string, readonly number[]>): MetricHistoryRow[] {
   return rows.map((row) => ({ ...row, metrics: withPoolPercentiles(row.metrics, rankingPools, HISTORY_PERCENTILE_METRIC_KEYS) }));
 }
 
 /**
- * Quick task 260913-m45 Task 1: attaches this team's PER-MATCH Sigma Score
- * to each metric-history row that has one, as the row's LAST metrics key —
- * `sigma: { value }`, value only (no percentile: a per-match pool has no
- * meaning, and the chart needs no tier; no spread: Sigma Score is not itself
- * a spread field).
- *
- * Applied ONLY at the team-season artifact build, AFTER `withHistoryPercentiles`
- * — never into `metricHistoryForAlgo` itself, which feeds
- * `lastOfficialMetricsByTeam`, the ranking pools, the Teams row and
- * `seasonStats`. Merging there would let a later spread silently overwrite
- * the leaked sigma (T-m45-02) — the guarantee has to be structural, so this
- * helper is applied at the one call site that builds the published
- * `metricHistory` array and nowhere else.
- *
- * `sigmaByMatchKey` is a REQUIRED positional parameter that may be
- * `undefined` (an algorithm outside `SIGMA_SCORE_ALGORITHM_IDS` passes
- * `undefined` explicitly, rather than the caller silently omitting the
- * argument) — a row whose `matchKey` the map does not carry, or an
- * `undefined` map entirely, gets NO sigma key at all, never a
- * present-and-undefined one.
- *
- * Returns a NEW array; a matched row becomes a NEW row object with a NEW
- * metrics record (the old metrics spread, then the sigma entry appended
- * last); an unmatched row passes through UNTOUCHED (the same row and the
- * same metrics reference) — this function never mutates its input and never
- * rounds (rounding stays at `buildTeamSeasonArtifact`'s single boundary,
- * `roundMetricHistoryRow`).
+ * Appends this team's per-match Sigma Score to each history row that has one, as the row's last
+ * metrics key (`sigma: { value }`, no percentile or spread). Applied only at the team-season build,
+ * after `withHistoryPercentiles`, never inside `metricHistoryForAlgo`, whose rows also feed the
+ * ranking pools, the Teams row and `seasonStats`. `sigmaByMatchKey` is passed explicitly as
+ * `undefined` for non-Sigma algorithms; an unmatched row gets no sigma key and passes through
+ * untouched. Never mutates and never rounds.
  */
 export function withHistorySigma(
   rows: readonly MetricHistoryRow[],
@@ -351,27 +227,10 @@ export function withHistorySigma(
 }
 
 /**
- * Quick task 260904-586: the Teams-list metric snapshot, scoped to official
- * play. `metricHistoryByTeam` carries one row per match a team played, IN
- * CHRONOLOGICAL STREAM ORDER (D-28) — this walks each team's row array in
- * that order and keeps the LAST row whose `eventKey` is in `officialEventKeys`,
- * exactly the reading `apps/web/src/lib/officialSnapshot.ts`'s
- * `officialSnapshotMetrics` already established for the team page header, so
- * no sort and no `matchIndex` comparison is needed here either.
- *
- * A team with no official row at all (an offseason-only team) is OMITTED
- * from the returned record entirely — never present with an empty object.
- * That absence is what makes the single `?? {}` fallback at this function's
- * one call site the one place an empty-metrics row gets built, so an
- * offseason-only team still gets a Teams-list row (name, record, counts)
- * with no metric values.
- *
- * Returns the SAME metrics object reference the source row carried — no
- * rounding, no percentile widening, no mutation of `metricHistoryByTeam` or
- * any row inside it. Both of those happen downstream, exactly as they
- * already do for the season-final snapshot this widens.
- *
- * Exported (like `withHistoryPercentiles` above it) for direct unit testing.
+ * The Teams-list metric snapshot, scoped to official play: each team's last history row (rows are in
+ * chronological stream order) whose `eventKey` is official, the same reading as the web's
+ * `officialSnapshotMetrics`. An offseason-only team is omitted, never present with an empty object.
+ * Returns the source metrics reference unrounded and unmutated. Exported for unit tests.
  */
 export function lastOfficialMetricsByTeam(
   metricHistoryByTeam: ReadonlyMap<string, MetricHistoryRow[]>,
@@ -389,33 +248,10 @@ export function lastOfficialMetricsByTeam(
 }
 
 /**
- * Quick task 260908-wpo: per-team basis selection for a team-season
- * artifact's `seasonStats.metrics` — reuse, not a new derivation. Takes the
- * ALREADY percentile-widened official record the caller built once per
- * (algorithm, season) — `officialMetricsByTeamWithPercentiles` (from
- * `lastOfficialMetricsByTeam` + `withPercentiles`) — plus the unwidened
- * season-final `metricsByTeam` and THE season ranking pool, and derives
- * nothing about officialness itself; that derivation already happened once,
- * in `lastOfficialMetricsByTeam` above.
- *
- * Selection rule: the official entry wins, tagged `"last-official-match"`,
- * when it is present AND non-empty. Otherwise falls back to the season-final
- * entry (`?? {}`), tagged `"season-final"`. Quick task 260912-tnk: that
- * fallback is ranked against the SAME `rankingPools` every other published
- * percentile uses (via `withPoolPercentiles`), never a second season-final
- * pool, so an offseason-only team's tiers mean what everyone else's mean.
- * The emptiness check (not merely
- * a presence check) is load-bearing: `lastOfficialMetricsByTeam` OMITS an
- * offseason-only team entirely, so a bare `officialWithPercentiles[teamKey]`
- * would be `undefined` for such a team and correctly fall through — but this
- * function checks emptiness too, rather than depending on that omission
- * invariant holding at every call site forever, so it structurally cannot
- * publish an empty metrics object for a team whose season-final values are
- * non-empty (39 such teams in 2026, 97 in 2025, 97 in 2024 — measured,
- * `260908-wpo-CONTEXT.md`).
- *
- * Exported (like `lastOfficialMetricsByTeam` above it) for direct unit
- * testing.
+ * Picks a team-season artifact's `seasonStats.metrics` basis: the already percentile-widened official
+ * entry when present and non-empty (`"last-official-match"`), else the season-final entry ranked
+ * against the same `rankingPools` (`"season-final"`). The emptiness check is deliberate, so an empty
+ * metrics object can never publish for a team whose season-final values exist. Exported for unit tests.
  */
 export function seasonStatsMetricsForTeam(
   teamKey: string,
@@ -431,30 +267,11 @@ export function seasonStatsMetricsForTeam(
 }
 
 /**
- * D-10, D-09, D-11, plan 07-09: attaches a percentile to an AS-OF-EVENT
- * metrics record — the split D-10 locks and which 06.1-05 already
- * established for `metricHistory` rows (`withHistoryPercentiles` above).
- * Since quick task 260912-tnk the pool is THE season ranking pool (every
- * team's metrics as of its last official match), shared with the Teams
- * list, `seasonStats` and history rows, and the percentile goes through the
- * same direction-aware `withPoolPercentiles` helper.
- *
- * `rankingPools` is always the pool built once per (algorithm, season) from
- * that season's FULL team list (`sortedPoolsByMetric`) — ranking against an
- * event's own roster is forbidden (T-07-09-01): the tier box this feeds
- * renders in the identical colour whichever pool produced the number, so a
- * reader cannot detect the substitution. A metric name with no entry in
- * `rankingPools` is copied through with NO `percentile` key — never a
- * coerced `0` — inheriting `sortedPoolsByMetric`'s own PD-07 omission
- * contract.
- *
- * Unlike `withHistoryPercentiles`, this function applies NO metric-name
- * allowlist (PD-03): Breakdown tier-boxes every `metricKeysFor(algorithmId,
- * season)` column, and the payload argument that justifies the
- * history-row sibling's four-name cut (292 rows per team-season) runs the
- * opposite way here, where an event artifact carries exactly ONE metrics
- * record per team.
- * <!-- planner-discipline-allow: HISTORY_PERCENTILE_METRIC_KEYS -->
+ * Attaches a percentile to an as-of-event metrics record, ranked against the season ranking pool
+ * built from the season's full team list. Never rank against an event's own roster: the tier box
+ * renders the same colour either way, so a reader could not detect the substitution. A metric with no
+ * pool entry gets no `percentile` key, never a coerced `0`. Unlike `withHistoryPercentiles` there is
+ * no allowlist: Breakdown tier-boxes every column, and an event carries one metrics record per team.
  */
 export function withEventPercentiles(
   metrics: Record<string, TeamMetric>,
@@ -477,13 +294,9 @@ export interface UpcomingPredictionRecord {
   readonly match: UpcomingMatch;
   readonly prediction: Prediction;
   /**
-   * The PUBLISHED display band for a not-yet-played match (renamed from its
-   * earlier wire name by quick task 260913-g66), from every rostered team's play SO
-   * FAR — walk-forward for a match that has not happened. Sigma algorithms
-   * only (absent for OPR and EPA), and never the win-odds variance. Attached by
-   * `SigmaScoutLayer.enrichUpcoming` where the scheduled predictions are
-   * grouped, so the team artifact's upcoming rows and the event artifact's
-   * carry the same number for the same match.
+   * The published display band for a not-yet-played match, from every rostered team's play so far.
+   * Sigma algorithms only, and never the win-odds variance. Attached by
+   * `SigmaScoutLayer.enrichUpcoming`, so team and event artifacts carry the same number per match.
    */
   readonly matchBand?: { red?: number; blue?: number };
 }
@@ -493,38 +306,18 @@ export interface EventTeamStandingInput {
   readonly teamNumber?: number;
   readonly nickname?: string;
   /**
-   * D-10, plan 07-09: widened from `Record<string, TeamMetric>` — the
-   * percentile is attached by `withEventPercentiles` BEFORE the value
-   * reaches this interface, so nothing downstream (`buildEventArtifact`'s
-   * `roundTeamMetricRecord`) computes one. A plain `TeamMetric` (no
-   * `percentile`) is still assignable, so no existing caller is affected.
-   *
-   * Quick task 260913-jkp: for a Sigma-enabled algorithm, this record also
-   * carries a `SIGMA_METRIC_KEY` entry as its LAST key — the season-final
-   * consistency figure, the same one the Teams row and team-season artifact
-   * publish, merged in by `buildEventTeamsStanding` after the AS-OF-EVENT
-   * Total and phase values above it.
+   * Percentiles are attached by `withEventPercentiles` before reaching here; nothing downstream computes
+   * one. For a Sigma-enabled algorithm the last key is `SIGMA_METRIC_KEY`, the season-final Sigma Score
+   * the Teams row also publishes, merged in by `buildEventTeamsStanding` after the as-of-event values.
    */
   readonly metrics: Record<string, TeamMetricWithPercentile>;
 }
 
 /**
- * D-18 item 6, D-07, D-08, plan 07-08: the fields consumed from
- * `selectEventRankingsForSeason`'s inner map value (`packages/corpus/db.ts`),
- * named identically to it. Two things recorded here that a later reader has
- * no other source for. First, the naming hop: the corpus column is
- * `ranking_score`, `selectEventRankingsForSeason`'s field is
- * `rankingScore`, 07-04's ingest guards it with
- * `sort_order_info[0].name === "Ranking Score"`, and the published field is
- * `rp` — one quantity, four names, and the hop is now written down at every
- * end so no two ends can drift. Second, the provenance constraint: D-08's
- * fallback ordering is rendered by 07-11 and must NEVER be written into
- * `rank`, because a model-derived position under a name that asserts
- * official provenance is a false attribution the reader has no way to
- * detect. `totalTeams` is deliberately NOT consumed here — 07-07 PD-06
- * declined to add it to `EventTeamSchema`, and a field consumed but never
- * published is a question about what happened to it.
- * <!-- planner-discipline-allow: totalTeams -->
+ * Fields consumed from `selectEventRankingsForSeason`, named identically. One quantity has four names:
+ * corpus `ranking_score`, field `rankingScore`, ingest check `sort_order_info[0].name === "Ranking Score"`,
+ * published `rp`. A model-derived fallback ordering must never be written into `rank`, which asserts
+ * official provenance.
  */
 export interface EventTeamRankingInput {
   readonly rank: number;
@@ -535,13 +328,8 @@ export interface EventTeamRankingInput {
 }
 
 /**
- * D-18 item 8, plan 07-08: mirrors `EventMetaRow`'s own field names and
- * nullability field-for-field, so a call site passes a corpus row's fields
- * straight through with no per-site logic. Composition (the
- * `stateProv`/`country` join into one display string) happens exactly ONCE,
- * inside `buildEventArtifact`, through the exported location composer
- * (`pageArtifacts.ts`) — never at a call site — so the event page and the
- * Events list can never disagree about one event's location string (PD-04).
+ * Mirrors `EventMetaRow` field for field so call sites pass corpus rows straight through. The location
+ * string is composed once, inside `buildEventArtifact`, so the event page and Events list always agree.
  */
 export interface EventArtifactIdentityInput {
   readonly name: string | null;
@@ -552,24 +340,10 @@ export interface EventArtifactIdentityInput {
 }
 
 /**
- * D-18 item 7, D-15, D-16, plan 07-08: structurally `EventAllianceSelection`
- * (`packages/corpus/db.ts`), declared here so this file's exported parameter
- * surface does not depend on a corpus interface. `picks` is TBA's own
- * ordered array — entry 0 is the alliance leader and a fourth entry where
- * present is the reserve robot TBA lists with no field of its own. D-16
- * excludes that fourth team from 07-14's combined arithmetic; it does NOT
- * exclude the team from the published record of who was on the alliance, so
- * truncating this array anywhere would erase a real team's competition
- * result from the only published account of that event's selection.
- * <!-- planner-discipline-allow: captain --> <!-- planner-discipline-allow: backup -->
- *
- * `record` (07-UAT.md G-8, plan 07-21): optional (unlike
- * `EventAllianceSelection.record`, which the corpus always computes as
- * either an object or `null`) so every existing direct-construction call
- * site of this interface — every test in this file that builds an
- * `EventAllianceInput` literal without a corpus round trip — keeps
- * compiling unchanged. `undefined` and `null` are treated identically by
- * `buildEventArtifact` below: neither publishes a `record` key.
+ * Structurally `EventAllianceSelection`, declared here to keep the corpus out of this file's exported
+ * surface. `picks` is TBA's ordered array: entry 0 leads, and a fourth entry is the reserve robot.
+ * Never truncate it; the reserve is excluded from combined arithmetic, not from who was on the alliance.
+ * `record` `undefined` and `null` both publish no `record` key.
  */
 export interface EventAllianceInput {
   readonly allianceNumber: number;
@@ -584,127 +358,63 @@ export interface BuildEventArtifactParams {
   readonly algorithmId: string;
   readonly algorithmVersion: string;
   readonly predictions: readonly PredictionRecord[];
-  /** D-08: not-yet-played matches with their predicted parameters. Defaults to `[]` — a fully-historical event has none, which is a valid artifact, not a missing one. */
+  /** Not-yet-played matches with their predicted parameters. Defaults to `[]`, a valid artifact for a finished event. */
   readonly upcoming?: readonly UpcomingPredictionRecord[];
-  /** D-07: the event's standings-style team list. Defaults to `[]`. See `EventArtifactSchema`'s own doc comment in `pageArtifacts.ts` for why this field is REQUIRED (not optional) as of this plan. */
+  /** The event's standings-style team list. Defaults to `[]`. */
   readonly teams?: readonly EventTeamStandingInput[];
-  /** D-04: a short opaque string identifying the publish run that produced this object. */
+  /** A short opaque string identifying the publish run that produced this object. */
   readonly generation: string;
-  /** D-04: ISO timestamp. Defaults to `new Date().toISOString()` — overridable for deterministic tests. */
+  /** ISO timestamp. Defaults to `new Date().toISOString()`; overridable for deterministic tests. */
   readonly computedAt?: string;
   /**
-   * D-08 (Phase 6), plan 07-08, routed from a 07-12 finding: `match_key` ->
-   * `sort_time`, the same map and the same name
-   * `BuildTeamSeasonArtifactParams.sortTimeByMatchKey` already carries — see
-   * that field's doc comment for the full contract, inherited verbatim
-   * rather than restated: an omitted map, or a missing entry for a specific
-   * match key, leaves that row's `sortTime` absent — never a synthetic
-   * default, never a zero epoch, never a value derived from the match key
-   * or from the clock. `07-UI-SPEC.md`'s Quals paragraph renders an
-   * upcoming row's Actual column as a scheduled-time string, and this field
-   * was found published on the team artifact but on neither event schema
-   * and absent from every match row of the live `2024casf` artifact — so
-   * without it that column ships as an em-dash.
+   * `match_key` -> `sort_time`, the same contract as `BuildTeamSeasonArtifactParams.sortTimeByMatchKey`:
+   * a missing entry leaves `sortTime` absent, never a synthetic default. Upcoming rows render their
+   * scheduled time from it.
    */
   readonly sortTimeByMatchKey?: ReadonlyMap<string, number>;
-  /**
-   * D-18 item 8, plan 07-08: the event's own identity, from the corpus
-   * `events` row. Omitted entirely means "no caller told me" — none of
-   * `name`/`startDate`/`location`/`week` is emitted on the candidate; a
-   * caller passing raw corpus columns straight through is what makes
-   * `location`'s single composition point (PD-04) actually hold.
-   */
+  /** The event's identity from its corpus `events` row. Omitted: no `name`/`startDate`/`location`/`week` is emitted. */
   readonly eventMeta?: EventArtifactIdentityInput;
   /**
-   * D-18 item 7, D-15, D-16, D-17, plan 07-08: this event's playoff alliance
-   * selection, from `selectEventAlliancesForSeason`. Optional so the key's
-   * presence itself carries meaning (PD-03): present (including `[]`) means
-   * the caller consulted the corpus, absent means this artifact predates the
-   * field. Both real call sites supply this unconditionally — an event with
-   * genuinely zero alliance rows publishes `[]`, never an omitted key.
+   * Playoff alliance selection, from `selectEventAlliancesForSeason`. Present (including `[]`) means
+   * the corpus was consulted; both real call sites always supply it.
    */
   readonly alliances?: readonly EventAllianceInput[];
   /**
-   * D-18 item 6, D-07, D-08, plan 07-08: this event's official rank,
-   * authoritative record and ranking points, keyed by team key — sourced
-   * from the same once-per-season event-ranking read `TeamSeasonEventInput
-   * .rank`'s own call site already consumes for this data. Looked up by KEY
-   * inside `buildEventArtifact`, never by array position. A team key absent
-   * from this map publishes none of `rank`/`record`/`rp` — the real state
-   * of every event with no ranking rows (D-08's measured 259-of-1,581
-   * count).
+   * Official rank, record and ranking points keyed by team key (never array position). A team absent
+   * from the map publishes none of `rank`/`record`/`rp`, the real state of events with no ranking rows.
    */
   readonly rankings?: ReadonlyMap<string, EventTeamRankingInput>;
   /**
-   * Quick 260905-jj8 (todo `event-per-bonus-rp-publish`): `match_key` ->
-   * `ActualBonusFlags | null`, the EXACT map (same producer,
-   * `actualBonusFlagsForSeason`; same three-state contract)
-   * `BuildTeamSeasonArtifactParams.actualBonusFlagsByMatchKey` already
-   * carries — see that field's doc comment, inherited verbatim. Feeds
-   * `EventMatchSchema.actualRedBonusRp`/`actualBlueBonusRp` so the event
-   * Quals tab's actual bonus-RP dots stop rendering permanently `unknown`.
+   * `match_key` -> `ActualBonusFlags | null`, the same map and three-state contract as
+   * `BuildTeamSeasonArtifactParams.actualBonusFlagsByMatchKey`; feeds the event's actual bonus-RP dots.
    */
   readonly actualBonusFlagsByMatchKey?: ReadonlyMap<string, ActualBonusFlags | null>;
   /**
-   * Quick task 260906-7eu: `match_key` -> raw YouTube video key, from
-   * `selectMatchVideoKeys` — mirrors `sortTimeByMatchKey`'s exact contract
-   * (see its doc comment above, not restated here): an omitted map, or a key
-   * absent from a supplied map, leaves that row's `video` field absent —
-   * never a synthetic default. Looked up only inside the played `matches`
-   * row builder, never the `upcoming` one — an unplayed match has no video.
+   * `match_key` -> raw YouTube video key, same contract as `sortTimeByMatchKey`. Read only for played
+   * rows; an unplayed match has no video.
    */
   readonly videoByMatchKey?: ReadonlyMap<string, string>;
 }
 
 /**
- * D-18 item 6, D-07, D-08, plan 07-08: the conditionally-spread `rank`/
- * `record`/`rp` fields for one team row, given that team's (possibly
- * absent) ranking entry. Deliberately factored OUT of `buildEventArtifact`
- * itself — a block-bodied `.map()` callback needing its own local `const`
- * would need its own explicit `return`, which would leave
- * `buildEventArtifact`'s own function range with TWO `return` statements
- * instead of one, undermining the very literal single-return check
- * T-07-08-02's mitigation rests on (a second return is syntactically
- * harmless here but indistinguishable AT A GLANCE from the early return
- * this file's parse-through-schema discipline guards against). This
- * helper's own `return` lives outside that counted range.
+ * The conditionally-spread `rank`/`record`/`rp` fields for one team row. Factored out so
+ * `buildEventArtifact` keeps a single `return`.
  *
- * These three carry TBA's own reported values, which account for
- * disqualifications and surrogate appearances — never a tally this
- * pipeline counted from the match stream. They are independently optional
- * and a half-present set is a REAL state (an `event_rankings` row written
- * before 07-04's widened ingest carries a rank with a NULL record and a
- * NULL ranking score), so there is deliberately no cross-field requirement
- * here. `rp` is TBA's Ranking Score, a per-match average and therefore a
- * real number rather than an integer count — explicitly NOT the same
- * quantity as `TeamSeasonMatchSchema.actualRedRp`/`actualBlueRp`'s integer
- * bonus-RP counts, which share three letters with it and nothing else, and
- * rounds through 07-07's own `ROUNDING_RULE.rankingPoints` key rather than
- * the model-metric one, so a future change to model-display precision
- * cannot silently move a number TBA reported.
- * <!-- planner-discipline-allow: ROUNDING_RULE.metric -->
- * D-08's fallback ordering (07-11's render) must NEVER be written into
- * `rank` — this helper takes only a ranking entry, never a model metric, so
- * a model-derived position cannot reach this TBA-provenance-asserting
- * field (T-07-08-01).
+ * All three are TBA's reported values (they account for DQs and surrogates), never a tally counted
+ * here, and are independently optional: a half-present set is a real state. `rp` is TBA's Ranking
+ * Score, a per-match average rounded at `ROUNDING_RULE.rankingPoints`, not an integer RP count. Only a
+ * ranking entry reaches `rank`, never a model-derived position.
  */
 function eventTeamRankingFields(
   ranking: EventTeamRankingInput | undefined
 ): Partial<{ rank: number; record: { wins: number; losses: number; ties: number }; rp: number }> {
   return {
-    // `rank` passed through unchanged; 07-07 typed it `.int().positive()`
-    // so a fabricated `0` is unrepresentable at the schema layer and must
-    // not be synthesized here either.
     ...(ranking?.rank !== undefined ? { rank: ranking.rank } : {}),
-    // All-or-nothing (PD-06): a row missing any one of the three publishes
-    // no `record` key at all — never a partial record with a zero
-    // substituted for the gap. Every comparison is an explicit `!== null`
-    // (never truthiness), so a real `0` survives (PD-07).
+    // All-or-nothing: missing any one of the three publishes no `record`, never a zero-filled one.
     ...(ranking !== undefined && ranking.recordWins !== null && ranking.recordLosses !== null && ranking.recordTies !== null
       ? { record: { wins: ranking.recordWins, losses: ranking.recordLosses, ties: ranking.recordTies } }
       : {}),
-    // `!== null` guard (never truthiness) so a real `0` ranking score
-    // survives (PD-07).
+    // `!== null`, never truthiness, so a real `0` survives.
     ...(ranking?.rankingScore !== null && ranking?.rankingScore !== undefined
       ? { rp: roundTo(ranking.rankingScore, ROUNDING_RULE.rankingPoints) }
       : {}),
@@ -712,20 +422,10 @@ function eventTeamRankingFields(
 }
 
 /**
- * Quick 260905-jj8: the conditionally-spread per-bonus RP fields for one
- * event match row — the EXACT gates `buildTeamSeasonArtifact`'s own row
- * builder applies to the same four fields (see its inline comments around
- * its `redBonusRp`/`actualRedBonusRp` spreads): the predicted marginals
- * publish only for a bonus-eligible competition level AND a prediction that
- * carries them (defence-in-depth against a caller-supplied playoff
- * `Prediction` with populated arrays), rounded at `ROUNDING_RULE.probability`;
- * the actual flags publish only for a bonus-eligible level with a looked-up
- * map entry, `null` passing through as an explicit `null`, never coerced to
- * an all-false array. Factored OUT of `buildEventArtifact` for the same
- * reason `eventTeamRankingFields` above is — that function's range must keep
- * exactly one `return` statement (T-07-08-02), and this helper's own
- * `return` lives outside the counted range. An upcoming (not-yet-played)
- * row passes `flags === undefined` and gets the predicted pair only.
+ * The per-bonus RP fields for one event match row, with the same gates `buildTeamSeasonArtifact`
+ * applies: predicted marginals only for a bonus-eligible level and a prediction carrying them; actual
+ * flags only for a bonus-eligible level with a map entry, `null` staying `null` (never all-false).
+ * An upcoming row passes `flags === undefined` and gets the predicted pair only.
  */
 function eventMatchBonusRpFields(
   compLevel: MatchResult["compLevel"],
@@ -742,43 +442,16 @@ function eventMatchBonusRpFields(
 }
 
 /**
- * The pure assembly step, widened from plan 04-01's tracer: turns one
- * event's replayed predictions, its not-yet-played matches' predicted
- * parameters, and its standings-style team list into the validated
- * `EventArtifact`. Parses through `EventArtifactSchema` before returning
- * (T-04-22) — a validation failure throws here, before any caller could
- * possibly reach a `putObject` call.
- */
-/**
- * Builds the `fillRankingPoints` wrapper a pre-schedule sidecar needs, or
- * `undefined` when this season/algorithm has nothing to add (no rule module,
- * an algorithm that already models its own RP, or — since quick task
- * 260913-it4 — an algorithm that publishes no ranking points, whose layer
- * carries no RP accumulator).
+ * Builds the `fillRankingPoints` wrapper a pre-schedule sidecar needs, or `undefined` when there is
+ * nothing to add (no rule module, or an algorithm that publishes no ranking points). Wrapping here
+ * keeps `preSchedule.ts` free of pricing math. Synthetic matches have no history, so moments come from
+ * every team's play so far and score variance from the same per-team Sigma Scores
+ * (`allianceSigmaBandVariance`). Exported so `scripts/measureFieldAveragedRanks.ts` prices with this
+ * exact closure.
  *
- * `buildPreScheduleArtifact` probes its injected `predict` for a pmf and
- * returns `null` without one, which is exactly why the sidecar was VPR-only.
- * Wrapping at the seam rather than inside `preSchedule.ts` keeps that module
- * owning no pricing math — it still sees one `predict`, whose RP is now filled
- * the same way every real match's is.
- *
- * The synthetic matches a sidecar prices have no history of their own, so the
- * moments come from every team's play SO FAR and the score variance from the
- * same per-team Sigma Scores the real upcoming matches use
- * (`allianceSigmaBandVariance`).
- */
-/**
- * Exported (plan 09-09 Task 1) so `scripts/measureFieldAveragedRanks.ts`'s
- * BAKED arm is the arm the publisher actually builds, rather than a
- * re-creation of it — the retired rewind-gap script's same-scorer convention,
- * applied to the pricing closure. No behaviour change.
- *
- * `meanShift` (quick task 260914-01x, CD-05): the season's walk-forward RP
- * mean shift, read at the same instant as `accumulator`. Each synthetic
- * alliance is a real 3-team roster, so it gets the same per-alliance
- * fully-warm check `SigmaScoutLayer.#rpFieldsFor` applies. The publisher
- * always passes it; absent means the pre-shift pricing, byte for byte, which
- * is what the measurement scripts that call this still get.
+ * `meanShift` is the season's walk-forward RP mean shift, read at the same instant as `accumulator`;
+ * each synthetic alliance gets the same fully-warm check `SigmaScoutLayer` applies. The publisher
+ * always passes it; absent means unshifted pricing.
  */
 export function makeRankingPointFiller(
   accumulator: RpMomentsAccumulator | undefined,
@@ -789,21 +462,8 @@ export function makeRankingPointFiller(
 ): ((match: UpcomingMatch, prediction: Prediction) => Prediction) | undefined {
   if (accumulator === undefined || ruleModule === undefined) return undefined;
 
-  // ALL-OR-NOTHING, decided ONCE for the whole event rather than per match.
-  //
-  // A synthetic schedule shuffles the roster, so different synthetic matches
-  // draw different alliances. Deciding per match meant an event containing even
-  // one team without a per-team consistency figure priced its first match and then failed on a
-  // later one — and `buildPreScheduleArtifact` rightly treats a pmf that
-  // vanishes partway through a schedule as corruption rather than an RP-less
-  // algorithm, so it threw and took the whole publish down (measured
-  // 2026-09-09 on `2026isde4`).
-  //
-  // Returning `undefined` here instead means the probe on the FIRST synthetic
-  // match finds no pmf, which is the contract's own "this algorithm does not
-  // model ranking points" signal: the sidecar is skipped silently for this
-  // event. Honest — we genuinely cannot price an event whose roster we have not
-  // seen enough of — and uniform across every match of it.
+  // All-or-nothing per event: schedules shuffle alliances, so one team without a Sigma Score would make
+  // the pmf vanish partway through, which `buildPreScheduleArtifact` throws on. `undefined` skips the sidecar.
   if (roster.some((teamKey) => !sigmaByTeam.has(teamKey))) return undefined;
 
   return (match, prediction) => {
@@ -820,9 +480,6 @@ export function makeRankingPointFiller(
       ruleModule,
       eventType: match.eventType,
       compLevel: match.compLevel,
-      // WIN SHIPPED 2026-09-13 (quick task 260913-qyn) — this pricer holds a
-      // real `Prediction`, so it passes the algorithm's own win probability
-      // like every other Prediction-bearing RP call site.
       pRedWin: prediction.pRedWin,
     });
     return {
@@ -836,12 +493,8 @@ export function makeRankingPointFiller(
 }
 
 /**
- * One row's published display band as a SPREADABLE object, rounded once at the
- * publish boundary (quick task 260913-g66). Returns `{}` for a side with no
- * band, so the key is genuinely absent on the wire rather than
- * present-and-undefined — this file's standing convention. Played rows, upcoming
- * rows and team-season rows all read the record's `matchBand` through this one
- * function, so the three can never disagree about a match's band.
+ * One row's published display band as a spreadable object, rounded once here; a side with no band
+ * has no key. Played, upcoming and team-season rows all go through this, so they cannot disagree.
  */
 function matchBandFields(matchBand: { red?: number; blue?: number } | undefined): {
   redMatchBandVariance?: number;
@@ -859,11 +512,6 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     compLevel: match.compLevel,
     setNumber: match.setNumber,
     matchNumber: match.matchNumber,
-    // D-13, plan 07-08 (routed from 07-12): see this interface's matching
-    // param field just above for the full contract. Written inline (not
-    // hoisted to a `const`) — this row builder's body is a concise arrow
-    // expression, and hoisting would reindent every field below in a diff a
-    // reviewer has to read for the variance change too.
     sortTime: params.sortTimeByMatchKey?.get(match.matchKey),
     redTeams: [...match.redTeams],
     blueTeams: [...match.blueTeams],
@@ -871,86 +519,34 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     pRedWin: roundProbability(prediction.pRedWin),
     predictedRedScore: roundMetric(prediction.redScore),
     predictedBlueScore: roundMetric(prediction.blueScore),
-    // D-18 item 3, plan 07-08: each alliance's OWN predicted-score variance
-    // — the same quantity, under the same field name, that
-    // `TeamSeasonMatchSchema.redScoreVarianceOwn` has carried since Phase 6
-    // (see that field's doc comment for the full contract; not restated
-    // here). `undefined` for OPR/EPA, neither of which models an
-    // alliance-level own variance. Rounded exactly once, here, at the
-    // publish boundary, at `ROUNDING_RULE.variance` — reusing that existing
-    // rule deliberately (07-07 PD-03: the same physical quantity as the
-    // team artifact's pair, so a second rounding key would be drift wearing
-    // documentation's clothes). Read directly off `predict()`'s own output
-    // and never recomputed here: a recomputed value agrees with the model
-    // by construction and would keep agreeing after this function stopped
-    // reading the model's output at all (D-01, folded todo
-    // `publish-match-predictive-variance.md`).
+    // Each alliance's own predicted-score variance, the same quantity as
+    // `TeamSeasonMatchSchema.redScoreVarianceOwn`; `undefined` for OPR/EPA. Read off `predict()`'s
+    // output, never recomputed, so it cannot silently stop reflecting the model.
     redScoreVarianceOwn:
       prediction.redScoreVarianceOwn !== undefined ? roundTo(prediction.redScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
     blueScoreVarianceOwn:
       prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
-    // PUBLISHED MATCH BAND (quick task 260913-g66) — roster size times the sum
-    // of the roster's squared Sigma Scores, walk-forward, attached to the shared
-    // `PredictionRecord` so the event page and the team page publish the
-    // identical number. Sigma algorithms only: OPR and EPA rows carry no band.
-    // Never the win-odds variance the ranking-point pmf reads.
+    // Match Band: roster size times the sum of the roster's squared Sigma Scores, walk-forward. Sigma
+    // algorithms only; never the win-odds variance the ranking-point pmf reads.
     ...matchBandFields(matchBand),
-    // D-03, plan 08-02 Task 1: each alliance's predicted distribution over
-    // its total ranking points for this match — the same quantity, same
-    // field names, same rounding rule as the `upcoming` builder's own pair
-    // just below (see it rather than this comment restating it). Not gated
-    // on the competition level, deliberately: sigma1 returns a real
-    // one-entry degenerate distribution for a non-qualification match rather
-    // than nothing, and both the `upcoming` builder here and
-    // `buildTeamSeasonArtifact` publish that ungated already, so a gate here
-    // would make this the only surface in the pipeline that drops what the
-    // model returned (PD-02). Read directly off `prediction`, the same
-    // `Prediction` object the walk-forward replay's own `predict()` call
-    // produced for this match, and never synthesized — where the model
-    // produced no distribution the key stays absent, which is a real
-    // published state OPR and EPA occupy for every match they will ever
-    // have.
+    // Total-RP pmfs, read off `prediction` and deliberately not gated on competition level, matching
+    // the upcoming and team-season builders; absent where the model produced none.
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
-    // D-15, plan 09-07: the RP decomposition — read straight off
-    // `prediction` and never gated on competition level, for the identical
-    // reason the `redRpPmf`/`blueRpPmf` pair just above is not gated (PD-02:
-    // a gate here would make this the only surface in the pipeline that
-    // drops what the model returned).
+    // The RP decomposition, ungated for the same reason.
     matchOutcomePmf: prediction.matchOutcomePmf ? roundPmf(prediction.matchOutcomePmf) : undefined,
     redBonusRpPmf: prediction.redBonusRpPmf ? roundPmf(prediction.redBonusRpPmf) : undefined,
     blueBonusRpPmf: prediction.blueBonusRpPmf ? roundPmf(prediction.blueBonusRpPmf) : undefined,
-    // Quick 260905-jj8: the four per-bonus RP fields, through the shared
-    // helper above — the same gates and the same three-state actual
-    // contract the team row builder applies to the same source data.
     ...eventMatchBonusRpFields(match.compLevel, prediction, params.actualBonusFlagsByMatchKey?.get(match.matchKey)),
     actualWinner: match.winner,
     actualRedScore: match.redScore,
     actualBlueScore: match.blueScore,
-    // D-01/D-03 (quick task 260909-t5q): spread from the prediction
-    // record's own stamp, empty when absent — the key never appears as
-    // `false`, matching this row's own `rank`/`totalTeams`-style
-    // conditional-spread convention elsewhere in this file.
+    // The key never appears as `false`.
     ...(coldStart === true ? { coldStart: true as const } : {}),
-    // D-12, plan 08-02 Task 2: the same quantity and the same guard as
-    // `buildTeamSeasonArtifact`'s own pair (see it rather than this comment
-    // restating it) — routed through `toIntegerRpOrNull` rather than a raw
-    // read, because ledger #14 records 30 non-integer ranking-point rows at
-    // 2024orbb/2025orbb that would otherwise throw the schema's `.int()`
-    // assertion and abort 08-05's 23-to-25-minute republish. Direct
-    // assignment, never a conditional spread and never a nullish-coalescing
-    // default (PD-04): every row here is a played match by construction, so
-    // both keys are always present, which is what lets 08-11 tell a
-    // pre-republish artifact from a not-derivable value. A `null` is never
-    // turned into a `0` here, because a `0` is a positive claim about a
-    // team's standing that D-12's fallback then sums.
+    // Always present on played rows (direct assignment), and `null` never becomes `0`: a `0` is a
+    // positive claim about standing that a fallback then sums.
     actualRedRp: toIntegerRpOrNull(match.redRpEarned),
     actualBlueRp: toIntegerRpOrNull(match.blueRpEarned),
-    // Quick task 260906-7eu: conditional spread (never assigned `undefined`
-    // directly, matching this file's established convention) — a row with
-    // no entry in the map carries no `video` key at all in the serialized
-    // JSON. Never added to the `upcoming` builder below: an unplayed match
-    // has no video.
     ...(params.videoByMatchKey?.get(match.matchKey) !== undefined
       ? { video: params.videoByMatchKey.get(match.matchKey) }
       : {}),
@@ -961,7 +557,6 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     compLevel: match.compLevel,
     setNumber: match.setNumber,
     matchNumber: match.matchNumber,
-    /** D-13, plan 07-08: see the `matches` row builder's `sortTime` comment above for the full contract. */
     sortTime: params.sortTimeByMatchKey?.get(match.matchKey),
     redTeams: [...match.redTeams],
     blueTeams: [...match.blueTeams],
@@ -969,25 +564,17 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     pRedWin: roundProbability(prediction.pRedWin),
     predictedRedScore: roundMetric(prediction.redScore),
     predictedBlueScore: roundMetric(prediction.blueScore),
-    /** D-18 item 3, plan 07-08: see the `matches` row builder's `redScoreVarianceOwn`/`blueScoreVarianceOwn` comment above for the full contract. */
     redScoreVarianceOwn:
       prediction.redScoreVarianceOwn !== undefined ? roundTo(prediction.redScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
     blueScoreVarianceOwn:
       prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
-    // PUBLISHED MATCH BAND for a not-yet-played match (quick task 260913-g66),
-    // read from the upcoming record `SigmaScoutLayer.enrichUpcoming` built from
-    // every team's play SO FAR — the same record the team artifact's upcoming
-    // rows read. Sigma algorithms only.
     ...matchBandFields(matchBand),
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
-    // D-15, plan 09-07: see the `matches` row builder's identical three
-    // lines above for the full contract.
     matchOutcomePmf: prediction.matchOutcomePmf ? roundPmf(prediction.matchOutcomePmf) : undefined,
     redBonusRpPmf: prediction.redBonusRpPmf ? roundPmf(prediction.redBonusRpPmf) : undefined,
     blueBonusRpPmf: prediction.blueBonusRpPmf ? roundPmf(prediction.blueBonusRpPmf) : undefined,
-    // Quick 260905-jj8: predicted per-bonus marginals only — an upcoming row
-    // has no actual outcome, so `flags` is passed as undefined by design.
+    // No actual outcome yet, so predicted marginals only.
     ...eventMatchBonusRpFields(match.compLevel, prediction, undefined),
   }));
 
@@ -995,85 +582,38 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     teamKey: t.teamKey,
     teamNumber: t.teamNumber,
     nickname: t.nickname,
-    // D-18 item 6, D-07, D-08, plan 07-08: `eventTeamRankingFields` looks
-    // this team up by KEY, never by array position — matching the by-key
-    // discipline the team loop's own
-    // `eventRankingsForSeason.get(eventKey)?.get(teamKey)` lookup already
-    // establishes for this same data (`publishSeasons`). See that helper's
-    // own doc comment (declared above this function, deliberately, so
-    // `buildEventArtifact`'s own range keeps exactly one `return`
-    // statement — T-07-08-02) for the full rank/record/rp contract,
-    // including why the model's own per-team metrics (`t.metrics` below)
-    // can never reach these TBA-provenance-asserting fields (T-07-08-01).
     ...eventTeamRankingFields(params.rankings?.get(t.teamKey)),
     metrics: roundTeamMetricRecord(t.metrics),
   }));
 
-  // D-18 item 8, plan 07-08: the event's own identity. An omitted
-  // `params.eventMeta` emits NONE of the four keys below — "no caller told
-  // me" — inventing an identity from silence would be the same fault PD-03
-  // forbids for `alliances`.
+  // An omitted `params.eventMeta` emits none of these keys rather than inventing an identity.
   const identityFields = params.eventMeta
     ? {
-        // `name` falls back to the event key on a null OR EMPTY corpus
-        // value (PD-05) — an explicit non-empty test, never `??`, because
-        // `??` lets `""` straight through into a `.min(1)` parse failure.
-        // The corpus `name` column is NULL until an `--events-only` refetch
-        // fills it; mirrors `buildEventsArtifact`'s own `e.name ?? e.event_key`
-        // intent while closing the empty-string hole a bare `??` leaves.
+        // Falls back to the event key on a null or empty name; `??` would let `""` fail `.min(1)`.
         name: params.eventMeta.name !== null && params.eventMeta.name.length > 0 ? params.eventMeta.name : params.eventKey,
-        // `startDate` has no honest fallback (there is no key to fall back
-        // to, unlike `name`) — an empty corpus value omits the key entirely
-        // rather than publish a fabricated date.
+        // No honest fallback: an empty value omits the key rather than publish a fabricated date.
         ...(params.eventMeta.startDate.length > 0 ? { startDate: params.eventMeta.startDate } : {}),
-        // The ONLY call to the location composer in this pipeline (PD-04) —
-        // `null` is a real published answer (no recorded location), never an
-        // omission. Never reimplement the "{stateProv}, {country}" join
-        // anywhere else in this file.
+        // The only call to the location composer; `null` means no recorded location.
         location: composeEventLocation(params.eventMeta.stateProv, params.eventMeta.country),
-        // Passed through unchanged, including `null` and including `0` — a
-        // real week index is never conflated with "not derivable" (PD-07).
+        // Passed through unchanged, including `null` and `0`.
         week: params.eventMeta.week,
       }
     : {};
 
-  // D-18 item 7, D-15, D-16, D-17, plan 07-08: this event's playoff alliance
-  // selection. `undefined` (never assigned) when `params.alliances` was not
-  // supplied, an array (possibly `[]`) otherwise — this is what lets
-  // `candidate` below emit the `alliances` key exactly when the caller
-  // consulted the corpus (PD-03): the key's PRESENCE, not its length, is
-  // the "did anyone ask" signal, and `[]` is the honest "zero rows" answer
-  // for an event that ran quals and rankings but held no selection.
+  // The `alliances` key's presence, not its length, signals the corpus was consulted; `[]` is a
+  // real "no selection" answer.
   const alliances = params.alliances?.map((sel) => ({
     allianceNumber: sel.allianceNumber,
-    // Conditional spread (never `""`, never a synthesized label) — an
-    // absent key for an absent TBA name, isomorphic to the source shape
-    // live-observed at `2024wvrox`. Choosing a display fallback is 07-14's
-    // decision to make from this honest absence.
+    // Absent key for an absent TBA name, never `""` or a synthesized label.
     ...(sel.name !== null && sel.name.length > 0 ? { name: sel.name } : {}),
-    // A fresh copy, never aliased (T-07-08-07) — 07-02's ORDER BY is the
-    // ordering contract and this function neither sorts, filters, dedupes
-    // nor truncates it. Never sliced to three: D-16 excludes a fourth pick
-    // from 07-14's summed arithmetic, not from this published record of who
-    // was on the alliance.
+    // A fresh copy in corpus order; never sorted, filtered or sliced to three.
     picks: [...sel.picks],
-    // 07-UAT.md G-8, plan 07-21: `undefined` and `null` both omit the key —
-    // no playoff record exists to publish, never a fabricated `{wins: 0,
-    // losses: 0, ties: 0}`. Two explicit `!==` comparisons (never truthiness,
-    // never a loose `!=`), matching `eventTeamRankingFields`'s own style
-    // just above for the identical undefined-or-null shape.
+    // `undefined` and `null` both omit the key, never a fabricated zero record.
     ...(sel.record !== null && sel.record !== undefined ? { record: sel.record } : {}),
   }));
 
-  // D-15, plan 09-07: this season's own win/tie RP constants, published
-  // ONCE PER ARTIFACT rather than once per row. Taken from the FIRST
-  // record (played, then upcoming) whose prediction carries the outcome-RP
-  // vectors — every record in one event artifact is the same season, so
-  // "the first" is a deterministic choice, not a sampling decision. Read
-  // straight off the prediction rather than importing `rpRuleModuleForSeason`
-  // here, so this publisher gains no season knowledge of its own: `
-  // #rpFieldsFor` (`sigmaScoutLayer.ts`) is the one place that turns rule-
-  // module constants into published numbers.
+  // The season's win/tie RP constants, published once per artifact and read off the predictions, so
+  // this publisher holds no season rules of its own.
   const rpOutcomeRp = findRpOutcomeRp(params.predictions, params.upcoming ?? []);
 
   const candidate = {
@@ -1096,13 +636,8 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
 }
 
 /**
- * D-15, plan 09-07: finds `{ win, tie }` from the first record (played, then
- * upcoming, in each array's own order) whose prediction carries both
- * outcome-RP vectors — `redOutcomeRp[0]`/`[1]` are `winRp`/`tieRp` by
- * construction (`sigmaScoutLayer.ts`'s `#rpFieldsFor` composes
- * `redOutcomeRp` as `[winRp, tieRp, 0]`). Returns `undefined` when no record
- * carries the decomposition, which omits the key entirely per
- * `EventArtifactSchema.rpOutcomeRp`'s own optional convention.
+ * `{ win, tie }` from the first record (played, then upcoming) carrying both outcome-RP vectors, whose
+ * `[0]`/`[1]` are `winRp`/`tieRp` by construction (`[winRp, tieRp, 0]`). `undefined` omits the key.
  */
 function findRpOutcomeRp(
   predictions: readonly PredictionRecord[],
@@ -1135,12 +670,7 @@ export interface TeamsArtifactTeamInput {
   readonly metrics: Record<string, TeamMetric>;
   readonly eventCount: number;
   readonly matchCount: number;
-  /**
-   * Quick task 260905-ttv: this team's inferred home region
-   * (`teamRanks.ts`'s `deriveTeamRegions`), threaded onto the teams/{year}
-   * artifact row so the Teams page can filter by it. Optional — omitted
-   * (never `null`/`""`) when a field is not derivable for this team.
-   */
+  /** Inferred home region (`deriveTeamRegions`) for the Teams page filter; omitted, never `null`/`""`, when not derivable. */
   readonly country?: string;
   readonly stateProv?: string;
   readonly districtKey?: string;
@@ -1156,14 +686,9 @@ export interface BuildTeamsArtifactParams {
 }
 
 /**
- * D-05's first at-risk artifact (~3,750 rows/season). Parses through
- * `TeamsArtifactWireSchema` before returning (T-04-22) — deliberately the
- * WIRE schema, not the decoding `TeamsArtifactSchema`: this function's
- * return value is exactly what gets `JSON.stringify`'d and uploaded
- * (`publishSeasons`'s `uploader.publish("teams", teamsKey,
- * JSON.stringify(teamsArtifact))` call), so parsing through the schema that
- * decodes positional metrics back to record-form would silently throw away
- * the entire wire saving 260902-pbe exists to capture.
+ * A payload-budget-sensitive artifact (~3,750 rows/season). Parses through the wire schema, not the decoding
+ * `TeamsArtifactSchema`: the return value is what gets uploaded, and decoding positional metrics back
+ * to records would discard the wire saving.
  */
 export function buildTeamsArtifact(params: BuildTeamsArtifactParams): TeamsArtifactWire {
   const roundedTeams = params.teams.map((t) => ({
@@ -1174,18 +699,12 @@ export function buildTeamsArtifact(params: BuildTeamsArtifactParams): TeamsArtif
     metrics: roundTeamMetricRecord(t.metrics),
     eventCount: t.eventCount,
     matchCount: t.matchCount,
-    // Quick task 260905-ttv: conditionally spread, never assigned `undefined`
-    // directly — an underivable field must produce a candidate object with
-    // the key genuinely ABSENT on the wire, matching this file's existing
-    // `rank`/`totalTeams` convention (see `buildTeamSeasonArtifact` above).
     ...(t.country !== undefined ? { country: t.country } : {}),
     ...(t.stateProv !== undefined ? { stateProv: t.stateProv } : {}),
     ...(t.districtKey !== undefined ? { districtKey: t.districtKey } : {}),
   }));
-  // 260902-pbe: the ordered key list every row's positional `metrics` array
-  // aligns to — derived from the rounded rows themselves (first-seen order
-  // across teams) rather than a hardcoded per-algorithm list, so an
-  // algorithm this file has never special-cased still encodes correctly.
+  // The key order every row's positional `metrics` array aligns to, derived from the rows (first-seen
+  // order) rather than a hardcoded per-algorithm list.
   const metricKeys = deriveMetricKeyOrder(roundedTeams.map((t) => t.metrics));
   const candidate = {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
