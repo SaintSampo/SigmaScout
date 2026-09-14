@@ -1,22 +1,20 @@
 /**
- * Re-measures F3's mean deficit (`.planning/todos/pending/ranking-points-audit.md`)
- * — the leading cause behind F2's 2.06x under-prediction of published bonus
- * probabilities — restricted to the population `packages/core/rankingPoints/`
- * actually predicts for.
+ * Re-measures ranking-point bonus prediction's mean deficit, restricted to
+ * the population `packages/core/rankingPoints/` actually predicts for.
  *
  * ---------------------------------------------------------------------------
- * WHY THIS SCRIPT EXISTS (the ROADMAP's second hard sequencing constraint)
+ * WHY THIS SCRIPT EXISTS
  * ---------------------------------------------------------------------------
  *
- * The original F3 probe found the predicted alliance mean below the observed
- * mean in 33 of 34 season-variables, typically 8-15% low. That probe pooled
- * EVERY alliance-side observation, including rosters where one or more teams
- * had little or no history yet — a genuinely different population from the
- * one `RpMomentsAccumulator.momentsFor` predicts for once an event is
- * underway, where most rosters are fully warm. A marginal family chosen
- * against a deficit measured on the wrong population is a fix aimed at the
- * wrong cause. This script re-measures the same deficit restricted to
- * fully-warm 3/3 rosters, so 09-05 and 09-06 have the right number to act on.
+ * The original probe found the predicted alliance mean below the observed
+ * mean in most season-variables. That probe pooled EVERY alliance-side
+ * observation, including rosters where one or more teams had little or no
+ * history yet — a genuinely different population from the one
+ * `RpMomentsAccumulator.momentsFor` predicts for once an event is underway,
+ * where most rosters are fully warm. A marginal family chosen against a
+ * deficit measured on the wrong population is a fix aimed at the wrong
+ * cause. This script re-measures the same deficit restricted to fully-warm
+ * 3/3 rosters.
  *
  * ---------------------------------------------------------------------------
  * TWO NAMED ARMS, ONE WALK-FORWARD PASS, ONE ACCUMULATOR
@@ -32,8 +30,7 @@
  * Both arms are produced by driving ONE `RpMomentsAccumulator` instance
  * chronologically through ONE walk-forward pass per season and differ by a
  * roster filter applied to the SAME (predicted mean, observed value) pair —
- * never by a second computation. This is the retired rewind-gap script's two-named-
- * arms convention (D-11's same-scorer discipline) applied one level down.
+ * never by a second computation.
  *
  * ---------------------------------------------------------------------------
  * ALGORITHM-INDEPENDENT
@@ -43,20 +40,17 @@
  * threshold variables; `momentsFor`'s `scoreMean`/`scoreVariance` arguments
  * pass straight through to `AllianceRpMoments` and never touch `meanVector`
  * (`empiricalMoments.ts`). This script therefore resolves no algorithm and
- * runs no `WalkForwardSimulator` — reading a mean vector needs neither, and
- * driving ten seasons through `SigmaScoutLayer.foldPlayed` with a real
- * algorithm would pay the 4,000-draw Monte Carlo cost this phase deletes for
- * nothing this script needs.
+ * runs no `WalkForwardSimulator` — reading a mean vector needs neither.
  *
  * ---------------------------------------------------------------------------
- * D-04's SELECTION/REPORTING SLICE SPLIT
+ * SELECTION/REPORTING SLICE SPLIT
  * ---------------------------------------------------------------------------
  *
  * Output is split into a SELECTION SLICE (2016-2020, 2022) and a REPORTING
  * SLICE (2023-2026, reported but not acted on). This measurement is
  * descriptive and selects nothing — but a reader must not mistake a
- * reporting-slice number for one that informed a choice. Any decision 09-05
- * or 09-06 derive from this record must cite the selection slice.
+ * reporting-slice number for one that informed a choice. Any decision
+ * derived from this record must cite the selection slice.
  *
  * ---------------------------------------------------------------------------
  * CREDENTIAL-FREE
@@ -64,9 +58,7 @@
  *
  * This script reads the corpus READ-ONLY and touches NO credential of any
  * kind: no network request, no R2 client, no environment variable, and its
- * `package.json` entry deliberately omits the environment-file flag, placing
- * it with `identifiability` and the other corpus-only measurement scripts — the
- * corpus-only offline scripts — rather than with the credentialed ones.
+ * `package.json` entry deliberately omits the environment-file flag.
  * `.env` is never read, printed, copied or interpolated.
  *
  * Usage:
@@ -84,12 +76,12 @@ import { buildSeasonStream } from "../packages/harness/replay.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 
-/** D-04: the two seasons slices this record's output is split under. Selection informs a choice (none is made here); reporting is out-of-sample. */
+/** The two seasons slices this record's output is split under. Selection informs a choice (none is made here); reporting is out-of-sample. */
 export const SELECTION_SLICE_SEASONS = [2016, 2017, 2018, 2019, 2020, 2022] as const;
 export const REPORTING_SLICE_SEASONS = [2023, 2024, 2025, 2026] as const;
 
 // ---------------------------------------------------------------------------
-// Pure helpers (Task 1)
+// Pure helpers
 // ---------------------------------------------------------------------------
 
 /** `"2016-2020,2022-2026"` -> every registered season in that range, in order. A season with no registered rule module (2021, and any unregistered future/past season) is silently dropped rather than throwing. */
@@ -224,7 +216,7 @@ export function foldObservedThresholds(accumulator: RpMomentsAccumulator, ruleMo
 }
 
 // ---------------------------------------------------------------------------
-// Reporting types (Task 1, steps 3-5)
+// Reporting types
 // ---------------------------------------------------------------------------
 
 export type ArmName = "all-rosters" | "warm-3of3";
@@ -400,7 +392,7 @@ export function runMeasurement(db: Corpus, seasons: readonly number[], command: 
 }
 
 // ---------------------------------------------------------------------------
-// Console report (Task 1, steps 3-4)
+// Console report
 // ---------------------------------------------------------------------------
 
 function printSlice(title: string, seasons: readonly number[], rows: { allRosters: readonly SeasonVariableRow[]; warm3of3: readonly SeasonVariableRow[] }): void {
