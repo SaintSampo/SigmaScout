@@ -31,7 +31,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **ALGO-02**: EPA is reimplemented from TBA data and runs walk-forward at any point in a season
 - [x] **ALGO-03**: Sigma1 (Kalman-filter family) produces a mean and variance for each team metric, displayed as X ± Y (1 standard deviation)
 - [x] **ALGO-04**: Sigma1 hyperparameters are set by an offline optimizer searching against backtest score on tune seasons
-- [x] **ALGO-05**: Sigma1 adapts online within a season; the harness validates adaptation improves holdout score (on vs off)
+- [x] **ALGO-05**: SPR adapts online within a season; a walk-forward on/off test validates that adaptation improves the 2023-2026 score
 - [x] **ALGO-06**: Algorithm versions are first-class in the data model: every published artifact is keyed by algorithm id and version, and a version identifies one fixed output — any change to published numbers ships under a new version. Only the current version of each algorithm stays published; superseded versions are deleted
 - [x] **ALGO-07**: Every match gets a predicted winner, win probability, and predicted alliance scores; Sigma predictions carry variance
 - [x] **ALGO-08**: Ranking points are predicted per match with variance, using each season's RP rules (2022–2026)
@@ -54,6 +54,20 @@ re-issue: `spr@4.0.0+baseline` was republished in place at generations `2dcc057f
 maps to one output today (`3ba2b580`), and from this date any republish that changes published numbers
 must bump the version (e.g. `spr@4.1.0`) and delete the superseded one. No automated guard enforces the
 bump yet; it is a publishing rule. The `[x]` mark and ID are unchanged.
+
+**Re-issued 2026-09-14 (quick task 260914-ndu, Jacob authorized spending 2023-2026):** ALGO-05's text
+above named Sigma1, which was deleted (167eab64), and the re-audit marked it unsatisfied because SPR's
+on/off comparison had only run on 2016-2022. The test has now run on 2023-2026. The verdict rule, the
+off arms and their 2016-2022 knob selections were committed first (c9923e79). The deciding arm is the
+best non-adaptive model: one timescale, a within-season running-mean scale, and a static tau, with its
+knobs re-selected on 2016-2022. Against it, adaptation **helps** under that rule. Brier OFF-ON is
++0.00126 [0.00061, 0.00188] and log loss +0.0086 [0.0063, 0.0110], but accuracy is +0.077pp
+[-0.132, +0.289], so the gain is calibration, not winner calls. By mechanism: the fast-form component
+helps clearly (+0.80pp [0.61, 0.98], every season), online tau is not detectable against the best
+static tau, and the scale's recency weighting **hurts** against a within-season running mean
+(-0.27pp [-0.43, -0.11], and -0.31pp on 2016-2022). The text changed from Sigma1 to SPR; the `[x]`
+mark and ID are unchanged. Nothing live changed. Evidence:
+`.planning/quick/260914-ndu-clear-algo-05-prove-whether-spr-within-s/AB-RESULT.txt`.
 
 ### Teams
 
