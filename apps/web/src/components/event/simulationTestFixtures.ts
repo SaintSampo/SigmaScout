@@ -23,7 +23,7 @@ const BASE_PREAMBLE = {
   schemaVersion: 1,
   generation: "gen-1",
   computedAt: "2026-08-31T00:00:00.000Z",
-  algorithmId: "vpr",
+  algorithmId: "spr",
   algorithmVersion: "2.1.0+tuned-2026-08",
 };
 
