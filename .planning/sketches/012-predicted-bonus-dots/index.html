@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SigmaScout — predicted bonus dots</title>
+<link rel="stylesheet" href="../themes/default.css" />
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; padding-top:90px; font-family:var(--font-sans); background:var(--color-bg); color:var(--color-text); -webkit-font-smoothing:antialiased; }
+  #nav { position:fixed; top:0; left:0; right:0; z-index:9998; background:#fff; border-bottom:1px solid var(--color-border); padding:8px 12px; font-size:13px; }
+  #nav .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  #nav .row + .row { margin-top:6px; }
+  #nav .lbl { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--color-text-muted); margin-right:4px; }
+  .tab { border:1px solid var(--color-border); background:#fff; color:var(--color-text); padding:5px 11px; border-radius:var(--radius); cursor:pointer; font:inherit; }
+  .tab.active { background:var(--color-text); color:#fff; border-color:var(--color-text); }
+  .odds.active { background:#14532d; border-color:#14532d; }
+  .spacer { flex:1; }
+  #frame { margin:0 auto; transition:max-width .15s; }
+  .page { max-width:1100px; margin:0 auto; padding:16px 16px 40px; }
+  .caption { background:#fff; border:1px solid var(--color-border); border-radius:8px; padding:12px 14px; color:var(--color-text-muted); font-size:13px; line-height:1.6; margin:0 0 16px; }
+  .caption b { color:var(--color-text); }
+  .key { display:flex; gap:14px; flex-wrap:wrap; align-items:center; font-size:12px; margin:0 0 12px; color:var(--color-text-muted); }
+  .key span.item { display:inline-flex; gap:6px; align-items:center; }
+  .slice { margin-bottom:26px; }
+  .slice h2 { font-size:15px; font-weight:600; margin:0 0 2px; }
+  .slice p.sub { margin:0 0 8px; font-size:12px; color:var(--color-text-muted); }
+  .tablewrap { overflow-x:auto; background:#fff; border:1px solid var(--color-border); border-radius:8px; }
+  table { width:100%; border-collapse:separate; border-spacing:0; font-size:14px; }
+  th { text-align:left; font-size:12px; font-weight:600; color:var(--color-text-muted); padding:8px 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; }
+  td { padding:7px 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; }
+  tr:last-child td { border-bottom:0; }
+  td.m { font-variant-numeric:tabular-nums; color:var(--color-text-muted); }
+  .sep { border-left:1px solid var(--color-border); }
+  .stats { width:auto; font-size:12.5px; margin-top:8px; }
+  .stats td, .stats th { padding:5px 10px; }
+  .stats td.num { text-align:right; font-variant-numeric:tabular-nums; }
+
+  :root { --alliance-red:#DC2626; --alliance-red-soft:rgba(220,38,38,.30); --alliance-blue:#2563EB; --alliance-blue-soft:rgba(37,99,235,.30); }
+  .dots { display:inline-flex; gap:3px; align-items:center; vertical-align:middle; }
+
+  /* shipped dot anatomy (theme.css .bonus-dot) */
+  .dot { position:relative; display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:999px;
+         border:1.5px solid; font-size:8px; font-weight:700; line-height:1; overflow:hidden; background:transparent; }
+  .red  { border-color:var(--alliance-red);  color:var(--alliance-red);  --soft:var(--alliance-red-soft); --ink:var(--alliance-red); }
+  .blue { border-color:var(--alliance-blue); color:var(--alliance-blue); --soft:var(--alliance-blue-soft); --ink:var(--alliance-blue); }
+  .dot.earned { background:var(--soft); }
+  .dot > i { position:absolute; left:0; right:0; bottom:0; background:var(--soft); }
+  .dot > b { position:relative; }
+
+  /* B: three states. toss-up = bottom half filled */
+  .dot.strong { background:var(--ink); color:#fff; }
+  .dot.half { background:var(--soft); }
+
+  /* D: numbers instead of marks */
+  .pct { display:inline-flex; align-items:baseline; gap:2px; font-size:12px; font-variant-numeric:tabular-nums; padding:1px 5px; border-radius:4px; border:1px solid transparent; min-width:44px; }
+  .pct .l { font-size:10px; font-weight:700; opacity:.8; }
+  .pct.hi { background:var(--soft); color:var(--ink); }
+  .pct.mid { box-shadow:inset 0 0 0 1px var(--soft); color:var(--ink); }
+  .pct.lo { color:var(--color-text-muted); }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="row">
+    <span class="lbl">Design</span>
+    <button class="tab vt active" data-v="A">A · Solid at 50% (today)</button>
+    <button class="tab vt" data-v="B">B · Three states</button>
+    <button class="tab vt" data-v="C">C · Fill to the odds</button>
+    <button class="tab vt" data-v="D">D · Numbers</button>
+    <button class="tab vt" data-v="ALL">All four</button>
+    <span class="spacer"></span>
+    <button class="tab vp active" data-w="100%">Desktop</button>
+    <button class="tab vp" data-w="390px">Phone 390</button>
+  </div>
+  <div class="row">
+    <span class="lbl">Odds</span>
+    <button class="tab odds active" data-o="f">After the F4 fix (lattice + mean shift)</button>
+    <button class="tab odds" data-o="b">Published today</button>
+  </div>
+</div>
+<div id="frame"><div class="page">
+  <div class="caption" id="caption"></div>
+  <div class="key" id="key"></div>
+  <div id="slices"></div>
+</div></div>
+
+<script src="data.js"></script>
+<script>
+const state = { v: "A", o: "f" };
+const pctText = (p) => Math.round(p * 100) + "%";
+
+const DESIGNS = {
+  A: {
+    caption: "<b>A · Solid at 50%.</b> The shipped rule: solid when the odds are at least 50%, hollow otherwise. The exact percentage is only in the tooltip.",
+    key: () => `<span class="item">${dotA("B", 0.8, "red")} 50% or more</span><span class="item">${dotA("B", 0.2, "red")} under 50%</span>`,
+  },
+  B: {
+    caption: "<b>B · Three states.</b> Full alliance colour when likely (⅔ or more), a light tint for a toss-up (⅓ to ⅔), hollow when unlikely (under ⅓). The shipped 30% tint alone is too faint at 14px to carry three states, so likely gets full ink. The middle state is the honest answer for a large share of alliances; see the table below each event.",
+    key: () => `<span class="item">${dotB("B", 0.8, "red")} likely, ⅔+</span><span class="item">${dotB("B", 0.5, "red")} toss-up</span><span class="item">${dotB("B", 0.2, "red")} unlikely, under ⅓</span>`,
+  },
+  C: {
+    caption: "<b>C · Fill to the odds.</b> The dot fills from the bottom to the probability, so 72% is about three-quarters full. It keeps every value, but at 16px, 40% and 60% look alike.",
+    key: () => `<span class="item">${dotC("B", 0.9, "red")} 90%</span><span class="item">${dotC("B", 0.5, "red")} 50%</span><span class="item">${dotC("B", 0.15, "red")} 15%</span>`,
+  },
+  D: {
+    caption: "<b>D · Numbers.</b> A percentage instead of a mark: tinted from ⅔, outlined from ⅓, muted below. The most exact option and the widest, and it moves the reader from a glance to reading digits.",
+    key: () => `<span class="item red">${pctD("B", 0.81, "red")}</span><span class="item">${pctD("B", 0.47, "red")}</span><span class="item">${pctD("B", 0.12, "red")}</span>`,
+  },
+};
+
+function title(label, p) { return `${label}: predicted ${pctText(p)} likely`; }
+function dotA(letter, p, side, label = letter) { return `<span class="dot ${side} ${p >= 0.5 ? "earned" : ""}" title="${title(label, p)}"><b>${letter}</b></span>`; }
+function dotB(letter, p, side, label = letter) { const c = p >= 2/3 ? "strong" : p >= 1/3 ? "half" : ""; return `<span class="dot ${side} ${c}" title="${title(label, p)}"><b>${letter}</b></span>`; }
+function dotC(letter, p, side, label = letter) { return `<span class="dot ${side}" title="${title(label, p)}"><i style="height:${(p * 100).toFixed(0)}%"></i><b>${letter}</b></span>`; }
+function pctD(letter, p, side, label = letter) { const c = p >= 2/3 ? "hi" : p >= 1/3 ? "mid" : "lo"; return `<span class="pct ${side} ${c}" title="${title(label, p)}"><span class="l">${letter}</span>${pctText(p)}</span>`; }
+function actualDot(letter, earned, side, label) { return `<span class="dot ${side} ${earned ? "earned" : ""}" title="${label}: ${earned ? "earned" : "not earned"}"><b>${letter}</b></span>`; }
+
+const renderPred = { A: dotA, B: dotB, C: dotC, D: pctD };
+
+function allianceCells(ev, cells, side) {
+  const pred = cells.map((c, i) => renderPred[state.v](ev.bonuses[i].letter, state.o === "f" ? c.f : c.b, side, ev.bonuses[i].label)).join("");
+  const act = cells.map((c, i) => actualDot(ev.bonuses[i].letter, c.a, side, ev.bonuses[i].label)).join("");
+  return `<td class="sep"><span class="dots">${pred}</span></td><td><span class="dots">${act}</span></td>`;
+}
+
+function statsTable(ev) {
+  const col = state.o === "f" ? "fix" : "base";
+  const rows = ev.bonuses.map((b) => {
+    const s = DATA.stats[`${ev.season} ${b.key}`];
+    const c = s[col];
+    const t = c.thirds.map((x) => `<td class="num">${(x.share * 100).toFixed(0)}%</td><td class="num">${x.rate === null || x.share < 0.005 ? "—" : (x.rate * 100).toFixed(0) + "%"}</td>`).join("");
+    return `<tr><td>${b.label}</td><td class="num">${(s.observed * 100).toFixed(0)}%</td><td class="num">${(c.meanP * 100).toFixed(0)}%</td><td class="num sep">${(c.dotWrong * 100).toFixed(0)}%</td>${t.replace('<td class="num">', '<td class="num sep">')}</tr>`;
+  }).join("");
+  return `<div class="tablewrap" style="display:inline-block;max-width:100%"><table class="stats">
+    <tr><th rowspan="2">Whole ${ev.season} season, n=${DATA.stats[`${ev.season} ${ev.bonuses[0].key}`].n.toLocaleString()} alliances</th><th rowspan="2">Earned</th><th rowspan="2">Mean odds</th><th rowspan="2" class="sep">A's dot wrong</th>
+      <th colspan="2" class="sep">Unlikely (&lt;⅓)</th><th colspan="2">Toss-up</th><th colspan="2">Likely (⅔+)</th></tr>
+    <tr><th class="sep">share</th><th>earned</th><th>share</th><th>earned</th><th>share</th><th>earned</th></tr>
+    ${rows}</table></div>`;
+}
+
+function boardTable(ev) {
+  const cell = (fn, cells, side) => `<td class="sep"><span class="dots">${cells.map((c, i) => fn(ev.bonuses[i].letter, state.o === "f" ? c.f : c.b, side, ev.bonuses[i].label)).join("")}</span></td>`;
+  const odds = (cells) => cells.map((c) => pctText(state.o === "f" ? c.f : c.b)).join(" · ");
+  const row = (m, side) => `<tr><td class="m">Q${m.n} ${side}</td><td class="m">${odds(m[side])}</td><td class="sep"><span class="dots">${m[side].map((c, i) => actualDot(ev.bonuses[i].letter, c.a, side, ev.bonuses[i].label)).join("")}</span></td>${cell(dotA, m[side], side)}${cell(dotB, m[side], side)}${cell(dotC, m[side], side)}${cell(pctD, m[side], side)}</tr>`;
+  return `<div class="tablewrap"><table>
+    <tr><th>Alliance</th><th>Odds</th><th class="sep">Actual</th><th class="sep">A · 50%</th><th class="sep">B · three states</th><th class="sep">C · fill</th><th class="sep">D · numbers</th></tr>
+    ${ev.matches.slice(0, 8).map((m) => row(m, "red") + row(m, "blue")).join("")}</table></div>`;
+}
+
+function render() {
+  document.querySelectorAll(".vt").forEach((b) => b.classList.toggle("active", b.dataset.v === state.v));
+  document.querySelectorAll(".odds").forEach((b) => b.classList.toggle("active", b.dataset.o === state.o));
+  if (state.v === "ALL") {
+    document.getElementById("caption").innerHTML = "<b>All four designs</b> on the same alliances, beside the real outcome and the odds as numbers. " + (state.o === "f" ? "Odds after the chosen F4 fix (probe, not published)." : "Odds published today.");
+    document.getElementById("key").innerHTML = `A: tinted at 50%. B: full colour ⅔+, tint ⅓–⅔, hollow under ⅓. C: filled to the odds. D: tinted ⅔+, outlined ⅓–⅔.`;
+    document.getElementById("slices").innerHTML = DATA.events.map((ev) => `<div class="slice"><h2>${ev.key}</h2><p class="sub">${ev.bonuses.map((b) => `${b.letter} = ${b.label}`).join(", ")}</p>${boardTable(ev)}${statsTable(ev)}</div>`).join("");
+    return;
+  }
+  const d = DESIGNS[state.v];
+  document.getElementById("caption").innerHTML = d.caption + (state.o === "f"
+    ? " <br>Showing the odds the chosen F4 fix is <b>expected</b> to publish (walk-forward probe, not published yet)."
+    : " <br>Showing the odds <b>published today</b>: 2016 Breach is under 5% for nearly every alliance, though it was earned 70% of the time.");
+  document.getElementById("key").innerHTML = "Predicted: " + d.key() + ` <span class="item">Actual: ${actualDot("B", true, "red", "B")} earned ${actualDot("B", false, "red", "B")} not earned</span>`;
+  document.getElementById("slices").innerHTML = DATA.events.map((ev) => `
+    <div class="slice">
+      <h2>${ev.key} · qualification matches</h2>
+      <p class="sub">${ev.bonuses.map((b) => `${b.letter} = ${b.label}`).join(", ")}. Twelve matches spread across the event, real walk-forward odds.</p>
+      <div class="tablewrap"><table>
+        <tr><th>Match</th><th class="sep">Red predicted</th><th>Red actual</th><th class="sep">Blue predicted</th><th>Blue actual</th></tr>
+        ${ev.matches.map((m) => `<tr><td class="m">Q${m.n}</td>${allianceCells(ev, m.red, "red")}${allianceCells(ev, m.blue, "blue")}</tr>`).join("")}
+      </table></div>
+      ${statsTable(ev)}
+    </div>`).join("");
+}
+
+document.querySelectorAll(".vt").forEach((b) => b.onclick = () => { state.v = b.dataset.v; render(); });
+document.querySelectorAll(".odds").forEach((b) => b.onclick = () => { state.o = b.dataset.o; render(); });
+document.querySelectorAll(".vp").forEach((b) => b.onclick = () => {
+  document.querySelectorAll(".vp").forEach((x) => x.classList.toggle("active", x === b));
+  document.getElementById("frame").style.maxWidth = b.dataset.w;
+});
+render();
+</script>
+</body>
+</html>
