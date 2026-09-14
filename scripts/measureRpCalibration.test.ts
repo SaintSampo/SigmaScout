@@ -1337,3 +1337,38 @@ describe("data/baselines/rp-outcome-arms-2026-09.json — the committed arm comp
     }
   });
 });
+
+describe("data/baselines/rp-bonus-arms-2026-09.json — the committed bonus-arm comparison (260914-01x Task 3)", () => {
+  const RECORD = RpBonusArmRecordSchema.parse(
+    JSON.parse(readFileSync(new URL("../data/baselines/rp-bonus-arms-2026-09.json", import.meta.url), "utf8"))
+  );
+
+  it("ran on exactly the selection slice — 2016, 2017, 2018, 2019, 2020, 2022", () => {
+    expect(RECORD.seasons).toEqual([2016, 2017, 2018, 2019, 2020, 2022]);
+    for (const arm of RECORD.arms) expect(arm.perSeason.map((s) => s.season)).toEqual(RECORD.seasons);
+  });
+
+  it("re-applying applyRpBonusArmBar over its own pooled figures reproduces the recorded verdicts and ship — never hand-transcribed", () => {
+    const pooled: BonusArmPooledFigures[] = RECORD.arms.map((a) => a.pooled);
+    const reproduced = applyRpBonusArmBar(pooled);
+    expect(reproduced.ship).toBe(RECORD.ship);
+    expect(reproduced.verdicts).toEqual(RECORD.barVerdicts);
+  });
+
+  it("measured all four arms against one tree: HEAD unchanged and packages/scripts clean from start to end", () => {
+    expect(RECORD.arms.map((a) => a.arm)).toEqual(["control", "lattice", "meanShift", "lattice+meanShift"]);
+    expect(RECORD.tree.headAtEnd).toBe(RECORD.tree.headAtStart);
+    expect(RECORD.tree.statusAtStart).toBe("");
+    expect(RECORD.tree.statusAtEnd).toBe("");
+  });
+
+  it("every arm scored the identical observation set, pooled, per season and per cell", () => {
+    const control = RECORD.arms.find((a) => a.arm === "control")!;
+    for (const arm of RECORD.arms) {
+      expect(arm.pooled.bonusCount).toBe(control.pooled.bonusCount);
+      expect(arm.pooled.totalRpCount).toBe(control.pooled.totalRpCount);
+      expect(arm.perSeason.map((s) => [s.bonusCount, s.totalRp?.count])).toEqual(control.perSeason.map((s) => [s.bonusCount, s.totalRp?.count]));
+      expect(arm.perCell.map((c) => [c.season, c.bonus, c.n])).toEqual(control.perCell.map((c) => [c.season, c.bonus, c.n]));
+    }
+  });
+});
