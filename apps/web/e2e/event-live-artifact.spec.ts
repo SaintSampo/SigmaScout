@@ -1,12 +1,11 @@
 /**
- * 07-20-PLAN.md Task 2 — ledger rows 4, 9, 10, and the behavioral half of
- * row 8. Runs on the `desktop` project only (`playwright.config.ts`): none
- * of these claims is viewport-dependent. Artifacts are fetched through
+ * Runs on the `desktop` project only (`playwright.config.ts`): none of
+ * these claims is viewport-dependent. Artifacts are fetched through
  * Playwright's `request` fixture (an anonymous public GET against our own
  * R2 origin, `https://data.sigmascout.org` — no CORS is involved on that
  * path), with the `vpr` algorithm version resolved ONCE from
- * `v1/manifest/algorithms.json` and never hardcoded, so 07-16/07-17/07-18's
- * rename or any future version bump cannot silently turn these cases into
+ * `v1/manifest/algorithms.json` and never hardcoded, so a rename or any
+ * future version bump cannot silently turn these cases into
  * 404-assertions.
  */
 import { test, expect, type APIRequestContext } from "@playwright/test";
@@ -31,8 +30,8 @@ async function fetchEventArtifact(request: APIRequestContext, eventKey: string, 
 }
 
 // ---------------------------------------------------------------------------
-// Ledger row 4 — D-08 fallback exercised against a REAL published
-// no-ranking artifact, with a real ranked-artifact control.
+// The no-ranking fallback exercised against a REAL published no-ranking
+// artifact, with a real ranked-artifact control.
 // ---------------------------------------------------------------------------
 
 test.describe("ledger row 4 — D-08 fallback ordering, real artifact + control", () => {
@@ -57,7 +56,7 @@ test.describe("ledger row 4 — D-08 fallback ordering, real artifact + control"
 
   // The control: without this case, a build that ALWAYS renders the fallback
   // banner (a bug that would make the positive case above pass regardless of
-  // whether D-08's discriminant logic actually works) would go undetected.
+  // whether the discriminant logic actually works) would go undetected.
   test("2024new: every one of its 75 teams carries a rank, and the Insights tab renders NO fallback banner", async ({ page, request }) => {
     const version = await resolveVprVersion(request);
     const artifact = await fetchEventArtifact(request, "2024new", version);
@@ -128,43 +127,19 @@ test.describe("ledger row 10 — the two-pick alliance contract, real artifact +
     }
   });
 
-  // [Flagged planner assumption 5, discovered live] 07-20-PLAN.md's third,
-  // strictly-additive D-17 case assumed `2024cmptx` (Einstein) publishes an
-  // EMPTY alliances array, per RESEARCH.md's live probe finding. Direct
-  // measurement this session found `2024cmptx` instead publishes 8 real
-  // alliances of 4 picks each — RESEARCH.md's probe finding is now stale
-  // (the corpus/publish pipeline has moved since it was recorded). Per the
-  // plan's own contingency ("if the array turns out populated, drop that one
-  // case and record why, rather than hunting for a substitute event — E7's
-  // dismissed rows are not this plan's to re-open"), that additive case is
-  // dropped rather than authored against a substitute event. See
-  // 07-20-SUMMARY.md for the full accounting.
+  // `2024cmptx` (Einstein) publishes 8 real alliances of 4 picks each
+  // rather than an empty array, so no additive empty-array case exists
+  // for it here.
 });
 
 // ---------------------------------------------------------------------------
-// Ledger row 9 — the alliance-uncertainty identity, CORRECTED after live
-// review found the original design unfalsifiable.
-//
-// [Rule 1 correction, found live and confirmed independently after this
-// task's own required run] The original version of this test compared
-// `sigma_alliance` (from `metrics.total.spread`, which `publish.ts`'s own
-// D-10 comment documents as AS-OF-EVENT — state after the event's LAST
-// chronological match) against `sigma_match` (a specific match's
-// `redScoreVarianceOwn`/`blueScoreVarianceOwn`, the walk-forward
-// AS-OF-THAT-MATCH prediction). These are two DIFFERENT points in the
-// walk-forward, not the same instant, so exact agreement was never a
-// provable claim from the published bytes: it measured FALSE on real data
-// (99/99 pairs across four candidate events exceeded a derived tolerance, by
-// 0.03 to 2.04 sigma units — see WINDOWS.md ledger #17 for the full
-// accounting). A direct check (280 alliance-pairs, `2024new`) confirmed the
-// mechanism: the mean gap is 1.130 in the first half of the event and 0.373
-// in the second — variance shrinking roughly 3x as more matches are
-// observed is exactly the signature of an as-of-event-end quantity compared
-// against an earlier, more-uncertain as-of-match one. (The tolerance
-// derivation itself was independently found to be wrong in the SAFE
-// direction — variance rounds to `ROUNDING_RULE.variance` = 4 decimals, not
-// the 2 this test originally assumed — so that correction only strengthened
-// the finding; it never explained the gap away.)
+// The alliance-uncertainty identity. `sigma_alliance` (from
+// `metrics.total.spread`, which `publish.ts` documents as AS-OF-EVENT —
+// state after the event's LAST chronological match) and `sigma_match` (a
+// specific match's `redScoreVarianceOwn`/`blueScoreVarianceOwn`, the
+// walk-forward AS-OF-THAT-MATCH prediction) are two DIFFERENT points in
+// the walk-forward, not the same instant, so exact agreement between them
+// is not a provable claim from the published bytes.
 //
 // What THIS test asserts instead is the relationship that IS provable from
 // published bytes: `sigma_match` (walk-forward, computed before the match
