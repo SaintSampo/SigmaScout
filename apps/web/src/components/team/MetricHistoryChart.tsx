@@ -1,24 +1,22 @@
 /**
- * The Metric History tab's Recharts chart (06-05-PLAN.md Task 1). Default
- * export — `MetricHistoryTab.tsx` (Task 2) dynamically `import()`s this
- * module so Recharts is never in the eager bundle (D-14).
+ * The Metric History tab's Recharts chart. Default export —
+ * `MetricHistoryTab.tsx` dynamically `import()`s this module so Recharts is
+ * never in the eager bundle.
  *
- * Plots ONLY `TOTAL_KEY` (D-11) — component metric trajectories are
- * deferred, not this chart's job. The band (an `Area`, Total ± Sigma, one
- * standard deviation) renders only when `drawsSigmaBand` holds: `algorithmId`
- * publishes Sigma Score AND at least one row carries a published per-match
- * `sigma` entry (quick task 260913-m45). OPR and EPA never publish Sigma
- * Score, so they never show a band; a not-yet-republished SPR artifact shows
- * none either, silently — no explanatory text anywhere in this file (D-13's
- * silence rule, carried over from the retired spread-based band).
+ * Plots only `TOTAL_KEY` — component metric trajectories are deferred, not
+ * this chart's job. The band (an `Area`, Total ± Sigma, one standard
+ * deviation) renders only when `drawsSigmaBand` holds: `algorithmId`
+ * publishes Sigma Score and at least one row carries a published per-match
+ * `sigma` entry. OPR and EPA never publish Sigma Score, so they never show a
+ * band; a not-yet-republished SPR artifact shows none either, silently — no
+ * explanatory text anywhere in this file.
  *
- * The band is built from `sigma`, NEVER `spread` — `spread` is the
- * algorithm's own confidence in its rating and must never reach the screen
- * (developer rule, 2026-09-09); `metricHistorySeries.ts`'s `MetricSeriesPoint`
- * no longer even carries a `spread` field, so this file cannot regress onto
- * it by accident.
+ * The band is built from `sigma`, never `spread` — `spread` is the
+ * algorithm's own confidence in its rating and must never reach the screen;
+ * `metricHistorySeries.ts`'s `MetricSeriesPoint` no longer even carries a
+ * `spread` field, so this file cannot regress onto it by accident.
  *
- * Sizing: NOT `ResponsiveContainer` — Recharts' own `ResizeObserver`-driven
+ * Sizing: not `ResponsiveContainer` — Recharts' own `ResizeObserver`-driven
  * auto-sizing never resolves under jsdom (this repo's stubbed
  * `ResizeObserver` never calls back, per `src/test/setup.ts`'s own comment),
  * exactly the problem `TeamsTable.tsx`'s `scrollHeight` state already solved
@@ -35,13 +33,11 @@ import type { MetricHistoryRow } from "../../../../../packages/harness/metricHis
 import { buildMetricSeries, detectEventBands, drawsSigmaBand, METRIC_HISTORY_LEGEND_HEIGHT_PX, niceYAxis, sigmaBandFor } from "./metricHistorySeries.js";
 
 /**
- * The band's fill token — `chart-craft.md`'s own encoding rule ("text wears
- * text tokens") extended to the band: this is a passive, non-interactive
- * shaded region, never the accent (accent means interactive/active only,
- * sketch-findings-sigmascout's design direction). The Line's own stroke and
- * width are named here too, and EXPORTED, so the legend's swatches below
- * (and their own tests) reuse the exact same tokens rather than a second,
- * independently hand-tuned pair.
+ * The band's fill token: this is a passive, non-interactive shaded region,
+ * never the accent (accent means interactive/active only). The Line's own
+ * stroke and width are named here too, and exported, so the legend's
+ * swatches below (and their own tests) reuse the exact same tokens rather
+ * than a second, independently hand-tuned pair.
  */
 export const BAND_FILL = "var(--color-text-muted)";
 export const BAND_FILL_OPACITY = 0.18;
@@ -71,15 +67,12 @@ const EVENT_LABEL_CHAR_WIDTH_PX = 6.4;
 const EVENT_LABEL_PADDING_PX = 8;
 
 /**
- * G-13 (07-UAT.md): the Y axis's tick STRINGS and its WIDTH share one source
- * — the same domain values that drive both, per chart-craft.md's "derive
- * coupled geometry" rule — rather than an independently hand-tuned formatter
+ * The Y axis's tick strings and its width share one source — the same domain
+ * values that drive both — rather than an independently hand-tuned formatter
  * and a hand-tuned width magic-numbered against a "typical" team's short
- * labels. Neither touches a PUBLISHED datum: Recharts generates these tick
- * VALUES itself via floating-point interval arithmetic over the domain
- * (`packages/harness/rounding.ts`'s publish-time rounding rule governs
- * published values only, never a chart library's own generated tick
- * positions), and the plotted `value`/`band` series below is untouched.
+ * labels. Neither touches a published datum: Recharts generates these tick
+ * values itself via floating-point interval arithmetic over the domain, and
+ * the plotted `value`/`band` series below is untouched.
  */
 const Y_AXIS_TICK_DECIMALS = 2;
 const Y_AXIS_CHAR_WIDTH_PX = 9;
@@ -112,11 +105,10 @@ function computeYAxisWidth(domainValues: readonly number[]): number {
 }
 
 /**
- * 2026-09-01 (user report: "event names are often cut off"): truncation is
- * now WIDTH-AWARE — each band label gets as many characters as its own
- * band's pixel width can hold, instead of a fixed 18-char cap that chopped
- * names inside bands with room for three times that. The full name stays on
- * the SVG <title> either way.
+ * Truncation is width-aware — each band label gets as many characters as its
+ * own band's pixel width can hold, instead of a fixed cap that chops names
+ * inside bands with room for far more. The full name stays on the SVG
+ * <title> either way.
  */
 function truncateEventLabel(name: string, bandWidthPx: number): string {
   const maxChars = Math.max(4, Math.floor((bandWidthPx - EVENT_LABEL_PADDING_PX) / EVENT_LABEL_CHAR_WIDTH_PX));
@@ -175,12 +167,11 @@ export default function MetricHistoryChart({ rows, algorithmId, eventNameByKey }
   }, []);
 
   const points = buildMetricSeries(rows, TOTAL_KEY);
-  // Quick task 260913-m45: the band draws only when this algorithm publishes
-  // Sigma Score AND at least one row actually carries a published per-match
-  // sigma — OPR, EPA and a not-yet-republished SPR artifact draw none,
-  // silently (D-13). One predicate feeds the Area below, the Y domain (via
-  // `data`), and Task 3's legend, so none of the three can disagree about
-  // whether a band is coming.
+  // The band draws only when this algorithm publishes Sigma Score and at
+  // least one row actually carries a published per-match sigma — OPR, EPA and
+  // a not-yet-republished SPR artifact draw none, silently. One predicate
+  // feeds the Area below, the Y domain (via `data`), and the legend, so none
+  // of the three can disagree about whether a band is coming.
   const drawBand = drawsSigmaBand(rows, algorithmId);
   const bands = detectEventBands(points);
 
@@ -205,58 +196,49 @@ export default function MetricHistoryChart({ rows, algorithmId, eventNameByKey }
   }
   let yAxisWidth = computeYAxisWidth(yAxisDomainValues);
 
-  // 2026-09-01 (user report): with a bare ["dataMin", "dataMax"] domain the
-  // line/band reach the literal top of the plot — exactly the strip the
-  // event-band labels render in (`y + 14`), so late-season data covered the
-  // event names. Reserve headroom: the top ~12% of the value range stays
-  // data-free, which at this chart's ~230px plot height keeps a ≥24px
-  // label-only band. Zero-range data (one flat value) pads by 1 so the
-  // domain never collapses.
+  // With a bare ["dataMin", "dataMax"] domain the line/band would reach the
+  // literal top of the plot — exactly the strip the event-band labels render
+  // in — so late-season data would cover the event names. Reserve headroom:
+  // the top ~12% of the value range stays data-free. Zero-range data (one
+  // flat value) pads by 1 so the domain never collapses.
   let yDomain: [number, number] | undefined;
   let yTicks: number[] | undefined;
   if (yAxisDomainValues.length > 0) {
     const dataMin = Math.min(...yAxisDomainValues);
     const dataMax = Math.max(...yAxisDomainValues);
     const headroom = dataMax > dataMin ? (dataMax - dataMin) * 0.12 : 1;
-    // 2026-09-07 (user request): the axis ALWAYS includes metric = 0, so the
-    // baseline the reader measures against is zero rather than whichever
-    // value this team happened to bottom out at. A truncated axis exaggerates
-    // differences — a team drifting 118 -> 124 fills the plot exactly like one
-    // climbing 0 -> 124 when the domain starts at the data minimum, and the
-    // reader has no way to tell those apart without reading tick labels. This
-    // chart's whole job is showing a metric's TRAJECTORY, which is a
-    // magnitude claim, so the zero baseline is load-bearing rather than
-    // decorative.
+    // The axis always includes metric = 0, so the baseline the reader
+    // measures against is zero rather than whichever value this team happened
+    // to bottom out at. A truncated axis exaggerates differences — a team
+    // drifting 118 -> 124 fills the plot exactly like one climbing 0 -> 124
+    // when the domain starts at the data minimum. This chart's whole job is
+    // showing a metric's trajectory, which is a magnitude claim, so the zero
+    // baseline is load-bearing rather than decorative.
     //
-    // Clamped on BOTH ends, not just the floor: VPR/OPR totals go genuinely
-    // negative (see the G-13 tests' -1354.13 case), and for an all-negative
-    // team zero is the CEILING. `Math.min`/`Math.max` against 0 covers all
-    // three shapes — all-positive, all-negative, and straddling — without a
-    // sign branch.
+    // Clamped on both ends, not just the floor: totals can go genuinely
+    // negative, and for an all-negative team zero is the ceiling.
+    // `Math.min`/`Math.max` against 0 covers all three shapes — all-positive,
+    // all-negative, and straddling — without a sign branch.
     //
-    // Headroom is still computed from the DATA range, not the zero-extended
+    // Headroom is still computed from the data range, not the zero-extended
     // range, because it exists to keep the event-band label strip clear of
     // the plotted line: extending the floor to 0 moves no data toward the top
     // of the plot, so scaling headroom by the widened range would reserve
     // space proportional to a distance the marks never travel.
     const yMaxExtended = Math.max(0, dataMax + headroom);
     const yMinExtended = Math.min(0, dataMin);
-    // Quick task 260913-m45: rounded outward to a nice step with an explicit
-    // tick ladder through zero. A Sigma band's lower edge below zero would
-    // otherwise anchor every tick label to that arbitrary edge (see
-    // `niceYAxis`).
+    // Rounded outward to a nice step with an explicit tick ladder through
+    // zero. A Sigma band's lower edge below zero would otherwise anchor every
+    // tick label to that arbitrary edge (see `niceYAxis`).
     const axis = niceYAxis(yMinExtended, yMaxExtended);
     yDomain = axis.domain;
     yTicks = axis.ticks;
-    // WR-08 (260902-post-phase08-ungoverned-ui/REVIEW.md): the width above
-    // was measured against the RAW domain values, but the headroom just
-    // extended the RENDERED domain past every one of them — so a headroom
-    // extension crossing a digit boundary (e.g. 98 -> 109.76) could produce
-    // a top tick label wider than the width reserved for it. Recompute the
-    // width from the values plus BOTH extended bounds, so the space reserved
-    // matches the domain the axis actually renders (chart-craft.md's "derive
-    // coupled geometry" rule — the domain and the width must never be two
-    // independently maintained numbers).
+    // The width above was measured against the raw domain values, but the
+    // headroom just extended the rendered domain past every one of them — so
+    // a headroom extension crossing a digit boundary could produce a top tick
+    // label wider than the width reserved for it. Recompute the width from
+    // the values plus both extended bounds, so the space reserved matches the
+    // domain the axis actually renders.
     yAxisWidth = computeYAxisWidth([...yAxisDomainValues, yMaxExtended, yMinExtended, ...axis.ticks]);
   }
 
@@ -294,23 +276,17 @@ export default function MetricHistoryChart({ rows, algorithmId, eventNameByKey }
             tick={{ fill: "var(--color-text-muted)", fontSize: 12 }}
             label={{ value: "Total", angle: -90, position: "insideLeft", fill: "var(--color-text-muted)", fontSize: 12 }}
           />
-          {/*
-            Accepted consequence (quick task 260913-m45): a low Total with a
-            wide Sigma can push the band's lower edge — and so the axis, via
-            `yAxisDomainValues` above — below zero. That is the honest ±1 SD,
-            not a bug to clamp away.
-          */}
+          {/* Accepted consequence: a low Total with a wide Sigma can push the band's lower edge — and so the axis, via `yAxisDomainValues` above — below zero. That is the honest ±1 SD, not a bug to clamp away. */}
           {drawBand && <Area dataKey="band" stroke="none" fill={BAND_FILL} fillOpacity={BAND_FILL_OPACITY} connectNulls={false} isAnimationActive={false} />}
           {points.length > 0 && <Line dataKey="value" stroke={LINE_STROKE} strokeWidth={LINE_WIDTH_PX} connectNulls={false} isAnimationActive={false} />}
         </ComposedChart>
       </div>
       {/*
-        Quick task 260913-m45: the legend draws ONLY alongside the band it
-        labels — never for OPR/EPA, never for a not-yet-republished SPR
-        artifact — so it cannot claim a Total ± Sigma reading the chart
-        beside it does not actually show. Its height is the ONE constant the
-        Tab's skeleton spacer also reads (chart-craft.md's "derive coupled
-        geometry"), so the chart landing after its lazy import never shifts
+        The legend draws only alongside the band it labels — never for
+        OPR/EPA, never for a not-yet-republished SPR artifact — so it cannot
+        claim a Total ± Sigma reading the chart beside it does not actually
+        show. Its height is the one constant the Tab's skeleton spacer also
+        reads, so the chart landing after its lazy import never shifts
         anything below it.
       */}
       {drawBand && (

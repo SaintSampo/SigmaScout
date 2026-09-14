@@ -1,66 +1,48 @@
 /**
- * The Teams page's bubble-chart view (quick task 260909-tom) — a hand-rolled
- * SVG scatter of the currently filtered teams, X = Total, Y = Sigma Score.
+ * The Teams page's bubble-chart view — a hand-rolled SVG scatter of the
+ * currently filtered teams, X = Total, Y = Sigma Score.
  *
- * Sigma Score is published for SPR only (quick task 260913-g66). When no
- * row carries one (every OPR and EPA row set) the component renders a plain
- * no-Sigma state instead of an axis: no svg, no key, just one sentence
- * pointing the reader at SPR. That branch keys off the DATA
- * (`model.hasAnySigma`), never off an algorithm id, the same way the Teams
- * table's Total column keys its split pill's right half off `row.sigmaScore`
- * presence (quick task 260913-jkp deleted the standalone Sigma column this
- * comment used to name; `row.sigmaScore`/`row.sigmaTier` themselves are
- * unchanged and still feed this chart's axis, per that task's own decision
- * to leave the bubble chart alone).
+ * Sigma Score is published for SPR only. When no row carries one (every OPR
+ * and EPA row set) the component renders a plain no-Sigma state instead of an
+ * axis: no svg, no key, just one sentence pointing the reader at SPR. That
+ * branch keys off the data (`model.hasAnySigma`), never off an algorithm id,
+ * the same way the Teams table's Total column keys its split pill's right
+ * half off `row.sigmaScore` presence.
  *
- * NOT Recharts — a deliberate departure from this project's default
- * charting library (260909-tom-PLAN.md `rendering_decision`). Recharts'
- * `<Scatter>` mounts one React component and one SVG node per point. At the
- * real 2026 field size (~3,700 teams, `colour-and-tiers.md`'s measured
- * distribution) that is thousands of components rebuilt on every filter
- * change and resize, on the page whose stated top priority is load and
- * interaction speed. `MetricHistoryChart.tsx` correctly stays on Recharts
- * because it plots one team's season — tens to low hundreds of points, not
- * thousands.
+ * Not Recharts — a deliberate departure from this project's default charting
+ * library. Recharts' `<Scatter>` mounts one React component and one SVG node
+ * per point. At real field sizes (thousands of teams) that is thousands of
+ * components rebuilt on every filter change and resize, on the page whose
+ * stated top priority is load and interaction speed. `MetricHistoryChart.tsx`
+ * correctly stays on Recharts because it plots one team's season — tens to
+ * low hundreds of points, not thousands.
  *
- * Instead, the whole point cloud is drawn as at most four SVG `<path>`
- * nodes (`teamsBubbleModel.ts`'s `tonePathData`, one per non-empty tone).
- * That property is UNCHANGED by hover/click (quick task 260909-v5v) and is
- * still the reason Recharts is not used here.
+ * Instead, the whole point cloud is drawn as at most four SVG `<path>` nodes
+ * (`teamsBubbleModel.ts`'s `tonePathData`, one per non-empty tone). That
+ * property is unchanged by hover/click and is still the reason Recharts is
+ * not used here.
  *
- * A named export, statically imported — unlike `MetricHistoryChart`, which
- * is dynamically imported to keep Recharts out of the eager bundle. This
+ * A named export, statically imported — unlike `MetricHistoryChart`, which is
+ * dynamically imported to keep Recharts out of the eager bundle. This
  * component pulls in no charting library at all, so a static import is
  * right: there is nothing to keep out of the eager bundle.
  *
- * Hover and click (quick task 260909-v5v) arrive by POINTER HIT-TESTING
- * against a uniform-grid spatial index (`teamsBubbleModel.ts`'s
- * `buildHitIndex`/`hitTestNearest`), NOT by per-point DOM. The whole
- * interaction costs at most two additional nodes at any team count: one
- * highlight ring and one tooltip card. Why that combination: a DOM node per
- * point at ~3,700 teams was the rejected option (the same reasoning as
- * above), and a hit test recovers the same affordance — "which team is
- * this?" — at bounded per-move cost instead.
+ * Hover and click arrive by pointer hit-testing against a uniform-grid
+ * spatial index (`teamsBubbleModel.ts`'s `buildHitIndex`/`hitTestNearest`),
+ * not by per-point DOM. The whole interaction costs at most two additional
+ * nodes at any team count: one highlight ring and one tooltip card.
  *
- * THE INVARIANT A FUTURE EDITOR MUST NOT BREAK: the tone-path memo
- * (`pathByTone`, below) is keyed on `[model, plot]` and must NEVER gain
- * hover state as a dependency. Hover state entering that dependency list
- * would rebuild ~3,700-point path strings on every mouse move, which is
- * strictly worse than the per-point DOM this whole design exists to avoid.
+ * The invariant a future editor must not break: the tone-path memo
+ * (`pathByTone`, below) is keyed on `[model, plot]` and must never gain hover
+ * state as a dependency. Hover state entering that dependency list would
+ * rebuild thousands of path strings on every mouse move, which is strictly
+ * worse than the per-point DOM this whole design exists to avoid.
  *
- * THE HONEST LIMIT: `onSelectTeam` navigates programmatically (the route
- * owns the actual `navigate` call — see `<navigation_decision>` in
- * 260909-v5v-PLAN.md), so a chart point has no `href` and therefore no
- * middle-click, no cmd-click-to-new-tab, no right-click-copy-link and no
- * status-bar preview. The table's rows carry real anchors and remain the
- * route for all of that — the same tradeoff D-04's accessibility decision
- * makes, and for the same reason: an anchor per point is a DOM node per
- * point.
- *
- * This supersedes quick task 260909-tom's `rendering_decision` in exactly
- * one respect: that decision's no-tooltip, no-hover clause is reversed
- * here. The four-DOM-node property it was protecting survives intact — see
- * above.
+ * The honest limit: `onSelectTeam` navigates programmatically (the route
+ * owns the actual `navigate` call), so a chart point has no `href` and
+ * therefore no middle-click, no cmd-click-to-new-tab, no right-click-copy-link
+ * and no status-bar preview. The table's rows carry real anchors and remain
+ * the route for all of that — an anchor per point is a DOM node per point.
  */
 import {
   useCallback,
@@ -96,16 +78,15 @@ import {
 export interface TeamsBubbleChartProps {
   rows: readonly TeamRow[];
   /**
-   * Quick task 260909-v5v (D-02, `<navigation_decision>`). This component
-   * imports nothing from `@tanstack/react-router` and stays a pure
-   * presentational unit — the ROUTE owns the actual navigate call. That is
-   * what lets this file's tests render the component bare, with no
+   * This component imports nothing from `@tanstack/react-router` and stays a
+   * pure presentational unit — the route owns the actual navigate call. That
+   * is what lets this file's tests render the component bare, with no
    * `RouterProvider`.
    */
   onSelectTeam?: (point: BubblePoint) => void;
 }
 
-/** Key-row labels, in `BUBBLE_TONE_DRAW_ORDER`. The first is deliberately not "Common" — see 260909-tom-PLAN.md's `colour_decision`: the wire cannot distinguish an unranked Total from a Common one, and the key must not claim it can. */
+/** Key-row labels, in `BUBBLE_TONE_DRAW_ORDER`. The first is deliberately not "Common": the wire cannot distinguish an unranked Total from a Common one, and the key must not claim it can. */
 const TONE_KEY_LABEL: Readonly<Record<BubbleTone, string>> = {
   neutral: "Common / unranked",
   rare: "Rare",
@@ -136,10 +117,9 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
     };
     measure();
     window.addEventListener("resize", measure);
-    // Quick task 260909-v5v (`<performance_decision>` rule 3): the cached
-    // svg rect below is invalidated, not re-measured, on scroll. Re-measuring
-    // eagerly on scroll would reintroduce exactly the layout cost the cache
-    // exists to avoid.
+    // The cached svg rect below is invalidated, not re-measured, on scroll.
+    // Re-measuring eagerly on scroll would reintroduce exactly the layout
+    // cost the cache exists to avoid.
     const invalidateRect = (): void => {
       rectRef.current = null;
     };
@@ -154,10 +134,11 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
   const model = useMemo(() => buildBubbleModel(rows), [rows]);
   const plot = useMemo(() => plotRectFor(width), [width]);
 
-  // At ~4000 points the `d` strings are the only real work this component
-  // does; grouping and path-building are memoized on `[model, plot]` so an
-  // unrelated re-render never rebuilds them. THIS DEPENDENCY LIST MUST NEVER
-  // GAIN HOVER STATE — see the file header comment.
+  // At large team counts the `d` strings are the only real work this
+  // component does; grouping and path-building are memoized on
+  // `[model, plot]` so an unrelated re-render never rebuilds them. This
+  // dependency list must never gain hover state — see the file header
+  // comment.
   const pathByTone = useMemo(() => {
     const groups = new Map<BubbleTone, BubblePoint[]>();
     for (const tone of BUBBLE_TONE_DRAW_ORDER) groups.set(tone, []);
@@ -171,21 +152,21 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
     return paths;
   }, [model, plot]);
 
-  // Quick task 260909-v5v: the spatial index for pointer hit-testing, kept
-  // on the SAME dependency list as `pathByTone` for the same reason — it
-  // depends only on the data and the geometry, never on the pointer.
+  // The spatial index for pointer hit-testing, kept on the same dependency
+  // list as `pathByTone` for the same reason — it depends only on the data
+  // and the geometry, never on the pointer.
   const hitIndex = useMemo(() => buildHitIndex(model.points, model.x, model.y, plot), [model, plot]);
 
   // An INDEX into `model.points`, not a point object, so the "did the
   // resolved point change" comparison below is a cheap number compare.
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
-  // `<performance_decision>` rule 3: the svg's bounding rect, cached rather
-  // than measured per pointer move (measuring immediately after a commit
-  // that moved the highlight would force a synchronous layout flush — the
-  // classic layout-thrash pattern, and it would run at pointer rate). Filled
-  // lazily on first use; invalidated to `null` (which costs nothing) by the
-  // resize/scroll listeners above and by pointer-leave.
+  // The svg's bounding rect, cached rather than measured per pointer move
+  // (measuring immediately after a commit that moved the highlight would
+  // force a synchronous layout flush — the classic layout-thrash pattern, and
+  // it would run at pointer rate). Filled lazily on first use; invalidated to
+  // `null` (which costs nothing) by the resize/scroll listeners above and by
+  // pointer-leave.
   const rectRef = useRef<DOMRect | null>(null);
 
   const resolveHit = useCallback(
@@ -232,13 +213,13 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
 
   const totalLabel = metricDisplayLabel(TOTAL_KEY);
 
-  // Quick task 260913-g66: the no-Sigma state. Placed AFTER every hook above
-  // so the hook order never changes between renders. The label for SPR is the
-  // one the ribbon's algorithm menu shows, read through `algorithmDisplayLabel`
-  // rather than re-typed.
+  // The no-Sigma state. Placed after every hook above so the hook order
+  // never changes between renders. The label for SPR is the one the ribbon's
+  // algorithm menu shows, read through `algorithmDisplayLabel` rather than
+  // re-typed.
   //
   // Gated on `rows.length > 0` so a filter that matches nothing keeps the
-  // ordinary empty state below. The copy is deliberately true in BOTH cases
+  // ordinary empty state below. The copy is deliberately true in both cases
   // that reach this branch, because it cannot tell them apart without an
   // algorithm id: OPR and EPA (never any Sigma Score), and SPR before any team
   // has played this season (a fresh Sigma layer per season, so no entries
@@ -287,10 +268,9 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
       </div>
 
       {/*
-        Quick task 260909-v5v: this sentence names the pointer affordance
-        honestly (D-04, `<accessibility_decision>`) rather than claiming
-        keyboard operability the chart does not have. Real DOM text, so it
-        reaches a screen reader too. It must contain neither "Total" nor
+        This sentence names the pointer affordance honestly rather than
+        claiming keyboard operability the chart does not have. Real DOM text,
+        so it reaches a screen reader too. It must contain neither "Total" nor
         "Sigma Score": the axis titles and tooltip labels carrying those
         strings are asserted by single-match `getByText` calls in
         `TeamsBubbleChart.test.tsx`, and a second match would make those
@@ -364,17 +344,15 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
             </text>
 
             {/*
-              Quick task 260909-v5v: the highlight ring, the LAST child so it
-              draws on top of the tone paths. Reads ITS OWN coordinates off
-              `hitIndex` (not off `model.points` reprojected) — that is what
-              guarantees the ring is centred on the drawn dot. `pointerEvents`
-              off so it can never itself become a hit target. No `data-tone`
-              attribute: that attribute is the node-count invariant's own
-              selector, and adding it here would corrupt the measurement it
-              exists to take. The ink token, not a tier colour — chart-craft.md's
-              "text wears text tokens, never the series colour" applied to a
-              focus mark: the ring says WHICH ONE, the fill underneath still
-              says WHICH TIER.
+              The highlight ring, the last child so it draws on top of the
+              tone paths. Reads its own coordinates off `hitIndex` (not off
+              `model.points` reprojected) — that is what guarantees the ring
+              is centred on the drawn dot. `pointerEvents` off so it can never
+              itself become a hit target. No `data-tone` attribute: that
+              attribute is the node-count invariant's own selector, and adding
+              it here would corrupt the measurement it exists to take. The ink
+              token, not a tier colour: the ring says which one, the fill
+              underneath still says which tier.
             */}
             {hoveredIndex !== null && (
               <circle
@@ -392,16 +370,15 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
         )}
 
         {/*
-          Quick task 260909-v5v: the tooltip card. `pointer-events-none` is
-          LOAD-BEARING, not cosmetic: without it the card would intercept the
-          pointer, the svg would fire `pointerleave`, the card would unmount,
-          the pointer would land back over the svg, and the tooltip would
-          flicker in an infinite loop. `aria-hidden` per `<accessibility_decision>`:
-          this is a transient, pointer-only duplicate of a table row — an ARIA
-          live region would fire at pointer-move rate and interrupt the user
-          continuously, and leaving it exposed but silent would put a node in
-          the accessibility tree that appears and vanishes under a pointer the
-          AT user is not driving.
+          The tooltip card. `pointer-events-none` is load-bearing, not
+          cosmetic: without it the card would intercept the pointer, the svg
+          would fire `pointerleave`, the card would unmount, the pointer would
+          land back over the svg, and the tooltip would flicker in an infinite
+          loop. `aria-hidden`: this is a transient, pointer-only duplicate of
+          a table row — an ARIA live region would fire at pointer-move rate
+          and interrupt the user continuously, and leaving it exposed but
+          silent would put a node in the accessibility tree that appears and
+          vanishes under a pointer the AT user is not driving.
         */}
         {hoveredPoint && tooltipAnchor && (
           <div
