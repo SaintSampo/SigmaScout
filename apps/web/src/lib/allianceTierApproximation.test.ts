@@ -12,7 +12,7 @@ const POINTS: TierApproximationPoint[] = [
   { value: 60, percentile: 100 },
 ];
 
-describe("estimateCombinedTier — the 3x heuristic (07-UAT.md G-8)", () => {
+describe("estimateCombinedTier — the 3x heuristic", () => {
   it("returns undefined when there are no points to interpolate against", () => {
     expect(estimateCombinedTier(90, [])).toBeUndefined();
   });
@@ -68,7 +68,7 @@ function team(overrides: { teamKey?: string; total?: { value: number; spread?: n
   };
 }
 
-describe("buildTeamValuePercentilePoints — event roster to interpolation points (07-UAT.md G-8)", () => {
+describe("buildTeamValuePercentilePoints — event roster to interpolation points", () => {
   it("skips a team with no published total metric at all", () => {
     const teams = [team({ teamKey: "frc1", total: { value: 10, percentile: 20 } }), team({ teamKey: "frc2" })];
     expect(buildTeamValuePercentilePoints(teams as never)).toEqual([{ value: 10, percentile: 20 }]);

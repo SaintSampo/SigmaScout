@@ -44,7 +44,7 @@ function findRuleBody(css: string, selectorPattern: RegExp): string | null {
   return null;
 }
 
-describe("theme.css scrollbar rules (260902-sbr)", () => {
+describe("theme.css scrollbar rules", () => {
   it("html carries `overflow-y: scroll`, not `scrollbar-gutter`", () => {
     const css = readThemeCss();
     const htmlRuleBody = findRuleBody(css, /^html$/);

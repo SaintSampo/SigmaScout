@@ -157,7 +157,7 @@ describe("bonusDotLabel", () => {
   });
 });
 
-describe("F10's upstream measurement record stays pinned to the threshold it describes", () => {
+describe("the upstream attribution measurement record stays pinned to the threshold it describes", () => {
   it("the committed attribution record's dotThreshold equals the literal 0.5", () => {
     // The attribution record is a frozen measurement of the earlier solid dot
     // (drawn at 50% or more), so its dotThreshold is pinned as a literal 0.5;

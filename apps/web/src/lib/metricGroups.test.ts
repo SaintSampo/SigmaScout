@@ -64,7 +64,7 @@ describe("withDerivedGroupMetrics — stale-artifact fallback (a metrics record 
     expect(Object.keys(entry)).toEqual(["value"]);
   });
 
-  it("a published group entry (VPR's own, or EPA's as of 260904-7id) survives byte-identical — derivation never overwrites publication", () => {
+  it("a published group entry (VPR's own, or EPA's) survives byte-identical — derivation never overwrites publication", () => {
     const publishedPhaseAuto = { value: 42, spread: 2.1, percentile: 88, tier: "epic" as const };
     const metrics = { autoTower: { value: 3 }, hubAuto: { value: 5 }, phaseAuto: publishedPhaseAuto };
     const result = withDerivedGroupMetrics(metrics, 2026);
@@ -119,7 +119,7 @@ describe("withDerivedGroupMetrics — stale-artifact fallback (a metrics record 
 });
 
 /**
- * D-3 (quick task 260904-7id): the property that makes "identical by
+ * The property that makes "identical by
  * construction" a checkable claim rather than an assertion of intent. For
  * ONE component record, this computes `withDerivedGroupMetrics`'s value on
  * one side and `epa.teamMetrics`'s PUBLISHED value on the other — both
@@ -129,7 +129,7 @@ describe("withDerivedGroupMetrics — stale-artifact fallback (a metrics record 
  * `packages/core/algorithms/breakdown/groups.ts`), which is what makes this
  * true by construction rather than by two lists kept in step.
  */
-describe("metricGroups <-> epa.teamMetrics parity (D-3, 260904-7id)", () => {
+describe("metricGroups <-> epa.teamMetrics parity", () => {
   it("withDerivedGroupMetrics's phaseAuto value equals epa.teamMetrics's published phaseAuto value, for the same season and component set", () => {
     const components = { autoTower: 3, hubAuto: 5, hubTransition: 10, endGameTower: 2 };
     const state: EpaState = {

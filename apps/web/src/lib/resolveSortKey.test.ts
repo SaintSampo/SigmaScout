@@ -7,7 +7,7 @@ describe("resolveSortKey", () => {
     expect(resolveSortKey("hubShift1", metricKeysFor("epa", 2026))).toBe("hubShift1");
   });
 
-  it("falls back to the total key on a YEAR CHANGE that drops a component key the old season had (2026 -> 2022), even though the algorithm stays EPA — the trigger D-13's own text never names", () => {
+  it("falls back to the total key on a YEAR CHANGE that drops a component key the old season had (2026 -> 2022), even though the algorithm stays EPA", () => {
     expect(resolveSortKey("hubShift1", metricKeysFor("epa", 2022))).toBe(TOTAL_KEY);
   });
 

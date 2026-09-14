@@ -88,7 +88,7 @@ describe("COMPARE_SEASONS", () => {
     expect(COMPARE_SEASONS).not.toContain(2021);
   });
 
-  it("no longer narrows SEASONS at all — the 2022 floor was removed on 2026-09-07 and this is the pin that says so", () => {
+  it("no longer narrows SEASONS at all — the 2022 floor was removed and this is the pin that says so", () => {
     // The floor's retired rationale claimed 2019/2020 were selection-only
     // "FOREVER ... there is no earlier season to add". 2016/2017/2018 were
     // then added, so the premise failed. This asserts the two sets now agree

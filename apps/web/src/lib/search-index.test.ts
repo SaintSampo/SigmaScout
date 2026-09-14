@@ -83,7 +83,7 @@ describe("matchTeams", () => {
     expect(result.map((m) => m.teamNumber)).toEqual([1114, 11140, 11142]);
   });
 
-  it("ADVERSARIAL INPUT (T-05-01): a query full of regex metacharacters returns within a few milliseconds and does not hang, over a realistically sized fixture", () => {
+  it("ADVERSARIAL INPUT: a query full of regex metacharacters returns within a few milliseconds and does not hang, over a realistically sized fixture", () => {
     const bigFixture = Array.from({ length: 5000 }, (_, i) => team({ teamNumber: 1000 + i, nickname: `Team Nickname ${i}` }));
     const adversarialQuery = "(a+)+$.*.*.*.*.*[^]{0,}(?:a|a)*\\1\\2\\3";
 

@@ -52,7 +52,7 @@ describe("favicon color drift guard", () => {
   });
 });
 
-describe("shell ribbon color drift guard (audit E7, 260913-nvn)", () => {
+describe("shell ribbon color drift guard", () => {
   it("index.html's static shell ribbon contains theme.css's --ribbon-bg value", () => {
     const ribbonBg = extractToken(themeCss, "ribbon-bg");
     expect(indexHtml.toLowerCase()).toContain(ribbonBg.toLowerCase());
