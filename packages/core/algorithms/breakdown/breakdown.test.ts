@@ -1,14 +1,13 @@
 /**
- * D-05 fallback tests: `distributeResidual`'s math in isolation
+ * Fallback-path tests: `distributeResidual`'s math in isolation
  * (`fallback.ts`), then a fixture replay proving `epa.update()` actually
  * wires it in for a breakdown-less match rather than leaving the involved
  * teams pinned at their cold-start component values.
  *
- * T-03-18b (security audit, phase 03, quick task 260818-inm): unit tests for
- * `tryParseBreakdownPair`/`isRecoverableBreakdownParseError`, the guard that
- * replaces an unconditional `parseBreakdown` call at both algorithms' update
- * boundaries — see `index.ts`'s doc comments on both exports for the full
- * contract.
+ * Also unit tests `tryParseBreakdownPair`/`isRecoverableBreakdownParseError`,
+ * the guard that replaces an unconditional `parseBreakdown` call at both
+ * algorithms' update boundaries — see `index.ts`'s doc comments on both
+ * exports for the full contract.
  */
 import { describe, expect, it } from "vitest";
 import { z, ZodError } from "zod";
@@ -246,25 +245,20 @@ describe("epa.update — D-05 fallback fixture replay", () => {
     });
     const afterFallback = epa.update(afterReal, fallbackMatch);
 
-    // Every red-alliance OFFENSIVE component moves after the fallback match
-    // — the OLD tracer behavior (fallbackSkipped += 1, no
-    // applyComponentUpdate call at all) would have left every one of these
-    // values byte-identical to `afterReal`'s, purely because the match
-    // lacked a breakdown. D-05 forbids that: even components not touched by
-    // `realMatch`'s explicit overrides receive a fallback observation now.
+    // Every red-alliance OFFENSIVE component must move after the fallback
+    // match — a breakdown-less match still receives a fallback observation
+    // for every component not touched by `realMatch`'s explicit overrides.
     // FOULS_COMMITTED_COMPONENT is deliberately excluded from this
-    // assertion (CR-01, code review phase 02): that component represents
-    // points RED's fouls would cost BLUE, not anything about how many
-    // points red itself scored, so a fallback match — which has no way to
-    // observe it at all (it is derived from the OPPONENT's raw foulPoints
-    // field, equally absent) — must never move it via a share of red's own
-    // score. See the dedicated "CR-01" describe block below for the
-    // regression fixture that pins this.
+    // assertion: that component represents points RED's fouls would cost
+    // BLUE, not anything about how many points red itself scored, so a
+    // fallback match — which has no way to observe it at all (it is derived
+    // from the OPPONENT's raw foulPoints field, equally absent) — must never
+    // move it via a share of red's own score. See the dedicated "CR-01"
+    // describe block below for the regression fixture that pins this.
     //
-    // ADJUST_COMPONENT is ALSO deliberately excluded (D-5/D-6, quick task
-    // 260904-6a1): it is pinned at exactly 0 for every team on every
-    // update, real breakdown or fallback alike — see epa.ts's
-    // applyComponentUpdate doc comment.
+    // ADJUST_COMPONENT is ALSO deliberately excluded: it is pinned at
+    // exactly 0 for every team on every update, real breakdown or fallback
+    // alike — see epa.ts's applyComponentUpdate doc comment.
     for (const componentName of breakdown2024.components) {
       if (componentName === FOULS_COMMITTED_COMPONENT || componentName === ADJUST_COMPONENT) continue;
       const before = afterReal.teamComponents.get("frc1")![componentName]!;
@@ -277,7 +271,7 @@ describe("epa.update — D-05 fallback fixture replay", () => {
       afterReal.teamComponents.get("frc1")![FOULS_COMMITTED_COMPONENT]!,
       10
     );
-    // adjust is pinned at exactly 0 in both states — D-5/D-6.
+    // adjust is pinned at exactly 0 in both states.
     expect(afterFallback.teamComponents.get("frc1")![ADJUST_COMPONENT]).toBe(0);
     expect(afterReal.teamComponents.get("frc1")![ADJUST_COMPONENT]).toBe(0);
     expect(afterFallback.teamMatchCounts.get("frc1")).toBe(2);
