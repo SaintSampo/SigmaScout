@@ -2,15 +2,13 @@
  * Per-team beliefs over a season's RP THRESHOLD VARIABLES, learned from
  * observed results alone.
  *
- * This is the adapter VPR's retirement left missing. `distribution.ts` needs an
- * `AllianceRpMoments` per alliance; Sigma1 produced one from its own Kalman
- * state (in the retired Sigma1 core, since deleted), which is exactly why ranking points died with
- * it. This module produces the same contract from NOTHING BUT PAST RESULTS —
- * no model state, no per-team rating, no algorithm import. The module itself
- * is algorithm-agnostic; which algorithms PUBLISH ranking points is decided by
+ * `distribution.ts` needs an `AllianceRpMoments` per alliance. This module
+ * produces that contract from NOTHING BUT PAST RESULTS — no model state, no
+ * per-team rating, no algorithm import. The module itself is
+ * algorithm-agnostic; which algorithms PUBLISH ranking points is decided by
  * the harness (`publishesRankingPoints` in `packages/harness/sigmaScore.ts`):
- * since quick task 260913-it4 that is Sigma algorithms (SPR) only, because the
- * pmf also needs a per-robot score variance and only Sigma Score supplies one.
+ * Sigma algorithms (SPR) only, because the pmf also needs a per-robot score
+ * variance and only Sigma Score supplies one.
  *
  * It is a level-2 SigmaScout feature, built the same way Sigma Score is: a
  * team's share of an alliance-level observation, recency-weighted, folded
@@ -28,13 +26,11 @@
  * absorbs partners' contributions and is a genuinely noisy per-robot estimate.
  *
  * An alliance's predicted mean is then the sum of its three teams' means, and
- * its variance the sum of their variances. That summation is D-06's
- * independent-teams assumption, and it is the reason the covariance block this
- * module emits is DIAGONAL.
+ * its variance the sum of their variances. That summation is an
+ * independent-teams assumption, and it is the reason the covariance block
+ * this module emits is DIAGONAL.
  *
- * ---------------------------------------------------------------------------
- * THE THREE ASSUMPTIONS, MADE DELIBERATELY
- * ---------------------------------------------------------------------------
+ * THE THREE ASSUMPTIONS, MADE DELIBERATELY.
  *
  * `moments.ts` warns that a diagonal block and a zero cross-covariance are
  * decisions rather than defaults. This module makes both, on purpose, and says
@@ -72,15 +68,11 @@ import type { RpRuleModule } from "./constants.js";
  * Half-life in matches: an observation six matches old counts half as much as
  * the newest.
  *
- * MEASURED, not chosen — but measured for the retired per-robot consistency
- * accumulator, whose half-life this RP layer adopted. That measurement swept the
- * half-life walk-forward over 275,172 team-matches (2024-2026) against how well
- * the estimate predicts a team's ACTUAL next-match deviation. 6 sits at the top
- * of a plateau spanning roughly 4 to 12, where decay beats a flat average by
- * 2.3%. A future re-measurement landing on 5 or 8 would not contradict it.
- *
- * The accumulator it was measured for was deleted by quick task 260913-it4; this
- * constant is still live here, so its provenance is recorded here.
+ * MEASURED, not chosen — swept walk-forward over 275,172 team-matches
+ * (2024-2026) against how well the estimate predicts a team's ACTUAL
+ * next-match deviation. 6 sits at the top of a plateau spanning roughly 4 to
+ * 12, where decay beats a flat average by 2.3%. A future re-measurement
+ * landing on 5 or 8 would not contradict it.
  */
 export const RP_MOMENTS_HALF_LIFE_MATCHES = 6;
 
@@ -89,16 +81,11 @@ const DECAY = 0.5 ** (1 / RP_MOMENTS_HALF_LIFE_MATCHES);
 /**
  * One team's running belief about one threshold variable.
  *
- * EXPORTED (plan 09-08, D-21) so the live Worker can persist it into D1 as a
- * `sigmascoutRp` passenger and resume from it. The name says which feature it
- * belongs to on purpose: `stateSnapshot.ts` also carries a RETIRED VPR
- * `rpBeliefs` field inside its Sigma1 team-state serializer, which is
- * Sigma1's own Kalman state and a completely different thing that happens to
- * share a word.
- *
- * This was a rename-and-export, not a re-shape: no field changed name or
- * meaning, so a belief written before 09-08 means exactly what one written
- * after it means.
+ * EXPORTED so the live Worker can persist it into D1 as a `sigmascoutRp`
+ * passenger and resume from it. The name says which feature it belongs to
+ * on purpose: `stateSnapshot.ts` also carries a RETIRED `rpBeliefs` field
+ * from a different, deleted algorithm's serializer, which is a completely
+ * different thing that happens to share a word.
  */
 export interface RpVariableBelief {
   weight: number;
@@ -194,30 +181,19 @@ export class RpMomentsAccumulator {
         contributing++;
       }
       meanVector.push(mean);
-      // UNDO THE EVEN-SPLIT SHRINKAGE (fixed 2026-09-09; measured, see below).
-      //
-      // A team's belief is folded from `allianceValue / rosterSize`, so what it
-      // estimates is not that robot's own contribution variance — it is the
-      // WHOLE ALLIANCE's variance divided by `rosterSize²`, because the even
-      // split carries the partners' variability too. Summing `rosterSize` of
-      // them therefore lands on `Var(A)/rosterSize`, not `Var(A)`.
-      //
-      // Each contributing team implies `rosterSize² · Var(belief)` for the
-      // alliance, so the alliance estimate is the AVERAGE of those implications
-      // over the teams that actually have one. With a full roster that reduces
-      // to `rosterSize × Σ Var(belief)`; with a partial roster it degrades
-      // correctly instead of under-counting once for the missing team and again
-      // for the shrinkage.
-      //
-      // The mean needs no such correction and gets none: `rosterSize` even
-      // splits summed back reconstruct the alliance value exactly, which is why
-      // this was easy to miss — the first moment was right the whole time.
-      //
-      // Measured before the fix, walk-forward over 488,076 (alliance, bonus)
-      // observations across ten seasons: mean predicted 0.1131 against an
-      // observed 0.3109. This shrinkage is one of three causes and the only
-      // unintended one — the DIAGONAL block and the zero cross-covariance in
-      // this module's header are deliberate and remain.
+      // UNDO THE EVEN-SPLIT SHRINKAGE. A team's belief is folded from
+      // `allianceValue / rosterSize`, so what it estimates is not that
+      // robot's own contribution variance — it is the WHOLE ALLIANCE's
+      // variance divided by `rosterSize²`, because the even split carries
+      // the partners' variability too. Each contributing team implies
+      // `rosterSize² · Var(belief)` for the alliance, so the alliance
+      // estimate is the AVERAGE of those implications over the teams that
+      // actually have one; with a partial roster it degrades correctly
+      // instead of under-counting once for the missing team and again for
+      // the shrinkage. The mean needs no such correction: `rosterSize` even
+      // splits summed back reconstruct the alliance value exactly. This
+      // shrinkage is one of three causes; the DIAGONAL block and the zero
+      // cross-covariance in this module's header are deliberate and remain.
       variances.push(contributing > 0 ? (varianceSum * roster.length * roster.length) / contributing : 0);
     }
 
@@ -267,7 +243,7 @@ export class RpMomentsAccumulator {
 
   /**
    * Every team's RAW running state, for the D1 seed the live Worker resumes
-   * from (shape 15, plan 09-08).
+   * from.
    *
    * The same distinction `SigmaScoreAccumulator.beliefsByTeam()` draws, and
    * for the same reason: this is the raw running state, NOT `momentsFor`'s
