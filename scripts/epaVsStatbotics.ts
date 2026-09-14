@@ -1,55 +1,37 @@
 /**
- * SC-2 ("EPA runs walk-forward at any point in a season, and spot-checked
- * teams land within a documented tolerance of published Statbotics
- * numbers") — quick task 260904-4aa. Recorded blocked-on-external-dependency
- * since 2026-08-13 (`api.statbotics.io` reproducibly 500'd); re-verified
- * live 2026-09-04 that `/v3/team_years` is back up. This script replaces an
- * ad-hoc, un-re-runnable measurement (see `packages/core/algorithms/epa.ts`'s
- * file header) with a committed, re-runnable comparison.
+ * Verifies EPA runs walk-forward at any point in a season, and that
+ * spot-checked teams land within a documented tolerance of published
+ * Statbotics numbers. A committed, re-runnable comparison.
  *
- * Season-loop shape mirrors the retired rewind-gap script (deleted by quick task 260913-it4): `openCorpusReadOnly`,
- * `buildSeasonStream`, `seasonBoundaryFor` (cold-starting positionally at
- * the first season in the requested range), `carrySeason` threading between
- * seasons. Statistics live in `packages/harness/epaStatboticsCompare.ts` — a
- * pure, network-free, corpus-free module this script calls into rather than
+ * Statistics live in `packages/harness/epaStatboticsCompare.ts` — a pure,
+ * network-free, corpus-free module this script calls into rather than
  * duplicating.
  *
- * Our comparable value, per team, is `total` — no subtraction here anymore.
- * As of `epa@3.0.0+baseline` (D-01, quick task 260904-5px), EPA's own
- * published `total` (`epa.ts`'s `teamMetrics()`) already excludes
+ * Our comparable value, per team, is `total` — no subtraction here. EPA's
+ * own published `total` (`epa.ts`'s `teamMetrics()`) already excludes
  * `foulsCommitted`, exactly the no-foul figure Statbotics publishes as
- * `epa.total_points` (verified live 2026-09-04: `frc254`/2024 total_points
- * 51.71 == auto 15.94 + teleop 29.48 + endgame 6.28). The exclusion used to
- * live HERE, subtracting `foulsCommitted` from `total` after the fact; it
- * now lives in the metric itself, so this script reads `total` directly.
- * Demo team keys (raw `frc9970`-`frc9999` and the shared pseudo key) never
- * enter the join, on either side (`epaStatboticsCompare.ts`'s `joinTeams`).
+ * `epa.total_points` (verified: `frc254`/2024 total_points 51.71 == auto
+ * 15.94 + teleop 29.48 + endgame 6.28). Demo team keys (raw
+ * `frc9970`-`frc9999` and the shared pseudo key) never enter the join, on
+ * either side (`epaStatboticsCompare.ts`'s `joinTeams`).
  *
  * Usage:
  *   npx tsx scripts/epaVsStatbotics.ts                                    # full range, offseason-inclusive, writes reports/epa-vs-statbotics/
  *   npx tsx scripts/epaVsStatbotics.ts --seasons 2022-2026 --no-offseason --out reports/epa-vs-statbotics-nooff
  *   npx tsx scripts/epaVsStatbotics.ts --check                            # re-measures the default range and checks it against the committed baseline
  *
- * The offseason-excluded invocation above names the full 2022-2026 range,
- * not 2022-2025 — quick task 260908-n5o. The 2022-2025 restriction was
- * written when 2026 was still in progress; 2026 is now the season the
- * production tables already report, and the two arms must cover the same
- * seasons or they are not an A/B at all (`epaVersion` below is the OTHER
- * half of that same guarantee — see its own doc comment).
+ * The offseason-excluded invocation above names the full 2022-2026 range:
+ * the two arms must cover the same seasons or they are not an A/B at all
+ * (`epaVersion` below is the OTHER half of that same guarantee — see its
+ * own doc comment).
  *
- * Revision, same day, after reviewing the shipped page: the published
- * agreement table compared `minMatchesFiltered` — each team's SEASON-FINAL
- * total, offseason play included — against Statbotics. That is not the
- * number anyone sees on this site. The Teams list and the team-page header
- * both show a team's total as of its own LAST OFFICIAL match
- * (`packages/harness/publish.ts`'s `lastOfficialMetricsByTeam`), and that
- * quantity agrees with Statbotics far more closely than the season-final one
- * does. This script now also measures a THIRD arm, `officialOnly`, computed
- * by the SAME rule, so the published comparison measures the number a
- * visitor actually sees. `allTeams`, `minMatchesFiltered`, and
- * `includeOffseason` are UNCHANGED — they still gate `--check` against the
- * committed baseline exactly as before; this is a strict addition, not a
- * replacement.
+ * The published agreement table compares `officialOnly` — each team's
+ * `total` as of its own LAST OFFICIAL match, the same rule
+ * (`packages/harness/publish.ts`'s `lastOfficialMetricsByTeam`) the Teams
+ * list and team-page header use — against Statbotics, since that is the
+ * number a visitor actually sees. `allTeams` and `minMatchesFiltered`
+ * remain as separate arms that still gate `--check` against the committed
+ * baseline.
  *
  * This script reads the corpus READ-ONLY and touches NO credential of any
  * kind: no network request needs auth (Statbotics is unauthenticated), no
@@ -81,7 +63,7 @@ import {
 
 export const CORPUS_PATH = join("data", "corpus.sqlite");
 export const STATBOTICS_TEAM_YEARS_CACHE_PATH = join("reports", "epa-vs-statbotics", "statbotics-team-years-cache.json");
-/** Quick task 260908-n5o: a SEPARATE cache from the team-years cache above — a different Statbotics endpoint (`statboticsReference`'s season-level accuracy/Brier, not the per-team `/v3/team_years` rows), so the two caches never collide on one file. */
+/** A SEPARATE cache from the team-years cache above — a different Statbotics endpoint (`statboticsReference`'s season-level accuracy/Brier, not the per-team `/v3/team_years` rows), so the two caches never collide on one file. */
 export const STATBOTICS_YEAR_REFERENCE_CACHE_PATH = join("reports", "epa-vs-statbotics", "statbotics-year-reference-cache.json");
 export const DEFAULT_BASELINE_PATH = join("data", "baselines", "epa-vs-statbotics-2026-09.json");
 
@@ -100,16 +82,17 @@ interface CliOptions {
   readonly minMatches: number;
   readonly includeOffseason: boolean;
   /**
-   * Quick task 260911-r7e: seasons replayed ONLY to warm the carried EPA state,
-   * never reported on. The replay carries state across every season boundary,
-   * so the FIRST reported season otherwise cold-starts every team — which is
-   * exactly wrong for a Statbotics comparison, since Statbotics always has that
-   * season's real carry-in. Kept separate from `seasons` rather than widening
-   * it because the per-team arm fetches `/v3/team_years` for every REPORTED
-   * season, and a warmup season has no reason to spend that request.
+   * Seasons replayed ONLY to warm the carried EPA state, never reported on.
+   * The replay carries state across every season boundary, so the FIRST
+   * reported season otherwise cold-starts every team — which is exactly
+   * wrong for a Statbotics comparison, since Statbotics always has that
+   * season's real carry-in. Kept separate from `seasons` rather than
+   * widening it because the per-team arm fetches `/v3/team_years` for every
+   * REPORTED season, and a warmup season has no reason to spend that
+   * request.
    */
   readonly warmupSeasons: readonly number[];
-  /** Quick task 260911-r7e: score surrogate-affected matches too, to match Statbotics' documented match population. A comparability arm; default false. */
+  /** Score surrogate-affected matches too, to match Statbotics' documented match population. A comparability arm; default false. */
   readonly scoreSurrogates: boolean;
   readonly outDir: string;
   readonly check: boolean;
@@ -123,10 +106,10 @@ interface CliOptions {
  * range (`2022-2026`) is still accepted unchanged, so every existing
  * invocation and the `DEFAULT_SEASONS_RANGE` keep their exact behaviour.
  *
- * Quick task 260911-r7e added the gapped form for one concrete reason: the
- * replay carries EPA state across each season boundary, so measuring 2022
- * from a 2022 start cold-starts every team in the one season whose carry-in
- * Statbotics actually has. Reaching a warm 2022 requires naming 2016-2020 and
+ * The gapped form exists for one concrete reason: the replay carries EPA
+ * state across each season boundary, so measuring 2022 from a 2022 start
+ * cold-starts every team in the one season whose carry-in Statbotics
+ * actually has. Reaching a warm 2022 requires naming 2016-2020 and
  * 2022-2026 while SKIPPING 2021 — `componentMapForSeason` has no 2021 map
  * (the season had no on-field play with a TBA score breakdown), so a
  * contiguous 2016-2026 range throws. This function is what makes the warm
@@ -214,17 +197,15 @@ function uniqueTeamKeysInOrder(matches: readonly MatchResult[]): string[] {
  * One season's replay output this script needs: the season-FINAL `EpaState`
  * (unchanged contract — see `replayEpaSeasonFinals`'s own doc comment on
  * `finalStates` vs `carryStates`) PLUS the `PredictionRecord[]` that same
- * replay already produced and, before quick task 260908-n5o, threw away.
- * Keeping both off ONE pass is the tracer's whole point (Task 1's own
- * `<action>`): no second replay, no second corpus read, to get the
- * win-probability arm this task adds.
+ * replay already produces. Keeping both off ONE pass means no second
+ * replay and no second corpus read to get the win-probability arm.
  */
 export interface SeasonReplayResult {
   readonly finalState: EpaState;
   readonly records: readonly MultiAlgorithmPredictionRecord[];
   /**
-   * Revision 260908-n5o: each involved team's `total` value as of its own
-   * LAST OFFICIAL match within this season's replay — the exact rule
+   * Each involved team's `total` value as of its own LAST OFFICIAL match
+   * within this season's replay — the exact rule
    * `packages/harness/publish.ts`'s `lastOfficialMetricsByTeam` already
    * establishes for the Teams-list snapshot and the team-page header ("As of
    * last official match"), mirrored here via `onMatchComplete` rather than
@@ -238,14 +219,14 @@ export interface SeasonReplayResult {
 
 /**
  * One threaded, chronological replay across `seasons` (cold-starting
- * positionally at index 0, per `seasonBoundaryFor`'s D-1 contract), capturing
+ * positionally at index 0, per `seasonBoundaryFor`'s own contract), capturing
  * `epa`'s season-FINAL state AND its per-match prediction records at EVERY
  * season in the range — the replay is already chronological and visits each
  * boundary, so one pass produces every season's comparison rather than only
  * the last.
  *
- * Quick task 260908-615: two as-of instants are now in play here, and this
- * function deliberately uses BOTH.
+ * Two as-of instants are in play here, and this function deliberately uses
+ * BOTH:
  *
  *   - The value each entry's `finalState` carries is `finalStates` — that is
  *     the MEASURED quantity this script compares against Statbotics, and the
@@ -320,7 +301,7 @@ function replayEpaSeasonFinals(seasons: readonly number[], includeOffseason: boo
  * query just to restate it.
  *
  * Exported and pure — no corpus, no network — so it is unit-testable with a
- * synthetic record (Task 1's own requirement).
+ * synthetic record.
  */
 export function mapRecordsToHarnessPredictionInput(
   records: readonly MultiAlgorithmPredictionRecord[],
@@ -338,23 +319,21 @@ export function mapRecordsToHarnessPredictionInput(
     predictedBlueScore: r.prediction.blueScore,
     actualWinner: r.match.winner,
     isOffseason: r.match.eventType === OFFSEASON_EVENT_TYPE,
-    // Quick task 260911-r7e: `scoreSurrogates` declares a surrogate-affected
-    // match as ordinary so `aggregateScores` scores it, which is a
-    // COMPARABILITY arm and nothing else. Statbotics' documented
-    // `matchPopulation` is "all qualification + elimination matches" and ours
-    // excludes surrogate-affected ones, a difference visible in the counts
-    // (Statbotics reports 13,286 matches for 2016 against our 12,994, +2.2%).
-    // Default OFF, so every other caller and the published path keep the
-    // exclusion. This deliberately does NOT touch `score.ts` — the exclusion
-    // rule there is correct for SigmaScout's own reporting and is not being
-    // relitigated; only what this one comparison declares about its own
-    // records changes.
+    // `scoreSurrogates` declares a surrogate-affected match as ordinary so
+    // `aggregateScores` scores it, which is a COMPARABILITY arm and nothing
+    // else. Statbotics' documented `matchPopulation` is "all qualification +
+    // elimination matches" and ours excludes surrogate-affected ones, a
+    // difference visible in the counts. Default OFF, so every other caller
+    // and the published path keep the exclusion. This deliberately does NOT
+    // touch `score.ts` — the exclusion rule there is correct for
+    // SigmaScout's own reporting and is not being relitigated; only what
+    // this one comparison declares about its own records changes.
     isSurrogateAffected: options.scoreSurrogates === true ? false : r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
-    // Quick task 260909-t5q: read off the record's own stamp, same as every
-    // other producer — this script's `WalkForwardSimulator` construction is
-    // deliberately left on the default (no-op) cold-start index, so this is
-    // always `false` today, but the vocabulary stays single-source rather
-    // than a second hardcoded literal.
+    // Read off the record's own stamp, same as every other producer — this
+    // script's `WalkForwardSimulator` construction is deliberately left on
+    // the default (no-op) cold-start index, so this is always `false`
+    // today, but the vocabulary stays single-source rather than a second
+    // hardcoded literal.
     isColdStart: r.coldStart === true,
   }));
 }
@@ -363,9 +342,7 @@ export function mapRecordsToHarnessPredictionInput(
  * Selects the `"combined"` `compLevelView` slice for one (algorithmId,
  * season) pair, loudly: a missing combined slice here means `aggregateScores`
  * was handed the wrong season set or algorithm id, and a silent fallback
- * (e.g. an empty-figures default) would hide exactly that bug — Task 1's own
- * requirement that "given none, the failure is loud rather than a silent
- * null."
+ * (e.g. an empty-figures default) would hide exactly that bug.
  */
 export function selectCombinedSlice(slices: readonly ScoreSlice[], algorithmId: string, season: number): ScoreSlice {
   const slice = slices.find((s) => s.algorithmId === algorithmId && s.season === season && s.compLevelView === "combined");
@@ -389,7 +366,7 @@ export function currentEpaVersion(): string {
   return epa.version;
 }
 
-/** Our comparable value per team: `total`, straight from `teamMetrics()` (see file header — EPA's own `total` is now the no-foul figure as of D-01). Demo keys are excluded here too, defensively — `joinTeams` also excludes them, but a caller inspecting `ours` directly should not see them either. */
+/** Our comparable value per team: `total`, straight from `teamMetrics()` (see file header — EPA's own `total` is the no-foul figure). Demo keys are excluded here too, defensively — `joinTeams` also excludes them, but a caller inspecting `ours` directly should not see them either. */
 function ourTeamValuesFromState(state: EpaState): OurTeamValue[] {
   const metrics = epa.teamMetrics(state);
   const values: OurTeamValue[] = [];
@@ -429,10 +406,10 @@ export interface SpotCheckRow {
 /**
  * One season's winner-prediction comparison: our own `aggregateScores`
  * `"combined"`-view figures alongside Statbotics' own published season
- * figures (quick task 260908-n5o). `ourWinnerAccuracy`/`ourBrierScore` are
- * nullable, matching `ScoreSlice`'s own contract (a slice with zero scored
- * matches carries `null` for both, honestly, rather than a fabricated
- * number). `statboticsBrierScore` is nullable too, matching
+ * figures. `ourWinnerAccuracy`/`ourBrierScore` are nullable, matching
+ * `ScoreSlice`'s own contract (a slice with zero scored matches carries
+ * `null` for both, honestly, rather than a fabricated number).
+ * `statboticsBrierScore` is nullable too, matching
  * `StatboticsReference.mse`'s own optionality (unreachable in practice today
  * — every fallback constant this project carries also carries `mse` — but
  * the type says so rather than assuming it).
@@ -452,13 +429,12 @@ export interface SeasonReportEntry {
   readonly allTeams: SeasonComparison;
   readonly minMatchesFiltered: SeasonComparison;
   /**
-   * Revision 260908-n5o: the same `compareSeason` join and the same
-   * min-matches(12) filter as `minMatchesFiltered`, but against each team's
-   * `officialOnlyTeamValues` — its rating as of its own last official match,
-   * rather than the season-final total. This is the arm the published
-   * comparison page reads: it is the number the Teams list and the
-   * team-page header actually show a visitor, and `minMatchesFiltered` is
-   * not.
+   * The same `compareSeason` join and the same min-matches(12) filter as
+   * `minMatchesFiltered`, but against each team's `officialOnlyTeamValues`
+   * — its rating as of its own last official match, rather than the
+   * season-final total. This is the arm the published comparison page
+   * reads: it is the number the Teams list and the team-page header
+   * actually show a visitor, and `minMatchesFiltered` is not.
    */
   readonly officialOnly: SeasonComparison;
   readonly spotCheck: readonly SpotCheckRow[];
@@ -479,9 +455,8 @@ export interface EpaVsStatboticsReport {
   readonly seasons: readonly number[];
   readonly includeOffseason: boolean;
   /**
-   * Quick task 260911-r7e: seasons replayed only to warm the carried EPA state,
-   * never reported on. Recorded so a reader can tell a warm figure from a cold
-   * one.
+   * Seasons replayed only to warm the carried EPA state, never reported on.
+   * Recorded so a reader can tell a warm figure from a cold one.
    *
    * OPTIONAL, and omitted entirely when no warmup was requested, so the report
    * this script writes on its default invocation stays byte-identical to the one
@@ -570,8 +545,8 @@ async function main(): Promise<void> {
   // that option's own contract: a caller must declare its full season set,
   // never narrow it silently), and `eligibility` is the
   // `ELIGIBILITY_NOT_CLAIMED` sentinel because this measurement makes no
-  // headline-eligibility claim of its own (Task 1's own instruction: the
-  // sentinel is the strictest available answer, not a convenience default).
+  // headline-eligibility claim of its own — the sentinel is the strictest
+  // available answer, not a convenience default.
   const allPredictions: HarnessPredictionInput[] = options.seasons.flatMap((season) => {
     const replayed = replayResultsBySeason.get(season);
     if (!replayed) throw new Error(`epaVsStatbotics: no replayed records for season ${season}`);
