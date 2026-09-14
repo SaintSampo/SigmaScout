@@ -23,10 +23,9 @@ import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.j
 import type { PublishedAlgorithmId } from "../../../../packages/harness/publishedAlgorithms.js";
 
 /**
- * The `/match/{matchKey}` route (260909-tiq-PLAN.md Task 1). Reuses
- * `eventQueryOptions` UNCHANGED (D-01: no new fetcher, no new artifact) so a
- * reader arriving from the event page hits a warm TanStack Query cache — the
- * same artifact, the same query key.
+ * The `/match/{matchKey}` route. Reuses `eventQueryOptions` UNCHANGED (no
+ * new fetcher, no new artifact) so a reader arriving from the event page
+ * hits a warm TanStack Query cache — the same artifact, the same query key.
  */
 export const Route = createFileRoute("/match/$matchKey")({
   validateSearch: MatchSearchSchema,

@@ -3,11 +3,11 @@ import type { PublishedPreScheduleArtifact } from "../../../../packages/harness/
 
 /**
  * Reconstitutes a published pre-schedule sidecar's BAKED result into the
- * exact `SimResult` shape the client's own Web Worker returns (quick task
- * 260905-tll Task 5, C-09). Pure: no React import, no fetch, no Worker, no
- * Monte Carlo — the draws were performed once, in the pipeline, by the same
- * `simulateRanks` this app ships (`packages/harness/preSchedule.ts` calls
- * it directly), and this function only unpacks them.
+ * exact `SimResult` shape the client's own Web Worker returns. Pure: no
+ * React import, no fetch, no Worker, no Monte Carlo — the draws were
+ * performed once, in the pipeline, by the same `simulateRanks` this app
+ * ships (`packages/harness/preSchedule.ts` calls it directly), and this
+ * function only unpacks them.
  *
  * **Why a `SimResult` rather than rows.** Producing the shared shape is
  * what lets the baked path call the SHIPPED `buildRankDistributionRows`
@@ -18,8 +18,8 @@ import type { PublishedPreScheduleArtifact } from "../../../../packages/harness/
  * disagree about the same event while both looking plausible.
  *
  * **The division of labour, stated so a reader does not "helpfully" add a
- * second check here (T-tll-02/T-tll-03).** This function deliberately does
- * NOT re-validate that `histograms.length === roster.length`, that each
+ * second check here.** This function deliberately does NOT re-validate
+ * that `histograms.length === roster.length`, that each
  * histogram's length equals `roster.length`, or that each sums to
  * `baked.draws`. `PreScheduleArtifactSchema` and
  * `PublishedPreScheduleArtifactSchema`'s own shared refinements

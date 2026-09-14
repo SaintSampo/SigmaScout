@@ -1,7 +1,5 @@
 /**
- * The home page podium's pooled-accuracy model (2026-09-01, user decision:
- * "add the comparison as just accuracy, as a podium — factor 2024–2026
- * accuracy together").
+ * The home page podium's pooled-accuracy model.
  *
  * Pooling is the exact reconstruction the Compare artifacts support:
  * `winnerAccuracy * scoredCount` is the correct-call COUNT for a slice, so
@@ -12,22 +10,19 @@
  * Compare page headlines.
  *
  * Every number the podium renders is derived HERE from fetched artifacts at
- * run time — no hand-typed percentage anywhere (the same D-10 discipline the
- * Compare page's parity proof enforces).
+ * run time — no hand-typed percentage anywhere.
  *
- * WR-03 (260902-post-phase08-ungoverned-ui/REVIEW.md): the slice lookup is
- * SEASON-asserted, not just algorithm+compLevelView, so a mis-keyed or
- * multi-season artifact list cannot silently pool the same season twice (or
- * pool a season the caller never asked for). This could NOT be written the
- * way the review's own text proposed (`s.season === artifact.season`) —
- * verified at plan time, `CompareArtifact` (`CompareArtifactSchema` =
- * `PagePreambleSchema` + `algorithms` + `slices`) carries no top-level
- * `season` field at all; `season` lives on each SLICE, one level down. The
- * artifact therefore cannot assert its own season — only the CALLER, who
- * fetched it for a specific year, knows which one to assert. That is why the
- * assert lives in the signature (a list of season/artifact pairs) rather
- * than inside this function reading `artifact.season` off input that does
- * not have it.
+ * The slice lookup is SEASON-asserted, not just algorithm+compLevelView, so
+ * a mis-keyed or multi-season artifact list cannot silently pool the same
+ * season twice (or pool a season the caller never asked for). This could
+ * NOT be written as `s.season === artifact.season`: `CompareArtifact`
+ * (`CompareArtifactSchema` = `PagePreambleSchema` + `algorithms` + `slices`)
+ * carries no top-level `season` field at all; `season` lives on each SLICE,
+ * one level down. The artifact therefore cannot assert its own season —
+ * only the CALLER, who fetched it for a specific year, knows which one to
+ * assert. That is why the assert lives in the signature (a list of
+ * season/artifact pairs) rather than inside this function reading
+ * `artifact.season` off input that does not have it.
  */
 import type { CompareArtifact } from "../../../../packages/harness/pageArtifacts.js";
 import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../packages/harness/publishedAlgorithms.js";
@@ -43,7 +38,7 @@ export interface PodiumEntry {
   readonly scoredCount: number;
 }
 
-/** One artifact paired with the season the caller fetched it for — the pairing WR-03's season assert needs, since the artifact cannot name its own season. */
+/** One artifact paired with the season the caller fetched it for — the pairing the season assert needs, since the artifact cannot name its own season. */
 export interface SeasonedCompareArtifact {
   readonly season: number;
   readonly artifact: CompareArtifact;

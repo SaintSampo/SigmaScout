@@ -1,8 +1,8 @@
 /**
- * D-04/D-17 (Phase 6, 06-07-PLAN.md Task 1): the rarity-tier band function —
- * maps a published per-metric percentile in the closed interval [0, 100]
- * (`TeamMetricSchema.percentile`, `packages/harness/pageArtifacts.ts`) to one
- * of the sketch-findings-sigmascout skill's four named tiers
+ * The rarity-tier band function — maps a published per-metric percentile
+ * in the closed interval [0, 100] (`TeamMetricSchema.percentile`,
+ * `packages/harness/pageArtifacts.ts`) to one of the
+ * sketch-findings-sigmascout skill's four named tiers
  * (`.claude/skills/sketch-findings-sigmascout/references/colour-and-tiers.md`).
  *
  * Boundary contract (locked, tested at every cut and one step either side in
@@ -16,7 +16,7 @@
  * clamping: the publish-side schema (`z.number().min(0).max(100)`) already
  * bounds every real value, so an out-of-range input here can only mean a
  * pipeline defect — clamping it would silently hide that defect behind a
- * confidently wrong colour (see this file's own STRIDE entry, T-06-02).
+ * confidently wrong colour.
  */
 
 import { publishedTierForPercentile } from "../../../../packages/harness/pageArtifacts.js";
@@ -55,12 +55,11 @@ export const TIER_BANDS: readonly TierBand[] = [
   * The only difference is this one names Common explicitly, where the
   * published field omits it for payload-size reasons alone (see
   * `pageArtifacts.ts`'s `TeamMetricSchema.tier` doc) — that omission is a
-  * wire-format fact, not a rendering one. Since quick task 260904-7rt
-  * (sketch 008 winner C), Common is NOT rendered unboxed: `MetricValue`
-  * draws the `.metric-tier--common` hairline ring for any defined tier,
-  * Common included, so `tierForPercentile`'s explicit `"common"` here (never
-  * `undefined`) is exactly what makes that ring appear for every caller that
-  * derives a tier from a percentile.
+  * wire-format fact, not a rendering one. Common is NOT rendered unboxed:
+  * `MetricValue` draws the `.metric-tier--common` hairline ring for any
+  * defined tier, Common included, so `tierForPercentile`'s explicit
+  * `"common"` here (never `undefined`) is exactly what makes that ring
+  * appear for every caller that derives a tier from a percentile.
   */
 export function tierForPercentile(percentile: number | undefined): Tier | undefined {
   if (percentile === undefined) return undefined;
