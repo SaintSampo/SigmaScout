@@ -111,7 +111,7 @@ describe("epaPercentFunc — decaying, clamped learning rate", () => {
 });
 
 describe("epa.update — two-stage EWMA reproduces a hand-computed value", () => {
-  it("starting mean 10, observation 40, percent 1/3 (match count 0), weight 1 (a QUALIFICATION match — D-05's elim discount does not apply) gives 20", () => {
+  it("starting mean 10, observation 40, percent 1/3 (match count 0), weight 1 (a QUALIFICATION match — the elimination discount does not apply) gives 20", () => {
     // Only frc1 is rating-eligible on red (its two teammates are surrogates),
     // so the alliance's whole autoLeavePoints observation attributes to it
     // alone (observedShare === allianceValue, no /3 split to reason about).
@@ -149,7 +149,7 @@ describe("epa.update — two-stage EWMA reproduces a hand-computed value", () =>
   });
 });
 
-describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_attrib)", () => {
+describe("epa.update — error-split attribution (Statbotics post_process_attrib)", () => {
   /**
    * Three rating-eligible teammates with deliberately UNEQUAL prior means on
    * `auto` (40 / 10 / 10, summing to a predicted alliance total of 60),
@@ -271,7 +271,7 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
   });
 });
 
-describe("epa.update — D-05: Statbotics' elimination discount, adopted (quick task 260904-5px)", () => {
+describe("epa.update — Statbotics' elimination discount, adopted", () => {
   function baseStateForElimTests(): EpaState {
     return {
       season: 2024,
@@ -352,7 +352,7 @@ describe("epa.update — D-05: Statbotics' elimination discount, adopted (quick 
     }
   });
 
-  it("both alliance scores still fold into allianceScoreStats for an elimination match — the win-probability scale is unaffected by D-05", () => {
+  it("both alliance scores still fold into allianceScoreStats for an elimination match — the win-probability scale is unaffected by the elimination discount", () => {
     const baseState = baseStateForElimTests();
     const elimResult = matchAt("sf", "2024test_sf1");
     const afterElim = epa.update(baseState, elimResult);
@@ -433,7 +433,7 @@ describe("epa.predict — win-probability scale derivation (Pitfall EPA-1)", () 
 // per-team rated component derived from the opponent's raw `foulPoints`,
 // still published, and still `carrySeason`'s carryover input — only its
 // place in a PREDICTION is excluded.
-describe("epa.predict — foulsCommitted no longer enters either predicted score (D-04 narrowed, l2k)", () => {
+describe("epa.predict — foulsCommitted no longer enters either predicted score", () => {
   it("an alliance's own learned foulsCommitted component reaches NEITHER predicted score", () => {
     const state: EpaState = {
       season: 2024,
@@ -475,7 +475,7 @@ describe("epa.predict — foulsCommitted no longer enters either predicted score
   });
 });
 
-describe("epa.update — event-boundary invariance (ALGO-02 checkpoint gap, D-13)", () => {
+describe("epa.update — event-boundary invariance", () => {
   it("produces identical resulting state for a team's second match whether it shares the first match's eventKey or falls in a different event of the same season", () => {
     // EPA has no event-boundary-sensitive code, matching Statbotics.
     // `update()`'s only use of `eventKey` is deriving `season` on a team's
@@ -627,7 +627,7 @@ describe("epa — contract shape", () => {
  * against `componentsInGroup`, never a hand-typed number, which is what
  * keeps them true across a future re-grouping.
  */
-describe("epa.teamMetrics — D-1 (quick task 260904-7id): phase groups published as first-class metrics", () => {
+describe("epa.teamMetrics — phase groups published as first-class metrics", () => {
   /** One value per 2024-registered component (all three groups plus both ungrouped components), so every group has something present. */
   const FULL_2024_COMPONENTS: Readonly<Record<string, number>> = {
     auto: 12,
@@ -693,7 +693,7 @@ describe("epa.teamMetrics — D-1 (quick task 260904-7id): phase groups publishe
     expect(metrics["phaseEndgame"]).toBeUndefined();
   });
 
-  it("reconciliation: phaseAuto + phaseTeleop + phaseEndgame + adjust equals total exactly — EPA-specific (total already excludes foulsCommitted, D-01; adjust is pinned at 0, D-5/D-6), NOT a general property of the grouping", () => {
+  it("reconciliation: phaseAuto + phaseTeleop + phaseEndgame + adjust equals total exactly — EPA-specific (total already excludes foulsCommitted; adjust is pinned at 0), NOT a general property of the grouping", () => {
     const state = stateWithComponents(FULL_2024_COMPONENTS);
     const metrics = epa.teamMetrics(state)["frc1"]!;
     const groupSum = metrics["phaseAuto"]!.value + metrics["phaseTeleop"]!.value + metrics["phaseEndgame"]!.value;
@@ -702,7 +702,7 @@ describe("epa.teamMetrics — D-1 (quick task 260904-7id): phase groups publishe
   });
 });
 
-describe("epa.carrySeason — D-01: the carryover input stays fouls-INCLUSIVE, deliberately different from the published total (quick task 260904-5px)", () => {
+describe("epa.carrySeason — the carryover input stays fouls-INCLUSIVE, deliberately different from the published total", () => {
   it("a team with a nonzero foulsCommitted carries a LARGER point total than a teammate with an identical offensive component but zero foulsCommitted", () => {
     // frc1 and frc2 share the identical offensive component (auto: 30) —
     // under the PUBLISHED (fouls-excluded) total they would be
@@ -743,7 +743,7 @@ describe("epa.carrySeason — D-01: the carryover input stays fouls-INCLUSIVE, d
   });
 });
 
-describe("epa.update — D-05 fallback attribution (CR-01, code review phase 02)", () => {
+describe("epa.update — breakdown-less fallback attribution", () => {
   it("a NON-uniform predicted vector with a nonzero prior foulsCommitted mean: foulsCommitted is carried forward unchanged, and the opponent's predicted foul contribution is netted out before the offensive split", () => {
     // R1's predicted shares are deliberately non-uniform (40 vs 10) and its
     // prior foulsCommitted mean (8) is nonzero, so a regression that fed a
@@ -808,7 +808,7 @@ describe("epa.update — D-05 fallback attribution (CR-01, code review phase 02)
   });
 });
 
-describe("epa.update — WR-01 finite-value gate (code review phase 02)", () => {
+describe("epa.update — finite-value gate", () => {
   it("throws when result.redScore is non-finite, rather than silently folding NaN into a team's EWMA state for the rest of the season", () => {
     const state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
     const brokenMatch = matchResult({
@@ -830,7 +830,7 @@ function breakdown2024JsonMissingFields(fieldsToOmit: readonly string[]): string
   return JSON.stringify(full);
 }
 
-describe("epa.update — T-03-18b: a malformed self-reported breakdown degrades to the D-05 fallback, never a throw", () => {
+describe("epa.update — a malformed self-reported breakdown degrades to the breakdown-less fallback, never a throw", () => {
   it("the missing-adjustPoints (2024cafb_qm1) payload does not throw, breakdownParseFailureCount increments by 1, team components move off cold start, and fallbackSkipped remains 0", () => {
     const state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
     // Cold start: every team's teamComponents entry is genuinely EMPTY (no
@@ -1046,7 +1046,7 @@ describe("epa — whole-alliance DQ zero-score exclusion (.planning/todos/pendin
   });
 });
 
-describe("epa — adjust-zeroed alliance exclusion (quick task 260904-6a1, .planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md's sibling)", () => {
+describe("epa — adjust-zeroed alliance exclusion", () => {
   it("an alliance zeroed by a negative parsed adjustPoints with EMPTY dq lists gets NO component update — the 2026bc2_sf14m1 shape (real ~456-point alliance, adjustPoints: -456, no DQ)", () => {
     const initial = epa.initState(["frc190", "frc3467", "frc237", "frc1", "frc2", "frc3"]);
     const afterAdjustZero = epa.update(
@@ -1148,7 +1148,7 @@ describe("epa — adjust-zeroed alliance exclusion (quick task 260904-6a1, .plan
   });
 });
 
-describe("epa — adjust pinned at 0 per team (D-5/D-6, quick task 260904-6a1)", () => {
+describe("epa — adjust pinned at 0 per team", () => {
   it("after N updates against breakdowns carrying nonzero adjustPoints, every team's adjust entry is exactly 0", () => {
     let state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
     for (let i = 0; i < 5; i++) {
@@ -1198,7 +1198,7 @@ describe("epa — adjust pinned at 0 per team (D-5/D-6, quick task 260904-6a1)",
     }
   });
 
-  it("a cold-start team's summed component means equal EPA_INIT_COMPONENT_TOTAL — unchanged by excluding adjust from the divisor (D-6)", () => {
+  it("a cold-start team's summed component means equal EPA_INIT_COMPONENT_TOTAL — unchanged by excluding adjust from the divisor", () => {
     // One team per alliance (n=1): with every raw breakdown field set to
     // EXACTLY the modeled cold-start value, the observation matches the
     // prior exactly, so `twoStageEwma` is a no-op and the per-team sum is
@@ -1275,7 +1275,7 @@ describe("epa — adjust pinned at 0 per team (D-5/D-6, quick task 260904-6a1)",
     expect(result[ADJUST_COMPONENT]).toBeUndefined();
   });
 
-  it("a D-05 fallback match (null scoreBreakdownRaw) still updates every rating-eligible team, and adjust stays pinned at 0 throughout", () => {
+  it("a breakdown-less fallback match (null scoreBreakdownRaw) still updates every rating-eligible team, and adjust stays pinned at 0 throughout", () => {
     const initial = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
     const afterFallback = epa.update(
       initial,
@@ -1302,7 +1302,7 @@ describe("epa — adjust pinned at 0 per team (D-5/D-6, quick task 260904-6a1)",
  * test that only checks the rescaled number cannot pass if the rescale
  * silently became a no-op.
  */
-describe("epa — season-boundary scale anchor: a carried rating enters in the INCOMING season's units (quick task 260911-3kc)", () => {
+describe("epa — season-boundary scale anchor: a carried rating enters in the INCOMING season's units", () => {
   const FROM_SEASON = 2023;
   const TO_SEASON = 2024;
   /** The outgoing season's alliance-score mean — the units every carried component starts in. */
@@ -1389,7 +1389,7 @@ describe("epa — season-boundary scale anchor: a carried rating enters in the I
     expect(Math.abs(seenRedTotal - rawRedTotal)).toBeGreaterThan(1);
   });
 
-  it("keeps EPA's pinned-zero adjust component at exactly 0 through the rescale (D-5)", () => {
+  it("keeps EPA's pinned-zero adjust component at exactly 0 through the rescale", () => {
     const prediction = epa.predict(warmedState(), upcoming({ redTeams: RED, blueTeams: ["frc4", "frc5", "frc6"] }));
     expect(prediction.redComponents?.[ADJUST_COMPONENT]?.mean).toBe(0);
   });
