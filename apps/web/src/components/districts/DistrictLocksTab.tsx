@@ -22,13 +22,14 @@
  * invites (Engineering Inspiration, Rookie All Star) are annotated
  * "(award-only invite)"; DCMP-tier awards never carry that annotation.
  *
- * A richer header: the District Locks tab additionally shows a per-team
- * season ceiling, a played/upcoming event schedule strip, and a
- * district-wide points pool (distributed, and an explicitly-marked "~"
- * estimate for what remains); the Champ Locks tab shows a "Remaining
- * district points: X / Y pre-DCMP" line. Both are computed client-side by
- * `districtLocksHeaderStats.ts` (the published artifact carries no
- * dedicated aggregate field for either).
+ * One header card per tab (`LocksHeaderCard`): a single wrapping stat row
+ * reading capacity, Lock Line, then the tab's own stats. On the District
+ * Locks tab those are a per-team season ceiling and a district-wide points
+ * pool (Available/Total, the available part an estimate), with the
+ * played/upcoming event chips below the row, inside the same card. On the
+ * Champ Locks tab it is a "Remaining district points: X / Y pre-DCMP" stat.
+ * Both are computed client-side by `districtLocksHeaderStats.ts` (the
+ * published artifact carries no dedicated aggregate field for either).
  *
  * Per-team district-points detail lives as COLUMNS behind a single expand
  * toggle, never as expandable rows. Toggled on, every default column above
