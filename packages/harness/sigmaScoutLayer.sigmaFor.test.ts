@@ -1,16 +1,7 @@
 /**
- * Quick task 260913-m45 Task 1: `SigmaScoutLayer.sigmaFor` — the read-only,
- * one-team accessor `publish.ts`'s fold loop reads right after `foldPlayed`,
- * to capture each match's per-team Sigma Score for the metric-history rows.
- *
- * Distinct from `sigmaScoreByTeam()`, which scores EVERY team the layer has
- * ever seen and must never be called once per match (see that method's own
- * doc comment). `sigmaFor` delegates to the accumulator's own read-only
- * `sigmaFor`, which goes through `#readBelief` rather than `#mutableBelief` —
- * see `#readBelief`'s doc comment for the real order-dependence bug a single
- * insert-on-read accessor once caused (two orchestrations produced
- * different ranking-point pmfs for the same event because merely reading a
- * team created a belief entry).
+ * `SigmaScoutLayer.sigmaFor`: the read-only, one-team accessor `publish.ts`'s
+ * fold loop reads right after `foldPlayed` for metric-history rows. Unlike
+ * `sigmaScoreByTeam()` it scores one team, and reading must never create a belief.
  */
 import { describe, expect, it } from "vitest";
 import type { MatchResult, Prediction } from "../core/algorithms/types.js";
