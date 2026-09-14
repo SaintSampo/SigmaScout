@@ -1,10 +1,7 @@
 /**
- * Proves the offline-to-online state handoff is lossless — not by
- * deep-equalling two state objects, but by digest match over a continuation
- * replay (`computePredictionStreamDigest`). Also covers the per-algorithm
- * scope shape (event-scoped OPR vs. team-scoped EPA/SPR), the stability
- * property that lets a Worker skip a write for an unchanged team, and the
- * partial-load property.
+ * Proves the offline-to-online state handoff is lossless by digest match over a
+ * continuation replay, plus per-algorithm scope shape, byte-stable
+ * re-serialization and partial loads.
  */
 import type * as fs from "node:fs";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -68,7 +65,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-/** A valid 2024 `score_breakdown` where both alliances' 13 Sigma1 components each parse to `perComponentValue` (mirrors `sigma1/sigma1.test.ts`'s `rawBreakdown2024Uniform` fixture, reimplemented here as a small, deliberate test-only duplication). */
+/** A valid 2024 `score_breakdown` with every component field on both alliances set to `perComponentValue`. */
 function rawBreakdown2024(perComponentValue: number): string {
   const side = {
     autoLeavePoints: perComponentValue,
@@ -171,11 +168,8 @@ function seedFixtureSeason(corpus: Corpus): void {
         sortTime: 1000 + i * 200,
         redTeams: red,
         blueTeams: blue,
-        // Varied (never identical red/blue) scores — EPA's allianceScoreStats
-        // folds these RAW fields directly, and an all-tied fixture would give
-        // it exactly zero variance, degenerating margin/scale to 0/0. The
-        // `+5`/`-5` offset (not just `i * ...`) keeps even the FIRST match
-        // non-symmetric for the same reason.
+        // Never-tied scores (even the first match): an all-tied fixture gives
+        // EPA's allianceScoreStats zero variance and a 0/0 scale.
         redScore: SIDE_TOTAL + 5 + i * 11,
         blueScore: SIDE_TOTAL - 5 - i * 7,
         winner: i % 2 === 0 ? "red" : "blue",
@@ -273,9 +267,7 @@ describe("serializeState — D-09 scope shape", () => {
     const teamRows = rows.filter((r) => r.scopeKind === "team");
     const leagueRows = rows.filter((r) => r.scopeKind === "league");
 
-    // OPR's own per-event RATING computation (observations/ratings) is
-    // event-scoped; the AUXILIARY lastEventByTeam bookkeeping map is its own
-    // team rows and is not per-event accumulated state.
+    // Ratings are event-scoped; the lastEventByTeam bookkeeping gets team rows.
     expect(leagueRows).toHaveLength(1);
     expect(eventRows).toHaveLength(finalState.perEvent.size);
     expect(eventRows.map((r) => r.scopeKey).sort()).toEqual(["2024evta", "2024evtb"]);
@@ -316,9 +308,7 @@ describe("serializeState — stability (unchanged state produces identical state
 // ---------------------------------------------------------------------------
 
 describe("deserializeState — an extra unknown passenger key on a team row is ignored (quick task 260913-it4)", () => {
-  // Wire compatibility without a reseed: a stale D1 row can carry a retired
-  // team-row passenger. Deserializers read named fields, so an unknown key
-  // must change nothing. A generic key stands in for any legacy passenger.
+  // A stale D1 row can carry a retired team-row passenger; an unknown key must change nothing.
   it("spr: a row carrying an unknown key deserializes to a state whose predictions and continuation digest equal the clean row's", () => {
     seedFixtureSeason(db);
     const allMatches = buildSeasonStream(db, 2024);
@@ -353,8 +343,6 @@ describe("deserializeState — an extra unknown passenger key on a team row is i
 });
 
 describe("serializeState/deserializeState — unknown algorithm id", () => {
-  // Quick task 260913-it4: both used to fall through to the retired Sigma1
-  // core's shape for any id without its own branch.
   it("serializeState throws UnknownStateAlgorithmError naming an unknown id such as the retired vpr", () => {
     expect(() => serializeState("vpr", "11.0.0+retired", spr.initState(["frc1", "frc2"]) as any, STAMP)).toThrow(UnknownStateAlgorithmError);
     expect(() => serializeState("vpr", "11.0.0+retired", spr.initState(["frc1", "frc2"]) as any, STAMP)).toThrow(/"vpr"/);
@@ -385,10 +373,8 @@ describe("deserializeState — missing league row", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Plan 04-08 (D-13): a league row's payload must declare the current
-// snapshot shape version — the retired shape (per-team maps living inside
-// the league row) must be unreadable, loudly, never silently parsed with
-// its per-team data discarded.
+// A league row must declare the current snapshot shape version; anything else
+// fails loudly.
 // ---------------------------------------------------------------------------
 
 describe("deserializeState — league row shape version (D-13, plan 04-08)", () => {
@@ -398,8 +384,7 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
       algorithmVersion: epa.version,
       scopeKind: "league",
       scopeKey: "league",
-      // The retired shape: priorSeasonRatings lived INSIDE the league row,
-      // and no snapshotShapeVersion field existed at all.
+      // A row with per-team data in the league row and no snapshotShapeVersion.
       stateJson: JSON.stringify({
         season: 2024,
         allianceScoreStats: emptyExpandingStats(),
@@ -434,18 +419,11 @@ describe("deserializeState — league row shape version (D-13, plan 04-08)", () 
   });
 
   it("STATE_SNAPSHOT_SHAPE_VERSION is 16, and a league row declaring ANY earlier shape throws (shape 16 added the spr league row's ranking-point mean shift, quick task 260914-01x, 2026-09-14)", () => {
-    // Pinned by literal value, not relative to the constant. Every earlier
-    // shape must fail LOUDLY at load rather than silently deserialize with a
-    // field missing or carrying a value from the wrong shape — several of the
-    // failure modes below are silent-looking (a still-valid pmf, a legal
-    // "never folded" state, a legal-looking zero rate), so this check is the
-    // only thing standing between a stale seeded row and a live/offline
-    // divergence that neither side can detect on its own.
+    // Pinned by literal value. Stale shapes fail silently otherwise (a valid pmf,
+    // a legal zero rate), so this is the only guard against live/offline drift.
     expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(16);
 
-    // NOT an iteration over a list that can silently skip: the range is derived
-    // from the current version, so a future bump cannot leave the newest stale
-    // shape untested by forgetting to append it here.
+    // Derived from the current version, so a bump cannot leave the newest stale shape untested.
     const staleVersions = Array.from({ length: STATE_SNAPSHOT_SHAPE_VERSION - 3 }, (_, i) => i + 3);
     expect(staleVersions.at(-1)).toBe(STATE_SNAPSHOT_SHAPE_VERSION - 1);
     for (const staleVersion of staleVersions) {
@@ -474,7 +452,7 @@ function leagueRowOf(rows: readonly StateRow[]): StateRow {
   return row;
 }
 
-/** Builds a `targetCount`-entry map by cycling through `source`'s own values (or, if `source` is empty, a fixed placeholder) under fresh keys — the league-row content this plan cares about must be independent of HOW MANY team entries exist, not of what specific teams they name. */
+/** Builds a `targetCount`-entry map by cycling `source`'s values (or `placeholder`) under fresh keys, to vary team count alone. */
 function expandMap<V>(source: ReadonlyMap<string, V>, targetCount: number, keyPrefix: string, placeholder?: V): Map<string, V> {
   const sourceEntries = source.size > 0 ? [...source.values()] : placeholder !== undefined ? [placeholder] : [];
   const result = new Map<string, V>();
@@ -554,9 +532,7 @@ describe("serializeState/deserializeState — Map members survive by size", () =
         lastSeason: new Map([
           ["frc1", 1500],
           ["frc2", 1400],
-          // frc3 has a prior-season rating but NO current-season entry in
-          // teamComponents/teamMatchCounts above — a prior-rating-only team
-          // must still get a row of its own.
+          // frc3: prior-season rating only, and must still get its own row.
           ["frc3", 1350],
         ]),
         yearBefore: new Map([["frc1", 1490]]),
@@ -577,8 +553,7 @@ describe("serializeState/deserializeState — Map members survive by size", () =
     expect([...reconstructed.priorSeasonRatings.lastSeason.entries()].sort()).toEqual(
       [...fakeState.priorSeasonRatings.lastSeason.entries()].sort()
     );
-    // frc3 gets its own row (never dropped) but contributes NO current-season
-    // state — it must not appear in teamComponents/teamMatchCounts.
+    // frc3 has a row but no current-season state.
     expect(reconstructed.teamComponents.has("frc3")).toBe(false);
     expect(reconstructed.teamMatchCounts.has("frc3")).toBe(false);
     expect(reconstructed.priorSeasonRatings.lastSeason.get("frc3")).toBe(1350);
@@ -604,9 +579,7 @@ describe("serializeState/deserializeState — Map members survive by size", () =
   });
 
   it("OprState's allianceScoreStats round-trips with identical count/mean/m2 (D-Q4)", () => {
-    // The league-scoped expanding accumulator behind OPR's logistic scale. If
-    // it did not survive the D1 round-trip, a re-seeded Worker would silently
-    // predict from the cold-start fallback scale for the rest of the season.
+    // Lost in the round trip, a re-seeded Worker would silently use the cold-start scale all season.
     seedFixtureSeason(db);
     const allMatches = buildSeasonStream(db, 2024);
     const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
@@ -691,10 +664,8 @@ describe("emitSeedSql", () => {
     expect(firstStatement).toBe(`DELETE FROM algorithm_state WHERE algorithm_id = 'epa';`);
   });
 
-  // Asserts none of the three published algorithms throws SeedRowTooLargeError
-  // at REALISTIC season scale — a per-team map living in the league row
-  // rather than in its own team rows would make a real season-scale seed
-  // throw at emit time.
+  // No published algorithm throws SeedRowTooLargeError at realistic season scale
+  // (a per-team map in the league row would).
   it("serializing a realistic season-scale epa/opr state and passing rows to emitSeedSql raises no SeedRowTooLargeError (D-13)", () => {
     seedFixtureSeason(db);
     const allMatches = buildSeasonStream(db, 2024);
@@ -716,15 +687,11 @@ describe("emitSeedSql", () => {
     expect(() => emitSeedSql(serializeState(opr.id, opr.version, oprScaled, STAMP), { algorithmId: "opr", out: outPath })).not.toThrow();
   });
 
-  // D1 rejects the whole import with `statement too long: SQLITE_TOOBIG` once
-  // any single statement passes 100,000 bytes. These two tests assert that
-  // directly, at the boundary and past it.
+  // D1 rejects the whole import (`SQLITE_TOOBIG`) once any statement passes 100,000 bytes.
   const D1_STATEMENT_LIMIT = 100_000;
 
   it("no emitted statement exceeds D1's 100,000-byte per-statement limit, even when the rows would batch into one much larger statement", () => {
-    // 400 rows x ~2 KB of state_json each = ~800 KB of tuples: comfortably
-    // more than one statement's worth, and under the old 4 MB default it all
-    // batched into a single unimportable statement.
+    // 400 rows x ~2 KB of state_json = ~800 KB of tuples, far more than one statement's worth.
     const fatRows = makeRows(400).map((row, i) =>
       StateRowSchema.parse({ ...row, scopeKey: `frc${i}`, stateJson: JSON.stringify({ blob: "x".repeat(2000) }) })
     );
@@ -817,11 +784,8 @@ describe("emitSeedSql", () => {
   });
 
   it("performs exactly one file write call", async () => {
-    // `node:fs`'s named exports are non-configurable in real ESM, so
-    // `vi.spyOn(fs, "writeFileSync")` cannot wrap them directly — isolate a
-    // fresh module graph for just this test via `vi.doMock`, replacing
-    // `node:fs` with a spy-wrapped real implementation, then reset it
-    // immediately afterward so no other test in this file is affected.
+    // `node:fs` exports are non-configurable in ESM, so `vi.spyOn` cannot wrap
+    // them; `vi.doMock` a spy-wrapped `node:fs` in a fresh module graph, then reset.
     vi.resetModules();
     const actualFs = await vi.importActual<typeof fs>("node:fs");
     const writeFileSyncSpy = vi.fn(actualFs.writeFileSync);
@@ -963,10 +927,8 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
       breakdownParseFailureCount: 0,
       // The outgoing season's alliance-score mean: LEAGUE-scoped, one number.
       carrySeedMean: 292.5,
-      // Carried-but-not-yet-materialized teams: PER TEAM, a flag on that team's
-      // own row. D-13 forbids a league row whose bytes grow with team count,
-      // and a few thousand team keys in one row would breach
-      // MAX_LEAGUE_ROW_BYTES outright.
+      // Carried-but-not-yet-rescaled teams: a flag on each team's own row, since
+      // thousands of keys in the league row would breach MAX_LEAGUE_ROW_BYTES.
       carryPending: new Set(["frc1", "frc2"]),
     };
   }
@@ -996,7 +958,7 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
   });
 
   // -------------------------------------------------------------------------
-  // Shape 13 (quick task 260911-j2w): EPA's week-1 calibration state
+  // EPA's week-1 calibration state (shape 13)
   // -------------------------------------------------------------------------
 
   it("round-trips a FROZEN week-1 aggregate, its accumulator and its sealed flag, all in the LEAGUE row", () => {
@@ -1018,8 +980,7 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
     expect(reconstructed.weekOne.frozen).toEqual({ mean: 71.25, sd: 15.125 });
     expect(reconstructed.weekOne.sealed).toBe(true);
 
-    // D-13: three scalars and an accumulator, none of which scale with team
-    // count, so they belong in the league row and NOT on any team row.
+    // None of it scales with team count, so it belongs in the league row only.
     const league = JSON.parse(rows.find((r) => r.scopeKind === "league")!.stateJson);
     expect(league.weekOne.sealed).toBe(true);
     for (const teamRow of rows.filter((r) => r.scopeKind === "team")) {
@@ -1046,10 +1007,8 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
   });
 
   it("round-trips SEALED-with-nothing-frozen, the state a season with too little week-1 play produces", () => {
-    // Distinct from the unsealed case above and NOT interchangeable with it:
-    // sealed-with-null means "week 1 is over and there was too little of it",
-    // which must never be retried, while unsealed means "week 1 is still
-    // running". Collapsing the two would reopen a freeze that already happened.
+    // Sealed-with-null ("week 1 had too little data", never retried) must not
+    // collapse into unsealed ("week 1 still running").
     const state: EpaState = {
       ...carriedEpaState(),
       weekOne: {
@@ -1067,11 +1026,8 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
   });
 
   it("throws LeagueRowShapeVersionError on a shape-12 EPA league row rather than silently running the live estimate all season", () => {
-    // A shape-12 row deserializes with `weekOne` absent, so the frozen week-1
-    // aggregate is permanently unavailable and the Worker would run the LIVE
-    // expanding estimate for the whole season while the offline publisher runs
-    // the frozen constant — disagreeing on every prediction from week 2 onward
-    // with both sides looking healthy.
+    // Read as current, a row without `weekOne` would leave the Worker on the live
+    // estimate while the publisher uses the frozen constant.
     const staleRow: StateRow = {
       algorithmId: "epa",
       algorithmVersion: epa.version,
@@ -1099,10 +1055,7 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
   });
 
   it("throws LeagueRowShapeVersionError on a shape-11 EPA league row rather than silently disabling the rescale", () => {
-    // A shape-11 row deserializes with carryPending absent and carrySeedMean
-    // undefined, which would disable the rescale on live traffic while the
-    // offline publisher applied it — a live/offline divergence that looks
-    // healthy.
+    // Read as current, a row without the carry fields would silently disable the live rescale.
     const staleRow: StateRow = {
       algorithmId: "epa",
       algorithmVersion: epa.version,
@@ -1147,8 +1100,7 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
     expect(reconstructed.weekOne.foulStats).toEqual({ count: 412, mean: 5.75, m2: 3_100 });
     expect(reconstructed.weekOne.frozenFoul).toEqual({ rate: 5.75 / 65.5, noFoulMean: 65.5 });
 
-    // D-13: two accumulator pairs and one record, none of which scale with
-    // team count, so they belong in the league row and NOT on any team row.
+    // None of it scales with team count, so it belongs in the league row only.
     const leagueRow = rows.find((r) => r.scopeKind === "league");
     const league = JSON.parse((leagueRow as StateRow).stateJson);
     expect(league.weekOne.frozenFoul.noFoulMean).toBe(65.5);
@@ -1160,11 +1112,8 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
   });
 
   it("round-trips a NULL frozen foul record rather than inventing a zero rate for it", () => {
-    // The refused-degenerate-rate state (D-5). `null` and `{ rate: 0 }` are
-    // NOT interchangeable: the first means "no usable week-1 foul population
-    // was found", the second means "week 1 genuinely had no fouls". Both
-    // publish plain no-foul totals today, so collapsing them would be
-    // invisible now and wrong the moment anything reads the distinction.
+    // The refused-degenerate-rate state: `null` ("no usable week-1 foul
+    // population") must not collapse into `{ rate: 0 }` ("no fouls").
     const state: EpaState = {
       ...carriedEpaState(),
       weekOne: {
@@ -1182,12 +1131,8 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
   });
 
   it("throws LeagueRowShapeVersionError on a shape-13 EPA league row rather than silently pinning the Worker at a zero foul rate", () => {
-    // A shape-13 row deserializes with the foul accumulators absent, so the
-    // live Worker would publish every predicted score at its plain no-foul
-    // total while the offline publisher applied the frozen week-1 rate.
-    // Worse than its predecessors in one respect: a zero rate is a LEGAL rate
-    // (EPA_FALLBACK_FOUL_RATE), so nothing downstream could flag it as
-    // suspicious.
+    // Read as current, a row without foul accumulators would publish no-foul
+    // totals live, and a zero rate is legal, so nothing would flag it.
     const staleRow: StateRow = {
       algorithmId: "epa",
       algorithmVersion: epa.version,
@@ -1212,12 +1157,7 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
 // ──────── Ranking-point beliefs (shape 15) ───────────────
 
 describe("ranking-point belief persistence (shape 15, plan 09-08)", () => {
-  /**
-   * TWO variable names on purpose — 2026 tracks `hubTotalCount` and
-   * `totalTowerPoints`, and a single-variable record would not exercise the
-   * per-variable nesting that makes this passenger a nested record rather
-   * than a flat object at all.
-   */
+  /** Two variables on purpose, to exercise the per-variable nesting. */
   const BELIEFS = {
     hubTotalCount: { weight: 3.5, weightSquares: 2.25, mean: 41.75, m2: 180.5 },
     totalTowerPoints: { weight: 3.5, weightSquares: 2.25, mean: 12.25, m2: 44.75 },
