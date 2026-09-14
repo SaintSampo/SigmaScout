@@ -1,12 +1,12 @@
 /**
- * D-12's gate (phase 09 plan 09-01 Task 3): level-1 output — `pRedWin`,
- * `redScore`, `blueScore` — must be BYTE-IDENTICAL across the whole of
- * Phase 9's ranking-point rewrite, on a bounded 2022 corpus slice, for every
- * published algorithm. The RP layer does not feed back into level 1 by
- * construction (`sigmaScoutLayer.ts`'s two-level framing: `foldPlayed`
- * ATTACHES level-2 fields onto the prediction it is handed, it never
- * mutates `pRedWin`/`redScore`/`blueScore`), so ANY difference this gate
- * finds is a real cross-level leak, not a tolerance question — see
+ * The level-1 output byte-identity gate: level-1 output — `pRedWin`,
+ * `redScore`, `blueScore` — must be BYTE-IDENTICAL across the ranking-point
+ * layer, on a bounded 2022 corpus slice, for every published algorithm.
+ * The RP layer does not feed back into level 1 by construction
+ * (`sigmaScoutLayer.ts`'s two-level framing: `foldPlayed` ATTACHES level-2
+ * fields onto the prediction it is handed, it never mutates
+ * `pRedWin`/`redScore`/`blueScore`), so ANY difference this gate finds is a
+ * real cross-level leak, not a tolerance question — see
  * `computePredictionStreamDigest`'s own doc comment for why the digest is
  * never rounded or truncated.
  *
@@ -30,17 +30,11 @@
  * A digest mismatch is a finding about the code, not a fixture to refresh —
  * regenerating, relaxing, or hand-editing the committed
  * `data/baselines/level1-digest-2026-09.json` to make a failing reproduction
- * test pass is PROHIBITED (`must_haves.prohibitions`). Recorded `algorithmVersion`
- * is checked against the resolved one FIRST, and a mismatch fails with a
- * message naming both versions and stating the baseline predates the
- * promotion — so a deliberate version bump reads as "the baseline predates
- * this version," never as a cross-level leak.
- *
- * Consumed by TWO later plans in this phase, both re-proving this SAME
- * baseline: 09-04 (immediately after the closed form replaces the Monte
- * Carlo) and 09-10 (at phase close). Neither is tempted to treat a
- * difference as a tolerance question — the RP layer does not feed back into
- * level 1, so any difference at all is a real cross-level leak.
+ * test pass is PROHIBITED. Recorded `algorithmVersion` is checked against
+ * the resolved one FIRST, and a mismatch fails with a message naming both
+ * versions and stating the baseline predates the promotion — so a
+ * deliberate version bump reads as "the baseline predates this version,"
+ * never as a cross-level leak.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -58,18 +52,14 @@ const DIGEST_SLICE_FIXTURE_PATH = join("packages", "harness", "fixtures", "diges
 const LEVEL1_BASELINE_PATH = join("data", "baselines", "level1-digest-2026-09.json");
 
 /**
- * 260912-ivg: `data/baselines/level1-digest-2026-09.json` and the
+ * `data/baselines/level1-digest-2026-09.json` and the
  * `FROZEN_AT_09_01_STREAM_SHA256` pin below are FROZEN measurement records
- * (tier table: untouched by this rename) — both still name the algorithm
- * under its pre-rename wire id, the id in force when they were recorded.
- * `resolvePublishAlgorithms` now resolves `PUBLISHED_ALGORITHM_IDS` (the
- * single algorithm-id constant again as of Stage 5's collapse), whose
- * premier member is `"spr"` — the SAME module and the SAME digest-producing
- * code, renamed. This one-entry alias is what lets the frozen citation keep
- * resolving to the live module it has always meant, without rewriting the
- * frozen record itself. Stage 5 (the collapse) does not touch the alias
- * itself or the frozen files it resolves — it stays valid for as long as
- * `data/baselines/level1-digest-2026-09.json` is read under its recorded id.
+ * — both still name the algorithm under its pre-rename wire id, the id in
+ * force when they were recorded. `resolvePublishAlgorithms` resolves
+ * `PUBLISHED_ALGORITHM_IDS`, whose premier member is `"spr"` — the SAME
+ * module and the SAME digest-producing code, renamed. This one-entry alias
+ * is what lets the frozen citation keep resolving to the live module it has
+ * always meant, without rewriting the frozen record itself.
  */
 const LEGACY_ALGORITHM_ID_ALIASES: Readonly<Record<string, string>> = { bpr: "spr" };
 
@@ -245,9 +235,8 @@ describe("the gate's failure mode, demonstrated rather than asserted (this task'
 });
 
 // ---------------------------------------------------------------------------
-// The CROSS-PHASE pin (plan 09-10 Task 7). Added because the obvious proxy
-// for "D-12 held across the whole phase" turned out to be unusable, and
-// silently so.
+// The CROSS-PHASE pin. Added because the obvious proxy for "this gate held
+// across the whole rewrite" turned out to be unusable, and silently so.
 // ---------------------------------------------------------------------------
 
 /**
