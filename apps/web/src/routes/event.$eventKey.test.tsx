@@ -1,5 +1,5 @@
 /**
- * Route-level coverage for `/event/$eventKey` (07-01-PLAN.md Task 3).
+ * Route-level coverage for `/event/$eventKey`.
  *
  * Builds a small, SELF-CONTAINED route tree the same way
  * `routes/team.$teamNumber.test.tsx` does — `Route.update({...})` mirrors
@@ -7,14 +7,14 @@
  * build`/`vite dev` time, so the REAL exported `Route` object from
  * `event.$eventKey.tsx` is under test, not a re-implementation of it.
  *
- * 260913-nvn Task 3a collapsed the per-tab 404/500/pending/panel/scroll-
- * sibling/click-preserves-search coverage that used to be copied five times
- * (once per registered tab) into `it.each(TAB_CASES)` below. `stubFetch`
- * replaces the nine repeated `global.fetch = vi.fn(...)` literals with one
- * shared mock, and a single file-level `afterEach` replaces the nine
- * per-describe `originalFetch`/`afterEach` blocks (they all captured and
- * restored the exact same `global.fetch` regardless of which describe they
- * lived in, so collapsing to one is behavior-preserving).
+ * The per-tab 404/500/pending/panel/scroll-sibling/click-preserves-search
+ * coverage is collapsed into `it.each(TAB_CASES)` below, rather than
+ * copied once per registered tab. `stubFetch` replaces the repeated
+ * `global.fetch = vi.fn(...)` literals with one shared mock, and a single
+ * file-level `afterEach` replaces the per-describe `originalFetch`/
+ * `afterEach` blocks (they all captured and restored the exact same
+ * `global.fetch` regardless of which describe they lived in, so collapsing
+ * to one is behavior-preserving).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -144,7 +144,7 @@ interface TabCase {
   readonly artifact: () => Response;
 }
 
-/** One case per registered tab whose 404/500/pending/panel/scroll-sibling/click-preserves-search behaviour is otherwise byte-identical (07-VALIDATION.md's Wave 0 tab suite). Simulation is excluded — its SPR-gating gets its own describe block below (260913-nvn Task 1). */
+/** One case per registered tab whose 404/500/pending/panel/scroll-sibling/click-preserves-search behaviour is otherwise byte-identical. Simulation is excluded — its SPR-gating gets its own describe block below. */
 const TAB_CASES: readonly TabCase[] = [
   { tab: "breakdown", triggerName: "Breakdown", scrollTestId: "breakdown-table-scroll", artifact: () => eventArtifactResponse() },
   { tab: "insights", triggerName: "Insights", scrollTestId: "insights-table-scroll", artifact: () => eventArtifactResponse() },
@@ -247,9 +247,8 @@ describe("/event/$eventKey route — per-tab 404/500/pending/panel/scroll-siblin
 });
 
 describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)", () => {
-  // Merges the four duplicated "six tabs in order from first paint" tests
-  // (07-11's Insights describe, 07-13's Elims describe, the Elims-fifth
-  // test, and the Breakdown first-paint test) into one (260913-nvn Task 3a).
+  // Merges what were once four duplicated "six tabs in order from first
+  // paint" tests into one.
   it("exactly six tabs exist, named Insights, Breakdown, Qualifications, Alliances, Playoffs and Simulation IN THAT ORDER, before any artifact data resolves (08-09-PLAN.md registers Simulation, the last of EVENT_TABS)", async () => {
     stubFetch("pending");
     renderEventRoute("/event/2024casf?algorithm=spr");
@@ -261,9 +260,9 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
 
   it("spr: the Breakdown tab renders Team #, Team Name, Total and the three phase columns only, with no Fouls Committed column and no phase toggles (quick task 260913-mgn)", async () => {
     stubFetch(() => eventArtifactResponse());
-    // Explicit ?tab=breakdown (plan 07-18 Task 2 flipped the no-param default
-    // to insights) — this case tests Breakdown's OWN column set, not
-    // "whichever tab is active by default".
+    // Explicit ?tab=breakdown (the no-param default is insights) — this
+    // case tests Breakdown's OWN column set, not "whichever tab is active
+    // by default".
     renderEventRoute("/event/2024casf?year=2026&algorithm=spr&tab=breakdown");
 
     await waitFor(() => expect(screen.getAllByTestId(/^breakdown-header-/)).toHaveLength(6));
@@ -291,15 +290,11 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
     );
   });
 
-  // Test 8 (plan 07-18 Task 2): 07-11's inverse case, rewritten rather than
-  // deleted — 07-11 deliberately deferred this flip (outline assumption 6's
-  // dependency-cycle reasoning) and this plan makes it.
   it("DEFAULT_EVENT_TAB is now the string 'insights' (was 'breakdown' through 07-11; flipped by plan 07-18 Task 2)", () => {
     expect(DEFAULT_EVENT_TAB).toBe("insights");
   });
 
-  // Test 5 (plan 07-18 Task 2): a bare event URL renders the Insights panel —
-  // the observable form of UI-SPEC E2's "default Insights" clause.
+  // A bare event URL renders the Insights panel — the default tab.
   it("Test 5: a bare event URL (no ?tab=) renders the Insights panel, not the Breakdown panel", async () => {
     stubFetch(() => eventArtifactResponse());
     renderEventRoute("/event/2024casf?algorithm=spr");
@@ -308,12 +303,10 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
     expect(screen.getByTestId("breakdown-panel").hasAttribute("hidden")).toBe(true);
   });
 
-  // Test 6 (plan 07-18 Task 2; grown to six ids by 08-09-PLAN.md Task 3
-  // PD-09): the registration invariant, pinned as a test rather than merely
-  // relied upon — the same fact this task's precondition checked by reading
-  // the source. `?algorithm=spr` is required now: the Simulation trigger
-  // exists (has role "tab") whether enabled or disabled (D-04 is presentation,
-  // not DOM absence), so this count assertion is unaffected either way.
+  // The registration invariant, pinned as a test rather than merely relied
+  // upon. `?algorithm=spr` is required: the Simulation trigger exists (has
+  // role "tab") whether enabled or disabled (presentation, not DOM
+  // absence), so this count assertion is unaffected either way.
   it("Test 6: REGISTERED_EVENT_TABS and EVENT_TABS hold the same six ids", async () => {
     const { EVENT_TABS } = await import("../lib/searchParams.js");
     stubFetch("pending");
@@ -323,9 +316,8 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
     expect(registeredNames).toHaveLength(EVENT_TABS.length);
   });
 
-  // Test 7 (plan 07-18 Task 2): an explicit non-default tab still renders,
-  // unchanged from before the flip — contrast case proving the default
-  // change did not turn every route into Insights regardless of ?tab=.
+  // An explicit non-default tab still renders — contrast case proving the
+  // default does not turn every route into Insights regardless of ?tab=.
   it("Test 7: ?tab=breakdown still renders the Breakdown panel as active, explicit tab wins over the new default", async () => {
     stubFetch(() => eventArtifactResponse());
     renderEventRoute("/event/2024casf?algorithm=spr&tab=breakdown");
@@ -342,11 +334,10 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
 
     await waitFor(() => expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0));
     expect(screen.queryByRole("progressbar")).toBeNull();
-    // Quick task 260913-jkp: under spr (a Sigma-enabled algorithm) the
-    // Insights skeleton's Total header already reads "Total ± Sigma"
-    // (`InsightsTabSkeleton`'s own `totalColumnHeader` call) — this route
-    // test slipped through 260913-jkp's own per-file test updates because it
-    // renders through the whole route rather than `InsightsTab` directly.
+    // Under spr (a Sigma-enabled algorithm) the Insights skeleton's Total
+    // header reads "Total ± Sigma" (`InsightsTabSkeleton`'s own
+    // `totalColumnHeader` call) — this route renders through the whole
+    // route rather than `InsightsTab` directly.
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
       "Rank",
       "Team #",
@@ -451,8 +442,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
     stubFetch(() => eventArtifactResponse());
     const router = renderEventRoute("/event/2024casf?algorithm=spr&tab=alliances");
 
-    // The DEFAULT tab's panel is Insights as of plan 07-18 Task 2 (was
-    // Breakdown through 07-11).
+    // The DEFAULT tab's panel is Insights.
     await waitFor(() => expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(false));
     // Radix keeps every `TabsContent` mounted (hidden via the `hidden`
     // attribute for the inactive ones) — matching this file's own
@@ -503,8 +493,8 @@ describe("/event/$eventKey route — the identity header (07-15-PLAN.md Task 1)"
 });
 
 describe("/event/$eventKey route — the Simulation tab, SPR-gated (D-04, 260913-nvn)", () => {
-  // 260913-nvn: `isSimulationDisabled` is `!usesSigmaScore(algorithm)`, so the
-  // trigger is enabled for SPR and disabled for OPR/EPA — the boolean still
+  // `isSimulationDisabled` is `!usesSigmaScore(algorithm)`, so the trigger
+  // is enabled for SPR and disabled for OPR/EPA — the boolean still
   // resolves before any data does.
   it("with the artifact fetch left permanently pending, the Simulation trigger is enabled for spr and disabled for epa and opr", async () => {
     for (const [algorithm, expectedDisabled] of [
