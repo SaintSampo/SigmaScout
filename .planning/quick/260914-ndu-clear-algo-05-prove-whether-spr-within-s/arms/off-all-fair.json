@@ -1,0 +1,41 @@
+{
+  "overrides": {
+    "qFast": 0,
+    "fastPriorVar": 0,
+    "scaleMinLr": 0,
+    "scaleReset": true,
+    "tauLr": 0,
+    "qSlow": 0.002,
+    "seasonVar": 0.1,
+    "priorVar": 0.1,
+    "tau0": 0.75
+  },
+  "params": {
+    "obsSd": 1,
+    "qSlow": 0.002,
+    "rhoFast": 0.9,
+    "qFast": 0,
+    "priorVar": 0.1,
+    "fastPriorVar": 0,
+    "rookieMean": 0.55,
+    "seasonShrink": 1,
+    "seasonVar": 0.1,
+    "tau0": 0.75,
+    "tauLr": 0,
+    "foulOn": false,
+    "foulObsSd": 1.5,
+    "foulQ": 0.0001,
+    "foulPriorVar": 0.02,
+    "elimWeight": 1,
+    "scaleMinLr": 0,
+    "w2": 0.7,
+    "w3": 0.5,
+    "defPriorVar": 0,
+    "defQ": 0,
+    "huberK": 1000000000,
+    "biasLr": 0,
+    "obsSdSlope": 0,
+    "softCredit": true,
+    "scaleReset": true
+  }
+}
