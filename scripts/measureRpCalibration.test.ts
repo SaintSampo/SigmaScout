@@ -50,9 +50,20 @@ import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms
 const FROZEN_BASELINE_ALGORITHM_ID_ALIASES: Readonly<Record<string, string>> = { bpr: "spr" };
 const liveAlgorithmId = (frozenId: string): string => FROZEN_BASELINE_ALGORITHM_ID_ALIASES[frozenId] ?? frozenId;
 import { RpCalibrationMeasurementSchema } from "../packages/harness/publish.js";
+import type { Prediction } from "../packages/core/algorithms/types.js";
 import {
   applyRpBonusArmBar,
   applyRpOutcomeArmBar,
+  assertBonusArmAlgorithmAllowed,
+  assertBonusArmFlagsAllowed,
+  assertBonusArmSliceAllowed,
+  assertOutcomeHalfIdentical,
+  BONUS_ARM_NAMES,
+  bonusCellClass,
+  RP_BONUS_ARM_FORBIDDEN_FROM_SEASON,
+  RP_BONUS_ARM_SELECTION_SEASONS,
+  RpBonusArmRecordSchema,
+  ruleModuleWithLatticeArm,
   assertMarginalArmSliceAllowed,
   assertOutcomeArmAlgorithmAllowed,
   assertOutcomeArmSliceAllowed,
@@ -248,7 +259,16 @@ describe("same-scorer structural assertions (D-11)", () => {
     // than a separate layer. The count is asserted so a THIRD construction —
     // a second replay, or a layer built some other way — has to be justified
     // here rather than appearing silently.
-    expect(matches).toHaveLength(2);
+    //
+    // 2026-09-14, quick task 260914-01x Task 3: FIVE while `--bonus-arms`
+    // exists — control, the NB arm, and the lattice, meanShift and
+    // lattice+meanShift bonus-arm layers, all folded off the same one replay.
+    // Task 5 deletes the three bonus-arm constructions at ship time and this
+    // returns to 2.
+    expect(matches).toHaveLength(5);
+    expect(SOURCE).toMatch(/new SigmaScoutLayer\(latticeRuleModule, "spr"\)/);
+    expect(SOURCE).toMatch(/new SigmaScoutLayer\(ruleModule, "spr", \{ rpMeanShift: true \}\)/);
+    expect(SOURCE).toMatch(/new SigmaScoutLayer\(latticeRuleModule, "spr", \{ rpMeanShift: true \}\)/);
     // The second argument is the resolved algorithm id — 09-01's same-scorer
     // fix, and the premise of every figure this script produces. The third
     // argument this site briefly carried (an arm's model config, then
@@ -854,6 +874,178 @@ describe("applyRpBonusArmBar (260914-01x's pre-committed bonus-arm bar)", () => 
 
   it("throws when no control entry is supplied", () => {
     expect(() => applyRpBonusArmBar([fig("lattice", 0.19, 0.29)])).toThrow(/no "control" entry/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `--bonus-arms` guards, variant module, outcome-half identity and record
+// schema (260914-01x Task 3). Measurement-only; the guards and schema are the
+// reader half Task 5 keeps.
+// ---------------------------------------------------------------------------
+
+describe("assertBonusArmSliceAllowed", () => {
+  it("throws naming 2023-2026 for a spec spanning the reporting slice", () => {
+    expect(() => assertBonusArmSliceAllowed(parseSeasons("2016-2026"))).toThrow(/2023, 2024, 2025, 2026/);
+  });
+
+  it("passes for the selection slice exactly (2016-2020,2022)", () => {
+    expect(() => assertBonusArmSliceAllowed(parseSeasons("2016-2020,2022"))).not.toThrow();
+    expect(parseSeasons("2016-2020,2022")).toEqual(RP_BONUS_ARM_SELECTION_SEASONS);
+  });
+
+  it("refuses a single reporting-slice season too", () => {
+    expect(() => assertBonusArmSliceAllowed(parseSeasons("2023"))).toThrow(/2023/);
+    expect(RP_BONUS_ARM_FORBIDDEN_FROM_SEASON).toBe(2023);
+  });
+
+  it("runs on the parsed list before the corpus opens, and main() has no override flag", () => {
+    const mainBody = SOURCE.slice(SOURCE.indexOf("async function main("));
+    const guard = mainBody.indexOf("assertBonusArmSliceAllowed(parsedSeasons)");
+    const algoGuard = mainBody.indexOf("assertBonusArmAlgorithmAllowed(");
+    const open = mainBody.indexOf("openCorpusReadOnly(");
+    expect(guard).toBeGreaterThan(-1);
+    expect(algoGuard).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(open);
+    expect(algoGuard).toBeLessThan(open);
+    expect(SOURCE).not.toMatch(/--allow-reporting|--force/);
+  });
+});
+
+describe("assertBonusArmAlgorithmAllowed and assertBonusArmFlagsAllowed", () => {
+  it("passes only for exactly ['spr']", () => {
+    expect(() => assertBonusArmAlgorithmAllowed(["spr"])).not.toThrow();
+    expect(() => assertBonusArmAlgorithmAllowed(["opr", "epa", "spr"])).toThrow(/exactly \["spr"\]/);
+    expect(() => assertBonusArmAlgorithmAllowed(["epa"])).toThrow(/exactly \["spr"\]/);
+    expect(() => assertBonusArmAlgorithmAllowed([])).toThrow(/exactly \["spr"\]/);
+  });
+
+  it("throws when --bonus-arms is combined with --marginal-arm, or --emit-bonus-arms is given alone", () => {
+    expect(() => assertBonusArmFlagsAllowed(["--bonus-arms", "--marginal-arm"])).toThrow(/--marginal-arm/);
+    expect(() => assertBonusArmFlagsAllowed(["--emit-bonus-arms", "x.json"])).toThrow(/requires --bonus-arms/);
+    expect(() => assertBonusArmFlagsAllowed(["--bonus-arms", "--emit-bonus-arms", "x.json"])).not.toThrow();
+    expect(() => assertBonusArmFlagsAllowed(["--marginal-arm"])).not.toThrow();
+  });
+});
+
+describe("ruleModuleWithLatticeArm", () => {
+  for (const season of RP_BONUS_ARM_SELECTION_SEASONS) {
+    it(`${season}: flips every variable to lattice, leaves the original untouched, and predicts thresholds identically`, () => {
+      const original = RP_RULE_MODULES[season]!;
+      const familiesBefore = original.thresholdVariables.map((v) => v.marginalFamily);
+      const variant = ruleModuleWithLatticeArm(original);
+
+      expect(variant.thresholdVariables.map((v) => v.marginalFamily)).toEqual(original.thresholdVariables.map(() => "lattice"));
+      expect(variant.thresholdVariables.map((v) => v.lattice)).toEqual(original.thresholdVariables.map((v) => v.lattice));
+      expect(variant.thresholdVariables.map((v) => v.name)).toEqual(original.thresholdVariables.map((v) => v.name));
+      expect(original.thresholdVariables.map((v) => v.marginalFamily)).toEqual(familiesBefore);
+      expect(variant.bonusPredicates).toBe(original.bonusPredicates);
+      expect(variant.season).toBe(season);
+
+      const grid = [-3, 0, 1, 2, 5, 15, 30, 60, 120, 200];
+      for (const eventType of [0, 1, 2, 3, 5]) {
+        for (const g of grid) {
+          const values = Object.fromEntries(original.thresholdVariables.map((v, k) => [v.name, g + k * v.lattice.step]));
+          expect(variant.predictThresholds(values, eventType)).toEqual(original.predictThresholds(values, eventType));
+        }
+      }
+    });
+  }
+});
+
+describe("assertOutcomeHalfIdentical", () => {
+  const base = {
+    winner: "red",
+    pRedWin: 0.6,
+    redScore: 50,
+    blueScore: 40,
+    matchOutcomePmf: [0.6, 0.01, 0.39],
+    redOutcomeRp: [2, 1, 0],
+    blueOutcomeRp: [0, 1, 2],
+  } as Prediction;
+
+  it("passes on identical records, including when every field is absent on both", () => {
+    expect(() => assertOutcomeHalfIdentical(base, { ...base, redBonusRp: [0.9] } as Prediction, "k", "lattice")).not.toThrow();
+    const bare = { winner: "red", pRedWin: 0.5, redScore: 1, blueScore: 1 } as Prediction;
+    expect(() => assertOutcomeHalfIdentical(bare, { ...bare }, "k", "lattice")).not.toThrow();
+  });
+
+  it("throws on a presence difference in any outcome-half field", () => {
+    for (const field of ["matchOutcomePmf", "redOutcomeRp", "blueOutcomeRp"] as const) {
+      const { [field]: _dropped, ...without } = base;
+      expect(() => assertOutcomeHalfIdentical(base, without as Prediction, "2016x_qm1", "meanShift")).toThrow(new RegExp(`${field}.*2016x_qm1|2016x_qm1.*${field}`));
+      expect(() => assertOutcomeHalfIdentical(without as Prediction, base, "2016x_qm1", "meanShift")).toThrow(/outcome half differs/);
+    }
+  });
+
+  it("throws on any elementwise !== difference, however small, and on a length difference", () => {
+    expect(() => assertOutcomeHalfIdentical(base, { ...base, matchOutcomePmf: [0.6, 0.01, 0.39 + 1e-15] }, "k", "lattice")).toThrow(/matchOutcomePmf\[2\]/);
+    expect(() => assertOutcomeHalfIdentical(base, { ...base, redOutcomeRp: [2, 1, 0, 0] }, "k", "lattice")).toThrow(/length/);
+    expect(() => assertOutcomeHalfIdentical(base, { ...base, blueOutcomeRp: [0, 1, 3] }, "k", "lattice+meanShift")).toThrow(/lattice\+meanShift/);
+  });
+});
+
+describe("bonusCellClass — the tw1 attribution's multi-variable/single-variable split, derived from predicates", () => {
+  it("classifies exactly the tw1 cells (set equality, not iteration)", () => {
+    const classes = new Map<string, string>();
+    for (const season of RP_BONUS_ARM_SELECTION_SEASONS) {
+      for (const p of RP_RULE_MODULES[season]!.bonusPredicates) classes.set(`${season} ${p.name}`, bonusCellClass(p));
+    }
+    const of = (cls: string): string[] => [...classes].filter(([, c]) => c === cls).map(([k]) => k).sort();
+    expect(of("multi-variable")).toEqual(["2016 breach", "2016 capture", "2017 kPa", "2017 rotor", "2018 autoQuest", "2022 cargoBonus"].sort());
+    expect(of("single-variable")).toEqual(["2018 faceTheBoss", "2019 habDocking", "2020 shieldOperational", "2022 hangarBonus"].sort());
+    expect(of("constant")).toEqual(["2019 completeRocket"]);
+  });
+});
+
+describe("RpBonusArmRecordSchema", () => {
+  const tally = { negativeBinomial: 0, gaussian: 10, degenerate: 0, lattice: 0, fallbacks: 0 };
+  const totalRp = { count: 100, rankedProbabilityScore: 0.3, meanPredictedRp: 2.1, meanActualRp: 2.0, excludedNullActual: 0, excludedOutOfSupport: 0 };
+  const emptyPool = { n: 0, observed: null, meanPredicted: null, brier: null, gapClosedShare: null };
+  const minimal = {
+    measuredAt: "2026-09-14T00:00:00.000Z",
+    command: "npx tsx scripts/measureRpCalibration.ts --seasons 2020 --algorithm spr --bonus-arms",
+    corpusIdentity: { path: "data/corpus.sqlite", sizeBytes: 1, mtime: "2026-09-13T00:00:00.000Z" },
+    tree: { headAtStart: "abc", statusAtStart: "", headAtEnd: "abc", statusAtEnd: "" },
+    algorithmVersions: { spr: "4.0.0" },
+    seasons: [2020],
+    arms: BONUS_ARM_NAMES.map((arm) => ({
+      arm,
+      pooled: { arm, bonusCount: 10, bonusBrier: 0.1, totalRpCount: 100, totalRpRps: 0.3 },
+      meanPredictedBonus: 0.05,
+      observedBonusRate: 0.15,
+      totalRp,
+      multiVariablePool: emptyPool,
+      singleVariablePool: { n: 10, observed: 0.15, meanPredicted: 0.05, brier: 0.1, gapClosedShare: null },
+      perSeason: [{ season: 2020, bonusCount: 10, bonusBrier: 0.1, meanPredictedBonus: 0.05, observedBonusRate: 0.15, totalRp, marginalResolution: tally }],
+      perCell: [{ season: 2020, bonus: "shieldOperational", cellClass: "single-variable", n: 10, observed: 0.15, meanPredicted: 0.05, brier: 0.1, gapClosedShare: null }],
+    })),
+    rotorCheck: [],
+    marginalResolution: Object.fromEntries(BONUS_ARM_NAMES.map((arm) => [arm, tally])),
+    barVerdicts: BONUS_ARM_NAMES.map((arm) => ({ arm, accepted: false, bonusBrierDelta: 0, rpsDelta: 0 })),
+    ship: "control",
+  };
+
+  it("parses a hand-built minimal record", () => {
+    expect(() => RpBonusArmRecordSchema.parse(minimal)).not.toThrow();
+  });
+
+  it("rejects a record missing ship", () => {
+    const { ship: _ship, ...withoutShip } = minimal;
+    expect(() => RpBonusArmRecordSchema.parse(withoutShip)).toThrow();
+  });
+
+  it("rejects a record missing the tree identity", () => {
+    const { tree: _tree, ...withoutTree } = minimal;
+    expect(() => RpBonusArmRecordSchema.parse(withoutTree)).toThrow();
+  });
+});
+
+describe("the hand-written marginal-resolution merges carry the lattice counter", () => {
+  it("every tally merge in the script goes through mergeMarginalResolutionTally, which adds lattice", () => {
+    expect(SOURCE).toMatch(/into\.lattice \+= from\.lattice;/);
+    const codeOnly = SOURCE.split("\n").filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line)).join("\n");
+    expect(codeOnly).not.toMatch(/Tally\.negativeBinomial \+=/);
+    expect(codeOnly).not.toMatch(/armTally\.negativeBinomial \+=|marginalTally\.negativeBinomial \+=/);
   });
 });
 
