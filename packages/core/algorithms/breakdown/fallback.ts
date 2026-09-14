@@ -1,51 +1,40 @@
 /**
- * D-05 fallback for matches TBA shipped without a `score_breakdown`: still
+ * Fallback for matches TBA shipped without a `score_breakdown`: still
  * predict normally, still update state, via a proportional-residual split
- * across components rather than a silent drop or a coerced zero
- * (RESEARCH.md Anti-Patterns: "Treating a missing score_breakdown as
- * zero-valued components" is explicitly named as the failure mode this
- * module exists to avoid — PITFALLS.md Pitfall 5).
+ * across components rather than a silent drop or a coerced zero.
  *
- * Measured scale (`data/corpus.sqlite`, queried this session, played
- * matches only): 562 (2022), 356 (2023), 334 (2024), 265 (2025), and 0
- * (2026) matches have `has_score_breakdown = 0` — 1,517 in total. Small
- * relative to ~104,000 played matches across 2022-2026, but exactly the
- * population a silent drop would hide in.
+ * Measured scale (`data/corpus.sqlite`, played matches only): 562 (2022),
+ * 356 (2023), 334 (2024), 265 (2025), and 0 (2026) matches have
+ * `has_score_breakdown = 0` — 1,517 in total. Small relative to ~104,000
+ * played matches across 2022-2026, but exactly the population a silent drop
+ * would hide in.
  */
 import type { ParsedComponents } from "./constants.js";
 
 /**
  * The per-component split below is IMPUTED from the alliance's own current
- * predicted shares, not observed directly — so an algorithm that carries
- * measurement noise (Sigma1, a later plan) should treat a fallback
- * observation as proportionally less informative than a real one. This is a
- * small, documented constant chosen for a defensible qualitative property,
- * not derived from data. (It used to cite `opr.ts`'s `OPR_LOGISTIC_SCALE` as
- * the precedent for that style; that constant no longer exists — D-Q4
- * replaced it with an expanding-window SD precisely BECAUSE a fixed,
- * qualitatively-chosen scale turned out to be badly wrong. Read this one as
- * an unverified default awaiting the same treatment, not as a vindicated
- * pattern.) EPA carries no variance channel and does not consume this constant
- * itself; it exists here so Sigma1's fallback wiring has it ready-made
- * rather than re-deriving the same reasoning.
- * Phase 3 hyperparameter, default unverified.
+ * predicted shares, not observed directly — so an algorithm that carries a
+ * measurement-noise channel should treat a fallback observation as
+ * proportionally less informative than a real one. This is a small,
+ * documented constant chosen for a defensible qualitative property, not
+ * derived from data — an unverified default. EPA carries no variance
+ * channel and does not consume this constant; no current algorithm does.
  */
 export const FALLBACK_NOISE_MULTIPLIER = 3;
 
 /**
  * Distributes `observedTotal` across every name in `componentNames`, in
  * proportion to that component's current predicted share
- * (`predictedComponents[name]`) of the alliance's total predicted score
- * (CONTEXT.md D-05: "in proportion to their current expected shares").
+ * (`predictedComponents[name]`) of the alliance's total predicted score.
  *
  * Degenerate case — every predicted component is 0 (a genuinely cold-start
  * alliance with no observations yet for either teammate): falls back to a
  * UNIFORM split across `componentNames` rather than dividing by zero. This
  * is the right degenerate answer, not an arbitrary one: a cold-start
  * alliance has no basis whatsoever for a non-uniform split (there is
- * nothing yet to be proportional TO), and D-05 requires that nothing be
- * dropped from the learning stream — throwing here would silently drop
- * exactly the matches this function exists to keep.
+ * nothing yet to be proportional TO), and nothing may be dropped from the
+ * learning stream — throwing here would silently drop exactly the matches
+ * this function exists to keep.
  *
  * A component whose predicted share is exactly 0 while others are positive
  * receives exactly 0 from the split — it is not resurrected by the
