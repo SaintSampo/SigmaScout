@@ -265,7 +265,7 @@ describe("valid-fixture parse — one per schema", () => {
   });
 });
 
-describe("EventsListRowSchema — country/stateProv/districtKey (EVNT-01, plan 05-02)", () => {
+describe("EventsListRowSchema — country/stateProv/districtKey", () => {
   it("parses a row carrying all three location values", () => {
     const fixture = validEventsFixture();
     fixture.events[0]!.country = "USA";
@@ -290,7 +290,7 @@ describe("EventsListRowSchema — country/stateProv/districtKey (EVNT-01, plan 0
   });
 });
 
-describe("TeamsTableRowRawSchema — country/stateProv/districtKey (quick task 260905-ttv)", () => {
+describe("TeamsTableRowRawSchema — country/stateProv/districtKey", () => {
   it("parses a row carrying none of the three region fields, yielding all three undefined", () => {
     const fixture = validTeamsFixture();
     const parsed = TeamsArtifactSchema.parse(fixture);
@@ -360,7 +360,7 @@ describe("TeamsTableRowRawSchema — country/stateProv/districtKey (quick task 2
   });
 });
 
-describe("D-04 stamp — generation is required on all five schemas", () => {
+describe("generation stamp — generation is required on all five schemas", () => {
   it("TeamsArtifactSchema rejects an object missing generation", () => {
     const { generation, ...rest } = validTeamsFixture();
     expect(() => TeamsArtifactSchema.parse(rest)).toThrow();
@@ -387,7 +387,7 @@ describe("D-04 stamp — generation is required on all five schemas", () => {
   });
 });
 
-describe("CompareSliceSchema.rpCalibration (F1/D-09/D-11, phase 09 plan 09-01)", () => {
+describe("CompareSliceSchema.rpCalibration", () => {
   it("a slice carrying the REAL emitted rp-calibration-2026-spr.json record parses, and rpCalibration round-trips unchanged", () => {
     const record: unknown = JSON.parse(
       readFileSync(new URL("../../apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json", import.meta.url), "utf8")
@@ -413,7 +413,7 @@ describe("CompareSliceSchema.rpCalibration (F1/D-09/D-11, phase 09 plan 09-01)",
     expect(() => CompareArtifactSchema.parse({ ...fixture, slices: [badSlice] })).toThrow();
   });
 
-  describe("totalRp/outcome blocks (2026-09-13, quick task 260913-qyn)", () => {
+  describe("totalRp/outcome blocks", () => {
     it("a bonuses-only record (no totalRp/outcome keys — the pre-scorer shape) still parses, and both read back undefined", () => {
       const fixture = validCompareFixture();
       const staleSlice = {
@@ -475,7 +475,7 @@ describe("algorithm-scoping — four pages require it, compare carries neither f
   });
 });
 
-describe("teams-table positional metrics (260902-pbe)", () => {
+describe("teams-table positional metrics", () => {
   interface TestTeamMetric {
     value: number;
     spread?: number;
@@ -628,7 +628,7 @@ describe("artifactKey — all five shapes, including the compare exception", () 
   });
 });
 
-describe("D-09 replacement guarantee — played-match validation rule (Phase 6, plan 06-02 Task 3)", () => {
+describe("played-match validation rule", () => {
   /** A team-season fixture whose one event carries exactly one match row, so a test can freely mutate that single row. */
   function fixtureWithMatchRow(row: Record<string, unknown>) {
     const fixture = validTeamSeasonFixture();
@@ -683,7 +683,7 @@ describe("D-09 replacement guarantee — played-match validation rule (Phase 6, 
   });
 });
 
-describe("TeamSeasonMatchSchema — D-01 own-variance and D-02 actual RP fields (Phase 6, plan 06-02 Task 3)", () => {
+describe("TeamSeasonMatchSchema — own-variance and actual RP fields", () => {
   function fixtureWithMatchRow(row: Record<string, unknown>) {
     const fixture = validTeamSeasonFixture() as unknown as Record<string, unknown>;
     const events = fixture.events as Array<Record<string, unknown>>;
@@ -720,7 +720,7 @@ describe("TeamSeasonMatchSchema — D-01 own-variance and D-02 actual RP fields 
   });
 });
 
-describe("TeamMetricSchema.percentile — D-04 boundary (Phase 6, plan 06-02 Task 3)", () => {
+describe("TeamMetricSchema.percentile — the 0-100 boundary", () => {
   function fixtureWithTotalPercentile(percentile: number) {
     const fixture = validTeamSeasonFixture() as unknown as Record<string, unknown>;
     const seasonStats = fixture.seasonStats as Record<string, unknown>;
@@ -745,7 +745,7 @@ describe("TeamMetricSchema.percentile — D-04 boundary (Phase 6, plan 06-02 Tas
   });
 });
 
-describe("TeamSeasonArtifactSchema — seasonStats.metricsBasis (quick task 260908-wpo)", () => {
+describe("TeamSeasonArtifactSchema — seasonStats.metricsBasis", () => {
   it("parses with metricsBasis: 'last-official-match'", () => {
     const base = validTeamSeasonFixture();
     const fixture = { ...base, seasonStats: { ...base.seasonStats, metricsBasis: "last-official-match" } };
@@ -758,7 +758,7 @@ describe("TeamSeasonArtifactSchema — seasonStats.metricsBasis (quick task 2609
     expect(() => TeamSeasonArtifactSchema.parse(fixture)).not.toThrow();
   });
 
-  it("parses with metricsBasis absent — the pre-260908-wpo back-compat case", () => {
+  it("parses with metricsBasis absent — the back-compat case", () => {
     const fixture = validTeamSeasonFixture();
     expect("metricsBasis" in fixture.seasonStats).toBe(false);
     const parsed = TeamSeasonArtifactSchema.parse(fixture);
@@ -772,7 +772,7 @@ describe("TeamSeasonArtifactSchema — seasonStats.metricsBasis (quick task 2609
   });
 });
 
-describe("TeamSeasonArtifactSchema — robotImageUrl/activeYears (D-03/D-05, Phase 6, plan 06-02 Task 3)", () => {
+describe("TeamSeasonArtifactSchema — robotImageUrl/activeYears", () => {
   it("parses a fixture with no robotImageUrl and no activeYears", () => {
     expect(() => TeamSeasonArtifactSchema.parse(validTeamSeasonFixture())).not.toThrow();
   });
@@ -788,7 +788,7 @@ describe("TeamSeasonArtifactSchema — robotImageUrl/activeYears (D-03/D-05, Pha
   });
 });
 
-describe("TeamSeasonArtifactSchema — ranks (quick task 260905-ldu)", () => {
+describe("TeamSeasonArtifactSchema — ranks", () => {
   it("parses a fixture with no ranks key at all -- the pre-republish back-compat case -- yielding ranks: undefined", () => {
     const parsed = TeamSeasonArtifactSchema.parse(validTeamSeasonFixture());
     expect(parsed.ranks).toBeUndefined();
@@ -849,14 +849,14 @@ describe("TeamSeasonArtifactSchema — ranks (quick task 260905-ldu)", () => {
   });
 });
 
-describe("empty-input edge (D-05/D-07) — a team with no matches is a valid empty artifact", () => {
+describe("empty-input edge — a team with no matches is a valid empty artifact", () => {
   it("TeamSeasonArtifactSchema accepts events: [] and metricHistory: []", () => {
     const fixture = { ...validTeamSeasonFixture(), events: [], metricHistory: [] };
     expect(() => TeamSeasonArtifactSchema.parse(fixture)).not.toThrow();
   });
 });
 
-describe("EventArtifactSchema.upcoming — D-08's real shape", () => {
+describe("EventArtifactSchema.upcoming — the real upcoming-entry shape", () => {
   it("accepts an upcoming entry with pRedWin and no redRpPmf/blueRpPmf", () => {
     expect(() => EventArtifactSchema.parse(validEventFixture())).not.toThrow();
   });
@@ -874,7 +874,7 @@ describe("EventArtifactSchema.upcoming — D-08's real shape", () => {
   });
 });
 
-describe("EventMatchSchema / EventUpcomingMatchSchema — redScoreVarianceOwn/blueScoreVarianceOwn and sortTime (D-18 item 3, D-13, plan 07-07 Task 1)", () => {
+describe("EventMatchSchema / EventUpcomingMatchSchema — redScoreVarianceOwn/blueScoreVarianceOwn and sortTime", () => {
   it("Test 2 — a played row carries both variance fields, read back off the parsed result", () => {
     const parsed = EventArtifactSchema.parse(eventFixtureWith({ match: { redScoreVarianceOwn: 41.25, blueScoreVarianceOwn: 38.5 } }));
     // Direct property access (no intermediate `as unknown as {...}` cast) is
@@ -936,7 +936,7 @@ describe("EventMatchSchema / EventUpcomingMatchSchema — redScoreVarianceOwn/bl
     expect(result.success).toBe(false);
   });
 
-  it("Test 8 — the D-13 merge is possible from the published shape alone: concatenating matches and upcoming and sorting by sortTime yields the four matchKeys in strict chronological order", () => {
+  it("Test 8 — the played/upcoming merge is possible from the published shape alone: concatenating matches and upcoming and sorting by sortTime yields the four matchKeys in strict chronological order", () => {
     const baseMatch = validEventFixture().matches[0]!;
     const baseUpcoming = validEventFixture().upcoming[0]!;
     const fixture = eventFixtureWith({
@@ -958,7 +958,7 @@ describe("EventMatchSchema / EventUpcomingMatchSchema — redScoreVarianceOwn/bl
   });
 });
 
-describe("EventMatchSchema — redRpPmf/blueRpPmf (D-03, plan 08-02 Task 1)", () => {
+describe("EventMatchSchema — redRpPmf/blueRpPmf", () => {
   it("Test 1 — backward-compatibility: the unmodified fixture, carrying none of this plan's new keys, still parses", () => {
     expect(() => EventArtifactSchema.parse(validEventFixture())).not.toThrow();
   });
@@ -1020,7 +1020,7 @@ describe("EventMatchSchema — redRpPmf/blueRpPmf (D-03, plan 08-02 Task 1)", ()
     expect(parsed.matches[0]!.blueRpPmf).toBeUndefined();
   });
 
-  it("Test 7 — a one-entry pmf, the shape a playoff row genuinely carries (PD-02), is valid", () => {
+  it("Test 7 — a one-entry pmf, the shape a playoff row genuinely carries, is valid", () => {
     const parsed = EventArtifactSchema.parse(eventFixtureWith({ match: { redRpPmf: [1], blueRpPmf: [1] } }));
     expect(parsed.matches[0]!.redRpPmf).toEqual([1]);
     expect(parsed.matches[0]!.blueRpPmf).toEqual([1]);
@@ -1039,7 +1039,7 @@ describe("EventMatchSchema — redRpPmf/blueRpPmf (D-03, plan 08-02 Task 1)", ()
   });
 });
 
-describe("EventMatchSchema/EventUpcomingMatchSchema/EventArtifactSchema — matchOutcomePmf/redBonusRpPmf/blueBonusRpPmf/rpOutcomeRp (D-15, plan 09-07)", () => {
+describe("EventMatchSchema/EventUpcomingMatchSchema/EventArtifactSchema — matchOutcomePmf/redBonusRpPmf/blueBonusRpPmf/rpOutcomeRp", () => {
   it("Test 1 — a complete decomposition on a played row, an upcoming row, and the top-level pair round-trips exactly", () => {
     const matchOutcomePmf = [0.6, 0.02, 0.38];
     const redBonusRpPmf = [0.7, 0.3];
@@ -1093,7 +1093,7 @@ describe("EventMatchSchema/EventUpcomingMatchSchema/EventArtifactSchema — matc
   });
 });
 
-describe("EventMatchSchema — actualRedRp/actualBlueRp (D-12, plan 08-02 Task 2)", () => {
+describe("EventMatchSchema — actualRedRp/actualBlueRp", () => {
   it("Test 1 — round trip: a real integer and a real zero both read back exactly", () => {
     const parsed = EventArtifactSchema.parse(eventFixtureWith({ match: { actualRedRp: 5, actualBlueRp: 0 } }));
     expect(parsed.matches[0]!.actualRedRp).toBe(5);
@@ -1129,8 +1129,8 @@ describe("EventMatchSchema — actualRedRp/actualBlueRp (D-12, plan 08-02 Task 2
   });
 });
 
-describe("EventTeamSchema — rank/record/rp (D-18 item 6, D-07, D-08, plan 07-07 Task 2)", () => {
-  it("Test 1 — the D-08 no-ranking case: a team row carrying none of the three parses, all three read back undefined", () => {
+describe("EventTeamSchema — rank/record/rp", () => {
+  it("Test 1 — the no-ranking case: a team row carrying none of the three parses, all three read back undefined", () => {
     const parsed = EventArtifactSchema.parse(eventFixtureWith({ team: { teamKey: "frc254" } }));
     expect(parsed.teams[0]!.rank).toBeUndefined();
     expect(parsed.teams[0]!.record).toBeUndefined();
@@ -1172,7 +1172,7 @@ describe("EventTeamSchema — rank/record/rp (D-18 item 6, D-07, D-08, plan 07-0
     expect(parsedZero.teams[0]!.rp).not.toBeUndefined();
   });
 
-  it("Test 7 — the half-present state is legal (PD-05): a row carrying rank but neither record nor rp parses, real state of a pre-07-04 event_rankings row", () => {
+  it("Test 7 — the half-present state is legal: a row carrying rank but neither record nor rp parses, the real state of an older event_rankings row", () => {
     const parsed = EventArtifactSchema.parse(eventFixtureWith({ team: { teamKey: "frc254", rank: 12 } }));
     expect(parsed.teams[0]!.rank).toBe(12);
     expect(parsed.teams[0]!.record).toBeUndefined();
@@ -1180,7 +1180,7 @@ describe("EventTeamSchema — rank/record/rp (D-18 item 6, D-07, D-08, plan 07-0
   });
 });
 
-describe("EventAllianceSchema / EventArtifactSchema identity fields (D-18 items 7/8, D-15, D-16, D-17, plan 07-07 Task 3)", () => {
+describe("EventAllianceSchema / EventArtifactSchema identity fields", () => {
   const THREE_PICKS = ["frc254", "frc1678", "frc971"];
   const FOUR_PICKS = ["frc254", "frc1678", "frc971", "frc604"];
 
@@ -1281,26 +1281,26 @@ describe("EventAllianceSchema / EventArtifactSchema identity fields (D-18 items 
     expect(composeEventLocation(null, null)).toBeNull();
   });
 
-  it("Test 10 (07-UAT.md G-8) — an alliance's playoff record round-trips whole when present", () => {
+  it("Test 10 — an alliance's playoff record round-trips whole when present", () => {
     const parsed = EventArtifactSchema.parse(
       eventFixtureWith({ top: { alliances: [{ allianceNumber: 1, picks: THREE_PICKS, record: { wins: 4, losses: 3, ties: 0 } }] } })
     );
     expect(parsed.alliances![0]!.record).toEqual({ wins: 4, losses: 3, ties: 0 });
   });
 
-  it("Test 11 (07-UAT.md G-8) — an alliance with no record key parses and reads back undefined, never a fabricated 0-0-0", () => {
+  it("Test 11 — an alliance with no record key parses and reads back undefined, never a fabricated 0-0-0", () => {
     const parsed = EventArtifactSchema.parse(eventFixtureWith({ top: { alliances: [{ allianceNumber: 1, picks: THREE_PICKS }] } }));
     expect(parsed.alliances![0]!.record).toBeUndefined();
   });
 
-  it("Test 12 (07-UAT.md G-8) — a record missing one of the three counts is rejected, mirroring RecordSchema's existing all-or-nothing shape", () => {
+  it("Test 12 — a record missing one of the three counts is rejected, mirroring RecordSchema's existing all-or-nothing shape", () => {
     const result = EventArtifactSchema.safeParse(
       eventFixtureWith({ top: { alliances: [{ allianceNumber: 1, picks: THREE_PICKS, record: { wins: 4, losses: 3 } }] } })
     );
     expect(result.success).toBe(false);
   });
 
-  it("Test 13 (07-UAT.md G-8) — a negative count is rejected through RecordSchema's existing nonnegative()", () => {
+  it("Test 13 — a negative count is rejected through RecordSchema's existing nonnegative()", () => {
     const result = EventArtifactSchema.safeParse(
       eventFixtureWith({ top: { alliances: [{ allianceNumber: 1, picks: THREE_PICKS, record: { wins: 4, losses: -1, ties: 0 } }] } })
     );
@@ -1308,7 +1308,7 @@ describe("EventAllianceSchema / EventArtifactSchema identity fields (D-18 items 
   });
 });
 
-describe("TeamSeasonMatchSchema — predicted/actual per-bonus RP fields (Phase 06.1, plan 06.1-05 Task 1)", () => {
+describe("TeamSeasonMatchSchema — predicted/actual per-bonus RP fields", () => {
   function fixtureWithMatchRow(row: Record<string, unknown>) {
     const fixture = validTeamSeasonFixture() as unknown as Record<string, unknown>;
     const events = fixture.events as Array<Record<string, unknown>>;
@@ -1391,7 +1391,7 @@ describe("TeamSeasonMatchSchema — predicted/actual per-bonus RP fields (Phase 
   });
 });
 
-describe("districtsIndexKey/districtDetailKey (quick task 260905-lic Task 2)", () => {
+describe("districtsIndexKey/districtDetailKey", () => {
   it("districtsIndexKey produces the year-scoped index shape", () => {
     expect(districtsIndexKey(2026)).toBe("v1/districts/2026.json");
   });
@@ -1476,12 +1476,12 @@ function validDistrictFixture() {
   };
 }
 
-describe("DistrictsIndexArtifactSchema / DistrictArtifactSchema (quick task 260905-lic Task 2)", () => {
+describe("DistrictsIndexArtifactSchema / DistrictArtifactSchema", () => {
   it("DistrictsIndexArtifactSchema parses a valid fixture", () => {
     expect(() => DistrictsIndexArtifactSchema.parse(validDistrictsIndexFixture())).not.toThrow();
   });
 
-  it("DistrictsIndexArtifactSchema requires generation (D-04 stamp)", () => {
+  it("DistrictsIndexArtifactSchema requires generation", () => {
     const { generation, ...rest } = validDistrictsIndexFixture();
     expect(() => DistrictsIndexArtifactSchema.parse(rest)).toThrow();
   });
@@ -1497,7 +1497,7 @@ describe("DistrictsIndexArtifactSchema / DistrictArtifactSchema (quick task 2609
     expect(() => DistrictArtifactSchema.parse(validDistrictFixture())).not.toThrow();
   });
 
-  it("DistrictArtifactSchema requires generation (D-04 stamp)", () => {
+  it("DistrictArtifactSchema requires generation", () => {
     const { generation, ...rest } = validDistrictFixture();
     expect(() => DistrictArtifactSchema.parse(rest)).toThrow();
   });
@@ -1558,7 +1558,7 @@ describe("DistrictsIndexArtifactSchema / DistrictArtifactSchema (quick task 2609
   });
 });
 
-describe("raw-numbers-only (D-21) — no schema declares a comparison-shaped field", () => {
+describe("raw-numbers-only — no schema declares a comparison-shaped field", () => {
   const COMPARISON_PATTERN = /delta|beats|better|rankChange/i;
 
   function collectFieldNames(shape: Record<string, unknown>): string[] {
@@ -1652,7 +1652,7 @@ function validPreScheduleFixture() {
   };
 }
 
-describe("preScheduleKey (quick task 260905-tll Task 1, PD-01)", () => {
+describe("preScheduleKey", () => {
   it("builds the v1/presim key shape", () => {
     expect(preScheduleKey({ eventKey: "2026casj", algorithmId: "vpr", version: "9.0.0+rolling-2026-09c" })).toBe(
       "v1/presim/2026casj/vpr@9.0.0+rolling-2026-09c.json"
@@ -1666,7 +1666,7 @@ describe("preScheduleKey (quick task 260905-tll Task 1, PD-01)", () => {
   });
 });
 
-describe("PreScheduleArtifactSchema (quick task 260905-tll Task 1)", () => {
+describe("PreScheduleArtifactSchema", () => {
   it("parses a well-formed sidecar object", () => {
     expect(() => PreScheduleArtifactSchema.parse(validPreScheduleFixture())).not.toThrow();
   });
@@ -1689,7 +1689,7 @@ describe("PreScheduleArtifactSchema (quick task 260905-tll Task 1)", () => {
     expect(() => PreScheduleArtifactSchema.parse(fixture)).toThrow(/one histogram per roster team/);
   });
 
-  it("WR-01: rejects a roster carrying a DUPLICATE team key — the client indexes baked histograms by team key, so a duplicate would throw MalformedRankHistogramError in front of a reader", () => {
+  it("rejects a roster carrying a DUPLICATE team key — the client indexes baked histograms by team key, so a duplicate would throw MalformedRankHistogramError in front of a reader", () => {
     const fixture = validPreScheduleFixture();
     fixture.roster[1] = fixture.roster[0]!;
     expect(() => PreScheduleArtifactSchema.parse(fixture)).toThrow(/duplicate team keys/);
@@ -1702,8 +1702,8 @@ describe("PreScheduleArtifactSchema (quick task 260905-tll Task 1)", () => {
   });
 });
 
-describe("PublishedPreScheduleArtifactSchema (260912-2ur — drop the priced block, publish scheduleCount)", () => {
-  /** The new (post-260912-2ur) published shape: no `schedules`, a `scheduleCount` scalar instead. */
+describe("PublishedPreScheduleArtifactSchema — no priced block, a scheduleCount instead", () => {
+  /** The new published shape: no `schedules`, a `scheduleCount` scalar instead. */
   function publishedPreScheduleFixture() {
     const { schedules: _schedules, ...rest } = validPreScheduleFixture();
     return { ...rest, scheduleCount: 20 };
@@ -1753,7 +1753,7 @@ describe("PublishedPreScheduleArtifactSchema (260912-2ur — drop the priced blo
   });
 });
 
-describe("FieldAveragedPreScheduleArtifactSchema (plan 09-09 Task 2; D-16, D-17)", () => {
+describe("FieldAveragedPreScheduleArtifactSchema", () => {
   /** A well-formed rung-1 sidecar: three teams, a seven-entry per-MATCH pmf each. */
   function validFieldAveragedFixture(): {
     schemaVersion: number;
@@ -1837,14 +1837,14 @@ describe("FieldAveragedPreScheduleArtifactSchema (plan 09-09 Task 2; D-16, D-17)
     expect(() => FieldAveragedPreScheduleArtifactSchema.parse(fixture)).toThrow();
   });
 
-  it("preScheduleKey is UNCHANGED by this plan — an equality pin on the exact literal key string for a spr artifact (Delta A is plan 09-10's, not this plan's)", () => {
+  it("preScheduleKey is UNCHANGED — an equality pin on the exact literal key string for a spr artifact", () => {
     expect(preScheduleKey({ eventKey: "2023gaalb", algorithmId: "spr", version: "3.0.0+baseline" })).toBe(
       "v1/presim/2023gaalb/spr@3.0.0+baseline.json"
     );
   });
 });
 
-describe("retired and unknown keys are stripped on parse (quick tasks 260913-g66 D2/D3 and 260913-it4)", () => {
+describe("retired and unknown keys are stripped on parse", () => {
   // Generic stand-ins for any legacy wire key a stale artifact still carries: every
   // schema here is non-strict, so an unknown key is dropped rather than rejected.
   const STALE_BAND = { redLegacyBandVariance: 300, blueLegacyBandVariance: 250 };
