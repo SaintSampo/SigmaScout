@@ -1,6 +1,6 @@
 /**
- * Quick task 260905-ttv: pure option-list derivation and the filter predicate
- * for the Teams page's Country/State/District dropdowns. Imports no React —
+ * Pure option-list derivation and the filter predicate for the Teams
+ * page's Country/State/District dropdowns. Imports no React —
  * mirrors `events-list/filterModel.ts`'s shape (`teamFilterOptions` /
  * `applyTeamFilters` are this module's `filterOptions` / `applyEventFilters`)
  * so the two pages' filter mechanics read as one convention across the site.
@@ -11,9 +11,8 @@
  * the field genuinely exists on every row, sometimes empty). A TEAM's region
  * fields are OPTIONAL (absent means "not derivable from where this team
  * competed this season" — `packages/harness/teamRanks.ts`'s `deriveTeamRegions`
- * — or "this artifact predates the field existing" — a pre-republish
- * artifact, quick task 260905-ttv's own `<post_plan_note>`). Both resolve to
- * the identical filtering behavior below: a row with no value on a dimension
+ * — or "this artifact predates the field existing", a pre-republish
+ * artifact). Both resolve to the identical filtering behavior below: a row with no value on a dimension
  * can never match a set filter on it. Also worth restating plainly: these
  * values are INFERRED from the events a team attended, never a team's
  * registered address — the same honesty note `deriveTeamRegions` itself
@@ -51,7 +50,7 @@ export interface TeamFilterOptionLists {
  * `localeCompare`. A dimension where no row carries a value yields an EMPTY
  * list — the signal the control uses to render itself disabled. A
  * pre-republish artifact (no region fields on any row) therefore yields
- * three empty lists, matching this task's own must-have truth.
+ * three empty lists.
  *
  * Only rows whose `teamKey` passes `isRealTeamKey` contribute options,
  * matching the pool every other ranking surface on this site already uses

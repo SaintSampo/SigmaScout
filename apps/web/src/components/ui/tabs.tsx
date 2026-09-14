@@ -23,7 +23,7 @@ function Tabs({
 }
 
 const tabsListVariants = cva(
-  // 07-UAT.md G-6: `justify-center` (plain) centers this flex container's
+  // `justify-center` (plain) centers this flex container's
   // items even while the container itself overflows its own scroll region
   // (measured live: strip scrollWidth 358px > clientWidth 342px at 390px) —
   // centered overflow pushes the LEADING tab past the scroll origin, which a
@@ -33,8 +33,8 @@ const tabsListVariants = cva(
   // when the content fits, fall back to start-alignment the moment it would
   // overflow — conditional centering with no JS measurement needed.
   "group/tabs-list inline-flex w-fit items-center justify-center-safe rounded-lg p-[3px] text-muted-foreground group-data-[orientation=horizontal]/tabs:h-8 group-data-[orientation=vertical]/tabs:h-fit group-data-[orientation=vertical]/tabs:flex-col data-[variant=line]:rounded-none " +
-    // Task 4 (260902-ixg): the `line` variant no longer accepts the shared
-    // fixed `h-8` (32px). Measured live: every `line`-variant trigger on the
+    // The `line` variant does not accept the shared fixed `h-8` (32px).
+    // Measured live: every `line`-variant trigger on the
     // event/team pages carries `.tap-target`'s `min-height: 44px`, 12px
     // taller than an `h-8` list — the list centred that overflow, and the
     // first `:hover`-triggered style recalc visibly snapped the strip from
@@ -88,7 +88,7 @@ function TabsTrigger({
       data-slot="tabs-trigger"
       className={cn(
         "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-foreground/60 transition-colors group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 has-data-[icon=inline-end]:pr-1 has-data-[icon=inline-start]:pl-1 dark:text-muted-foreground dark:hover:text-foreground group-data-[variant=default]/tabs-list:data-active:shadow-sm group-data-[variant=line]/tabs-list:data-active:shadow-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        // 07-UAT.md G-5: the base `flex-1` above force-equalizes every
+        // The base `flex-1` above force-equalizes every
         // trigger in this list to an identical box width regardless of its
         // own label's width (measured live: every box forced to 67px while
         // label text varied 36-76px, and "Breakdown"'s own 76px text
@@ -102,7 +102,7 @@ function TabsTrigger({
         // control (which legitimately wants equal-width children) is
         // unaffected.
         //
-        // Task 4 (260902-ixg): `h-[calc(100%-1px)]` above computes against
+        // `h-[calc(100%-1px)]` above computes against
         // `TabsList`'s height — a percentage anchored to a container whose
         // own height this same trigger's `.tap-target` min-height (44px)
         // then overflows (measured live: list 32px, trigger 44px on the

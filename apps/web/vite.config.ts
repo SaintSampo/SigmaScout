@@ -51,10 +51,10 @@ export default defineConfig(({ mode }) => {
   const artifactOrigin = loadEnv(mode, process.cwd(), "VITE_").VITE_ARTIFACT_ORIGIN ?? DEFAULT_ARTIFACT_ORIGIN;
 
   /**
-   * Same-origin artifact path for a LOCAL page (quick task 260830-p6s, G-06-2).
+   * Same-origin artifact path for a LOCAL page.
    *
-   * `https://data.sigmascout.org`'s R2 CORS policy (Phase 5 D-18) does not
-   * allow-list `localhost`, so a page served from a local origin must never
+   * `https://data.sigmascout.org`'s R2 CORS policy does not allow-list
+   * `localhost`, so a page served from a local origin must never
    * issue a cross-origin artifact request directly — it will CORS-fail and the
    * page renders empty, which looks exactly like a layout defect and is not
    * one. Proxying `/v1` through the page's own origin makes the browser's

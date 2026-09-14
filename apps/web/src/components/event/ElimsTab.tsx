@@ -7,21 +7,20 @@ import { EmptyState } from "../StateViews.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
- * The Elims tab (EVNT-06, D-14, 07-13-PLAN.md): every elimination match of
- * this event — `compLevel` in the closed set `ef`/`qf`/`sf`/`f`, selected by
- * 07-12's `isElimCompLevel` and by no filter written here — as ONE FLAT LIST
- * with NO bracket grouping, each round labelled by `matchLabel()`'s existing
- * output. There is no bracket because the structure genuinely cannot be
- * recovered from the published fields: from 2023 on, `compLevel` is `sf` for
- * nearly every playoff match (2025 alone publishes 3,923 `sf` rows against 5
- * `qf`), so a round would have to be inferred from set-number ordering, and
- * 2022's best-of-three bracket needs an entirely different path. CONTEXT.md's
- * Deferred Ideas carries the bracket; a partial one drawn from an inference
- * would be pixel-identical to a real one while being wrong in a way the
- * reader cannot detect.
+ * The Elims tab: every elimination match of this event — `compLevel` in
+ * the closed set `ef`/`qf`/`sf`/`f`, selected by `isElimCompLevel` and by
+ * no filter written here — as ONE FLAT LIST with NO bracket grouping, each
+ * round labelled by `matchLabel()`'s existing output. There is no bracket
+ * because the structure genuinely cannot be recovered from the published
+ * fields: from 2023 on, `compLevel` is `sf` for nearly every playoff match
+ * (2025 alone publishes 3,923 `sf` rows against 5 `qf`), so a round would
+ * have to be inferred from set-number ordering, and 2022's best-of-three
+ * bracket needs an entirely different path. A partial bracket drawn from an
+ * inference would be pixel-identical to a real one while being wrong in a
+ * way the reader cannot detect.
  *
- * Otherwise this is `QualsTab.tsx`'s sibling with one predicate swapped: the
- * same D-13 client-side merge, the same D-12 fresh-per-tab axis domain (an
+ * Otherwise this is `QualsTab.tsx`'s sibling with one predicate swapped:
+ * the same client-side merge, the same fresh-per-tab axis domain (an
  * elimination alliance's own score range sits mostly ABOVE a qualification
  * alliance's — measured `2025mnmi`: quals [28, 196], elims [91, 225] — so a
  * shared domain would crowd this tab into the plot's right-hand edge), and
@@ -62,9 +61,9 @@ export function ElimsTabSkeleton() {
  * elimination matches at all, never "none played yet".
  *
  * The body is IMPORTED from `QualsTab.tsx`'s exported `QUALS_EMPTY_STATE_BODY`
- * rather than retyped — 07-12 exported it exactly so this tab renders the
- * identical Copywriting Contract sentence rather than a paraphrase. The
- * `QUALS_` prefix reads oddly on this tab and that is deliberate: the
+ * rather than retyped, so this tab renders the identical sentence rather
+ * than a paraphrase. The `QUALS_` prefix reads oddly on this tab and that
+ * is deliberate: the
  * sentence is shared by contract, and renaming or relocating it would mean
  * editing a dependency's shipped export and its test file for a purely
  * cosmetic gain, against the real risk of turning a green suite red.
