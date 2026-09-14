@@ -156,13 +156,6 @@ describe("the Bayesian prior", () => {
     expect(fresh.priorSigmaFor("frcStrong")).toBeCloseTo(fresh.populationSigma(), 12);
   });
 
-  it("with talentPrior FALSE, two teams of different talent share one prior — the control behaves as a control", () => {
-    const accumulator = new SigmaScoreAccumulator({ talentPrior: false });
-    accumulator.observeTalent("frcWeak", 10);
-    accumulator.observeTalent("frcStrong", 100);
-    expect(accumulator.sigmaFor("frcStrong")).toBeCloseTo(accumulator.sigmaFor("frcWeak"), 12);
-  });
-
   it("floors talent so a zero or negative rating cannot produce a zero prior", () => {
     const accumulator = new SigmaScoreAccumulator();
     accumulator.observeTalent("frcZero", 0);
@@ -269,10 +262,6 @@ describe("construction guards", () => {
 
   it("defaults separate the two half-lives — the mean is slower than the variance", () => {
     expect(DEFAULT_SIGMA_SCORE_OPTIONS.meanHalfLife).toBeGreaterThan(DEFAULT_SIGMA_SCORE_OPTIONS.varHalfLife);
-  });
-
-  it("defaults report an honest 1 sigma rather than the incumbent's 1.92 presentation multiplier", () => {
-    expect(DEFAULT_SIGMA_SCORE_OPTIONS.scale).toBe(1);
   });
 });
 

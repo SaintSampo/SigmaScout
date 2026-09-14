@@ -89,7 +89,7 @@
  *     prior      sigma^2 ~ InvGamma(a0, b0),  a0 = priorObs/2,
  *                                             b0 = (a0 - 1) * priorSigma^2
  *     posterior  a = a0 + W/2,   b = b0 + S/2
- *     report     SIGMA = scale * sqrt( b / (a - 1) )
+ *     report     SIGMA = sqrt( b / (a - 1) )
  *
  * The `(a0 - 1)` in `b0` rather than the more obvious `a0` is deliberate and is
  * explained at the point of use in `sigmaFor` — it decouples the metric's LEVEL
@@ -128,10 +128,9 @@
  * because OPR ratings can be zero or negative and a prior of zero would
  * reintroduce the very tail this is built to remove.
  *
- * A talent-independent variant is deliberately testable via `talentPrior:
- * false`, because "the talent scaling earns its place" is a claim that should be
- * measured rather than assumed. The head-to-head that ran both was deleted by
- * quick task 260913-it4 and is restorable from git history.
+ * The talent-independent control variant (`talentPrior: false`) and the
+ * head-to-head that ran it against this prior were deleted (quick tasks
+ * 260913-it4 and 260913-nvn); both are restorable from git history.
  */
 
 /**
@@ -343,18 +342,12 @@ export interface SigmaScoreOptions {
    * predictive variance does not exist.
    */
   readonly priorObs: number;
-  /** Multiplier on the reported figure. 1 means "report an honest 1 sigma in points". */
-  readonly scale: number;
-  /** When false, the prior ignores talent — the control that tests whether talent scaling helps. */
-  readonly talentPrior: boolean;
 }
 
 export const DEFAULT_SIGMA_SCORE_OPTIONS: SigmaScoreOptions = {
   meanHalfLife: 18,
   varHalfLife: 6,
   priorObs: 4,
-  scale: 1,
-  talentPrior: true,
 };
 
 /**
@@ -484,13 +477,6 @@ export class SigmaScoreAccumulator {
   }
 
   /**
-   * The prior spread for one team: its talent-implied typical variation.
-   *
-   * With `talentPrior: false` this collapses to the population's own RMS
-   * residual, i.e. one number for every team regardless of strength — the
-   * control described in this module's header.
-   */
-  /**
    * The population's own RMS residual — the flat prior, and the reference the
    * talent-scaled prior is clamped against.
    */
@@ -499,9 +485,9 @@ export class SigmaScoreAccumulator {
     return Math.sqrt(this.#populationSumSquares / this.#populationCount);
   }
 
+  /** The prior spread for one team: its talent-implied typical variation. */
   priorSigmaFor(teamKey: string): number {
     const populationSigma = this.populationSigma();
-    if (!this.#options.talentPrior) return populationSigma;
 
     // TALENT SCALING IS WITHHELD until the population has been observed enough
     // times for `priorK` to mean anything. Both halves of the talent prior —
@@ -575,7 +561,7 @@ export class SigmaScoreAccumulator {
     const beta = beta0 + belief.sumSquares / 2;
     // alpha - 1 > 0 is guaranteed by the priorObs > 2 constructor check, and
     // varWeight only ever adds to it.
-    return this.#options.scale * Math.sqrt(beta / (alpha - 1));
+    return Math.sqrt(beta / (alpha - 1));
   }
 
   /** This team's current bias term — the location a predictive distribution is centred on. */
