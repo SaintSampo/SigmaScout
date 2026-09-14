@@ -10,49 +10,35 @@ import {
  * The team page's phase tiles — Auto, Teleop, Endgame — plus their display
  * labels.
  *
- * VPR publishes the three groups as first-class metrics
- * (`phaseAuto`/`phaseTeleop`/`phaseEndgame`), each carrying its own `value`,
- * `spread` and `percentile` exactly like `total` does. That publication
- * exists because a group's honest SPREAD is the quadratic form of VPR's
- * per-team component covariance restricted to the group's indices — the
- * off-diagonal Cov(auto_i, auto_j) terms are not published, so a client sum
- * cannot reproduce it. Both are computed where the covariance actually
- * lived (the retired Sigma1 core (deleted by quick task 260913-it4)'s `teamMetrics`, via its
- * `subsetVariance`).
+ * Some algorithms publish the three groups as first-class metrics
+ * (`phaseAuto`/`phaseTeleop`/`phaseEndgame`) carrying their own `value`,
+ * `spread` and `percentile` exactly like `total` does; a group's honest
+ * SPREAD is the quadratic form of that algorithm's per-team component
+ * covariance restricted to the group's indices, computed where the
+ * covariance actually lives — the off-diagonal terms are not published, so
+ * a client sum cannot reproduce it. Other algorithms publish the groups
+ * value-only (no spread anywhere) but WITH a season-wide `percentile`/`tier`
+ * from the same publish-time percentile pass every other published metric
+ * goes through, which means the same thing on a group cell as it does
+ * anywhere else on the site.
  *
- * As of quick task 260904-7id (D-1/D-3), EPA's pipeline ALSO publishes the
- * three groups as first-class metrics — value-only (EPA carries no spread
- * anywhere), but WITH a season-wide `percentile`/`tier` from the same
- * publish-time percentile pass every other published metric goes through
- * (`packages/harness/percentiles.ts`, generic over metric names). That tier
- * MEANS the same thing on an EPA group cell as it does anywhere else on the
- * site — a season-wide, pipeline-computed rank over the full team pool —
- * because it comes from the same place every other tier does.
+ * `withDerivedGroupMetrics` below is the STALE-ARTIFACT fallback: a browser
+ * holding a cached artifact from before an algorithm's groups were
+ * first-class has published components but no published group entry yet —
+ * for exactly that case, this function sums the group's PRESENT component
+ * values client-side and returns a value-only entry: no spread, no
+ * percentile, no tier. A CLIENT-DERIVED tier is deliberately never invented
+ * here, even though the arithmetic is exact: the client has no season-wide
+ * pool of every OTHER team's value to rank against, so any tier it assigned
+ * would be a guess rendered in the exact same box a real, pipeline-computed
+ * tier uses — indistinguishable to a reader, and therefore dishonest. It
+ * NEVER overwrites a published group entry — a published entry always wins
+ * over a derived one.
  *
- * `withDerivedGroupMetrics` below still exists, but its job narrowed: it is
- * now the STALE-ARTIFACT fallback, not EPA's steady-state path. A browser
- * holding a cached pre-260904-7id EPA artifact has published components but
- * no published group entry yet — for exactly that case, this function sums
- * the group's PRESENT component values client-side and returns a value-only
- * entry: no spread, no percentile, no tier. A CLIENT-DERIVED tier is
- * deliberately never invented here, even though the arithmetic is exact:
- * the client has no season-wide pool of every OTHER team's value to rank
- * against, so any tier it assigned would be a guess rendered in the exact
- * same box a real, pipeline-computed tier uses — indistinguishable to a
- * reader, and therefore dishonest. It NEVER overwrites a published group
- * entry (a published entry — VPR's covariance-derived one, or a
- * post-260904-7id EPA one — always wins over a derived one).
- *
- * Whether the three groups sum to `total` is now ALGORITHM-DEPENDENT
- * (`breakdown/groups.ts`'s own header, D-01/D-1): VPR's `total` still spans
- * every component including `UNGROUPED_COMPONENTS` (`adjust`,
- * `foulsCommitted`), so its three groups do NOT sum to `total` there. EPA's
- * groups DO now reconcile with `total` exactly (`total` already excludes
- * `foulsCommitted`, and `adjust` is pinned at exactly 0) — but that is an
- * EPA-specific fact about EPA's OWN published numbers, not a property this
- * module's derivation creates or any surface may rely on generally. No
- * surface may present Auto+Teleop+Endgame as a reconciliation against Total
- * for every algorithm — only note it where it is actually true.
+ * Whether the three groups sum to `total` is ALGORITHM-DEPENDENT
+ * (`breakdown/groups.ts`'s own header) — never assume it generally; only
+ * note it where it is actually true for a given algorithm's published
+ * numbers.
  *
  * The grouping itself is single-sourced in
  * `packages/core/algorithms/breakdown/groups.ts` — never duplicated here,
@@ -101,10 +87,9 @@ export interface DerivedGroupMetric {
  * `withDerivedGroupMetrics(metrics, season)`: returns a new metrics record
  * carrying a value-only `phaseAuto`/`phaseTeleop`/`phaseEndgame` entry for
  * each group whose components are present in `metrics`, merged UNDER the
- * input — a published entry (VPR's own, or EPA's as of 260904-7id) always
- * wins over a derived one, spread last in the returned object. For EPA this
- * is now the stale-artifact fallback (see this module's header) rather than
- * the steady-state path.
+ * input — a published entry always wins over a derived one, spread last in
+ * the returned object. This is the stale-artifact fallback (see this
+ * module's header) rather than the steady-state path.
  *
  * For each group, sums the `value` of every `componentsInGroup(season,
  * group)` key that is PRESENT in `metrics` — plain arithmetic, no rounding,
@@ -135,6 +120,7 @@ export function withDerivedGroupMetrics<M extends { readonly value: number }>(
     };
   }
   // Published entries take precedence — spread `metrics` LAST so a real
-  // `phaseAuto` (VPR) overwrites the derived placeholder, never the reverse.
+  // published `phaseAuto` overwrites the derived placeholder, never the
+  // reverse.
   return { ...derived, ...metrics };
 }
