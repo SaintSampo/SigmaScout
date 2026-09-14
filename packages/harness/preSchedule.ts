@@ -1,27 +1,20 @@
 /**
- * The pure pre-schedule sidecar builder (quick task 260905-tll Task 2,
- * C-04/C-08/C-09/C-14, PD-03). Builds one event's `v1/presim/...` sidecar:
- * K synthetic qualification schedules, each a pairing structure from the
- * rules-based generator (`generatedSchedules.ts`, quick task 260913-pnp)
- * with the roster shuffled onto its slots, each priced through the caller's
- * `predict` closure, plus the baked default rank distribution the Simulation
- * tab renders on first paint.
+ * The pure pre-schedule sidecar builder. Builds one event's `v1/presim/...`
+ * sidecar: K synthetic qualification schedules, each a pairing structure from
+ * `generatedSchedules.ts` with the roster shuffled onto its slots, each priced
+ * through the caller's `predict` closure, plus the baked default rank
+ * distribution the Simulation tab renders on first paint.
  *
- * PURITY CONTRACT: no corpus read, no R2 call, no filesystem access at all,
- * and no wall-clock read — every value that varies between runs is either
- * passed in (`generation`, `computedAt`) or derived from a seed that is
- * itself a pure hash: of `eventKey`/`algorithmVersion`/schedule index for
- * the shuffles and baked draws, and of roster size/matches per team/schedule
- * index for the pairing structures (C-14, threat T-tll-06).
- * The platform's non-seedable random source never appears in this module,
- * so republishing the same corpus twice produces byte-identical sidecars.
+ * PURITY CONTRACT: no corpus read, no R2 call, no filesystem access and no
+ * wall-clock read. Every value that varies between runs is passed in
+ * (`generation`, `computedAt`) or derived from a pure hash (of
+ * `eventKey`/`algorithmVersion`/schedule index for shuffles and baked draws,
+ * of roster size/matches per team/schedule index for pairing structures), so
+ * republishing the same corpus twice produces byte-identical sidecars.
  *
- * C-04 is honoured STRUCTURALLY rather than by promise: this module never
- * touches a model. It only calls back into whatever
- * `algorithm.predict(state, match)` the caller has already bound to the
- * right walk-forward state — so every published pmf is produced by the
- * SAME joint-covariance RP path real matches use, and no independence
- * approximation can exist here because no pricing math exists here.
+ * This module holds no pricing math: it only calls the caller's `predict`,
+ * already bound to the right walk-forward state, so every published pmf comes
+ * from the same RP path real matches use.
  */
 import {
   PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -50,23 +43,16 @@ import {
 import type { Prediction, UpcomingMatch } from "../core/algorithms/types.js";
 
 /**
- * A pmf that goes missing PARTWAY through a schedule is genuine corruption,
- * not an expected state — an algorithm either models ranking points for
- * this event's shape or it does not, and that answer cannot flip between
- * two structurally identical synthetic matches. Contrast with the
- * first-match probe in `buildPreScheduleArtifact`, where an absent pmf is
- * the ordinary "this algorithm does not model ranking points" answer and
- * returns `null` instead of throwing.
+ * A pmf that goes missing PARTWAY through a schedule is corruption: whether an
+ * algorithm models ranking points cannot flip between two structurally
+ * identical synthetic matches. An absent pmf on the first-match probe in
+ * `buildPreScheduleArtifact` is the ordinary answer and returns `null` instead.
  */
 export class PreSchedulePricingError extends Error {
   /**
-   * `missing` names what vanished partway through the schedule — either the
-   * base `redRpPmf`/`blueRpPmf` pair (the original case) or, since plan
-   * 09-07 (D-15), the RP decomposition (`matchOutcomePmf`/`redOutcomeRp`/
-   * `blueOutcomeRp`/`redBonusRpPmf`/`blueBonusRpPmf`) once the FIRST priced
-   * prediction established that this algorithm carries it — the same
-   * first-match-probe discipline `buildPreScheduleArtifact` already applies
-   * to the base pmf pair, extended rather than duplicated.
+   * `missing` names what vanished: the base `redRpPmf`/`blueRpPmf` pair, or the
+   * RP decomposition once the first priced prediction showed this algorithm
+   * carries it.
    */
   constructor(syntheticMatchKey: string, missing: "redRpPmf/blueRpPmf" | "the RP decomposition" = "redRpPmf/blueRpPmf") {
     super(
@@ -77,14 +63,10 @@ export class PreSchedulePricingError extends Error {
 }
 
 /**
- * Builds the fifth `toSimMatchInput` argument from a `Prediction`'s RP
- * decomposition (D-15, plan 09-07) — `undefined` unless ALL FIVE fields are
- * present, since a partial set is not a usable coupled-draw input.
- * `redOutcomeRp`/`blueOutcomeRp` pass through UNROUNDED (exact small
- * integers from the rule module — rounding them would only introduce a way
- * for them to differ); `outcomePmf` and both bonus pmfs are rounded through
- * `roundPmf`, the same quantity/precision `rp`/`bp` already use two lines
- * below each call site.
+ * Builds the fourth `toSimMatchInput` argument from a `Prediction`'s RP
+ * decomposition, or `undefined` unless all five fields are present (a partial
+ * set is not a usable coupled-draw input). The outcome RPs pass through
+ * unrounded (exact small integers); the pmfs go through `roundPmf` like `rp`/`bp`.
  */
 function buildOutcomeInput(prediction: Prediction): SimMatchOutcomeInput | undefined {
   if (
@@ -111,13 +93,10 @@ export interface PreScheduleBuildParams {
   /** TBA `event_type`, carried through to every synthetic `UpcomingMatch` — load-bearing, not decorative: the RP fold gates pmf production on `isRpEligibleEventType(match.eventType)`. */
   readonly eventType: number;
   /**
-   * The REAL event's TBA competition week, 0-indexed as the corpus stores it
-   * (`packages/core/algorithms/epaWeekOne.ts`), or `null` when TBA gives the
-   * event no week. Carried through to every synthetic `UpcomingMatch` so a
-   * priced synthetic match is placed in the season exactly where its real
-   * event is. Required and honest rather than defaulted: `0` is a real week
-   * (it is Statbotics' week 1), so a fabricated `0` here would silently
-   * enrol synthetic matches in the week-1 calibration population.
+   * The real event's TBA week, 0-indexed as the corpus stores it, or `null`
+   * when TBA gives none. Required rather than defaulted: `0` is a real week
+   * (Statbotics' week 1), so a fabricated `0` would enrol synthetic matches
+   * in the week-1 calibration population.
    */
   readonly week: number | null;
   readonly algorithmId: string;
@@ -129,17 +108,14 @@ export interface PreScheduleBuildParams {
   readonly drawsPerSchedule: number;
   readonly generation: string;
   readonly computedAt: string;
-  /** The C-04 seam: already bound to the right walk-forward state by the caller. Pure per the algorithm contract, so calling it is side-effect-free. */
+  /** Already bound to the right walk-forward state by the caller; pure, so calling it is side-effect-free. */
   readonly predict: (match: UpcomingMatch) => Prediction;
 }
 
 /**
- * FNV-1a 32-bit, written inline per the plan (a small, well-known string
- * hash — cite, don't rederive: http://www.isthe.com/chongo/tech/comp/fnv/).
- * Every shuffle seed and every baked-simulation seed in this module comes
- * through here, from strings built ONLY of `eventKey`, `algorithmVersion`,
- * a fixed salt and the schedule index — so changing any of those changes
- * the stream, and changing nothing changes nothing.
+ * FNV-1a 32-bit (http://www.isthe.com/chongo/tech/comp/fnv/). Every seed in
+ * this module comes through here, from strings built only of fixed inputs and
+ * a salt, so changing nothing changes nothing.
  */
 function fnv1a32(input: string): number {
   let hash = 0x811c9dc5;
@@ -199,26 +175,17 @@ function decodeStructure(encoded: EncodedStructure): ScheduleMatch[] {
 }
 
 /**
- * A bounded memo of generated pairing structures, SHARED BY EVENT SHAPE
- * (Jacob's decision, 2026-09-14). Schedule `k`'s structure for an event with
- * `numTeams` teams at `matchesPerTeam` matches per team is the same for every
- * event of that shape, so a full-season publish generates each one once.
+ * A bounded LRU memo of generated pairing structures, shared by event shape:
+ * schedule `k`'s structure depends only on (numTeams, matchesPerTeam, k), so a
+ * full-season publish generates each one once.
  *
- * TRANSPARENT: `get(numTeams, matchesPerTeam, k)` returns exactly
- * `generateSchedule(numTeams, matchesPerTeam, mulberry32(fnv1a32("generate|numTeams|matchesPerTeam|k")), DEFAULT_RESTARTS)`.
- * Output is a pure function of the key, so cache state and eviction can never
- * change a published byte: a cold read, a warm read and a read after eviction
- * all deep-equal a fresh generation. Every read returns freshly built arrays,
- * so a caller mutating what it got cannot reach the cache.
+ * TRANSPARENT: `get` returns exactly what `generateSchedule` would with the
+ * `generate|numTeams|matchesPerTeam|k` seed, so cache state and eviction can
+ * never change a published byte. Every read returns freshly built arrays, so a
+ * caller mutating what it got cannot reach the cache.
  *
- * COMPACT: each (numTeams, matchesPerTeam) cell holds its structures, filled
- * lazily per `k`, as typed arrays of six code units per match — the slot index
- * with the positional surrogate flag in the top bit, one byte per slot up to
- * 128 teams and two bytes up to `MAX_SCHEDULE_TEAMS`.
- *
- * BOUNDED: at most `maxCells` cells are held. Adding a cell beyond that evicts
- * the least recently used one, so a many-season presim run cannot grow the memo
- * without limit.
+ * Structures are held as typed arrays (see `encodeStructure`); at most
+ * `maxCells` cells are kept, evicting the least recently used.
  */
 export class ScheduleStructureCache {
   readonly maxCells: number;
@@ -279,7 +246,7 @@ export class ScheduleStructureCache {
 /** The one memo `buildPreScheduleArtifact` reads, capped at `SCHEDULE_STRUCTURE_CACHE_CELLS`. */
 export const SHARED_STRUCTURE_CACHE = new ScheduleStructureCache(SCHEDULE_STRUCTURE_CACHE_CELLS);
 
-/** Fisher–Yates over `[0..count)` driven by a seeded `rng` — `slots[structureSlot]` is the roster index occupying that slot (C-14). */
+/** Seeded Fisher–Yates over `[0..count)`: `slots[structureSlot]` is the roster index occupying that slot. */
 function seededShuffle(count: number, rng: () => number): number[] {
   const slots = Array.from({ length: count }, (_, i) => i);
   for (let i = count - 1; i > 0; i--) {
@@ -292,13 +259,9 @@ function seededShuffle(count: number, rng: () => number): number[] {
 }
 
 /**
- * PD-03, the one implementation of surrogate handling on the
- * `simulateRanks` side: a surrogate PLAYS the match (it is inside
- * `redTeams`/`blueTeams` and therefore inside the alliance `predict`
- * prices), but earns no ranking credit — so it is EXCLUDED from the
- * team-key lists handed to `simulateRanks`, crediting the drawn RP only to
- * the non-surrogates. Exported so the exclusion rule is directly testable;
- * `buildPreScheduleArtifact` has no second copy of it.
+ * The one implementation of surrogate handling on the `simulateRanks` side: a
+ * surrogate plays the match (so `predict` prices it) but earns no ranking
+ * credit, so it is excluded from the team-key lists handed to `simulateRanks`.
  */
 export function toSimMatchInput(
   upcoming: UpcomingMatch,
@@ -356,34 +319,27 @@ function buildScheduleMatches(
 }
 
 /**
- * Builds one event's pre-schedule sidecar, or returns `null` when the
- * bound algorithm does not model ranking points (detected on the FIRST
- * priced synthetic match, before anything else is priced — cheap enough
- * that a full-season publish across three algorithms wastes nothing on the
- * two that have no RP model).
+ * Builds one event's pre-schedule sidecar, or `null` when the bound algorithm
+ * does not model ranking points (detected on the first priced synthetic match,
+ * before anything else is priced).
  *
- * Schedule `k`'s pairing structure comes from `SHARED_STRUCTURE_CACHE`, keyed
- * by roster size, matches per team and `k` — shared by every event of the
- * same shape, while the shuffle and baked seeds stay per event. A
- * `GeneratedScheduleError` propagates for a roster outside the generator's
- * range; callers check roster size first.
+ * Pairing structures come from `SHARED_STRUCTURE_CACHE`; the shuffle and baked
+ * seeds stay per event. A `GeneratedScheduleError` propagates for a roster
+ * outside the generator's range, so callers check roster size first.
  *
- * The returned object has already passed `PreScheduleArtifactSchema.parse`
- * — parse, not `safeParse`, so a builder bug can never reach R2.
+ * The result has passed `PreScheduleArtifactSchema.parse` (not `safeParse`), so
+ * a builder bug can never reach R2.
  */
 export function buildPreScheduleArtifact(params: PreScheduleBuildParams): PreScheduleArtifact | null {
-  // Sorting (rather than trusting caller order) is what makes republish
-  // determinism independent of corpus row order: this sorted array IS the
-  // published roster and defines the index space for every `r`/`b` array
-  // and every baked histogram.
+  // Sorting makes republish determinism independent of corpus row order: this
+  // sorted array is the published roster and the index space for every `r`/`b`
+  // array and baked histogram.
   const sortedRoster = [...params.roster].sort();
-  // Schedule 0's structure only, before the probe: an RP-less algorithm
-  // returns below having touched exactly one structure.
+  // Schedule 0's structure only, so an RP-less algorithm touches one structure.
   const firstStructure = SHARED_STRUCTURE_CACHE.get(sortedRoster.length, params.matchesPerTeam, 0);
 
-  // Probe the FIRST synthetic match only, before building the rest: an
-  // absent pmf here means "this algorithm does not model ranking points" —
-  // an ordinary answer, not an error.
+  // An absent pmf on the first synthetic match is the ordinary "no RP model"
+  // answer, not an error.
   const firstSeed = fnv1a32(`${params.eventKey}|${params.algorithmVersion}|shuffle|0`);
   const firstSlots = seededShuffle(sortedRoster.length, mulberry32(firstSeed));
   const firstScheduleMatches = buildScheduleMatches(params, sortedRoster, firstStructure, 0, firstSlots);
@@ -391,12 +347,9 @@ export function buildPreScheduleArtifact(params: PreScheduleBuildParams): PreSch
   if (firstPrediction.redRpPmf === undefined || firstPrediction.blueRpPmf === undefined) {
     return null;
   }
-  // D-15 (plan 09-07): same first-match-probe discipline, extended to the
-  // decomposition rather than duplicated — whether THIS algorithm carries
-  // it is decided once, here, from the first priced prediction. If it does
-  // not, absent-throughout is an ordinary answer and the whole schedule
-  // prices on the legacy path; the decomposition is never a precondition
-  // for building a sidecar at all.
+  // Whether this algorithm carries the RP decomposition is decided once, from
+  // the first priced prediction. Absent throughout is an ordinary answer; the
+  // decomposition is never a precondition for building a sidecar.
   const firstHasDecomposition = buildOutcomeInput(firstPrediction) !== undefined;
 
   const schedules: PreScheduleArtifact["schedules"][number][] = [];
@@ -419,21 +372,16 @@ export function buildPreScheduleArtifact(params: PreScheduleBuildParams): PreSch
     const simInputs: SimMatchInput[] = [];
     for (let matchIndex = 0; matchIndex < syntheticMatches.length; matchIndex++) {
       const synthetic = syntheticMatches[matchIndex]!;
-      // The first match of schedule 0 was already priced by the probe above
-      // — reuse that result rather than calling the (pure) closure twice.
+      // Schedule 0's first match was already priced by the probe.
       const prediction = k === 0 && matchIndex === 0 ? firstPrediction : params.predict(synthetic.upcoming);
       if (prediction.redRpPmf === undefined || prediction.blueRpPmf === undefined) {
         throw new PreSchedulePricingError(synthetic.upcoming.matchKey);
       }
-      // Rounded through the same `roundPmf` as `buildEventArtifact`'s real
-      // matches — identical quantity, identical `ROUNDING_RULE.pmf` precision.
+      // Same rounding as `buildEventArtifact`'s real matches.
       const rp = roundPmf(prediction.redRpPmf);
       const bp = roundPmf(prediction.blueRpPmf);
       const outcome = buildOutcomeInput(prediction);
       if (firstHasDecomposition && outcome === undefined) {
-        // The FIRST priced prediction carried the decomposition, so a later
-        // one that lacks it is corruption, exactly as a vanishing
-        // redRpPmf/blueRpPmf already is above.
         throw new PreSchedulePricingError(synthetic.upcoming.matchKey, "the RP decomposition");
       }
       publishedMatches.push({ r: [...synthetic.r], b: [...synthetic.b], rp, bp });
@@ -443,14 +391,12 @@ export function buildPreScheduleArtifact(params: PreScheduleBuildParams): PreSch
     simInputsBySchedule.push(simInputs);
   }
 
-  // The baked default result (C-09). Baselines are zero-for-everyone:
-  // nobody has played, which is exactly what "before schedule release"
-  // means — the whole distribution comes from the priced pmfs alone.
+  // The baked default result. Baselines are zero for everyone: before schedule
+  // release nobody has played, so the distribution comes from the pmfs alone.
   const baselines: SimTeamBaseline[] = sortedRoster.map((teamKey) => ({ teamKey, earnedRpSum: 0, matchesPlayed: 0 }));
   const totals: number[][] = sortedRoster.map(() => new Array<number>(sortedRoster.length).fill(0));
   for (let k = 0; k < params.scheduleCount; k++) {
-    // A SECOND, distinct hash stream ("baked" salt) for the Monte Carlo
-    // draws, so the draw stream never aliases the shuffle stream.
+    // A distinct salt, so the draw stream never aliases the shuffle stream.
     const bakedSeed = fnv1a32(`${params.eventKey}|${params.algorithmVersion}|baked|${k}`);
     const result = simulateRanks(simInputsBySchedule[k]!, baselines, params.drawsPerSchedule, mulberry32(bakedSeed));
     for (let teamIndex = 0; teamIndex < sortedRoster.length; teamIndex++) {
@@ -483,7 +429,7 @@ export function buildPreScheduleArtifact(params: PreScheduleBuildParams): PreSch
 }
 
 // ---------------------------------------------------------------------------
-// The FIELD-AVERAGED path (plan 09-09 rung 1; D-16, D-17)
+// The FIELD-AVERAGED path
 // ---------------------------------------------------------------------------
 
 /** Everything `buildFieldContributions` reads, each from the instant the schedule-based path already read it from. */
@@ -498,51 +444,26 @@ export interface FieldContributionInputs {
 }
 
 /**
- * One `FieldTeamContribution` per roster team, in SORTED roster order, or
- * `null` under the all-or-nothing roster rule.
+ * One `FieldTeamContribution` per roster team, in sorted roster order, or
+ * `null` under the all-or-nothing roster rule (`makeRankingPointFiller`'s rule
+ * in publish.ts): decide once for the whole event, because deciding per match
+ * lets a later unpriceable match throw as corruption and take the publish down.
+ * A `null` is the ordinary "not enough seen of this roster" answer.
  *
- * ---------------------------------------------------------------------------
- * THE ALL-OR-NOTHING ROSTER RULE, REPRODUCED RATHER THAN RE-INVENTED
- * ---------------------------------------------------------------------------
+ * A team missing from `sigmaScoreByTeam` has played too little; one missing
+ * from `teamTotals` was never rated. Either way the roster cannot be priced.
  *
- * This is `makeRankingPointFiller`'s existing rule (`packages/harness/
- * publish.ts`), and its comment there carries the measured reason: deciding
- * per match meant an event containing even one team without a consistency
- * figure priced its first synthetic match and then failed on a later one,
- * which the builder correctly treats as corruption — so it threw and took the
- * whole publish down (measured 2026-09-09 on `2026isde4`). DECIDE ONCE FOR THE
- * WHOLE EVENT. A `null` is the ordinary "we have not seen enough of this
- * roster to price it" answer and the sidecar is skipped silently, matching
- * `buildFieldAveragedPreScheduleArtifact`'s own `null` contract.
+ * A one-team `momentsFor` call returns the team's own belief: its scaling
+ * factor `roster.length^2 / contributing` is exactly 1.
  *
- * The two absences have different causes and are checked separately: a team
- * missing from `sigmaScoreByTeam` has played too little, and a team missing
- * from `teamTotals` is one this algorithm has never rated. Both mean the same
- * thing here — this roster cannot be priced honestly.
- *
- * ---------------------------------------------------------------------------
- * WHY A ONE-TEAM `momentsFor` CALL IS THE RIGHT CALL AND NOT A MISUSE
- * ---------------------------------------------------------------------------
- *
- * `momentsFor` undoes the even-split shrinkage by scaling the summed per-team
- * variances by `roster.length^2 / contributing`. With `roster.length === 1`
- * and one contributing belief that factor is EXACTLY 1, so the returned
- * variance IS `varianceOf(belief)` and the returned mean IS `belief.mean` —
- * the team's OWN belief, not an alliance aggregate. That single fact is what
- * makes a per-team contribution recoverable from the existing accumulator with
- * no new accessor.
- *
- * A team with no belief for a variable yields mean `0` and variance `0` — the
- * same honest cold start the alliance path already produces — and is INCLUDED
- * in the field as a zero rather than skipped, because a cold team really is
- * part of the field. Dropping it would shift `meanOfVariableMeans` upward and
- * silently narrow every band in the event.
+ * A team with no belief for a variable contributes mean `0` and variance `0`
+ * and stays in the field, because a cold team is part of the field; dropping it
+ * would shift `meanOfVariableMeans` upward and narrow every band in the event.
  */
 export function buildFieldContributions(inputs: FieldContributionInputs): FieldTeamContribution[] | null {
   const { rpAccumulator, sigmaScoreByTeam, teamTotals } = inputs;
   if (rpAccumulator === undefined) return null;
-  // Sorted first, for the same determinism reason
-  // `buildFieldAveragedPreScheduleArtifact` states below.
+  // Sorted first, so output is independent of corpus row order.
   const sortedRoster = [...inputs.roster].sort();
   if (sortedRoster.length === 0) return null;
   for (const teamKey of sortedRoster) {
@@ -557,29 +478,23 @@ export function buildFieldContributions(inputs: FieldContributionInputs): FieldT
       variableMeans: own.meanVector,
       variableVariances: own.varianceBlock.map((row, i) => row[i] ?? 0),
       scoreMean: teamTotals.get(teamKey) as number,
-      // Squared: `allianceSigmaBandVariance`'s own per-team term is
-      // `sigma * sigma`, so this is the identical quantity under the
-      // identical convention.
+      // Squared, matching `allianceSigmaBandVariance`'s per-team `sigma * sigma` term.
       bandVariance: sigmaScore * sigmaScore,
     };
   });
 }
 
 /**
- * The field-averaged presim's per-variable mean shift, or `undefined` (quick
- * task 260914-01x, CD-05).
+ * The field-averaged presim's per-variable mean shift, or `undefined`.
  *
- * ALL-OR-NOTHING, DECIDED ONCE PER EVENT, following `buildFieldContributions`'
- * roster rule above. A field-averaged match has no real roster, so the
- * per-alliance fully-warm check the real-match path applies has nothing to
- * check. The shift applies only when EVERY team in the event roster has
- * complete history; one cold team and the whole event prices unshifted.
+ * All-or-nothing per event, like `buildFieldContributions`: a field-averaged
+ * match has no real alliance to run the per-alliance fully-warm check on, so
+ * the shift applies only when every roster team has complete history.
  *
- * Each entry is `sum / count` for a variable past the warmup and `0` for one
- * not yet past it. `undefined` when nothing would shift, so the caller's
- * absent path stays byte-identical to the pre-shift model. The vector comes
- * out of `RpMeanShiftAccumulator.apply` itself, on zero means, so this path
- * cannot drift from the warmup rule the real-match path uses.
+ * Each entry is `sum / count` past the warmup and `0` before it; `undefined`
+ * when nothing would shift, so the absent path prices unshifted. The vector
+ * comes from `RpMeanShiftAccumulator.apply` on zero means, so it cannot drift
+ * from the real-match warmup rule.
  */
 export function fieldMeanShiftVector(inputs: {
   readonly roster: readonly string[];
@@ -617,53 +532,35 @@ export interface FieldAveragedPreScheduleBuildParams {
   readonly ruleModule: RpRuleModule;
   /** `buildFieldContributions`' output — already sorted, already all-or-nothing checked. The roster IS its team keys. */
   readonly contributions: readonly FieldTeamContribution[];
-  /** `fieldMeanShiftVector`'s output. Absent prices exactly as before the mean shift shipped. */
+  /** `fieldMeanShiftVector`'s output; absent prices unshifted. */
   readonly meanShift?: readonly number[];
 }
 
 /**
- * Builds one event's FIELD-AVERAGED pre-schedule sidecar (plan 09-09 rung 1;
- * D-16, D-17), or `null` when it cannot be priced.
+ * Builds one event's FIELD-AVERAGED pre-schedule sidecar, or `null` when it
+ * cannot be priced.
  *
- * PURITY CONTRACT, STRENGTHENED: no corpus read, no R2 call, no wall-clock
- * read, and no filesystem access. It builds no pairing structure at all, which
- * is what makes the artifact independent of the generator's 6-team floor: an
- * event too small to schedule still gets a sidecar here.
+ * Same purity contract as the schedule-based builder. It builds no pairing
+ * structure, so an event below the generator's 6-team floor still gets a
+ * sidecar. Pricing calls the same `analyticRpPmf` every real match runs,
+ * through `fieldAveragedMatchPmf`, so no separate pricing math lives here.
  *
- * Every value that varies between runs is either passed in (`generation`,
- * `computedAt`) or derived from a pure hash of `eventKey`/`algorithmVersion`
- * through this module's existing `fnv1a32` salted-seed convention. The
- * platform's non-seedable random source never appears in this module, so
- * republishing the same corpus twice produces byte-identical sidecars.
- *
- * C-04, SUCCESSION STATED EXPLICITLY. The schedule-based builder honoured C-04
- * ("no pricing math lives in the sidecar builder") by owning no pricing math
- * at all and calling back into the caller's bound `predict`. This one honours
- * it by calling the SAME `analyticRpPmf` every real match runs, through
- * `fieldAveragedMatchPmf`. The GUARANTEE is preserved and its MECHANISM
- * changed — worth one sentence so a reader does not conclude it lapsed.
- *
- * The returned object has already passed
- * `FieldAveragedPreScheduleArtifactSchema.parse` — parse, not `safeParse`, so
- * a builder bug can never reach R2.
+ * The result has passed `FieldAveragedPreScheduleArtifactSchema.parse` (not
+ * `safeParse`), so a builder bug can never reach R2.
  */
 export function buildFieldAveragedPreScheduleArtifact(
   params: FieldAveragedPreScheduleBuildParams
 ): FieldAveragedPreScheduleArtifact | null {
   if (params.contributions.length === 0) return null;
-  // Sorting (rather than trusting caller order) is what makes republish
-  // determinism independent of corpus row order: this sorted array IS the
-  // published roster and defines the index space for every `perTeamPmf`
-  // entry. `buildFieldContributions` already sorts, so this re-establishes
-  // that invariant rather than trusting it.
+  // Sorted again rather than trusted: this array is the published roster and
+  // the index space for every `perTeamPmf` entry.
   const sortedRoster = params.contributions.map((c) => c.teamKey).sort();
   const byTeam = new Map(params.contributions.map((c) => [c.teamKey, c]));
 
   const variableNames = params.ruleModule.thresholdVariables.map((v) => v.name);
   const stats = fieldStatistics(params.contributions, variableNames);
   const perTeamPmf = sortedRoster.map((teamKey) =>
-    // Rounded through the same `roundPmf` as every other published pmf —
-    // identical quantity, identical `ROUNDING_RULE.pmf` precision.
+    // Same rounding as every other published pmf.
     roundPmf(fieldAveragedMatchPmf(byTeam.get(teamKey) as FieldTeamContribution, stats, params.ruleModule, params.eventType, params.meanShift))
   );
 
