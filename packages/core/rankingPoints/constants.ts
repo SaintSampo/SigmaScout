@@ -1,22 +1,17 @@
 /**
  * Leaf module for the RP (ranking-point) rule tree: types and constants
- * every per-season module (`2022.ts`...`2026.ts`) AND the dispatch table
- * (`rules.ts`) both need, with no dependency running the other direction —
- * the identical split `breakdown/constants.ts` documents for the
- * score-component tree: every season file imports THIS leaf; `rules.ts`
- * imports every season file; neither the leaf nor a season file ever
- * imports `rules.ts`, so the dependency graph stays acyclic at module-init
- * time.
+ * every per-season module and the dispatch table (`rules.ts`) both need,
+ * with no dependency running the other direction — every season file
+ * imports this leaf, `rules.ts` imports every season file, and neither the
+ * leaf nor a season file ever imports `rules.ts`, so the dependency graph
+ * stays acyclic at module-init time.
  *
- * RP bonus prediction runs off a state vector kept SEPARATE from the
+ * RP bonus prediction runs off a state vector kept separate from the
  * score-component vector (`breakdown/constants.ts`'s `ParsedComponents`).
  * That separation is a units discipline, not a "every threshold variable is
- * a raw count" claim — 2022's Hangar Bonus thresholds on `endgamePoints` (a
- * point total) while its Cargo Bonus thresholds on `matchCargoTotal` (a raw
- * count). `RpThresholdVariable.unit` exists so a season module cannot
- * silently read a `*Points` roll-up where the manual's rule wants a raw
- * `*Count` (2026's `hubScore.totalCount`, never `.totalPoints`, despite
- * being numerically identical in sampled data).
+ * a raw count" claim — some bonuses threshold on a point total, others on a
+ * raw count. `RpThresholdVariable.unit` exists so a season module cannot
+ * silently read a `*Points` roll-up where the manual's rule wants a raw `*Count`.
  */
 
 import type { CompLevel } from "../algorithms/types.js";
