@@ -14,8 +14,8 @@
  * globally interleaved stream, not a season constant. See
  * `packages/core/algorithms/bpr.ts`'s header for the measurements and for why
  * the imprecision cancels out of a published value but makes `muL + muS`
- * non-comparable between teams. DOC-ONLY correction: no parameter, no
- * behaviour, and nothing about the sealed 2023-2026 holdout is touched here.
+ * non-comparable between teams. DOC-ONLY correction: no parameter and no
+ * behaviour is touched here.
  *
  * Two timescales: slow talent L (a robot's underlying quality) plus fast form S
  * (mean-reverting - captures a robot being repaired, upgraded, or breaking).

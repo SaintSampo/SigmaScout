@@ -14,7 +14,7 @@
  * 149 and 151 matches respectively — matches the shared harness KEEPS.
  *
  * The model's DESIGN still stays independent of `packages/harness`: nothing
- * fitted on the 2023-2026 holdout is imported here. `packages/corpus` is a
+ * fitted on 2023-2026 is imported here. `packages/corpus` is a
  * parameterless reader of raw TBA facts, so pointing at it contaminates
  * nothing — it removes a private population, it does not add a tuned one.
  */

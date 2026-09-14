@@ -1,10 +1,9 @@
 /**
  * Cross-module identity for BPR's scoring-target corrections.
  *
- * Two independently sealed implementations exist for the same rule: the
- * offline research model (`packages/spr/data.ts`) and the shipped port
- * (`packages/core/algorithms/spr.ts`) — each independently auditable against
- * its own git blob under `packages/spr/sealedPaths.ts`'s `SEALED_CODE_PATHS`.
+ * Two independent implementations exist for the same rule: the offline
+ * research model (`packages/spr/data.ts`) and the shipped port
+ * (`packages/core/algorithms/spr.ts`).
  * This test is the only thing preventing the two `correctionsOf`
  * implementations from drifting apart: it feeds one shared payload table
  * through both exports and asserts the results are deeply equal.

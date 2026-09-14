@@ -32,13 +32,12 @@
  * never be ranked, tiered, or published raw. Only `r * unit` is comparable.
  *
  * PROVENANCE. Structure and hyperparameters were selected using ONLY seasons
- * 2016-2022, then evaluated once on a sealed 2023-2026 holdout: 78.05% winner
+ * 2016-2022, then evaluated on 2023-2026 on 2026-09-08: 78.05% winner
  * accuracy over 69,511 matches (78.37% over qualification matches alone). The
- * research harness, the pre-committed selection rule and the single-shot
- * holdout run live in `packages/bpr/` and
- * `.planning/quick/260908-b4t-fresh-2023-blind-model/`. Re-tuning this model
- * against 2023 or later converts that holdout into a training set and voids
- * the number above.
+ * research harness, the pre-committed selection rule and that 2023-2026 run
+ * live in `packages/spr/` and
+ * `.planning/quick/260908-b4t-fresh-2023-blind-model/`. 2023-2026 was released
+ * for use on 2026-09-14 (quick task 260914-ndu).
  *
  * QUICK TASK 260910-4bf (2026-09-10) changed the scoring target AFTER that
  * evaluation ran: the target now also subtracts TBA's `adjustPoints` — a
@@ -46,7 +45,7 @@
  * `correctionsOf` below). The 78.05% figure above therefore describes the
  * revision of this file that predates this change, not this one. Measured
  * deltas were +0.087pp accuracy / -0.00036 Brier on 2023 (design-adjacent)
- * and +0.003pp / -0.00009 on the 2024-25 holdout slice — BOTH accuracy
+ * and +0.003pp / -0.00009 on the 2024-25 slice — BOTH accuracy
  * intervals spanned zero. The change is justified by attribution — a
  * scorekeeper correction is not robot performance — not by measured
  * accuracy.
@@ -149,14 +148,14 @@ export interface SprParams {
  * Applying it lands overall sd(z) at 1.0001 and tightens the strength quintiles
  * from 0.551-1.001 to 0.961-1.022.
  *
- * WHY THIS DOES NOT VOID THE SEALED HOLDOUT. The factor is applied ONLY to the
+ * WHY THIS DOES NOT MOVE WINNER ACCURACY. The factor is applied ONLY to the
  * emitted variance fields. It never enters `z`, never enters `pRedWin`, and
  * never enters a Kalman gain, so every winner call and every probability this
- * module produces is bit-identical to the frozen model's. The sealed 78.05% is
+ * module produces is bit-identical to the frozen model's. The 78.05% figure is
  * a statement about winner accuracy and is untouched. `bpr.test.ts` pins that
  * invariance directly.
  *
- * DESIGN-ERA ONLY. The fit reads 2016-2022 and spends no holdout.
+ * DESIGN-ERA ONLY. The fit reads 2016-2022 only.
  */
 const DISPLAY_SD_A = 0.7058;
 const DISPLAY_SD_B = 0.0844;
@@ -177,7 +176,7 @@ function displaySdFactor(mu: number): number {
 /**
  * Frozen 2026-09-08. Chosen on 2016-2022 alone by the pre-committed rule in
  * `.planning/quick/260908-b4t-fresh-2023-blind-model/DECISION.md`. Design-era
- * accuracy 73.081%; sealed holdout accuracy 78.05%.
+ * accuracy 73.081%; 2023-2026 accuracy 78.05% (measured 2026-09-08).
  */
 export const SPR_PARAMS: SprParams = {
   obsSd: 1,
@@ -222,7 +221,7 @@ export const SPR_PARAMS: SprParams = {
  *  2. `softCredit` allocates an alliance's surprise by EXPECTED rank instead of
  *     sorted point estimate, so ratings — and therefore predictions — move.
  *
- * The sealed 78.05% holdout accuracy no longer describes this module. It
+ * The 78.05% 2023-2026 accuracy no longer describes this module. It
  * describes the revision that predates both changes. Neither change is an
  * accuracy claim: the adjust drop measured +0.003pp on 2024-25 with the
  * interval spanning zero, and softCredit measured +0.014pp likewise. Both are
@@ -301,8 +300,8 @@ export interface SprState {
    *
    * Why this is display-only and not a prediction input: a component split has
    * to read per-season `score_breakdown` field names, and for 2023-2026 those
-   * were holdout schema. Feeding them into `predict` would make the sealed
-   * 78.05% stop describing the shipped predictor. See this task's PLAN.md
+   * were unseen at design time. Feeding them into `predict` would have made the
+   * 78.05% figure stop describing the shipped predictor. See this task's PLAN.md
    * (`.planning/quick/260908-pcm-bpr-display-only-phase-components/`).
    */
   readonly phaseTeams: SprPhaseRecord<ReadonlyMap<string, SprTeamState>>;
@@ -778,8 +777,8 @@ function update(state: SprState, rawResult: MatchResult): SprState {
     scaleCount,
     // Display-only, and deliberately last: everything above this line is
     // still the predictor, and `foldPhases` is still display-only and
-    // deliberately last. It is NOT byte-for-byte what produced the sealed
-    // 78.05% anymore — quick task 260910-4bf changed the scoring target
+    // deliberately last. It is NOT byte-for-byte what produced the
+    // 78.05% figure anymore — quick task 260910-4bf changed the scoring target
     // (dropping TBA's `adjustPoints`), so that figure describes the revision
     // of this file that predates this change, not this one. The measured
     // deltas had accuracy intervals spanning zero on both slices tested; the
@@ -836,7 +835,7 @@ function carrySeason(state: SprState, boundary: SeasonBoundary): SprState {
   // scaleCount deliberately does NOT reset. Resetting it would make the scale
   // re-adapt much faster at each boundary, which may well be better - but it
   // would be a DIFFERENT model from the one that was frozen on 2016-2022 and
-  // measured at 78.05% on the sealed holdout, and that number is only
+  // measured at 78.05% on 2023-2026, and that number is only
   // meaningful for the exact model that produced it. Changing this is a
   // research question for `packages/bpr/`, not a porting decision.
   return {
@@ -910,9 +909,9 @@ export const spr: AlgorithmModule<SprState> = {
    * preseason exhibition play cannot seed the next season's prior — EPA's
    * 260908-615 mechanism. Design-era paired contrast on the production path:
    * accuracy delta −0.0145pp, 95% event-blocked CI [−0.113, +0.079] — a
-   * statistical zero, adopted on principle: the sealed research model
-   * (`packages/bpr/data.ts`) has never loaded an offseason match, so this
-   * narrows production's unvalidated deviation from the sealed
+   * statistical zero, adopted on principle: the frozen research model
+   * (`packages/spr/data.ts`) has never loaded an offseason match, so this
+   * narrows production's unvalidated deviation from the frozen
    * configuration. Within-season offseason FOLDING is unchanged; only the
    * boundary crossing moves. Rule pre-registered at 0d9c402d before any
    * number existed; full contrast in the 260910-kco planning dir.

@@ -1,76 +1,9 @@
 /**
- * The GUARDS that make a holdout number attributable and a holdout season
- * unspendable by accident (quick task 260909-03b, P3 part 2).
- *
- * `assertSealed` takes an injectable command runner precisely so these cases
- * can be exercised without dirtying the real working tree — a test that had to
- * `git rm` a file to prove the refusal fires would be its own hazard.
+ * `resolveYears` (the 2023-2026 season resolver) and the two PAIRED
+ * statistics `holdout.ts` reports.
  */
 import { describe, expect, it } from "vitest";
 import { meanAccuracyDelta, meanBrierDelta, resolveYears, type Paired } from "./holdout.js";
-import { assertSealed, SEALED_CODE_PATHS, type CommandRunner } from "./sealedPaths.js";
-
-/** A runner where every path is clean and every blob resolves. */
-function cleanRunner(overrides: Record<string, string> = {}): CommandRunner {
-  return (file, args) => {
-    expect(file).toBe("git");
-    const a = [...args];
-    if (a[0] === "rev-parse" && a[1] === "--short") return "abc1234\n";
-    if (a[0] === "status") {
-      const path = a[a.length - 1]!;
-      return overrides[`status:${path}`] ?? "";
-    }
-    if (a[0] === "rev-parse" && a[1]?.startsWith("HEAD:") === true) {
-      const path = a[1].slice("HEAD:".length);
-      if (overrides[`missing:${path}`] !== undefined) throw new Error("fatal: not a valid object");
-      return `blob-${path}\n`;
-    }
-    throw new Error(`unexpected git invocation: ${a.join(" ")}`);
-  };
-}
-
-describe("assertSealed", () => {
-  it("reports a per-path blob sha for every sealed path", () => {
-    const result = assertSealed(SEALED_CODE_PATHS, cleanRunner());
-    expect(result.head).toBe("abc1234");
-    expect(result.paths.map((p) => p.path)).toEqual([...SEALED_CODE_PATHS]);
-    for (const p of result.paths) expect(p.blob).toBe(`blob-${p.path}`);
-  });
-
-  it("covers the model and the shipped port, not just the parameter file", () => {
-    // The whole point of the rewrite: model.ts changed twice after the sealed
-    // holdout ran, unchecked, because the seal only looked at the params.
-    expect(SEALED_CODE_PATHS).toContain("packages/spr/model.ts");
-    expect(SEALED_CODE_PATHS).toContain("packages/core/algorithms/spr.ts");
-    expect(SEALED_CODE_PATHS).toContain("packages/spr/data.ts");
-    expect(SEALED_CODE_PATHS).toContain("packages/spr/evaluate.ts");
-  });
-
-  it("refuses when ANY sealed path is dirty, naming the offending path", () => {
-    const runner = cleanRunner({ "status:packages/spr/model.ts": " M packages/spr/model.ts" });
-    expect(() => assertSealed(SEALED_CODE_PATHS, runner)).toThrow(
-      /packages\/spr\/model\.ts has uncommitted changes/,
-    );
-  });
-
-  it("refuses when a sealed path is untracked at HEAD", () => {
-    const runner = cleanRunner({ "missing:packages/spr/cli.ts": "1" });
-    expect(() => assertSealed(SEALED_CODE_PATHS, runner)).toThrow(/not tracked at HEAD/);
-  });
-
-  it("refuses outside a git repository", () => {
-    const runner: CommandRunner = () => {
-      throw new Error("not a git repository");
-    };
-    expect(() => assertSealed(SEALED_CODE_PATHS, runner)).toThrow(/not a git repository/);
-  });
-
-  it("seals a named parameter file alongside the code paths", () => {
-    const paths = [...SEALED_CODE_PATHS, "packages/spr/frozen-params.json"];
-    const result = assertSealed(paths, cleanRunner());
-    expect(result.paths.map((p) => p.path)).toContain("packages/spr/frozen-params.json");
-  });
-});
 
 describe("resolveYears", () => {
   it("rejects a design year, pointing the caller at cli.ts", () => {
@@ -111,7 +44,7 @@ describe("resolveYears", () => {
  * The two PAIRED statistics, pinned on a hand-computed fixture.
  *
  * These are exported so a design-era contrast (quick task 260909-25z) and a
- * holdout run compute the SAME quantity with the SAME code. That reuse is only
+ * 2023-2026 run compute the SAME quantity with the SAME code. That reuse is only
  * worth anything if the quantity itself is pinned, so these cases fix what the
  * numerator and denominator of each statistic actually contain — in particular
  * the asymmetry that a TIE leaves the accuracy denominator entirely (there is

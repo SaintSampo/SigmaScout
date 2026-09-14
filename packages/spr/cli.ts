@@ -1,8 +1,6 @@
 /**
  * BPR driver. Default action: walk-forward evaluation over the DESIGN years
- * only (2016-2022). The 2023-2026 holdout is deliberately not reachable
- * without an explicit --holdout flag, so it cannot be scored by accident
- * during design iteration.
+ * (2016-2022). The 2023-2026 seasons are evaluated by `holdout.ts`.
  */
 import { pathToFileURL } from "node:url";
 import { loadMatches, type BprMatch } from "./data.js";
@@ -28,7 +26,7 @@ export function matches(): BprMatch[] {
 /**
  * Evaluate over an arbitrary subset of the design years. Used to hold a slice
  * of the design era out of tuning so the optimism of the search can be measured
- * without spending any of the real 2023-2026 holdout.
+ * inside the design era itself.
  */
 export interface EvalExtra {
   qualsOnly?: boolean;
@@ -57,13 +55,6 @@ export function evalDesign(params: BprParams, extra: EvalExtra = {}) {
 }
 
 function main(): void {
-  const argv = process.argv.slice(2);
-  if (argv.includes("--holdout")) {
-    throw new Error(
-      "Holdout evaluation is not run from cli.ts. Use packages/bpr/holdout.ts, " +
-        "which requires a committed frozen parameter file.",
-    );
-  }
   const r = evalDesign(DEFAULTS);
   console.log(formatResult(r, "BPR defaults - DESIGN years (2016-2022)"));
 }

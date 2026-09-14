@@ -241,7 +241,7 @@ describe("spr phase components are display-only", () => {
 /**
  * The displayed interval is calibrated; the prediction is not. These tests
  * pin the boundary between the two, because the whole justification for
- * calibrating at display time — that the sealed holdout accuracy still
+ * calibrating at display time — that the measured winner accuracy still
  * describes this module — rests on `pRedWin` being untouched.
  */
 describe("spr display-variance calibration", () => {

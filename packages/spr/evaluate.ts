@@ -2,8 +2,8 @@
  * Walk-forward evaluation. The model is stepped through every match in global
  * chronological order and always predicts strictly before it updates. Scoring
  * is restricted to `scoreYears`, but the state is warmed by every prior season,
- * which is what makes a holdout season a genuine out-of-sample test rather than
- * a cold start.
+ * which is what makes a later scored season a genuine out-of-sample test rather
+ * than a cold start.
  *
  * Scoring convention is NOT defined here. Winner accuracy comes from
  * `packages/core/scoring/brier.ts`'s `accuracyCall`, the same predicate the
@@ -76,7 +76,7 @@ export interface RunOptions {
   scoreYears: ReadonlySet<number>;
   /** Restrict scoring to qualification matches only. */
   qualsOnly?: boolean;
-  /** Stop stepping entirely once past this year (keeps a holdout truly sealed). */
+  /** Stop stepping entirely once past this year (no later-season match is read). */
   stopAfterYear?: number;
   /** Feed the model unadjusted alliance scores instead of foul-adjusted ones. */
   useRawScore?: boolean;

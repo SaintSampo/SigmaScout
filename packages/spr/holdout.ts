@@ -1,21 +1,16 @@
 /**
- * Single-shot holdout evaluation on 2023-2026.
+ * Paired walk-forward evaluation on 2023-2026.
  *
- * This is the only file in the package permitted to score the holdout
- * seasons. It refuses to run unless every sealed path — the model, the
- * evaluator, the data loader, the driver, the shipped port, and the
- * parameter files a run names — is committed with a clean working tree,
- * and it prints a blob sha for each, so the numbers it prints provably
- * belong to one specific revision. Re-running it after editing the model
- * and re-tuning would silently turn the holdout into a second training
- * set; the git check is what makes that misuse visible.
+ * Scores one parameter file (incumbent only) or two (incumbent vs candidate,
+ * paired over the same match stream) on the 2023-2026 seasons. The design
+ * years (2016-2022) are evaluated by `cli.ts`; this entry point covers the
+ * later seasons. 2023-2026 was released for use on 2026-09-14 (quick task
+ * 260914-ndu), so a run needs no special flag and may be repeated.
  *
  * `--years` binds the halt-after season to the maximum year named. Naming
  * 2023 therefore means the replay stops at the end of 2023 and a 2024
- * match is never stepped at all — the later seasons stay genuinely unspent
- * as a structural consequence of the loop bound.
+ * match is never stepped at all, which keeps a single-season run cheap.
  */
-import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -27,10 +22,6 @@ import { HOLDOUT_YEARS, matches } from "./cli.js";
 import { runEval, formatResult } from "./evaluate.js";
 import type { BprMatch } from "./data.js";
 import { DEFAULTS, type BprParams } from "./model.js";
-import { assertSealed, SEALED_CODE_PATHS, type CommandRunner } from "./sealedPaths.js";
-
-const defaultRunner: CommandRunner = (file, args) =>
-  execFileSync(file, [...args], { encoding: "utf8" });
 
 function argValue(flag: string): string | undefined {
   const i = process.argv.indexOf(flag);
@@ -75,9 +66,8 @@ function load(path: string): BprParams {
 /**
  * One match, scored by both models. Exported (with the two statistics
  * below) so a design-era contrast measures the same quantity with the same
- * code a holdout run would use — which is what lets a design-era interval
- * serve as a valid pre-registration for a later holdout interval, rather
- * than a second hand-rolled approximation of it.
+ * code a 2023-2026 run uses, rather than a second hand-rolled approximation
+ * of it.
  */
 export interface Paired {
   readonly eventKey: string;
@@ -116,14 +106,7 @@ export function meanAccuracyDelta(units: readonly Paired[]): number {
 function main(): void {
   const path = process.argv[2];
   if (path === undefined || path.startsWith("--")) {
-    throw new Error("usage: holdout.ts <frozen-params.json> [--candidate <p>] [--years <csv>] [--out <jsonl>] [--dry-run] --break-seal");
-  }
-  if (!process.argv.includes("--break-seal")) {
-    throw new Error(
-      "holdout: refusing to run without --break-seal.\n" +
-        "This evaluation is single-shot by design. Every extra run costs a\n" +
-        "little of the holdout's independence, so it must be deliberate.",
-    );
+    throw new Error("usage: holdout.ts <frozen-params.json> [--candidate <p>] [--years <csv>] [--out <jsonl>] [--dry-run]");
   }
 
   const dryRun = process.argv.includes("--dry-run");
@@ -131,14 +114,7 @@ function main(): void {
   const outPath = argValue("--out");
   const { years, stopAfterYear } = resolveYears(argValue("--years"));
 
-  const sealedPaths = [...SEALED_CODE_PATHS, path];
-  if (candidatePath !== undefined) sealedPaths.push(candidatePath);
-  const seal = assertSealed(sealedPaths, defaultRunner);
-
-  console.log("BPR holdout evaluation");
-  console.log(`  HEAD:          ${seal.head}`);
-  console.log("  sealed paths:");
-  for (const p of seal.paths) console.log(`    ${p.blob}  ${p.path}`);
+  console.log("SPR 2023-2026 evaluation");
   console.log(`  incumbent:     ${path}`);
   console.log(`  candidate:     ${candidatePath ?? "(none - incumbent only)"}`);
   console.log(`  seasons:       ${[...years].sort((a, b) => a - b).join(", ")}`);
@@ -147,7 +123,7 @@ function main(): void {
 
   if (dryRun) {
     console.log("");
-    console.log("  --dry-run: plan resolved, NOTHING evaluated. No holdout season was read.");
+    console.log("  --dry-run: plan resolved, NOTHING evaluated. No season was read.");
     return;
   }
 
@@ -229,7 +205,7 @@ function main(): void {
 
 // Only run when invoked directly. holdout.test.ts imports `resolveYears` from
 // this module, and an unguarded main() would make merely importing it throw
-// (no --break-seal) or, far worse, evaluate a holdout season.
+// (no parameter file argument) or start a full evaluation.
 const entry = process.argv[1];
 if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
   main();
