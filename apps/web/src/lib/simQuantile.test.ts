@@ -148,7 +148,7 @@ describe("continuousQuantile — hostile and degenerate input (must terminate, n
     expect(continuousQuantile(DIST_3467, 1, 1000)).toBeLessThanOrEqual(DIST_3467.length + 0.5);
   });
 
-  it("accepts an Int32Array as well as a plain array, and produces identical results for the same counts — the shape 08-03's per-team accumulator hands it", () => {
+  it("accepts an Int32Array as well as a plain array, and produces identical results for the same counts — the shape the per-team accumulator hands it", () => {
     const asArray = DIST_3467;
     const asTyped = Int32Array.from(DIST_3467);
     expect(continuousQuantile(asTyped, 0.1, 1000)).toBe(continuousQuantile(asArray, 0.1, 1000));

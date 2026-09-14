@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { CURRENT_SEASON } from "./seasons.js";
 import { DEFAULT_EVENT_TAB, EVENT_TABS, EventSearchSchema, EventsSearchSchema, MatchSearchSchema, RootSearchSchema, TeamSearchSchema, TeamsSearchSchema } from "./searchParams.js";
 
-describe("RootSearchSchema's default algorithm (plan 07-18 Task 1, the cutover)", () => {
+describe("RootSearchSchema's default algorithm", () => {
   it("defaults to vpr when algorithm is absent", () => {
     expect(RootSearchSchema.parse({}).algorithm).toBe("spr");
   });
@@ -31,7 +31,7 @@ describe("RootSearchSchema's default algorithm (plan 07-18 Task 1, the cutover)"
 
   // Same permanent regression proof for a different retired wire id
   // (a bookmarked link carrying it must not 404 or blank the page).
-  it("the previous premier wire id (retired by quick task 260912-ivg) falls back to the current default via .catch()", () => {
+  it("the retired previous premier wire id falls back to the current default via .catch()", () => {
     const retiredAlgorithmId = "b" + "pr";
     expect(RootSearchSchema.parse({ algorithm: retiredAlgorithmId }).algorithm).toBe("spr");
   });
@@ -61,10 +61,10 @@ describe("TeamSearchSchema", () => {
   });
 });
 
-describe("EventSearchSchema (07-01-PLAN.md Task 1; default flipped to insights by 07-18 Task 2; sixth id 'simulation' added by 08-09-PLAN.md Task 1)", () => {
+describe("EventSearchSchema", () => {
   // Ordering asserted separately from the default so the two facts (WHICH
   // tab is active vs. WHERE tabs sit in the strip) cannot be conflated.
-  it("EVENT_TABS is the six fixed ids in UI-SPEC order, with the default's id first and 'simulation' last", () => {
+  it("EVENT_TABS is the six fixed ids in tab-strip order, with the default's id first and 'simulation' last", () => {
     expect(EVENT_TABS).toEqual(["insights", "breakdown", "quals", "alliances", "elims", "simulation"]);
   });
 
@@ -99,7 +99,7 @@ describe("EventSearchSchema (07-01-PLAN.md Task 1; default flipped to insights b
   });
 });
 
-describe("MatchSearchSchema (260909-tiq-PLAN.md Task 1)", () => {
+describe("MatchSearchSchema", () => {
   it("carries no tab field — the match page has no tabs", () => {
     const parsed = MatchSearchSchema.parse({});
     expect("tab" in parsed).toBe(false);

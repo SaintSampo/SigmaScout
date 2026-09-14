@@ -125,7 +125,7 @@ describe("rankBandExtent(p10, p90, teamCount) — the clamped band", () => {
     expect(extent.width).toBeCloseTo(x(p90_3467, N) - x(p10_3467, N), 10);
   });
 
-  it("teams 95 and 4564 return DIFFERENT extents on both left and width — the pixel-layer restatement of Task 1's inequality", () => {
+  it("teams 95 and 4564 return DIFFERENT extents on both left and width — the pixel-layer restatement of the quantile layer's inequality", () => {
     const extent95 = rankBandExtent(p10_95, p90_95, N);
     const extent4564 = rankBandExtent(p10_4564, p90_4564, N);
     expect(extent95.left).not.toBeCloseTo(extent4564.left, 6);
@@ -150,7 +150,7 @@ describe("rankBandExtent(p10, p90, teamCount) — the clamped band", () => {
     expect(extent.left + extent.width).toBeCloseTo(PLOT_W, 10);
   });
 
-  it("REGRESSION (2026-09-01): adjacent histogram bars never overlap, at either end of the axis, at every real roster size", () => {
+  it("REGRESSION: adjacent histogram bars never overlap, at either end of the axis, at every real roster size", () => {
     // The reported symptom was "leftmost and rightmost boxes are squished".
     // The cause was overlap: bars are 55% translucent, so an overlapping
     // neighbour painted a darker seam that read as a narrow half-bar.
@@ -245,7 +245,7 @@ describe("--sim-band-overlay token coupling — the one case that reads a file o
     expect(declaredPercent, `theme.css declares ${declaredPercent}% but SIM_GEOMETRY.BAND_OPACITY * 100 is ${expectedPercent}`).toBe(expectedPercent);
   });
 
-  it("theme.css also declares --sim-hist-bar and --sim-median-tick, so a partially-applied Task 2 fails here rather than at a later render", () => {
+  it("theme.css also declares --sim-hist-bar and --sim-median-tick, so a partially-applied token change fails here rather than at a later render", () => {
     const css = readFileSync(THEME_CSS_PATH, "utf-8");
     expect(css).toMatch(/--sim-hist-bar:/);
     expect(css).toMatch(/--sim-median-tick:/);

@@ -18,7 +18,7 @@ describe("metricKeysFor", () => {
     expect(keys2026.length).toBeGreaterThan(keys2022.length);
   });
 
-  it("every returned array LEADS with the total key (D-5) and contains it exactly once", () => {
+  it("every returned array LEADS with the total key and contains it exactly once", () => {
     for (const [algorithmId, season] of [
       ["opr", 2024],
       ["epa", 2022],
@@ -31,7 +31,7 @@ describe("metricKeysFor", () => {
     }
   });
 
-  it("never returns the adjust component for any algorithm or season — it is a scorekeeper correction, not a column (2026-09-05)", () => {
+  it("never returns the adjust component for any algorithm or season — it is a scorekeeper correction, not a column", () => {
     for (const algorithmId of ["opr", "epa", "spr"] as const) {
       for (const season of SEASONS) {
         expect(metricKeysFor(algorithmId, season)).not.toContain("adjust");
@@ -45,7 +45,7 @@ describe("metricKeysFor", () => {
   });
 });
 
-describe("hasGroupedTeamsView (D-2, 260904-5zg)", () => {
+describe("hasGroupedTeamsView", () => {
   it("hasGroupedTeamsView is true for vpr AND epa, false for opr", () => {
     expect(hasGroupedTeamsView("spr")).toBe(true);
     expect(hasGroupedTeamsView("epa")).toBe(true);
@@ -56,7 +56,7 @@ describe("hasGroupedTeamsView (D-2, 260904-5zg)", () => {
     expect(teamsSortKeyUniverse("epa", 2026)).toContain("phaseAuto");
   });
 
-  it("publishesComponentMetrics is true for epa only, false for spr and opr (quick task 260913-mgn)", () => {
+  it("publishesComponentMetrics is true for epa only, false for spr and opr", () => {
     expect(publishesComponentMetrics("epa")).toBe(true);
     expect(publishesComponentMetrics("spr")).toBe(false);
     expect(publishesComponentMetrics("opr")).toBe(false);
