@@ -1,9 +1,9 @@
 /**
- * Pure helpers for the `--awards-all-only` ingest mode (quick task
- * 260912-5n8 T1). Modelled directly on `eventTeams.ts` next door, which
- * solved the identical "the existing mode only covered district events"
- * problem: the testable core lives here so it can be covered without
- * importing `cli.ts`, and the CLI holds nothing but the fetch loop.
+ * Pure helpers for the `--awards-all-only` ingest mode. Modelled directly
+ * on `eventTeams.ts` next door, which solved the identical "the existing
+ * mode only covered district events" problem: the testable core lives here
+ * so it can be covered without importing `cli.ts`, and the CLI holds
+ * nothing but the fetch loop.
  *
  * WHY A SECOND AWARD PATH EXISTS. `districts.ts`'s `normalizeEventAwards`
  * drops every award type outside `{0,1,9,10}` and every recipient whose
