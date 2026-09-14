@@ -131,7 +131,7 @@ describe("buildQualRows — ordering and membership", () => {
   });
 });
 
-describe("buildSimulationInputs — D-13 at-or-after selection boundary", () => {
+describe("buildSimulationInputs — at-or-after selection boundary", () => {
   it("starting at the LAST qualification row yields exactly one remaining match, and it is that row", () => {
     const a = artifact({
       matches: [playedRow("2024test_qm1", 1), playedRow("2024test_qm2", 2)],
@@ -163,7 +163,7 @@ describe("buildSimulationInputs — D-13 at-or-after selection boundary", () => 
   });
 });
 
-describe("D-12 rule 1 — the unit conversion (08-03's PD-02 case)", () => {
+describe("baseline rule 1 — the unit conversion", () => {
   it("rp 4.83 over a record of 10-2-0 converts to a TOTAL of 58, not 4.83, not 4, not 5", () => {
     const matches = Array.from({ length: 12 }, (_, i) =>
       playedRow(`2024test_qm${i + 1}`, i + 1, { redTeams: ["frcR"], blueTeams: [`frcOpp${i + 1}`] })
@@ -184,7 +184,7 @@ describe("D-12 rule 1 — the unit conversion (08-03's PD-02 case)", () => {
   });
 });
 
-describe("D-12 rule 1 — the record-absent fallback (PD-02)", () => {
+describe("baseline rule 1 — the record-absent fallback", () => {
   it("falls back to the played-qm appearance count as the denominator, distinguishable from a plausible record", () => {
     const matches = Array.from({ length: 10 }, (_, i) =>
       playedRow(`2024test_qm${i + 1}`, i + 1, { redTeams: ["frcR"], blueTeams: [`frcOpp${i + 1}`] })
@@ -199,7 +199,7 @@ describe("D-12 rule 1 — the record-absent fallback (PD-02)", () => {
   });
 });
 
-describe("D-12 rule 1 — the nearest-integer recovery is exact (PD-03)", () => {
+describe("baseline rule 1 — the nearest-integer recovery is exact", () => {
   it("rp 1.12 over a record of 3-5-0 yields exactly 9", () => {
     const matches = Array.from({ length: 8 }, (_, i) =>
       playedRow(`2024test_qm${i + 1}`, i + 1, { redTeams: ["frcR"], blueTeams: [`frcOpp${i + 1}`] })
@@ -228,7 +228,7 @@ describe("D-12 rule 1 — the nearest-integer recovery is exact (PD-03)", () => 
   });
 });
 
-describe("D-12 rule 2 — the summed fallback (the rewind path, PD-01)", () => {
+describe("baseline rule 2 — the summed fallback (the rewind path)", () => {
   it("with a played qualification row at or after the start, the SUMMED prefix total is used even though rp/record are present, and disagrees with the rule-1 value", () => {
     const matches = [
       playedRow("2024test_qm1", 1, { redTeams: ["frcR"], blueTeams: ["frcOpp1"], actualRedRp: 3 }),
@@ -260,7 +260,7 @@ describe("D-12 rule 2 — the summed fallback (the rewind path, PD-01)", () => {
   });
 });
 
-describe("the null contract (PD-04, and this plan's first prohibition) — never coerced to zero, never averaged as 8/3", () => {
+describe("the null contract — never coerced to zero, never averaged as 8/3", () => {
   it("a team whose prefix rows carry actual RP of 3, null and 5 yields earnedRpSum 8 and matchesPlayed 2, average 4", () => {
     const matches = [
       playedRow("2024test_qm1", 1, { redTeams: ["frcR"], blueTeams: ["frcOpp1"], actualRedRp: 3 }),
@@ -278,7 +278,7 @@ describe("the null contract (PD-04, and this plan's first prohibition) — never
   });
 });
 
-describe("D-12 rule 3 — zero played qualification matches before the start", () => {
+describe("baseline rule 3 — zero played qualification matches before the start", () => {
   it("a team with no prefix appearance gets baseline 0/0, both when rp is present and when neither rp nor record is present", () => {
     const matches = [playedRow("2024test_qm1", 1, { redTeams: ["frcOther1"], blueTeams: ["frcOther2"] })];
     const upcoming = [upcomingRow("2024test_qm2", 2, { redTeams: ["frcOther1"], blueTeams: ["frcOther2"] })];
@@ -319,7 +319,7 @@ describe("assumption A2 — a team in a simulated match but absent from teams[]"
   });
 });
 
-describe("PD-05 — pmf absence excludes, never substitutes", () => {
+describe("pmf absence excludes, never substitutes", () => {
   it("a row carrying redRpPmf and no blueRpPmf is excluded from remainingMatches and appears in excludedMatchKeys", () => {
     const upcoming = [upcomingRow("2024test_qm1", 1, { redRpPmf: [0.5, 0.5], blueRpPmf: undefined })];
     const a = artifact({ upcoming });
@@ -353,7 +353,7 @@ describe("PD-05 — pmf absence excludes, never substitutes", () => {
   });
 });
 
-describe("D-15 (plan 09-07) — outcome is attached when and only when the complete decomposition is present", () => {
+describe("outcome is attached when and only when the complete decomposition is present", () => {
   const DECOMPOSED = {
     matchOutcomePmf: [0.6, 0.02, 0.38],
     redBonusRpPmf: [0.7, 0.3],
@@ -415,7 +415,7 @@ describe("elimination rows are never remaining", () => {
   });
 });
 
-describe("isRewindStart (PD-08)", () => {
+describe("isRewindStart", () => {
   it("true when a played row lies at or after the start, including when the START row itself is unplayed and a played row follows it", () => {
     const rows = [row("m1", true), row("m2", false), row("m3", true)];
     expect(isRewindStart(rows, 1)).toBe(true);
@@ -433,7 +433,7 @@ describe("defaultStartMatchKey", () => {
     expect(defaultStartMatchKey(rows)).toBe("m2");
   });
 
-  it("returns the FIRST match on a fully-played event, so a finished event opens on a full-event rewind rather than on nothing (2026-09-01)", () => {
+  it("returns the FIRST match on a fully-played event, so a finished event opens on a full-event rewind rather than on nothing", () => {
     const rows = [row("m1", true), row("m2", true)];
     expect(defaultStartMatchKey(rows)).toBe("m1");
   });
@@ -451,7 +451,7 @@ describe("findStartIndex", () => {
   });
 });
 
-describe("buildSimulationInputs — an unknown start key (PD-06's resolve-to-none rule)", () => {
+describe("buildSimulationInputs — an unknown start key (the resolve-to-none rule)", () => {
   it("returns null rather than throwing or guessing a neighbour", () => {
     const a = artifact({ upcoming: [upcomingRow("2024test_qm1", 1)] });
     expect(buildSimulationInputs(a, "2024test_qm999")).toBeNull();
