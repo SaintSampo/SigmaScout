@@ -14,12 +14,7 @@ function preserveSearch(prev: Record<string, unknown>): never {
 }
 
 /**
- * The `/methodology` hub's card grid (quick task 260905-phf Task 1; widened
- * to a third card by quick task 260905-tor, to a fourth — the per-robot
- * consistency page, now the Sigma page — by quick task 260909-3fj, to a fifth — the SPR explainer, in
- * first position — by quick task 260910-vof, and to a sixth — the award
- * prediction write up, fifth so Acknowledgments stays last — by quick task
- * 260912-tm8).
+ * The `/methodology` hub's card grid, SIX cards.
  *
  * Explicit `<Link>` elements — one per card — rather than a `.map()` over
  * `METHODOLOGY_CARDS` — same reasoning `Ribbon.tsx`'s `NavLinks` already

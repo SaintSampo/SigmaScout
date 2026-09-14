@@ -1,34 +1,27 @@
 /**
- * The season list the year dropdown renders (Task 1, 05-05-PLAN.md; widened
- * to the gapped seven-season corpus by quick task 260904-nt4).
- * `FIRST_SEASON`/`CURRENT_SEASON` are the two bounds; `SEASONS` is built from
- * them (with `EXCLUDED_SEASONS` filtered out) rather than hand-maintained as
- * a literal array, so a season the algorithms' own registry
- * (`packages/core/algorithms/breakdown/index.ts`'s `SEASON_COMPONENT_MAPS`)
- * does not know about cannot silently appear in the year dropdown —
- * `metricKeys.test.ts`'s `describe("SEASONS")` asserts every element of
- * `SEASONS` resolves through `componentMapForSeason` without throwing, AND
- * that every element of `EXCLUDED_SEASONS` THROWS through it — the exclusion
- * tracks the algorithms' own season registry rather than being an arbitrary
- * hole.
+ * The season list the year dropdown renders. `FIRST_SEASON`/`CURRENT_SEASON`
+ * are the two bounds; `SEASONS` is built from them (with `EXCLUDED_SEASONS`
+ * filtered out) rather than hand-maintained as a literal array, so a season
+ * the algorithms' own registry (`packages/core/algorithms/breakdown/index.ts`'s
+ * `SEASON_COMPONENT_MAPS`) does not know about cannot silently appear in the
+ * year dropdown — `metricKeys.test.ts`'s `describe("SEASONS")` asserts every
+ * element of `SEASONS` resolves through `componentMapForSeason` without
+ * throwing, AND that every element of `EXCLUDED_SEASONS` THROWS through it —
+ * the exclusion tracks the algorithms' own season registry rather than
+ * being an arbitrary hole.
  *
  * The corpus (and this site) covers TEN seasons: 2016, 2017, 2018, 2019,
- * 2020, 2022, 2023, 2024, 2025, 2026 — widened from seven by quick task
- * 260907-203 (2026-09-07), which ingested 2016/2017, registered 2016/2017/2018
- * in every algorithm registry, and published all ten seasons to R2 under
- * `vpr@10.0.0+rolling-2026-09e`. `FIRST_SEASON` moved 2019 -> 2016 ONLY AFTER
- * that publish landed and was verified by reading `v1/compare/2016.json`,
- * `v1/events/2016/...` and `v1/districts/2016.json` back from the live origin
- * — publish-then-reveal, in that order. The 2019/2020 rollout once shipped a
- * year dropdown ahead of its artifacts and every page 404'd; that ordering is
- * the standing rule, not a one-off precaution.
+ * 2020, 2022, 2023, 2024, 2025, 2026. A new season publishes to R2 and is
+ * verified against the live origin BEFORE `FIRST_SEASON`/`CURRENT_SEASON`
+ * move to cover it — publish-then-reveal, in that order. The 2019/2020
+ * rollout once shipped a year dropdown ahead of its artifacts and every
+ * page 404'd; that ordering is the standing rule, not a one-off precaution.
  *
  * **2021 is a PERMANENT exclusion, not a deferral or a gap
  * awaiting backfill.** 2021 was the at-home/remote season with no
  * conventional 3v3 alliance matches, so there is nothing for a match
- * predictor to ingest or score — recorded user decision, 2026-09-03
- * (`.planning/todos/completed/extend-corpus-2019-2020.md`). Never write a
- * comment, test, or doc line that frames 2021 as "not yet ingested".
+ * predictor to ingest or score. Never write a comment, test, or doc line
+ * that frames 2021 as "not yet ingested".
  *
  * This file still never imports from `packages/core/` — the registry
  * agreement above is enforced by the test, not by an import. `FIRST_SEASON`
@@ -51,9 +44,9 @@ export const CURRENT_SEASON = 2026;
 export const EXCLUDED_SEASONS: readonly number[] = [2021];
 
 /**
- * Descending: `CURRENT_SEASON` first (the year dropdown's default selection,
- * per 05-UI-SPEC.md's "Year dropdown" populated row), `FIRST_SEASON` last,
- * with every `EXCLUDED_SEASONS` member filtered out.
+ * Descending: `CURRENT_SEASON` first (the year dropdown's default
+ * selection), `FIRST_SEASON` last, with every `EXCLUDED_SEASONS` member
+ * filtered out.
  */
 export const SEASONS: readonly number[] = Array.from({ length: CURRENT_SEASON - FIRST_SEASON + 1 }, (_, index) => CURRENT_SEASON - index).filter(
   (season) => !EXCLUDED_SEASONS.includes(season)

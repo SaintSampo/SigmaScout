@@ -1,22 +1,19 @@
 /**
- * The `/methodology` hub's card descriptors (quick task 260905-phf Task 1).
- * The single source of the hub's titles, blurbs and target routes —
- * `MethodologyCards.tsx` and `methodology.index.test.tsx` both derive from
- * this constant rather than hand-typing a second copy, matching this
- * repo's established "derive from a named constant" discipline
- * (e.g. `MethodologyNote.tsx`, `AccuracyTable.tsx`).
+ * The `/methodology` hub's card descriptors. The single source of the
+ * hub's titles, blurbs and target routes — `MethodologyCards.tsx` and
+ * `methodology.index.test.tsx` both derive from this constant rather than
+ * hand-typing a second copy, matching this repo's established "derive from
+ * a named constant" discipline (e.g. `MethodologyNote.tsx`,
+ * `AccuracyTable.tsx`).
  *
- * Named `methodologyCardData.ts`, not `methodologyCards.ts` (the plan's
- * literal filename) — Rule 3 fix: this repo builds on a case-insensitive
- * Windows filesystem, and `methodologyCards.ts` differs from the component
- * file `MethodologyCards.tsx` by case only. Rolldown's Windows module
- * resolution collapsed both to one on-disk entity and resolved imports of
- * either specifier to whichever file the OS returned first, causing a
- * "MethodologyCards is not exported" build failure that reproduced
- * consistently. Every other data/component pair in this codebase
+ * Named `methodologyCardData.ts`, not `methodologyCards.ts`: this repo
+ * builds on a case-insensitive Windows filesystem, and `methodologyCards.ts`
+ * would differ from the component file `MethodologyCards.tsx` by case
+ * only, which collapses both to one on-disk entity under Windows module
+ * resolution. Every other data/component pair in this codebase
  * (`calibrationCards.ts`/`CalibrationSection.tsx`, `coverageRows.ts`/
  * `DataCoverageTable.tsx`) already differs by more than case for exactly
- * this reason; this file follows that same established convention.
+ * this reason.
  */
 export interface MethodologyCardDescriptor {
   readonly to:
@@ -32,17 +29,8 @@ export interface MethodologyCardDescriptor {
 }
 
 /**
- * The first card's slot (quick task 260908-n5o) previously held the former
- * Intro to VPR page, retired and purged as part of this same task. Quick task
- * 260910-vof moved that page's content to `/methodology/epa-vs-statbotics`
- * (unchanged below) and took the first slot for itself instead: the SPR
- * explainer, the site's premier rating and the most fundamental of the five,
- * reads first.
- *
- * The hub shows FIVE cards as of quick task 260910-vof, which added the SPR
- * explainer in first position ahead of the four cards already here, and SIX as
- * of quick task 260912-tm8, which added the award prediction write up fifth so
- * Acknowledgments stays last.
+ * The SPR explainer, the site's premier rating and the most fundamental of
+ * the six, reads first; Acknowledgments stays last.
  *
  * ORDER IS LOAD BEARING. `MethodologyCards.tsx` destructures this array
  * POSITIONALLY (it cannot `.map()` over it — see that file's own doc comment
