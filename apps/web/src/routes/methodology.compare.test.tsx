@@ -130,7 +130,7 @@ function readCellIsBold(season: number, algorithmId: string, metric: "accuracy" 
   return cells[cellIndex]!.querySelector("[data-emphasis]") !== null;
 }
 
-describe("/compare route — D-10 parity across all three compLevel views (real fixtures, 3 views x 10 seasons x 3 algorithms = 90)", () => {
+describe("/compare route — fixture parity across all three compLevel views (real fixtures, 3 views x 10 seasons x 3 algorithms = 90)", () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
@@ -147,7 +147,7 @@ describe("/compare route — D-10 parity across all three compLevel views (real 
       fetchCalls.push(url);
       const match = /\/v1\/compare\/(\d+)\.json$/.exec(url);
       if (match === null) {
-        throw new Error(`unexpected fetch URL in D-10 parity test: ${url}`);
+        throw new Error(`unexpected fetch URL in parity test: ${url}`);
       }
       const year = Number(match[1]);
       const body = FIXTURES_BY_YEAR[year];
@@ -196,7 +196,7 @@ describe("/compare route — D-10 parity across all three compLevel views (real 
   }
 });
 
-describe("/compare route — D-11 naive-divergence lock (real fixtures, 3 views x 10 seasons x 2 metrics = 60 decisions)", () => {
+describe("/compare route — naive-divergence lock (real fixtures, 3 views x 10 seasons x 2 metrics = 60 decisions)", () => {
   it("the computed rule (buildAccuracyRows + buildRowEmphasis) and an inline naive max/min strawman disagree on exactly eleven of sixty emphasis decisions, each named individually", () => {
     const artifactsByYear = new Map<number, CompareArtifact>();
     for (const season of COMPARE_SEASONS) {
@@ -302,7 +302,7 @@ describe("/compare route — D-11 naive-divergence lock (real fixtures, 3 views 
   });
 });
 
-describe("/compare route — D-11 named real-data regression cases (elimination view)", () => {
+describe("/compare route — named real-data regression cases (elimination view)", () => {
   afterEach(() => cleanup());
 
   function mockFetch() {
@@ -375,7 +375,7 @@ describe("/compare route — switching view re-renders structurally (C1 overflow
   });
 });
 
-describe("/compare route — MethodologyNote (D-08, D-11)", () => {
+describe("/compare route — MethodologyNote", () => {
   afterEach(() => cleanup());
 
   function mockFetch() {
@@ -491,7 +491,7 @@ describe("/compare route — page states", () => {
   });
 });
 
-describe("/compare route — Calibration section (sketch 006-C cards, 2026-09-01 rebuild, D-10 parity)", () => {
+describe("/compare route — Calibration section (sketch 006-C cards, fixture parity)", () => {
   afterEach(() => cleanup());
 
   const calibrationFetchCalls: string[] = [];
@@ -595,13 +595,13 @@ describe("/compare route — Calibration section (sketch 006-C cards, 2026-09-01
 });
 
 /**
- * 08-12-PLAN.md Task 3: the Data coverage per year section, mounted last on
+ * The Data coverage per year section, mounted last on
  * the page. Every expected value below is an expression over the imported
  * fixture, computed the SAME way `DataCoverageTable.tsx`'s own
  * `collapseSharedCount`/`renderSharedCount` collapse a shared field — never a
  * hand-typed second copy of a coverage figure.
  */
-describe("/compare route — Data coverage per year (08-12, COMP-01, D-09, D-10 parity)", () => {
+describe("/compare route — Data coverage per year (fixture parity)", () => {
   afterEach(() => cleanup());
 
   function mockFetch() {
@@ -712,7 +712,7 @@ describe("/compare route — Data coverage per year (08-12, COMP-01, D-09, D-10 
     expect(checkedGroups).toBe(30);
   });
 
-  it("published zeros render the digit zero, never the em-dash — derived from the fixture rather than hardcoded coordinates (COMP-01 empty)", async () => {
+  it("published zeros render the digit zero, never the em-dash — derived from the fixture rather than hardcoded coordinates", async () => {
     mockFetch();
     renderCompareRoute();
     await waitFor(() => expect(readCellText(2022, "spr", "brier")).not.toBe(""));
@@ -750,10 +750,10 @@ describe("/compare route — Data coverage per year (08-12, COMP-01, D-09, D-10 
 });
 
 /**
- * 08-12-PLAN.md Task 3: the page's completed four-section pending and error
+ * The page's completed four-section pending and error
  * branches, and the coverage section's layout position.
  */
-describe("/compare route — four-section pending and error branches (08-12, UI-SPEC C4)", () => {
+describe("/compare route — four-section pending and error branches", () => {
   afterEach(() => cleanup());
 
   function mockFetch() {
