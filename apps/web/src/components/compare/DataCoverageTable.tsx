@@ -1,32 +1,28 @@
 /**
- * The Compare page's Data coverage per year section (08-12-PLAN.md Task 2) —
- * the last section on the page, discharging D-09's "surfaces everything the
- * artifact carries" obligation for the coverage fields nothing else on the
- * page renders: `candidateCount`, `scoredCount`, all five
- * `exclusionCounts` members (the fifth, `coldStart`, added by quick task
- * 260909-t5q and published optionally per D-04 — see `coverageRows.ts`'s own
- * header for the absent-vs-zero contract), `tieCount` and `noCallCount`.
+ * The Compare page's Data coverage per year section — the last section on
+ * the page, surfacing everything the artifact carries for the coverage
+ * fields nothing else on the page renders: `candidateCount`, `scoredCount`,
+ * all five `exclusionCounts` members (see `coverageRows.ts`'s own header for
+ * the absent-vs-zero contract), `tieCount` and `noCallCount`.
  *
  * Mirrors `AccuracyTable.tsx`'s established idiom in this same directory: a
  * two-row grouped header with left borders marking each group's boundary
- * (including the first), a BLANK cell for an absent value (2026-09-01: no
- * em-dash placeholders anywhere), a named `*Skeleton`
- * sibling sharing the real header so pending and populated states share a
- * footprint, and one scroll region carrying the app's established
+ * (including the first), a BLANK cell for an absent value (no em-dash
+ * placeholders anywhere), a named `*Skeleton` sibling sharing the real
+ * header so pending and populated states share a footprint, and one scroll
+ * region carrying the app's established
  * `min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain` set.
  *
- * `noCallCount` is the one coverage field that varies by algorithm (measured
- * 15 of 15 published (season, compLevelView) groups, `coverageRows.ts`'s own
- * doc comment) — it renders as its own three-column `No-calls by algorithm`
- * group, in `PUBLISHED_ALGORITHM_IDS` order, never collapsed. The other seven
- * fields render as one shared column each, printed as a single number when
- * the three algorithms agree and as all three labelled values when they do
- * not (`SharedCount`'s `disagreed` branch — an empirical property of today's
- * data, not a schema guarantee, per `coverageRows.ts`).
+ * `noCallCount` is the one coverage field that varies by algorithm — it
+ * renders as its own three-column `No-calls by algorithm` group, in
+ * `PUBLISHED_ALGORITHM_IDS` order, never collapsed. The other seven fields
+ * render as one shared column each, printed as a single number when the
+ * three algorithms agree and as all three labelled values when they do not
+ * (`SharedCount`'s `disagreed` branch).
  *
- * Declares NO state of any kind: `compLevelView` arrives as a prop from
- * 08-06's single page-level state — the accuracy table's and 08-10's
- * calibration section's third consumer.
+ * Declares NO state of any kind: `compLevelView` arrives as a prop from a
+ * single page-level state shared with the accuracy table and the
+ * calibration section.
  */
 import { cn } from "@/lib/utils";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -44,38 +40,25 @@ export const DATA_COVERAGE_EXPLAINER_TESTID = "compare-data-coverage-explainer-d
 /** The Copywriting Contract's exact heading string. */
 export const DATA_COVERAGE_HEADING = "Data coverage per year";
 
-/**
- * The Copywriting Contract's data-coverage explainer row, rewritten
- * 2026-09-01 to carry no em-dash (user directive), otherwise verbatim and
- * still carrying D-09's binding offseason distinction. Not otherwise reworded,
- * not split, and the second sentence below is NOT folded into it (Decision
- * 4): it is checker-approved copy this plan does not own.
- */
+/** The Copywriting Contract's data-coverage explainer row, carrying the binding offseason distinction. Not otherwise reworded, not split; the second sentence below is NOT folded into it — it is checker-approved copy this component does not own. */
 export const DATA_COVERAGE_EXPLAINER_D09 =
   "Offseason matches feed each algorithm's predictions but are excluded from the accuracy scores above; the numbers reflect only official-season matches with a recorded winner.";
 
-/**
- * The authored second paragraph (Decision 4): the partition claim guarded by
- * `coverageRows.test.ts`'s fixture-based identity guard, the ties/no-calls
- * placement, and the non-additive overlap that is this plan's own reason for
- * never rendering a derived denominator.
- */
-// Decision 4 (08-12-PLAN.md): checker-approved copy this task does not own — NOT reworded even though
-// "the four excluded columns" undercounts by one now that quick task 260909-t5q added a fifth
-// (`coldStart`). The claim itself ("Scored matches plus the excluded columns account for every
-// candidate match") stays true regardless of the column count, so this is a stale-but-harmless
-// literal, not a factual error — left for a future copy pass rather than touched here.
+/** The authored second paragraph: the partition claim guarded by `coverageRows.test.ts`'s fixture-based identity guard, the ties/no-calls placement, and the non-additive overlap that is the reason this table never renders a derived denominator. */
+// Checker-approved copy this component does not own — NOT reworded even
+// though "the four excluded columns" undercounts by one now that a fifth
+// column was added. The claim itself ("Scored matches plus the excluded
+// columns account for every candidate match") stays true regardless of the
+// column count, so this is a stale-but-harmless literal, not a factual
+// error — left for a future copy pass rather than touched here.
 export const DATA_COVERAGE_EXPLAINER_STRUCTURE =
   "Scored matches plus the four excluded columns account for every candidate match. Ties and no-calls are counted inside the scored matches, not excluded from them: a tie has no winner to have predicted, and a no-call is a prediction of exactly fifty percent either way, so both are still scored for Brier even though neither counts toward winner accuracy. A single match can be both a tie and a no-call, so the Ties and No-calls columns do not add together.";
 
 const COVERAGE_TABLE_ROW_COUNT = 5;
 /**
  * Year + Candidate matches + Scored matches + `COVERAGE_EXCLUSION_COLUMNS.length`
- * exclusion columns + Ties + `PUBLISHED_ALGORITHM_IDS.length` no-call columns.
- * Originally 11 (Flagged Planner Assumption 2 — three more than UI-SPEC's
- * original 8-column sketch, per Decision 1); now 12 since quick task
- * 260909-t5q's `coldStart` column widened `COVERAGE_EXCLUSION_COLUMNS` from
- * four to five. Computed from `.length`, never a literal, so a future column
+ * exclusion columns + Ties + `PUBLISHED_ALGORITHM_IDS.length` no-call
+ * columns. Computed from `.length`, never a literal, so a future column
  * addition or removal cannot drift this count out of sync.
  */
 export const COVERAGE_LEAF_COLUMN_COUNT = 3 + COVERAGE_EXCLUSION_COLUMNS.length + 1 + PUBLISHED_ALGORITHM_IDS.length;
@@ -90,11 +73,10 @@ export function coverageCellTestId(season: number, columnKey: string): string {
  * bare digits, INCLUDING zero; `absent` prints a BLANK cell; and
  * `disagreed` prints every algorithm's own label and value. These two
  * branches (agreed-zero vs absent) are the single behaviour most likely to
- * be collapsed by a later contributor who reads a zero as an empty; two of
- * the four ORIGINAL exclusion columns are zero in every slice this site
- * publishes today, and the fifth (`coldStart`, quick task 260909-t5q) is
- * ABSENT in every one of those same slices until a republish runs (D-04) —
- * so the wrong branch here is what the table would show most of the time.
+ * be collapsed by a later contributor who reads a zero as an empty — several
+ * exclusion columns are legitimately zero or absent in most slices this
+ * site publishes today, so the wrong branch here is what the table would
+ * show most of the time.
  */
 function renderSharedCount(cell: SharedCount): string {
   if (cell.kind === "absent") return "";
@@ -107,15 +89,13 @@ function renderNoCall(count: number | undefined): string {
 }
 
 /**
- * Sketch 007/`AccuracyTable.tsx`'s two-row grouped header, extended to a
- * third group: a row-label-adjacent pair of standalone columns (Candidate
- * matches, Scored matches), the `Excluded from scoring` group (five columns
- * as of quick task 260909-t5q's `coldStart` addition —
- * `COVERAGE_EXCLUSION_COLUMNS.length` drives `colSpan` below, so this never
- * needs a literal to stay in sync), a standalone `Ties` column, and the
- * three-column `No-calls by algorithm` group — each group carrying a left
- * border on both its group header and its first leaf column so the two land
- * on the same boundary.
+ * `AccuracyTable.tsx`'s two-row grouped header, extended to a third group: a
+ * row-label-adjacent pair of standalone columns (Candidate matches, Scored
+ * matches), the `Excluded from scoring` group (`COVERAGE_EXCLUSION_COLUMNS
+ * .length` drives `colSpan` below, so this never needs a literal to stay in
+ * sync), a standalone `Ties` column, and the three-column `No-calls by
+ * algorithm` group — each group carrying a left border on both its group
+ * header and its first leaf column so the two land on the same boundary.
  */
 function DataCoverageTableHeader() {
   return (

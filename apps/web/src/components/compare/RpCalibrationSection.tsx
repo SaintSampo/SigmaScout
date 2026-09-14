@@ -1,16 +1,15 @@
 /**
- * The Compare page's RP calibration section (F1, D-09, D-11) — one
- * plain-language card per published algorithm that publishes ranking-point
- * odds (`publishesRankingPoints`: SPR only since quick task 260913-it4, when
- * OPR and EPA stopped carrying them) showing how often each predicted bonus
- * ranking point actually happened. A stale artifact that still carries OPR or
- * EPA ranking-point records therefore renders the SPR card alone. Modelled on
- * `CalibrationSection.tsx`'s live card form: a headline sentence at full
- * ink, a per-bonus readable row list with counts and sparse tags, and a
- * small inline-SVG deviation-bars chart demoted beneath the sentence as
- * supporting evidence. Display form settled by
- * `.claude/skills/sketch-findings-sigmascout/references/simulation-and-compare.md`
- * — do not re-decide it.
+ * The Compare page's RP calibration section — one plain-language card per
+ * published algorithm that publishes ranking-point odds
+ * (`publishesRankingPoints`: SPR only) showing how often each predicted
+ * bonus ranking point actually happened. A stale artifact that still
+ * carries a ranking-point record for a different algorithm therefore
+ * renders the SPR card alone. Modelled on `CalibrationSection.tsx`'s live
+ * card form: a headline sentence at full ink, a per-bonus readable row list
+ * with counts and sparse tags, and a small inline-SVG deviation-bars chart
+ * demoted beneath the sentence as supporting evidence. Display form settled
+ * by the sketch-findings skill's simulation-and-compare notes — do not
+ * re-decide it.
  *
  * Takes `artifactsByYear` ONLY, deliberately NOT `compLevelView`: bonus
  * ranking points exist only in QUALIFICATION matches, so this section reads
@@ -22,8 +21,7 @@
  * Colour only ever through `var(--compare-algo-*)` tokens
  * (`comparePalette.test.ts` enforces the no-raw-hex rule file-wide). Every
  * algorithm label comes from `algorithmDisplayLabel` at run time, never a
- * hardcoded string, so the in-flight SPR/SPR display rename cannot leave
- * this section behind.
+ * hardcoded string.
  */
 import { useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -48,13 +46,13 @@ export const RP_CALIBRATION_SECTION_TESTID = "compare-rp-calibration-section";
 export const RP_CALIBRATION_YEAR_SELECT_TESTID = "compare-rp-calibration-year-select";
 export const rpCalibrationCardTestId = (algorithmId: string) => `compare-rp-calibration-card-${algorithmId}`;
 export const rpCalibrationCardSentenceTestId = (algorithmId: string) => `compare-rp-calibration-sentence-${algorithmId}`;
-/** 2026-09-13 (260913-qyn): the total-RP sentence, present only when the card carries a `totalRp` block. */
+/** The total-RP sentence, present only when the card carries a `totalRp` block. */
 export const rpCalibrationTotalSentenceTestId = (algorithmId: string) => `compare-rp-calibration-total-sentence-${algorithmId}`;
-/** 2026-09-13 (260913-qyn): the tie sentence, present only when the card carries an `outcome` block. */
+/** The tie sentence, present only when the card carries an `outcome` block. */
 export const rpCalibrationTieSentenceTestId = (algorithmId: string) => `compare-rp-calibration-tie-sentence-${algorithmId}`;
-/** 2026-09-13 (260913-qyn): the labelled ranked-probability-score figure. */
+/** The labelled ranked-probability-score figure. */
 export const rpCalibrationRpsTestId = (algorithmId: string) => `compare-rp-calibration-rps-${algorithmId}`;
-/** 2026-09-13 (260913-qyn): the labelled three-outcome Brier figure. */
+/** The labelled three-outcome Brier figure. */
 export const rpCalibrationOutcomeBrierTestId = (algorithmId: string) => `compare-rp-calibration-outcome-brier-${algorithmId}`;
 
 /** Defaults to the most recent season, matching `CalibrationSection`'s `DEFAULT_CALIBRATION_YEAR` convention. */
@@ -64,21 +62,15 @@ export const DEFAULT_RP_CALIBRATION_YEAR = 2026;
 export const RP_CALIBRATION_ABSENT_TEXT = "Bonus ranking point accuracy has not been measured for this artifact yet.";
 
 /**
- * States the measured population in words (D-09's per-bonus framing): every
- * qualification match in the corpus, offseason events INCLUDED — unlike the
- * win-probability calibration above, which excludes them.
+ * States the measured population in words: every qualification match in the
+ * corpus, offseason events INCLUDED — unlike the win-probability calibration
+ * above, which excludes them.
  *
- * D-04 PROVENANCE (added 2026-09-11, plan 09-06). The second sentence names
- * the seasons that informed the model's own family choice and states that the
- * headline comes from the seasons that did not. Without it a reader could take
- * a figure from a season the model was chosen on and read it as
- * out-of-sample — which is the one thing the two-slice split exists to
- * prevent.
- *
- * REWRITTEN 2026-09-13 (quick task 260913-qyn), first sentence only: the card
- * now leads with TOTAL ranking points (win, tie and bonus together) before
- * its per-bonus rows, so the explainer says so up front rather than
- * describing only the rows below it. The provenance sentence is unchanged.
+ * The second sentence names the seasons that informed the model's own
+ * family choice and states that the headline comes from the seasons that
+ * did not. Without it a reader could take a figure from a season the model
+ * was chosen on and read it as out-of-sample — which is the one thing the
+ * two-slice split exists to prevent.
  */
 export const RP_CALIBRATION_EXPLAINER =
   "These cards cover total ranking points — win, tie and bonus together — checked against every qualification match in the corpus, including offseason events, unlike the win-probability calibration above. The rows below cover bonus ranking points only. " +
@@ -151,9 +143,9 @@ function RpCalibrationCard({ algorithmId, card, d }: { algorithmId: PublishedAlg
         <span aria-hidden="true" className="inline-block size-[10px] rounded-full" style={{ background: `var(--compare-algo-${algorithmId})` }} />
         <span className="text-role-label font-semibold text-[var(--color-text-primary)]">{label}</span>
       </div>
-      {/* Total-RP lead sentence (2026-09-13, 260913-qyn) — plain-language-first,
-          per the sketch skill's calibration display rule. Absent (never a
-          zero-filled sentence) when the record carries no totalRp block. */}
+      {/* Total-RP lead sentence — plain-language-first, per the sketch
+          skill's calibration display rule. Absent (never a zero-filled
+          sentence) when the record carries no totalRp block. */}
       {card.totalRp !== null && (
         <p data-testid={rpCalibrationTotalSentenceTestId(algorithmId)} className="text-role-body font-semibold text-[var(--color-text-primary)]">
           {rpTotalSentence(label, card.totalRp)}
@@ -186,9 +178,7 @@ function RpCalibrationCard({ algorithmId, card, d }: { algorithmId: PublishedAlg
         </div>
       )}
       {/* Bonus ranking points — the section this card originally was, kept
-          under its own sub-label and with the same content/test ids as
-          before (2026-09-13, 260913-qyn): the headline sentence, chart and
-          rows are UNCHANGED. */}
+          under its own sub-label with the same content/test ids. */}
       <div className="mt-[var(--spacing-xs)] flex flex-col gap-[var(--spacing-sm)]">
         <span className="text-role-label font-semibold text-[var(--color-text-muted)]">Bonus ranking points</span>
         <p data-testid={rpCalibrationCardSentenceTestId(algorithmId)} className="text-role-body text-[var(--color-text-primary)]">
