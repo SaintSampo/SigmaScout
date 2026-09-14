@@ -1,50 +1,33 @@
 /**
  * Client-side aggregation for the District Locks / Champ Locks tabs' header
- * strip (revision R2, quick task 260905-lic Task R2b; corrected against live
- * data by this task's own follow-up fixes — see the per-field doc comments
- * below for what changed and why). The published `DistrictArtifact`
- * (`packages/harness/pageArtifacts.ts`) does NOT carry a dedicated
- * `preDcmp`/`pointsPool`/`champRemaining` aggregate on the wire — R2a's own
- * "REVISION R2a SCHEMA-VERSION NOTE" doc comment only names
- * `qualifyingAwards` and `allocationNote` as the fields that revision
- * actually added. This module derives the header figures this revision's
- * user decisions call for HERE, client-side, from the per-team `eventPoints`
- * and `remainingEvents` arrays every roster team already carries, plus the
- * declared point-model ceilings in `packages/core/districts/pointModel.ts` —
- * no `packages/harness` schema change, per this task's own file scope.
+ * strip. The published `DistrictArtifact` does NOT carry a dedicated
+ * `preDcmp`/`pointsPool`/`champRemaining` aggregate on the wire, so this
+ * module derives the header figures HERE, client-side, from the per-team
+ * `eventPoints` and `remainingEvents` arrays every roster team already
+ * carries, plus the declared point-model ceilings in
+ * `packages/core/districts/pointModel.ts`.
  *
- * FOLLOW-UP FIX (live-data screenshot review): the first cut of this module
- * derived `perEventMax` from a roster team's `remainingEvents` row, which
- * vanishes once every event of the season has been played — a fully-played
- * district showed "Not yet known" instead of its real, still-computable
- * ceiling. `perEventMax` now comes from `pointModel.ts`'s `maxEventPoints`
- * (keyed on `artifact.year` + tier), the SAME source `packages/core/districts/
- * locks.ts` itself uses to build `remainingEvents[].maxPoints` in the first
- * place — reading the declared ceiling directly instead of waiting for a
- * still-unplayed roster row to echo it back. It is therefore available for
- * every REGISTERED season (`pointModel.ts`'s `DISTRICT_REGISTERED_SEASONS`)
- * regardless of how much of the season has already been played, and honestly
- * `null` only for a season this repo has no declared ceiling for at all.
+ * `perEventMax` comes from `pointModel.ts`'s `maxEventPoints` (keyed on
+ * `artifact.year` + tier), the SAME source `packages/core/districts/
+ * locks.ts` itself uses to build `remainingEvents[].maxPoints` — reading the
+ * declared ceiling directly rather than a roster team's `remainingEvents`
+ * row, which vanishes once every event of the season has been played (a
+ * fully-played district would otherwise show "Not yet known" for a
+ * still-computable ceiling). It is `null` only for a season this repo has
+ * no declared ceiling for at all.
  *
- * The per-team pre-DCMP ceiling (`perTeamCeiling` below) is ALSO a follow-up
- * fix: the first cut multiplied `perEventMax` by `totalEventCount` (however
- * many distinct district events this district's roster has actually played
- * or has left), which is a DISTRICT-WIDE total (e.g. FiM's 31 events x 83 =
- * 2,573) — not the per-team figure the user-approved preview names. Per the
- * research's own verbatim rule (`260905-lic-RESEARCH-awards.md`, District
- * Ranking criterion B, both the 2019 and 2020+ wording): "based on total
- * points earned at their first 2 home District events" — every team's
- * pre-DCMP ceiling is `perEventMax` times exactly TWO events, regardless of
- * how many district events the district as a whole runs that season.
+ * The per-team pre-DCMP ceiling (`perTeamCeiling` below) is `perEventMax`
+ * times exactly TWO events, never the district-wide `totalEventCount`: a
+ * team earns district ranking points at its first two home district events
+ * only, regardless of how many events the district itself runs that season.
  *
- * Two per-team roster fields (already on the wire, from R2a) are the honest
- * inputs for how much of that fixed ceiling remains reachable RIGHT NOW:
- * `team.maxRemainingDistrict` (pre-DCMP) and `team.maxRemainingChamp`
- * (champ-tier, R2a's own ceiling that already folds in the DCMP 3x weight
- * when a team's DCMP is still ahead). Both are per-team and vary by team —
- * the header shows the MAXIMUM across the roster (the team closest to its
- * own ceiling), never a single "the" team's figure, since neither tab lets
- * the reader pick one team.
+ * Two per-team roster fields are the honest inputs for how much of that
+ * fixed ceiling remains reachable RIGHT NOW: `team.maxRemainingDistrict`
+ * (pre-DCMP) and `team.maxRemainingChamp` (champ-tier, already folding in
+ * the DCMP 3x weight when a team's DCMP is still ahead). Both are per-team
+ * and vary by team — the header shows the MAXIMUM across the roster (the
+ * team closest to its own ceiling), never a single "the" team's figure,
+ * since neither tab lets the reader pick one team.
  */
 import { maxEventPoints, UnknownDistrictSeasonError, type DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -53,10 +36,8 @@ type DistrictTeam = DistrictArtifact["teams"][number];
 export type DistrictEventTier = DistrictTeam["eventPoints"][number]["tier"];
 
 /**
- * A team earns district ranking points at its first TWO home district events
- * only (research `260905-lic-RESEARCH-awards.md`, District Ranking criterion
- * B, verbatim in both the 2019 wording — "first 2 home District events" —
- * and the 2020+ wording — "first two home District events"). This is a FIXED
+ * A team earns district ranking points at its first TWO home district
+ * events only, per the FIRST district ranking rule. This is a FIXED
  * per-team event count, independent of how many district events the
  * district as a whole runs in a season — it is what makes the per-team
  * pre-DCMP ceiling `perEventMax * TEAM_HOME_DISTRICT_EVENT_COUNT`, never
@@ -184,13 +165,13 @@ function perEventMaxForSeason(season: number, tier: DistrictTier): number | null
 }
 
 /**
- * Builds `tier`'s header stats for `season` from the full team roster (this
- * revision's "district-wide points pool" + "per-team ceiling" + "schedule
- * strip" decisions). The District Locks tab calls this with `tier="district"`.
- * The Champ Locks header (per the user's own decision) also reads
- * `tier="district"` stats via `computeChampLocksHeaderStats` below —
- * "Remaining district points" is about pre-DCMP DISTRICT points, not DCMP-
- * tier points, even on the Champ Locks tab.
+ * Builds `tier`'s header stats for `season` from the full team roster: a
+ * district-wide points pool, a per-team ceiling, and a schedule strip. The
+ * District Locks tab calls this with `tier="district"`. The Champ Locks
+ * header also reads `tier="district"` stats via
+ * `computeChampLocksHeaderStats` below — "Remaining district points" is
+ * about pre-DCMP DISTRICT points, not DCMP-tier points, even on the Champ
+ * Locks tab.
  */
 export function computeDistrictLocksHeaderStats(teams: readonly DistrictTeam[], tier: DistrictEventTier, season: number): DistrictLocksHeaderStats {
   const { played, upcoming } = accumulateTierEntries(teams, tier);
@@ -250,11 +231,11 @@ export function computeDistrictLocksHeaderStats(teams: readonly DistrictTeam[], 
 export interface ChampLocksHeaderStats {
   /** The maximum, across the whole roster, of each team's own `maxRemainingChamp` — the team closest to locking champ, not "the" team. `0` for an empty roster. */
   maxRemainingAcrossRoster: number;
-  /** `computeDistrictLocksHeaderStats(teams, "district", season).perTeamCeiling` — the SAME fixed 2-event pre-DCMP ceiling the District Locks tab shows, per the user-approved preview ("332 / 166 mid-season, 0 / 166 when done"). */
+  /** `computeDistrictLocksHeaderStats(teams, "district", season).perTeamCeiling` — the SAME fixed 2-event pre-DCMP ceiling the District Locks tab shows. */
   preDcmpCeiling: number | null;
 }
 
-/** The Champ Locks header's "Remaining district points: X / Y pre-DCMP" line (this revision's own decided copy; X and Y both corrected by this task's follow-up fixes to be per-team figures, never district-wide totals). */
+/** The Champ Locks header's "Remaining district points: X / Y pre-DCMP" line — X and Y are both per-team figures, never district-wide totals. */
 export function computeChampLocksHeaderStats(teams: readonly DistrictTeam[], season: number): ChampLocksHeaderStats {
   const districtStats = computeDistrictLocksHeaderStats(teams, "district", season);
   const maxRemainingAcrossRoster = teams.reduce((max, team) => Math.max(max, team.maxRemainingChamp), 0);
