@@ -1,20 +1,20 @@
 /**
- * D-05's failing test half of the payload budget: parses the machine-
- * readable `json budget` block Task 2 wrote into `docs/publish-budget.md`
- * and asserts the committed budget is well-formed, internally consistent,
- * holds an absolute ceiling on the two D-05-named at-risk artifacts (the
- * year-wide teams table and the 292-match team page), and that a fresh
- * re-measurement of a small real slice stays inside it. `docs/publish-
- * budget.md` is this suite's ONLY input — no other file's numbers feed it.
+ * The failing test half of the payload budget: parses the machine-readable
+ * `json budget` block written into `docs/publish-budget.md` and asserts the
+ * committed budget is well-formed, internally consistent, holds an
+ * absolute ceiling on the at-risk artifacts (the year-wide teams table and
+ * the largest team page), and that a fresh re-measurement of a small real
+ * slice stays inside it. `docs/publish-budget.md` is this suite's ONLY
+ * input — no other file's numbers feed it.
  *
  * A missing or corrupted machine-readable block is a loud, named failure
  * (`PublishBudgetParseError`), never a silent skip — that is what makes the
  * non-vacuity guard below meaningful: assert a minimum population so the
- * suite cannot go green on an empty budget. Re-measurement re-runs the SAME `packages/harness/publish.ts`
- * assembly functions (`buildEventArtifact`/`buildTeamSeasonArtifact`)
- * rather than re-implementing a size calculation, matching `digest.test.ts`'s
- * closest analog: a real produced artifact measured against a committed
- * expectation, failing loudly on drift.
+ * suite cannot go green on an empty budget. Re-measurement re-runs the SAME
+ * `packages/harness/publish.ts` assembly functions
+ * (`buildEventArtifact`/`buildTeamSeasonArtifact`) rather than
+ * re-implementing a size calculation: a real produced artifact measured
+ * against a committed expectation, failing loudly on drift.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -32,7 +32,7 @@ import { WalkForwardSimulator, type PredictionRecord } from "./replay.js";
 
 // ---------------------------------------------------------------------------
 // The committed doc — parsed through publishBudget.ts, the one home for the
-// block's parser and the ceilings it must mirror (quick task 260913-nvn)
+// block's parser and the ceilings it must mirror
 // ---------------------------------------------------------------------------
 
 function readCommittedPublishBudget(): PublishBudget {
@@ -45,45 +45,32 @@ function readCommittedPublishBudget(): PublishBudget {
 const PAGE_KINDS = ["teams", "team", "events", "event", "compare"] as const;
 
 /**
- * D-05's two named at-risk artifacts get an absolute ceiling written into
+ * The two named at-risk artifacts get an absolute ceiling written into
  * THIS TEST, not just the committed `budgetMaxBytes` — the assertion that
- * fires when a future change makes the teams table or the 292-match team
+ * fires when a future change makes the teams table or the largest team
  * page structurally bigger, rather than merely noisier.
  *
- * Both bounds come from the real full 2022-2026 publish run recorded in
- * `docs/publish-budget.md`'s git history (`pnpm publish:seasons`, completed
- * 2026-08-25T19:10:49Z — plan 06-06's authorized republish carrying D-01..D-05's
- * team-artifact fields — 54,671 page objects across 5 seasons × 3 algorithms):
- *   - teams: measured max 2,721,887 bytes (`v1/teams/2024/sigma1@2.0.0+tuned-2026-08.json`, [pre-rename]
- *     the committed `budgetMaxBytes` is 3,500,000) — this bound (5,000,000) sits well above
- *     that committed ceiling, so raising `budgetMaxBytes` for ordinary season-to-season growth
- *     does not also require touching this test. Unchanged by plan 06-06's run — Phase 6's new
- *     fields land only on the per-team artifact, not this one (06-RESEARCH.md Open Question 2).
- *   - team: measured max 304,862 bytes (`v1/team/frc118/2024/sigma1@2.0.0+tuned-2026-08.json`, [pre-rename]
- *     the committed `budgetMaxBytes` is 375,000) — this bound (600,000) gives the same clear
- *     headroom above the committed ceiling. Moved from a pre-Phase-6 287,264-byte baseline
- *     (+17,598 bytes, +6.13%) by D-01..D-05's own-variance/actual-RP/percentile/robotImageUrl/
- *     activeYears additions; still 70,138 bytes (18.70%) under the committed budget.
+ * Both bounds sit well above the committed `budgetMaxBytes` measured from a
+ * real full-corpus publish run, so raising `budgetMaxBytes` for ordinary
+ * season-to-season growth does not also require touching this test.
  */
 const TEAMS_PAGE_ABSOLUTE_MAX_BYTES = 5_000_000;
 const TEAM_PAGE_ABSOLUTE_MAX_BYTES = 600_000;
 
 /**
- * 08-05 (PD-01): the `event` page kind's own absolute ceiling, added because
- * the "is internally consistent" test above cannot fire for `event` while
- * WINDOWS.md ledger #11's `teams` breach is open — that single `it(...)`
- * iterates `PAGE_KINDS` in order (`teams, team, events, event, compare`)
- * inside ONE test body, so the `teams` iteration's thrown assertion aborts
- * the loop before `event` is ever reached. Unlike
+ * The `event` page kind's own absolute ceiling, added because the "is
+ * internally consistent" test above cannot fire for `event` while a
+ * `teams` breach elsewhere is open — that single `it(...)` iterates
+ * `PAGE_KINDS` in order (`teams, team, events, event, compare`) inside ONE
+ * test body, so the `teams` iteration's thrown assertion aborts the loop
+ * before `event` is ever reached. Unlike
  * `TEAMS_PAGE_ABSOLUTE_MAX_BYTES`/`TEAM_PAGE_ABSOLUTE_MAX_BYTES` above, this
  * bound intentionally EQUALS the committed `pages.event.budgetMaxBytes`
- * (350,000) rather than sitting above it — for this page kind the committed
- * ceiling IS the D-01 byte-cost contract D-03/D-12's republish was decided
- * against, and headroom above it here would defeat the point of a dedicated,
- * reachable gate. This is deliberately its own `it(...)`, not folded into
- * the internal-consistency block, so it can be run and observed in isolation
- * via a name filter (`-t EVENT_PAGE_ABSOLUTE_MAX_BYTES`) both before and
- * after 08-05's republish — reachability proven, not assumed.
+ * (350,000) rather than sitting above it — headroom above it here would
+ * defeat the point of a dedicated, reachable gate. This is deliberately
+ * its own `it(...)`, not folded into the internal-consistency block, so it
+ * can be run and observed in isolation via a name filter
+ * (`-t EVENT_PAGE_ABSOLUTE_MAX_BYTES`).
  */
 const EVENT_PAGE_ABSOLUTE_MAX_BYTES = 350_000;
 
@@ -190,7 +177,7 @@ describe("published payload budget (D-05)", () => {
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const CORPUS_AVAILABLE = existsSync(CORPUS_PATH);
-/** A real, stable event confirmed present in the full 2022-2026 corpus (plan 04-01/04-04's own real publish runs both used it) — small enough (a single regional's worth of matches) to stay well under the 60-second feedback ceiling. */
+/** A real, stable event confirmed present in the full 2022-2026 corpus — small enough (a single regional's worth of matches) to stay well under the 60-second feedback ceiling. */
 const SAMPLE_EVENT_KEY = "2026azfg";
 
 (CORPUS_AVAILABLE ? describe : describe.skip)(
