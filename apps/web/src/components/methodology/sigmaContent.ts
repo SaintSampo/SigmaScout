@@ -1,24 +1,20 @@
 /**
- * Content-as-data for `/methodology/sigma`. Replaces the content module for
- * the retired per-robot consistency accumulator, which explained a number the site stopped showing on 2026-09-10 when Sigma Score
- * shipped for the SPR rating (published under the internal id `spr`, still
- * unchanged; see `sprContent.ts`).
+ * Content-as-data for `/methodology/sigma`. This page explains Sigma Score,
+ * the per-robot consistency metric published for SPR (see `sprContent.ts`
+ * for the SPR rating page itself).
  *
- * Same discipline as its predecessor and as `epaComparisonContent.ts`: this
- * module is the single source of every prose string the page renders, so
- * `sigmaContent.test.ts` can pin the section and figure sets by equality and
- * check every string for voice violations without a second hand-typed copy
- * anywhere.
+ * Same discipline as `epaComparisonContent.ts`: this module is the single
+ * source of every prose string the page renders, so `sigmaContent.test.ts`
+ * can pin the section and figure sets by equality and check every string
+ * for voice violations without a second hand-typed copy anywhere.
  *
  * Audience: a tenth grader who has watched one FRC event. Voice rules, binding
  * on every exported string here:
  *
  *   1. NO dash characters at all — not the hyphen-minus, not the en dash, not
- *      the em dash. Inherited from the previous page at the explicit request of
- *      the person who asked for it. Compounds go open ("half life", "walk
- *      forward", "match to match", "per robot"), ranges go in words ("2024 to
- *      2026"), and formulas go in words too, since a minus sign would trip the
- *      same gate.
+ *      the em dash. Compounds go open ("half life", "walk forward", "match to
+ *      match", "per robot"), ranges go in words ("2024 to 2026"), and
+ *      formulas go in words too, since a minus sign would trip the same gate.
  *   2. Short declarative sentences. A term gets explained the first time it
  *      appears, in the same sentence.
  *   3. No hedging openers, no sentence that restates the previous one, no
@@ -31,18 +27,15 @@
  * one legitimately use normal punctuation, and a whole file grep would false
  * positive on them.
  *
- * Every measured number below traces to quick task 260910-u7g (the head to head
- * against the old number), 260910-sz9 (the measurement of the old number
- * itself), and 260913-g66 (the alliance band's own coverage, printed by
- * `pnpm measure:match-band`, which runs `scripts/measureMatchBandCoverage.ts`).
- * No number is stated here that those did not produce.
+ * Every measured number below traces to a live measurement (`pnpm
+ * measure:match-band` runs `scripts/measureMatchBandCoverage.ts` for the
+ * alliance band's own coverage). No number is stated here that a
+ * measurement did not produce.
  *
- * Quick task 260913-g66 also retracted two teachings this page used to carry:
- * that the overlap of the two bars IS the win probability, and that three
- * robots at 10 combine to 17.32. A robot's Sigma is its share of the alliance's
- * miss, so the band multiplies the summed squares by the roster size. The
- * example robots in `three-robots-one-band` are exported below so the page's
- * drawing and the content test both run them through the shipping helper.
+ * A robot's Sigma is its share of the alliance's miss, so the band
+ * multiplies the summed squares by the roster size. The example robots in
+ * `three-robots-one-band` are exported below so the page's drawing and the
+ * content test both run them through the shipping helper.
  */
 
 export const SIGMA_PAGE_TITLE = "Sigma Score and the match band";

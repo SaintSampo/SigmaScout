@@ -1,12 +1,12 @@
 /**
- * Content-as-data for `/methodology/epa-vs-statbotics` (quick task 260912-tib,
- * a from-scratch rewrite of the page body). This module is the single source
- * of every prose string the page renders: the title, the lead, the three
- * section headings, the "Same on both sites" list, the "Where they differ"
- * comparison cards, and the "How much it matters" head-to-head intro and
- * summary sentence. `epaComparisonContent.test.ts` pins the exact id sets by
- * equality and runs voice, fact and liability gates over every exported
- * string, so a silently added, dropped or reworded entry fails loudly.
+ * Content-as-data for `/methodology/epa-vs-statbotics`. This module is the
+ * single source of every prose string the page renders: the title, the
+ * lead, the three section headings, the "Same on both sites" list, the
+ * "Where they differ" comparison cards, and the "How much it matters"
+ * head-to-head intro and summary sentence. `epaComparisonContent.test.ts`
+ * pins the exact id sets by equality and runs voice, fact and liability
+ * gates over every exported string, so a silently added, dropped or
+ * reworded entry fails loudly.
  *
  * Audience: the FRC community (students, mentors, scouts) the rest of the
  * site is written for. Voice rules, binding on every string here: no em dash
@@ -22,7 +22,7 @@
  *
  * The published `v1/methodology/epa-vs-statbotics.json` artifact still
  * carries an `agreement` array (`EpaComparisonArtifactSchema` still requires
- * it). This page deliberately does not render it (Jacob, 2026-09-12).
+ * it). This page deliberately does not render it.
  */
 
 export const EPA_COMPARISON_PAGE_TITLE = "Our EPA vs Statbotics' EPA";
@@ -122,10 +122,9 @@ export interface EpaDifferenceCard {
 
 /**
  * Fouls stay folded into `week-one-numbers` rather than getting their own
- * card (Claude's discretion, per this task's CONTEXT.md): prediction-time
- * foul handling is now identical on both sites (see `EPA_SAME_ITEMS`'s
- * `fouls-in-predictions` entry above), and the only remaining difference is
- * the week-1 rate, which this card already covers.
+ * card: prediction-time foul handling is now identical on both sites (see
+ * `EPA_SAME_ITEMS`'s `fouls-in-predictions` entry above), and the only
+ * remaining difference is the week-1 rate, which this card already covers.
  */
 export const EPA_DIFFERENCE_CARDS: readonly EpaDifferenceCard[] = [
   {
