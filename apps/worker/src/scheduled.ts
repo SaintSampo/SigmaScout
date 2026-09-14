@@ -1,79 +1,49 @@
 /**
- * The cron tick: read what is live, ask TBA what changed, advance the
- * shared prediction state, and rewrite only the artifacts that moved — in
- * that order, always. `scheduled(controller, env, ctx)` is three lines;
- * `runTick(env, deps)` holds all the logic, testable without a
- * `ScheduledController`.
+ * The cron tick: read what is live, ask TBA what changed, advance the shared
+ * prediction state, and rewrite only the artifacts that moved. `runTick`
+ * holds all the logic, testable without a `ScheduledController`.
  *
- * ORDER THAT MATTERS: update, then state write, then artifact write, never
- * the reverse. `processEvent` below runs a strict two-phase sequence per
- * event — Phase A folds every published algorithm's state and writes it;
- * only once every algorithm's Phase A write has succeeded does Phase B
- * write any artifact. A rejected Phase A write aborts the whole event (zero
- * artifact puts, the event cursor is not advanced) — the shared
- * `event_cursor` row has no per-algorithm granularity, so a partial
- * per-algorithm advance would silently desync the un-advanced algorithms'
- * folding forever.
+ * ORDER: update, then state write, then artifact write, never the reverse.
+ * `processEvent` runs Phase A (fold and write every live algorithm's state)
+ * and only after every Phase A write succeeds, Phase B (artifacts). A
+ * rejected Phase A write aborts the whole event without advancing the
+ * cursor: `event_cursor` has no per-algorithm granularity, so a partial
+ * advance would desync the un-advanced algorithms forever.
  *
- * BUDGET: every event's total subrequest cost is estimated up front, right
- * after polling tells us what actually changed. If the estimate exceeds
- * what remains, the whole event defers — no state touched at all — rather
- * than starting Phase A and discovering mid-loop that Phase B cannot be
- * afforded (which would leave state advanced but some artifacts stale with
- * no future trigger to fix them). Once the upfront estimate clears, every
- * subsequent real call is expected to succeed, since events are handled
- * sequentially within one tick, never concurrently.
+ * BUDGET: each event's subrequest cost is estimated up front, right after
+ * polling. If it exceeds what remains the whole event defers with no state
+ * touched, rather than advancing state and then finding Phase B
+ * unaffordable (stale artifacts with no future trigger). Events run
+ * sequentially, so a cleared estimate holds.
  *
- * ROTATION OFFSET / GLOBAL REBUILD TIMESTAMP: stored in `event_cursor`
- * under a reserved sentinel key, `__scheduler_meta__` (`TICK_META_EVENT_KEY`
- * below) — a reuse of `stateStore.ts`'s existing `event_cursor`
- * table/columns rather than a new migration/table. `lastFoldedMatchKey`
- * carries a small JSON blob (`{ rotationOffset, lastGlobalRebuildAtMs }`)
- * instead of a match key for this one row.
+ * TICK META: the rotation offset and last global rebuild time live in
+ * `event_cursor` under the sentinel key `TICK_META_EVENT_KEY`, with a JSON
+ * blob in `lastFoldedMatchKey`.
  *
- * GLOBAL REBUILD: serializing the whole year-wide `teams`/`events` tables
- * every tick is close to the entire CPU budget by itself, so this Worker
- * rebuilds them on a slower cadence (a fixed interval OR an event just
- * completing its last scheduled match this tick, whichever comes first).
- * This Worker has no corpus access at all, so "rebuild" here can only ever
- * mean an incremental merge of the teams actually touched since the last
- * rebuild into the existing published `teams/{year}` table — never a
- * from-scratch recomputation, which remains the offline `pnpm
- * publish:seasons` job. Known stub: the `record` (win/loss/tie) field on a
- * `teams/{year}` row is not updated by this incremental merge (only
- * `metrics`/`matchCount` are), and the `events/{year}` table is not touched
- * by this path at all; both stay accurate as of the last offline publish.
+ * GLOBAL REBUILD: serializing the year-wide `teams`/`events` tables costs
+ * close to the whole CPU budget, so it runs on a fixed interval or when an
+ * event completes its last scheduled match. With no corpus access it is an
+ * incremental merge of teams touched since the last rebuild, never a
+ * from-scratch recompute (that is `pnpm publish:seasons`). Known stub: a
+ * `teams/{year}` row's `record` is not updated here, and `events/{year}` is
+ * not touched; both stay as of the last offline publish.
  *
- * TIERS: a touched row keeps the prior row's published rarity `tier` per
- * metric key and its published Sigma entry, so the Teams list never falls
- * back to a false Common mid-event. Tiers are carried, not re-derived:
- * re-ranking every row with the pipeline's helper was measured too costly
- * against this rebuild's own CPU budget.
+ * TIERS: a touched row keeps the prior row's published `tier` per metric and
+ * its published Sigma entry, so the Teams list never shows a false Common
+ * mid-event. Re-ranking every row was measured too costly for the CPU budget.
  *
- * OFFICIAL-PLAY SCOPE: every summary quantity this merge writes covers
- * official play only (`isOfficialEventType`), matching what `publish.ts`
- * writes offline, at two gates: the `teams/{year}` leaderboard feed (a live
- * offseason or preseason event contributes nothing to it) and the per-team
- * artifact's own `seasonStats.record` (`incrementRecord` skips an
- * unofficial match outright). A live offseason event still folds its
- * matches into per-event and per-team artifacts normally — only the
- * summary record is scoped. An unknown event type (the `-1` "detail fetch
- * failed" sentinel) is treated as official at both gates, so a failed TBA
- * detail fetch degrades toward keeping the leaderboard updated rather than
- * toward silently freezing it.
+ * OFFICIAL-PLAY SCOPE: summary quantities cover official play only
+ * (`isOfficialEventType`), matching `publish.ts`, at two gates: the
+ * `teams/{year}` leaderboard feed and `seasonStats.record`
+ * (`incrementRecord`). An offseason event still folds into per-event and
+ * per-team artifacts. The `-1` "detail fetch failed" event type counts as
+ * official, so a failed fetch keeps the leaderboard updating.
  *
- * DEMO TEAM EXCLUSION: `demoTeams.ts`'s predicates are already applied
- * inside every published algorithm's `update()`/`predict()`, so nothing in
- * this file needs to re-implement that. What this file alone is
- * responsible for is `touchedTeams` (`processEvent` below), the raw
- * per-match roster used to decide which team scope keys Phase A
- * reads/initializes and which `team/{teamKey}/{year}` artifacts Phase B
- * writes. `realTouchedTeams` strips every demo key out of that list before
- * either use, so a demo key can neither acquire its own D1 state row nor
- * produce a published team page. The raw `touchedTeams` list is still
- * passed to `mergeEventArtifact` unfiltered, matching `publish.ts`'s own
- * unfiltered `eventTeamKeys` — event pages are deliberately untouched by
- * this exclusion.
+ * DEMO TEAMS: the algorithms already exclude demo teams in
+ * `update()`/`predict()`. `realTouchedTeams` strips demo keys before Phase A
+ * scope keys and Phase B team artifacts, so a demo key gets no D1 row and no
+ * team page. `mergeEventArtifact` still gets the unfiltered roster, matching
+ * `publish.ts`'s `eventTeamKeys`.
  */
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
@@ -133,7 +103,7 @@ import { createTbaContext, pollEventMatches, TbaRequestCounter, type TbaClientCo
 import type { Env } from "./env.js";
 
 // ---------------------------------------------------------------------------
-// Tick meta (rotation offset, last global rebuild) — see this module's header.
+// Tick meta (rotation offset, last global rebuild)
 // ---------------------------------------------------------------------------
 
 const TICK_META_EVENT_KEY = "__scheduler_meta__";
@@ -164,21 +134,16 @@ async function writeTickMeta(db: D1Database, meta: TickMeta, nowIso: string): Pr
 }
 
 // ---------------------------------------------------------------------------
-// Algorithm module construction — hoisted ONCE per tick (Pitfall 4)
+// Algorithm module construction, once per tick
 // ---------------------------------------------------------------------------
 
 /**
- * Only the published SPR algorithm needs real-time folding during a live
- * event. `processEvent`'s `estimatedCost` for one ordinary 3v3 match (6
- * touched teams) is 18 with spr alone vs. 50 with all three published
- * algorithms live, against ~41 subrequests actually available per tick —
- * with all three live the event defers every tick, forever. This does not
- * change what is published (opr, epa, spr stay exactly as published); it
- * only narrows what this Worker folds live. opr/epa refresh at the manual
- * pre/post-event-weekend re-baseline instead. Exported so
- * `parseLiveAlgorithmIds`'s unset/empty fallback and this file's own
- * regression test (`liveAlgorithmTier.test.ts`) bind to the same default
- * rather than a re-typed copy.
+ * Only SPR folds live. One 3v3 match's `estimatedCost` is 18 with spr alone
+ * vs. 50 with all three algorithms, against ~41 subrequests available per
+ * tick, so with all three live the event would defer forever. What is
+ * published is unchanged; opr/epa refresh at the manual event-weekend
+ * re-baseline. Exported so the fallback and `liveAlgorithmTier.test.ts`
+ * share one default.
  */
 export const DEFAULT_LIVE_ALGORITHM_IDS: readonly string[] = ["spr"];
 
@@ -191,14 +156,10 @@ export class UnknownLiveAlgorithmIdError extends Error {
 }
 
 /**
- * The live tier, after filtering the algorithms manifest, came out empty.
- * Thrown rather than allowed to silently fold zero algorithms: a tick that
- * folds nothing would still CLAIM and ADVANCE the event cursor
- * (`claimEventAdvance`), marking matches folded that were never applied to
- * any algorithm's state — a corruption that is indistinguishable from
- * health in the one log line `docs/worker-operations.md`'s troubleshooting
- * table tells an operator to read (`"ok":true`, `eventsAdvanced` climbing
- * normally). This guard exists specifically to make that failure loud.
+ * The live tier came out empty after filtering the algorithms manifest.
+ * Thrown because a tick that folds nothing would still claim and advance
+ * the event cursor, marking matches folded that no state ever saw, and its
+ * log line would look healthy.
  */
 export class EmptyLiveAlgorithmTierError extends Error {
   constructor() {
@@ -213,18 +174,15 @@ export class EmptyLiveAlgorithmTierError extends Error {
 }
 
 /**
- * Parses `Env.LIVE_ALGORITHM_IDS` (a comma-separated string) into the tier
- * that folds live this tick. Two decided behaviors:
- *  - Unset or empty (after trimming/dropping blank segments) — falls back to
- *    `DEFAULT_LIVE_ALGORITHM_IDS` and emits one structured
- *    `live-tier-defaulted` warn line (never silent). Defaulting to "all"
- *    would reintroduce the exact defect this fixes; throwing would take the
- *    site's freshness down over a config omission. Only the ids themselves
- *    are logged, never any other binding value.
- *  - An id not in `PUBLISHED_ALGORITHM_IDS` — throws `UnknownLiveAlgorithmIdError`.
- * Called at the top of `runTick`, before the live-windows manifest read, so
- * a misconfigured deploy surfaces on the very next tick rather than lying
- * dormant until an event goes live months later.
+ * Parses `Env.LIVE_ALGORITHM_IDS` (comma-separated) into the tier that folds
+ * live this tick.
+ *  - Unset or empty: `DEFAULT_LIVE_ALGORITHM_IDS` plus one
+ *    `live-tier-defaulted` warn line. Defaulting to "all" would blow the
+ *    subrequest budget; throwing would stop freshness over a config omission.
+ *    Only the ids are logged, never another binding value.
+ *  - An id not in `PUBLISHED_ALGORITHM_IDS`: throws `UnknownLiveAlgorithmIdError`.
+ * Called at the top of `runTick` so a misconfigured deploy fails on the next
+ * tick, not when an event goes live months later.
  */
 export function parseLiveAlgorithmIds(raw: string | undefined): string[] {
   const segments = (raw ?? "")
@@ -245,7 +203,7 @@ export function parseLiveAlgorithmIds(raw: string | undefined): string[] {
   return segments;
 }
 
-/** Builds exactly the modules `algorithmsManifest` names, at the exact versions/parameters it names — never a second, independently-derived resolution — narrowed to ONLY the ids in `liveAlgorithmIds` (PUBLISHED and FOLDED-LIVE are two different sets; this filter narrows the latter only). Called exactly ONCE per tick; every event this tick reuses the SAME module instances, never rebuilt per event. Throws `EmptyLiveAlgorithmTierError` if the filtered result is empty — see that error's own doc comment for why. */
+/** Builds exactly the modules `algorithmsManifest` names, narrowed to `liveAlgorithmIds` (published and folded-live are different sets). Called once per tick; every event reuses the same instances. Throws `EmptyLiveAlgorithmTierError` on an empty result. */
 export function buildAlgorithmModules(algorithmsManifest: AlgorithmsManifest, liveAlgorithmIds: readonly string[]): Map<string, AlgorithmModule<any>> {
   const liveSet = new Set(liveAlgorithmIds);
   const modules = new Map<string, AlgorithmModule<any>>();
@@ -272,29 +230,17 @@ export function buildAlgorithmModules(algorithmsManifest: AlgorithmsManifest, li
   return modules;
 }
 
-/**
- * Which algorithms keep event-scoped state, and therefore need this event's
- * own row loaded before a tick may fold into it. OPR has per-event
- * observations/ratings. EPA and SPR are team-scoped only. A set rather than
- * a chain of `if`s so a fourth event-scoped algorithm is one entry, not a
- * branch that could be forgotten.
- */
+/** Algorithms with event-scoped state (OPR's per-event ratings), whose event row must be loaded before a tick folds into it. EPA and SPR are team-scoped only. */
 export const EVENT_SCOPED_ALGORITHM_IDS = new Set(["opr"]);
 
 /**
- * An algorithm's full selection list for one event's fold — every scope
- * kind it stores, in one `readScopedState` request (`readScopedState`
- * binds every selection into a single prepared statement, so naming two
- * scope kinds costs exactly what naming one does).
+ * An algorithm's full selection list for one event's fold, in one
+ * `readScopedState` statement (two scope kinds cost what one does).
  *
- * Do not "simplify" the event selection back out for an algorithm that has
- * event-scoped state. The consequence is silent data destruction: without
- * this row loaded, a live tick deserializes with an empty accumulator,
- * `update()` rebuilds it from the one or two matches this tick happens to
- * see, and the result is written back — so the event's entire accumulated
- * history is overwritten by a single tick's worth of data, one tick at a
- * time, while nothing else in the pipeline notices (the rows are
- * well-formed, the tick reports success, the numbers just quietly become wrong).
+ * Never drop the event selection for an event-scoped algorithm: without that
+ * row, `update()` rebuilds the accumulator from this tick's matches alone
+ * and writes it back, silently overwriting the event's history with
+ * well-formed but wrong rows.
  */
 export function selectionsFor(algorithmId: string, eventKey: string, touchedTeams: readonly string[]): ScopeSelection[] {
   const selections: ScopeSelection[] = [];
@@ -308,11 +254,9 @@ export function selectionsFor(algorithmId: string, eventKey: string, touchedTeam
 async function loadOrInitState(db: D1Database, algorithmId: string, selections: readonly ScopeSelection[], algorithm: AlgorithmModule<any>) {
   const rows = await readScopedState(db, algorithmId, selections);
   const hasLeagueRow = rows.some((row) => row.scopeKind === "league");
-  // Not-yet-seeded algorithm/scope: cold-start via initState rather than
-  // deserializeState, which throws MissingLeagueRowError by design for
-  // exactly this case. initState's only real consumer of its argument is
-  // EPA (seeds teamComponents/teamMatchCounts) — OPR ignores it — so the
-  // team selection's own key list (never the event key) is what gets passed.
+  // Not yet seeded: cold-start via initState, since deserializeState throws
+  // MissingLeagueRowError for this case. initState takes team keys, never
+  // the event key.
   const teamKeys = selections.find((s) => s.scopeKind === "team")?.scopeKeys ?? [];
   const state: any = hasLeagueRow ? deserializeState(algorithmId, rows) : algorithm.initState([...teamKeys]);
   return { rows, state };
@@ -333,21 +277,15 @@ function toMatchResult(match: CorpusMatch, eventType: number, week: number | nul
     blueTeams: match.blueTeams,
     redSurrogates: match.redSurrogates,
     blueSurrogates: match.blueSurrogates,
-    // DQ keys must be threaded through, never defaulted. All three algorithms
-    // call `isFullyDqZeroScoreAlliance` in `update()`, and that predicate
-    // fails OPEN rather than loudly when the field is absent (`new
-    // Set(undefined)` is a legal empty Set), so omitting these two fields
-    // would silently skip the whole-alliance-DQ exclusion the offline
-    // publish path applies, corrupting those teams' ratings until the next
-    // full republish.
+    // DQ keys must be threaded, never defaulted: `isFullyDqZeroScoreAlliance`
+    // fails OPEN on an absent field, so omitting them would silently skip the
+    // whole-alliance-DQ exclusion the offline publish applies.
     redDqs: match.redDqs,
     blueDqs: match.blueDqs,
     eventType,
-    // Threaded, never defaulted, for the same reason. `null` is the honest
-    // "TBA gives this event no week" value; `0` is NOT an acceptable
-    // stand-in, because corpus week 0 is a real week (Statbotics' week 1)
-    // and a fabricated `0` would enrol a championship match in the week-1
-    // calibration population on the live path.
+    // Threaded, never defaulted: `null` means TBA gives no week, while corpus
+    // week 0 is a real week (Statbotics' week 1), so a fabricated `0` would
+    // enrol a championship match in the week-1 calibration population.
     week,
     winner: match.winner as "red" | "blue" | "tie",
     redScore: match.redScore!,
@@ -407,12 +345,10 @@ interface Stamp {
 }
 
 /**
- * The predicted per-bonus marginals for one live row — the same gated
- * spread `publish.ts`'s `eventMatchBonusRpFields` applies. The actual
- * per-bonus flags are deliberately not built here: they require parsing the
- * score breakdown through the season's RP rule module, which this Worker
- * does not do — the offline republish fills them on played rows, and until
- * then the client renders the actual dots `unknown`, the designed degradation.
+ * Predicted per-bonus marginals for one live row, gated as `publish.ts`'s
+ * `eventMatchBonusRpFields` does. Actual per-bonus flags need the season's
+ * RP rule module to parse the breakdown, which this Worker does not do; the
+ * offline republish fills them, and until then the client draws `unknown`.
  */
 function liveBonusRpFields(compLevel: MatchResult["compLevel"], prediction: Prediction) {
   return {
@@ -422,12 +358,10 @@ function liveBonusRpFields(compLevel: MatchResult["compLevel"], prediction: Pred
 }
 
 /**
- * One alliance-pair's PUBLISHED Match Band for one match — each side's
- * display variance as `sigmaMatchBandVariance(roster size, Σ its robots'
- * Sigma Score²)`, walk-forward as of that match. Sigma algorithms only: an
- * OPR or EPA match gets an empty band and its rows carry no band keys.
- * Never the win-odds variance `rpFieldsFor` reads — that is the uncorrected
- * sum and stays inside the tick.
+ * One match's published Match Band: each side's display variance,
+ * `sigmaMatchBandVariance(roster size, Σ Sigma Score²)`, walk-forward. Sigma
+ * algorithms only; OPR/EPA rows carry no band keys. Never the win-odds
+ * variance `rpFieldsFor` reads, which stays inside the tick.
  */
 interface MatchBand {
   readonly red?: number;
@@ -449,16 +383,14 @@ interface PerAlgorithmFold {
   readonly newPredictions: Map<string, Prediction>;
   readonly upcomingPredictions: Map<string, Prediction>;
   readonly touchedMetrics: Record<string, Record<string, TeamMetric>>;
-  /** Match Band per newly-folded match key (shape 10). */
+  /** Match Band per newly-folded match key. */
   readonly newBands: ReadonlyMap<string, MatchBand>;
-  /** Match Band per still-upcoming match key (shape 10). */
+  /** Match Band per still-upcoming match key. */
   readonly upcomingBands: ReadonlyMap<string, MatchBand>;
   /**
-   * This algorithm's Sigma Score per REAL touched team, read at END OF TICK
-   * — the SAME instant `touchedMetrics` is read, so Total and Sigma on a
-   * live-written row always pair from one instant. Empty for an algorithm
-   * outside `SIGMA_SCORE_ALGORITHM_IDS` (`usesSigmaScore` false), never
-   * merely omitted.
+   * Sigma Score per real touched team, read at end of tick, the same instant
+   * as `touchedMetrics`, so Total and Sigma always pair. Empty (never
+   * omitted) when `usesSigmaScore` is false.
    */
   readonly touchedSigma: ReadonlyMap<string, number>;
 }
@@ -475,16 +407,12 @@ function buildEventMatchRow(match: MatchResult, prediction: Prediction, band: Ma
     pRedWin: roundProbability(prediction.pRedWin),
     predictedRedScore: roundMetric(prediction.redScore),
     predictedBlueScore: roundMetric(prediction.blueScore),
-    // A played row must carry the pmf pair too: a rewind start match is the
-    // common case, most corpus events having no unplayed qualification
-    // match at all. See `EventMatchSchema.redRpPmf`'s own doc comment.
+    // Played rows carry the pmf pair too: the simulation rewinds into played
+    // matches, and most events have no unplayed qualification match.
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
-    // The RP decomposition, read straight off `prediction` and never gated
-    // on competition level — a gate here would make this the only surface
-    // in the pipeline that drops what the model returned. Same as
-    // `publish.ts`'s own row builders, so a live row and an offline row for
-    // the same match agree.
+    // The RP decomposition, never gated on competition level, exactly as
+    // `publish.ts`'s row builders emit it, so live and offline rows agree.
     matchOutcomePmf: prediction.matchOutcomePmf ? roundPmf(prediction.matchOutcomePmf) : undefined,
     redBonusRpPmf: prediction.redBonusRpPmf ? roundPmf(prediction.redBonusRpPmf) : undefined,
     blueBonusRpPmf: prediction.blueBonusRpPmf ? roundPmf(prediction.blueBonusRpPmf) : undefined,
@@ -510,8 +438,7 @@ function buildEventUpcomingRow(match: UpcomingMatch, prediction: Prediction, ban
     predictedBlueScore: roundMetric(prediction.blueScore),
     redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
     blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
-    // Same three lines `publish.ts`'s own two row builders carry, so a live
-    // row and an offline row for the same match agree.
+    // Same as `publish.ts`'s row builders, so live and offline rows agree.
     matchOutcomePmf: prediction.matchOutcomePmf ? roundPmf(prediction.matchOutcomePmf) : undefined,
     redBonusRpPmf: prediction.redBonusRpPmf ? roundPmf(prediction.redBonusRpPmf) : undefined,
     blueBonusRpPmf: prediction.blueBonusRpPmf ? roundPmf(prediction.blueBonusRpPmf) : undefined,
@@ -522,12 +449,10 @@ function buildEventUpcomingRow(match: UpcomingMatch, prediction: Prediction, ban
 
 /**
  * `{ win, tie }` from the first prediction (played, then upcoming) carrying
- * both outcome-RP vectors. A deliberate small reimplementation of
- * `publish.ts`'s module-private `findRpOutcomeRp` — that function is not
- * exported and `publish.ts` cannot be imported here (it pulls
- * `packages/corpus/db.ts` and `better-sqlite3` into apps/worker's
- * Cloudflare-typed program). Reads the same `redOutcomeRp[0]`/`[1]`
- * positions, which `sigmaScoutLayer.ts` composes as `[winRp, tieRp, 0]`.
+ * both outcome-RP vectors. Reimplements `publish.ts`'s private
+ * `findRpOutcomeRp`, because importing `publish.ts` would pull
+ * `better-sqlite3` into the Worker. `sigmaScoutLayer.ts` composes the
+ * vector as `[winRp, tieRp, 0]`.
  */
 function findRpOutcomeRp(
   played: readonly Prediction[],
@@ -569,12 +494,9 @@ function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
 
   const upcoming = stillUpcoming.map((m) => buildEventUpcomingRow(m, upcomingPredictions.get(m.matchKey)!, upcomingBands.get(m.matchKey)));
 
-  // This season's own win/tie RP constants, published once per artifact.
-  // Derived exactly as `publish.ts`'s `findRpOutcomeRp` derives it, off
-  // `redOutcomeRp[0]`/`[1]`, rather than from a literal or a second season
-  // lookup, so the live and offline artifacts cannot disagree. Falls back
-  // to whatever the existing artifact already carried, and stays absent
-  // when neither source has it.
+  // The season's win/tie RP constants, derived as `publish.ts` derives them
+  // so live and offline artifacts agree; else the existing artifact's value,
+  // else absent.
   const rpOutcomeRp =
     findRpOutcomeRp([...newPredictions.values()], [...upcomingPredictions.values()]) ?? existing?.rpOutcomeRp;
 
@@ -588,9 +510,8 @@ function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
         teamKey,
         teamNumber: prior?.teamNumber ?? fallbackTeamNumber(teamKey),
         nickname: prior?.nickname ?? "",
-        // Carries the prior row's published Sigma entry forward — see
-        // `touchedEventTeamMetrics` (a live tick computes no season-final
-        // Sigma of its own).
+        // Carries the prior row's published Sigma entry forward; a live tick
+        // computes no season-final Sigma of its own.
         metrics: touchedEventTeamMetrics(prior?.metrics, touchedMetrics[teamKey] ?? {}),
       };
     }),
@@ -636,15 +557,9 @@ function buildTeamSeasonMatchRow(match: MatchResult, prediction: Prediction, sea
 }
 
 /**
- * Official play only. An offseason or preseason Week-0 match returns the
- * record unchanged, matching what `publish.ts` writes offline — without
- * this gate the live merge would re-introduce, one tick at a time, exactly
- * the offseason wins the offline publisher had just stopped counting.
- *
- * The test is per-match and inside the fold loop rather than a boolean
- * threaded down from the caller, so an unknown/sentinel event type (`-1`,
- * "event detail fetch failed") degrades toward counting the match — the
- * same direction `isOfficialEventType` documents.
+ * Official play only: an offseason or Week-0 match leaves the record
+ * unchanged, matching `publish.ts`. Tested per match, so the `-1` "detail
+ * fetch failed" event type degrades toward counting the match.
  */
 function incrementRecord(record: { wins: number; losses: number; ties: number }, teamKey: string, match: MatchResult) {
   if (!isOfficialEventType(match.eventType)) return record;
@@ -668,16 +583,14 @@ interface MergeTeamSeasonArtifactParams {
   readonly predictions: ReadonlyMap<string, Prediction>;
   readonly metrics: Readonly<Record<string, TeamMetric>>;
   readonly matchIndexByKey: ReadonlyMap<string, number>;
-  /** Match Band per newly-folded match key (shape 10). */
+  /** Match Band per newly-folded match key. */
   readonly bands: ReadonlyMap<string, MatchBand>;
   readonly stamp: Stamp;
   /**
-   * This team's Sigma Score at the same instant as `metrics` (end of tick),
-   * used only on this tick's new metric-history rows below. `seasonStats`
-   * keeps the publisher's season-final, tiered Sigma, which
-   * `touchedEventTeamMetrics` carries forward — putting this value into
-   * `metrics` instead would replace that entry, which is why it travels
-   * separately. Required (may be `undefined`) so no caller can opt out by omission.
+   * This team's Sigma Score at end of tick, used only on this tick's new
+   * metric-history rows. It travels separately from `metrics` because
+   * `seasonStats` keeps the publisher's season-final, tiered Sigma. Required
+   * (may be `undefined`) so no caller omits it by accident.
    */
   readonly sigmaAfterTick: number | undefined;
 }
@@ -686,13 +599,8 @@ interface MergeTeamSeasonArtifactParams {
  * Read-modify-write merge for one team's season artifact: appends this tick's
  * newly-folded matches at `eventKey` (creating the event's entry if this is
  * the team's first match there), refreshes `seasonStats`, and appends
- * metric-history rows.
- *
- * Exported for `test/scheduled.officialRecord.test.ts`, which pins the one
- * asymmetry this function carries: an offseason match's rows ARE appended
- * while the summary record is NOT incremented. Driving that assertion
- * through `runTick` would need the whole D1/R2/KV fake rig to prove a
- * property of ten lines of pure merge logic.
+ * metric-history rows. Exported for `test/scheduled.officialRecord.test.ts`:
+ * an offseason match's rows ARE appended while the record is NOT incremented.
  */
 export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): unknown {
   const { existing, teamKey, season, algorithmId, algorithmVersion, eventKey, matches, predictions, metrics, matchIndexByKey, bands, stamp, sigmaAfterTick } = params;
@@ -708,11 +616,8 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
       ? [...existingEvents, { eventKey, eventName: eventKey, startDate: stamp.computedAt.slice(0, 10), matches: newRows }]
       : existingEvents.map((e, i) => (i === eventIndex ? { ...e, matches: [...e.matches, ...newRows] } : e));
 
-  // `sigmaAfterTick` is appended as the last metrics key on every new row
-  // this tick writes, only when defined — an algorithm outside
-  // `SIGMA_SCORE_ALGORITHM_IDS` passes `undefined` and appends nothing.
-  // Existing rows are untouched below, via the leading
-  // `existing?.metricHistory` spread.
+  // `sigmaAfterTick`, when defined, is the last metrics key on each new row;
+  // existing rows are untouched.
   const newMetricHistoryRows = matches.map((m) => ({
     matchKey: m.matchKey,
     season,
@@ -726,16 +631,10 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
     },
   }));
 
-  // The leading spread is load-bearing, not tidiness: a fresh object naming
-  // only the fields below would drop every other field the offline
-  // publisher wrote the first time a live tick touched a team — `ranks`,
-  // `robotImageUrl`, `activeYears` — for the rest of the event, until the
-  // next offline publish put them back. `existing` has already been through
-  // `TeamSeasonArtifactSchema.parse`, which strips unknown keys, so this
-  // spread cannot smuggle anything else onto the wire. Every field this
-  // tick genuinely recomputes is still listed explicitly below the spread,
-  // and must stay listed: if a future field is tick-owned, name it; if it
-  // is publisher-owned, the spread already handles it.
+  // The leading spread is load-bearing: without it a live tick would drop
+  // publisher-owned fields (`ranks`, `robotImageUrl`, `activeYears`) until the
+  // next offline publish. `existing` was schema-parsed, so it carries no
+  // unknown keys. Tick-owned fields must stay listed explicitly below.
   return {
     ...existing,
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -747,9 +646,8 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
     teamNumber: existing?.teamNumber ?? fallbackTeamNumber(teamKey),
     nickname: existing?.nickname ?? "",
     season,
-    // Carries the prior `seasonStats.metrics` Sigma entry forward — see
-    // `touchedEventTeamMetrics`. Keeps the team page's Total tile pill
-    // visible during a live event; the tile reads this field directly.
+    // Carries the prior Sigma entry forward, keeping the team page's Total
+    // tile pill visible during a live event.
     seasonStats: { record, metrics: touchedEventTeamMetrics(existing?.seasonStats.metrics, metrics) },
     events,
     metricHistory: [...(existing?.metricHistory ?? []), ...newMetricHistoryRows],
@@ -792,31 +690,18 @@ function touchedTeamsCompositeKey(algorithmId: string, season: number): string {
 }
 
 /**
- * Overlap-safety anchor: an optimistic compare-and-swap on
- * `event_cursor.last_folded_match_key`. A plain "read cursor, do work,
- * write cursor" sequence has a window between the read and the write where
- * a second, genuinely overlapping invocation could read the same prior
- * cursor value and fold the same matches again. This function closes that
- * window by making the cursor advance itself the atomic claim, performed
- * before any state is read: only the invocation whose `UPDATE ... WHERE
- * last_folded_match_key IS <the value we read>` actually matches a row
- * gets to proceed; a second invocation's identical attempt affects zero
- * rows and returns `false`.
+ * Overlap safety: an optimistic compare-and-swap on
+ * `event_cursor.last_folded_match_key`, made before any state is read, so
+ * two overlapping invocations can never fold the same matches. Only the
+ * invocation whose `UPDATE ... WHERE last_folded_match_key IS <value read>`
+ * matches a row proceeds.
  *
- * SQLite's `IS` operator (not `=`) is used because it compares correctly
- * against a bound `NULL` parameter — the cold-start case where no match has
- * ever been folded yet.
+ * `IS`, not `=`, so a bound `NULL` (nothing folded yet) compares correctly.
+ * A zero-row UPDATE is ambiguous (no row vs. lost race); the
+ * `INSERT ... WHERE NOT EXISTS` fallback inserts only a genuinely absent row.
  *
- * A zero-row `UPDATE` result is ambiguous on its own (no row exists yet vs.
- * lost the race) — the `INSERT ... SELECT ... WHERE NOT EXISTS` fallback
- * resolves that: it inserts only if the row is genuinely absent, and is
- * itself a no-op if a concurrent invocation's own bootstrap insert already
- * landed.
- *
- * Callers must revert (write the cursor back to its prior value) if the
- * work performed after a successful claim later fails — see `processEvent`
- * — otherwise a rejected Phase A write would permanently desync the cursor
- * from `algorithm_state`.
+ * Callers must write the cursor back if later work fails, or a rejected
+ * Phase A write would desync the cursor from `algorithm_state`.
  */
 async function claimEventAdvance(db: D1Database, eventKey: string, expectedPriorLastFolded: string | null, newLastFoldedMatchKey: string, tbaEtag: string | null, nowIso: string): Promise<boolean> {
   const updateResult = await db
@@ -840,24 +725,16 @@ function changesOf(result: unknown): number {
 }
 
 // ---------------------------------------------------------------------------
-// Subrequest budget estimate — extracted so `processEvent` and this file's
-// regression test (`liveAlgorithmTier.test.ts`) bind to the SAME formula;
-// see this module's header for the atomicity/budget reasoning.
+// Subrequest budget estimate, shared with `liveAlgorithmTier.test.ts`
 // ---------------------------------------------------------------------------
 
-/** `runTick`'s own three fixed `consume(1)` calls, paid before any event-specific work: the live-windows manifest read, the algorithms manifest read, and the tick-meta read. Pinned to the real deployed Worker's measured `subrequestsUsed` for an idle/unchanged tick by this file's regression test. */
+/** `runTick`'s fixed subrequests before any event work: the live-windows manifest, algorithms manifest and tick-meta reads. Pinned to the deployed Worker's measured idle-tick `subrequestsUsed`. */
 export const TICK_FIXED_SUBREQUEST_COST = 3;
 
-/** `processEvent`'s own fixed cost, spent BEFORE the estimate check below: the cursor-CAS-gate read (`tryConsume(1)`) and the TBA poll (`tryConsume(1)`). */
+/** `processEvent`'s fixed cost spent before the estimate check: the cursor read and the TBA poll. */
 export const EVENT_PREFLIGHT_SUBREQUEST_COST = 2;
 
-/**
- * The whole event's remaining subrequest cost, estimated up front — see
- * this module's header for why all-or-nothing-per-event atomicity is the
- * safe choice. `processEvent` below is this function's only caller; the
- * regression test in `liveAlgorithmTier.test.ts` binds to this same
- * function rather than a re-typed copy of the arithmetic.
- */
+/** The whole event's remaining subrequest cost, estimated up front so the event is all-or-nothing. */
 export function estimateEventSubrequestCost(algorithmCount: number, touchedTeamCount: number): number {
   return (
     1 /* claim (cursor CAS) */ +
@@ -888,10 +765,8 @@ async function processEvent(
     if (poll.status === "not-modified") return { status: "unchanged" };
 
     const rawMatches = tbaMatchListSchema.parse(poll.matches);
-    // The Worker has no corpus access and the live-windows manifest does not
-    // carry the event's real start_date — this approximates it for
-    // normalizeMatch's sortTime fallback path only, which real matches
-    // rarely exercise.
+    // The live-windows manifest has no real start_date; this approximation
+    // feeds only normalizeMatch's rarely used sortTime fallback.
     const approxStartDateIso = new Date(window.startMs).toISOString();
     const normalized = rawMatches.map((m) => normalizeMatch(m, approxStartDateIso));
     const orderedMatches = [...normalized].sort((a, b) => a.sortTime - b.sortTime);
@@ -909,27 +784,20 @@ async function processEvent(
     }
 
     const touchedTeams = [...new Set(newlyFolded.flatMap((m) => [...m.redTeams, ...m.blueTeams]))].sort();
-    // Demo team exclusion (see this module's header) — demo keys stripped
-    // out before `touchedTeams` drives any D1 state read/init or any
-    // `team/{teamKey}/{year}` artifact write. `touchedTeams` itself stays
-    // raw for the event artifact's own standings row below.
+    // Demo keys never drive D1 state or team artifacts; `touchedTeams` stays
+    // raw for the event artifact's standings.
     const realTouchedTeams = touchedTeams.filter((teamKey) => !isDemoTeamKey(teamKey));
     const lastFoldedMatchKey = newlyFolded[newlyFolded.length - 1]!.matchKey;
 
-    // Estimate the whole event's remaining subrequest cost up front — see
-    // this module's header for why atomicity is the safe choice. Sized off
-    // `realTouchedTeams`, not the raw roster — Phase B never spends a
-    // read+write pair on any demo key.
+    // Sized off `realTouchedTeams`: Phase B spends nothing on demo keys.
     const algorithmCount = algorithmModules.size;
     const estimatedCost = estimateEventSubrequestCost(algorithmCount, realTouchedTeams.length);
     if (budget.remaining < estimatedCost) {
       return { status: "deferred" };
     }
 
-    // Claim this fold before any state is read (overlap safety — see
-    // claimEventAdvance's own header). A lost claim means another
-    // invocation already advanced (or is advancing) this event past where
-    // we started; its work supersedes ours this tick.
+    // Claim before any state is read; a lost claim means another invocation
+    // is advancing this event and its work supersedes ours.
     budget.consume(1);
     const claimed = await claimEventAdvance(env.DB, eventKey, cursor.lastFoldedMatchKey, lastFoldedMatchKey, poll.etag ?? cursor.tbaEtag, nowIso);
     if (!claimed) {
@@ -937,17 +805,12 @@ async function processEvent(
     }
 
     try {
-      // Reuse the same TBA client/counter for the event's `event_type`
-      // (only `isRpEligibleEventType`'s RP eligibility gate reads it — the
-      // live-windows manifest doesn't carry it). Degrades gracefully (RP
-      // simply comes out ineligible) rather than failing the whole event on
-      // a transient failure here.
+      // The event detail supplies `event_type` (the RP eligibility gate) and
+      // `week`, which the live-windows manifest lacks. A failed fetch
+      // degrades (RP ineligible, week unplaced) rather than failing the event.
       budget.consume(1);
       let eventType = -1;
-      // `null`, not `-1`, is this field's unknown value — `week` is genuinely
-      // nullable in TBA's own contract, so no sentinel is invented. A failed
-      // detail fetch leaves the week unplaced, which `epaWeekOne.ts`'s null
-      // policy already handles.
+      // `null`, not a sentinel: `week` is nullable in TBA's contract.
       let week: number | null = null;
       try {
         const detail = await fetchEventDetail(tbaCtx, eventKey);
@@ -963,40 +826,31 @@ async function processEvent(
       const newlyFoldedResults = newlyFolded.map((m) => toMatchResult(m, eventType, week));
       const stillUpcomingViews = stillUpcoming.map((m) => toUpcomingMatch(m, eventType, week));
 
-      // Phase A — every algorithm reads, folds, and writes state. All must
-      // succeed before any artifact write (see this module's header).
+      // Phase A: every algorithm reads, folds and writes state; all must
+      // succeed before any artifact write.
       const perAlgorithm = new Map<string, PerAlgorithmFold>();
 
       for (const [algorithmId, algorithm] of algorithmModules) {
-        // `realTouchedTeams` (demo keys stripped): a demo key must never
-        // seed a `team` scope row via `algorithm.initState` at cold start.
+        // Demo keys stripped, so none seeds a `team` row at cold start.
         const selections = selectionsFor(algorithmId, eventKey, realTouchedTeams);
 
         budget.consume(1);
         const { rows, state: initialState } = await loadOrInitState(env.DB, algorithmId, selections, algorithm);
 
         let state = initialState;
-        // Sigma Score, for the algorithms that publish it (SPR today).
-        // Resumed from the beliefs seeded into these very rows rather than
-        // started fresh — a fresh one would produce a band from this
-        // event's matches alone while the offline publisher's came from the
-        // whole season — and with the population statistics the talent
-        // prior needs, or it silently falls back to its flat form and every
-        // band this tick writes would differ from the publisher's while
-        // looking healthy.
+        // Sigma Score, resumed from the seeded beliefs (a fresh accumulator
+        // would see only this event) and the population statistics (without
+        // them the talent prior silently falls back to its flat form).
         const sigma = usesSigmaScore(algorithmId)
           ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(rows), readSigmaPopulation(rows))
           : undefined;
-        // One alliance's win-odds variance, from the Sigma accumulator, or
-        // `undefined` for an algorithm without one. One accessor so the
-        // played loop and the upcoming loop cannot disagree. This is what
-        // `rpFieldsFor` reads; the published display band is derived from
-        // it by `displayBandFor` below.
+        // One alliance's win-odds variance, one accessor so the played and
+        // upcoming loops agree. `rpFieldsFor` reads it; `displayBandFor`
+        // derives the published band from it.
         const winOddsVarianceFor = (roster: readonly string[]): number | undefined =>
           sigma === undefined ? undefined : sigma.bandVarianceFor(roster);
-        // The published Match Band for one match, through the same helper
-        // `SigmaScoutLayer.foldPlayed` / `enrichUpcoming` use offline, so a
-        // live band and an offline band cannot drift. OPR and EPA publish none.
+        // The published Match Band, through the same helper the offline
+        // `SigmaScoutLayer` uses. OPR and EPA publish none.
         const displayBandFor = (
           view: { redTeams: readonly string[]; blueTeams: readonly string[] },
           redWinOddsVariance: number | undefined,
@@ -1008,42 +862,25 @@ async function processEvent(
           return { ...(red !== undefined ? { red } : {}), ...(blue !== undefined ? { blue } : {}) };
         };
 
-        // Ranking points, resumed from the very same rows for the identical
-        // reason the Sigma accumulator above is: a cold-started accumulator
-        // would price this match from this event's matches alone while the
-        // offline publisher priced it from the whole season, and an RP pmf
-        // that is wrong is still a valid distribution — it sums to 1 and
-        // renders without complaint.
+        // Ranking points, resumed from the same rows for the same reason: a
+        // wrong RP pmf is still a valid distribution and renders silently.
         //
-        // The rule-module lookup is INDEXED, not `rpRuleModuleForSeason`,
-        // which THROWS for an unmapped season. A season with no registered
-        // rules (2021, and anything before the vocabulary starts) must yield
-        // no accumulator and no RP at all rather than taking the whole tick
-        // down — the same "absent feature, not empty feature" construction
-        // `SigmaScoutLayer`'s own constructor performs. Likewise an algorithm
-        // that publishes no ranking points (`publishesRankingPoints`) gets no
-        // accumulator, and its rows carry no RP passenger.
+        // The rule-module lookup is INDEXED, not `rpRuleModuleForSeason`
+        // (which throws): a season with no registered rules, or an algorithm
+        // that publishes no RP, gets no accumulator rather than failing the tick.
         const rpRuleModule = publishesRankingPoints(algorithmId) ? RP_RULE_MODULES[window.season] : undefined;
         const rpBeliefs = readRpBeliefs(rows);
         const rp = rpRuleModule !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs) : undefined;
-        // The walk-forward mean shift (shape 16, quick task 260914-01x),
-        // resumed from the league row these same rows carry. Mirrors
-        // `SigmaScoutLayer`'s `#rpMeanShift` field for field: built exactly
-        // when the RP accumulator is. A shape-15 row never reaches here
-        // (`deserializeState` throws first), and `fromState` discards another
-        // season's state, so a stale shift cannot leak into a new season.
+        // The walk-forward RP mean shift, resumed from the league row (state
+        // shape 16) and built exactly when the RP accumulator is, as in
+        // `SigmaScoutLayer`. `fromState` discards another season's state.
         const rpMeanShift = rpRuleModule !== undefined ? RpMeanShiftAccumulator.fromState(rpRuleModule, readRpMeanShift(rows)) : undefined;
-        // Teams whose beliefs this tick actually resumed, plus the teams it
-        // folds as it goes. The partial-roster gate below reads this; see its
-        // own comment for why an unresumed team must suppress the pmf rather
-        // than silently contribute nothing to it.
+        // Teams whose beliefs this tick resumed, plus those it folds; read by
+        // the partial-roster gate below.
         const rpKnownTeams = new Set(rpBeliefs.keys());
 
-        // One accessor for this tick's RP, alongside `winOddsVarianceFor` and
-        // for the identical reason: the played loop, the upcoming loop and
-        // the persisted rows cannot be allowed to disagree. Field-for-field
-        // the same call `SigmaScoutLayer.#rpFieldsFor` makes offline — read
-        // the two together if either changes.
+        // One accessor for this tick's RP so both loops and the persisted rows
+        // agree. Mirrors `SigmaScoutLayer.#rpFieldsFor`; change them together.
         const rpFieldsFor = (
           view: { redTeams: readonly string[]; blueTeams: readonly string[]; eventType: number; matchKey: string; compLevel: MatchResult["compLevel"] },
           prediction: Prediction,
@@ -1053,37 +890,26 @@ async function processEvent(
           if (rp === undefined || rpRuleModule === undefined || rpMeanShift === undefined) return {};
           if (!isRpEligibleEventType(view.eventType)) return {};
           if (redBandVariance === undefined || blueBandVariance === undefined) return {};
-          // The partial-roster gate — the RP counterpart of
-          // `allianceSigmaBandVariance`'s all-or-nothing rule. The Worker
-          // reads state only for the teams touched by this tick's
-          // newly-folded matches, so an upcoming match can name a team whose
-          // row was never loaded; `momentsFor` sums silently over whatever
-          // beliefs it finds, so a partially-resumed roster would yield a
-          // narrower, more confident pmf than the truth with nothing
-          // reporting a problem. Deliberately more conservative than the
-          // offline path — an absent pmf rather than a wrong one, the same
-          // direction every other gate in this file takes.
+          // Partial-roster gate: the Worker loads state only for teams touched
+          // this tick, so an upcoming match can name an unloaded team, and
+          // `momentsFor` would silently sum a narrower, overconfident pmf.
+          // Stricter than the offline path: an absent pmf, never a wrong one.
           for (const teamKey of [...view.redTeams, ...view.blueTeams]) {
             if (!rpKnownTeams.has(teamKey)) return {};
           }
 
           const pmf = analyticRpPmf({
-            // The mean shift applies per alliance, only to a fully-warm
-            // roster, exactly as `SigmaScoutLayer.#rpFieldsFor` applies it.
+            // The mean shift applies per alliance, only to a fully-warm roster.
             red: rpMeanShift.apply(rp.momentsFor(view.redTeams, prediction.redScore, redBandVariance), rosterIsFullyWarm(rp, view.redTeams)),
             blue: rpMeanShift.apply(rp.momentsFor(view.blueTeams, prediction.blueScore, blueBandVariance), rosterIsFullyWarm(rp, view.blueTeams)),
             ruleModule: rpRuleModule,
             eventType: view.eventType,
             compLevel: view.compLevel,
-            // Mirrors `SigmaScoutLayer.#rpFieldsFor` exactly, field for field.
             pRedWin: prediction.pRedWin,
           });
 
-          // The five decomposition fields, composed exactly as
-          // `SigmaScoutLayer.#rpFieldsFor` composes them — winRp/tieRp read
-          // off this season's own rule module, never hardcoded. Gated on the
-          // decomposition actually being present; absent stays absent
-          // rather than becoming empty.
+          // The five decomposition fields; winRp/tieRp come from the season's
+          // rule module, never hardcoded, and an absent decomposition stays absent.
           const decomposition: Partial<Prediction> =
             pmf.outcome !== undefined && pmf.redBonusPmf !== undefined && pmf.blueBonusPmf !== undefined
               ? {
@@ -1125,34 +951,25 @@ async function processEvent(
         const newPredictions = new Map<string, Prediction>();
         for (const result of newlyFoldedResults) {
           const prediction = algorithm.predict(state, toLeakProofUpcoming(result));
-          // Read the win odds before folding this match in, in the same
-          // place `predict` already happens — predict-before-update: a band
-          // says how unsure we were when we predicted this, and this
-          // match's own result is not an admissible input to that.
+          // Predict-before-update: read the win odds before folding this match,
+          // whose own result is not an admissible input to its band.
           const redWinOddsVariance = winOddsVarianceFor(result.redTeams);
           const blueWinOddsVariance = winOddsVarianceFor(result.blueTeams);
           newBands.set(result.matchKey, displayBandFor(result, redWinOddsVariance, blueWinOddsVariance));
-          // RP from the pre-fold accumulator, same predict-before-update
-          // position as the band above. The enriched prediction is what
-          // goes into `newPredictions`, never a parallel map: all three row
-          // builders read this same `Prediction`, so a field attached once
-          // here reaches every one of them.
+          // RP from the pre-fold accumulator. The enriched prediction goes into
+          // `newPredictions`, never a parallel map, so every row builder sees it.
           newPredictions.set(result.matchKey, {
             ...prediction,
             ...rpFieldsFor(result, prediction, redWinOddsVariance, blueWinOddsVariance),
           });
           state = algorithm.update(state, result);
           sigma?.foldMatch(result, prediction);
-          // After this match's RP fields were read above and before its
-          // thresholds are folded: the residual is taken against the mean the
-          // match was priced from. Mirrors `SigmaScoutLayer.foldPlayed`.
+          // After the RP read and before the threshold fold, so the residual is
+          // taken against the mean the match was priced from.
           if (rp !== undefined) rpMeanShift?.observeMatch(rp, result);
           foldObservedRp(result);
-          // Talent after the fold, read from the post-update state — the
-          // exact ordering `SigmaScoutLayer.foldPlayed` uses offline. Talent
-          // as of after this match is admissible evidence for the team's
-          // next match and never for this one, so applying it before the
-          // fold would let a match inform its own prior.
+          // Talent from the post-update state, as `SigmaScoutLayer.foldPlayed`
+          // does: applying it before the fold would let a match inform its own prior.
           if (sigma !== undefined) {
             const roster = [...result.redTeams, ...result.blueTeams];
             const metrics = algorithm.teamMetrics(state, roster);
@@ -1167,14 +984,10 @@ async function processEvent(
         const upcomingBands = new Map<string, { red?: number; blue?: number }>();
         for (const match of stillUpcomingViews) {
           const prediction = algorithm.predict(state, match);
-          // Read only — an unplayed match has no residual of its own, so its
-          // win odds and band are built from everything played so far.
+          // Read only: an unplayed match has nothing to fold.
           const redWinOddsVariance = winOddsVarianceFor(match.redTeams);
           const blueWinOddsVariance = winOddsVarianceFor(match.blueTeams);
           upcomingBands.set(match.matchKey, displayBandFor(match, redWinOddsVariance, blueWinOddsVariance));
-          // Read-only for RP too: an unplayed match has no result to fold.
-          // This is what makes `buildEventUpcomingRow`'s already-present pmf
-          // field lines carry real values instead of `undefined`.
           upcomingPredictions.set(match.matchKey, {
             ...prediction,
             ...rpFieldsFor(match, prediction, redWinOddsVariance, blueWinOddsVariance),
@@ -1182,25 +995,18 @@ async function processEvent(
         }
 
         const touchedMetrics = algorithm.teamMetrics(state, touchedTeams);
-        // Read directly after `touchedMetrics` above — same instant, zero
-        // added subrequests (`sigma.sigmaFor` is the accumulator's own
-        // read-only accessor). Scoped to `realTouchedTeams` (demo keys
-        // excluded), matching `mergeTeamSeasonArtifact`'s own per-team loop
-        // below, which is the only consumer.
+        // Same instant as `touchedMetrics`, read-only, zero subrequests; scoped
+        // to `realTouchedTeams` like its only consumer, the team artifact loop.
         const touchedSigma = new Map<string, number>();
         if (sigma !== undefined) {
           for (const teamKey of realTouchedTeams) touchedSigma.set(teamKey, sigma.sigmaFor(teamKey));
         }
 
-        // The beliefs ride back into the rows after the algorithm serializer
-        // has run, so no algorithm's serializer knows they exist.
+        // Passengers ride back into the rows after `serializeState`, so no
+        // algorithm serializer knows they exist, at zero added subrequests.
         let candidateRows = serializeState(algorithmId, algorithm.version, state, stamp);
-        // The RP passenger rides back in the same way and in the same
-        // place, after `serializeState`, at zero additional D1 subrequests:
-        // these are the rows the tick already reads and already writes back.
         if (rp !== undefined) candidateRows = withRpBeliefs(candidateRows, rp.beliefsByTeam());
-        // Shape 16: the mean shift rides back on the LEAGUE row, the one row
-        // every tick already reads and writes, at zero additional subrequests.
+        // The mean shift rides on the LEAGUE row.
         if (rpMeanShift !== undefined) candidateRows = withRpMeanShift(candidateRows, rpMeanShift.toState());
         if (sigma !== undefined) {
           candidateRows = withSigmaPopulation(withSigmaBeliefs(candidateRows, sigma.beliefsByTeam()), sigma.population());
@@ -1215,39 +1021,32 @@ async function processEvent(
 
       return await runPhaseBAndReport(env, budget, window, eventKey, eventType, newlyFoldedResults, stillUpcomingViews, touchedTeams, realTouchedTeams, matchIndexByKey, perAlgorithm, touchedTeamsByAlgorithm, stamp, stillUpcoming.length === 0);
     } catch (phaseAError) {
-      // Revert the claim: state did not actually advance, so a future tick
-      // (or another invocation) must be free to re-attempt folding these
-      // same matches, exactly as if we had never claimed them.
+      // Revert the claim: state did not advance, so a later tick must be free
+      // to fold these matches again.
       if (budget.tryConsume(1)) {
         await writeEventCursor(env.DB, cursor);
       }
       throw phaseAError; // re-thrown -- caught by the outer try/catch below, event recorded "failed"
     }
   } catch (err) {
-    // Without this, a per-event failure is completely invisible — the tick
-    // itself still logs `"ok":true` (only this one event's processing
-    // threw). Never the TBA key, never a response header/body — only the
-    // event key and the caught error's own message.
+    // Otherwise a per-event failure is invisible (the tick still logs
+    // `"ok":true`). Logs only the event key and error message, never the TBA
+    // key or a response header/body.
     console.error(JSON.stringify({ msg: "event-failed", eventKey, error: err instanceof Error ? err.message : String(err) }));
     return { status: "failed" };
   }
 }
 
-/** Phase B — artifact writes, best-effort, factored out only so `processEvent`'s Phase-A try/catch (which must revert the CAS claim on failure) does not also have to special-case Phase B's own best-effort try/catch. A failure inside Phase B does not change the event's "advanced" outcome (state has genuinely advanced); a skipped artifact stays one tick stale until this team's next match at this event.
+/** Phase B: best-effort artifact writes, kept out of Phase A's claim-reverting try/catch. A Phase B failure leaves the event "advanced" (state did advance); a skipped artifact stays stale until the team's next match at this event.
  *
- * `touchedTeams` (raw roster) feeds only the event artifact's own standings
- * row, matching `publish.ts`'s unfiltered `eventTeamKeys` (event pages are
- * deliberately untouched by the demo-team exclusion). `realTouchedTeams`
- * (demo keys stripped) is what actually drives `team/{teamKey}/{year}` writes.
+ * `touchedTeams` (raw) feeds only the event standings; `realTouchedTeams`
+ * drives `team/{teamKey}/{year}` writes.
  *
- * `eventType` (passed through explicitly rather than re-derived from
- * `newlyFoldedResults[0]`, which can be empty) gates only the
- * `touchedTeamsByAlgorithm` contribution below, the feed `runGlobalRebuild`
- * folds into `teams/{year}`. `mergeEventArtifact`'s and
- * `mergeTeamSeasonArtifact`'s writes both stay unconditional: an offseason
- * or preseason event must still be fully visible on its own event page and
- * on every participating team's page — it must only stop moving the season
- * leaderboard. An unknown type (`-1`) is treated as official. */
+ * `eventType` is passed explicitly (`newlyFoldedResults` can be empty) and
+ * gates only the `touchedTeamsByAlgorithm` feed into `teams/{year}`. Event
+ * and team artifact writes stay unconditional: an offseason event is fully
+ * visible on its pages and only stops moving the season leaderboard. `-1`
+ * counts as official. */
 async function runPhaseBAndReport(
   env: Env,
   budget: SubrequestBudget,
@@ -1286,11 +1085,8 @@ async function runPhaseBAndReport(
       });
       await writeArtifactObject(env, budget, "event", eventParams, mergedEvent);
 
-      // Quick task 260904-586: ONLY this contribution — the feed
-      // `runGlobalRebuild` folds into `teams/{year}` — is gated on
-      // officialness. `mergeTeamSeasonArtifact`'s `team/{teamKey}/{year}`
-      // write just below stays unconditional (see this function's own doc
-      // comment).
+      // Only the `teams/{year}` feed is gated on officialness; the team
+      // artifact write below stays unconditional.
       const isOfficial = isOfficialEventType(eventType);
       const compositeKey = touchedTeamsCompositeKey(algorithmId, window.season);
       const seasonMap = touchedTeamsByAlgorithm.get(compositeKey) ?? new Map<string, TouchedTeamInfo>();
@@ -1312,8 +1108,6 @@ async function runPhaseBAndReport(
           matchIndexByKey,
           bands: info.newBands,
           stamp,
-          // End-of-tick Sigma for this team, read at the same instant as
-          // `touchedMetrics` above.
           sigmaAfterTick: info.touchedSigma.get(teamKey),
         });
         await writeArtifactObject(env, budget, "team", teamParams, mergedTeam);
@@ -1330,15 +1124,14 @@ async function runPhaseBAndReport(
       if (isOfficial) touchedTeamsByAlgorithm.set(compositeKey, seasonMap);
     }
   } catch {
-    // Best-effort — state already advanced correctly; some artifacts may
-    // lag until this team's next match at this event (documented above).
+    // Best-effort: state already advanced; some artifacts may lag.
   }
 
   return { status: "advanced", eventComplete };
 }
 
 // ---------------------------------------------------------------------------
-// The slower-cadence global rebuild (see this module's header for scope)
+// The slower-cadence global rebuild
 // ---------------------------------------------------------------------------
 
 /** One record-form teams-row metric entry, as `runGlobalRebuild` holds it. */
@@ -1348,21 +1141,15 @@ type TierableTeamMetric = { value: number; spread?: number; percentile?: number;
  * The metrics record `runGlobalRebuild` writes for a touched teams row, so a
  * live update never paints a false Common on a team the last publish tiered.
  *
- * - Every freshly computed entry keeps the prior row's published `tier` for
- *   the same key when the prior row has that entry and it carries a tier. A
+ * - Each fresh entry keeps the prior row's published `tier` for that key; a
  *   key the prior row lacks gets no tier, and "common" is never written.
- * - The prior row's `SIGMA_METRIC_KEY` entry (value and tier) is carried
- *   forward unchanged: the live tick does not compute the season-final
- *   consistency figure, so the published one is kept rather than dropped.
+ * - The prior `SIGMA_METRIC_KEY` entry is carried forward unchanged, since
+ *   the live tick computes no season-final Sigma Score.
  *
- * This is a carry-forward fallback, not the preferred re-derivation: full
- * tier re-derivation from the rows' own values is offline-identical by
- * construction, but was measured too costly against this rebuild's own CPU budget.
- *
- * Honest limitation, kept visible: a carried tier is the last published one.
- * A touched team whose value crossed a tier cut keeps its old tier until the
- * next offline publish, the other rows' tiers are not re-ranked against its
- * new value, and a team with no prior teams row gets no tier at all.
+ * Full tier re-derivation was measured too costly for the CPU budget.
+ * Limitation: a touched team that crossed a tier cut keeps its old tier until
+ * the next offline publish, other rows are not re-ranked, and a team with no
+ * prior row gets no tier.
  */
 export function touchedTeamsRowMetrics(
   priorMetrics: Readonly<Record<string, TierableTeamMetric>> | undefined,
@@ -1374,7 +1161,7 @@ export function touchedTeamsRowMetrics(
     result[key] = priorTier !== undefined ? { ...metric, tier: priorTier } : metric;
   }
   // Appended after the fresh entries (a fresh entry of the same key wins), so
-  // the consistency metric keeps publish.ts's position at the end of the record.
+  // Sigma keeps publish.ts's position at the end of the record.
   for (const key of [SIGMA_METRIC_KEY]) {
     const carried = priorMetrics?.[key];
     if (carried !== undefined && !(key in result)) result[key] = carried;
@@ -1382,24 +1169,17 @@ export function touchedTeamsRowMetrics(
   return result;
 }
 
-/** One prior published metric entry as `touchedEventTeamMetrics` reads it — the shape `EventTeamSchema.metrics`/`TeamSeasonArtifactSchema.seasonStats.metrics` already carry. Never a `tier`: that field is teams-row-only (`TierableTeamMetric`), and the event/team-season artifacts publish `percentile` instead. */
+/** One prior published event/team-season metric entry. Never a `tier`: that is teams-row-only; these artifacts publish `percentile`. */
 type PublishedEventTeamMetric = { value: number; spread?: number; percentile?: number };
 
 /**
- * The metrics record `mergeEventArtifact` and `mergeTeamSeasonArtifact`
- * write for a touched team, so a live tick never strips a published Sigma
- * Score off that team's event standings row or its team-season
- * `seasonStats` until the next offline publish.
+ * The metrics record the event and team-season merges write for a touched
+ * team: fresh entries rounded, then the prior `SIGMA_METRIC_KEY` entry
+ * appended when the fresh record lacks it, so a live tick never strips a
+ * published Sigma Score.
  *
- * Every freshly computed entry is rounded exactly as `roundTeamMetricRecord`
- * already rounds it. The prior record's `SIGMA_METRIC_KEY` entry (value and
- * percentile, already rounded at publish time) is appended after the fresh
- * entries, only when the prior record has that entry and the fresh record
- * lacks the key. Same carry-forward shape `touchedTeamsRowMetrics` above
- * already established for the teams row.
- *
- * Known limitation, left alone here: a touched team's other metrics already
- * lose their `percentile` on a live tick — the Worker computes none.
+ * Known limitation: a touched team's other metrics lose their `percentile`
+ * on a live tick; the Worker computes none.
  */
 export function touchedEventTeamMetrics(
   priorMetrics: Readonly<Record<string, PublishedEventTeamMetric>> | undefined,
@@ -1414,20 +1194,9 @@ export function touchedEventTeamMetrics(
 }
 
 /**
- * The slower-cadence rebuild — see this module's header for scope.
- *
- * `existing` is read and decoded through `TeamsArtifactSchema` above, which
- * accepts either shape currently on R2 (object-form or positional) and
- * always hands back the canonical record-form `metrics` this function's
- * merge logic expects. What does matter is the write: every write this
- * Worker makes must be positional — re-encoding, never assuming either
- * shape, is what keeps a live event from corrupting the season's teams
- * artifact.
- *
- * A touched row's metrics go through `touchedTeamsRowMetrics`, which
- * carries the prior row's published tiers and Sigma entry forward instead
- * of dropping them. Full tier re-derivation was measured and rejected on
- * CPU (see that function).
+ * The slower-cadence rebuild. `TeamsArtifactSchema` decodes either shape on
+ * R2 into record-form `metrics`; every write re-encodes positionally, which
+ * keeps a live event from corrupting the season's teams artifact.
  */
 async function runGlobalRebuild(env: Env, budget: SubrequestBudget, algorithmModules: ReadonlyMap<string, AlgorithmModule<any>>, touchedTeamsByAlgorithm: ReadonlyMap<string, Map<string, TouchedTeamInfo>>, stamp: Stamp): Promise<boolean> {
   if (touchedTeamsByAlgorithm.size === 0) return true; // trigger fired, nothing to merge — a legitimate no-op "ran"
@@ -1456,21 +1225,15 @@ async function runGlobalRebuild(env: Env, budget: SubrequestBudget, algorithmMod
       ...existingRows.filter((row) => !touchedKeys.has(row.teamKey)),
       ...[...teamInfos.entries()].map(([teamKey, info]) => {
         const prior = existingRows.find((row) => row.teamKey === teamKey);
-        // Leading spread for the same reason as `mergeTeamSeasonArtifact`'s:
-        // a row constructed field-by-field would silently lose every
-        // optional field the offline publisher wrote — `country`,
-        // `stateProv`, `districtKey` (its region, and with it its
-        // district/state rank scopes). Tick-owned fields stay listed below.
+        // Leading spread keeps publisher-owned optional fields (`country`,
+        // `stateProv`, `districtKey`); tick-owned fields stay listed below.
         return {
           ...prior,
           teamKey,
           teamNumber: prior?.teamNumber ?? fallbackTeamNumber(teamKey),
           nickname: prior?.nickname ?? "",
-          // Not updated here — see this module's header's documented
-          // limitation. Preserved from the last offline/incremental value.
+          // Not updated here (known stub); preserved from the last publish.
           record: prior?.record ?? { wins: 0, losses: 0, ties: 0 },
-          // Fresh values, with the prior row's published tiers and Sigma
-          // entry carried forward — see `touchedTeamsRowMetrics`.
           metrics: touchedTeamsRowMetrics(prior?.metrics, roundTeamMetricRecord(info.metrics)),
           eventCount: prior?.eventCount ?? 0,
           matchCount: (prior?.matchCount ?? 0) + info.matchDelta,
@@ -1478,10 +1241,7 @@ async function runGlobalRebuild(env: Env, budget: SubrequestBudget, algorithmMod
       }),
     ];
 
-    // Re-encode positionally before writing — `rows` above is always
-    // canonical record-form (decoded from whichever shape was actually on
-    // disk), so every write this Worker makes converges the artifact onto
-    // the compact wire shape one incremental rebuild at a time.
+    // Re-encode positionally: `rows` is always record-form.
     const metricKeys = deriveMetricKeyOrder(rows.map((row) => row.metrics));
     const candidate = {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -1513,9 +1273,9 @@ export const GLOBAL_REBUILD_INTERVAL_MS = 10 * 60 * 1000;
 export interface RunTickDeps {
   readonly nowMs?: number;
   readonly globalRebuildIntervalMs?: number;
-  /** Test-only injection point (defaults to the real `buildAlgorithmModules`) — lets a test wrap it with a call counter to assert modules are constructed ONCE per tick, never once per event (Pitfall 4), without mocking the algorithm modules themselves. */
+  /** Test-only: lets a test count `buildAlgorithmModules` calls to assert one construction per tick. */
   readonly buildAlgorithmModules?: (algorithmsManifest: AlgorithmsManifest, liveAlgorithmIds: readonly string[]) => Map<string, AlgorithmModule<any>>;
-  /** Test-only override of `SubrequestBudget`'s constructor args — lets a test drive the deferral/no-starvation and budget-exhausted-global-rebuild paths deterministically without depending on this tick's exact real subrequest-cost arithmetic. Defaults to `SUBREQUEST_CAP`/`SUBREQUEST_RESERVE` (the real production values) when omitted. */
+  /** Test-only override of `SubrequestBudget`'s cap/reserve, for driving deferral and budget-exhaustion paths deterministically. Defaults to the production values. */
   readonly subrequestCap?: number;
   readonly subrequestReserve?: number;
 }
@@ -1536,24 +1296,18 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   const globalRebuildIntervalMs = deps.globalRebuildIntervalMs ?? GLOBAL_REBUILD_INTERVAL_MS;
   const stamp: Stamp = { generation: `tick-${nowMs}`, computedAt: nowIso };
 
-  // Default parameters trigger on `undefined`, so passing through unset
-  // deps.subrequestCap/Reserve unchanged still resolves to the real
-  // SUBREQUEST_CAP/SUBREQUEST_RESERVE production values.
+  // Unset deps pass `undefined`, which resolves to the production defaults.
   const budget = new SubrequestBudget(deps.subrequestCap, deps.subrequestReserve);
   const counter = new TbaRequestCounter();
   const tbaCtx = createTbaContext(env, counter);
 
-  // Parsed before the live-windows manifest read, on every tick (including
-  // idle ones), so a misconfigured deploy surfaces on the very next tick —
-  // one minute later, in the tail an operator is already watching — rather
-  // than lying dormant until an event goes live months later.
+  // Parsed on every tick, idle ones included, so a misconfigured deploy
+  // surfaces within a minute.
   const liveAlgorithmIds = parseLiveAlgorithmIds(env.LIVE_ALGORITHM_IDS);
 
-  // Step 1: the one manifest read that answers "is anything live" — an idle
-  // tick (the overwhelmingly common case) exits right here, having spent
-  // zero TBA requests. `loadLiveEventsAt`, not
-  // `liveEventsAt(await loadLiveWindowsManifest(...))` — see
-  // `liveWindows.ts`'s `loadLiveEventsAt` header before changing this back.
+  // The one read that answers "is anything live"; an idle tick (the common
+  // case) exits here with zero TBA requests. Keep `loadLiveEventsAt`; see
+  // its header in `liveWindows.ts`.
   budget.consume(1);
   const liveEvents = await loadLiveEventsAt(env, nowMs);
 
@@ -1561,8 +1315,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
     return { eventsConsidered: 0, eventsAdvanced: 0, eventsDeferred: 0, eventsFailed: 0, tbaRequests: counter.total, subrequestsUsed: budget.used, globalRebuildRan: false };
   }
 
-  // Something is live: now (and only now) load the algorithms manifest and
-  // build every published module once for the whole tick, never once per event.
+  // Something is live: load the algorithms manifest and build the modules once for the tick.
   budget.consume(1);
   const algorithmsManifest = await loadAlgorithmsManifest(env);
   const buildModules = deps.buildAlgorithmModules ?? buildAlgorithmModules;
@@ -1617,17 +1370,9 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
 }
 
 /**
- * One structured line per invocation, and the only logging this Worker does.
- *
- * `runTick` already returns everything an operator needs (`TickResult`), but
- * until this handler emitted it, a deployed tick was completely invisible:
- * `wrangler tail` showed nothing at all, so "the cron is firing and finding
- * nothing live" and "the cron is not firing" produced identical evidence.
- *
- * Emitted as a single JSON object rather than prose so Workers Observability
- * can filter on a field instead of matching substrings. Nothing here is
- * secret: counts and durations only, never a key, an artifact body, or a
- * TBA response.
+ * One structured JSON line per invocation, so an idle tick is distinguishable
+ * from a cron that never fires and Workers Observability can filter on
+ * fields. Counts and durations only, never a key, artifact body or TBA response.
  */
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -1638,10 +1383,8 @@ export default {
           console.log(JSON.stringify({ msg: "tick", ok: true, durationMs: Date.now() - startedMs, ...result }));
         },
         (error: unknown) => {
-          // A rejected waitUntil would otherwise be swallowed silently, so a
-          // tick that throws every minute would look exactly like a healthy
-          // idle tick. Log and rethrow: the log is for the operator, the
-          // rethrow keeps the invocation recorded as failed in the dashboard.
+          // A rejected waitUntil is otherwise swallowed silently. Log for the
+          // operator, rethrow so the dashboard records the failure.
           console.error(
             JSON.stringify({
               msg: "tick",
