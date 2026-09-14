@@ -2777,17 +2777,11 @@ describe("publishSeasons — compare artifact eligibility sources the CORPUS, no
     expect(oprCombined2024).toBeDefined();
     expect(oprCombined2024?.headlineEligible).toBe(true);
 
-    // Two reverts this test is standing guard over (both manually confirmed
-    // to redden this test — recorded in the SUMMARY):
-    //   1. Reverting publish.ts's `corpusSeasons` argument (at the
-    //      compare-artifact `aggregateScores` call) to this loop's own
-    //      `[season]`, or to `seasonsSorted` (the `--seasons` range): 2024
-    //      would have zero declared priors instead of two, so
-    //      `headlineEligible` above reads `false`.
-    //   2. Reverting the same call's `selectedOnSeasons` argument to an
-    //      empty record `{}`: `opr` is absent from that map, so
-    //      `aggregateScores` throws naming it (D-2's missing-entry guard)
-    //      and this `await publishSeasons(...)` call itself rejects.
+    // Standing guard: reverting publish.ts's `corpusSeasons` argument (at
+    // the compare-artifact `aggregateScores` call) to this loop's own
+    // `[season]`, or to `seasonsSorted` (the `--seasons` range), leaves 2024
+    // with zero declared priors instead of two, so `headlineEligible` above
+    // reads `false`.
   });
 });
 

@@ -568,7 +568,7 @@ async function main(): Promise<void> {
   // One `aggregateScores` call over EVERY requested season's records at
   // once — `corpusSeasons` is the run's own full requested season list (per
   // that option's own contract: a caller must declare its full season set,
-  // never narrow it silently), and `selectedOnSeasons` is the
+  // never narrow it silently), and `eligibility` is the
   // `ELIGIBILITY_NOT_CLAIMED` sentinel because this measurement makes no
   // headline-eligibility claim of its own (Task 1's own instruction: the
   // sentinel is the strictest available answer, not a convenience default).
@@ -579,7 +579,7 @@ async function main(): Promise<void> {
   });
   const slices = aggregateScores(allPredictions, {
     corpusSeasons: options.seasons,
-    selectedOnSeasons: ELIGIBILITY_NOT_CLAIMED,
+    eligibility: ELIGIBILITY_NOT_CLAIMED,
   });
 
   const statboticsBySeason = new Map<number, StatboticsTeamYearRow[]>();

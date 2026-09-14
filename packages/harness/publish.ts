@@ -70,6 +70,7 @@ import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
 import { isBonusRpCompLevel, isRpEligibleEventType } from "../core/rankingPoints/constants.js";
 import {
   openCorpusReadOnly,
+  selectCorpusSeasons,
   selectEventAlliancesForSeason,
   selectEventRankingsForSeason,
   selectEventTeamsForEvents,
@@ -141,8 +142,7 @@ import {
   type StateStamp,
 } from "./stateSnapshot.js";
 import type { RpTeamBeliefs } from "../core/rankingPoints/empiricalMoments.js";
-import type { HarnessPredictionInput, ScoreSlice } from "./score.js";
-import { aggregateScoresForRun } from "./selectionProvenance.js";
+import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
 import type { MetricHistoryRow } from "./metricHistorySchema.js";
 import { putObject } from "./r2Client.js";
 import { UploadQueue } from "./uploadQueue.js";
@@ -3549,28 +3549,11 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     // `harnessPredictions` above is built from a single season, so passing
     // `[season]` here would make every published slice's `headlineEligible`
     // come back false, silently, with every test still green (Finding 1).
-    // F-1 (quick task 260903-tk6): this call site used to independently
-    // rebuild the exact same `{corpusSeasons, selectedOnSeasons}` pair a
-    // sibling orchestration built elsewhere in this repo — that duplication
-    // is exactly why fixing this call site's D-4 eligibility bug left the
-    // sibling's identical bug (F-1) exposed.
-    // `aggregateScoresForRun` (`selectionProvenance.ts`)
-    // is now the ONLY derivation of the pair: it reads `selectCorpusSeasons(db)`
-    // itself (the corpus-held season set, never `seasonsSorted` — see the
-    // D-4 history above for why a range-derived value is wrong) and
-    // `selectedOnSeasonsFor(...)` itself (this module's single explicit
-    // registry, never a second independently-derived resolution). This
-    // moves the corpus-season query and the small version-file read from
-    // once-per-run (the old hoisted `corpusSeasons` above the season loop)
-    // to once-per-published-season — negligible against a run that replays
-    // every match of every season, and worth it for removing the
-    // hand-buildable options literal that made F-1 possible.
+    // `corpusSeasons` is the corpus-held season set, never `seasonsSorted`:
+    // headline eligibility is a property of the data available, so a
+    // single-season republish must not flip a live key's badge.
     const compareStart = performance.now();
-    const slices = aggregateScoresForRun(
-      db,
-      harnessPredictions,
-      options.algorithms.map((a) => a.id)
-    );
+    const slices = aggregateScores(harnessPredictions, { corpusSeasons: selectCorpusSeasons(db), eligibility: "from-corpus-seasons" });
     const compareArtifact = buildCompareArtifact({
       algorithms: options.algorithms.map((a) => ({ id: a.id, version: a.version })),
       slices,
