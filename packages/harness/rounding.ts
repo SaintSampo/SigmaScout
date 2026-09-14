@@ -1,127 +1,63 @@
 /**
- * D-06's publish-time rounding rule, as executable code with a stated
- * tie-breaking contract (plan 04-02 Task 1).
+ * Publish-time rounding rules, with a stated tie-breaking contract.
  *
  * BOUNDARY: this module is for building PUBLISHED page artifacts only
  * (`packages/harness/pageArtifacts.ts`). It is never called from the
  * scoring path (`packages/harness/score.ts`) or anything a committed digest
- * hashes. In particular, `packages/harness/predictionStreamDigest.ts`'s
- * `computePredictionStreamDigest` states outright that its input must stay
- * "never rounded, `toFixed`'d, or truncated" — a promoted version's digest
- * is the record that a run reproduces bitwise, and applying display
- * precision to that stream would silently invalidate Phase 3's promotion
- * record. Rounding is a presentation concern that exists only on the
- * publish path, downstream of everything the harness computes or records.
+ * hashes: `computePredictionStreamDigest` requires its input stay
+ * unrounded, since a promoted version's digest must reproduce bitwise, and
+ * applying display precision to that stream would silently invalidate it.
  *
- * THE RULE (field class -> decimal count -> why):
+ * FIELD CLASSES (decimals, why):
+ * - metric (2): display metrics (`TeamMetric.value`/`spread`, component
+ *   means/variances, predicted/actual scores) render as `X ± Y`; a third
+ *   decimal is never shown.
+ * - probability (4): pRedWin. The simulation draws from these and Brier is
+ *   quadratic in this value, so 4 decimals keeps the published number
+ *   agreeing with the harness number well inside anything the site quotes.
+ * - pmf (5): the simulation draws ranking points from these repeatedly
+ *   across 1000 runs, where a truncation bias would compound rather than
+ *   cancel. Every pmf field in every schema shares this key.
+ * - variance (4): the square of a spread shown to 2 decimals — including
+ *   the per-alliance "own" variance fields, the same physical quantity at
+ *   a different aggregation level — rounding it as coarsely as the spread
+ *   would visibly distort the derived `±`.
+ * - percentile (1): matches `colour-and-tiers.md`'s worked precision
+ *   (p50=39.2, not p50=39.20000001).
+ * - rankingPoints (2): TBA's own reported Ranking Score, a per-match
+ *   average — not a model output like `metric`, so it gets its own key
+ *   even though the decimal count matches; it's TBA's own published
+ *   precision.
  *
- * | Field class                                             | Decimals | Why |
- * |----------------------------------------------------------|----------|-----|
- * | Display metrics (TeamMetric.value/spread, component      | 2        | Shown as `X ± Y`; a third decimal is |
- * |   means/variances)                                       |          | never rendered or read. |
- * | Predicted/actual alliance scores                         | 2        | FRC scores are integers; a predicted |
- * |                                                           |          | score's second decimal is already |
- * |                                                           |          | below what any reader acts on. |
- * | Probabilities (pRedWin, per-match win probability)        | 4        | Phase 8's simulation draws from these; |
- * |                                                           |          | a Brier score is quadratic in this |
- * |                                                           |          | value, so 4 decimals keeps the |
- * |                                                           |          | published number agreeing with the |
- * |                                                           |          | harness number to well inside any |
- * |                                                           |          | figure the site quotes. |
- * | RP pmf entries                                            | 5        | Phase 8 draws ranking points from |
- * |                                                           |          | these repeatedly across a 1000-run |
- * |                                                           |          | simulation, where a truncation bias |
- * |                                                           |          | would compound rather than cancel. |
- * | Alliance-total predictive variance                        | 4        | It is the square of a spread the page |
- * |                                                           |          | shows to 2 decimals; rounding it as |
- * |                                                           |          | coarsely as the spread would visibly |
- * |                                                           |          | distort the derived `±`. |
- * | Percentile (Phase 6, D-04)                                 | 1        | Matches `colour-and-tiers.md`'s own |
- * |                                                           |          | worked precision (p50=39.2, not |
- * |                                                           |          | p50=39.20000001). |
- * | `ROUNDING_RULE.rankingPoints`                              | 2        | TBA's OWN reported Ranking Score, a |
- * |   (`EventTeamSchema.rp`, Phase 7, D-18 item 6)             |          | per-match average — not a model |
- * |                                                           |          | output like `metric`, so it gets its |
- * |                                                           |          | own key rather than borrowing that |
- * |                                                           |          | one despite the identical decimal |
- * |                                                           |          | count. Two decimals is TBA's own |
- * |                                                           |          | published precision. |
+ * Integral fields (RP counts, rank, week, allianceNumber, wins/losses/ties)
+ * publish unrounded with no rounding-rule entry — they're integers by
+ * construction. `sortTime` is an epoch-second timestamp, not a measured
+ * quantity, so rounding it would be meaningless at best and could reorder
+ * a match list at worst.
  *
- * Phase 6's D-01 own-variance fields (`redScoreVarianceOwn`/
- * `blueScoreVarianceOwn`) reuse `ROUNDING_RULE.variance` unchanged above —
- * same physical quantity (an alliance-total predictive variance) as the
- * existing combined `variance` field, so no new rounding rule is added for
- * them. Phase 7 (D-18 item 3, plan 07-07 Task 1) extends this same reuse to
- * `EventMatchSchema`/`EventUpcomingMatchSchema`'s own `redScoreVarianceOwn`/
- * `blueScoreVarianceOwn` pair — it is the identical physical quantity at the
- * event-page aggregation level, so a second key here would be drift wearing
- * documentation's clothes, not a genuinely new field class. D-03, plan 08-02
- * Task 3: `EventMatchSchema`'s ranking-point distribution pair
- * (`redRpPmf`/`blueRpPmf`, played rows) reuses `ROUNDING_RULE.pmf` unchanged
- * through the existing `roundPmf`, too — the identical physical quantity as
- * the two schemas that already carry a pmf (`EventUpcomingMatchSchema`,
- * `TeamSeasonMatchSchema`), so no new key. This rule's own stated reason in
- * the table above was written anticipating this exact field — Phase 8's
- * 1000-draw simulation is the reason this table already gives for the
- * pmf row's 5-decimal precision — so this is the field that row was sized
- * for, not a new class needing its own precision. D-02's actual RP
- * fields are integral by construction
- * (`packages/harness/pageArtifacts.ts`'s `TeamSeasonMatchSchema.actualRedRp`/
- * `actualBlueRp` are `z.number().int()`) and are published unrounded — no
- * `ROUNDING_RULE` entry for RP either. D-12, plan 08-02 Task 2 extends this
- * same no-entry disposition to `EventMatchSchema.actualRedRp`/`actualBlueRp`
- * (played rows) — the identical `z.number().int().nullable().optional()`
- * expression, integral by construction and published unrounded, for the
- * same reason. `EventTeamSchema.rank` and
- * `record.wins`/`record.losses`/`record.ties` (Phase 7, D-18 item 6, plan
- * 07-07 Task 2), and `EventArtifactSchema.week` and
- * `EventAllianceSchema.allianceNumber` (Phase 7, D-18 items 7/8, plan 07-07
- * Task 3), are integral by construction in the same way — no
- * `ROUNDING_RULE` entry for any of them. `sortTime` (Phase 6's
- * `TeamSeasonMatchSchema.sortTime`, and Phase 7's `EventMatchSchema.sortTime`/
- * `EventUpcomingMatchSchema.sortTime`, plan 07-07 Task 1) gets no entry for a
- * stronger reason than an integer count: it is a timestamp in epoch seconds,
- * not a measured quantity, so rounding it at any display precision would be
- * meaningless at best and would silently reorder a match list at worst.
+ * TIE-BREAKING (roundTo): half-away-from-zero, implemented explicitly
+ * rather than relying on `Math.round`, which is asymmetric for negatives
+ * (`Math.round(-1.5)` is `-1`, not `-2`). Symmetric rounding means a metric
+ * and its negation round to the same magnitude.
  *
- * TIE-BREAKING (roundTo): half-away-from-zero, implemented explicitly —
- * take the sign, scale, `Math.round` the magnitude, unscale, restore the
- * sign — rather than relying on `Math.round`'s own half-up-toward-
- * positive-infinity behaviour, which is asymmetric for negatives (e.g.
- * native `Math.round(-1.5)` is `-1`, not `-2`). Symmetric rounding means a
- * metric and its negation round to the same magnitude, which is the
- * behaviour a reader comparing two teams' deltas would expect.
- *
- * TIE-BREAKING (roundPmf): every entry is rounded independently to 5
- * decimals, then the residual `1 - sum(rounded)` is added to the entry
- * with the LARGEST rounded value (lowest index on a tie). Adding the
- * residual to the largest entry — rather than distributing it across all
- * entries, or always adding it to index 0 — keeps the correction relatively
- * smallest (a fixed absolute nudge is a smaller relative change on a large
- * entry than a small one) and is a pure, deterministic function of the
- * input. An undocumented tie-break here is exactly the kind of thing that
- * could quietly differ between an offline publish run and a future online
- * one, breaking D-14's equivalence assertion — so it is written down.
+ * TIE-BREAKING (roundPmf): every entry rounds independently to 5 decimals,
+ * then the residual `1 - sum(rounded)` is added to the entry with the
+ * LARGEST rounded value (lowest index on a tie) — a fixed absolute nudge is
+ * a smaller relative change on a large entry than a small one, and the
+ * result is a pure, deterministic function of the input, so an offline and
+ * a future online publish run agree.
  */
 
-/** The field classes this module rounds, and their decimal counts (D-06). Exported as plain data so the rule can be quoted by name rather than paraphrased. */
+/** The field classes this module rounds, and their decimal counts. Exported as plain data so the rule can be quoted by name rather than paraphrased. */
 export const ROUNDING_RULE = {
   metric: 2,
   score: 2,
   probability: 4,
   pmf: 5,
   variance: 4,
-  /** Phase 6, D-04: percentile, matching `colour-and-tiers.md`'s worked precision. */
+  /** Percentile, matching `colour-and-tiers.md`'s worked precision. */
   percentile: 1,
-  /**
-   * Phase 7, D-18 item 6 (plan 07-07 Task 2): `EventTeamSchema.rp` — TBA's
-   * own reported Ranking Score, a per-match average. Two decimals matches
-   * TBA's own published precision; a third decimal is never rendered or
-   * read. A key of its own rather than a reuse of `metric` despite the
-   * identical decimal count, because `metric` is the class for this
-   * project's own model outputs and a future change to model-display
-   * precision must not silently move a number TBA reported.
-   */
+  /** `EventTeamSchema.rp`: TBA's own Ranking Score, kept separate from `metric` so a future change to model-display precision can't silently move a number TBA reported. */
   rankingPoints: 2,
 } as const;
 
@@ -141,11 +77,10 @@ export class NonFiniteRoundError extends Error {
  * notation once its magnitude drops below 1e-6 or reaches 1e21. Naively
  * building `` `${magnitude}e${exponentDelta}` `` against such a value
  * produces a malformed double-exponent string like `"1e-8e4"`, which
- * `Number(...)` parses to `NaN` — silently, with no thrown error, discovered
- * only when a real near-zero probability (an OPR blowout prediction) hit
- * this path during plan 04-04's real corpus run. Combining `magnitude`'s OWN
- * exponent (if its string form has one) with `exponentDelta` numerically,
- * rather than string-concatenating a second `"e"`, fixes this for every
+ * `Number(...)` silently parses to `NaN` (hit in practice by a real
+ * near-zero OPR blowout prediction). Combining `magnitude`'s OWN exponent
+ * (if its string form has one) with `exponentDelta` numerically, rather
+ * than string-concatenating a second `"e"`, fixes this for every
  * magnitude, not just the ones small/large enough to trigger it.
  */
 function shiftDecimalPoint(magnitude: number, exponentDelta: number): number {
@@ -164,19 +99,15 @@ function shiftDecimalPoint(magnitude: number, exponentDelta: number): number {
  * See this module's file header for why this is implemented explicitly
  * rather than delegated to `Math.round`.
  *
- * Scaling via plain multiplication (`magnitude * 10 ** decimals`) is
- * NOT used here: IEEE 754 doubles cannot represent 1.005 exactly (its
- * nearest double is ~1.00499999999999989), so `1.005 * 100` evaluates to
- * ~100.49999999999999 and `Math.round` would silently round DOWN — the
- * exact wrong-tie-break bug a "we rounded" claim without a stated
- * mechanism could hide. Instead this shifts the decimal point via
- * `shiftDecimalPoint` (exponential-notation string reparsing), which
- * reparses the value's shortest round-trippable decimal string as one
- * literal — `"1.005e2"` parses directly to the exact double `100.5` — so no
+ * Scaling via plain multiplication (`magnitude * 10 ** decimals`) is NOT
+ * used here: IEEE 754 doubles cannot represent 1.005 exactly (its nearest
+ * double is ~1.00499999999999989), so `1.005 * 100` evaluates to
+ * ~100.49999999999999 and `Math.round` would silently round DOWN. Instead
+ * this shifts the decimal point via `shiftDecimalPoint`, which reparses the
+ * value's shortest round-trippable decimal string as one literal —
+ * `"1.005e2"` parses directly to the exact double `100.5` — so no
  * intermediate multiplication error is introduced before `Math.round` sees
- * it, and no malformed double-exponent string is built for a magnitude JS
- * already renders in exponential form (see `shiftDecimalPoint`'s own doc
- * comment).
+ * it.
  */
 export function roundTo(value: number, decimals: number): number {
   if (!Number.isFinite(value)) {
