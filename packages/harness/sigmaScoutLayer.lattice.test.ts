@@ -1,13 +1,8 @@
 /**
- * Tracer for quick task 260914-01x: the lattice marginal family end to end
- * through the real `SigmaScoutLayer`, on the committed 2022 digest slice with
- * spr, played AND upcoming passes.
- *
- * 2026-09-14 (Task 5): lattice+meanShift shipped
- * (`data/baselines/rp-bonus-arms-2026-09.json`), so the production module IS
- * the lattice side now, and the comparison side is a gaussian-declared
- * variant built inline. Both layers carry the shipped mean shift, so the
- * difference between them is the family alone.
+ * The lattice marginal family end to end through the real `SigmaScoutLayer`, on
+ * the committed 2022 spr digest slice, played and upcoming passes. The
+ * production module is the lattice side; the comparison is a gaussian-declared
+ * variant built inline. Both carry the mean shift, so they differ by family alone.
  *
  * The outcome half (`matchOutcomePmf`, `redOutcomeRp`, `blueOutcomeRp`) must
  * be elementwise `===` control's on every row: the lattice family is a bonus-
