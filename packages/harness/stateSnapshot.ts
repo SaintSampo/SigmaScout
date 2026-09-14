@@ -1,18 +1,16 @@
 /**
- * D-12/D-13's offline-to-online state handoff (plan 04-03 Task 2/3): turns a
- * shipped algorithm's in-memory state into a flat array of `StateRow`s a
- * Worker can read a slice of from D1, and back again — losslessly, proven by
- * a continuation-replay digest match rather than a structural deep-equal
+ * The offline-to-online state handoff: turns a shipped algorithm's
+ * in-memory state into a flat array of `StateRow`s a Worker can read a
+ * slice of from D1, and back again — losslessly, proven by a
+ * continuation-replay digest match rather than a structural deep-equal
  * (see `stateSnapshot.test.ts`).
  *
  * `scopeKind` exists because the three shipped algorithms do not share a
- * granularity, and pretending they do would be the failure (D-09): Sigma1
- * and EPA accumulate per TEAM, event-scoped OPR accumulates per EVENT
- * (`OprState.perEvent`, keyed by `eventKey` — Phase 3.2's whole reason for
- * existing was that season-pooled OPR's per-team state exceeded a Worker's
- * memory outright). A `team_state` table would have forced OPR's
- * event-shaped state into a per-team column; the table and this serializer
- * both say `scope` instead.
+ * granularity: EPA and SPR accumulate per TEAM, event-scoped OPR
+ * accumulates per EVENT (`OprState.perEvent`, keyed by `eventKey` — because
+ * season-pooled OPR's per-team state exceeds a Worker's memory outright). A
+ * `team_state` table would have forced OPR's event-shaped state into a
+ * per-team column; the table and this serializer both say `scope` instead.
  *
  * Every `Map` member of every algorithm's state is converted explicitly to a
  * KEY-SORTED array of `[key, value]` pairs on the way out (`JSON.stringify`
@@ -21,9 +19,9 @@
  * (`canonicalize` below) — together these two disciplines are what let
  * re-serializing an UNCHANGED team produce the byte-identical `stateJson`
  * string, which is what lets a real Worker tick skip a D1 write for a team
- * that did not move (a direct saving against DATA-05's write-volume cap).
+ * that did not move.
  *
- * `emitSeedSql` (Task 3) turns `serializeState`'s row output into a `.sql`
+ * `emitSeedSql` (below) turns `serializeState`'s row output into a `.sql`
  * file `wrangler d1 execute --file` can import — the bulk-seed path that
  * fills `apps/worker/migrations/0001_algorithm_state.sql`'s `algorithm_state`
  * table from a real offline replay.
@@ -87,325 +85,24 @@ export class UnknownStateAlgorithmError extends Error {
 }
 
 /**
- * Plan 04-08 (D-13): the current shape every `scopeKind: "league"` payload
- * must declare (`snapshotShapeVersion`). Bumped whenever a league payload's
- * FIELDS change shape — in particular, this version's introduction is what
- * makes the RETIRED shape (per-team maps such as `priorSeasonRatings`/
- * `lastEventByTeam` living inside the league row) unreadable rather than
- * silently parsed with those per-team maps discarded. A retired-shape row
- * has no `snapshotShapeVersion` field at all, so it always fails this check.
+ * The current shape every `scopeKind: "league"` payload must declare
+ * (`snapshotShapeVersion`) so `deserializeState` can refuse anything stale.
+ * A retired-shape row (per-team maps living inside the league row) has no
+ * `snapshotShapeVersion` field at all, so it always fails this check too.
  *
- * Bumped 2 -> 3 (D-Q4, quick task 260901-is2): OPR's league payload gained
- * `allianceScoreStats`, the expanding-window accumulator feeding its logistic
- * scale. This bump is load-bearing, not ceremony. `apps/worker/src/
- * stateStore.ts`'s `readScopedState` filters rows by `algorithm_id` ONLY and
- * never by `algorithm_version`, so bumping `opr.version` to 4.0.0 does NOT by
- * itself make a stale seeded row unreachable — a shape-2 OPR league row
- * written before this change is still selected and parsed. Without this bump
- * it would deserialize with `allianceScoreStats` as `undefined`, and
- * `standardDeviation(undefined, ...)` would throw or silently fall back deep
- * inside `predict` on live traffic. The shape check is the only thing that
- * turns that into a loud `LeagueRowShapeVersionError` at load time, naming the
- * re-seed as the fix.
- *
- * Bumped 3 -> 4 (quick task 260902-disp, commit 96e38754): every Sigma1 team
- * payload gained `contributionStats` and `lastContribution`, a per-match
- * inferred contribution series (in the retired Sigma1 core (deleted by quick task 260913-it4)).
- *
- * WHAT SHAPE 4 ACTUALLY SHIPPED — corrected here rather than deleted, because
- * a reader tracing a shape-4 seed row needs this sentence to exist. This
- * paragraph originally said that series "IS the published `±` from this
- * version on." That was never true of any shipped code. Quick task 260902-disp
- * was HALTED after its Task 1 (the fold) landed and before its Task 2 (publish
- * it) ever ran: `teamMetrics` continued to return `sqrt(P + R)` and never read
- * the accumulator. So shape 4 stored, in every D1 seed row and every snapshot,
- * a quantity nothing anywhere published.
- *
- * Bumped 4 -> 5 (D-V1..D-V4, quick task 260902-varopr): `contributionStats` and
- * `lastContribution` are REMOVED. Their estimator — the even-split contribution
- * standard deviation — was measured against known synthetic sigma at slope
- * 0.179, the worst of the three candidates and the one the variance
- * decomposition exists to replace, so it is retired rather than left sitting
- * alongside a second published-`±` mechanism. The team payload's field set
- * genuinely SHRANK, which is why this is a bump and not a no-op:
+ * Bump this whenever a league OR team row's FIELDS change shape.
  * `apps/worker/src/stateStore.ts`'s `readScopedState` filters rows by
- * `algorithm_id` ONLY and never by `algorithm_version`, so a shape-4 row seeded
- * before this change is still selected and would deserialize carrying two
- * fields that no longer exist in `Sigma1TeamState` at all. The shape check is
- * the only thing that turns that into a loud `LeagueRowShapeVersionError` at
- * load time, naming the re-seed as the fix.
+ * `algorithm_id` ONLY, never by `algorithm_version`, so a version bump alone
+ * does not make a stale seeded row unreachable — only this shape check does,
+ * by throwing `LeagueRowShapeVersionError` instead of silently deserializing
+ * a new field as `undefined` (or a dropped one as an ignored extra). Every
+ * bump costs a Worker re-seed from a fresh publish run; seed first, deploy
+ * second.
  *
- * Bumped 5 -> 6 (D-V1/D-V3, quick task 260902-varopr): Sigma1 emitted
- * `scopeKind: "event"` rows of its own — one per event, carrying that event's
- * variance-decomposition normal equations (`{ rowCount, teamOrder, gram,
- * targets, vBarSums }`, from a since-deleted variance-decomposition module). Until that
- * version only OPR had event-scoped state.
- *
- * The load-bearing reason, which is the same one both bumps above give and is
- * SHARPER here: a shape-5 row deserializes with `perEventVariance` as an empty
- * map, and `teamMetrics` would then publish NO SPREAD AT ALL on live traffic —
- * silently, because omission is a legal shape for a team the decomposition
- * cannot speak to. The shape check is the only thing that turns that into a
- * loud `LeagueRowShapeVersionError` naming the re-seed as the fix, rather than
- * a site that quietly stops showing `±`.
- *
- * Bumped 6 -> 7 (D-Y1/D-Y3, quick task 260903-750): that event row is GONE
- * again, one version after arriving, and each TEAM row gains a per-metric
- * spread object — the recency-weighted accumulator (`{ weightedSquares, weight }`
- * per metric key, in the retired Sigma1 core) that replaced the decomposition as the source of
- * every published `±`. Sigma1 is team-scoped only once more, and
- * `apps/worker/src/scheduled.ts`'s `EVENT_SCOPED_ALGORITHM_IDS` dropped "vpr"
- * in the same task.
- *
- * The load-bearing reason is the SHARPEST of the four, because at shape 7 the
- * failure is indistinguishable from correct behaviour: a shape-6 team row
- * carries no such spread object at all, and D-Y2 makes "this key was never folded" a
- * LEGAL, publishable-as-nothing state meaning "a team that has not played yet".
- * A stale row would therefore deserialize into a team that looks brand new
- * rather than into anything that looks broken — every `±` on the site quietly
- * absent, with no error, no NaN and no malformed row anywhere to find. The
- * shape check is the only thing standing between that and a live tick.
- *
- * Bumped 7 -> 8 (ELIM-OFF, quick task 260904-v9n): the league row gains
- * `elimScoreOffset` (`{ value, count }`, in the retired Sigma1 core), the within-season
- * learned additive elim score correction's EWMA accumulator.
- *
- * BE HONEST ABOUT HOW THIS BUMP DIFFERS FROM THE FOUR ABOVE IT, in this same
- * register: each of those prevented a LIVE failure on data already flowing
- * through a shipped, enabled mechanism. This one does not — the field is
- * default-inert (`elimScoreOffsetEnabled: false`), so nothing reads
- * `elimScoreOffset` on any currently-promoted parameter set today. This bump
- * is PRECAUTIONARY: it arms the day the flag is flipped, at which point a
- * stale shape-7 league row would deserialize `elimScoreOffset` as `undefined`
- * (`readScopedState` filters rows by `algorithm_id` ONLY, never by version —
- * the identical fact every bump above already names), and the first fold
- * (`(1 - alpha) * undefined.value + ...`) would throw immediately rather than
- * silently propagate a NaN, which is at least an improvement on the failure
- * mode this shape check exists to prevent — but only if the shape check
- * itself is current. Bumping now, while the mechanism is still off, is what
- * keeps that guarantee true from day one of enabling it rather than from
- * whichever day someone remembers to also bump the shape version.
- *
- * The bump costs a Worker re-seed from a fresh publish run, exactly like
- * every bump above it — `readScopedState`'s version-blindness makes that
- * true regardless of whether the shape change itself was urgent.
- *
- * ## 8 -> 9 (quick task 260907-v1s, SIGMA1_CODE_VERSION 11.0.0)
- *
- * A REMOVAL, the first one here: `innovationStats` is gone from
- * `Sigma1TeamState` because the whole adaptive-process-noise mechanism was
- * deleted after measuring it inert (at most 0.0013 accuracy across its entire
- * bound on 2026 while ENABLED, and <=1.0 sigma to remove on every origin that
- * shipped it on).
- *
- * The hazard this bump exists to stop runs in the opposite direction from
- * every bump above. Those guarded against a stale row LACKING a newly-added
- * field; this one guards against a stale row CARRYING a field the current
- * shape no longer declares. `readScopedState` is version-blind, so without
- * the bump a live row written at shape 8 would deserialize into a
- * `Sigma1TeamState` with an extra property that nothing reads and no
- * validator rejects — silent, and therefore worse than a throw.
- *
- * Costs a Worker re-seed from a fresh publish run, exactly like every bump
- * above it.
- *
- * ## 9 -> 10 (2026-09-09, the live per-robot consistency accumulator)
- *
- * Every `scopeKind: "team"` row gained a level-2 passenger key — four running
- * numbers (`weight`, `weightSquares`, `mean`, `m2`) carrying that team's
- * belief under the (now retired) per-robot consistency accumulator's
- * incremental estimator.
- *
- * This bump guards the SAME failure mode as 6 -> 7, and it is worth naming
- * because that one is described above as the sharpest of its group: a stale
- * row simply has no passenger, and "never folded" is a LEGAL state
- * meaning "a team with too little play to have a figure". So a shape-9
- * row read under shape 10 would deserialize into a team that looks brand new
- * rather than into anything that looks broken — every band quietly narrower or
- * absent, no error, no NaN, no malformed row to find. Worse here than in the
- * 6 -> 7 case, because the offline publisher WOULD have a band for those same
- * matches, so live and offline would disagree while both looked healthy.
- *
- * Note what this field is NOT: it is not algorithm state. It is a level-2
- * SigmaScout quantity riding in a level-1 row, and it was written and read by
- * dedicated passenger helpers in this file rather than by any algorithm's
- * serializer, so no algorithm knew it existed. It lived here anyway because
- * `state_json` is the only per-team row the Worker reads and writes, and it
- * does so in ONE subrequest each way regardless of payload — a separate table
- * would double the subrequest cost of every tick against a budget where three
- * algorithms already overflow. The key was deliberately `sigmascout`-prefixed,
- * both to read as a passenger and to avoid colliding with the unrelated spread
- * key in Sigma1's own team state.
- *
- * Costs a Worker re-seed from a fresh publish run, exactly like every bump
- * above it. Seed first, deploy second: a deploy carrying shape 10 against
- * un-re-seeded rows takes live folding down until the seed runs.
- *
- * REMOVED WITHOUT A BUMP (2026-09-13, quick task 260913-it4). The retired
- * per-robot consistency accumulator was deleted, and with it this team-row
- * passenger and its read/write helpers. `STATE_SNAPSHOT_SHAPE_VERSION` did NOT
- * move, for two reasons:
- *
- *   - every per-algorithm deserializer reads named fields and ignores extra
- *     keys, so a row still carrying the retired passenger reads identically
- *     (`stateSnapshot.test.ts` pins this with an unknown passenger key);
- *   - the live tier (spr) never used it: its bands, win odds and ranking points
- *     come from the Sigma passenger below.
- *
- * New rows simply omit it, and no reseed is required.
- *
- * ---------------------------------------------------------------------------
- * 10 -> 11 (2026-09-10): SIGMA SCORE BELIEFS
- * ---------------------------------------------------------------------------
- *
- * Sigma Score shipped for BPR and drives its match bands, and BPR is the LIVE
- * TIER. Without this bump the Worker would keep folding the per-robot
- * consistency accumulator's figures into live bands while the offline
- * publisher wrote Sigma ones for the same algorithm, so a match touched during
- * an event would read roughly twice as wide as its untouched neighbours (the
- * accumulator printed 1.92 sigma, Sigma an honest 1 sigma). The same silent
- * class of divergence the 9 -> 10 bump above was written about, with a bigger
- * visible gap.
- *
- * Two things are added, and they live in DIFFERENT rows on purpose:
- *
- *   - the per-team belief, under `sigmascoutSigma` in each TEAM row, for the
- *     same reason the shape-10 passenger lived there;
- *   - the population statistics behind the talent prior, under
- *     `sigmascoutSigmaPopulation` in the LEAGUE row, because they are THREE
- *     NUMBERS TOTAL and do not scale with team count. Putting them per team
- *     would duplicate one global fact across thousands of rows; putting the
- *     per-team beliefs in the league row would breach `MAX_LEAGUE_ROW_BYTES`.
- *     That split is the rule, not a preference.
- *
- * The population half is load bearing rather than an optimisation: the talent
- * prior is deliberately withheld until the population is known
- * (`MIN_POPULATION_FOR_TALENT_PRIOR`), so a Worker that resumed beliefs without
- * it would silently compute every band from the FLAT prior instead of the
- * talent scaled one, and disagree with the publisher while looking healthy.
- *
- * ---------------------------------------------------------------------------
- * 11 -> 12 (2026-09-11, quick task 260911-3kc): EPA'S SEASON-BOUNDARY SCALE
- * ---------------------------------------------------------------------------
- *
- * `epa@8.0.0+baseline` converts a carried rating into the INCOMING season's
- * point units, lazily, per team, on first sight. That needs two pieces of state
- * it did not have: `carrySeedMean` (the outgoing season's alliance-score mean)
- * in the LEAGUE row, and `carryPending` (has this carried team been
- * materialized yet?) as a flag on each TEAM row. The split is the D-13 rule,
- * not a preference: `carrySeedMean` is ONE NUMBER and does not scale with team
- * count, while a set of a few thousand team keys in the league row would breach
- * `MAX_LEAGUE_ROW_BYTES` outright. Exactly the split the 10 -> 11 bump made for
- * Sigma beliefs versus their population statistics.
- *
- * THE LOAD-BEARING REASON, stated explicitly because it is the whole point of
- * this bump: `apps/worker/src/stateStore.ts`'s `readScopedState` filters rows
- * by `algorithm_id` ONLY and never by version, so bumping `epa.version` from
- * 7.0.0 to 8.0.0 does NOT by itself make a stale seeded row unreachable. A
- * shape-11 EPA league row deserializes with `carryPending` absent and
- * `carrySeedMean` undefined, which makes the ratio unreadable and therefore
- * DISABLES THE RESCALE ENTIRELY on live traffic — silently, while the offline
- * publisher applies it. Live and offline would then disagree on every carried
- * rating at every boundary, with no error, no NaN and no malformed row to find.
- * The shape check is the only thing that turns that into a loud
- * `LeagueRowShapeVersionError` naming the re-seed as the fix.
- *
- * Costs a Worker re-seed from a fresh publish run, exactly like every bump
- * above it. Seed first, deploy second.
- *
- * ---------------------------------------------------------------------------
- * 12 -> 13 (2026-09-11, quick task 260911-j2w): EPA'S WEEK-1 CALIBRATION
- * ---------------------------------------------------------------------------
- *
- * `epa@9.0.0+baseline` reads a FROZEN WEEK-1 aggregate from week 2 onward for
- * two things: the win-probability denominator and the season-boundary carry
- * anchor. That needs one new LEAGUE-row field, `weekOne` — a week-1-only
- * Welford accumulator, the frozen `{mean, sd}` (or `null`), and a `sealed`
- * flag. All three are ONE FACT EACH and flat in team count, which is the D-13
- * rule that puts them in the league row rather than on team rows. No team row
- * changes at all in this bump.
- *
- * THE LOAD-BEARING REASON, stated explicitly because it is the whole point of
- * this bump, and it is the SAME mechanism the 11 -> 12 block above describes:
- * `apps/worker/src/stateStore.ts`'s `readScopedState` filters rows by
- * `algorithm_id` ONLY and never by version, so bumping `epa.version` from
- * 8.0.0 to 9.0.0 does NOT by itself make a stale seeded row unreachable. A
- * shape-12 EPA league row would deserialize with the week-1 fields ABSENT,
- * leaving the frozen aggregate permanently unavailable — so the Worker would
- * use the LIVE expanding estimate for the entire season while the offline
- * publisher used the frozen week-1 constant. The two would then disagree on
- * every prediction from week 2 onward, with no error, no NaN and no malformed
- * row to find: both sides look perfectly healthy, and only the numbers differ.
- * The shape check is the only thing that turns that into a loud
- * `LeagueRowShapeVersionError` naming the re-seed as the fix.
- *
- * Costs a Worker re-seed from a fresh publish run, exactly like every bump
- * above it. Seed first, deploy second.
- *
- * ---------------------------------------------------------------------------
- * 13 -> 14 (2026-09-11, quick task 260911-l2k): EPA'S FOUL RATE
- * ---------------------------------------------------------------------------
- *
- * `epa@10.0.0+baseline` moves the foul term OUT of the margin and applies it as
- * one `(1 + foulRate)` scalar to both alliances AFTER the win probability
- * (`main.py:125-130`, reference section 14). That rate is `foul_mean /
- * no_foul_mean` over the week-1 population, so it needs five new LEAGUE-row
- * fields: a season-wide `allianceNoFoulStats`/`allianceFoulStats` pair (the
- * live pre-seal estimate), and — inside the existing `weekOne` object — a
- * week-1-only `noFoulStats`/`foulStats` pair plus the frozen
- * `frozenFoul: { rate, noFoulMean } | null`. All five are ONE FACT EACH and
- * flat in team count, the D-13 rule that keeps them out of team rows. No team
- * row changes at all in this bump.
- *
- * THE LOAD-BEARING REASON, and it is the SAME mechanism the 11 -> 12 and
- * 12 -> 13 blocks above describe: `apps/worker/src/stateStore.ts`'s
- * `readScopedState` filters rows by `algorithm_id` ONLY and never by version,
- * so bumping `epa.version` from 9.0.0 to 10.0.0 does NOT by itself make a stale
- * seeded row unreachable. A shape-13 EPA league row would deserialize with the
- * foul accumulators ABSENT, so the live Worker would compute a PERMANENTLY
- * ZERO foul rate — publishing every predicted score at its plain no-foul total
- * — while the offline publisher applied the frozen week-1 rate to the same
- * matches. The two would disagree on every published predicted score, all
- * season, with no error, no NaN and no malformed row to find: both sides look
- * perfectly healthy and only the numbers differ. Worse than its 12 -> 13
- * sibling in one respect: a zero rate is a LEGAL rate
- * (`EPA_FALLBACK_FOUL_RATE`), so nothing downstream can even flag it as
- * suspicious. The shape check is the only thing that turns that into a loud
- * `LeagueRowShapeVersionError` naming the re-seed as the fix.
- *
- * Costs a Worker re-seed from a fresh publish run, exactly like every bump
- * above it. Seed first, deploy second.
- *
- * ---------------------------------------------------------------------------
- * 14 -> 15 (2026-09-11, plan 09-08): RANKING POINTS IN THE LIVE WORKER (D-21)
- * ---------------------------------------------------------------------------
- *
- * The live Worker never computed ranking points at all (audit finding F5), so
- * every live tick stripped them off the rows it wrote. Fixing that needs the
- * Worker to RESUME the publisher's own RP beliefs rather than cold-start its
- * own, which is one new TEAM-row passenger key, `sigmascoutRp`: a per-team,
- * per-threshold-variable record of `{weight, weightSquares, mean, m2}`
- * (`RpMomentsAccumulator`'s raw running state).
- *
- * NO LEAGUE-ROW HALF, and that is a decision rather than an oversight — worth
- * saying out loud because the 10 -> 11 Sigma bump above DID have one. RP needs
- * no population statistic: every quantity it reads is per-team, and D-13's
- * rule puts anything that scales with team count in the team row. Nothing was
- * forgotten here.
- *
- * THE LOAD-BEARING REASON, and it is the SAME shape as every bump above: a
- * Worker that cold-started its RP accumulator would price a match's pmf from
- * THIS EVENT's matches alone, while the offline publisher priced the same
- * match from the whole season's. Two different histories, two different
- * answers, no error, no NaN, no malformed row — both sides look perfectly
- * healthy and only the numbers differ. Worse than its siblings in one
- * respect: an RP pmf is a probability distribution, so a wrong one is still a
- * VALID one — it sums to 1, parses clean and renders without complaint. The
- * shape check is the only thing that turns a stale seeded row into a loud
- * `LeagueRowShapeVersionError` naming the re-seed as the fix.
- *
- * Costs a Worker re-seed from a fresh publish run, exactly like every bump
- * above it. Seed first, deploy second.
+ * A field CAN be removed without a bump: every per-algorithm deserializer
+ * reads named fields and ignores extras, so a stale row still carrying a
+ * retired passenger key reads identically (`stateSnapshot.test.ts` pins this
+ * with an unknown passenger key).
  */
 export const STATE_SNAPSHOT_SHAPE_VERSION = 15;
 
@@ -417,7 +114,7 @@ export const STATE_SNAPSHOT_SHAPE_VERSION = 15;
  * either drop per-team data that isn't there to find (retired shape) or
  * misinterpret fields against the wrong version's meaning — this makes that
  * failure loud instead, mirroring `MissingLeagueRowError`'s own reasoning
- * and message style (D-13).
+ * and message style.
  */
 export class LeagueRowShapeVersionError extends Error {
   constructor(algorithmId: string, found: unknown) {
@@ -433,15 +130,14 @@ export class LeagueRowShapeVersionError extends Error {
 }
 
 /**
- * D-13: a `scopeKind: "league"` row's `stateJson` byte length must never
- * grow with the number of teams in the season — it holds only genuinely
- * league-wide aggregates. 16384 (16 KB) is set well above sigma1's measured
- * genuine-aggregate size (7.1 KB, 2026-08-22 corpus) to leave headroom for a
- * season with more components, while staying roughly 6x under D1's real
- * 100,000-byte per-statement limit. `serializeState` does NOT throw when a
- * league row exceeds this — the constant exists so tests (and `docs/publish-
- * budget.md`) can assert against it; a hard throw here would make a
- * legitimate future aggregate a harder failure than a red test.
+ * A `scopeKind: "league"` row's `stateJson` byte length must never grow with
+ * the number of teams in the season — it holds only genuinely league-wide
+ * aggregates. 16384 (16 KB) leaves headroom above measured genuine-aggregate
+ * size for a season with more components, while staying roughly 6x under
+ * D1's real 100,000-byte per-statement limit. `serializeState` does NOT
+ * throw when a league row exceeds this — the constant exists so tests (and
+ * `docs/publish-budget.md`) can assert against it; a hard throw here would
+ * make a legitimate future aggregate a harder failure than a red test.
  */
 export const MAX_LEAGUE_ROW_BYTES = 16384;
 
@@ -504,27 +200,27 @@ interface SerializedEpaLeague {
   season: number | null;
   allianceScoreStats: ExpandingStats;
   /**
-   * Shape 14: `EpaState.allianceNoFoulStats` / `.allianceFoulStats` — the
-   * SEASON-WIDE pair backing the live, pre-seal foul rate. Flat sibling fields
-   * rather than a nested object, deliberately unlike `weekOne` below: these two
-   * are independent accumulators with no third field whose partial presence
+   * `EpaState.allianceNoFoulStats` / `.allianceFoulStats` — the SEASON-WIDE
+   * pair backing the live, pre-seal foul rate. Flat sibling fields rather
+   * than a nested object, deliberately unlike `weekOne` below: these two are
+   * independent accumulators with no third field whose partial presence
    * could represent an impossible state.
    */
   allianceNoFoulStats: ExpandingStats;
   allianceFoulStats: ExpandingStats;
   /**
-   * Shape 12: `EpaState.carrySeedMean`, the outgoing season's alliance-score
-   * mean. `null` ON THE WIRE stands for `Number.NaN` ("no boundary crossed
-   * yet") — JSON has no NaN, so writing it naively yields `null` but reads back
+   * `EpaState.carrySeedMean`, the outgoing season's alliance-score mean.
+   * `null` ON THE WIRE stands for `Number.NaN` ("no boundary crossed yet")
+   * — JSON has no NaN, so writing it naively yields `null` but reads back
    * as a value that is NOT NaN, silently turning "unreadable" into something
    * `carryRescaleRatio` would have to guess about.
    */
   carrySeedMean: number | null;
   /**
-   * Shape 13: `EpaState.weekOne`, EPA's week-1 calibration state — the
-   * week-1-only accumulator, the frozen `{mean, sd}` aggregate (or `null`
-   * while week 1 is still running, or when the seal found too little data),
-   * and whether the seal has already been attempted.
+   * `EpaState.weekOne`, EPA's week-1 calibration state — the week-1-only
+   * accumulator, the frozen `{mean, sd}` aggregate (or `null` while week 1
+   * is still running, or when the seal found too little data), and whether
+   * the seal has already been attempted.
    *
    * Written as a plain object rather than flattened into three sibling fields
    * so the three cannot be partially present: a row carrying `frozen` without
@@ -536,21 +232,21 @@ interface SerializedEpaLeague {
   breakdownParseFailureCount: number;
 }
 
-/** Shape 13, extended at shape 14: the wire form of `EpaWeekOneState`. `ExpandingStats` and a nullable record are both plain JSON already, so no NaN-to-null dance is needed here (contrast `carrySeedMean` above). */
+/** The wire form of `EpaWeekOneState`. `ExpandingStats` and a nullable record are both plain JSON already, so no NaN-to-null dance is needed here (contrast `carrySeedMean` above). */
 interface SerializedEpaWeekOne {
   stats: ExpandingStats;
   frozen: { mean: number; sd: number } | null;
-  /** Shape 14: the week-1-only no-foul/foul accumulators the frozen rate is sealed from. */
+  /** The week-1-only no-foul/foul accumulators the frozen rate is sealed from. */
   noFoulStats: ExpandingStats;
   foulStats: ExpandingStats;
-  /** Shape 14: the frozen `get_foul_rate()` record, or `null` when the seal refused a degenerate rate. Nested here rather than beside `frozen` at the league level so the whole week-1 state stays one object that cannot be partially present. */
+  /** The frozen `get_foul_rate()` record, or `null` when the seal refused a degenerate rate. Nested here rather than beside `frozen` at the league level so the whole week-1 state stays one object that cannot be partially present. */
   frozenFoul: { rate: number; noFoulMean: number } | null;
   sealed: boolean;
 }
 
 /**
- * Plan 04-08 (D-13): a `scopeKind: "team"` row's payload for epa is a UNION —
- * a team may have current-season state, a prior-season rating (from
+ * A `scopeKind: "team"` row's payload for epa is a UNION — a team may have
+ * current-season state, a prior-season rating (from
  * `priorSeasonRatings.lastSeason`/`.yearBefore`), or both. `current` is
  * omitted entirely for a team with no current-season entry (a team known
  * only via a prior-season rating) — never a placeholder/empty object, so the
@@ -561,10 +257,10 @@ interface SerializedEpaTeamRow {
   priorSeasonLastSeason?: number;
   priorSeasonYearBefore?: number;
   /**
-   * Shape 12: this team is carried across the most recent boundary and has NOT
-   * yet been materialized into the incoming season's point units. OMITTED when
-   * false, so an ordinary team's row is byte-identical to shape 11 and
-   * publish-time byte budgets are unchanged.
+   * This team is carried across the most recent boundary and has NOT yet
+   * been materialized into the incoming season's point units. OMITTED when
+   * false, so an ordinary team's row stays byte-identical and publish-time
+   * byte budgets are unchanged.
    */
   carryPending?: true;
 }
@@ -594,7 +290,7 @@ function serializeEpaState(algorithmId: string, algorithmVersion: string, state:
 
   const rows: StateRow[] = [makeRow(algorithmId, algorithmVersion, "league", "league", leagueJson, stamp)];
 
-  // D-13: the UNION of every map's keys — `teamComponents`/`teamMatchCounts`
+  // The UNION of every map's keys — `teamComponents`/`teamMatchCounts`
   // (current-season) and `priorSeasonRatings.lastSeason`/`.yearBefore`
   // (prior-season). A team present in only one must still get its own row,
   // never silently dropped.
@@ -603,11 +299,11 @@ function serializeEpaState(algorithmId: string, algorithmVersion: string, state:
     ...state.teamMatchCounts.keys(),
     ...state.priorSeasonRatings.lastSeason.keys(),
     ...state.priorSeasonRatings.yearBefore.keys(),
-    // Shape 12: a pending team always has a `teamComponents` entry today
-    // (`carrySeason` builds the pending set FROM those keys), so this term adds
-    // nothing right now. It is here so that if that ever stops being true, the
-    // team gets a row and keeps its flag rather than silently losing its
-    // rescale — the exact class of silent loss this union already exists for.
+    // A pending team always has a `teamComponents` entry today (`carrySeason`
+    // builds the pending set FROM those keys), so this term adds nothing
+    // right now. It is here so that if that ever stops being true, the team
+    // still gets a row and keeps its flag rather than silently losing its
+    // rescale.
     ...state.carryPending,
   ]);
   for (const teamKey of [...teamKeys].sort()) {
@@ -657,20 +353,19 @@ function deserializeEpaState(algorithmId: string, rows: readonly StateRow[]): Ep
     teamComponents,
     teamMatchCounts,
     allianceScoreStats: leagueJson.allianceScoreStats,
-    // Shape 14. Read straight through, with deliberately NO `??` default, for
-    // the same reason `weekOne` below has none: the shape gate above is what
-    // guarantees presence, and a default here would silently pin the Worker at
-    // a zero foul rate — a LEGAL-looking rate nothing downstream can flag.
+    // Read straight through, with deliberately NO `??` default: the shape
+    // gate above guarantees presence, and a default here would silently pin
+    // the Worker at a zero foul rate — a LEGAL-looking rate nothing
+    // downstream can flag.
     allianceNoFoulStats: leagueJson.allianceNoFoulStats,
     allianceFoulStats: leagueJson.allianceFoulStats,
     // `null` on the wire IS `NaN` — see SerializedEpaLeague.carrySeedMean.
     carrySeedMean: leagueJson.carrySeedMean === null ? Number.NaN : leagueJson.carrySeedMean,
     carryPending,
-    // Shape 13. Read straight through: the shape-version gate above is what
-    // guarantees the field is present, so there is deliberately NO `??`
-    // default here. A default would be exactly the silent degradation this
-    // bump's doc block exists to prevent — a Worker quietly running the live
-    // estimate all season while the publisher runs the frozen constant.
+    // Read straight through: the shape-version gate above guarantees the
+    // field is present, so there is deliberately NO `??` default here — a
+    // default would be a Worker quietly running the live estimate all season
+    // while the publisher runs the frozen constant.
     weekOne: {
       stats: leagueJson.weekOne.stats,
       frozen: leagueJson.weekOne.frozen === null ? null : { mean: leagueJson.weekOne.frozen.mean, sd: leagueJson.weekOne.frozen.sd },
@@ -689,7 +384,7 @@ function deserializeEpaState(algorithmId: string, rows: readonly StateRow[]): Ep
 }
 
 // ---------------------------------------------------------------------------
-// OPR (D-09: event-scoped, post-Phase-3.2 — rows keyed by EVENT, never team)
+// OPR (event-scoped — rows keyed by EVENT, never team)
 // ---------------------------------------------------------------------------
 
 interface SerializedOprEventState {
@@ -699,11 +394,11 @@ interface SerializedOprEventState {
 
 interface SerializedOprLeague {
   snapshotShapeVersion: number;
-  /** D-Q4: the season-wide expanding alliance-score accumulator behind OPR's logistic scale. League-scoped, exactly as the sigma1 and epa league rows already carry their own `allianceScoreStats`. */
+  /** The season-wide expanding alliance-score accumulator behind OPR's logistic scale. League-scoped, like every other algorithm's own `allianceScoreStats`. */
   allianceScoreStats: ExpandingStats;
 }
 
-/** D-13: `lastEventByTeam`'s per-team entry, moved out of the league row (it was OPR's only offender — see `SeedRowTooLargeError`'s doc comment). One row per team, never folded into that team's most-recent EVENT row (see this plan's action text on why that alternative is ambiguous under interleaved events). */
+/** `lastEventByTeam`'s per-team entry lives in its own team row rather than the league row, to keep the league row flat in team count. One row per team, never folded into that team's most-recent EVENT row — ambiguous under interleaved events. */
 interface SerializedOprTeamRow {
   lastEventKey: string;
 }
@@ -761,7 +456,7 @@ function deserializeOprState(algorithmId: string, rows: readonly StateRow[]): Op
 }
 
 // ---------------------------------------------------------------------------
-// SPR (quick task 260908-b4t, renamed from BPR)
+// SPR
 // ---------------------------------------------------------------------------
 
 interface SerializedSprLeague {
@@ -770,7 +465,7 @@ interface SerializedSprLeague {
   logTau: number;
   scale: number;
   scaleCount: number;
-  /** Display-only per-phase point scales (quick task 260908-pcm). */
+  /** Display-only per-phase point scales, keyed by group id. */
   phaseScale: Record<string, number>;
   phaseScaleCount: Record<string, number>;
 }
@@ -782,11 +477,10 @@ interface SerializedSprTeamRow {
   muS: number;
   pS: number;
   /**
-   * Display-only per-phase filters (quick task 260908-pcm), keyed by group id.
-   * Absent on a row written before that task, which `deserializeSprState`
-   * restores as a fresh phase filter rather than throwing -- a resumed
-   * pre-existing snapshot loses only the phase history it never had, and the
-   * PREDICTOR half above resumes exactly.
+   * Display-only per-phase filters, keyed by group id. Absent on an older
+   * row, which `deserializeSprState` restores as a fresh phase filter rather
+   * than throwing — a resumed pre-existing snapshot loses only the phase
+   * history it never had, and the PREDICTOR half above resumes exactly.
    */
   phases?: Record<string, SerializedSprPhase>;
 }
@@ -803,14 +497,13 @@ function serializeSprState(algorithmId: string, algorithmVersion: string, state:
     snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION,
     season: state.season,
     // All three are genuine league-level state, not derived: logTau is the
-    // online link temperature, and scale/scaleCount are the online estimate of
-    // the point level that BPR's scale-free ratings are denominated against —
+    // online link temperature, and scale/scaleCount are the online estimate
+    // of the point level SPR's scale-free ratings are denominated against —
     // a ~100-match trailing EWMA over the globally interleaved stream, NOT a
-    // season-level constant (corrected 2026-09-10; see
-    // `packages/core/algorithms/spr.ts`'s header). `scaleCount` is what pins
-    // that learning rate at its `scaleMinLr` floor, so it is load-bearing
-    // state and not a diagnostic counter. Dropping any of them would silently
-    // reset a resumed model.
+    // season-level constant (see `packages/core/algorithms/spr.ts`'s
+    // header). `scaleCount` is what pins that learning rate at its
+    // `scaleMinLr` floor, so it is load-bearing state and not a diagnostic
+    // counter. Dropping any of them would silently reset a resumed model.
     logTau: state.logTau,
     scale: state.scale,
     scaleCount: state.scaleCount,
@@ -838,11 +531,6 @@ function deserializeSprState(algorithmId: string, rows: readonly StateRow[]): Sp
   const leagueRow = rows.find((r) => r.scopeKind === "league");
   if (!leagueRow) throw new MissingLeagueRowError(algorithmId);
   const leagueJson = JSON.parse(leagueRow.stateJson) as SerializedSprLeague;
-  // Quick task 260908-5wd: BPR was the ONE algorithm missing this check, so a
-  // stale BPR row would be read and silently cold-start the live tier against
-  // a shape it no longer matches. `readScopedState` filters on `algorithm_id`
-  // alone and never on `algorithm_version` (see this file's header), so this
-  // guard is the only thing standing between an old row and a live fold.
   if (leagueJson.snapshotShapeVersion !== STATE_SNAPSHOT_SHAPE_VERSION) {
     throw new LeagueRowShapeVersionError(algorithmId, leagueJson.snapshotShapeVersion);
   }
@@ -883,7 +571,7 @@ function deserializeSprState(algorithmId: string, rows: readonly StateRow[]): Sp
 }
 
 // ---------------------------------------------------------------------------
-// The SigmaScout-layer passengers (shapes 11 and 15)
+// The SigmaScout-layer passengers
 // ---------------------------------------------------------------------------
 //
 // Level-2 passengers ride in level-1 rows but are written and read by the
@@ -896,9 +584,6 @@ function deserializeSprState(algorithmId: string, rows: readonly StateRow[]): Sp
 // Only `scopeKind: "team"` rows carry per-team beliefs. The league row is left
 // alone on purpose — `MAX_LEAGUE_ROW_BYTES` caps it at 16 KB precisely because
 // nothing in it may scale with team count.
-//
-// The shape-10 passenger (the retired per-robot consistency accumulator) was
-// removed by quick task 260913-it4; see the 9 -> 10 history entry above.
 
 const SIGMA_BELIEF_KEY = "sigmascoutSigma";
 const SIGMA_POPULATION_KEY = "sigmascoutSigmaPopulation";
@@ -987,17 +672,9 @@ export function withSigmaPopulation(rows: readonly StateRow[], population: Sigma
 
 /**
  * The key every `scopeKind: "team"` row carries its RANKING-POINT beliefs
- * under (shape 15, plan 09-08).
- *
- * `sigmascoutRp`, following `sigmascoutSigma`: the
+ * under. `sigmascoutRp`, following `sigmascoutSigma`: the
  * `sigmascout{Feature}` prefix says out loud that this is a level-2 passenger
  * rather than part of any model.
- *
- * MUST NOT be confused with the retired VPR `rpBeliefs` field that the retired
- * Sigma1 core (deleted by quick task 260913-it4) serialized in this file — that
- * algorithm's own Kalman state, a different thing that happened to share a
- * word. D-21 prohibited reusing the name, and legacy rows that still carry it
- * are simply never read.
  */
 const RP_BELIEF_KEY = "sigmascoutRp";
 
@@ -1081,20 +758,13 @@ export function withRpBeliefs(rows: readonly StateRow[], beliefs: ReadonlyMap<st
 // ---------------------------------------------------------------------------
 
 /**
- * D-12/D-13: converts one algorithm's in-memory state into `StateRow`s ready
- * for a D1 seed (`emitSeedSql`). Dispatches on `algorithmId`: `"opr"` is
- * event-scoped (D-09), `"epa"` and `"spr"` are team-scoped.
+ * Converts one algorithm's in-memory state into `StateRow`s ready for a D1
+ * seed (`emitSeedSql`). Dispatches on `algorithmId`: `"opr"` is
+ * event-scoped, `"epa"` and `"spr"` are team-scoped.
  *
  * Any other id throws `UnknownStateAlgorithmError`, because a silent default
  * branch once reinterpreted an unbranched algorithm's state as another model's
  * shape and crashed deep inside the wrong serializer instead of naming the id.
- *
- * 260912-ivg: Stages 1-4 held the premier branch below as transitionally
- * dual-name (matching either the pre-rename id or `spr`) rather than a
- * single equality check, so a Worker deployed anywhere in the cutover
- * window — reading D1 rows written under either id — still dispatched to
- * the SAME branch. Stage 5 (this edit) removes the retired half of that
- * dispatch, once `PUBLISHED_ALGORITHM_IDS` itself moved to `spr`.
  */
 export function serializeState(
   algorithmId: string,
@@ -1108,7 +778,7 @@ export function serializeState(
   throw new UnknownStateAlgorithmError(algorithmId);
 }
 
-/** The inverse of `serializeState` — reconstructs a state whose `predict()`/`update()` behavior is identical to the state it came from, for a matching (possibly partial, D-13) set of rows. Throws `MissingLeagueRowError` when no `scopeKind: "league"` row is present. */
+/** The inverse of `serializeState` — reconstructs a state whose `predict()`/`update()` behavior is identical to the state it came from, for a matching (possibly partial) set of rows. Throws `MissingLeagueRowError` when no `scopeKind: "league"` row is present. */
 export function deserializeState(algorithmId: string, rows: readonly StateRow[]): EpaState | OprState | SprState {
   if (algorithmId === "opr") return deserializeOprState(algorithmId, rows);
   if (algorithmId === "epa") return deserializeEpaState(algorithmId, rows);
@@ -1117,10 +787,10 @@ export function deserializeState(algorithmId: string, rows: readonly StateRow[])
 }
 
 // ---------------------------------------------------------------------------
-// Task 3: the D1 bulk seed emitter
+// The D1 bulk seed emitter
 // ---------------------------------------------------------------------------
 
-/** Every string field going into a SQL string literal is escaped by doubling its single quotes — the `state_json` blobs are arbitrary JSON text (T-04-14), and the other string fields (event/team keys, generation, ids) are treated with the same discipline defensively. */
+/** Every string field going into a SQL string literal is escaped by doubling its single quotes — the `state_json` blobs are arbitrary JSON text, and the other string fields (event/team keys, generation, ids) are treated with the same discipline defensively. */
 function escapeSqlString(value: string): string {
   return value.replace(/'/g, "''");
 }
@@ -1138,20 +808,10 @@ function sqlRowTuple(row: StateRow): string {
 /**
  * D1's hard per-statement cap is **100,000 bytes**, and `wrangler d1 execute
  * --file` fails the whole import with `statement too long: SQLITE_TOOBIG` if
- * any single statement exceeds it.
- *
- * This was previously 4,000,000, citing 04-RESEARCH.md's "~7.5 MB practical
- * breaking point" — 40x over the real limit. Every seed this project has ever
- * emitted was therefore unimportable, and nobody noticed because no plan in
- * Phase 4 ever ran the import: 04-03 wrote this emitter, 04-04 generated the
- * files, 04-05 built the reader and 04-06 built the tick, while
- * `docs/publish-budget.md` documented the re-baseline procedure as if it
- * worked. Measured failure (plan 04-07, 2026-08-22): opr 2.14 MB longest
- * statement, epa 0.48 MB, sigma1 2.24 MB — all rejected.
- *
- * 90,000 leaves ~10 KB of headroom under the cap for the `INSERT INTO ... VALUES`
- * prefix and the trailing semicolon, so a statement assembled right at the
- * budget still lands comfortably inside D1's limit.
+ * any single statement exceeds it. 90,000 leaves ~10 KB of headroom under
+ * the cap for the `INSERT INTO ... VALUES` prefix and the trailing
+ * semicolon, so a statement assembled right at the budget still lands
+ * comfortably inside D1's limit.
  */
 export const DEFAULT_MAX_STATEMENT_LENGTH = 90_000;
 
@@ -1164,19 +824,11 @@ const DEFAULT_MAX_ROWS_PER_INSERT = 500;
  * Thrown when one `StateRow`'s own value tuple exceeds `maxStatementLength`.
  *
  * Batching cannot help: a single row is the smallest thing an `INSERT` can
- * carry, so no chunking strategy makes an over-limit row fit. Before this
- * threw, the emitter's `currentTuples.length > 0` guard meant such a row was
- * simply written out as its own over-limit statement — producing a `.sql`
- * file that looked fine and failed only at import time, far from the code
- * that caused it.
- *
- * Hitting this means per-key data is being stored in a row that should hold
- * aggregates. The two known cases, both measured in plan 04-07, are sigma1's
- * `priorSeasonRatings` (245.8 KB of a 253.1 KB `league` row) and opr's
- * `lastEventByTeam` — per-team maps living in a `scopeKind: "league"` row.
- * The fix is to move that data into `scopeKind: "team"` rows, which is also
- * what D-13 requires so a tick reads only the keys it is folding rather than
- * parsing the whole league every minute.
+ * carry, so no chunking strategy makes an over-limit row fit. Hitting this
+ * means per-key data is being stored in a row that should hold aggregates
+ * (e.g. a per-team map living in a `scopeKind: "league"` row) — the fix is
+ * to move that data into `scopeKind: "team"` rows, so a tick reads only the
+ * keys it is folding rather than parsing the whole league every minute.
  */
 export class SeedRowTooLargeError extends Error {
   constructor(
@@ -1197,7 +849,7 @@ export class SeedRowTooLargeError extends Error {
 }
 
 export interface EmitSeedSqlOptions {
-  /** The algorithm this seed is for — becomes the `DELETE FROM algorithm_state WHERE algorithm_id = '<id>'` re-baseline guard (D-12: a re-baseline overwrites in place, it does not merge). */
+  /** The algorithm this seed is for — becomes the `DELETE FROM algorithm_state WHERE algorithm_id = '<id>'` re-baseline guard (a re-baseline overwrites in place, it does not merge). */
   readonly algorithmId: string;
   /** Output `.sql` file path. */
   readonly out: string;
@@ -1208,18 +860,17 @@ export interface EmitSeedSqlOptions {
 }
 
 /**
- * D-12: turns `serializeState`'s row output into a `.sql` file `wrangler d1
+ * Turns `serializeState`'s row output into a `.sql` file `wrangler d1
  * execute --file` can import: a leading `DELETE FROM algorithm_state WHERE
- * algorithm_id = '<id>';` guard (a re-baseline is an overwrite, per D-12 —
- * the offline run is the authority, so it replaces rather than merges),
- * then batched multi-row `INSERT INTO algorithm_state (...) VALUES
- * (...),(...),...;` statements, each capped at BOTH `maxRowsPerInsert`
- * value tuples (default 500) AND `maxStatementLength` characters (default a
- * bound well under D1 import's real ~7.5 MB failure point) — whichever
- * limit is reached first starts a new statement. Single quotes in every
- * string field are escaped by doubling. Performs exactly ONE terminal file
- * write, after every statement is assembled in memory — an interrupted
- * emit leaves no half-file.
+ * algorithm_id = '<id>';` guard (a re-baseline is an overwrite — the offline
+ * run is the authority, so it replaces rather than merges), then batched
+ * multi-row `INSERT INTO algorithm_state (...) VALUES (...),(...),...;`
+ * statements, each capped at BOTH `maxRowsPerInsert` value tuples (default
+ * 500) AND `maxStatementLength` characters — whichever limit is reached
+ * first starts a new statement. Single quotes in every string field are
+ * escaped by doubling. Performs exactly ONE terminal file write, after every
+ * statement is assembled in memory — an interrupted emit leaves no
+ * half-file.
  */
 export function emitSeedSql(rows: readonly StateRow[], options: EmitSeedSqlOptions): void {
   const { algorithmId, out } = options;
