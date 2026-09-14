@@ -40,6 +40,20 @@
  * proved its own non-vacuity by a manual perturb-and-revert recorded in a
  * SUMMARY; this file automates the equivalent, so the evidence re-runs on every
  * CI pass instead of living in a document.
+ *
+ * ---------------------------------------------------------------------------
+ * GAUSSIAN-DECLARED VARIANTS, 2026-09-14 (quick task 260914-01x, Task 5)
+ * ---------------------------------------------------------------------------
+ *
+ * Every real season module declares `"lattice"` since lattice+meanShift
+ * shipped (`data/baselines/rp-bonus-arms-2026-09.json`, accepted by the
+ * committed bonus-arm bar with the lowest pooled total-RP RPS). The grid now
+ * runs against gaussian-declared variants of the real modules
+ * (`gaussianDeclared` below), so this file characterizes the RETAINED
+ * Gaussian engine. The JSON is NOT regenerated: the grid did not change, and
+ * the Gaussian engine must still reproduce it byte for byte. Lattice
+ * arithmetic is covered by the hand-computed `analyticPmf.lattice.test.ts`
+ * and `marginals.lattice.test.ts`.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -50,7 +64,13 @@ import {
   GOLDEN_GRID_VERSION,
   type BonusPmfGoldenRow,
 } from "./analyticPmfFixtures.js";
-import { RP_REGISTERED_SEASONS, rpRuleModuleForSeason } from "./rules.js";
+import { RP_REGISTERED_SEASONS, rpRuleModuleForSeason, type RpRuleModule } from "./rules.js";
+
+/** The real season module with every threshold variable declared `"gaussian"` — see this file's header. */
+function gaussianDeclared(season: number): RpRuleModule {
+  const ruleModule = rpRuleModuleForSeason(season);
+  return { ...ruleModule, thresholdVariables: ruleModule.thresholdVariables.map((v) => ({ ...v, marginalFamily: "gaussian" as const })) };
+}
 
 interface GoldenFile {
   readonly gridVersion: number;
@@ -83,7 +103,7 @@ describe("analyticPmfGolden — the oracle's own shape", () => {
 });
 
 describe.each(RP_REGISTERED_SEASONS)("analyticPmfGolden — season %i", (season) => {
-  const ruleModule = rpRuleModuleForSeason(season);
+  const ruleModule = gaussianDeclared(season);
 
   describe.each(GOLDEN_EVENT_TYPES)("event type %i", (eventType) => {
     const committed = golden.cells[cellKey(season, eventType)]!;
@@ -142,7 +162,7 @@ describe("analyticPmfGolden — the oracle is sensitive to its own inputs (autom
     "season %i: a 1.01x mean perturbation changes at least one committed bonus probability",
     (season) => {
       const committed = golden.cells[cellKey(season, 0)]!;
-      const perturbed = buildBonusPmfGoldenRows(rpRuleModuleForSeason(season), 0, 1.01);
+      const perturbed = buildBonusPmfGoldenRows(gaussianDeclared(season), 0, 1.01);
       const differing: string[] = [];
       for (let r = 0; r < committed.length; r++) {
         const row = committed[r]!;

@@ -72,20 +72,21 @@ function rotorCount(autoRotorPoints: number, teleopRotorPoints: number): number 
   return autoRotorPoints / AUTO_ROTOR_POINTS_PER_ROTOR + teleopRotorPoints / TELEOP_ROTOR_POINTS_PER_ROTOR;
 }
 
-// Gaussian marginals for all four variables; see constants.ts's
-// `MarginalFamily` doc for the evidence-class framework.
+// 2026-09-14, quick task 260914-01x: every variable below declares "lattice",
+// shipped by the committed bonus-arm bar (data/baselines/rp-bonus-arms-2026-09.json,
+// ship: lattice+meanShift). Any other family named above is history.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "autoFuelPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: no fuel cap.
     lattice: { step: 1, min: 0 },
   },
   {
     name: "teleopFuelPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: no fuel cap.
     lattice: { step: 1, min: 0 },
   },
@@ -94,14 +95,14 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "autoRotorPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: 60 per rotor turning at end of AUTO; AUTO gears (three preloads plus the reserve) finish rotors 1 and 2 only.
     lattice: { step: 60, min: 0, max: 120 },
   },
   {
     name: "teleopRotorPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: 40 per rotor, 4 rotors, counted apart from AUTO rotors.
     lattice: { step: 40, min: 0, max: 160 },
   },

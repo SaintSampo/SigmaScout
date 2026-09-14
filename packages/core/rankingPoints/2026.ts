@@ -71,18 +71,21 @@ const TRAVERSAL_THRESHOLD: RpTieredThreshold = { base: 50, districtChampionship:
 // explicitly names "every points-unit variable" as covered, per A2). See
 // constants.ts's `MarginalFamily` doc comment for the evidence-class
 // framework.
+// 2026-09-14, quick task 260914-01x: every variable below declares "lattice",
+// shipped by the committed bonus-arm bar (data/baselines/rp-bonus-arms-2026-09.json,
+// ship: lattice+meanShift). Any other family named above is history.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "hubTotalCount",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: manual sets no FUEL cap.
     lattice: { step: 1, min: 0 },
   },
   {
     name: "totalTowerPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: Table 6-4: AUTO LEVEL 1 15 (2 ROBOTS max); TELEOP LEVEL 1/2/3 10/20/30 per robot: 2 x 15 + 3 x 30.
     lattice: { step: 5, min: 0, max: 120 },
   },

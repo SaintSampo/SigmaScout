@@ -85,7 +85,7 @@ describe.each(RP_REGISTERED_SEASONS)("season %i RP rule module shape", (season) 
 
   it("every threshold variable's marginalFamily is a member of the MarginalFamily union (per-season smoke check; the cross-season PINNED list lives in its own describe block below, 09-05 Task 3)", () => {
     for (const v of module.thresholdVariables) {
-      expect(["gaussian", "negative-binomial"]).toContain(v.marginalFamily);
+      expect(["gaussian", "negative-binomial", "lattice"]).toContain(v.marginalFamily);
     }
   });
 
@@ -159,12 +159,21 @@ describe.each(RP_REGISTERED_SEASONS)("season %i RP rule module shape", (season) 
  * declared family, pinned as a literal array — a new season, a renamed
  * variable or a silently flipped family fails this test with a readable
  * diff, which is the point: family choice is data entry and a new one must
- * be deliberate. As of this plan all 34 declarations name
- * `"gaussian"`. They briefly all named `"negative-binomial"`; that family was
+ * be deliberate. They briefly all named `"negative-binomial"`; that family was
  * measured against the unchanged Gaussian model on 2026-09-11 and REFUSED by
  * the pre-committed per-bonus bar (three cells improved, three regressed, and
- * the bar admits no regression), so every declaration was returned and the
- * family's fit was deleted. See `docs/models/rp-attribution.md`.
+ * the bar admits no regression), so every declaration was returned to
+ * `"gaussian"` and the family's fit was deleted. See
+ * `docs/models/rp-attribution.md`.
+ *
+ * 2026-09-14, quick task 260914-01x: all 34 declarations now name
+ * `"lattice"`. Four arms (control, lattice, meanShift, lattice+meanShift)
+ * were measured on the 2016-2020, 2022 selection slice against the bonus-arm
+ * bar committed before any figure existed, every arm was accepted, and
+ * lattice+meanShift shipped with the lowest pooled total-RP RPS: bonus Brier
+ * 0.179914 to 0.124278, RPS 0.159627 to 0.141956
+ * (`data/baselines/rp-bonus-arms-2026-09.json`). The list below was the
+ * Gaussian list until then; the variables are unchanged, only the family.
  *
  * The list below is the single source of truth this test checks against, kept
  * in the SAME order `RP_REGISTERED_SEASONS` iterates (ascending season,
@@ -173,7 +182,7 @@ describe.each(RP_REGISTERED_SEASONS)("season %i RP rule module shape", (season) 
  * variable was renamed or silently moved between seasons.
  */
 describe("marginalFamily declarations — the exact pinned per-family list", () => {
-  const GAUSSIAN_DECLARATIONS = [
+  const LATTICE_DECLARATIONS = [
     "2016:position1crossings",
     "2016:position2crossings",
     "2016:position3crossings",
@@ -210,8 +219,8 @@ describe("marginalFamily declarations — the exact pinned per-family list", () 
     "2026:totalTowerPoints",
   ] as const;
 
-  it("pins the exact set: 34 total declarations, every one \"gaussian\", none undefined", () => {
-    const byFamily: Record<string, string[]> = { gaussian: [] };
+  it("pins the exact set: 34 total declarations, every one \"lattice\", none undefined", () => {
+    const byFamily: Record<string, string[]> = { lattice: [] };
     let total = 0;
     for (const season of RP_REGISTERED_SEASONS) {
       const module = RP_RULE_MODULES[season]!;
@@ -226,7 +235,8 @@ describe("marginalFamily declarations — the exact pinned per-family list", () 
       }
     }
     expect(total).toBe(34);
-    expect([...byFamily["gaussian"]!].sort()).toEqual([...GAUSSIAN_DECLARATIONS].sort());
+    expect(Object.keys(byFamily)).toEqual(["lattice"]);
+    expect([...byFamily["lattice"]!].sort()).toEqual([...LATTICE_DECLARATIONS].sort());
   });
 });
 

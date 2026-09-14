@@ -56,13 +56,14 @@ const Rp2019Schema = z.object({
 /** HAB Docking Bonus threshold: `habClimbPoints >= 15`. Not tiered — flatness measured. */
 const HAB_DOCKING_THRESHOLD: RpTieredThreshold = { base: 15, districtChampionship: 15, championship: 15 };
 
-// Gaussian marginal; see constants.ts's `MarginalFamily` doc for the
-// evidence-class framework.
+// 2026-09-14, quick task 260914-01x: every variable below declares "lattice",
+// shipped by the committed bonus-arm bar (data/baselines/rp-bonus-arms-2026-09.json,
+// ship: lattice+meanShift). Any other family named above is history.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "habClimbPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: HAB climb 3/6/12 per robot, 3 robots.
     lattice: { step: 3, min: 0, max: 36 },
   },

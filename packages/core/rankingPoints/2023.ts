@@ -73,18 +73,21 @@ const LINK_POINTS_PER_LINK = 5;
 // integer-valued with ZERO exceptions across 27,116 alliance-sides. See
 // constants.ts's `MarginalFamily` doc comment for the evidence-class
 // framework.
+// 2026-09-14, quick task 260914-01x: every variable below declares "lattice",
+// shipped by the committed bonus-arm bar (data/baselines/rp-bonus-arms-2026-09.json,
+// ship: lattice+meanShift). Any other family named above is history.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "totalChargeStationPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: Table 6-2: AUTO DOCKED 8 / ENGAGED 12 (1 ROBOT max); endgame PARK 2 / DOCKED 6 / ENGAGED 10 per robot; gcd 2.
     lattice: { step: 2, min: 0, max: 42 },
   },
   {
     name: "linkPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: Table 6-2: LINK 5; 3 ROWS of 9 NODES, so 9 links.
     lattice: { step: 5, min: 0, max: 45 },
   },

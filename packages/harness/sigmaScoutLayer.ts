@@ -102,8 +102,10 @@ export class SigmaScoutLayer {
    */
   readonly #rpMarginalResolutionTally: MarginalResolutionTally = emptyMarginalResolutionTally();
   /**
-   * The walk-forward mean shift, present ONLY when the measurement arm asks
-   * for it AND this layer publishes ranking points. See `measurementArms`.
+   * The walk-forward mean shift (`meanShift.ts`), present whenever this layer
+   * publishes ranking points. Shipped 2026-09-14 (quick task 260914-01x) as
+   * half of lattice+meanShift, the arm the committed bonus-arm bar accepted
+   * (`data/baselines/rp-bonus-arms-2026-09.json`).
    */
   readonly #rpMeanShift: RpMeanShiftAccumulator | undefined;
 
@@ -118,33 +120,20 @@ export class SigmaScoutLayer {
    * constructed only when `ruleModule` is defined AND
    * `publishesRankingPoints(algorithmId)`. It is OPTIONAL: with no algorithm id
    * the layer has no Sigma, no RP and no band — every feature is opt-in by id,
-   * never the silent default.
-   *
-   * `measurementArms` is MEASUREMENT-ONLY, for quick task 260914-01x's
-   * bonus-arm measurement. No publisher passes it, and it is deleted at ship
-   * time: whichever arm the bar accepts becomes unconditional, and the rest
-   * goes. `rpMeanShift: true` turns on the walk-forward mean shift
-   * (`meanShift.ts`). Absent, no accumulator is built and no code path changes.
+   * never the silent default. The walk-forward mean shift is built beside
+   * the RP accumulator, under the same condition.
    */
-  constructor(
-    ruleModule: RpRuleModule | undefined,
-    algorithmId?: string,
-    measurementArms?: { readonly rpMeanShift?: boolean }
-  ) {
+  constructor(ruleModule: RpRuleModule | undefined, algorithmId?: string) {
     const rankingPoints = algorithmId !== undefined && publishesRankingPoints(algorithmId);
     this.#ruleModule = rankingPoints ? ruleModule : undefined;
     this.#rp = rankingPoints && ruleModule !== undefined ? new RpMomentsAccumulator(ruleModule) : undefined;
-    this.#rpMeanShift =
-      measurementArms?.rpMeanShift === true && this.#rp !== undefined && ruleModule !== undefined
-        ? new RpMeanShiftAccumulator(ruleModule)
-        : undefined;
+    this.#rpMeanShift = rankingPoints && ruleModule !== undefined ? new RpMeanShiftAccumulator(ruleModule) : undefined;
     this.#sigma = algorithmId !== undefined && usesSigmaScore(algorithmId) ? new SigmaScoreAccumulator() : undefined;
   }
 
   /**
-   * The mean shift's running state, or `undefined` when the knob is off (or
-   * the layer publishes no ranking points). A snapshot: mutating it never
-   * reaches the layer.
+   * The mean shift's running state, or `undefined` when the layer publishes
+   * no ranking points. A snapshot: mutating it never reaches the layer.
    */
   rpMeanShiftState(): RpMeanShiftState | undefined {
     return this.#rpMeanShift?.toState();
@@ -377,7 +366,7 @@ export class SigmaScoutLayer {
     redBandVariance: number | undefined,
     blueBandVariance: number | undefined
   ): Partial<Prediction> {
-    if (this.#rp === undefined || this.#ruleModule === undefined) return {};
+    if (this.#rp === undefined || this.#ruleModule === undefined || this.#rpMeanShift === undefined) return {};
     if (!isRpEligibleEventType(match.eventType)) return {};
     if (redBandVariance === undefined || blueBandVariance === undefined) return {};
 
@@ -386,8 +375,10 @@ export class SigmaScoutLayer {
     const red = rp.momentsFor(match.redTeams, prediction.redScore, redBandVariance);
     const blue = rp.momentsFor(match.blueTeams, prediction.blueScore, blueBandVariance);
     const pmf = analyticRpPmf({
-      red: shift === undefined ? red : shift.apply(red, rosterIsFullyWarm(rp, match.redTeams)),
-      blue: shift === undefined ? blue : shift.apply(blue, rosterIsFullyWarm(rp, match.blueTeams)),
+      // The shift applies only to a fully-warm roster; otherwise `apply`
+      // returns the very moments object it was given.
+      red: shift.apply(red, rosterIsFullyWarm(rp, match.redTeams)),
+      blue: shift.apply(blue, rosterIsFullyWarm(rp, match.blueTeams)),
       ruleModule: this.#ruleModule,
       eventType: match.eventType,
       compLevel: match.compLevel,

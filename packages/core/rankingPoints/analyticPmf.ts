@@ -25,7 +25,18 @@
  * the test suite asserts the correct answer is not the independent product.
  *
  * The model this file implements:
- *   - each threshold variable's marginal is Gaussian;
+ *   - each threshold variable's marginal is the lattice family its season
+ *     module declares (2026-09-14, quick task 260914-01x): a bounded
+ *     beta-binomial/binomial where the rules cap the value, otherwise a
+ *     Gaussian discretized onto the rule step. A clause that sums several
+ *     terms, or divides one, is evaluated by exact lattice convolution
+ *     rather than by refitting combined moments. The Gaussian and
+ *     negative-binomial branches stay for re-measurement only;
+ *   - the alliance means those marginals are fitted from carry the
+ *     walk-forward mean shift (`meanShift.ts`), applied by the caller before
+ *     this module sees them. Both shipped together as lattice+meanShift, the
+ *     arm the committed bonus-arm bar accepted with the lowest pooled
+ *     total-RP RPS (`data/baselines/rp-bonus-arms-2026-09.json`);
  *   - the win/tie/loss split comes from the difference of the two
  *     alliances' independent Gaussian score distributions, `D = redScore -
  *     blueScore`. A tie is the event that the real, integer-valued margin

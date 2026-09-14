@@ -114,39 +114,42 @@ const AUTO_CORAL_REQUIRED = 1;
 // — MEASURED evidence class (09-RESEARCH.md's broader corpus probe). See
 // constants.ts's `MarginalFamily` doc comment for the evidence-class
 // framework.
+// 2026-09-14, quick task 260914-01x: every variable below declares "lattice",
+// shipped by the committed bonus-arm bar (data/baselines/rp-bonus-arms-2026-09.json,
+// ship: lattice+meanShift). Any other family named above is history.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "trough",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: manual sets no L1 limit.
     lattice: { step: 1, min: 0 },
   },
   {
     name: "botRow",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: 12 BRANCHES per level.
     lattice: { step: 1, min: 0, max: 12 },
   },
   {
     name: "midRow",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: 12 BRANCHES per level.
     lattice: { step: 1, min: 0, max: 12 },
   },
   {
     name: "topRow",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: 12 BRANCHES per level.
     lattice: { step: 1, min: 0, max: 12 },
   },
   {
     name: "endGameBargePoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: Table 6-2: PARK 2 / SHALLOW 6 / DEEP 12 per robot.
     lattice: { step: 2, min: 0, max: 36 },
   },
@@ -160,14 +163,14 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "autoLineCount",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: 3 robots.
     lattice: { step: 1, min: 0, max: 3 },
   },
   {
     name: "autoCoralCount",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: no AUTO coral limit.
     lattice: { step: 1, min: 0 },
   },

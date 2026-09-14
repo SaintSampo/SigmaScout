@@ -66,8 +66,9 @@
  * A measurement-only second arm whose ELIGIBLE threshold variables declare
  * `"negative-binomial"` instead of `"gaussian"`. NOT a selectable production
  * surface: there is one production model, and the arm is a variant rule
- * module handed to a second `SigmaScoutLayer`, while every season module
- * still declares `"gaussian"`. See the block above
+ * module handed to a second `SigmaScoutLayer`. (Written when every season
+ * module declared `"gaussian"`; since 2026-09-14, quick task 260914-01x,
+ * they declare `"lattice"`, so a re-run compares NB against lattice.) See the block above
  * `assertMarginalArmSliceAllowed` for the full design and for why the
  * 2023-2026 reporting slice is refused by construction.
  *
@@ -75,7 +76,6 @@
  *   npx tsx scripts/measureRpCalibration.ts [--seasons 2024-2026] [--algorithm spr] [--emit-artifact <path>] [--marginal-arm]
  */
 
-import { execFileSync } from "node:child_process";
 import { statSync, writeFileSync } from "node:fs";
 import { z } from "zod";
 import { pathToFileURL } from "node:url";
@@ -99,7 +99,6 @@ import {
 } from "../packages/harness/publish.js";
 import { emptyMarginalResolutionTally, pmfMean, type MarginalResolutionTally } from "../packages/core/rankingPoints/analyticPmf.js";
 import { isBonusRpCompLevel } from "../packages/core/rankingPoints/constants.js";
-import { RP_MEAN_SHIFT_WARMUP_OBSERVATIONS, rosterIsFullyWarm, type RpMeanShiftState } from "../packages/core/rankingPoints/meanShift.js";
 import type { Prediction } from "../packages/core/algorithms/types.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
@@ -381,8 +380,8 @@ export function deriveMarginalArmEligibility(ruleModule: RpRuleModule): Marginal
 /**
  * Builds the NB arm's VARIANT RULE MODULE by spreading the real one and
  * flipping `marginalFamily` on the ELIGIBLE variables only. The original
- * module is never mutated, and every poisoned variable keeps declaring
- * `"gaussian"`.
+ * module is never mutated, and every poisoned variable keeps its production
+ * family (`"lattice"` since 2026-09-14, quick task 260914-01x).
  *
  * An object spread drops the prototype, which is safe here because no season
  * module's `parse` or `evaluateBonuses` uses `this` — verified by grepping
@@ -744,22 +743,21 @@ export const RpOutcomeArmRecordSchema = z.object({
 export type RpOutcomeArmRecord = z.infer<typeof RpOutcomeArmRecordSchema>;
 
 // ---------------------------------------------------------------------------
-// `--bonus-arms`: THE FOUR-ARM BONUS MEASUREMENT (quick task 260914-01x, Task 3)
+// THE BONUS-ARM COMPARISON'S READER HALF (quick task 260914-01x)
 // ---------------------------------------------------------------------------
 //
-// MEASUREMENT-ONLY, deleted at ship time except for the reader half (the bar,
-// `RpBonusArmRecordSchema`, the slice and algorithm guards). One replay per
-// season, folded through four `SigmaScoutLayer`s:
+// The `--bonus-arms` measurement that produced the committed record
+// (`data/baselines/rp-bonus-arms-2026-09.json`, ship: lattice+meanShift) was
+// deleted at ship time, 2026-09-14, with its four-layer fold, its lattice
+// variant module and its outcome-half identity check: lattice marginals and
+// the walk-forward mean shift are now the model's unconditional behavior.
 //
-//   control            the ordinary two-argument layer (the published scorer)
-//   lattice            the lattice variant rule module (`ruleModuleWithLatticeArm`)
-//   meanShift          the real module with `{ rpMeanShift: true }`
-//   lattice+meanShift  the variant module with `{ rpMeanShift: true }`
-//
-// EVERY record folds through every layer (260913-qyn's af3e54e4 lesson: a layer
-// that skips elimination matches drifts from control). Only scoring is
-// qualification-only, through the same helpers and gates the published
-// scorecard uses. The outcome half is asserted identical on every folded record.
+// What remains is the READER half: `applyRpBonusArmBar` (above), the slice
+// and algorithm guards and `RpBonusArmRecordSchema` (below). Any future
+// bonus-arm re-measurement must reuse them rather than re-deriving the
+// selection slice or the acceptance rule, and `measureRpCalibration.test.ts`
+// re-applies the bar to the committed record to prove its verdict was never
+// hand-transcribed.
 
 /** The first season of the reserved reporting slice, on the bonus-arm axis. Same 2023 boundary as the other two arm guards. */
 export const RP_BONUS_ARM_FORBIDDEN_FROM_SEASON = 2023;
@@ -779,77 +777,14 @@ export function assertBonusArmSliceAllowed(parsedSeasons: readonly number[]): vo
   const forbidden = parsedSeasons.filter((s) => s >= RP_BONUS_ARM_FORBIDDEN_FROM_SEASON);
   if (forbidden.length === 0) return;
   throw new Error(
-    `--bonus-arms refuses season(s) ${forbidden.join(", ")}: this comparison runs on the SELECTION SLICE only — ${RP_BONUS_ARM_SELECTION_SEASONS.join(", ")} — never the ${RP_BONUS_ARM_FORBIDDEN_FROM_SEASON}-2026 reporting slice. A spec that merely spans the reporting slice is refused rather than trimmed. There is no override flag, deliberately.`
+    `a bonus-arm measurement refuses season(s) ${forbidden.join(", ")}: this comparison runs on the SELECTION SLICE only — ${RP_BONUS_ARM_SELECTION_SEASONS.join(", ")} — never the ${RP_BONUS_ARM_FORBIDDEN_FROM_SEASON}-2026 reporting slice. A spec that merely spans the reporting slice is refused rather than trimmed. There is no override flag, deliberately.`
   );
 }
 
 /** Requires the resolved algorithm list to be exactly `["spr"]`, the only algorithm with ranking-point odds. */
 export function assertBonusArmAlgorithmAllowed(algorithmIds: readonly string[]): void {
   if (algorithmIds.length === 1 && algorithmIds[0] === "spr") return;
-  throw new Error(`--bonus-arms requires the resolved algorithm list to be exactly ["spr"], got [${algorithmIds.join(", ")}] — pass --algorithm spr explicitly`);
-}
-
-/** Refuses flag combinations that would mix measurements: `--bonus-arms` with `--marginal-arm`, or `--emit-bonus-arms` without `--bonus-arms`. */
-export function assertBonusArmFlagsAllowed(args: readonly string[]): void {
-  if (args.includes("--bonus-arms") && args.includes("--marginal-arm")) {
-    throw new Error(`--bonus-arms cannot be combined with --marginal-arm: each arm measurement runs alone`);
-  }
-  if (args.includes("--emit-bonus-arms") && !args.includes("--bonus-arms")) {
-    throw new Error(`--emit-bonus-arms requires --bonus-arms`);
-  }
-}
-
-/**
- * The lattice arm's variant rule module: every threshold variable declares
- * `"lattice"`. The original module is never mutated. Its declared lattice
- * supports are already rule facts on every variable. An object spread drops
- * the prototype, safe for the same reason `ruleModuleWithMarginalArm` gives.
- */
-export function ruleModuleWithLatticeArm(ruleModule: RpRuleModule): RpRuleModule {
-  return {
-    ...ruleModule,
-    thresholdVariables: ruleModule.thresholdVariables.map((v) => ({ ...v, marginalFamily: "lattice" as const })),
-  };
-}
-
-const OUTCOME_HALF_FIELDS = ["matchOutcomePmf", "redOutcomeRp", "blueOutcomeRp"] as const;
-
-/**
- * Throws when an arm's outcome half differs from control's on one folded
- * record: a presence difference, a length difference, or any elementwise
- * `!==`. The arms change only the bonus half, so any difference voids the run.
- */
-export function assertOutcomeHalfIdentical(control: Prediction, arm: Prediction, matchKey: string, armName: string): void {
-  for (const field of OUTCOME_HALF_FIELDS) {
-    const c = control[field];
-    const a = arm[field];
-    if ((c === undefined) !== (a === undefined)) {
-      throw new Error(`--bonus-arms: arm "${armName}" at ${matchKey}: ${field} is ${a === undefined ? "absent" : "present"} but control's is ${c === undefined ? "absent" : "present"} — outcome half differs, comparison void`);
-    }
-    if (c === undefined || a === undefined) continue;
-    if (c.length !== a.length) {
-      throw new Error(`--bonus-arms: arm "${armName}" at ${matchKey}: ${field} length ${a.length} against control's ${c.length} — outcome half differs, comparison void`);
-    }
-    for (let i = 0; i < c.length; i++) {
-      if (c[i] !== a[i]) {
-        throw new Error(`--bonus-arms: arm "${armName}" at ${matchKey}: ${field}[${i}] = ${a[i]} against control's ${c[i]} — outcome half differs, comparison void`);
-      }
-    }
-  }
-}
-
-/** A bonus cell's class, derived from its predicate: how many distinct threshold variables it reads. */
-export type BonusCellClass = "multi-variable" | "single-variable" | "constant";
-
-/**
- * Classifies a bonus by the distinct threshold variables its predicate reads,
- * the tw1 attribution's split. `constant` reads none and is excluded from every
- * pool (its oracle is the outcome by construction).
- */
-export function bonusCellClass(predicate: BonusPredicate): BonusCellClass {
-  if (predicate.kind === "constant") return "constant";
-  const variables = new Set(clausesOf(predicate).flatMap((c) => c.terms.map((t) => t.variable)));
-  return variables.size > 1 ? "multi-variable" : "single-variable";
+  throw new Error(`a bonus-arm measurement requires the resolved algorithm list to be exactly ["spr"], got [${algorithmIds.join(", ")}] — pass --algorithm spr explicitly`);
 }
 
 const MarginalResolutionTallySchema = z.object({
@@ -928,7 +863,7 @@ const BonusArmRecordArmSchema = z.object({
   perCell: z.array(BonusArmCellSchema),
 });
 
-/** `--emit-bonus-arms`'s committed record. `ship` is the bar's own choice over `arms[].pooled`, stored, and re-derived by a test. */
+/** The committed bonus-arm record's shape. `ship` is the bar's own choice over `arms[].pooled`, stored, and re-derived by a test. */
 export const RpBonusArmRecordSchema = z.object({
   measuredAt: z.string().min(1),
   command: z.string().min(1),
@@ -981,270 +916,6 @@ function mergeMarginalResolutionTally(into: MarginalResolutionTally, from: Margi
 
 function formatTally(t: MarginalResolutionTally): string {
   return `negativeBinomial=${t.negativeBinomial}  gaussian=${t.gaussian}  degenerate=${t.degenerate}  lattice=${t.lattice}  (fallbacks counted separately: ${t.fallbacks})`;
-}
-
-function gitRead(args: readonly string[]): string {
-  return execFileSync("git", [...args], { encoding: "utf8" }).trim();
-}
-
-/** One season's accumulated observations for one arm. */
-interface BonusArmSeasonAccumulator {
-  readonly perBonus: Observation[][];
-  readonly totalRp: TotalRpObservation[];
-  scoredSides: number;
-  shiftedSides: number;
-  readonly activatedAfterMatch: Map<string, string>;
-}
-
-/** The bonus-arm layers for one season, and their per-season accumulators. */
-interface BonusArmSeason {
-  readonly layers: ReadonlyMap<Exclude<BonusArmName, "control">, SigmaScoutLayer>;
-  readonly acc: ReadonlyMap<BonusArmName, BonusArmSeasonAccumulator>;
-}
-
-function newBonusArmSeasonAccumulator(bonusCount: number): BonusArmSeasonAccumulator {
-  return { perBonus: Array.from({ length: bonusCount }, () => []), totalRp: [], scoredSides: 0, shiftedSides: 0, activatedAfterMatch: new Map() };
-}
-
-/** True when `layer`'s mean shift will move this roster's pmf: fully warm and at least one variable at the warmup, both read before the fold. */
-function meanShiftWillApply(layer: SigmaScoutLayer, roster: readonly string[]): boolean {
-  const state = layer.rpMeanShiftState();
-  const beliefs = layer.rpAccumulator;
-  if (state === undefined || beliefs === undefined) return false;
-  if (!rosterIsFullyWarm(beliefs, roster)) return false;
-  return Object.values(state.variables).some((v) => v.count >= RP_MEAN_SHIFT_WARMUP_OBSERVATIONS);
-}
-
-function pool(armObs: readonly Observation[], controlObs: readonly Observation[]): z.infer<typeof BonusArmPoolSchema> {
-  if (armObs.length === 0) return { n: 0, observed: null, meanPredicted: null, brier: null, gapClosedShare: null };
-  const observed = rate(armObs);
-  const armMean = meanPredicted(armObs);
-  const controlMean = meanPredicted(controlObs);
-  const gap = observed - controlMean;
-  return {
-    n: armObs.length,
-    observed,
-    meanPredicted: armMean,
-    brier: brier(armObs),
-    gapClosedShare: Math.abs(gap) < 1e-12 ? null : (armMean - controlMean) / gap,
-  };
-}
-
-/** One season's measured figures for the four bonus arms, as `main` collects them. */
-interface BonusArmSeasonResult {
-  readonly season: number;
-  readonly ruleModule: RpRuleModule;
-  readonly acc: ReadonlyMap<BonusArmName, BonusArmSeasonAccumulator>;
-  readonly tallies: ReadonlyMap<BonusArmName, MarginalResolutionTally>;
-  readonly meanShiftStates: ReadonlyMap<BonusArmName, RpMeanShiftState>;
-}
-
-function fmt4(x: number | null | undefined): string {
-  return x === null || x === undefined || !Number.isFinite(x) ? "—" : x.toFixed(4);
-}
-
-function fmtSigned(x: number | null | undefined, digits = 4): string {
-  if (x === null || x === undefined || !Number.isFinite(x)) return "—";
-  return `${x >= 0 ? "+" : ""}${x.toFixed(digits)}`;
-}
-
-function fmtShare(x: number | null | undefined): string {
-  return x === null || x === undefined || !Number.isFinite(x) ? "—" : `${(x * 100).toFixed(1)}%`;
-}
-
-/**
- * Pools every season's observations per arm, prints the per-season, per-cell,
- * rotor and resolution reports (all "reported, not a gate"), applies the
- * committed bar to the pooled figures, and returns the record's arm-dependent
- * half. The bar is the ONLY thing that decides `ship`.
- */
-function summarizeBonusArms(seasons: readonly BonusArmSeasonResult[]): Pick<RpBonusArmRecord, "arms" | "rotorCheck" | "marginalResolution" | "barVerdicts" | "ship"> {
-  const controlCellObs = (s: BonusArmSeasonResult, i: number): readonly Observation[] => s.acc.get("control")!.perBonus[i]!;
-
-  const arms = BONUS_ARM_NAMES.map((arm) => {
-    const allBonus: Observation[] = [];
-    const allTotalRp: TotalRpObservation[] = [];
-    const multiArm: Observation[] = [];
-    const multiControl: Observation[] = [];
-    const singleArm: Observation[] = [];
-    const singleControl: Observation[] = [];
-    const tally = emptyMarginalResolutionTally();
-    const perSeason: z.infer<typeof BonusArmSeasonSchema>[] = [];
-    const perCell: z.infer<typeof BonusArmCellSchema>[] = [];
-
-    for (const s of seasons) {
-      const acc = s.acc.get(arm)!;
-      const seasonBonus = acc.perBonus.flat();
-      allBonus.push(...seasonBonus);
-      allTotalRp.push(...acc.totalRp);
-      const seasonTally = s.tallies.get(arm)!;
-      mergeMarginalResolutionTally(tally, seasonTally);
-
-      for (const predicate of s.ruleModule.bonusPredicates) {
-        const index = s.ruleModule.bonusNames.indexOf(predicate.name);
-        const obs = acc.perBonus[index] ?? [];
-        const controlObs = controlCellObs(s, index);
-        if (obs.length === 0) continue;
-        const cellClass = bonusCellClass(predicate);
-        if (cellClass === "multi-variable") {
-          multiArm.push(...obs);
-          multiControl.push(...controlObs);
-        } else if (cellClass === "single-variable") {
-          singleArm.push(...obs);
-          singleControl.push(...controlObs);
-        }
-        const cellPool = pool(obs, controlObs);
-        perCell.push({
-          season: s.season,
-          bonus: predicate.name,
-          cellClass,
-          n: obs.length,
-          observed: cellPool.observed!,
-          meanPredicted: cellPool.meanPredicted!,
-          brier: cellPool.brier!,
-          gapClosedShare: arm === "control" ? null : cellPool.gapClosedShare,
-        });
-      }
-
-      const state = s.meanShiftStates.get(arm);
-      const seasonTotal = buildTotalRpSummary(acc.totalRp);
-      perSeason.push({
-        season: s.season,
-        bonusCount: seasonBonus.length,
-        bonusBrier: seasonBonus.length === 0 ? null : brier(seasonBonus),
-        meanPredictedBonus: seasonBonus.length === 0 ? null : meanPredicted(seasonBonus),
-        observedBonusRate: seasonBonus.length === 0 ? null : rate(seasonBonus),
-        ...(seasonTotal !== undefined ? { totalRp: seasonTotal } : {}),
-        marginalResolution: { ...seasonTally },
-        ...(state !== undefined
-          ? {
-              meanShift: {
-                scoredSides: acc.scoredSides,
-                shiftedSides: acc.shiftedSides,
-                variables: Object.fromEntries(
-                  Object.entries(state.variables).map(([name, v]) => [
-                    name,
-                    { finalCount: v.count, finalMeanResidual: v.count === 0 ? null : v.sum / v.count, activatedAfterMatch: acc.activatedAfterMatch.get(name) ?? null },
-                  ])
-                ),
-              },
-            }
-          : {}),
-      });
-    }
-
-    const totalRp = buildTotalRpSummary(allTotalRp);
-    if (totalRp === undefined || allBonus.length === 0) {
-      throw new Error(`--bonus-arms: arm "${arm}" scored no pooled observations (bonus=${allBonus.length}, totalRp=${allTotalRp.length}) — nothing to judge`);
-    }
-    const multi = pool(multiArm, multiControl);
-    const single = pool(singleArm, singleControl);
-    return {
-      arm,
-      pooled: { arm, bonusCount: allBonus.length, bonusBrier: brier(allBonus), totalRpCount: totalRp.count, totalRpRps: totalRp.rankedProbabilityScore },
-      meanPredictedBonus: meanPredicted(allBonus),
-      observedBonusRate: rate(allBonus),
-      totalRp,
-      multiVariablePool: arm === "control" ? { ...multi, gapClosedShare: null } : multi,
-      singleVariablePool: arm === "control" ? { ...single, gapClosedShare: null } : single,
-      perSeason,
-      perCell,
-      tally,
-    };
-  });
-
-  const control = arms.find((a) => a.arm === "control")!;
-  const bar = applyRpBonusArmBar(arms.map((a) => a.pooled));
-
-  // ---- Reports: reported, not a gate ----
-  console.log(`\n═══ BONUS ARMS — PER SEASON (reported, not a gate) ═══`);
-  for (const s of seasons) {
-    console.log(`── ${s.season} ──`);
-    const c = control.perSeason.find((p) => p.season === s.season)!;
-    for (const a of arms) {
-      const p = a.perSeason.find((x) => x.season === s.season)!;
-      const shift = p.meanShift === undefined ? "" : `  shifted sides ${p.meanShift.shiftedSides}/${p.meanShift.scoredSides}`;
-      console.log(
-        `   ${a.arm.padEnd(18)} bonus n=${p.bonusCount}  Brier=${fmt4(p.bonusBrier)} (${fmtSigned(p.bonusBrier! - c.bonusBrier!)})  ` +
-          `pred/obs bonus=${fmt4(p.meanPredictedBonus)}/${fmt4(p.observedBonusRate)}  ` +
-          `RPS=${fmt4(p.totalRp?.rankedProbabilityScore)} (${fmtSigned((p.totalRp?.rankedProbabilityScore ?? Number.NaN) - (c.totalRp?.rankedProbabilityScore ?? Number.NaN))})  ` +
-          `pred/actual RP=${fmt4(p.totalRp?.meanPredictedRp)}/${fmt4(p.totalRp?.meanActualRp)}${shift}`
-      );
-    }
-    for (const a of arms) {
-      const p = a.perSeason.find((x) => x.season === s.season)!;
-      if (p.meanShift === undefined) continue;
-      const vars = Object.entries(p.meanShift.variables)
-        .map(([name, v]) => `${name}: n=${v.finalCount} mean residual=${fmtSigned(v.finalMeanResidual, 3)} ${v.activatedAfterMatch === null ? "NEVER ACTIVATED" : `activated after ${v.activatedAfterMatch}`}`)
-        .join("; ");
-      console.log(`   ${a.arm} mean shift: ${vars}`);
-    }
-  }
-
-  console.log(`\n═══ BONUS ARMS — PER CELL (reported, not a gate): n, observed, mean predicted, Brier (delta), share of gap closed ═══`);
-  for (const cell of control.perCell) {
-    const row = arms
-      .map((a) => {
-        const x = a.perCell.find((p) => p.season === cell.season && p.bonus === cell.bonus)!;
-        return a.arm === "control"
-          ? `control ${fmt4(x.meanPredicted)} Brier ${fmt4(x.brier)}`
-          : `${a.arm} ${fmt4(x.meanPredicted)} / ${fmtShare(x.gapClosedShare)} / ${fmtSigned(x.brier - cell.brier)}`;
-      })
-      .join("  |  ");
-    console.log(`   ${cell.season} ${cell.bonus} [${cell.cellClass}] n=${cell.n} observed=${fmt4(cell.observed)}  ${row}`);
-  }
-
-  console.log(`\n═══ BONUS ARMS — POOLS (reported, not a gate): mean predicted / share closed / Brier delta ═══`);
-  for (const key of ["multiVariablePool", "singleVariablePool"] as const) {
-    const c = control[key];
-    console.log(
-      `   ${key} n=${c.n} observed=${fmt4(c.observed)} control mean=${fmt4(c.meanPredicted)} Brier=${fmt4(c.brier)}  ` +
-        arms
-          .filter((a) => a.arm !== "control")
-          .map((a) => `${a.arm} ${fmt4(a[key].meanPredicted)} / ${fmtShare(a[key].gapClosedShare)} / ${fmtSigned((a[key].brier ?? Number.NaN) - (c.brier ?? Number.NaN))}`)
-          .join("  |  ")
-    );
-  }
-
-  // 2017 rotor: tw1's shape arm overshot observed. Checked explicitly.
-  const rotorCheck: RpBonusArmRecord["rotorCheck"] = [];
-  const controlRotor = control.perCell.find((p) => p.season === 2017 && p.bonus === "rotor");
-  if (controlRotor !== undefined) {
-    console.log(`\n═══ 2017 rotor OVERSHOOT CHECK (reported, not a gate) ═══`);
-    const controlSide = Math.sign(controlRotor.meanPredicted - controlRotor.observed);
-    for (const a of arms) {
-      const x = a.perCell.find((p) => p.season === 2017 && p.bonus === "rotor")!;
-      const side = Math.sign(x.meanPredicted - x.observed);
-      const overshoot = a.arm !== "control" && side !== 0 && controlSide !== 0 && side !== controlSide;
-      rotorCheck.push({ arm: a.arm, n: x.n, observed: x.observed, meanPredicted: x.meanPredicted, brier: x.brier, overshoot });
-      console.log(
-        `   ${a.arm.padEnd(18)} mean predicted=${fmt4(x.meanPredicted)} observed=${fmt4(x.observed)} Brier=${fmt4(x.brier)} (${fmtSigned(x.brier - controlRotor.brier)})` +
-          `${a.arm === "control" ? "" : `  gap closed ${fmtShare(x.gapClosedShare)}`}${overshoot ? "  OVERSHOOT" : ""}`
-      );
-    }
-  }
-
-  console.log(`\n═══ BONUS ARMS — MARGINAL RESOLUTION per arm (FittedMarginal.resolved) ═══`);
-  for (const a of arms) console.log(`   ${a.arm.padEnd(18)} ${formatTally(a.tally)}`);
-
-  console.log(`\n═══ BONUS ARMS — POOLED FIGURES AND THE COMMITTED BAR (applyRpBonusArmBar) ═══`);
-  for (const a of arms) {
-    const v = bar.verdicts.find((x) => x.arm === a.arm)!;
-    console.log(
-      `   ${a.arm.padEnd(18)} bonus n=${a.pooled.bonusCount} Brier=${a.pooled.bonusBrier.toFixed(6)} (${fmtSigned(v.bonusBrierDelta, 6)})  ` +
-        `total-RP n=${a.pooled.totalRpCount} RPS=${a.pooled.totalRpRps.toFixed(6)} (${fmtSigned(v.rpsDelta, 6)})  ` +
-        `${a.arm === "control" ? "(control)" : v.accepted ? "ACCEPTED" : "rejected"}`
-    );
-  }
-  console.log(`   SHIP: ${bar.ship}`);
-
-  return {
-    arms: arms.map(({ tally: _tally, ...rest }) => rest),
-    rotorCheck,
-    marginalResolution: Object.fromEntries(arms.map((a) => [a.arm, { ...a.tally }])),
-    barVerdicts: [...bar.verdicts],
-    ship: bar.ship,
-  };
 }
 
 /**
@@ -1501,9 +1172,13 @@ export const RP_DOT_THRESHOLD_DEFAULT = 0.5;
  *
  * `data/baselines/rp-calibration-2026-09b.json` (frozen, pre-WIN+TIE) pins
  * the OLD literal instead of this constant — see
- * `measureRpCalibration.test.ts`'s own comment on that pin.
+ * `measureRpCalibration.test.ts`'s own comment on that pin. So does
+ * `-09d` (frozen, pre-lattice): 2026-09-14, quick task 260914-01x, added
+ * `marginal=lattice` and `meanShift=fully-warm-walk-forward` when
+ * lattice+meanShift shipped (`data/baselines/rp-bonus-arms-2026-09.json`).
  */
-export const SHIPPED_RP_LAYER_LABEL = "winSource=algorithm-pRedWin, tieModel=discrete-integer-margin, marginal=gaussian";
+export const SHIPPED_RP_LAYER_LABEL =
+  "winSource=algorithm-pRedWin, tieModel=discrete-integer-margin, marginal=lattice, meanShift=fully-warm-walk-forward";
 
 /**
  * One scored cell under one arm, plus F10's dot-eligible share.
@@ -1729,19 +1404,10 @@ async function main(): Promise<void> {
   // COMPARISON'S READER HALF" section.)
   const parsedSeasons = parseSeasons(seasonsSpec);
   if (marginalArm) assertMarginalArmSliceAllowed(parsedSeasons);
-  // `--bonus-arms` (260914-01x): every guard runs before the corpus opens.
-  const bonusArmsActive = args.includes("--bonus-arms");
-  const emitBonusArmsPath = args.indexOf("--emit-bonus-arms") === -1 ? undefined : args[args.indexOf("--emit-bonus-arms") + 1];
-  assertBonusArmFlagsAllowed(args);
-  if (bonusArmsActive) assertBonusArmSliceAllowed(parsedSeasons);
 
   const seasons = parsedSeasons.filter((s) => RP_RULE_MODULES[s] !== undefined);
   const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
   if (algorithms.length === 0) throw new Error(`no algorithms resolved from "${algorithmIdsCsv ?? "(default)"}"`);
-  if (bonusArmsActive) assertBonusArmAlgorithmAllowed(algorithms.map((a) => a.id));
-  const treeAtStart = bonusArmsActive
-    ? { head: gitRead(["rev-parse", "HEAD"]), status: gitRead(["status", "--short", "--", "packages", "scripts"]) }
-    : undefined;
 
   console.log(`RP calibration — algorithms [${algorithms.map((a) => `${a.id}@${a.version}`).join(", ")}], seasons ${seasons.join(", ")}`);
   console.log(`Walk-forward through the same SigmaScoutLayer the publisher runs.\n`);
@@ -1770,10 +1436,6 @@ async function main(): Promise<void> {
     // The NB arm's own running tally, kept on its own axis so the control
     // arm's resolution counts are never contaminated by it.
     const armTally = emptyMarginalResolutionTally();
-    // `--bonus-arms`: every season's per-arm figures, kept for the pooled bar
-    // and the record. Pooled observations are the concatenation, never a mean
-    // of per-season figures.
-    const bonusArmSeasons: BonusArmSeasonResult[] = [];
     /** One reachable/unreachable cell of the NB arm's result, accumulated across seasons for the closing report. */
     const armCells: {
       season: number;
@@ -1826,81 +1488,10 @@ async function main(): Promise<void> {
           ? undefined
           : new Map<string, Observation[][]>(algorithms.map((a) => [a.id, ruleModule.bonusNames.map(() => [])]));
 
-      // `--bonus-arms`: three more layers off the SAME records. Control is the
-      // ordinary layer above (spr only, guarded before the corpus opened).
-      let bonusArm: BonusArmSeason | undefined;
-      if (bonusArmsActive) {
-        const latticeRuleModule = ruleModuleWithLatticeArm(ruleModule);
-        bonusArm = {
-          layers: new Map<Exclude<BonusArmName, "control">, SigmaScoutLayer>([
-            ["lattice", new SigmaScoutLayer(latticeRuleModule, "spr")],
-            ["meanShift", new SigmaScoutLayer(ruleModule, "spr", { rpMeanShift: true })],
-            ["lattice+meanShift", new SigmaScoutLayer(latticeRuleModule, "spr", { rpMeanShift: true })],
-          ]),
-          acc: new Map(BONUS_ARM_NAMES.map((arm) => [arm, newBonusArmSeasonAccumulator(ruleModule.bonusNames.length)])),
-        };
-      }
-
       for (const r of records) {
         const layer = layers.get(r.algorithmId)!;
-        // Read before any fold: whether each mean-shift arm's shift applies to this match's rosters.
-        const shiftApplies =
-          bonusArm === undefined
-            ? undefined
-            : new Map(
-                (["meanShift", "lattice+meanShift"] as const).map((arm) => {
-                  const armLayer = bonusArm!.layers.get(arm)!;
-                  return [arm, { red: meanShiftWillApply(armLayer, r.match.redTeams), blue: meanShiftWillApply(armLayer, r.match.blueTeams) }];
-                })
-              );
         const enriched = layer.foldPlayed(r.match, r.prediction);
         const armEnriched = armLayers === undefined ? undefined : armLayers.get(r.algorithmId)!.foldPlayed(r.match, r.prediction);
-
-        if (bonusArm !== undefined) {
-          const predByArm = new Map<BonusArmName, Prediction>([["control", enriched.prediction]]);
-          for (const [arm, armLayer] of bonusArm.layers) {
-            const armPred = armLayer.foldPlayed(r.match, r.prediction).prediction;
-            assertOutcomeHalfIdentical(enriched.prediction, armPred, r.match.matchKey, arm);
-            predByArm.set(arm, armPred);
-            const state = armLayer.rpMeanShiftState();
-            if (state !== undefined) {
-              const activated = bonusArm.acc.get(arm)!.activatedAfterMatch;
-              for (const [name, v] of Object.entries(state.variables)) {
-                if (v.count >= RP_MEAN_SHIFT_WARMUP_OBSERVATIONS && !activated.has(name)) activated.set(name, r.match.matchKey);
-              }
-            }
-          }
-
-          if (isBonusRpCompLevel(r.match.compLevel)) {
-            const matchFlags = actualFlags.get(r.match.matchKey);
-            const controlPred = enriched.prediction;
-            for (const arm of BONUS_ARM_NAMES) {
-              const pred = predByArm.get(arm)!;
-              const acc = bonusArm.acc.get(arm)!;
-              // Total RP: the published scorecard's population, each arm's own pmf.
-              if (pred.redRpPmf !== undefined && pred.blueRpPmf !== undefined) {
-                acc.totalRp.push({ pmf: pred.redRpPmf, actual: toIntegerRpOrNull(r.match.redRpEarned) });
-                acc.totalRp.push({ pmf: pred.blueRpPmf, actual: toIntegerRpOrNull(r.match.blueRpEarned) });
-                const shift = shiftApplies?.get(arm as "meanShift" | "lattice+meanShift");
-                if (shift !== undefined) {
-                  acc.scoredSides += 2;
-                  acc.shiftedSides += (shift.red ? 1 : 0) + (shift.blue ? 1 : 0);
-                }
-              }
-              // Bonus: gated on CONTROL's own conditions, exactly as the published
-              // bonus loop below gates them, so every arm sees the same triples.
-              if (matchFlags === undefined || matchFlags === null) continue;
-              for (const side of ["red", "blue"] as const) {
-                const controlBonuses = side === "red" ? controlPred.redBonusRp : controlPred.blueBonusRp;
-                const actualBonuses = side === "red" ? matchFlags.red : matchFlags.blue;
-                if (controlBonuses === undefined || controlBonuses.length !== actualBonuses.length) continue;
-                const armBonuses = side === "red" ? pred.redBonusRp : pred.blueBonusRp;
-                if (armBonuses === undefined || armBonuses.length !== actualBonuses.length) continue;
-                for (let i = 0; i < armBonuses.length; i++) acc.perBonus[i]!.push({ predicted: armBonuses[i]!, actual: actualBonuses[i]! });
-              }
-            }
-          }
-        }
 
         // TOTAL-RP AND OUTCOME SCORING (260913-qyn design point 5) — runs
         // BEFORE the bonus-flag `continue` below, on purpose: this
@@ -1992,39 +1583,6 @@ async function main(): Promise<void> {
         // separate axis.
         const layerTally = layers.get(algorithm.id)!.rpMarginalResolutionTally;
         mergeMarginalResolutionTally(marginalTally, layerTally);
-
-        if (bonusArm !== undefined) {
-          const controlAcc = bonusArm.acc.get("control")!;
-          // The control arm must have scored exactly the published scorer's
-          // bonus and total-RP populations, or its gating is not the scorecard's.
-          for (const [i, name] of ruleModule.bonusNames.entries()) {
-            if (controlAcc.perBonus[i]!.length !== perBonus[i]!.length) {
-              throw new Error(`--bonus-arms: season ${season} bonus "${name}": control arm scored ${controlAcc.perBonus[i]!.length} observations against the published scorer's ${perBonus[i]!.length} — gating differs, comparison void`);
-            }
-          }
-          if (controlAcc.totalRp.length !== totalRpByAlgo.get(algorithm.id)!.length) {
-            throw new Error(`--bonus-arms: season ${season}: control arm has ${controlAcc.totalRp.length} total-RP observations against the published scorer's ${totalRpByAlgo.get(algorithm.id)!.length} — comparison void`);
-          }
-          for (const arm of BONUS_ARM_NAMES) {
-            const acc = bonusArm.acc.get(arm)!;
-            for (const [i, name] of ruleModule.bonusNames.entries()) {
-              if (acc.perBonus[i]!.length !== controlAcc.perBonus[i]!.length) {
-                throw new Error(`--bonus-arms: season ${season} arm "${arm}" bonus "${name}" scored ${acc.perBonus[i]!.length} observations against control's ${controlAcc.perBonus[i]!.length} — comparison void`);
-              }
-            }
-            if (acc.totalRp.length !== controlAcc.totalRp.length) {
-              throw new Error(`--bonus-arms: season ${season} arm "${arm}" has ${acc.totalRp.length} total-RP observations against control's ${controlAcc.totalRp.length} — comparison void`);
-            }
-          }
-          const tallies = new Map<BonusArmName, MarginalResolutionTally>([["control", layerTally]]);
-          const meanShiftStates = new Map<BonusArmName, RpMeanShiftState>();
-          for (const [arm, armLayer] of bonusArm.layers) {
-            tallies.set(arm, armLayer.rpMarginalResolutionTally);
-            const state = armLayer.rpMeanShiftState();
-            if (state !== undefined) meanShiftStates.set(arm, state);
-          }
-          bonusArmSeasons.push({ season, ruleModule, acc: bonusArm.acc, tallies, meanShiftStates });
-        }
 
         if (armLayers !== undefined && armPerBonusByAlgo !== undefined && eligibility !== undefined) {
           const armLayerTally = armLayers.get(algorithm.id)!.rpMarginalResolutionTally;
@@ -2244,30 +1802,6 @@ async function main(): Promise<void> {
       const grandObserved = grandPooled.reduce((sum, g) => sum + g.o * g.n, 0) / totalN;
       console.log(`═══ GRAND POOLED (every algorithm, every season) ═══`);
       console.log(`n=${totalN}  mean predicted=${grandMeanPredicted.toFixed(4)}  observed=${grandObserved.toFixed(4)}`);
-    }
-
-    if (bonusArmsActive) {
-      const summary = summarizeBonusArms(bonusArmSeasons);
-      if (emitBonusArmsPath !== undefined) {
-        const corpusStat = statSync(CORPUS_PATH);
-        const candidate = {
-          measuredAt: new Date().toISOString(),
-          command: `npx tsx scripts/measureRpCalibration.ts ${args.join(" ")}`,
-          corpusIdentity: { path: CORPUS_PATH, sizeBytes: corpusStat.size, mtime: corpusStat.mtime.toISOString() },
-          tree: {
-            headAtStart: treeAtStart!.head,
-            statusAtStart: treeAtStart!.status,
-            headAtEnd: gitRead(["rev-parse", "HEAD"]),
-            statusAtEnd: gitRead(["status", "--short", "--", "packages", "scripts"]),
-          },
-          algorithmVersions: Object.fromEntries(algorithms.map((a) => [a.id, a.version])),
-          seasons,
-          ...summary,
-        };
-        const parsed = RpBonusArmRecordSchema.parse(candidate);
-        writeFileSync(emitBonusArmsPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
-        console.log(`\nwrote ${emitBonusArmsPath}`);
-      }
     }
 
     // The `--outcome-arms` bar application and `--emit-outcome-arms` writer

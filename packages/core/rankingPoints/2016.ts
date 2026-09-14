@@ -187,40 +187,43 @@ function towerRobotCount(teleopChallengePoints: number, teleopScalePoints: numbe
 // integer-valued with ZERO exceptions across 22,158 alliance-sides. See
 // constants.ts's `MarginalFamily` doc comment for the evidence-class
 // framework.
+// 2026-09-14, quick task 260914-01x: every variable below declares "lattice",
+// shipped by the committed bonus-arm bar (data/baselines/rp-bonus-arms-2026-09.json,
+// ship: lattice+meanShift). Any other family named above is history.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   // Crossing counts per defense position — raw counts, not point values.
   {
     name: "position1crossings",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: a DEFENSE is damaged at 2 crossings and further crossings do not count.
     lattice: { step: 1, min: 0, max: 2 },
   },
   {
     name: "position2crossings",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: a DEFENSE is damaged at 2 crossings and further crossings do not count.
     lattice: { step: 1, min: 0, max: 2 },
   },
   {
     name: "position3crossings",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: a DEFENSE is damaged at 2 crossings and further crossings do not count.
     lattice: { step: 1, min: 0, max: 2 },
   },
   {
     name: "position4crossings",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: a DEFENSE is damaged at 2 crossings and further crossings do not count.
     lattice: { step: 1, min: 0, max: 2 },
   },
   {
     name: "position5crossings",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: a DEFENSE is damaged at 2 crossings and further crossings do not count.
     lattice: { step: 1, min: 0, max: 2 },
   },
@@ -230,7 +233,7 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "attackedTowerEndStrength",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: strength counts down one per boulder with no floor, and its start is tier-dependent, so no bound is declared.
     lattice: { step: 1 },
   },
@@ -240,14 +243,14 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "teleopChallengePoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: CHALLENGE 5 per robot, 3 robots.
     lattice: { step: 5, min: 0, max: 15 },
   },
   {
     name: "teleopScalePoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: SCALE 15 per robot, 3 robots.
     lattice: { step: 15, min: 0, max: 45 },
   },

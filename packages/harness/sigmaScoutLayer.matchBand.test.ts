@@ -36,6 +36,21 @@
  * by `sigmaScoutLayer.outcomeArms.test.ts`'s own pinned bonus-half digest,
  * captured on the control arm before this collapse.
  *
+ * Quick task 260914-01x REPLACED the spr entry again (2026-09-14), by
+ * developer decision rather than a refresh, following the same precedent:
+ * four bonus arms were measured against the pre-committed
+ * `applyRpBonusArmBar` on the selection slice (2016-2020,2022), every arm
+ * was ACCEPTED, and lattice+meanShift shipped with the lowest pooled
+ * total-RP RPS — bonus Brier 0.179914 to 0.124278, RPS 0.159627 to 0.141956
+ * (`data/baselines/rp-bonus-arms-2026-09.json`, ship: lattice+meanShift).
+ * Lattice marginals and the walk-forward mean shift change the bonus half
+ * (`redBonusRpPmf`, `blueBonusRpPmf`, `redBonusRp`, `blueBonusRp`) and so
+ * `redRpPmf`/`blueRpPmf`. The mean shift is live on this slice: its three
+ * 2022 variables pass the 200-observation warmup after `2022azva_qm48`.
+ * `matchOutcomePmf`, `redOutcomeRp` and `blueOutcomeRp` are UNCHANGED —
+ * proven by `sigmaScoutLayer.outcomeArms.test.ts`'s outcome-half digest,
+ * captured on the pre-flip tree.
+ *
  * The slice is read from the committed fixture ONLY, never the corpus, so the
  * digest is deterministic whether or not `data/corpus.sqlite` is present.
  */
@@ -66,13 +81,15 @@ function loadFixture(): DigestSliceFixture {
 }
 
 /**
- * spr REPLACED 2026-09-13 (quick task 260913-qyn, WIN+TIE arm shipped — see
- * this file's header comment and `data/baselines/rp-outcome-arms-2026-09.json`).
- * Captured on the shipped WIN+TIE source. Never edit except on another
- * developer-decided model change, following this same precedent.
+ * spr REPLACED 2026-09-14 (quick task 260914-01x, lattice+meanShift shipped —
+ * see this file's header comment and `data/baselines/rp-bonus-arms-2026-09.json`).
+ * Was `fee852b6c27c82b198b733937e97a7a353fa3e0fe72efc3f1e502cc5ec172cfa`
+ * (260913-qyn, WIN+TIE). Captured on the shipped lattice+meanShift source.
+ * Never edit except on another developer-decided model change, following
+ * this same precedent.
  */
 const PINNED_RP_DIGESTS: Readonly<Record<string, string>> = {
-  spr: "fee852b6c27c82b198b733937e97a7a353fa3e0fe72efc3f1e502cc5ec172cfa",
+  spr: "0172067f94b2ea52338eff58f9683973634b57ef0e925c0adee95a569b511caa",
 };
 
 const RP_FIELDS = [

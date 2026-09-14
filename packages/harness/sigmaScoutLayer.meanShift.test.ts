@@ -1,36 +1,44 @@
 /**
- * The mean-shift measurement arm through the real `SigmaScoutLayer` (quick
- * task 260914-01x, SD-03, SD-05, CD-04).
+ * The walk-forward mean shift through the real `SigmaScoutLayer` (quick task
+ * 260914-01x, SD-03, CD-04).
+ *
+ * SHIPPED 2026-09-14 as half of lattice+meanShift, the arm the committed
+ * bonus-arm bar accepted with the lowest pooled total-RP RPS
+ * (`data/baselines/rp-bonus-arms-2026-09.json`). The measurement-only third
+ * constructor argument is deleted, so every claim below is asserted on the
+ * DEFAULT two-argument layer. The unshifted comparison a control layer used to
+ * provide is rebuilt here from the test's own `RpMomentsAccumulator`,
+ * `SigmaScoreAccumulator` and `analyticRpPmf`, never from the layer under test.
  *
  * Three claims:
- *   1. INERT. No third argument and `{}` produce bitwise-equal RP fields on
- *      the committed digest slice, and neither holds an accumulator.
+ *   1. HELD BY DEFAULT. A layer that publishes ranking points holds the shift
+ *      and exposes its state; one that does not holds none. On the committed
+ *      digest slice the shift is live (past warmup), not vacuous.
  *   2. PREDICT BEFORE UPDATE. The shift priced into match k is the mean of
- *      residuals from matches strictly before k, recomputed here with this
- *      test's own `RpMomentsAccumulator`, never the code under test.
+ *      residuals from matches strictly before k.
  *   3. DIRECTION. On a synthetic 2020 season whose `endgamePoints` trends up,
- *      the arm matches control until warmup, then raises the Shield
- *      Operational odds on fully-warm rows, and never touches the outcome
- *      half or any non-RP field.
+ *      every RP field equals the unshifted reference until warmup, then the
+ *      Shield Operational odds rise on fully-warm rows, and the outcome half
+ *      and every non-RP field never move.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AlgorithmModule, MatchResult, Prediction } from "../core/algorithms/types.js";
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
-import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
 import { rp2020 } from "../core/rankingPoints/2020.js";
 import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
-import { allianceBonusRpPmf } from "../core/rankingPoints/analyticPmf.js";
+import { RP_MEAN_SHIFT_WARMUP_OBSERVATIONS } from "../core/rankingPoints/meanShift.js";
+import { allianceBonusRpPmf, analyticRpPmf } from "../core/rankingPoints/analyticPmf.js";
 import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
-import { WalkForwardSimulator, toLeakProofUpcoming, type PredictionRecord } from "./replay.js";
+import { WalkForwardSimulator, type PredictionRecord } from "./replay.js";
 import { resolvePublishAlgorithms } from "./publish.js";
-import { usesSigmaScore } from "./sigmaScore.js";
+import { SigmaScoreAccumulator, usesSigmaScore } from "./sigmaScore.js";
 
 const DIGEST_SLICE_FIXTURE_PATH = join("packages", "harness", "fixtures", "digest-slice.json");
 
-const RP_FIELDS = [
+const RP_FIELDS = new Set<string>([
   "redRpPmf",
   "blueRpPmf",
   "redBonusRp",
@@ -40,8 +48,7 @@ const RP_FIELDS = [
   "blueOutcomeRp",
   "redBonusRpPmf",
   "blueBonusRpPmf",
-] as const;
-const BONUS_FIELDS = new Set<string>(["redRpPmf", "blueRpPmf", "redBonusRp", "blueBonusRp", "redBonusRpPmf", "blueBonusRpPmf"]);
+]);
 
 interface DigestSliceFixture {
   sliceSeason: number;
@@ -53,63 +60,41 @@ function sameNumbers(a: readonly number[] | undefined, b: readonly number[] | un
   return a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
 }
 
-function digestRows(
-  algorithm: AlgorithmModule<unknown>,
-  stream: readonly MatchResult[],
-  ruleModule: RpRuleModule,
-  arms: { rpMeanShift?: boolean } | undefined
-): { rows: Prediction[]; layer: SigmaScoutLayer } {
-  const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
-  const talentAfterMatch = new Map<string, Map<string, number>>();
-  const records = new WalkForwardSimulator([...stream]).runAll([algorithm], teams, undefined, (match, algorithmId, state) => {
-    if (!usesSigmaScore(algorithmId)) return;
-    const involved = [...match.redTeams, ...match.blueTeams];
-    const metrics = algorithm.teamMetrics(state, involved);
-    const talent = new Map<string, number>();
-    for (const teamKey of involved) {
-      const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
-      if (total !== undefined) talent.set(teamKey, total);
-    }
-    talentAfterMatch.set(match.matchKey, talent);
-  });
-  const layer = arms === undefined ? new SigmaScoutLayer(ruleModule, algorithm.id) : new SigmaScoutLayer(ruleModule, algorithm.id, arms);
-  const rows: Prediction[] = [];
-  for (const record of records) {
-    rows.push(layer.foldPlayed(record.match, record.prediction, talentAfterMatch.get(record.match.matchKey)).prediction);
-  }
-  const finalState = records.finalStates.get(algorithm.id);
-  for (const match of stream) {
-    const upcoming = toLeakProofUpcoming(match);
-    rows.push(layer.enrichUpcoming(upcoming, algorithm.predict(finalState, upcoming)).prediction);
-  }
-  return { rows, layer };
-}
-
-describe("mean-shift arm: inert when absent (260914-01x, SD-05)", () => {
+describe("mean shift: held by the default layer (260914-01x, shipped)", () => {
   const fixture = JSON.parse(readFileSync(DIGEST_SLICE_FIXTURE_PATH, "utf8")) as DigestSliceFixture;
   const spr = resolvePublishAlgorithms(undefined).find((a) => a.id === "spr") as AlgorithmModule<unknown>;
   const ruleModule = RP_RULE_MODULES[fixture.sliceSeason]!;
 
-  it("no third argument and {} produce bitwise-equal RP fields on every played and upcoming row", () => {
-    const absent = digestRows(spr, fixture.matches, ruleModule, undefined);
-    const empty = digestRows(spr, fixture.matches, ruleModule, {});
-    expect(absent.rows.length).toBe(empty.rows.length);
-    expect(absent.rows.filter((p) => p.redRpPmf !== undefined).length).toBeGreaterThan(0);
-    for (let i = 0; i < absent.rows.length; i++) {
-      for (const field of RP_FIELDS) {
-        expect(sameNumbers(absent.rows[i]![field], empty.rows[i]![field]), `row ${i} ${field}`).toBe(true);
-      }
-      expect(JSON.stringify(empty.rows[i])).toBe(JSON.stringify(absent.rows[i]));
-    }
-    expect(absent.layer.rpMeanShiftState()).toBeUndefined();
-    expect(empty.layer.rpMeanShiftState()).toBeUndefined();
-    expect(new SigmaScoutLayer(ruleModule, "spr", { rpMeanShift: false }).rpMeanShiftState()).toBeUndefined();
+  it("a ranking-point layer holds it with no third argument; opr and a season with no rules hold none", () => {
+    expect(new SigmaScoutLayer(ruleModule, "spr").rpMeanShiftState()?.season).toBe(ruleModule.season);
+    expect(new SigmaScoutLayer(ruleModule, "opr").rpMeanShiftState()).toBeUndefined();
+    expect(new SigmaScoutLayer(undefined, "spr").rpMeanShiftState()).toBeUndefined();
+    expect(new SigmaScoutLayer(ruleModule).rpMeanShiftState()).toBeUndefined();
   });
 
-  it("holds no accumulator for an algorithm that publishes no ranking points, or a season with no rules", () => {
-    expect(new SigmaScoutLayer(ruleModule, "opr", { rpMeanShift: true }).rpMeanShiftState()).toBeUndefined();
-    expect(new SigmaScoutLayer(undefined, "spr", { rpMeanShift: true }).rpMeanShiftState()).toBeUndefined();
-    expect(new SigmaScoutLayer(ruleModule, "spr", { rpMeanShift: true }).rpMeanShiftState()?.season).toBe(ruleModule.season);
+  it("non-vacuity: on the committed digest slice every variable passes the warmup", () => {
+    const stream = fixture.matches;
+    const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
+    const talentAfterMatch = new Map<string, Map<string, number>>();
+    const records = new WalkForwardSimulator(stream).runAll([spr], teams, undefined, (match, algorithmId, state) => {
+      if (!usesSigmaScore(algorithmId)) return;
+      const involved = [...match.redTeams, ...match.blueTeams];
+      const metrics = spr.teamMetrics(state, involved);
+      const talent = new Map<string, number>();
+      for (const teamKey of involved) {
+        const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+        if (total !== undefined) talent.set(teamKey, total);
+      }
+      talentAfterMatch.set(match.matchKey, talent);
+    });
+    const layer = new SigmaScoutLayer(ruleModule, "spr");
+    for (const record of records) layer.foldPlayed(record.match, record.prediction, talentAfterMatch.get(record.match.matchKey));
+    const state = layer.rpMeanShiftState()!;
+    expect(Object.keys(state.variables).sort()).toEqual(ruleModule.thresholdVariables.map((v) => v.name).sort());
+    for (const [name, v] of Object.entries(state.variables)) {
+      expect(v.count, name).toBeGreaterThanOrEqual(RP_MEAN_SHIFT_WARMUP_OBSERVATIONS);
+      expect(v.sum, name).not.toBe(0);
+    }
   });
 });
 
@@ -169,26 +154,27 @@ function syntheticPrediction(): Prediction {
   return { winner: "red", pRedWin: 0.5, redScore: 70, blueScore: 70 };
 }
 
-describe("mean-shift arm on a synthetic 2020 season (260914-01x, SD-03, CD-04)", () => {
+describe("mean shift on a synthetic 2020 season, default layer (260914-01x, SD-03, CD-04)", () => {
   const stream = syntheticSeason();
   expect(stream.filter((m) => m.compLevel === "qm").length).toBeGreaterThanOrEqual(120);
 
   interface Step {
     readonly match: MatchResult;
-    readonly control: PredictionRecord;
-    readonly arm: PredictionRecord;
+    readonly input: Prediction;
+    readonly folded: PredictionRecord;
+    /** The unshifted RP fields, rebuilt from the test's own accumulators; empty when the layer's gates give none. */
+    readonly unshifted: Partial<Prediction>;
     readonly countBefore: number;
-    readonly sumBefore: number;
     readonly redWarm: boolean;
     readonly blueWarm: boolean;
     readonly expectedRed: readonly number[] | undefined;
     readonly expectedBlue: readonly number[] | undefined;
   }
 
-  const control = new SigmaScoutLayer(rp2020, "spr");
-  const armLayer = new SigmaScoutLayer(rp2020, "spr", { rpMeanShift: true });
-  // The test's OWN walk-forward reference: beliefs, residual count and sum.
+  const layer = new SigmaScoutLayer(rp2020, "spr");
+  // The test's OWN walk-forward reference: beliefs, band variance, residual count and sum.
   const reference = new RpMomentsAccumulator(rp2020);
+  const sigma = new SigmaScoreAccumulator();
   let refCount = 0;
   let refSum = 0;
   const steps: Step[] = [];
@@ -196,15 +182,45 @@ describe("mean-shift arm on a synthetic 2020 season (260914-01x, SD-03, CD-04)",
 
   for (const match of stream) {
     const prediction = syntheticPrediction();
-    const state = armLayer.rpMeanShiftState()!.variables.endgamePoints!;
+    const state = layer.rpMeanShiftState()!.variables.endgamePoints!;
     if (state.count !== refCount || state.sum !== refSum) {
       stateMismatches.push(`${match.matchKey}: layer ${state.count}/${state.sum} vs reference ${refCount}/${refSum}`);
     }
     const redWarm = match.redTeams.every((t) => reference.hasHistory(t));
     const blueWarm = match.blueTeams.every((t) => reference.hasHistory(t));
+    const redVariance = sigma.bandVarianceFor(match.redTeams);
+    const blueVariance = sigma.bandVarianceFor(match.blueTeams);
+
+    let unshifted: Partial<Prediction> = {};
+    if (redVariance !== undefined && blueVariance !== undefined) {
+      const pmf = analyticRpPmf({
+        red: reference.momentsFor(match.redTeams, prediction.redScore, redVariance),
+        blue: reference.momentsFor(match.blueTeams, prediction.blueScore, blueVariance),
+        ruleModule: rp2020,
+        eventType: match.eventType,
+        compLevel: match.compLevel,
+        pRedWin: prediction.pRedWin,
+      });
+      unshifted = {
+        redRpPmf: pmf.redPmf,
+        blueRpPmf: pmf.bluePmf,
+        ...(pmf.redBonusProbabilities !== undefined ? { redBonusRp: pmf.redBonusProbabilities } : {}),
+        ...(pmf.blueBonusProbabilities !== undefined ? { blueBonusRp: pmf.blueBonusProbabilities } : {}),
+        ...(pmf.outcome !== undefined && pmf.redBonusPmf !== undefined && pmf.blueBonusPmf !== undefined
+          ? {
+              matchOutcomePmf: [pmf.outcome.pRedWin, pmf.outcome.pTie, pmf.outcome.pBlueWin],
+              redOutcomeRp: [pmf.outcome.winRp, pmf.outcome.tieRp, 0],
+              blueOutcomeRp: [0, pmf.outcome.tieRp, pmf.outcome.winRp],
+              redBonusRpPmf: pmf.redBonusPmf,
+              blueBonusRpPmf: pmf.blueBonusPmf,
+            }
+          : {}),
+      };
+    }
+
     const redMoments = reference.momentsFor(match.redTeams, 0, 0);
     const blueMoments = reference.momentsFor(match.blueTeams, 0, 0);
-    const shiftBy = refCount >= 200 ? refSum / refCount : undefined;
+    const shiftBy = refCount >= RP_MEAN_SHIFT_WARMUP_OBSERVATIONS ? refSum / refCount : undefined;
     const shifted = (moments: typeof redMoments, warm: boolean) =>
       shiftBy !== undefined && warm && match.compLevel === "qm"
         ? allianceBonusRpPmf({ ...moments, meanVector: [moments.meanVector[0]! + shiftBy] }, rp2020, match.eventType).bonusProbabilities
@@ -212,10 +228,10 @@ describe("mean-shift arm on a synthetic 2020 season (260914-01x, SD-03, CD-04)",
 
     steps.push({
       match,
-      control: control.foldPlayed(match, prediction),
-      arm: armLayer.foldPlayed(match, prediction),
+      input: prediction,
+      folded: layer.foldPlayed(match, prediction),
+      unshifted,
       countBefore: refCount,
-      sumBefore: refSum,
       redWarm,
       blueWarm,
       expectedRed: shifted(redMoments, redWarm),
@@ -223,8 +239,8 @@ describe("mean-shift arm on a synthetic 2020 season (260914-01x, SD-03, CD-04)",
     });
 
     // Reference update: the probe's population, observed before the fold.
+    const raw = JSON.parse(match.scoreBreakdownRaw!) as { red: { endgamePoints: number }; blue: { endgamePoints: number } };
     if (match.compLevel === "qm") {
-      const raw = JSON.parse(match.scoreBreakdownRaw!) as { red: { endgamePoints: number }; blue: { endgamePoints: number } };
       if (redWarm) {
         refCount += 1;
         refSum += raw.red.endgamePoints - redMoments.meanVector[0]!;
@@ -234,7 +250,7 @@ describe("mean-shift arm on a synthetic 2020 season (260914-01x, SD-03, CD-04)",
         refSum += raw.blue.endgamePoints - blueMoments.meanVector[0]!;
       }
     }
-    const raw = JSON.parse(match.scoreBreakdownRaw!) as { red: { endgamePoints: number }; blue: { endgamePoints: number } };
+    sigma.foldMatch(match, prediction);
     reference.fold(match.redTeams, { endgamePoints: raw.red.endgamePoints });
     reference.fold(match.blueTeams, { endgamePoints: raw.blue.endgamePoints });
   }
@@ -244,50 +260,56 @@ describe("mean-shift arm on a synthetic 2020 season (260914-01x, SD-03, CD-04)",
     const shiftedSteps = steps.filter((s) => s.expectedRed !== undefined);
     expect(shiftedSteps.length).toBeGreaterThan(20);
     for (const s of steps) {
-      if (s.expectedRed !== undefined) expect(s.arm.prediction.redBonusRp, s.match.matchKey).toEqual(s.expectedRed);
-      if (s.expectedBlue !== undefined) expect(s.arm.prediction.blueBonusRp, s.match.matchKey).toEqual(s.expectedBlue);
+      if (s.expectedRed !== undefined) expect(s.folded.prediction.redBonusRp, s.match.matchKey).toEqual(s.expectedRed);
+      if (s.expectedBlue !== undefined) expect(s.folded.prediction.blueBonusRp, s.match.matchKey).toEqual(s.expectedBlue);
     }
     // Residuals on a rising series are positive on balance.
-    const last = steps[steps.length - 1]!;
-    expect(last.sumBefore / last.countBefore).toBeGreaterThan(0);
+    expect(refSum / refCount).toBeGreaterThan(0);
   });
 
-  it("no row differs from control before the warmup", () => {
-    const early = steps.filter((s) => s.countBefore < 200);
+  it("before the warmup, every RP field equals the unshifted reference", () => {
+    const early = steps.filter((s) => s.countBefore < RP_MEAN_SHIFT_WARMUP_OBSERVATIONS);
     expect(early.length).toBeGreaterThan(50);
-    for (const s of early) expect(JSON.stringify(s.arm), s.match.matchKey).toBe(JSON.stringify(s.control));
+    expect(early.filter((s) => s.folded.prediction.redBonusRp !== undefined).length).toBeGreaterThan(20);
+    for (const s of early) {
+      const p = s.folded.prediction as unknown as Record<string, unknown>;
+      const u = s.unshifted as unknown as Record<string, unknown>;
+      for (const field of RP_FIELDS) {
+        expect(sameNumbers(p[field] as number[] | undefined, u[field] as number[] | undefined), `${s.match.matchKey} ${field}`).toBe(true);
+      }
+    }
   });
 
-  it("after warmup, bonus odds are at least control's on every fully-warm row and strictly greater on some", () => {
-    const late = steps.filter((s) => s.countBefore >= 200 && s.match.compLevel === "qm");
+  it("after the warmup, bonus odds are at least the unshifted reference's on every fully-warm row and strictly greater on some", () => {
+    const late = steps.filter((s) => s.countBefore >= RP_MEAN_SHIFT_WARMUP_OBSERVATIONS && s.match.compLevel === "qm");
     expect(late.length).toBeGreaterThan(20);
     let strictlyGreater = 0;
     for (const s of late) {
       expect(s.redWarm && s.blueWarm, s.match.matchKey).toBe(true);
       for (const side of ["redBonusRp", "blueBonusRp"] as const) {
-        const a = s.arm.prediction[side]!;
-        const c = s.control.prediction[side]!;
-        expect(a[0]! >= c[0]!, `${s.match.matchKey} ${side}`).toBe(true);
-        if (a[0]! > c[0]!) strictlyGreater++;
+        const shiftedOdds = s.folded.prediction[side]!;
+        const unshiftedOdds = s.unshifted[side]!;
+        expect(shiftedOdds[0]! >= unshiftedOdds[0]!, `${s.match.matchKey} ${side}`).toBe(true);
+        if (shiftedOdds[0]! > unshiftedOdds[0]!) strictlyGreater++;
       }
     }
     expect(strictlyGreater).toBeGreaterThan(0);
   });
 
-  it("the outcome half and every non-RP field are === control's on every row", () => {
+  it("the outcome half equals the unshifted reference's on every row, and every non-RP field is the input prediction's", () => {
     for (const s of steps) {
-      expect(s.arm.match).toBe(s.control.match);
-      expect(JSON.stringify(s.arm.matchBand)).toBe(JSON.stringify(s.control.matchBand));
-      const a = s.arm.prediction as unknown as Record<string, unknown>;
-      const c = s.control.prediction as unknown as Record<string, unknown>;
-      expect(Object.keys(a).sort()).toEqual(Object.keys(c).sort());
-      for (const key of Object.keys(c)) {
-        if (BONUS_FIELDS.has(key)) continue;
-        const cv = c[key];
-        const av = a[key];
-        if (Array.isArray(cv)) expect(sameNumbers(av as number[], cv as number[]), `${s.match.matchKey} ${key}`).toBe(true);
-        else expect(av === cv, `${s.match.matchKey} ${key}`).toBe(true);
+      expect(s.folded.match).toBe(s.match);
+      const p = s.folded.prediction as unknown as Record<string, unknown>;
+      const u = s.unshifted as unknown as Record<string, unknown>;
+      for (const field of ["matchOutcomePmf", "redOutcomeRp", "blueOutcomeRp"]) {
+        expect(sameNumbers(p[field] as number[] | undefined, u[field] as number[] | undefined), `${s.match.matchKey} ${field}`).toBe(true);
       }
+      const input = s.input as unknown as Record<string, unknown>;
+      for (const key of Object.keys(p)) {
+        if (RP_FIELDS.has(key)) continue;
+        expect(p[key] === input[key], `${s.match.matchKey} ${key}`).toBe(true);
+      }
+      expect(Object.keys(input).every((key) => key in p)).toBe(true);
     }
   });
 });

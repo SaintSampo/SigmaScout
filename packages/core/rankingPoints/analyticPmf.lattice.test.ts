@@ -143,7 +143,9 @@ describe("the lattice family evaluates every predicate shape without throwing", 
   });
 
   it("mixed declared families within one clause still throw", () => {
-    const mixed = withFamily(rp2017, "lattice", new Set(["autoRotorPoints"]));
+    // 2026-09-14 (Task 5): rp2017 ships all-lattice now, so the mix is built
+    // from a gaussian-declared base with one variable flipped back to lattice.
+    const mixed = withFamily(withFamily(rp2017, "gaussian"), "lattice", new Set(["autoRotorPoints"]));
     const moments = buildRuleModuleMoments(mixed, {
       autoFuelPoints: { mean: 10, variance: 25 },
       teleopFuelPoints: { mean: 20, variance: 100 },

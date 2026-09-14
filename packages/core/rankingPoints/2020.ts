@@ -53,13 +53,14 @@ const Rp2020Schema = z.object({
  */
 const SHIELD_OPERATIONAL_THRESHOLD: RpTieredThreshold = { base: 65, districtChampionship: 65, championship: 65 };
 
-// Gaussian marginal; see constants.ts's `MarginalFamily` doc for the
-// evidence-class framework.
+// 2026-09-14, quick task 260914-01x: every variable below declares "lattice",
+// shipped by the committed bonus-arm bar (data/baselines/rp-bonus-arms-2026-09.json,
+// ship: lattice+meanShift). Any other family named above is history.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "endgamePoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: PARK 5, HANG 25 per robot, LEVEL 15 once.
     lattice: { step: 5, min: 0, max: 90 },
   },

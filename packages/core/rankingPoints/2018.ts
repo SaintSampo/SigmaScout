@@ -60,13 +60,14 @@ const FACE_THE_BOSS_THRESHOLD: RpTieredThreshold = { base: 90, districtChampions
  */
 const AUTO_SWITCH_SECONDS_FALLBACK_FLOOR: RpTieredThreshold = { base: 1, districtChampionship: 1, championship: 1 };
 
-// Gaussian marginals for all three variables; see constants.ts's
-// `MarginalFamily` doc for the evidence-class framework.
+// 2026-09-14, quick task 260914-01x: every variable below declares "lattice",
+// shipped by the committed bonus-arm bar (data/baselines/rp-bonus-arms-2026-09.json,
+// ship: lattice+meanShift). Any other family named above is history.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "autoRunPoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: AUTO-RUN 5 per robot, 3 robots.
     lattice: { step: 5, min: 0, max: 15 },
   },
@@ -75,14 +76,14 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "autoSwitchOwnershipSec",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: AUTO lasts 15 s, recorded in whole seconds.
     lattice: { step: 1, min: 0, max: 15 },
   },
   {
     name: "endgamePoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: PARK 5, CLIMB 30 per robot (LEVITATE credits one climb), 3 robots.
     lattice: { step: 5, min: 0, max: 90 },
   },

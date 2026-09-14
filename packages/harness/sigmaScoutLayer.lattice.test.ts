@@ -1,10 +1,13 @@
 /**
  * Tracer for quick task 260914-01x: the lattice marginal family end to end
  * through the real `SigmaScoutLayer`, on the committed 2022 digest slice with
- * spr, played AND upcoming passes. The lattice variant is built inline by
- * flipping every threshold variable to `marginalFamily: "lattice"`; the
- * production modules still declare gaussian, so this test is the only place
- * the family reaches the layer until the bar says otherwise.
+ * spr, played AND upcoming passes.
+ *
+ * 2026-09-14 (Task 5): lattice+meanShift shipped
+ * (`data/baselines/rp-bonus-arms-2026-09.json`), so the production module IS
+ * the lattice side now, and the comparison side is a gaussian-declared
+ * variant built inline. Both layers carry the shipped mean shift, so the
+ * difference between them is the family alone.
  *
  * The outcome half (`matchOutcomePmf`, `redOutcomeRp`, `blueOutcomeRp`) must
  * be elementwise `===` control's on every row: the lattice family is a bonus-
@@ -72,17 +75,17 @@ function expectNormalized(pmf: readonly number[] | undefined, label: string): vo
 describe("tracer: the lattice family through SigmaScoutLayer (260914-01x)", () => {
   const fixture = JSON.parse(readFileSync(DIGEST_SLICE_FIXTURE_PATH, "utf8")) as DigestSliceFixture;
   const spr = resolvePublishAlgorithms(undefined).find((a) => a.id === "spr") as AlgorithmModule<unknown>;
-  const control = RP_RULE_MODULES[fixture.sliceSeason]!;
-  const lattice: RpRuleModule = {
-    ...control,
-    thresholdVariables: control.thresholdVariables.map((v) => ({ ...v, marginalFamily: "lattice" as const })),
+  const lattice = RP_RULE_MODULES[fixture.sliceSeason]!;
+  const control: RpRuleModule = {
+    ...lattice,
+    thresholdVariables: lattice.thresholdVariables.map((v) => ({ ...v, marginalFamily: "gaussian" as const })),
   };
   const controlRows = runLayer(spr, fixture.matches, control);
   const latticeRows = runLayer(spr, fixture.matches, lattice);
 
-  it("the production module still declares gaussian, and the variant flips every variable", () => {
-    expect(control.thresholdVariables.every((v) => v.marginalFamily === "gaussian")).toBe(true);
+  it("the production module declares lattice on every variable, and the gaussian comparison variant flips every variable", () => {
     expect(lattice.thresholdVariables.every((v) => v.marginalFamily === "lattice")).toBe(true);
+    expect(control.thresholdVariables.every((v) => v.marginalFamily === "gaussian")).toBe(true);
   });
 
   it("produces bonus probabilities in [0, 1] and normalized pmfs on every row that carries RP odds", () => {

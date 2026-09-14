@@ -96,25 +96,28 @@ const ENSEMBLE_BONUS_ON_STAGE_ROBOTS_THRESHOLD: RpTieredThreshold = { base: 2, d
 // — MEASURED evidence class (09-RESEARCH.md's broader corpus probe). See
 // constants.ts's `MarginalFamily` doc comment for the evidence-class
 // framework.
+// 2026-09-14, quick task 260914-01x: every variable below declares "lattice",
+// shipped by the committed bonus-arm bar (data/baselines/rp-bonus-arms-2026-09.json,
+// ship: lattice+meanShift). Any other family named above is history.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "noteCount",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: no NOTE cap.
     lattice: { step: 1, min: 0 },
   },
   {
     name: "endGameTotalStagePoints",
     unit: "points",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: Table 6-2: ONSTAGE 3 (4 SPOTLIT), HARMONY 2 per extra ROBOT, TRAP 5 x 3: 12 + 4 + 15.
     lattice: { step: 1, min: 0, max: 31 },
   },
   {
     name: "onStageRobotCount",
     unit: "count",
-    marginalFamily: "gaussian",
+    marginalFamily: "lattice",
     // Rule: 3 robots.
     lattice: { step: 1, min: 0, max: 3 },
   },

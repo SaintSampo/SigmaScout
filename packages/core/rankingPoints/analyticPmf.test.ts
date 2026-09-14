@@ -34,12 +34,12 @@ import { describe, expect, it } from "vitest";
 import { allianceBonusRpPmf, analyticRpPmf, emptyMarginalResolutionTally, matchOutcomeDistribution } from "./analyticPmf.js";
 import { fitMarginal, probAtLeast, probAtMost } from "./marginals.js";
 import { buildRuleModuleMoments } from "./analyticPmfFixtures.js";
-import { rp2016 } from "./2016.js";
-import { rp2017 } from "./2017.js";
-import { rp2019 } from "./2019.js";
-import { rp2022 } from "./2022.js";
-import { rp2025 } from "./2025.js";
-import { rp2026 } from "./2026.js";
+import { rp2016 as rp2016Shipped } from "./2016.js";
+import { rp2017 as rp2017Shipped } from "./2017.js";
+import { rp2019 as rp2019Shipped } from "./2019.js";
+import { rp2022 as rp2022Shipped } from "./2022.js";
+import { rp2025 as rp2025Shipped } from "./2025.js";
+import { rp2026 as rp2026Shipped } from "./2026.js";
 import { RP_REGISTERED_SEASONS, RP_RULE_MODULES, type MarginalFamily, type RpRuleModule } from "./rules.js";
 import type { AllianceRpMoments } from "./moments.js";
 
@@ -58,6 +58,25 @@ function ruleModuleWithDeclaredFamily(ruleModule: RpRuleModule, family: Marginal
     thresholdVariables: ruleModule.thresholdVariables.map((v) => ({ ...v, marginalFamily: family })),
   };
 }
+
+/**
+ * PINNED TO GAUSSIAN, 2026-09-14 (quick task 260914-01x, Task 5). Every real
+ * season module declares `"lattice"` since lattice+meanShift shipped
+ * (`data/baselines/rp-bonus-arms-2026-09.json`, the committed bonus-arm bar's
+ * verdict). The hand-computed expectations in this file (Tests 1-8, the six
+ * mechanism classes, the family guards and the outcome forwarding) were
+ * derived from the Gaussian closed form, so they run against gaussian-declared
+ * variants of the real modules and keep characterizing the retained Gaussian
+ * engine. Lattice arithmetic is covered by `analyticPmf.lattice.test.ts` and
+ * `marginals.lattice.test.ts`; the one production-declaration test at the end
+ * of this file reads the shipped modules directly.
+ */
+const rp2016 = ruleModuleWithDeclaredFamily(rp2016Shipped, "gaussian");
+const rp2017 = ruleModuleWithDeclaredFamily(rp2017Shipped, "gaussian");
+const rp2019 = ruleModuleWithDeclaredFamily(rp2019Shipped, "gaussian");
+const rp2022 = ruleModuleWithDeclaredFamily(rp2022Shipped, "gaussian");
+const rp2025 = ruleModuleWithDeclaredFamily(rp2025Shipped, "gaussian");
+const rp2026 = ruleModuleWithDeclaredFamily(rp2026Shipped, "gaussian");
 
 /** Builds a diagonal `AllianceRpMoments` for 2026 — the exact shape `empiricalMoments.ts`'s `momentsFor` produces. */
 function moments2026(
@@ -717,19 +736,37 @@ describe("MarginalResolutionTally — the negativeBinomial counter is live again
     expect(tally.fallbacks).toBe(4);
   });
 
-  it("the incumbent gaussian declaration never touches the negativeBinomial axis — the restore is inert for production declarations", () => {
+  it("the production declaration never touches the negativeBinomial axis — the restore is inert for production declarations", () => {
+    // 2026-09-14 (quick task 260914-01x, Task 5): production is "lattice" now,
+    // so this reads the SHIPPED module and counts every fit on the lattice
+    // axis. hubTotalCount declares no max, so it takes the discretized
+    // Gaussian and resolves to lattice with no fallback. totalTowerPoints is
+    // bounded {step 5, min 0, max 120}: 24 steps, mean 10 and variance 4 in
+    // step units, below the binomial variance 24 * (10/24) * (14/24) = 5.83,
+    // so it falls back to the binomial form, still resolved "lattice" and
+    // counted as a fallback. Two alliances: lattice 4, fallbacks 2.
     const tally = emptyMarginalResolutionTally();
     analyticRpPmf({
       red: SYMMETRIC_2026,
       blue: SYMMETRIC_2026,
-      ruleModule: rp2026,
+      ruleModule: rp2026Shipped,
       eventType: 0,
       compLevel: "qm",
       tally,
     });
 
     expect(tally.negativeBinomial).toBe(0);
+    expect(tally.gaussian).toBe(0);
+    expect(tally.lattice).toBe(4);
+    expect(tally.fallbacks).toBe(2);
+  });
+
+  it("the gaussian engine the hand-computed cases above characterize still counts on the gaussian axis only", () => {
+    const tally = emptyMarginalResolutionTally();
+    analyticRpPmf({ red: SYMMETRIC_2026, blue: SYMMETRIC_2026, ruleModule: rp2026, eventType: 0, compLevel: "qm", tally });
+    expect(tally.negativeBinomial).toBe(0);
     expect(tally.gaussian).toBe(4);
+    expect(tally.lattice).toBe(0);
     expect(tally.fallbacks).toBe(0);
   });
 });

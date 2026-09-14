@@ -28,22 +28,28 @@ import type { CompLevel } from "../algorithms/types.js";
  * in `analyticPmf.ts` refuses that combination loudly rather than silently
  * refitting it as a Gaussian.
  *
- * IN PRODUCTION, all 34 threshold-variable declarations across the ten
- * registered seasons currently name `"gaussian"`. A negative-binomial arm
- * was measured end-to-end against the publisher's own scorer and did not
- * clear the pre-committed no-regression bar (`docs/models/rp-attribution.md`
- * carries the figures); it remains available in this union for a future
- * re-measurement, built as a variant rule module inside
- * `scripts/measureRpCalibration.ts`, never by editing the production tree.
- * Keeping the family declared per-variable (rather than a global switch) is
- * what lets that measurement arm reach exactly the variables it wants to.
+ * `"lattice"` is the integer-shape family: a bounded beta-binomial/binomial
+ * on the variable's declared `lattice` support when the rules cap it,
+ * otherwise a Gaussian discretized onto the declared step. Multi-term and
+ * divisor-bearing clauses are summed by exact lattice convolution in
+ * `analyticPmf.ts`, so unlike negative binomial it may appear in any clause.
  *
- * `"lattice"` (quick task 260914-01x) is the integer-shape family: a bounded
- * beta-binomial/binomial on the variable's declared `lattice` support when
- * the rules cap it, otherwise a Gaussian discretized onto the declared step.
- * Multi-term and divisor-bearing clauses are summed by exact lattice
- * convolution in `analyticPmf.ts`, so unlike negative binomial it may appear
- * in any clause. Inert until a module declares it.
+ * IN PRODUCTION, all 34 threshold-variable declarations across the ten
+ * registered seasons name `"lattice"` since 2026-09-14 (quick task
+ * 260914-01x). The lattice family and the walk-forward mean shift
+ * (`meanShift.ts`) were measured as four arms on the 2016-2020, 2022
+ * selection slice against a bar committed before any figure existed, and
+ * lattice+meanShift shipped: pooled bonus Brier 0.179914 to 0.124278 and
+ * pooled total-RP RPS 0.159627 to 0.141956
+ * (`data/baselines/rp-bonus-arms-2026-09.json`).
+ *
+ * `"gaussian"` and `"negative-binomial"` stay in this union for a future
+ * re-measurement, built as a variant rule module, never by editing the
+ * production tree. Gaussian was the production family until that ship;
+ * a negative-binomial arm was measured earlier and did not clear its
+ * no-regression bar (`docs/models/rp-attribution.md`). Keeping the family
+ * declared per-variable (rather than a global switch) is what lets a
+ * measurement arm reach exactly the variables it wants to.
  */
 export type MarginalFamily = "negative-binomial" | "gaussian" | "lattice";
 
@@ -74,9 +80,9 @@ export interface RpThresholdVariable {
    * Which `MarginalFamily` this variable's belief is modelled with, declared
    * explicitly beside `unit` rather than derived from it — a variable
    * needing an exception has somewhere to say so. Every declaration in the
-   * tree currently names `"gaussian"` (see `MarginalFamily`'s own doc
-   * comment). Required on every season module — a future season module
-   * cannot compile without naming a family.
+   * tree names `"lattice"` since 2026-09-14, quick task 260914-01x (see
+   * `MarginalFamily`'s own doc comment). Required on every season module — a
+   * future season module cannot compile without naming a family.
    */
   readonly marginalFamily: MarginalFamily;
   /**
