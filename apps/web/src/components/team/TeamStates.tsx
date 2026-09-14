@@ -2,16 +2,16 @@ import { Link } from "@tanstack/react-router";
 import type { TeamSearch } from "../../lib/searchParams.js";
 
 /**
- * Shared shape both empty states take (06-01-PLAN.md Task 3). `nickname` is
- * the RAW published value (may be `""`) — both components fall back to
- * `Team {teamNumber}` themselves, matching `SeasonHeader`'s own fallback
- * rule, so a caller never has to pre-compute the fallback twice.
+ * Shared shape both empty states take. `nickname` is the RAW published
+ * value (may be `""`) — both components fall back to `Team {teamNumber}`
+ * themselves, matching `SeasonHeader`'s own fallback rule, so a caller
+ * never has to pre-compute the fallback twice.
  */
 export interface TeamStateProps {
   teamNumber: number;
   nickname: string;
   year: number;
-  /** D-05's `activeYears` — `undefined` when unknown (e.g. the current year's fetch itself 404'd, so the team's active-year list was never learned this session; see 06-CONTEXT.md's D-05 bootstrap wrinkle) or empty. */
+  /** `activeYears` — `undefined` when unknown (e.g. the current year's fetch itself 404'd, so the team's active-year list was never learned this session) or empty. */
   activeYears?: readonly number[];
 }
 
@@ -20,11 +20,11 @@ function displayNickname(nickname: string, teamNumber: number): string {
 }
 
 /**
- * D-19: a year the team's URL names but did not play. Keeps the page,
- * states the fact, and offers the team's active years as one-click links —
- * never a silent redirect. When `activeYears` is undefined or empty, the
- * chip row (and its "This team's active seasons:" label) is omitted
- * ENTIRELY rather than left dangling with nothing after it (E4 partial).
+ * A year the team's URL names but did not play. Keeps the page, states the
+ * fact, and offers the team's active years as one-click links — never a
+ * silent redirect. When `activeYears` is undefined or empty, the chip row
+ * (and its "This team's active seasons:" label) is omitted ENTIRELY rather
+ * than left dangling with nothing after it.
  */
 export function YearMismatchEmptyState({ teamNumber, nickname, year, activeYears }: TeamStateProps) {
   const name = displayNickname(nickname, teamNumber);
@@ -57,9 +57,9 @@ export function YearMismatchEmptyState({ teamNumber, nickname, year, activeYears
 }
 
 /**
- * E5 empty: a valid team-year whose artifact carries zero events — an
- * upstream data gap, deliberately distinct copy from D-19 above (that copy
- * would falsely assert the team didn't compete). No Retry: the fetch
+ * A valid team-year whose artifact carries zero events — an upstream data
+ * gap, deliberately distinct copy from `YearMismatchEmptyState` above (that
+ * copy would falsely assert the team didn't compete). No Retry: the fetch
  * succeeded, so retrying returns the same empty artifact.
  */
 export function NoEventDataState({ teamNumber, nickname, year }: TeamStateProps) {

@@ -12,19 +12,16 @@ import { DistrictLocksTab } from "../components/districts/DistrictLocksTab.js";
 import type { DistrictArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
- * The `/districts` route — the Locks page (quick task 260905-lic Task 3;
- * narrowed to locks only 2026-09-10, when the Insights and Breakdown tabs
- * were removed and the ribbon link was renamed Districts -> Locks). The
- * route PATH is unchanged; only the tab strip and the nav label narrowed.
+ * The `/districts` route — the Locks page. The route PATH is unchanged;
+ * only the tab strip and the nav label narrowed to locks only.
  *
  * The district artifacts carry no algorithm dependency at all
  * (`lib/api/districts.ts`'s own doc comment) — `algorithm` still flows
  * through `RootSearchSchema` (validated at `__root.tsx`'s router boundary)
  * so every `Link to="/team/$teamNumber"` on this page can pass it through
- * unchanged. The algorithm-scoped teams-artifact fetch revision R3 added
- * here went out with the Insights/Breakdown tabs it existed to join: locks
- * and district points never vary by algorithm, so this route is back to its
- * original two fetches (the district index and the selected district).
+ * unchanged. Locks and district points never vary by algorithm, so this
+ * route uses only two fetches (the district index and the selected
+ * district).
  */
 export const Route = createFileRoute("/districts")({
   validateSearch: DistrictsSearchSchema,
@@ -36,9 +33,7 @@ export const Route = createFileRoute("/districts")({
  * unlike `event.$eventKey.tsx`'s `REGISTERED_EVENT_TABS`, there is no
  * per-wave partial-registration state here to guard against. This narrowing
  * array (and `resolveActiveTab` below) are kept anyway, mirroring the event
- * page's own shape exactly, per this route's original instruction to reuse
- * "the same `REGISTERED_*_TABS` + `resolveActiveTab` ... branch order the
- * event page uses." It also catches a stale in-app `?tab=insights` link,
+ * page's own shape. It also catches a stale in-app `?tab=insights` link,
  * falling it back to `DEFAULT_DISTRICT_TAB`.
  */
 const REGISTERED_DISTRICT_TABS: readonly DistrictTab[] = [...DISTRICT_TABS];
@@ -119,10 +114,10 @@ function DistrictsPage() {
 
   const indexQuery = useQuery({ ...districtsIndexQueryOptions({ year }), placeholderData: keepPreviousData });
 
-  // `enabled: district !== undefined` — this route's own D-07: "with no
-  // `?district=`, render an empty state prompting a selection, not a
-  // silently auto-picked district." The detail fetch never fires until a
-  // real district key exists in the URL.
+  // `enabled: district !== undefined` — with no `?district=`, render an
+  // empty state prompting a selection, not a silently auto-picked
+  // district. The detail fetch never fires until a real district key
+  // exists in the URL.
   const districtQuery = useQuery({
     ...districtQueryOptions({ districtKey: district ?? "", year }),
     enabled: district !== undefined,
