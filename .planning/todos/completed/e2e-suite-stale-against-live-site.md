@@ -3,6 +3,8 @@ id: e2e-suite-stale-against-live-site
 created: 2026-09-14
 source: quick task 260914-j0n (live e2e run after retiring the vpr id from the specs)
 priority: medium
+resolved: 2026-09-14
+resolved_by: quick task 260914-liz
 ---
 
 # The Playwright e2e suite is stale against the deployed site
@@ -42,3 +44,7 @@ Many of these hinge on the event tab strip: the tab count, whether it still over
 
 - All four deployed projects pass against production, or each remaining failure is a named, fixed site bug.
 - Consider a CI or post-deploy smoke job so this does not drift again.
+
+## Resolution
+
+Resolved 2026-09-14 by quick task 260914-liz: all listed failures were stale specs or withdrawn premises, no site regressions. Live run against the deployed site: 170 passed, 0 failed (was 40 failed). See `.planning/quick/260914-liz-resolve-todo-e2e-suite-stale-against-liv/260914-liz-SUMMARY.md`.
