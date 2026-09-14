@@ -1,18 +1,17 @@
 import { Button } from "@/components/ui/button";
 
 /**
- * The one empty-state view every wave-4 table renders (05-03-PLAN.md Task 2).
- * `heading` and `body` are supplied by the caller because the UI contract's
- * Copywriting Contract parameterizes them per resource — the Events page's
- * filtered-to-zero case ("No events match your filters") and the Teams
- * page's year-gap case ("No teams for {year}", per D-11's "same
- * heading/body pattern applies verbatim with 'for {year}' substituted in")
- * are the same component with different text, not different components.
+ * The one empty-state view every wave-4 table renders. `heading` and
+ * `body` are supplied by the caller because they are parameterized per
+ * resource — the Events page's filtered-to-zero case ("No events match
+ * your filters") and the Teams page's year-gap case ("No teams for
+ * {year}") are the same component with different text, not different
+ * components.
  *
- * "Clear filters" is the one fixed literal string from the Copywriting
- * Contract; it renders only when `onClearFilters` is supplied (D-11's
- * one-click clear is a Teams/Events filter concept, not universal to every
- * empty state this component might later serve).
+ * "Clear filters" is the one fixed literal string; it renders only when
+ * `onClearFilters` is supplied (the one-click clear is a Teams/Events
+ * filter concept, not universal to every empty state this component might
+ * later serve).
  */
 export function EmptyState({
   heading,
@@ -38,18 +37,16 @@ export function EmptyState({
 
 /**
  * The one error-state view every wave-4 table renders, used identically for
- * a failed Teams or Events artifact fetch (Copywriting Contract's "Error
- * state" row). Unlike `EmptyState`, both copy lines are fixed templates
- * owned by this component — only `resource` and `year` vary per call site.
+ * a failed Teams or Events artifact fetch. Unlike `EmptyState`, both copy
+ * lines are fixed templates owned by this component — only `resource` and
+ * `year` vary per call site.
  *
- * `year` is OPTIONAL (08-01-PLAN.md Decision 2): the Compare page is this
- * site's first page whose data is not scoped to a single year — five
- * simultaneous per-season fetches, with no one honest year to substitute
- * into "for {year}". When `year` is omitted, the rendered line drops the
- * trailing "for {year}" clause entirely, producing the Copywriting
- * Contract's exact Compare-page string ("Couldn't load comparison data.").
- * All four pre-existing call sites pass a year and render byte-identically
- * to before this change — this is additive, not a behavior change for them.
+ * `year` is OPTIONAL: the Compare page is this site's first page whose data
+ * is not scoped to a single year — five simultaneous per-season fetches,
+ * with no one honest year to substitute into "for {year}". When `year` is
+ * omitted, the rendered line drops the trailing "for {year}" clause
+ * entirely, producing "Couldn't load comparison data." All other call
+ * sites pass a year and render byte-identically to before this change.
  */
 export function ErrorState({
   resource,

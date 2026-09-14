@@ -10,13 +10,13 @@ import { filterOptions, MAX_SEASON_WEEK, WEEK_SPECIAL_VALUES, type EventFilterOp
 
 /**
  * The desktop inline control row and the phone filter sheet, both writing to
- * the URL (05-07-PLAN.md Task 3). Filter and sort state never lives HERE —
- * this component reports changes up via callbacks; the caller (`events.tsx`)
- * owns reading/writing the URL through `EventsSearchSchema`. The one piece
- * of state this file DOES own locally is the mobile sheet's in-progress
- * draft — deliberately not the URL and not the Zustand store (D-15's "Apply
- * filters" button means selections inside the sheet are staged, not applied
- * immediately, unlike the desktop row).
+ * the URL. Filter and sort state never lives HERE — this component reports
+ * changes up via callbacks; the caller (`events.tsx`) owns reading/writing
+ * the URL through `EventsSearchSchema`. The one piece of state this file
+ * DOES own locally is the mobile sheet's in-progress draft — deliberately
+ * not the URL and not the Zustand store: the "Apply filters" button means
+ * selections inside the sheet are staged, not applied immediately, unlike
+ * the desktop row.
  */
 
 const ALL_VALUE = "__all__";
@@ -36,7 +36,7 @@ export interface EventFiltersProps {
  * Reader-facing label for one week-filter value: stored week indexes are
  * 0-based, readers count from Week 1; the specials carry their own names.
  *
- * WR-01: the `+ 1` is guarded rather than merely unreached. `filterOptions` no
+ * The `+ 1` is guarded rather than merely unreached. `filterOptions` no
  * longer OFFERS an out-of-band week as a numeric option, but this function is
  * also reached by the active-filter chip, which renders whatever
  * `EventsSearchSchema` let through the URL — and that schema accepts any
@@ -212,9 +212,9 @@ function MobileFilterSheet({ options, filters, onFiltersChange, onClearFilters }
         /*
          * `dvh`, not `vh`: on a phone `vh` is measured against the viewport
          * with the URL bar collapsed, so an 80vh sheet can extend past the
-         * visible area while the bar is showing — which is how "Clear filters"
-         * ended up below the fold at plan 05-08 sign-off. `pb-[env(safe-area-inset-bottom)]`
-         * keeps the footer clear of the home indicator on a notched device.
+         * visible area while the bar is showing, which puts "Clear filters"
+         * below the fold. `pb-[env(safe-area-inset-bottom)]` keeps the
+         * footer clear of the home indicator on a notched device.
          */
         className="flex max-h-[85dvh] w-full max-w-full flex-col overflow-x-hidden pb-[env(safe-area-inset-bottom)]"
       >

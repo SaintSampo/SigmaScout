@@ -1,26 +1,22 @@
 /**
- * The narrow client-side algorithms-manifest fetcher (Task 3,
- * 05-05-PLAN.md).
+ * The narrow client-side algorithms-manifest fetcher.
  *
  * `AlgorithmsManifestClientSchema` deliberately declares its OWN narrow
  * schema rather than importing the harness's own full manifest-schema
- * module's `AlgorithmsManifestSchema`: when this was written, that module
- * imported the retired Sigma1 core's parameter schema (the core was deleted by
- * quick task 260913-it4), which transitively reached the whole implementation
- * — fine for `apps/worker`, wrong for a browser bundle that only needs three
- * id strings and their version labels. This file declares
- * only the preamble fields plus an array of entries carrying `id`,
- * `version`, `codeVersion` and `paramSetName`; any other key on a real
- * manifest entry (e.g. the real schema's optional `params`) is silently
- * stripped by Zod's default object mode, never validated — this client has
- * no use for it and must never import a schema that requires it. This is
- * this plan's `<threat_model>` T-05-04 mitigation and its own `<prohibitions>`
- * entry ("The client must NOT import the harness manifest schema module").
+ * module's `AlgorithmsManifestSchema`: the full schema transitively pulls in
+ * the whole harness implementation — fine for `apps/worker`, wrong for a
+ * browser bundle that only needs three id strings and their version labels.
+ * This file declares only the preamble fields plus an array of entries
+ * carrying `id`, `version`, `codeVersion` and `paramSetName`; any other key
+ * on a real manifest entry (e.g. the real schema's optional `params`) is
+ * silently stripped by Zod's default object mode, never validated — this
+ * client has no use for it and must never import a schema that requires it.
+ * The client must NOT import the harness manifest schema module.
  *
  * The fetch/parse/error shape mirrors `apps/worker/src/liveWindows.ts`'s
- * parse-or-throw discipline (05-PATTERNS.md) and `lib/api/teams.ts`'s
- * (05-01) named-error convention — every thrown error here is a named
- * `class X extends Error`, never a bare `throw new Error(...)`.
+ * parse-or-throw discipline and `lib/api/teams.ts`'s named-error convention
+ * — every thrown error here is a named `class X extends Error`, never a
+ * bare `throw new Error(...)`.
  */
 import { z } from "zod";
 import { artifactUrl } from "../artifactOrigin.js";
@@ -30,7 +26,7 @@ export const ALGORITHMS_MANIFEST_KEY = "v1/manifest/algorithms.json";
 
 const AlgorithmManifestEntryClientSchema = z.object({
   id: z.string().min(1),
-  /** `{codeVersion}+{paramSetName}` — D-13's version identity. */
+  /** `{codeVersion}+{paramSetName}` — the version identity. */
   version: z.string().min(1),
   codeVersion: z.string().min(1),
   paramSetName: z.string().min(1),

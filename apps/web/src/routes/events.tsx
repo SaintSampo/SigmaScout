@@ -8,8 +8,7 @@ import { EventFilters } from "../components/events-list/EventFilters.js";
 import { applyEventFilters, isDisplayableEvent, sortEvents, type EventFilters as EventFiltersModel, type EventSortKey } from "../components/events-list/filterModel.js";
 
 /**
- * EVNT-01's real Events page (05-07-PLAN.md Task 3), replacing plan 05-05's
- * placeholder. Reads the validated params, issues the single events query
+ * The Events page. Reads the validated params, issues the single events query
  * for the year, derives filter options from the fetched rows, applies the
  * filters and sort, and renders the list. A year change preserves filters
  * and sort — `applyYearChange`'s cross-route spread already does this, and
@@ -94,9 +93,9 @@ function EventsPage() {
   }
 
   return (
-    // Content capped and centered (2026-09-01 redesign, decision E1): seven
-    // narrow data columns stretched edge-to-edge was most of the old page's
-    // empty space. 1100px holds the flexed name column comfortably.
+    // Content capped and centered: seven narrow data columns stretched
+    // edge-to-edge was most of the old page's empty space. 1100px holds the
+    // flexed name column comfortably.
     <div className="mx-auto max-w-[1100px] p-[var(--spacing-lg)]">
       <h1 className="text-role-heading mb-[var(--spacing-md)] text-[var(--color-text-primary)]">Events {year}</h1>
       {/* Per 05-UI-SPEC.md: "The controls are not rendered at all when the fetch
