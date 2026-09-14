@@ -1,10 +1,9 @@
 /**
  * Drives `runTick` with injected fakes for D1/R2/KV and a stubbed `fetch` —
- * no network, no wrangler. Covers this plan's Task 3 acceptance criteria:
- * the nothing-live early exit, state-before-artifact ordering, idempotent
- * repeats, overlapping-invocation folding, per-event error confinement
- * (rejecting write / throwing poll), the no-starvation budget property, and
- * the global-rebuild triggers.
+ * no network, no wrangler. Covers the nothing-live early exit,
+ * state-before-artifact ordering, idempotent repeats, overlapping-invocation
+ * folding, per-event error confinement (rejecting write / throwing poll),
+ * the no-starvation budget property, and the global-rebuild triggers.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTick, touchedTeamsRowMetrics, touchedEventTeamMetrics } from "../src/scheduled.js";
@@ -12,9 +11,8 @@ import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveW
 import { artifactKey, decodeTeamsRowMetrics } from "../../../packages/harness/pageArtifacts.js";
 // `runTick` builds every artifact key from the LIVE algorithm module's
 // `version` (see scheduled.ts's `info.algorithm.version`), never from the
-// algorithms manifest below — so these expectations must track the module too.
-// They were pinned to a "3.1.0+baseline" literal and went red on D-Q4's
-// 3.1.0 -> 4.0.0 bump; deriving them removes that standing trip-wire.
+// algorithms manifest below, so deriving these expectations from the module
+// tracks any future version bump instead of standing as a literal trip-wire.
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
@@ -97,12 +95,12 @@ class FakeD1Database {
   executeSelect(sql: string, args: readonly unknown[]): unknown[] {
     if (sql.includes("FROM algorithm_state")) {
       const algorithmId = args[0] as string;
-      // Plan 04-08: a request may name more than one scope kind in one query
-      // (e.g. OPR's event key + team keys). Each
-      // `(scope_kind = ? AND scope_key IN (?,?,...))` group in the SQL text
-      // names its own placeholder count, in the SAME order the real query
-      // binds its args -- walking the SQL text is what lets this fake
-      // support an arbitrary number of selections without hardcoding shape.
+      // A request may name more than one scope kind in one query (e.g. OPR's
+      // event key + team keys). Each `(scope_kind = ? AND scope_key IN
+      // (?,?,...))` group in the SQL text names its own placeholder count, in
+      // the SAME order the real query binds its args -- walking the SQL text
+      // is what lets this fake support an arbitrary number of selections
+      // without hardcoding shape.
       const groupSizes = [...sql.matchAll(/\(scope_kind = \? AND scope_key IN \(([^)]*)\)\)/g)].map((m) => m[1]!.split(",").filter((s) => s.length > 0).length);
       if (groupSizes.length === 0) {
         return [...this.algorithmState.values()].filter((row) => row.algorithm_id === algorithmId && row.scope_kind === "league");
@@ -226,11 +224,9 @@ class FakeKvNamespace {
   }
 }
 
-// Quick task 260822-wqt: every `makeKv` call site in this file uses the
-// default OPR-ONLY manifest, so `LIVE_ALGORITHM_IDS: "opr"` keeps every
-// existing assertion in this file exercising exactly what it exercised
-// before the live-tier filter existed — without it the filter yields an
-// empty tier and every test in this file throws (EmptyLiveAlgorithmTierError).
+// Every `makeKv` call site in this file uses the default OPR-ONLY manifest,
+// so `LIVE_ALGORITHM_IDS: "opr"` keeps assertions exercising a non-empty
+// live tier -- an empty tier throws EmptyLiveAlgorithmTierError.
 function makeEnv(kv: FakeKvNamespace, d1: FakeD1Database, r2: FakeR2Bucket): Env {
   return { DB: d1 as unknown as D1Database, ARTIFACTS: r2 as unknown, MANIFEST: kv as unknown, TBA_API_KEY: "test-key", LIVE_ALGORITHM_IDS: "opr" } as Env;
 }
@@ -324,13 +320,9 @@ function makeTbaFetchStub(events: Map<string, TbaEventRecord>): ReturnType<typeo
       const eventKey = detailMatch[1]!;
       const record = events.get(eventKey);
       if (!record) return { status: 404, ok: false, headers: new Map(), json: async () => ({}) };
-      // Rule 1 fix (quick task 260904-586): `tbaEventSchema` requires `name`
-      // (EVNT-01) -- its absence here silently threw inside `processEvent`'s
-      // swallowed try/catch, degrading EVERY test in this file's `eventType`
-      // to the `-1` sentinel regardless of `record.eventType`, undetected
-      // until this task's `isOfficialEventType` gate started treating `-1`
-      // as official (matching production) and needed a genuine non-official
-      // `event_type` to reach the parse.
+      // `tbaEventSchema` requires `name`; its absence would silently throw
+      // inside `processEvent`'s swallowed try/catch, degrading `eventType` to
+      // the `-1` sentinel regardless of `record.eventType`.
       return {
         status: 200,
         ok: true,
@@ -424,17 +416,16 @@ describe("runTick — one live event, one new match", () => {
       expect(r2.puts.some((p) => p.key === teamPutKey)).toBe(true);
     }
 
-    // Plan 04-08 (Task 2): OPR's lastEventByTeam bookkeeping now lives in its
-    // OWN team-scoped rows (moved out of the league row), and the ONE batched
-    // state write for this event includes them alongside the event row —
-    // proof the tick reads/folds/writes both scope kinds together, in the
-    // same single-statement read and the same single batched write.
+    // OPR's lastEventByTeam bookkeeping lives in its OWN team-scoped rows,
+    // and the ONE batched state write for this event includes them alongside
+    // the event row -- proof the tick reads/folds/writes both scope kinds
+    // together, in the same single-statement read and single batched write.
     for (const teamKey of RED_TEAMS) {
       const row = d1.algorithmState.get(`opr::team::${teamKey}`);
       expect(row).toBeDefined();
       // The row carries OPR's own `lastEventKey` and NOTHING else: OPR has no
-      // Sigma Score and, since quick task 260913-it4, no ranking-point
-      // passenger, so no level-2 key rides on its team rows.
+      // Sigma Score or ranking-point passenger, so no level-2 key rides on
+      // its team rows.
       expect(JSON.parse(row!.state_json)).toEqual({
         lastEventKey: "2026casj",
       });
@@ -605,9 +596,9 @@ describe("runTick — algorithm module construction (Pitfall 4)", () => {
 
     let constructionCount = 0;
     const { buildAlgorithmModules: realBuildAlgorithmModules } = await import("../src/scheduled.js");
-    // Quick task 260822-wqt: `buildAlgorithmModules` gained a required second
-    // parameter (the live tier) — passed through unchanged here since this
-    // test's own concern is call COUNT, not filtering behavior.
+    // `buildAlgorithmModules` requires a second parameter (the live tier),
+    // passed through unchanged here since this test's own concern is call
+    // COUNT, not filtering behavior.
     const countingBuilder = (manifest: Parameters<typeof realBuildAlgorithmModules>[0], liveAlgorithmIds: Parameters<typeof realBuildAlgorithmModules>[1]) => {
       constructionCount++;
       return realBuildAlgorithmModules(manifest, liveAlgorithmIds);
@@ -843,8 +834,8 @@ describe("runTick — global rebuild (D-16)", () => {
     const untouchedRow = written.teams.find((t) => t.teamKey === "frc999");
     expect(untouchedRow).toBeDefined();
     const decoded = decodeTeamsRowMetrics(untouchedRow!.metrics as never, written.metricKeys!);
-    // Exact, tier included (quick task 260912-tnk): tiers are carried, never
-    // re-ranked, so an untouched row gains and loses no tier.
+    // Exact, tier included: tiers are carried, never re-ranked, so an
+    // untouched row gains and loses no tier.
     expect(decoded.total).toEqual({ value: 10, spread: 1 });
 
     // And the newly-touched teams acquired a real row too.
@@ -854,12 +845,11 @@ describe("runTick — global rebuild (D-16)", () => {
   });
 
   /**
-   * Quick task 260908-5wd: a TOUCHED row must keep the fields the offline
-   * publisher owns. The test above proves an UNTOUCHED row survives; this one
-   * covers the case that was actually broken — the rebuild rebuilt each touched
-   * row field-by-field, so a team that played a match silently lost its region
-   * (and with it its district/state rank scopes) and its per-team consistency
-   * figure until the next offline publish.
+   * A TOUCHED row must keep the fields the offline publisher owns. The test
+   * above proves an UNTOUCHED row survives; this one covers a touched row's
+   * own field-by-field rebuild, so a team that played a match keeps its
+   * region (and with it its district/state rank scopes) and its per-team
+   * consistency figure until the next offline publish.
    */
   it("260908-5wd: a TOUCHED team's row keeps its offline-published region fields, and a stale unknown per-team field does not survive (260913-g66)", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
@@ -884,8 +874,8 @@ describe("runTick — global rebuild (D-16)", () => {
             teamNumber: 1,
             nickname: "Touched Team",
             record: { wins: 2, losses: 0, ties: 0 },
-            // Quick task 260912-tnk: a published Sigma entry with a tier, which
-            // the live tick does not recompute and must not drop.
+            // A published Sigma entry with a tier, which the live tick does
+            // not recompute and must not drop.
             metrics: { total: { value: 10, spread: 1 }, sigma: { value: 3.25, tier: "epic" } },
             eventCount: 1,
             matchCount: 2,
@@ -916,12 +906,12 @@ describe("runTick — global rebuild (D-16)", () => {
     };
     const touched = written.teams.find((t) => t.teamKey === "frc1");
     expect(touched).toBeDefined();
-    // Quick task 260912-tnk: the published Sigma entry survives, value and tier.
+    // The published Sigma entry survives, value and tier.
     expect(decodeTeamsRowMetrics(touched!.metrics as never, written.metricKeys).sigma).toEqual({ value: 3.25, tier: "epic" });
 
-    // Quick task 260913-g66: a retired or unknown per-team field is stripped on
-    // parse and never rewritten, so a stale artifact's value does not ride
-    // forward through a live tick.
+    // A retired or unknown per-team field is stripped on parse and never
+    // rewritten, so a stale artifact's value does not ride forward through a
+    // live tick.
     expect(touched!, "a live tick must not carry an unknown per-team field forward").not.toHaveProperty("legacyPerTeamField");
     // Publisher-owned: preserved through the tick.
     expect(touched!.country).toBe("USA");
@@ -934,10 +924,10 @@ describe("runTick — global rebuild (D-16)", () => {
 });
 
 /**
- * Quick task 260912-tnk: during a live global rebuild the Teams list must not
- * fall back to a false Common. Full tier re-derivation was measured over the
- * CPU gate, so touched rows carry their published tiers forward
- * (`touchedTeamsRowMetrics`'s doc comment has the numbers).
+ * During a live global rebuild the Teams list must not fall back to a false
+ * Common. Full tier re-derivation was measured over the CPU gate, so touched
+ * rows carry their published tiers forward (`touchedTeamsRowMetrics`'s doc
+ * comment has the numbers).
  */
 describe("260912-tnk: live Teams-row tiers", () => {
   it("a touched metric keeps the prior row's published tier on the same key, with the fresh value", () => {
