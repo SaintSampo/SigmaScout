@@ -65,7 +65,7 @@ function observationsAt(state: OprState, eventKey: string): readonly OprObservat
   return state.perEvent.get(eventKey)?.observations ?? [];
 }
 
-describe("OPR logistic-scale constants (D-Q4)", () => {
+describe("OPR logistic-scale constants", () => {
   it("both exported constants are positive — a zero or negative either would make the scale non-finite or invert the logistic", () => {
     expect(OPR_SCALE_DIVISOR_K).toBeGreaterThan(0);
     expect(OPR_FALLBACK_SCORE_SD).toBeGreaterThan(0);
@@ -84,7 +84,7 @@ function impliedScale(pRedWin: number, margin: number): number {
   return -margin / Math.log(1 / pRedWin - 1);
 }
 
-describe("opr.predict — expanding-window logistic scale (D-Q4)", () => {
+describe("opr.predict — expanding-window logistic scale", () => {
   /** A state with a known rating spread at one event, so `predict` produces a known margin. */
   function stateWithRatings(state: OprState, eventKey: string, ratings: [string, number][]): OprState {
     const perEvent = new Map(state.perEvent);
@@ -322,7 +322,7 @@ describe("opr — end-to-end through WalkForwardSimulator (tracer)", () => {
   });
 });
 
-describe("opr — public export surface (SC-1)", () => {
+describe("opr — public export surface", () => {
   it("exports exactly the surviving symbols — no accidental re-export of retired season-pooled machinery, no accidental loss of a symbol epa.ts depends on", () => {
     expect(Object.keys(oprModule).sort()).toEqual([
       // No OPR_LOGISTIC_SCALE: a fixed scale would be the defect.
@@ -341,13 +341,13 @@ describe("opr — public export surface (SC-1)", () => {
   });
 });
 
-describe("opr — harness registry resolves to the rewritten module (SC-1)", () => {
+describe("opr — harness registry resolves to the rewritten module", () => {
   it("BASE_PUBLISH_ALGORITHMS.opr (packages/harness/publish.ts) is the exact same object as the opr export from packages/core/algorithms/opr.ts", () => {
     expect(BASE_PUBLISH_ALGORITHMS.opr).toBe(opr);
   });
 });
 
-describe("solveEventOpr — synthetic strength recovery without shrinkage (D-06)", () => {
+describe("solveEventOpr — synthetic strength recovery without shrinkage", () => {
   it("recovers known synthetic team strengths near-exactly at event scale (~39 teams) — no ridge term means no shrinkage bias to tolerate", () => {
     // Corpus-measured event scale: mean 38.7 / median 38 teams per event.
     // Every 3-team combination among 39 teams (9139 alliances), scored as an
@@ -371,7 +371,7 @@ describe("solveEventOpr — synthetic strength recovery without shrinkage (D-06)
   });
 });
 
-describe("opr — literal-zero cold start (D-02)", () => {
+describe("opr — literal-zero cold start", () => {
   it("gives the first qualification match of an event a prediction of exactly {redScore: 0, blueScore: 0, pRedWin: 0.5} — no observations yet at this event", () => {
     const state: OprState = opr.initState([]);
     const upcoming: UpcomingMatch = {
@@ -429,7 +429,7 @@ describe("opr — rank-deficient event scale stays finite", () => {
   });
 });
 
-describe("opr — per-event keying under interleaved events (D-01)", () => {
+describe("opr — per-event keying under interleaved events", () => {
   it("gives each event exactly the ratings a solo run over that event's own matches (in isolation) would produce, even when the events' matches interleave in one stream", () => {
     const sharedTeam = "SHARED";
 
@@ -475,7 +475,7 @@ describe("opr — per-event keying under interleaved events (D-01)", () => {
   });
 });
 
-describe("opr — qualification matches only feed the fit (D-05)", () => {
+describe("opr — qualification matches only feed the fit", () => {
   it("update() is a no-op on playoff comp levels (state.perEvent unchanged) while predict() still returns a finite prediction for them, reflecting the ratings this event's quals produced", () => {
     let state: OprState = opr.initState([]);
     state = opr.update(
@@ -509,7 +509,7 @@ describe("opr — qualification matches only feed the fit (D-05)", () => {
   });
 });
 
-describe("opr.teamMetrics — most recent event headlines (D-04)", () => {
+describe("opr.teamMetrics — most recent event headlines", () => {
   it("headlines a team's MOST RECENT event, not the event it was first inserted into — a team playing event B before event A finishes in stream order still headlines A", () => {
     let state: OprState = opr.initState([]);
     // Event B is seen FIRST in stream order (so perEvent's insertion order
@@ -544,7 +544,7 @@ describe("opr.teamMetrics — most recent event headlines (D-04)", () => {
     expect("NEVERSEEN" in metrics).toBe(false);
   });
 
-  it("never registers a team in lastEventByTeam from a playoff-only appearance at an event (D-05: update() never touches lastEventByTeam for a non-qm match)", () => {
+  it("never registers a team in lastEventByTeam from a playoff-only appearance at an event (update() never touches lastEventByTeam for a non-qm match)", () => {
     let state: OprState = opr.initState([]);
     state = opr.update(
       state,
@@ -562,7 +562,7 @@ describe("opr.teamMetrics — most recent event headlines (D-04)", () => {
   });
 });
 
-describe("opr — finiteness guard throws loudly (01-REVIEW WR-01, D-03)", () => {
+describe("opr — finiteness guard throws loudly", () => {
   it("throws when an alliance's score is non-finite, naming the eventKey, instead of writing a non-finite rating into the returned state", () => {
     let state: OprState = opr.initState([]);
     // Establish a well-connected event first so the corrupted match shares
@@ -699,7 +699,7 @@ describe("opr — predict determinism and non-mutation", () => {
   });
 });
 
-describe("ratingEligibleTeams / allianceObservation — D-07 surrogate handling", () => {
+describe("ratingEligibleTeams / allianceObservation — surrogate handling", () => {
   it("excludes the surrogate's column while keeping its non-surrogate teammates", () => {
     expect(ratingEligibleTeams(["T1", "T2", "SURR"], ["SURR"])).toEqual(["T1", "T2"]);
   });
@@ -720,7 +720,7 @@ describe("ratingEligibleTeams / allianceObservation — D-07 surrogate handling"
 });
 
 describe("opr — surrogate appearances leave the surrogate's rating untouched", () => {
-  it("a team appearing as a surrogate at a different event never receives a rating there, and its rating at its real event is unaffected (D-01 event isolation)", () => {
+  it("a team appearing as a surrogate at a different event never receives a rating there, and its rating at its real event is unaffected (event isolation)", () => {
     let state: OprState = opr.initState([]);
     // Match 1 (event A): T1 is a normal participant, earns a real rating.
     state = opr.update(
