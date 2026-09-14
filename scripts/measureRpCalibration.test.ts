@@ -114,7 +114,7 @@ describe("RP_RELIABILITY_BUCKET_EDGES", () => {
 });
 
 describe("buildRpCalibrationRecord", () => {
-  it("omits a bonus with zero observations rather than emitting NaN figures (T-09-04)", () => {
+  it("omits a bonus with zero observations rather than emitting NaN figures", () => {
     const record = buildRpCalibrationRecord(
       ["energized", "supercharged", "traversal"],
       [
@@ -169,7 +169,7 @@ describe("buildRpCalibrationRecord", () => {
     expect(bonus.count).toBe(4);
   });
 
-  it("carries no reliabilityBins key at all — dropped per Task 2 Step 5's measured byte-budget remedy", () => {
+  it("carries no reliabilityBins key at all — dropped as the measured byte-budget remedy", () => {
     const record = buildRpCalibrationRecord(["a"], [[{ predicted: 0.5, actual: true }]]);
     expect("reliabilityBins" in record).toBe(false);
   });
@@ -187,7 +187,7 @@ describe("2021 has no registered RP rule module (guards the premise the season f
   });
 });
 
-describe("widened emitter (Task 2, D-09) — one runAll, disjoint per-algorithm record sets", () => {
+describe("widened emitter — one runAll, disjoint per-algorithm record sets", () => {
   it("runAll over two algorithm modules and a chronological match list folds each returned record into ITS OWN algorithm, disjoint and in chronological order", () => {
     const matches: MatchResult[] = [
       makeMatch({ matchKey: "2024test_qm1", matchNumber: 1 }),
@@ -215,7 +215,7 @@ describe("widened emitter (Task 2, D-09) — one runAll, disjoint per-algorithm 
   });
 });
 
-describe("same-scorer structural assertions (D-11)", () => {
+describe("same-scorer structural assertions", () => {
   it("constructs SigmaScoutLayer exactly two times — control and the --marginal-arm layer — and EVERY one carries a resolved algorithm id as the second argument", () => {
     const matches = [...SOURCE.matchAll(/new SigmaScoutLayer\(/g)];
     // Two: control and the negative-binomial arm, off one walk-forward pass.
@@ -325,7 +325,7 @@ describe("data/baselines/rp-attribution-2026-09.json — the committed record ou
     expect(record.corpusIdentity.sizeBytes).toBeGreaterThan(0);
   });
 
-  it("pins F10's dot threshold without importing it from the web app", () => {
+  it("pins the bonus-dot threshold without importing it from the web app", () => {
     expect(record.dotThreshold).toBe(RP_DOT_THRESHOLD_DEFAULT);
   });
 
@@ -344,7 +344,7 @@ describe("docs/models/rp-attribution.md cannot drift off the record it describes
     expect(JSON.parse(match![1]!) as unknown).toEqual(buildRpAttributionDigest(RpAttributionRecordSchema.parse(ATTRIBUTION_RAW)));
   });
 
-  it("keeps D-04's two slices under separate headings, with no season under the wrong one", () => {
+  it("keeps the selection and reporting slices under separate headings, with no season under the wrong one", () => {
     const doc = readFileSync(new URL("../docs/models/rp-attribution.md", import.meta.url), "utf8");
     const record = RpAttributionRecordSchema.parse(ATTRIBUTION_RAW);
     const section = (heading: string): string => {
@@ -404,7 +404,7 @@ describe("data/baselines/rp-calibration-2026-09b.json — re-emitted from the co
     expect(compared).toBe(bonusTotal * PUBLISHED_ALGORITHM_IDS.length);
   });
 
-  it("covers the full cross product of registered seasons and published algorithms — the same equality pin 09-01 used, re-asserted against the new file", () => {
+  it("covers the full cross product of registered seasons and published algorithms — the same equality pin, re-asserted against the new file", () => {
     const expected = new Set<string>();
     for (const season of Object.keys(RP_RULE_MODULES).map(Number)) {
       for (const algorithmId of PUBLISHED_ALGORITHM_IDS) expected.add(`${season}|${algorithmId}`);
@@ -412,12 +412,12 @@ describe("data/baselines/rp-calibration-2026-09b.json — re-emitted from the co
     expect(new Set(REEMITTED.records.map((r) => `${r.season}|${liveAlgorithmId(r.algorithmId)}`))).toEqual(expected);
   });
 
-  it("records the shipped combination as a LABEL, now that the config object that described it is gone (D-05 after D-06) — pinned to its OWN frozen literal (design point 9, 260913-qyn), since SHIPPED_RP_LAYER_LABEL changed after this file was emitted", () => {
+  it("records the shipped combination as a LABEL, now that the config object that described it is gone — pinned to its OWN frozen literal, since SHIPPED_RP_LAYER_LABEL changed after this file was emitted", () => {
     expect(REEMITTED.rpLayer).toBe("winSource=score-draw, tieModel=continuous-equality, marginal=gaussian");
     expect(REEMITTED.rpLayer).not.toBe(SHIPPED_RP_LAYER_LABEL);
   });
 
-  it("09-01's frozen pre-phase measurement is untouched — a re-measurement gets a NEW dated filename so before/after stays a real comparison", () => {
+  it("the frozen baseline measurement is untouched — a re-measurement gets a NEW dated filename so before/after stays a real comparison", () => {
     const frozen = JSON.parse(
       readFileSync(new URL("../data/baselines/rp-calibration-2026-09.json", import.meta.url), "utf8")
     ) as { rpLayer?: string; records: unknown[] };
@@ -556,7 +556,7 @@ describe("--marginal-arm eligibility partition — derived at runtime from bonus
   });
 });
 
-describe("--marginal-arm variant rule module (the D-3 seam)", () => {
+describe("--marginal-arm variant rule module", () => {
   // Poisoned variables keep the production family, which is "lattice".
   it("flips marginalFamily only on eligible variables and leaves poisoned ones declaring the production family (lattice)", () => {
     const original = RP_RULE_MODULES[2016]!;
@@ -598,7 +598,7 @@ describe("--marginal-arm variant rule module (the D-3 seam)", () => {
 // boundary, never a measured number.
 // ---------------------------------------------------------------------------
 
-describe("applyRpOutcomeArmBar (260913-qyn's pre-committed outcome-arm bar)", () => {
+describe("applyRpOutcomeArmBar (the pre-committed outcome-arm bar)", () => {
   const control = (totalRpRps: number, outcomeBrier: number, counts = { totalRpCount: 1000, outcomeCount: 500 }): ArmPooledFigures => ({
     arm: "control",
     totalRpRps,
@@ -703,7 +703,7 @@ describe("applyRpOutcomeArmBar (260913-qyn's pre-committed outcome-arm bar)", ()
 // applyRpBonusArmBar: every figure is hand-picked.
 // ---------------------------------------------------------------------------
 
-describe("applyRpBonusArmBar (260914-01x's pre-committed bonus-arm bar)", () => {
+describe("applyRpBonusArmBar (the pre-committed bonus-arm bar)", () => {
   const counts = { bonusCount: 2000, totalRpCount: 1000 };
   const fig = (arm: BonusArmName, bonusBrier: number, totalRpRps: number, c = counts): BonusArmPooledFigures => ({
     arm,
@@ -976,8 +976,8 @@ describe("buildOutcomeSummary", () => {
   });
 });
 
-describe("buildRpCalibrationRecord — the optional third argument (260913-qyn)", () => {
-  it("with no third argument, the record carries neither totalRp nor outcome — byte-identical to before 260913-qyn", () => {
+describe("buildRpCalibrationRecord — the optional third argument", () => {
+  it("with no third argument, the record carries neither totalRp nor outcome — byte-identical to the bonuses-only record shape", () => {
     const record = buildRpCalibrationRecord(["autoBonus"], [[{ predicted: 0.5, actual: true }]]);
     expect(record.totalRp).toBeUndefined();
     expect(record.outcome).toBeUndefined();
@@ -1041,7 +1041,7 @@ describe("buildRpCalibrationRecord — the optional third argument (260913-qyn)"
     }
   });
 
-  it("the committed apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json still parses as a bare RpCalibrationRecord shape, and now carries non-empty totalRp/outcome blocks (refreshed by 260913-qyn Task 3 from the -09d 2026 spr record)", () => {
+  it("the committed apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json still parses as a bare RpCalibrationRecord shape, and now carries non-empty totalRp/outcome blocks (refreshed from the -09d 2026 spr record)", () => {
     const raw: unknown = JSON.parse(
       readFileSync(new URL("../apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json", import.meta.url), "utf8")
     );
@@ -1146,7 +1146,7 @@ describe("RpOutcomeArmRecordSchema", () => {
   });
 });
 
-describe("data/baselines/rp-outcome-arms-2026-09.json — the committed arm comparison (260913-qyn Task 2 Step 1)", () => {
+describe("data/baselines/rp-outcome-arms-2026-09.json — the committed arm comparison", () => {
   const RECORD = RpOutcomeArmRecordSchema.parse(
     JSON.parse(readFileSync(new URL("../data/baselines/rp-outcome-arms-2026-09.json", import.meta.url), "utf8"))
   );
@@ -1185,7 +1185,7 @@ describe("data/baselines/rp-outcome-arms-2026-09.json — the committed arm comp
   });
 });
 
-describe("data/baselines/rp-bonus-arms-2026-09.json — the committed bonus-arm comparison (260914-01x Task 3)", () => {
+describe("data/baselines/rp-bonus-arms-2026-09.json — the committed bonus-arm comparison", () => {
   const RECORD = RpBonusArmRecordSchema.parse(
     JSON.parse(readFileSync(new URL("../data/baselines/rp-bonus-arms-2026-09.json", import.meta.url), "utf8"))
   );
