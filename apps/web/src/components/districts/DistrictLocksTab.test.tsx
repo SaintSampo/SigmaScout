@@ -9,7 +9,7 @@
  */
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import { DistrictArtifactSchema, type DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -424,6 +424,60 @@ describe("DistrictLocksTab", () => {
     );
     const stat = await screen.findByTestId("champ-locks-remaining-district-points");
     expect(stat.textContent).toBe("0 / 166 pre-DCMP");
+  });
+
+  describe("quick task 260914-3zj: one merged header card per tab", () => {
+    it("the District Locks tab renders exactly one non-table header card, with capacity/Lock Line/ceiling/points-pool in one stat row and the chip strip below it", async () => {
+      const t = team({
+        teamKey: "frc40",
+        teamNumber: 40,
+        rank: 1,
+        eventPoints: [{ eventKey: "eventA", eventName: "Event A", week: 1, tier: "district", qual: 40, alliance: 20, elim: 0, award: 0, total: 60 }],
+        remainingEvents: [{ eventKey: "eventB", eventName: "Event B", week: 5, tier: "district", maxPoints: 83 }],
+      });
+      render(
+        <TestHarness>
+          <DistrictLocksTab artifact={makeArtifact([t])} which="district" algorithm="spr" season={2026} />
+        </TestHarness>,
+      );
+      const root = await screen.findByTestId("district-district-locks-tab");
+      const nonTableCards = [...root.querySelectorAll(".data-card")].filter((card) => card.querySelector("table") === null);
+      expect(nonTableCards).toHaveLength(1);
+      const headerCard = nonTableCards[0] as HTMLElement;
+      expect(headerCard.getAttribute("data-testid")).toBe("district-locks-header-stats");
+
+      const statRow = headerCard.querySelector('[data-testid="district-locks-header-stat-row"]') as HTMLElement;
+      expect(statRow).not.toBeNull();
+      expect(within(statRow).getByText("District Championship capacity")).toBeDefined();
+      expect(within(statRow).getByText("Lock Line")).toBeDefined();
+      expect(statRow.querySelector('[data-testid="district-locks-ceiling"]')).not.toBeNull();
+      expect(statRow.querySelector('[data-testid="district-locks-points-pool"]')).not.toBeNull();
+
+      expect(headerCard.querySelector('[data-testid="district-locks-schedule-strip"]')).not.toBeNull();
+      expect(statRow.querySelector('[data-testid="district-locks-schedule-strip"]')).toBeNull();
+    });
+
+    it("the Champ Locks tab renders exactly one non-table header card, with capacity/Lock Line/remaining-district-points in one stat row and no schedule strip", async () => {
+      const t = team({ teamKey: "frc41", teamNumber: 41, rank: 1, maxRemainingChamp: 100 });
+      render(
+        <TestHarness>
+          <DistrictLocksTab artifact={makeArtifact([t])} which="champ" algorithm="spr" season={2026} />
+        </TestHarness>,
+      );
+      const root = await screen.findByTestId("district-champ-locks-tab");
+      const nonTableCards = [...root.querySelectorAll(".data-card")].filter((card) => card.querySelector("table") === null);
+      expect(nonTableCards).toHaveLength(1);
+      const headerCard = nonTableCards[0] as HTMLElement;
+      expect(headerCard.getAttribute("data-testid")).toBe("champ-locks-header-stats");
+
+      const statRow = headerCard.querySelector('[data-testid="champ-locks-header-stat-row"]') as HTMLElement;
+      expect(statRow).not.toBeNull();
+      expect(within(statRow).getByText("FIRST Championship capacity")).toBeDefined();
+      expect(within(statRow).getByText("Lock Line")).toBeDefined();
+      expect(statRow.querySelector('[data-testid="champ-locks-remaining-district-points"]')).not.toBeNull();
+
+      expect(headerCard.querySelector('[data-testid="district-locks-schedule-strip"]')).toBeNull();
+    });
   });
 
   describe("revision R3: per-event column toggle (260905-lic)", () => {
