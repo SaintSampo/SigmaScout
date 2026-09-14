@@ -1,20 +1,18 @@
 /**
- * D-09's matching predicate over teams and events, plus the capped result
- * assembly the search dropdown renders (05-08-PLAN.md Task 1). Pure TypeScript
- * — no React import, no dependency beyond the published artifact row types
- * (`packages/harness/pageArtifacts.ts`'s `TeamsArtifact`/`EventsArtifact`).
+ * The matching predicate over teams and events, plus the capped result
+ * assembly the search dropdown renders. Pure TypeScript — no React import,
+ * no dependency beyond the published artifact row types.
  *
- * SECURITY (T-05-01, 05-RESEARCH.md Pitfall 3): the query string is
- * arbitrary user-typed text evaluated on EVERY KEYSTROKE on the browser's
- * own main thread. D-09's rule ("number-prefix plus name-substring") needs
- * no pattern compilation at all — `String.prototype.startsWith()` and
- * `.includes()` are both correct for this rule AND immune to catastrophic
- * backtracking by construction, because no pattern object is EVER built from
- * the query. Do NOT "simplify" this back to a pattern object constructed
- * from the raw query text with a case-insensitive flag — that turns every
- * keystroke into a live compiled pattern evaluated against arbitrary user
- * input, which is exactly the denial-of-service shape this module exists to
- * avoid.
+ * SECURITY: the query string is arbitrary user-typed text evaluated on
+ * EVERY KEYSTROKE on the browser's own main thread. The rule ("number-prefix
+ * plus name-substring") needs no pattern compilation at all —
+ * `String.prototype.startsWith()` and `.includes()` are both correct for
+ * this rule AND immune to catastrophic backtracking by construction, because
+ * no pattern object is EVER built from the query. Do NOT "simplify" this
+ * back to a pattern object constructed from the raw query text with a
+ * case-insensitive flag — that turns every keystroke into a live compiled
+ * pattern evaluated against arbitrary user input, which is exactly the
+ * denial-of-service shape this module exists to avoid.
  *
  * CASE-INSENSITIVITY: both sides are lowercased with the string's own
  * `.toLowerCase()` before comparison — never a case-insensitive pattern
@@ -68,7 +66,7 @@ function compareEventMatches(a: { startDate: string; eventKey: string }, b: { st
 }
 
 /**
- * D-09's team-matching rule: `query` matches a team when it is a PREFIX of
+ * The team-matching rule: `query` matches a team when it is a PREFIX of
  * the team's number (as decimal text — `"111"` matches `1114` but not
  * `2111`, since prefix is not substring) OR a SUBSTRING of the team's
  * lowercased nickname, anywhere in the name (`"simb"` matches "Simbotics").
@@ -94,7 +92,7 @@ export function matchTeams(teams: readonly SearchTeamRow[], query: string): Team
 }
 
 /**
- * D-09's event-matching rule: `query` matches an event when it is a
+ * The event-matching rule: `query` matches an event when it is a
  * SUBSTRING of the lowercased event name OR the lowercased event key
  * (`"silicon"` matches "Silicon Valley Regional"; `"2024"` matches by key or
  * name, the same rule applied to both fields).
@@ -117,7 +115,7 @@ export function matchEvents(events: readonly SearchEventRow[], query: string): E
   return matches.map(({ kind, eventKey, name, week }) => ({ kind, eventKey, name, week }));
 }
 
-/** Whether the lazily-fetched (D-10) events artifact is resolved, still loading, or failed to load — made explicit in the model so `SearchBox` can render the contract's three different event-section copies without inferring state from `undefined`. */
+/** Whether the lazily-fetched events artifact is resolved, still loading, or failed to load — made explicit in the model so `SearchBox` can render the contract's three different event-section copies without inferring state from `undefined`. */
 export type EventsSectionStatus = "loaded" | "loading" | "failed";
 
 export interface BuildSearchResultsParams {
@@ -135,7 +133,7 @@ export interface SearchResults {
 
 /**
  * Assembles the two match groups and applies the shared `SEARCH_RESULT_CAP`
- * across BOTH groups combined — teams first (D-08: "find my team" is this
+ * across BOTH groups combined — teams first ("find my team" is this
  * project's dominant search use case), then whatever cap remains goes to
  * events. Order WITHIN each group is untouched by the cap (still ascending
  * team number / ascending start-date-then-key); only the combined COUNT is
@@ -146,7 +144,7 @@ export interface SearchResults {
  * is always empty and the caller renders the copy `eventsStatus` names,
  * never a guessed or inferred state. Team results are computed and returned
  * regardless of `eventsStatus`, so they are never blocked by the events
- * artifact's lazy fetch (D-10).
+ * artifact's lazy fetch.
  */
 export function buildSearchResults({ teams, events, query, eventsStatus }: BuildSearchResultsParams): SearchResults {
   const teamMatches = matchTeams(teams, query);

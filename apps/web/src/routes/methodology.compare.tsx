@@ -14,43 +14,38 @@ import { DataCoverageSection, DataCoverageSectionSkeleton } from "../components/
 import type { CompareArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
- * The real `/compare` route (08-01-PLAN.md Tasks 1 and 3), replacing
- * Phase 5's 21-line placeholder wholesale. Task 1's tracer proved the
- * five-artifact fetch/parse path; Task 3 mounts the real `AccuracyTable` in
- * place of the tracer's proof-of-parse scaffolding, which never shipped.
+ * The `/compare` route: the five-artifact fetch/parse path plus the real
+ * `AccuracyTable`.
  *
- * Declares NO `validateSearch` of its own (08-01-PLAN.md Decision 3):
- * `__root.tsx` already validates `year`/`algorithm` through
- * `RootSearchSchema` at the router boundary, and this page deliberately
- * ignores both — 08-UI-SPEC.md's Global-dropdown exception is explicit that
- * Compare filters by neither. `COMPARE_SEASONS` (a module constant derived
- * from `SEASONS`, never `?year=`) is the only source of "which years this
- * page fetches", so a hand-edited `/compare?year=2023` still renders all
- * five seasons.
+ * Declares NO `validateSearch` of its own: `__root.tsx` already validates
+ * `year`/`algorithm` through `RootSearchSchema` at the router boundary, and
+ * this page deliberately ignores both — Compare filters by neither.
+ * `COMPARE_SEASONS` (a module constant derived from `SEASONS`, never
+ * `?year=`) is the only source of "which years this page fetches", so a
+ * hand-edited `/compare?year=2023` still renders all five seasons.
  */
 export const Route = createFileRoute("/methodology/compare")({
   component: ComparePage,
 });
 
 /**
- * 08-12-PLAN.md Decision 7: the methodology note's and the calibration
- * section's pending-state placeholders are declared HERE, in `compare.tsx`,
- * rather than added as skeleton siblings inside `MethodologyNote.tsx` or
- * `CalibrationSection.tsx` — neither ships one by its own plan's design
- * (08-06, 08-10), and adding one to each would mean editing two files this
- * plan otherwise has no reason to touch. Both compositions size their
- * repeated `Skeleton` lines from a named module constant, never a bare
- * number at the call site, matching `AccuracyTable.tsx`'s own
- * `ACCURACY_TABLE_ROW_COUNT`/`ACCURACY_TABLE_COLUMN_COUNT` precedent.
+ * The methodology note's and the calibration section's pending-state
+ * placeholders are declared HERE, in `compare.tsx`, rather than added as
+ * skeleton siblings inside `MethodologyNote.tsx` or `CalibrationSection.tsx`
+ * — neither ships one by its own design, and adding one to each would mean
+ * editing two files this component otherwise has no reason to touch. Both
+ * compositions size their repeated `Skeleton` lines from a named module
+ * constant, never a bare number at the call site, matching
+ * `AccuracyTable.tsx`'s own precedent.
  */
-// Quick task 260909-t5q: 3, not 2 — `MethodologyNote` now renders the
-// near-tie caption AND the always-visible cold-start explanation (2 fixed
-// lines) plus the derived Brier-list sentence (1 conditional line) once
-// figures are complete, so the skeleton's up-to-3-line footprint must match
-// to avoid a layout jump when the real note mounts.
+// 3, not 2 — `MethodologyNote` renders the near-tie caption AND the
+// always-visible cold-start explanation (2 fixed lines) plus the derived
+// Brier-list sentence (1 conditional line) once figures are complete, so the
+// skeleton's up-to-3-line footprint must match to avoid a layout jump when
+// the real note mounts.
 const METHODOLOGY_NOTE_SKELETON_LINE_COUNT = 3;
 const CALIBRATION_SECTION_SKELETON_TEXT_LINE_COUNT = 3;
-/** F1/D-09/D-11 (phase 09 plan 09-01): same Decision-7 discipline as `CalibrationSectionSkeleton` below — the RP section's own plan (09-01) does not ship one, so its placeholder is declared here rather than in `RpCalibrationSection.tsx`. */
+/** Same discipline as `CalibrationSectionSkeleton` below — the RP section does not ship its own skeleton, so its placeholder is declared here rather than in `RpCalibrationSection.tsx`. */
 const RP_CALIBRATION_SECTION_SKELETON_TEXT_LINE_COUNT = 2;
 
 function MethodologyNoteSkeleton() {
@@ -89,10 +84,8 @@ function RpCalibrationSectionSkeleton() {
 
 /**
  * The pending branch's shape-preserving composition, in the populated
- * page's own order: the real `AccuracyTableSkeleton` (08-01), a text-free
- * methodology-note placeholder, a text-free calibration-section placeholder,
- * then Task 2's real `DataCoverageSectionSkeleton` — so the page's footprint
- * does not jump when the five artifacts land (UI-SPEC C4 loading).
+ * page's own order — so the page's footprint does not jump when the five
+ * artifacts land.
  */
 function ComparePendingSections() {
   return (
@@ -107,13 +100,11 @@ function ComparePendingSections() {
 }
 
 function ComparePage() {
-  // The ONE compLevelView state (08-06-PLAN.md Task 2, D-09's "one state,
-  // two consumers" obligation): drives AccuracyTable below and, per
-  // Decision 5, 08-10's calibration section — but deliberately NOT
-  // MethodologyNote (08-06 Task 3), whose figures are pinned to the
-  // combined view because D-08's claim and SC-3's verdict are both measured
-  // there. `CompLevelSwitcher` is fully controlled and declares no
-  // selection state of its own, so this is the single source of truth.
+  // The ONE compLevelView state: drives AccuracyTable below and the
+  // calibration section — but deliberately NOT MethodologyNote, whose
+  // figures are pinned to the combined view. `CompLevelSwitcher` is fully
+  // controlled and declares no selection state of its own, so this is the
+  // single source of truth.
   const [compLevelView, setCompLevelView] = useState<CompareCompLevelView>(DEFAULT_COMP_LEVEL_VIEW);
 
   const results = useQueries({
@@ -154,7 +145,7 @@ function ComparePage() {
       {/* The switcher renders from first paint alongside the title, gated
           on nothing — it filters already-fetched data and issues no
           request of its own, present during the pending branch exactly as
-          it is when populated (UI-SPEC C2 loading). */}
+          it is when populated. */}
       <div className="mb-[var(--spacing-md)]">
         <CompLevelSwitcher value={compLevelView} onValueChange={setCompLevelView} />
       </div>
@@ -176,28 +167,26 @@ function ComparePage() {
           {/* A DOM SIBLING of AccuracyTable's scroll region, never a
               descendant — mounting the note inside the table would put the
               words it discloses (tune/holdout) inside the component whose
-              own test asserts they never appear (D-08). Pinned to the
-              combined view (Decision 5), never the switcher's own state —
-              re-slicing would make the note's own best-season clause false
-              against the committed data. */}
+              own test asserts they never appear. Pinned to the combined
+              view, never the switcher's own state — re-slicing would make
+              the note's own best-season clause false against the committed
+              data. */}
           <div className="mt-[var(--spacing-md)]">
             <MethodologyNote artifactsByYear={artifactsByYear} />
           </div>
-          {/* Fed the SAME compLevelView state the accuracy table receives
-              above (one state, three consumers now, D-09). */}
+          {/* Fed the SAME compLevelView state the accuracy table receives above. */}
           <CalibrationSection artifactsByYear={artifactsByYear} compLevelView={compLevelView} />
-          {/* F1/D-09/D-11 (phase 09 plan 09-01): a DOM sibling of
-              CalibrationSection, mounted between it and DataCoverageSection
-              so that section's own "LAST section on the page" comment stays
-              true. Takes artifactsByYear ONLY — deliberately NOT
-              compLevelView, since bonus ranking points exist only in
-              qualification matches (see RpCalibrationSection.tsx's own
-              header for why feeding it the switcher would be wrong). */}
+          {/* A DOM sibling of CalibrationSection, mounted between it and
+              DataCoverageSection so that section's own "LAST section on the
+              page" comment stays true. Takes artifactsByYear ONLY —
+              deliberately NOT compLevelView, since bonus ranking points
+              exist only in qualification matches (see
+              RpCalibrationSection.tsx's own header for why feeding it the
+              switcher would be wrong). */}
           <RpCalibrationSection artifactsByYear={artifactsByYear} />
-          {/* The LAST section on the page (UI-SPEC's layout order, item
-              six), a DOM sibling of CalibrationSection — the same one
-              compLevelView state, its third consumer (08-12-PLAN.md). No
-              new state declared anywhere in this file. */}
+          {/* The LAST section on the page, a DOM sibling of
+              CalibrationSection — the same one compLevelView state, its
+              third consumer. No new state declared anywhere in this file. */}
           <DataCoverageSection artifactsByYear={artifactsByYear} compLevelView={compLevelView} />
         </>
       )}

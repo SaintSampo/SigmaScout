@@ -1,16 +1,15 @@
 /**
- * Pure series derivation for the metric-history chart (06-05-PLAN.md Task 1).
- * No React import — testable without a DOM; `MetricHistoryChart.tsx` is the
- * one and only consumer of these exports.
+ * Pure series derivation for the metric-history chart. No React import —
+ * testable without a DOM; `MetricHistoryChart.tsx` is the one and only
+ * consumer of these exports.
  */
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
 import { SIGMA_METRIC_KEY, usesSigmaScore } from "../../../../../packages/harness/sigmaScore.js";
 import { TOTAL_METRIC_KEY } from "../../../../../packages/core/algorithms/types.js";
 
 /**
- * Quick task 260913-m45: the chart's legend row and the Tab's skeleton
- * spacer both read this ONE constant (chart-craft.md, "derive coupled
- * geometry"), so the two heights cannot drift apart — the skeleton exists
+ * The chart's legend row and the Tab's skeleton spacer both read this ONE
+ * constant, so the two heights cannot drift apart — the skeleton exists
  * specifically so the chart's eventual legend causes no layout shift when
  * the lazy chunk lands, and that guarantee only holds if both sides share
  * one number rather than two independently hand-tuned ones.
@@ -18,17 +17,16 @@ import { TOTAL_METRIC_KEY } from "../../../../../packages/core/algorithms/types.
 export const METRIC_HISTORY_LEGEND_HEIGHT_PX = 24;
 
 export interface MetricSeriesPoint {
-  /** The row's ARRAY POSITION (1-indexed) in the team's own `metricHistory` array — see `buildMetricSeries`'s doc comment for what this deliberately does NOT use (D-12, 06-RESEARCH.md Pitfall 7). */
+  /** The row's ARRAY POSITION (1-indexed) in the team's own `metricHistory` array — see `buildMetricSeries`'s doc comment for what this deliberately does NOT use. */
   x: number;
   value: number | undefined;
   /**
-   * This team's Sigma Score AFTER this match (quick task 260913-m45), read
-   * from the row's OWN `SIGMA_METRIC_KEY` entry — never the requested
-   * metric's own `spread` field. `spread` is the algorithm's own confidence
-   * in its rating and must never reach the screen (developer rule,
-   * 2026-09-09); a series shape that no longer carries it cannot regress
-   * onto the chart. `undefined` for a row with no published sigma (OPR, EPA,
-   * or a not-yet-republished SPR row).
+   * This team's Sigma Score AFTER this match, read from the row's OWN
+   * `SIGMA_METRIC_KEY` entry — never the requested metric's own `spread`
+   * field. `spread` is the algorithm's own confidence in its rating and
+   * must never reach the screen; a series shape that no longer carries it
+   * cannot regress onto the chart. `undefined` for a row with no published
+   * sigma (OPR, EPA, or a not-yet-republished SPR row).
    */
   sigma: number | undefined;
   matchKey: string;
@@ -46,7 +44,7 @@ export interface EventBand {
  * `x` is derived from array position, NEVER `row.matchIndex` — that field is
  * this team's position in the season-WIDE chronological stream, and plotting
  * it directly leaves large gaps for a team that played fewer matches than
- * the season's overall stream length (D-12). `rows` is never re-sorted:
+ * the season's overall stream length. `rows` is never re-sorted:
  * `TeamSeasonArtifactSchema.metricHistory` is already this team's own rows
  * in this team's own chronological order. A row missing `metricKey` produces
  * a point with an `undefined` `value`, which the chart renders as a gap,
@@ -88,11 +86,11 @@ export function detectEventBands(points: readonly MetricSeriesPoint[]): EventBan
 }
 
 /**
- * Quick task 260913-m45: one point's Total ± Sigma band, one standard
- * deviation either side of Total. `null` means a GAP — never a zero-width
- * band — for a point missing either half, which is the honest rendering for
- * a row with no published sigma (OPR, EPA, a not-yet-republished SPR row) or
- * a row with no Total at all.
+ * One point's Total ± Sigma band, one standard deviation either side of
+ * Total. `null` means a GAP — never a zero-width band — for a point missing
+ * either half, which is the honest rendering for a row with no published
+ * sigma (OPR, EPA, a not-yet-republished SPR row) or a row with no Total at
+ * all.
  */
 export function sigmaBandFor(point: Pick<MetricSeriesPoint, "value" | "sigma">): [number, number] | null {
   if (point.value === undefined || point.sigma === undefined) return null;
@@ -104,14 +102,14 @@ export function sigmaBandFor(point: Pick<MetricSeriesPoint, "value" | "sigma">):
  * this team's Total-series points has a non-null band — i.e. the artifact
  * actually carries a published per-match sigma, not merely an algorithm that
  * is capable of one. False for OPR/EPA regardless of what the rows carry
- * (`spread` never gates a band — 2026-09-09), and false for SPR rows from
- * before the republish that added `sigma`. Gates the chart's Area, its
- * legend, and (via the Tab) the loading skeleton's spacer — one predicate,
- * three call sites, so they cannot disagree about whether a band is coming.
+ * (`spread` never gates a band), and false for SPR rows from before the
+ * republish that added `sigma`. Gates the chart's Area, its legend, and (via
+ * the Tab) the loading skeleton's spacer — one predicate, three call sites,
+ * so they cannot disagree about whether a band is coming.
  *
  * React-free and Recharts-free, like every other export in this module, so
  * the eager `MetricHistoryTab` can call it without pulling Recharts into the
- * initial bundle (D-14) — only `MetricHistoryChart.tsx`, loaded via dynamic
+ * initial bundle — only `MetricHistoryChart.tsx`, loaded via dynamic
  * `import()`, may import Recharts itself.
  */
 export function drawsSigmaBand(rows: readonly MetricHistoryRow[], algorithmId: string): boolean {
@@ -123,8 +121,8 @@ export function drawsSigmaBand(rows: readonly MetricHistoryRow[], algorithmId: s
 const Y_AXIS_TARGET_INTERVALS = 4;
 
 /**
- * Quick task 260913-m45: the Y axis's rendered domain and its tick ladder,
- * from the raw `[min, max]` the chart has already zero-extended and padded.
+ * The Y axis's rendered domain and its tick ladder, from the raw
+ * `[min, max]` the chart has already zero-extended and padded.
  *
  * Recharts anchors a fixed domain's ticks at the domain's own minimum. While
  * that minimum was always 0 or a negative Total, the labels came out round.
