@@ -5,18 +5,16 @@
  * WHY THIS SCRIPT EXISTS
  * ---------------------------------------------------------------------------
  *
- * Quick task 260913-g66 found SPR's band holding 47.1% of actual alliance
- * scores against the 68.3% a "one standard deviation" label promises. The
- * cause: Sigma Score is the 1 standard deviation of a robot's EVEN-SPLIT SHARE
- * of its alliance's miss, so summing three shares' variances gives
+ * Sigma Score is the 1 standard deviation of a robot's EVEN-SPLIT SHARE of
+ * its alliance's miss, so summing three shares' variances gives
  * Var(alliance) / rosterSize, and a band built from that sum is
  * sqrt(rosterSize) too narrow. `sigmaMatchBandVariance` multiplies the roster
  * size back in, for the display band only.
  *
- * That measurement was a scratch run. The corrected band is a PUBLISHED
- * number, and a published number with no committed harness is the failure this
- * project's log names as its original sin. This script is that harness, and the
- * Sigma methodology page quotes its output and nothing else.
+ * The corrected band is a PUBLISHED number, and a published number with no
+ * committed harness is the failure this project's log names as its
+ * original sin. This script is that harness, and the Sigma methodology
+ * page quotes its output and nothing else.
  *
  * ---------------------------------------------------------------------------
  * WHAT IT MEASURES, AND WHY IT IS WALK-FORWARD BY CONSTRUCTION
