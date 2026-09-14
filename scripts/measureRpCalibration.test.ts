@@ -51,6 +51,7 @@ const FROZEN_BASELINE_ALGORITHM_ID_ALIASES: Readonly<Record<string, string>> = {
 const liveAlgorithmId = (frozenId: string): string => FROZEN_BASELINE_ALGORITHM_ID_ALIASES[frozenId] ?? frozenId;
 import { RpCalibrationMeasurementSchema } from "../packages/harness/publish.js";
 import {
+  applyRpOutcomeArmBar,
   assertMarginalArmSliceAllowed,
   buildRpAttributionDigest,
   buildRpCalibrationRecord,
@@ -62,6 +63,7 @@ import {
   RpAttributionRecordSchema,
   ruleModuleWithMarginalArm,
   SHIPPED_RP_LAYER_LABEL,
+  type ArmPooledFigures,
   type Observation,
 } from "./measureRpCalibration.js";
 
@@ -617,5 +619,114 @@ describe("--marginal-arm variant rule module (the D-3 seam)", () => {
     const variant = ruleModuleWithMarginalArm(original, deriveMarginalArmEligibility(original).eligible);
     const values = { autoRunPoints: 10, autoSwitchOwnershipSec: 50, endgamePoints: 60 };
     expect(variant.predictThresholds(values, 0)).toEqual(original.predictThresholds(values, 0));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyRpOutcomeArmBar — 260913-qyn's pre-committed outcome-arm acceptance
+// bar, COMMITTED BEFORE any WIN/TIE/WIN+TIE arm figure exists (Task 1 Step 1
+// of quick task 260913-qyn). These tests exercise the bar in complete
+// isolation from any real measurement — every figure below is hand-picked to
+// exercise one accept/reject boundary, never a number this script produced.
+// ---------------------------------------------------------------------------
+
+describe("applyRpOutcomeArmBar (260913-qyn's pre-committed outcome-arm bar)", () => {
+  const control = (totalRpRps: number, outcomeBrier: number, counts = { totalRpCount: 1000, outcomeCount: 500 }): ArmPooledFigures => ({
+    arm: "control",
+    totalRpRps,
+    outcomeBrier,
+    ...counts,
+  });
+  const arm = (
+    name: "win" | "tie" | "win+tie",
+    totalRpRps: number,
+    outcomeBrier: number,
+    counts = { totalRpCount: 1000, outcomeCount: 500 }
+  ): ArmPooledFigures => ({ arm: name, totalRpRps, outcomeBrier, ...counts });
+
+  it("accepts an arm strictly better on BOTH pooled RPS and pooled outcome Brier", () => {
+    const result = applyRpOutcomeArmBar([control(0.3, 0.5), arm("win", 0.29, 0.49)]);
+    const verdict = result.verdicts.find((v) => v.arm === "win")!;
+    expect(verdict.accepted).toBe(true);
+    expect(verdict.rpsDelta).toBeCloseTo(-0.01, 12);
+    expect(verdict.brierDelta).toBeCloseTo(-0.01, 12);
+    expect(result.ship).toBe("win");
+  });
+
+  it("rejects an arm with an EQUAL outcome Brier even when RPS improves — no tolerance, no partial credit", () => {
+    const result = applyRpOutcomeArmBar([control(0.3, 0.5), arm("win", 0.29, 0.5)]);
+    const verdict = result.verdicts.find((v) => v.arm === "win")!;
+    expect(verdict.accepted).toBe(false);
+    expect(result.ship).toBe("control");
+  });
+
+  it("rejects an arm that improves Brier but regresses RPS", () => {
+    const result = applyRpOutcomeArmBar([control(0.3, 0.5), arm("win", 0.31, 0.4)]);
+    const verdict = result.verdicts.find((v) => v.arm === "win")!;
+    expect(verdict.accepted).toBe(false);
+    expect(result.ship).toBe("control");
+  });
+
+  it("WIN accepted, TIE accepted, WIN+TIE rejected (despite the lowest RPS) -> TIE ships, not WIN+TIE", () => {
+    const result = applyRpOutcomeArmBar([
+      control(0.3, 0.5),
+      arm("win", 0.295, 0.499),
+      arm("tie", 0.29, 0.499),
+      arm("win+tie", 0.28, 0.5), // Brier tied with control -> rejected, despite the lowest RPS of the three
+    ]);
+    expect(result.verdicts.find((v) => v.arm === "win")!.accepted).toBe(true);
+    expect(result.verdicts.find((v) => v.arm === "tie")!.accepted).toBe(true);
+    expect(result.verdicts.find((v) => v.arm === "win+tie")!.accepted).toBe(false);
+    expect(result.ship).toBe("tie");
+  });
+
+  it("all three accepted -> the lowest pooled RPS ships", () => {
+    const result = applyRpOutcomeArmBar([
+      control(0.3, 0.5),
+      arm("win", 0.295, 0.49),
+      arm("tie", 0.29, 0.49),
+      arm("win+tie", 0.285, 0.49),
+    ]);
+    expect(result.verdicts.every((v) => v.arm === "control" || v.accepted)).toBe(true);
+    expect(result.ship).toBe("win+tie");
+  });
+
+  it("none accepted -> ship is control", () => {
+    const result = applyRpOutcomeArmBar([control(0.3, 0.5), arm("win", 0.31, 0.51), arm("tie", 0.305, 0.52), arm("win+tie", 0.32, 0.55)]);
+    expect(result.verdicts.every((v) => !v.accepted)).toBe(true);
+    expect(result.ship).toBe("control");
+  });
+
+  it("throws when an arm's totalRpCount differs from control's — the comparison is void, not merely disadvantaged", () => {
+    expect(() =>
+      applyRpOutcomeArmBar([control(0.3, 0.5), arm("win", 0.29, 0.49, { totalRpCount: 999, outcomeCount: 500 })])
+    ).toThrow(/identical observation set/);
+  });
+
+  it("throws when an arm's outcomeCount differs from control's", () => {
+    expect(() =>
+      applyRpOutcomeArmBar([control(0.3, 0.5), arm("win", 0.29, 0.49, { totalRpCount: 1000, outcomeCount: 501 })])
+    ).toThrow(/identical observation set/);
+  });
+
+  it("throws on a non-finite totalRpRps or outcomeBrier rather than silently comparing", () => {
+    expect(() => applyRpOutcomeArmBar([control(0.3, 0.5), arm("win", Number.NaN, 0.49)])).toThrow(/non-finite/);
+    expect(() => applyRpOutcomeArmBar([control(0.3, 0.5), arm("win", 0.29, Number.POSITIVE_INFINITY)])).toThrow(/non-finite/);
+    expect(() => applyRpOutcomeArmBar([control(Number.NaN, 0.5), arm("win", 0.29, 0.49)])).toThrow(/non-finite/);
+  });
+
+  it("exact RPS equality between two accepted arms breaks on lower Brier, then on the fixed order win, tie, win+tie", () => {
+    // win and tie tie exactly on RPS; tie has the lower Brier, so tie ships.
+    const byBrier = applyRpOutcomeArmBar([control(0.3, 0.5), arm("win", 0.28, 0.45), arm("tie", 0.28, 0.4)]);
+    expect(byBrier.ship).toBe("tie");
+
+    // win, tie and win+tie all tie exactly on BOTH RPS and Brier -> fixed order picks win.
+    const byOrder = applyRpOutcomeArmBar([
+      control(0.3, 0.5),
+      arm("win+tie", 0.28, 0.4),
+      arm("tie", 0.28, 0.4),
+      arm("win", 0.28, 0.4),
+    ]);
+    expect(byOrder.ship).toBe("win");
   });
 });

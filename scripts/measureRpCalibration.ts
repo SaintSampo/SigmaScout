@@ -423,6 +423,126 @@ export function ruleModuleWithMarginalArm(ruleModule: RpRuleModule, eligible: re
   };
 }
 
+// ---------------------------------------------------------------------------
+// THE OUTCOME-ARM ACCEPTANCE BAR (2026-09-13, quick task 260913-qyn)
+// ---------------------------------------------------------------------------
+//
+// PRE-COMMITTED BEFORE ANY ARM FIGURE EXISTS. `applyRpOutcomeArmBar` lands in
+// git history strictly before the WIN/TIE/WIN+TIE outcome-half arms it judges
+// can produce a single number — the same discipline plan 09-06's per-bonus
+// bar and quick task 260912-2uz's marginal-arm slice guard both follow, so
+// that no accept/reject line here can ever be read as fitted to a result that
+// was already in hand.
+//
+// APPLIED MECHANICALLY, WITH NO OVERRIDE. An arm is accepted if and only if
+// its pooled total-RP RPS AND its pooled outcome Brier are BOTH strictly
+// lower than control's — no tolerance, no "close enough", no partial credit
+// for improving one score while tying or losing on the other. Among accepted
+// arms, the one with the lowest pooled RPS ships; an exact RPS tie between two
+// accepted arms breaks on lower pooled Brier, and a further tie breaks on the
+// fixed preference order WIN, TIE, WIN+TIE (never on measurement order or
+// insertion order, which would make the ship choice depend on how the caller
+// happened to list its arms). WIN+TIE ships only when WIN+TIE is ITSELF
+// accepted by the same two-sided rule as any other arm — a combined arm that
+// improves RPS but not Brier (or vice versa) is rejected exactly like a
+// single-fix arm would be, never granted credit for the pieces it is built
+// from. When nothing is accepted, `control` ships, which is this codebase's
+// existing "when nothing clears the bar, change nothing" convention (D-06 of
+// plan 09-06).
+export type ArmName = "control" | "win" | "tie" | "win+tie";
+
+/** Preference order for breaking an exact RPS-and-Brier tie between two accepted arms. `control` never appears here — it is never itself a candidate to ship over an accepted arm. */
+const ARM_TIE_BREAK_ORDER: readonly ArmName[] = ["win", "tie", "win+tie"];
+
+/**
+ * One arm's pooled figures on the selection slice — pooled across every
+ * season and every scored (match, alliance) or (match) observation, NEVER
+ * per-season. The bar is deliberately blind to per-season figures: those are
+ * reported alongside the verdict for a human reader, but the accept/reject
+ * decision itself is a single pooled comparison per arm, so a mixed
+ * per-season result (better on some seasons, worse on others) cannot be
+ * gamed into acceptance by how the seasons happen to be weighted.
+ */
+export interface ArmPooledFigures {
+  readonly arm: ArmName;
+  readonly totalRpCount: number;
+  readonly totalRpRps: number;
+  readonly outcomeCount: number;
+  readonly outcomeBrier: number;
+}
+
+/** One arm's accept/reject verdict against control, plus its signed deltas (arm minus control; negative is an improvement in both scores). `control`'s own verdict is always `accepted: false` — control cannot accept itself. */
+export interface ArmVerdict {
+  readonly arm: ArmName;
+  readonly accepted: boolean;
+  readonly rpsDelta: number;
+  readonly brierDelta: number;
+}
+
+/** The bar's full output: every arm's verdict, and the mechanical ship choice. */
+export interface RpOutcomeArmBarResult {
+  readonly verdicts: readonly ArmVerdict[];
+  readonly ship: ArmName;
+}
+
+/**
+ * Applies the pre-committed outcome-arm bar to one set of pooled figures.
+ * `pooled` must contain exactly one `"control"` entry; every other entry is
+ * judged against it.
+ *
+ * THROWS, rather than silently comparing, when an arm's `totalRpCount` or
+ * `outcomeCount` differs from control's — the two arms must have scored the
+ * IDENTICAL observation set (the same discipline `assertBonusHalfIdentical`
+ * enforces for the bonus half at Task 2), so a count mismatch means the
+ * comparison itself is void, not that one arm happened to do better on a
+ * smaller sample. THROWS on a non-finite `totalRpRps` or `outcomeBrier` on
+ * any arm (control included) rather than letting a `NaN` propagate into an
+ * accept decision that would silently evaluate to `false` on every
+ * comparison — a `NaN` compared with `<` is never `true`, which would make a
+ * broken measurement look identical to an honestly-rejected arm.
+ */
+export function applyRpOutcomeArmBar(pooled: readonly ArmPooledFigures[]): RpOutcomeArmBarResult {
+  const control = pooled.find((p) => p.arm === "control");
+  if (control === undefined) {
+    throw new Error(`applyRpOutcomeArmBar: no "control" entry in the supplied pooled figures — the bar has nothing to compare against`);
+  }
+  for (const p of pooled) {
+    if (!Number.isFinite(p.totalRpRps) || !Number.isFinite(p.outcomeBrier)) {
+      throw new Error(`applyRpOutcomeArmBar: arm "${p.arm}" has a non-finite figure (totalRpRps=${p.totalRpRps}, outcomeBrier=${p.outcomeBrier}) — refusing to judge it`);
+    }
+    if (p.arm === "control") continue;
+    if (p.totalRpCount !== control.totalRpCount || p.outcomeCount !== control.outcomeCount) {
+      throw new Error(
+        `applyRpOutcomeArmBar: arm "${p.arm}" scored totalRpCount=${p.totalRpCount}/outcomeCount=${p.outcomeCount} against control's totalRpCount=${control.totalRpCount}/outcomeCount=${control.outcomeCount} — the two arms must see the identical observation set, so this comparison is void`
+      );
+    }
+  }
+
+  const verdicts: ArmVerdict[] = pooled.map((p) => {
+    if (p.arm === "control") return { arm: p.arm, accepted: false, rpsDelta: 0, brierDelta: 0 };
+    const rpsDelta = p.totalRpRps - control.totalRpRps;
+    const brierDelta = p.outcomeBrier - control.outcomeBrier;
+    const accepted = p.totalRpRps < control.totalRpRps && p.outcomeBrier < control.outcomeBrier;
+    return { arm: p.arm, accepted, rpsDelta, brierDelta };
+  });
+
+  const accepted = verdicts.filter((v) => v.accepted);
+  let ship: ArmName = "control";
+  if (accepted.length > 0) {
+    const byArm = new Map(pooled.map((p) => [p.arm, p]));
+    const sorted = [...accepted].sort((a, b) => {
+      const figA = byArm.get(a.arm)!;
+      const figB = byArm.get(b.arm)!;
+      if (figA.totalRpRps !== figB.totalRpRps) return figA.totalRpRps - figB.totalRpRps;
+      if (figA.outcomeBrier !== figB.outcomeBrier) return figA.outcomeBrier - figB.outcomeBrier;
+      return ARM_TIE_BREAK_ORDER.indexOf(a.arm) - ARM_TIE_BREAK_ORDER.indexOf(b.arm);
+    });
+    ship = sorted[0]!.arm;
+  }
+
+  return { verdicts, ship };
+}
+
 /**
  * Exported (promoted from the module-local `BUCKET_EDGES`) so the artifact
  * emitter (`buildRpCalibrationRecord` below) and any future consumer share
