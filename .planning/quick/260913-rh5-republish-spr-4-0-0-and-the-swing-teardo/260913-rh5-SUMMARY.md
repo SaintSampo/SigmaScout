@@ -74,9 +74,9 @@ executor was spawned.
 
 ## Not done
 
-- **Three stale D1 `event_cursor` rows** (2026cmptx, 2026azscor, 2026scsc) left over from the August
-  freshness rigs. All three events are over and none is in a live window. The classifier blocked the
-  DELETE ("Modify Shared Resources"), so it's left for Jacob. The `__scheduler_meta__` row must stay.
+- ~~Three stale D1 `event_cursor` rows~~ DONE 2026-09-14 with Jacob's explicit permission. The
+  August freshness-rig cursors for 2026cmptx, 2026azscor and 2026scsc were deleted (3 changes). The
+  read-back shows only `__scheduler_meta__` remaining.
 - **Push:** Jacob pushes. Pages is manifest-driven, so the web needs no push for this data.
 - **`verify:subset`:** the 2024casf opr/epa rpPmf expectation needs updating for it4.
 - **260913-qyn:** that session's own republish is still ahead.
