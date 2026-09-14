@@ -1,12 +1,7 @@
 /**
- * The rules-based schedule generator, the only source of pre-schedule pairing
- * structure since quick task 260913-pnp. Every test here checks a rule the
- * module header STATES, so the header cannot drift away from the code without a
- * failure — the "README described a model that had been deleted" pattern the
- * failure log names.
- *
- * No corpus, no network, no files: the generator is pure and its output shape
- * is checked structurally, so these run everywhere including CI.
+ * The rules-based schedule generator. Every test checks a rule the module
+ * header states, so the header cannot drift from the code without a failure.
+ * Pure: no corpus, network or files.
  */
 import { describe, expect, it } from "vitest";
 import { mulberry32 } from "../core/algorithms/simulation/rankSimulation.js";
@@ -38,7 +33,6 @@ import {
  * Cells spanning the observed FRC range, including BOTH divisibility cases:
  * `14x9`, `21x12`, `18x12` and `75x10` divide evenly by six (no surrogates),
  * while `40x11` and `76x10` do not (4 and 2 surrogate slots respectively).
- * Those are the same six shapes plan 09-09's sample events reach.
  */
 const CELLS: readonly (readonly [number, number])[] = [
   [14, 9],
@@ -124,13 +118,9 @@ describe("generateSchedule — the four stated rules", () => {
 
   it("RULE 4: back-to-back appearances are rare on a large field, and the rule is a PENALTY not a guarantee", () => {
     for (const [n, m] of CELLS.filter(([teams]) => teams >= 40)) {
-      // Deliberately a rate bound rather than zero. Rule 4 penalises a
-      // back-to-back in both the greedy cost and the selection objective; it
-      // does not forbid one, because forbidding it outright would sometimes
-      // make the exact-appearance-count rule infeasible in the last few
-      // matches. Measured at these seeds: at most a couple of back-to-backs in
-      // 400+ gaps. Asserting zero here once passed for 75 and 76 teams and
-      // failed for 40 — an assertion that strong would be measuring the seed.
+      // A rate bound, not zero: back-to-backs are penalised, not forbidden
+      // (forbidding them can make the exact appearance count infeasible late),
+      // so asserting zero would be measuring the seed.
       expect(scheduleBalance(generateSchedule(n, m, mulberry32(4242)), n, m).backToBackRate).toBeLessThan(0.02);
     }
   });
@@ -194,14 +184,13 @@ describe("generateSchedule — loud failures and the servable range", () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildPreScheduleArtifact's generated structures (quick task 260913-pnp)
+// buildPreScheduleArtifact's generated structures
 // ---------------------------------------------------------------------------
 
 /**
- * FNV-1a 32-bit — this test's OWN copy of the seed contract, written out so a
- * change to the builder's hash or salt strings fails here rather than passing
- * against itself. Every structure seed is `fnv1a32("generate|n|mpt|k")` and
- * every shuffle seed `fnv1a32("eventKey|algorithmVersion|shuffle|k")`.
+ * This test's own FNV-1a copy of the seed contract, so a change to the builder's
+ * hash or salts fails here: structure seeds are `fnv1a32("generate|n|mpt|k")`,
+ * shuffle seeds `fnv1a32("eventKey|algorithmVersion|shuffle|k")`.
  */
 function fnv1a32(input: string): number {
   let hash = 0x811c9dc5;
