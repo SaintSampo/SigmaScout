@@ -1038,8 +1038,17 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ body: ProbeR
   return { body, ok };
 }
 
+/**
+ * Requests this isolate has served, logged (never put in the body, so repeated
+ * runs stay byte-identical). `isolateRequest=1` on a slow `cpuTime` means a
+ * brand-new isolate; a higher count means a reused isolate that still ran cold.
+ */
+let isolateRequestsServed = 0;
+
 export default {
   async fetch(request: Request, env: ProbeEnv): Promise<Response> {
+    isolateRequestsServed++;
+    console.log(`isolateRequest=${isolateRequestsServed}`);
     const { body, ok } = await runProbe(request, env);
     return new Response(JSON.stringify(body), {
       status: ok ? 200 : 500,
