@@ -1,60 +1,38 @@
 /**
- * 07-UAT.md G-7 (original fix): on desktop, the Breakdown tab's 14 metric
- * columns (2024's widest real column set) overflowed their scroll region by
- * 836px at both 1440px and 1280px. The G-7 fix (widening the Breakdown tab's
- * own container plus wrapping/humanizing headers) cut that to 596px/756px —
- * real progress, but not zero, because it left every metric column's own
- * declared width at the pre-existing 120px.
- *
- * 07-UAT.md G-10 (this fix): the developer's own design direction —
- * "make the glyph and the spread smaller, make them grey, and make them
- * like a superscript, top aligned with the value number" — redesigned
- * `MetricValue.tsx`'s shared metric cell (`.metric-spread-superscript` in
- * `theme.css`). The VALUE stays full-size; only the ± glyph and spread
- * number shrink, grey, and rise. That directly narrows the cell's real
- * rendered content, which `BreakdownTab.tsx` now spends on two NARROWER
- * declared column widths (`BREAKDOWN_METRIC_COLUMN_WIDTH_PX` 110,
- * `BREAKDOWN_TOTAL_COLUMN_WIDTH_PX` 118 for the one column whose value can
- * run to six digits) instead of one uniform 120px:
- *
- *   - Table width: 1988px -> 1856px (13 × 110 + 1 × 118 vs. 14 × 120 for
- *     the metric columns, teamNumber/nickname unchanged at 88/220) — a real
- *     132px recovery, measured live against the deployed 2024new artifact
- *     (fixture-backed local render, matching this file's own established
- *     measurement method).
- *   - Overflow: 596px -> 464px at 1440px; 756px -> 624px at 1280px.
+ * On desktop, the Breakdown tab's 14 metric columns (2024's widest real
+ * column set) still overflow their scroll region, though narrower than the
+ * original design: the metric cell's ± glyph and spread number are shrunk,
+ * greyed and raised (`.metric-spread-superscript` in `theme.css`), letting
+ * `BreakdownTab.tsx` declare narrower column widths
+ * (`BREAKDOWN_METRIC_COLUMN_WIDTH_PX` 110, `BREAKDOWN_TOTAL_COLUMN_WIDTH_PX`
+ * 118 for the one column whose value can run to six digits) instead of one
+ * uniform 120px.
  *
  * This is STILL NOT ZERO, and this file says so with real numbers rather
- * than asserting a bound it knows to be false. The redesign's width saving
- * is real but bounded: 13 of the 14 columns are genuinely narrower now, but
- * the 14th (Total) keeps a wider floor because ITS value alone — not the
- * spread — can reach six digits (`"284.89"`, the real worst case measured
- * against the deployed 2026alhu artifact) at the unchanged, full-size
- * `.text-role-body`. Reaching zero at 1440px would need the 14-column total
- * at or below 1084px (1392px scroller minus the 88/220 identity columns),
- * i.e. ~77px average per metric column — below even this fix's own
- * redesigned non-Total floor (94-102px minimum real content). Eliminating
- * the remaining ~460-620px needs one of: a wider target viewport (roughly
- * 1904px, down from the pre-G-10 estimate of ~2036px), fewer default-visible
- * metric columns, or hiding/collapsing the spread entirely on this one dense
- * table — each a further product/design decision for a human, not something
- * this fix resolves unilaterally.
+ * than asserting a bound it knows to be false. The Total column keeps a
+ * wider floor because ITS value alone — not the spread — can reach six
+ * digits (`"284.89"`, the real worst case measured against the deployed
+ * 2026alhu artifact) at the unchanged, full-size `.text-role-body`.
+ * Eliminating the remaining overflow needs one of: a wider target
+ * viewport, fewer default-visible metric columns, or hiding/collapsing the
+ * spread entirely on this one dense table — each a further product/design
+ * decision for a human, not something this fix resolves unilaterally.
  */
 import { test, expect, type Page } from "@playwright/test";
 
 const EVENT_URL = "/event/2024new?tab=breakdown&algorithm=vpr";
 
-/** 07-UAT.md G-7's own reported pre-fix number (before ANY fix), both target viewports — kept as the original historical anchor. */
+/** The pre-fix overflow number (before ANY fix), both target viewports — kept as the original historical anchor. */
 const PRE_FIX_OVERFLOW_PX = 836;
 
-/** 07-UAT.md G-7's own post-fix number (container widen + header wrap, before the G-10 metric-cell redesign) — the baseline THIS fix further reduces. */
+/** The post-container-fix number (container widen + header wrap, before the metric-cell redesign) — the baseline THIS fix further reduces. */
 const PRE_G10_OVERFLOW_PX: Record<number, number> = {
   1440: 596,
   1280: 756,
 };
 
 /**
- * The bound this fix (G-10) is expected to hold GREEN at, post-deploy —
+ * The bound this fix is expected to hold GREEN at, post-deploy —
  * measured locally against a fixture-backed dev server serving the real,
  * deployed 2024new artifact (464px at 1440, 624px at 1280), with a ~25px
  * buffer for cross-environment font-rendering variance. Both are
@@ -141,7 +119,7 @@ test("Breakdown desktop (1440px): G-1's declared==actual holds after the contain
 });
 
 /**
- * 07-UAT.md G-10's own regression guard: every metric-tier cell's content
+ * A regression guard: every metric-tier cell's content
  * must still fit its (now narrower) declared column width with zero
  * clipping. Checked against BOTH the file's own primary target (2024new)
  * and 2026alhu — the real worst-case artifact this fix's column widths were
