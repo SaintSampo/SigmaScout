@@ -23,7 +23,7 @@ import { test, expect, type Browser } from "@playwright/test";
 /** A worst-case-artifact-free, cheap Teams URL: `opr` publishes only `total` (D-27), so `sort=total` is valid for every algorithm/year pair without needing to know a season's component-key set. */
 const TEAMS_URL = "/teams?year=2022&algorithm=opr&sort=total&sortDir=asc";
 
-/** 05-07-SUMMARY.md's own confirmed live fixture: `week=3&district=ne` matches real, non-empty 2025 events (`2025mawor`, `2025nhdur`) — a stable, already-verified filter combination rather than a newly-guessed one. */
+/** 05-07-SUMMARY.md's own confirmed live fixture: `week=3&district=ne` matches real, non-empty 2025 events (`2025mawor`, `2025nhdur`) — a stable, already-verified filter combination rather than a newly-guessed one. `week` is TBA's RAW zero-indexed week, so the site labels it "Week 4" (a922cd29; `weekFilterLabel` in `EventFilters.tsx`, the Type chip in `EventsList.tsx`); `district=ne` displays as "New England" (`districtDisplayName`, 275de709). */
 const EVENTS_URL = "/events?year=2025&algorithm=spr&week=3&district=ne";
 
 async function freshPage(browser: Browser, url: string) {
@@ -94,18 +94,20 @@ test.describe("Events deep link (year, algorithm, filter)", () => {
     const { context, page } = await freshPage(browser, EVENTS_URL);
     try {
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Events 2025");
-      await expect(page.getByRole("combobox", { name: "Week" })).toContainText("Week 3");
-      await expect(page.getByRole("combobox", { name: "District" })).toContainText("ne");
+      await expect(page.getByRole("combobox", { name: "Week" })).toHaveText("Week 4");
+      await expect(page.getByRole("combobox", { name: "District" })).toContainText("New England");
 
       // The visible rows themselves reflect the filter, not just the
-      // controls — every rendered row's Week cell (2nd `<td>`, `COLUMNS[1]`
-      // in `EventsList.tsx`) reads "3".
+      // controls. Every rendered row's Week cell (2nd `<td>`, `COLUMNS[1]`
+      // in `EventsList.tsx`, the Type chip) reads "Week 4", and its District
+      // cell (5th `<td>`, `COLUMNS[4]`) reads "New England".
       const rows = page.locator('[data-slot="table-body"] [data-slot="table-row"]');
+      await expect(rows.first()).toBeVisible();
       const rowCount = await rows.count();
       expect(rowCount).toBeGreaterThan(0);
       for (let i = 0; i < rowCount; i++) {
-        // Second cell in `COLUMNS` (`EventsList.tsx`) is Week.
-        await expect(rows.nth(i).locator("td").nth(1)).toHaveText("3");
+        await expect(rows.nth(i).locator("td").nth(1)).toHaveText("Week 4");
+        await expect(rows.nth(i).locator("td").nth(4)).toHaveText("New England");
       }
     } finally {
       await context.close();
@@ -119,7 +121,7 @@ test.describe("Events deep link (year, algorithm, filter)", () => {
     let capturedUrl: string;
     try {
       await pageA.getByRole("button", { name: "Clear filters" }).click();
-      await expect(pageA.getByRole("combobox", { name: "Week" })).not.toContainText("Week 3");
+      await expect(pageA.getByRole("combobox", { name: "Week" })).not.toContainText("Week 4");
       capturedUrl = pageA.url();
       expect(capturedUrl).not.toContain("week=3");
       expect(capturedUrl).not.toContain("district=ne");
@@ -130,7 +132,8 @@ test.describe("Events deep link (year, algorithm, filter)", () => {
     const { context: contextB, page: pageB } = await freshPage(browser, capturedUrl);
     try {
       await expect(pageB.getByRole("heading", { level: 1 })).toHaveText("Events 2025");
-      await expect(pageB.getByRole("combobox", { name: "Week" })).not.toContainText("Week 3");
+      await expect(pageB.getByRole("combobox", { name: "Week" })).not.toContainText("Week 4");
+      await expect(pageB.getByRole("combobox", { name: "District" })).not.toContainText("New England");
       const rowCountFiltered = await pageB.locator('[data-slot="table-body"] [data-slot="table-row"]').count();
       // The unfiltered 2025 season has strictly MORE events than the
       // week=3&district=ne slice did — a real, not vacuous, contrast.
