@@ -5,27 +5,19 @@ import type { SimResult } from "../../../../../packages/core/algorithms/simulati
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
- * Pure module, no React import (08-14-PLAN.md Task 1) — the row builder
- * joining a `SimResult` to the event roster, mirroring `eventMatchAxis.ts`'s
- * shape: a plain `.ts` module beside the component that consumes it, kept
- * importable from a Node script under `tsx` because Task 2's mock has to run
- * this SHIPPED builder, never a second implementation of its own (a mock
+ * Pure module, no React import — the row builder joining a `SimResult` to
+ * the event roster, kept importable from a Node script under `tsx` so a
+ * mock can run this SHIPPED builder rather than reimplementing it (a mock
  * that recomputes its own medians and band edges would validate a chart the
- * app does not render — `chart-craft.md`'s mock-against-the-real-distribution
- * rule).
+ * app does not render).
  *
- * **The median decision, the one place this file deviates from a validated
- * reference.** The drawn tick and the printed integer come from ONE call to
- * the same type-7 estimator (`continuousQuantile`) that produces the band
- * edges — `chart-craft.md`'s coupled-geometry rule applied to the median.
- * Sketch 005's own renderer used an integer median offset by half a slot but
- * recorded no decision about it, unlike `continuousQuantile()` itself, which
- * IS a recorded decision and is ported verbatim. The case that settles this:
- * a perfectly bimodal team split 500/500 between two ranks has a continuous
- * median of exactly halfway, while an integer median would assert a
- * preference the draws do not support. Accepted cost: the printed integer
- * can sit up to half a rank from the drawn tick — Task 2 measures how often
- * that is visible at a real event.
+ * The drawn tick and the printed integer come from ONE call to the same
+ * type-7 estimator (`continuousQuantile`) that produces the band edges — the
+ * median is never a second, independent computation. A perfectly bimodal
+ * team split 500/500 between two ranks has a continuous median of exactly
+ * halfway, while an integer median would assert a preference the draws do
+ * not support. Accepted cost: the printed integer can sit up to half a rank
+ * from the drawn tick.
  */
 
 type EventTeam = EventArtifact["teams"][number];
@@ -38,7 +30,7 @@ export interface RankDistributionRow {
   /** Per-rank draw count, index `rank - 1` — the same `SimResult.rankHistograms` value, passed through unconverted and unmutated. */
   histogram: Int32Array;
   draws: number;
-  /** The simulated team count, taken from `result.rankHistograms.size` — never `teams.length`, which may differ (a team present in the result but absent from the roster, RESEARCH assumption A2). */
+  /** The simulated team count, taken from `result.rankHistograms.size` — never `teams.length`, which may differ (a team present in the result but absent from the roster). */
   teamCount: number;
   /** The continuous 50th percentile — what the median tick draws from. */
   medianRank: number;
@@ -80,17 +72,12 @@ export function medianDisplayRank(medianRank: number, teamCount: number): number
 /**
  * A histogram bar's height in pixels, capped at `SIM_GEOMETRY.HIST_BAR_MAX_H`
  * and floored at `1` for any rank at least one draw reached — an invisible
- * mark on an honesty-first display reads as certainty, which the 1px floor
- * exists to prevent. Normalized to this ROW's own modal count
- * (`maxBinCount`), not a table-wide maximum: this is sketch 005's own
- * validated choice, and it is not the per-row scale the user rejected — what
- * was rejected was a per-row RANK axis, which destroys the cross-row
- * comparison this table exists for. This vertical axis carries no ticks, no
- * labels and no cross-row comparison; the band and the printed 10th-90th
- * range carry concentration, while this histogram carries SHAPE (the
- * bimodality D-05 names as its whole reason for existing). The accepted
- * cost, stated plainly: equal bar heights in two different rows do not mean
- * equal draw counts.
+ * mark on an honesty-first display would read as certainty. Normalized to
+ * this ROW's own modal count (`maxBinCount`), not a table-wide maximum: this
+ * vertical axis carries no ticks, no labels and no cross-row comparison; the
+ * band and the printed 10th-90th range carry concentration, while this
+ * histogram carries SHAPE. Accepted cost: equal bar heights in two different
+ * rows do not mean equal draw counts.
  */
 export function histBarHeight(count: number, maxBinCount: number): number {
   if (count <= 0) return 0;
@@ -104,13 +91,10 @@ export const RANK_BAND_LABEL_PREFIX = "10th–90th: ";
 
 /**
  * An explicit percentile-range label, one decimal place, joined by an en
- * dash — NEVER a plus-or-minus quantity. Phase 7 D-01 reserves that glyph
- * for exactly one standard deviation of full predictive variance at every
- * aggregation level on this site; a rank spread is not that quantity,
- * because rank is bounded, integer and skewed. The app's shared metric-value
- * primitive prints that glyph by construction and must not be reached for
- * here — this function, and the module doc comment describing it, never
- * type that character.
+ * dash — NEVER a plus-or-minus quantity. That glyph is reserved for exactly
+ * one standard deviation of full predictive variance; a rank spread is not
+ * that quantity, because rank is bounded, integer and skewed. This function
+ * never types that character.
  */
 export function rankBandLabel(p10: number, p90: number): string {
   return `${RANK_BAND_LABEL_PREFIX}${p10.toFixed(1)}–${p90.toFixed(1)}`;
@@ -119,18 +103,14 @@ export function rankBandLabel(p10: number, p90: number): string {
 /**
  * Joins a `SimResult` to the event roster and returns one row per simulated
  * team, sorted ascending by the CONTINUOUS median (never the display
- * integer). Ties on the continuous median break by `teamKey` ascending — a
- * total, arbitrary tie-break that asserts nothing about which of two
- * equal-median teams is better, because the published data cannot establish
- * that (the same stance D-11 takes on the Compare page and D-14 takes on
- * simulated ties). No secondary ordering by band width, by 10th percentile,
- * or by any other statistic is ever introduced — that would present an
- * ordering as meaningful which this data does not support.
+ * integer). Ties on the continuous median break by `teamKey` ascending — an
+ * arbitrary tie-break that asserts nothing about which of two equal-median
+ * teams is better, because the published data cannot establish that. No
+ * secondary ordering by band width, by 10th percentile, or by any other
+ * statistic is ever introduced.
  *
  * `teamCount` is derived from `result.rankHistograms.size`, never from
- * `teams.length`: the histograms were produced against that roster, and
- * taking N from a second source is exactly the two-numbers-that-must-agree
- * shape this whole plan is written against.
+ * `teams.length`: the histograms were produced against that roster.
  *
  * Mutates neither `result` nor `teams`.
  */
@@ -172,10 +152,8 @@ export function buildRankDistributionRows(result: SimResult, teams: readonly Eve
       try {
         teamNumber = teamNumberFromKey(teamKey);
       } catch {
-        // Defensive only — every real team key in this pipeline is
-        // `frc{number}`-shaped (`teamKey.ts`'s own doc comment). Unreachable
-        // for any key `simulateRanks` could actually produce; `0` is a safe,
-        // finite, never-non-finite fallback rather than a thrown error here.
+        // Defensive only — every real team key here is `frc{number}`-shaped
+        // (`teamKey.ts`). Unreachable in practice; 0 is a safe fallback.
         teamNumber = 0;
       }
     }
