@@ -1,15 +1,14 @@
 /**
- * The RP scorecard's pure card model (F1, D-09, D-11) — modelled on
- * `calibrationCards.ts`'s per-algorithm plain-language card shape, reusing
- * its `SPARSE_N`/`fmtPct`/`niceCeil` rather than redeclaring any of them.
- * Display form settled by
- * `.claude/skills/sketch-findings-sigmascout/references/simulation-and-compare.md`
- * (sentence-first, chart demoted, sample count mandatory, sparse bins
+ * The RP scorecard's pure card model — modelled on `calibrationCards.ts`'s
+ * per-algorithm plain-language card shape, reusing its
+ * `SPARSE_N`/`fmtPct`/`niceCeil` rather than redeclaring any of them.
+ * Display form settled by the sketch-findings skill's simulation-and-compare
+ * notes (sentence-first, chart demoted, sample count mandatory, sparse bins
  * flagged) — this module produces the data that display reads, never a
  * second reading of it.
  *
  * Input type is derived from the exported `CompareRpCalibration` wire type
- * (`packages/harness/pageArtifacts.ts`) — no second hand-typed interface.
+ * — no second hand-typed interface.
  */
 import { fmtPct, SPARSE_N } from "./calibrationCards.js";
 import type { CompareRpCalibration } from "../../../../../packages/harness/pageArtifacts.js";
@@ -25,11 +24,11 @@ export interface RpCalibrationCardBonusRow {
 }
 
 /**
- * The card's whole-ranking-points model (2026-09-13, quick task 260913-qyn) —
- * `CompareRpTotalSchema`'s figures, unchanged (no re-derivation, matching
- * this module's existing bonus-row convention). `null` when the record
- * carries no `totalRp` block (this artifact predates the scorer, or this
- * season/algorithm's block had zero observations) — never a zero-filled row.
+ * The card's whole-ranking-points model — `CompareRpTotalSchema`'s figures,
+ * unchanged (no re-derivation, matching this module's existing bonus-row
+ * convention). `null` when the record carries no `totalRp` block (this
+ * artifact predates the scorer, or this season/algorithm's block had zero
+ * observations) — never a zero-filled row.
  */
 export interface RpCalibrationTotalModel {
   readonly count: number;
@@ -39,9 +38,8 @@ export interface RpCalibrationTotalModel {
 }
 
 /**
- * The card's win/tie/loss outcome model (2026-09-13, quick task 260913-qyn) —
- * `CompareRpOutcomeSchema`'s figures, unchanged. `null` when the record
- * carries no `outcome` block.
+ * The card's win/tie/loss outcome model — `CompareRpOutcomeSchema`'s
+ * figures, unchanged. `null` when the record carries no `outcome` block.
  */
 export interface RpCalibrationOutcomeModel {
   readonly count: number;
@@ -63,9 +61,9 @@ export interface RpCalibrationCardModel {
   readonly headline: RpCalibrationCardBonusRow | null;
   /** This card's own max |observed − predicted| across its bonuses (0 when there are none). */
   readonly maxAbsDeviation: number;
-  /** 2026-09-13 (260913-qyn): the total-RP block, or `null` when absent. */
+  /** The total-RP block, or `null` when absent. */
   readonly totalRp: RpCalibrationTotalModel | null;
-  /** 2026-09-13 (260913-qyn): the win/tie/loss outcome block, or `null` when absent. */
+  /** The win/tie/loss outcome block, or `null` when absent. */
   readonly outcome: RpCalibrationOutcomeModel | null;
 }
 
@@ -135,24 +133,24 @@ export function rpCardHeadlineSentence(algorithmLabel: string, headline: RpCalib
 }
 
 /**
- * The total-RP plain-language sentence (2026-09-13, quick task 260913-qyn) —
- * built entirely from `total`'s own numbers, prints the sample count always.
- * One decimal place: ranking points are a small, continuous quantity (a
- * season mean sits near 2-3), where a whole-number round would erase the
- * exact difference the sentence exists to show.
+ * The total-RP plain-language sentence — built entirely from `total`'s own
+ * numbers, prints the sample count always. One decimal place: ranking
+ * points are a small, continuous quantity (a season mean sits near 2-3),
+ * where a whole-number round would erase the exact difference the sentence
+ * exists to show.
  */
 export function rpTotalSentence(algorithmLabel: string, total: RpCalibrationTotalModel): string {
   return `${algorithmLabel} expected about ${total.meanPredictedRp.toFixed(1)} ranking points per alliance per match, and alliances actually earned ${total.meanActualRp.toFixed(1)}, across ${total.count.toLocaleString("en-US")} alliance results.`;
 }
 
 /**
- * The tie plain-language sentence (2026-09-13, quick task 260913-qyn) — built
- * entirely from `outcome`'s own numbers, prints the sample count always.
- * One decimal place on the percentages: a tie is a genuinely rare outcome
- * (typically well under 1%), and `fmtPct`'s default 0 decimals would round
- * BOTH the predicted chance and the observed rate to "0%" — which would
- * read as "tie has zero probability," exactly the false claim this sentence
- * exists to correct (see `docs/models/rp-layer-config-arms.md`).
+ * The tie plain-language sentence — built entirely from `outcome`'s own
+ * numbers, prints the sample count always. One decimal place on the
+ * percentages: a tie is a genuinely rare outcome (typically well under 1%),
+ * and `fmtPct`'s default 0 decimals would round BOTH the predicted chance
+ * and the observed rate to "0%" — which would read as "tie has zero
+ * probability," exactly the false claim this sentence exists to correct
+ * (see `docs/models/rp-layer-config-arms.md`).
  */
 export function rpTieSentence(algorithmLabel: string, outcome: RpCalibrationOutcomeModel): string {
   return `${algorithmLabel} gave a tie about ${fmtPct(outcome.meanPredictedTie, 1)}% chance on average, and ${fmtPct(outcome.observedTieRate, 1)}% of these ${outcome.count.toLocaleString("en-US")} matches actually tied.`;
