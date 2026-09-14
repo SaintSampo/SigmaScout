@@ -1,21 +1,14 @@
 /**
- * D-04's touch-scroll proof, RETARGETED at the real, shipped `TeamsTable`
- * (05-08-PLAN.md Task 3) — the throwaway spike this spec originally drove
- * (`src/spike/TableSpike.tsx`, `src/routes/spike.tsx`, plan 05-04) has been
- * deleted, and its own header always said this plan would do so. Retargeting
- * rather than deleting outright: "a permanently-passing touch assertion
- * against the shipped table is worth more than one against a component
- * nobody ships" (this task's own instruction). The composition under test —
- * exactly ONE native scrolling element, sticky pinned columns, TanStack
- * Virtual row virtualization — is identical to what the spike proved; only
- * the selectors and the data source changed.
+ * Touch-scroll proof against the real, shipped `TeamsTable`. The
+ * composition under test — exactly ONE native scrolling element, sticky
+ * pinned columns, TanStack Virtual row virtualization — is what a
+ * permanently-passing touch assertion against the shipped table proves.
  *
  * Runs against the DEPLOYED origin (`playwright.config.ts`'s `baseURL`), not
- * a local dev server: this table now fetches a REAL, fully-populated
+ * a local dev server: this table fetches a REAL, fully-populated
  * `teams/{year}` artifact from `https://data.sigmascout.org`, whose R2 CORS
- * policy (D-18) does not allow-list `localhost`/`*.pages.dev` — confirmed
- * directly by `05-06-SUMMARY.md`'s "Issues Encountered" section. Without the
- * real data resident, there is nothing to scroll.
+ * policy does not allow-list `localhost`/`*.pages.dev`. Without the real
+ * data resident, there is nothing to scroll.
  *
  * Drives real touch drag gestures (touchstart/touchmove/touchend, not mouse
  * wheel events): wheel scrolling does not exercise the same gesture
@@ -25,12 +18,10 @@
  * mouse-based shortcut — Playwright's public `page.touchscreen` only exposes
  * `tap()`, which cannot express a drag.
  *
- * `touchDrag`/`scrollPosition` are now imported from `e2e/support/touchDrag.ts`
- * (07-20-PLAN.md Task 1, Decision 2) rather than defined locally — one shared
- * gesture helper, so this file's touch evidence and the event page's
- * (`event-scroll-regions.spec.ts`) cannot diverge in what a "drag" means.
- * This edit is a pure move: same signature, same `steps` default, same
- * per-move wait, same settle delay, re-run green below to prove it.
+ * `touchDrag`/`scrollPosition` are imported from `e2e/support/touchDrag.ts`
+ * rather than defined locally — one shared gesture helper, so this file's
+ * touch evidence and the event page's (`event-scroll-regions.spec.ts`)
+ * cannot diverge in what a "drag" means.
  */
 import { test, expect } from "@playwright/test";
 import { scrollPosition, touchDrag } from "./support/touchDrag.js";
@@ -40,9 +31,9 @@ const SCROLL_CONTAINER = '[data-testid="teams-table-scroll"]';
 const HEADER = '[data-slot="table-header"]';
 const ROW = '[data-testid="teams-row"]';
 /** Loose upper bound proving VIRTUALIZATION is real without hard-coding the
- * live artifact's exact row count (~3,750 per D-01, and the live count
- * drifts every event) — the assertion only needs "far fewer rows are in the
- * DOM than a full unvirtualized render would produce." */
+ * live artifact's exact row count (~3,750, and the live count drifts every
+ * event) — the assertion only needs "far fewer rows are in the DOM than a
+ * full unvirtualized render would produce." */
 const MAX_PLAUSIBLE_VIRTUALIZED_ROWS = 120;
 
 test.beforeEach(async ({ page }) => {
@@ -152,20 +143,19 @@ test("a pinned cell's background is opaque, not transparent", async ({ page }) =
 });
 
 /**
- * The team page's per-event-section gesture contract (06-08-PLAN.md Task 3,
- * D-10 — this phase's own highest-risk item, since the pattern recurs once
- * per event section instead of once per page). Same team-year fixture
- * `no-page-pan.spec.ts` uses (frc118/2024, D-05's 292-match outlier), chosen
- * because it is already the phase's own named at-risk fixture with a
- * confirmed multi-section render, not an arbitrary pick.
+ * The team page's per-event-section gesture contract — a higher-risk
+ * pattern than most, since it recurs once per event section instead of
+ * once per page. Same team-year fixture `no-page-pan.spec.ts` uses
+ * (frc118/2024, a 292-match outlier), chosen because it is already a
+ * named at-risk fixture with a confirmed multi-section render, not an
+ * arbitrary pick.
  *
  * These drive Chromium's (or a Chromium-engined WebKit-viewport project's)
  * touch dispatcher via the SAME `touchDrag` CDP helper the Teams table
  * cases above use — they are NOT evidence of real iOS Safari gesture
  * arbitration, which has documented historical gaps for a directional
- * `touch-action` inside a different-axis outer scroller
- * (06-RESEARCH.md Pitfall 6). See this plan's SUMMARY.md for the still-
- * outstanding real-device human check.
+ * `touch-action` inside a different-axis outer scroller. A real-device
+ * human check remains a separate, outstanding verification step.
  */
 test.describe("team page — per-event-section touch scroll (D-10)", () => {
   const TEAM_URL = "/team/118?year=2024&algorithm=vpr";
