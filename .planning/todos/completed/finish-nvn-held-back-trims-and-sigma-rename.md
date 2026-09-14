@@ -3,6 +3,8 @@ id: finish-nvn-held-back-trims-and-sigma-rename
 created: 2026-09-14
 source: quick task 260913-nvn (simplification audit), closed with this remainder
 priority: low
+resolved: 2026-09-14
+resolved_by: quick task 260914-53h
 ---
 
 # Finish the nvn simplification: one rename and the held-back comment trims
@@ -52,3 +54,7 @@ Largest first:
 ## 3. Small leftover
 
 `docs/first-paint-measurement.md` cites line numbers from before the web cleanup.
+
+## Resolution
+
+Resolved 2026-09-14 by quick task 260914-53h: rename in 3e71a43e (`sigmaScoreByTeam`), doc citations in 99aa8e45, and 51 comment-only trim commits over all held-back files (comment lines -5,650, code 0, guard OK, full root suite 237 files green). See `.planning/quick/260914-53h-resolve-todo-finish-nvn-held-back-trims-/260914-53h-SUMMARY.md`.
