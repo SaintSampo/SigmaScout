@@ -95,7 +95,7 @@ describe("hasSimulatableRankInputs", () => {
     expect(hasSimulatableRankInputs(baseArtifact())).toBe(false);
   });
 
-  it("is false when qm rows exist but carry no pmf anywhere (the 08-05-measured offseason case)", () => {
+  it("is false when qm rows exist but carry no pmf anywhere (the measured offseason case)", () => {
     const artifact = baseArtifact({
       matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
     });
@@ -127,7 +127,7 @@ describe("hasSimulatableRankInputs", () => {
     expect(hasSimulatableRankInputs(artifact)).toBe(false);
   });
 
-  it("is true (class, not completeness — PD-06) when SOME qm rows carry both pmfs and others carry none; per-row completeness after a chosen start match is 08-11's question, not this predicate's", () => {
+  it("is true (class, not completeness) when SOME qm rows carry both pmfs and others carry none; per-row completeness after a chosen start match is the start-match picker's question, not this predicate's", () => {
     const artifact = baseArtifact({
       matches: [
         playedQualRow(BOTH_PMFS),
@@ -139,7 +139,7 @@ describe("hasSimulatableRankInputs", () => {
 });
 
 describe("SimulationTab", () => {
-  it("renders the canonical empty state (exact Copywriting Contract strings) for zero qualification matches; a playoff row present does not count as a qualification match", () => {
+  it("renders the canonical empty state (exact heading and body strings) for zero qualification matches; a playoff row present does not count as a qualification match", () => {
     const sfRow = { ...playedQualRow({ matchKey: "2024test_sf1m1" }), compLevel: "sf" as const };
     const artifact = baseArtifact({ matches: [sfRow as EventArtifact["matches"][number]] });
     render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
@@ -156,7 +156,7 @@ describe("SimulationTab", () => {
     expect(screen.queryByText(SIMULATION_EMPTY_STATE_HEADING)).toBeNull();
   });
 
-  it("an OPR artifact carries no pmfs (ranking-point odds are Sigma-only since 260913-it4) and renders the unavailable heading AND body", () => {
+  it("an OPR artifact carries no pmfs (ranking-point odds are Sigma-only) and renders the unavailable heading AND body", () => {
     const artifact = baseArtifact({
       matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
     });
@@ -175,13 +175,13 @@ describe("SimulationTab", () => {
     expect(screen.queryByText(SIMULATION_UNAVAILABLE_HEADING)).toBeNull();
   });
 
-  it("renders the PRE-RUN state when pmfs exist on matches[] only — the common post-08-05 shape, mirror of the upcoming-only case", () => {
+  it("renders the PRE-RUN state when pmfs exist on matches[] only — the common shape, mirror of the upcoming-only case", () => {
     const artifact = baseArtifact({ matches: [playedQualRow(BOTH_PMFS)] });
     render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID)).toBeDefined();
   });
 
-  it("renders PRE-RUN (class, not completeness — PD-06) when some qm rows carry both pmfs and others carry none, naming that per-row completeness is 08-11's question", () => {
+  it("renders PRE-RUN (class, not completeness) when some qm rows carry both pmfs and others carry none, naming that per-row completeness is the start-match picker's question", () => {
     const artifact = baseArtifact({
       matches: [
         playedQualRow(BOTH_PMFS),
@@ -192,7 +192,7 @@ describe("SimulationTab", () => {
     expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID)).toBeDefined();
   });
 
-  it("the layout stack testid is present and the pre-run paragraph is its descendant — the mount point 08-11/08-13/08-14 each add a child to", () => {
+  it("the layout stack testid is present and the pre-run paragraph is its descendant — the mount point the start-match picker, the run control and the rank-distribution table each add a child to", () => {
     const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
     render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     const stack = screen.getByTestId(SIMULATION_STACK_TESTID);
@@ -200,7 +200,7 @@ describe("SimulationTab", () => {
     expect(stack.contains(preRun)).toBe(true);
   });
 
-  it("the unavailable copy names no algorithm and no control (D-04's no-explanation rule prohibition guard)", () => {
+  it("the unavailable copy names no algorithm and no control (the no-explanation rule's prohibition guard)", () => {
     const artifact = baseArtifact({
       matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
     });
@@ -222,12 +222,11 @@ describe("SimulationTabSkeleton", () => {
 });
 
 /**
- * 08-11-PLAN.md Task 3's own coverage — the picker/caption mount, the
- * default-selection rule, PD-06's resolve-against-current-rows behaviour,
- * PD-07's compute-once default, and PD-08's rewind-predicate-not-played-flag
- * case.
+ * Start-match picker coverage — the picker/caption mount, the
+ * default-selection rule, the resolve-against-current-rows behaviour, the
+ * compute-once default, and the rewind-predicate-not-played-flag case.
  */
-describe("08-11: the start-match picker mounts in the layout stack's first position", () => {
+describe("the start-match picker mounts in the layout stack's first position", () => {
   it("the picker's testid is a descendant of the layout stack and precedes the pre-run paragraph in document order", () => {
     const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
     render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
@@ -240,7 +239,7 @@ describe("08-11: the start-match picker mounts in the layout stack's first posit
   });
 });
 
-describe("08-11: the other two branches render no picker and no caption", () => {
+describe("the other two branches render no picker and no caption", () => {
   it("the zero-qm empty state renders no picker and no caption", () => {
     const sfRow = { ...playedQualRow({ matchKey: "2024test_sf1m1" }), compLevel: "sf" as const };
     const artifact = baseArtifact({ matches: [sfRow as EventArtifact["matches"][number]] });
@@ -257,7 +256,7 @@ describe("08-11: the other two branches render no picker and no caption", () => 
   });
 });
 
-describe("08-11: default selection", () => {
+describe("the start-match picker's default selection", () => {
   it("defaults to the first genuinely-unplayed qualification match; the hint is absent and the scope line renders", () => {
     const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
     render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
@@ -265,7 +264,7 @@ describe("08-11: default selection", () => {
     expect(screen.queryByText(START_MATCH_PICKER_HINT)).toBeNull();
   });
 
-  it("selects the FIRST match on a fully-played event (2026-09-01), so a finished event opens ready to run rather than on an empty picker", () => {
+  it("selects the FIRST match on a fully-played event, so a finished event opens ready to run rather than on an empty picker", () => {
     const artifact = baseArtifact({ matches: [playedQualRow(BOTH_PMFS)] });
     render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     // A real selection means the SCOPE line, not the pre-selection hint.
@@ -274,7 +273,7 @@ describe("08-11: default selection", () => {
   });
 });
 
-describe("08-11: selection survives a refetch (PD-06)", () => {
+describe("selection survives a refetch", () => {
   it("keeps the same selected matchKey when a refetch moves the match from upcoming[] to matches[]", () => {
     const artifact1 = baseArtifact({ upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })] });
     const { rerender } = render(<SimulationTab artifact={artifact1} algorithmId="spr" season={2024} />);
@@ -296,7 +295,7 @@ describe("08-11: selection survives a refetch (PD-06)", () => {
     expect(screen.queryByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`)).toBeNull();
   });
 
-  it("the default is not re-applied after a refetch (PD-07): a user-chosen row stays selected even after the original default row becomes played", () => {
+  it("the default is not re-applied after a refetch: a user-chosen row stays selected even after the original default row becomes played", () => {
     const artifact1 = baseArtifact({
       upcoming: [
         upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 }),
@@ -321,17 +320,17 @@ describe("08-11: selection survives a refetch (PD-06)", () => {
 });
 
 /**
- * 08-13-PLAN.md Task 2's integration cases (I1-I7). Every test here installs
+ * Run-control integration cases (I1-I7). Every test here installs
  * its OWN `installMockWorker()` for the duration of the test and restores it
  * before the test ends — `installMockWorker`'s temporary substitution of
  * `globalThis.Worker` with `InstalledMockWorker` is a DIFFERENT class from
  * the module-scope `SpyWorker` this file stubs at the top, so real
  * construction through these tests never touches `workerConstructorSpy` —
- * the final "08-11: still no Worker" block below still covers this file's
+ * the final "still no Worker" block below still covers this file's
  * cases (it runs LAST, in declaration order, and this describe block is
  * declared before it).
  */
-describe("08-13: the run control", () => {
+describe("the run control", () => {
   it("I1: one press, one full round trip, one completion line — exactly one Worker constructed, exactly one request posted", async () => {
     const realRunScript: MockWorkerScript = (message, ctx) => runSimulationJob(message, ctx.post);
     const handle = installMockWorker({ script: realRunScript });
@@ -356,7 +355,7 @@ describe("08-13: the run control", () => {
     }
   });
 
-  it("I2: UI-SPEC S2, construction half — failOnConstruct renders the inline error + Retry, with no progressbar at any point", async () => {
+  it("I2: error state, construction half — failOnConstruct renders the inline error + Retry, with no progressbar at any point", async () => {
     const handle = installMockWorker({ failOnConstruct: new Error("no module workers here") });
     try {
       const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
@@ -372,7 +371,7 @@ describe("08-13: the run control", () => {
     }
   });
 
-  it("I3: UI-SPEC S2, mid-run half — a throwing script ends in the same rendered error state, and the rank-table position still shows the pre-run placeholder", async () => {
+  it("I3: error state, mid-run half — a throwing script ends in the same rendered error state, and the rank-table position still shows the pre-run placeholder", async () => {
     const throwingScript: MockWorkerScript = (_message, ctx) => {
       ctx.post({ type: "progress", completedDraws: 1, totalDraws: 1000 });
       throw new Error("simulated worker script crash");
@@ -454,7 +453,7 @@ describe("08-13: the run control", () => {
     expect(workerConstructorSpy.mock.calls.length).toBe(callsBefore);
   });
 
-  it("I7: changing the start match after a completed run clears the completion line in the same frame (PD-02, render-time comparison)", async () => {
+  it("I7: changing the start match after a completed run clears the completion line in the same frame (render-time comparison)", async () => {
     const realRunScript: MockWorkerScript = (message, ctx) => runSimulationJob(message, ctx.post);
     const handle = installMockWorker({ script: realRunScript });
     try {
@@ -487,14 +486,13 @@ describe("08-13: the run control", () => {
 });
 
 /**
- * 08-14-PLAN.md Task 3's own three integration cases — extending 08-09's and
- * 08-13's coverage, per that task's own instruction, with the rank-table
- * position now filled.
+ * Three rank-distribution table integration cases — extending the pre-run
+ * and run-control coverage with the rank-table position now filled.
  */
-describe("08-14: the rank-distribution table mounts behind a completed result", () => {
+describe("the rank-distribution table mounts behind a completed result", () => {
   const RANK_TABLE_SCROLL_TESTID = "rank-distribution-table-scroll";
 
-  it("with no completed run result, the rank-table position still renders 08-09's pre-run paragraph and no rank table is in the document", () => {
+  it("with no completed run result, the rank-table position still renders the pre-run paragraph and no rank table is in the document", () => {
     const artifact = baseArtifact({ upcoming: [upcomingQualRow(BOTH_PMFS)] });
     render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     expect(screen.getByTestId(SIMULATION_PRE_RUN_TESTID).textContent).toBe(SIMULATION_PRE_RUN_BODY);
@@ -541,7 +539,7 @@ describe("08-14: the rank-distribution table mounts behind a completed result", 
 });
 
 /**
- * Quick task 260905-tll Task 6 — the pre-schedule stop (C-01/C-02/C-03).
+ * The pre-schedule stop.
  *
  * Every case here asserts against `workerConstructorSpy`, which this file
  * installs at module scope: the whole premise of the baked path is that it
@@ -549,7 +547,7 @@ describe("08-14: the rank-distribution table mounts behind a completed result", 
  * proof that it did. The final "still no Worker" case at the bottom of this
  * file covers these cases too.
  */
-describe("260905-tll: the baked pre-schedule result", () => {
+describe("the baked pre-schedule result", () => {
   const RANK_TABLE_SCROLL_TESTID = "rank-distribution-table-scroll";
   const TWO_TEAM_ROSTER = [
     { teamKey: "frc1", teamNumber: 1, metrics: {} },
@@ -589,7 +587,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
     expect(workerConstructorSpy).not.toHaveBeenCalled();
   });
 
-  it("260912-2ur: the pre-schedule disclosure renders the sidecar's REAL scheduleCount, not the `?? 0` fall-through", async () => {
+  it("the pre-schedule disclosure renders the sidecar's REAL scheduleCount, not the `?? 0` fall-through", async () => {
     const artifact = baseArtifact({ teams: TWO_TEAM_ROSTER });
     render(
       <RouterTestHarness>
@@ -628,7 +626,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
     expect(screen.getByText(SIMULATION_UNAVAILABLE_HEADING)).toBeDefined();
   });
 
-  it("CR-01: while the sidecar is in flight on a QUALIFICATION-LESS event, the skeleton renders — never an empty state, never a control-less picker", () => {
+  it("while the sidecar is in flight on a QUALIFICATION-LESS event, the skeleton renders — never an empty state, never a control-less picker", () => {
     const artifact = baseArtifact({ teams: TWO_TEAM_ROSTER });
     render(
       <SimulationTab artifact={artifact} algorithmId="spr" season={2024} preSchedule={null} preScheduleIsPending={true} />
@@ -644,7 +642,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
     expect(screen.queryByRole("button", { name: RUN_LABEL_UPDATE })).toBeNull();
   });
 
-  it("CR-01: while the sidecar is in flight on an OFFSEASON-shaped event, no enabled run button is offered over inputs the unavailable state exists to refuse", () => {
+  it("while the sidecar is in flight on an OFFSEASON-shaped event, no enabled run button is offered over inputs the unavailable state exists to refuse", () => {
     const artifact = baseArtifact({
       matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
     });
@@ -657,7 +655,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
     expect(screen.queryByText(SIMULATION_UNAVAILABLE_HEADING)).toBeNull();
   });
 
-  it("CR-01: a pending sidecar does NOT delay an event that clears both guards — its stack renders immediately", () => {
+  it("a pending sidecar does NOT delay an event that clears both guards — its stack renders immediately", () => {
     const artifact = baseArtifact({
       upcoming: [upcomingQualRow({ ...BOTH_PMFS, matchKey: "2024test_qm1", matchNumber: 1 })],
     });
@@ -669,7 +667,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
     expect(screen.getByTestId(START_MATCH_SLIDER_TESTID)).toBeDefined();
   });
 
-  it("CR-02: a sidecar landing MID-RUN cannot hijack the run — the selection is committed when the button is pressed", async () => {
+  it("a sidecar landing MID-RUN cannot hijack the run — the selection is committed when the button is pressed", async () => {
     // Installs its own mock Worker for the duration, exactly as I1-I7 do:
     // this case genuinely drives a run, and `installMockWorker` substitutes
     // a DIFFERENT class from this file's module-scope `SpyWorker`, so the
@@ -725,7 +723,7 @@ describe("260905-tll: the baked pre-schedule result", () => {
   });
 });
 
-describe("08-11: still no Worker", () => {
+describe("still no Worker", () => {
   it("the global Worker constructor spy installed at module scope recorded zero calls across every case in this file", () => {
     expect(workerConstructorSpy).not.toHaveBeenCalled();
   });
