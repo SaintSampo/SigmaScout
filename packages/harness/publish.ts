@@ -723,72 +723,29 @@ export function buildTeamsArtifact(params: BuildTeamsArtifactParams): TeamsArtif
 // buildTeamSeasonArtifact — v1/team/{teamKey}/{year}/{algorithmId}@{version}.json
 // ---------------------------------------------------------------------------
 
-/** One match's algorithm-independent actual per-bonus outcome, positionally aligned to that season's `RpRuleModule.bonusNames` — see `actualBonusFlagsForSeason`'s doc comment for the full contract. */
+/** One match's actual per-bonus outcome, positionally aligned to the season's `RpRuleModule.bonusNames`. */
 export interface ActualBonusFlags {
   readonly red: readonly boolean[];
   readonly blue: readonly boolean[];
 }
 
 /**
- * Phase 06.1 (F-06-3, PD-09): the algorithm-independent ACTUAL per-bonus
- * outcome for every match in `stream`, computed ONCE per season — never
- * inside the per-algorithm loop below, because a match's raw score
- * breakdown and its season's own RP rule module describe the MATCH, not a
- * prediction, so computing this per algorithm would run `ruleModule.parse`
- * three times per match for an identical result (PD-09).
+ * The actual per-bonus outcome for every match in `stream`, computed once per season (it describes the
+ * match, not a prediction). A season with no RP rule module returns an empty map.
  *
- * Returns an EMPTY map immediately when `season` has no entry in
- * `RP_RULE_MODULES` — no registered bonus vocabulary means no bonus fact to
- * publish, and the caller's missing-map-entry behavior (leaving a row's
- * actual bonus keys absent) is already the correct representation.
- *
- * G-06.1-26 (plan 06.1-08, PD-17): a non-`qm` `compLevel` produces ABSENCE
- * (no map entry at all) rather than `null`, checked FIRST — before every
- * other eligibility check below — via the single shared
- * `isBonusRpCompLevel` predicate (`rp/constants.ts`). `null` has a specific
- * published meaning: "the pipeline looked at a match that COULD have bonus
- * RP and could not derive it" (unparseable breakdown, offseason event
- * type). A playoff match is not that — bonus RP is not a property it can
- * have AT ALL, matching the predicted side's own `rpPmfForMatch`, which
- * omits `redBonusRp`/`blueBonusRp` entirely for a non-`qm` match. Placing
- * this check before the `null`-producing checks is load-bearing: placed
- * after them, a playoff match at an offseason event would silently publish
- * `null` instead of being correctly absent.
- *
- * A match maps to `null` when its event type is not RP-eligible
- * (`isRpEligibleEventType`), when it has no score breakdown
- * (`!match.hasScoreBreakdown` / `match.scoreBreakdownRaw === null` — the two
- * are kept in sync by `MatchResult`'s own contract), or when parsing the raw
- * breakdown throws for any reason (malformed JSON, a schema mismatch on
- * self-reported data — T-06.1-19: caught here so ONE bad match cannot abort
- * a whole publish run). These are the SAME two predicates
- * the retired Sigma1 core (deleted by quick task 260913-it4)'s `update()` used to
- * decide whether to fold a match's RP observation at all (its `usedFallback
- * || !isRpEligibleEventType(...)` skip condition) — so a match whose RP
- * fold Sigma1 skips is EXACTLY a match whose actual flags this function
- * publishes as `null`. Two independently-drifting eligibility rules is the
- * exact failure mode that core's own comment there warned against;
- * this correspondence is documented, not merely coincidental.
- *
- * A successfully-parsed match's boolean array is built by mapping the rule
- * module's OWN `bonusNames` list, in order, to the boolean the parse
- * produced for that name (T-06.1-20/T-06.1-09) — never by spreading or
- * `Object.assign`-ing the parsed record, so a hostile or malformed extra key
- * in third-party JSON cannot alter the published array's shape. A name the
- * parse result did not produce defaults to `false` so the array's length
- * always equals `bonusNames.length`.
+ * A non-qualification match gets no entry (absence), checked first: bonus RP is not a property it can
+ * have. `null` means a match that could have bonus RP but could not be derived: an RP-ineligible event
+ * type, no score breakdown, or a breakdown that fails to parse (caught so one bad match cannot abort
+ * a publish). The arrays map the rule module's own `bonusNames` in order, missing names `false`,
+ * never spreading the parsed record, so extra keys in third-party JSON cannot change their shape.
  */
 export function actualBonusFlagsForSeason(stream: readonly MatchResult[], season: number): Map<string, ActualBonusFlags | null> {
   const result = new Map<string, ActualBonusFlags | null>();
   const ruleModule = RP_RULE_MODULES[season];
-  if (ruleModule === undefined) return result; // no registered RP rule module for this season — no bonus vocabulary to publish at all
+  if (ruleModule === undefined) return result;
 
   for (const match of stream) {
-    // G-06.1-26 (plan 06.1-08, PD-17): bonus RP is a property of a
-    // qualification match and of nothing else — checked FIRST, before the
-    // null-producing checks below, so a playoff match produces ABSENCE
-    // (never `null`). See this function's doc comment for the full
-    // absence-vs-null contract.
+    // Checked before the null-producing checks, so a playoff match is absent rather than `null`.
     if (!isBonusRpCompLevel(match.compLevel)) continue;
     if (!isRpEligibleEventType(match.eventType) || !match.hasScoreBreakdown || match.scoreBreakdownRaw === null) {
       result.set(match.matchKey, null);
@@ -803,9 +760,7 @@ export function actualBonusFlagsForSeason(stream: readonly MatchResult[], season
         blue: ruleModule.bonusNames.map((name) => blueParsed.bonusFlags[name] ?? false),
       });
     } catch {
-      // T-06.1-19: a throw here (malformed JSON, or a raw breakdown that
-      // fails this season's RP schema) degrades this ONE match to null
-      // rather than escaping and aborting the whole ~22-minute publish run.
+      // One unparseable breakdown degrades to null rather than aborting the publish.
       result.set(match.matchKey, null);
     }
   }
@@ -816,17 +771,11 @@ export interface TeamSeasonEventInput {
   readonly eventKey: string;
   readonly eventName: string;
   readonly startDate: string;
-  /**
-   * Phase 6 (D-08/D-09): a played match (`PredictionRecord`, `match` is a
-   * `MatchResult` carrying outcome fields) or a not-yet-played one
-   * (`UpcomingPredictionRecord`, `match` is an `UpcomingMatch` that omits
-   * outcome fields entirely) — `buildTeamSeasonArtifact` discriminates via
-   * `"winner" in match`, never a caller-supplied flag.
-   */
+  /** Played (`PredictionRecord`) or upcoming (`UpcomingPredictionRecord`) matches, told apart by `"winner" in match`. */
   readonly matches: readonly (PredictionRecord | UpcomingPredictionRecord)[];
-  /** TEAM-04/F-06-3 (plan 06.1-01): from `selectEventRankingsForSeason(db, season).get(eventKey)?.get(teamKey)` — see `TeamSeasonEventSchema.rank`'s doc comment for the full contract. Omitted when the corpus has no ranking for this (event, team) pair. */
+  /** From `selectEventRankingsForSeason`; omitted when the corpus has no ranking for this (event, team) pair. */
   readonly rank?: number;
-  /** TEAM-04/F-06-3 (plan 06.1-01): see `rank`'s doc comment. */
+  /** Same source and omission rule as `rank`. */
   readonly totalTeams?: number;
 }
 
@@ -840,71 +789,37 @@ export interface BuildTeamSeasonArtifactParams {
   readonly seasonStats: {
     record: { wins: number; losses: number; ties: number };
     metrics: Record<string, TeamMetricWithPercentile>;
-    /**
-     * Quick task 260908-wpo: required here — every caller must state which
-     * basis produced `metrics` — even though `TeamSeasonArtifactSchema`
-     * itself parses this field as optional for pre-260908-wpo back-compat.
-     * See that schema's `seasonStats.metricsBasis` doc comment for the two
-     * values' meaning.
-     */
+    /** Required here so every caller states which basis produced `metrics`; the schema parses it as optional for older artifacts. */
     metricsBasis: "last-official-match" | "season-final";
   };
   readonly events: readonly TeamSeasonEventInput[];
   readonly metricHistory: readonly MetricHistoryRow[];
   readonly generation: string;
   readonly computedAt?: string;
-  /**
-   * D-08 (Phase 6): `match_key` -> `sort_time`, from `selectScheduledMatchTimes`
-   * — looked up per match to populate `TeamSeasonMatchSchema.sortTime`.
-   * Omitted (undefined map, or a missing entry) simply leaves a row's
-   * `sortTime` absent — never a synthetic default.
-   */
+  /** `match_key` -> `sort_time`, from `selectScheduledMatchTimes`; a missing entry leaves `sortTime` absent, never a synthetic default. */
   readonly sortTimeByMatchKey?: ReadonlyMap<string, number>;
   /**
-   * Phase 06.1 (F-06-3, PD-09): `match_key` -> `ActualBonusFlags | null`,
-   * from `actualBonusFlagsForSeason` — looked up per played match to
-   * populate `TeamSeasonMatchSchema.actualRedBonusRp`/`actualBlueBonusRp`.
-   * Mirrors `sortTimeByMatchKey`'s own contract exactly: an omitted map, or
-   * a missing entry for a specific match key, simply leaves that row's
-   * actual bonus keys absent — never a synthetic default. A present `null`
-   * entry (as opposed to a missing one) publishes as an explicit `null`,
-   * not absence — see `TeamSeasonMatchSchema.actualRedBonusRp`'s three-state
-   * doc comment.
+   * `match_key` -> `ActualBonusFlags | null`, from `actualBonusFlagsForSeason`. A missing entry leaves
+   * the actual bonus keys absent; a present `null` publishes an explicit `null`.
    */
   readonly actualBonusFlagsByMatchKey?: ReadonlyMap<string, ActualBonusFlags | null>;
-  /** D-03 (Phase 6): the pipeline-resolved robot image URL for this team/season, from `selectTeamMediaForYear` — omitted (never `null`) when the corpus has no eligible photo for this team-year. */
+  /** Robot image URL from `selectTeamMediaForYear`; omitted (never `null`) when there is no eligible photo. */
   readonly robotImageUrl?: string;
-  /** D-05 (Phase 6): the seasons this team is known to have competed in, from the `activeYearsByTeam` pre-pass — feeds the team page's constrained year dropdown (D-18). */
+  /** Seasons this team competed in; feeds the team page's year dropdown. */
   readonly activeYears?: readonly number[];
-  /**
-   * Quick task 260905-ldu: this team's World/Country/District/State rank
-   * scopes for this algorithm/season, from `teamRanks.ts`'s
-   * `buildTeamRankScopes`. Both an omitted value here and an empty array
-   * produce an OMITTED `ranks` key on the published artifact (never an
-   * empty array on the wire) — see this function's body for that
-   * normalization.
-   */
+  /** World/Country/District/State rank scopes; omitted and empty both publish no `ranks` key. */
   readonly ranks?: readonly TeamRankScope[];
-  /**
-   * Quick task 260906-7eu: `match_key` -> raw YouTube video key, from
-   * `selectMatchVideoKeys` — the exact same map
-   * `BuildEventArtifactParams.videoByMatchKey` already carries; see that
-   * field's doc comment for the full contract, inherited verbatim.
-   */
+  /** `match_key` -> raw YouTube video key, the same map as `BuildEventArtifactParams.videoByMatchKey`. */
   readonly videoByMatchKey?: ReadonlyMap<string, string>;
 }
 
-/** D-07/D-05's second at-risk artifact (the 292-match outlier). Parses through `TeamSeasonArtifactSchema` before returning (T-04-22). */
+/** A payload-budget-sensitive artifact (the 292-match outlier). Parses through `TeamSeasonArtifactSchema` before returning. */
 export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): TeamSeasonArtifact {
   const events = params.events.map((e) => ({
     eventKey: e.eventKey,
     eventName: e.eventName,
     startDate: e.startDate,
-    // TEAM-04/F-06-3 (plan 06.1-01): conditionally spread, never assigned
-    // `undefined` directly — an omitted input must produce a candidate
-    // object with the key genuinely ABSENT (not present-with-undefined-
-    // value), which is what lets a caller assert `not.toHaveProperty`
-    // rather than `toBeUndefined` on the parsed artifact.
+    // Conditional spreads throughout this file keep an omitted key absent, never present-and-undefined.
     ...(e.rank !== undefined ? { rank: e.rank } : {}),
     ...(e.totalTeams !== undefined ? { totalTeams: e.totalTeams } : {}),
     matches: e.matches.map((record) => {
@@ -922,94 +837,49 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
         predictedRedScore: roundMetric(prediction.redScore),
         predictedBlueScore: roundMetric(prediction.blueScore),
         variance: prediction.variance !== undefined ? roundTo(prediction.variance, ROUNDING_RULE.variance) : undefined,
-        // D-01 (Phase 6): each alliance's OWN predicted-score variance —
-        // reuses ROUNDING_RULE.variance unchanged (same physical quantity as
-        // `variance` above). OPR/EPA never set these on `Prediction`, so both
-        // stay undefined for them, matching `variance`'s own convention.
+        // Each alliance's own predicted-score variance; undefined for OPR/EPA.
         redScoreVarianceOwn:
           prediction.redScoreVarianceOwn !== undefined ? roundTo(prediction.redScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
         blueScoreVarianceOwn:
           prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
-        // PUBLISHED MATCH BAND — the SAME `record.matchBand` object the event
-        // artifact reads, so this row and the event page's row for this match
-        // carry byte-identical numbers by construction rather than by care.
-        // Sigma algorithms only (quick task 260913-g66).
+        // The same `record.matchBand` the event artifact reads, so both rows match by construction.
         ...matchBandFields(record.matchBand),
         redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
         blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
-        // D-08 (Phase 6): the Match column's human label, published directly
-        // instead of re-derived client-side from the opaque matchKey.
+        // The Match column's label, published rather than re-derived client-side from the matchKey.
         setNumber: match.setNumber,
         matchNumber: match.matchNumber,
         sortTime,
         redTeams: [...match.redTeams],
         blueTeams: [...match.blueTeams],
-        // G-06.1-26 (plan 06.1-08): predicted per-bonus marginals —
-        // independent probabilities, never routed through roundPmf's
-        // residual redistribution (that is only meaningful for a
-        // distribution required to sum to 1). Rounded once, here, at
-        // ROUNDING_RULE.probability, matching pRedWin's own rounding.
-        // CONDITIONALLY spread (never assigned `undefined` directly, matching
-        // `rank`/`totalTeams`'s own convention above), gated on
-        // `isBonusRpCompLevel(match.compLevel)` — defence in depth at the
-        // artifact-assembly boundary, mirroring the actual-side gate a few
-        // lines below and the client guard (`BonusRpDots`'s `applicable`
-        // prop): a played PLAYOFF match's row must carry neither key even if
-        // a caller-supplied `Prediction` happens to carry populated arrays
-        // (vpr's own `predict()` already never does this upstream, but
-        // this function does not trust that upstream discipline alone).
+        // Predicted per-bonus marginals are independent probabilities, so they round per value, never
+        // through `roundPmf`. Gated on the comp level so a playoff row carries neither key even if a
+        // caller-supplied `Prediction` has them.
         ...(isBonusRpCompLevel(match.compLevel) && prediction.redBonusRp
           ? { redBonusRp: prediction.redBonusRp.map((p) => roundProbability(p)) }
           : {}),
         ...(isBonusRpCompLevel(match.compLevel) && prediction.blueBonusRp
           ? { blueBonusRp: prediction.blueBonusRp.map((p) => roundProbability(p)) }
           : {}),
-        // Quick task 260906-7eu: conditional spread, matching this row's own
-        // `rank`/`totalTeams`-style convention above — a row with no entry
-        // in the map carries no `video` key at all. In practice this is
-        // populated only for a played match (the corpus's `video_key` is
-        // null for anything unplayed), but the lookup is unconditional here
-        // exactly like `sortTime`'s own lookup a few lines up, rather than
-        // duplicated inside the `if ("winner" in match)` branch below.
+        // Unconditional lookup; the corpus has no `video_key` for unplayed matches.
         ...(params.videoByMatchKey?.get(match.matchKey) !== undefined
           ? { video: params.videoByMatchKey.get(match.matchKey) }
           : {}),
       };
-      // D-09 (Phase 6): discriminate on the presence of the outcome fields
-      // themselves — a scheduled match's `UpcomingMatch` never carries
-      // `winner` at all (not merely `undefined`), so `"winner" in match` is
-      // the correct, flag-free discriminant `buildSeasonStream`'s leak-proof
-      // convention already establishes elsewhere in this codebase.
+      // An `UpcomingMatch` never carries `winner` at all, so its presence is the discriminant.
       if ("winner" in match) {
-        // Phase 06.1 (F-06-3, PD-09/PD-10): looked up by match key, never by
-        // array position. A MISSING map entry (undefined) leaves both
-        // actual bonus keys genuinely absent from the row below (conditional
-        // spread, not `key: undefined`); a PRESENT `null` entry publishes an
-        // explicit null; a present array entry is copied (never aliased) so
-        // a later mutation of the source map's array cannot reach the
-        // published artifact. G-06.1-26 (plan 06.1-08): ALSO gated on
-        // `isBonusRpCompLevel(match.compLevel)` — defence in depth against a
-        // caller-supplied map that (like the ~54,671 already-published
-        // artifacts, pre-fix) carries a populated entry for a playoff match;
-        // `actualBonusFlagsForSeason` itself now never produces one, but this
-        // function does not trust that upstream discipline alone either.
+        // Missing entry: keys absent. Present `null`: explicit null. Arrays are copied, never aliased,
+        // and gated on comp level against a caller map with a playoff entry.
         const flags = params.actualBonusFlagsByMatchKey?.get(match.matchKey);
         return {
           ...row,
           actualWinner: match.winner,
           actualRedScore: match.redScore,
           actualBlueScore: match.blueScore,
-          // D-01/D-03 (quick task 260909-t5q): the mirror of
-          // `buildEventArtifact`'s own conditional spread — see its comment
-          // for the full contract. `record` is narrowed on `"winner" in
-          // match`, not on its own union member, so `"coldStart" in record`
-          // is the safe way to read the stamp: `UpcomingPredictionRecord`
-          // never declares the field at all, not even optionally.
+          // `record` is not narrowed by `"winner" in match`, and `UpcomingPredictionRecord` never declares
+          // `coldStart`, hence the `in` check.
           ...("coldStart" in record && record.coldStart === true ? { coldStart: true as const } : {}),
-          // D-02 (Phase 6): never coerced null -> 0 — see TeamSeasonMatchSchema's
-          // actualRedRp/actualBlueRp doc comment for the full null contract.
-          // toIntegerRpOrNull: defence-in-depth against a non-integer value
-          // already sitting in the corpus (see that helper's doc comment).
+          // Never coerced null -> 0.
           actualRedRp: toIntegerRpOrNull(match.redRpEarned),
           actualBlueRp: toIntegerRpOrNull(match.blueRpEarned),
           ...(isBonusRpCompLevel(match.compLevel) && flags !== undefined
@@ -1034,17 +904,13 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
     seasonStats: {
       record: params.seasonStats.record,
       metrics: roundTeamMetricRecord(params.seasonStats.metrics),
-      // Quick task 260908-wpo: a string tag — passed through unmodified, no
-      // rounding, no transform.
       metricsBasis: params.seasonStats.metricsBasis,
     },
     events,
     metricHistory: params.metricHistory.map(roundMetricHistoryRow),
     robotImageUrl: params.robotImageUrl,
     activeYears: params.activeYears ? [...params.activeYears] : undefined,
-    // Quick task 260905-ldu: "computed, found nothing" (an empty array) and
-    // "never computed" (an omitted param) both collapse to an omitted
-    // `ranks` key here — neither ever emits `ranks: []` on the wire.
+    // Never `ranks: []` on the wire.
     ranks: params.ranks && params.ranks.length > 0 ? [...params.ranks] : undefined,
   };
   return TeamSeasonArtifactSchema.parse(candidate);
@@ -1064,7 +930,6 @@ export interface EventsArtifactEventInput {
   readonly teamCount: number;
   readonly matchCount: number;
   readonly playedMatchCount: number;
-  /** plan 05-02 (EVNT-01) */
   readonly country: string | null;
   readonly stateProv: string | null;
   readonly districtKey: string | null;
@@ -1079,7 +944,7 @@ export interface BuildEventsArtifactParams {
   readonly computedAt?: string;
 }
 
-/** No numeric field here maps to a `ROUNDING_RULE` class (every value is an integer count or a nullable week index) — nothing to round. Parses through `EventsArtifactSchema` before returning (T-04-22). */
+/** Every value is an integer count or a nullable week index, so nothing rounds. Parses through `EventsArtifactSchema`. */
 export function buildEventsArtifact(params: BuildEventsArtifactParams): EventsArtifact {
   const candidate = {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -1094,7 +959,7 @@ export function buildEventsArtifact(params: BuildEventsArtifactParams): EventsAr
 }
 
 // ---------------------------------------------------------------------------
-// RP calibration measurement (F1, D-09, D-11, D-12 — phase 09 plan 09-01)
+// RP calibration measurement
 // ---------------------------------------------------------------------------
 
 /** One published bonus's calibration figures, structurally identical to `pageArtifacts.ts`'s module-private `CompareRpBonusSchema`. */
@@ -1107,12 +972,8 @@ const RpCalibrationBonusSchema = z.object({
 });
 
 /**
- * The RP scorecard's TOTAL-RP block (2026-09-13, quick task 260913-qyn) —
- * `redRpPmf`/`blueRpPmf` scored against the actual alliance RP by a ranked
- * probability score, pooled per alliance-side. Structurally identical to
- * `pageArtifacts.ts`'s module-private `CompareRpTotalSchema`. OPTIONAL,
- * OMITTED when its `count` is 0 — the same absence discipline `bonuses`
- * already uses, never a coerced zero (T-09-04's convention).
+ * Total-RP block: `redRpPmf`/`blueRpPmf` scored against actual alliance RP by ranked probability score,
+ * pooled per alliance-side. Mirrors `CompareRpTotalSchema`. Omitted when `count` is 0, never zeroed.
  */
 const RpCalibrationTotalSchema = z.object({
   count: z.number().int().nonnegative(),
@@ -1124,11 +985,8 @@ const RpCalibrationTotalSchema = z.object({
 });
 
 /**
- * The RP scorecard's OUTCOME block (2026-09-13, quick task 260913-qyn) —
- * `matchOutcomePmf` scored against `match.winner` by a three-outcome Brier,
- * pooled per match. Structurally identical to `pageArtifacts.ts`'s
- * module-private `CompareRpOutcomeSchema`. OPTIONAL, OMITTED when its
- * `count` is 0.
+ * Outcome block: `matchOutcomePmf` scored against `match.winner` by a three-outcome Brier, pooled per
+ * match. Mirrors `CompareRpOutcomeSchema`. Omitted when `count` is 0.
  */
 const RpCalibrationOutcomeSchema = z.object({
   count: z.number().int().nonnegative(),
@@ -1138,22 +996,10 @@ const RpCalibrationOutcomeSchema = z.object({
 });
 
 /**
- * Structurally identical to `pageArtifacts.ts`'s module-private
- * `CompareRpCalibrationSchema` — DUPLICATED, not imported, because that
- * schema is deliberately not exported (only its inferred TYPE,
- * `CompareRpCalibration`, is — see that file's own comment for why). The
- * `satisfies` clause below is the compile-time guard against the two shapes
- * silently drifting apart; `scripts/measureRpCalibration.test.ts` and
- * `packages/harness/pageArtifacts.test.ts` both additionally exercise this
- * SAME real emitted record fixture
- * (`apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json`) as a
- * runtime cross-check.
- *
- * Task 2 Step 5: no `reliabilityBins` field — dropped from the wire shape
- * (see `pageArtifacts.ts`'s `CompareRpCalibrationSchema` doc comment for the
- * measured byte-budget reason) and, for the same reason `RpCalibrationRecord`
- * is a plain alias of `CompareRpCalibration` rather than its own type, never
- * re-added here independently of that decision.
+ * Duplicates `pageArtifacts.ts`'s module-private `CompareRpCalibrationSchema`, which is deliberately
+ * not exported. The type check below guards against drift; `measureRpCalibration.test.ts` and
+ * `pageArtifacts.test.ts` cross-check it at runtime against a real emitted fixture. Never add
+ * `reliabilityBins` here independently of the wire schema.
  */
 const RpCalibrationRecordSchema = z.object({
   scoredCount: z.number().int().nonnegative(),
@@ -1162,16 +1008,10 @@ const RpCalibrationRecordSchema = z.object({
   outcome: RpCalibrationOutcomeSchema.optional(),
 });
 
-/** Alias, not a re-declaration — this IS `pageArtifacts.ts`'s wire type, used here so `scripts/measureRpCalibration.ts`'s emitter has one name for "the record" regardless of which file's schema last validated it. */
+/** An alias of `pageArtifacts.ts`'s wire type, not a re-declaration. */
 export type RpCalibrationRecord = CompareRpCalibration;
 
-/**
- * Compile-time guard: if `RpCalibrationRecordSchema`'s inferred shape ever
- * stops structurally matching `CompareRpCalibration` (pageArtifacts.ts's
- * module-private schema's exported type), this line fails to typecheck —
- * `npx tsc --noEmit` catches the drift instead of a caller discovering it at
- * runtime months later.
- */
+/** Compile-time guard: fails to typecheck if `RpCalibrationRecordSchema` stops matching `CompareRpCalibration`. */
 type _RpCalibrationSchemaMatchesWireType =
   z.infer<typeof RpCalibrationRecordSchema> extends CompareRpCalibration
     ? CompareRpCalibration extends z.infer<typeof RpCalibrationRecordSchema>
@@ -1182,64 +1022,16 @@ const _rpCalibrationSchemaMatchesWireType: _RpCalibrationSchemaMatchesWireType =
 void _rpCalibrationSchemaMatchesWireType;
 
 /**
- * The committed, dated "before" baseline (D-09's per-bonus left-hand side)
- * AND `buildCompareArtifact`'s compare-artifact input. Plan 09-06 writes a
- * NEW dated file and repoints this default rather than overwriting this one
- * (`must_haves.prohibitions`: never edit a committed baseline in place).
- */
-/**
- * REPOINTED 2026-09-11 (plan 09-06) at the `-09b` re-measurement, emitted from
- * the COLLAPSED single-path code after the pre-committed bar refused all three
- * candidate RP model changes.
- *
- * The `-09` file it replaced is NOT edited and NOT deleted: it is 09-01's
- * frozen pre-phase instrument, captured before 09-04 replaced the Monte Carlo,
- * and a re-measurement gets a new dated filename so before/after stays a real
- * comparison rather than a file that was quietly overwritten. A test asserts
- * the new file is per-bonus `===` equal to the chosen arm's pre-collapse
- * figures, which is the proof that the deletion pass was a refactor.
- *
- * REPOINTED 2026-09-13 at `-09c`, measured with `--algorithm spr`. Quick task
- * 260913-it4 made SPR the only algorithm that publishes ranking points, and
- * `attachRpCalibration` matches ids literally, so `-09b`'s `opr`/`epa`/`bpr`
- * records could no longer reach any slice: the next publish would have shipped
- * a Compare page with no RP card. `-09b` stays as the frozen record its own
- * tests pin. SPR prices matches the retired gate skipped (2025: 29,642
- * alliance-sides against OPR/EPA's 25,978), so `-09c` is not comparable
- * cell-for-cell with `-09b`.
- *
- * REPOINTED 2026-09-13 at `-09d` (quick task 260913-qyn, same day as `-09c`,
- * a second re-measurement): the scorer now scores TOTAL ranking points
- * (`totalRp`, a ranked probability score against the actual alliance RP) and
- * the win/tie/loss OUTCOME (`outcome`, a three-outcome Brier against
- * `match.winner`) alongside the existing per-bonus blocks, and WIN+TIE
- * shipped on the model itself (`data/baselines/rp-outcome-arms-2026-09.json`)
- * — the algorithm's own `pRedWin` replaces the score-draw comparison as the
- * decisive share, and a genuine discrete integer-margin tie probability
- * replaces the prior structural zero. `-09c` stays as the frozen
- * bonus-only-scorer record its own tests pin; `-09d` is measured with
- * `--algorithm spr` over the same ten seasons from the POST-ship code, so its
- * per-bonus figures are the same population `-09c` measured but under the
- * shipped WIN+TIE model rather than the pre-260913-qyn one.
- *
- * REPOINTED 2026-09-14 at `-09e` (quick task 260914-01x). Lattice marginals and
- * the walk-forward mean shift shipped together on the bonus half, because the
- * bonus-arm bar (`applyRpBonusArmBar`, committed before any figure existed)
- * accepted all three arms and lattice+meanShift had the lowest pooled total-RP
- * RPS (`data/baselines/rp-bonus-arms-2026-09.json`). `-09e` is measured with
- * `--algorithm spr` over the same ten seasons as `-09d`, from the post-ship
- * tree. Its outcome blocks equal `-09d`'s in every season, because the ship
- * touched only the bonus half. `-09d` stays as the frozen pre-lattice record
- * its own tests pin.
+ * The committed RP calibration measurement `buildCompareArtifact` attaches. A re-measurement gets a new
+ * dated file and this path is repointed; a committed baseline is never edited in place, because older
+ * files stay pinned by their own tests. `attachRpCalibration` matches algorithm ids literally, so the
+ * file must be measured for the algorithms that publish ranking points.
  */
 export const RP_CALIBRATION_MEASUREMENT_PATH = "data/baselines/rp-calibration-2026-09e.json";
 
 /**
- * A committed, self-describing measurement of every registered season's
- * per-bonus calibration for every measured algorithm — `scripts/measureRpCalibration.ts`'s
- * `--emit-artifact` output. `algorithmVersions` and `command` exist so a
- * reader can tell what produced a given figure without a second file
- * (T-09-06's provenance mitigation).
+ * `scripts/measureRpCalibration.ts --emit-artifact` output: per-season calibration for each measured
+ * algorithm. `algorithmVersions` and `command` say what produced a figure without a second file.
  */
 export const RpCalibrationMeasurementSchema = z.object({
   measuredAt: z.string().min(1),
@@ -1248,23 +1040,8 @@ export const RpCalibrationMeasurementSchema = z.object({
   offseasonIncluded: z.boolean(),
   algorithmVersions: z.record(z.string(), z.string()),
   /**
-   * D-05 AFTER D-06: the shipped RP layer combination, in words.
-   *
-   * D-05 required the shipped combination to be recorded in the published
-   * artifact and self-describing after the fact; D-06 then deleted the config
-   * object that described it. These are sequential, not contradictory, and
-   * this OPTIONAL field is the seam: once there is no config to record, the
-   * record is a LABEL, and it lives in the committed measurement's own header
-   * rather than on the wire.
-   *
-   * Written by `scripts/measureRpCalibration.ts`'s emitter, READ BY NOTHING,
-   * and costing ZERO WIRE BYTES — `buildCompareArtifact` attaches per-slice
-   * `calibration` records and never the measurement's header. That matters:
-   * 09-01 measured the `compare` page kind at 14,088 bytes against a
-   * 20,000-byte ceiling, and the remedy for an overrun on this project is to
-   * shrink the block, never to raise the budget.
-   *
-   * Optional so every measurement emitted before the collapse still parses.
+   * The shipped RP layer combination, as a label. Written by the emitter and read by nothing; it stays
+   * in the measurement header and never reaches the wire. Optional so older measurements still parse.
    */
   rpLayer: z.string().min(1).optional(),
   records: z.array(
@@ -1278,13 +1055,8 @@ export const RpCalibrationMeasurementSchema = z.object({
 export type RpCalibrationMeasurement = z.infer<typeof RpCalibrationMeasurementSchema>;
 
 /**
- * Reads and validates a committed `RpCalibrationMeasurement` file.
- * `undefined` when the path does not exist — a genuinely absent measurement,
- * e.g. before this phase's first emit. THROWS a named error when the path
- * exists but does not parse, rather than degrading to `undefined` (T-09-03):
- * a silent `undefined` would be indistinguishable from "measurement not run
- * yet" when the real fact is "the committed file is corrupt," and those two
- * states must never look the same to a caller.
+ * Reads and validates a committed measurement. `undefined` only when the path does not exist; a file
+ * that exists but does not parse throws, so a corrupt file never looks like a missing one.
  */
 export function loadRpCalibrationMeasurement(path: string): RpCalibrationMeasurement | undefined {
   if (!existsSync(path)) return undefined;
@@ -1304,24 +1076,11 @@ export function loadRpCalibrationMeasurement(path: string): RpCalibrationMeasure
 }
 
 /**
- * Attaches each matching `RpCalibrationMeasurement` record onto its slice,
- * rounding to six decimal places at this boundary (a deliberate, BOUNDED
- * narrowing for this new block only — `buildCompareArtifact`'s existing
- * policy is that calibration figures ship unrounded; six decimals is four
- * orders of magnitude finer than the one-decimal-percent the page renders,
- * and it makes the wire cost of this block deterministic against a compare
- * budget with under six kilobytes of headroom). Bonus ranking points exist
- * only in QUALIFICATION matches, so only a slice whose `compLevelView` is
- * `"qualification"` is ever eligible; every other slice — and every
- * qualification slice with no matching record — is returned UNCHANGED, with
- * the key absent rather than present-and-empty. `measurement === undefined`
- * (no committed baseline yet) is a no-op over every slice.
- *
- * Quick task 260913-qyn: `totalRp` and `outcome` are copied the same way —
- * counts pass through as integers, every other figure rounds to six decimal
- * places — each ONLY when the source record's own block is present (its
- * count-above-0 absence discipline), never synthesized when the record
- * predates the scorer.
+ * Attaches each matching measurement record onto its slice. Figures round to six decimals here (far
+ * finer than the page renders, and it keeps this block's wire cost deterministic against the compare
+ * budget); counts stay integers. Only qualification slices are eligible, since bonus RP exists only
+ * there; any other slice, or one with no record, is returned unchanged with no key. `totalRp` and
+ * `outcome` are copied only when the record carries them.
  */
 export function attachRpCalibration(
   slices: readonly ScoreSlice[],
@@ -1330,9 +1089,8 @@ export function attachRpCalibration(
   if (measurement === undefined) return slices;
   return slices.map((slice) => {
     if (slice.compLevelView !== "qualification") return slice;
-    // Quick task 260913-it4: only an algorithm that publishes ranking points
-    // gets an RP accuracy card. The committed measurement still carries OPR and
-    // EPA records from before that decision; they never reach an artifact.
+    // Only an algorithm that publishes ranking points gets an RP accuracy card; the measurement's OPR
+    // and EPA records never reach an artifact.
     if (!publishesRankingPoints(slice.algorithmId)) return slice;
     const record = measurement.records.find((r) => r.season === slice.season && r.algorithmId === slice.algorithmId);
     if (record === undefined) return slice;
@@ -1346,11 +1104,6 @@ export function attachRpCalibration(
         observedFrequency: roundTo(b.observedFrequency, 6),
         brierScore: roundTo(b.brierScore, 6),
       })),
-      // Quick task 260913-qyn: totalRp/outcome copied only when the record
-      // carries them (its own count > 0, `RpCalibrationTotalSchema`/
-      // `RpCalibrationOutcomeSchema`'s own absence discipline) — counts stay
-      // integers, every other figure rounds to six decimals at this same
-      // boundary, matching `bonuses` above.
       ...(calibration.totalRp !== undefined
         ? {
             totalRp: {
@@ -1387,17 +1140,13 @@ export interface BuildCompareArtifactParams {
   readonly slices: readonly ScoreSlice[];
   readonly generation: string;
   readonly computedAt?: string;
-  /** F1/D-09/D-11 (phase 09 plan 09-01): the committed RP measurement to attach onto matching qualification slices via `attachRpCalibration`. `undefined` — the default — attaches nothing, so every existing caller is unaffected until it opts in. */
+  /** The committed RP measurement to attach onto matching qualification slices; `undefined` attaches nothing. */
   readonly rpCalibration?: RpCalibrationMeasurement;
 }
 
 /**
- * Brier/accuracy/calibration figures are NOT rounded — they don't map to any
- * of `rounding.ts`'s five field classes: rounding happens only when a
- * downstream reader renders a value, never at the source. The ONE exception is
- * `rpCalibration`, rounded to six decimal places by `attachRpCalibration`
- * for the documented wire-budget reason on that function. Parses through
- * `CompareArtifactSchema` before returning (T-04-22).
+ * Brier/accuracy/calibration figures ship unrounded (no `rounding.ts` field class applies); the one
+ * exception is `rpCalibration`, rounded by `attachRpCalibration`. Parses through `CompareArtifactSchema`.
  */
 export function buildCompareArtifact(params: BuildCompareArtifactParams): CompareArtifact {
   const algorithms = params.algorithms.map((a) => {
@@ -1416,8 +1165,7 @@ export function buildCompareArtifact(params: BuildCompareArtifactParams): Compar
 }
 
 // ---------------------------------------------------------------------------
-// Size-stat tracking (D-05) — lives in publishBudget.ts; re-exported here so
-// existing importers of these names keep working
+// Size-stat tracking lives in publishBudget.ts; re-exported for existing importers
 // ---------------------------------------------------------------------------
 
 export { computeSizeStats, type PageKindSizeStats, type PublishedObjectRecord };
@@ -1425,37 +1173,20 @@ export { computeSizeStats, type PageKindSizeStats, type PublishedObjectRecord };
 const UPLOAD_HEADERS = { contentType: "application/json", cacheControl: "public, max-age=60" } as const;
 
 /**
- * The publisher's uploader (D-26: `application/json`, `max-age=60`). Records
- * every candidate object's page kind/key/byte length REGARDLESS of `dryRun`
- * — `--dry-run` assembles and validates everything and still prints the size
- * summary (the whole reason `--dry-run` exists is to re-measure budgets
- * without spending a Class-A operation), it just skips the actual
- * `putObject` call.
+ * The publisher's uploader (`application/json`, `max-age=60`). Records every object's page kind, key and
+ * size even under `--dry-run`, which exists to re-measure budgets without spending Class-A operations.
  *
- * Quick task 260913-nvn: every page-kind object is asserted against
- * `PAGE_BUDGET_MAX_BYTES` BEFORE it is recorded or queued, in both modes, so
- * an over-budget object is never uploaded. Real puts drain through a bounded
- * `UploadQueue` while the build loop keeps going: each publish call resolves
- * once its put is ACCEPTED, and that await is the build loop's backpressure.
- *
- * Design note — the ceiling is checked per object at enqueue, so objects from
- * EARLIER blocks may already be in R2 when a later object fails its ceiling.
- * That is the same exposure as any mid-run network failure (keys are
- * version-addressed and the next successful run overwrites them in place).
- * `--dry-run` is therefore the complete budget pre-flight; the stricter
- * "nothing uploads until everything is built" reading would forfeit the
- * build/upload overlap the queue exists to add.
+ * Every page-kind object is asserted against `PAGE_BUDGET_MAX_BYTES` before it is recorded or queued,
+ * so an over-budget object never uploads. Real puts drain through a bounded `UploadQueue`; each publish
+ * resolves once its put is accepted, which is the build loop's backpressure. Because the ceiling is
+ * checked per object, earlier objects may already be in R2 when a later one fails (the same exposure as
+ * a mid-run network failure; keys are version-addressed), so `--dry-run` is the complete pre-flight.
  */
 class BoundedUploader {
   readonly records: PublishedObjectRecord[] = [];
   /**
-   * Quick task 260905-tll Task 4 (PD-01): pre-schedule sidecar uploads,
-   * recorded SEPARATELY from the `PageKind`-keyed `records` array above —
-   * the sidecar is deliberately not a `PageKind` (see `preScheduleKey`'s
-   * doc comment in pageArtifacts.ts), so it must not enter
-   * `computeSizeStats`' per-kind budget accounting or
-   * `payloadBudget.test.ts`'s `PAGE_KINDS` gate, and it has no ceiling. Its
-   * own size summary is printed from this array at the end of the run.
+   * Pre-schedule sidecar uploads, kept apart from `records`: a sidecar is deliberately not a `PageKind`,
+   * so it stays out of per-kind budget accounting and has no ceiling. Summarized at the end of the run.
    */
   readonly sidecarRecords: { key: string; bytes: number }[] = [];
   readonly #queue: UploadQueue;
@@ -1486,10 +1217,8 @@ class BoundedUploader {
   }
 
   /**
-   * Quick task 260905-tll Task 4: a sidecar and its event artifact, queued as
-   * ONE task that puts the sidecar and then the event artifact, following the
-   * repo's established artifacts-before-index ordering rule. The event
-   * artifact's ceiling is asserted before anything is queued.
+   * A sidecar and its event artifact queued as one task, sidecar first (artifacts before the index that
+   * references them). The event artifact's ceiling is asserted before anything is queued.
    */
   publishSidecarThenEvent(sidecarKey: string, sidecarBody: string, eventKey: string, eventBody: string): Promise<void> {
     this.#record("event", eventKey, eventBody);
@@ -1513,40 +1242,30 @@ class BoundedUploader {
 }
 
 // ---------------------------------------------------------------------------
-// Pre-schedule sidecar generation (quick task 260905-tll Task 4)
+// Pre-schedule sidecar generation
 // ---------------------------------------------------------------------------
 
 /** Everything `buildPreScheduleSidecarForEvent` needs to decide, price and serialize one (event, algorithm) pair's sidecar. */
 interface PreScheduleSidecarArgs {
   readonly eventKey: string;
   readonly season: number;
-  /** The REAL event's TBA `event_type` — load-bearing (PD-06): `eventTierFor` throws for an unmapped type (99/Offseason is deliberately unmapped), so RP-ineligible events must be gated out BEFORE any synthetic match exists. */
+  /** The real event's TBA `event_type`. `eventTierFor` throws for unmapped types (99/Offseason), so RP-ineligible events are gated out before any synthetic match exists. */
   readonly eventType: number;
-  /** The REAL event's TBA competition week (`events.week`, 0-indexed), or `null` when TBA gives it none. Passed straight through to every synthetic `UpcomingMatch`. */
+  /** The real event's TBA week (0-indexed) or `null`, passed through to every synthetic `UpcomingMatch`. */
   readonly week: number | null;
   readonly algorithm: AlgorithmModule<any>;
-  /** The event's published roster — match-derived when matches exist, registered (`event_teams`) otherwise (PD-05). */
+  /** The published roster: match-derived when matches exist, registered (`event_teams`) otherwise. */
   readonly roster: readonly string[];
-  /** Qualification matches (played + scheduled) this event has in the corpus — PD-02's freeze predicate AND `matchesPerTeamFor`'s input (C-12). */
+  /** Qualification matches (played + scheduled) in the corpus: the freeze predicate and `matchesPerTeamFor`'s input. */
   readonly qualMatchCount: number;
-  /** Whether a walk-forward pre-event state was captured for this event. Absent exactly when no completed match of this event was replayed with a predecessor state — the cold-start season's first event (PD-04), or an event whose schedule landed but has no completed matches yet. */
+  /** Whether a walk-forward pre-event state was captured (absent for the cold-start season's first event, or an event with no completed matches yet). */
   readonly hasPreEventState: boolean;
   readonly preEventState: unknown;
-  /** Whether ANY match of this event has been played. Distinguishes the two reasons a pre-event state can be absent: an event that has not started yet (its pre-event state is simply the current one) from the cold-start season's first event (PD-04, genuinely unavailable). */
+  /** Whether any match has been played; tells a not-yet-started event apart from the cold-start season's first event. */
   readonly hasCompletedMatches: boolean;
-  /** Whether a season-final state exists for this algorithm — C-07's current-state pricing source for scheduleless events. */
+  /** Whether a season-final state exists: the current-state pricing source for scheduleless events. */
   readonly hasSeasonFinalState: boolean;
-  /**
-   * Fills SigmaScout-layer ranking points onto a synthetic match's prediction
-   * when the algorithm itself models none (quick task 260909).
-   *
-   * `buildPreScheduleArtifact` probes the injected `predict` for a pmf and
-   * returns `null` without one, which is why the sidecar was VPR-only. The
-   * wrapper is applied at the seam below rather than inside `preSchedule.ts`,
-   * so that module still owns no pricing math and still sees exactly one
-   * `predict` — it simply gets one whose RP is filled the same way every real
-   * match's now is.
-   */
+  /** Fills SigmaScout-layer ranking points onto a synthetic prediction when the algorithm models none (see `makeRankingPointFiller`). */
   readonly fillRankingPoints?: (match: UpcomingMatch, prediction: Prediction) => Prediction;
   readonly seasonFinalState: unknown;
   readonly generation: string;
@@ -1554,45 +1273,19 @@ interface PreScheduleSidecarArgs {
 }
 
 /**
- * Decides whether one (event, algorithm) pair gets a pre-schedule sidecar,
- * and builds + serializes it when it does (C-04/C-05/C-06/C-07, PD-02/PD-04/
- * PD-06). Returns `undefined` on every skip. The caller must upload the
- * returned body BEFORE the event artifact for the same event (the
- * established artifacts-before-index ordering rule).
+ * Decides whether one (event, algorithm) pair gets a pre-schedule sidecar and builds it; `undefined`
+ * on every skip. The caller uploads the body before the same event's artifact.
  *
- * PD-02 — "freeze once the schedule lands" is a source-of-state switch, not
- * an R2 read-before-write: at least one qualification match row in the
- * corpus (played or scheduled) means the schedule HAS landed, so the sidecar
- * prices from the walk-forward PRE-EVENT state (C-06) — stable across
- * republishes because it is a function of the corpus prefix, not of the
- * run. Zero qualification rows means the schedule has not landed, so the
- * sidecar prices from current (season-final) state and regenerates every
- * full publish (C-07). No R2 read, no freeze flag.
+ * "Freeze once the schedule lands" is a source-of-state switch, not an R2 read: any qualification row
+ * in the corpus means the schedule landed, so pricing uses the walk-forward pre-event state (stable
+ * across republishes). No qualification rows means pricing from current state, regenerated each publish.
  *
- * A roster outside the generator's `MIN_SCHEDULE_TEAMS..MAX_SCHEDULE_TEAMS`
- * range is skipped with a logged reason by an explicit size check before
- * building, so any error the builder throws fails the whole run.
+ * Out-of-range rosters are skipped by an explicit size check, so any error the builder throws fails
+ * the run. A `null` artifact means an RP-less algorithm and is skipped silently.
  *
- * A `null` from `buildPreScheduleArtifact` means this algorithm does not
- * model ranking points (the ordinary opr/epa answer) — skipped silently, so
- * a full-season publish across three algorithms produces no log spam.
- *
- * 260912-2ur: the returned `body` is the PUBLISHED projection of `artifact`,
- * not `artifact` itself. `buildPreScheduleArtifact` above still returns the
- * priced `schedules` block in full — `scripts/measureFieldAveragedRanks.ts`
- * needs that block intact as its rung-1 acceptance harness — but this
- * function is the ONE place that
- * block gets serialized to bytes, and `PublishedPreScheduleArtifactSchema.
- * parse()` drops it before `JSON.stringify` ever sees it, carrying
- * `scheduleCount` forward from that block's length instead. Parsing here
- * (rather than hand-building `{ ...artifact, scheduleCount: ... }`) means the
- * count can never disagree with what was actually built, and a future raise
- * of `PRESIM_SCHEDULE_COUNT` needs no edit in this function at all. Measured
- * basis: a live `v1/presim/2026mrcmp/bpr@3.0.0+baseline.json` [pre-rename] object cost
- * 388,484 B to fetch, of which only 12,275 B (3.2%) was ever read by a
- * client — the rest was the priced block, discarded on every load. At 1,000
- * schedules that ratio only gets worse, which is exactly why this drops
- * before the count is raised rather than after.
+ * The body is `PublishedPreScheduleArtifactSchema.parse(artifact)`, which drops the priced `schedules`
+ * block (most of the bytes, never read by the client) and carries `scheduleCount` from its length.
+ * `buildPreScheduleArtifact` still returns that block for `scripts/measureFieldAveragedRanks.ts`.
  */
 function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: string; body: string } | undefined {
   const label = `publish: presim skip ${args.eventKey} [${args.algorithm.id}]`;
@@ -1611,29 +1304,14 @@ function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: s
   let pricedFrom: "pre-event-walk-forward" | "current-state";
   if (args.qualMatchCount > 0) {
     if (!args.hasPreEventState) {
-      // The schedule has landed but no pre-event state was captured. That
-      // is two genuinely different situations, and collapsing them into one
-      // skip was a real defect: an event whose schedule was just posted but
-      // which has NOT started yet would stop regenerating its sidecar, so
-      // the last `current-state` one kept serving unchanged through the
-      // entire pre-event window — precisely when a reader most wants this
-      // tab.
-      //
-      // If no match of this event has been played, the honest state "before
-      // the event" simply IS the state now: nothing from this event has
-      // entered the model. Price from it and keep regenerating, exactly as
-      // the scheduleless branch below does; the sidecar switches to the
-      // frozen walk-forward pricing on the first publish after the event's
-      // first completed match.
+      // Schedule landed but no pre-event state. If nothing has been played, the pre-event state IS the
+      // current state: price from it and keep regenerating until the first completed match.
       if (!args.hasCompletedMatches && args.hasSeasonFinalState) {
         pricingState = args.seasonFinalState;
         pricedFrom = "current-state";
       } else {
-        // The remaining case is PD-04's: this event HAS completed matches
-        // but no predecessor state exists — the cold-start season's very
-        // first event, whose honest pre-event state is the algorithm's
-        // internal cold-start state, which `WalkForwardSimulator` does not
-        // expose. Never substitute a later state for it.
+        // The cold-start season's first event: its pre-event state is internal to the algorithm and
+        // not exposed. Never substitute a later state.
         console.log(`${label}: no pre-event walk-forward state was captured (PD-04 — the cold-start season's first event)`);
         return undefined;
       }
@@ -1650,8 +1328,7 @@ function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: s
     pricedFrom = "current-state";
   }
 
-  // C-12: the real schedule's own matches-per-team when it is known,
-  // Statbotics' 12 (10 for Championship Divisions) when it is not.
+  // The real schedule's matches-per-team when known, else Statbotics' 12 (10 for Championship Divisions).
   const matchesPerTeam =
     args.qualMatchCount > 0 ? matchesPerTeamFor(args.roster.length, args.qualMatchCount) : defaultMatchesPerTeam(args.eventType);
 
@@ -1669,23 +1346,20 @@ function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: s
     drawsPerSchedule: PRESIM_DRAWS_PER_SCHEDULE,
     generation: args.generation,
     computedAt: args.computedAt,
-    // The C-04 seam: bound HERE to the chosen walk-forward/current state,
-    // so every published pmf is produced by the SAME `algorithm.predict()`
-    // joint-covariance RP path real matches use — this module owns no
-    // pricing math and no independence approximation can exist in it.
+    // Bound to the chosen state, so synthetic matches are priced by the same `predict()` path as real ones.
     predict: (match) => {
       const prediction = args.algorithm.predict(pricingState, match);
       return args.fillRankingPoints === undefined ? prediction : args.fillRankingPoints(match, prediction);
     },
   });
-  if (artifact === null) return undefined; // RP-less algorithm — silent by design
+  if (artifact === null) return undefined; // RP-less algorithm, silent by design
 
   const key = preScheduleKey({ eventKey: args.eventKey, algorithmId: args.algorithm.id, version: args.algorithm.version });
   return { key, body: JSON.stringify(PublishedPreScheduleArtifactSchema.parse(artifact)) };
 }
 
 // ---------------------------------------------------------------------------
-// Corpus lookups shared across both CLI modes
+// Corpus lookups
 // ---------------------------------------------------------------------------
 
 interface TeamInfo {
@@ -1713,8 +1387,7 @@ function teamInfoOrFallback(teamInfo: ReadonlyMap<string, TeamInfo>, teamKey: st
 /**
  * Replaces each metric's `percentile` with the compact `tier` the teams
  * table actually consumes. Common is omitted entirely (it renders unboxed),
- * so absence means "Common or unranked". Exported (quick task 260909-tgf)
- * for direct unit testing of the consistency metric's tier-stamping behaviour.
+ * so absence means "Common or unranked". Exported for unit tests.
  */
 export function withPublishedTiers(metrics: Record<string, { value: number; spread?: number; percentile?: number }>): Record<string, { value: number; spread?: number; tier?: "rare" | "epic" | "legendary" }> {
   const out: Record<string, { value: number; spread?: number; tier?: "rare" | "epic" | "legendary" }> = {};
@@ -1730,28 +1403,13 @@ export function withPublishedTiers(metrics: Record<string, { value: number; spre
 }
 
 /**
- * D-10, D-09, D-11, plan 07-09: the metrics handed in (`metricsByTeam`) are
- * AS-OF-EVENT — the caller derives them through `metricsAsOfEvent` below —
- * while `rankingPools` is always THE season ranking pool (quick task
- * 260912-tnk: every team's metrics as of its last official match) built once
- * per (algorithm, season). This is the same split `withHistoryPercentiles`
- * applies to history rows; the merge itself is `withEventPercentiles`. Required rather than optional (PD-02): an
- * optional pool is an opt-out, and an artifact published without
- * percentiles parses, uploads, and renders a page with every tier box dark.
+ * `metricsByTeam` is as-of-event (from `metricsAsOfEvent`); `rankingPools` is the season ranking pool.
+ * Both `rankingPools` and `sigmaByTeam` are required, because an optional input is an opt-out and an
+ * artifact without percentiles still parses and renders every tier box dark.
  *
- * Quick task 260913-jkp: `sigmaByTeam` is REQUIRED, not optional, for the
- * same PD-02 reason — an optional input is an opt-out. Sigma-enabled
- * algorithms pass the SAME `sigmaMetricForAlgo` object that already feeds the
- * Teams row and the team-season artifact (`sigmaMetricByTeam`, computed
- * once per (algorithm, season)); every other algorithm passes an empty
- * object. The entry is merged in AFTER `withEventPercentiles`, as the LAST
- * key, so the season ranking pool never sees or re-ranks Sigma: its
- * percentile is already the inverted residual percentile
- * `sigmaMetricByTeam` produced, never re-inverted or recomputed here. A
- * team with no entry gets no key at all (present-and-undefined is never
- * published). This is why SPR standings now carry the season-final sigma
- * entry beside the AS-OF-EVENT Total and phase values: the same value the
- * Teams row and team page publish, by construction (T-jkp-04).
+ * Sigma-enabled algorithms pass the same `sigmaMetricByTeam` object the Teams row and team-season
+ * artifact use; others pass `{}`. It merges after `withEventPercentiles`, as the last key, so the pool
+ * never re-ranks Sigma. A team with no entry gets no key.
  */
 function buildEventTeamsStanding(
   metricsByTeam: TeamMetrics,
@@ -1774,24 +1432,11 @@ function buildEventTeamsStanding(
 }
 
 /**
- * D-10, RESEARCH.md Question 3, plan 07-09: returns the walk-forward
- * metrics AS OF one event's last chronological match, captured through the
- * per-match completion hook `publishSeasons`'s replay loop already pays for
- * (D-28).
- *
- * A missing entry in `stateByEventKey` means this event produced no capture
- * for its key — an event with no completed matches,
- * for which "the state at that event's end" is not a quantity that exists
- * yet — so the season-final metrics are the only defensible answer, and are
- * exactly what was published before this plan (PD-04). This is the ONLY
- * fallback this function knows about; a missing entry for any other reason
- * is not a case it handles, and widening it would publish a page asserting
- * "what the model knew at this event" while showing what it knew at
- * season's end, with nothing anywhere able to detect it.
- *
- * The guard below is an explicit `state !== undefined` test, never
- * truthiness and never a `??`/`||` shorthand — `state` is typed `unknown`
- * and a truthiness guard would be a silent trap for a future state shape.
+ * Walk-forward metrics as of one event's last chronological match, captured by the replay loop's
+ * per-match hook. A missing capture means an event with no completed matches, whose only defensible
+ * answer is season-final metrics; never widen that fallback, or a page claiming "what the model knew
+ * at this event" would silently show season's end. `state` is `unknown`, so the guard is an explicit
+ * `!== undefined`, never truthiness.
  */
 function metricsAsOfEvent(
   algorithm: AlgorithmModule<any>,
@@ -1817,19 +1462,14 @@ function groupByEvent<T extends { readonly match: { readonly eventKey: string } 
   return map;
 }
 
-/** The two per-algorithm stamps on an events-list body — re-validated when a season's shared events base is re-stamped for each algorithm (quick task 260913-nvn). */
+/** The two per-algorithm stamps on an events-list body, re-validated when the shared base is re-stamped per algorithm. */
 const EventsArtifactStampSchema = EventsArtifactSchema.pick({ algorithmId: true, algorithmVersion: true });
 
 // ---------------------------------------------------------------------------
-// Phase timings (quick task 260913-nvn)
+// Phase timings
 // ---------------------------------------------------------------------------
 
-/**
- * Wall-clock milliseconds per labelled publish phase, accumulated across
- * calls with the same label. Printed as the run summary's `timing:` lines and
- * returned on `PublishSummary.timings`, so a republish documents where its
- * time went instead of reporting one end-to-end duration.
- */
+/** Wall-clock milliseconds per labelled publish phase, accumulated per label; printed as `timing:` lines and returned on `PublishSummary.timings`. */
 class PhaseTimings {
   readonly ms: Record<string, number> = {};
 
@@ -1868,31 +1508,15 @@ export interface PublishSeasonsOptions {
   readonly dryRun?: boolean;
   readonly skipState?: boolean;
   /**
-   * D-08, RESEARCH.md Pitfall 1, plan 07-09: defaults to `false`, so a run
-   * that does not ask for offseason gets the pre-existing behavior
-   * unchanged. Now settable from the CLI as `--include-offseason`
-   * (`main()`'s `parseArgs`, threaded through `runSeasonsCliMode`) — before
-   * plan 07-09 this field existed but nothing could set it, which meant
-   * the standard `--seasons` republish published NO event artifact for any
-   * of the 259 corpus events with no ranking rows, including `2025isios`
-   * (68 matches), `2023cnsh` (62) and `2024auwarp` (62), the exact events
-   * D-08's fallback was measured against. A run WITHOUT this flag will not
-   * rewrite offseason event artifacts a previous run wrote — this function
-   * deletes nothing, so those objects survive and go stale rather than
-   * disappearing.
+   * `--include-offseason`; defaults to `false`. A run without it does not rewrite offseason event
+   * artifacts an earlier run wrote: nothing is deleted, so those objects go stale rather than disappear.
    */
   readonly includeOffseason?: boolean;
-  /**
-   * Quick task 260905-tll Task 4 (C-05): the first season that gets
-   * pre-schedule sidecars. Defaults to `DEFAULT_PRESCHEDULE_FROM_SEASON`
-   * (2026); settable from the CLI as `--presim-from-season`. A parameter
-   * end to end — the cutoff appears in exactly one place (the default) and
-   * nowhere inside the per-event logic.
-   */
+  /** First season that gets pre-schedule sidecars (`--presim-from-season`); defaults to `DEFAULT_PRESCHEDULE_FROM_SEASON`. */
   readonly preScheduleFromSeason?: number;
   readonly generation?: string;
   readonly computedAt?: string;
-  /** F1/D-09/D-11 (phase 09 plan 09-01 Task 2): the RP calibration measurement to attach onto the compare artifact's matching qualification slices. `undefined` attaches nothing — the CLI's default resolves this from `RP_CALIBRATION_MEASUREMENT_PATH` via `loadRpCalibrationMeasurement`, so an ordinary run needs no new flag once the baseline is committed. */
+  /** The RP calibration measurement for the compare artifact; `undefined` attaches nothing. The CLI loads `RP_CALIBRATION_MEASUREMENT_PATH` by default. */
   readonly rpCalibration?: RpCalibrationMeasurement;
 }
 
@@ -1904,9 +1528,9 @@ export interface PublishSummary {
   readonly pages: Partial<Record<PageKind, PageKindSizeStats>>;
   readonly seedFiles: readonly string[];
   readonly manifestKeys: readonly string[];
-  /** Wall-clock milliseconds per publish phase, keyed by label (quick task 260913-nvn): `season {year} replay|fold|compare`, `{year}/{algorithm} build|sidecars|uploadWait`, `uploadDrain`, and `total`. */
+  /** Wall-clock milliseconds per publish phase: `season {year} replay|fold|compare`, `{year}/{algorithm} build|sidecars|uploadWait`, `uploadDrain`, and `total`. */
   readonly timings: Readonly<Record<string, number>>;
-  /** Pre-schedule sidecar size stats — not a `PageKind`, so outside `pages` (PD-01); `undefined` when the run wrote none. */
+  /** Pre-schedule sidecar size stats (not a `PageKind`, so outside `pages`); `undefined` when the run wrote none. */
   readonly sidecars?: PageKindSizeStats;
 }
 
@@ -1986,7 +1610,7 @@ interface EventMetaRow {
   event_type: number;
   is_offseason: number;
   start_date: string;
-  /** plan 05-02 (EVNT-01) — nullable: NULL until an --events-only refetch fills it. */
+  /** NULL until an --events-only refetch fills it. */
   name: string | null;
   week: number | null;
   country: string | null;
@@ -2009,14 +1633,9 @@ interface MatchTimeRow {
 }
 
 /**
- * D-08 (Phase 6): `match_key` -> `sort_time` for EVERY match in a season,
- * played or not — `selectScheduledMatches` (packages/corpus/db.ts) orders by
- * `sort_time` but does not return it, and `UpcomingMatch` deliberately
- * carries no time field (widening it would touch the leak-proof `predict()`
- * input surface). This module-local query is the correct seam instead,
- * mirroring `selectEventMeta`'s own local-helper style. Scoping
- * (`excludeOffseason`) mirrors the season loop's own scope so this map never
- * disagrees with which matches the rest of the run counts.
+ * `match_key` -> `sort_time` for every match in a season, played or not. `UpcomingMatch` deliberately
+ * carries no time field (it is `predict()`'s leak-proof input), so times come from this local query.
+ * `excludeOffseason` mirrors the season loop's scope.
  */
 function selectScheduledMatchTimes(db: Corpus, season: number, options: { excludeOffseason?: boolean } = {}): Map<string, number> {
   const clauses: string[] = ["e.year = @year"];
