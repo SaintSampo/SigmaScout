@@ -631,7 +631,7 @@ Jacob made the four decisions below.
 
 | Finding | State |
 |---|---|
-| **F4** dependence between threshold variables | **MEASURED 2026-09-13, fix decision pending.** The integer shape of the threshold variables dominates, closing 70.9% of the pooled multi-variable gap, while dependence between them closes -1.0%. See docs/models/rp-bonus-gap-attribution.md |
+| **F4** dependence between threshold variables | **MEASURED 2026-09-13, decided: lattice marginals and a mean shift, as two knobs.** The integer shape of the threshold variables dominates, closing 70.9% of the pooled multi-variable gap, while dependence between them closes -1.0%. See docs/models/rp-bonus-gap-attribution.md |
 | **F6 / F7** win and tie half | **OPEN, decided: score total RP, then re-ship.** See below |
 | **F8** cold-start gate | **SUPERSEDED.** Sigma Score always has a value (its prior covers a team with no matches), so the band gate never refuses a match under SPR, and OPR/EPA publish no RP at all. 2026casnv: RP pmf on 89 of 89 SPR rows |
 | **F9** partial-roster mean | **CLOSED, decision.** Now live rather than latent, because F8 no longer holds cold rosters back. Jacob, 2026-09-13: *cold robots should be treated as contributing nothing to RP, but we should still try to predict RP with known robots.* That is exactly what `momentsFor` does, so there is nothing to change |
@@ -689,4 +689,12 @@ oracle on 2018 `autoQuest` and 2022 `cargoBonus` stood in for it.
 
 Full per-cell results, supporting measurements and fix candidates: `docs/models/rp-bonus-gap-attribution.md`.
 
-**Fix decision:** pending, asked 2026-09-13.
+**Fix decision (Jacob, 2026-09-13):** build candidates 1 and 3 from the doc as two separate knobs.
+The first is discrete lattice marginals, with each variable's step and range declared from the game
+rules rather than from season data. The second is the walk-forward mean shift on fully-warm rosters.
+Each starts inert and must beat the current model on the 2016-2022 selection slice on its own.
+Together they closed 91.6% of the multi-variable gap in the probe. Check 2017 `rotor`'s overshoot
+before promoting the lattice knob. Build after the F6/F7 session (260913-qyn) lands, because both
+touch `marginals.ts` and `analyticPmf.ts`. The correlated joint and continuity-correction-only
+versions were not chosen. F10 is revisited now, against the probabilities this fix is expected to
+produce.

@@ -290,7 +290,8 @@ Brier.
 Any fix is a new knob. It must be inert at its default and earn promotion on the 2016-2022 selection
 slice, and the later reporting slice stays unspent.
 
-Decision: pending, asked 2026-09-13.
+Decision (Jacob, 2026-09-13): build candidates 1 and 3 as two separate knobs. Each starts inert and
+must earn promotion on its own. Ranges are declared from the game rules, not from season data.
 
 ## Reproducing this record
 
