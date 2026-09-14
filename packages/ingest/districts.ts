@@ -1,7 +1,7 @@
 /**
- * The districts normalize rule (quick task 260905-lic Task 1; widened by
- * revision R2a): turns TBA's `/districts/{year}`, `/district/{key}/rankings`
- * and `/event/{key}/awards` responses into per-district, per-team-ranking and
+ * The districts normalize rule: turns TBA's `/districts/{year}`,
+ * `/district/{key}/rankings` and `/event/{key}/awards` responses into
+ * per-district, per-team-ranking and
  * per-award-recipient arrays, or an honest empty array when TBA has nothing
  * to report for any of the three. Pure, no I/O and no corpus import -- mirrors
  * `alliances.ts` / `rankings.ts`'s contract exactly.
@@ -15,7 +15,7 @@
  */
 import type { TbaDistrictListElement, TbaDistrictRankingsResponse, TbaEventAwardsResponse } from "./schemas.js";
 
-/** Every non-key field `upsertDistrict` takes, under this task's exact property names. `fetchedAt` is deliberately absent: the caller supplies it, exactly as `NormalizedEventAlliance` omits `eventKey`/`fetchedAt`. */
+/** Every non-key field `upsertDistrict` takes. `fetchedAt` is deliberately absent: the caller supplies it, exactly as `NormalizedEventAlliance` omits `eventKey`/`fetchedAt`. */
 export interface NormalizedDistrict {
   districtKey: string;
   year: number;
@@ -52,7 +52,7 @@ export function normalizeDistricts(response: TbaDistrictListElement[] | null): N
   }));
 }
 
-/** Every non-key field `upsertDistrictRanking` takes, under this task's exact property names. `districtKey` and `fetchedAt` are deliberately absent: the caller supplies both. */
+/** Every non-key field `upsertDistrictRanking` takes. `districtKey` and `fetchedAt` are deliberately absent: the caller supplies both. */
 export interface NormalizedDistrictRanking {
   teamKey: string;
   rank: number;
@@ -63,8 +63,7 @@ export interface NormalizedDistrictRanking {
    * TBA's `event_points` array, `JSON.stringify`'d verbatim -- the exact
    * provenance discipline `matches.score_breakdown_raw` / `event_alliances.
    * status_raw` already carry. `rookie_bonus`/`adjustments` pass through as
-   * TBA sent them; nothing here re-derives or bounds any of these values --
-   * that is Task 2's job.
+   * TBA sent them; nothing here re-derives or bounds any of these values.
    */
   eventPointsRaw: string;
 }
@@ -90,9 +89,9 @@ export function normalizeDistrictRankings(response: TbaDistrictRankingsResponse)
 
 /**
  * The four TBA `award_type` values the award-based qualification model
- * (`packages/core/districts/qualification.ts`) reads (revision R2a,
- * RESEARCH-awards.md Q4): `0` Chairman's/FIRST Impact, `1` Winner, `9`
- * Engineering Inspiration, `10` Rookie All Star. Every other award_type
+ * (`packages/core/districts/qualification.ts`) reads: `0` Chairman's/FIRST
+ * Impact, `1` Winner, `9` Engineering Inspiration, `10` Rookie All Star.
+ * Every other award_type
  * (Finalist, Wildcard, Dean's List, judged awards, ...) is not
  * qualification-relevant and is dropped right here, at the normalize
  * boundary -- `schema.sql`'s `event_awards` table doc comment states this
@@ -100,7 +99,7 @@ export function normalizeDistrictRankings(response: TbaDistrictRankingsResponse)
  */
 export const QUALIFICATION_RELEVANT_AWARD_TYPES: ReadonlySet<number> = new Set([0, 1, 9, 10]);
 
-/** Every non-key field `upsertEventAward` takes, under this task's exact property names. `eventKey`/`year`/`fetchedAt` are deliberately absent: the caller supplies all three. */
+/** Every non-key field `upsertEventAward` takes. `eventKey`/`year`/`fetchedAt` are deliberately absent: the caller supplies all three. */
 export interface NormalizedEventAward {
   awardType: number;
   teamKey: string;
@@ -108,7 +107,7 @@ export interface NormalizedEventAward {
 
 /**
  * Normalizes a (possibly null) TBA `/event/{key}/awards` response into
- * per-recipient records (revision R2a). Filters to
+ * per-recipient records. Filters to
  * `QUALIFICATION_RELEVANT_AWARD_TYPES` only. A recipient entry whose
  * `team_key` is `null` (a person, not a team -- TBA's own `recipient_list`
  * shape) is skipped entirely: there is nothing to key an `event_awards` row
