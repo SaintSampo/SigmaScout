@@ -116,8 +116,16 @@ import {
 } from "../packages/core/rankingPoints/rules.js";
 import { actualBonusFlagsForSeason } from "../packages/harness/publish.js";
 import { resolvePublishAlgorithms } from "../packages/harness/publish.js";
-import { loadRpCalibrationMeasurement, RP_CALIBRATION_MEASUREMENT_PATH, RpCalibrationMeasurementSchema, type RpCalibrationRecord } from "../packages/harness/publish.js";
-import { emptyMarginalResolutionTally } from "../packages/core/rankingPoints/analyticPmf.js";
+import {
+  loadRpCalibrationMeasurement,
+  RP_CALIBRATION_MEASUREMENT_PATH,
+  RpCalibrationMeasurementSchema,
+  toIntegerRpOrNull,
+  type RpCalibrationRecord,
+} from "../packages/harness/publish.js";
+import { emptyMarginalResolutionTally, pmfMean } from "../packages/core/rankingPoints/analyticPmf.js";
+import { isBonusRpCompLevel } from "../packages/core/rankingPoints/constants.js";
+import type { Prediction } from "../packages/core/algorithms/types.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 
@@ -543,6 +551,168 @@ export function applyRpOutcomeArmBar(pooled: readonly ArmPooledFigures[]): RpOut
   return { verdicts, ship };
 }
 
+// ---------------------------------------------------------------------------
+// THE OUTCOME-ARM COMPARISON — `--outcome-arms` (2026-09-13, quick task
+// 260913-qyn Task 1 Step 4). Guards and the reader/writer schema land here,
+// pre-committed alongside the bar; Task 2 is the ONLY caller permitted to
+// invoke this seam with `--outcome-arms` set.
+// ---------------------------------------------------------------------------
+
+/**
+ * The first season of the RESERVED REPORTING SLICE for the outcome-arm
+ * comparison — the same 2023 boundary `RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON`
+ * uses, on its OWN axis: this guard governs `--outcome-arms`, not
+ * `--marginal-arm`, and the two measurement seams are refused in
+ * combination (see `main()`'s guard) so a run can never spend both
+ * reservations' worth of reporting-slice protection in one pass.
+ */
+export const RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON = 2023;
+
+/** The selection slice `--outcome-arms` runs on — 2016-2020 plus 2022, named in `assertOutcomeArmSliceAllowed`'s own error message. */
+export const RP_OUTCOME_ARM_SELECTION_SEASONS = [2016, 2017, 2018, 2019, 2020, 2022];
+
+/**
+ * Refuses any season at or above `RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON` for
+ * the outcome-arm comparison. READS THE PARSED SEASON LIST, BEFORE
+ * `openCorpusReadOnly` — a wide spec like `--seasons 2016-2026` is REFUSED
+ * rather than silently trimmed, and there is no override flag, for the same
+ * reasons `assertMarginalArmSliceAllowed` gives for its own axis.
+ */
+export function assertOutcomeArmSliceAllowed(parsedSeasons: readonly number[]): void {
+  const forbidden = parsedSeasons.filter((s) => s >= RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON);
+  if (forbidden.length === 0) return;
+  throw new Error(
+    `--outcome-arms refuses season(s) ${forbidden.join(", ")}: this comparison runs on the SELECTION SLICE only — ${RP_OUTCOME_ARM_SELECTION_SEASONS.join(", ")} — never the ${RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON}-2026 reporting slice. A spec that merely spans the reporting slice is refused rather than trimmed, so that asking for it is never quietly answered with something else. There is no override flag, deliberately.`
+  );
+}
+
+/**
+ * Requires the resolved algorithm list to be EXACTLY `["spr"]` — the
+ * outcome half (`matchOutcomePmf`) exists only for the one algorithm
+ * `SigmaScoutLayer` publishes ranking points for, so any other resolved list
+ * (including the empty default of every published algorithm) would silently
+ * measure zero observations rather than failing loudly.
+ */
+export function assertOutcomeArmAlgorithmAllowed(algorithmIds: readonly string[]): void {
+  if (algorithmIds.length === 1 && algorithmIds[0] === "spr") return;
+  throw new Error(
+    `--outcome-arms requires the resolved algorithm list to be exactly ["spr"], got [${algorithmIds.join(", ")}] — pass --algorithm spr explicitly`
+  );
+}
+
+/** The four bonus-half fields that must be bitwise identical across every outcome arm. */
+const BONUS_HALF_FIELDS = ["redBonusRpPmf", "blueBonusRpPmf", "redBonusRp", "blueBonusRp"] as const;
+
+/**
+ * Throws on any presence or elementwise `===` mismatch of the four
+ * bonus-half fields between `control` and `arm` for the SAME folded match —
+ * the outcome arms (`win`, `tie`, `win+tie`) may move ONLY the outcome half
+ * (`matchOutcomePmf`/`redOutcomeRp`/`blueOutcomeRp`), never the bonus half.
+ * A mismatch here means the seam is wrong and the whole comparison is void,
+ * so it throws by match key and field rather than reporting a number nobody
+ * can trust.
+ */
+export function assertBonusHalfIdentical(control: Prediction, arm: Prediction, matchKey: string, armName: string): void {
+  for (const field of BONUS_HALF_FIELDS) {
+    const c = control[field];
+    const a = arm[field];
+    const cPresent = c !== undefined;
+    const aPresent = a !== undefined;
+    if (cPresent !== aPresent) {
+      throw new Error(
+        `assertBonusHalfIdentical: match ${matchKey} arm "${armName}" field "${field}" presence differs from control (control ${cPresent ? "present" : "absent"}, arm ${aPresent ? "present" : "absent"})`
+      );
+    }
+    if (!cPresent || c === undefined || a === undefined) continue;
+    if (c.length !== a.length) {
+      throw new Error(`assertBonusHalfIdentical: match ${matchKey} arm "${armName}" field "${field}" length differs from control (${c.length} vs ${a.length})`);
+    }
+    for (let i = 0; i < c.length; i++) {
+      if (c[i] !== a[i]) {
+        throw new Error(
+          `assertBonusHalfIdentical: match ${matchKey} arm "${armName}" field "${field}"[${i}] = ${a[i]} !== control's ${c[i]} — the bonus half must be bitwise === across every arm`
+        );
+      }
+    }
+  }
+}
+
+const RpOutcomeArmNameSchema = z.enum(["control", "win", "tie", "win+tie"]);
+
+/** Structurally identical to `TotalRpSummary` — a standalone zod schema because `TotalRpSummary` is a plain TS type, not a schema. */
+const RpOutcomeArmTotalSchema = z.object({
+  count: z.number().int().nonnegative(),
+  rankedProbabilityScore: z.number().finite(),
+  meanPredictedRp: z.number().finite(),
+  meanActualRp: z.number().finite(),
+  excludedNullActual: z.number().int().nonnegative(),
+  excludedOutOfSupport: z.number().int().nonnegative(),
+});
+
+/** Structurally identical to `OutcomeSummary` — see `RpOutcomeArmTotalSchema`'s own comment. */
+const RpOutcomeArmOutcomeSchema = z.object({
+  count: z.number().int().nonnegative(),
+  brierScore: z.number().finite(),
+  meanPredictedTie: z.number().finite(),
+  observedTieRate: z.number().finite(),
+});
+
+const RpOutcomeArmSeasonFiguresSchema = z.object({
+  season: z.number().int(),
+  totalRp: RpOutcomeArmTotalSchema.optional(),
+  outcome: RpOutcomeArmOutcomeSchema.optional(),
+});
+
+const RpOutcomeArmPooledFiguresRecordSchema = z.object({
+  arm: RpOutcomeArmNameSchema,
+  totalRp: RpOutcomeArmTotalSchema.optional(),
+  outcome: RpOutcomeArmOutcomeSchema.optional(),
+  perSeason: z.array(RpOutcomeArmSeasonFiguresSchema),
+});
+
+const RpOutcomeArmVerdictSchema = z.object({
+  arm: RpOutcomeArmNameSchema,
+  accepted: z.boolean(),
+  rpsDelta: z.number().finite(),
+  brierDelta: z.number().finite(),
+});
+
+/** F6, per arm — descriptive only, never a gate (see the console report of the same name). */
+const RpOutcomeArmF6GapSchema = z.object({
+  arm: RpOutcomeArmNameSchema,
+  n: z.number().int().nonnegative(),
+  medianAbsDiff: z.number().finite(),
+  p90AbsDiff: z.number().finite(),
+  maxAbsDiff: z.number().finite(),
+  favouriteDisagreements: z.number().int().nonnegative(),
+});
+
+/**
+ * `--emit-outcome-arms`'s committed record shape (Task 1 Step 4). Every
+ * figure is pooled AND per-season, so a reader can audit the bar's own
+ * pooled-comparison decision against the per-season detail without
+ * re-running the replay. `ship` is `applyRpOutcomeArmBar`'s own mechanical
+ * choice over the pooled figures, stored rather than re-derived, so a
+ * reader of the committed record never has to re-run the bar to know what
+ * it decided.
+ */
+export const RpOutcomeArmRecordSchema = z.object({
+  measuredAt: z.string().min(1),
+  command: z.string().min(1),
+  corpusIdentity: z.object({
+    path: z.string().min(1),
+    sizeBytes: z.number().int().nonnegative(),
+    mtime: z.string().min(1),
+  }),
+  algorithmVersions: z.record(z.string(), z.string()),
+  seasons: z.array(z.number().int()),
+  arms: z.array(RpOutcomeArmPooledFiguresRecordSchema),
+  f6Gap: z.array(RpOutcomeArmF6GapSchema),
+  barVerdicts: z.array(RpOutcomeArmVerdictSchema),
+  ship: RpOutcomeArmNameSchema,
+});
+export type RpOutcomeArmRecord = z.infer<typeof RpOutcomeArmRecordSchema>;
+
 /**
  * Exported (promoted from the module-local `BUCKET_EDGES`) so the artifact
  * emitter (`buildRpCalibrationRecord` below) and any future consumer share
@@ -572,6 +742,143 @@ function reliabilityTable(observations: readonly Observation[]): string[] {
   return lines;
 }
 
+// ---------------------------------------------------------------------------
+// THE TOTAL-RP AND OUTCOME SCORERS (2026-09-13, quick task 260913-qyn)
+// ---------------------------------------------------------------------------
+//
+// The 09-06 bar scored bonuses only, so it was blind to F6 (win source) and
+// F7 (tie model) — 30 of 30 cells tied and both fixes were reverted. These
+// two scorers can SEE the win/tie half: `rankedProbabilityScore` grades
+// `redRpPmf`/`blueRpPmf` (a distribution over the RP TOTAL) against the
+// actual alliance RP, and `outcomeBrier` grades `matchOutcomePmf` (the
+// win/tie/loss split) against `match.winner`. Both are PURE and read no
+// state, so they are exercised directly against hand-picked pmfs in
+// `measureRpCalibration.test.ts` before ever touching a real replay.
+
+/**
+ * The ranked probability score of one discrete RP pmf against the actual
+ * integer RP earned: `RPS = (1/maxRp) * sum_{k=0}^{maxRp-1} (cdf(k) - [actual <= k])^2`,
+ * with `maxRp = pmf.length - 1`. Bounded `[0, 1]`; 0 is a perfect point-mass
+ * prediction, 1 is the worst possible (a point mass at the opposite end of
+ * the support from the actual). Every selection-slice season has `maxRp` 4,
+ * so this normalisation cannot bias an arm comparison run on that slice; it
+ * keeps 2025-2026 (`maxRp` 6) comparable on the published card.
+ *
+ * `actual` must already be validated as an in-support integer — callers
+ * route a null or out-of-support actual through the summary builders below,
+ * which exclude it before this function ever sees it, rather than this
+ * function silently coercing an invalid input.
+ */
+export function rankedProbabilityScore(pmf: readonly number[], actual: number): number {
+  const maxRp = pmf.length - 1;
+  let cdf = 0;
+  let sum = 0;
+  for (let k = 0; k < maxRp; k++) {
+    cdf += pmf[k]!;
+    const indicator = actual <= k ? 1 : 0;
+    const diff = cdf - indicator;
+    sum += diff * diff;
+  }
+  return sum / maxRp;
+}
+
+/**
+ * The three-outcome Brier score of `matchOutcomePmf`
+ * (`[pRedWin, pTie, pBlueWin]`) against `match.winner`: the sum of the three
+ * squared errors against a one-hot actual vector. 0 is perfect, 2 is worst.
+ * NOT comparable to the site's binary win Brier — a caller or renderer must
+ * never place the two side by side as if they were the same quantity.
+ */
+export function outcomeBrier(pmf3: readonly number[], winner: "red" | "blue" | "tie"): number {
+  const actual = winner === "red" ? [1, 0, 0] : winner === "tie" ? [0, 1, 0] : [0, 0, 1];
+  let sum = 0;
+  for (let i = 0; i < 3; i++) {
+    const diff = pmf3[i]! - actual[i]!;
+    sum += diff * diff;
+  }
+  return sum;
+}
+
+/** One alliance-side's total-RP observation: its predicted RP-total pmf, and the actual integer RP earned (or `null` when not derivable — D-02's convention). */
+export interface TotalRpObservation {
+  readonly pmf: readonly number[];
+  readonly actual: number | null;
+}
+
+/** One match's outcome observation: the predicted win/tie/loss split, and what actually happened. */
+export interface MatchOutcomeObservation {
+  readonly pmf3: readonly number[];
+  readonly winner: "red" | "blue" | "tie";
+}
+
+/** The RP scorecard's total-RP block — see `RpCalibrationTotalSchema` (publish.ts) for the wire shape this mirrors. */
+export type TotalRpSummary = NonNullable<RpCalibrationRecord["totalRp"]>;
+
+/** The RP scorecard's outcome block — see `RpCalibrationOutcomeSchema` (publish.ts) for the wire shape this mirrors. */
+export type OutcomeSummary = NonNullable<RpCalibrationRecord["outcome"]>;
+
+/**
+ * Builds the total-RP block from one (season, algorithm)'s raw alliance-side
+ * observations, or `undefined` when zero observations SCORED (the same
+ * absence discipline `bonuses` already uses — never a coerced zero).
+ *
+ * An observation with a `null` actual increments `excludedNullActual`; an
+ * observation whose actual is a non-integer or falls outside `[0, pmf.length
+ * - 1]` increments `excludedOutOfSupport` (an offseason event's non-standard
+ * RP, e.g. Oregon BunnyBots — the same population `toIntegerRpOrNull`
+ * degrades to `null` for a non-integer, but a corpus-legal integer can still
+ * exceed a season's own `maxRp`). Neither excluded observation enters
+ * `count` or either mean.
+ */
+export function buildTotalRpSummary(observations: readonly TotalRpObservation[]): TotalRpSummary | undefined {
+  let excludedNullActual = 0;
+  let excludedOutOfSupport = 0;
+  const scored: { pmf: readonly number[]; actual: number }[] = [];
+
+  for (const o of observations) {
+    if (o.actual === null) {
+      excludedNullActual++;
+      continue;
+    }
+    const maxRp = o.pmf.length - 1;
+    if (!Number.isInteger(o.actual) || o.actual < 0 || o.actual > maxRp) {
+      excludedOutOfSupport++;
+      continue;
+    }
+    scored.push({ pmf: o.pmf, actual: o.actual });
+  }
+
+  if (scored.length === 0) return undefined;
+
+  const rankedProbabilityScoreMean = scored.reduce((sum, o) => sum + rankedProbabilityScore(o.pmf, o.actual), 0) / scored.length;
+  const meanPredictedRp = scored.reduce((sum, o) => sum + pmfMean(o.pmf), 0) / scored.length;
+  const meanActualRp = scored.reduce((sum, o) => sum + o.actual, 0) / scored.length;
+
+  return {
+    count: scored.length,
+    rankedProbabilityScore: rankedProbabilityScoreMean,
+    meanPredictedRp,
+    meanActualRp,
+    excludedNullActual,
+    excludedOutOfSupport,
+  };
+}
+
+/**
+ * Builds the outcome block from one (season, algorithm)'s raw match-outcome
+ * observations, or `undefined` when zero observations scored — every
+ * observation here already carries a non-null `match.winner`, so there is no
+ * exclusion count to track (unlike `buildTotalRpSummary`, whose actual can be
+ * null or out of support).
+ */
+export function buildOutcomeSummary(observations: readonly MatchOutcomeObservation[]): OutcomeSummary | undefined {
+  if (observations.length === 0) return undefined;
+  const brierScore = observations.reduce((sum, o) => sum + outcomeBrier(o.pmf3, o.winner), 0) / observations.length;
+  const meanPredictedTie = observations.reduce((sum, o) => sum + o.pmf3[1]!, 0) / observations.length;
+  const observedTieRate = observations.filter((o) => o.winner === "tie").length / observations.length;
+  return { count: observations.length, brierScore, meanPredictedTie, observedTieRate };
+}
+
 /**
  * Pure: builds one (season, algorithm) publishable calibration record from
  * this season's bonus names and the per-bonus observations folded during the
@@ -586,10 +893,23 @@ function reliabilityTable(observations: readonly Observation[]): string[] {
  * bonus's observations for this (season, algorithm) into one set of buckets,
  * mirroring the console report's own pooled-per-season framing; an empty
  * bucket gets `null` figures and `count: 0`, never a divide-by-zero NaN.
+ *
+ * `outcomeObservations` (2026-09-13, quick task 260913-qyn) is an OPTIONAL
+ * third argument carrying the raw total-RP and outcome observations folded
+ * during the SAME walk-forward loop; each block is added to the returned
+ * record only when `buildTotalRpSummary`/`buildOutcomeSummary` returns a
+ * defined summary (i.e. its count is above 0) — the same absence discipline
+ * `bonuses` already uses. Omitting the argument entirely (every pre-260913-qyn
+ * caller) produces a record with neither key, byte-identical to before this
+ * task.
  */
 export function buildRpCalibrationRecord(
   bonusNames: readonly string[],
-  perBonusObservations: readonly (readonly Observation[])[]
+  perBonusObservations: readonly (readonly Observation[])[],
+  outcomeObservations?: {
+    readonly totalRp?: readonly TotalRpObservation[];
+    readonly outcome?: readonly MatchOutcomeObservation[];
+  }
 ): RpCalibrationRecord {
   const bonuses: RpCalibrationRecord["bonuses"][number][] = [];
   const pooled: Observation[] = [];
@@ -616,7 +936,15 @@ export function buildRpCalibrationRecord(
   // the block, never raise the budget), since nothing on the Compare page
   // ever read it. `RP_RELIABILITY_BUCKET_EDGES` remains exported and used
   // by `reliabilityTable` below for the console report, which is unaffected.
-  return { scoredCount: pooled.length, bonuses };
+  const totalRp = outcomeObservations?.totalRp !== undefined ? buildTotalRpSummary(outcomeObservations.totalRp) : undefined;
+  const outcome = outcomeObservations?.outcome !== undefined ? buildOutcomeSummary(outcomeObservations.outcome) : undefined;
+
+  return {
+    scoredCount: pooled.length,
+    bonuses,
+    ...(totalRp !== undefined ? { totalRp } : {}),
+    ...(outcome !== undefined ? { outcome } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -869,23 +1197,39 @@ async function main(): Promise<void> {
   const algorithmIdsCsv = args.indexOf("--algorithm") === -1 ? undefined : args[args.indexOf("--algorithm") + 1]!;
   const emitArtifactPath = args.indexOf("--emit-artifact") === -1 ? undefined : args[args.indexOf("--emit-artifact") + 1];
   const marginalArm = args.includes("--marginal-arm");
+  // Task 1 Step 4 (260913-qyn): `--outcome-arms` scores WIN/TIE/WIN+TIE
+  // against control from one replay per season, folded through
+  // `SigmaScoutLayer`'s measurement-only third constructor argument.
+  const outcomeArms = args.includes("--outcome-arms");
+  const emitOutcomeArmsPath = args.indexOf("--emit-outcome-arms") === -1 ? undefined : args[args.indexOf("--emit-outcome-arms") + 1];
 
   // THE SLICE GUARD COMES FIRST, and it reads the PARSED list — before the
   // rule-module filter, before `openCorpusReadOnly`, before any replay. See
-  // `assertMarginalArmSliceAllowed` for why a wide spec is refused rather than
-  // trimmed, and why there is no override.
+  // `assertMarginalArmSliceAllowed`/`assertOutcomeArmSliceAllowed` for why a
+  // wide spec is refused rather than trimmed, and why there is no override.
   const parsedSeasons = parseSeasons(seasonsSpec);
   if (marginalArm) assertMarginalArmSliceAllowed(parsedSeasons);
+  if (outcomeArms) {
+    if (marginalArm) {
+      throw new Error(`--outcome-arms cannot be combined with --marginal-arm — the two measurement seams must never run in the same pass`);
+    }
+    assertOutcomeArmSliceAllowed(parsedSeasons);
+  }
 
   const seasons = parsedSeasons.filter((s) => RP_RULE_MODULES[s] !== undefined);
   const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
   if (algorithms.length === 0) throw new Error(`no algorithms resolved from "${algorithmIdsCsv ?? "(default)"}"`);
+  if (outcomeArms) assertOutcomeArmAlgorithmAllowed(algorithms.map((a) => a.id));
 
   console.log(`RP calibration — algorithms [${algorithms.map((a) => `${a.id}@${a.version}`).join(", ")}], seasons ${seasons.join(", ")}`);
   console.log(`Walk-forward through the same SigmaScoutLayer the publisher runs.\n`);
   if (marginalArm) {
     console.log(`NEGATIVE-BINOMIAL ARM ACTIVE (quick task 260912-2uz) — control and NB layers folded from ONE replay per season,`);
     console.log(`scored by the SAME brier/rate/meanPredicted helpers. Selection slice only; ${RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON}-2026 is refused by construction.\n`);
+  }
+  if (outcomeArms) {
+    console.log(`OUTCOME-ARM COMPARISON ACTIVE (quick task 260913-qyn) — control, WIN, TIE and WIN+TIE folded from ONE replay per season,`);
+    console.log(`scored by the SAME rankedProbabilityScore/outcomeBrier helpers. Selection slice only; ${RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON}-2026 is refused by construction.\n`);
   }
 
   const db = openCorpusReadOnly(CORPUS_PATH);
@@ -896,6 +1240,15 @@ async function main(): Promise<void> {
     const allMarginalByAlgo = new Map<string, Observation[]>(algorithms.map((a) => [a.id, []]));
     const allPairsByAlgo = new Map<string, { p1: number; p2: number; a1: boolean; a2: boolean }[]>(algorithms.map((a) => [a.id, []]));
     const emittedRecords: { season: number; algorithmId: string; calibration: RpCalibrationRecord }[] = [];
+    // F6 GAP (2026-09-13, quick task 260913-qyn) — descriptive only, NEVER a
+    // gate: |matchOutcomePmf[0] - pRedWin| pooled across every season, per
+    // algorithm, so the console can report how much the control arm's
+    // score-draw win probability disagrees with the algorithm's own
+    // published pRedWin (the audit's F6 question) without that figure
+    // deciding anything.
+    const f6DiffsByAlgo = new Map<string, number[]>(algorithms.map((a) => [a.id, []]));
+    const f6FavouriteDisagreementsByAlgo = new Map<string, number>(algorithms.map((a) => [a.id, 0]));
+    const f6TotalByAlgo = new Map<string, number>(algorithms.map((a) => [a.id, 0]));
     const marginalTally = emptyMarginalResolutionTally();
     // The NB arm's own running tally, kept on its own axis so the control
     // arm's resolution counts are never contaminated by it.
@@ -911,6 +1264,20 @@ async function main(): Promise<void> {
       controlBrier: number;
       armBrier: number;
     }[] = [];
+
+    // Outcome-arm accumulators (260913-qyn Task 1 Step 4) — pooled across
+    // every season AND per-season, keyed by `ArmName`. Populated only when
+    // `outcomeArms` is set (algorithms is exactly `["spr"]` by the guard
+    // above); otherwise every map stays empty and costs nothing.
+    const OUTCOME_ARM_NAMES: readonly ArmName[] = ["control", "win", "tie", "win+tie"];
+    const outcomeArmPooledTotalRp = new Map<ArmName, TotalRpObservation[]>(OUTCOME_ARM_NAMES.map((a) => [a, []]));
+    const outcomeArmPooledOutcome = new Map<ArmName, MatchOutcomeObservation[]>(OUTCOME_ARM_NAMES.map((a) => [a, []]));
+    const outcomeArmSeasonFigures = new Map<ArmName, { season: number; totalRp?: TotalRpSummary; outcome?: OutcomeSummary }[]>(
+      OUTCOME_ARM_NAMES.map((a) => [a, []])
+    );
+    const outcomeArmF6Diffs = new Map<ArmName, number[]>(OUTCOME_ARM_NAMES.map((a) => [a, []]));
+    const outcomeArmF6Favourite = new Map<ArmName, number>(OUTCOME_ARM_NAMES.map((a) => [a, 0]));
+    const outcomeArmF6Total = new Map<ArmName, number>(OUTCOME_ARM_NAMES.map((a) => [a, 0]));
 
     for (const season of seasons) {
       const ruleModule = RP_RULE_MODULES[season]!;
@@ -930,6 +1297,13 @@ async function main(): Promise<void> {
       const layers = new Map(algorithms.map((a) => [a.id, new SigmaScoutLayer(ruleModule, a.id)]));
       const perBonusByAlgo = new Map<string, Observation[][]>(algorithms.map((a) => [a.id, ruleModule.bonusNames.map(() => [])]));
       const pairsByAlgo = new Map<string, { p1: number; p2: number; a1: boolean; a2: boolean }[]>(algorithms.map((a) => [a.id, []]));
+      // Total-RP / outcome observations (260913-qyn), reset per season —
+      // population is EVERY played bonus-RP-eligible match whose folded
+      // prediction carries a pmf, NOT gated on actualBonusFlagsForSeason
+      // (design point 5: the bonus loop's own `continue` below must not skip
+      // these scorers).
+      const totalRpByAlgo = new Map<string, TotalRpObservation[]>(algorithms.map((a) => [a.id, []]));
+      const outcomeByAlgo = new Map<string, MatchOutcomeObservation[]>(algorithms.map((a) => [a.id, []]));
 
       // THE NB ARM MULTIPLIES LAYERS, NEVER REPLAYS. `records` above is the
       // one and only walk-forward pass for this season; the arm folds the SAME
@@ -945,10 +1319,99 @@ async function main(): Promise<void> {
           ? undefined
           : new Map<string, Observation[][]>(algorithms.map((a) => [a.id, ruleModule.bonusNames.map(() => [])]));
 
+      // THE OUTCOME-ARM LAYERS MULTIPLY LAYERS, NEVER REPLAYS — same
+      // discipline as the NB arm above. `records` is the one and only
+      // walk-forward pass for this season; WIN/TIE/WIN+TIE each fold the
+      // SAME records through their own `SigmaScoutLayer`, constructed with
+      // the SAME (ruleModule, "spr") the control layer uses plus the
+      // measurement-only third argument. Guarded so these three layers exist
+      // only when `--outcome-arms` is set (algorithms is exactly `["spr"]`).
+      const outcomeArmLayers = outcomeArms
+        ? {
+            win: new SigmaScoutLayer(ruleModule, "spr", { win: true }),
+            tie: new SigmaScoutLayer(ruleModule, "spr", { tie: true }),
+            "win+tie": new SigmaScoutLayer(ruleModule, "spr", { win: true, tie: true }),
+          }
+        : undefined;
+      const seasonOutcomeArmTotalRp = outcomeArms
+        ? new Map<ArmName, TotalRpObservation[]>(OUTCOME_ARM_NAMES.map((a) => [a, []]))
+        : undefined;
+      const seasonOutcomeArmOutcome = outcomeArms
+        ? new Map<ArmName, MatchOutcomeObservation[]>(OUTCOME_ARM_NAMES.map((a) => [a, []]))
+        : undefined;
+
       for (const r of records) {
         const layer = layers.get(r.algorithmId)!;
         const enriched = layer.foldPlayed(r.match, r.prediction);
         const armEnriched = armLayers === undefined ? undefined : armLayers.get(r.algorithmId)!.foldPlayed(r.match, r.prediction);
+
+        // TOTAL-RP AND OUTCOME SCORING (260913-qyn design point 5) — runs
+        // BEFORE the bonus-flag `continue` below, on purpose: this
+        // population is every played bonus-RP-eligible match whose folded
+        // prediction carries a pmf, never gated on
+        // `actualBonusFlagsForSeason`'s own per-match derivability.
+        if (isBonusRpCompLevel(r.match.compLevel)) {
+          const pred = enriched.prediction;
+          if (pred.redRpPmf !== undefined && pred.blueRpPmf !== undefined) {
+            const totalRpObs = totalRpByAlgo.get(r.algorithmId)!;
+            totalRpObs.push({ pmf: pred.redRpPmf, actual: toIntegerRpOrNull(r.match.redRpEarned) });
+            totalRpObs.push({ pmf: pred.blueRpPmf, actual: toIntegerRpOrNull(r.match.blueRpEarned) });
+          }
+          if (pred.matchOutcomePmf !== undefined) {
+            outcomeByAlgo.get(r.algorithmId)!.push({ pmf3: pred.matchOutcomePmf, winner: r.match.winner });
+
+            // F6 GAP — descriptive only, NOT a gate (see the pooled
+            // declaration's own comment above).
+            const diff = Math.abs(pred.matchOutcomePmf[0]! - pred.pRedWin);
+            f6DiffsByAlgo.get(r.algorithmId)!.push(diff);
+            const pmfFavoursRed = pred.matchOutcomePmf[0]! > 0.5;
+            const pRedWinFavoursRed = pred.pRedWin > 0.5;
+            f6TotalByAlgo.set(r.algorithmId, (f6TotalByAlgo.get(r.algorithmId) ?? 0) + 1);
+            if (pmfFavoursRed !== pRedWinFavoursRed) {
+              f6FavouriteDisagreementsByAlgo.set(r.algorithmId, (f6FavouriteDisagreementsByAlgo.get(r.algorithmId) ?? 0) + 1);
+            }
+          }
+        }
+
+        // OUTCOME-ARM SCORING (260913-qyn Task 1 Step 4) — WIN, TIE and
+        // WIN+TIE folded from the SAME record `enriched` above already
+        // folded through control, so all four arms see the identical
+        // (match, prediction) pair. `assertBonusHalfIdentical` runs on EVERY
+        // folded record, before any observation is scored — a mismatch
+        // voids the whole comparison and must surface immediately, at the
+        // match that caused it, never averaged away by later matches.
+        if (outcomeArmLayers !== undefined && isBonusRpCompLevel(r.match.compLevel)) {
+          const controlPred = enriched.prediction;
+          const winPred = outcomeArmLayers.win.foldPlayed(r.match, r.prediction).prediction;
+          const tiePred = outcomeArmLayers.tie.foldPlayed(r.match, r.prediction).prediction;
+          const winTiePred = outcomeArmLayers["win+tie"].foldPlayed(r.match, r.prediction).prediction;
+
+          assertBonusHalfIdentical(controlPred, winPred, r.match.matchKey, "win");
+          assertBonusHalfIdentical(controlPred, tiePred, r.match.matchKey, "tie");
+          assertBonusHalfIdentical(controlPred, winTiePred, r.match.matchKey, "win+tie");
+
+          const predByArm: Record<ArmName, Prediction> = { control: controlPred, win: winPred, tie: tiePred, "win+tie": winTiePred };
+          for (const armName of OUTCOME_ARM_NAMES) {
+            const pred = predByArm[armName];
+            if (pred.redRpPmf !== undefined && pred.blueRpPmf !== undefined) {
+              const obs = seasonOutcomeArmTotalRp!.get(armName)!;
+              obs.push({ pmf: pred.redRpPmf, actual: toIntegerRpOrNull(r.match.redRpEarned) });
+              obs.push({ pmf: pred.blueRpPmf, actual: toIntegerRpOrNull(r.match.blueRpEarned) });
+            }
+            if (pred.matchOutcomePmf !== undefined) {
+              seasonOutcomeArmOutcome!.get(armName)!.push({ pmf3: pred.matchOutcomePmf, winner: r.match.winner });
+              const diff = Math.abs(pred.matchOutcomePmf[0]! - pred.pRedWin);
+              outcomeArmF6Diffs.get(armName)!.push(diff);
+              outcomeArmF6Total.set(armName, (outcomeArmF6Total.get(armName) ?? 0) + 1);
+              const pmfFavoursRedArm = pred.matchOutcomePmf[0]! > 0.5;
+              const pRedWinFavoursRedArm = pred.pRedWin > 0.5;
+              if (pmfFavoursRedArm !== pRedWinFavoursRedArm) {
+                outcomeArmF6Favourite.set(armName, (outcomeArmF6Favourite.get(armName) ?? 0) + 1);
+              }
+            }
+          }
+        }
+
         const actual = actualFlags.get(r.match.matchKey);
         if (actual === undefined || actual === null) continue;
 
@@ -991,11 +1454,58 @@ async function main(): Promise<void> {
         }
       }
 
+      // Outcome-arm season finalization (260913-qyn Task 1 Step 4): assert
+      // every arm's counts equal control's for THIS season (a divergence
+      // would mean an arm folded a different set of matches than control —
+      // the identical-observation-set requirement, checked per season
+      // before pooling), build this season's per-arm summaries, print them,
+      // and fold the raw observations into the pooled accumulators.
+      if (outcomeArms && seasonOutcomeArmTotalRp !== undefined && seasonOutcomeArmOutcome !== undefined) {
+        const controlTotalRpCount = seasonOutcomeArmTotalRp.get("control")!.length;
+        const controlOutcomeCount = seasonOutcomeArmOutcome.get("control")!.length;
+        for (const armName of OUTCOME_ARM_NAMES) {
+          const totalRpCount = seasonOutcomeArmTotalRp.get(armName)!.length;
+          const outcomeCount = seasonOutcomeArmOutcome.get(armName)!.length;
+          if (totalRpCount !== controlTotalRpCount || outcomeCount !== controlOutcomeCount) {
+            throw new Error(
+              `--outcome-arms: season ${season} arm "${armName}" scored totalRpCount=${totalRpCount}/outcomeCount=${outcomeCount} against control's totalRpCount=${controlTotalRpCount}/outcomeCount=${controlOutcomeCount} — the two arms must see the identical observation set, so this comparison is void`
+            );
+          }
+
+          const totalRpSummary = buildTotalRpSummary(seasonOutcomeArmTotalRp.get(armName)!);
+          const outcomeSummary = buildOutcomeSummary(seasonOutcomeArmOutcome.get(armName)!);
+          outcomeArmSeasonFigures.get(armName)!.push({
+            season,
+            ...(totalRpSummary !== undefined ? { totalRp: totalRpSummary } : {}),
+            ...(outcomeSummary !== undefined ? { outcome: outcomeSummary } : {}),
+          });
+
+          outcomeArmPooledTotalRp.get(armName)!.push(...seasonOutcomeArmTotalRp.get(armName)!);
+          outcomeArmPooledOutcome.get(armName)!.push(...seasonOutcomeArmOutcome.get(armName)!);
+
+          if (totalRpSummary !== undefined || outcomeSummary !== undefined) {
+            console.log(
+              `── ${season} OUTCOME ARM [${armName}] ── ` +
+                `totalRp: n=${totalRpSummary?.count ?? 0} rps=${totalRpSummary?.rankedProbabilityScore.toFixed(6) ?? "—"}  ` +
+                `outcome: n=${outcomeSummary?.count ?? 0} brier=${outcomeSummary?.brierScore.toFixed(6) ?? "—"}`
+            );
+          }
+        }
+        console.log("");
+      }
+
       for (const algorithm of algorithms) {
         const perBonus = perBonusByAlgo.get(algorithm.id)!;
         const pairs = pairsByAlgo.get(algorithm.id)!;
         allPairsByAlgo.get(algorithm.id)!.push(...pairs);
-        emittedRecords.push({ season, algorithmId: algorithm.id, calibration: buildRpCalibrationRecord(ruleModule.bonusNames, perBonus) });
+        emittedRecords.push({
+          season,
+          algorithmId: algorithm.id,
+          calibration: buildRpCalibrationRecord(ruleModule.bonusNames, perBonus, {
+            totalRp: totalRpByAlgo.get(algorithm.id),
+            outcome: outcomeByAlgo.get(algorithm.id),
+          }),
+        });
 
         // The fallback ladder's running diagnostic: how often a fit resolved to
         // something other than what its variable declared. Read from
@@ -1198,6 +1708,26 @@ async function main(): Promise<void> {
       console.log(`   Reachable cells that DID move: ${moved.length}.\n`);
     }
 
+    // ---- F6 GAP (260913-qyn) — descriptive only, NEVER a gate. Reports how
+    // much the control arm's score-draw win probability (matchOutcomePmf[0])
+    // disagrees with the algorithm's own published pRedWin, pooled across
+    // every season for that algorithm.
+    for (const algorithm of algorithms) {
+      const diffs = f6DiffsByAlgo.get(algorithm.id) ?? [];
+      if (diffs.length === 0) continue;
+      const sorted = [...diffs].sort((a, b) => a - b);
+      const median = sorted[Math.floor((sorted.length - 1) / 2)]!;
+      const p90 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))]!;
+      const max = sorted[sorted.length - 1]!;
+      const disagreements = f6FavouriteDisagreementsByAlgo.get(algorithm.id) ?? 0;
+      const total = f6TotalByAlgo.get(algorithm.id) ?? 0;
+      console.log(`═══ F6 GAP (descriptive only, NOT a gate) [${algorithm.id}] ═══`);
+      console.log(
+        `n=${diffs.length}  median|diff|=${median.toFixed(6)}  p90=${p90.toFixed(6)}  max=${max.toFixed(6)}  ` +
+          `favourite disagreements=${disagreements}/${total}\n`
+      );
+    }
+
     // ---- Grand-pooled headline, across EVERY algorithm AND season — the
     // single figure 09-01-SUMMARY.md sets beside ranking-points-audit.md
     // F2's recorded 0.1507 / 0.3109. Computed directly from the emitted
@@ -1212,6 +1742,77 @@ async function main(): Promise<void> {
       const grandObserved = grandPooled.reduce((sum, g) => sum + g.o * g.n, 0) / totalN;
       console.log(`═══ GRAND POOLED (every algorithm, every season) ═══`);
       console.log(`n=${totalN}  mean predicted=${grandMeanPredicted.toFixed(4)}  observed=${grandObserved.toFixed(4)}`);
+    }
+
+    // ---- OUTCOME-ARM BAR APPLICATION (260913-qyn Task 1 Step 4) — applied
+    // MECHANICALLY over the pooled figures, no override, exactly the rule
+    // `applyRpOutcomeArmBar` implements. Task 1 NEVER runs this with
+    // `--outcome-arms` set against real data — this wiring exists so Task 2
+    // is the first and only caller to produce a real arm figure.
+    if (outcomeArms) {
+      const pooledFigures: ArmPooledFigures[] = OUTCOME_ARM_NAMES.map((armName) => {
+        const totalRpSummary = buildTotalRpSummary(outcomeArmPooledTotalRp.get(armName)!);
+        const outcomeSummary = buildOutcomeSummary(outcomeArmPooledOutcome.get(armName)!);
+        return {
+          arm: armName,
+          totalRpCount: totalRpSummary?.count ?? 0,
+          totalRpRps: totalRpSummary?.rankedProbabilityScore ?? Number.NaN,
+          outcomeCount: outcomeSummary?.count ?? 0,
+          outcomeBrier: outcomeSummary?.brierScore ?? Number.NaN,
+        };
+      });
+      const barResult = applyRpOutcomeArmBar(pooledFigures);
+
+      console.log(`═══ OUTCOME-ARM BAR VERDICT (260913-qyn, applied mechanically) ═══`);
+      for (const verdict of barResult.verdicts) {
+        console.log(
+          `   ${verdict.arm}: ${verdict.arm === "control" ? "(baseline)" : verdict.accepted ? "ACCEPTED" : "rejected"}  ` +
+            `rpsDelta=${verdict.rpsDelta >= 0 ? "+" : ""}${verdict.rpsDelta.toFixed(6)}  ` +
+            `brierDelta=${verdict.brierDelta >= 0 ? "+" : ""}${verdict.brierDelta.toFixed(6)}`
+        );
+      }
+      console.log(`   SHIP: ${barResult.ship}\n`);
+
+      if (emitOutcomeArmsPath !== undefined) {
+        const stat = statSync(CORPUS_PATH);
+        const armsRecord = OUTCOME_ARM_NAMES.map((armName) => ({
+          arm: armName,
+          totalRp: buildTotalRpSummary(outcomeArmPooledTotalRp.get(armName)!),
+          outcome: buildOutcomeSummary(outcomeArmPooledOutcome.get(armName)!),
+          perSeason: outcomeArmSeasonFigures.get(armName)!,
+        }));
+        const f6Gap = OUTCOME_ARM_NAMES.map((armName) => {
+          const diffs = outcomeArmF6Diffs.get(armName)!;
+          const sorted = [...diffs].sort((a, b) => a - b);
+          const n = sorted.length;
+          const median = n === 0 ? 0 : sorted[Math.floor((n - 1) / 2)]!;
+          const p90 = n === 0 ? 0 : sorted[Math.min(n - 1, Math.floor(n * 0.9))]!;
+          const max = n === 0 ? 0 : sorted[n - 1]!;
+          return {
+            arm: armName,
+            n,
+            medianAbsDiff: median,
+            p90AbsDiff: p90,
+            maxAbsDiff: max,
+            favouriteDisagreements: outcomeArmF6Favourite.get(armName) ?? 0,
+          };
+        });
+
+        const candidate = {
+          measuredAt: new Date().toISOString(),
+          command: `npx tsx scripts/measureRpCalibration.ts ${args.join(" ")}`,
+          corpusIdentity: { path: CORPUS_PATH, sizeBytes: stat.size, mtime: stat.mtime.toISOString() },
+          algorithmVersions: Object.fromEntries(algorithms.map((a) => [a.id, a.version])),
+          seasons,
+          arms: armsRecord,
+          f6Gap,
+          barVerdicts: barResult.verdicts,
+          ship: barResult.ship,
+        };
+        const parsed = RpOutcomeArmRecordSchema.parse(candidate);
+        writeFileSync(emitOutcomeArmsPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+        console.log(`wrote ${emitOutcomeArmsPath}`);
+      }
     }
 
     if (emitArtifactPath !== undefined) {

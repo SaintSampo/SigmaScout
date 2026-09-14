@@ -29,7 +29,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { AlgorithmModule, MatchResult } from "../packages/core/algorithms/types.js";
+import type { AlgorithmModule, MatchResult, Prediction } from "../packages/core/algorithms/types.js";
 import { WalkForwardSimulator } from "../packages/harness/replay.js";
 import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
@@ -52,19 +52,31 @@ const liveAlgorithmId = (frozenId: string): string => FROZEN_BASELINE_ALGORITHM_
 import { RpCalibrationMeasurementSchema } from "../packages/harness/publish.js";
 import {
   applyRpOutcomeArmBar,
+  assertBonusHalfIdentical,
   assertMarginalArmSliceAllowed,
+  assertOutcomeArmAlgorithmAllowed,
+  assertOutcomeArmSliceAllowed,
+  buildOutcomeSummary,
   buildRpAttributionDigest,
   buildRpCalibrationRecord,
+  buildTotalRpSummary,
   deriveMarginalArmEligibility,
+  outcomeBrier,
   parseSeasons,
+  rankedProbabilityScore,
   RP_DOT_THRESHOLD_DEFAULT,
   RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON,
+  RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON,
+  RP_OUTCOME_ARM_SELECTION_SEASONS,
   RP_RELIABILITY_BUCKET_EDGES,
   RpAttributionRecordSchema,
+  RpOutcomeArmRecordSchema,
   ruleModuleWithMarginalArm,
   SHIPPED_RP_LAYER_LABEL,
   type ArmPooledFigures,
+  type MatchOutcomeObservation,
   type Observation,
+  type TotalRpObservation,
 } from "./measureRpCalibration.js";
 
 const SOURCE = readFileSync(new URL("./measureRpCalibration.ts", import.meta.url), "utf8");
@@ -220,22 +232,30 @@ describe("widened emitter (Task 2, D-09) — one runAll, disjoint per-algorithm 
 });
 
 describe("same-scorer structural assertions (D-11)", () => {
-  it("constructs SigmaScoutLayer exactly twice — the control layer and the --marginal-arm layer — and BOTH carry a resolved algorithm id as the second argument", () => {
+  it("constructs SigmaScoutLayer exactly five times — control, the --marginal-arm layer, and the three --outcome-arms layers (win/tie/win+tie) — and EVERY one carries a resolved algorithm id as the second argument", () => {
     const matches = [...SOURCE.matchAll(/new SigmaScoutLayer\(/g)];
-    // Two, not one: quick task 260912-2uz added the measurement-only
-    // negative-binomial arm, which multiplies LAYERS (never replays) off the
-    // one walk-forward pass per season. The count is asserted so a THIRD
-    // construction — a second replay, or a layer built some other way — has to
-    // be justified here rather than appearing silently.
-    expect(matches).toHaveLength(2);
+    // Five, not two: quick task 260912-2uz added the measurement-only
+    // negative-binomial arm (control + 1), and quick task 260913-qyn added
+    // the three outcome arms (win, tie, win+tie), each multiplying LAYERS
+    // (never replays) off the SAME one walk-forward pass per season. The
+    // count is asserted so a SIXTH construction — a second replay, or a
+    // layer built some other way — has to be justified here rather than
+    // appearing silently.
+    expect(matches).toHaveLength(5);
     // The second argument is the resolved algorithm id — 09-01's same-scorer
     // fix, and the premise of every figure this script produces. The third
     // argument this site briefly carried (an arm's model config) is gone with
     // the rest of the temporary selectable surface: there is one production
-    // model again, and the arm is a variant RULE MODULE rather than a config.
+    // model again, and the marginal arm is a variant RULE MODULE rather than
+    // a config. The outcome arms' third argument (`rpOutcomeArms`) is a
+    // DIFFERENT, measurement-only seam — see SigmaScoutLayer's own doc
+    // comment — never the deleted config surface.
     expect(SOURCE).toMatch(/new SigmaScoutLayer\(ruleModule, \w+\.id\)/);
     expect(SOURCE).toMatch(/new SigmaScoutLayer\(armRuleModule, \w+\.id\)/);
-    // Neither construction may be one-argument: that is the exact defect the
+    expect(SOURCE).toMatch(/new SigmaScoutLayer\(ruleModule, "spr", \{ win: true \}\)/);
+    expect(SOURCE).toMatch(/new SigmaScoutLayer\(ruleModule, "spr", \{ tie: true \}\)/);
+    expect(SOURCE).toMatch(/new SigmaScoutLayer\(ruleModule, "spr", \{ win: true, tie: true \}\)/);
+    // No construction may be one-argument: that is the exact defect the
     // SAME-SCORER FIX header records, and it once manufactured a phantom
     // ~0.003 regression on this very question.
     expect(SOURCE).not.toMatch(/new SigmaScoutLayer\([A-Za-z]+\)/);
@@ -728,5 +748,270 @@ describe("applyRpOutcomeArmBar (260913-qyn's pre-committed outcome-arm bar)", ()
       arm("win", 0.28, 0.4),
     ]);
     expect(byOrder.ship).toBe("win");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rankedProbabilityScore / outcomeBrier / the summary builders — Task 1 Step
+// 3's total-RP and outcome scorers (260913-qyn).
+// ---------------------------------------------------------------------------
+
+describe("rankedProbabilityScore", () => {
+  it("[0.5, 0.5, 0, 0, 0] against actual 1 is 0.0625 — only k=0 contributes 0.25, divided by maxRp 4", () => {
+    expect(rankedProbabilityScore([0.5, 0.5, 0, 0, 0], 1)).toBeCloseTo(0.0625, 12);
+  });
+
+  it("a point mass exactly on the actual scores 0", () => {
+    expect(rankedProbabilityScore([0, 0, 1, 0, 0], 2)).toBe(0);
+  });
+
+  it("[1, 0, 0, 0, 0] with actual 4 (the opposite end of the support) scores 1", () => {
+    expect(rankedProbabilityScore([1, 0, 0, 0, 0], 4)).toBe(1);
+  });
+});
+
+describe("outcomeBrier", () => {
+  it("([0.6, 0.1, 0.3], 'red') is 0.26", () => {
+    expect(outcomeBrier([0.6, 0.1, 0.3], "red")).toBeCloseTo(0.26, 12);
+  });
+
+  it("([0.6, 0.1, 0.3], 'tie') is 1.26", () => {
+    expect(outcomeBrier([0.6, 0.1, 0.3], "tie")).toBeCloseTo(1.26, 12);
+  });
+});
+
+describe("buildTotalRpSummary", () => {
+  it("a null actual increments excludedNullActual and does not enter count or the means", () => {
+    const observations: TotalRpObservation[] = [
+      { pmf: [0.5, 0.5, 0, 0, 0], actual: null },
+      { pmf: [0, 0, 1, 0, 0], actual: 2 },
+    ];
+    const summary = buildTotalRpSummary(observations)!;
+    expect(summary.excludedNullActual).toBe(1);
+    expect(summary.excludedOutOfSupport).toBe(0);
+    expect(summary.count).toBe(1);
+    expect(summary.meanActualRp).toBe(2);
+  });
+
+  it("an actual of 7 against a length-5 pmf (maxRp 4) increments excludedOutOfSupport and does not enter count or the means", () => {
+    const observations: TotalRpObservation[] = [
+      { pmf: [0.5, 0.5, 0, 0, 0], actual: 7 },
+      { pmf: [0, 0, 1, 0, 0], actual: 2 },
+    ];
+    const summary = buildTotalRpSummary(observations)!;
+    expect(summary.excludedOutOfSupport).toBe(1);
+    expect(summary.excludedNullActual).toBe(0);
+    expect(summary.count).toBe(1);
+    expect(summary.meanActualRp).toBe(2);
+  });
+
+  it("zero observations omits the block (undefined, not a zeroed record)", () => {
+    expect(buildTotalRpSummary([])).toBeUndefined();
+  });
+
+  it("a fully-scored set computes rankedProbabilityScore/meanPredictedRp/meanActualRp from the SAME helpers this file exports", () => {
+    const observations: TotalRpObservation[] = [
+      { pmf: [0.5, 0.5, 0, 0, 0], actual: 1 },
+      { pmf: [1, 0, 0, 0, 0], actual: 4 },
+    ];
+    const summary = buildTotalRpSummary(observations)!;
+    expect(summary.count).toBe(2);
+    expect(summary.rankedProbabilityScore).toBeCloseTo((0.0625 + 1) / 2, 12);
+    expect(summary.meanPredictedRp).toBeCloseTo((0.5 + 0) / 2, 12); // pmfMean([0.5,0.5,0,0,0])=0.5, pmfMean([1,0,0,0,0])=0
+    expect(summary.meanActualRp).toBeCloseTo((1 + 4) / 2, 12);
+  });
+});
+
+describe("buildOutcomeSummary", () => {
+  it("zero observations omits the block", () => {
+    expect(buildOutcomeSummary([])).toBeUndefined();
+  });
+
+  it("computes brierScore/meanPredictedTie/observedTieRate from outcomeBrier over every observation", () => {
+    const observations: MatchOutcomeObservation[] = [
+      { pmf3: [0.6, 0.1, 0.3], winner: "red" },
+      { pmf3: [0.6, 0.1, 0.3], winner: "tie" },
+    ];
+    const summary = buildOutcomeSummary(observations)!;
+    expect(summary.count).toBe(2);
+    expect(summary.brierScore).toBeCloseTo((0.26 + 1.26) / 2, 12);
+    expect(summary.meanPredictedTie).toBeCloseTo(0.1, 12);
+    expect(summary.observedTieRate).toBeCloseTo(0.5, 12);
+  });
+});
+
+describe("buildRpCalibrationRecord — the optional third argument (260913-qyn)", () => {
+  it("with no third argument, the record carries neither totalRp nor outcome — byte-identical to before 260913-qyn", () => {
+    const record = buildRpCalibrationRecord(["autoBonus"], [[{ predicted: 0.5, actual: true }]]);
+    expect(record.totalRp).toBeUndefined();
+    expect(record.outcome).toBeUndefined();
+  });
+
+  it("with a third argument whose blocks both score, the record carries both", () => {
+    const record = buildRpCalibrationRecord(["autoBonus"], [[{ predicted: 0.5, actual: true }]], {
+      totalRp: [{ pmf: [0.5, 0.5, 0, 0, 0], actual: 1 }],
+      outcome: [{ pmf3: [0.6, 0.1, 0.3], winner: "red" }],
+    });
+    expect(record.totalRp).toBeDefined();
+    expect(record.outcome).toBeDefined();
+  });
+
+  it("with a third argument whose blocks both score zero observations, the record still omits both keys", () => {
+    const record = buildRpCalibrationRecord(["autoBonus"], [[{ predicted: 0.5, actual: true }]], { totalRp: [], outcome: [] });
+    expect(record.totalRp).toBeUndefined();
+    expect(record.outcome).toBeUndefined();
+  });
+
+  it("the committed data/baselines/rp-calibration-2026-09c.json still parses under the widened schema (optional totalRp/outcome added)", () => {
+    const raw: unknown = JSON.parse(readFileSync(new URL("../data/baselines/rp-calibration-2026-09c.json", import.meta.url), "utf8"));
+    const parsed = RpCalibrationMeasurementSchema.parse(raw);
+    expect(parsed.records.length).toBeGreaterThan(0);
+    // Frozen, pre-260913-qyn: no record carries the new blocks.
+    for (const r of parsed.records) {
+      expect(r.calibration.totalRp).toBeUndefined();
+      expect(r.calibration.outcome).toBeUndefined();
+    }
+  });
+
+  it("the committed apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json still parses as a bare RpCalibrationRecord shape", () => {
+    const raw: unknown = JSON.parse(
+      readFileSync(new URL("../apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json", import.meta.url), "utf8")
+    );
+    // Wrap in a one-record measurement to reuse the same public schema this
+    // file already imports, rather than reaching for pageArtifacts.ts's
+    // deliberately module-private CompareRpCalibrationSchema.
+    const wrapped = {
+      measuredAt: new Date().toISOString(),
+      command: "test",
+      corpusIdentity: "test",
+      offseasonIncluded: true,
+      algorithmVersions: { spr: "1.0.0" },
+      records: [{ season: 2026, algorithmId: "spr", calibration: raw }],
+    };
+    const parsed = RpCalibrationMeasurementSchema.parse(wrapped);
+    expect(parsed.records[0]!.calibration.totalRp).toBeUndefined();
+    expect(parsed.records[0]!.calibration.outcome).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Outcome-arm guards, assertBonusHalfIdentical and RpOutcomeArmRecordSchema
+// (260913-qyn Task 1 Step 4)
+// ---------------------------------------------------------------------------
+
+describe("assertOutcomeArmSliceAllowed", () => {
+  it("throws naming the forbidden seasons for a spec spanning the reporting slice", () => {
+    expect(() => assertOutcomeArmSliceAllowed(parseSeasons("2016-2026"))).toThrow(/2023, 2024, 2025, 2026/);
+  });
+
+  it("passes for the selection slice exactly (2016-2020,2022)", () => {
+    expect(() => assertOutcomeArmSliceAllowed(parseSeasons("2016-2020,2022"))).not.toThrow();
+  });
+
+  it("RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON is 2023, and RP_OUTCOME_ARM_SELECTION_SEASONS is exactly the selection slice", () => {
+    expect(RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON).toBe(2023);
+    expect(RP_OUTCOME_ARM_SELECTION_SEASONS).toEqual([2016, 2017, 2018, 2019, 2020, 2022]);
+  });
+});
+
+describe("assertOutcomeArmAlgorithmAllowed", () => {
+  it("passes for exactly ['spr']", () => {
+    expect(() => assertOutcomeArmAlgorithmAllowed(["spr"])).not.toThrow();
+  });
+
+  it("throws for the default multi-algorithm list", () => {
+    expect(() => assertOutcomeArmAlgorithmAllowed(["opr", "epa", "spr"])).toThrow(/exactly \["spr"\]/);
+  });
+
+  it("throws for a single non-spr algorithm", () => {
+    expect(() => assertOutcomeArmAlgorithmAllowed(["opr"])).toThrow(/exactly \["spr"\]/);
+  });
+
+  it("throws for an empty list", () => {
+    expect(() => assertOutcomeArmAlgorithmAllowed([])).toThrow(/exactly \["spr"\]/);
+  });
+});
+
+describe("assertBonusHalfIdentical", () => {
+  function makePrediction(overrides: Partial<Prediction> = {}): Prediction {
+    return {
+      winner: "red",
+      pRedWin: 0.6,
+      redScore: 100,
+      blueScore: 80,
+      redBonusRpPmf: [0.5, 0.5, 0],
+      blueBonusRpPmf: [0.6, 0.4, 0],
+      redBonusRp: [0.3, 0.2],
+      blueBonusRp: [0.4, 0.1],
+      ...overrides,
+    };
+  }
+
+  it("does not throw when all four bonus-half fields are elementwise === identical", () => {
+    const control = makePrediction();
+    const arm = makePrediction({ matchOutcomePmf: [0.6, 0, 0.4] }); // outcome half may differ freely
+    expect(() => assertBonusHalfIdentical(control, arm, "2022test_qm1", "win")).not.toThrow();
+  });
+
+  it("throws on a presence mismatch (control has a field, arm omits it)", () => {
+    const control = makePrediction();
+    const arm = makePrediction({ redBonusRpPmf: undefined });
+    expect(() => assertBonusHalfIdentical(control, arm, "2022test_qm1", "tie")).toThrow(/presence differs/);
+  });
+
+  it("throws on an elementwise mismatch", () => {
+    const control = makePrediction();
+    const arm = makePrediction({ blueBonusRp: [0.4, 0.099999] });
+    expect(() => assertBonusHalfIdentical(control, arm, "2022test_qm1", "win+tie")).toThrow(/must be bitwise/);
+  });
+
+  it("throws on a length mismatch", () => {
+    const control = makePrediction();
+    const arm = makePrediction({ redBonusRp: [0.3] });
+    expect(() => assertBonusHalfIdentical(control, arm, "2022test_qm1", "win")).toThrow(/length differs/);
+  });
+});
+
+describe("RpOutcomeArmRecordSchema", () => {
+  it("parses a well-formed record with every arm and both blocks present", () => {
+    const candidate = {
+      measuredAt: new Date().toISOString(),
+      command: "npx tsx scripts/measureRpCalibration.ts --seasons 2016-2020,2022 --algorithm spr --outcome-arms",
+      corpusIdentity: { path: "data/corpus.sqlite", sizeBytes: 12345, mtime: new Date().toISOString() },
+      algorithmVersions: { spr: "4.0.0" },
+      seasons: [2016, 2017, 2018, 2019, 2020, 2022],
+      arms: (["control", "win", "tie", "win+tie"] as const).map((arm) => ({
+        arm,
+        totalRp: { count: 100, rankedProbabilityScore: 0.3, meanPredictedRp: 2.1, meanActualRp: 2.0, excludedNullActual: 0, excludedOutOfSupport: 0 },
+        outcome: { count: 50, brierScore: 0.5, meanPredictedTie: 0.01, observedTieRate: 0.011 },
+        perSeason: [{ season: 2016, totalRp: { count: 10, rankedProbabilityScore: 0.3, meanPredictedRp: 2.1, meanActualRp: 2.0, excludedNullActual: 0, excludedOutOfSupport: 0 } }],
+      })),
+      f6Gap: (["control", "win", "tie", "win+tie"] as const).map((arm) => ({
+        arm,
+        n: 50,
+        medianAbsDiff: 0.04,
+        p90AbsDiff: 0.12,
+        maxAbsDiff: 0.34,
+        favouriteDisagreements: 0,
+      })),
+      barVerdicts: (["control", "win", "tie", "win+tie"] as const).map((arm) => ({ arm, accepted: false, rpsDelta: 0, brierDelta: 0 })),
+      ship: "control",
+    };
+    expect(() => RpOutcomeArmRecordSchema.parse(candidate)).not.toThrow();
+  });
+
+  it("parses a record whose arms omit totalRp/outcome (zero observations)", () => {
+    const candidate = {
+      measuredAt: new Date().toISOString(),
+      command: "test",
+      corpusIdentity: { path: "data/corpus.sqlite", sizeBytes: 1, mtime: new Date().toISOString() },
+      algorithmVersions: { spr: "4.0.0" },
+      seasons: [2016],
+      arms: [{ arm: "control", perSeason: [{ season: 2016 }] }],
+      f6Gap: [{ arm: "control", n: 0, medianAbsDiff: 0, p90AbsDiff: 0, maxAbsDiff: 0, favouriteDisagreements: 0 }],
+      barVerdicts: [{ arm: "control", accepted: false, rpsDelta: 0, brierDelta: 0 }],
+      ship: "control",
+    };
+    expect(() => RpOutcomeArmRecordSchema.parse(candidate)).not.toThrow();
   });
 });

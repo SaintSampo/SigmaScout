@@ -229,8 +229,13 @@ export const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { o
  * into existence; this function does not trust `extractRp`'s own discipline
  * alone, mirroring the `isBonusRpCompLevel` defence-in-depth precedent a
  * few lines below.
+ *
+ * EXPORTED (2026-09-13, quick task 260913-qyn) so
+ * `scripts/measureRpCalibration.ts`'s total-RP scorer imports this SAME
+ * function for its own actual-RP conversion, rather than re-deriving an
+ * integer-or-null policy that could silently drift from the publisher's own.
  */
-function toIntegerRpOrNull(value: number | null): number | null {
+export function toIntegerRpOrNull(value: number | null): number | null {
   return value !== null && Number.isInteger(value) ? value : null;
 }
 
@@ -1583,6 +1588,37 @@ const RpCalibrationBonusSchema = z.object({
 });
 
 /**
+ * The RP scorecard's TOTAL-RP block (2026-09-13, quick task 260913-qyn) —
+ * `redRpPmf`/`blueRpPmf` scored against the actual alliance RP by a ranked
+ * probability score, pooled per alliance-side. Structurally identical to
+ * `pageArtifacts.ts`'s module-private `CompareRpTotalSchema`. OPTIONAL,
+ * OMITTED when its `count` is 0 — the same absence discipline `bonuses`
+ * already uses, never a coerced zero (T-09-04's convention).
+ */
+const RpCalibrationTotalSchema = z.object({
+  count: z.number().int().nonnegative(),
+  rankedProbabilityScore: z.number(),
+  meanPredictedRp: z.number(),
+  meanActualRp: z.number(),
+  excludedNullActual: z.number().int().nonnegative(),
+  excludedOutOfSupport: z.number().int().nonnegative(),
+});
+
+/**
+ * The RP scorecard's OUTCOME block (2026-09-13, quick task 260913-qyn) —
+ * `matchOutcomePmf` scored against `match.winner` by a three-outcome Brier,
+ * pooled per match. Structurally identical to `pageArtifacts.ts`'s
+ * module-private `CompareRpOutcomeSchema`. OPTIONAL, OMITTED when its
+ * `count` is 0.
+ */
+const RpCalibrationOutcomeSchema = z.object({
+  count: z.number().int().nonnegative(),
+  brierScore: z.number(),
+  meanPredictedTie: z.number(),
+  observedTieRate: z.number(),
+});
+
+/**
  * Structurally identical to `pageArtifacts.ts`'s module-private
  * `CompareRpCalibrationSchema` — DUPLICATED, not imported, because that
  * schema is deliberately not exported (only its inferred TYPE,
@@ -1603,6 +1639,8 @@ const RpCalibrationBonusSchema = z.object({
 const RpCalibrationRecordSchema = z.object({
   scoredCount: z.number().int().nonnegative(),
   bonuses: z.array(RpCalibrationBonusSchema),
+  totalRp: RpCalibrationTotalSchema.optional(),
+  outcome: RpCalibrationOutcomeSchema.optional(),
 });
 
 /** Alias, not a re-declaration — this IS `pageArtifacts.ts`'s wire type, used here so `scripts/measureRpCalibration.ts`'s emitter has one name for "the record" regardless of which file's schema last validated it. */

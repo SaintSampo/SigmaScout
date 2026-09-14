@@ -1614,9 +1614,42 @@ const CompareRpBonusSchema = z.object({
  * `bonuses` array — the one thing the headline sentence and D-09's per-bonus
  * acceptance bar both need — is unaffected.
  */
+/**
+ * The RP scorecard's TOTAL-RP block (2026-09-13, quick task 260913-qyn) —
+ * `redRpPmf`/`blueRpPmf` scored against the actual alliance RP by a ranked
+ * probability score, pooled per alliance-side, plus mean predicted RP, mean
+ * actual RP and the two exclusion counts (a null actual RP, and an actual RP
+ * outside the pmf's own support). OPTIONAL, OMITTED when its `count` is 0 —
+ * the same absence discipline `bonuses` already uses, never a coerced zero.
+ */
+const CompareRpTotalSchema = z.object({
+  count: z.number().int().nonnegative(),
+  rankedProbabilityScore: z.number(),
+  meanPredictedRp: z.number(),
+  meanActualRp: z.number(),
+  excludedNullActual: z.number().int().nonnegative(),
+  excludedOutOfSupport: z.number().int().nonnegative(),
+});
+
+/**
+ * The RP scorecard's OUTCOME block (2026-09-13, quick task 260913-qyn) —
+ * `matchOutcomePmf` scored against `match.winner` by a three-outcome Brier
+ * (0 perfect, 2 worst; NOT comparable to the site's binary win Brier),
+ * pooled per match, plus mean predicted tie probability and the observed tie
+ * rate. OPTIONAL, OMITTED when its `count` is 0.
+ */
+const CompareRpOutcomeSchema = z.object({
+  count: z.number().int().nonnegative(),
+  brierScore: z.number(),
+  meanPredictedTie: z.number(),
+  observedTieRate: z.number(),
+});
+
 const CompareRpCalibrationSchema = z.object({
   scoredCount: z.number().int().nonnegative(),
   bonuses: z.array(CompareRpBonusSchema),
+  totalRp: CompareRpTotalSchema.optional(),
+  outcome: CompareRpOutcomeSchema.optional(),
 });
 
 /**
