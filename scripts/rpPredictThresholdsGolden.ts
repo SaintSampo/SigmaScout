@@ -1,9 +1,8 @@
 /**
- * The deterministic golden-oracle grid generator (09-02 Task 1 Steps 2/3;
- * D-02, D-07, Pitfall 4, T-09-02-01). Pure, exported, entry-point guarded —
- * importing this module never runs a generation pass, via the same
- * `async function main()` + `isEntryPoint` guard shape this file's own
- * `main()` below uses.
+ * The deterministic golden-oracle grid generator. Pure, exported,
+ * entry-point guarded — importing this module never runs a generation
+ * pass, via the same `async function main()` + `isEntryPoint` guard shape
+ * this file's own `main()` below uses.
  *
  * `buildGridRows(season, eventType)` synthesizes a value grid over every
  * threshold variable a season declares and evaluates it through that
@@ -51,9 +50,7 @@ const HIGH_CONTEXT_VALUE = 1000;
 /**
  * Every tiered-threshold and plain-definitional-constant value reachable
  * from any season module's `predictThresholds`, sourced by season/bonus so
- * a future threshold correction is visible as a diff here too. See
- * 09-02-PLAN.md's "seven bonus mechanisms, mapped to all 21 bonuses" table
- * for the per-bonus provenance of these numbers.
+ * a future threshold correction is visible as a diff here too.
  */
 const THRESHOLD_VALUES: readonly number[] = [
   // 2016: breach (4), capture tower (0), capture robot (3), the damaged-defense indicator (2)
@@ -88,7 +85,7 @@ function multiplesUpTo(step: number, max: number): number[] {
  * Every raw point value the three divisor-based derivations can legitimately
  * take: 2016's tower halves (divisors 5 and 15, up to 45), 2017's rotor
  * halves (divisors 60 and 40, up to 240/160), 2023's links (divisor 5, up to
- * 30) — see 09-02-PLAN.md Task 1 Step 2.
+ * 30).
  */
 const DIVISOR_RAW_POINTS: readonly number[] = [
   ...multiplesUpTo(5, 45),
@@ -191,7 +188,7 @@ export function buildGridRows(season: number, eventType: number): GridRow[] {
  * `thresholdVariables` declaration order, each bonus flag as `0`/`1` in
  * `bonusNames` order, and `totalRp`. Serializing bonus flags in
  * `bonusNames` order means a silently reordered bonus array changes the
- * digest — the point (T-09-02-02).
+ * digest — the point.
  */
 export function digestRows(rows: readonly GridRow[]): string {
   const lines = rows.map((row) => {
