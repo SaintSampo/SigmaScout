@@ -140,3 +140,33 @@ which means the gate could never have lifted on its own terms.
 **This does not unblock the work.** D-19 does that, and D-19 is live, unanswered, and Jacob's — see
 the correction block at the top of this file. What is removed is one *spurious* blocker sitting in
 front of a real one, which is worth removing precisely because it made the real one harder to see.
+
+## CLOSED 2026-09-13 — quick task 260913-pnp
+
+Jacob decided D-19 on 2026-09-13 that the generator's structurally-derived rules may be published.
+The "D-19 is LIVE / unanswered / blocked" passages above are superseded. See `09-CONTEXT.md`'s dated
+resolution beside both D-19 consequences (about lines 423 and 500). No reason is given here.
+
+The corroboration was fixed (`ca5114d2`).
+
+The generator is wired per schedule (`4daf2232`): `packages/harness/scheduleTemplates.ts`,
+`packages/harness/scheduleTemplates.test.ts`, `packages/harness/fixtures/schedule-templates/` (three
+CSVs plus its README), `scripts/measureGeneratedSchedules.ts`, `scripts/measureRandomSchedules.ts`
+and `scripts/fetchScheduleTemplates.ts` are deleted, along with the `fetch:schedule-templates` entry
+in root `package.json`. `scripts/measureFieldAveragedRanks.ts` stays, repointed at
+`packages/harness/generatedSchedules.ts` for `matchesPerTeamFor`, with its own binding-floor helpers
+now living in it instead of the deleted script.
+
+The measured generation cost: ~15.2 ms per `generateSchedule` call at 76 teams x 10 matches per team
+and ~4.8 ms at 37x12, against 215 RP-eligible 2026 events and 72 distinct (roster size, matches per
+team) cells. Jacob's 2026-09-14 choice to share grids by (roster size, matches per team) — schedule
+k's structure is generated once per shape and memoized in a bounded, transparent
+`ScheduleStructureCache` (`packages/harness/preSchedule.ts`), keyed
+`generate|<rosterSize>|<matchesPerTeam>|<k>` — brings the added publish time to about 6.2 minutes,
+instead of about 17.6 minutes without sharing.
+
+The behaviour change: 101-200-team events, formerly split into two template blocks, are now
+scheduled whole (the generator's `pairKey` supports up to 1,023 teams).
+
+Owed, and not done by this task: the republish from the main context (every published pre-schedule
+band moves), and the orchestrator's local deletion of the gitignored `data/schedule-templates/`.

@@ -425,6 +425,11 @@ and is not what failed.
    is explicit that this judgement is the developer's, not an agent's. No licence file has been read,
    quoted, or reasoned about by any agent in this phase. **This is Jacob's to decide before rung 2
    is planned.**
+
+   > **RESOLVED 2026-09-13 — Jacob decided:** the generator's structurally-derived rules may be
+   > published. The licensed templates are deleted and `packages/harness/generatedSchedules.ts` is
+   > the only source of pre-schedule pairing structure (quick task 260913-pnp, commit `4daf2232`).
+   > No agent made this call.
 2. **The acceptance criterion must be restated together with the draw count — decided 2026-09-11.**
    The executor's same-arm seed-noise control found the **incumbent baked path agrees with itself
    only 68.4% of the time within half a rank** across two seeds at 1,000 draws. The bar as written is
@@ -499,6 +504,11 @@ does not cancel.
    together and the re-run was scored against the floor that binds, at a count where clause 1 is
    demonstrably satisfiable. Consequence 1 (D-19, the schedule-template redistribution licensing
    question) is **untouched by this** and remains Jacob's to decide before rung 2 is planned.
+
+   > **RESOLVED 2026-09-13 — Jacob decided:** the generator's structurally-derived rules may be
+   > published. The licensed templates are deleted and `packages/harness/generatedSchedules.ts` is
+   > the only source of pre-schedule pairing structure (quick task 260913-pnp, commit `4daf2232`).
+   > No agent made this call.
 3. **The harness is confirmed the same harness, twice, unadjusted.** The default-flag run reproduced
    the committed n=20 record on every compared figure, and the binding floor computed here
    reproduces the independently measured rung-2 Phase A row exactly at both counts — 27.0% / worst

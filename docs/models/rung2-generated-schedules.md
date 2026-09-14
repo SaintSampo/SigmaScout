@@ -1,5 +1,7 @@
 # Rung 2 — a rules-based schedule generator, measured against the licensed template grid
 
+> **Retired 2026-09-13:** this document's measurement harness, `scripts/measureGeneratedSchedules.ts`, was retired along with the licensed templates (quick task 260913-pnp) and cannot be re-run.
+
 **This is an experiment, not a ship.** Nothing here was published, deployed or deleted; `data/schedule-templates/` and `packages/harness/scheduleTemplates.ts` are untouched; `PRESIM_SCHEDULE_COUNT` and `PRESIM_DRAWS_PER_SCHEDULE` keep their shipped values (20 schedules x 50 draws); and the generator is not wired into `publish.ts`.
 
 **Written by `npx tsx scripts/measureGeneratedSchedules.ts --render-doc`, not transcribed from terminal output.** On this project `publish:seasons` prints a payload-budget summary it does not write, and the budget tests stay red until a human copies the numbers across. This record does not reproduce that trap.
