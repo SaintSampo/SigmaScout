@@ -76,7 +76,7 @@ test.describe("ledger row 4 — no-ranking fallback ordering, real artifact + co
 // ---------------------------------------------------------------------------
 
 test.describe("ledger row 10 — the two-pick alliance contract, real artifact + control", () => {
-  test("2024vabrb (Blue Ridge Brawl, offseason): exactly 5 alliances of exactly 2 picks each; the rendered table shows the em-dash absent-value treatment for Pick 3 and Backup", async ({
+  test("2024vabrb (Blue Ridge Brawl, offseason): exactly 5 alliances of exactly 2 picks each; the rendered table leaves Pick 2 blank and renders no Pick 3 column at all", async ({
     page,
     request,
   }) => {
@@ -96,18 +96,25 @@ test.describe("ledger row 10 — the two-pick alliance contract, real artifact +
     await expect(rows.first()).toBeVisible();
     expect(await rows.count()).toBe(5);
 
+    // The absent-value treatment since ed49b8a0 is BLANK, not an em dash, and
+    // since 834d27b2 the backup column (header "Pick 3", id `pickBackup`)
+    // renders only when some alliance has a backup pick. AlliancesTab.test.tsx
+    // pins this exact two-pick shape ("modelled on 2024vabrb").
+    await expect(page.getByTestId("alliances-header-pickBackup")).toHaveCount(0);
     for (let i = 0; i < 5; i++) {
-      const pick3 = rows.nth(i).getByTestId("alliances-cell-pick2");
+      const pick1 = rows.nth(i).getByTestId("alliances-cell-pick1");
+      const pick2 = rows.nth(i).getByTestId("alliances-cell-pick2");
       const backup = rows.nth(i).getByTestId("alliances-cell-pickBackup");
-      expect((await pick3.innerText()).trim()).toBe("—");
-      expect((await backup.innerText()).trim()).toBe("—");
+      expect((await pick1.innerText()).trim()).not.toBe("");
+      expect((await pick2.innerText()).trim()).toBe("");
+      await expect(backup).toHaveCount(0);
     }
   });
 
-  // The control: without an event where Pick 3 CAN be populated, the em-dash
-  // assertion above could pass even if the app rendered "—" unconditionally
-  // for every alliance regardless of the underlying data.
-  test("2024new: 8 alliances, each with a populated Pick 3", async ({ page, request }) => {
+  // The control: without an event where Pick 2 CAN be populated, the blank
+  // assertion above could pass even if the app rendered the cell blank
+  // unconditionally for every alliance regardless of the underlying data.
+  test("2024new: 8 alliances, each with a populated Pick 2", async ({ page, request }) => {
     const version = await resolveSprVersion(request);
     const artifact = await fetchEventArtifact(request, "2024new", version);
     const alliances = artifact.alliances ?? [];
@@ -122,8 +129,8 @@ test.describe("ledger row 10 — the two-pick alliance contract, real artifact +
     expect(await rows.count()).toBe(8);
 
     for (let i = 0; i < 8; i++) {
-      const pick3 = rows.nth(i).getByTestId("alliances-cell-pick2");
-      expect((await pick3.innerText()).trim()).not.toBe("—");
+      const pick2 = rows.nth(i).getByTestId("alliances-cell-pick2");
+      expect((await pick2.innerText()).trim()).not.toBe("");
     }
   });
 
