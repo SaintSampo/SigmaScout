@@ -257,10 +257,10 @@ export function buildBubbleModel(rows: readonly TeamRow[]): BubbleModel {
 
 /**
  * Rounds a projected coordinate to one decimal. Shared, rather than inline,
- * because `tonePathData` and `buildHitIndex` (quick task 260909-v5v) both
- * project the same points, and if the two rounded differently the highlight
- * ring would sit a fraction off the dot it claims to be marking. One helper
- * is the enforcement.
+ * because `tonePathData` and `buildHitIndex` both project the same points,
+ * and if the two rounded differently the highlight ring would sit a
+ * fraction off the dot it claims to be marking. One helper is the
+ * enforcement.
  */
 function roundCoord(value: number): number {
   return Math.round(value * 10) / 10;
@@ -363,9 +363,9 @@ export function buildHitIndex(points: readonly BubblePoint[], x: BubbleAxis, y: 
  *
  * Compares squared distance against squared `hitRadius`, never a square
  * root. Ties (an exactly equal squared distance) resolve to the LOWER
- * `teamNumbers` entry — D-03's determinism, written as an explicit branch
- * rather than left to iteration order, so the same pixel always yields the
- * same team regardless of point order in the model.
+ * `teamNumbers` entry, written as an explicit branch rather than left to
+ * iteration order, so the same pixel always yields the same team regardless
+ * of point order in the model.
  *
  * Allocates nothing: no array, no object, no closure. Returns an index into
  * the points the index was built from, or `null`.

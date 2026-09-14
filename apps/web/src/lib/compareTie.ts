@@ -1,20 +1,18 @@
 /**
- * D-11's near-tie rule (08-06-PLAN.md Task 1), pure and framework-free — no
- * React import, no component dependency. `AccuracyTable.tsx`'s
- * `buildRowEmphasis` is the sole consumer; this module never reaches back
- * into a component.
+ * The near-tie rule, pure and framework-free — no React import, no
+ * component dependency. `AccuracyTable.tsx`'s `buildRowEmphasis` is the
+ * sole consumer; this module never reaches back into a component.
  *
  * `formatBrierDisplay`/`formatWinnerAccuracyDisplay` live HERE, not beside
- * the table, because D-11's Brier tie test is defined as equality of the
- * value AS DISPLAYED (four decimal places), not a re-rounded number or a
+ * the table, because the Brier tie test is defined as equality of the value
+ * AS DISPLAYED (four decimal places), not a re-rounded number or a
  * hand-written epsilon. One function producing the displayed string, called
  * by both the cell renderer and the tie test, is what makes "the decision
  * and the digits can never disagree" a fact rather than a convention a
  * second formatter could quietly violate. This is display formatting only —
- * published Brier/accuracy/calibration figures are deliberately unrounded in
- * the artifact (`docs/models/...`'s established convention); these functions
- * print them at a chosen precision and never re-derive or re-round the
- * underlying value.
+ * published Brier/accuracy/calibration figures are deliberately unrounded
+ * in the artifact; these functions print them at a chosen precision and
+ * never re-derive or re-round the underlying value.
  *
  * `naiveStandardError`/`combineStandardErrors` treat the two compared
  * algorithms as INDEPENDENT, when in fact they are scored on the same
@@ -93,10 +91,10 @@ type LeaderPairResolution<T> =
   | { readonly kind: "leader"; readonly leader: T; readonly runnerUp: T; readonly gap: number };
 
 /**
- * The shared skeleton both resolvers build on (Decision-driven: "the two
- * metrics differ only in their tie test and in the accuracy resolver's one
- * extra guard" — everything else is identical arithmetic and must stay
- * that way so the two rules cannot drift apart).
+ * The shared skeleton both resolvers build on — the two metrics differ only
+ * in their tie test and in the accuracy resolver's one extra guard;
+ * everything else is identical arithmetic and must stay that way so the two
+ * rules cannot drift apart.
  *
  * Filters to candidates whose value is a finite number; fewer than two
  * remaining is `"empty"`. Sorts by value (ascending or descending per
@@ -153,11 +151,11 @@ export function resolveBrierLeaders(candidates: readonly BrierCandidate[]): read
  * Higher is better. Before the tie test: if either leading cell's
  * `scoredCount` is zero, return empty — a count of zero is a fact about the
  * slice worth naming in its own branch rather than leaving to the
- * non-finite guard alone. 08-REVIEW IN-01: this branch is DELIBERATELY
- * redundant with `isNearTie`'s non-finite guard (`naiveStandardError(p, 0)`
- * is non-finite, which `isNearTie` already reads as a tie) — the two paths
- * converge on the same `[]`, so editing either alone cannot change the
- * outcome; keep them in agreement rather than "simplifying" one away.
+ * non-finite guard alone. This branch is DELIBERATELY redundant with
+ * `isNearTie`'s non-finite guard (`naiveStandardError(p, 0)` is non-finite,
+ * which `isNearTie` already reads as a tie) — the two paths converge on the
+ * same `[]`, so editing either alone cannot change the outcome; keep them
+ * in agreement rather than "simplifying" one away.
  * Otherwise combines each leading cell's OWN
  * standard error (built from that cell's own `scoredCount`, never a row- or
  * artifact-level count) and calls `isNearTie`.
