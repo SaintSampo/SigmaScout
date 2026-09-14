@@ -1,37 +1,30 @@
 /**
- * D-18/Pattern 2: reads the two offline-published manifests (live windows,
- * algorithms) the tick needs every invocation, and answers "what is live
- * right now" from them. Neither manifest is computed here — both are built
- * offline by `packages/harness/manifests.ts` and published as small JSON
- * objects; this module only reads and validates what the publish pipeline
- * already produced.
+ * Reads the two offline-published manifests (live windows, algorithms) the
+ * tick needs every invocation, and answers "what is live right now" from
+ * them. Neither manifest is computed here — both are built offline by
+ * `packages/harness/manifests.ts` and published as small JSON objects; this
+ * module only reads and validates what the publish pipeline already produced.
  *
- * Binding choice (documented per the plan's own instruction): **KV is
- * primary, R2 is the fallback.** Both manifests are small and read every
- * single tick (Pattern 2), which is precisely the shape KV's edge-cached,
- * very-fast-read tier is good at — unlike D-25's "no compute in the read
- * path" argument (that's about the BROWSER's read path; this is the Worker's
- * own tick, a different consumer with a different cost model). The R2
- * fallback exists only for the case KV has not yet been populated/propagated
- * (KV writes are NOT strongly consistent — ~60s global propagation) — R2 is
- * the durable source of truth the offline publisher always writes to.
+ * KV is primary, R2 is the fallback. Both manifests are small and read
+ * every single tick, which is precisely the shape KV's edge-cached,
+ * very-fast-read tier is good at. The R2 fallback exists only for the case
+ * KV has not yet been populated/propagated (KV writes are not strongly
+ * consistent, ~60s global propagation) — R2 is the durable source of truth
+ * the offline publisher always writes to.
  *
  * `loadLiveWindowsManifest`/`loadAlgorithmsManifest` are exported separately
- * (not just the combined `loadManifests`) because `scheduled.ts`'s D-18 early
- * exit reads ONLY the live-windows manifest before deciding whether anything
- * is live — the algorithms manifest is never needed to answer that question,
- * and reading it unconditionally on every idle tick (the overwhelmingly
- * common case, ~10 months of the year) would cost a wasted binding call. This
- * is exactly Pattern 2's own framing: "The Worker's first action every tick
- * is reading this ONE object; if nothing is live, it exits before spending
- * any TBA subrequest." `loadManifests` is kept for callers (and tests) that
- * want both unconditionally, and is implemented in terms of the two granular
- * functions so there is exactly one place each manifest's read logic lives.
+ * (not just the combined `loadManifests`) because `scheduled.ts`'s early
+ * exit reads only the live-windows manifest before deciding whether
+ * anything is live — reading the algorithms manifest unconditionally on
+ * every idle tick (the overwhelmingly common case) would cost a wasted
+ * binding call. `loadManifests` is kept for callers (and tests) that want
+ * both unconditionally, implemented in terms of the two granular functions
+ * so there is exactly one place each manifest's read logic lives.
  */
-// Imports from `manifestSchemas.js` directly — NEVER from `manifests.js`.
+// Imports from `manifestSchemas.js` directly — never from `manifests.js`.
 // `manifests.js` imports `node:fs`/`node:path` and `./cli.js` (which pulls in
 // the corpus/`better-sqlite3`) at module top level; `manifestSchemas.js` is
-// the Worker-importable extraction with none of that (see its own header).
+// the Worker-importable extraction with none of that.
 import { AlgorithmsManifestSchema, LiveWindowEntrySchema, LiveWindowsManifestEnvelopeSchema, LiveWindowsManifestSchema, isLiveAt, type AlgorithmsManifest, type LiveWindowEntry, type LiveWindowsManifest } from "../../../packages/harness/manifestSchemas.js";
 import type { Env } from "./env.js";
 
@@ -100,8 +93,8 @@ export async function loadManifests(env: Env): Promise<Manifests> {
 }
 
 /**
- * D-18: the entries of `manifest` that are live at `epochMs`, in event-key
- * order. Uses `isLiveAt` (`packages/harness/manifests.ts`) unchanged — the
+ * The entries of `manifest` that are live at `epochMs`, in event-key order.
+ * Uses `isLiveAt` (`packages/harness/manifests.ts`) unchanged — the
  * half-open `[startMs, endMs)` liveness contract is defined once, there,
  * never re-implemented here.
  */
@@ -119,58 +112,35 @@ export class LiveWindowShapeError extends ManifestValidationError {
 
 /**
  * The tick's hot path: "which events are live at `epochMs`?", answered by
- * reading the live-windows manifest and validating ONLY the entries that
+ * reading the live-windows manifest and validating only the entries that
  * actually turn out to be live.
  *
- * WHY THIS IS NOT `liveEventsAt(await loadLiveWindowsManifest(env), epochMs)`
- * ------------------------------------------------------------------------
- * It used to be exactly that, and that is what took the deployed Worker down
- * (see `.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md`, cause A).
- * The composed form runs `LiveWindowsManifestSchema.parse` over EVERY window
- * before asking whether any of them is live. The published manifest carries one
- * window per corpus event across all covered seasons — 1,581 of them at the time
- * this was written, ~7,900 field validations, ~160 KB — and the overwhelming
- * majority belong to seasons that ended years ago and can never be live again.
- * Measured against the real deployed manifest: 3.39-3.85 ms COLD in Node/V8 on a
- * fast desktop, which corresponded to the 5-9 ms the deployed Worker itself
- * recorded for this same do-nothing path (docs/worker-operations.md, 2026-08-22
- * and 2026-08-23). A once-a-minute cron on the free plan lands on an evicted
- * isolate nearly every tick, so it always pays that cold price, never the ~0.9 ms
- * warm one. In other words the "nothing is live, exit immediately" tick was
- * already spending 50-90% of the entire 10 ms CPU budget validating data it was
- * about to throw away, leaving no headroom for the tick that DOES have work.
+ * DO NOT replace this with `liveEventsAt(await loadLiveWindowsManifest(env),
+ * epochMs)` — that composed form runs full Zod validation over every window
+ * before asking whether any is live, and that is what took the deployed
+ * Worker down (`.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md`,
+ * cause A): with ~1,581 windows across all covered seasons, the "nothing is
+ * live, exit immediately" tick was measured spending 50-90% of the entire
+ * 10ms CPU budget validating data it was about to throw away, and a
+ * once-a-minute cron on the free plan lands on an evicted (cold) isolate
+ * nearly every tick, so it always paid that price. This function instead
+ * validates only the preamble with Zod, then a cheap structural + interval
+ * prefilter over the raw entries, then the full entry schema on the handful
+ * that survive — measured 1.14-1.25ms cold against the real manifest (down
+ * from 3.39-3.85ms), with a selected set byte-identical to the old path's.
  *
- * The order here is: validate the preamble with Zod (so a wrong `schemaVersion`,
- * a missing `generation`, or a `windows` that is not an array is still a loud,
- * immediate failure); then a cheap structural + interval prefilter over the raw
- * entries; then the FULL `LiveWindowEntrySchema.parse` on the handful that
- * survive. Same A/B against the real manifest: 1.14-1.25 ms cold, and the
- * selected set is byte-identical to what the old path selected.
+ * The trade: an entry whose `startMs`/`endMs` are not finite numbers is
+ * still a hard failure (`LiveWindowShapeError`, liveness cannot be decided
+ * for it so it is never silently dropped), but the non-interval fields of
+ * entries that are NOT live are no longer validated — a corrupt-but-not-live
+ * entry is now tolerated where it used to fail the whole read. A manifest is
+ * validated to the depth it is used. Do not undo this without re-measuring
+ * the cold cost of a whole-manifest parse against the current manifest size
+ * and the 10ms budget — this exact change being absent is what caused a
+ * multi-hour production outage.
  *
- * WHAT WAS TRADED AWAY — READ THIS BEFORE "RESTORING" THE FULL PARSE
- * -----------------------------------------------------------------
- * This module's stated property was "refusing to use a partially-valid
- * manifest". That property is NARROWED, not abandoned:
- *
- *   - still enforced: the preamble, the presence and array-ness of `windows`,
- *     and every field of every entry that is actually live.
- *   - still enforced: an entry whose `startMs`/`endMs` are not finite numbers is
- *     a HARD failure (`LiveWindowShapeError`), not a silent skip. Liveness cannot
- *     be decided for such an entry, so it is never quietly dropped — that is the
- *     failure mode this ordering is specifically designed to avoid.
- *   - no longer enforced: the non-interval fields (`eventKey`, `season`,
- *     `inferred`, and integer-ness of the bounds) of entries that are NOT live.
- *     A corrupt-but-not-live entry is now tolerated where it used to fail the
- *     whole read.
- *
- * That last bullet is the deliberate, developer-accepted trade (2026-08-29): a
- * manifest is validated to the depth it is used. Do not undo it without first
- * re-measuring the cold cost of the whole-manifest parse against the CURRENT
- * manifest size and checking it against the 10 ms budget — this exact change
- * being absent is what caused a multi-hour production outage.
- *
- * `loadLiveWindowsManifest` (full validation, every entry) is unchanged and is
- * still the right call for any caller that genuinely needs the whole manifest.
+ * `loadLiveWindowsManifest` (full validation, every entry) is unchanged and
+ * is still the right call for any caller that genuinely needs the whole manifest.
  */
 export async function loadLiveEventsAt(env: Env, epochMs: number): Promise<LiveWindowEntry[]> {
   const text = await readManifestText(env, "live-windows", LIVE_WINDOWS_MANIFEST_KEY);
