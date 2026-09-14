@@ -1692,8 +1692,22 @@ void _rpCalibrationSchemaMatchesWireType;
  * tests pin. SPR prices matches the retired gate skipped (2025: 29,642
  * alliance-sides against OPR/EPA's 25,978), so `-09c` is not comparable
  * cell-for-cell with `-09b`.
+ *
+ * REPOINTED 2026-09-13 at `-09d` (quick task 260913-qyn, same day as `-09c`,
+ * a second re-measurement): the scorer now scores TOTAL ranking points
+ * (`totalRp`, a ranked probability score against the actual alliance RP) and
+ * the win/tie/loss OUTCOME (`outcome`, a three-outcome Brier against
+ * `match.winner`) alongside the existing per-bonus blocks, and WIN+TIE
+ * shipped on the model itself (`data/baselines/rp-outcome-arms-2026-09.json`)
+ * — the algorithm's own `pRedWin` replaces the score-draw comparison as the
+ * decisive share, and a genuine discrete integer-margin tie probability
+ * replaces the prior structural zero. `-09c` stays as the frozen
+ * bonus-only-scorer record its own tests pin; `-09d` is measured with
+ * `--algorithm spr` over the same ten seasons from the POST-ship code, so its
+ * per-bonus figures are the same population `-09c` measured but under the
+ * shipped WIN+TIE model rather than the pre-260913-qyn one.
  */
-export const RP_CALIBRATION_MEASUREMENT_PATH = "data/baselines/rp-calibration-2026-09c.json";
+export const RP_CALIBRATION_MEASUREMENT_PATH = "data/baselines/rp-calibration-2026-09d.json";
 
 /**
  * A committed, self-describing measurement of every registered season's

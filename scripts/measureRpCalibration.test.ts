@@ -873,6 +873,20 @@ describe("buildRpCalibrationRecord — the optional third argument (260913-qyn)"
     }
   });
 
+  it("the committed data/baselines/rp-calibration-2026-09d.json parses, carries the shipped rpLayer label, and every spr record has non-empty totalRp/outcome blocks", () => {
+    const raw: unknown = JSON.parse(readFileSync(new URL("../data/baselines/rp-calibration-2026-09d.json", import.meta.url), "utf8"));
+    const parsed = RpCalibrationMeasurementSchema.parse(raw);
+    expect(parsed.rpLayer).toBe(SHIPPED_RP_LAYER_LABEL);
+    const sprRecords = parsed.records.filter((r) => liveAlgorithmId(r.algorithmId) === "spr");
+    expect(sprRecords.length).toBe(10);
+    for (const r of sprRecords) {
+      expect(r.calibration.totalRp, `season ${r.season} totalRp`).toBeDefined();
+      expect(r.calibration.totalRp!.count, `season ${r.season} totalRp.count`).toBeGreaterThan(0);
+      expect(r.calibration.outcome, `season ${r.season} outcome`).toBeDefined();
+      expect(r.calibration.outcome!.count, `season ${r.season} outcome.count`).toBeGreaterThan(0);
+    }
+  });
+
   it("the committed apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json still parses as a bare RpCalibrationRecord shape", () => {
     const raw: unknown = JSON.parse(
       readFileSync(new URL("../apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json", import.meta.url), "utf8")
