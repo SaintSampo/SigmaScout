@@ -312,7 +312,7 @@ function seedTwoEventSeason(db: Corpus): { earlyEventKey: string; lateEventKey: 
   return { earlyEventKey, lateEventKey, teamKeys };
 }
 
-describe("resolvePublishAlgorithms — D-03/D-04/D-05 rename (plan 07-16 Task 2, repointed at the collapsed single tier by plan 07-18 Task 1; re-collapsed again by quick task 260912-ivg Stage 5)", () => {
+describe("resolvePublishAlgorithms — default publish set and rename", () => {
   // Omitting `--algorithm` publishes exactly `PUBLISHED_ALGORITHM_IDS`.
   it("the default (undefined) publish set resolves to PUBLISHED_ALGORITHM_IDS (opr, epa, spr)", () => {
     const algorithms = resolvePublishAlgorithms(undefined);
@@ -371,7 +371,7 @@ describe("buildEventArtifact", () => {
     expect(artifact.teams[0]?.metrics.total?.value).toBe(45.68);
   });
 
-  it("defaults upcoming and teams to [] when omitted (matches plan 04-01's tracer usage)", () => {
+  it("defaults upcoming and teams to [] when omitted", () => {
     const predictions: PredictionRecord[] = [{ match: fixtureMatch(), prediction: fixturePrediction() }];
     const artifact = buildEventArtifact({
       eventKey: "2026casj",
@@ -385,7 +385,7 @@ describe("buildEventArtifact", () => {
     expect(artifact.teams).toEqual([]);
   });
 
-  it("rounds pRedWin to 4 decimals and predicted scores to 2 decimals (D-06)", () => {
+  it("rounds pRedWin to 4 decimals and predicted scores to 2 decimals", () => {
     const artifact = buildEventArtifact({
       eventKey: "2026casj",
       season: 2026,
@@ -401,7 +401,7 @@ describe("buildEventArtifact", () => {
 });
 
 /** Each alliance's own predicted-score variance and each row's `sortTime` on both event match row builders. */
-describe("buildEventArtifact — D-18 item 3 own predicted-score variance and D-13 sortTime (plan 07-08 Task 1)", () => {
+describe("buildEventArtifact — own predicted-score variance and sortTime", () => {
   it("Test 1 (regression floor): a call supplying none of this plan's new parameters still produces a parsing artifact with both fields undefined", () => {
     const artifact = buildEventArtifact(eventArtifactParams());
     expect(artifact.matches[0]?.redScoreVarianceOwn).toBeUndefined();
@@ -441,7 +441,7 @@ describe("buildEventArtifact — D-18 item 3 own predicted-score variance and D-
     expect(artifact.matches[0]?.blueScoreVarianceOwn).toBeUndefined();
   });
 
-  it("Test 5 (PD-02): an OPR row carries neither variance key, in memory nor after a JSON round-trip", () => {
+  it("Test 5: an OPR row carries neither variance key, in memory nor after a JSON round-trip", () => {
     const artifact = buildEventArtifact(eventArtifactParams({ algorithmId: "opr", algorithmVersion: "3.0.0+baseline" }));
     expect(artifact.matches[0]?.redScoreVarianceOwn).toBeUndefined();
     expect(artifact.matches[0]?.blueScoreVarianceOwn).toBeUndefined();
@@ -450,7 +450,7 @@ describe("buildEventArtifact — D-18 item 3 own predicted-score variance and D-
     expect(roundTripped.matches[0]).not.toHaveProperty("blueScoreVarianceOwn");
   });
 
-  it("Test 6 (PD-09): the published value traces to predict()'s own output on the record it built the row from, never a recomputation", () => {
+  it("Test 6: the published value traces to predict()'s own output on the record it built the row from, never a recomputation", () => {
     const teams = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
     const match = fixtureMatch();
     const records = new WalkForwardSimulator([match]).run(spr, teams);
@@ -500,7 +500,7 @@ describe("buildEventArtifact — D-18 item 3 own predicted-score variance and D-
 });
 
 /** Played match rows carry `redRpPmf`/`blueRpPmf`, mirroring the `upcoming` builder. */
-describe("buildEventArtifact — redRpPmf/blueRpPmf on played matches (D-03, plan 08-02 Task 1)", () => {
+describe("buildEventArtifact — redRpPmf/blueRpPmf on played matches", () => {
   it("Test 9 (regression floor): a call supplying no prediction pmf leaves matches[0]'s pmf keys undefined", () => {
     const artifact = buildEventArtifact(eventArtifactParams());
     expect(artifact.matches[0]?.redRpPmf).toBeUndefined();
@@ -526,7 +526,7 @@ describe("buildEventArtifact — redRpPmf/blueRpPmf on played matches (D-03, pla
     expect(roundTripped.matches[0]).not.toHaveProperty("blueRpPmf");
   });
 
-  it("Test 12 (PD-02 mirror of Test 5): an OPR row carries neither pmf key, in memory nor after a JSON round trip", () => {
+  it("Test 12 (mirror of Test 5): an OPR row carries neither pmf key, in memory nor after a JSON round trip", () => {
     const artifact = buildEventArtifact(eventArtifactParams({ algorithmId: "opr", algorithmVersion: "3.0.0+baseline" }));
     expect(artifact.matches[0]?.redRpPmf).toBeUndefined();
     expect(artifact.matches[0]?.blueRpPmf).toBeUndefined();
@@ -535,12 +535,12 @@ describe("buildEventArtifact — redRpPmf/blueRpPmf on played matches (D-03, pla
     expect(roundTripped.matches[0]).not.toHaveProperty("blueRpPmf");
   });
 
-  it("Test 13 (PD-07, the builder's own failure path): a played prediction carrying an EMPTY redRpPmf throws through buildEventArtifact, naming the distribution rule", () => {
+  it("Test 13 (the builder's own failure path): a played prediction carrying an EMPTY redRpPmf throws through buildEventArtifact, naming the distribution rule", () => {
     expect(() => buildEventArtifact(eventArtifactParams({ prediction: { redRpPmf: [] } }))).toThrow(/distribution/);
   });
 });
 
-describe("buildEventArtifact — matchOutcomePmf/redBonusRpPmf/blueBonusRpPmf/rpOutcomeRp (D-15, plan 09-07)", () => {
+describe("buildEventArtifact — matchOutcomePmf/redBonusRpPmf/blueBonusRpPmf/rpOutcomeRp", () => {
   const DECOMPOSITION: Partial<Prediction> = {
     matchOutcomePmf: [0.612345, 0.023456, 0.364199],
     redOutcomeRp: [2, 1, 0],
@@ -594,7 +594,7 @@ describe("buildEventArtifact — matchOutcomePmf/redBonusRpPmf/blueBonusRpPmf/rp
 });
 
 /** Played match rows carry `actualRedRp`/`actualBlueRp` through `toIntegerRpOrNull`, exactly as the team-season builder does. */
-describe("buildEventArtifact — actualRedRp/actualBlueRp on played matches (D-12, plan 08-02 Task 2)", () => {
+describe("buildEventArtifact — actualRedRp/actualBlueRp on played matches", () => {
   it("Test 7: the builder publishes both, including a real zero, derived from fixtureMatch's own redRpEarned/blueRpEarned", () => {
     const artifact = buildEventArtifact(eventArtifactParams());
     expect(artifact.matches[0]?.actualRedRp).toBe(fixtureMatch().redRpEarned);
@@ -642,7 +642,7 @@ describe("buildEventArtifact — actualRedRp/actualBlueRp on played matches (D-1
 });
 
 /** Guards against the event and team-season row builders diverging on the four RP fields (e.g. a comp-level gate added to one). */
-describe("buildEventArtifact / buildTeamSeasonArtifact — cross-builder equivalence on D-03/D-12's four fields (PD-02, plan 08-02 Task 3)", () => {
+describe("buildEventArtifact / buildTeamSeasonArtifact — cross-builder equivalence on the four RP fields", () => {
   it("agree on redRpPmf/blueRpPmf/actualRedRp/actualBlueRp for one shared elimination match and one shared prediction", () => {
     const sharedMatch = fixtureMatch({ matchKey: "2026casj_sf1m1", compLevel: "sf", redRpEarned: 0, blueRpEarned: 0 });
     const sharedPrediction = fixturePrediction({ redRpPmf: [1], blueRpPmf: [1] });
@@ -685,7 +685,7 @@ describe("buildEventArtifact / buildTeamSeasonArtifact — cross-builder equival
 });
 
 /** `videoByMatchKey` end-to-end through both builders, parsed through the real schema. */
-describe("buildEventArtifact / buildTeamSeasonArtifact — videoByMatchKey (quick task 260906-7eu)", () => {
+describe("buildEventArtifact / buildTeamSeasonArtifact — videoByMatchKey", () => {
   it("buildEventArtifact publishes `video` on a mapped played match and omits it on an unmapped one", () => {
     const mappedMatch = fixtureMatch({ matchKey: "2026casj_qm1" });
     const unmappedMatch = fixtureMatch({ matchKey: "2026casj_qm3" });
@@ -782,7 +782,7 @@ describe("buildEventArtifact / buildTeamSeasonArtifact — videoByMatchKey (quic
 });
 
 /** The variance/sortTime fields and the playoff bonus-RP rule, checked on real published JSON through `publishSeasons`. */
-describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criterion, end-to-end (plan 07-08 Task 1)", () => {
+describe("buildEventArtifact — own predicted-score variance, sortTime and playoff bonus-RP criterion, end-to-end", () => {
   let dir: string;
   let db: Corpus;
 
@@ -815,7 +815,7 @@ describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criteri
    * playoff row could produce bonus-RP data; the qualification-side assertions
    * keep this non-vacuous.
    */
-  it("Test 8 (folded todo, PD-08; qm-side event assertions flipped by quick 260905-jj8): a freshly published playoff row carries no bonus-RP key on either artifact kind, while the qualification row carries all four on BOTH artifact kinds", async () => {
+  it("Test 8: a freshly published playoff row carries no bonus-RP key on either artifact kind, while the qualification row carries all four on BOTH artifact kinds", async () => {
     upsertEvent(db, seasonEvent({ eventKey: "2024early", year: 2024 }));
     upsertEvent(db, seasonEvent({ eventKey: "2024casj", year: 2024 }));
     // Two warm-up matches give every "2024casj_qm1" team prior played history.
@@ -877,7 +877,7 @@ describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criteri
 });
 
 /** The event's identity (`name`/`startDate`/`location`/`week`) and playoff `alliances`. */
-describe("buildEventArtifact — D-18 items 7/8: event identity and playoff alliances (plan 07-08 Task 2)", () => {
+describe("buildEventArtifact — event identity and playoff alliances", () => {
   it("Test 1: no eventMeta, no alliances parameter -> none of the five keys are properties", () => {
     const artifact = buildEventArtifact(eventArtifactParams()) as object;
     expect(artifact).not.toHaveProperty("name");
@@ -909,14 +909,14 @@ describe("buildEventArtifact — D-18 items 7/8: event identity and playoff alli
     expect(artifact).toHaveProperty("week");
   });
 
-  it("Test 4 (PD-07): week: 0 survives as a real zero, not null and not undefined", () => {
+  it("Test 4: week: 0 survives as a real zero, not null and not undefined", () => {
     const artifact = buildEventArtifact(
       eventArtifactParams({ eventMeta: { name: "Some Event", startDate: "2026-03-01", country: null, stateProv: null, week: 0 } })
     );
     expect(artifact.week).toBe(0);
   });
 
-  it("Test 5 (PD-05): a null name AND an empty-string name both fall back to the event key", () => {
+  it("Test 5: a null name AND an empty-string name both fall back to the event key", () => {
     const nullName = buildEventArtifact(
       eventArtifactParams({ eventMeta: { name: null, startDate: "2026-03-01", country: null, stateProv: null, week: null } })
     );
@@ -953,7 +953,7 @@ describe("buildEventArtifact — D-18 items 7/8: event identity and playoff alli
     expect(neither.location).toBeNull();
   });
 
-  it("Test 8 (PD-03): an empty alliances array IS a property, distinct from the omitted-parameter case", () => {
+  it("Test 8: an empty alliances array IS a property, distinct from the omitted-parameter case", () => {
     const withEmpty = buildEventArtifact(eventArtifactParams({ alliances: [] })) as object & { alliances: unknown };
     expect(withEmpty).toHaveProperty("alliances");
     expect(withEmpty.alliances).toEqual([]);
@@ -992,7 +992,7 @@ describe("buildEventArtifact — D-18 items 7/8: event identity and playoff alli
     expect(artifact.alliances?.[2]?.name).toBe("Real Name");
   });
 
-  it("Test 11 (07-UAT.md G-8): a real playoff record round-trips whole, and an absent one publishes no record key at all", () => {
+  it("Test 11: a real playoff record round-trips whole, and an absent one publishes no record key at all", () => {
     const artifact = buildEventArtifact(
       eventArtifactParams({
         alliances: [
@@ -1009,7 +1009,7 @@ describe("buildEventArtifact — D-18 items 7/8: event identity and playoff alli
 });
 
 /** Identity and alliances through the seeded-corpus `publishSeasons` path. */
-describe("buildEventArtifact — D-18 items 7/8, end-to-end (plan 07-08 Task 2)", () => {
+describe("buildEventArtifact — event identity and playoff alliances, end-to-end", () => {
   let dir: string;
   let db: Corpus;
 
@@ -1058,7 +1058,7 @@ describe("buildEventArtifact — D-18 items 7/8, end-to-end (plan 07-08 Task 2)"
     expect(artifact.alliances?.[1]).not.toHaveProperty("name");
   });
 
-  it("Test 11b: an event with no alliance rows publishes alliances as [] (D-17)", async () => {
+  it("Test 11b: an event with no alliance rows publishes alliances as []", async () => {
     upsertEvent(db, seasonEvent({ eventKey: "2026noselect" }));
     upsertMatch(db, seasonMatch({ matchKey: "2026noselect_qm1", eventKey: "2026noselect" }));
 
@@ -1068,7 +1068,7 @@ describe("buildEventArtifact — D-18 items 7/8, end-to-end (plan 07-08 Task 2)"
     expect(artifact.alliances).toEqual([]);
   });
 
-  it("Test 11c (07-UAT.md G-8): a real status_raw round-trips through the corpus to the published record, and an absent status_raw publishes no record key", async () => {
+  it("Test 11c: a real status_raw round-trips through the corpus to the published record, and an absent status_raw publishes no record key", async () => {
     upsertEvent(db, seasonEvent({ eventKey: "2026casj2" }));
     upsertMatch(db, seasonMatch({ matchKey: "2026casj2_qm1", eventKey: "2026casj2" }));
     upsertEventAlliance(db, {
@@ -1099,8 +1099,8 @@ describe("buildEventArtifact — D-18 items 7/8, end-to-end (plan 07-08 Task 2)"
 });
 
 /** Official rank, TBA's record and ranking points on each team row, from `event_rankings`. */
-describe("buildEventArtifact — D-18 item 6: rank/record/rp on team rows (plan 07-08 Task 3)", () => {
-  it("Test 1 (D-08): a team with no rankings entry publishes none of rank/record/rp", () => {
+describe("buildEventArtifact — rank/record/rp on team rows", () => {
+  it("Test 1: a team with no rankings entry publishes none of rank/record/rp", () => {
     const artifact = buildEventArtifact(eventArtifactParams());
     const row = artifact.teams[0] as object;
     expect(row).not.toHaveProperty("rank");
@@ -1118,7 +1118,7 @@ describe("buildEventArtifact — D-18 item 6: rank/record/rp on team rows (plan 
     expect(row.rp).toBe(roundTo(3.835, ROUNDING_RULE.rankingPoints));
   });
 
-  it("Test 3 (PD-07): rp: 0 is a real, present ranking score, distinguishable from absent", () => {
+  it("Test 3: rp: 0 is a real, present ranking score, distinguishable from absent", () => {
     const artifact = buildEventArtifact(
       eventArtifactParams({ rankings: new Map([["frc254", seasonRankingRow({ rankingScore: 0 })]]) })
     );
@@ -1127,7 +1127,7 @@ describe("buildEventArtifact — D-18 item 6: rank/record/rp on team rows (plan 
     expect(row.rp).toBe(0);
   });
 
-  it("Test 4 (PD-06): a record missing any one of wins/losses/ties publishes no record key at all", () => {
+  it("Test 4: a record missing any one of wins/losses/ties publishes no record key at all", () => {
     const allNull = buildEventArtifact(
       eventArtifactParams({ rankings: new Map([["frc254", seasonRankingRow({ rank: 4, recordWins: null, recordLosses: null, recordTies: null, rankingScore: null })]]) })
     );
@@ -1149,7 +1149,7 @@ describe("buildEventArtifact — D-18 item 6: rank/record/rp on team rows (plan 
     expect(artifact.teams[0]?.record).toEqual({ wins: 0, losses: 0, ties: 0 });
   });
 
-  it("Test 6 (EVNT-02 adjacency): two teams sharing a rank value both publish it", () => {
+  it("Test 6 (adjacency): two teams sharing a rank value both publish it", () => {
     const artifact = buildEventArtifact(
       eventArtifactParams({
         teams: [
@@ -1166,7 +1166,7 @@ describe("buildEventArtifact — D-18 item 6: rank/record/rp on team rows (plan 
     expect(artifact.teams[1]?.rank).toBe(5);
   });
 
-  it("Test 7 (EVNT-02 ordering): teams publish in the caller's supplied order, not sorted by rank", () => {
+  it("Test 7 (ordering): teams publish in the caller's supplied order, not sorted by rank", () => {
     const artifact = buildEventArtifact(
       eventArtifactParams({
         teams: [
@@ -1184,7 +1184,7 @@ describe("buildEventArtifact — D-18 item 6: rank/record/rp on team rows (plan 
     expect(artifact.teams[1]?.rank).toBe(1);
   });
 
-  it("Test 8 (T-07-08-01): populated metrics and absent standings keys coexist on one row when no rankings map is supplied", () => {
+  it("Test 8: populated metrics and absent standings keys coexist on one row when no rankings map is supplied", () => {
     const artifact = buildEventArtifact(
       eventArtifactParams({ teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", metrics: { total: { value: 45.6, spread: 3.1 } } }] })
     );
@@ -1197,7 +1197,7 @@ describe("buildEventArtifact — D-18 item 6: rank/record/rp on team rows (plan 
 });
 
 /** Rank, record and RP through the seeded-corpus `publishSeasons` path. */
-describe("buildEventArtifact — D-18 item 6, end-to-end (plan 07-08 Task 3)", () => {
+describe("buildEventArtifact — rank/record/rp on team rows, end-to-end", () => {
   let dir: string;
   let db: Corpus;
 
@@ -1237,7 +1237,7 @@ describe("buildEventArtifact — D-18 item 6, end-to-end (plan 07-08 Task 3)", (
     expect(row?.rp).toBe(roundTo(2.71, ROUNDING_RULE.rankingPoints));
   });
 
-  it("Test 9b (D-08): an event with no ranking rows publishes team rows with none of the three keys", async () => {
+  it("Test 9b: an event with no ranking rows publishes team rows with none of the three keys", async () => {
     upsertEvent(db, seasonEvent({ eventKey: "2026norank" }));
     upsertMatch(db, seasonMatch({ matchKey: "2026norank_qm1", eventKey: "2026norank" }));
 
@@ -1253,7 +1253,7 @@ describe("buildEventArtifact — D-18 item 6, end-to-end (plan 07-08 Task 3)", (
   });
 });
 
-describe("T-04-22: schema-parse failure occurs before any upload call is made", () => {
+describe("schema-parse failure occurs before any upload call is made", () => {
   it("buildEventArtifact throws on malformed input and putObject is never called", () => {
     vi.mocked(putObject).mockClear();
     const malformedPredictions = [
@@ -1298,7 +1298,7 @@ describe("T-04-22: schema-parse failure occurs before any upload call is made", 
 });
 
 describe("buildTeamsArtifact", () => {
-  it("assembles a small fixture that parses against TeamsArtifactWireSchema, rounding metrics and encoding positionally (260902-pbe)", () => {
+  it("assembles a small fixture that parses against TeamsArtifactWireSchema, rounding metrics and encoding positionally", () => {
     const artifact = buildTeamsArtifact({
       season: 2026,
       algorithmId: "opr",
@@ -1325,7 +1325,7 @@ describe("buildTeamsArtifact", () => {
     expect(decodeTeamsRowMetrics(artifact.teams[0]!.metrics as never, artifact.metricKeys!).total?.value).toBe(12.35);
   });
 
-  it("given a team input with region fields, emits them on that row (quick task 260905-ttv)", () => {
+  it("given a team input with region fields, emits them on that row", () => {
     const artifact = buildTeamsArtifact({
       season: 2026,
       algorithmId: "opr",
