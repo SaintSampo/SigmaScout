@@ -14,9 +14,8 @@
  *
  * **Measurement event: `2023cur` (2023 Sacramento Regional).** Chosen from
  * 08-05-SUMMARY.md's verified RP-eligible/pmf-publishing census, confirmed
- * live against the real artifact origin before this spec was written
- * (`https://data.sigmascout.org/v1/event/2023cur/vpr@2.1.0+tuned-2026-08.json`,
- * 2026-08-31): 78 teams (the corpus's measured maximum roster) and 130
+ * live against the real artifact origin before this spec was written:
+ * 78 teams (the corpus's measured maximum roster) and 130
  * played qualification rows, every one of the 130 carrying both
  * `redRpPmf`/`blueRpPmf`. The event is fully played (`upcoming: []`), so no
  * row is pre-selected by default (D-01) — this spec selects the FIRST
@@ -29,7 +28,7 @@
 import { test, expect } from "@playwright/test";
 
 const EVENT_KEY = "2023cur";
-const EVENT_URL = `/event/${EVENT_KEY}?algorithm=vpr&tab=simulation`;
+const EVENT_URL = `/event/${EVENT_KEY}?algorithm=spr&tab=simulation`;
 const FIRST_QUAL_MATCH_KEY = `${EVENT_KEY}_qm1`;
 
 // Literal testids/labels, matching `RunControl.tsx`'s/`StartMatchPicker.tsx`'s

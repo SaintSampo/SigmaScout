@@ -27,7 +27,7 @@ test("the 2026vache constant is genuinely 124 characters — a silently edited c
 
 test.describe("E1 — the longest published event name renders whole, truncates by layout only, never pans the page", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/event/2026vache?algorithm=vpr", { waitUntil: "networkidle" });
+    await page.goto("/event/2026vache?algorithm=spr", { waitUntil: "networkidle" });
     await page.getByTestId("event-header").waitFor({ state: "visible", timeout: 15_000 });
   });
 
@@ -127,7 +127,7 @@ test.describe("E1 — the longest published event name renders whole, truncates 
 test("phone-390 only: the heading genuinely overflows its own box at 390px, proving the ellipsis rule above is doing real truncation work", async ({ page }, testInfo) => {
   if (!testInfo.project.name.endsWith("phone-390")) return;
 
-  await page.goto("/event/2026vache?algorithm=vpr", { waitUntil: "networkidle" });
+  await page.goto("/event/2026vache?algorithm=spr", { waitUntil: "networkidle" });
   const heading = page.getByRole("heading", { level: 1 });
   await expect(heading).toBeVisible();
   const { scrollWidth, clientWidth } = await heading.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));

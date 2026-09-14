@@ -262,7 +262,7 @@ const SIMULATION_UNAVAILABLE_HEADING = "Rank simulation isn't available for this
 
 test.describe("S1 control — 2024wvrox, the largest qualification slate in the corpus (135 rows), renders the unavailable state and zero picker rows", () => {
   test("the event-type gate, made legible as a control: TBA event type 99 is deliberately absent from EVENT_TYPE_TIERS, so the RP algorithm emits no pmf here, so hasSimulatableRankInputs is false and the unavailable branch renders instead of a picker", async ({ page }) => {
-    await page.goto(`/event/${S1_CONTROL_EVENT_KEY}?algorithm=vpr&tab=simulation`, { waitUntil: "networkidle" });
+    await page.goto(`/event/${S1_CONTROL_EVENT_KEY}?algorithm=spr&tab=simulation`, { waitUntil: "networkidle" });
     await expect(page.getByText(SIMULATION_UNAVAILABLE_HEADING)).toBeVisible();
     expect(await page.locator(`[data-testid^="${SIMULATION_TEST_IDS.rowPrefix}"]`).count()).toBe(0);
   });

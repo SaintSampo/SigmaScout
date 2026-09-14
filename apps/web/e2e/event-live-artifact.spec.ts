@@ -3,7 +3,7 @@
  * these claims is viewport-dependent. Artifacts are fetched through
  * Playwright's `request` fixture (an anonymous public GET against our own
  * R2 origin, `https://data.sigmascout.org` — no CORS is involved on that
- * path), with the `vpr` algorithm version resolved ONCE from
+ * path), with the `spr` algorithm version resolved ONCE from
  * `v1/manifest/algorithms.json` and never hardcoded, so a rename or any
  * future version bump cannot silently turn these cases into
  * 404-assertions.
@@ -13,17 +13,17 @@ import type { EventArtifact } from "../../../packages/harness/pageArtifacts.js";
 
 const ORIGIN = "https://data.sigmascout.org";
 
-async function resolveVprVersion(request: APIRequestContext): Promise<string> {
+async function resolveSprVersion(request: APIRequestContext): Promise<string> {
   const response = await request.get(`${ORIGIN}/v1/manifest/algorithms.json`);
   expect(response.ok(), `manifest fetch failed: ${response.status()}`).toBe(true);
   const manifest = (await response.json()) as { algorithms: { id: string; version: string }[] };
-  const vpr = manifest.algorithms.find((a) => a.id === "vpr");
-  if (vpr === undefined) throw new Error("manifest carries no vpr entry — the prerequisite publish has not landed");
-  return vpr.version;
+  const spr = manifest.algorithms.find((a) => a.id === "spr");
+  if (spr === undefined) throw new Error("manifest carries no spr entry — the prerequisite publish has not landed");
+  return spr.version;
 }
 
 async function fetchEventArtifact(request: APIRequestContext, eventKey: string, version: string): Promise<EventArtifact> {
-  const url = `${ORIGIN}/v1/event/${eventKey}/vpr@${version}.json`;
+  const url = `${ORIGIN}/v1/event/${eventKey}/spr@${version}.json`;
   const response = await request.get(url);
   expect(response.ok(), `${url} did not resolve 200 (got ${response.status()})`).toBe(true);
   return (await response.json()) as EventArtifact;
@@ -39,7 +39,7 @@ test.describe("ledger row 4 — no-ranking fallback ordering, real artifact + co
     page,
     request,
   }) => {
-    const version = await resolveVprVersion(request);
+    const version = await resolveSprVersion(request);
     const artifact = await fetchEventArtifact(request, "2025isios", version);
     expect(artifact.teams.length).toBeGreaterThan(0);
     // Absence via the property's own absence/undefined, never a falsy check —
@@ -47,7 +47,7 @@ test.describe("ledger row 4 — no-ranking fallback ordering, real artifact + co
     const anyRanked = artifact.teams.some((team) => team.rank !== undefined);
     expect(anyRanked, "2025isios unexpectedly carries a rank on at least one team — the no-ranking fallback fixture no longer exhibits the shape under test").toBe(false);
 
-    await page.goto("/event/2025isios?tab=insights&algorithm=vpr", { waitUntil: "networkidle" });
+    await page.goto("/event/2025isios?tab=insights&algorithm=spr", { waitUntil: "networkidle" });
     const banner = page.getByTestId("insights-fallback-banner");
     await expect(banner).toBeVisible();
     const text = await banner.innerText();
@@ -58,13 +58,13 @@ test.describe("ledger row 4 — no-ranking fallback ordering, real artifact + co
   // banner (a bug that would make the positive case above pass regardless of
   // whether the discriminant logic actually works) would go undetected.
   test("2024new: every one of its 75 teams carries a rank, and the Insights tab renders NO fallback banner", async ({ page, request }) => {
-    const version = await resolveVprVersion(request);
+    const version = await resolveSprVersion(request);
     const artifact = await fetchEventArtifact(request, "2024new", version);
     expect(artifact.teams.length).toBe(75);
     const allRanked = artifact.teams.every((team) => team.rank !== undefined);
     expect(allRanked, "2024new no longer publishes a rank on every team — the no-ranking control fixture no longer exhibits the shape under test").toBe(true);
 
-    await page.goto("/event/2024new?tab=insights&algorithm=vpr", { waitUntil: "networkidle" });
+    await page.goto("/event/2024new?tab=insights&algorithm=spr", { waitUntil: "networkidle" });
     await expect(page.getByTestId("insights-row").first()).toBeVisible();
     await expect(page.getByTestId("insights-fallback-banner")).toHaveCount(0);
   });
@@ -80,7 +80,7 @@ test.describe("ledger row 10 — the two-pick alliance contract, real artifact +
     page,
     request,
   }) => {
-    const version = await resolveVprVersion(request);
+    const version = await resolveSprVersion(request);
     const artifact = await fetchEventArtifact(request, "2024vabrb", version);
     const alliances = artifact.alliances ?? [];
     expect(alliances.length).toBe(5);
@@ -88,7 +88,7 @@ test.describe("ledger row 10 — the two-pick alliance contract, real artifact +
       expect(alliance.picks.length, `alliance ${alliance.allianceNumber} does not carry exactly 2 picks`).toBe(2);
     }
 
-    await page.goto("/event/2024vabrb?tab=alliances&algorithm=vpr", { waitUntil: "networkidle" });
+    await page.goto("/event/2024vabrb?tab=alliances&algorithm=spr", { waitUntil: "networkidle" });
     const trigger = page.getByRole("tab", { name: "Alliances" });
     await expect(trigger).toBeEnabled();
 
@@ -108,7 +108,7 @@ test.describe("ledger row 10 — the two-pick alliance contract, real artifact +
   // assertion above could pass even if the app rendered "—" unconditionally
   // for every alliance regardless of the underlying data.
   test("2024new: 8 alliances, each with a populated Pick 3", async ({ page, request }) => {
-    const version = await resolveVprVersion(request);
+    const version = await resolveSprVersion(request);
     const artifact = await fetchEventArtifact(request, "2024new", version);
     const alliances = artifact.alliances ?? [];
     expect(alliances.length).toBe(8);
@@ -116,7 +116,7 @@ test.describe("ledger row 10 — the two-pick alliance contract, real artifact +
       expect(alliance.picks.length, `alliance ${alliance.allianceNumber} does not carry a 3rd pick`).toBeGreaterThanOrEqual(3);
     }
 
-    await page.goto("/event/2024new?tab=alliances&algorithm=vpr", { waitUntil: "networkidle" });
+    await page.goto("/event/2024new?tab=alliances&algorithm=spr", { waitUntil: "networkidle" });
     const rows = page.getByTestId("alliances-row");
     await expect(rows.first()).toBeVisible();
     expect(await rows.count()).toBe(8);
@@ -187,7 +187,7 @@ test.describe("ledger row 9 (corrected) — the alliance-uncertainty gap narrows
   test("the mean gap (sigma_match - sigma_alliance) is smaller in the second half of an event's elimination matches than in the first half, pooled across four candidate events", async ({
     request,
   }) => {
-    const version = await resolveVprVersion(request);
+    const version = await resolveSprVersion(request);
     const pairs: IdentityPair[] = [];
     const eventsChecked: string[] = [];
 
@@ -316,7 +316,7 @@ test.describe("ledger row 8 (behavioral half) — the shipped 2022ilpe eliminati
   ] as const;
 
   test("2022ilpe: the rendered rows' round labels form exactly this 18-element sequence (documents what ships; does not endorse it)", async ({ page }) => {
-    await page.goto("/event/2022ilpe?tab=elims&algorithm=vpr", { waitUntil: "networkidle" });
+    await page.goto("/event/2022ilpe?tab=elims&algorithm=spr", { waitUntil: "networkidle" });
     const rows = page.locator('[data-testid^="match-row-"]');
     await expect(rows.first()).toBeVisible();
     expect(await rows.count()).toBe(ACTUAL_SHIPPED_ORDER.length);

@@ -27,7 +27,7 @@
 import { test, expect, type Locator } from "@playwright/test";
 
 const EVENT_KEY = "2024new";
-const TEAM_URL = "/team/118?year=2024&algorithm=vpr";
+const TEAM_URL = "/team/118?year=2024&algorithm=spr";
 
 interface RegionCase {
   name: string;
@@ -37,12 +37,12 @@ interface RegionCase {
 
 /** Every site named in 07-UAT.md's G-4 gap report as carrying the defect. */
 const REGIONS: RegionCase[] = [
-  { name: "event tab strip", url: `/event/${EVENT_KEY}?algorithm=vpr&tab=insights`, testId: "event-tab-strip-scroll" },
-  { name: "Insights table", url: `/event/${EVENT_KEY}?algorithm=vpr&tab=insights`, testId: "insights-table-scroll" },
-  { name: "Breakdown table", url: `/event/${EVENT_KEY}?algorithm=vpr&tab=breakdown`, testId: "breakdown-table-scroll" },
-  { name: "Quals table", url: `/event/${EVENT_KEY}?algorithm=vpr&tab=quals`, testId: "quals-table-scroll" },
-  { name: "Alliances table", url: `/event/${EVENT_KEY}?algorithm=vpr&tab=alliances`, testId: "alliances-table-scroll" },
-  { name: "Elims table", url: `/event/${EVENT_KEY}?algorithm=vpr&tab=elims`, testId: "elims-table-scroll" },
+  { name: "event tab strip", url: `/event/${EVENT_KEY}?algorithm=spr&tab=insights`, testId: "event-tab-strip-scroll" },
+  { name: "Insights table", url: `/event/${EVENT_KEY}?algorithm=spr&tab=insights`, testId: "insights-table-scroll" },
+  { name: "Breakdown table", url: `/event/${EVENT_KEY}?algorithm=spr&tab=breakdown`, testId: "breakdown-table-scroll" },
+  { name: "Quals table", url: `/event/${EVENT_KEY}?algorithm=spr&tab=quals`, testId: "quals-table-scroll" },
+  { name: "Alliances table", url: `/event/${EVENT_KEY}?algorithm=spr&tab=alliances`, testId: "alliances-table-scroll" },
+  { name: "Elims table", url: `/event/${EVENT_KEY}?algorithm=spr&tab=elims`, testId: "elims-table-scroll" },
 ];
 
 async function assertVerticalPanPermittedAndOverscrollUnchanged(locator: Locator, label: string): Promise<void> {

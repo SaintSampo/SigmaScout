@@ -46,7 +46,7 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 const EVENT_KEY = "2024new";
 
 /** Same team/season the diagnosis in 07-UAT.md's own live measurement used. */
-const TEAM_URL = "/team/118?year=2024&algorithm=vpr";
+const TEAM_URL = "/team/118?year=2024&algorithm=spr";
 
 /** First four `<td>`s of a match row: the sticky Match column, the plot, Confidence and Pred. Score — enough to prove the stripe runs the FULL row width, not just the sticky cell. */
 const CELL_SAMPLE_COUNT = 4;
@@ -59,8 +59,8 @@ interface TableTarget {
 }
 
 const TARGETS: TableTarget[] = [
-  { name: "Quals", url: `/event/${EVENT_KEY}?tab=quals&algorithm=vpr`, regionTestId: "quals-table-scroll" },
-  { name: "Elims", url: `/event/${EVENT_KEY}?tab=elims&algorithm=vpr`, regionTestId: "elims-table-scroll" },
+  { name: "Quals", url: `/event/${EVENT_KEY}?tab=quals&algorithm=spr`, regionTestId: "quals-table-scroll" },
+  { name: "Elims", url: `/event/${EVENT_KEY}?tab=elims&algorithm=spr`, regionTestId: "elims-table-scroll" },
 ];
 
 /**

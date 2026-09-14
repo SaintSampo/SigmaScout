@@ -16,28 +16,22 @@ import { expect, test } from "@playwright/test";
  * particular fix.
  */
 const ROUTES = [
-  "/teams?year=2026&algorithm=vpr",
+  "/teams?year=2026&algorithm=spr",
   "/teams?year=2026&algorithm=opr",
   "/events?year=2025",
 ];
 
 /**
- * A real team-year known to render at least TWO event sections (06-08-PLAN.md
- * Task 3) — frc118/2024, D-05's own measured 292-match outlier and the
- * team-page payload's largest published object
- * (`docs/publish-budget.md`/`packages/harness/payloadBudget.test.ts`'s
- * `v1/team/frc118/2024/vpr@2.0.0+tuned-2026-08.json`, the key this route
- * fetches after plan 07-18's cutover — 07-17 wrote it, and 06-06-SUMMARY.md's
- * original "confirmed live" measurement was taken under the pre-rename
- * `sigma1@` key [pre-rename] this same object was published under before
- * the rename).
+ * A real team-year known to render at least TWO event sections — frc118/2024,
+ * a measured 292-match outlier and the team-page payload's largest published
+ * object (`docs/publish-budget.md`/`packages/harness/payloadBudget.test.ts`).
  * A 292-match season across a full district campaign necessarily spans
  * multiple events, so this route is chosen specifically because it is
  * already the phase's own named at-risk fixture, not an arbitrary pick — a
  * later reader can re-verify by re-running `payloadBudget.test.ts`'s
  * largest-key report if the corpus changes.
  */
-const TEAM_ROUTE = "/team/118?year=2024&algorithm=vpr";
+const TEAM_ROUTE = "/team/118?year=2024&algorithm=spr";
 const SCROLLER_TESTID_PATTERN = '[data-testid^="match-table-scroll-"]';
 const MIN_TEAM_ROUTE_SCROLLERS = 2;
 
@@ -107,7 +101,7 @@ test("each of the team page's per-section scrollers is individually wider than i
 });
 
 test("the teams table itself still scrolls horizontally", async ({ page }) => {
-  await page.goto("/teams?year=2026&algorithm=vpr", { waitUntil: "networkidle" });
+  await page.goto("/teams?year=2026&algorithm=spr", { waitUntil: "networkidle" });
   await page.waitForTimeout(1500);
 
   const scroller = page.getByTestId("teams-table-scroll");

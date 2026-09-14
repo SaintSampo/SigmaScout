@@ -83,7 +83,7 @@ interface TableSpec {
 const TABLES: TableSpec[] = [
   {
     name: "Insights (2023cur, widest real roster)",
-    url: "/event/2023cur?tab=insights&algorithm=vpr",
+    url: "/event/2023cur?tab=insights&algorithm=spr",
     regionTestId: "insights-table-scroll",
     headerPrefix: "insights-header",
     cellPrefix: "insights-cell",
@@ -98,7 +98,7 @@ const TABLES: TableSpec[] = [
   },
   {
     name: "Breakdown (2024new, widest column set)",
-    url: "/event/2024new?tab=breakdown&algorithm=vpr",
+    url: "/event/2024new?tab=breakdown&algorithm=spr",
     regionTestId: "breakdown-table-scroll",
     headerPrefix: "breakdown-header",
     cellPrefix: "breakdown-cell",
@@ -111,7 +111,7 @@ const TABLES: TableSpec[] = [
   },
   {
     name: "TeamsTable (2024 season)",
-    url: "/teams?year=2024&algorithm=vpr&sort=total&sortDir=desc",
+    url: "/teams?year=2024&algorithm=spr&sort=total&sortDir=desc",
     regionTestId: "teams-table-scroll",
     headerPrefix: "teams-header",
     cellPrefix: "teams-cell",

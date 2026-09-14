@@ -1,9 +1,7 @@
 /**
- * The team-page tracer's end-to-end proof (06-01-PLAN.md Task 1): a real
- * published `v1/team/frc1114/2024/vpr@{version}.json` artifact is fetched,
- * parsed and rendered on `/team/1114` — the renamed key plan 07-18's cutover
- * points this spec at (07-17 wrote it; this spec fetched the pre-rename
- * `sigma1@` key of the same object before this plan [pre-rename]).
+ * The team-page tracer's end-to-end proof: a real published
+ * `v1/team/frc1114/2024/spr@{version}.json` artifact is fetched, parsed and
+ * rendered on `/team/1114`.
  *
  * Runs against the DEPLOYED origin (`playwright.config.ts`'s `baseURL`),
  * following `touch-scroll.spec.ts`'s own header rule: `https://data.sigmascout.org`'s
@@ -13,7 +11,7 @@
  */
 import { test, expect } from "@playwright/test";
 
-const TEAM_URL = "/team/1114?year=2024&algorithm=vpr";
+const TEAM_URL = "/team/1114?year=2024&algorithm=spr";
 
 test.describe("Team page tracer", () => {
   test("renders a real team's nickname, number and record from the live bucket", async ({ page }) => {
@@ -38,7 +36,7 @@ test.describe("Team page tracer", () => {
       }
     });
 
-    await page.goto("/team/notateam?year=2024&algorithm=vpr");
+    await page.goto("/team/notateam?year=2024&algorithm=spr");
     await expect(page.getByText('"notateam" is not a valid team number.')).toBeVisible();
     expect(teamRequestFired).toBe(false);
   });

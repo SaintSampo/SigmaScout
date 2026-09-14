@@ -22,7 +22,7 @@ import { expect, test } from "@playwright/test";
  * 07-UAT.md G-9's own precedent of keeping an already-passing assertion as
  * a regression guard alongside a proven-RED one.
  */
-const ROUTE = "/teams?year=2026&algorithm=vpr";
+const ROUTE = "/teams?year=2026&algorithm=spr";
 /** Matches many team numbers by prefix (D-09) — enough combined results to hit `SEARCH_RESULT_CAP` (8) and make the header's content taller than the header itself. */
 const QUERY = "1";
 const SEARCH_PLACEHOLDER = "Search teams or events";

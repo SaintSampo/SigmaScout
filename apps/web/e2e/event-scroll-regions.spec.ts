@@ -55,7 +55,7 @@ const TAB_SCROLL_TESTID: Record<string, string> = {
 const TABS = ["insights", "breakdown", "quals", "alliances", "elims", "simulation"] as const;
 
 function eventUrl(eventKey: string, tab: string): string {
-  return `/event/${eventKey}?algorithm=vpr&tab=${tab}`;
+  return `/event/${eventKey}?algorithm=spr&tab=${tab}`;
 }
 
 // `assertNoIntermediateScroller`, `assertOverflows`, `assertNoPagePan` and

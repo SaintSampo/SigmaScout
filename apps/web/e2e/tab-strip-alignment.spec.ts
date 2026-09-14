@@ -13,7 +13,7 @@
  */
 import { test, expect } from "@playwright/test";
 
-const EVENT_URL = "/event/2024new?algorithm=vpr&tab=insights";
+const EVENT_URL = "/event/2024new?algorithm=spr&tab=insights";
 /** Real-world subpixel/font-hinting tolerance for position comparisons. */
 const TOLERANCE_PX = 2;
 

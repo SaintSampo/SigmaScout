@@ -20,7 +20,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 
-const EVENT_URL = "/event/2024new?tab=breakdown&algorithm=vpr";
+const EVENT_URL = "/event/2024new?tab=breakdown&algorithm=spr";
 
 /** The pre-fix overflow number (before ANY fix), both target viewports — kept as the original historical anchor. */
 const PRE_FIX_OVERFLOW_PX = 836;
@@ -157,5 +157,5 @@ test("Breakdown desktop (1440px, 2024new): no metric-tier cell content clips at 
 test("Breakdown desktop (1440px, 2026alhu — the six-digit-Total worst case): no metric-tier cell content clips at the narrowed column widths", async ({
   page,
 }) => {
-  await assertNoCellClipping(page, "/event/2026alhu?tab=breakdown&algorithm=vpr");
+  await assertNoCellClipping(page, "/event/2026alhu?tab=breakdown&algorithm=spr");
 });

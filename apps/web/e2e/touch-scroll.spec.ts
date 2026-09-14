@@ -26,7 +26,7 @@
 import { test, expect } from "@playwright/test";
 import { scrollPosition, touchDrag } from "./support/touchDrag.js";
 
-const TEAMS_URL = "/teams?year=2024&algorithm=vpr&sort=total&sortDir=desc";
+const TEAMS_URL = "/teams?year=2024&algorithm=spr&sort=total&sortDir=desc";
 const SCROLL_CONTAINER = '[data-testid="teams-table-scroll"]';
 const HEADER = '[data-slot="table-header"]';
 const ROW = '[data-testid="teams-row"]';
@@ -158,7 +158,7 @@ test("a pinned cell's background is opaque, not transparent", async ({ page }) =
  * human check remains a separate, outstanding verification step.
  */
 test.describe("team page — per-event-section touch scroll", () => {
-  const TEAM_URL = "/team/118?year=2024&algorithm=vpr";
+  const TEAM_URL = "/team/118?year=2024&algorithm=spr";
   const SCROLLER_TESTID_PATTERN = '[data-testid^="match-table-scroll-"]';
 
   test.beforeEach(async ({ page }) => {

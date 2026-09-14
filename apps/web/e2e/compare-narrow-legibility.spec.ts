@@ -134,7 +134,7 @@ test.describe("C3 — the Compare calibration section at 390px: each card's head
     const viewport = page.viewportSize();
     if (!viewport) throw new Error("no viewport size");
 
-    for (const algorithmId of ["opr", "epa", "vpr"]) {
+    for (const algorithmId of ["opr", "epa", "spr"]) {
       const card = page.getByTestId(`compare-calibration-card-${algorithmId}`);
       await expect(card).toBeVisible();
       await card.scrollIntoViewIfNeeded();

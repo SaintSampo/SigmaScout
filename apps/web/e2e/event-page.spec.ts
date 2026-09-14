@@ -1,11 +1,7 @@
 /**
- * The event-page tracer's end-to-end proof (07-01-PLAN.md Task 1): a real
- * published `v1/event/2024casf/vpr@{version}.json` artifact is fetched,
- * parsed and rendered on `/event/2024casf` — the renamed key plan 07-18's
- * cutover points this spec at (07-17 wrote it; this spec fetched the
- * pre-rename `sigma1@` key of the same object before this plan [pre-rename]).
- * Found live by 07-18 Task 3's re-grep — this file did not exist when
- * 07-16's handoff list was written (created between waves 6 and 10).
+ * The event-page tracer's end-to-end proof: a real published
+ * `v1/event/2024casf/spr@{version}.json` artifact is fetched, parsed and
+ * rendered on `/event/2024casf`.
  *
  * Runs against the DEPLOYED origin (`playwright.config.ts`'s `baseURL`),
  * following `team-page.spec.ts`'s own header rule: `https://data.sigmascout.org`'s
@@ -15,7 +11,7 @@
  */
 import { test, expect } from "@playwright/test";
 
-const EVENT_URL = "/event/2024casf?algorithm=vpr";
+const EVENT_URL = "/event/2024casf?algorithm=spr";
 
 test.describe("Event page tracer", () => {
   // [Rule 1 - Bug, found live running this task's own required e2e pass]
@@ -51,7 +47,7 @@ test.describe("Event page tracer", () => {
       }
     });
 
-    await page.goto("/event/notanevent?algorithm=vpr");
+    await page.goto("/event/notanevent?algorithm=spr");
     await expect(page.getByText('"notanevent" is not a valid event key.')).toBeVisible();
     expect(eventRequestFired).toBe(false);
   });
