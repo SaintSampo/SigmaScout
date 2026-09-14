@@ -107,7 +107,7 @@ function rpDigest(run: LayerRun): string {
   return createHash("sha256").update(JSON.stringify(serialized)).digest("hex");
 }
 
-describe("RP and simulation fields are byte-identical to pre-260913-g66 output (D1a pin)", () => {
+describe("RP and simulation fields are byte-identical to the pinned digests", () => {
   const fixture = loadFixture();
   const algorithms = resolvePublishAlgorithms(undefined);
   const byId = (id: string) => algorithms.find((a) => a.id === id) as AlgorithmModule<unknown>;
@@ -138,11 +138,11 @@ describe("RP and simulation fields are byte-identical to pre-260913-g66 output (
     expect(new SigmaScoutLayer(RP_RULE_MODULES[fixture.sliceSeason], id).rpAccumulator).toBeUndefined();
   }
 
-  it("opr: publishes no ranking-point field on any played or upcoming row (quick task 260913-it4)", () => {
+  it("opr: publishes no ranking-point field on any played or upcoming row", () => {
     expectNoRpFields("opr");
   });
 
-  it("epa: publishes no ranking-point field on any played or upcoming row (quick task 260913-it4)", () => {
+  it("epa: publishes no ranking-point field on any played or upcoming row", () => {
     expectNoRpFields("epa");
   });
 });

@@ -97,7 +97,7 @@ describe("parser robustness (never a silent skip on a missing/corrupt budget blo
 // The committed budget doc itself
 // ---------------------------------------------------------------------------
 
-describe("published payload budget (D-05)", () => {
+describe("published payload budget", () => {
   // Reading the committed budget happens once, at describe-time, so a
   // missing/corrupt docs/publish-budget.md fails every test below loudly
   // (via the throw inside readCommittedPublishBudget) rather than skipping
@@ -146,7 +146,7 @@ describe("published payload budget (D-05)", () => {
     expect(budget.run.length).toBeGreaterThan(0);
   });
 
-  it("teams page (the year-wide table, D-05's first at-risk artifact) stays under its absolute upper bound", () => {
+  it("teams page (the year-wide table, the first at-risk artifact) stays under its absolute upper bound", () => {
     const entry = budget.pages.teams!;
     expect(
       entry.maxBytes,
@@ -154,7 +154,7 @@ describe("published payload budget (D-05)", () => {
     ).toBeLessThan(TEAMS_PAGE_ABSOLUTE_MAX_BYTES);
   });
 
-  it("team page (the 292-match outlier, D-05's second at-risk artifact) stays under its absolute upper bound", () => {
+  it("team page (the 292-match outlier, the second at-risk artifact) stays under its absolute upper bound", () => {
     const entry = budget.pages.team!;
     expect(
       entry.maxBytes,
@@ -162,11 +162,11 @@ describe("published payload budget (D-05)", () => {
     ).toBeLessThan(TEAM_PAGE_ABSOLUTE_MAX_BYTES);
   });
 
-  it("event page (the D-03/D-12 republish target, 08-05's byte gate) stays at or under EVENT_PAGE_ABSOLUTE_MAX_BYTES, reachable in isolation regardless of ledger #11's state", () => {
+  it("event page (the republish target) stays at or under EVENT_PAGE_ABSOLUTE_MAX_BYTES, reachable in isolation regardless of ledger #11's state", () => {
     const entry = budget.pages.event!;
     expect(
       entry.maxBytes,
-      `event page maxBytes (${entry.maxBytes}) exceeded EVENT_PAGE_ABSOLUTE_MAX_BYTES (${EVENT_PAGE_ABSOLUTE_MAX_BYTES}, largestKey=${entry.largestKey}) — D-03/D-12's republish breached the 350,000-byte event ceiling; this is a stop-and-report condition, never something to absorb by raising the ceiling or trimming a field`
+      `event page maxBytes (${entry.maxBytes}) exceeded EVENT_PAGE_ABSOLUTE_MAX_BYTES (${EVENT_PAGE_ABSOLUTE_MAX_BYTES}, largestKey=${entry.largestKey}) — the republish breached the 350,000-byte event ceiling; this is a stop-and-report condition, never something to absorb by raising the ceiling or trimming a field`
     ).toBeLessThanOrEqual(EVENT_PAGE_ABSOLUTE_MAX_BYTES);
   });
 });

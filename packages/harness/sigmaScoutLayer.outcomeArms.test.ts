@@ -131,7 +131,7 @@ function bonusHalfDigest(rows: readonly DecomposedRow[]): string {
  */
 const PINNED_BONUS_HALF_DIGEST = "db06b44e954d6b860314a7581b4120defb47140e8adc3d361700e33893d78ca2";
 
-describe("SHIPPED outcome half (260913-qyn, WIN+TIE) on the default two-argument SigmaScoutLayer", () => {
+describe("SHIPPED outcome half (WIN+TIE) on the default two-argument SigmaScoutLayer", () => {
   const fixture = loadFixture();
   const algorithms = resolvePublishAlgorithms(undefined);
   const spr = algorithms.find((a) => a.id === "spr") as AlgorithmModule<unknown>;
@@ -159,13 +159,13 @@ describe("SHIPPED outcome half (260913-qyn, WIN+TIE) on the default two-argument
     expect(decomposed.some((r) => r.prediction.matchOutcomePmf![1]! > 0)).toBe(true);
   });
 
-  it("the outcome half (played and upcoming passes) is bitwise equal to the digest pinned before the 260914-01x bonus ship", () => {
+  it("the outcome half (played and upcoming passes) is bitwise equal to the digest pinned before the bonus ship", () => {
     const rows = runLayerWithUpcoming(spr, fixture);
     expect(rows.some((r) => r.prediction.matchOutcomePmf !== undefined)).toBe(true);
     expect(outcomeHalfDigest(rows)).toBe(PINNED_OUTCOME_HALF_DIGEST);
   });
 
-  it("the bonus half is bitwise equal to the digest pinned on the shipped lattice+meanShift source (260914-01x)", () => {
+  it("the bonus half is bitwise equal to the digest pinned on the shipped lattice+meanShift source", () => {
     const rows = runLayer(spr, fixture);
     expect(bonusHalfDigest(rows)).toBe(PINNED_BONUS_HALF_DIGEST);
   });

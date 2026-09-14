@@ -29,7 +29,7 @@ function upcomingMatch(): UpcomingMatch {
   };
 }
 
-describe("#rpFieldsFor's alliance band guard (F8/F9 — out of scope, and deliberately untouched)", () => {
+describe("#rpFieldsFor's alliance band guard", () => {
   it("produces NO RP fields when the alliances have no band yet — a cold roster gets no pmf rather than a guessed one", () => {
     // A layer that has folded nothing leaves both alliance bands undefined here.
     const layer = new SigmaScoutLayer(RP_RULE_MODULES[2026], "spr");

@@ -126,7 +126,7 @@ function resolveSliceMatches(baseline: Level1DigestBaseline): { fromCorpus?: Mat
   return result;
 }
 
-describe("level-1 output byte-identity gate (D-12, phase 09 plan 09-01)", () => {
+describe("level-1 output byte-identity gate", () => {
   if (!CORPUS_AVAILABLE && !FIXTURE_AVAILABLE) {
     it.skip(`skipped: neither ${CORPUS_PATH} (run the ingest pipeline, pnpm ingest) nor ${DIGEST_SLICE_FIXTURE_PATH} (should be committed) was found`, () => {});
   } else if (!existsSync(LEVEL1_BASELINE_PATH)) {
@@ -288,13 +288,13 @@ const FROZEN_AT_09_01_STREAM_SHA256 = {
   bpr: "ee9acfec85ae0a72c3bbd53ea82092efe1e706352f2be9512798be72551ede49",
 } as const;
 
-describe("D-12 across the whole phase: the algorithms Phase 9 did not touch never moved (plan 09-10 Task 7)", () => {
+describe("the RP layer moved no level-1 output: the algorithms it did not touch never moved", () => {
   if (!CORPUS_AVAILABLE && !FIXTURE_AVAILABLE) {
     it.skip(`skipped: neither ${CORPUS_PATH} nor ${DIGEST_SLICE_FIXTURE_PATH} was found`, () => {});
   } else if (!existsSync(LEVEL1_BASELINE_PATH)) {
     it.skip(`skipped: ${LEVEL1_BASELINE_PATH} does not exist yet`, () => {});
   } else {
-    it("opr and bpr reproduce the digests 09-01 froze, bitwise — independent of how many times the baseline file has since been re-frozen", () => {
+    it("opr and bpr reproduce the frozen digests, bitwise — independent of how many times the baseline file has since been re-frozen", () => {
       const baseline = loadBaseline();
       const { fromCorpus, fromFixture } = resolveSliceMatches(baseline);
       const stream = fromCorpus ?? fromFixture;
@@ -315,7 +315,7 @@ describe("D-12 across the whole phase: the algorithms Phase 9 did not touch neve
         expect(
           computePredictionStreamDigest(folded),
           `${algorithmId}'s level-1 prediction stream (pRedWin/redScore/blueScore) no longer reproduces the digest ` +
-            `frozen by 09-01 at commit 47df877d. Phase 9's RP layer has no code path back into level 1 — ` +
+            `frozen at commit 47df877d. The RP layer has no code path back into level 1 — ` +
             `SigmaScoutLayer.foldPlayed ATTACHES level-2 fields to the prediction it is handed and never mutates ` +
             `those three — so this is a REAL CROSS-LEVEL LEAK, not a tolerance question and not a baseline to ` +
             `refresh. Do NOT update FROZEN_AT_09_01_STREAM_SHA256 to make this pass: that would delete the only ` +

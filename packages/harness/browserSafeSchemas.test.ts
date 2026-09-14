@@ -119,7 +119,7 @@ describe("browser-safe schema import graph", () => {
     expect(visited.has(resolve(HERE, "metricHistorySchema.ts"))).toBe(true);
   });
 
-  it("metricHistorySchema.ts specifically carries zero Node-only imports (plan 06.1-03 Task 2) — a future Node import there is caught by this named assertion, not a broken production build", () => {
+  it("metricHistorySchema.ts specifically carries zero Node-only imports — a future Node import there is caught by this named assertion, not a broken production build", () => {
     const METRIC_HISTORY_SCHEMA = resolve(HERE, "metricHistorySchema.ts");
     const { nodeBuiltinViolations, visited } = scan([METRIC_HISTORY_SCHEMA]);
     expect(visited.has(METRIC_HISTORY_SCHEMA)).toBe(true);
@@ -141,7 +141,7 @@ describe("browser-safe schema import graph", () => {
     }
   });
 
-  it("never reaches a Node built-in import from packages/core/rankingPoints/constants.ts (checked for Node built-ins only — as of 2026-09-09 this entry point lives in packages/core/rankingPoints/, outside algorithms/ entirely, plan 06.1-08 Task 3, G-06.1-26)", () => {
+  it("never reaches a Node built-in import from packages/core/rankingPoints/constants.ts (checked for Node built-ins only — this entry point lives in packages/core/rankingPoints/, outside algorithms/ entirely)", () => {
     const { nodeBuiltinViolations, visited } = scan([RP_CONSTANTS_ENTRY_POINT]);
     expect(visited.has(RP_CONSTANTS_ENTRY_POINT)).toBe(true);
     if (nodeBuiltinViolations.length > 0) {
@@ -150,7 +150,7 @@ describe("browser-safe schema import graph", () => {
     }
   });
 
-  it("never reaches a Node built-in import from packages/core/algorithms/simulation/rankSimulation.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/algorithms/, plan 08-03 Task 1)", () => {
+  it("never reaches a Node built-in import from packages/core/algorithms/simulation/rankSimulation.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/algorithms/)", () => {
     const { nodeBuiltinViolations, visited } = scan([RANK_SIMULATION_ENTRY_POINT]);
     expect(visited.has(RANK_SIMULATION_ENTRY_POINT)).toBe(true);
     if (nodeBuiltinViolations.length > 0) {
@@ -159,7 +159,7 @@ describe("browser-safe schema import graph", () => {
     }
   });
 
-  it("never reaches a Node built-in import from packages/harness/teamRanks.ts (checked for Node built-ins only — this module intentionally imports from packages/core/algorithms/eventTypes.ts and types.ts, quick task 260905-ldu)", () => {
+  it("never reaches a Node built-in import from packages/harness/teamRanks.ts (checked for Node built-ins only — this module intentionally imports from packages/core/algorithms/eventTypes.ts and types.ts)", () => {
     const { nodeBuiltinViolations, visited } = scan([TEAM_RANKS_ENTRY_POINT]);
     // Sanity check the scan is not vacuous: it must actually visit the two
     // packages/core/algorithms/ leaf modules this module imports from.
@@ -172,7 +172,7 @@ describe("browser-safe schema import graph", () => {
     }
   });
 
-  it("never reaches a Node built-in import from packages/core/rankingPoints/marginals.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/rankingPoints/, outside packages/core/algorithms/ entirely, plan 09-03 Task 3, D-08)", () => {
+  it("never reaches a Node built-in import from packages/core/rankingPoints/marginals.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/rankingPoints/, outside packages/core/algorithms/ entirely)", () => {
     const { nodeBuiltinViolations, visited } = scan([MARGINALS_ENTRY_POINT]);
     expect(visited.has(MARGINALS_ENTRY_POINT)).toBe(true);
     if (nodeBuiltinViolations.length > 0) {
@@ -181,7 +181,7 @@ describe("browser-safe schema import graph", () => {
     }
   });
 
-  it("never reaches a Node built-in import from packages/core/rankingPoints/analyticPmf.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/rankingPoints/, outside packages/core/algorithms/ entirely, plan 09-04 Task 1, D-08)", () => {
+  it("never reaches a Node built-in import from packages/core/rankingPoints/analyticPmf.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/rankingPoints/, outside packages/core/algorithms/ entirely)", () => {
     const { nodeBuiltinViolations, visited } = scan([ANALYTIC_PMF_ENTRY_POINT]);
     expect(visited.has(ANALYTIC_PMF_ENTRY_POINT)).toBe(true);
     // Sanity check the scan is not vacuous: it must actually visit the
@@ -193,7 +193,7 @@ describe("browser-safe schema import graph", () => {
       expect.fail(`Node built-in import(s) reachable from packages/core/rankingPoints/analyticPmf.ts: ${detail}`);
     }
   });
-  it("never reaches a Node built-in import from packages/core/rankingPoints/fieldAveraged.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/rankingPoints/, outside packages/core/algorithms/ entirely, plan 09-09 Task 1, D-08/D-16)", () => {
+  it("never reaches a Node built-in import from packages/core/rankingPoints/fieldAveraged.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/rankingPoints/, outside packages/core/algorithms/ entirely)", () => {
     const { nodeBuiltinViolations, visited } = scan([FIELD_AVERAGED_ENTRY_POINT]);
     expect(visited.has(FIELD_AVERAGED_ENTRY_POINT)).toBe(true);
     // Sanity check the scan is not vacuous: it must actually visit the

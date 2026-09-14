@@ -83,7 +83,7 @@ function match(overrides: Partial<CorpusMatch> = {}): CorpusMatch {
   };
 }
 
-describe("isLiveAt — half-open interval contract (D-18)", () => {
+describe("isLiveAt — half-open interval contract", () => {
   it("is false exactly at endMs and true one millisecond before it", () => {
     const window = { startMs: 1_000, endMs: 2_000 };
     expect(isLiveAt(window, window.endMs)).toBe(false);
@@ -221,7 +221,7 @@ describe("buildLiveWindowsManifest — corpus-derived windows", () => {
   });
 });
 
-describe("buildLiveWindowsManifest — retention: windows that can never be live again (2026-08-29 outage, cause A)", () => {
+describe("buildLiveWindowsManifest — retention: windows that can never be live again (the live-windows outage's cause A)", () => {
   // The Worker Zod-validates this manifest inside a 10 ms CPU budget on every
   // single cron tick. Anything that cannot be live for any reader of this
   // manifest must not be shipped in it.
@@ -391,7 +391,7 @@ describe("AlgorithmsManifestSchema — legacy keys", () => {
   });
 });
 
-describe("buildAlgorithmsManifest — D-03's published set", () => {
+describe("buildAlgorithmsManifest — the published set", () => {
   it("returns one entry per published id, in PUBLISHED_ALGORITHM_IDS order", () => {
     const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
     expect(manifest.algorithms).toHaveLength(PUBLISHED_ALGORITHM_IDS.length);
@@ -446,11 +446,10 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
   });
 });
 
-describe("PUBLISHED_ALGORITHM_IDS — the single tier again (plan 07-16 Task 2 introduced a transitional second tier, collapsed by plan 07-18 Task 1; reopened and re-collapsed again by quick task 260912-ivg)", () => {
-  // Test 9 (rewritten from 07-16 Task 2's Test 6, not deleted — that case's
-  // own source comment named this plan as the one that makes the two
-  // tiers equal; deleting it instead would remove the only test that ever
-  // knew the transition happened): `PUBLISHED_ALGORITHM_IDS` is once again
+describe("PUBLISHED_ALGORITHM_IDS — the single tier", () => {
+  // Test 9 (rewritten from the two-tier suite's Test 6, not deleted, since
+  // that case was the only test that knew the tier transition happened):
+  // `PUBLISHED_ALGORITHM_IDS` is once again
   // the ONLY algorithm-id constant this module exports, and its members are
   // the renamed triple in the shipped order.
   it("is the module's only algorithm-id constant, and its members are the published triple in the shipped order", async () => {

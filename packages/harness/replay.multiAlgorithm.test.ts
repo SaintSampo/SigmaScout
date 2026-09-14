@@ -58,7 +58,7 @@ function makeInstrumentedAlgorithm(id: string, sharedLog: string[]): AlgorithmMo
   };
 }
 
-describe("WalkForwardSimulator.runAll — D-22 shared-stream guarantee", () => {
+describe("WalkForwardSimulator.runAll — shared-stream guarantee", () => {
   const matches: MatchResult[] = [
     makeMatch({ matchKey: "2024test_qm1", matchNumber: 1 }),
     makeMatch({ matchKey: "2024test_qm2", matchNumber: 2 }),
@@ -152,7 +152,7 @@ describe("WalkForwardSimulator.runAll — D-22 shared-stream guarantee", () => {
     expect(() => simulator.runAll([leakyAlgorithm], [])).toThrow(/Outcome leakage/);
   });
 
-  it("D-28: onMatchComplete fires once per (match, algorithm), strictly after that algorithm's update for that match", () => {
+  it("onMatchComplete fires once per (match, algorithm), strictly after that algorithm's update for that match", () => {
     const sharedLog: string[] = [];
     const algorithmA = makeInstrumentedAlgorithm("a", sharedLog);
     const algorithmB = makeInstrumentedAlgorithm("b", sharedLog);

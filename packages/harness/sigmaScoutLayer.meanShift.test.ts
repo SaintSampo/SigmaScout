@@ -53,7 +53,7 @@ function sameNumbers(a: readonly number[] | undefined, b: readonly number[] | un
   return a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
 }
 
-describe("mean shift: held by the default layer (260914-01x, shipped)", () => {
+describe("mean shift: held by the default layer", () => {
   const fixture = JSON.parse(readFileSync(DIGEST_SLICE_FIXTURE_PATH, "utf8")) as DigestSliceFixture;
   const spr = resolvePublishAlgorithms(undefined).find((a) => a.id === "spr") as AlgorithmModule<unknown>;
   const ruleModule = RP_RULE_MODULES[fixture.sliceSeason]!;
@@ -147,7 +147,7 @@ function syntheticPrediction(): Prediction {
   return { winner: "red", pRedWin: 0.5, redScore: 70, blueScore: 70 };
 }
 
-describe("mean shift on a synthetic 2020 season, default layer (260914-01x, SD-03, CD-04)", () => {
+describe("mean shift on a synthetic 2020 season, default layer", () => {
   const stream = syntheticSeason();
   expect(stream.filter((m) => m.compLevel === "qm").length).toBeGreaterThanOrEqual(120);
 

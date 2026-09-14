@@ -83,7 +83,7 @@ function foldedLayer(): SigmaScoutLayer {
   return layer;
 }
 
-describe("the D1 seed carries the RP beliefs (plan 09-08, D-21)", () => {
+describe("the D1 seed carries the RP beliefs", () => {
   it("seed rows built the way publish.ts builds them round-trip rpVariableBeliefs() back out", () => {
     const layer = foldedLayer();
     const beliefs = layer.rpVariableBeliefs();
@@ -159,7 +159,7 @@ function warmedLayer(): SigmaScoutLayer {
   return layer;
 }
 
-describe("the D1 seed carries the RP mean shift (shape 16, quick task 260914-01x)", () => {
+describe("the D1 seed carries the RP mean shift (shape 16)", () => {
   it("seed rows built the way publish.ts builds them carry rpMeanShiftState() on the LEAGUE row, and it resumes to the same accumulator", () => {
     const layer = warmedLayer();
     const state = layer.rpMeanShiftState()!;
