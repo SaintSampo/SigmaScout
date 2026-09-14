@@ -913,12 +913,12 @@ describe("emitSeedSql", () => {
   });
 });
 
-describe("deserializeBprState — shape-version guard (quick task 260908-5wd)", () => {
-  // BPR was the one algorithm skipping the check every other algorithm makes,
+describe("deserializeSprState — shape-version guard (quick task 260908-5wd)", () => {
+  // SPR (then BPR) was the one algorithm skipping the check every other algorithm makes,
   // so a stale row would have been READ rather than rejected. `readScopedState`
   // filters on algorithm_id alone and never on algorithm_version, so this guard
   // is the only thing between an old row and a live fold.
-  it("throws LeagueRowShapeVersionError for a BPR league row declaring an older shape", () => {
+  it("throws LeagueRowShapeVersionError for an SPR league row declaring an older shape", () => {
     const rows = [
       {
         algorithmId: "spr",
@@ -941,7 +941,7 @@ describe("deserializeBprState — shape-version guard (quick task 260908-5wd)", 
     expect(() => deserializeState("spr", rows)).toThrow(LeagueRowShapeVersionError);
   });
 
-  it("accepts a BPR league row declaring the current shape", () => {
+  it("accepts an SPR league row declaring the current shape", () => {
     const rows = [
       {
         algorithmId: "spr",

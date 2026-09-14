@@ -761,10 +761,10 @@ function deserializeOprState(algorithmId: string, rows: readonly StateRow[]): Op
 }
 
 // ---------------------------------------------------------------------------
-// BPR (quick task 260908-b4t)
+// SPR (quick task 260908-b4t, renamed from BPR)
 // ---------------------------------------------------------------------------
 
-interface SerializedBprLeague {
+interface SerializedSprLeague {
   snapshotShapeVersion: number;
   season: number | null;
   logTau: number;
@@ -775,31 +775,31 @@ interface SerializedBprLeague {
   phaseScaleCount: Record<string, number>;
 }
 
-/** One team's whole BPR state: slow talent (L) and fast form (S), each a mean and a variance. */
-interface SerializedBprTeamRow {
+/** One team's whole SPR state: slow talent (L) and fast form (S), each a mean and a variance. */
+interface SerializedSprTeamRow {
   muL: number;
   pL: number;
   muS: number;
   pS: number;
   /**
    * Display-only per-phase filters (quick task 260908-pcm), keyed by group id.
-   * Absent on a row written before that task, which `deserializeBprState`
+   * Absent on a row written before that task, which `deserializeSprState`
    * restores as a fresh phase filter rather than throwing -- a resumed
    * pre-existing snapshot loses only the phase history it never had, and the
    * PREDICTOR half above resumes exactly.
    */
-  phases?: Record<string, SerializedBprPhase>;
+  phases?: Record<string, SerializedSprPhase>;
 }
 
-interface SerializedBprPhase {
+interface SerializedSprPhase {
   muL: number;
   pL: number;
   muS: number;
   pS: number;
 }
 
-function serializeBprState(algorithmId: string, algorithmVersion: string, state: SprState, stamp: StateStamp): StateRow[] {
-  const leagueJson: SerializedBprLeague = {
+function serializeSprState(algorithmId: string, algorithmVersion: string, state: SprState, stamp: StateStamp): StateRow[] {
+  const leagueJson: SerializedSprLeague = {
     snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION,
     season: state.season,
     // All three are genuine league-level state, not derived: logTau is the
@@ -822,22 +822,22 @@ function serializeBprState(algorithmId: string, algorithmVersion: string, state:
   for (const teamKey of [...state.teams.keys()].sort()) {
     const team = state.teams.get(teamKey);
     if (team === undefined) continue;
-    const phases: Record<string, SerializedBprPhase> = {};
+    const phases: Record<string, SerializedSprPhase> = {};
     for (const phase of COMPONENT_GROUP_IDS) {
       const ps = state.phaseTeams[phase].get(teamKey);
       if (ps === undefined) continue;
       phases[phase] = { muL: ps.muL, pL: ps.pL, muS: ps.muS, pS: ps.pS };
     }
-    const teamJson: SerializedBprTeamRow = { muL: team.muL, pL: team.pL, muS: team.muS, pS: team.pS, phases };
+    const teamJson: SerializedSprTeamRow = { muL: team.muL, pL: team.pL, muS: team.muS, pS: team.pS, phases };
     rows.push(makeRow(algorithmId, algorithmVersion, "team", teamKey, teamJson, stamp));
   }
   return rows;
 }
 
-function deserializeBprState(algorithmId: string, rows: readonly StateRow[]): SprState {
+function deserializeSprState(algorithmId: string, rows: readonly StateRow[]): SprState {
   const leagueRow = rows.find((r) => r.scopeKind === "league");
   if (!leagueRow) throw new MissingLeagueRowError(algorithmId);
-  const leagueJson = JSON.parse(leagueRow.stateJson) as SerializedBprLeague;
+  const leagueJson = JSON.parse(leagueRow.stateJson) as SerializedSprLeague;
   // Quick task 260908-5wd: BPR was the ONE algorithm missing this check, so a
   // stale BPR row would be read and silently cold-start the live tier against
   // a shape it no longer matches. `readScopedState` filters on `algorithm_id`
@@ -855,7 +855,7 @@ function deserializeBprState(algorithmId: string, rows: readonly StateRow[]): Sp
   };
   for (const row of rows) {
     if (row.scopeKind !== "team") continue;
-    const t = JSON.parse(row.stateJson) as SerializedBprTeamRow;
+    const t = JSON.parse(row.stateJson) as SerializedSprTeamRow;
     teams.set(row.scopeKey, { muL: t.muL, pL: t.pL, muS: t.muS, pS: t.pS });
     for (const phase of COMPONENT_GROUP_IDS) {
       const ps = t.phases?.[phase];
@@ -1104,7 +1104,7 @@ export function serializeState(
 ): StateRow[] {
   if (algorithmId === "opr") return serializeOprState(algorithmId, algorithmVersion, state as OprState, stamp);
   if (algorithmId === "epa") return serializeEpaState(algorithmId, algorithmVersion, state as EpaState, stamp);
-  if (algorithmId === "spr") return serializeBprState(algorithmId, algorithmVersion, state as SprState, stamp);
+  if (algorithmId === "spr") return serializeSprState(algorithmId, algorithmVersion, state as SprState, stamp);
   throw new UnknownStateAlgorithmError(algorithmId);
 }
 
@@ -1112,7 +1112,7 @@ export function serializeState(
 export function deserializeState(algorithmId: string, rows: readonly StateRow[]): EpaState | OprState | SprState {
   if (algorithmId === "opr") return deserializeOprState(algorithmId, rows);
   if (algorithmId === "epa") return deserializeEpaState(algorithmId, rows);
-  if (algorithmId === "spr") return deserializeBprState(algorithmId, rows);
+  if (algorithmId === "spr") return deserializeSprState(algorithmId, rows);
   throw new UnknownStateAlgorithmError(algorithmId);
 }
 
