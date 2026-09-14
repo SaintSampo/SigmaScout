@@ -3,10 +3,10 @@ quick_id: 260913-nvn
 slug: simplify-codebase-audit
 date: 2026-09-13
 status: incomplete
-stopped_reason: Jacob paused the task to start a republish; every executor stopped at a clean, committed state
-commits: 27
-net_lines_outside_planning: -29588
-files_deleted: 80
+stopped_reason: all unreserved work done; last pass waits for sigmascout-26's all-clear and the 260913-pnp merge
+commits: 182
+net_lines_outside_planning: -35575
+files_deleted: 82
 ---
 
 # Quick Task 260913-nvn: Simplification audit and cuts
@@ -46,7 +46,7 @@ The lockfile accounts for 2,107 of the deletions.
 - Shared `src/test/helpers.ts`; event route tests collapsed with `it.each` (1,007 to 555 lines); EventMatchTable reuses the team MatchTable leaf components.
 - Web suite 116 files / 1,891 tests before, 114 / 1,875 after (two deleted test files), no failures. Main chunk 263.50 to 263.24 KB gzip (dead code was already tree-shaken); CSS 15.19 to 14.29 KB gzip.
 
-## Plan 03: republish speed (Tasks 1-2 COMPLETE, Task 3 REVERTED)
+## Plan 03: republish speed (COMPLETE except one rename)
 
 `4463933f`, `2919f37e`.
 
@@ -58,14 +58,22 @@ The lockfile accounts for 2,107 of the deletions.
 - `publishBudget.ts` checks every object against its page limit before queueing (dry-run too); `--write-budget` (now in `pnpm publish:seasons`) rewrites the json budget block in `docs/publish-budget.md`, which shrank to 309 lines.
 - **Byte identity:** 2025-2026 x opr/epa/spr capture, 24,194 objects / 917,532,792 bytes, deterministic across two baseline runs and identical after each task (Task 2 isolated on an export of 3b3339c7 because spr@4.0.0 landed mid-run from another session).
 - Node suite 3,212 passed before, 3,247 after Task 2, no failures.
-- **Task 3 reverted, not started or not byte-checked when the stop came:** SPR serializer renames, single algorithm registry, `paramsSeason`, `coldStartSeason`, `--rp-calibration` flags, sigmaScore `scale`/`talentPrior`, eligibility plumbing + `selectionProvenance.ts`, `splitManifestVersion` reuse, shared season-spec parser, verify:subset tables, Sigma naming renames.
+- Task 3 was reverted at the republish pause, then redone: `53ea3f74` SPR serializer names, `a9c835e9` test-only Sigma Score options dropped, `c4e878e1` current verify:subset tables, `508cdf17` shared strict season-spec parser, `14279993` headline eligibility from corpus seasons only (`selectionProvenance.ts` deleted, -497 lines), `d67723e1` `paramsSeason`/`coldStartSeason`/`--rp-calibration` flags and `splitVersion` removed, `bf7f38fa` `consistencyMetric.ts` renamed to `sigmaMetric.ts` and one opr/epa/spr registry (`manifests.ts` exports `PUBLISHED_ALGORITHM_MODULES`, publish.ts re-exports it; the reverse direction would have created an import cycle). Each group byte-identical on a fresh 24,206-object / 920,597,550-byte capture.
+- **Still owed:** renaming the `SigmaScoutLayer.consistencyByTeam()` method and the `preSchedule.ts` input of the same name, plus callers (sigmaScoutLayer tests, sigmaSeed.test, scripts/measureFieldAveragedRanks.ts). Agreed with sigmascout-37: nvn keeps it and does it after sigmascout-26's all-clear and the 260913-pnp merge.
 
-## Plan 04: comment diet (PARTIAL)
+## Plan 04: comment diet (unreserved files COMPLETE)
 
-- Task A (apps/web): 8 commits, 884 comment lines removed (theme.css, AlliancesTab, columns, searchParams, playwright config, BreakdownTab, SimulationTab, InsightsTab). Resume list and logs in the scratchpad `nvn-comments/logs/A-*.txt`.
-- Task C (core + worker): 6 commits, 819 comment lines removed (epa.ts, scheduled.ts, rankingPoints/constants.ts, types.ts, analyticPmf.ts, opr.ts), 0 code lines changed. Three stale comments naming deleted modules corrected.
-- Task B (harness + scripts + ingest + corpus): not started (it waited on plan 03).
-- The guard's "sealed file changed: packages/core/algorithms/spr.ts" was b8eb402e (another session's deliberate spr@4.0.0 change), not an executor edit.
+About 150 `docs(260913-nvn)` commits across the three regions, every batch guarded as comment-only (TypeScript printer comparison, zero code/string/type changes) and tested.
+- Provenance markers (quick-task, phase and plan ids in comments) across web, harness/scripts and core/worker: 3,249 to 958. Deleted-feature mentions: 641 to 306.
+- Web (region A): finished. Every large production file has no provenance narration left; 1,884 web tests pass, web tsc clean, build succeeds.
+- Harness/scripts (region B) and core/spr/worker (region C): finished for every unreserved file. A three-row stale reference to the deleted compare compat test in `pageArtifacts.ts` was fixed.
+- Two interrupted executors left garbled half-edits (merged comment-table rows, fragments) in TeamsTable.tsx, rounding.ts and scheduled.replay.test.ts; they passed the guard but were discarded and redone.
+- Full-suite check after the last run: nothing new failing; the remaining failures belonged to other sessions' uncommitted work.
+- Guard "sealed file changed: packages/core/algorithms/spr.ts" lines were b8eb402e (another session's deliberate spr@4.0.0 change), never an executor edit.
+
+**Held back for other sessions** (the last pass):
+- sigmascout-26 (260914-01x, F4 ranking-point fixes and a publish): `packages/core/rankingPoints/**`, `sigmaScoutLayer.ts` and tests, `publish.ts` (the largest remaining target: 1,893 comment lines, 263 provenance markers) and `publish.test.ts`, `stateSnapshot*`, `measureRpCalibration*`, `apps/worker/src/scheduled.ts`, `stateProbe*`, `scheduled.rp.test.ts`, `BonusRpDots`, `bonusRp`, `theme.css`. Several of these already had earlier comment-only trims (analyticPmf, fieldAveraged, rankingPoints 2016-2020 and constants, scheduled.ts, sigmaScoutLayer, stateSnapshot, measureRpCalibration, sigmaScore); sigmascout-26 was sent the commit hashes.
+- sigmascout-37 (260913-pnp branch): `preSchedule.ts`, `generatedSchedules.ts`, `scheduleTemplates.ts` and tests, `measureFieldAveragedRanks.ts`, the deleted schedule scripts, `packages/harness/fixtures/**`, `docs/simulation-architecture.md`, `.github/workflows/test.yml`.
 
 ## Operator notes for the next republish
 
@@ -89,6 +97,6 @@ one `algorithms.json` request with no unused-preload warning; `/assets/*` immuta
 
 ## Remaining approved work
 
-Plan 03 Task 3 (leftovers, byte-identity gated), plan 04 Task B, plan 04 Tasks A and C unreached files.
-Stale doc citations: `docs/worker-operations.md:243`, `docs/first-paint-measurement.md` line numbers,
-`scripts/verifySubsetPublish.ts` delete-pass citations, `packages/harness/pageArtifacts.ts` comments naming the deleted compare compat test.
+1. After sigmascout-26's all-clear and sigmascout-37's merge message: the `consistencyByTeam` rename (byte-identity or tsc-proven), then comment trims of every held-back file above, `publish.ts` first.
+2. Close out: `status: complete`, STATE.md row via the patched `gsd-tools quick-tasks-append --task ... --dir 260913-nvn-simplify-codebase-audit --commit <sha>`.
+3. Still stale: `docs/first-paint-measurement.md` cites old line numbers (worker-operations.md and verifySubsetPublish.ts citations were fixed in c4e878e1).
