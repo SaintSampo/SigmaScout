@@ -1,11 +1,10 @@
 /**
- * Content-as-data for `/methodology/awards` (quick task 260912-tm8).
+ * Content-as-data for `/methodology/awards`.
  *
- * The write up of four research quick tasks run on 2026-09-12: 260912-5n8
- * (can an award winner be predicted), 260912-7bp (does team age help),
- * 260912-i13 (how good is a ranked list, and are its percentages honest) and
- * 260912-l8t (are the Championship spots that district championship awards
- * decide predictable).
+ * The write up of four research questions: can an award winner be
+ * predicted, does team age help, how good is a ranked list (and are its
+ * percentages honest), and are the Championship spots that district
+ * championship awards decide predictable.
  *
  * Same discipline as `sigmaContent.ts` and `epaComparisonContent.ts`: this
  * module is the single source of every prose string the page renders, so

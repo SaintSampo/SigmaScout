@@ -1,10 +1,10 @@
 /**
- * The Metric History tab's lazy boundary (06-05-PLAN.md Task 2): a
+ * The Metric History tab's lazy boundary: a
  * `React.lazy(() => import("./MetricHistoryChart.js"))` inside a `Suspense`
  * whose fallback is a chart-shaped, text-free `Skeleton`, wrapped in an
  * error boundary whose fallback offers a Retry that re-attempts the
  * dynamic import — never a data refetch, since the metric-history array
- * already arrived with the page artifact (D-07: one artifact, whole page).
+ * already arrived with the page artifact.
  *
  * `loadChart` is an injectable seam (defaults to the real dynamic import):
  * production never passes it, tests substitute a controllable stub so
@@ -36,16 +36,15 @@ function eventNameByKeyFrom(artifact: TeamSeasonArtifact): Readonly<Record<strin
 }
 
 /**
- * Chart-shaped, text-free loading placeholder (06-UI-SPEC.md Copywriting
- * Contract, "Chart tab — loading"): covers both the dynamic-import wait and
- * any brief render delay once the chunk arrives.
+ * Chart-shaped, text-free loading placeholder: covers both the
+ * dynamic-import wait and any brief render delay once the chunk arrives.
  *
- * `drawsBand` (quick task 260913-m45): when true, reserves an extra
- * text-free spacer sized to `METRIC_HISTORY_LEGEND_HEIGHT_PX` — the SAME
- * constant `MetricHistoryChart.tsx`'s own legend reads — so the landed
- * chart's legend causes no layout shift below it. Absent (no spacer) for
- * OPR, EPA, or a not-yet-republished SPR artifact, matching the chart's own
- * silence in those cases.
+ * `drawsBand`: when true, reserves an extra text-free spacer sized to
+ * `METRIC_HISTORY_LEGEND_HEIGHT_PX` — the SAME constant
+ * `MetricHistoryChart.tsx`'s own legend reads — so the landed chart's
+ * legend causes no layout shift below it. Absent (no spacer) for OPR, EPA,
+ * or a not-yet-republished SPR artifact, matching the chart's own silence
+ * in those cases.
  *
  * The spacer is a SIBLING after the fixed-height box, never a child of it: a
  * child of an `h-[280px]` box overflows rather than adding height, so it
@@ -76,7 +75,7 @@ interface ChartErrorBoundaryState {
  * A minimal, file-scoped error boundary — React still requires a class
  * component for `getDerivedStateFromError` (no hook equivalent exists), and
  * this repo has no `react-error-boundary` dependency to reach for instead.
- * Catches ONLY the lazy chunk's import failure (D-14/E9 error copy).
+ * Catches ONLY the lazy chunk's import failure.
  */
 class ChartErrorBoundary extends Component<ChartErrorBoundaryProps, ChartErrorBoundaryState> {
   state: ChartErrorBoundaryState = { hasError: false };
@@ -118,9 +117,9 @@ export function MetricHistoryTab({ artifact, algorithmId, season, loadChart = de
   const [importKey, setImportKey] = useState(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- importKey intentionally forces recreation on retry
   const ChartComponent = useMemo(() => lazy(loadChart), [importKey, loadChart]);
-  // Quick task 260913-m45: imported from `metricHistorySeries.ts` only — this
-  // Tab must never import `MetricHistoryChart.tsx` statically, since that
-  // would pull Recharts into the eager bundle (D-14).
+  // Imported from `metricHistorySeries.ts` only — this Tab must never
+  // import `MetricHistoryChart.tsx` statically, since that would pull
+  // Recharts into the eager bundle.
   const drawsBand = drawsSigmaBand(artifact.metricHistory, algorithmId);
 
   return (
