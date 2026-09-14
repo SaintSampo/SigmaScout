@@ -109,7 +109,7 @@ describe("EventsList", () => {
       </TestHarness>,
     );
 
-    // 2026-09-01: an absent fact renders as an EMPTY cell, never an em-dash.
+    // An absent fact renders as an EMPTY cell, never an em-dash.
     // Indexed off the one data row's own cells (COLUMNS order: Event, Type,
     // Date, Location, District, Teams, Matches) so the assertion proves both
     // cells still EXIST and are blank, rather than merely proving a glyph is
@@ -123,8 +123,8 @@ describe("EventsList", () => {
   });
 
   /**
-   * WR-01 (review 260902): `2026isde1`, `2026isde2` and `2026iscmp` carry raw
-   * weeks 16/17/18 in the published 2026 events artifact. The Type chip's
+   * `2026isde1`, `2026isde2` and `2026iscmp` carry raw weeks 16/17/18 in
+   * the published 2026 events artifact. The Type chip's
    * blind `week + 1` labelled these real, official, 208-played-match district
    * events "Week 17", "Week 18" and "Week 19" — the only visible type label
    * their rows carried. See `filterModel.test.ts` for the pinned fixture and
@@ -202,8 +202,8 @@ describe("EventsList", () => {
     );
 
     await waitFor(() => expect(screen.getByText("Event")).toBeDefined());
-    // WR-04 (260902-post-phase08-ungoverned-ui/REVIEW.md): the column's label
-    // now names the axis it sorts (week), not the Type chip cell it heads.
+    // The column's label names the axis it sorts (week), not the Type
+    // chip cell it heads.
     expect(screen.getByText("Week")).toBeDefined();
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
   });
@@ -244,23 +244,19 @@ describe("EventsList", () => {
       </TestHarness>,
     );
 
-    // WR-04: the header's label changed to "Week"; the sort key it reports
-    // stays "week" — this test's onSortChange expectation was already
-    // correct and does not change.
+    // The header's label is "Week"; the sort key it reports is "week".
     const weekHeader = await screen.findByRole("button", { name: /Week/ });
     fireEvent.click(weekHeader);
     expect(onSortChange).toHaveBeenCalledWith("week");
   });
 
   // ---------------------------------------------------------------------
-  // 260902-rax Task 2 — the sort buttons' hit area was ~40x14 to ~59x14,
-  // well under the project's own 44x44 `.tap-target` convention
-  // (theme.css:395). The fix adds an invisible, full-cell overlay button
-  // purely to widen the CLICKABLE area; the original visible button is
-  // untouched (so column auto-width and the visible header stay
-  // pixel-identical — verified live against the running dev server, not
-  // in this jsdom suite, which has no real layout engine to measure
-  // against).
+  // The sort buttons' visible hit area is well under the project's own
+  // 44x44 `.tap-target` convention. An invisible, full-cell overlay button
+  // widens the CLICKABLE area; the original visible button is untouched
+  // (so column auto-width and the visible header stay pixel-identical —
+  // verified live against the running dev server, not in this jsdom
+  // suite, which has no real layout engine to measure against).
   // ---------------------------------------------------------------------
   it("each sortable header cell carries exactly one ACCESSIBLE button, plus a hidden pointer-only overlay that fires the same onSortChange", async () => {
     const onSortChange = vi.fn();
@@ -271,7 +267,7 @@ describe("EventsList", () => {
       </TestHarness>,
     );
 
-    // WR-04: this header's accessible name changed from "Type" to "Week".
+    // This header's accessible name is "Week".
     const typeHeader = (await screen.findByRole("columnheader", { name: /Week/ })) as HTMLElement;
     const buttonsInCell = within(typeHeader).getAllByRole("button", { hidden: true });
     // Exactly two <button> elements exist in the DOM (visible + overlay)...
@@ -363,8 +359,8 @@ describe("EventsList", () => {
     unmountNullCountry();
 
     // Fourth case: both null, so `composeEventLocation` returns null and the
-    // cell renders BLANK (2026-09-01 — no em-dash placeholders anywhere).
-    // Asserted on the Location cell itself (COLUMNS index 3), which proves
+    // cell renders BLANK — no em-dash placeholders anywhere. Asserted on
+    // the Location cell itself (COLUMNS index 3), which proves
     // the cell survives while its text is empty.
     const bothNull = makeRows([makeRow({ eventKey: "2025d", stateProv: null, country: null })]);
     render(
