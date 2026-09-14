@@ -1,28 +1,13 @@
 /**
- * The pre-rewrite behavior oracle's replay test (09-02 Task 1 Step 3; D-02,
- * D-07, Pitfall 4, T-09-02-01). Reads the committed
- * `predictThresholdsGolden.json` — captured from the code at HEAD BEFORE any
- * season module in this plan was touched — and re-runs the SAME grid
- * generator against the LIVE evaluator, asserting digest AND per-bonus fire
- * count equality for every registered season at every event tier. A digest
- * tells you something broke; a per-bonus fire count tells you which bonus,
- * at which tier — both are asserted, never just the digest.
+ * Replays the grid generator against the live `predictThresholds` evaluators
+ * and asserts digest and per-bonus fire-count equality with the committed
+ * `predictThresholdsGolden.json`, for every season and event tier. The digest
+ * says something broke; the fire count says which bonus, at which tier.
  *
- * Deliberately corpus-free (unlike `reconciliation.test.ts`'s
- * `existsSync`-gated corpus dependency, see that file's `CORPUS_PATH`
- * convention) — the grid is pure and must run everywhere, including CI with
- * no corpus checked out.
+ * Corpus-free: the grid is pure and must run everywhere, including CI.
  *
- * **Non-vacuity was proven once, by hand, and is recorded in
- * 09-02-SUMMARY.md**: with this test green, `2026.ts`'s
- * `TRAVERSAL_THRESHOLD.base` was temporarily changed from 50 to 51, this
- * test was re-run and failed naming season 2026, then the change was
- * reverted and the test confirmed green again. A characterization test that
- * has never been observed to fail is not evidence of anything.
- *
- * **Regeneration prohibition** (`scripts/rpPredictThresholdsGolden.ts`'s own
- * header): the golden file is regenerated ONLY when the grid itself
- * changes, never in response to a failing assertion here.
+ * Regenerate the golden file only when the grid itself changes, never in
+ * response to a failing assertion here.
  */
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";

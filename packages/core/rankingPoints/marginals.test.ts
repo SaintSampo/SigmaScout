@@ -1,12 +1,6 @@
 /**
- * Hand-computed unit tests for `marginals.ts` — D-07's mandatory mitigation
- * for the declined Monte Carlo equivalence check (09-CONTEXT.md).
- *
- * EVERY expected value below was computed at planning time from the closed
- * form, independently of `marginals.ts`'s own implementation (09-03-PLAN.md's
- * `<behavior>` table). Reproducing an expectation by running `marginals.ts`
- * and pasting its output would assert only that the implementation equals
- * itself — precisely the evidence this file exists to NOT be.
+ * Hand-computed unit tests for `marginals.ts`. Every expected value was
+ * computed from the closed form, never pasted from the implementation's output.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -378,12 +372,9 @@ describe("cold-team well-formedness — proven against the REAL RpMomentsAccumul
     expect(gaussianFit.resolved).toBe("gaussian");
     expect(gaussianFit.fallbackReason).toBeUndefined();
 
-    // Under a negative-binomial declaration the SAME real input is
-    // under-dispersed (variance 4.5 below mean 13.59), so the method-of-moments
-    // fit is undefined and the ladder falls back to Gaussian with a COUNTED
-    // reason. This is the live risk D-06 names: a measurement arm labelled
-    // negative-binomial can be mostly Gaussian on real cold-roster data, and
-    // only the counted reason distinguishes that from the family losing.
+    // Under a negative-binomial declaration the same input is under-dispersed
+    // (variance 4.5 below mean 13.59), so the fit falls back to Gaussian with a
+    // counted reason.
     const nbFit = fitMarginal(moments.meanVector[0]!, moments.varianceBlock[0]![0]!, "negative-binomial");
     expect(nbFit.declared).toBe("negative-binomial");
     expect(nbFit.resolved).toBe("gaussian");

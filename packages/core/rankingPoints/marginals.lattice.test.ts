@@ -1,5 +1,5 @@
 /**
- * The lattice marginal family (quick task 260914-01x, SD-02 / CD-02).
+ * The lattice marginal family.
  * Expected values come from references built here — a series normal CDF, a
  * direct-product beta-binomial, brute-force enumeration — never from the
  * code under test.

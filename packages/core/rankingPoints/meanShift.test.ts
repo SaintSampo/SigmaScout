@@ -1,7 +1,7 @@
 /**
- * The walk-forward mean shift's accumulator (quick task 260914-01x, SD-03,
- * CD-04): the probe's population, observe-before-fold residuals, the 200
- * warmup, fully-warm application and the state round trip.
+ * The walk-forward mean shift's accumulator: the observed population,
+ * observe-before-fold residuals, the 200 warmup, fully-warm application and
+ * the state round trip.
  */
 import { describe, expect, it } from "vitest";
 import type { MatchResult } from "../algorithms/types.js";
