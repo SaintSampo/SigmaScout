@@ -1,136 +1,56 @@
 /**
- * SIGMA SCORE — a Bayesian, talent-informed estimate of how widely a robot's
- * contribution might vary in its NEXT match.
+ * SIGMA SCORE: a Bayesian, talent-informed estimate of how widely a robot's
+ * contribution might vary in its NEXT match. A robot whose performance level
+ * shifts must read high; a robot that repeats itself must read low.
  *
- * SHIPPED FOR SPR ONLY. `SIGMA_SCORE_ALGORITHM_IDS` is the single place that
- * scope is declared — OPR and EPA publish no consistency metric, no match
- * band, and no ranking-point odds (they have no per-robot score variance to
- * build RP odds from). See `sigmaMatchBandVariance` and
- * `publishesRankingPoints`.
+ * SPR ONLY (`SIGMA_SCORE_ALGORITHM_IDS`). OPR and EPA publish no Sigma metric,
+ * no match band and no ranking-point odds.
  *
- * Consumers: `sigmaScoutLayer.ts` (bands and the per-team figure), `publish.ts`
- * (the published `sigma` metric).
- *
- * WHY SPR ONLY, since "better metric, ship it everywhere" is the obvious
- * alternative: measured across all three algorithms, Sigma wins on
- * calibration, on separating steady robots from erratic ones, and on
- * catastrophic-failure avoidance — but on volatility RANKING and trimmed
- * likelihood it loses for EPA. It is scoped to the premier algorithm rather
- * than shipped where it is worse.
- *
- * ---------------------------------------------------------------------------
- * WHAT IT IS FOR, WHICH DECIDES ITS SHAPE
- * ---------------------------------------------------------------------------
- *
- * How widely might a robot's performance vary next match? If it breaks, or
- * finally starts working, Sigma Score should capture that for a scout; if it
- * has performed the same every match, Sigma Score should be low.
- *
- * So there are exactly two requirements, and they pull in opposite directions:
- *
- *   RESPONSIVENESS  a robot whose performance LEVEL shifts must read HIGH.
- *   QUIETNESS       a robot that repeats itself must read LOW.
- *
- * ---------------------------------------------------------------------------
- * WHY THE MEAN'S TRACKING SPEED IS THE CRUX
- * ---------------------------------------------------------------------------
- *
- * A single shared half-life for both the bias term and the variance is fine
- * for quietness and actively hostile to responsiveness: when a robot breaks,
- * a fast mean chases the new (lower) level within a few matches, the
- * residuals about it shrink back toward normal, and the metric stops
- * reporting the very event the scout needed to see. The break gets absorbed
- * into the bias term instead of surfacing as volatility.
- *
- * Sigma Score therefore carries TWO INDEPENDENT HALF-LIVES:
+ * TWO INDEPENDENT HALF-LIVES. With one shared half-life, a robot that breaks
+ * has its new level absorbed by a fast mean and the residuals shrink back, so
+ * the break never surfaces as volatility. So:
  *
  *   `meanHalfLife`  how fast the bias term chases the team's level. SLOW, so a
  *                   level shift stays visible in the residuals.
  *   `varHalfLife`   how fast the volatility estimate forgets old evidence. FAST,
- *                   so a break shows up promptly rather than being diluted.
+ *                   so a break shows up promptly.
  *
- * Separating them is the whole idea.
- *
- * ---------------------------------------------------------------------------
- * THE BAYESIAN PART, AND THE DEFECTS IT EXISTS TO FIX
- * ---------------------------------------------------------------------------
- *
- * An unregularised sample statistic over an effective sample this small has
- * three defects: a near-zero tail (two near-identical deviations reads as
- * "perfectly consistent" right before a 40-point miss), regression to the
- * mean (low-spread teams under-estimated, high-spread teams about right),
- * and it does not beat a single population constant on median NLL.
- *
- * A conjugate inverse-gamma prior on the variance fixes all three STRUCTURALLY
- * rather than by tuning:
+ * INVERSE-GAMMA PRIOR on the variance, so a team with two near-identical
+ * deviations is not reported as perfectly consistent:
  *
  *     prior      sigma^2 ~ InvGamma(a0, b0),  a0 = priorObs/2,
  *                                             b0 = (a0 - 1) * priorSigma^2
  *     posterior  a = a0 + W/2,   b = b0 + S/2
  *     report     SIGMA = sqrt( b / (a - 1) )
  *
- * The `(a0 - 1)` in `b0` rather than the more obvious `a0` is deliberate and is
- * explained at the point of use in `sigmaFor` — it decouples the metric's LEVEL
- * from `priorObs` so that knob controls shrinkage strength and nothing else.
- *
  * where `W` is the recency-weighted observation count and `S` the recency-
- * weighted sum of squared residuals about the bias term.
+ * weighted sum of squared residuals about the bias term. `b >= b0 > 0` rules
+ * out the near-zero tail; small `W` lets the prior dominate. `b/(a-1)` is the
+ * POSTERIOR PREDICTIVE variance, so uncertainty about the volatility widens the
+ * answer. It needs `a > 1`, hence the constructor's `priorObs > 2` check. The
+ * `(a0 - 1)` in `b0` is explained in `sigmaFor`.
  *
- * - The tail cannot happen: `b >= b0 > 0`, so a two-observation team is pulled
- *   toward its talent-implied prior instead of asserting near perfect
- *   consistency.
- * - Shrinkage is automatic and evidence-proportional: `W` small means the prior
- *   dominates, `W` large means the data does. No separate rule.
- * - `b/(a-1)` is the POSTERIOR PREDICTIVE variance, not a point estimate of
- *   sigma^2. Uncertainty ABOUT the volatility widens the reported answer rather
- *   than being silently dropped — which is the honest thing to report to a scout
- *   who is asking about one upcoming match.
- *
- * `a > 1` is required for the predictive variance to exist, so `priorObs > 2` is
- * enforced in the constructor rather than left to produce a silent Infinity.
- *
- * ---------------------------------------------------------------------------
- * WHY THE PRIOR SCALES WITH TALENT
- * ---------------------------------------------------------------------------
- *
- * Volatility is measured in POINTS, and a robot that scores more has more
- * points to vary by — measured mean spread runs over a 10x range from the
- * lowest to highest decile. A flat prior would therefore drag strong robots
- * down and weak robots up, which is the opposite of shrinking toward a
- * comparable peer group.
- *
- * `priorSigma = priorK * max(talent, TALENT_FLOOR)`, where `talent` is the
- * team's own rating from the algorithm's state as of BEFORE the match, and
- * `priorK` is ONE running population number, `sqrt(sum residual^2 / sum
- * talent^2)`. One number keeps it walk-forward and O(1); `TALENT_FLOOR` exists
- * because OPR ratings can be zero or negative and a prior of zero would
- * reintroduce the very tail this is built to remove.
+ * TALENT-SCALED PRIOR. Volatility is measured in points and stronger robots have
+ * more points to vary by, so a flat prior would drag strong robots down and weak
+ * ones up. `priorSigma = priorK * max(talent, TALENT_FLOOR)`, with `talent` the
+ * team's pre-match rating and `priorK = sqrt(sum residual^2 / sum talent^2)`
+ * one running population number (walk-forward, O(1)). `TALENT_FLOOR` exists
+ * because OPR ratings can be zero or negative, and a zero prior reintroduces
+ * the tail.
  */
 
 /**
- * The published metric key Sigma Score is injected under at publish time.
- *
- * Keeps the UI free of algorithm-ID branching: the Sigma column and tile
- * render exactly when this key is present on the row, so "which algorithms
- * show a consistency number" is answered by the data rather than by a
- * hardcoded list in the browser. An algorithm that starts or stops
- * publishing Sigma needs no web change at all.
+ * The published metric key Sigma Score is injected under. The web renders the
+ * Sigma column and tile exactly when this key is on the row, so it never
+ * branches on algorithm id.
  */
 export const SIGMA_METRIC_KEY = "sigma";
 
 /**
- * The algorithms that publish Sigma Score.
- *
- * SPR ONLY: Sigma wins on calibration, separation and catastrophic-failure
- * avoidance for all three algorithms, but on volatility RANKING and trimmed
- * likelihood it loses for EPA. Rather than ship a metric that is better on
- * two algorithms and worse on the third, it is scoped to the premier
- * algorithm.
- *
- * OPR and EPA therefore publish NO consistency metric at all and show no
- * column, NO match band, and NO ranking-point odds (see
- * `publishesRankingPoints`). The display band is Sigma-only, built by
- * `sigmaMatchBandVariance`.
+ * The algorithms that publish Sigma Score. SPR only: measured across all three
+ * algorithms, Sigma applied to EPA loses on volatility ranking and trimmed
+ * likelihood, so it is scoped to the premier algorithm rather than shipped where
+ * it is worse.
  */
 export const SIGMA_SCORE_ALGORITHM_IDS: ReadonlySet<string> = new Set(["spr"]);
 
@@ -140,42 +60,23 @@ export function usesSigmaScore(algorithmId: string): boolean {
 }
 
 /**
- * Whether this algorithm publishes ranking-point odds (the RP pmfs, their
- * decomposition, the bonus-RP probabilities and the pre-schedule sidecars the
- * rank simulation draws from).
- *
- * Ranking-point odds need a per-robot score variance, and only Sigma
- * algorithms carry one, so the rank simulation works under Sigma algorithms
- * (SPR) only.
- *
- * Declared as its own predicate, rather than every caller reusing
- * `usesSigmaScore`, so a reader of an RP gate sees which capability it is
- * asking about. Today the two answer identically.
+ * Whether this algorithm publishes ranking-point odds (RP pmfs, their
+ * decomposition, bonus-RP probabilities and pre-schedule sidecars). They need a
+ * per-robot score variance, which only Sigma algorithms carry. Kept separate
+ * from `usesSigmaScore` so an RP gate names the capability it asks about.
  */
 export function publishesRankingPoints(algorithmId: string): boolean {
   return usesSigmaScore(algorithmId);
 }
 
 /**
- * One alliance's score VARIANCE from a per-team consistency map — the
- * quadrature sum of its roster's figures, or `undefined` if any member has none.
+ * One alliance's score VARIANCE from a per-team Sigma map: the sum of its
+ * roster's squared figures (three robots at ±10 give ±17.32, never ±30), or
+ * `undefined` if any member is missing from the map.
  *
- * The upcoming-row and pre-schedule RP paths read this over
- * `SigmaScoutLayer.sigmaScoreByTeam()`, and the Sigma methodology page's figure
- * uses it. It is NOT `SigmaScoreAccumulator.bandVarianceFor`, which prices a
- * never-seen team from its prior: this helper keeps the all-or-nothing gate over
- * the map, so a roster member absent from the map yields no variance at all.
- *
- * All-or-nothing deliberately. Summing only the members we happen to know would
- * produce a systematically NARROWER band that reads as a confident prediction
- * rather than a partial one. That is the failure sketch 003 recorded, where a
- * band drawn from part of the variance put actual results 7–10σ outside it.
- * Better no band than a band that is too tight.
- *
- * Returning the VARIANCE rather than the standard deviation matches the
- * existing `redScoreVarianceOwn` convention and keeps the summing-squares
- * relationship visible: an alliance's variance is the sum of its teams' squared
- * figures, so three robots at ±10 give ±17.32, never ±30.
+ * Unlike `SigmaScoreAccumulator.bandVarianceFor`, which prices a never-seen team
+ * from its prior, this is all-or-nothing: summing only the known members gives
+ * a band too narrow that reads as confident. Better no band than a tight one.
  */
 export function allianceSigmaBandVariance(
   roster: readonly string[],
@@ -193,32 +94,17 @@ export function allianceSigmaBandVariance(
 
 /**
  * The PUBLISHED Match Band variance for one alliance, from its win-odds
- * variance. The single display-band helper: the offline layer
- * (`SigmaScoutLayer.foldPlayed` / `enrichUpcoming`), the live Worker and the
- * Sigma methodology page all call this one function.
+ * variance; the one display-band helper for the offline layer, the live Worker
+ * and the methodology page. Callers gate on `usesSigmaScore` first.
  *
- * UNDOES THE EVEN-SPLIT SHRINKAGE. A robot's Sigma Score is the 1 standard
- * deviation of its EVEN-SPLIT SHARE of the alliance's miss:
- * `SigmaScoreAccumulator.foldMatch` folds `(actual - predicted) / rosterSize`
- * into every roster member. So the sum of `rosterSize` shares' variances —
- * `bandVarianceFor`, the win-odds variance — estimates `Var(alliance) /
- * rosterSize`, not `Var(alliance)`, and a band drawn from it is
- * `sqrt(rosterSize)` too narrow. Multiplying by `rosterSize` turns the shares
- * back into a whole alliance. The same shrinkage, and the same correction, as
- * `empiricalMoments.ts`'s RP variances.
+ * Sigma folds each robot's even-split share `(actual - predicted) / rosterSize`,
+ * so the win-odds variance estimates `Var(alliance) / rosterSize`; multiplying
+ * by `rosterSize` undoes that shrinkage (band = sqrt(rosterSize x sum Sigma^2)).
  *
- * DISPLAY ONLY. The win and tie spread keeps the UNCORRECTED sum on purpose:
- * widening it by the same factor worsens Brier, because red's and blue's
- * misses in one match are correlated and the margin's variance is therefore
- * smaller than the two alliance variances added. So `#rpFieldsFor` and the
- * Worker's `rpFieldsFor` keep receiving the win-odds variance, and only the
- * published band is corrected.
+ * DISPLAY ONLY. Win and tie odds keep the uncorrected variance: red's and blue's
+ * misses are correlated, so widening it worsens Brier.
  *
- * OPR and EPA publish no display band and no win-odds variance either.
- * Callers gate on `usesSigmaScore` before calling this.
- *
- * Returns `undefined` when the win-odds variance is undefined, the roster is
- * empty, or either input is non-finite — no band rather than a wrong one.
+ * `undefined` for an undefined variance, an empty roster or a non-finite input.
  */
 export function sigmaMatchBandVariance(rosterSize: number, winOddsVariance: number | undefined): number | undefined {
   if (winOddsVariance === undefined) return undefined;
@@ -234,23 +120,17 @@ import { isFullyDqZeroScoreAlliance } from "../core/algorithms/dq.js";
 export const TALENT_FLOOR = 1;
 
 /**
- * Fallback `priorK` before the population has accumulated any evidence — the
- * ratio of residual spread to talent for a typical robot. Only ever used for the
- * first few matches of a season's replay, and deliberately NOT tuned: if this
- * value mattered to any reported result, the prior would be doing work the data
- * should be doing.
+ * Fallback `priorK` before the population has any evidence. Used only for the
+ * first few matches of a season, and deliberately not fitted: if it mattered to
+ * a reported result, the prior would be doing the data's work.
  */
 export const INITIAL_PRIOR_K = 0.5;
 
 /**
- * The structural slice of a match `foldMatch` needs. Deliberately NOT
- * `MatchResult` itself, so every real caller passes the object it already holds
- * (it is structurally assignable) and no positional argument can be
- * transposed, while a test can build a six-field literal. Both DQ fields are
- * REQUIRED, never optional: this is the mechanical enforcement of the
- * live/offline parity contract (`dq.ts`'s header, "D4") — a caller that omits
- * them must fail typecheck rather than silently fold a carded zero while
- * looking healthy.
+ * The structural slice of a match `foldMatch` needs; `MatchResult` is
+ * assignable. Both DQ fields are REQUIRED so a caller that omits them fails
+ * typecheck instead of silently folding a carded zero (the live/offline DQ
+ * parity contract in `dq.ts`).
  */
 export interface SigmaFoldMatch {
   readonly redTeams: readonly string[];
@@ -262,37 +142,25 @@ export interface SigmaFoldMatch {
 }
 
 /**
- * Bounds on the talent-scaled prior, as multiples of the population's own RMS
- * residual. See `priorSigmaFor` for the measured blow-up these repair — they are
- * a correctness fix, not defensive padding, and they are deliberately wide
- * enough that a settled mid-season prior never touches them.
+ * Bounds on the talent-scaled prior, as multiples of the population's RMS
+ * residual (see `priorSigmaFor`). Wide enough that a settled mid-season prior
+ * never touches them.
  */
 export const PRIOR_SIGMA_MIN_RATIO = 0.25;
 export const PRIOR_SIGMA_MAX_RATIO = 4;
 
 /**
- * Population observations required before the prior scales with talent at all.
- * Below this the flat population spread is used instead — see `priorSigmaFor`.
- * A few hundred alliance-observations is a handful of matches into a season, so
- * this costs nothing real and removes the window where `priorK` is undefined in
- * all but name.
+ * Population observations required before the prior scales with talent; below
+ * this the flat population spread is used. A handful of matches into a season.
  */
 export const MIN_POPULATION_FOR_TALENT_PRIOR = 200;
 
 export interface SigmaScoreOptions {
-  /**
-   * Half-life, in a team's own matches, of the BIAS term that residuals are
-   * measured about. SLOW on purpose — see this module's header. A large value
-   * keeps a performance level-shift visible as volatility instead of absorbing
-   * it into the mean.
-   */
+  /** Half-life, in a team's own matches, of the bias term residuals are measured about. Slow on purpose (see the module header). */
   readonly meanHalfLife: number;
-  /** Half-life of the VOLATILITY evidence itself. Fast, so a break surfaces promptly. */
+  /** Half-life of the volatility evidence. Fast, so a break surfaces promptly. */
   readonly varHalfLife: number;
-  /**
-   * Prior strength in pseudo-observations. Must exceed 2 or the posterior
-   * predictive variance does not exist.
-   */
+  /** Prior strength in pseudo-observations. Must exceed 2 or the posterior predictive variance does not exist. */
   readonly priorObs: number;
 }
 
@@ -302,11 +170,7 @@ export const DEFAULT_SIGMA_SCORE_OPTIONS: SigmaScoreOptions = {
   priorObs: 4,
 };
 
-/**
- * The belief returned for a team nobody has folded or observed. FROZEN so a
- * caller that mistakes a read for a write fails loudly instead of quietly
- * mutating every unseen team's shared state.
- */
+/** The belief read for an unseen team. Frozen, so mistaking a read for a write fails loudly. */
 const UNSEEN_BELIEF: SigmaBelief = Object.freeze({
   meanWeight: 0,
   mean: 0,
@@ -315,11 +179,7 @@ const UNSEEN_BELIEF: SigmaBelief = Object.freeze({
   talent: TALENT_FLOOR,
 });
 
-/**
- * The population statistics the talent prior is built from. Persisted alongside
- * the per-team beliefs so a resumed accumulator computes the SAME prior the
- * offline publisher did — see `SigmaScoreAccumulator.fromBeliefs`.
- */
+/** The population statistics behind the talent prior, persisted so a resumed accumulator computes the same prior (`fromBeliefs`). */
 export interface SigmaPopulation {
   sumSquares: number;
   talentSquares: number;
@@ -345,13 +205,10 @@ function decayFor(halfLife: number): number {
 }
 
 /**
- * Walk-forward Sigma Score accumulator.
- *
- * Usage contract, and it is load-bearing: for each match in chronological order,
- * call `observeTalent` for the teams on it, READ `sigmaFor` for any team you want
- * a pre-match figure for, and only THEN `fold` the match's deviations. Reading
- * after folding would let a match inform its own estimate, which is the
- * predict-before-update rule the whole project runs on.
+ * Walk-forward Sigma Score accumulator. For each match in chronological order:
+ * `observeTalent` for its teams, READ `sigmaFor`, and only THEN fold the match
+ * (predict-before-update; reading after folding lets a match inform its own
+ * estimate).
  */
 export class SigmaScoreAccumulator {
   readonly #options: SigmaScoreOptions;
@@ -382,18 +239,9 @@ export class SigmaScoreAccumulator {
   }
 
   /**
-   * A team's belief WITHOUT creating one — the read path.
-   *
-   * Split from `#mutableBelief` because a getter that inserts makes results
-   * ORDER-DEPENDENT, and that was not hypothetical: with a single
-   * insert-on-read accessor, two orchestrations that wrote the same artifacts
-   * produced different ranking-point pmfs for the same event (0.46525 against
-   * 0.47), because merely PRICING a match created belief entries and
-   * `scoreByTeam()` iterates exactly those keys. Whichever path happened to
-   * read a team first changed what the other could see.
-   *
-   * Returns a frozen zero belief for an unseen team, so a read still yields the
-   * prior-only Sigma Score without recording that the team was ever asked about.
+   * A team's belief WITHOUT creating one. A read that inserts would make results
+   * order-dependent, because `scoreByTeam()` iterates exactly the stored keys.
+   * An unseen team gets a frozen zero belief, i.e. the prior-only Sigma Score.
    */
   #readBelief(teamKey: string): SigmaBelief {
     return this.#beliefs.get(teamKey) ?? UNSEEN_BELIEF;
@@ -410,12 +258,9 @@ export class SigmaScoreAccumulator {
   }
 
   /**
-   * Records a team's talent as of now. Call BEFORE folding the match it was read
-   * from, so the prior a match is scored against never depends on that match.
-   *
-   * A non-finite talent is ignored rather than stored: some algorithms report no
-   * rating for a team they have never seen, and a NaN would propagate into every
-   * later prior for that team.
+   * Records a team's talent as of now; call BEFORE folding the match it was read
+   * from. A non-finite talent (no rating for an unseen team) is ignored so a NaN
+   * never reaches later priors.
    */
   observeTalent(teamKey: string, talent: number): void {
     if (!Number.isFinite(talent)) return;
@@ -428,10 +273,7 @@ export class SigmaScoreAccumulator {
     return Math.sqrt(this.#populationSumSquares / this.#populationTalentSquares);
   }
 
-  /**
-   * The population's own RMS residual — the flat prior, and the reference the
-   * talent-scaled prior is clamped against.
-   */
+  /** The population's RMS residual: the flat prior, and the reference the talent-scaled prior is clamped against. */
   populationSigma(): number {
     if (this.#populationCount === 0) return INITIAL_PRIOR_K;
     return Math.sqrt(this.#populationSumSquares / this.#populationCount);
@@ -441,69 +283,37 @@ export class SigmaScoreAccumulator {
   priorSigmaFor(teamKey: string): number {
     const populationSigma = this.populationSigma();
 
-    // TALENT SCALING IS WITHHELD until the population has been observed enough
-    // times for `priorK` to mean anything. Both halves of the talent prior —
-    // the ratio and the band it is clamped to — are population statistics, and
-    // early in a replay neither exists yet. Scaling by talent against an
-    // unformed `priorK` is precisely how the measured 2026 blow-up started.
+    // Talent scaling waits until `priorK` and the clamp band, both population
+    // statistics, have enough observations to mean anything.
     if (this.#populationCount < MIN_POPULATION_FOR_TALENT_PRIOR) return populationSigma;
 
     const talent = Math.max(this.#readBelief(teamKey).talent, TALENT_FLOOR);
     const scaled = this.priorK() * talent;
 
-    // CLAMPED to a band around the population's own spread, and this is not
-    // defensive padding — it repairs a measured blow-up.
-    //
-    // `priorK` is `sqrt(sum residual^2 / sum talent^2)`, so early in a season,
-    // when ratings are still near zero but residuals are already full-sized,
-    // its denominator is tiny and it spikes. Multiply that by an early OPR
-    // rating (an under-determined least-squares solve produces nonsense
-    // before it has enough matches) and the prior can claim a wildly
-    // oversized spread for a single robot.
-    //
-    // A prior may refine WITHIN the range the population actually exhibits; it
-    // may not assert a spread an order of magnitude outside it on the strength of
-    // a rating the algorithm itself has not yet pinned down. The bounds are
-    // deliberately wide — this bites only the pathological tail, and a settled
-    // mid-season prior is nowhere near them.
+    // Clamped around the population's own spread. Early in a season ratings are
+    // near zero while residuals are full-sized, so `priorK` spikes, and an early
+    // under-determined OPR rating can then claim a wildly oversized spread.
     return Math.min(Math.max(scaled, PRIOR_SIGMA_MIN_RATIO * populationSigma), PRIOR_SIGMA_MAX_RATIO * populationSigma);
   }
 
   /**
-   * This team's Sigma Score from everything folded so far.
-   *
-   * ALWAYS DEFINED, including for a team seen zero times: the prior alone is
-   * a legitimate answer to "how widely might this robot vary" — it is what a
-   * scout would assume from the robot's talent before seeing it play. That
-   * also means Sigma Score can price a band for every match, including a
-   * team's first.
+   * This team's Sigma Score from everything folded so far. Always defined: for
+   * a team never seen, the talent prior alone is the answer, so every match can
+   * carry a band.
    */
   sigmaFor(teamKey: string): number {
     const belief = this.#readBelief(teamKey);
     const priorSigma = this.priorSigmaFor(teamKey);
     const alpha0 = this.#options.priorObs / 2;
 
-    // beta0 = (alpha0 - 1) * priorSigma^2, NOT alpha0 * priorSigma^2.
-    //
-    // This parameterisation is load-bearing and was arrived at by a failing
-    // test. With the natural-looking `alpha0 * priorSigma^2`, the PRIOR
-    // PREDICTIVE variance comes out as priorSigma^2 * alpha0/(alpha0 - 1) —
-    // so `priorObs` silently moved the whole metric's LEVEL as well as its
-    // shrinkage strength. At priorObs 3 a never-seen team read 1.73x its
-    // intended prior spread, at priorObs 20 only 1.05x, which makes any sweep
-    // over priorObs uninterpretable: two candidates would differ in both
-    // calibration and shrinkage at once with no way to attribute the result.
-    //
-    // Solving `beta0 / (alpha0 - 1) = priorSigma^2` instead makes the
-    // prior-only reading EXACTLY priorSigma, whatever priorObs is. `priorObs`
-    // then does one job only — how much evidence it takes to move off the
-    // prior — which is the knob the comparison actually wants to vary.
+    // (alpha0 - 1), not alpha0: this makes the prior-only reading exactly
+    // priorSigma, so `priorObs` sets shrinkage strength without moving the
+    // metric's level (with alpha0, priorObs 3 read 1.73x the intended spread).
     const beta0 = (alpha0 - 1) * priorSigma * priorSigma;
 
     const alpha = alpha0 + belief.varWeight / 2;
     const beta = beta0 + belief.sumSquares / 2;
-    // alpha - 1 > 0 is guaranteed by the priorObs > 2 constructor check, and
-    // varWeight only ever adds to it.
+    // alpha - 1 > 0 by the constructor's priorObs > 2 check.
     return Math.sqrt(beta / (alpha - 1));
   }
 
@@ -513,29 +323,11 @@ export class SigmaScoreAccumulator {
   }
 
   /**
-   * Folds one deviation into a team's belief.
-   *
-   * The residual is taken about the bias term BEFORE that bias absorbs this
-   * observation. That ordering is what makes a level shift register: a robot that
-   * just broke produces a large residual against where it USED to be, which is
-   * precisely the signal a scout wants, and it would be partly cancelled if the
-   * mean were updated first.
-   */
-  /**
-   * Resumes from persisted beliefs — the live Worker's entry point (shape 11).
-   *
-   * Copies each belief rather than aliasing it, so folding here cannot mutate
-   * the caller's map. A resumed accumulator is indistinguishable from one that
-   * folded the whole history itself, which is the entire point: a live tick
-   * CONTINUES the offline publisher's accumulator rather than starting a
-   * second, shorter one. Starting fresh would build a band from one event's
-   * matches while the offline band came from the whole season, and both would
-   * look healthy.
-   *
-   * `population` carries the population statistics the talent prior needs.
-   * Without them a resumed accumulator would fall back to the flat prior (see
-   * `MIN_POPULATION_FOR_TALENT_PRIOR`) and quietly compute different numbers
-   * from the same beliefs.
+   * Resumes from persisted beliefs, the live Worker's entry point. Copies each
+   * belief, so folding cannot mutate the caller's map. A live tick must continue
+   * the offline publisher's season-long accumulator, not start a one-event one.
+   * Without `population` it would fall back to the flat prior and silently
+   * compute different numbers from the same beliefs.
    */
   static fromBeliefs(
     beliefs: ReadonlyMap<string, SigmaBelief>,
@@ -557,13 +349,7 @@ export class SigmaScoreAccumulator {
     return new Map([...this.#beliefs].map(([teamKey, belief]) => [teamKey, { ...belief }]));
   }
 
-  /**
-   * The population statistics behind the talent prior, for persistence.
-   *
-   * THREE NUMBERS, not per team, so this belongs in the league row rather than
-   * the team rows — it does not scale with team count, which is the rule
-   * `MAX_LEAGUE_ROW_BYTES` enforces.
-   */
+  /** The talent prior's population statistics, for persistence. Three numbers that do not scale with team count, so they live in the league row. */
   population(): SigmaPopulation {
     return {
       sumSquares: this.#populationSumSquares,
@@ -580,22 +366,10 @@ export class SigmaScoreAccumulator {
   }
 
   /**
-   * One alliance's band variance — the quadrature sum of its roster's Sigma
-   * Scores.
-   *
-   * This is the WIN-ODDS variance the ranking-point pmf reads, not the
-   * published display band: the display band is
-   * `sigmaMatchBandVariance(roster.length, this)`, which undoes the even-split
-   * shrinkage (quick task 260913-g66).
-   *
-   * Unlike `allianceSigmaBandVariance`'s all-or-nothing rule there is no
-   * undefined case here beyond an empty roster, because Sigma always has a
-   * figure. The rule that helper enforces — better no band than one built from
-   * part of the variance — does not arise: every roster member contributes a
-   * real term, from its prior if it has no history of its own. That means a
-   * match whose roster is all debutants still carries a band, which is what
-   * lets the rank simulation price matches that would otherwise have no pmf
-   * at all.
+   * One alliance's WIN-ODDS variance, the sum of its roster's squared Sigma
+   * Scores; the display band is `sigmaMatchBandVariance(roster.length, this)`.
+   * Undefined only for an empty roster: every member contributes a real term,
+   * from its prior if it has no history, so an all-debutant match still prices.
    */
   bandVarianceFor(roster: readonly string[]): number | undefined {
     if (roster.length === 0) return undefined;
@@ -608,21 +382,12 @@ export class SigmaScoreAccumulator {
   }
 
   /**
-   * Folds a whole MATCH, applying the demo and full-DQ-zero rules.
-   *
-   * Every algorithm's `update` returns state unchanged when either alliance is
-   * fully demo: a real alliance "beating" three placeholders is not evidence
-   * about anybody, so its residual must not widen or narrow a band either. A
-   * whole-alliance card ruling (`dq.ts`'s composition contract) is not evidence
-   * about the three robots that were physically on the field, so a fully-DQ'd,
-   * exactly-zero-scored alliance's own fold is skipped — only that alliance's,
-   * never the opponent's genuine score. A partial DQ, or a whole-alliance DQ
-   * with a non-zero recorded score, folds normally.
-   *
-   * This lives at match level, rather than in each caller, because there are
-   * two callers — the offline publisher and the live Worker — and a rule applied
-   * in one and not the other is precisely how live and offline drift apart
-   * while both look healthy.
+   * Folds a whole MATCH, applying the demo and full-DQ-zero rules. A match with a
+   * fully demo alliance is not evidence about anybody, so nothing folds. A
+   * fully-DQ'd, exactly-zero-scored alliance's own fold is skipped (a card ruling
+   * says nothing about the robots), never the opponent's; a partial DQ or a
+   * non-zero score folds normally. Lives here, not in the offline and live
+   * callers, so the two cannot drift apart.
    */
   foldMatch(match: SigmaFoldMatch, prediction: { readonly redScore: number; readonly blueScore: number }): void {
     if (isFullyDemoAlliance(match.redTeams) || isFullyDemoAlliance(match.blueTeams)) return;
@@ -642,6 +407,11 @@ export class SigmaScoreAccumulator {
     for (const teamKey of roster) this.fold(teamKey, deviation);
   }
 
+  /**
+   * Folds one deviation into a team's belief. The residual is taken about the
+   * bias term BEFORE it absorbs this observation, so a robot that just broke
+   * registers a large residual against where it used to be.
+   */
   fold(teamKey: string, deviation: number): void {
     if (!Number.isFinite(deviation)) return;
     const belief = this.#mutableBelief(teamKey);
