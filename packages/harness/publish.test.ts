@@ -4428,6 +4428,63 @@ describe("buildCompareArtifact — rpCalibration attachment (F1/D-09/D-11, phase
     });
     expect(artifact.slices[0]?.rpCalibration).toBeUndefined();
   });
+
+  describe("totalRp/outcome attachment (2026-09-13, quick task 260913-qyn)", () => {
+    const MEASUREMENT_WITH_TOTAL_RP: RpCalibrationMeasurement = {
+      ...MEASUREMENT,
+      records: [
+        {
+          season: 2026,
+          algorithmId: "spr",
+          calibration: {
+            ...MEASUREMENT.records[0]!.calibration,
+            totalRp: {
+              count: 12345,
+              rankedProbabilityScore: 0.1234567,
+              meanPredictedRp: 2.0906081,
+              meanActualRp: 2.1575931,
+              excludedNullActual: 2,
+              excludedOutOfSupport: 1,
+            },
+            outcome: {
+              count: 6172,
+              brierScore: 0.2979361,
+              meanPredictedTie: 0.0042649,
+              observedTieRate: 0.0028965,
+            },
+          },
+        },
+      ],
+    };
+
+    it("copies totalRp and outcome onto the attached record when the source calibration carries them, rounding to six decimals and leaving counts as integers", () => {
+      const attached = attachRpCalibration([sliceFor("spr", "qualification")], MEASUREMENT_WITH_TOTAL_RP)[0]!.rpCalibration!;
+      expect(attached.totalRp).toEqual({
+        count: 12345,
+        rankedProbabilityScore: 0.123457,
+        meanPredictedRp: 2.090608,
+        meanActualRp: 2.157593,
+        excludedNullActual: 2,
+        excludedOutOfSupport: 1,
+      });
+      expect(attached.outcome).toEqual({
+        count: 6172,
+        brierScore: 0.297936,
+        meanPredictedTie: 0.004265,
+        observedTieRate: 0.002897,
+      });
+      // The source measurement's own figures are untouched by rounding.
+      expect(MEASUREMENT_WITH_TOTAL_RP.records[0]?.calibration.totalRp?.rankedProbabilityScore).toBe(0.1234567);
+    });
+
+    it("a record without totalRp/outcome (predates the scorer) attaches neither key — never a coerced zero", () => {
+      const attached = attachRpCalibration([sliceFor("spr", "qualification")], MEASUREMENT)[0]!.rpCalibration!;
+      expect(attached.totalRp).toBeUndefined();
+      expect(attached.outcome).toBeUndefined();
+      // The existing bonuses/scoredCount attachment is unaffected.
+      expect(attached.bonuses).toHaveLength(1);
+    });
+  });
 });
 
 describe("loadRpCalibrationMeasurement (T-09-03)", () => {

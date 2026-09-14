@@ -8,11 +8,11 @@
  */
 import { describe, expect, it } from "vitest";
 import { niceCeil, SPARSE_N } from "./calibrationCards.js";
-import { buildRpCalibrationCard, rpCardHeadlineSentence } from "./rpCalibrationCards.js";
+import { buildRpCalibrationCard, rpCardHeadlineSentence, rpTieSentence, rpTotalSentence } from "./rpCalibrationCards.js";
 import type { CompareRpCalibration } from "../../../../../packages/harness/pageArtifacts.js";
 
-function record(bonuses: CompareRpCalibration["bonuses"]): CompareRpCalibration {
-  return { scoredCount: bonuses.reduce((sum, b) => sum + b.count, 0), bonuses };
+function record(bonuses: CompareRpCalibration["bonuses"], extra?: Pick<CompareRpCalibration, "totalRp" | "outcome">): CompareRpCalibration {
+  return { scoredCount: bonuses.reduce((sum, b) => sum + b.count, 0), bonuses, ...extra };
 }
 
 describe("buildRpCalibrationCard — order and headline selection", () => {
@@ -115,5 +115,59 @@ describe("buildRpCalibrationRecord math — same brier/rate/meanPredicted the co
     expect(row.meanPredicted).toBe(0.125);
     expect(row.observedFrequency).toBe(0.25);
     expect(row.brierScore).toBe(0.0625);
+  });
+});
+
+describe("totalRp/outcome models (2026-09-13, quick task 260913-qyn)", () => {
+  const TOTAL: CompareRpCalibration["totalRp"] = {
+    count: 30382,
+    rankedProbabilityScore: 0.114322,
+    meanPredictedRp: 2.090608,
+    meanActualRp: 2.157593,
+    excludedNullActual: 0,
+    excludedOutOfSupport: 3,
+  };
+  const OUTCOME: CompareRpCalibration["outcome"] = {
+    count: 15191,
+    brierScore: 0.297936,
+    meanPredictedTie: 0.004265,
+    observedTieRate: 0.002896,
+  };
+
+  it("a record with both blocks produces non-null totalRp/outcome models carrying the record's own numbers, unchanged", () => {
+    const card = buildRpCalibrationCard(record([], { totalRp: TOTAL, outcome: OUTCOME }));
+    expect(card.totalRp).toEqual({ count: 30382, rankedProbabilityScore: 0.114322, meanPredictedRp: 2.090608, meanActualRp: 2.157593 });
+    expect(card.outcome).toEqual({ count: 15191, brierScore: 0.297936, meanPredictedTie: 0.004265, observedTieRate: 0.002896 });
+  });
+
+  it("a record with neither block (a stale, pre-scorer artifact) produces null for both, never a zero-filled model", () => {
+    const card = buildRpCalibrationCard(record([{ name: "energized", count: 10, meanPredicted: 0.5, observedFrequency: 0.5, brierScore: 0.1 }]));
+    expect(card.totalRp).toBeNull();
+    expect(card.outcome).toBeNull();
+  });
+
+  it("an undefined record (this artifact predates the field entirely) also produces null for both", () => {
+    const card = buildRpCalibrationCard(undefined);
+    expect(card.totalRp).toBeNull();
+    expect(card.outcome).toBeNull();
+  });
+
+  it("rpTotalSentence prints the sample count and both figures to one decimal, built from the model's own numbers", () => {
+    const card = buildRpCalibrationCard(record([], { totalRp: TOTAL, outcome: OUTCOME }));
+    const sentence = rpTotalSentence("SPR", card.totalRp!);
+    expect(sentence).toContain("2.1");
+    expect(sentence).toContain("2.2");
+    expect(sentence).toContain("30,382");
+  });
+
+  it("rpTieSentence prints both percentages to one decimal (never rounding a genuine small tie chance to a misleading 0%) and the match count", () => {
+    const card = buildRpCalibrationCard(record([], { totalRp: TOTAL, outcome: OUTCOME }));
+    const sentence = rpTieSentence("SPR", card.outcome!);
+    expect(sentence).toContain("0.4%");
+    expect(sentence).toContain("0.3%");
+    expect(sentence).toContain("15,191");
+    // Neither figure is truncated to a bare "0%" — the false "tie is
+    // impossible" reading this sentence exists to correct.
+    expect(sentence).not.toMatch(/\b0%/);
   });
 });

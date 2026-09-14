@@ -30,7 +30,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { COMPARE_SEASONS } from "../../lib/api/compare.js";
 import { algorithmDisplayLabel } from "../ribbon/AlgorithmSelect.js";
 import { fmtPct, niceCeil } from "./calibrationCards.js";
-import { buildRpCalibrationCard, rpCardHeadlineSentence, type RpCalibrationCardModel } from "./rpCalibrationCards.js";
+import {
+  buildRpCalibrationCard,
+  rpCardHeadlineSentence,
+  rpTieSentence,
+  rpTotalSentence,
+  type RpCalibrationCardModel,
+} from "./rpCalibrationCards.js";
 import type { CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { publishesRankingPoints } from "../../../../../packages/harness/sigmaScore.js";
@@ -42,6 +48,14 @@ export const RP_CALIBRATION_SECTION_TESTID = "compare-rp-calibration-section";
 export const RP_CALIBRATION_YEAR_SELECT_TESTID = "compare-rp-calibration-year-select";
 export const rpCalibrationCardTestId = (algorithmId: string) => `compare-rp-calibration-card-${algorithmId}`;
 export const rpCalibrationCardSentenceTestId = (algorithmId: string) => `compare-rp-calibration-sentence-${algorithmId}`;
+/** 2026-09-13 (260913-qyn): the total-RP sentence, present only when the card carries a `totalRp` block. */
+export const rpCalibrationTotalSentenceTestId = (algorithmId: string) => `compare-rp-calibration-total-sentence-${algorithmId}`;
+/** 2026-09-13 (260913-qyn): the tie sentence, present only when the card carries an `outcome` block. */
+export const rpCalibrationTieSentenceTestId = (algorithmId: string) => `compare-rp-calibration-tie-sentence-${algorithmId}`;
+/** 2026-09-13 (260913-qyn): the labelled ranked-probability-score figure. */
+export const rpCalibrationRpsTestId = (algorithmId: string) => `compare-rp-calibration-rps-${algorithmId}`;
+/** 2026-09-13 (260913-qyn): the labelled three-outcome Brier figure. */
+export const rpCalibrationOutcomeBrierTestId = (algorithmId: string) => `compare-rp-calibration-outcome-brier-${algorithmId}`;
 
 /** Defaults to the most recent season, matching `CalibrationSection`'s `DEFAULT_CALIBRATION_YEAR` convention. */
 export const DEFAULT_RP_CALIBRATION_YEAR = 2026;
@@ -59,11 +73,15 @@ export const RP_CALIBRATION_ABSENT_TEXT = "Bonus ranking point accuracy has not 
  * headline comes from the seasons that did not. Without it a reader could take
  * a figure from a season the model was chosen on and read it as
  * out-of-sample — which is the one thing the two-slice split exists to
- * prevent. This is a COPY change to this existing constant: no component, no
- * card, no schema key and no test id moves with it.
+ * prevent.
+ *
+ * REWRITTEN 2026-09-13 (quick task 260913-qyn), first sentence only: the card
+ * now leads with TOTAL ranking points (win, tie and bonus together) before
+ * its per-bonus rows, so the explainer says so up front rather than
+ * describing only the rows below it. The provenance sentence is unchanged.
  */
 export const RP_CALIBRATION_EXPLAINER =
-  "These cards show how often each predicted bonus ranking point actually happened, checked against every qualification match in the corpus, including offseason events, unlike the win-probability calibration above. " +
+  "These cards cover total ranking points — win, tie and bonus together — checked against every qualification match in the corpus, including offseason events, unlike the win-probability calibration above. The rows below cover bonus ranking points only. " +
   "The 2016-2020 and 2022 seasons were used to choose the model, so the accuracy reported for 2023 onward is measured on seasons that had no say in that choice.";
 
 export interface RpCalibrationSectionProps {
@@ -133,46 +151,87 @@ function RpCalibrationCard({ algorithmId, card, d }: { algorithmId: PublishedAlg
         <span aria-hidden="true" className="inline-block size-[10px] rounded-full" style={{ background: `var(--compare-algo-${algorithmId})` }} />
         <span className="text-role-label font-semibold text-[var(--color-text-primary)]">{label}</span>
       </div>
-      <p data-testid={rpCalibrationCardSentenceTestId(algorithmId)} className="text-role-body text-[var(--color-text-primary)]">
-        {card.headline === null ? (
-          RP_CALIBRATION_ABSENT_TEXT
-        ) : (
+      {/* Total-RP lead sentence (2026-09-13, 260913-qyn) — plain-language-first,
+          per the sketch skill's calibration display rule. Absent (never a
+          zero-filled sentence) when the record carries no totalRp block. */}
+      {card.totalRp !== null && (
+        <p data-testid={rpCalibrationTotalSentenceTestId(algorithmId)} className="text-role-body font-semibold text-[var(--color-text-primary)]">
+          {rpTotalSentence(label, card.totalRp)}
+        </p>
+      )}
+      {/* Tie sentence — states the tie chance and observed rate in words so
+          neither reads as zero; see rpTieSentence's own doc comment. */}
+      {card.outcome !== null && (
+        <p data-testid={rpCalibrationTieSentenceTestId(algorithmId)} className="text-role-body text-[var(--color-text-primary)]">
+          {rpTieSentence(label, card.outcome)}
+        </p>
+      )}
+      {/* Labelled secondary figures — never placed beside the site's binary
+          win Brier as if comparable (see CompareRpOutcomeSchema's doc
+          comment): each carries its own explicit "0 is X, N is Y" scale. */}
+      {(card.totalRp !== null || card.outcome !== null) && (
+        <div className="flex flex-wrap gap-x-[var(--spacing-md)] gap-y-[2px] text-role-label text-[var(--color-text-muted)]">
+          {card.totalRp !== null && (
+            <span data-testid={rpCalibrationRpsTestId(algorithmId)}>
+              {"Total ranking point score (0 is perfect): "}
+              <b className="numeric-cell text-[var(--color-text-primary)]">{card.totalRp.rankedProbabilityScore.toFixed(4)}</b>
+            </span>
+          )}
+          {card.outcome !== null && (
+            <span data-testid={rpCalibrationOutcomeBrierTestId(algorithmId)}>
+              {"Win, tie and loss Brier score (0 is perfect, 2 is worst): "}
+              <b className="numeric-cell text-[var(--color-text-primary)]">{card.outcome.brierScore.toFixed(4)}</b>
+            </span>
+          )}
+        </div>
+      )}
+      {/* Bonus ranking points — the section this card originally was, kept
+          under its own sub-label and with the same content/test ids as
+          before (2026-09-13, 260913-qyn): the headline sentence, chart and
+          rows are UNCHANGED. */}
+      <div className="mt-[var(--spacing-xs)] flex flex-col gap-[var(--spacing-sm)]">
+        <span className="text-role-label font-semibold text-[var(--color-text-muted)]">Bonus ranking points</span>
+        <p data-testid={rpCalibrationCardSentenceTestId(algorithmId)} className="text-role-body text-[var(--color-text-primary)]">
+          {card.headline === null ? (
+            RP_CALIBRATION_ABSENT_TEXT
+          ) : (
+            <>
+              {rpCardHeadlineSentence(label, card.headline)}
+              {card.headline.sparse && (
+                <>
+                  {" "}
+                  <SparseTag />
+                </>
+              )}
+            </>
+          )}
+        </p>
+        {/* Absence renders ONLY the sentence above — no chart, no rows, and
+            critically no "%" anywhere in the card body, so a reader cannot
+            mistake "not measured" for "measured at 0%." */}
+        {card.headline !== null && (
           <>
-            {rpCardHeadlineSentence(label, card.headline)}
-            {card.headline.sparse && (
-              <>
-                {" "}
-                <SparseTag />
-              </>
-            )}
+            <MiniDeviationChart card={card} algorithmId={algorithmId} d={d} />
+            <div className="flex flex-col">
+              {card.bonuses.map((row) => (
+                <div key={row.name} className="flex items-baseline gap-[var(--spacing-sm)] border-t border-[var(--color-border)] py-[3px] text-role-label">
+                  <span className="min-w-0 flex-1 shrink-0 text-[var(--color-text-muted)]">{row.name}</span>
+                  <span className="min-w-0 flex-1 text-[var(--color-text-primary)]">
+                    {"predicted "}
+                    <b className="numeric-cell">{`${fmtPct(row.meanPredicted, 1)}%`}</b>
+                    {" → actual "}
+                    <b className="numeric-cell">{`${fmtPct(row.observedFrequency, 1)}%`}</b>
+                  </span>
+                  <span className="numeric-cell flex shrink-0 items-baseline gap-[var(--spacing-xs)] text-[var(--color-text-muted)]">
+                    {row.count.toLocaleString("en-US")}
+                    {row.sparse && <SparseTag />}
+                  </span>
+                </div>
+              ))}
+            </div>
           </>
         )}
-      </p>
-      {/* Absence renders ONLY the sentence above — no chart, no rows, and
-          critically no "%" anywhere in the card body, so a reader cannot
-          mistake "not measured" for "measured at 0%." */}
-      {card.headline !== null && (
-        <>
-          <MiniDeviationChart card={card} algorithmId={algorithmId} d={d} />
-          <div className="flex flex-col">
-            {card.bonuses.map((row) => (
-              <div key={row.name} className="flex items-baseline gap-[var(--spacing-sm)] border-t border-[var(--color-border)] py-[3px] text-role-label">
-                <span className="min-w-0 flex-1 shrink-0 text-[var(--color-text-muted)]">{row.name}</span>
-                <span className="min-w-0 flex-1 text-[var(--color-text-primary)]">
-                  {"predicted "}
-                  <b className="numeric-cell">{`${fmtPct(row.meanPredicted, 1)}%`}</b>
-                  {" → actual "}
-                  <b className="numeric-cell">{`${fmtPct(row.observedFrequency, 1)}%`}</b>
-                </span>
-                <span className="numeric-cell flex shrink-0 items-baseline gap-[var(--spacing-xs)] text-[var(--color-text-muted)]">
-                  {row.count.toLocaleString("en-US")}
-                  {row.sparse && <SparseTag />}
-                </span>
-              </div>
-            ))}
-          </div>
-        </>
-      )}
+      </div>
     </div>
   );
 }

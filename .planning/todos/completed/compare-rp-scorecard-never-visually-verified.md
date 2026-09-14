@@ -57,3 +57,16 @@ If it is easier to install Playwright and screenshot it than to do it by hand, t
 first step and would unblock every future visual check too.
 
 Related: [[ranking-points-audit]].
+
+## 2026-09-13 addendum (quick task 260913-qyn)
+
+This file lives in `completed/`, resolved by the developer on 2026-09-13 — the note below does
+**not** reopen that resolution. It records a new, narrower fact: 260913-qyn added a total-RP
+sentence, a tie sentence, and two labelled secondary figures (ranked probability score, three-outcome
+Brier) to `RpCalibrationSection.tsx`'s card, ABOVE the bonus rows this file's original resolution
+covered. Visual verification in a browser was not possible from the executing agent's sandbox (no
+network, per the quick task's constraints) — the new rows are covered by component tests only
+(`RpCalibrationSection.test.tsx`, `rpCalibrationCards.test.ts`), not by a human or a browser. The
+same recipe this file already documents (`VITE_ARTIFACT_ORIGIN` local origin, fresh port per
+restart) applies to checking them after the next republish lands the new `totalRp`/`outcome` blocks
+on a live artifact.

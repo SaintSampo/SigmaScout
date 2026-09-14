@@ -56,3 +56,20 @@ overstatement; the first is the real fix.
 Do not simply reopen F1 — the scorecard is real and shipped. Narrow its claim.
 
 Related: [[ranking-points-audit]], [[rp-bonus-probabilities-are-severely-under-predicted]].
+
+## RESOLVED 2026-09-13 by quick task 260913-qyn
+
+The real fix landed: `scripts/measureRpCalibration.ts` now scores total ranking points (a ranked
+probability score against the actual alliance RP, `totalRp`) and the win/tie/loss outcome (a
+three-outcome Brier against `match.winner`, `outcome`) alongside the existing per-bonus blocks, for
+SPR. Both are carried through `CompareRpCalibrationSchema`/`RpCalibrationRecordSchema` and attached
+to the Compare page's qualification slices by `attachRpCalibration`. `RpCalibrationSection.tsx`'s
+card now leads with plain-language total-RP and tie sentences plus labelled RPS/three-outcome-Brier
+figures, with the per-bonus rows this todo's original scope covered demoted under a "Bonus ranking
+points" sub-label. The scorecard block is no longer bonus-only.
+
+Republish, Worker deploy and a presim sidecar refresh are still owed — the new blocks exist in
+`data/baselines/rp-calibration-2026-09d.json` and in the component/schema tests, but have not yet
+reached a live R2 artifact. See `docs/models/rp-layer-config-arms.md`'s dated 2026-09-13 section and
+`.planning/todos/pending/ranking-points-audit.md`'s "F6 / F7 decision" subsection for the full
+measurement and what shipped.

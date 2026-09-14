@@ -887,7 +887,7 @@ describe("buildRpCalibrationRecord — the optional third argument (260913-qyn)"
     }
   });
 
-  it("the committed apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json still parses as a bare RpCalibrationRecord shape", () => {
+  it("the committed apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json still parses as a bare RpCalibrationRecord shape, and now carries non-empty totalRp/outcome blocks (refreshed by 260913-qyn Task 3 from the -09d 2026 spr record)", () => {
     const raw: unknown = JSON.parse(
       readFileSync(new URL("../apps/web/src/routes/__fixtures__/rp-calibration-2026-spr.json", import.meta.url), "utf8")
     );
@@ -903,8 +903,14 @@ describe("buildRpCalibrationRecord — the optional third argument (260913-qyn)"
       records: [{ season: 2026, algorithmId: "spr", calibration: raw }],
     };
     const parsed = RpCalibrationMeasurementSchema.parse(wrapped);
-    expect(parsed.records[0]!.calibration.totalRp).toBeUndefined();
-    expect(parsed.records[0]!.calibration.outcome).toBeUndefined();
+    // Refreshed 2026-09-13 (quick task 260913-qyn Task 3): this fixture feeds
+    // pageArtifacts.test.ts's round-trip test and RpCalibrationSection.test.tsx's
+    // populated-render tests, both of which need a real record carrying the
+    // new blocks — so it is no longer bonus-only.
+    expect(parsed.records[0]!.calibration.totalRp).toBeDefined();
+    expect(parsed.records[0]!.calibration.totalRp!.count).toBeGreaterThan(0);
+    expect(parsed.records[0]!.calibration.outcome).toBeDefined();
+    expect(parsed.records[0]!.calibration.outcome!.count).toBeGreaterThan(0);
   });
 });
 

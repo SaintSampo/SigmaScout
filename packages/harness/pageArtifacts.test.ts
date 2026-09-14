@@ -412,6 +412,55 @@ describe("CompareSliceSchema.rpCalibration (F1/D-09/D-11, phase 09 plan 09-01)",
     };
     expect(() => CompareArtifactSchema.parse({ ...fixture, slices: [badSlice] })).toThrow();
   });
+
+  describe("totalRp/outcome blocks (2026-09-13, quick task 260913-qyn)", () => {
+    it("a bonuses-only record (no totalRp/outcome keys — the pre-scorer shape) still parses, and both read back undefined", () => {
+      const fixture = validCompareFixture();
+      const staleSlice = {
+        ...fixture.slices[0]!,
+        compLevelView: "qualification" as const,
+        rpCalibration: { scoredCount: 10, bonuses: [{ name: "energized", count: 10, meanPredicted: 0.5, observedFrequency: 0.5, brierScore: 0.1 }] },
+      };
+      const parsed = CompareArtifactSchema.parse({ ...fixture, slices: [staleSlice] }) as CompareArtifact;
+      expect(parsed.slices[0]?.rpCalibration?.totalRp).toBeUndefined();
+      expect(parsed.slices[0]?.rpCalibration?.outcome).toBeUndefined();
+    });
+
+    it("rejects a totalRp block with a negative excludedOutOfSupport (schema-level sanity)", () => {
+      const fixture = validCompareFixture();
+      const badSlice = {
+        ...fixture.slices[0]!,
+        compLevelView: "qualification" as const,
+        rpCalibration: {
+          scoredCount: 10,
+          bonuses: [],
+          totalRp: {
+            count: 10,
+            rankedProbabilityScore: 0.1,
+            meanPredictedRp: 2,
+            meanActualRp: 2,
+            excludedNullActual: 0,
+            excludedOutOfSupport: -1,
+          },
+        },
+      };
+      expect(() => CompareArtifactSchema.parse({ ...fixture, slices: [badSlice] })).toThrow();
+    });
+
+    it("rejects an outcome block with a non-integer count (schema-level sanity)", () => {
+      const fixture = validCompareFixture();
+      const badSlice = {
+        ...fixture.slices[0]!,
+        compLevelView: "qualification" as const,
+        rpCalibration: {
+          scoredCount: 10,
+          bonuses: [],
+          outcome: { count: 1.5, brierScore: 0.2, meanPredictedTie: 0.01, observedTieRate: 0.01 },
+        },
+      };
+      expect(() => CompareArtifactSchema.parse({ ...fixture, slices: [badSlice] })).toThrow();
+    });
+  });
 });
 
 describe("algorithm-scoping — four pages require it, compare carries neither field", () => {

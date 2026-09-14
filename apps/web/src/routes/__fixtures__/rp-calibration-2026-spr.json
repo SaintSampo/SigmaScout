@@ -4,23 +4,37 @@
     {
       "name": "energized",
       "count": 30382,
-      "meanPredicted": 0.5519693074846936,
-      "observedFrequency": 0.5767559739319333,
-      "brierScore": 0.19749191136610503
+      "meanPredicted": 0.551986,
+      "observedFrequency": 0.576756,
+      "brierScore": 0.197411
     },
     {
       "name": "supercharged",
       "count": 30382,
-      "meanPredicted": 0.04073589625436073,
-      "observedFrequency": 0.08106773747613719,
-      "brierScore": 0.058834899105556344
+      "meanPredicted": 0.040707,
+      "observedFrequency": 0.081068,
+      "brierScore": 0.058846
     },
     {
       "name": "traversal",
       "count": 30382,
-      "meanPredicted": 0.000047182542294779743,
-      "observedFrequency": 0.0012178263445461128,
-      "brierScore": 0.0012137829677111417
+      "meanPredicted": 0.000047,
+      "observedFrequency": 0.001218,
+      "brierScore": 0.001214
     }
-  ]
+  ],
+  "totalRp": {
+    "count": 30382,
+    "rankedProbabilityScore": 0.114322,
+    "meanPredictedRp": 2.090608,
+    "meanActualRp": 2.157593,
+    "excludedNullActual": 0,
+    "excludedOutOfSupport": 0
+  },
+  "outcome": {
+    "count": 15191,
+    "brierScore": 0.297936,
+    "meanPredictedTie": 0.004265,
+    "observedTieRate": 0.002896
+  }
 }

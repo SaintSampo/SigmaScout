@@ -1791,6 +1791,12 @@ export function loadRpCalibrationMeasurement(path: string): RpCalibrationMeasure
  * qualification slice with no matching record — is returned UNCHANGED, with
  * the key absent rather than present-and-empty. `measurement === undefined`
  * (no committed baseline yet) is a no-op over every slice.
+ *
+ * Quick task 260913-qyn: `totalRp` and `outcome` are copied the same way —
+ * counts pass through as integers, every other figure rounds to six decimal
+ * places — each ONLY when the source record's own block is present (its
+ * count-above-0 absence discipline), never synthesized when the record
+ * predates the scorer.
  */
 export function attachRpCalibration(
   slices: readonly ScoreSlice[],
@@ -1815,6 +1821,33 @@ export function attachRpCalibration(
         observedFrequency: roundTo(b.observedFrequency, 6),
         brierScore: roundTo(b.brierScore, 6),
       })),
+      // Quick task 260913-qyn: totalRp/outcome copied only when the record
+      // carries them (its own count > 0, `RpCalibrationTotalSchema`/
+      // `RpCalibrationOutcomeSchema`'s own absence discipline) — counts stay
+      // integers, every other figure rounds to six decimals at this same
+      // boundary, matching `bonuses` above.
+      ...(calibration.totalRp !== undefined
+        ? {
+            totalRp: {
+              count: calibration.totalRp.count,
+              rankedProbabilityScore: roundTo(calibration.totalRp.rankedProbabilityScore, 6),
+              meanPredictedRp: roundTo(calibration.totalRp.meanPredictedRp, 6),
+              meanActualRp: roundTo(calibration.totalRp.meanActualRp, 6),
+              excludedNullActual: calibration.totalRp.excludedNullActual,
+              excludedOutOfSupport: calibration.totalRp.excludedOutOfSupport,
+            },
+          }
+        : {}),
+      ...(calibration.outcome !== undefined
+        ? {
+            outcome: {
+              count: calibration.outcome.count,
+              brierScore: roundTo(calibration.outcome.brierScore, 6),
+              meanPredictedTie: roundTo(calibration.outcome.meanPredictedTie, 6),
+              observedTieRate: roundTo(calibration.outcome.observedTieRate, 6),
+            },
+          }
+        : {}),
     };
     return { ...slice, rpCalibration };
   });

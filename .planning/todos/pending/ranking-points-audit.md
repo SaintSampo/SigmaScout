@@ -632,7 +632,7 @@ Jacob made the four decisions below.
 | Finding | State |
 |---|---|
 | **F4** dependence between threshold variables | **MEASURED 2026-09-13, decided: lattice marginals and a mean shift, as two knobs.** The integer shape of the threshold variables dominates, closing 70.9% of the pooled multi-variable gap, while dependence between them closes -1.0%. See docs/models/rp-bonus-gap-attribution.md |
-| **F6 / F7** win and tie half | **OPEN, decided: score total RP, then re-ship.** See below |
+| **F6 / F7** win and tie half | **CLOSED 2026-09-13** (quick task 260913-qyn) — total-RP scorer built, WIN/TIE/WIN+TIE measured against the pre-committed bar on the 2016-2020,2022 selection slice, all three accepted, WIN+TIE shipped (lowest pooled RPS). See below |
 | **F8** cold-start gate | **SUPERSEDED.** Sigma Score always has a value (its prior covers a team with no matches), so the band gate never refuses a match under SPR, and OPR/EPA publish no RP at all. 2026casnv: RP pmf on 89 of 89 SPR rows |
 | **F9** partial-roster mean | **CLOSED, decision.** Now live rather than latent, because F8 no longer holds cold rosters back. Jacob, 2026-09-13: *cold robots should be treated as contributing nothing to RP, but we should still try to predict RP with known robots.* That is exactly what `momentsFor` does, so there is nothing to change |
 | **F10** bonus-dot display threshold | **DEFERRED** until F4's fix lands. The 0.5 line is not the defect, the under-predicted probabilities are |
@@ -669,6 +669,34 @@ bonuses alone, and neither fix touches a bonus (0 improved, 0 regressed, 30 tied
    formulas in `docs/models/rp-layer-config-arms.md`) on the **2016-2022 selection slice**, so no
    holdout is spent.
 3. Ship each one that improves. Re-measure the F6 gap under SPR first: the 0.0428 median is `bpr`'s.
+
+**Outcome, 2026-09-13 (quick task 260913-qyn).** All three steps ran. `scripts/measureRpCalibration.ts`
+now scores total RP (a ranked probability score against the actual alliance RP) and the win/tie/loss
+outcome (a three-outcome Brier against `match.winner`), and the acceptance bar
+(`applyRpOutcomeArmBar`) was committed as code and tests BEFORE any arm was measured
+(`757a4723`), exactly reversing 09-06's blind-bar failure mode. Measured on the 2016-2020,2022
+selection slice under SPR (137,482 total-RP / 68,741 outcome observations,
+`data/baselines/rp-outcome-arms-2026-09.json`):
+
+| arm | totalRp RPS | outcome Brier | verdict |
+|---|---|---|---|
+| control | 0.160303 | 0.382046 | — |
+| win | 0.159664 | 0.379872 | accepted |
+| tie | 0.160185 | 0.381584 | accepted |
+| win+tie | 0.159627 | 0.379769 | **accepted, shipped** (lowest RPS) |
+
+WIN+TIE shipped at every Prediction-bearing RP call site (`SigmaScoutLayer`, the Worker's
+`scheduled.ts`/`stateProbe.ts`, and `publish.ts`'s pre-schedule pricer): the decisive share now uses
+the algorithm's own `pRedWin` in a proportional split against `1 - pTie`, and `pTie` is a genuine
+discrete integer-margin tie probability rather than the prior structural zero. The re-measured F6 gap
+(descriptive, not a gate) fell from median 0.0274 / max 0.1971 under control to median 0.0041 / max
+0.1585 under WIN+TIE — the SPR figure, not `bpr`'s 0.0428 median quoted above. `outcome.meanPredictedTie`
+0.013626 against `observedTieRate` 0.012918 closes F7. `RP_CALIBRATION_MEASUREMENT_PATH` was re-emitted
+at `data/baselines/rp-calibration-2026-09d.json` (ten SPR records, every one carrying `totalRp` and
+`outcome` blocks) and the Compare page's RP card now leads with plain-language total-RP and tie
+sentences. Full figures, the bar's own doc-comment, and what shipped or was deleted per arm:
+`docs/models/rp-layer-config-arms.md`'s dated 2026-09-13 section. Republish, Worker deploy and presim
+refresh are owed.
 
 ### F4 decision — measure which cause dominates before fixing anything
 

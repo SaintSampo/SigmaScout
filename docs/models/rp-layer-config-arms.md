@@ -294,6 +294,108 @@ answer, taken without override.
 
 ---
 
+## Re-measured under a total-RP scorer (2026-09-13, quick task 260913-qyn)
+
+The verdict above was blind: the pre-committed 09-06 bar scored the 30 bonus cells only, and
+`win`/`tie` change nothing there (0 improved, 0 regressed, 30 tied) because both change only the
+win/tie/loss half of the ranking-point distribution, never a bonus. This section is a SECOND,
+independent measurement, on a scorer built to see exactly that half, following the same
+pre-committed-bar discipline this document's own "Outcome" section above established.
+
+**The scorer (`scripts/measureRpCalibration.ts`).** Two new blocks, per (season, algorithm),
+omitted when their `count` is 0 (the same absence discipline `bonuses` already uses):
+
+- **`totalRp`** — a ranked probability score (RPS) of `redRpPmf`/`blueRpPmf` against the actual
+  alliance RP (`toIntegerRpOrNull(match.redRpEarned / blueRpEarned)`, the SAME conversion
+  `publish.ts` uses for `actualRedRp`/`actualBlueRp`, imported rather than re-derived), pooled per
+  alliance-side. `RPS = (1 / maxRp) * sum over k = 0..maxRp-1 of (P(RP <= k) - [actual <= k])^2`,
+  bounded `[0, 1]`. Every selection-slice season has `maxRp = 4`, so the normalisation cannot bias
+  the arm comparison.
+- **`outcome`** — a three-outcome Brier (`(pRed-[red])^2 + (pTie-[tie])^2 + (pBlue-[blue])^2`, 0
+  perfect, 2 worst — NOT comparable to the site's binary win Brier) of `matchOutcomePmf` against
+  `match.winner`, pooled per match, plus mean predicted tie probability and the observed tie rate.
+
+Population: played matches with `isBonusRpCompLevel(match.compLevel)` whose folded prediction
+carries `redRpPmf`/`blueRpPmf` (outcome: `matchOutcomePmf`) — NOT gated on
+`actualBonusFlagsForSeason`, so the bonus loop's own `continue` cannot silently skip the new
+scorers. Out-of-support actuals (an integer RP below 0 or above `maxRp`) are excluded and counted
+separately (`excludedOutOfSupport`) from a null actual (`excludedNullActual`); neither counts
+toward `count`.
+
+**The slice and the guards.** Selection slice: 2016-2020 and 2022, `--algorithm spr` only —
+`assertOutcomeArmSliceAllowed` refuses any season at or above 2023 (no override, no trimming) and
+an algorithm guard requires the resolved list to be exactly `spr`, both evaluated on the parsed
+season list BEFORE the corpus opens.
+
+**The bar, committed before any arm was measured.** `applyRpOutcomeArmBar` (`scripts/
+measureRpCalibration.ts`, bar commit `757a4723`, dated 2026-09-13, preceding the scorer commit and
+every arm figure in git history — verified by `git log`) accepts an arm iff BOTH its pooled
+`totalRp` RPS AND its pooled `outcome` Brier are strictly lower than control's, no tolerance. The
+accepted set with the lowest RPS ships; WIN+TIE ships only when itself accepted; none accepted
+ships control.
+
+**The measurement**, one replay per season through `SigmaScoutLayer`, folding every record
+(qualification and elimination alike — an earlier run that folded qualification-only diverged from
+control's own history and was caught by `assertBonusHalfIdentical` before any arm figure existed;
+fixed in `af3e54e4`, re-run clean), pooled over 2016-2020, 2022 under SPR (137,482 total-RP /
+68,741 outcome observations, `data/baselines/rp-outcome-arms-2026-09.json`):
+
+| arm | totalRp RPS | RPS delta | outcome Brier | Brier delta | predicted tie | observed tie | accepted |
+|---|---|---|---|---|---|---|---|
+| control | 0.160303 | — | 0.382046 | — | 0 | 0.012918 | — |
+| win | 0.159664 | -0.000639 | 0.379872 | -0.002174 | 0 | 0.012918 | yes |
+| tie | 0.160185 | -0.000118 | 0.381584 | -0.000462 | 0.013626 | 0.012918 | yes |
+| win+tie | 0.159627 | -0.000676 | 0.379769 | -0.002277 | 0.013626 | 0.012918 | **yes — shipped** |
+
+All three arms cleared the bar on both figures, in every one of the six seasons (pooled direction
+held per-season too, reported not gating). WIN+TIE has the lowest pooled RPS, so it ships per the
+bar's own tie-break rule (lowest RPS first). Bonus-half bitwise identity was proven on every folded
+record before any arm figure existed (`assertBonusHalfIdentical`), and confirmed again by a
+21-cell byte-identical cross-check between `-09c` (bonus-only scorer) and `-09d` (post-ship) after
+the collapse.
+
+**The F6 gap under SPR** (descriptive — `median`/`p90`/`max` of `|matchOutcomePmf[0] - pRedWin|`,
+reported by the scorer's console output, never a gate): median fell from **0.0274** under control
+to **0.0041** under WIN+TIE; max fell from **0.1971** to **0.1585**. This is the SPR figure — the
+0.0428 median/0.3415 max quoted earlier in this document's "Outcome" section is `bpr`'s, from a
+different algorithm entirely, and the two are not comparable. The residual under WIN+TIE is
+`pRedWin x pTie` from the proportional split; conditional on a decisive result the identity with
+`pRedWin` is exact (unchanged from this document's own derivation above).
+
+**What shipped.** WIN+TIE, at every Prediction-bearing RP call site: `SigmaScoutLayer#rpFieldsFor`,
+`apps/worker/src/scheduled.ts`'s `rpFieldsFor`, `apps/worker/src/stateProbe.ts`'s `rpFieldsFor`
+(mirrors the Worker), and `publish.ts`'s pre-schedule pricer (`makeRankingPointFiller`).
+`fieldAveraged.ts` passes nothing (it prices a hypothetical match with no real `Prediction` to read
+`pRedWin` from) and keeps the score-draw limit, with a comment recording why. The measurement seam
+— the `SigmaScoutLayer` third constructor argument, `--outcome-arms`/`--emit-outcome-arms`, and the
+four-layer fold — was deleted at ship time in every outcome of the bar; `applyRpOutcomeArmBar`,
+`RpOutcomeArmRecordSchema`, the scorers, and the slice/algorithm guards remain as the reader half
+for any future re-measurement. `SHIPPED_RP_LAYER_LABEL` was updated to the shipped combination, and
+`rp-calibration-2026-09b.json`'s frozen pin was re-pinned to its own literal (it predates the
+label). Nothing here revisits the `marginal` arm's already-decided, already-recorded disposition
+(negative binomial: measured to help, declined on cost, 2026-09-12).
+
+**The published measurement.** `RP_CALIBRATION_MEASUREMENT_PATH` now points at
+`data/baselines/rp-calibration-2026-09d.json`, re-measured `--seasons 2016-2020,2022-2026
+--algorithm spr` from the post-ship tree — ten SPR records, every one carrying non-empty `totalRp`
+and `outcome` blocks. `-09b` and `-09c` are byte-untouched. The Compare page's RP card
+(`RpCalibrationSection.tsx`) now leads each SPR card with a plain-language total-RP sentence and a
+tie sentence, followed by the labelled ranked-probability-score and three-outcome-Brier figures,
+with the existing per-bonus rows demoted under a "Bonus ranking points" sub-label — unchanged in
+content and test ids.
+
+**Owed, not done by this task.** Republish (so the live `v1/compare/{year}.json` objects carry the
+new blocks), Worker deploy (so the live tick prices matches with the shipped WIN+TIE model), and a
+presim sidecar refresh. No network, R2, D1 or deploy access was available to the executing task.
+
+Full arm record: `data/baselines/rp-outcome-arms-2026-09.json`. Published measurement:
+`data/baselines/rp-calibration-2026-09d.json`. Bar commit: `757a4723`. Collapse commit:
+`956c9cef`. Re-emit commit: `1a7cad9b`. Audit disposition: `.planning/todos/pending/
+ranking-points-audit.md`'s "F6 / F7 decision" subsection.
+
+---
+
 *Phase: 09-analytic-ranking-points-browser-side-simulation*
-*Plan: 09-05 (outcome section added by 09-06, 2026-09-11)*
+*Plan: 09-05 (outcome section added by 09-06, 2026-09-11; total-RP re-measurement added by quick
+task 260913-qyn, 2026-09-13)*
 *Written: 2026-09-11*

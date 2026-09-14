@@ -15,7 +15,7 @@ import compare2026 from "../../routes/__fixtures__/compare-2026.json";
 import rpCalibration2026Spr from "../../routes/__fixtures__/rp-calibration-2026-spr.json";
 import { CompareArtifactSchema, type CompareArtifact, type CompareRpCalibration } from "../../../../../packages/harness/pageArtifacts.js";
 import { algorithmDisplayLabel } from "../ribbon/AlgorithmSelect.js";
-import { buildRpCalibrationCard, rpCardHeadlineSentence } from "./rpCalibrationCards.js";
+import { buildRpCalibrationCard, rpCardHeadlineSentence, rpTieSentence, rpTotalSentence } from "./rpCalibrationCards.js";
 import {
   DEFAULT_RP_CALIBRATION_YEAR,
   RP_CALIBRATION_ABSENT_TEXT,
@@ -24,6 +24,10 @@ import {
   RpCalibrationSection,
   rpCalibrationCardSentenceTestId,
   rpCalibrationCardTestId,
+  rpCalibrationOutcomeBrierTestId,
+  rpCalibrationRpsTestId,
+  rpCalibrationTieSentenceTestId,
+  rpCalibrationTotalSentenceTestId,
 } from "./RpCalibrationSection.js";
 
 afterEach(cleanup);
@@ -112,6 +116,59 @@ describe("RpCalibrationSection — populated render (real emitted record attache
     for (const bonus of RP_RECORD.bonuses) {
       expect(cardEl.textContent).toContain(bonus.name);
     }
+  });
+});
+
+describe("RpCalibrationSection — total-RP and tie figures (2026-09-13, quick task 260913-qyn)", () => {
+  it("renders the total-RP sentence, the tie sentence and both labelled secondary figures from the record's own numbers", () => {
+    render(<RpCalibrationSection artifactsByYear={new Map([[2026, artifactWithSprRp()]])} />);
+    const card = buildRpCalibrationCard(RP_RECORD);
+    const label = algorithmDisplayLabel("spr");
+    expect(screen.getByTestId(rpCalibrationTotalSentenceTestId("spr")).textContent).toBe(rpTotalSentence(label, card.totalRp!));
+    expect(screen.getByTestId(rpCalibrationTieSentenceTestId("spr")).textContent).toBe(rpTieSentence(label, card.outcome!));
+    expect(screen.getByTestId(rpCalibrationRpsTestId("spr")).textContent).toContain(card.totalRp!.rankedProbabilityScore.toFixed(4));
+    expect(screen.getByTestId(rpCalibrationRpsTestId("spr")).textContent).toContain("Total ranking point score (0 is perfect)");
+    expect(screen.getByTestId(rpCalibrationOutcomeBrierTestId("spr")).textContent).toContain(card.outcome!.brierScore.toFixed(4));
+    expect(screen.getByTestId(rpCalibrationOutcomeBrierTestId("spr")).textContent).toContain(
+      "Win, tie and loss Brier score (0 is perfect, 2 is worst)"
+    );
+  });
+
+  it("prints the sample counts on both new sentences, always", () => {
+    render(<RpCalibrationSection artifactsByYear={new Map([[2026, artifactWithSprRp()]])} />);
+    expect(screen.getByTestId(rpCalibrationTotalSentenceTestId("spr")).textContent).toContain(RP_RECORD.totalRp!.count.toLocaleString("en-US"));
+    expect(screen.getByTestId(rpCalibrationTieSentenceTestId("spr")).textContent).toContain(RP_RECORD.outcome!.count.toLocaleString("en-US"));
+  });
+
+  it("a stale artifact whose rpCalibration record carries no totalRp/outcome (predates the scorer) still renders — no total/tie sentence, no crash, bonus card unaffected", () => {
+    const { totalRp: _totalRp, outcome: _outcome, ...staleRecord } = RP_RECORD;
+    const stale = {
+      ...ARTIFACT_2026_NO_RP,
+      slices: ARTIFACT_2026_NO_RP.slices.map((s) =>
+        s.algorithmId === "spr" && s.season === DEFAULT_RP_CALIBRATION_YEAR && s.compLevelView === "qualification"
+          ? { ...s, rpCalibration: staleRecord }
+          : s
+      ),
+    };
+    render(<RpCalibrationSection artifactsByYear={new Map([[2026, stale]])} />);
+    expect(screen.queryByTestId(rpCalibrationTotalSentenceTestId("spr"))).toBeNull();
+    expect(screen.queryByTestId(rpCalibrationTieSentenceTestId("spr"))).toBeNull();
+    expect(screen.queryByTestId(rpCalibrationRpsTestId("spr"))).toBeNull();
+    expect(screen.queryByTestId(rpCalibrationOutcomeBrierTestId("spr"))).toBeNull();
+    // The bonus card this file's OLDER tests exercise is unaffected by the
+    // new fields' absence.
+    const card = buildRpCalibrationCard(staleRecord);
+    expect(screen.getByTestId(rpCalibrationCardSentenceTestId("spr")).textContent).toContain(
+      rpCardHeadlineSentence(algorithmDisplayLabel("spr"), card.headline!)
+    );
+  });
+
+  it("the true-absence case (no rpCalibration key at all) still shows no total/tie sentence or secondary figure, and no percentage in the card body", () => {
+    render(<RpCalibrationSection artifactsByYear={new Map([[2026, ARTIFACT_2026_NO_RP]])} />);
+    expect(screen.queryByTestId(rpCalibrationTotalSentenceTestId("spr"))).toBeNull();
+    expect(screen.queryByTestId(rpCalibrationTieSentenceTestId("spr"))).toBeNull();
+    const cardEl = screen.getByTestId(rpCalibrationCardTestId("spr"));
+    expect(cardEl.textContent).not.toContain("%");
   });
 });
 
