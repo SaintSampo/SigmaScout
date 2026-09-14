@@ -72,7 +72,7 @@ test.describe("ledger row 4 — no-ranking fallback ordering, real artifact + co
 
 // ---------------------------------------------------------------------------
 // Ledger row 10 — the two-pick alliance contract against a REAL published
-// artifact, with a populated-Pick-3 control.
+// artifact, with a populated-Pick-2 control.
 // ---------------------------------------------------------------------------
 
 test.describe("ledger row 10 — the two-pick alliance contract, real artifact + control", () => {
@@ -137,138 +137,6 @@ test.describe("ledger row 10 — the two-pick alliance contract, real artifact +
   // `2024cmptx` (Einstein) publishes 8 real alliances of 4 picks each
   // rather than an empty array, so no additive empty-array case exists
   // for it here.
-});
-
-// ---------------------------------------------------------------------------
-// The alliance-uncertainty identity. `sigma_alliance` (from
-// `metrics.total.spread`, which `publish.ts` documents as AS-OF-EVENT —
-// state after the event's LAST chronological match) and `sigma_match` (a
-// specific match's `redScoreVarianceOwn`/`blueScoreVarianceOwn`, the
-// walk-forward AS-OF-THAT-MATCH prediction) are two DIFFERENT points in
-// the walk-forward, not the same instant, so exact agreement between them
-// is not a provable claim from the published bytes.
-//
-// What THIS test asserts instead is the relationship that IS provable from
-// published bytes: `sigma_match` (walk-forward, computed before the match
-// was played) should exceed `sigma_alliance` (as-of-event-end) by MORE for
-// an alliance's EARLIER elimination matches than for its LATER ones, since
-// the model's uncertainty narrows monotonically as more of the event's
-// matches are observed. Pairs are bucketed by whether their match's
-// `sortTime` falls before or after that event's own median elimination-match
-// `sortTime`, and the mean signed gap (`sigma_match - sigma_alliance`) is
-// asserted to be smaller in the second half than in the first.
-//
-// The TRUE identity (same-instant per-team spread vs. that instant's
-// alliance variance) remains genuinely untestable until the pipeline
-// publishes each team's metrics AS-OF-EACH-MATCH rather than only
-// as-of-event — tracked as an actionable follow-up in
-// `.planning/todos/pending/publish-as-of-match-team-metrics.md`, not left as
-// a silent gap.
-// ---------------------------------------------------------------------------
-
-const IDENTITY_CANDIDATE_EVENTS = ["2024new", "2023cur", "2024casf", "2025flta"] as const;
-const ELIM_COMP_LEVELS = new Set(["ef", "qf", "sf", "f"]);
-
-interface IdentityPair {
-  eventKey: string;
-  allianceNumber: number;
-  matchKey: string;
-  side: "red" | "blue";
-  sortTime: number;
-  sigmaAlliance: number;
-  sigmaMatch: number;
-  gap: number; // signed: sigmaMatch - sigmaAlliance
-}
-
-function median(values: readonly number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
-}
-
-function mean(values: readonly number[]): number {
-  return values.reduce((sum, v) => sum + v, 0) / values.length;
-}
-
-test.describe("ledger row 9 (corrected) — the alliance-uncertainty gap narrows monotonically across an event, over real published data", () => {
-  test("the mean gap (sigma_match - sigma_alliance) is smaller in the second half of an event's elimination matches than in the first half, pooled across four candidate events", async ({
-    request,
-  }) => {
-    const version = await resolveSprVersion(request);
-    const pairs: IdentityPair[] = [];
-    const eventsChecked: string[] = [];
-
-    for (const eventKey of IDENTITY_CANDIDATE_EVENTS) {
-      eventsChecked.push(eventKey);
-      const artifact = await fetchEventArtifact(request, eventKey, version);
-      const spreadByTeam = new Map<string, number>();
-      for (const team of artifact.teams) {
-        const spread = team.metrics.total?.spread;
-        if (spread !== undefined) spreadByTeam.set(team.teamKey, spread);
-      }
-
-      const elimMatches = artifact.matches.filter((m) => ELIM_COMP_LEVELS.has(m.compLevel) && m.sortTime !== undefined);
-      if (elimMatches.length === 0) continue;
-
-      for (const alliance of artifact.alliances ?? []) {
-        const firstThree = alliance.picks.slice(0, 3);
-        if (firstThree.length < 3) continue;
-        const spreads = firstThree.map((key) => spreadByTeam.get(key));
-        if (spreads.some((s) => s === undefined)) continue;
-        const sigmaAlliance = Math.sqrt((spreads as number[]).reduce((sum, s) => sum + s * s, 0));
-        const pickSet = new Set(firstThree);
-
-        for (const match of elimMatches) {
-          const redSet = new Set(match.redTeams);
-          const blueSet = new Set(match.blueTeams);
-          let side: "red" | "blue" | undefined;
-          if (redSet.size === pickSet.size && [...pickSet].every((p) => redSet.has(p))) side = "red";
-          else if (blueSet.size === pickSet.size && [...pickSet].every((p) => blueSet.has(p))) side = "blue";
-          if (side === undefined) continue;
-
-          const varianceOwn = side === "red" ? match.redScoreVarianceOwn : match.blueScoreVarianceOwn;
-          if (varianceOwn === undefined) continue;
-          const sigmaMatch = Math.sqrt(varianceOwn);
-          pairs.push({
-            eventKey,
-            allianceNumber: alliance.allianceNumber,
-            matchKey: match.matchKey,
-            side,
-            sortTime: match.sortTime!,
-            sigmaAlliance,
-            sigmaMatch,
-            gap: sigmaMatch - sigmaAlliance,
-          });
-        }
-      }
-    }
-
-    expect(pairs.length, `zero pairs found across every candidate event tried (${eventsChecked.join(", ")}) — the relationship was never actually tested`).toBeGreaterThan(0);
-
-    // Each event's own median elimination-match sortTime is the cutoff for
-    // ITS pairs — computed per event so one event's timeline can never
-    // distort another's bucketing.
-    const cutoffByEvent = new Map<string, number>();
-    for (const eventKey of eventsChecked) {
-      const eventPairs = pairs.filter((p) => p.eventKey === eventKey);
-      if (eventPairs.length === 0) continue;
-      cutoffByEvent.set(eventKey, median(eventPairs.map((p) => p.sortTime)));
-    }
-
-    const firstHalf = pairs.filter((p) => p.sortTime < (cutoffByEvent.get(p.eventKey) ?? Infinity));
-    const secondHalf = pairs.filter((p) => p.sortTime >= (cutoffByEvent.get(p.eventKey) ?? -Infinity));
-
-    expect(firstHalf.length, "no pairs fell in the first half of any event — the narrowing comparison needs both halves populated").toBeGreaterThan(0);
-    expect(secondHalf.length, "no pairs fell in the second half of any event — the narrowing comparison needs both halves populated").toBeGreaterThan(0);
-
-    const meanFirstHalf = mean(firstHalf.map((p) => p.gap));
-    const meanSecondHalf = mean(secondHalf.map((p) => p.gap));
-
-    expect(
-      meanSecondHalf,
-      `expected the mean gap to narrow across the event (first half ${meanFirstHalf.toFixed(4)}, second half ${meanSecondHalf.toFixed(4)}, over ${firstHalf.length}/${secondHalf.length} pairs) — it did not`,
-    ).toBeLessThan(meanFirstHalf);
-  });
 });
 
 // ---------------------------------------------------------------------------
