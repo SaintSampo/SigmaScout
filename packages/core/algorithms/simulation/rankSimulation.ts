@@ -5,45 +5,35 @@
  * completions of the event.
  *
  * A browser-safe leaf module: zero runtime imports, no DOM, no Node
- * built-in. It has exactly TWO callers — a browser Web Worker (the live
- * case) and a Node rewind-gap control-run script. Having ONE implementation
- * is what makes the measured rewind-overconfidence figure describe the same
- * math the visitor's browser actually runs — a second, hand-synced copy
- * would silently turn that figure into a comparison between two
- * implementations instead of two prediction sets.
+ * built-in. It has exactly two callers — a browser Web Worker (the live
+ * case) and a Node rewind-gap control-run script. Having one
+ * implementation is what makes the measured rewind-overconfidence figure
+ * describe the same math the visitor's browser actually runs.
  *
- * Ranking Score, FRC's own ranking statistic (`sort_orders[0]`, the value
- * this pipeline stores as `EventTeamSchema.rp` — TBA's Ranking Score, a
- * per-match AVERAGE), is average total RP per match played. That is exactly
- * what this module sorts by.
+ * Ranking Score, FRC's own ranking statistic (the value this pipeline
+ * stores as `EventTeamSchema.rp`), is average total RP per match played.
+ * That is exactly what this module sorts by.
  *
- * A match has ONE outcome. Drawing red's and blue's total RP as two fully
- * INDEPENDENT inversions of `redRpPmf`/`blueRpPmf` lets both alliances
+ * A match has one outcome. Drawing red's and blue's total RP as two fully
+ * independent inversions of `redRpPmf`/`blueRpPmf` lets both alliances
  * receive the winning alliance's ranking points in a single draw, a state
  * the sport cannot produce. The coupled-draw decomposition fixes this
- * without touching the Monte Carlo itself: rank has no tractable closed
- * form and the draw captures for free the coupling where teammates on an
- * alliance receive the SAME draw. Draw the match's outcome ONCE from a
- * shared three-entry distribution (red win / tie / blue win), then each
- * alliance's BONUS RP independently from its own bonus-only marginal, then
- * add the deterministic-given-outcome win/tie RP on top — chosen over a
- * genuinely joint red/blue total-RP pmf, because the bonus-only marginal
- * already exported separately is exactly what this needs, and a joint
- * distribution has no measured form in this project.
+ * without touching the Monte Carlo itself: draw the match's outcome once
+ * from a shared three-entry distribution (red win / tie / blue win), then
+ * each alliance's bonus RP independently from its own bonus-only marginal,
+ * then add the deterministic-given-outcome win/tie RP on top.
  *
- * A `SimMatchInput` with no `outcome` still takes the ORIGINAL two
+ * A `SimMatchInput` with no `outcome` still takes the original two
  * independent-draw path, unchanged, reproducing today's histograms exactly
  * under the same seed, and Tests 1-14 (below) are its regression oracle.
  */
 
 /**
- * Deterministic PRNG (Mulberry32), citing the established source for this
- * primitive rather than importing it from a module with a heavier
- * dependency graph — a real dependency should never be dragged into the
- * browser bundle for a 10-line PRNG. This copy is the one
- * `scripts/rpPredictThresholdsGolden.ts` imports from. Every random value
- * in this module traces back to this function; the platform's built-in
- * non-seedable random source never appears anywhere in this file.
+ * Deterministic PRNG (Mulberry32), reimplemented here rather than imported
+ * from a module with a heavier dependency graph — a real dependency should
+ * never be dragged into the browser bundle for a 10-line PRNG. This copy
+ * is the one `scripts/rpPredictThresholdsGolden.ts` imports from. Every
+ * random value in this module traces back to this function.
  */
 export function mulberry32(seed: number): () => number {
   let t = seed;
@@ -59,12 +49,10 @@ export function mulberry32(seed: number): () => number {
  * Cumulative-sum inversion over a discrete pmf: draw `u` once from `rng`,
  * walk the array accumulating, and return the first index where the
  * running total exceeds `u`. The `pmf.length - 1` fallback is a
- * floating-point-residue guard, unreachable in exact arithmetic, and is
- * defense-in-depth ONLY — the real guarantee that `pmf` is non-empty and
- * sums to 1 within tolerance is the publish-boundary refinement
- * (`isValidPmf`, `packages/harness/pageArtifacts.ts`), which this function
- * does not re-implement. The loop's bound is `pmf`'s own length: there is
- * no retry and no unbounded loop, so no input shape can hang the caller.
+ * floating-point-residue guard, unreachable in exact arithmetic — the real
+ * guarantee that `pmf` is non-empty and sums to 1 is the publish-boundary
+ * schema (`isValidPmf`), which this function does not re-implement. The
+ * loop's bound is `pmf`'s own length, so no input shape can hang the caller.
  */
 export function drawCategorical(pmf: readonly number[], rng: () => number): number {
   const u = rng();
@@ -78,12 +66,11 @@ export function drawCategorical(pmf: readonly number[], rng: () => number): numb
 
 /**
  * Raised by `simulateRanks`'s up-front validation pass when a match's pmf
- * is empty or contains a non-finite entry. This is defense-in-depth against
- * an input that never went through the publish-boundary schema
- * (`isValidPmf`, `packages/harness/pageArtifacts.ts`) — that schema is the
- * primary gate and owns the sum-to-1 tolerance; this error type
- * deliberately does NOT re-check that tolerance, since duplicating a
- * numeric tolerance in two places is how two tolerances drift apart.
+ * is empty or contains a non-finite entry. Defense-in-depth against an
+ * input that never went through the publish-boundary schema (`isValidPmf`)
+ * — that schema owns the sum-to-1 tolerance; this error type deliberately
+ * does not re-check it, since duplicating a numeric tolerance in two
+ * places is how two tolerances drift apart.
  */
 export class InvalidPmfError extends Error {
   constructor(message: string) {
@@ -96,8 +83,7 @@ export class InvalidPmfError extends Error {
  * Raised by `simulateRanks`'s up-front validation pass when a match names a
  * team key absent from `baselines`. Thrown rather than silently dropped: a
  * dropped team's matches would simply vanish from the accumulation,
- * producing a complete, plausible-looking, WRONG rank distribution — the
- * failure mode a site whose premise is honest numbers cannot absorb.
+ * producing a complete, plausible-looking, wrong rank distribution.
  * Constructing an on-the-fly baseline entry for a team that appears in a
  * match but not on the roster is the caller's job, not this module's.
  */
@@ -109,23 +95,18 @@ export class UnknownTeamKeyError extends Error {
 }
 
 /**
- * The coupled-draw decomposition for one match. This module assigns NO
- * MEANING to any index — it never learns which entry of `outcomePmf` is a
- * "win" — the same refusal this file already makes about row selection. The
- * index order is pinned by this shape's PRODUCERS, in exactly one place:
- * `EventMatchSchema.matchOutcomePmf`'s doc comment
- * (`packages/harness/pageArtifacts.ts`). This interface only documents what
- * each array IS, never what a given index MEANS.
+ * The coupled-draw decomposition for one match. This module assigns no
+ * meaning to any index — it never learns which entry of `outcomePmf` is a
+ * "win". The index order is pinned by this shape's producers, in exactly
+ * one place: `EventMatchSchema.matchOutcomePmf`'s doc comment.
  *
  * - `outcomePmf`: a distribution over mutually exclusive match outcomes.
- *   Three entries at every configuration (red win / tie / blue win); the
- *   tie entry is ~0 until the discrete score-margin tie model is selected,
- *   so the shape never changes when the model does.
+ *   Three entries at every configuration (red win / tie / blue win).
  * - `redOutcomeRp` / `blueOutcomeRp`: index-aligned to `outcomePmf`, each
  *   alliance's ranking points under that outcome.
  * - `redBonusRpPmf` / `blueBonusRpPmf`: each alliance's own distribution
- *   over its BONUS ranking points only, drawn INDEPENDENTLY of each other —
- *   red and blue share no team, so nothing couples their bonus draws.
+ *   over its bonus ranking points only, drawn independently of each other
+ *   — red and blue share no team, so nothing couples their bonus draws.
  */
 export interface SimMatchOutcomeInput {
   readonly outcomePmf: readonly number[];
@@ -140,12 +121,11 @@ export interface SimMatchOutcomeInput {
  * team keys and their RP-total pmfs (already fold in win/tie/bonus RP — see
  * this file's header).
  *
- * `outcome` is OPTIONAL and, when present, is what this match's draw is
- * actually built from — see `SimMatchOutcomeInput`'s own doc comment. A
- * single optional OBJECT rather than five optional scalars is deliberate:
- * it makes all-present-or-all-absent a compile-time property instead of a
- * runtime check. Absent means this match takes the ORIGINAL
- * two-independent-draw path over `redRpPmf`/`blueRpPmf`.
+ * `outcome` is optional and, when present, is what this match's draw is
+ * actually built from. A single optional object rather than five optional
+ * scalars is deliberate: it makes all-present-or-all-absent a compile-time
+ * property instead of a runtime check. Absent means this match takes the
+ * original two-independent-draw path over `redRpPmf`/`blueRpPmf`.
  */
 export interface SimMatchInput {
   readonly redTeamKeys: readonly string[];
@@ -159,14 +139,11 @@ export interface SimMatchInput {
 export interface SimTeamBaseline {
   readonly teamKey: string;
   /**
-   * A TOTAL, not a per-match average. Stated first because this is the
-   * single highest-consequence unit ambiguity a caller of this module can
-   * get wrong: `EventTeamSchema.rp` (`pageArtifacts.ts`'s own doc comment)
-   * is TBA's Ranking Score, itself a per-match AVERAGE — a caller
-   * starting from it must multiply by `matchesPlayed` before passing the
-   * result here. Passing the average unconverted mis-ranks the entire
-   * field by a factor of `matchesPlayed`, and no test on either side of
-   * this boundary would catch it alone.
+   * A total, not a per-match average. `EventTeamSchema.rp` is TBA's
+   * Ranking Score, itself a per-match average — a caller starting from it
+   * must multiply by `matchesPlayed` before passing the result here.
+   * Passing the average unconverted mis-ranks the entire field by a
+   * factor of `matchesPlayed`.
    */
   readonly earnedRpSum: number;
   readonly matchesPlayed: number;
@@ -175,7 +152,7 @@ export interface SimTeamBaseline {
 /** The complete output of one `simulateRanks` call. */
 export interface SimResult {
   /**
-   * `teamKey` -> a length-`teamCount` `Int32Array` of per-rank DRAW COUNTS
+   * `teamKey` -> a length-`teamCount` `Int32Array` of per-rank draw counts
    * (never a probability), indexed `rank - 1` (index 0 is rank 1). This is
    * exactly the `dist` argument `continuousQuantile(dist, p, draws)`
    * expects unconverted. `Map` and `Int32Array` are both
@@ -191,26 +168,18 @@ export interface SimResult {
  * completions of `remainingMatches`, starting each team from `baselines`.
  *
  * This function simulates every row it is handed, in the order given, and
- * owns no row-selection rule of its own: which `compLevel === "qm"` rows
- * reach it — and from which point onward, whether that is the live
- * unplayed case or a rewind into an already-played match — is entirely
- * `simulationInputs.ts`'s decision, made against artifact fields
- * (competition level, played/unplayed status) this module never sees. The
- * corpus-level exclusion categories (offseason, surrogate-affected,
- * quarantined) are not representable on the event artifact this module's
- * caller reads from, so a filter here would assert a distinction the data
- * does not carry.
+ * owns no row-selection rule of its own: which rows reach it, and from
+ * which point onward, is entirely `simulationInputs.ts`'s decision, made
+ * against artifact fields this module never sees.
  *
- * Zero remaining matches is a VALID input, not an error case: this is the
- * fully-played event, the common case across the corpus (only 41 of 1,353
- * events have any unplayed qualification match at all), and every team
- * simply keeps its baseline average, ranked identically in all `draws`
- * draws.
+ * Zero remaining matches is a valid input, not an error case: this is the
+ * fully-played event, the common case across the corpus, and every team
+ * simply keeps its baseline average, ranked identically in all `draws` draws.
  *
- * Before the draw loop runs, this function walks `remainingMatches` ONCE to
- * validate each pmf (non-empty, every entry finite — NOT the sum-to-1
- * tolerance, which is the publish-boundary schema's own contract,
- * `isValidPmf`) and to resolve every team key against `baselines`, raising
+ * Before the draw loop runs, this function walks `remainingMatches` once to
+ * validate each pmf (non-empty, every entry finite — not the sum-to-1
+ * tolerance, which is the publish-boundary schema's own contract) and to
+ * resolve every team key against `baselines`, raising
  * `InvalidPmfError`/`UnknownTeamKeyError` immediately rather than producing
  * a wrong-but-plausible result. This costs O(matches) once, rather than
  * O(draws x matches) if repeated inside the hot loop.
@@ -292,9 +261,8 @@ export function simulateRanks(
     };
   });
 
-  // Accumulators allocated ONCE, outside the draw loop, and reset in place
-  // at the top of each draw -- following `rp/distribution.ts`'s own Monte
-  // Carlo loop shape (typed arrays, no per-draw allocation).
+  // Accumulators allocated once, outside the draw loop, and reset in place
+  // at the top of each draw (typed arrays, no per-draw allocation).
   const rpSum = new Float64Array(teamCount);
   const matchesPlayed = new Int32Array(teamCount);
   const order = new Array<number>(teamCount);
@@ -302,23 +270,18 @@ export function simulateRanks(
   /**
    * Orders two team indices by running average RP descending (FRC's
    * Ranking Score), with a lexicographic comparison on `teamKey` as the
-   * only secondary term. That secondary term exists SOLELY so a fixed seed
-   * reproduces the same output run to run — it carries no other
-   * meaning. `sort_orders[0]`, "Ranking Score", is the only sort order this
-   * pipeline ever ingests (`packages/ingest/rankings.ts`,
-   * `packages/corpus/schema.sql`); TBA's own season-specific tiebreakers
-   * (`sort_orders[1..]`) are read at ingest and discarded, so no data
-   * exists anywhere in this pipeline to back a real secondary ordering. The
-   * resulting order among teams tied on average RP therefore says nothing
-   * about how a real event's official tie-break would separate them —
-   * stated here as the positive fact this module rests on, not as a list of
-   * claims it declines to make.
+   * only secondary term, which exists solely so a fixed seed reproduces
+   * the same output run to run. TBA's own season-specific tiebreakers are
+   * discarded at ingest, so no data exists in this pipeline to back a real
+   * secondary ordering — the resulting order among teams tied on average
+   * RP says nothing about how a real event's official tie-break would
+   * separate them.
    *
-   * A team with zero matches played after a draw (`matchesPlayed[i] === 0`)
-   * ranks with an average of `0`, never `NaN`: `0/0` would be
-   * `NaN`, and `NaN` in a comparator produces an ordering that is neither
-   * stable nor meaningful. `0` is also the honest value — it is what TBA's
-   * own rankings page shows for a team that has played nothing.
+   * A team with zero matches played after a draw ranks with an average of
+   * `0`, never `NaN`: `0/0` would be `NaN`, and `NaN` in a comparator
+   * produces an ordering that is neither stable nor meaningful. `0` is
+   * also the honest value — it is what TBA's own rankings page shows for
+   * a team that has played nothing.
    */
   function compareByAvgRpDesc(a: number, b: number): number {
     const avgA = matchesPlayed[a]! > 0 ? rpSum[a]! / matchesPlayed[a]! : 0;
@@ -339,7 +302,7 @@ export function simulateRanks(
       let redRp: number;
       let blueRp: number;
       if (match.outcome !== undefined) {
-        // Draw order is OUTCOME, then RED bonus, then BLUE bonus — pinned
+        // Draw order is outcome, then red bonus, then blue bonus — pinned
         // here because the order defines the rng stream; changing it later
         // silently changes every seeded output.
         const outcomeIndex = drawCategorical(match.outcome.outcomePmf, rng);
@@ -348,10 +311,10 @@ export function simulateRanks(
         redRp = match.outcome.redOutcomeRp[outcomeIndex]! + redBonusRp;
         blueRp = match.outcome.blueOutcomeRp[outcomeIndex]! + blueBonusRp;
       } else {
-        // The ORIGINAL two-independent-draw path (pre-09-07): reproduces
-        // today's histograms exactly under the same seed. This is the path
-        // a published artifact predating the decomposition takes, and
-        // Tests 1-14 are its regression oracle.
+        // The original two-independent-draw path: reproduces today's
+        // histograms exactly under the same seed. This is the path a
+        // published artifact predating the decomposition takes, and Tests
+        // 1-14 are its regression oracle.
         redRp = drawCategorical(match.redRpPmf, rng);
         blueRp = drawCategorical(match.blueRpPmf, rng);
       }
