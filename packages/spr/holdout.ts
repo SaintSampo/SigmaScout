@@ -1,28 +1,26 @@
 /**
- * SINGLE-SHOT holdout evaluation on 2023-2026.
+ * Single-shot holdout evaluation on 2023-2026.
  *
- * This is the only file in the package permitted to score the holdout seasons.
- * It refuses to run unless every SEALED PATH — the model, the evaluator, the
- * data loader, the driver, the shipped port, and the parameter files a run
- * names — is committed with a clean working tree, and it prints a blob sha for
- * each, so the numbers it prints provably belong to one specific revision.
- * Re-running it after editing the model and re-tuning would silently turn the
- * holdout into a second training set; the git check is what makes that misuse
- * visible rather than invisible.
+ * This is the only file in the package permitted to score the holdout
+ * seasons. It refuses to run unless every sealed path — the model, the
+ * evaluator, the data loader, the driver, the shipped port, and the
+ * parameter files a run names — is committed with a clean working tree,
+ * and it prints a blob sha for each, so the numbers it prints provably
+ * belong to one specific revision. Re-running it after editing the model
+ * and re-tuning would silently turn the holdout into a second training
+ * set; the git check is what makes that misuse visible.
  *
- * `--years` binds the HALT-AFTER season to the maximum year named. Naming 2023
- * therefore means the replay stops at the end of 2023 and a 2024 match is never
- * stepped at all — the later seasons stay genuinely unspent as a structural
- * consequence of the loop bound, not as a promise about what gets printed.
+ * `--years` binds the halt-after season to the maximum year named. Naming
+ * 2023 therefore means the replay stops at the end of 2023 and a 2024
+ * match is never stepped at all — the later seasons stay genuinely unspent
+ * as a structural consequence of the loop bound.
  */
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-// A parameterless resampler: no tuned knobs, no VPR knowledge, no information
-// about any season. Reusing the tested helper does NOT breach the b4t design
-// firewall (which exists to keep VPR's TUNED parameters out of BPR's design),
-// and is strictly better than adding a fourth hand-rolled resampler.
+// A parameterless resampler: no tuned knobs, no season-specific knowledge.
+// Reusing the tested helper is strictly better than a fourth hand-rolled one.
 import { eventBlockedBootstrap } from "../harness/eventBootstrap.js";
 import { accuracyCall } from "../core/scoring/brier.js";
 import { HOLDOUT_YEARS, matches } from "./cli.js";
@@ -64,7 +62,7 @@ export function resolveYears(csv: string | undefined): {
     years.add(y);
   }
   if (years.size === 0) throw new Error(`holdout: --years named no years`);
-  // The halt-after year is BOUND to the maximum named year, so naming 2023
+  // The halt-after year is bound to the maximum named year, so naming 2023
   // structurally prevents stepping a single 2024 match.
   return { years, stopAfterYear: Math.max(...years) };
 }
@@ -75,12 +73,11 @@ function load(path: string): BprParams {
 }
 
 /**
- * One match, scored by BOTH models. Exported (with the two statistics below)
- * so a design-era contrast measures the SAME quantity with the SAME code a
- * holdout run would use - which is what lets a design-era interval serve as a
- * valid pre-registration for a later holdout interval, rather than being a
- * second hand-rolled approximation of it. Exporting changes nothing about what
- * this file computes or how main() behaves.
+ * One match, scored by both models. Exported (with the two statistics
+ * below) so a design-era contrast measures the same quantity with the same
+ * code a holdout run would use — which is what lets a design-era interval
+ * serve as a valid pre-registration for a later holdout interval, rather
+ * than a second hand-rolled approximation of it.
  */
 export interface Paired {
   readonly eventKey: string;

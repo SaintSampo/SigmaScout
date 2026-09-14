@@ -1,34 +1,24 @@
 /**
- * What "sealed" means for a BPR holdout run.
+ * What "sealed" means for an SPR holdout run: not just the parameter file,
+ * but every code path that can change a prediction — a reader naturally
+ * takes a seal to mean "the model that produced this number is pinned in
+ * git", so the seal must actually cover the model, not only its inputs.
  *
- * `holdout.ts`'s refusal used to cover the PARAMETER FILE only. A reader
- * naturally takes the seal to mean "the model that produced this number is
- * pinned in git", and it did not: quick task 260908-vqr (F-15) found that
- * `model.ts` changed TWICE after the sealed holdout evaluation ran, entirely
- * unchecked, so the printed 78.05% could not be attributed to any specific
- * revision of the code without manual forensics.
+ * The seal covers the five code paths below, plus whichever parameter
+ * files a run names. `assertSealed` returns a blob sha for each so the
+ * run's own output is self-documenting: a reader can check the header line
+ * by line against the repository rather than trusting a claim.
  *
- * The seal therefore covers the five code paths that can change a prediction,
- * plus whichever parameter files a run names. `assertSealed` returns a blob sha
- * for each so the run's own output is self-documenting: a reader can check the
- * header line by line against the repository rather than trusting a claim.
- *
- * 260912-ivg Stage 1 Task 2: this list was repointed from `packages/bpr/` to
- * `packages/spr/` (and the ported module from `packages/core/algorithms/bpr.ts`
- * to `.../spr.ts`) by a pure `git mv` — every path's blob sha is byte-identical
- * across the move commit (verified, not asserted). The measured numbers this
- * seal attests to (the sealed 2016-2022 design, the 2023-2026 holdout) are
- * therefore still attributable to the exact same content; only its address
- * changed. `assertSealed` resolves these strings against the CURRENT tree at
- * run time, so leaving them pointing at the old, now-nonexistent `packages/bpr/`
- * paths would have DISABLED the seal (every holdout run refusing to start
- * on a path error), not preserved it.
+ * These paths resolve against the current tree at run time — a stale path
+ * disables the seal (every holdout run refusing to start on a path error)
+ * rather than preserving it, so a future rename must update this list in
+ * the same commit.
  */
 
 /**
- * Every file that can change what BPR predicts. `data.ts` is included because
- * the POPULATION is part of the measurement (260908-vqr F-12), and the shipped
- * port is included because a published number attributed to BPR may have come
+ * Every file that can change what SPR predicts. `data.ts` is included
+ * because the population is part of the measurement, and the shipped port
+ * is included because a published number attributed to SPR may have come
  * from either module.
  */
 export const SEALED_CODE_PATHS: readonly string[] = [
