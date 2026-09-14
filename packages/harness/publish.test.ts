@@ -3539,11 +3539,7 @@ describe("publishSeasons — World rank cross-artifact agreement (quick task 260
   );
 });
 
-/**
- * Plan 07-09 Task 1 (D-10, D-09, D-11): direct unit coverage of
- * `withEventPercentiles` — the exported merge function, tested in isolation
- * from the seeded-corpus publish path below.
- */
+/** Unit coverage of `withEventPercentiles`, the exported merge function. */
 describe("withEventPercentiles — direct (plan 07-09 Task 1)", () => {
   it("Test 2: a pool hit attaches the exact percentileAgainstSortedPool value; a pool miss attaches no percentile key at all", () => {
     const metrics: Record<string, TeamMetric> = { total: { value: 50 }, spread: { value: 12 } };
@@ -3620,12 +3616,9 @@ describe("withEventPercentiles — direct (plan 07-09 Task 1)", () => {
 });
 
 /**
- * Plan 07-09 Task 1 (D-10, Wave 0 case): the as-of-event value merged with
- * the season-pool percentile (every team's last official match since 260912-tnk), proven end-to-end from a seeded corpus to
- * published JSON bytes. `opr` is used throughout — its event-scoped fit
- * (D-01, headlines each team's MOST RECENT event) is what makes a genuinely
- * different as-of-event vs season-final value cheap to construct without
- * hand-tuning Sigma1/EPA's cross-match state evolution.
+ * The as-of-event value merged with the season-pool percentile (every team's
+ * last official match), end to end to published JSON. `opr`'s event-scoped fit
+ * makes different as-of-event and season-final values cheap to construct.
  */
 describe("publishSeasons — D-10 as-of-event value + season-pool percentile on published event artifacts (plan 07-09 Task 1; one pool since 260912-tnk)", () => {
   let dir: string;
@@ -3671,10 +3664,7 @@ describe("publishSeasons — D-10 as-of-event value + season-pool percentile on 
     const earlyRow = earlyArtifact.teams.find((t) => t.teamKey === "frc1");
     const lateRow = lateArtifact.teams.find((t) => t.teamKey === "frc1");
 
-    // Published `value` is rounded once at the publish boundary
-    // (`roundTeamMetricRecord`, `ROUNDING_RULE.metric`) — round the
-    // independently-replayed raw expectation the SAME way before comparing
-    // against published JSON bytes, rather than comparing raw to rounded.
+    // The published value is rounded at the boundary (`ROUNDING_RULE.metric`), so round the expectation too.
     const roundedAsOfEarlyEventValue = roundTo(asOfEarlyEventValue!, ROUNDING_RULE.metric);
     const roundedSeasonFinalValue = roundTo(seasonFinalValue!, ROUNDING_RULE.metric);
 
@@ -3688,10 +3678,7 @@ describe("publishSeasons — D-10 as-of-event value + season-pool percentile on 
 
   it("Test 8: the published percentile is ranked against the season ranking pool (every team's last official match, quick task 260912-tnk), never the early event's own (smaller) roster", async () => {
     const { earlyEventKey, teamKeys } = seedTwoEventSeason(db);
-    // Widen the season pool beyond the early event's own six-team roster:
-    // two teams (frc7/frc8) that compete ONLY at the late event, so the
-    // early event's own roster (six teams) and the season pool (eight
-    // teams) provably differ in membership.
+    // frc7/frc8 play only the late event, so the early roster (six) and season pool (eight) differ.
     upsertMatch(
       db,
       seasonMatch({
@@ -3714,9 +3701,7 @@ describe("publishSeasons — D-10 as-of-event value + season-pool percentile on 
     const publishedPercentile = earlyRow.metrics.total?.percentile;
     expect(publishedPercentile).toBeDefined();
 
-    // Independently replay to compute both pools in-test. Every event in this
-    // fixture is official, so the season ranking pool is every team's
-    // metrics after its own last match.
+    // Every event here is official, so the season pool is each team's metrics after its last match.
     const stream = buildSeasonStream(db, 2026, {});
     const stateByEventKey = new Map<string, unknown>();
     const lastOfficialMetrics: TeamMetrics = {};
@@ -3815,25 +3800,17 @@ describe("publishSeasons — D-10 as-of-event value + season-pool percentile on 
     const { earlyEventKey } = seedTwoEventSeason(db);
     await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
     const earlyArtifact = findEventArtifact(earlyEventKey, "opr");
-    // eventTeamKeys is Array.from(new Set([...match teams in chronological
-    // order...])) inside publishSeasons — reproduced here from the
-    // artifact's own matches (already in that same chronological order)
-    // rather than hand-typed, so this cannot silently drift from production.
+    // Derived from the artifact's own chronological matches, as publishSeasons does, never hand-typed.
     const expectedOrder = Array.from(new Set(earlyArtifact.matches.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
     expect(earlyArtifact.teams.map((t) => t.teamKey)).toEqual(expectedOrder);
   });
 });
 
 /**
- * Quick task 260905-tll Task 4: a minimal RP-modeling fake algorithm whose
- * predictions ENCODE its own state (`matchCount`), so which state priced a
- * sidecar is directly readable from the published pmf bytes. Registered
- * under the spr id deliberately (quick task 260913-nvn): `publishSeasons`
- * only builds a sidecar for an id where `publishesRankingPoints` is true, and
- * spr is the only such id. The compare step's explicit registry knows spr, and
- * this module never touches the real spr module (publishSeasons uses the
- * passed-in module directly). The SPR layer's ranking-point filler leaves an
- * already-present pmf untouched, so the fake's state still reaches the bytes.
+ * A fake RP-modeling algorithm whose predictions encode its own `matchCount`,
+ * so the state that priced a sidecar is readable. It uses the spr id because
+ * only spr gets a sidecar; publishSeasons uses the passed-in module, and the SPR
+ * layer's filler leaves an already-present pmf untouched.
  */
 interface FakeRpState {
   matchCount: number;
@@ -3843,9 +3820,7 @@ const fakeRpAlgorithm: AlgorithmModule<FakeRpState> = {
   version: "9.9.9+presim-test",
   initState: () => ({ matchCount: 0 }),
   predict: (state) => {
-    // 0.01 per completed match — exact at ROUNDING_RULE.pmf (5 decimals),
-    // so roundPmf is the identity on these fixtures and the assertion below
-    // compares published bytes to an exactly-representable expectation.
+    // 0.01 per completed match is exact at ROUNDING_RULE.pmf, so roundPmf is the identity here.
     const bonus = Math.min(0.4, state.matchCount * 0.01);
     return {
       winner: "red",
@@ -3887,16 +3862,8 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
   it("C-06/PD-02/PD-04: the later event's sidecar is priced from the PRE-event walk-forward state (the state after the earlier event's last match), never its post-event state — and the cold-start season's first event gets NO sidecar", async () => {
     seedTwoEventSeason(db);
 
-    // 260912-2ur: the published body no longer carries the priced `schedules`
-    // block, so C-06's provenance check can no longer read a match's `rp`
-    // straight out of the published bytes (relocated from the pre-260912-2ur
-    // version of this test, which asserted `artifact.schedules[0].matches[0]
-    // .rp` against `preEventPmf`/`postEventPmf` literals). `fakeRpAlgorithm
-    // .predict` encodes `state.matchCount` into its pmf, so recording every
-    // call's `(matchKey, matchCount)` pair states the SAME fact — which
-    // state priced every synthetic presim match — more directly than the old
-    // byte assertion did, and it does not depend on the block being
-    // published at all.
+    // The published body carries no priced `schedules`, so record each
+    // `predict` call's `(matchKey, matchCount)` to see which state priced it.
     const recordedPredictions: { matchKey: string; matchCount: number }[] = [];
     const recordingAlgorithm: AlgorithmModule<FakeRpState> = {
       ...fakeRpAlgorithm,
@@ -3906,10 +3873,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
       },
     };
 
-    // Fixture-vacuity guard FIRST: the pre-event matchCount (after the early
-    // event's two matches) and the post-event matchCount (after all four
-    // matches across both events) must genuinely differ, or the assertion
-    // below that every presim call saw the pre-event count proves nothing.
+    // Vacuity guard: the pre-event (2) and post-event (4) matchCounts must differ.
     const preEventMatchCount = 2;
     const postEventMatchCount = 4;
     expect(preEventMatchCount, "fixture-vacuity guard: pre- and post-event matchCount must differ").not.toBe(postEventMatchCount);
@@ -3927,24 +3891,19 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     expect(call, `expected a v1/presim/2026lat/${spr.id}@... putObject call`).toBeDefined();
     expect(call![1]).toBe(preScheduleKey({ eventKey: "2026lat", algorithmId: spr.id, version: "9.9.9+presim-test" }));
 
-    // The proof obligation, on the RAW published bytes, before any schema
-    // parse: no own `schedules` property, and `scheduleCount` is the real
-    // 1,000 (PRESIM_SCHEDULE_COUNT, raised from 20 by quick task 260912-5hs)
-    // — this and the 1,000 x 50 = 50,000 draws arithmetic below move together.
+    // On the raw bytes, before any parse: no own `schedules`, and `scheduleCount`
+    // is PRESIM_SCHEDULE_COUNT (1,000; it moves with the 50,000-draw arithmetic below).
     const rawBody = JSON.parse(call![2] as string) as Record<string, unknown>;
     expect(Object.hasOwn(rawBody, "schedules")).toBe(false);
     expect(rawBody.scheduleCount).toBe(1000);
 
-    // The body round-trips through the published sidecar schema (the
-    // publish-boundary guarantee) and is priced from the PRE-event state.
+    // The body parses through the sidecar schema and is priced from the pre-event state.
     const artifact = PublishedPreScheduleArtifactSchema.parse(rawBody);
     expect(artifact.pricedFrom).toBe("pre-event-walk-forward");
     expect(artifact.roster).toEqual(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
     expect(artifact.baked.draws).toBe(50000); // 1,000 schedules x 50 draws — deliberately no longer the client's SIMULATION_DRAWS
 
-    // C-06, restated at the seam that survives the block's removal: every
-    // synthetic presim match for THIS event was priced at the pre-event
-    // matchCount, never the post-event one.
+    // Every synthetic presim match for this event was priced at the pre-event matchCount.
     const presimRecordings = recordedPredictions.filter((r) => r.matchKey.startsWith("2026lat_presim"));
     expect(presimRecordings.length, "fixture-vacuity guard: at least one presim call must have been recorded").toBeGreaterThan(0);
     expect(
@@ -3953,8 +3912,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     ).toBe(true);
     expect(presimRecordings.some((r) => r.matchCount === postEventMatchCount)).toBe(false);
 
-    // PD-04: the season's FIRST event has no exposable pre-event state under
-    // a cold start — no sidecar, never a fabricated one.
+    // A cold start's first event has no pre-event state: no sidecar, never a fabricated one.
     expect(findPresimCall("2026ear", spr.id)).toBeUndefined();
 
     // Ordering: the sidecar is written BEFORE the same event's artifact.
@@ -3980,8 +3938,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     expect(artifact.teams.map((t) => t.teamKey)).toEqual(["frc1", "frc2"]);
     expect(artifact.matches).toEqual([]);
     expect(artifact.upcoming).toEqual([]);
-    // metricsAsOfEvent's season-final fallback (PD-04 of plan 07-09) is
-    // exactly the as-of-now metrics a pre-schedule page should show.
+    // metricsAsOfEvent's season-final fallback is the as-of-now metrics a pre-schedule page should show.
     expect(artifact.teams[0]?.metrics.total?.value).toBeDefined();
   });
 
@@ -3997,12 +3954,8 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
 
   it("CR-03: an event whose schedule has landed but which has NOT started still gets a sidecar, priced from current state — never left serving a stale one", async () => {
     seedTwoEventSeason(db); // gives the algorithm real season-final state
-    // A third event whose qualification schedule is posted but where not a
-    // single match has been played. Before this fix the walk-forward branch
-    // was entered (qualMatchCount > 0), found no pre-event state, and
-    // SKIPPED — so any previously published sidecar kept serving unchanged
-    // through the entire pre-event window, which is exactly when a reader
-    // most wants this tab.
+    // A posted schedule with no played match must still regenerate its sidecar,
+    // or a stale one serves through the pre-event window, when readers most want it.
     upsertEvent(db, seasonEvent({ eventKey: "2026sch", name: "Scheduled Not Started" }));
     upsertMatch(
       db,
@@ -4030,9 +3983,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     const call = findPresimCall("2026sch", spr.id);
     expect(call, "a scheduled-but-unplayed event must still publish a sidecar").toBeDefined();
     const artifact = PublishedPreScheduleArtifactSchema.parse(JSON.parse(call![2] as string));
-    // "Before the event" and "now" are the same state when no match of the
-    // event has been played, so `current-state` is the honest label — and
-    // it keeps regenerating every publish until the event actually starts.
+    // With no match played, "before the event" is "now", so `current-state` is the honest label.
     expect(artifact.pricedFrom).toBe("current-state");
   });
 
@@ -4422,16 +4373,9 @@ describe("parseSeasonsRange — gapped list form (quick task 260904-nt4)", () =>
     expect(() => parseSeasonsRange("")).toThrowError(/must not be empty/);
   });
 
-  // Quick task 260907-203 WIDENED this expectation from the seven-season
-  // corpus to the ten-season one, deliberately rather than to make a red go
-  // green: the corpus itself grew backwards (2016/2017/2018 ingested and
-  // registered in every algorithm registry), and `package.json`'s
-  // `publish:seasons` was re-spelled `2016-2020,2022-2026` in the same task
-  // so the publisher actually covers what exists. This tripwire's JOB is to
-  // fail when the script and the real corpus disagree, so the season list
-  // here must track the corpus — what must NOT be weakened is the exact
-  // equality (never a `toContain`/length check), and it is not: 2021 is still
-  // absent, and a contiguous `2016-2026` in the script would fail this line.
+  // Fails when the script and the corpus disagree, so the list tracks the
+  // corpus. Keep the exact equality (never `toContain` or a length check): 2021
+  // is absent, so a contiguous `2016-2026` must fail.
   it("the script/parser drift tripwire: package.json's publish:seasons --seasons argument parses to exactly the ten-season corpus", () => {
     const packageJsonRaw = readFileSync(new URL("../../package.json", import.meta.url), "utf8");
     const pkg = JSON.parse(packageJsonRaw) as { scripts: Record<string, string> };
@@ -4446,29 +4390,11 @@ describe("parseSeasonsRange — gapped list form (quick task 260904-nt4)", () =>
     expect(parsed, "2021 is a permanent exclusion — the at-home season has no conventional 3v3 matches").not.toContain(2021);
   });
 
-  // Plan 09-10 Task 1, Step 2 — the presim-flag drift tripwire, sibling to the
-  // `--seasons` one immediately above: same `package.json` read, same
-  // "script must exist" guard, same regex-then-assert shape, different argument.
-  //
-  // WHY THIS EXISTS, recorded so it is never weakened into a formality. Commit
-  // `1a759198` set `publish:seasons`' `--presim-from-season` to the far-future
-  // sentinel `9999` while the simulation rethink iterated. A cutoff above
-  // every season in the corpus makes `presimEnabled` (`publish.ts`'s
-  // `season >= preScheduleFromSeason`) false for EVERY season, so each run
-  // logged a "below presim-from-season" skip per season and wrote zero
-  // sidecars. That value stayed committed through at least three full publish
-  // runs — roughly forty-five minutes and a complete R2 write pass each — and
-  // NO test noticed, because the only committed assertions over this script
-  // string read its `--seasons` argument. The pre-schedule stop was dark the
-  // whole time while every run reported success.
-  //
-  // The assertion is deliberately a RELATION, not a literal year: the cutoff
-  // must be at most the latest season the same script says it publishes. That
-  // makes the two arguments move together (widen the corpus, the bound widens
-  // with it) while still failing loudly on any value that disables generation
-  // by sitting in the far future. A hardcoded `2026` here would go stale the
-  // day 2027 is ingested and invite exactly the weakening this comment exists
-  // to prevent.
+  // A `--presim-from-season` above every published season silently writes zero
+  // sidecars while each run reports success (a committed `9999` once went
+  // unnoticed through several full publishes). The cutoff is asserted as a
+  // relation to the latest published season, never a literal year, so it
+  // widens with the corpus.
   it("the presim-flag drift tripwire: package.json's publish:seasons --presim-from-season is an integer year no later than the latest season it publishes", () => {
     const packageJsonRaw = readFileSync(new URL("../../package.json", import.meta.url), "utf8");
     const pkg = JSON.parse(packageJsonRaw) as { scripts: Record<string, string> };
@@ -4508,11 +4434,8 @@ describe("parseSeasonsRange — gapped list form (quick task 260904-nt4)", () =>
     ).toBeLessThanOrEqual(latestPublishedSeason);
   });
 
-  // Kept on the literal seven-season spec (NOT re-pointed at package.json):
-  // this case is about `seasonBoundaryFor`'s arithmetic across a one-season
-  // hole, and `2019,2020,2022-2026` is the minimal spec that exhibits one.
-  // The ten-season corpus has the identical single hole, so widening it here
-  // would add eight boundary rows that prove nothing new.
+  // A literal spec, not package.json: `2019,2020,2022-2026` is the minimal spec
+  // with a one-season hole, which is what `seasonBoundaryFor` is tested across.
   it("the gapped-boundary proof: over the parsed seven-season list, seasonBoundaryFor reports a two-year gap entering 2022, a one-year gap everywhere else, and a positional cold start only at index 0 (2019)", () => {
     const seasons = parseSeasonsRange("2019,2020,2022-2026");
     const boundaries = seasons.map((_, index) => seasonBoundaryFor(seasons, index));
@@ -4544,15 +4467,10 @@ describe("publishSeasons — EPA carries from the last official match (quick tas
   });
 
   /**
-   * Season A: one official event, then chronologically LATER an offseason
-   * event whose scores are a lopsided blowout — the exact shape that used to
-   * seed the next season's prior. Season B: one official event.
-   *
-   * The assertion is a real numeric discrimination, not a tautology: both
-   * candidate priors are recomputed here from `WalkForwardSimulator` directly
-   * (one threaded from the post-official-match state, one from the
-   * season-final state), and the published season-B metric must match the
-   * former and NOT the latter.
+   * Season A: one official event, then a later lopsided offseason event. Season
+   * B: one official event. Both candidate priors (post-official-match and
+   * season-final) are recomputed with `WalkForwardSimulator`, and season B's
+   * published metric must match the former and not the latter.
    */
   function seedTwoSeasons(): void {
     upsertEvent(db, seasonEvent({ eventKey: "2025off1", year: 2025, eventType: 0, name: "Official A" }));
@@ -4626,8 +4544,7 @@ describe("publishSeasons — EPA carries from the last official match (quick tas
     const expectedFromCarry = seasonBTotalFromInstant("carry");
     const expectedFromFinal = seasonBTotalFromInstant("final");
 
-    // Guard the guard: if the offseason blowout did not actually move the
-    // prior, this test would pass vacuously no matter which instant shipped.
+    // Vacuity guard: the offseason blowout must actually move the prior.
     expect(
       Math.abs(expectedFromCarry - expectedFromFinal),
       "the seeded offseason blowout must move the season-B prior, or this test proves nothing"
@@ -4645,20 +4562,15 @@ describe("publishSeasons — EPA carries from the last official match (quick tas
     const artifact = findTeamArtifact("frc1", 2026);
     const publishedTotal = artifact.seasonStats.metrics[TOTAL_METRIC_KEY]!.value;
 
-    // The published value carries D-06's display rounding, so both candidates
-    // are rounded the same way before comparison — the discrimination above
-    // (> 0.5 apart) is far coarser than this rule's 2 decimals, so rounding
-    // cannot collapse the two instants into each other.
+    // Both candidates get the display rounding; they are > 0.5 apart, far coarser than 2 decimals.
     expect(publishedTotal).toBe(roundTo(expectedFromCarry, ROUNDING_RULE.metric));
     expect(publishedTotal).not.toBe(roundTo(expectedFromFinal, ROUNDING_RULE.metric));
   });
 });
 
 describe("SigmaScout-layer match band (quick task 260908-5wd, renamed and Sigma-only since 260913-g66)", () => {
-  // The guarantee this task exists to provide: one match, ONE shared
-  // PredictionRecord, and therefore the SAME band on an event page and a team
-  // page. Both builders are handed the identical object here, exactly as
-  // publishSeasons hands them the identical object.
+  // One match, one shared PredictionRecord, so the same band on event and team
+  // pages; both builders get the identical object, as in publishSeasons.
   it("publishes a byte-identical band on the event artifact and the team artifact from one shared record", () => {
     const match = fixtureMatch();
     const prediction = fixturePrediction();
@@ -4807,11 +4719,9 @@ describe("publishSeasons — OPR publishes no band or ranking-point odds (quick 
 });
 
 /**
- * Quick task 260913-jkp Task 1: SPR event standings now also carry the
- * season-final Sigma entry beside the AS-OF-EVENT Total and phase values
- * (`buildEventTeamsStanding`'s new required `sigmaByTeam` parameter). This is
- * what lets the Insights/Breakdown/Alliances tabs render the split pill
- * without ever fetching the ~200KB Teams artifact.
+ * SPR event standings carry the season-final Sigma entry beside the as-of-event
+ * Total and phase values (`sigmaByTeam`), so the event tabs render the split
+ * pill without fetching the ~200KB Teams artifact.
  */
 describe("publishSeasons — event standings carry the season-final Sigma entry (quick task 260913-jkp Task 1)", () => {
   let dir: string;
@@ -4845,8 +4755,7 @@ describe("publishSeasons — event standings carry the season-final Sigma entry 
         compared++;
       }
     }
-    // Non-vacuous: the compared-team count is greater than zero AND equals
-    // the event roster size across both events, so this cannot pass vacuously.
+    // Non-vacuous: the compared-team count equals the roster size across both events.
     expect(compared).toBeGreaterThan(0);
     expect(compared).toBe(teamKeys.length * 2);
   });
@@ -4953,13 +4862,9 @@ describe("RP_CALIBRATION_MEASUREMENT_PATH — the measurement the publisher atta
   if (measurement === undefined) {
     it.skip(`skipped: ${RP_CALIBRATION_MEASUREMENT_PATH} does not exist yet — run scripts/measureRpCalibration.ts with --emit-artifact first`, () => {});
   } else {
-    // NO ID ALIAS HERE, deliberately. This block used to map the frozen `bpr`
-    // records onto `spr` before comparing, while `attachRpCalibration` matches
-    // the LITERAL algorithm id. After quick task 260913-it4 made SPR the only
-    // algorithm allowed a card, that alias kept this test green over a file
-    // with no `spr` record at all, and the next publish would have shipped a
-    // Compare page with no RP card (found 2026-09-13). The frozen files keep
-    // their own aliased checks in `scripts/measureRpCalibration.test.ts`.
+    // No id alias: `attachRpCalibration` matches the literal algorithm id, so an
+    // alias here could pass over a file with no `spr` record and ship a Compare
+    // page with no RP card.
     const rpAlgorithmIds = PUBLISHED_ALGORITHM_IDS.filter(publishesRankingPoints);
 
     it("has a record for every registered RP season and every algorithm that publishes ranking points, by literal id — set equality", () => {
@@ -5037,7 +4942,7 @@ describe("RP calibration wire-budget cost (F1/D-09/D-11, phase 09 plan 09-01 Tas
           `compare-${year}.json + rpCalibration (${bytes} bytes) exceeded the committed compare budgetMaxBytes (${compareBudgetMaxBytes})`
         ).toBeLessThanOrEqual(compareBudgetMaxBytes!);
       }
-      // Reported for the SUMMARY — the largest post-attach size against the committed ceiling.
+      // The largest post-attach size against the committed ceiling.
       console.log(`RP calibration wire-budget: largest post-attach compare artifact is ${largest} bytes (compare-${largestYear}.json), ceiling ${compareBudgetMaxBytes}`);
     });
   }
