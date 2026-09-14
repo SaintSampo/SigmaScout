@@ -1,132 +1,87 @@
 /**
- * 2016 (FIRST STRONGHOLD) RP rule module (D-09, D-12). Both bonuses measured
- * against the full official qual population using `EVENT_TYPE_TIERS` (0/1/100
- * = base, 2/5 = districtChampionship, 3/4 = championship). Note 2016 has
- * **no `event_type` 5** at all; every type it does present is mapped, so
- * `eventTierFor` never throws on this season.
- *
- * | rule | base (n=18,354) | districtChampionship (n=1,804) | championship (n=2,000) |
- * |---|---|---|---|
- * | `breach` | 100.000% 0FP 0FN | 100.000% 0FP 0FN | 100.000% 0FP 0FN |
- * | `capture` | **1 FP** 0FN | 0FP 0FN | 0FP 0FN |
- *
- * Both thresholds are FLAT across tiers as a MEASURED fact, which is why
- * every threshold triple below states the same number three times rather
- * than tiering.
+ * 2016 (FIRST STRONGHOLD) RP rule module. Both bonuses measured against the
+ * full official qual population using `EVENT_TYPE_TIERS` (0/1/100 = base,
+ * 2/5 = districtChampionship, 3/4 = championship). Note 2016 has **no
+ * `event_type` 5** at all; every type it does present is mapped, so
+ * `eventTierFor` never throws on this season. Both thresholds are FLAT
+ * across tiers as a MEASURED fact, which is why every threshold triple below
+ * states the same number three times rather than tiering.
  *
  * **Inert until a publish lands.** `FIRST_SEASON` in
  * `apps/web/src/lib/seasons.ts` is still 2019 and no 2016 artifacts exist in
  * R2, so registering this module makes 2016 computable by the harness and
  * the corpus suites — it does NOT make 2016 visible on the site.
  *
- * ---
- *
- * **BREACH — the rule is FOUR of five, not all five.**
- * `breach` is true when **at least 4** of the five defense positions were
- * crossed **at least twice** each. The intuitive reading — "all FIVE
- * defenses damaged" — is WRONG and fails loudly: it produces **12,248 false
- * negatives**. The four-of-five rule was established by MEASUREMENT against
- * the corpus, not by reading the game manual, and it separates the
- * population PERFECTLY with no overlap band whatsoever: a damaged-defense
- * count of 0/1/2/3 is ALWAYS false (6,651 sides) and a count of 4/5 is
- * ALWAYS true (15,507 sides). Fully numeric, so `predictThresholds`
- * reproduces it exactly.
+ * **BREACH — the rule is FOUR of five, not all five.** `breach` is true when
+ * **at least 4** of the five defense positions were crossed **at least
+ * twice** each. The intuitive "all FIVE defenses damaged" reading is WRONG
+ * and fails loudly: it produces 12,248 false negatives against the corpus.
+ * The four-of-five rule separates the population PERFECTLY, with no overlap
+ * band. Fully numeric, so `predictThresholds` reproduces it exactly.
  *
  * **The 2016 naming trap applies here and this module is where it bites.**
  * `position2`/`position3`/`position4`/`position5` are **STRINGS** (the
- * defense NAMES — "A_ChevalDeFrise", "B_Ramparts", ...) while
- * `position1crossings`..`position5crossings` are the **NUMBERS** this rule
- * reads. There is deliberately no `position1` string: the low bar sits in
- * position 1 every match and is not chosen, so TBA ships a crossings count
- * for it but no name. Reading `position2` where `position2crossings` was
- * meant yields a string, which the `z.number().finite()` schema below
- * rejects LOUDLY rather than coercing to 0.
- *
- * ---
+ * defense NAMES) while `position1crossings`..`position5crossings` are the
+ * **NUMBERS** this rule reads. There is deliberately no `position1` string:
+ * the low bar sits in position 1 every match and is not chosen. Reading
+ * `position2` where `position2crossings` was meant yields a string, which
+ * the `z.number().finite()` schema below rejects LOUDLY rather than
+ * coercing to 0.
  *
  * **CAPTURE — reads the OPPONENT's tower, exposed as an own-alliance
- * variable.**
- * `capture` is true when the tower this alliance ATTACKED has been reduced
- * to zero strength AND all three of its robots are on that tower:
+ * variable.** `capture` is true when the tower this alliance ATTACKED has
+ * been reduced to zero strength AND all three of its robots are on it:
  *
  *     attackedTowerEndStrength <= 0 AND (teleopChallengePoints / 5 + teleopScalePoints / 15) >= 3
  *
- * **`towerEndStrength` on a side is THAT SIDE'S OWN tower** — the one the
- * OPPONENT spends the match attacking — so this rule must read the
- * **opponent** side's field. `parse` therefore populates an own-alliance
- * threshold variable named **`attackedTowerEndStrength`** from
- * `parsed[opponentSide].towerEndStrength`.
+ * `towerEndStrength` on a side is THAT SIDE'S OWN tower — the one the
+ * OPPONENT attacks — so this rule reads the **opponent** side's field.
+ * `parse` populates an own-alliance threshold variable named
+ * `attackedTowerEndStrength` from `parsed[opponentSide].towerEndStrength`.
+ * This creates NO asymmetry: the value genuinely measures THIS alliance's
+ * own offensive output; it merely happens to be recorded on the other side
+ * of TBA's payload (the same precedent `breakdown/2016.ts` sets deriving
+ * `foulsCommitted` from the opponent side). The naive own-side reading (the
+ * WRONG-TOWER error) was measured and rejected: it produces hundreds of
+ * false positives and thousands of false negatives.
  *
- * **This creates NO asymmetry.** The value is genuinely a measure of THIS
- * alliance's own offensive output — their boulders are what knocked that
- * tower down — it merely happens to be recorded on the other side of TBA's
- * payload. The breakdown modules already set this exact precedent by
- * deriving `foulsCommitted` from the opponent side (D-04). Once populated,
- * `predictThresholds` reads `attackedTowerEndStrength` as an ordinary
- * own-alliance variable and needs no opponent access of its own.
- *
- * **THE THREE REJECTED VARIANTS, recorded by name with their numbers:**
- *  - own-side `towerEndStrength <= 0 && robots >= 3` — **212 FP / 1,304
- *    FN**. This is the WRONG-TOWER error, and it is the one a careless
- *    reading produces. It is recorded here specifically because it looks
- *    right.
- *  - `towerEndStrength <= 0` alone — **1,886 FP / 1,183 FN**.
- *  - `robots >= 3` alone — **4,558 FP / 0 FN**.
- *
- * **The shipped rule's measured residual: ONE false positive in 22,158
- * sides, and ZERO false negatives at every tier.** The single exception is
- * `2016melew_qm24` red — attacked tower at strength -2, all three robots up,
- * and TBA nonetheless records not-captured. Per `event_type`: 0/8,732 (type
- * 0), **1/9,590 = 0.01043% (type 1)**, 0/1,804 (type 2), 0/2,000 (type 3),
- * 0/32 (type 100). `reconciliation.test.ts` carries exactly ONE
+ * The shipped rule's measured residual: ONE false positive in 22,158 sides
+ * (`2016melew_qm24` red — attacked tower at strength -2, all three robots
+ * up, TBA nonetheless records not-captured), and ZERO false negatives at
+ * every tier. `reconciliation.test.ts` carries exactly ONE
  * `KNOWN_TOLERANCES` entry for this — `capture` at `eventTypes: [1]` only —
  * so every other tier stays bound to exactly 0 by the ABSENCE of an entry.
- * **`breach` gets no entry at all.**
- *
- * ---
+ * `breach` gets no entry at all.
  *
  * **Unit conversions.** `teleopChallengePoints` is observed in {0, 5, 10,
  * 15} and `teleopScalePoints` in {0, 15, 30, 45}, so dividing by 5 and 15
- * respectively yields an exact robot count of 0..3 in each and their sum is
- * the number of robots on the tower. `towerEndStrength` is observed in
- * -13..12 and is fully integral (0 non-integral sides), so `<= 0` is an
- * exact boundary rather than a float comparison.
+ * respectively yields an exact robot count of 0..3 in each. `towerEndStrength`
+ * is fully integral, so `<= 0` is an exact boundary rather than a float
+ * comparison.
  *
  * **Comparison semantics are `>=` throughout EXCEPT the tower half of
  * `capture`, which is `<=`** — the only inverted comparison in this module,
- * and inverted because tower strength COUNTS DOWN as it is attacked. Said
- * explicitly so a reader does not assume the module-wide `>=` convention
- * every other season file states.
+ * because tower strength COUNTS DOWN as it is attacked.
  *
- * **The `?? 0` default in `predictThresholds`.** Following the house
- * convention, every variable is read as `values.X ?? 0`. For
- * `attackedTowerEndStrength` that default makes the tower half TRUE (`0 <=
- * 0`), which is worth naming rather than leaving as a silent edge: it is
- * gated by the robot-count conjunct, which needs real data to clear, so an
- * empty `values` object still yields `capture = false`. It is also not
- * reachable on the live path — `rp/distribution.ts` always supplies every
- * tracked threshold variable. The house `?? 0` convention is kept
- * deliberately; a different default is NOT invented here for this one
- * variable.
+ * **The `?? 0` default in `predictThresholds`.** Every variable is read as
+ * `values.X ?? 0`. For `attackedTowerEndStrength` that default makes the
+ * tower half TRUE (`0 <= 0`), but it is gated by the robot-count conjunct,
+ * so an empty `values` object still yields `capture = false`; it is also not
+ * reachable on the live path, since `rp/distribution.ts` always supplies
+ * every tracked threshold variable.
  *
- * Deliberately never read: the roll-ups `autoPoints`/`teleopPoints`/
- * `totalPoints`, the scored `autoReachPoints`/`autoCrossingPoints`/
- * `autoBoulderPoints`/`teleopCrossingPoints`/`teleopBoulderPoints` and the
- * playoff-only `breachPoints`/`capturePoints` (all of which belong to
- * `breakdown/2016.ts`), `tba_rpEarned`, the raw boulder counts
- * `autoBouldersLow`/`autoBouldersHigh`/`teleopBouldersLow`/
- * `teleopBouldersHigh`, the per-robot `robot1Auto`/`robot2Auto`/`robot3Auto`
- * and `towerFaceA`/`towerFaceB`/`towerFaceC` fields (Pitfall Sigma1-2 /
- * Assumption A1 — positional correspondence to `red_teams`/`blue_teams`
- * array order is unverified), and the `position2`..`position5` defense-name
- * strings. The robot count is recomputed from the two tower POINT fields
- * and their known per-robot values rather than by counting the
- * `towerFace*` strings, so those are genuinely unread rather than an
- * alternative path left dangling. The `teleopDefensesBreached` and
+ * Deliberately never read: the roll-ups and scored point fields (all of
+ * which belong to `breakdown/2016.ts`), `tba_rpEarned`, the raw boulder
+ * counts, the per-robot `robot1Auto`/`robot2Auto`/`robot3Auto` and
+ * `towerFaceA`/`towerFaceB`/`towerFaceC` fields (positional correspondence
+ * to `red_teams`/`blue_teams` array order is unverified), and the
+ * `position2`..`position5` defense-name strings. The robot count is
+ * recomputed from the two tower POINT fields rather than by counting the
+ * `towerFace*` strings. The `teleopDefensesBreached` and
  * `teleopTowerCaptured` booleans ARE read, but only as `recordedBonusFlags`
  * — TBA's own answer, kept alongside the recomputed one so
- * `reconciliation.test.ts` is a comparison rather than a restatement (D-12),
- * never as an input to `bonusFlags`.
+ * `reconciliation.test.ts` is a comparison rather than a restatement, never
+ * as an input to `bonusFlags`.
  */
 import { z } from "zod";
 import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
@@ -143,8 +98,7 @@ import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor }
  * defense-NAME strings, `robot1Auto`/`robot2Auto`/`robot3Auto`,
  * `towerFaceA`/`towerFaceB`/`towerFaceC`, `tba_rpEarned`, `rp`, etc.) are
  * ignored, not rejected — zod's default "strip" mode drops them without
- * erroring. Deliberately NOT `.passthrough()`/`.loose()`, matching
- * `breakdown/2016.ts`'s discipline.
+ * erroring. Deliberately NOT `.passthrough()`/`.loose()`.
  *
  * Note the `*crossings` fields are the NUMBERS; the bare `position{i}` keys
  * are defense-name STRINGS and are deliberately absent from this schema.
@@ -226,15 +180,13 @@ function towerRobotCount(teleopChallengePoints: number, teleopScalePoints: numbe
   return teleopChallengePoints / CHALLENGE_POINTS_PER_ROBOT + teleopScalePoints / SCALE_POINTS_PER_ROBOT;
 }
 
-// 09-05 Task 3 (D-01): all seven variables below flip to "negative-binomial".
 // position1-5crossings and attackedTowerEndStrength are STRUCTURAL-ONLY
 // evidence — integer-valued accumulations with support from zero upward and
-// a right tail, not individually measured in 09-RESEARCH.md's corpus probe.
-// teleopChallengePoints/teleopScalePoints are DERIVED-INTEGER evidence: they
-// feed `towerRobotCount` (divisors above), one of the three D-03 linear
-// combinations 09-RESEARCH.md verified 100% integer-valued with ZERO
-// exceptions across 22,158 alliance-sides. See constants.ts's `MarginalFamily`
-// doc comment for the full evidence-class framework.
+// a right tail. teleopChallengePoints/teleopScalePoints are DERIVED-INTEGER
+// evidence: they feed `towerRobotCount` (divisors above), verified 100%
+// integer-valued with ZERO exceptions across 22,158 alliance-sides. See
+// constants.ts's `MarginalFamily` doc comment for the evidence-class
+// framework.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   // Crossing counts per defense position — raw counts, not point values.
   {
@@ -286,18 +238,15 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
 ];
 
 /**
- * D-02, D-07: `breach` is `countOfIndicators` — five indicator clauses
+ * `breach` is `countOfIndicators` — five indicator clauses
  * (`position{1..5}crossings` each `>= CROSSINGS_FOR_DAMAGED_DEFENSE`, a
  * plain definitional constant, not itself a tiered threshold), `required`
  * the tiered `BREACH_DAMAGED_DEFENSE_THRESHOLD` (4 of 5, not all 5 — see
  * file header). `capture` is `conjunctionDistinct`: the tower half is the
- * project's only `"lte"` clause (`attackedTowerEndStrength <=
- * CAPTURED_TOWER_END_STRENGTH_THRESHOLD`), the robot half is a two-term
- * `RpLinearTerm` divisor combination (`teleopChallengePoints /
- * CHALLENGE_POINTS_PER_ROBOT + teleopScalePoints / SCALE_POINTS_PER_ROBOT
- * >= CAPTURE_ROBOT_COUNT_THRESHOLD`) — both terms summed left to right,
- * matching `towerRobotCount`'s own addition order exactly (float addition
- * is not associative). Neither bonus gates on an untracked signal.
+ * project's only `"lte"` clause, the robot half is a two-term `RpLinearTerm`
+ * divisor combination, both terms summed left to right, matching
+ * `towerRobotCount`'s own addition order exactly (float addition is not
+ * associative).
  */
 const BONUS_PREDICATES: readonly BonusPredicate[] = [
   {
@@ -352,7 +301,7 @@ export const rp2016: RpRuleModule = {
     thresholdVariables.position5crossings = own.position5crossings;
     // The tower THIS alliance attacked is the OPPONENT's own tower — the
     // same opponent-sourced derivation `breakdown/2016.ts` uses for
-    // `foulsCommitted` (D-04). Exposed under an own-alliance name so
+    // `foulsCommitted`. Exposed under an own-alliance name so
     // `predictThresholds` reads it as an ordinary tracked variable.
     thresholdVariables.attackedTowerEndStrength = opponent.towerEndStrength;
     thresholdVariables.teleopChallengePoints = own.teleopChallengePoints;
@@ -392,14 +341,9 @@ export const rp2016: RpRuleModule = {
    * from the eight tracked threshold variables, so there is no fallback, no
    * conservative branch and no asymmetry here. `attackedTowerEndStrength`
    * is read as an ordinary own-alliance variable; `parse` already resolved
-   * the opponent-side lookup when it populated it.
-   *
-   * Note the `?? 0` default on `attackedTowerEndStrength` satisfies the
-   * tower half (`0 <= 0`) — see the file header for why that is safe (the
-   * robot-count conjunct still gates it, and `rp/distribution.ts` always
-   * supplies every tracked variable on the live path). Delegates to the
-   * shared declarative evaluator (D-02, D-07); see `BONUS_PREDICATES`
-   * above.
+   * the opponent-side lookup when it populated it. See the file header for
+   * the `?? 0` default's safety. Delegates to the shared declarative
+   * evaluator; see `BONUS_PREDICATES` above.
    */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
     return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
