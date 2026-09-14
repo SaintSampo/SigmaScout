@@ -1,58 +1,39 @@
 /**
- * The replay rig (plan 04-07, Task 2): one recorded historical event, driven
- * through the DEPLOYED `sigmascout-worker`'s real `scheduled()` path over
- * HTTPS, produces two proofs from one fixture (D-20):
+ * The replay rig: one recorded historical event, driven through the
+ * DEPLOYED `sigmascout-worker`'s real `scheduled()` path over HTTPS,
+ * produces two measurements from one fixture:
  *
- *   1. FRESHNESS (D-20/SC-2): revealing the event's real matches one at a
- *      time and measuring wall-clock time from "result available" to
- *      "published artifact reflects it," either by manually triggering the
- *      scheduled handler (`--live-trigger manual`, isolates the write path's
- *      own latency) or by letting the real one-minute cron fire on its own
- *      (`--live-trigger cron`, the only run that includes the platform's own
- *      scheduling jitter).
- *   2. EQUIVALENCE (D-14): the SAME event, replayed offline from the SAME
- *      cold-start baseline through `packages/harness`'s `WalkForwardSimulator`
- *      — compared against the deployed Worker's own published output via a
- *      prediction-stream digest (`packages/harness/predictionStreamDigest.ts`'s
- *      `computePredictionStreamDigest`, unchanged) and a full published
- *      event-artifact comparison excluding exactly `generation`/`computedAt`.
+ *   1. FRESHNESS: revealing the event's real matches one at a time and
+ *      measuring wall-clock time from "result available" to "published
+ *      artifact reflects it," either by manually triggering the scheduled
+ *      handler (`--live-trigger manual`, isolates the write path's own
+ *      latency) or by letting the real one-minute cron fire on its own
+ *      (`--live-trigger cron`, includes Cloudflare's own scheduling jitter).
+ *   2. EQUIVALENCE: the SAME event, replayed offline from the same cold-start
+ *      baseline through `packages/harness`'s `WalkForwardSimulator` —
+ *      compared against the deployed Worker's own published output via a
+ *      prediction-stream digest and a full published event-artifact
+ *      comparison excluding exactly `generation`/`computedAt`.
  *
- * HOW THE RIG SUBSTITUTES FOR TBA (D-20's fixture mechanism — the plan
- * deliberately left this open). This project's choice: a SECOND, minimal
- * Worker (`apps/worker/src/fixtureServer.ts`, `wrangler.fixture.toml`)
- * serving real-corpus-derived TBA-shaped JSON from the SAME R2 bucket the
- * production Worker already publishes to, under a `fixtures/` prefix. Chosen
- * over a locally-tunnelled server because it runs on infrastructure already
- * proven working (R2, a deployed Worker, an authenticated `wrangler`) and
- * does not depend on a tunnel process staying up for a multi-minute
- * measurement — a dropped tunnel mid-run would corrupt a freshness
- * distribution silently, where a second Worker either answers or the whole
- * request visibly fails. The production Worker is pointed at it via
- * `apps/worker/src/env.ts`'s `TBA_BASE_URL` — a plain, tracked `[vars]`
- * default (the real TBA base) overridden ONLY at deploy time
- * (`wrangler deploy --var TBA_BASE_URL:<fixture-worker-url>`), never an
- * undocumented back door (T-04-47). This script owns exactly that deploy/
- * restore cycle, in a `try`/`finally` so a mid-run failure still restores
- * the production default.
+ * TBA substitution: a second, minimal Worker (`apps/worker/src/fixtureServer.ts`,
+ * `wrangler.fixture.toml`) serves real-corpus-derived TBA-shaped JSON from
+ * the same R2 bucket the production Worker publishes to, under a `fixtures/`
+ * prefix. The production Worker is pointed at it via `apps/worker/src/env.ts`'s
+ * `TBA_BASE_URL`, overridden only at deploy time and always restored in a
+ * `try`/`finally` so a mid-run failure still restores the production default.
  *
- * WHAT THIS RIG NECESSARILY MUTATES ON THE DEPLOYED WORKER, AND WHY IT IS
- * SAFE (documented here once rather than at every call site below):
- *   - The real `v1/manifest/live-windows.json` R2 object gains ONE temporary
- *     window entry for `--event`, so the deployed Worker's tick considers it
- *     live at all (D-18's early exit reads exactly this object). Removed by
- *     the next real `pnpm publish:seasons` run, which regenerates this
- *     manifest from the corpus and has no knowledge of the rig's synthetic
- *     window — this is why a rig session MUST be followed by a re-baseline
- *     (`docs/worker-operations.md`'s "Re-baselining" section), not just for
- *     hygiene but as the actual restore mechanism.
- *   - `algorithm_state`/`event_cursor` rows for `--event`'s touched scope are
- *     DELETED (cold-started) before driving, so the online run starts from
- *     the same blank slate the offline `WalkForwardSimulator` does — the
- *     controlled condition the equivalence proof needs. Also restored by the
- *     next re-baseline.
- *   - The production Worker is redeployed twice per rig session (fixture
- *     base URL, then the tracked default) — this is D-27's existing manual
- *     deploy procedure, just invoked programmatically.
+ * What this rig mutates on the deployed Worker, and why it is safe:
+ *   - `v1/manifest/live-windows.json` gains one temporary window entry for
+ *     `--event`, removed by the next real `pnpm publish:seasons` run — a rig
+ *     session MUST be followed by a re-baseline (`docs/worker-operations.md`'s
+ *     "Re-baselining" section), which is the actual restore mechanism, not
+ *     just hygiene.
+ *   - `algorithm_state`/`event_cursor` rows for `--event`'s touched scope
+ *     are deleted (cold-started) before driving, so the online run starts
+ *     from the same blank slate the offline `WalkForwardSimulator` does.
+ *     Also restored by the next re-baseline.
+ *   - The production Worker is redeployed twice per session (fixture base
+ *     URL, then the tracked default).
  *
  * Standalone-script shape: `parseArgs`, `async function main()`, an
  * entry-point guard.
@@ -84,7 +65,7 @@ import { deleteObject, getObject, putObject } from "../packages/harness/r2Client
 const BUCKET = "sigmascout-artifacts";
 const LIVE_WINDOWS_KEY = "v1/manifest/live-windows.json";
 const CRON_EXPRESSION = "* * * * *";
-/** D-20's accepted gap, recorded verbatim in every result file and printed to the console — never omitted, never softened. */
+/** The accepted measurement gap, recorded verbatim in every result file and printed to the console — never omitted, never softened. */
 export const MEASUREMENT_GAP_NOTE =
   "The rig replaces TBA with a recorded fixture, so this measurement does not exercise real TBA response " +
   "latency. A --live-trigger cron run covers Cloudflare's own scheduling jitter but still not TBA's own " +
@@ -99,7 +80,7 @@ const WORKER_DIR = join(REPO_ROOT, "apps", "worker");
 // Pure parts (unit-tested by scripts/replayRig.test.ts — no I/O below this line)
 // ---------------------------------------------------------------------------
 
-/** D-14: the exclusion list is EXACTLY these two fields — asserted by a unit test, never widened to make a comparison pass. */
+/** The exclusion list is exactly these two fields — asserted by a unit test, never widened to make a comparison pass. */
 export const ARTIFACT_COMPARISON_EXCLUDED_FIELDS = ["generation", "computedAt"] as const;
 
 export interface ArtifactDiff {
@@ -111,11 +92,10 @@ export interface ArtifactDiff {
 /**
  * Deep, order-sensitive-for-arrays structural diff between two published
  * artifacts, ignoring exactly `ARTIFACT_COMPARISON_EXCLUDED_FIELDS` at any
- * depth (the preamble fields can appear only at the top level of an
- * `EventArtifact`, but this stays depth-agnostic rather than hardcoding
- * "top level only," since a future nested stamp would still be a legitimate
- * exclusion-list entry, never a silent one). Returns an empty array on a
- * full match; every other difference is reported by JSON path.
+ * depth (depth-agnostic rather than hardcoded "top level only," so a future
+ * nested stamp is still a legitimate exclusion-list entry, never a silent
+ * one). Returns an empty array on a full match; every other difference is
+ * reported by JSON path.
  */
 export function compareArtifacts(online: unknown, offline: unknown, path = "$"): ArtifactDiff[] {
   if (online === offline) return [];
@@ -155,7 +135,7 @@ export interface FreshnessStats {
   readonly maxMs: number | null;
 }
 
-/** Median/p95/max over the non-timed-out samples (D-20/SC-2: report the distribution, never a single number). `null` fields mean "no successful sample to compute from," never a fabricated 0. */
+/** Median/p95/max over the non-timed-out samples — report the distribution, never a single number. `null` fields mean "no successful sample to compute from," never a fabricated 0. */
 export function computeFreshnessStats(samplesMs: readonly (number | null)[]): FreshnessStats {
   const successes = samplesMs.filter((v): v is number => v !== null).slice().sort((a, b) => a - b);
   const timeoutCount = samplesMs.length - successes.length;
@@ -215,15 +195,12 @@ export const ReplayRigResultSchema = z.object({
 export type ReplayRigResult = z.infer<typeof ReplayRigResultSchema>;
 
 // ---------------------------------------------------------------------------
-// Algorithm module construction — a SMALL, DELIBERATE duplication of
-// apps/worker/src/scheduled.ts's own buildAlgorithmModules (D-06's own
-// precedent for exactly this direction of duplication: a Node/root-typechecked
-// script must never import a file carrying apps/worker's Cloudflare ambient
-// types, `@cloudflare/workers-types`, the same reason scheduled.ts's own
-// header gives for duplicating publish.ts's rounding helpers instead of
-// importing them — the isolation is symmetric). Any drift between the two
-// copies would show up immediately as an equivalence mismatch this rig itself
-// reports, which is what keeps this duplication honest rather than silent.
+// Algorithm module construction — a small, deliberate duplication of
+// apps/worker/src/scheduled.ts's own buildAlgorithmModules: a Node/root-
+// typechecked script must never import a file carrying apps/worker's
+// Cloudflare ambient types (`@cloudflare/workers-types`). Any drift between
+// the two copies would show up immediately as an equivalence mismatch this
+// rig itself reports, which is what keeps this duplication honest.
 // ---------------------------------------------------------------------------
 
 function buildAlgorithmModulesLocal(algorithmsManifest: AlgorithmsManifest): Map<string, AlgorithmModule<any>> {
@@ -280,7 +257,7 @@ interface EventInfo {
   readonly startDate: string;
 }
 
-/** One match, TBA-`GET /event/{key}/matches` element shape, `revealed: false` (unplayed placeholder — score/winning_alliance/score_breakdown all absent, matching what TBA reports for a not-yet-played match). */
+/** One match, TBA-`GET /event/{key}/matches` element shape. Unplayed placeholder: score/winning_alliance/score_breakdown all absent, matching what TBA reports for a not-yet-played match. */
 interface FixtureMatch {
   key: string;
   event_key: string;
@@ -317,7 +294,7 @@ function unplayedFixtureMatch(row: RawEventMatchRow): FixtureMatch {
   };
 }
 
-/** The REAL result for this row, reconstructed from the real corpus (D-20: "a recorded historical match result pushed through the deployed Worker's real scheduled path"). */
+/** The real result for this row, reconstructed from the real corpus. */
 function playedFixtureMatch(row: RawEventMatchRow): FixtureMatch {
   const winningAlliance: "red" | "blue" | "" = row.winner === "red" || row.winner === "blue" ? row.winner : "";
   return {
@@ -401,7 +378,7 @@ function sqlEscape(value: string): string {
   return value.replace(/'/g, "''");
 }
 
-/** Cold-starts exactly the D1 scope this event/algorithm-set touches (D-14's controlled starting condition) — never a broader wipe. */
+/** Cold-starts exactly the D1 scope this event/algorithm-set touches — never a broader wipe. */
 function resetD1State(reportsDir: string, algorithmIds: readonly string[], eventKey: string, touchedTeams: readonly string[]): void {
   const statements: string[] = [];
   for (const id of algorithmIds) {
@@ -461,7 +438,7 @@ interface LiveWindowsManifestShape {
   windows: { eventKey: string; season: number; startMs: number; endMs: number; inferred: boolean }[];
 }
 
-/** Adds (or widens) a temporary live window for `eventKey`, returning the ORIGINAL manifest text so the caller can log what a manual restore would need — the actual restore is the next `pnpm publish:seasons` re-baseline (see this file's header). */
+/** Adds (or widens) a temporary live window for `eventKey`, returning the original manifest text so the caller can log what a manual restore would need — the actual restore is the next `pnpm publish:seasons` re-baseline. */
 async function patchLiveWindowsManifest(eventKey: string, season: number, startMs: number, endMs: number): Promise<string> {
   const original = await getObject(BUCKET, LIVE_WINDOWS_KEY);
   const parsed = JSON.parse(original) as LiveWindowsManifestShape;
@@ -476,7 +453,7 @@ async function patchLiveWindowsManifest(eventKey: string, season: number, startM
   return original;
 }
 
-/** Bypasses the R2 custom domain's 60s edge cache entirely (a signed S3-compatible GET, D-26's cache policy does not apply here) — measures when the WRITE landed, not when a cache happened to expire, which would otherwise corrupt the freshness figure with an unrelated cache-policy artifact. */
+/** Bypasses the R2 custom domain's 60s edge cache entirely (a signed S3-compatible GET) — measures when the write landed, not when a cache happened to expire, which would otherwise corrupt the freshness figure with an unrelated cache-policy artifact. */
 async function readPublishedEventArtifact(eventKey: string, algorithmId: string, version: string): Promise<{ matches: { matchKey: string }[]; [k: string]: unknown } | undefined> {
   try {
     const text = await getObject(BUCKET, artifactKey({ page: "event", eventKey, algorithmId, version }));
@@ -497,8 +474,8 @@ async function waitForMatchInArtifact(eventKey: string, algorithmId: string, ver
 }
 
 // ---------------------------------------------------------------------------
-// Offline comparison build (independently derived — never copies the online
-// output, per this plan's own prohibition on "resolving" a mismatch)
+// Offline comparison build — independently derived, never copies the
+// online output.
 // ---------------------------------------------------------------------------
 
 function buildOfflineEventMatchRow(match: MatchResult, prediction: Prediction) {
@@ -617,11 +594,11 @@ function parseOptions(): RigOptions {
   if (!fixtureUrl) throw new Error("--fixture-url is required (the deployed sigmascout-fixture-rig Worker's base URL)");
 
   const algorithms = (values.algorithm ?? PUBLISHED_ALGORITHM_IDS.join(",")).split(",").map((s) => s.trim()).filter(Boolean);
-  // ALWAYS absolute: resetD1State/deployWorker shell out to `wrangler` with
-  // `cwd: WORKER_DIR` (apps/worker), so a relative `--out`/`--corpus` path
-  // (naturally typed relative to the repo root, where this script is meant
-  // to be invoked from) would silently resolve against the WRONG directory
-  // once handed to a child process with a different cwd.
+  // Always absolute: resetD1State/deployWorker shell out to `wrangler` with
+  // `cwd: WORKER_DIR`, so a relative `--out`/`--corpus` path (typed relative
+  // to the repo root, where this script is meant to be invoked from) would
+  // silently resolve against the wrong directory once handed to a child
+  // process with a different cwd.
   const out = resolve(REPO_ROOT, values.out ?? join("reports", "replay-rig", `${event}-${mode}-${liveTrigger}-${Date.now()}.json`));
   const matchLimit = values["match-limit"] ? Number.parseInt(values["match-limit"], 10) : undefined;
 
@@ -663,17 +640,15 @@ export async function runRig(options: RigOptions): Promise<ReplayRigResult> {
 
     console.log(`replayRig: event=${options.event} season=${info.season} matches=${rows.length} algorithms=${options.algorithms.join(",")} mode=${options.mode} liveTrigger=${options.liveTrigger}`);
 
-    // Cold-start (D-14's controlled condition). `--event` names a REAL
-    // historical event this repo's own `pnpm publish:seasons` has already
-    // published in full (every corpus event has been) — its D1 algorithm
-    // state AND its published R2 artifact both already reflect the whole
-    // real result. Resetting D1 alone is not a cold start: the deployed
-    // Worker's merge logic reads the EXISTING published artifact first
-    // (`readExistingEvent`) and a freshness poll would find every match
-    // "already there" from the ORIGINAL publish, not from anything this run
-    // drove — a methodological bug this rig's own first real run caught (see
-    // the SUMMARY). Deleting the touched-scope published artifacts too is
-    // what makes "newly folded" genuinely new.
+    // Cold-start. `--event` names a real historical event this repo's own
+    // `pnpm publish:seasons` has already published in full — its D1
+    // algorithm state AND its published R2 artifact both already reflect
+    // the whole real result. Resetting D1 alone is not a cold start: the
+    // deployed Worker's merge logic reads the existing published artifact
+    // first (`readExistingEvent`), so a freshness poll would find every
+    // match "already there" from the original publish. Deleting the
+    // touched-scope published artifacts too is what makes "newly folded"
+    // genuinely new.
     resetD1State(dirname(options.out), options.algorithms, options.event, touchedTeams);
     for (const mod of modules) {
       await deleteObject(BUCKET, artifactKey({ page: "event", eventKey: options.event, algorithmId: mod.id, version: mod.version }));
@@ -681,11 +656,9 @@ export async function runRig(options: RigOptions): Promise<ReplayRigResult> {
         await deleteObject(BUCKET, artifactKey({ page: "team", teamKey, year: info.season, algorithmId: mod.id, version: mod.version }));
       }
     }
-    // Symmetric with the now-deleted artifacts: BOTH the online merge (reading
-    // nothing back) and this offline reconstruction start from no prior team
-    // roster, falling back to the teamKey-derived number and an empty
-    // nickname on both sides — never a real name read from data this run
-    // just deleted.
+    // Symmetric with the now-deleted artifacts: both the online merge and
+    // this offline reconstruction start from no prior team roster, falling
+    // back to the teamKey-derived number and an empty nickname on both sides.
     const emptyPriorTeamInfo = new Map<string, { teamNumber: number; nickname: string }>();
 
     // Make the event live for the deployed Worker's tick, and point it at the fixture.
