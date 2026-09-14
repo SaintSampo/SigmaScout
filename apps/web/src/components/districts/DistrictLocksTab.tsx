@@ -158,6 +158,9 @@ function AwardsCell({ awards, which }: { awards: QualifyingAward[]; which: Distr
 
 function DistrictScheduleStrip({ artifact }: { artifact: DistrictArtifact }) {
   const stats = computeDistrictLocksHeaderStats(artifact.teams, "district", artifact.year);
+  // Rounded separately so the two displayed numbers always add up.
+  const availablePoints = Math.round(stats.pointsPool.remainingEstimate);
+  const totalPoints = Math.round(stats.pointsPool.distributed) + availablePoints;
 
   return (
     <div className="data-card flex flex-col gap-[var(--spacing-md)] p-[var(--spacing-md)]" data-testid="district-locks-header-stats">
@@ -171,15 +174,9 @@ function DistrictScheduleStrip({ artifact }: { artifact: DistrictArtifact }) {
           </p>
         </div>
         <div>
-          <span className="text-role-label text-[var(--color-text-muted)]">District points distributed</span>
-          <p className="text-role-heading" data-testid="district-locks-distributed">
-            {formatPoints(Math.round(stats.pointsPool.distributed))}
-          </p>
-        </div>
-        <div>
-          <span className="text-role-label text-[var(--color-text-muted)]">Still to be distributed (est.)</span>
-          <p className="text-role-heading" data-testid="district-locks-remaining-estimate">
-            ~{formatPoints(Math.round(stats.pointsPool.remainingEstimate))}
+          <span className="text-role-label text-[var(--color-text-muted)]">District Points (Available/Total)</span>
+          <p className="text-role-heading" data-testid="district-locks-points-pool">
+            {formatPoints(availablePoints)}/{formatPoints(totalPoints)}
           </p>
         </div>
       </div>
@@ -290,11 +287,11 @@ export function DistrictLocksTab({ artifact, which, algorithm, season }: Distric
       <div className="data-card flex flex-wrap items-center gap-[var(--spacing-lg)] p-[var(--spacing-md)]">
         <div>
           <span className="text-role-label text-[var(--color-text-muted)]">{LOCK_KIND_LABEL[which]} capacity</span>
-          <p className="text-role-heading">{slots === null ? "Capacity not published" : slots}</p>
+          <p className="text-role-heading">{slots === null ? "Capacity not published" : `${slots} Teams`}</p>
         </div>
         <div>
-          <span className="text-role-label text-[var(--color-text-muted)]">Current cut line</span>
-          <p className="text-role-heading">{cutLine === null ? "—" : formatPoints(cutLine)}</p>
+          <span className="text-role-label text-[var(--color-text-muted)]">Lock Line</span>
+          <p className="text-role-heading">{cutLine === null ? "—" : `${formatPoints(cutLine)} Points`}</p>
         </div>
       </div>
       {which === "district" ? <DistrictScheduleStrip artifact={artifact} /> : <ChampRemainingDistrictPoints artifact={artifact} />}

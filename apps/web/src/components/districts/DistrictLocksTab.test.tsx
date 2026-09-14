@@ -176,14 +176,15 @@ describe("DistrictLocksTab", () => {
     expect(await screen.findByText(/declines, waitlist movement and wildcard slots/)).toBeDefined();
   });
 
-  it("shows the capacity and cut line in the header", async () => {
+  it("shows the capacity and lock line in the header, with units", async () => {
     render(
       <TestHarness>
         <DistrictLocksTab artifact={makeArtifact([team()])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
-    expect(await screen.findByText("54")).toBeDefined();
-    expect(screen.getByText("150")).toBeDefined();
+    expect(await screen.findByText("54 Teams")).toBeDefined();
+    expect(screen.getByText("Lock Line")).toBeDefined();
+    expect(screen.getByText("150 Points")).toBeDefined();
   });
 
   it("renders a lockedAward row wearing the blue chip, with its qualifying award named in the Sent by column", async () => {
@@ -335,7 +336,8 @@ describe("DistrictLocksTab", () => {
     expect(events[0]?.textContent).toContain("Played");
     expect(events[1]?.getAttribute("data-played")).toBe("false");
     expect(events[1]?.textContent).toContain("Upcoming");
-    expect(screen.getByTestId("district-locks-distributed").textContent).toBe("60");
+    // 60 distributed; the one upcoming entry is estimated at the 60-point played average.
+    expect(screen.getByTestId("district-locks-points-pool").textContent).toBe("60/120");
   });
 
   it("the District Locks per-team ceiling reads 'X / Y per team' from the point model (2 x 83 = 166), never 'Not yet known', even for a fully-played season with no remainingEvents left", async () => {
@@ -369,7 +371,7 @@ describe("DistrictLocksTab", () => {
     expect((await screen.findByTestId("district-locks-ceiling")).textContent).toBe("83 / 166 per team");
   });
 
-  it("rounds a genuinely fractional points-pool estimate for display, keeping the '~' marker", async () => {
+  it("rounds a genuinely fractional points-pool estimate for display as Available/Total", async () => {
     const t1 = team({
       teamKey: "frc20",
       teamNumber: 20,
@@ -396,9 +398,10 @@ describe("DistrictLocksTab", () => {
         <DistrictLocksTab artifact={makeArtifact([t1, t2, t3])} which="district" algorithm="spr" season={2026} />
       </TestHarness>,
     );
-    const remaining = await screen.findByTestId("district-locks-remaining-estimate");
-    expect(remaining.textContent).toBe("~51");
-    expect(remaining.textContent).not.toContain(".");
+    // 101 distributed + 51 available = 152 total.
+    const pool = await screen.findByTestId("district-locks-points-pool");
+    expect(pool.textContent).toBe("51/152");
+    expect(pool.textContent).not.toContain(".");
   });
 
   it("the Champ Locks header shows 'Remaining district points: X / Y pre-DCMP' with X the roster max of maxRemainingChamp and Y the fixed 2-event pre-DCMP ceiling (166)", async () => {
