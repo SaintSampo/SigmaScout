@@ -121,7 +121,7 @@ function createLegacyEventsTable(db: Database.Database): void {
   `);
 }
 
-describe("openCorpus — foreign-key enforcement and schema guard (D-02/D-03, 01-REVIEW WR-04)", () => {
+describe("openCorpus — foreign-key enforcement and schema guard", () => {
   let dir: string;
   let db: Corpus;
 
@@ -186,7 +186,7 @@ describe("openCorpus — foreign-key enforcement and schema guard (D-02/D-03, 01
   });
 });
 
-describe("hasEventLocationColumns — additive migration path (EVNT-01, plan 05-02)", () => {
+describe("hasEventLocationColumns — additive migration path", () => {
   it("is true for a corpus created by the current schema.sql", () => {
     const dir = mkdtempSync(join(tmpdir(), "sigmascout-integrity-events-"));
     const db = openCorpus(join(dir, "corpus.sqlite"));
@@ -243,7 +243,7 @@ describe("hasEventLocationColumns — additive migration path (EVNT-01, plan 05-
   });
 });
 
-describe("corpus-backed integrity report (D-04)", () => {
+describe("corpus-backed integrity report", () => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} is absent — run the ingest pipeline (pnpm ingest) to generate it`, () => {});
     return;
@@ -290,7 +290,7 @@ describe("corpus-backed integrity report (D-04)", () => {
  * `event_alliances` and refresh `event_rankings`' four new columns) must
  * still pass.
  */
-describe("event_alliances / event_rankings migration against the real corpus (plan 07-02 Task 3)", () => {
+describe("event_alliances / event_rankings migration against the real corpus", () => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} is absent — run the ingest pipeline (pnpm ingest) to generate it`, () => {});
     return;
@@ -326,7 +326,7 @@ describe("event_alliances / event_rankings migration against the real corpus (pl
 
       // eslint-disable-next-line no-console
       console.log(
-        `corpus migration (plan 07-02 Task 3): event_rankings before=${before}, after=${after} (equal: ${before === after})`
+        `corpus migration: event_rankings before=${before}, after=${after} (equal: ${before === after})`
       );
     } finally {
       db?.close();
@@ -372,8 +372,8 @@ describe("event_alliances / event_rankings migration against the real corpus (pl
  * Needs no real corpus, so unlike the block above it always runs — matching
  * this file's header discipline for its temp-path blocks.
  */
-describe("event_rankings record/ranking-score migration against a pre-migration database (plan 07-02 Task 2)", () => {
-  it("adds all four D-18.6 columns and writes no default value into rows that predate them", () => {
+describe("event_rankings record/ranking-score migration against a pre-migration database", () => {
+  it("adds all four record and ranking-score columns and writes no default value into rows that predate them", () => {
     const dir = mkdtempSync(join(tmpdir(), "sigmascout-ranking-migration-"));
     const path = join(dir, "corpus.sqlite");
     let db: Corpus | undefined;

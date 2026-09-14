@@ -77,7 +77,7 @@ function eventAward(overrides: Partial<CorpusEventAward> = {}): CorpusEventAward
   };
 }
 
-describe("districts / district_rankings / event_teams corpus accessors (quick task 260905-lic Task 1)", () => {
+describe("districts / district_rankings / event_teams corpus accessors", () => {
   let dir: string;
   let db: Corpus;
 
