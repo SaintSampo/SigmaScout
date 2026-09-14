@@ -5,10 +5,9 @@ import { BONUS_DOT_INNER_PX, bonusDotFillPx } from "../../lib/bonusRp.js";
 import { predictionPercent } from "../../lib/predictionPercent.js";
 
 /**
- * F10 (quick task 260914-01x, sketch 012 variant C): a predicted dot fills
- * from the bottom to its probability, with no threshold. An absent
- * probability stays the dashed `unknown` dot, and actual dots keep their
- * earned/missed/unknown states unchanged.
+ * A predicted dot fills from the bottom to its probability, with no
+ * threshold; an absent probability stays the dashed `unknown` dot, and
+ * actual dots keep their earned/missed/unknown states.
  */
 
 function dots(groupTestId: string): HTMLElement[] {
