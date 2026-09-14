@@ -26,7 +26,7 @@ import {
 import { SIGMA_METRIC_KEY } from "./sigmaScore.js";
 
 describe("percentileRanks", () => {
-  it("mid-rank convention on distinct values (D-04)", () => {
+  it("mid-rank convention on distinct values", () => {
     expect(percentileRanks([1, 2, 3, 4])).toEqual([12.5, 37.5, 62.5, 87.5]);
   });
 
@@ -153,7 +153,7 @@ describe("withPercentiles", () => {
   });
 });
 
-describe("percentileAgainstSortedPool (D-06.1-A, plan 06.1-03 Task 1)", () => {
+describe("percentileAgainstSortedPool", () => {
   const POOL_SHAPES: Record<string, number[]> = {
     "all-distinct": [1, 2, 3, 4, 5, 6, 7],
     "one tie group": [1, 2, 2, 2, 5, 8],
@@ -205,7 +205,7 @@ describe("percentileAgainstSortedPool (D-06.1-A, plan 06.1-03 Task 1)", () => {
   });
 });
 
-describe("sortedPoolsByMetric (D-06.1-A, plan 06.1-03 Task 1)", () => {
+describe("sortedPoolsByMetric", () => {
   function fixtureMetrics(): TeamMetrics {
     return {
       frc1: { total: { value: 10 }, auto: { value: 5 } },
@@ -220,7 +220,7 @@ describe("sortedPoolsByMetric (D-06.1-A, plan 06.1-03 Task 1)", () => {
     expect(pools.get("auto")).toEqual([5, 15]);
   });
 
-  it("omits a metric name entirely when no team in teamKeys has a value for it (PD-07) — has() returns false, not an equality against []", () => {
+  it("omits a metric name entirely when no team in teamKeys has a value for it — has() returns false, not an equality against []", () => {
     const metrics: TeamMetrics = { frc1: { total: { value: 1 } } };
     const pools = sortedPoolsByMetric(metrics, ["frc1"]);
     expect(pools.has("auto")).toBe(false);
@@ -246,7 +246,7 @@ describe("sortedPoolsByMetric (D-06.1-A, plan 06.1-03 Task 1)", () => {
     expect(metrics).toEqual(snapshot);
   });
 
-  it("pools values at display precision (quick task 260912-tnk) — two values that print the same collapse to one number", () => {
+  it("pools values at display precision — two values that print the same collapse to one number", () => {
     const metrics: TeamMetrics = { frc1: { total: { value: 10.004 } }, frc2: { total: { value: 9.996 } }, frc3: { total: { value: 12.3456 } } };
     const pools = sortedPoolsByMetric(metrics, ["frc1", "frc2", "frc3"]);
     expect(pools.get("total")).toEqual([10, 10, 12.35]);
@@ -254,10 +254,10 @@ describe("sortedPoolsByMetric (D-06.1-A, plan 06.1-03 Task 1)", () => {
 });
 
 /**
- * Quick task 260912-tnk: the single direction-aware, display-precision
+ * The single direction-aware, display-precision
  * ranking helper every published pool-ranked percentile goes through.
  */
-describe("goodnessPercentileAgainstPools (quick task 260912-tnk)", () => {
+describe("goodnessPercentileAgainstPools", () => {
   it("a declared lower-is-better name (sigma) inverts exactly as withPercentiles does", () => {
     const metrics: TeamMetrics = { frc1: { [SIGMA_METRIC_KEY]: { value: 10 } }, frc2: { [SIGMA_METRIC_KEY]: { value: 20 } } };
     const pools = sortedPoolsByMetric(metrics, ["frc1", "frc2"]);
@@ -291,7 +291,7 @@ describe("goodnessPercentileAgainstPools (quick task 260912-tnk)", () => {
   });
 });
 
-describe("withPoolPercentiles (quick task 260912-tnk)", () => {
+describe("withPoolPercentiles", () => {
   const pools = sortedPoolsByMetric(
     { frc1: { total: { value: 10 }, auto: { value: 1 } }, frc2: { total: { value: 20 }, auto: { value: 2 } } },
     ["frc1", "frc2"]
@@ -323,7 +323,7 @@ describe("withPoolPercentiles (quick task 260912-tnk)", () => {
   });
 });
 
-describe("HISTORY_PERCENTILE_METRIC_KEYS (PD-06, plan 06.1-03 Task 1)", () => {
+describe("HISTORY_PERCENTILE_METRIC_KEYS", () => {
   it("contains exactly the three COMPONENT_GROUP_METRIC_KEYS values plus TOTAL_METRIC_KEY", () => {
     const expected = new Set([...Object.values(COMPONENT_GROUP_METRIC_KEYS), TOTAL_METRIC_KEY]);
     expect(new Set(HISTORY_PERCENTILE_METRIC_KEYS)).toEqual(expected);
@@ -331,7 +331,7 @@ describe("HISTORY_PERCENTILE_METRIC_KEYS (PD-06, plan 06.1-03 Task 1)", () => {
   });
 });
 
-describe("MetricValueSchema.percentile (F-06-3, plan 06.1-03 Task 2)", () => {
+describe("MetricValueSchema.percentile", () => {
   it("accepts a metric with no percentile key at all — a pre-phase artifact still parses unchanged", () => {
     const parsed = MetricValueSchema.parse({ value: 1 });
     expect("percentile" in parsed).toBe(false);

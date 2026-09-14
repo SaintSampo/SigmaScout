@@ -376,7 +376,7 @@ function randomRoster(seed: number): RankableTeamRow[] {
   return rows;
 }
 
-describe("buildTeamRankScopesByTeam — sort-once equivalence with the per-team implementation (quick task 260913-nvn)", () => {
+describe("buildTeamRankScopesByTeam — sort-once equivalence with the per-team implementation", () => {
   it.each([1, 7, 42, 2026, 90210])("seed %i: every row's scopes deep-equal the pre-change per-team result", (seed) => {
     const rows = randomRoster(seed);
     // Fixture-vacuity guards: the roster must genuinely exercise ties, missing totals and non-real keys.
@@ -422,7 +422,7 @@ describe("USA_COUNTRY_VALUE", () => {
   });
 });
 
-describe("percentileForRank (quick task 260905-ttv)", () => {
+describe("percentileForRank", () => {
   it("rank 1 of a large pool (3481) yields a value at or above the Legendary cut (95)", () => {
     expect(percentileForRank(1, 3481)).toBeGreaterThanOrEqual(95);
   });
@@ -431,7 +431,7 @@ describe("percentileForRank (quick task 260905-ttv)", () => {
     expect(percentileForRank(3481, 3481)).toBeLessThan(50);
   });
 
-  it("agrees EXACTLY with percentileRanks for the r-th-best member of a strictly-ordered pool of n (rounded identically since quick task 260912-tnk)", () => {
+  it("agrees EXACTLY with percentileRanks for the r-th-best member of a strictly-ordered pool of n (rounded identically)", () => {
     const n = 20;
     // A strictly-ordered pool: values n, n-1, ..., 1 (all distinct, no ties),
     // so percentileRanks's mid-rank formula reduces to the same computation
@@ -450,7 +450,7 @@ describe("percentileForRank (quick task 260905-ttv)", () => {
     }
   });
 
-  it("rounds to ROUNDING_RULE.percentile like a published percentile: rank 126 of 2500 is 94.98 raw and exactly 95 rounded (quick task 260912-tnk)", () => {
+  it("rounds to ROUNDING_RULE.percentile like a published percentile: rank 126 of 2500 is 94.98 raw and exactly 95 rounded", () => {
     expect(percentileForRank(126, 2500)).toBe(95);
     expect(percentileForRank(127, 2500)).toBe(94.9);
   });

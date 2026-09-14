@@ -64,7 +64,7 @@ function baseParams(overrides: Partial<PreScheduleBuildParams> = {}): PreSchedul
   };
 }
 
-describe("toSimMatchInput (PD-03 — the one implementation the builder hands simulateRanks)", () => {
+describe("toSimMatchInput (the one implementation the builder hands simulateRanks)", () => {
   it("excludes surrogate team keys from the SimMatchInput team-key lists, keeping the pmfs verbatim", () => {
     const upcoming: UpcomingMatch = {
       matchKey: "2026casj_presim0_qm5",
@@ -107,7 +107,7 @@ describe("toSimMatchInput (PD-03 — the one implementation the builder hands si
     blueBonusRpPmf: [1],
   };
 
-  it("a fifth `outcome` argument populates SimMatchInput.outcome without disturbing PD-03's surrogate exclusion", () => {
+  it("a fifth `outcome` argument populates SimMatchInput.outcome without disturbing the surrogate exclusion", () => {
     const input = toSimMatchInput(decompositionUpcoming, STUB_PMF, STUB_PMF, STUB_OUTCOME);
     expect(input.outcome).toEqual(STUB_OUTCOME);
     expect(input.redTeamKeys).toEqual(["frc1", "frc3"]);
@@ -192,7 +192,7 @@ describe("buildPreScheduleArtifact over generated pairing structures", () => {
     }
   });
 
-  it("a team occupying a surrogate slot is handed to predict inside the alliance AND flagged in redSurrogates/blueSurrogates (PD-03)", () => {
+  it("a team occupying a surrogate slot is handed to predict inside the alliance AND flagged in redSurrogates/blueSurrogates", () => {
     const tenTeamRoster = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6", "frc7", "frc8", "frc9", "frc11"];
     const seen: UpcomingMatch[] = [];
     const spyPredict = (match: UpcomingMatch): Prediction => {
@@ -257,7 +257,7 @@ function faInputs(overrides: Partial<FieldContributionInputs> = {}): FieldContri
   };
 }
 
-describe("buildFieldContributions (plan 09-09 Task 2 — the all-or-nothing roster rule, reproduced)", () => {
+describe("buildFieldContributions (the all-or-nothing roster rule, reproduced)", () => {
   it("returns null when ANY roster team is missing a consistency figure", () => {
     const inputs = faInputs();
     const partial = new Map(inputs.sigmaScoreByTeam);
@@ -313,7 +313,7 @@ describe("buildFieldContributions (plan 09-09 Task 2 — the all-or-nothing rost
   });
 });
 
-describe("buildFieldAveragedPreScheduleArtifact (plan 09-09 Task 2)", () => {
+describe("buildFieldAveragedPreScheduleArtifact", () => {
   function faParams(overrides: Partial<FieldAveragedPreScheduleBuildParams> = {}): FieldAveragedPreScheduleBuildParams {
     return {
       eventKey: "2023gaalb",
@@ -391,7 +391,7 @@ describe("buildFieldAveragedPreScheduleArtifact (plan 09-09 Task 2)", () => {
   });
 });
 
-describe("the field-averaged presim and the mean shift (quick task 260914-01x, CD-05)", () => {
+describe("the field-averaged presim and the mean shift", () => {
   const PAST_WARMUP = RP_MEAN_SHIFT_WARMUP_OBSERVATIONS + 50;
   /** Hand-set: shift = sum / count = 2 for the first variable and -1 for the second. */
   const shiftState = (count: number) => ({
@@ -456,7 +456,7 @@ describe("the field-averaged presim and the mean shift (quick task 260914-01x, C
   });
 });
 
-describe("preSchedule.ts's static import surface (plan 09-09 Task 2)", () => {
+describe("preSchedule.ts's static import surface", () => {
   /** A set-equality pin on `preSchedule.ts`'s static import specifiers, so a change to where pairing structures come from is a failing test. */
   const EXPECTED_IMPORT_SPECIFIERS: readonly string[] = [
     "./pageArtifacts.js",

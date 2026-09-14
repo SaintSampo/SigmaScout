@@ -95,7 +95,7 @@ describe("toLeakProofUpcoming", () => {
   );
 });
 
-describe("toLeakProofUpcoming — getOwnPropertyDescriptor bypass (EVAL-01/SC-4, T-Q2x6-01)", () => {
+describe("toLeakProofUpcoming — getOwnPropertyDescriptor bypass", () => {
   const match = makeMatch();
   const wrapped = toLeakProofUpcoming(match) as unknown as object;
 
@@ -110,7 +110,7 @@ describe("toLeakProofUpcoming — getOwnPropertyDescriptor bypass (EVAL-01/SC-4,
   });
 });
 
-describe("toLeakProofUpcoming — ownKeys enumeration bypass (EVAL-01/SC-4, T-Q2x6-02)", () => {
+describe("toLeakProofUpcoming — ownKeys enumeration bypass", () => {
   const match = makeMatch();
   const wrapped = toLeakProofUpcoming(match) as unknown as object;
 
@@ -145,7 +145,7 @@ describe("toLeakProofUpcoming — ownKeys enumeration bypass (EVAL-01/SC-4, T-Q2
   });
 });
 
-describe("toLeakProofUpcoming — derived enumeration paths and D-B invariant boundary (T-Q2x6-02/03)", () => {
+describe("toLeakProofUpcoming — derived enumeration paths and the extensible-target invariant boundary", () => {
   const match = makeMatch();
   const wrapped = toLeakProofUpcoming(match) as unknown as Record<string, unknown>;
   const raw = match as unknown as Record<string, unknown>;
@@ -161,7 +161,7 @@ describe("toLeakProofUpcoming — derived enumeration paths and D-B invariant bo
     }
   });
 
-  it("Object.values, Object.entries, spread, and JSON.stringify each complete WITHOUT throwing (D-D) and carry only the 11 non-outcome fields with their real values", () => {
+  it("Object.values, Object.entries, spread, and JSON.stringify each complete WITHOUT throwing and carry only the 11 non-outcome fields with their real values", () => {
     let spread: Record<string, unknown> | undefined;
     expect(() => {
       spread = { ...wrapped };
@@ -204,7 +204,7 @@ describe("toLeakProofUpcoming — derived enumeration paths and D-B invariant bo
     expect(seen.sort()).toEqual([...ALL_NON_OUTCOME_KEYS].sort());
   });
 
-  it("D-B precondition: the raw fixture is extensible and every outcome key is configurable — the two facts that make omitting keys from ownKeys legal", () => {
+  it("precondition: the raw fixture is extensible and every outcome key is configurable — the two facts that make omitting keys from ownKeys legal", () => {
     expect(Object.isExtensible(match)).toBe(true);
     for (const outcomeKey of ALL_OUTCOME_KEYS) {
       const descriptor = Object.getOwnPropertyDescriptor(raw, outcomeKey);
@@ -212,7 +212,7 @@ describe("toLeakProofUpcoming — derived enumeration paths and D-B invariant bo
     }
   });
 
-  it("D-B hazard: wrapping an Object.freeze-d MatchResult and calling Object.keys throws an engine-level TypeError, not our Outcome-leakage Error — MatchResult objects must stay extensible plain literals (see this plan's D-B)", () => {
+  it("hazard: wrapping an Object.freeze-d MatchResult and calling Object.keys throws an engine-level TypeError, not our Outcome-leakage Error — MatchResult objects must stay extensible plain literals", () => {
     const frozenMatch = Object.freeze(makeMatch());
     const frozenWrapped = toLeakProofUpcoming(frozenMatch) as unknown as object;
 
@@ -227,7 +227,7 @@ describe("toLeakProofUpcoming — derived enumeration paths and D-B invariant bo
   });
 });
 
-describe("eventType — non-outcome-bearing (plan 03-03 Task 1)", () => {
+describe("eventType — non-outcome-bearing", () => {
   it("a predict() call can read match.eventType through toLeakProofUpcoming without throwing", () => {
     const match = makeMatch({ eventType: 3 });
     let observedEventType: number | undefined;
@@ -325,11 +325,11 @@ describe("WalkForwardSimulator", () => {
 });
 
 /**
- * D-01 (quick task 260909-t5q): `WalkForwardSimulator`'s own cold-start
+ * `WalkForwardSimulator`'s own cold-start
  * seam. Uses a stub algorithm that returns a fixed, deliberately
  * NOT-0.5 probability so a forced tie is unambiguous in these assertions.
  */
-describe("WalkForwardSimulator — cold-start index (D-01/D-02)", () => {
+describe("WalkForwardSimulator — cold-start index", () => {
   const matches: MatchResult[] = [
     makeMatch({ matchKey: "2024test_qm1", matchNumber: 1, winner: "red", redScore: 100, blueScore: 80 }),
     makeMatch({ matchKey: "2024test_qm2", matchNumber: 2, winner: "blue", redScore: 60, blueScore: 90 }),
@@ -380,7 +380,7 @@ describe("WalkForwardSimulator — cold-start index (D-01/D-02)", () => {
     }
   });
 
-  it("runAll with three stub algorithms returning three different probabilities: on a cold-start match all three records come out at exactly 0.5 (D-01's unification, pinned)", () => {
+  it("runAll with three stub algorithms returning three different probabilities: on a cold-start match all three records come out at exactly 0.5", () => {
     const index = new Set(["2024test_qm1"]);
     const simulator = new WalkForwardSimulator(matches, index);
     const algorithms = [stubAlgorithm(0.1), stubAlgorithm(0.5001), stubAlgorithm(0.999)];

@@ -19,7 +19,7 @@ import {
  * ineligible while 2022 comes back eligible proves both that the call no
  * longer throws and that the origin-based rule works, in one shot.
  */
-describe("aggregateScores — 2019/2020 unblocked (D-1/D-2 tracer)", () => {
+describe("aggregateScores — 2019/2020 unblocked (tracer)", () => {
   function prediction(season: number, matchKey: string): HarnessPredictionInput {
     return {
       matchKey,
@@ -79,7 +79,7 @@ describe("isHeadlineEligible", () => {
  * The five behaviours corpus-relative eligibility requires, each an
  * OUTPUT of the rule rather than a second hardcoded list.
  */
-describe("aggregateScores — D-2/D-3 corpus-relative eligibility", () => {
+describe("aggregateScores — corpus-relative eligibility", () => {
   // The real seven-season corpus (2019, 2020, then 2022-2026 — no FRC season
   // played in 2021).
   const SEVEN_SEASON_CORPUS = [2019, 2020, 2022, 2023, 2024, 2025, 2026];
@@ -126,7 +126,7 @@ describe("aggregateScores — D-2/D-3 corpus-relative eligibility", () => {
     }
   });
 
-  it("a two-season set leaves its later season ineligible (D-2's two-prior threshold, not one)", () => {
+  it("a two-season set leaves its later season ineligible (the two-prior threshold, not one)", () => {
     const predictions = [predictionFor(2025), predictionFor(2026)];
     const slices = aggregateScores(predictions, { corpusSeasons: [2025, 2026], eligibility: "from-corpus-seasons" });
     const combined = slices.filter((s) => s.compLevelView === "combined");
@@ -265,7 +265,7 @@ describe("aggregateScores", () => {
     expect(views).toEqual(new Set(["qualification", "elimination", "combined"]));
   });
 
-  it("with only two seasons declared, neither is headline-eligible — D-2's two-prior threshold (this fixture's 2025 has only one prior, 2024)", () => {
+  it("with only two seasons declared, neither is headline-eligible — the two-prior threshold (this fixture's 2025 has only one prior, 2024)", () => {
     expect(slices.every((s) => s.headlineEligible === false)).toBe(true);
   });
 
@@ -304,7 +304,7 @@ describe("aggregateScores", () => {
     }
   });
 
-  it("D-06/D-07 zero-quarantine regression check: with no malformed predictions, exclusionCounts.quarantined is 0 on every slice, and every other slice value is unchanged from the pre-change fixture behavior above", () => {
+  it("zero-quarantine regression check: with no malformed predictions, exclusionCounts.quarantined is 0 on every slice, and every other slice value is unchanged from the pre-change fixture behavior above", () => {
     for (const slice of slices) {
       expect(slice.exclusionCounts.quarantined).toBe(0);
     }
@@ -333,9 +333,9 @@ describe("aggregateScores", () => {
   });
 });
 
-describe("aggregateScores — D-20/D-22 per-algorithm grouping", () => {
+describe("aggregateScores — per-algorithm grouping", () => {
   // 2 algorithms x 2 seasons x 3 views = 12 slices, one shared match stream
-  // scored by both algorithms (D-22) — grouping must key by
+  // scored by both algorithms — grouping must key by
   // (algorithmId, season, compLevelView), never conflating two algorithms'
   // figures into one slice.
   const ALGORITHM_IDS = ["opr", "epa"] as const;
@@ -397,7 +397,7 @@ describe("aggregateScores — D-20/D-22 per-algorithm grouping", () => {
   });
 });
 
-describe("aggregateScores — D-06/D-07 quarantine and bound", () => {
+describe("aggregateScores — quarantine and bound", () => {
   function prediction(overrides: Partial<HarnessPredictionInput> & Pick<HarnessPredictionInput, "matchKey">): HarnessPredictionInput {
     return {
       season: 2024,
@@ -529,7 +529,7 @@ describe("aggregateScores — D-06/D-07 quarantine and bound", () => {
  * `eligibility`'s own contract — a required, non-defaulting input whose
  * strictest value is the explicit `ELIGIBILITY_NOT_CLAIMED` sentinel.
  */
-describe("aggregateScores — D-2 eligibility contract", () => {
+describe("aggregateScores — eligibility contract", () => {
   function prediction(algorithmId: string, season: number, matchKey: string): HarnessPredictionInput {
     return {
       matchKey,
@@ -618,7 +618,7 @@ describe("aggregateScores — eligibility feeds only headlineEligible (no-number
  * an input to it — so a future change moves those badges on purpose, not
  * by accident.
  */
-describe("aggregateScores — D-3 pin: opr/epa/spr are eligible from 2022 onward", () => {
+describe("aggregateScores — opr/epa/spr are eligible from 2022 onward", () => {
   const SEVEN_SEASON_CORPUS = [2019, 2020, 2022, 2023, 2024, 2025, 2026];
 
   function predictionsFor(algorithmId: string): HarnessPredictionInput[] {
@@ -666,7 +666,7 @@ describe("aggregateScores — D-3 pin: opr/epa/spr are eligible from 2022 onward
 });
 
 /** The equality pin: a future sixth exclusion key must fail loudly, never pass silently. */
-describe("EMPTY_EXCLUSIONS — exact five-key equality pin (D-02)", () => {
+describe("EMPTY_EXCLUSIONS — exact five-key equality pin", () => {
   it("is exactly these five keys, all zero — never a subset, never an extra key", () => {
     expect(EMPTY_EXCLUSIONS).toEqual({
       offseason: 0,
@@ -686,7 +686,7 @@ describe("EMPTY_EXCLUSIONS — exact five-key equality pin (D-02)", () => {
  * no-call keeps its ordinary no-call treatment (in `scoredCount`, in
  * `noCallCount`, counted a miss).
  */
-describe("aggregateScores — D-02 cold-start exclusion, keyed off isColdStart alone", () => {
+describe("aggregateScores — cold-start exclusion, keyed off isColdStart alone", () => {
   function prediction(overrides: Partial<HarnessPredictionInput> & Pick<HarnessPredictionInput, "matchKey">): HarnessPredictionInput {
     return {
       season: 2024,
@@ -734,7 +734,7 @@ describe("aggregateScores — D-02 cold-start exclusion, keyed off isColdStart a
     expect(combinedWith.scoredCount).toBe(combinedWithout.scoredCount);
   });
 
-  it("THE LOAD-BEARING PIN (D-02): a pRedWin === 0.5 candidate, NOT flagged cold start, against a red win, is IN scoredCount, IN noCallCount, counted a MISS in winnerAccuracy, and leaves exclusionCounts.coldStart at 0", () => {
+  it("THE LOAD-BEARING PIN: a pRedWin === 0.5 candidate, NOT flagged cold start, against a red win, is IN scoredCount, IN noCallCount, counted a MISS in winnerAccuracy, and leaves exclusionCounts.coldStart at 0", () => {
     const predictions: HarnessPredictionInput[] = [
       prediction({ matchKey: "2024test_qm1", pRedWin: 0.5, actualWinner: "red", isColdStart: false }),
     ];
