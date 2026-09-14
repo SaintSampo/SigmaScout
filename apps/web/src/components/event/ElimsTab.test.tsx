@@ -212,7 +212,7 @@ describe("Ordering", () => {
   });
 });
 
-describe("The D-13 merge and its non-mutation contract", () => {
+describe("The played/upcoming merge and its non-mutation contract", () => {
   it("passes artifact.matches and artifact.upcoming to the merge without mutating either array's contents or order", () => {
     const matches = [makePlayedMatch({ matchKey: "qf1m1", setNumber: 1, matchNumber: 1 }), makePlayedMatch({ matchKey: "qf2m1", setNumber: 2, matchNumber: 1 })];
     const upcoming = [makeUpcomingMatch({ matchKey: "qf3m1", setNumber: 3, matchNumber: 1 })];
@@ -235,7 +235,7 @@ describe("The D-13 merge and its non-mutation contract", () => {
   });
 });
 
-describe("Per-tab domain (D-12)", () => {
+describe("Per-tab domain", () => {
   it("axis tick labels span the merged rows' full extent, including an upcoming row's high predicted score", () => {
     const matches = [makePlayedMatch({ matchKey: "qf1m1", predictedRedScore: 100, predictedBlueScore: 100, actualRedScore: 100, actualBlueScore: 100 })];
     const upcoming = [makeUpcomingMatch({ matchKey: "qf1m2", predictedRedScore: 900, predictedBlueScore: 880 })];
@@ -388,8 +388,8 @@ describe("Structure", () => {
   });
 });
 
-describe("Empty state (EVNT-06 empty, UI-SPEC E6 empty)", () => {
-  it("an artifact whose matches are all qualification rows and whose upcoming is empty (the 2025srsd shape) renders EmptyState with the event's name, the Copywriting Contract body, and no table/axis-header/scroll-region", () => {
+describe("Empty state", () => {
+  it("an artifact whose matches are all qualification rows and whose upcoming is empty (the 2025srsd shape) renders EmptyState with the event's name, the empty-state body, and no table/axis-header/scroll-region", () => {
     const matches = [makePlayedMatch({ matchKey: "qm1", compLevel: "qm", setNumber: 1, matchNumber: 1 })];
     renderWithRouter(<ElimsTab artifact={makeArtifact({ matches, upcoming: [], name: "Sioux Falls Regional" })} algorithmId="spr" season={2025} />);
     expect(screen.getByText("No matches found for Sioux Falls Regional")).toBeDefined();
@@ -429,7 +429,7 @@ describe("Empty state (EVNT-06 empty, UI-SPEC E6 empty)", () => {
   });
 });
 
-describe("Adjacency (EVNT-06 adjacency)", () => {
+describe("Adjacency", () => {
   it("two rows sharing an identical (compLevel, setNumber, matchNumber) triple but differing in match key both appear, in match-key order — they separate, not merge or drop", () => {
     const matches = [
       makePlayedMatch({ matchKey: "2022ilpe_qf1m1", compLevel: "qf", setNumber: 1, matchNumber: 1 }),
@@ -489,7 +489,7 @@ describe("Adjacency (EVNT-06 adjacency)", () => {
   });
 });
 
-describe("Boundary and single-row (EVNT-06 empty, UI-SPEC E6 zero-one-many)", () => {
+describe("Boundary and single-row", () => {
   it("a one-row elimination slate renders a one-row table with a non-zero-range axis", () => {
     const matches = [makePlayedMatch({ matchKey: "qf1m1", predictedRedScore: 100, predictedBlueScore: 100, actualRedScore: 100, actualBlueScore: 100 })];
     renderWithRouter(<ElimsTab artifact={makeArtifact({ matches })} algorithmId="spr" season={2022} />);

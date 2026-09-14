@@ -254,7 +254,7 @@ describe("RankDistributionTable — sort order (integration through the shipped 
   });
 });
 
-describe("RankDistributionTable — sticky title row, no sticky columns (2026-09-13)", () => {
+describe("RankDistributionTable — sticky title row, no sticky columns", () => {
   it("wide layout: headers sticky top-only, body cells never sticky", async () => {
     await renderTable([row({ teamKey: "frc1", teamCount: 5, teamNumber: 254 })], 5);
 

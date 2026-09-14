@@ -65,7 +65,7 @@ describe("EventHeader — absent name falls back to the event key (E1 empty)", (
   });
 });
 
-describe("EventHeader — the empty-string case is unreachable (E1 empty dismissal, PD-02)", () => {
+describe("EventHeader — the empty-string case is unreachable", () => {
   it("Test 3: EventArtifactSchema.parse throws for name: '' and separately for location: ''", () => {
     expect(() => EventArtifactSchema.parse(baseArtifactInput({ name: "" }))).toThrow();
     expect(() => EventArtifactSchema.parse(baseArtifactInput({ location: "" }))).toThrow();
@@ -108,7 +108,7 @@ describe("EventHeader — week's three distinct outcomes (E1 partial)", () => {
     expect(meta.textContent).not.toContain("Offseason");
   });
 
-  it("Test 5b (Task 5, 260902-ixg): stored week 18 — 2026iscmp's own raw TBA week — omits the week segment entirely, never the guessed 'Week 19'. This is WR-01's identical out-of-band-week defect, in the location that fix did not reach", () => {
+  it("Test 5b: stored week 18 — 2026iscmp's own raw TBA week — omits the week segment entirely, never the guessed 'Week 19'", () => {
     expect(eventMetaLine({ week: 18 })).toBe("");
     expect(eventMetaLine({ week: 18 })).not.toContain("Week");
 
@@ -119,7 +119,7 @@ describe("EventHeader — week's three distinct outcomes (E1 partial)", () => {
     expect(meta.textContent).not.toContain("19");
   });
 
-  it("Test 5c (Task 5, 260902-ixg): the season-week boundary — stored week 8 (MAX_SEASON_WEEK) still renders 'Week 9'; stored week 9 (one past it) omits the segment", () => {
+  it("Test 5c: the season-week boundary — stored week 8 (MAX_SEASON_WEEK) still renders 'Week 9'; stored week 9 (one past it) omits the segment", () => {
     expect(eventMetaLine({ week: 8 })).toBe("Week 9");
     expect(eventMetaLine({ week: 9 })).toBe("");
   });
@@ -156,7 +156,7 @@ describe("EventHeader — startDate absence (E1 partial)", () => {
   });
 });
 
-describe("formatEventStartDate — timezone stability (PD-04)", () => {
+describe("formatEventStartDate — timezone stability", () => {
   it("Test 8: pins UTC so the rendered day never reads as the 6th under a negative-offset TZ, and undefined returns the empty string", () => {
     const originalTZ = process.env.TZ;
     process.env.TZ = "America/Los_Angeles";
@@ -213,7 +213,7 @@ describe("eventMetaLine — the full cross-product (E1 partial, all absence rule
   });
 });
 
-describe("EventHeader — the TBA link (Copywriting Contract Primary CTA, T-07-15-01/02)", () => {
+describe("EventHeader — the TBA link", () => {
   afterEach(() => cleanup());
 
   it("Test 10: the populated render exposes a working, correctly-attributed anchor; an invalid key yields no anchor at all", () => {

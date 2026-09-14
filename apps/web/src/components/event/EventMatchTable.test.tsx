@@ -90,7 +90,7 @@ describe("Structure and the dropped highlight rule", () => {
     expect(row1.className).not.toBe(row2.className);
   });
 
-  it("has no sticky column anywhere, header or body (2026-09-13)", () => {
+  it("has no sticky column anywhere, header or body", () => {
     const { container } = renderWithRouter(
       <EventMatchTable
         rows={[makeRow({ matchKey: "m1" }), makeRow({ matchKey: "m2" })]}
@@ -271,7 +271,7 @@ describe("Bonus-RP dots", () => {
     return Array.from(group.querySelectorAll("[data-testid^='bonus-dot-']")).map((dot) => dot.getAttribute("data-state"));
   }
 
-  it("a qm row WITHOUT published per-bonus fields renders predicted and actual dot groups per alliance, every dot unknown — the pre-260905-jj8 artifact shape stays the designed degradation", () => {
+  it("a qm row WITHOUT published per-bonus fields renders predicted and actual dot groups per alliance, every dot unknown — that artifact shape stays the designed degradation", () => {
     renderWithRouter(
       <EventMatchTable
         rows={[makeRow({ matchKey: "m1", compLevel: "qm", played: true, actualWinner: "red", actualRedScore: 260, actualBlueScore: 200 })]}
@@ -362,7 +362,7 @@ describe("Bonus-RP dots", () => {
     expect(collectDotStates("bonus-rp-predicted-m2-red")).toHaveLength(3);
   });
 
-  it("an sf row renders every dot unknown EVEN WITH populated per-bonus arrays — the applicable gate (PD-16/PD-18 defence-in-depth) overrides published playoff data", () => {
+  it("an sf row renders every dot unknown EVEN WITH populated per-bonus arrays — the applicable gate (defence-in-depth) overrides published playoff data", () => {
     renderWithRouter(
       <EventMatchTable
         rows={[
@@ -421,7 +421,7 @@ describe("Row count conservation", () => {
   });
 });
 
-describe("Match-column label links to /match/{matchKey} (260909-tiq-PLAN.md Task 3)", () => {
+describe("Match-column label links to /match/{matchKey}", () => {
   it("a played row's Match label is a link whose href contains the match key, carrying the year and algorithm", () => {
     renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "2024casj_qm1", played: true, actualWinner: "red", actualRedScore: 260, actualBlueScore: 200 })]} domain={DOMAIN} season={2024} algorithm="spr" />);
     const row = screen.getByTestId("match-row-2024casj_qm1");

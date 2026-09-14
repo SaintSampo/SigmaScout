@@ -214,7 +214,7 @@ describe("buildRankDistributionRows(result, teams)", () => {
     expect(row.nickname).toBe("The Cheesy Poofs");
   });
 
-  it("a team key present in the result but ABSENT from teams[] still produces a row, number recovered through teamNumberFromKey and an undefined nickname (RESEARCH assumption A2)", () => {
+  it("a team key present in the result but ABSENT from teams[] still produces a row, number recovered through teamNumberFromKey and an undefined nickname", () => {
     const result = buildResult({ frc1114: lockedHistogram(1) });
     const rows = buildRankDistributionRows(result, []);
     const row = rows.find((r) => r.teamKey === "frc1114")!;

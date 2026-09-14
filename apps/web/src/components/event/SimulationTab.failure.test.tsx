@@ -140,7 +140,7 @@ describe("S2 — forced Worker failure, driven through the assembled Simulation 
     }
   });
 
-  it("D: no leaked worker — after a failure and an unmount, terminate() was called on every constructed instance (08-07's lifecycle rule, observed at the consumer)", async () => {
+  it("D: no leaked worker — after a failure and an unmount, terminate() was called on every constructed instance (the worker lifecycle rule, observed at the consumer)", async () => {
     const throwingScript: MockWorkerScript = (_message, ctx) => {
       ctx.post({ type: "progress", completedDraws: 10, totalDraws: 1000 });
       throw new Error("simulated worker script crash");

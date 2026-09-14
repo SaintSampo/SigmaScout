@@ -58,7 +58,7 @@ function baseInputs(overrides: Partial<SimulationInputs> = {}): SimulationInputs
 }
 
 describe("row anatomy", () => {
-  it("shows the SELECTED match's label and every red/blue team number; the slider spans the whole schedule (2026-09-01: one summary, not one row per match)", () => {
+  it("shows the SELECTED match's label and every red/blue team number; the slider spans the whole schedule (one summary, not one row per match)", () => {
     const rows = [row({ matchKey: "2024test_qm1", matchNumber: 1 }), row({ matchKey: "2024test_qm2", matchNumber: 2, played: true })];
     render(<StartMatchPicker rows={rows} selection={{ kind: "match", matchKey: "2024test_qm2" }} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
 
@@ -88,12 +88,12 @@ describe("row anatomy", () => {
 });
 
 /**
- * WR-05 (260902-post-phase08-ungoverned-ui/REVIEW.md): before this fix
+ * Before this fix
  * `data-selected` was hardcoded `"true"` and the accent border/background
  * always rendered, so the slider's index-0 preview (rendered with nothing
  * selected) looked chosen while the hint above still said "Pick a match".
  */
-describe("selection treatment (WR-05)", () => {
+describe("selection treatment", () => {
   it("carries data-selected=false and no accent border colour when nothing is selected", () => {
     const rows = [row()];
     render(<StartMatchPicker rows={rows} selection={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
@@ -139,7 +139,7 @@ describe("status labels", () => {
 });
 
 describe("the absent-sortTime partial case (S1 partial)", () => {
-  it("a row with no sortTime renders NO time text at all — blank, never an em-dash placeholder (2026-09-01)", () => {
+  it("a row with no sortTime renders NO time text at all — blank, never an em-dash placeholder", () => {
     const rows = [row({ sortTime: undefined })];
     render(<StartMatchPicker rows={rows} selection={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     const rowEl = screen.getByTestId(`${START_MATCH_ROW_TESTID_PREFIX}2024test_qm1`);
@@ -194,7 +194,7 @@ describe("selection", () => {
   });
 });
 
-describe("inert while disabled (PD-09)", () => {
+describe("inert while disabled", () => {
   it("with disabled set, both controls are disabled, the panel carries the inert attribute, and the selected match stays readable", () => {
     const onSelect = vi.fn();
     const rows = [row({ matchKey: "2024test_qm1" }), row({ matchKey: "2024test_qm2", matchNumber: 2 })];
@@ -211,7 +211,7 @@ describe("inert while disabled (PD-09)", () => {
   });
 });
 
-describe("reaching any match without scrolling (2026-09-01)", () => {
+describe("reaching any match without scrolling", () => {
   it("the slider's range covers the whole schedule, so the last match of a 134-match event is one gesture away", () => {
     const rows = Array.from({ length: 134 }, (_, index) => row({ matchKey: `2022oncmp_qm${index + 1}`, matchNumber: index + 1, played: true }));
     const onSelect = vi.fn();
@@ -240,7 +240,7 @@ describe("hint versus scope line", () => {
   });
 });
 
-describe("the hint and the draw count cannot drift (PD-10)", () => {
+describe("the hint and the draw count cannot drift", () => {
   it("START_MATCH_PICKER_HINT contains String(SIMULATION_DRAWS)", () => {
     expect(START_MATCH_PICKER_HINT).toContain(String(SIMULATION_DRAWS));
   });
@@ -304,7 +304,7 @@ describe("one-row and empty lists (S1 zero-one-many)", () => {
 });
 
 describe("the two contract strings are shipped verbatim", () => {
-  it("START_MATCH_PICKER_HINT, START_MATCH_STATUS_PLAYED and START_MATCH_STATUS_UPCOMING match 08-UI-SPEC.md's Copywriting Contract rows exactly", () => {
+  it("START_MATCH_PICKER_HINT, START_MATCH_STATUS_PLAYED and START_MATCH_STATUS_UPCOMING match their contract copy exactly", () => {
     expect(START_MATCH_PICKER_HINT).toBe(`Pick a match to simulate from. Matches after it are simulated ${SIMULATION_DRAWS}×.`);
     expect(START_MATCH_STATUS_PLAYED).toBe("Played");
     expect(START_MATCH_STATUS_UPCOMING).toBe("Upcoming");

@@ -106,7 +106,7 @@ describe("Filtering and merging", () => {
   });
 });
 
-describe("Per-tab domain (D-12)", () => {
+describe("Per-tab domain", () => {
   it("axis tick labels span the merged rows' full extent, including an upcoming row's high score", () => {
     const matches = [makePlayedMatch({ matchKey: "p1", predictedRedScore: 100, predictedBlueScore: 100, actualRedScore: 100, actualBlueScore: 100 })];
     const upcoming = [makeUpcomingMatch({ matchKey: "u1", predictedRedScore: 900, predictedBlueScore: 880 })];
@@ -140,7 +140,7 @@ describe("Per-tab domain (D-12)", () => {
   });
 });
 
-describe("Empty state (EVNT-04 empty, UI-SPEC E5 empty)", () => {
+describe("Empty state", () => {
   it("the Einstein shape (matches all sf/f, upcoming empty) renders EmptyState with the event's name, and no table/axis header", () => {
     const matches = [makePlayedMatch({ matchKey: "sf1m1", compLevel: "sf", setNumber: 1, matchNumber: 1 })];
     renderWithRouter(<QualsTab artifact={makeArtifact({ matches, name: "Championship Finals" })} algorithmId="spr" season={2024} />);

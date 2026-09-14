@@ -145,7 +145,7 @@ describe("Ordering — the bracket chain (tie-break half, no sortTime anywhere i
   });
 });
 
-describe("Ordering — the leading sortTime comparison (07-13 amendment)", () => {
+describe("Ordering — the leading sortTime comparison", () => {
   it("orders two timed rows by ascending time even when the bracket chain disagrees", () => {
     // Chain would order b (qf1) before a (qf2); sortTime reverses it.
     const a = rowFor({ matchKey: "a", compLevel: "qf", setNumber: 2, matchNumber: 1, sortTime: 100 });
@@ -367,7 +367,7 @@ describe("Empty and single", () => {
   });
 });
 
-describe("Domain content (D-12)", () => {
+describe("Domain content", () => {
   it("the domain spans played AND upcoming rows: an upcoming row's high score is accommodated", () => {
     const played = [makePlayed({ matchKey: "p1", predictedRedScore: 200, predictedBlueScore: 200, actualRedScore: 200, actualBlueScore: 200 })];
     const upcoming = [makeUpcoming({ matchKey: "u1", predictedRedScore: 400, predictedBlueScore: 380 })];
