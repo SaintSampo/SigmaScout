@@ -1351,7 +1351,7 @@ describe("buildTeamsArtifact", () => {
     expect(artifact.teams[0]?.districtKey).toBe("fim");
   });
 
-  it("given a team input with no region fields, omits the keys entirely rather than emitting null or empty string (quick task 260905-ttv)", () => {
+  it("given a team input with no region fields, omits the keys entirely rather than emitting null or empty string", () => {
     const artifact = buildTeamsArtifact({
       season: 2026,
       algorithmId: "opr",
@@ -1376,7 +1376,7 @@ describe("buildTeamsArtifact", () => {
   });
 });
 
-describe("buildTeamsArtifact — sigma metric (quick task 260909-tgf)", () => {
+describe("buildTeamsArtifact — sigma metric", () => {
   function baseTeamInput(metrics: Record<string, TeamMetric & { percentile?: number; tier?: "rare" | "epic" | "legendary" }>) {
     return {
       teamKey: "frc254",
@@ -1472,7 +1472,7 @@ describe("buildEventsArtifact", () => {
     expect(artifact.events[0]?.week).toBeNull();
   });
 
-  it("round-trips name, week, country, stateProv and districtKey (EVNT-01, plan 05-02)", () => {
+  it("round-trips name, week, country, stateProv and districtKey", () => {
     const artifact = buildEventsArtifact({
       season: 2026,
       algorithmId: "opr",
@@ -1569,7 +1569,7 @@ describe("buildTeamSeasonArtifact", () => {
     );
   });
 
-  it("accepts a team with no matches — events: [] and metricHistory: [] parse as a valid, non-missing artifact (D-05/D-07)", () => {
+  it("accepts a team with no matches — events: [] and metricHistory: [] parse as a valid, non-missing artifact", () => {
     const artifact = buildTeamSeasonArtifact({
       teamKey: "frc9999",
       teamNumber: 9999,
@@ -1587,7 +1587,7 @@ describe("buildTeamSeasonArtifact", () => {
   });
 });
 
-describe("buildTeamSeasonArtifact — sigma metric (quick task 260909-tgf)", () => {
+describe("buildTeamSeasonArtifact — sigma metric", () => {
   it("seasonStats.metrics.sigma.percentile round-trips", () => {
     const artifact = buildTeamSeasonArtifact({
       teamKey: "frc254",
@@ -1629,7 +1629,7 @@ describe("buildTeamSeasonArtifact — sigma metric (quick task 260909-tgf)", () 
   });
 });
 
-describe("withPublishedTiers — sigma tier stamping (quick task 260909-tgf)", () => {
+describe("withPublishedTiers — sigma tier stamping", () => {
   it("a sigma entry with percentile 97 yields tier legendary and no percentile key", () => {
     const result = withPublishedTiers({ [SIGMA_METRIC_KEY]: { value: 8.42, percentile: 97 } });
     expect(result[SIGMA_METRIC_KEY]?.tier).toBe("legendary");
@@ -1642,7 +1642,7 @@ describe("withPublishedTiers — sigma tier stamping (quick task 260909-tgf)", (
   });
 });
 
-describe("buildTeamSeasonArtifact — ranks (quick task 260905-ldu)", () => {
+describe("buildTeamSeasonArtifact — ranks", () => {
   function minimalParams(overrides: Partial<Parameters<typeof buildTeamSeasonArtifact>[0]> = {}): Parameters<typeof buildTeamSeasonArtifact>[0] {
     return {
       teamKey: "frc254",
@@ -1685,7 +1685,7 @@ describe("buildTeamSeasonArtifact — ranks (quick task 260905-ldu)", () => {
   });
 });
 
-describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fields (plan 06-04 Task 1)", () => {
+describe("buildTeamSeasonArtifact — per-match fields", () => {
   const baseParams = {
     teamKey: "frc254",
     teamNumber: 254,
@@ -1699,7 +1699,7 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
     computedAt: "2026-08-22T00:00:00.000Z",
   } as const;
 
-  it("D-01: rounds a Sigma1-shaped prediction's own-variance fields to 4 decimals; an OPR-shaped prediction leaves both undefined", () => {
+  it("rounds a variance-carrying prediction's own-variance fields to 4 decimals; an OPR-shaped prediction leaves both undefined", () => {
     const varianceArtifact = buildTeamSeasonArtifact({
       ...baseParams,
       events: [
@@ -1733,7 +1733,7 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
     expect(oprRow?.blueScoreVarianceOwn).toBeUndefined();
   });
 
-  it("D-02: actualRedRp/actualBlueRp round-trip an integer RP from MatchResult.redRpEarned/blueRpEarned", () => {
+  it("actualRedRp/actualBlueRp round-trip an integer RP from MatchResult.redRpEarned/blueRpEarned", () => {
     const artifact = buildTeamSeasonArtifact({
       ...baseParams,
       events: [
@@ -1750,7 +1750,7 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
     expect(row?.actualBlueRp).toBe(0);
   });
 
-  it("D-02: a null redRpEarned publishes as null — never coerced to 0, never omitted", () => {
+  it("a null redRpEarned publishes as null — never coerced to 0, never omitted", () => {
     const artifact = buildTeamSeasonArtifact({
       ...baseParams,
       events: [
@@ -1790,7 +1790,7 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
     expect(row?.actualBlueRp).toBeNull();
   });
 
-  it("D-08/D-09: a scheduled match publishes predicted fields with every actual field undefined, and the row parses", () => {
+  it("a scheduled match publishes predicted fields with every actual field undefined, and the row parses", () => {
     const artifact = buildTeamSeasonArtifact({
       ...baseParams,
       events: [
@@ -1812,7 +1812,7 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
     expect(row?.actualBlueRp).toBeUndefined();
   });
 
-  it("plan 06-04 Task 3: every field this phase added at once — own variance, actual RP, percentile, robot image, active years, a played and a scheduled match in the same event — parses as one artifact", () => {
+  it("own variance, actual RP, percentile, robot image and active years together, with a played and a scheduled match in the same event, parse as one artifact", () => {
     const artifact = buildTeamSeasonArtifact({
       ...baseParams,
       seasonStats: {
@@ -1852,7 +1852,7 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
   });
 });
 
-describe("buildTeamSeasonArtifact — TEAM-04/F-06-3 event rank (plan 06.1-01 Task 3)", () => {
+describe("buildTeamSeasonArtifact — event rank", () => {
   const baseParams = {
     teamKey: "frc254",
     teamNumber: 254,
@@ -1916,7 +1916,7 @@ function rawBreakdown2024(): unknown {
   return { red: side, blue: { ...side, autoAmpNoteCount: 0, teleopAmpNoteCount: 0, teleopSpeakerNoteCount: 0, endGameTotalStagePoints: 0, endGameRobot1: "None", endGameRobot2: "None", melodyBonusAchieved: false, ensembleBonusAchieved: false } };
 }
 
-describe("actualBonusFlagsForSeason (Phase 06.1, plan 06.1-05 Task 2, F-06-3/PD-09)", () => {
+describe("actualBonusFlagsForSeason", () => {
   it("2022: a played qm match at an RP-eligible event type with a parseable breakdown produces arrays matching rp2022's own parse result, bonus by bonus", () => {
     const match = fixtureMatch({ matchKey: "2022casj_qm1", eventType: 0, scoreBreakdownRaw: JSON.stringify(rawBreakdown2022()) });
     const result = actualBonusFlagsForSeason([match], 2022);
@@ -1974,7 +1974,7 @@ describe("actualBonusFlagsForSeason (Phase 06.1, plan 06.1-05 Task 2, F-06-3/PD-
    * stream, so a new level or a reintroduced ungated form fails here, not just
    * `sf`. Non-vacuous: stream length 5 against map size 1.
    */
-  it("G-06.1-26 (plan 06.1-08): a match maps into the result set IFF its compLevel is qm, asserted over one mixed stream containing all five comp levels", () => {
+  it("a match maps into the result set IFF its compLevel is qm, asserted over one mixed stream containing all five comp levels", () => {
     const compLevels = ["qm", "ef", "qf", "sf", "f"] as const;
     const stream: MatchResult[] = compLevels.map((compLevel, index) =>
       fixtureMatch({
@@ -1995,7 +1995,7 @@ describe("actualBonusFlagsForSeason (Phase 06.1, plan 06.1-05 Task 2, F-06-3/PD-
   });
 });
 
-describe("buildTeamSeasonArtifact — predicted/actual per-bonus RP fields (Phase 06.1, plan 06.1-05 Task 2, F-06-1/F-06-3)", () => {
+describe("buildTeamSeasonArtifact — predicted/actual per-bonus RP fields", () => {
   const baseParams = {
     teamKey: "frc254",
     teamNumber: 254,
@@ -2124,7 +2124,7 @@ describe("buildTeamSeasonArtifact — predicted/actual per-bonus RP fields (Phas
    * sf match are fed populated data of both kinds, so the builder itself must
    * drop it on the playoff match.
    */
-  it("G-06.1-26 (plan 06.1-08): a played sf row carries NEITHER predicted nor actual per-bonus keys, while a qm row in the same artifact carries all four", () => {
+  it("a played sf row carries NEITHER predicted nor actual per-bonus keys, while a qm row in the same artifact carries all four", () => {
     const qmMatch = fixtureMatch({ matchKey: "2024casj_qm1", compLevel: "qm" });
     const sfMatch = fixtureMatch({ matchKey: "2024casj_sf1m1", compLevel: "sf" });
     const bonusPrediction = fixturePrediction({ redBonusRp: [0.7, 0.2], blueBonusRp: [0.1, 0.9] });
@@ -2175,7 +2175,7 @@ function historyRow(overrides: Partial<MetricHistoryRow> = {}): MetricHistoryRow
   };
 }
 
-describe("withHistoryPercentiles (Phase 06.1, plan 06.1-05 Task 3, D-06.1-A; one ranking helper since 260912-tnk)", () => {
+describe("withHistoryPercentiles", () => {
   it("attaches a percentile to an allowlisted metric with a pool entry, agreeing exactly with goodnessPercentileAgainstPools", () => {
     const pool = new Map([[TOTAL_METRIC_KEY, [5, 10, 10, 20]]]);
     const rows = [historyRow({ metrics: { [TOTAL_METRIC_KEY]: { value: 10 } } })];
@@ -2228,7 +2228,7 @@ describe("withHistoryPercentiles (Phase 06.1, plan 06.1-05 Task 3, D-06.1-A; one
   });
 });
 
-describe("withHistorySigma (quick task 260913-m45)", () => {
+describe("withHistorySigma", () => {
   it("appends sigma.value as the LAST key to a row whose matchKey is in the map, and every existing entry (including a total percentile) survives", () => {
     const rows = [historyRow({ matchKey: "m1", metrics: { [TOTAL_METRIC_KEY]: { value: 10, percentile: 42 } } })];
     const sigmaByMatchKey = new Map([["m1", 12.5]]);
@@ -2285,7 +2285,7 @@ describe("withHistorySigma (quick task 260913-m45)", () => {
  * `withHistoryPercentiles` and never into `metricHistoryForAlgo`, so ranking
  * pools, the Teams row and seasonStats never see it.
  */
-describe("publishSeasons — metric history rows carry the per-match Sigma Score (quick task 260913-m45)", () => {
+describe("publishSeasons — metric history rows carry the per-match Sigma Score", () => {
   let dir: string;
   let db: Corpus;
 
@@ -2373,7 +2373,7 @@ const INVARIANT_MIN_TEAM_COUNT = 50;
 const CORPUS_PATH = "data/corpus.sqlite";
 const CORPUS_AVAILABLE = existsSync(CORPUS_PATH);
 
-describe("withHistoryPercentiles — real-corpus pool-member agreement invariant (Phase 06.1, plan 06.1-05 Task 3, D-06.1-A; one ranking helper since 260912-tnk)", () => {
+describe("withHistoryPercentiles — real-corpus pool-member agreement invariant", () => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} is absent — run pnpm ingest --years 2022-2026 first`, () => {});
     return;
@@ -2453,7 +2453,7 @@ describe("withHistoryPercentiles — real-corpus pool-member agreement invariant
   corpus.close();
 });
 
-describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus (plan 06-04 Task 1)", () => {
+describe("publishSeasons — team-artifact wiring against a real corpus", () => {
   let dir: string;
   let db: Corpus;
 
@@ -2518,7 +2518,7 @@ describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus 
     expect(ordEvent?.matches.map((m) => m.matchNumber)).toEqual([1, 2]);
   });
 
-  it("D-04/D-03/D-05: percentile, robotImageUrl and activeYears all reach the team artifact from their respective single insertion points", async () => {
+  it("percentile, robotImageUrl and activeYears all reach the team artifact from their respective single insertion points", async () => {
     // 2025: frc1 plays a match, no team_media row (no photo resolved for this team-year).
     upsertEvent(db, seasonEvent({ eventKey: "2025casj", year: 2025, name: "2025 Event" }));
     upsertMatch(db, seasonMatch({ matchKey: "2025casj_qm1", eventKey: "2025casj", sortTime: 1_000 }));
@@ -2556,7 +2556,7 @@ describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus 
     expect(artifact2025.activeYears).toEqual([2025, 2026]);
   });
 
-  it("logs a warning naming the seasons in scope when the run's season set is narrower than the full published range (D-05 under-reporting guard)", async () => {
+  it("logs a warning naming the seasons in scope when the run's season set is narrower than the full published range (under-reporting guard)", async () => {
     upsertEvent(db, seasonEvent({ eventKey: "2026casj" }));
     upsertMatch(db, seasonMatch());
 
@@ -2584,7 +2584,7 @@ describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus 
  * publish range, which distinguishes a corpus-derived `corpusSeasons` from a
  * range- or loop-derived one.
  */
-describe("publishSeasons — compare artifact eligibility sources the CORPUS, not the published range (D-2/D-4, quick task 260903-n2o Task 4)", () => {
+describe("publishSeasons — compare artifact eligibility sources the CORPUS, not the published range", () => {
   let dir: string;
   let db: Corpus;
 
@@ -2733,7 +2733,7 @@ describe("publishSeasons — off-season demo team exclusion from every published
 });
 
 /** Unit coverage of `lastOfficialMetricsByTeam`, the Teams-list official-play snapshot. */
-describe("lastOfficialMetricsByTeam — direct (quick task 260904-586)", () => {
+describe("lastOfficialMetricsByTeam — direct", () => {
   function historyRow(overrides: Partial<MetricHistoryRow> = {}): MetricHistoryRow {
     return {
       matchKey: "2026casj_qm1",
@@ -2787,7 +2787,7 @@ describe("lastOfficialMetricsByTeam — direct (quick task 260904-586)", () => {
 });
 
 /** Unit coverage of `seasonStatsMetricsForTeam`, the team artifact's official-vs-season-final selection. */
-describe("seasonStatsMetricsForTeam — direct (quick task 260908-wpo; unified pool since 260912-tnk)", () => {
+describe("seasonStatsMetricsForTeam — direct", () => {
   // THE season ranking pool: last-official-match totals of three teams.
   const rankingPools = sortedPoolsByMetric({ frc1: { total: { value: 313.95 } }, frc2: { total: { value: 200 } }, frc3: { total: { value: 100 } } }, [
     "frc1",
@@ -2837,7 +2837,7 @@ describe("seasonStatsMetricsForTeam — direct (quick task 260908-wpo; unified p
 });
 
 /** End to end: the Teams-list snapshot is scoped to official play while team and event artifacts are untouched. */
-describe("publishSeasons — Teams-list official-play scoping (quick task 260904-586)", () => {
+describe("publishSeasons — Teams-list official-play scoping", () => {
   let dir: string;
   let db: Corpus;
 
@@ -2974,7 +2974,7 @@ describe("publishSeasons — Teams-list official-play scoping (quick task 260904
  * and one team plays only that event. `epa` is per-team independent. Iterates
  * the published teams rows, never a hardcoded list, with a non-vacuous floor.
  */
-describe("publishSeasons — one ranking pool across every tier surface (quick task 260912-tnk)", () => {
+describe("publishSeasons — one ranking pool across every tier surface", () => {
   const OFFICIAL_A = "2026tnka";
   const OFFICIAL_B = "2026tnkb";
   const OFFSEASON = "2026tnkz";
@@ -3123,7 +3123,7 @@ describe("publishSeasons — one ranking pool across every tier surface (quick t
   });
 });
 
-describe("publishSeasons — official-only record, eventCount and matchCount (quick task 260908-615)", () => {
+describe("publishSeasons — official-only record, eventCount and matchCount", () => {
   let dir: string;
   let db: Corpus;
 
@@ -3262,7 +3262,7 @@ describe("publishSeasons — official-only record, eventCount and matchCount (qu
 });
 
 /** End to end: `seasonStats.metrics` uses the last official match, falling back to season-final for a team with no official play. */
-describe("publishSeasons — seasonStats.metrics official-with-fallback (quick task 260908-wpo)", () => {
+describe("publishSeasons — seasonStats.metrics official-with-fallback", () => {
   let dir: string;
   let db: Corpus;
 
@@ -3380,7 +3380,7 @@ describe("publishSeasons — seasonStats.metrics official-with-fallback (quick t
  * teams/{year} rows (real keys, sorted by `compareTeamsByTotal`). End to end,
  * because the risk is publish.ts's two call sites drifting apart.
  */
-describe("publishSeasons — World rank cross-artifact agreement (quick task 260905-ldu)", () => {
+describe("publishSeasons — World rank cross-artifact agreement", () => {
   let dir: string;
   let db: Corpus;
 
@@ -3469,7 +3469,7 @@ describe("publishSeasons — World rank cross-artifact agreement (quick task 260
   });
 
   it(
-    "quick task 260905-ttv: World rank is computed against ROUNDED metrics -- when two real teams are indistinguishable to OPR's design matrix " +
+    "World rank is computed against ROUNDED metrics -- when two real teams are indistinguishable to OPR's design matrix " +
       "(always paired on the same alliance) and therefore tie EXACTLY, the published World rank still equals each team's index+1 in the " +
       "wire-round-tripped teams artifact sorted by compareTeamsByTotal, broken by ascending team number",
     async () => {
