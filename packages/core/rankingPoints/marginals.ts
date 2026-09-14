@@ -1,16 +1,12 @@
 /**
  * NEGATIVE-BINOMIAL / GAUSSIAN / DEGENERATE marginal fitting and evaluation —
- * a ZERO-RUNTIME-IMPORT browser-safe leaf per **D-08**. Its only import is a
- * TYPE-ONLY import of the marginal-family union from `./constants.js`, which
- * erases at build time — the leaf property survives into the client bundle.
- * `apps/web` runs the exact same pure function real matches use, exactly the
- * shape `packages/core/algorithms/simulation/rankSimulation.ts` established.
+ * a ZERO-RUNTIME-IMPORT browser-safe leaf. Its only import is a TYPE-ONLY
+ * import of the marginal-family union from `./constants.js`, which erases at
+ * build time — the leaf property survives into the client bundle. `apps/web`
+ * runs the exact same pure function real matches use.
  *
- * ---------------------------------------------------------------------------
- * THE PINNED PARAMETERIZATION (D-01) — written out once, never re-derived
- * ---------------------------------------------------------------------------
- *
- * Method-of-moments fit of a negative binomial to a (mean, variance) pair:
+ * THE PINNED PARAMETERIZATION — method-of-moments fit of a negative binomial
+ * to a (mean, variance) pair:
  *
  *   r = mean² / (variance − mean)
  *   p = mean / (mean + r)
@@ -19,39 +15,27 @@
  *   variance = r·p / (1 − p)²
  *
  * These four identities are mutually consistent; `r` and `p` must never be
- * re-derived at a call site. Chosen (09-CONTEXT.md D-01) because it is
- * count-native and right-skewed — a symmetric Gaussian under-predicts
- * `P(X ≥ t)` exactly where bonus thresholds sit — has an exact discrete CDF
- * at integer thresholds, support `[0, ∞)`, and handles the overdispersion
- * alliance totals plainly have. 09-RESEARCH.md's corpus probe measured 15
- * threshold variables across 7 seasons, all 100% integer-valued, variance/
- * mean 1.27-102.3 — that rules out a Poisson by dispersion (Poisson forces
- * variance = mean) and a continuity-corrected normal by shape (still
- * symmetric).
+ * re-derived at a call site. Chosen because it is count-native and
+ * right-skewed — a symmetric Gaussian under-predicts `P(X ≥ t)` exactly
+ * where bonus thresholds sit — has an exact discrete CDF at integer
+ * thresholds, support `[0, ∞)`, and handles the overdispersion alliance
+ * totals plainly have (a corpus probe measured 15 threshold variables across
+ * 7 seasons, all 100% integer-valued, variance/mean 1.27-102.3 — that rules
+ * out a Poisson by dispersion and a continuity-corrected normal by shape).
  *
- * ---------------------------------------------------------------------------
- * erf — SAME-PACKAGE VERBATIM COPY, cited rather than imported or re-derived
- * ---------------------------------------------------------------------------
- *
- * Copied byte-for-byte from the retired Sigma1 core (deleted by quick task 260913-it4)'s link functions
- * (Abramowitz-Stegun formula 7.1.26, max absolute error under 1.5e-7). Three
- * copies of this formula exist in the tree already
- * (`packages/core/algorithms/spr.ts:303`, `packages/spr/model.ts:215`,
- * and `linkFunctions.ts` itself);
- * `linkFunctions.ts` is the copy source because it is the only one inside
- * `packages/core`, so copying it — rather than importing across the package
- * boundary — avoids the exact cross-package import D-08 exists to prevent.
- * Copied rather than re-derived per 09-RESEARCH.md's "cite, don't
- * hand-roll" framing: a from-scratch numerical integration of the Gaussian
- * PDF is exactly the kind of thing that should not be reinvented per call
- * site.
+ * erf is a SAME-PACKAGE VERBATIM COPY of `linkFunctions.ts`'s
+ * (Abramowitz-Stegun formula 7.1.26, max absolute error under 1.5e-7),
+ * copied rather than imported across the package boundary to keep this leaf
+ * zero-runtime-import, and copied rather than re-derived because a
+ * from-scratch numerical integration of the Gaussian PDF is exactly the
+ * kind of thing that should not be reinvented per call site.
  */
 import type { MarginalFamily, RpThresholdVariable } from "./constants.js";
 import type { AllianceRpMoments } from "./moments.js";
 
 /**
  * Abramowitz-Stegun formula 7.1.26 erf approximation (max absolute error
- * under 1.5e-7). Verbatim copy of `linkFunctions.ts:41-49` — see this file's
+ * under 1.5e-7). Verbatim copy of `linkFunctions.ts`'s — see this file's
  * header for why copied rather than imported or re-derived.
  */
 export function erf(x: number): number {
@@ -80,7 +64,7 @@ export function standardNormalCdf(z: number): number {
   return 0.5 * (1 + erf(z / Math.SQRT2));
 }
 
-/** Hard cap on the negative-binomial upper-tail summation loop (T-09-03-02) — see `probAtLeast` below. */
+/** Hard cap on the negative-binomial upper-tail summation loop — see `probAtLeast` below. */
 export const NB_MAX_TAIL_TERMS = 100_000;
 
 /**
@@ -95,8 +79,7 @@ export type ResolvedMarginalFamily = "negative-binomial" | "gaussian" | "degener
  * Why a fit resolved to something OTHER than its declared family. Absent
  * (`undefined`) when `resolved === declared`, INCLUDING when the declared
  * family is the Gaussian inert default — the inert default is not a
- * fallback, and mislabelling it as one would corrupt 09-06's fallback
- * counts (T-09-03-04).
+ * fallback, and mislabelling it as one would corrupt fallback counts.
  */
 export type MarginalFallbackReason = "non-finite" | "zero-variance" | "non-positive-mean" | "variance-le-mean";
 
@@ -104,10 +87,9 @@ export type MarginalFallbackReason = "non-finite" | "zero-variance" | "non-posit
  * The outcome of fitting one threshold variable's marginal. Carries THREE
  * separate facts — `declared`, `resolved`, `fallbackReason` — deliberately
  * never collapsed into one, so a measurement can count how often an arm
- * labelled `"negative-binomial"` actually resolved to one (T-09-03-04). That
- * counting is the reason the separation exists and the reason it is kept: the
- * fallback ladder is live, and a fit that degenerates is not a fit that was
- * declared degenerate.
+ * labelled `"negative-binomial"` actually resolved to one: the fallback
+ * ladder is live, and a fit that degenerates is not a fit that was declared
+ * degenerate.
  */
 export interface FittedMarginal {
   readonly declared: MarginalFamily;
@@ -125,9 +107,9 @@ export interface FittedMarginal {
 
 /**
  * Fits one marginal from a (mean, variance) pair and a DECLARED family, per
- * the ordered fallback ladder (Pitfall 3, T-09-03-01). Ordered and
- * documented branch by branch — precedence matters, and a later branch is
- * never reached once an earlier one fires:
+ * the ordered fallback ladder. Ordered and documented branch by branch —
+ * precedence matters, and a later branch is never reached once an earlier
+ * one fires:
  *
  *   1. Either input non-finite -> degenerate AT 0, reason "non-finite". A
  *      loud throw inside a pure leaf would abort a whole publish over one bad
@@ -137,7 +119,7 @@ export interface FittedMarginal {
  *   2. `variance <= 0` -> degenerate AT `mean` (the raw, continuous mean —
  *      NEVER rounded; a cold roster's mean is a sum of EWMA beliefs), reason
  *      "zero-variance". Reproduces `predictThresholds`'s boolean limit
- *      exactly. 09-04's all-variance-zero degeneracy case lands here.
+ *      exactly.
  *   3. Declared "gaussian" -> resolved "gaussian", sd = sqrt(variance), NO
  *      fallbackReason — a declared family resolving to itself is not a
  *      fallback, and mislabelling it as one would corrupt any count taken
@@ -150,11 +132,11 @@ export interface FittedMarginal {
  *        - otherwise: `r = mean²/(variance−mean)`, `p = mean/(mean+r)`.
  *
  * The Gaussian choice for both NB fallback branches is deliberate against
- * two alternatives Pitfall 3 names: clamping to a minimum dispersion invents
- * overdispersion the data does not show at that moment, and adding a Poisson
- * branch is a third CDF to maintain for a case that only arises on thin
- * data. Falling back to the family that shipped before cannot be a
- * regression against today's behavior.
+ * two alternatives: clamping to a minimum dispersion invents overdispersion
+ * the data does not show at that moment, and adding a Poisson branch is a
+ * third CDF to maintain for a case that only arises on thin data. Falling
+ * back to the family that shipped before cannot be a regression against
+ * today's behavior.
  *
  * BOTH NB FALLBACKS ARE COUNTED AS FALLBACKS, and that counting is not
  * bookkeeping — it is what separates "the family lost" from "the fit did not
@@ -215,13 +197,9 @@ export function fitAllianceMarginals(moments: AllianceRpMoments, variables: read
 
 // ---------------------------------------------------------------------------
 // Negative-binomial exact discrete CDF — log-space, never a float ratio of
-// factorials, never a normal approximation.
-//
-// This block was deleted on 2026-09-11 (plan 09-06) and RESTORED VERBATIM on
-// 2026-09-12 (quick task 260912-2uz) from commit 2731bfab, not rewritten from
-// memory: the log-space recurrence, the lower-sum-then-switch ordering that
-// avoids catastrophic cancellation, and the bounded tail loop are load-bearing
-// numerics that a paraphrase would quietly get wrong.
+// factorials, never a normal approximation. The log-space recurrence, the
+// lower-sum-then-switch ordering that avoids catastrophic cancellation, and
+// the bounded tail loop are load-bearing numerics; do not paraphrase.
 // ---------------------------------------------------------------------------
 
 /**
@@ -265,9 +243,8 @@ function nbMode(r: number, mean: number): number {
  * The upward loop terminates when a term falls below `1e-18` AND `k` is past
  * the mean (the NB mode never exceeds the mean, so this makes the
  * monotone-decreasing-past-the-mode assumption a proven fact) or when
- * `NB_MAX_TAIL_TERMS` is reached (T-09-03-02: bounds the loop against a
- * slow-decaying tail hanging the offline publish or, once 09-08 lands this
- * in the Worker, a 10ms sustained CPU budget).
+ * `NB_MAX_TAIL_TERMS` is reached, bounding the loop against a slow-decaying
+ * tail hanging the offline publish or a Worker's sustained CPU budget.
  */
 function negativeBinomialAtLeast(r: number, p: number, mean: number, t: number): number {
   const n = Math.ceil(t) - 1;
@@ -308,12 +285,11 @@ function clamp01(x: number): number {
 /**
  * `P(X >= threshold)` for any resolved family. `probAtLeast` is MONOTONE
  * NON-INCREASING in `threshold` and always lands in `[0, 1]`, for every
- * resolved family — an asserted invariant (T-09-03-03), because 09-04
- * derives the 2026 nested-threshold interval probabilities by DIFFERENCING
- * this function (`P(only energized) = probAtLeast(T_e) − probAtLeast(T_s)`,
+ * resolved family — an asserted invariant, because the 2026 nested-threshold
+ * interval probabilities are derived by DIFFERENCING this function
+ * (`P(only energized) = probAtLeast(T_e) − probAtLeast(T_s)`,
  * `P(both) = probAtLeast(T_s)`), and a non-monotone step there would produce
- * a negative probability in D-07's named single-easiest-thing-to-get-
- * silently-wrong case.
+ * a negative probability.
  */
 export function probAtLeast(marginal: FittedMarginal, threshold: number): number {
   switch (marginal.resolved) {
@@ -322,12 +298,9 @@ export function probAtLeast(marginal: FittedMarginal, threshold: number): number
     case "gaussian":
       // No continuity correction, deliberately: the Gaussian model treats
       // this as a CONTINUOUS normal and compares it directly to the
-      // threshold — matching the deleted Monte Carlo's own draw semantics
-      // (plan 09-04), which this closed form reproduces exactly rather than
-      // "improving". Adding a half-integer shift here would make the
-      // Gaussian model a second one, and a re-specification of the model is
-      // not a refactor — which is precisely the line plan 09-06's collapse was
-      // required to stay on the safe side of.
+      // threshold. Adding a half-integer shift here would make the Gaussian
+      // model a second one, and a re-specification of the model is not a
+      // refactor.
       return clamp01(1 - standardNormalCdf((threshold - marginal.mean) / marginal.sd!));
     case "degenerate":
       // A point mass at a REAL number, which may sit between two integers —
@@ -370,11 +343,9 @@ export function probAtMost(marginal: FittedMarginal, threshold: number): number 
  *
  * At this phase's sizes — five indicators for 2016 `breach`, four reef
  * levels for 2025 `coralBonus` — the direct form is exact to well within
- * 1e-12 and no log-space variant is warranted (09-CONTEXT.md's "Claude's
- * Discretion" line assigns this numerical-stability judgement to this plan;
- * the judgement made is: direct convolution, no log-space, because the
- * factor count here never approaches the range where direct convolution's
- * underflow risk becomes real).
+ * 1e-12 and no log-space variant is warranted: the factor count here never
+ * approaches the range where direct convolution's underflow risk becomes
+ * real.
  *
  * Each incoming `p` is clamped into `[0, 1]` on entry. A non-finite entry is
  * SKIPPED — that indicator is dropped from the convolution entirely (the
@@ -406,9 +377,8 @@ export function poissonBinomialPmf(probabilities: readonly number[]): number[] {
  * reduces to the product of all four probabilities, exactly reproducing the
  * conjunction `predictThresholds` already computes). The coopertition-
  * relaxed `coopCount >= 3` branch of `parse` is NOT served here:
- * `predictThresholds` deliberately evaluates only the strict branch
- * (Pitfall 4's conservative convention, preserved byte-for-byte by 09-02),
- * and this module must not quietly "improve" that choice.
+ * `predictThresholds` deliberately evaluates only the strict, conservative
+ * branch, and this module must not quietly "improve" that choice.
  */
 export function poissonBinomialAtLeast(probabilities: readonly number[], k: number): number {
   if (k <= 0) return 1;
