@@ -1,48 +1,37 @@
 /**
- * Plan 09-08 (D-21, audit finding F5): RANKING POINTS ON LIVE ROWS.
+ * Ranking points on live rows. The live Worker never computed ranking
+ * points at all — nothing under `apps/worker/src/` constructed an RP
+ * accumulator, so `prediction.redRpPmf` was never set. This file tests
+ * that the live path now produces the same pmf the offline publisher
+ * would have, rather than merely producing one.
  *
- * The live Worker never computed ranking points at all — nothing under
- * `apps/worker/src/` constructed an RP accumulator, so `prediction.redRpPmf`
- * was never set, and `buildEventMatchRow` did not list the pmf fields in the
- * first place. This file is the test that the live path now produces the
- * SAME pmf the offline publisher would have, rather than merely producing
- * one.
+ * The two-arm design: a pmf is only correct relative to the history it was
+ * priced from. The fixture runs two events in one season. A "prior" event
+ * is folded first and the Worker persists its own RP beliefs into D1
+ * exactly as production does; the "live" event is then folded one match
+ * per tick, resuming those beliefs. The offline arm drives the real
+ * `SigmaScoutLayer` over the identical chronological stream and the two RP
+ * streams are compared by digest over the live event's rows.
  *
- * THE TWO-ARM DESIGN, and why the online arm seeds ITSELF:
+ * That construction is what makes the state-shape bump load-bearing: break
+ * `withRpBeliefs` on the write side or `readRpBeliefs` on the read side and
+ * the Worker re-cold-starts on every tick, prices each match from one
+ * tick's matches alone, and the digests diverge — while every published
+ * pmf still sums to 1, still parses and still renders.
  *
- * A pmf is only correct relative to the history it was priced from. So the
- * fixture runs TWO events in one season. A "prior" event is folded first and
- * the Worker persists its own RP beliefs into D1 exactly as production does;
- * the "live" event is then folded one match per tick, RESUMING those beliefs.
- * The offline arm drives the real `SigmaScoutLayer` over the identical
- * chronological stream (prior matches, then live matches) and the two RP
- * streams are compared by digest over the LIVE event's rows.
- *
- * That construction is what makes the state-shape bump load-bearing rather
- * than decorative: break `withRpBeliefs` on the write side or `readRpBeliefs`
- * on the read side and the Worker re-cold-starts on every tick, prices each
- * match from one tick's matches alone, and the digests diverge — while every
- * published pmf still sums to 1, still parses and still renders. That is the
- * failure this test exists to catch, and it was observed failing by hand
- * before being recorded as passing (see the plan's SUMMARY).
- *
- * The offline arm drives the REAL `SigmaScoutLayer`, never a hand-rolled
- * accumulator. `scheduled.replay.test.ts`'s band digest records why in its
- * own words: it once compared the Worker against a stand-in that had drifted
- * from the publisher, and a second implementation of the thing under test can
+ * The offline arm drives the real `SigmaScoutLayer`, never a hand-rolled
+ * accumulator, for the same reason `scheduled.replay.test.ts`'s band
+ * digest records: a second implementation of the thing under test can
  * always drift from it.
  *
- * WHY `scheduled.replay.test.ts` IS NOT THE RP ARM, despite driving the same
- * `runTick`: its fixture carries `score_breakdown: null` on every match and
- * constructs its offline `SigmaScoutLayer` with an UNDEFINED rule module, so
+ * `scheduled.replay.test.ts` is not the RP arm, despite driving the same
+ * `runTick`: its fixture carries `score_breakdown: null` on every match, so
  * it produces no RP on either side and stays green unchanged. It is the
  * prediction/band equivalence test; this is the RP one.
  *
- * The fake D1/R2/KV classes below are COPIED from
+ * The fake D1/R2/KV classes below are copied from
  * `apps/worker/test/scheduled.replay.test.ts` rather than imported — that
- * file exports none of them, and this file follows the small-duplication
- * precedent its own header already sets for this exact cross-boundary
- * situation. Keep them in step with the original.
+ * file exports none of them. Keep them in step with the original.
  */
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -64,21 +53,19 @@ import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 
 /**
- * The final live tick's OWN subrequest cost on this fixture, pinned so a
+ * The final live tick's own subrequest cost on this fixture, pinned so a
  * future edit that adds a D1 round-trip per team fails loudly here.
  *
- * RP costs ZERO additional subrequests by construction: the beliefs ride as a
- * passenger key inside the very team rows the tick already reads and already
- * writes back (09-RESEARCH.md Pattern 1). This constant is the PROOF of that
- * claim rather than the claim itself — if it has to be raised to make this
- * file pass, the passenger design has been broken.
+ * RP costs zero additional subrequests by construction: the beliefs ride
+ * as a passenger key inside the very team rows the tick already reads and
+ * already writes back. This constant is the proof of that claim rather
+ * than the claim itself — if it has to be raised to make this file pass,
+ * the passenger design has been broken.
  *
- * MEASURED, not assumed (plan 09-08). The same fixture was driven twice: once
- * with the RP accumulator forced to `undefined` (every RP gate closed, no
- * belief read and none written) and once with it live. Both runs reported
- * `subrequestsUsed: 64` on the final live tick. That equality IS the
- * zero-additional-subrequest result — the number itself is a property of the
- * fixture's event and team counts, not of RP.
+ * Measured, not assumed: the same fixture was driven twice, once with the
+ * RP accumulator forced to `undefined` and once with it live. Both runs
+ * reported the same `subrequestsUsed` on the final live tick — the number
+ * itself is a property of the fixture's event and team counts, not of RP.
  */
 const SUBREQUESTS_PER_LIVE_TICK = 64;
 
@@ -197,8 +184,8 @@ class FakeD1Database {
       this.eventCursors.set(eventKey as string, { event_key: eventKey as string, tba_etag: tbaEtag ?? null, last_folded_match_key: lastFoldedMatchKey ?? null, last_polled_at: lastPolledAt ?? null, last_advanced_at: lastAdvancedAt ?? null });
       return 1;
     }
-    // writeEventCursor's own plain upsert (ON CONFLICT DO UPDATE) — used by
-    // writeTickMeta's sentinel row and the "unchanged but ETag moved" path.
+    // writeEventCursor's own plain upsert — used by writeTickMeta's
+    // sentinel row and the "unchanged but ETag moved" path.
     if (sql.includes("INSERT INTO event_cursor")) {
       const [eventKey, tbaEtag, lastFoldedMatchKey, lastPolledAt, lastAdvancedAt] = args as (string | null)[];
       this.eventCursors.set(eventKey as string, { event_key: eventKey as string, tba_etag: tbaEtag ?? null, last_folded_match_key: lastFoldedMatchKey ?? null, last_polled_at: lastPolledAt ?? null, last_advanced_at: lastAdvancedAt ?? null });
@@ -234,9 +221,7 @@ class FakeKvNamespace {
 }
 
 
-// ---------------------------------------------------------------------------
-// Fixture — two events, one season, overlapping rosters
-// ---------------------------------------------------------------------------
+// Fixture — two events, one season, overlapping rosters.
 
 const SEASON = 2026;
 const PRIOR_EVENT_KEY = "2026prior";
@@ -278,10 +263,10 @@ function fixture(
 }
 
 /**
- * The PRIOR event — the season history the live event's Worker resumes from.
- * Four matches of history per team, so the Sigma-scored spr starts the live
- * event from warm beliefs. (Since quick task 260913-it4 opr and epa publish no
- * ranking points at all, so this history only matters to spr's pmf.)
+ * The prior event — the season history the live event's Worker resumes
+ * from. Four matches of history per team, so the Sigma-scored spr starts
+ * the live event from warm beliefs. opr and epa publish no ranking points
+ * at all, so this history only matters to spr's pmf.
  */
 const PRIOR_FIXTURES: readonly MatchFixture[] = [
   fixture(PRIOR_EVENT_KEY, 1, ["frc1", "frc2", "frc3"], ["frc4", "frc5", "frc6"], 120, 95, 140, 90, 42, 28),
@@ -390,11 +375,9 @@ function makeTbaFetchStub(): ReturnType<typeof vi.fn> {
         status: 200,
         ok: true,
         headers: { get: () => null },
-        // `name` is REQUIRED by `tbaEventSchema` and its absence is not loud:
-        // `processEvent` parses the detail inside a try/catch that degrades to
-        // `eventType = -1`, which `isRpEligibleEventType` then rejects. An
-        // event-detail stub missing this field therefore produces a fixture
-        // where RP is silently gated off on every row.
+        // `name` is required by `tbaEventSchema`; its absence is not loud —
+        // `processEvent` parses the detail inside a try/catch that degrades
+        // to `eventType = -1`, silently gating RP off on every row.
         json: async () => ({ key: detailRoute[1]!, name: "Test Event", year: SEASON, event_type: EVENT_TYPE, start_date: "2026-08-01" }),
       };
     }
@@ -504,10 +487,6 @@ afterEach(() => {
   revealedLive = 0;
 });
 
-// ---------------------------------------------------------------------------
-// The tests
-// ---------------------------------------------------------------------------
-
 describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
   async function driveFixture(): Promise<{ r2: FakeR2Bucket; lastSubrequests: number }> {
     const kv = new FakeKvNamespace(
@@ -521,17 +500,17 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
     vi.stubGlobal("fetch", makeTbaFetchStub());
     const env = makeEnv(kv, d1, r2);
 
-    // Phase 1 — the whole PRIOR event. The Worker persists its own RP beliefs
-    // into D1 here; nothing is hand-seeded, so the resume path below is
-    // exercised against exactly what production would have written.
+    // Phase 1 — the whole prior event. The Worker persists its own RP
+    // beliefs into D1 here; nothing is hand-seeded, so the resume path
+    // below is exercised against exactly what production would have written.
     revealedPrior = PRIOR_FIXTURES.length;
     for (let i = 0; i < PRIOR_FIXTURES.length; i++) {
       const priorResult = await runTick(env, { nowMs: NOW_MS + i * 60_000, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER, subrequestCap: 1000, subrequestReserve: 0 });
       expect(priorResult.eventsFailed).toBe(0);
     }
 
-    // Phase 2 — the LIVE event, one match per tick. Tick N resumes what tick
-    // N-1 wrote, which is the property the shape bump exists for.
+    // Phase 2 — the live event, one match per tick. Tick N resumes what
+    // tick N-1 wrote, which is the property the shape bump exists for.
     let lastSubrequests = 0;
     for (let i = 0; i < LIVE_FIXTURES.length; i++) {
       revealedLive = i + 1;
@@ -712,30 +691,23 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
 
   it("a season with NO registered RP rules yields no accumulator rather than throwing — the Worker must INDEX the registry, never call rpRuleModuleForSeason", async () => {
     // 2021 is the one season with no RP rule module. `rpRuleModuleForSeason`
-    // THROWS for it by design, so the Worker indexes `RP_RULE_MODULES`
+    // throws for it by design, so the Worker indexes `RP_RULE_MODULES`
     // directly and degrades to "no RP" instead of aborting the whole event.
     expect(RP_RULE_MODULES[2021]).toBeUndefined();
     const { rpRuleModuleForSeason } = await import("../../../packages/core/rankingPoints/rules.js");
     expect(() => rpRuleModuleForSeason(2021)).toThrow();
 
-    // Recorded rather than driven end-to-end: 2021 also has no SCORE-COMPONENT
-    // map (`componentMapForSeason` throws for it too), so a 2021 fixture fails
-    // in `spr` before RP is ever consulted and would prove nothing about this
-    // gate. The registered RP seasons and the registered component-map seasons
-    // are the same set, so no season can exercise "component map present, RP
-    // rules absent" at all — which is exactly why this is asserted here
-    // instead.
+    // Recorded rather than driven end-to-end: 2021 also has no
+    // score-component map, so a 2021 fixture fails in `spr` before RP is
+    // ever consulted and would prove nothing about this gate.
     expect(Object.keys(RP_RULE_MODULES)).not.toContain("2021");
   });
 
   it("every event type the Worker will PROCESS is RP-eligible, so the eventType gate is defence in depth rather than a live branch", () => {
     // Recorded rather than faked as an end-to-end case: the Worker only
-    // processes OFFICIAL event types, and every official type is present in
-    // `EVENT_TYPE_TIERS`. The one RP-ineligible type the tier table
-    // deliberately omits (99, offseason) is also the one `isOfficialEventType`
-    // rejects, so no live tick can reach `rpFieldsFor`'s eventType gate with an
-    // ineligible value. An end-to-end "offseason yields no pmf" test would
-    // therefore assert on an event the Worker never folds at all.
+    // processes official event types, and every official type is present
+    // in `EVENT_TYPE_TIERS`, so no live tick can reach `rpFieldsFor`'s
+    // eventType gate with an ineligible value.
     for (const eventType of [0, 1, 2, 3, 4, 5]) {
       expect(isOfficialEventType(eventType), `event type ${eventType}`).toBe(true);
       expect(isRpEligibleEventType(eventType), `event type ${eventType}`).toBe(true);
