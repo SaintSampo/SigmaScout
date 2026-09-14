@@ -1,28 +1,31 @@
 ---
 id: republish-spr-4-demo-exclusion
 created: 2026-09-13
-source: stray-team-scope-keys-in-live-d1 (closed 2026-09-13) — spr@4.0.0+baseline is in code, not live
-priority: medium
+updated: 2026-09-14
+source: stray-team-scope-keys-in-live-d1 (closed 2026-09-13); republish, D1 seed and Worker deploy done by quick task 260913-rh5
+priority: low
 ---
 
-# Republish so spr@4.0.0+baseline (demo exclusion) and the placeholder guard go live
+# Remaining: delete the orphaned spr@3.0.0 generation and the stale OPR/EPA presim sidecars
 
-`packages/core/algorithms/spr.ts` is at **4.0.0+baseline**: SPR now applies the Off-Season Demo
-Team exclusion OPR/EPA already had, and `demoTeams.ts` treats TBA placeholder keys (`frc`, `frc0`,
-`frc58 /`) as demo robots. The live manifest still names spr 3.0.0, and live D1 still holds spr
-3.0.0 rows, including `frc`/`frc0` for epa and spr and 30 `frc9970`-`frc9999` rows for spr.
+Quick task 260913-rh5 did steps 1-3 and 5 on 2026-09-14:
+- **Publish:** generation `2dcc057f`.
+- **D1 seed:** all three algorithms on `2dcc057f`, 0 placeholder or demo rows.
+- **Worker:** `fcc7ca73`.
+- **Budget block:** commit `0a6af726`.
 
-## Order matters
+Two R2 deletions are left. The auto-mode classifier blocked both ("Cloud Storage Mass Delete"), so
+Jacob runs them or approves them.
 
-1. `pnpm publish:seasons` (the standard full run). SPR's version changed, so every spr key is new
-   and the spr@3.0.0 generation is orphaned. OPR/EPA keep their versions and overwrite in place.
-   Their 2016/2019 offseason values move slightly (placeholder byes no longer folded). No scored
-   OPR/EPA prediction moves.
-2. Re-import the D1 seed (`reports/publish/seed-*.sql`). See the D1 seed-import auth memory:
-   `--file` needs `.env`'s token, and about 4 seed passes a day trips the row-write cap. Then
-   confirm by content that no `algorithm_state` team row has a placeholder or `frc99[7-9][0-9]`
-   `scope_key`, except `demo-pseudo-unregistered`.
-3. Only then deploy the worker (`npx wrangler deploy` on a clean tree). The worker writes artifacts
-   under its code version, so deploying first would write spr@4.0.0 pages with no base generation.
-4. `pnpm cleanup:r2-generations --generation spr@3.0.0+baseline` preview, then `--execute`.
-5. Transcribe the publish summary into `docs/publish-budget.md` (manual step).
+1. **spr@3.0.0+baseline**, 36,532 objects, 1.52 GB. Nothing references it: the live manifest names
+   spr 4.0.0. Preview it with
+   `pnpm cleanup:r2-generations --generation spr@3.0.0+baseline`, then add `--execute`. Its 6h
+   RECENT_WRITE guard clears at 2026-09-14T00:41Z, because the generation was last written at
+   18:41Z.
+2. **427 stale presim sidecars:** `v1/presim/*/opr@4.0.0+baseline.json` (213) and
+   `epa@10.0.0+baseline.json` (214). They date from generation 174d585f, before 260913-it4 stopped
+   OPR/EPA publishing ranking points. Nothing requests them: the Simulation tab and its sidecar query
+   are SPR-only. Run `tsx --env-file=.env reports/260913-rh5/pruneNonSprPresim.ts`, which previews by
+   default. Pass `--execute` to delete, then re-list. The script is gitignored, local only. The prune
+   tool can't do this, because it deletes whole id@version generations and these two versions are
+   live.
