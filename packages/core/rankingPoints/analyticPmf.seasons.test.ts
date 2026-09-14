@@ -1,29 +1,13 @@
 /**
- * The all-season structural sweep — Task 2, plan 09-04. This file asks
- * questions "the contract between the declarations and the pmf layer has
- * drifted" would answer differently from `analyticPmf.test.ts`'s per-
- * mechanism arithmetic questions: is the computed grouping exactly what the
- * code claims, do the disjointness preconditions the exactness argument
- * rests on actually hold, does no mass ever fold, is every pmf normalized,
- * and does the zero-variance limit degenerate to exactly `predictThresholds`'
- * own boolean answer.
+ * The all-season structural sweep: does the grouping match what the code
+ * claims, do the disjointness preconditions hold, does no mass fold, is every
+ * pmf normalized, and does the zero-variance limit equal `predictThresholds`'
+ * boolean answer.
  *
- * The grouping and disjointness checks below are DELIBERATELY a SEPARATE,
- * independent re-implementation of the footprint/connected-components logic
- * `analyticPmf.ts` uses internally — reproduced here from the same public
- * `BonusPredicate` data every season module declares, never by calling into
- * `analyticPmf.ts`'s own (unexported) grouping function. Testing a module
- * against its own internals only proves it agrees with itself; D-07 exists
- * because that is not evidence.
- *
- * `buildRuleModuleMoments`, the ONE fixture builder both this file and
- * `analyticPmf.test.ts`'s six mechanism-class tests use, lives in the
- * sibling non-test module `analyticPmfFixtures.ts` — NOT in this file.
- * Importing a `.test.ts` module re-executes its top-level `describe()`
- * calls as a side effect of module evaluation (vitest's test-file glob is
- * `packages/**\/*.test.ts`), which would silently duplicate every sweep
- * test below inside `analyticPmf.test.ts`'s run. See `analyticPmfFixtures.ts`'s
- * own header for the full reasoning.
+ * The grouping and disjointness checks deliberately re-implement the
+ * footprint/connected-components logic from public `BonusPredicate` data
+ * rather than calling `analyticPmf.ts`'s internals, which would only prove it
+ * agrees with itself.
  */
 import { describe, expect, it } from "vitest";
 import { analyticRpPmf } from "./analyticPmf.js";
@@ -228,10 +212,7 @@ describe("analyticRpPmf — structural sweep over RP_RULE_MODULES (Task 2, plan 
             blueValues[name] = { mean: blueMeanVector[i]!, variance: 0 };
           });
 
-          // Distinct, non-zero-variance score means so the outcome half is
-          // never a tie (D-07/Step 6's continuous-equality branch gives
-          // pTie === 0 whenever varianceD > 0 and meanD !== 0 regardless —
-          // scoreVariance 0 here keeps the WHOLE prediction a point mass).
+          // Distinct score means with scoreVariance 0 keep the whole prediction a point mass, never a tie.
           const red = buildRuleModuleMoments(ruleModule, redValues, 110, 0);
           const blue = buildRuleModuleMoments(ruleModule, blueValues, 100, 0);
 

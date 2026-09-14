@@ -1,23 +1,7 @@
 /**
- * Proves the claim `distribution.ts`'s own extraction rested on, now proven
- * against `analyticPmf.ts` instead: the RP pmf engine needs NO algorithm.
- * `git mv`'d from `distribution.universal.test.ts` (plan 09-04 Task 3) —
- * this file's season-sweep, pmf-shape and degenerate-alliance assertions
- * carry forward unchanged; its reproducibility assertions (same key gives
- * the same pmf, a different key gives a different one) are RETIRED, because
- * there is no seed, no match key and no stream position left for them to be
- * about — `analyticRpPmf` takes none of the three (see
- * `AnalyticRpPmfInput`'s own doc comment). Replaced by a single purity
- * assertion: two calls with equal inputs return equal pmfs, which is now
- * true by construction (no randomness anywhere in the module) rather than
- * by a seeded-PRNG contract.
- *
- * This file also carries `pmfMean`'s test coverage, relocated here from the
- * deleted `sigma1/rp/distribution.test.ts` (whose own pmf-statistics
- * describe block is CARRIED FORWARD to this file's own `pmfMean`-only
- * describe — its sibling statistic was itself deleted in 260913-nvn) —
- * hand-computed per D-07's discipline, not round-tripped against the
- * implementation.
+ * Proves the RP pmf engine needs no algorithm: hand-written moments only.
+ * Also covers purity (equal inputs give equal pmfs) and `pmfMean`, with
+ * hand-computed expectations.
  */
 import { describe, expect, it } from "vitest";
 import { analyticRpPmf, pmfMean } from "./analyticPmf.js";
@@ -44,8 +28,6 @@ const BASE = {
   ruleModule: rpRuleModuleForSeason(2026)!,
   eventType: 0,
   compLevel: "qm" as const,
-  // D-13 (09-05 Task 1): required as of this plan. Under the default
-  // (legacy) config this is accepted and never read by analyticRpPmf.
   pRedWin: 0.5,
 };
 

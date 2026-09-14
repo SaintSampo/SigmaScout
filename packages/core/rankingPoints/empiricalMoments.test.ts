@@ -163,19 +163,9 @@ describe("RpMomentsAccumulator feeding analyticRpPmf — the end-to-end path RP 
 });
 
 /**
- * The even-split shrinkage regression (fixed 2026-09-09).
- *
- * Every test above pins the SHAPE of the variance — zero at one observation,
- * positive once observations differ, diagonal — and not one pins its
- * MAGNITUDE. That is exactly how the bug survived: a belief folded from
- * `allianceValue / rosterSize` estimates `Var(A)/rosterSize²`, so summing the
- * roster landed on `Var(A)/rosterSize` and every published bonus probability
- * came out of a distribution too narrow by that factor.
- *
- * The property below is the one that could have caught it, and it is worth
- * stating in its own right: if an alliance's observations are all this module
- * has seen, the alliance variance it reports back must BE the spread of those
- * observations — not a third of it.
+ * Pins the variance magnitude against the even-split shrinkage regression:
+ * if an alliance's observations are all this module has seen, the reported
+ * alliance variance must be the spread of those observations, not a third of it.
  */
 describe("RpMomentsAccumulator — alliance variance reconstructs the alliance's own spread", () => {
   /** The same decayed weighted variance `empiricalMoments.ts` computes, derived here independently from the observation list. */
@@ -214,12 +204,8 @@ describe("RpMomentsAccumulator — alliance variance reconstructs the alliance's
   });
 
   it("degrades on a PARTIAL roster instead of under-counting twice", () => {
-    // Beliefs are built the way they always are in practice — from three-team
-    // alliances — and only ONE of the three teams in the alliance being priced
-    // has any. That one team's belief already implies the whole alliance's
-    // spread, so the estimate is its implication rather than a third of it:
-    // noisy, which is honest for a roster we mostly have not seen, but not
-    // shrunk twice over (once for the missing teammates, once for the split).
+    // Only one of the priced alliance's three teams has a belief; its belief
+    // already implies the whole alliance's spread, so it is not shrunk twice.
     const acc = new RpMomentsAccumulator(RULES_2026);
     const observed = [30, 90];
     for (const v of observed) acc.fold(RED, { [HUB]: v, [TOWER]: 30 });
@@ -230,7 +216,7 @@ describe("RpMomentsAccumulator — alliance variance reconstructs the alliance's
   });
 });
 
-// ──────── Seed round-trip, shape 15 (plan 09-08, D-21) ─────────────────────
+// ──────── Seed round-trip ─────────────────────
 
 describe("RpMomentsAccumulator — beliefsByTeam/fromBeliefs, the live Worker's resume path", () => {
   const BLUE = ["frc4", "frc5", "frc6"];
@@ -264,9 +250,8 @@ describe("RpMomentsAccumulator — beliefsByTeam/fromBeliefs, the live Worker's 
   });
 
   it("a RESTORED accumulator folded further matches one that folded the whole stream without a round-trip", () => {
-    // This is the property the live Worker actually depends on: resume, then
-    // continue. A round-trip that dropped `weightSquares` or `m2` would pass
-    // the identity test above and fail here on the very next fold.
+    // The live Worker resumes, then continues: a round-trip that dropped
+    // `weightSquares` or `m2` would fail here on the next fold.
     const straightThrough = foldedAccumulator();
     const resumed = RpMomentsAccumulator.fromBeliefs(RULES_2026, foldedAccumulator().beliefsByTeam());
 
