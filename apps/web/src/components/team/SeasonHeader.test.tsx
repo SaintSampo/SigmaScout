@@ -71,7 +71,7 @@ function baseArtifact(overrides: Partial<TeamSeasonArtifact> = {}): TeamSeasonAr
   };
 }
 
-describe("SeasonHeader — robot image (TEAM-02, D-03, E1)", () => {
+describe("SeasonHeader — robot image", () => {
   afterEach(() => cleanup());
 
   it("renders the fallback tile with role=img and a team-number-bearing accessible name when robotImageUrl is absent", () => {
@@ -95,7 +95,7 @@ describe("SeasonHeader — robot image (TEAM-02, D-03, E1)", () => {
   });
 });
 
-describe("SeasonHeader — identity (TEAM-02, E1)", () => {
+describe("SeasonHeader — identity", () => {
   afterEach(() => cleanup());
 
   it("renders 'Team 1114' when nickname is empty", () => {
@@ -126,7 +126,7 @@ describe("SeasonHeader — identity (TEAM-02, E1)", () => {
   });
 });
 
-describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
+describe("SeasonHeader — tier-boxed metric grid", () => {
   afterEach(() => cleanup());
 
   it("renders four phase tiles — Total, then Auto, Teleop, Endgame — read straight from the published group metrics", () => {
@@ -201,7 +201,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     expect(cells.map((cell) => cell.textContent)).toEqual(["Total", "Auto", "Teleop", "Endgame"]);
   });
 
-  it("D-3 (260904-5zg; stale-artifact fallback as of 260904-7id): an EPA fixture carrying components but no phaseAuto/phaseTeleop/phaseEndgame — the shape of a browser's cached pre-republish artifact — renders real derived sums, where before the three tiles were blank", () => {
+  it("stale-artifact fallback: an EPA fixture carrying components but no phaseAuto/phaseTeleop/phaseEndgame — the shape of a browser's cached pre-republish artifact — renders real derived sums", () => {
     const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
       autoTower: { value: 4 },
       hubAuto: { value: 6 },
@@ -227,7 +227,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     expect(endgameCell?.textContent).toContain("4"); // 3 + 1
   });
 
-  it("D-3: a fixture with published phase metrics keeps its published values and tiers, and renders none of their spreads", () => {
+  it("a fixture with published phase metrics keeps its published values and tiers, and renders none of their spreads", () => {
     const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
       phaseAuto: { value: 12.34, spread: 1.5, percentile: 96 },
       phaseTeleop: { value: 30, spread: 2, percentile: 40 },
@@ -263,7 +263,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
     expect(autoCell?.querySelector('[class*="metric-tier"]')).toBeNull();
   });
 
-  it("D-3 (260904-7id): an EPA season whose phaseTeleop carries a PUBLISHED percentile renders a tiered Teleop tile — EPA carries no spread, ever, but the tier is real", () => {
+  it("an EPA season whose phaseTeleop carries a PUBLISHED percentile renders a tiered Teleop tile — EPA carries no spread, ever, but the tier is real", () => {
     const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
       phaseAuto: { value: 12.34, percentile: 40 },
       phaseTeleop: { value: 30, percentile: 96 },
@@ -307,7 +307,7 @@ describe("SeasonHeader — tier-boxed metric grid (D-17, E2)", () => {
   });
 });
 
-describe("SeasonHeader — as-of labelling (IN-01, 260902-post-phase08-ungoverned-ui/REVIEW.md)", () => {
+describe("SeasonHeader — as-of labelling", () => {
   afterEach(() => cleanup());
 
   it("labels the tiles 'As of last official match' when metricsOverride is supplied", () => {
@@ -326,7 +326,7 @@ describe("SeasonHeader — as-of labelling (IN-01, 260902-post-phase08-ungoverne
   });
 });
 
-describe("SeasonHeader — Total renders the split pill with Sigma (quick task 260913-jkp)", () => {
+describe("SeasonHeader — Total renders the split pill with Sigma", () => {
   afterEach(() => cleanup());
 
   it("renders the published Sigma Score as the right half of the Total tile's pill, NOT as a separate tile", () => {
@@ -455,7 +455,7 @@ describe("SeasonHeader — Total renders the split pill with Sigma (quick task 2
     expect(pill.textContent).toContain("±12.50");
   });
 
-  it("still reads the season-final seasonStats sigma, never a metricsOverride row's own sigma (quick task 260913-m45: history rows now carry per-match sigma too)", () => {
+  it("still reads the season-final seasonStats sigma, never a metricsOverride row's own sigma (history rows carry per-match sigma too)", () => {
     const artifact = baseArtifact({
       seasonStats: {
         record: { wins: 1, losses: 0, ties: 0 },
@@ -492,7 +492,7 @@ describe("SeasonHeader — Total renders the split pill with Sigma (quick task 2
 
 });
 
-describe("SeasonHeader — rank cards render inside the header (quick task 260905-ttv)", () => {
+describe("SeasonHeader — rank cards render inside the header", () => {
   afterEach(() => cleanup());
 
   it("renders the rank cards inside the header when ranks is supplied", () => {
@@ -503,7 +503,7 @@ describe("SeasonHeader — rank cards render inside the header (quick task 26090
     expect(screen.getByTestId("rank-card").textContent).toContain("World");
   });
 
-  it("tiers the World card by seasonStats' Total percentile, even when metricsOverride carries a different one (quick task 260912-tnk)", () => {
+  it("tiers the World card by seasonStats' Total percentile, even when metricsOverride carries a different one", () => {
     const ranks: NonNullable<TeamSeasonArtifact["ranks"]> = [{ scope: "world", rank: 1, total: 3481 }];
     const artifact = baseArtifact({
       seasonStats: { record: { wins: 35, losses: 28, ties: 0 }, metrics: { total: { value: 189.71, percentile: 94.9 } } },
@@ -531,7 +531,7 @@ describe("SeasonHeader — rank cards render inside the header (quick task 26090
   });
 });
 
-describe("SeasonHeader — record basis caption (quick task 260908-615)", () => {
+describe("SeasonHeader — record basis caption", () => {
   afterEach(() => cleanup());
 
   it("names the official-only population beside the record", () => {
