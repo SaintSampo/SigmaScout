@@ -1,7 +1,6 @@
 /**
- * Published page-artifact key scheme and Zod schemas (D-01/D-02/D-04, plan
- * 04-01 Task 3; widened to all five page kinds by plan 04-02 Task 2). These
- * are the world-readable JSON files R2 serves directly to the client
+ * Published page-artifact key scheme and Zod schemas. These are the
+ * world-readable JSON files R2 serves directly to the client
  * (`packages/harness/r2Client.ts`'s `putObject`) — a different contract
  * from any internal scoring artifact used only during offline evaluation,
  * never published. `PAGE_ARTIFACT_SCHEMA_VERSION` is versioned
@@ -12,14 +11,14 @@
  * Every schema below shares one top-level preamble
  * (`PagePreambleSchema`/`AlgorithmScopedPreambleSchema`), factored into a
  * reusable Zod object so it cannot drift between pages: `schemaVersion`,
- * `generation` and `computedAt` (D-04's stamp, required not optional — a
+ * `generation` and `computedAt` (required not optional — a
  * mixed-generation read must be detectable) plus, for the four
  * algorithm-scoped pages, `algorithmId`/`algorithmVersion`.
  *
  * One rule applies to every schema in this file and is enforced by
  * `pageArtifacts.test.ts` rather than left to convention:
  *
- *   - Raw numbers only (02-CONTEXT D-21). No schema declares a field that is
+ *   - Raw numbers only. No schema declares a field that is
  *     a delta between two algorithms, a rank position derived from a
  *     comparison, or a boolean/string judgement about which algorithm did
  *     better. `CompareArtifactSchema` publishes each algorithm's own raw
@@ -27,15 +26,11 @@
  *     comparison at render time.
  *
  * The uncertainty fields follow no such rule, and no test relates them.
- * This header used to state a second rule (Phase 7 plan 07-06,
- * D-01/D-02/D-03): a single uncertainty quantity across the site, with each
- * alliance's `redScoreVarianceOwn` equal to the sum of its three teams'
- * `TeamMetric.spread` squares. `pageArtifacts.test.ts` checks only that
- * these fields parse and round-trip, never a numeric relationship between
- * them, and the identity does not hold, so
- * quick task 260913-q1l withdrew the rule. SPR is the only algorithm that
- * publishes any of the fields below (OPR and EPA publish none of them), and
- * `spr.ts` builds three structurally different quantities:
+ * `pageArtifacts.test.ts` checks only that these fields parse and
+ * round-trip, never a numeric relationship between them. SPR is the only
+ * algorithm that publishes any of the fields below (OPR and EPA publish
+ * none of them), and `spr.ts` builds three structurally different
+ * quantities:
  *
  *   - `TeamMetric.spread` (`teamMetrics`): the standard deviation of one
  *     team's rating estimate alone, `√(pL + pS)` scaled into points. It
@@ -57,24 +52,10 @@ import { MetricHistoryRowSchema } from "./metricHistorySchema.js";
 /**
  * Bumped whenever a published page artifact's shape changes in a way a
  * client consumer must know about. Independent of any internal scoring
- * artifact's own schema version — see file header.
- *
- * NOT bumped by quick task 260902-pbc's removal of `redComponents`/
- * `blueComponents` from `EventMatchSchema`/`EventUpcomingMatchSchema`/
- * `TeamSeasonMatchSchema` — a repo-wide grep found zero readers of the field
- * anywhere in `apps/web`, and the removal is safety-compatible in both
- * directions without a version bump: a pre-removal artifact still HAS the
- * keys and parses fine (neither schema is `.strict()`, so the now-unlisted
- * keys are simply ignored), and a post-removal artifact simply omits keys no
- * schema requires anymore. This is a strictly SAFER change than D-02's own
- * precedent (Phase 7 plan 07-06), which redefined `TeamMetric.spread`'s
- * MEANING under the same name without a version bump either — that one
- * accepted a real (bounded, `max-age=60`) risk of a stale reader
- * misinterpreting a value; this one has no reader to misinterpret anything
- * at all. The per-alliance-per-match component predictions themselves are
- * unchanged in the model (`packages/core/algorithms/types.ts`'s
- * `ComponentPrediction`, still returned by `epa.ts`'s
- * `predict()`) — only the published artifact stopped carrying them.
+ * artifact's own schema version — see file header. Removing a field that no
+ * schema requires and no `apps/web` reader consumes is safe without a
+ * bump: no schema here is `.strict()`, so an unlisted key is simply
+ * ignored on both a pre- and post-removal artifact.
  */
 export const PAGE_ARTIFACT_SCHEMA_VERSION = 1;
 
@@ -121,10 +102,10 @@ export type ArtifactKeyParams = TeamsPageParams | TeamPageParams | EventsPagePar
 /**
  * Splits an algorithm's `version` string on its FIRST `+` — the same
  * `{codeVersion}+{paramSetName}` split discipline `manifestSchemas.ts`'s
- * `splitManifestVersion` implements, deliberately reimplemented here rather than imported across
- * the module boundary. Throws a named error when the `+` separator is
- * absent, so a version string that lost D-13's shape fails at key-build
- * time instead of publishing to a path nothing will ever fetch.
+ * `splitManifestVersion` implements, deliberately reimplemented here rather
+ * than imported across the module boundary. Throws a named error when the
+ * `+` separator is absent, so a malformed version string fails at
+ * key-build time instead of publishing to a path nothing will ever fetch.
  */
 export class MissingVersionSeparatorError extends Error {
   constructor(algorithmId: string, version: string) {
@@ -142,10 +123,9 @@ function assertVersionShape(algorithmId: string, version: string): void {
 }
 
 /**
- * D-01/D-02: builds the versioned R2 key for one of the five published page
- * kinds, always under a literal `v1/` prefix — the cheap escape hatch that
- * makes a future layout change additive rather than destructive (see
- * 04-01-PLAN.md's `<reversibility>` note on Task 3).
+ * Builds the versioned R2 key for one of the five published page kinds,
+ * always under a literal `v1/` prefix — the cheap escape hatch that makes
+ * a future layout change additive rather than destructive.
  */
 export function artifactKey(params: ArtifactKeyParams): string {
   switch (params.page) {
@@ -167,15 +147,15 @@ export function artifactKey(params: ArtifactKeyParams): string {
 }
 
 // ---------------------------------------------------------------------------
-// Shared preamble (D-04)
+// Shared preamble
 // ---------------------------------------------------------------------------
 
-/** Every published page artifact's top-level stamp. Required, never optional — D-04. */
+/** Every published page artifact's top-level stamp. Required, never optional. */
 const PagePreambleSchema = z.object({
   schemaVersion: z.literal(PAGE_ARTIFACT_SCHEMA_VERSION),
-  /** D-04: a short opaque string identifying the publish run that produced this object. */
+  /** A short opaque string identifying the publish run that produced this object. */
   generation: z.string().min(1),
-  /** D-04: ISO timestamp of when this object was computed. */
+  /** ISO timestamp of when this object was computed. */
   computedAt: z.string().min(1),
 });
 
@@ -186,40 +166,35 @@ const AlgorithmScopedPreambleSchema = PagePreambleSchema.extend({
 });
 
 // ---------------------------------------------------------------------------
-// Shared metric/record shapes (D-27, D-01/D-02/D-03 — plan 07-06)
+// Shared metric/record shapes
 // ---------------------------------------------------------------------------
 
 /**
- * D-27, redefined by D-01/D-02 (plan 07-06): one team's named metric — a
- * value with an optional `spread`. Mirrors `packages/core/algorithms/
- * types.ts`'s `TeamMetric`. Plan 07-06 defined `spread` as one standard
- * deviation of Sigma1's full predictive variance (`√(P + R)`); Sigma1 was
- * deleted (quick task 260913-it4). For SPR, the only algorithm that
- * publishes it, `spread` is the standard deviation of the team's rating
- * estimate alone (`√(pL + pS)` in `spr.ts`'s `teamMetrics`) and never
- * renders on the site; OPR and EPA publish none. The schema shape here is
- * deliberately UNCHANGED by that redefinition — same optional-number type,
- * same field name, no `PAGE_ARTIFACT_SCHEMA_VERSION` bump (D-02) —
- * including D-02's accepted risk that a browser holding a pre-republish
- * artifact renders the old (R-alone) quantity under the new meaning until
- * the next republish, a window bounded by Phase 4 D-26's `max-age=60`.
+ * One team's named metric — a value with an optional `spread`. Mirrors
+ * `packages/core/algorithms/types.ts`'s `TeamMetric`. For SPR, the only
+ * algorithm that publishes it, `spread` is the standard deviation of the
+ * team's rating estimate alone (`√(pL + pS)` in `spr.ts`'s `teamMetrics`)
+ * and never renders on the site; OPR and EPA publish none. A browser
+ * holding a pre-republish artifact can render a stale value under a
+ * redefined meaning until the next republish — a window bounded by
+ * `max-age=60`.
  */
-/** The D-17 rarity-tier vocabulary, factored out so `TeamMetricSchema.tier` and 260902-pbe's `PositionalMetricEntrySchema` (below, teams-table row only) share one literal set rather than two copies that could drift. */
+/** The rarity-tier vocabulary, factored out so `TeamMetricSchema.tier` and `PositionalMetricEntrySchema` (below, teams-table row only) share one literal set rather than two copies that could drift. */
 const TEAM_METRIC_TIERS = ["rare", "epic", "legendary"] as const;
 
 const TeamMetricSchema = z.object({
   value: z.number(),
   spread: z.number().optional(),
   /**
-   * D-04 (Phase 6): this team's percentile rank, in the closed interval
-   * [0, 100], on THIS metric among the full season team pool for this
-   * (algorithm, season) pair — never over a visible subset (e.g. a sorted
-   * table's currently-rendered page, or an event's roster). Optional:
-   * omitted until the pipeline's percentile pass (`publish.ts`, plan
-   * 06-04) actually populates it, and permanently absent for any metric a
-   * future algorithm adds that the pass has not been extended to cover.
-   * Feeds `colour-and-tiers.md`'s rarity-tier boxes (Common 0-50 / Rare
-   * 50-75 / Epic 75-95 / Legendary 95-100).
+   * This team's percentile rank, in the closed interval [0, 100], on THIS
+   * metric among the full season team pool for this (algorithm, season)
+   * pair — never over a visible subset (e.g. a sorted table's
+   * currently-rendered page, or an event's roster). Optional: omitted
+   * until the pipeline's percentile pass actually populates it, and
+   * permanently absent for any metric a future algorithm adds that the
+   * pass has not been extended to cover. Feeds `colour-and-tiers.md`'s
+   * rarity-tier boxes (Common 0-50 / Rare 50-75 / Epic 75-95 / Legendary
+   * 95-100).
    */
   percentile: z.number().min(0).max(100).optional(),
   /**
@@ -228,33 +203,30 @@ const TeamMetricSchema = z.object({
    *
    * Both express the same fact, and that duplication is a deliberate,
    * measured size decision rather than an oversight. The teams artifact is
-   * this project's largest (2024/sigma1: ~369KB gzipped over the wire), and
-   * page-load speed is the top stated UX priority. Measured on that exact
-   * artifact: adding `percentile` to every metric costs +42% gzipped;
-   * adding `tier` instead, omitted for Common, costs +10% — for an
-   * identical rendered result, because the table only ever consumes the
-   * tier. The per-team artifact is small and keeps the full `percentile`,
-   * which the team page needs anyway.
+   * this project's largest, and page-load speed is the top stated UX
+   * priority. Measured on that artifact: adding `percentile` to every
+   * metric costs +42% gzipped; adding `tier` instead, omitted for Common,
+   * costs +10% — for an identical rendered result, because the table only
+   * ever consumes the tier. The per-team artifact is small and keeps the
+   * full `percentile`, which the team page needs anyway.
    *
    * OMITTED for Common (percentile < 50), which is deliberately unboxed —
-   * so absence means "Common or unranked", exactly the cases that render no
-   * tier box. Never write "common" explicitly; that is pure payload for a
-   * no-op.
+   * so absence means "Common or unranked". Never write "common" explicitly.
    */
   tier: z.enum(TEAM_METRIC_TIERS).optional(),
 });
 
-/** One team's decoded metric, exactly `TeamMetricSchema`'s inferred shape — declared as a standalone type because `TeamMetricSchema` itself is module-private, and 260902-pbe's positional encode/decode helpers below need to name it. */
+/** One team's decoded metric, exactly `TeamMetricSchema`'s inferred shape — declared as a standalone type because `TeamMetricSchema` itself is module-private, and the positional encode/decode helpers below need to name it. */
 type PublishedTeamMetric = z.infer<typeof TeamMetricSchema>;
 
-/** Component name -> that team's metric, per `AlgorithmModule.teamMetrics` (D-27). */
+/** Component name -> that team's metric, per `AlgorithmModule.teamMetrics`. */
 const MetricsRecordSchema = z.record(z.string(), TeamMetricSchema);
 
-/** `MetricsRecordSchema`'s inferred type, named for reuse by 260902-pbe's decode path below. */
+/** `MetricsRecordSchema`'s inferred type, named for reuse by the decode path below. */
 type MetricsRecordOut = z.infer<typeof MetricsRecordSchema>;
 
 /**
- * The single definition of the D-17 rarity cuts (Common 0-50 / Rare 50-75 /
+ * The single definition of the rarity cuts (Common 0-50 / Rare 50-75 /
  * Epic 75-95 / Legendary 95-100). `apps/web/src/lib/tiers.ts` delegates to
  * this rather than restating the thresholds, so the tier the pipeline
  * publishes and the tier the client derives from a percentile can never
@@ -273,21 +245,17 @@ export function publishedTierForPercentile(percentile: number | undefined): "rar
 }
 
 /**
- * D-18 item 8, PD-01, plan 07-07 Task 3: composes an event's single display
- * location string from TBA's `state_prov`/`country` columns, reproducing
+ * Composes an event's single display location string from TBA's
+ * `state_prov`/`country` columns, reproducing
  * `apps/web/src/components/events-list/EventsList.tsx`'s `locationText`
  * composition exactly — `"{stateProv}, {country}"` when both are present,
  * the single present value when one is `null`, and `null` when both are
  * `null`. The em-dash a reader sees for that last case is deliberately NOT
  * this function's output — that is a rendering decision `EventsList.tsx`'s
- * own `cellText` already owns, applied by its caller as `?? "—"`. 07-08
- * calls this to populate `EventArtifactSchema.location`; 07-15 should make
- * `EventsList.tsx`'s `locationText` delegate to this same function as
- * `composeEventLocation(event.stateProv, event.country) ?? "—"`, so the
- * event page and the Events list can never print different locations for
- * one event. This is the same single-sourcing reason
- * `publishedTierForPercentile` above gives in its own doc comment — one
- * exported composer, not two independently-drifting implementations.
+ * own `cellText` already owns, applied by its caller as `?? "—"`. This is
+ * the same single-sourcing reason `publishedTierForPercentile` above gives
+ * in its own doc comment — one exported composer, not two
+ * independently-drifting implementations.
  */
 export function composeEventLocation(stateProv: string | null, country: string | null): string | null {
   if (stateProv !== null && country !== null) return `${stateProv}, ${country}`;
@@ -296,15 +264,13 @@ export function composeEventLocation(stateProv: string | null, country: string |
   return null;
 }
 
-/** Win/loss/tie counts as three integer fields, never a formatted string. */
 /**
- * A team's win-loss-tie record over OFFICIAL play only, as of quick task
- * 260908-615 — offseason (TBA event type 99) and preseason Week-0 (type 100)
- * results do not appear in these counts, on either surface that carries this
- * shape. The scoping predicate is `isOfficialEventType`
- * (`packages/core/algorithms/eventTypes.ts`), the same one the Teams-list
- * metric snapshot, the team-page header and the live Worker's incremental
- * merge all read.
+ * A team's win-loss-tie record over OFFICIAL play only — offseason (TBA
+ * event type 99) and preseason Week-0 (type 100) results do not appear in
+ * these counts, on either surface that carries this shape. The scoping
+ * predicate is `isOfficialEventType` (`packages/core/algorithms/
+ * eventTypes.ts`), the same one the Teams-list metric snapshot, the
+ * team-page header and the live Worker's incremental merge all read.
  *
  * Those matches are NOT hidden: a team-season artifact's own `events` and
  * `metricHistory` arrays remain fully offseason-inclusive, so an offseason
@@ -327,7 +293,7 @@ const RecordAndMetricsSchema = z.object({
 // Shared match-row building blocks
 // ---------------------------------------------------------------------------
 
-/** D-10: a discrete pmf sums to 1 within 1e-9 — the same tolerance applied everywhere else in this codebase that validates a pmf. */
+/** A discrete pmf sums to 1 within 1e-9 — the same tolerance applied everywhere else in this codebase that validates a pmf. */
 const RP_PMF_SUM_TOLERANCE = 1e-9;
 
 function isValidPmf(pmf: readonly number[] | undefined): boolean {
@@ -338,10 +304,8 @@ function isValidPmf(pmf: readonly number[] | undefined): boolean {
 }
 
 /**
- * One played match's prediction-vs-actual row. As of D-03/D-12 (plan
- * 08-02) this includes the ranking-point distribution pair and the
- * actual-ranking-point pair, closing a divergence from an earlier revision
- * of this row shape.
+ * One played match's prediction-vs-actual row, including the
+ * ranking-point distribution pair and the actual-ranking-point pair.
  */
 const EventMatchSchema = z
   .object({
@@ -350,26 +314,24 @@ const EventMatchSchema = z
     setNumber: z.number().int(),
     matchNumber: z.number().int(),
     /**
-     * D-13, plan 07-07 Task 1: this match's chronological sort key, in epoch
-     * seconds — the same field and the same spelling as
-     * `TeamSeasonMatchSchema.sortTime` (see its doc comment for the
-     * epoch-seconds unit and the played-row-shows-actual-time semantics, not
-     * restated here). It does two jobs on an event page: it is the ordering
-     * key D-13's client-side merge of `matches[]` and `upcoming[]` sorts on —
-     * the two arrays remain two distinct arrays on the wire so Phase 8's
-     * simulation input is untouched, which means the browser has no other
-     * basis for interleaving them — and, on an UPCOMING row specifically, it is
+     * This match's chronological sort key, in epoch seconds — the same
+     * field and the same spelling as `TeamSeasonMatchSchema.sortTime` (see
+     * its doc comment for the epoch-seconds unit and the
+     * played-row-shows-actual-time semantics, not restated here). It does
+     * two jobs on an event page: it is the ordering key the client-side
+     * merge of `matches[]` and `upcoming[]` sorts on — the two arrays
+     * remain two distinct arrays on the wire so the simulation's input is
+     * untouched, which means the browser has no other basis for
+     * interleaving them — and, on an UPCOMING row specifically, it is
      * additionally the value displayed in the Actual column as a scheduled
      * time (a played row's Actual column shows `actualRedScore`/
      * `actualBlueScore` instead). Optional, and deliberately never
      * `.nullable()`: `matches.sort_time` is `NOT NULL` in
      * `packages/corpus/schema.sql`, so a null is not a representable source
-     * state and accepting one here would invent a third case D-13's merge
-     * would then have to handle for no reason. `undefined` means only "this
-     * artifact predates the field" — 07-12 found no match row in the live
-     * `2024casf` artifact carrying this key. 07-08 sources this from
-     * `selectScheduledMatchTimes` (`packages/harness/publish.ts`), which
-     * already runs for the team artifact; no new corpus query is needed.
+     * state. `undefined` means only "this artifact predates the field".
+     * Sourced from `selectScheduledMatchTimes`
+     * (`packages/harness/publish.ts`), which already runs for the team
+     * artifact.
      */
     sortTime: z.number().int().optional(),
     redTeams: z.array(z.string()),
@@ -379,15 +341,15 @@ const EventMatchSchema = z
     predictedRedScore: z.number(),
     predictedBlueScore: z.number(),
     /**
-     * D-18 item 3, plan 07-07 Task 1: this alliance's own predicted-score
-     * variance — the same quantity, under the same field name, that
-     * `TeamSeasonMatchSchema.redScoreVarianceOwn` has carried since Phase 6
-     * (see that field's doc comment for the full contract; not restated
-     * here). Left `undefined` by OPR and EPA, neither of which models an
-     * alliance-level own variance — following `TeamSeasonMatchSchema.variance`'s
-     * own optional convention. Rounded exactly once, at the publish boundary,
-     * at `ROUNDING_RULE.variance` (`rounding.ts`); the call itself belongs to
-     * 07-08. It is NOT the sum of its three teams' published
+     * This alliance's own predicted-score variance — the same quantity,
+     * under the same field name, that
+     * `TeamSeasonMatchSchema.redScoreVarianceOwn` carries (see that
+     * field's doc comment for the full contract; not restated here). Left
+     * `undefined` by OPR and EPA, neither of which models an
+     * alliance-level own variance — following
+     * `TeamSeasonMatchSchema.variance`'s own optional convention. Rounded
+     * exactly once, at the publish boundary, at `ROUNDING_RULE.variance`
+     * (`rounding.ts`). It is NOT the sum of its three teams' published
      * `TeamMetric.spread` squares (this file's header gives the three
      * structural reasons), and no page draws it: match-row bands and the
      * Alliances tab's combined band are built from Sigma Score instead
@@ -395,10 +357,10 @@ const EventMatchSchema = z
      * `sigmaScore.ts`).
      */
     redScoreVarianceOwn: z.number().optional(),
-    /** D-18 item 3, plan 07-07 Task 1: the blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
+    /** The blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
     blueScoreVarianceOwn: z.number().optional(),
     /**
-     * PUBLISHED MATCH BAND (renamed by quick task 260913-g66): this alliance's
+     * PUBLISHED MATCH BAND: this alliance's
      * display-band variance, `roster size × Σ its roster's Sigma Score²`,
      * walk-forward as of this match — so a match's band never uses matches that
      * came after it. Built by `sigmaMatchBandVariance` in
@@ -419,148 +381,145 @@ const EventMatchSchema = z
     /** The blue alliance's counterpart to `redMatchBandVariance` — see its doc comment for the full contract. */
     blueMatchBandVariance: z.number().optional(),
     /**
-     * D-03, plan 08-02 Task 1: this alliance's predicted distribution over
-     * its TOTAL ranking points for this match — index `i` is the predicted
-     * probability that this alliance earns exactly `i` ranking points, with
-     * win, tie and bonus ranking points already folded into the domain by
-     * `analyticRpPmf`'s closed form (plan 09-04 — this used to read "the
-     * harness's own joint Monte Carlo draw", a module this repo no longer
-     * has). This is NOT a per-bonus
-     * marginal like `TeamSeasonMatchSchema.redBonusRp`/`redBonusRp` — see
+     * This alliance's predicted distribution over its TOTAL ranking points
+     * for this match — index `i` is the predicted probability that this
+     * alliance earns exactly `i` ranking points, with win, tie and bonus
+     * ranking points already folded into the domain by `analyticRpPmf`'s
+     * closed form. This is NOT a per-bonus marginal like
+     * `TeamSeasonMatchSchema.redBonusRp`/`redBonusRp` — see
      * `TeamSeasonMatchSchema.redRpPmf` and `redBonusRp` for the fuller
      * statement of that distinction, not restated here. Omitted entirely
      * (never an empty array) for an algorithm that does not model ranking
      * points — every OPR and EPA row. Validated non-empty and summing to 1
-     * within this file's shared `RP_PMF_SUM_TOLERANCE` by the refines below.
-     * Rounded exactly once, at the publish boundary, at `ROUNDING_RULE.pmf`
-     * (`rounding.ts`), through the existing `roundPmf` — the call itself
-     * belongs to plan 08-02. This is the input Phase 8's client-side
-     * 1000-draw rank simulation draws from for every match at or after a
-     * chosen start match, which is why it must exist on a PLAYED row and not
-     * only an upcoming one — a rewind start match is the common case (1,312
-     * of 1,353 corpus events have no unplayed qualification match at all).
+     * within this file's shared `RP_PMF_SUM_TOLERANCE` by the refines
+     * below. Rounded exactly once, at the publish boundary, at
+     * `ROUNDING_RULE.pmf` (`rounding.ts`), through `roundPmf`. This is the
+     * input the client-side 1000-draw rank simulation draws from for every
+     * match at or after a chosen start match, which is why it must exist
+     * on a PLAYED row and not only an upcoming one — a rewind start match
+     * is the common case (1,312 of 1,353 corpus events have no unplayed
+     * qualification match at all).
      */
     redRpPmf: z.array(z.number()).optional(),
-    /** D-03, plan 08-02 Task 1: the blue alliance's counterpart to `redRpPmf` — see its doc comment for the full contract. */
+    /** The blue alliance's counterpart to `redRpPmf` — see its doc comment for the full contract. */
     blueRpPmf: z.array(z.number()).optional(),
     /**
-     * D-15, plan 09-07 — THE SINGLE DEFINITION SITE of the index order every
-     * consumer of the RP decomposition cites rather than re-deriving:
-     * `matchOutcomePmf[0]` is the probability the red alliance wins,
-     * `[1]` a tie, `[2]` a blue win. This is the win/tie half of the RP
-     * decomposition `redRpPmf`/`blueRpPmf` were convolved from — published
-     * so the rank simulation can draw a match's outcome ONCE instead of
-     * drawing each alliance's total independently (today's independent
-     * draws let both alliances "win" the same draw). Carries three entries
-     * at EVERY configuration; the tie entry is ~0 until D-14's discrete
-     * score-margin tie model is selected, so the shape never changes when
-     * the model does.
+     * THE SINGLE DEFINITION SITE of the index order every consumer of the
+     * RP decomposition cites rather than re-deriving: `matchOutcomePmf[0]`
+     * is the probability the red alliance wins, `[1]` a tie, `[2]` a blue
+     * win. This is the win/tie half of the RP decomposition
+     * `redRpPmf`/`blueRpPmf` were convolved from — published so the rank
+     * simulation can draw a match's outcome ONCE instead of drawing each
+     * alliance's total independently (independent draws let both alliances
+     * "win" the same draw). Carries three entries at EVERY configuration;
+     * the tie entry is ~0 until a discrete score-margin tie model is
+     * selected, so the shape never changes when the model does.
      *
      * OPTIONAL for the same live-artifact reason as `redRpPmf`, following
      * `CompareExclusionCountsSchema.coldStart`'s precedent: this is a LIVE,
      * R2-served shape whose already-published objects predate this field. A
      * required key would fail to parse every one of them and blank the
-     * Simulation tab in production before 09-10's republish. Absence
+     * Simulation tab in production before the next republish. Absence
      * genuinely means "this artifact predates the decomposition" and MUST
      * render as absent, never coerced to a default — a reader that
      * substitutes one would silently invent a favourite.
      */
     matchOutcomePmf: z.array(z.number()).optional(),
     /**
-     * D-15, plan 09-07: the red alliance's distribution over its BONUS
-     * ranking points ONLY — `analyticRpPmf`'s `redBonusPmf`, sums to 1
-     * (unlike `redBonusRp` below, a per-bonus MARGINAL that does not).
-     * Distinct by name from BOTH neighbours: `redRpPmf` above is the RP
-     * TOTAL distribution (win/tie RP and bonus RP already folded in);
-     * `redBonusRp` below is a per-bonus marginal whose entries do not sum to
-     * 1; this is a distribution over the bonus-RP count alone, independent
-     * of the match outcome. Optional for the same live-artifact reason as
+     * The red alliance's distribution over its BONUS ranking points ONLY —
+     * `analyticRpPmf`'s `redBonusPmf`, sums to 1 (unlike `redBonusRp`
+     * below, a per-bonus MARGINAL that does not). Distinct by name from
+     * BOTH neighbours: `redRpPmf` above is the RP TOTAL distribution
+     * (win/tie RP and bonus RP already folded in); `redBonusRp` below is a
+     * per-bonus marginal whose entries do not sum to 1; this is a
+     * distribution over the bonus-RP count alone, independent of the
+     * match outcome. Optional for the same live-artifact reason as
      * `matchOutcomePmf`.
      */
     redBonusRpPmf: z.array(z.number()).optional(),
     /** The blue alliance's counterpart to `redBonusRpPmf` — see its doc comment for the full contract. */
     blueBonusRpPmf: z.array(z.number()).optional(),
     /**
-     * Quick 260905-jj8 (todo `event-per-bonus-rp-publish`): the red
-     * alliance's predicted per-bonus MARGINALS — the exact quantity, under
-     * the exact name and positional-alignment contract,
-     * `TeamSeasonMatchSchema.redBonusRp` has carried since Phase 06.1 (see
-     * that field's doc comment; not restated here). NOT a distribution:
-     * never routed through `isValidPmf`. Omitted entirely for a
-     * non-qualification match, an algorithm that models no ranking points,
-     * or an artifact predating this field — the absence is what the
-     * Quals-tab dots render as `unknown`.
+     * The red alliance's predicted per-bonus MARGINALS — the exact
+     * quantity, under the exact name and positional-alignment contract,
+     * `TeamSeasonMatchSchema.redBonusRp` carries (see that field's doc
+     * comment; not restated here). NOT a distribution: never routed
+     * through `isValidPmf`. Omitted entirely for a non-qualification
+     * match, an algorithm that models no ranking points, or an artifact
+     * predating this field — the absence is what the Quals-tab dots
+     * render as `unknown`.
      */
     redBonusRp: z.array(z.number().min(0).max(1)).optional(),
-    /** Quick 260905-jj8: the blue alliance's counterpart to `redBonusRp` — see `TeamSeasonMatchSchema.redBonusRp` for the full contract. */
+    /** The blue alliance's counterpart to `redBonusRp` — see `TeamSeasonMatchSchema.redBonusRp` for the full contract. */
     blueBonusRp: z.array(z.number().min(0).max(1)).optional(),
     actualWinner: z.enum(["red", "blue", "tie"]),
     actualRedScore: z.number(),
     actualBlueScore: z.number(),
     /**
-     * D-01/D-03 (quick task 260909-t5q): true iff every one of this match's
-     * six robots was making its corpus-global first appearance — the SAME
-     * stamp `packages/harness/replay.ts`'s `WalkForwardSimulator` attached to
+     * True iff every one of this match's six robots was making its
+     * corpus-global first appearance — the SAME stamp
+     * `packages/harness/replay.ts`'s `WalkForwardSimulator` attached to
      * this match's `PredictionRecord`, carried through unchanged to the
      * artifact. Present ONLY when `true`, omitted otherwise — mirrors
      * `redMatchBandVariance`'s presence-means-something convention above,
-     * rather than a boolean written `false` on the overwhelming majority of
-     * rows. Read by both match tables' Call column to render the neutral
-     * em-dash with a distinct accessible label; see
+     * rather than a boolean written `false` on the overwhelming majority
+     * of rows. Read by both match tables' Call column to render the
+     * neutral em-dash with a distinct accessible label; see
      * `TeamSeasonMatchSchema.coldStart` for the mirror on the team-season
      * side.
      */
     coldStart: z.literal(true).optional(),
     /**
-     * D-12, plan 08-02 Task 2: this alliance's actual bonus ranking points
-     * for this match — the same quantity under the same name that
-     * `TeamSeasonMatchSchema.actualRedRp` has carried since Phase 6 (see that
-     * field's doc comment for the full provenance through the ingest's
-     * ranking-point extraction, not restated here). Three published states,
-     * none conflated: the key **absent** entirely means this artifact
-     * predates the field; an explicit **`null`** means the fact is not
-     * derivable from the available data; a present **integer**, including a
-     * real `0`, is TBA's own reported bonus RP for that alliance. `null` is
+     * This alliance's actual bonus ranking points for this match — the
+     * same quantity under the same name that
+     * `TeamSeasonMatchSchema.actualRedRp` carries (see that field's doc
+     * comment for the full provenance through the ingest's ranking-point
+     * extraction, not restated here). Three published states, none
+     * conflated: the key **absent** entirely means this artifact predates
+     * the field; an explicit **`null`** means the fact is not derivable
+     * from the available data; a present **integer**, including a real
+     * `0`, is TBA's own reported bonus RP for that alliance. `null` is
      * never coerced to `0` — a coerced zero would be a positive claim that
-     * an alliance earned no ranking points, and D-12's summed fallback then
-     * sums exactly these values into a team's already-earned baseline on the
-     * events where TBA's own Ranking Score is absent, which are precisely
-     * the events where the data is weakest. It is an integer count published
-     * unrounded, with no `ROUNDING_RULE` entry. It is explicitly NOT the
-     * same quantity as `EventTeamSchema.rp`, which is TBA's Ranking Score, a
-     * per-match AVERAGE, a real number, rounded at its own
-     * `ROUNDING_RULE.rankingPoints` — the two share three letters and
-     * nothing else, and D-12's precedence rule reads one when the other is
-     * absent, so a reader who conflates them will implement the wrong
-     * fallback. D-12's summed fallback (owned by 08-11) consumes this field
-     * across a team's played qualification rows only when `EventTeamSchema
-     * .rp` is absent, with a `null` contributing nothing to that sum while
-     * marking the team's baseline as known-incomplete.
+     * an alliance earned no ranking points, and the summed fallback then
+     * sums exactly these values into a team's already-earned baseline on
+     * the events where TBA's own Ranking Score is absent, which are
+     * precisely the events where the data is weakest. It is an integer
+     * count published unrounded, with no `ROUNDING_RULE` entry. It is
+     * explicitly NOT the same quantity as `EventTeamSchema.rp`, which is
+     * TBA's Ranking Score, a per-match AVERAGE, a real number, rounded at
+     * its own `ROUNDING_RULE.rankingPoints` — the two share three letters
+     * and nothing else, and the precedence rule reads one when the other
+     * is absent, so a reader who conflates them will implement the wrong
+     * fallback. The summed fallback consumes this field across a team's
+     * played qualification rows only when `EventTeamSchema.rp` is absent,
+     * with a `null` contributing nothing to that sum while marking the
+     * team's baseline as known-incomplete.
      */
     actualRedRp: z.number().int().nullable().optional(),
-    /** D-12, plan 08-02 Task 2: the blue alliance's counterpart to `actualRedRp` — see its doc comment for the full three-state contract. */
+    /** The blue alliance's counterpart to `actualRedRp` — see its doc comment for the full three-state contract. */
     actualBlueRp: z.number().int().nullable().optional(),
     /**
-     * Quick 260905-jj8: the algorithm-independent ACTUAL per-bonus outcome —
-     * the exact three-state contract (absent / explicit `null` /
-     * present array) `TeamSeasonMatchSchema.actualRedBonusRp` documents in
-     * full; not restated here. `null` is NEVER coerced to an all-false
-     * array, for that field's own stated reason.
+     * The algorithm-independent ACTUAL per-bonus outcome — the exact
+     * three-state contract (absent / explicit `null` / present array)
+     * `TeamSeasonMatchSchema.actualRedBonusRp` documents in full; not
+     * restated here. `null` is NEVER coerced to an all-false array, for
+     * that field's own stated reason.
      */
     actualRedBonusRp: z.array(z.boolean()).nullable().optional(),
-    /** Quick 260905-jj8: the blue alliance's counterpart to `actualRedBonusRp` — see `TeamSeasonMatchSchema.actualRedBonusRp` for the full three-state contract. */
+    /** The blue alliance's counterpart to `actualRedBonusRp` — see `TeamSeasonMatchSchema.actualRedBonusRp` for the full three-state contract. */
     actualBlueBonusRp: z.array(z.boolean()).nullable().optional(),
     /**
-     * Quick task 260906-7eu: the raw YouTube video key TBA published for this
-     * match, as `packages/ingest/normalize.ts`'s `normalizeMatch` extracted
-     * it — verbatim, including any trailing timestamp suffix. Omitted
-     * entirely (never published empty) rather than `.nullable()`: absence is
-     * the single state meaning "no video", whether because TBA has genuinely
+     * The raw YouTube video key TBA published for this match, as
+     * `packages/ingest/normalize.ts`'s `normalizeMatch` extracted it —
+     * verbatim, including any trailing timestamp suffix. Omitted entirely
+     * (never published empty) rather than `.nullable()`: absence is the
+     * single state meaning "no video", whether because TBA has genuinely
      * published none for this match or because this artifact predates the
-     * field — one representation, so no reader has to handle two. Carries no
-     * `ROUNDING_RULE` entry because it is not a number. Deliberately NOT
-     * added to `EventUpcomingMatchSchema`: an unplayed match has no video, so
-     * the field there would be published weight that is always absent.
+     * field — one representation, so no reader has to handle two. Carries
+     * no `ROUNDING_RULE` entry because it is not a number. Deliberately
+     * NOT added to `EventUpcomingMatchSchema`: an unplayed match has no
+     * video, so the field there would be published weight that is always
+     * absent.
      */
     video: z.string().min(1).optional(),
   })
@@ -621,20 +580,20 @@ const EventMatchSchema = z
   );
 
 /**
- * D-08: an upcoming (not-yet-played) match's full predicted-parameters
- * shape. `redRpPmf`/`blueRpPmf` are omitted entirely (never an empty array)
- * for an algorithm that does not model RP, matching `Prediction`'s existing
- * convention — see `EventMatchSchema.redRpPmf` for the shared contract, not
- * restated here.
+ * An upcoming (not-yet-played) match's full predicted-parameters shape.
+ * `redRpPmf`/`blueRpPmf` are omitted entirely (never an empty array) for
+ * an algorithm that does not model RP, matching `Prediction`'s existing
+ * convention — see `EventMatchSchema.redRpPmf` for the shared contract,
+ * not restated here.
  *
- * D-03, plan 08-02 Task 3: corrected division of labour — Phase 8's rank
- * simulation reads BOTH this array and `EventMatchSchema`'s, not this one
- * alone. A rewind start match that has already been played is the COMMON
- * case (1,312 of 1,353 corpus events have no unplayed qualification match
- * at all), so `EventMatchSchema`'s played rows are the simulation's primary
- * input on nearly every browsable event; this array remains exactly what it
- * has always been, the shape for a genuinely not-yet-played match, and is
- * the exact and leak-free input for the live case (D-01).
+ * The rank simulation reads BOTH this array and `EventMatchSchema`'s, not
+ * this one alone. A rewind start match that has already been played is
+ * the COMMON case (1,312 of 1,353 corpus events have no unplayed
+ * qualification match at all), so `EventMatchSchema`'s played rows are
+ * the simulation's primary input on nearly every browsable event; this
+ * array remains exactly what it has always been, the shape for a
+ * genuinely not-yet-played match, and is the exact and leak-free input
+ * for the live case.
  */
 const EventUpcomingMatchSchema = z
   .object({
@@ -642,7 +601,7 @@ const EventUpcomingMatchSchema = z
     compLevel: z.enum(["qm", "ef", "qf", "sf", "f"]),
     setNumber: z.number().int(),
     matchNumber: z.number().int(),
-    /** D-13, plan 07-07 Task 1: see `EventMatchSchema.sortTime`'s doc comment for the full contract — same field, same spelling, same two jobs (ordering key and, here, the value this UPCOMING row's Actual column displays as a scheduled time). */
+    /** See `EventMatchSchema.sortTime`'s doc comment for the full contract — same field, same spelling, same two jobs (ordering key and, here, the value this UPCOMING row's Actual column displays as a scheduled time). */
     sortTime: z.number().int().optional(),
     redTeams: z.array(z.string()),
     blueTeams: z.array(z.string()),
@@ -650,11 +609,11 @@ const EventUpcomingMatchSchema = z
     pRedWin: z.number(),
     predictedRedScore: z.number(),
     predictedBlueScore: z.number(),
-    /** D-18 item 3, plan 07-07 Task 1: see `EventMatchSchema.redScoreVarianceOwn`/`blueScoreVarianceOwn`'s doc comments for the full contract — same fields, same spelling, same optional-when-OPR/EPA convention. */
+    /** See `EventMatchSchema.redScoreVarianceOwn`/`blueScoreVarianceOwn`'s doc comments for the full contract — same fields, same spelling, same optional-when-OPR/EPA convention. */
     redScoreVarianceOwn: z.number().optional(),
     blueScoreVarianceOwn: z.number().optional(),
     /**
-     * PUBLISHED MATCH BAND (renamed by quick task 260913-g66): this alliance's
+     * PUBLISHED MATCH BAND: this alliance's
      * display-band variance, `roster size × Σ its roster's Sigma Score²`,
      * walk-forward as of this match — so a match's band never uses matches that
      * came after it. Built by `sigmaMatchBandVariance` in
@@ -676,15 +635,15 @@ const EventUpcomingMatchSchema = z
     blueMatchBandVariance: z.number().optional(),
     redRpPmf: z.array(z.number()).optional(),
     blueRpPmf: z.array(z.number()).optional(),
-    /** D-15, plan 09-07 — see `EventMatchSchema.matchOutcomePmf` for the full contract; this is the sibling on a not-yet-played row, following the same optional-when-live-artifact convention as `redRpPmf` above. */
+    /** See `EventMatchSchema.matchOutcomePmf` for the full contract; this is the sibling on a not-yet-played row, following the same optional-when-live-artifact convention as `redRpPmf` above. */
     matchOutcomePmf: z.array(z.number()).optional(),
-    /** D-15, plan 09-07 — see `EventMatchSchema.redBonusRpPmf` for the full contract. */
+    /** See `EventMatchSchema.redBonusRpPmf` for the full contract. */
     redBonusRpPmf: z.array(z.number()).optional(),
     /** The blue alliance's counterpart to `redBonusRpPmf` — see `EventMatchSchema.redBonusRpPmf` for the full contract. */
     blueBonusRpPmf: z.array(z.number()).optional(),
-    /** Quick 260905-jj8: predicted per-bonus marginals for a not-yet-played qualification match — see `TeamSeasonMatchSchema.redBonusRp` for the full contract (positional alignment, never a pmf, omitted for non-`qm`/non-RP algorithms). */
+    /** Predicted per-bonus marginals for a not-yet-played qualification match — see `TeamSeasonMatchSchema.redBonusRp` for the full contract (positional alignment, never a pmf, omitted for non-`qm`/non-RP algorithms). */
     redBonusRp: z.array(z.number().min(0).max(1)).optional(),
-    /** Quick 260905-jj8: the blue counterpart to `redBonusRp` above. */
+    /** The blue counterpart to `redBonusRp` above. */
     blueBonusRp: z.array(z.number().min(0).max(1)).optional(),
   })
   .refine((row) => isValidPmf(row.redRpPmf), {
@@ -728,47 +687,42 @@ const EventUpcomingMatchSchema = z
     }
   );
 
-/** D-07: a team competing at an event, carrying its current metrics — the event page's standings-style table. */
+/** A team competing at an event, carrying its current metrics — the event page's standings-style table. */
 const EventTeamSchema = z.object({
   teamKey: z.string().min(1),
   teamNumber: z.number().int().optional(),
   nickname: z.string().optional(),
   /**
-   * D-18 item 6, D-07, plan 07-07 Task 2: this team's official rank at this
-   * event, sourced from `event_rankings.rank` through
-   * `selectEventRankingsForSeason` (`packages/corpus/db.ts`). Optional for
-   * two independent reasons: 259 of 1,581 corpus events have no ranking
-   * rows at all (D-08's measured count), and a pre-republish artifact
-   * predates the field entirely. Absence is never synthesized and never
-   * zero — D-08's fallback ordering is rendered by 07-11 and must never be
-   * written INTO this field: a model-derived position placed under a name
-   * that asserts official provenance is a false attribution the reader has
-   * no way to detect. `rank`, `record` and `rp` are independently
-   * optional; a half-present set is a REAL state (an `event_rankings` row
-   * written before 07-04's widened ingest carries a rank with a NULL
-   * record and a NULL ranking score), so there is deliberately no
-   * cross-field `.refine()` here — matching
-   * `TeamSeasonEventSchema.rank`'s own stated choice (PD-05).
+   * This team's official rank at this event, sourced from
+   * `event_rankings.rank` through `selectEventRankingsForSeason`
+   * (`packages/corpus/db.ts`). Optional for two independent reasons: a
+   * measured share of corpus events have no ranking rows at all, and a
+   * pre-republish artifact predates the field entirely. Absence is never
+   * synthesized and never zero — a model-derived fallback ordering must
+   * never be written INTO this field: a model-derived position placed
+   * under a name that asserts official provenance is a false attribution
+   * the reader has no way to detect. `rank`, `record` and `rp` are
+   * independently optional; a half-present set is a REAL state (an
+   * `event_rankings` row can carry a rank with a NULL record and a NULL
+   * ranking score), so there is deliberately no cross-field `.refine()`
+   * here — matching `TeamSeasonEventSchema.rank`'s own stated choice.
    */
   rank: z.number().int().positive().optional(),
   /**
-   * D-18 item 6, D-07, plan 07-07 Task 2: TBA's own reported record for
-   * this team at this event, which accounts for disqualifications and
-   * surrogate appearances — never a tally this pipeline counted from
-   * `matches[]` (D-18 item 6's own stated reason for requiring TBA as the
-   * source). Reuses `RecordSchema`'s existing three integers; never a
-   * formatted string. Rendering is 07-11's.
+   * TBA's own reported record for this team at this event, which accounts
+   * for disqualifications and surrogate appearances — never a tally this
+   * pipeline counted from `matches[]`. Reuses `RecordSchema`'s existing
+   * three integers; never a formatted string.
    */
   record: RecordSchema.optional(),
   /**
-   * D-18 item 6, D-07, plan 07-07 Task 2: TBA's Ranking Score,
-   * `sort_orders[0]`, guarded at ingest by 07-04's
+   * TBA's Ranking Score, `sort_orders[0]`, guarded at ingest by a
    * `sort_order_info[0].name === "Ranking Score"` assertion and stored in
-   * the corpus column `ranking_score` (07-02) — recording that naming hop
-   * explicitly here, at this end as well as the storage end, so the column
-   * and the field cannot quietly become two different facts. It is a
-   * per-match average and therefore a REAL rather than an integer count.
-   * Rounded exactly once, at the publish boundary, at
+   * the corpus column `ranking_score` — recording that naming hop
+   * explicitly here, at this end as well as the storage end, so the
+   * column and the field cannot quietly become two different facts. It is
+   * a per-match average and therefore a REAL rather than an integer
+   * count. Rounded exactly once, at the publish boundary, at
    * `ROUNDING_RULE.rankingPoints`. It is explicitly NOT the same quantity
    * as `TeamSeasonMatchSchema.actualRedRp`/`actualBlueRp`, which are
    * integer bonus-RP counts published unrounded — the two share three
@@ -786,12 +740,12 @@ const EventTeamSchema = z.object({
  * artifact's per-match row needs the alliance rosters the sidecar's own
  * schema does not carry.
  *
- * Phase 6 (D-01/D-02/D-09, TEAM-04/TEAM-05) widens this row for the team
- * page: every field added below is `.optional()`, so a team artifact
- * published before this phase's republish still parses (see this file's
- * header rule and the D-09 note directly below). None of the new fields is
- * rounded a second time here — rounding happens once, at
- * `packages/harness/publish.ts`'s publish boundary.
+ * Widens this row for the team page: every field added below is
+ * `.optional()`, so a team artifact published before the corresponding
+ * republish still parses (see this file's header rule and the note
+ * directly below). None of the new fields is rounded a second time here —
+ * rounding happens once, at `packages/harness/publish.ts`'s publish
+ * boundary.
  */
 const TeamSeasonMatchSchema = z
   .object({
@@ -807,25 +761,24 @@ const TeamSeasonMatchSchema = z
     predictedBlueScore: z.number(),
     variance: z.number().optional(),
     /**
-     * D-01 (Phase 6), redefined by D-01/D-02 (plan 07-06): each alliance's
-     * OWN predicted-score variance — mirrors `packages/core/algorithms/
-     * types.ts`'s `Prediction.redScoreVarianceOwn`/`blueScoreVarianceOwn`.
-     * This is NOT the same quantity as `variance` above (the red+blue SUM,
-     * the win-probability denominator) — that distinction stays real and
-     * unaffected. Plan 07-06 also defined it as the sum of its three teams'
-     * `TeamMetric.spread` squares; that no longer holds, and no test pins it
-     * (this file's header gives the three structural reasons).
-     * Populated by SPR, left `undefined` by OPR/EPA (neither
-     * models an alliance-level own variance), following `variance`'s own
-     * optional convention above. Reuses `ROUNDING_RULE.variance` unchanged
-     * at the publish boundary — same physical quantity, same existing rule,
-     * no new rounding rule needed.
+     * Each alliance's OWN predicted-score variance — mirrors
+     * `packages/core/algorithms/types.ts`'s
+     * `Prediction.redScoreVarianceOwn`/`blueScoreVarianceOwn`. This is NOT
+     * the same quantity as `variance` above (the red+blue SUM, the
+     * win-probability denominator) — that distinction stays real and
+     * unaffected. It is not the sum of its three teams' `TeamMetric.spread`
+     * squares, and no test pins that (this file's header gives the three
+     * structural reasons). Populated by SPR, left `undefined` by OPR/EPA
+     * (neither models an alliance-level own variance), following
+     * `variance`'s own optional convention above. Reuses
+     * `ROUNDING_RULE.variance` unchanged at the publish boundary — same
+     * physical quantity, same existing rule, no new rounding rule needed.
      */
     redScoreVarianceOwn: z.number().optional(),
-    /** D-01 (Phase 6): the blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
+    /** The blue alliance's counterpart to `redScoreVarianceOwn` — see its doc comment for the full contract. */
     blueScoreVarianceOwn: z.number().optional(),
     /**
-     * PUBLISHED MATCH BAND (renamed by quick task 260913-g66): this alliance's
+     * PUBLISHED MATCH BAND: this alliance's
      * display-band variance, `roster size × Σ its roster's Sigma Score²`,
      * walk-forward as of this match — so a match's band never uses matches that
      * came after it. Built by `sigmaMatchBandVariance` in
@@ -847,29 +800,24 @@ const TeamSeasonMatchSchema = z
     blueMatchBandVariance: z.number().optional(),
     redRpPmf: z.array(z.number()).optional(),
     blueRpPmf: z.array(z.number()).optional(),
-    // D-09 (Phase 6): relaxed from required to optional so an unplayed
-    // (scheduled but not yet played) match is structurally representable —
-    // TEAM-04's "section per attended OR UPCOMING event" is otherwise
-    // unbuildable. The type-level "a match always has a result" guarantee
-    // this relaxation removes is replaced below by a cross-field `.refine()`
-    // (not deleted): a row carrying any one of these three must carry all
-    // three; a row carrying none of them is a valid unplayed match. See
-    // `06-CONTEXT.md` D-09 and `06-02-PLAN.md`'s Task 3 for the test that
-    // proves this rule actually fires when removed.
+    // Relaxed from required to optional so an unplayed (scheduled but not
+    // yet played) match is structurally representable. The type-level "a
+    // match always has a result" guarantee this relaxation removes is
+    // replaced below by a cross-field `.refine()` (not deleted): a row
+    // carrying any one of these three must carry all three; a row carrying
+    // none of them is a valid unplayed match.
     actualWinner: z.enum(["red", "blue", "tie"]).optional(),
     actualRedScore: z.number().optional(),
     actualBlueScore: z.number().optional(),
-    /** D-01/D-03 (quick task 260909-t5q): the mirror of `EventMatchSchema.coldStart` — see its doc comment for the full contract. */
+    /** The mirror of `EventMatchSchema.coldStart` — see its doc comment for the full contract. */
     coldStart: z.literal(true).optional(),
     /**
-     * D-02 (Phase 6): actual bonus ranking points, sourced from
+     * Actual bonus ranking points, sourced from
      * `MatchResult.redRpEarned`/`blueRpEarned` (`packages/core/algorithms/
-     * types.ts`). Resolved null contract (RESEARCH.md A5, verified against
-     * `packages/ingest/normalize.ts`'s `extractRp`, NOT `rp/constants.ts` —
-     * this field is populated at ingest time from TBA's raw
-     * `score_breakdown.{color}.rp`, before Sigma1's RP rule modules ever
-     * see the match): `null` means "not derivable from the available data"
-     * — either the match has no `score_breakdown` at all
+     * types.ts`), populated at ingest time from TBA's raw
+     * `score_breakdown.{color}.rp` via `packages/ingest/normalize.ts`'s
+     * `extractRp`. `null` means "not derivable from the available data" —
+     * either the match has no `score_breakdown` at all
      * (`hasScoreBreakdown: false`, e.g. an unplayed match) or a present
      * breakdown is missing the `rp`/`tba_rpEarned` field entirely. It is
      * NEVER coerced from `null` to `0`, and it does NOT mean "this event
@@ -883,34 +831,31 @@ const TeamSeasonMatchSchema = z
      * `ROUNDING_RULE` entry).
      */
     actualRedRp: z.number().int().nullable().optional(),
-    /** D-02 (Phase 6): the blue alliance's counterpart to `actualRedRp` — see its doc comment for the full null contract. */
+    /** The blue alliance's counterpart to `actualRedRp` — see its doc comment for the full null contract. */
     actualBlueRp: z.number().int().nullable().optional(),
     /**
-     * Phase 06.1 (F-06-1, PD-04): each entry is the predicted PROBABILITY
-     * that the red alliance earns the bonus at the SAME INDEX of that
-     * season's bonus-name list (`RpRuleModule.bonusNames`) — a positional
-     * array pinned client-side by an existing passing test, not a keyed
-     * record (measured payload cost: ~124 bytes/match row for the array vs
-     * ~238 for the record, plan 06.1-02's PD-04). These are independent
-     * per-bonus MARGINALS: they do NOT sum to 1, and must never be routed
-     * through `isValidPmf`/the pmf rounding path below — that redistribution
-     * is only meaningful for a distribution required to sum to 1. This is a
-     * DIFFERENT quantity from `redRpPmf` above, which is a distribution over
-     * the RP TOTAL, not a per-bonus marginal. Omitted entirely (never
-     * published as an empty array) when `analyticRpPmf` did not run for
-     * this match (plan 09-04 — the zero-draws fast path this doc comment
-     * used to name is GONE; a closed form has no draw count to skip) — a
-     * non-qualification competition level, an RP-ineligible event type, or
-     * an algorithm that does not model ranking points at all. Rounded
-     * exactly once, at the publish boundary, at `ROUNDING_RULE.probability`.
+     * Each entry is the predicted PROBABILITY that the red alliance earns
+     * the bonus at the SAME INDEX of that season's bonus-name list
+     * (`RpRuleModule.bonusNames`) — a positional array pinned client-side
+     * by an existing passing test, not a keyed record. These are
+     * independent per-bonus MARGINALS: they do NOT sum to 1, and must
+     * never be routed through `isValidPmf`/the pmf rounding path below —
+     * that redistribution is only meaningful for a distribution required
+     * to sum to 1. This is a DIFFERENT quantity from `redRpPmf` above,
+     * which is a distribution over the RP TOTAL, not a per-bonus marginal.
+     * Omitted entirely (never published as an empty array) when
+     * `analyticRpPmf` did not run for this match — a non-qualification
+     * competition level, an RP-ineligible event type, or an algorithm that
+     * does not model ranking points at all. Rounded exactly once, at the
+     * publish boundary, at `ROUNDING_RULE.probability`.
      */
     redBonusRp: z.array(z.number().min(0).max(1)).optional(),
-    /** Phase 06.1 (F-06-1): the blue alliance's counterpart to `redBonusRp` — see its doc comment for the full contract. */
+    /** The blue alliance's counterpart to `redBonusRp` — see its doc comment for the full contract. */
     blueBonusRp: z.array(z.number().min(0).max(1)).optional(),
     /**
-     * Phase 06.1 (F-06-3, PD-10): the algorithm-independent ACTUAL per-bonus
-     * outcome, positionally aligned to the same season bonus-name list
-     * `redBonusRp` uses. Three distinct published states, never conflated:
+     * The algorithm-independent ACTUAL per-bonus outcome, positionally
+     * aligned to the same season bonus-name list `redBonusRp` uses. Three
+     * distinct published states, never conflated:
      *   - the key **absent** entirely: this artifact predates the field, or
      *     the season has no registered RP rule module (no bonus vocabulary
      *     to publish at all).
@@ -926,29 +871,28 @@ const TeamSeasonMatchSchema = z
      * `0`.
      */
     actualRedBonusRp: z.array(z.boolean()).nullable().optional(),
-    /** Phase 06.1 (F-06-3): the blue alliance's counterpart to `actualRedBonusRp` — see its doc comment for the full three-state contract. */
+    /** The blue alliance's counterpart to `actualRedBonusRp` — see its doc comment for the full three-state contract. */
     actualBlueBonusRp: z.array(z.boolean()).nullable().optional(),
     /**
-     * D-08/TEAM-04 (Phase 6): the Match column's human label — today
-     * derivable only by parsing the opaque `matchKey`, the same class of
-     * mistake `eventName: eventKey` already shipped (06-RESEARCH.md
-     * Pitfall 1). Published directly instead of re-derived client-side.
+     * The Match column's human label — otherwise derivable only by parsing
+     * the opaque `matchKey`. Published directly instead of re-derived
+     * client-side.
      */
     setNumber: z.number().int().optional(),
-    /** D-08/TEAM-04 (Phase 6): see `setNumber`'s doc comment. */
+    /** See `setNumber`'s doc comment. */
     matchNumber: z.number().int().optional(),
     /**
-     * D-08 (Phase 6): this match's chronological sort key, in epoch
-     * seconds — used for ORDERING every row (played and unplayed alike),
-     * and additionally DISPLAYED as the Actual column's value for an
-     * unplayed row only (a played row's Actual column instead shows
+     * This match's chronological sort key, in epoch seconds — used for
+     * ORDERING every row (played and unplayed alike), and additionally
+     * DISPLAYED as the Actual column's value for an unplayed row only (a
+     * played row's Actual column instead shows
      * `actualRedScore`/`actualBlueScore`). For a played row this is the
      * match's actual start time, not its scheduled time.
      */
     sortTime: z.number().int().optional(),
     redTeams: z.array(z.string()),
     blueTeams: z.array(z.string()),
-    /** Quick task 260906-7eu: see `EventMatchSchema.video`'s doc comment for the full contract — same field, same spelling, same absence-means-no-video convention. */
+    /** See `EventMatchSchema.video`'s doc comment for the full contract — same field, same spelling, same absence-means-no-video convention. */
     video: z.string().min(1).optional(),
   })
   .refine((row) => isValidPmf(row.redRpPmf), {
@@ -1014,14 +958,12 @@ const TeamSeasonMatchSchema = z
 // ---------------------------------------------------------------------------
 // TeamsArtifactSchema — v1/teams/{year}/{algorithmId}@{version}.json
 //
-// 260902-pbe: the teams artifact's `metrics` field is encoded POSITIONALLY —
-// see the payload-budget attribution this quick task resolves
-// (`.planning/todos/pending/payload-budget-teams-and-team-page-overage.md`):
-// the 17 metric key strings repeated across ~3,549 rows cost 979,248 B
-// (26.4%) of the artifact on their own. `MetricsRecordSchema` above is
-// SHARED by the team-season `seasonStats` and the event artifact's
-// standings row — this encoding applies to the teams-table row ONLY, so
-// neither of those two other consumers changes shape at all.
+// The teams artifact's `metrics` field is encoded POSITIONALLY: the metric
+// key strings repeated once per row cost about 26% of the artifact's
+// gzipped size on their own. `MetricsRecordSchema` above is SHARED by the
+// team-season `seasonStats` and the event artifact's standings row — this
+// encoding applies to the teams-table row ONLY, so neither of those two
+// other consumers changes shape at all.
 //
 // Two schemas exist for exactly this reason:
 //   - `TeamsArtifactWireSchema` validates the WIRE shape as written/read —
@@ -1042,23 +984,22 @@ const TeamSeasonMatchSchema = z
 // ---------------------------------------------------------------------------
 
 /**
- * 260902-pbe: one team's one metric, encoded positionally for the
- * teams-table row. Four states, chosen by array length so the shape stays
- * unambiguous without a discriminant field:
+ * One team's one metric, encoded positionally for the teams-table row.
+ * Four states, chosen by array length so the shape stays unambiguous
+ * without a discriminant field:
  *
  *   - `null` — this metric is absent for this row entirely (the published
  *     key set the declared metric list allows is a per-algorithm union, not
  *     a guarantee every row carries every key) — never confused with a
  *     metric that IS present but carries no `spread`.
  *   - `[value]` — present, no `spread`, no `tier`. Every OPR row, and most
- *     EPA rows, are length-1 (D-07: neither models an alliance/team-level
- *     own variance, so "no spread" is normal, not an error). As of quick
- *     task 260904-7id (D-1) this is no longer true for EPA's THREE group
- *     metrics (`phaseAuto`/`phaseTeleop`/`phaseEndgame`): those carry a
- *     season-wide percentile/tier from the publish pipeline exactly like any
- *     other tiered metric, so they occupy the three-element form below
- *     instead — EPA's raw components and `total` are unaffected and stay
- *     length-1.
+ *     EPA rows, are length-1 (neither models an alliance/team-level own
+ *     variance, so "no spread" is normal, not an error). This is NOT true
+ *     for EPA's THREE group metrics (`phaseAuto`/`phaseTeleop`/
+ *     `phaseEndgame`): those carry a season-wide percentile/tier from the
+ *     publish pipeline exactly like any other tiered metric, so they
+ *     occupy the three-element form below instead — EPA's raw components
+ *     and `total` are unaffected and stay length-1.
  *   - `[value, spread]` — present with a real `spread` (including a
  *     genuine `0`, which is a real measured spread and never coerced from
  *     "absent"), no `tier` (Common, which renders unboxed — see
@@ -1162,25 +1103,24 @@ export function deriveMetricKeyOrder(metricsRecords: readonly Readonly<Record<st
 }
 
 /**
- * D-05's first at-risk artifact (~3,750 rows). Kept as narrow as a sortable
- * table actually needs — anything a row does not need for the teams table
- * belongs on the team page (`TeamSeasonArtifactSchema`) instead.
+ * Kept as narrow as a sortable table actually needs — anything a row does
+ * not need for the teams table belongs on the team page
+ * (`TeamSeasonArtifactSchema`) instead.
  *
- * Deliberately does NOT extend `RecordAndMetricsSchema` (unlike before
- * 260902-pbe) — that shared schema's `metrics` field is fixed to
- * `MetricsRecordSchema`'s object form, and this row's `metrics` must accept
- * the positional array too. `record` still reuses the shared `RecordSchema`
- * unchanged.
+ * Deliberately does NOT extend `RecordAndMetricsSchema` — that shared
+ * schema's `metrics` field is fixed to `MetricsRecordSchema`'s object
+ * form, and this row's `metrics` must accept the positional array too.
+ * `record` still reuses the shared `RecordSchema` unchanged.
  */
 const TeamsTableRowRawSchema = z.object({
   teamKey: z.string().min(1),
   teamNumber: z.number().int(),
   nickname: z.string(),
   /**
-   * Distinct OFFICIAL events this team played (quick task 260908-615 —
-   * see `RecordSchema`'s own comment for the scoping rule and why the
-   * offseason data is still present elsewhere in the artifact). A team whose
-   * only play was offseason publishes `0` here and still gets a row.
+   * Distinct OFFICIAL events this team played (see `RecordSchema`'s own
+   * comment for the scoping rule and why the offseason data is still
+   * present elsewhere in the artifact). A team whose only play was
+   * offseason publishes `0` here and still gets a row.
    */
   eventCount: z.number().int().nonnegative(),
   /** OFFICIAL matches played — same scoping as `eventCount` above. */
@@ -1188,13 +1128,12 @@ const TeamsTableRowRawSchema = z.object({
   record: RecordSchema,
   metrics: z.union([MetricsRecordSchema, z.array(PositionalMetricEntrySchema)]),
   /**
-   * Quick task 260905-ttv: this team's INFERRED home region
-   * (`teamRanks.ts`'s `deriveTeamRegions` — the corpus carries no team
-   * addresses, so a consumer must never present these as TBA ground truth).
-   * Additive optional fields on one page kind are backward-compatible for
-   * every reader, matching the precedent `EventsListRowSchema` and
-   * `TeamSeasonArtifactSchema.ranks` already set (and the one quick task
-   * 260905-ldu set one day earlier for this same artifact family) — so
+   * This team's INFERRED home region (`teamRanks.ts`'s
+   * `deriveTeamRegions` — the corpus carries no team addresses, so a
+   * consumer must never present these as TBA ground truth). Additive
+   * optional fields on one page kind are backward-compatible for every
+   * reader, matching the precedent `EventsListRowSchema` and
+   * `TeamSeasonArtifactSchema.ranks` already set — so
    * `PAGE_ARTIFACT_SCHEMA_VERSION` is deliberately NOT bumped for this
    * change. Absent on a pre-republish artifact, or on any team whose region
    * is not derivable; never `null` or `""`.
@@ -1207,13 +1146,12 @@ const TeamsTableRowRawSchema = z.object({
 export const TeamsArtifactWireSchema = AlgorithmScopedPreambleSchema.extend({
   season: z.number().int(),
   /**
-   * 260902-pbe: the ordered key list every row's POSITIONAL `metrics` array
-   * aligns to, carried once here instead of once per row — the entire
-   * saving this encoding buys. Optional: absent on a back-compat,
-   * object-form artifact (every row's `metrics` is a record, so there is
-   * nothing to align), required — enforced by the `.refine()` below, not by
-   * this field's own type — on any artifact carrying even one positional
-   * row.
+   * The ordered key list every row's POSITIONAL `metrics` array aligns to,
+   * carried once here instead of once per row — the entire saving this
+   * encoding buys. Optional: absent on a back-compat, object-form artifact
+   * (every row's `metrics` is a record, so there is nothing to align),
+   * required — enforced by the `.refine()` below, not by this field's own
+   * type — on any artifact carrying even one positional row.
    */
   metricKeys: z.array(z.string()).optional(),
   teams: z.array(TeamsTableRowRawSchema),
@@ -1268,30 +1206,30 @@ const TeamSeasonEventSchema = z.object({
   startDate: z.string(),
   matches: z.array(TeamSeasonMatchSchema),
   /**
-   * TEAM-04/F-06-3 (plan 06.1-01): this team's TBA-computed standing at this
-   * event, sourced from `event_rankings` (`packages/corpus/db.ts`'s
+   * This team's TBA-computed standing at this event, sourced from
+   * `event_rankings` (`packages/corpus/db.ts`'s
    * `selectEventRankingsForSeason`, filled by TBA's
    * `/event/{key}/rankings`). Optional, following `robotImageUrl`'s own
-   * convention: an artifact published before this phase's republish must
-   * still parse. Absence means no ranking data was published for this
+   * convention: an artifact published before the corresponding republish
+   * must still parse. Absence means no ranking data was published for this
    * event — never synthesised, never zero. `rank`/`totalTeams` always
    * appear together or not at all (enforced at the ingest/publish
    * boundary, not by a schema-level `.refine()` here — the render layer
    * additionally treats a half-present pair as absent).
    */
   rank: z.number().int().positive().optional(),
-  /** TEAM-04/F-06-3 (plan 06.1-01): the size of the ranked pool `rank` is drawn from — see `rank`'s doc comment for the full contract. */
+  /** The size of the ranked pool `rank` is drawn from — see `rank`'s doc comment for the full contract. */
   totalTeams: z.number().int().positive().optional(),
 });
 
 /**
- * Quick task 260905-ldu: one World/Country/District/State rank card's worth
- * of data, mirroring `packages/harness/teamRanks.ts`'s `TeamRankScope` —
- * that module computes the value, this schema is only the wire contract for
- * it. `value` is the RAW published scope value (country string, district
- * abbreviation, state-prov abbreviation); it is omitted for `world`, and
- * reader-facing formatting (e.g. `districtDisplayName`) is the client's job,
- * never done here.
+ * One World/Country/District/State rank card's worth of data, mirroring
+ * `packages/harness/teamRanks.ts`'s `TeamRankScope` — that module computes
+ * the value, this schema is only the wire contract for it. `value` is the
+ * RAW published scope value (country string, district abbreviation,
+ * state-prov abbreviation); it is omitted for `world`, and reader-facing
+ * formatting (e.g. `districtDisplayName`) is the client's job, never done
+ * here.
  */
 const TeamSeasonRankSchema = z.object({
   scope: z.enum(["world", "country", "district", "state"]),
@@ -1301,10 +1239,10 @@ const TeamSeasonRankSchema = z.object({
 });
 
 /**
- * D-07: everything the team page renders in one object. This is D-05's
- * second at-risk artifact (the 292-match outlier) — per D-07 that is the
- * budget test's problem to police, not a reason to split the file; a later
- * reader should not "fix" this by splitting it further.
+ * Everything the team page renders in one object. This is a large,
+ * at-risk-for-payload-budget artifact — that is the budget test's problem
+ * to police, not a reason to split the file; a later reader should not
+ * "fix" this by splitting it further.
  */
 export const TeamSeasonArtifactSchema = AlgorithmScopedPreambleSchema.extend({
   teamKey: z.string().min(1),
@@ -1313,7 +1251,7 @@ export const TeamSeasonArtifactSchema = AlgorithmScopedPreambleSchema.extend({
   season: z.number().int(),
   seasonStats: RecordAndMetricsSchema.extend({
     /**
-     * Quick task 260908-wpo: which basis produced this object's `metrics`.
+     * Which basis produced this object's `metrics`.
      * - `"last-official-match"` — this team's metrics as of its own LAST
      *   OFFICIAL (non-offseason, non-Week-0) match, the same snapshot the
      *   Teams list and the team-page header ("As of last official match")
@@ -1327,49 +1265,48 @@ export const TeamSeasonArtifactSchema = AlgorithmScopedPreambleSchema.extend({
      * season-final regardless of this field's value.
      *
      * Optional at parse — `.optional()` here, not required — so an artifact
-     * published before quick task 260908-wpo (whose `seasonStats.metrics`
-     * was unconditionally season-final, with no field naming that) still
-     * parses during the republish window rather than hard-failing every
-     * CDN-cached pre-republish artifact. Mandatory on the write side instead:
-     * `buildTeamSeasonArtifact` requires a basis from every caller.
+     * published before this field existed (whose `seasonStats.metrics` was
+     * unconditionally season-final, with no field naming that) still parses
+     * rather than hard-failing every CDN-cached pre-republish artifact.
+     * Mandatory on the write side instead: `buildTeamSeasonArtifact`
+     * requires a basis from every caller.
      */
     metricsBasis: z.enum(["last-official-match", "season-final"]).optional(),
   }),
   events: z.array(TeamSeasonEventSchema),
-  /** D-28: the team's metric-history series, one row per match, using `MetricHistoryRowSchema`'s own field names (reused directly, not re-derived) so the team page's plot never has to translate between the sidecar and the published file. */
+  /** The team's metric-history series, one row per match, using `MetricHistoryRowSchema`'s own field names (reused directly, not re-derived) so the team page's plot never has to translate between the sidecar and the published file. */
   metricHistory: z.array(MetricHistoryRowSchema),
   /**
-   * D-03 (Phase 6, TEAM-02): the pipeline-resolved robot image URL for this
-   * team/season, from TBA's `/team/{key}/media/{year}` — a `preferred`
-   * photo-bearing entry where flagged, otherwise the first photo-bearing
-   * entry (never TBA's `avatar` media kind, which carries an inline
-   * `base64Image`, not a usable `direct_url`). Optional: measured ~25% of
-   * real teams have no eligible photo at all, and the client must render a
-   * fallback tile for both that case and any not-yet-republished artifact.
+   * The pipeline-resolved robot image URL for this team/season, from
+   * TBA's `/team/{key}/media/{year}` — a `preferred` photo-bearing entry
+   * where flagged, otherwise the first photo-bearing entry (never TBA's
+   * `avatar` media kind, which carries an inline `base64Image`, not a
+   * usable `direct_url`). Optional: a measured share of real teams have no
+   * eligible photo at all, and the client must render a fallback tile for
+   * both that case and any not-yet-republished artifact.
    */
   robotImageUrl: z.string().url().optional(),
   /**
-   * D-05 (Phase 6, D-18): the seasons this team is known to have competed
-   * in, feeding the team page's constrained year dropdown. Optional and
-   * deliberately NOT relied upon as if always present: its absence (a
-   * not-yet-republished artifact, or a genuinely never-populated team) is a
-   * valid state the client must handle by falling back to the
-   * unconstrained global year list — this is what keeps a partial artifact
-   * from wrongly narrowing the dropdown (D-19's empty-state bootstrap
-   * note).
+   * The seasons this team is known to have competed in, feeding the team
+   * page's constrained year dropdown. Optional and deliberately NOT
+   * relied upon as if always present: its absence (a not-yet-republished
+   * artifact, or a genuinely never-populated team) is a valid state the
+   * client must handle by falling back to the unconstrained global year
+   * list — this is what keeps a partial artifact from wrongly narrowing
+   * the dropdown.
    */
   activeYears: z.array(z.number().int()).optional(),
   /**
-   * Quick task 260905-ldu: this team's World/Country/District/State rank
-   * cards for this algorithm/season, at most one entry per scope (world,
-   * country, district, state), in that order. Optional following the same
-   * argument `activeYears`/`robotImageUrl` above already make: absence is a
-   * valid state a client must handle, because a browser can hold an
-   * artifact published before this field existed — it renders zero cards,
-   * never a placeholder. PAGE_ARTIFACT_SCHEMA_VERSION is deliberately NOT
-   * bumped for this, matching `EventsListRowSchema`'s own recorded
-   * precedent: an additive optional field on one page kind is
-   * backward-compatible for every reader.
+   * This team's World/Country/District/State rank cards for this
+   * algorithm/season, at most one entry per scope (world, country,
+   * district, state), in that order. Optional following the same argument
+   * `activeYears`/`robotImageUrl` above already make: absence is a valid
+   * state a client must handle, because a browser can hold an artifact
+   * published before this field existed — it renders zero cards, never a
+   * placeholder. `PAGE_ARTIFACT_SCHEMA_VERSION` is deliberately NOT bumped
+   * for this, matching `EventsListRowSchema`'s own recorded precedent: an
+   * additive optional field on one page kind is backward-compatible for
+   * every reader.
    */
   ranks: z.array(TeamSeasonRankSchema).max(4).optional(),
 });
@@ -1381,11 +1318,10 @@ export type TeamSeasonArtifact = z.infer<typeof TeamSeasonArtifactSchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * plan 05-02 (EVNT-01): `country`, `stateProv` and `districtKey` are new
- * here. PAGE_ARTIFACT_SCHEMA_VERSION is deliberately NOT bumped for this —
- * additive nullable fields on one page kind are backward-compatible for any
- * reader, and this phase is the artifact's only consumer. A decision, not
- * an oversight.
+ * `country`, `stateProv` and `districtKey` are additive.
+ * `PAGE_ARTIFACT_SCHEMA_VERSION` is deliberately NOT bumped for this —
+ * additive nullable fields on one page kind are backward-compatible for
+ * any reader. A decision, not an oversight.
  */
 const EventsListRowSchema = z.object({
   eventKey: z.string().min(1),
@@ -1399,11 +1335,11 @@ const EventsListRowSchema = z.object({
   matchCount: z.number().int().nonnegative(),
   /** Together with `matchCount`, makes an in-progress event visible without a separate liveness field. */
   playedMatchCount: z.number().int().nonnegative(),
-  /** From TBA's `country` field (plan 05-02, EVNT-01); `null` means the event genuinely has no recorded country. */
+  /** From TBA's `country` field; `null` means the event genuinely has no recorded country. */
   country: z.string().nullable(),
-  /** From TBA's `state_prov` field (plan 05-02, EVNT-01); `null` means the event genuinely has no recorded state/province. */
+  /** From TBA's `state_prov` field; `null` means the event genuinely has no recorded state/province. */
   stateProv: z.string().nullable(),
-  /** From TBA's `district.abbreviation` field (plan 05-02, EVNT-01); `null` means the event genuinely is not part of a district. */
+  /** From TBA's `district.abbreviation` field; `null` means the event genuinely is not part of a district. */
   districtKey: z.string().nullable(),
 });
 
@@ -1419,10 +1355,10 @@ export type EventsArtifact = z.infer<typeof EventsArtifactSchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * D-18 item 7, D-15, D-16, plan 07-07 Task 3: one playoff alliance's
- * selection at an event. Declared module-private, matching every other row
- * schema in this file — nothing outside this module needs the schema
- * object itself, only `EventArtifact`'s inferred type.
+ * One playoff alliance's selection at an event. Declared module-private,
+ * matching every other row schema in this file — nothing outside this
+ * module needs the schema object itself, only `EventArtifact`'s inferred
+ * type.
  *
  * `allianceNumber` is TBA's own 1-based seed position, carried explicitly
  * rather than implied by array index so seed order survives any
@@ -1433,28 +1369,28 @@ export type EventsArtifact = z.infer<typeof EventsArtifactSchema>;
  * `name` is omitted when TBA sent none — the published shape stays
  * isomorphic to the source shape, an absent key for an absent name, never
  * an empty string and never a synthesized label; choosing a display
- * fallback is 07-14's decision to make from an honest absence.
+ * fallback is the client's decision to make from an honest absence.
  *
  * `picks` is TBA's own ordered array: entry 0 is the alliance captain,
  * entries 1 and 2 are the second and third picks, and a fourth entry where
  * present is the reserve robot TBA lists with no field of its own. This
  * schema declares no field named for either of those two positions —
  * both ARE positions in this one array, and a parallel field would be a
- * copy that can drift from it (PD-02). The constraint that matters most:
- * D-16 excludes the fourth pick from 07-14's combined arithmetic so the
- * column stays comparable across rows — it does not exclude that team from
- * the record of who was on the alliance, so truncating `picks` to three
- * anywhere in this pipeline would erase a real team's competition result
- * from the only published account of that event's selection.
+ * copy that can drift from it. The constraint that matters most: the
+ * fourth pick is excluded from combined-arithmetic columns so they stay
+ * comparable across rows — it does not exclude that team from the record
+ * of who was on the alliance, so truncating `picks` to three anywhere in
+ * this pipeline would erase a real team's competition result from the
+ * only published account of that event's selection.
  *
- * `record` (07-UAT.md G-8, plan 07-21): this alliance's playoff win-loss-tie
- * record, sourced from TBA's own `status` object
- * (`event_alliances.status_raw`) via `packages/corpus/db.ts`'s
- * `parseAllianceRecord`. Optional for the same two reasons `EventTeamSchema
- * .record` already states: a real absence (no playoff bracket has run yet,
- * or a `playoff_type` shape this pipeline has not modelled) and the
- * pre-republish window. Reuses `RecordSchema` unchanged — the identical
- * `{wins, losses, ties}` shape, never a formatted string.
+ * `record`: this alliance's playoff win-loss-tie record, sourced from
+ * TBA's own `status` object (`event_alliances.status_raw`) via
+ * `packages/corpus/db.ts`'s `parseAllianceRecord`. Optional for the same
+ * two reasons `EventTeamSchema.record` already states: a real absence (no
+ * playoff bracket has run yet, or a `playoff_type` shape this pipeline has
+ * not modelled) and the pre-republish window. Reuses `RecordSchema`
+ * unchanged — the identical `{wins, losses, ties}` shape, never a
+ * formatted string.
  */
 const EventAllianceSchema = z.object({
   allianceNumber: z.number().int().positive(),
@@ -1464,41 +1400,35 @@ const EventAllianceSchema = z.object({
 });
 
 /**
- * The one page schema plan 04-01's tracer needed, widened by plan 04-02
- * Task 2 to carry `upcoming`'s real D-08 shape and a standings-style
- * `teams` list, and by plan 04-04 Task 1 to make `teams` REQUIRED (never
- * optional) — `publish.ts`'s `buildEventArtifact` now populates it for
- * every event artifact it assembles, defaulting to an empty array only for
- * an event that genuinely has no team data in this run's scope, never
- * omitting the key entirely. Left optional, "not populated yet" and "this
- * event genuinely has no teams" were indistinguishable, and the event
- * page's standings table would have rendered empty instead of failing
- * loudly on a real gap. `matches` has since widened past the 04-01 tracer's
- * shape — see the 07-07 and 08-02 paragraphs below for the two rounds of
- * additive widening it has carried.
+ * `publish.ts`'s `buildEventArtifact` populates `teams` for every event
+ * artifact it assembles, defaulting to an empty array only for an event
+ * that genuinely has no team data in this run's scope, never omitting the
+ * key entirely — left optional, "not populated yet" and "this event
+ * genuinely has no teams" would be indistinguishable, and the event
+ * page's standings table would render empty instead of failing loudly on
+ * a real gap.
  *
- * D-18 items 7/8, plan 07-07 Task 3 widen this with the event's own
- * identity (`name`/`startDate`/`location`/`week`) and its playoff alliance
+ * Widened with the event's own identity
+ * (`name`/`startDate`/`location`/`week`) and its playoff alliance
  * selection (`alliances`). `PAGE_ARTIFACT_SCHEMA_VERSION` is deliberately
- * NOT bumped for these additions (D-02) — additive, optional fields on one
- * page kind are backward-compatible for any reader, matching
- * `EventsListRowSchema`'s own EVNT-01 precedent in this same file (plan
- * 05-02) for the identical class of change.
+ * NOT bumped for these additions — additive, optional fields on one page
+ * kind are backward-compatible for any reader, matching
+ * `EventsListRowSchema`'s own precedent in this same file for the
+ * identical class of change.
  *
- * D-03/D-12, plan 08-02 widen `matches` a second time with each played
- * row's ranking-point distribution pair (`redRpPmf`/`blueRpPmf`) and actual
+ * `matches` is widened a second time with each played row's
+ * ranking-point distribution pair (`redRpPmf`/`blueRpPmf`) and actual
  * ranking-point pair (`actualRedRp`/`actualBlueRp`) — both additive and
- * optional (the pmf pair) or nullable-and-optional (the actual-RP pair), so
- * a pre-republish artifact carrying neither still parses. Again no
- * `PAGE_ARTIFACT_SCHEMA_VERSION` bump, for the same reason the 07-07
- * additions needed none. `matches` and `upcoming` remain two distinct
- * arrays on the wire — Phase 7's D-13 split is preserved, and this plan
- * widens the played array rather than merging it into the upcoming one.
+ * optional (the pmf pair) or nullable-and-optional (the actual-RP pair),
+ * so a pre-republish artifact carrying neither still parses. Again no
+ * `PAGE_ARTIFACT_SCHEMA_VERSION` bump. `matches` and `upcoming` remain two
+ * distinct arrays on the wire; this widens the played array rather than
+ * merging it into the upcoming one.
  *
- * `name`/`startDate` are optional but never null: TBA has both for any real
- * event, and 07-08 falls back to the event key exactly as
- * `buildEventsArtifact` already does for the events list — `undefined` here
- * can only mean the artifact predates the field.
+ * `name`/`startDate` are optional but never null: TBA has both for any
+ * real event, and the pipeline falls back to the event key exactly as
+ * `buildEventsArtifact` already does for the events list — `undefined`
+ * here can only mean the artifact predates the field.
  *
  * `location`/`week` are optional AND nullable: `undefined` means the same
  * as above, while `null` is the honest published answer for an event with
@@ -1506,17 +1436,16 @@ const EventAllianceSchema = z.object({
  * same shape `EventsListRowSchema` already uses for these two source
  * columns, plus the optionality the pre-republish window needs. `location`
  * is composed once, in the pipeline, through `composeEventLocation`
- * exported above (PD-01) — never two raw `stateProv`/`country` fields here,
- * so the event page and the Events list can never disagree about one
- * event's location string.
+ * exported above — never two raw `stateProv`/`country` fields here, so the
+ * event page and the Events list can never disagree about one event's
+ * location string.
  *
- * `alliances` is optional for the pre-republish window only: 07-08 must
- * always emit the key after the republish, and 07-14's disabled-tab
- * predicate treats an absent key and an empty array identically because
- * both are live-observed real absences — a null TBA body at `2022ispr` and
- * an empty array at `2025bc` and `2026wvrox`, the latter being events that
- * ran qualification matches and published rankings but never held an
- * alliance selection at all.
+ * `alliances` is optional for the pre-republish window only: the client's
+ * disabled-tab predicate treats an absent key and an empty array
+ * identically because both are live-observed real absences — a null TBA
+ * body at `2022ispr` and an empty array at `2025bc` and `2026wvrox`, the
+ * latter being events that ran qualification matches and published
+ * rankings but never held an alliance selection at all.
  */
 export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
   eventKey: z.string().min(1),
@@ -1530,7 +1459,7 @@ export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
   teams: z.array(EventTeamSchema),
   alliances: z.array(EventAllianceSchema).optional(),
   /**
-   * D-15, plan 09-07: this season's own win/tie ranking-point constants
+   * This season's own win/tie ranking-point constants
    * (`RpRuleModule.winRp`/`.tieRp` — 2/1 in 2016-2024, 3/1 in 2025-2026),
    * published ONCE PER ARTIFACT rather than once per row — one fact about a
    * season, one representation of it. A consumer composes the index-aligned
@@ -1572,21 +1501,20 @@ const CompareExclusionCountsSchema = z.object({
   missingResult: z.number().int().nonnegative(),
   quarantined: z.number().int().nonnegative(),
   /**
-   * D-02/D-04 (quick task 260909-t5q): see `packages/harness/score.ts`'s
-   * `ExclusionCounts.coldStart` doc comment for the full contract. OPTIONAL
-   * here on purpose — this is a LIVE, R2-served artifact
-   * shape, and D-04 defers the republish that would add this key to every
-   * already-published slice. A required key would fail to parse every one
-   * of today's four-key live artifacts and blank the Compare page in
-   * production before any republish happens. Absence genuinely means "this
-   * artifact predates the field" and MUST render as absent
-   * (`coverageRows.ts`'s `SharedCount`'s `absent` variant), never coerced to
-   * zero — pinned by `apps/web/src/lib/api/compare.compat.test.ts`.
+   * See `packages/harness/score.ts`'s `ExclusionCounts.coldStart` doc
+   * comment for the full contract. OPTIONAL here on purpose — this is a
+   * LIVE, R2-served artifact shape, and a required key would fail to
+   * parse an already-published slice missing this key and blank the
+   * Compare page in production before any republish happens. Absence
+   * genuinely means "this artifact predates the field" and MUST render as
+   * absent (`coverageRows.ts`'s `SharedCount`'s `absent` variant), never
+   * coerced to zero — pinned by
+   * `apps/web/src/routes/methodology.compare.test.tsx`.
    */
   coldStart: z.number().int().nonnegative().optional(),
 });
 
-/** One published bonus's calibration figures (F1, D-09, D-11) — one entry per bonus that scored at least one (alliance, bonus) observation this season/algorithm; a bonus with zero observations is OMITTED here rather than emitted with `NaN` figures (T-09-04). */
+/** One published bonus's calibration figures — one entry per bonus that scored at least one (alliance, bonus) observation this season/algorithm; a bonus with zero observations is OMITTED here rather than emitted with `NaN` figures. */
 const CompareRpBonusSchema = z.object({
   name: z.string().min(1),
   count: z.number().int().nonnegative(),
@@ -1596,30 +1524,24 @@ const CompareRpBonusSchema = z.object({
 });
 
 /**
- * The RP scorecard's wire shape (F1, D-09, D-11) — one per (season,
- * algorithm), attached to the matching `qualification` slice by
- * `buildCompareArtifact`.
+ * The RP scorecard's wire shape — one per (season, algorithm), attached
+ * to the matching `qualification` slice by `buildCompareArtifact`.
  *
- * Task 2 Step 5 (2026-09-11): this shape ORIGINALLY also carried a
- * `reliabilityBins` array (reusing `CompareCalibrationBinSchema`, pooling
- * every bonus's observations into one set of buckets) — measured, real bytes
- * showed attaching it pushed `compare-2016.json` to 21,260 bytes against the
- * committed 20,000-byte `budgetMaxBytes` (`docs/publish-budget.md`), 2016
- * carrying three algorithms' worth of RP calibration. Per this plan's own
- * pre-committed remedy (shrink the block, never raise the budget),
- * `reliabilityBins` was dropped here: nothing on `/methodology/compare`
- * ever read it (the section renders per-bonus deviation bars from `bonuses`
- * alone), so it was pure wire cost with no consumer. The per-bonus
- * `bonuses` array — the one thing the headline sentence and D-09's per-bonus
- * acceptance bar both need — is unaffected.
+ * Deliberately does NOT carry a pooled `reliabilityBins` array: measured,
+ * real bytes showed attaching it pushed a season's compare artifact over
+ * its committed size budget (`docs/publish-budget.md`) with three
+ * algorithms' worth of RP calibration, and nothing on
+ * `/methodology/compare` ever read it — the section renders per-bonus
+ * deviation bars from `bonuses` alone, so it was pure wire cost with no
+ * consumer.
  */
 /**
- * The RP scorecard's TOTAL-RP block (2026-09-13, quick task 260913-qyn) —
- * `redRpPmf`/`blueRpPmf` scored against the actual alliance RP by a ranked
- * probability score, pooled per alliance-side, plus mean predicted RP, mean
- * actual RP and the two exclusion counts (a null actual RP, and an actual RP
- * outside the pmf's own support). OPTIONAL, OMITTED when its `count` is 0 —
- * the same absence discipline `bonuses` already uses, never a coerced zero.
+ * The RP scorecard's TOTAL-RP block — `redRpPmf`/`blueRpPmf` scored
+ * against the actual alliance RP by a ranked probability score, pooled
+ * per alliance-side, plus mean predicted RP, mean actual RP and the two
+ * exclusion counts (a null actual RP, and an actual RP outside the pmf's
+ * own support). OPTIONAL, OMITTED when its `count` is 0 — the same
+ * absence discipline `bonuses` already uses, never a coerced zero.
  */
 const CompareRpTotalSchema = z.object({
   count: z.number().int().nonnegative(),
@@ -1631,11 +1553,11 @@ const CompareRpTotalSchema = z.object({
 });
 
 /**
- * The RP scorecard's OUTCOME block (2026-09-13, quick task 260913-qyn) —
- * `matchOutcomePmf` scored against `match.winner` by a three-outcome Brier
- * (0 perfect, 2 worst; NOT comparable to the site's binary win Brier),
- * pooled per match, plus mean predicted tie probability and the observed tie
- * rate. OPTIONAL, OMITTED when its `count` is 0.
+ * The RP scorecard's OUTCOME block — `matchOutcomePmf` scored against
+ * `match.winner` by a three-outcome Brier (0 perfect, 2 worst; NOT
+ * comparable to the site's binary win Brier), pooled per match, plus mean
+ * predicted tie probability and the observed tie rate. OPTIONAL, OMITTED
+ * when its `count` is 0.
  */
 const CompareRpOutcomeSchema = z.object({
   count: z.number().int().nonnegative(),
@@ -1664,21 +1586,16 @@ const CompareRpCalibrationSchema = z.object({
  */
 export type CompareRpCalibration = z.infer<typeof CompareRpCalibrationSchema>;
 
-/** One algorithm's `ScoreSlice` figures for one season/compLevel view — raw numbers only (D-21); no field here may be a delta or judgement between two algorithms' slices. */
+/** One algorithm's `ScoreSlice` figures for one season/compLevel view — raw numbers only; no field here may be a delta or judgement between two algorithms' slices. */
 const CompareSliceSchema = z.object({
   algorithmId: z.string().min(1),
   season: z.number().int(),
   /**
-   * The retired tune/holdout `seasonLabel` sat here as an OPTIONAL vestige
-   * (D-4, quick task 260903-krp) while live 5.0.0 artifacts still carried
-   * the key. The 2026-09-04 republish (epa@5.0.0 / vpr@8.0.0+rolling-2026-09b)
-   * replaced every producer of that key, so the field is now DELETED, not
-   * optional — the D-1 sequencing rule in
-   * `rolling-origin-hyperparameter-tuning` said the deletion rides the
-   * republish, and this is that deletion. Archived 5.0.0-era artifacts still
-   * parse (this schema is not `.strict()`, so Zod strips the unknown key);
-   * they just no longer read the retired key through.
-   * `apps/web/src/lib/api/compare.compat.test.ts` pins exactly that.
+   * A retired tune/holdout `seasonLabel` key once sat here as an optional
+   * vestige. It is now DELETED, not optional. Archived pre-deletion
+   * artifacts still parse (this schema is not `.strict()`, so Zod strips
+   * the unknown key); they just no longer read the retired key through.
+   * `apps/web/src/routes/methodology.compare.test.tsx` pins exactly that.
    */
   headlineEligible: z.boolean(),
   compLevelView: z.enum(["qualification", "elimination", "combined"]),
@@ -1691,16 +1608,16 @@ const CompareSliceSchema = z.object({
   candidateCount: z.number().int().nonnegative(),
   calibrationBins: z.array(CompareCalibrationBinSchema),
   /**
-   * F1/D-09/D-11 (phase 09 plan 09-01): the RP scorecard's per-bonus
-   * accuracy for this algorithm/season. OPTIONAL here on purpose, following
-   * `CompareExclusionCountsSchema.coldStart`'s precedent exactly — this is a
-   * LIVE, R2-served artifact shape (`v1/compare/{year}.json`), and a
-   * required key would fail to parse every already-published slice and
-   * blank the Compare page in production before this phase's republish
-   * lands. Absence genuinely means "this artifact predates the field" and
-   * MUST render as absent (`RP_CALIBRATION_ABSENT_TEXT` on the Compare
-   * page), never coerced to zero — pinned by
-   * `apps/web/src/lib/api/compare.compat.test.ts`.
+   * The RP scorecard's per-bonus accuracy for this algorithm/season.
+   * OPTIONAL here on purpose, following
+   * `CompareExclusionCountsSchema.coldStart`'s precedent exactly — this is
+   * a LIVE, R2-served artifact shape (`v1/compare/{year}.json`), and a
+   * required key would fail to parse an already-published slice missing
+   * it and blank the Compare page in production before a republish lands.
+   * Absence genuinely means "this artifact predates the field" and MUST
+   * render as absent (`RP_CALIBRATION_ABSENT_TEXT` on the Compare page),
+   * never coerced to zero — pinned by
+   * `apps/web/src/routes/methodology.compare.test.tsx`.
    *
    * Hangs off the SLICE, not the artifact: bonus ranking points exist only
    * in QUALIFICATION matches (no elimination/combined bonus RP exists to
@@ -1713,11 +1630,12 @@ const CompareSliceSchema = z.object({
 
 /**
  * The head-to-head page. Deliberately NOT algorithm-scoped — the single
- * documented exception to D-02's one-file-per-algorithm rule, because this
- * file's entire purpose is putting the published algorithms side by side.
- * It therefore does not extend `AlgorithmScopedPreambleSchema` and carries
- * no top-level `algorithmId`/`algorithmVersion`; `algorithms` names every
- * algorithm the file covers instead.
+ * documented exception to this file's one-file-per-algorithm convention,
+ * because this file's entire purpose is putting the published algorithms
+ * side by side. It therefore does not extend
+ * `AlgorithmScopedPreambleSchema` and carries no top-level
+ * `algorithmId`/`algorithmVersion`; `algorithms` names every algorithm the
+ * file covers instead.
  */
 export const CompareArtifactSchema = PagePreambleSchema.extend({
   algorithms: z.array(CompareAlgorithmSchema).min(1),
@@ -1728,32 +1646,25 @@ export type CompareArtifact = z.infer<typeof CompareArtifactSchema>;
 
 // ---------------------------------------------------------------------------
 // Districts artifacts — v1/districts/{year}.json, v1/district/{districtKey}.json
-// (quick task 260905-lic Task 2; widened by revision R2a)
 // ---------------------------------------------------------------------------
 
 /**
- * REVISION R2a SCHEMA-VERSION NOTE: this revision's plan text called for
- * bumping `PAGE_ARTIFACT_SCHEMA_VERSION`. That constant is declared ONCE at
+ * SCHEMA-VERSION NOTE: `PAGE_ARTIFACT_SCHEMA_VERSION` is declared ONCE at
  * the top of this file and shared, via `z.literal(PAGE_ARTIFACT_SCHEMA_VERSION)`,
  * by EVERY page kind's preamble — teams, team, events, event, compare AND
  * districts alike. Bumping it would make every already-published artifact of
  * every OTHER page kind fail its `schemaVersion` literal check the moment a
  * client fetches it, until the entire site (not just districts) is
- * republished — disproportionate to, and unrelated to, this revision's
- * scope. This file's own established convention for exactly this situation
- * (`EventsListRowSchema`'s EVNT-01 note, `TeamSeasonArtifactSchema`'s `ranks`
- * note, `EventArtifactSchema`'s D-18/D-03 notes — all citing "additive,
- * optional fields on one page kind are backward-compatible for any reader")
- * is followed instead: every field this revision adds below
- * (`qualifyingAwards`, `allocationNote`) is additive, and the two new
- * `status` enum literals (`"lockedAward"`, `"prequalified"`) carry the same
- * bounded, already-accepted risk D-02's own precedent names explicitly — a
- * stale cached client reading a freshly-published artifact within the
- * `max-age=60` window. District artifacts are refreshed only by an offline,
- * infrequent manual publish (this file's own header, unchanged), so that
- * window is narrow. No version bump here; flagged in this revision's return
- * to the orchestrator so a real bump (and the full-site republish it would
- * force) can be chosen deliberately if wanted.
+ * republished. This file's own established convention for exactly this
+ * situation ("additive, optional fields on one page kind are
+ * backward-compatible for any reader") is followed instead: every field
+ * districts adds below (`qualifyingAwards`, `allocationNote`) is additive,
+ * and the two `status` enum literals (`"lockedAward"`, `"prequalified"`)
+ * carry the same bounded, already-accepted risk this file's other pages'
+ * additions accept — a stale cached client reading a freshly-published
+ * artifact within the `max-age=60` window. District artifacts are
+ * refreshed only by an offline, infrequent manual publish (this file's own
+ * header, unchanged), so that window is narrow. No version bump here.
  */
 
 /**
@@ -1762,12 +1673,12 @@ export type CompareArtifact = z.infer<typeof CompareArtifactSchema>;
  * above. `PageKind` is the union `apps/worker/src/artifactWriter.ts`'s
  * exhaustive `SCHEMA_BY_PAGE` record and `publish.ts`'s per-season size
  * budget are both keyed on — district artifacts are neither live-written by
- * the Worker (F-07/context: "District artifacts are refreshed only by an
- * offline `pnpm ingest:districts` + `pnpm publish:districts`. The live
- * Worker cron does not touch them.") nor part of a per-season replay.
- * Widening `PageKind` here would force a Worker change that buys nothing.
- * These two keys follow the `v1/manifest/*.json` precedent instead —
- * published keys that live outside `PageKind` on purpose (see
+ * the Worker (district artifacts are refreshed only by an offline
+ * `pnpm ingest:districts` + `pnpm publish:districts`; the live Worker cron
+ * does not touch them) nor part of a per-season replay. Widening `PageKind`
+ * here would force a Worker change that buys nothing. These two keys
+ * follow the `v1/manifest/*.json` precedent instead — published keys that
+ * live outside `PageKind` on purpose (see
  * `scripts/publishAlgorithmsManifest.ts`'s `ALGORITHMS_MANIFEST_KEY`).
  */
 export function districtsIndexKey(year: number): string {
@@ -1783,15 +1694,14 @@ export function districtDetailKey(districtKey: string): string {
  * The district/champ lock verdict `packages/core/districts/locks.ts`'s
  * `computeLocksWithQualifiers` returns, plus the season's current cut-line
  * point total — shared by every team's `districtLock`/`champLock` entry
- * below. Widened by revision R2a (`260905-lic-RESEARCH-awards.md`) from the
- * original four-way `status` to six: `"lockedAward"` (an award already
- * guarantees this team a slot, regardless of its own points standing) and
+ * below. `status` is six-way: `"lockedAward"` (an award already guarantees
+ * this team a slot, regardless of its own points standing) and
  * `"prequalified"` (a curated FIRST Championship pre-qualification — champ
  * lock only, never district lock) join `locked`/`eliminated`/`contending`/
  * `unknown`.
  *
  * `allocationNote` is the honest "not modeled" flag for a district-year the
- * ordinary cut-line math does not apply to at all (research: `2025fsc`'s
+ * ordinary cut-line math does not apply to at all (e.g. `2025fsc`'s
  * documented five-explicit-invite exception) — `null` for every ordinary
  * district-year. Present on BOTH `districtLock` and `champLock` (mirroring
  * `cutLinePoints`'s own per-team-duplicated-but-district-wide-constant
@@ -1806,7 +1716,7 @@ const DistrictLockVerdictSchema = z.object({
   threatCount: z.number().int().nonnegative(),
   /** The point total currently sitting at the slot-th rank for this lock's capacity — `null` when capacity (`slots`) is not published, mirroring `pointsToLock`'s own null contract. */
   cutLinePoints: z.number().nullable(),
-  /** revision R2a: `"special allocation, not modeled"` for a district-year the ordinary points/award-slot model does not apply to at all (currently only `2025fsc`'s champ lock, `packages/core/districts/qualification.ts`'s `specialAllocationNote`); `null` for every ordinary district-year. */
+  /** `"special allocation, not modeled"` for a district-year the ordinary points/award-slot model does not apply to at all (currently only `2025fsc`'s champ lock, `packages/core/districts/qualification.ts`'s `specialAllocationNote`); `null` for every ordinary district-year. */
   allocationNote: z.string().nullable(),
 });
 
@@ -1852,8 +1762,8 @@ const DistrictTeamRemainingEventSchema = z.object({
 });
 
 /**
- * One award recipiency relevant to district/champ qualification (revision
- * R2a, research Q1/Q4/Q5) — `packages/core/districts/qualification.ts`'s
+ * One award recipiency relevant to district/champ qualification —
+ * `packages/core/districts/qualification.ts`'s
  * `isQualificationRelevantAward`/`isAwardOnly`/`awardDisplayName` govern
  * which award records appear here and how each is labelled. Populated from
  * district-tier events (`award_type` 0/9/10, with 9/10 always `awardOnly:
@@ -1883,7 +1793,7 @@ const DistrictTeamSchema = z.object({
   remainingEvents: z.array(DistrictTeamRemainingEventSchema),
   maxRemainingDistrict: z.number(),
   maxRemainingChamp: z.number(),
-  /** revision R2a — every award recipiency this team holds that is relevant to district or champ qualification, district-tier and DCMP-tier events alike. `[]` when the team holds none. */
+  /** Every award recipiency this team holds that is relevant to district or champ qualification, district-tier and DCMP-tier events alike. `[]` when the team holds none. */
   qualifyingAwards: z.array(DistrictQualifyingAwardSchema),
   districtLock: DistrictLockVerdictSchema,
   champLock: DistrictLockVerdictSchema,
@@ -1917,22 +1827,21 @@ export type DistrictArtifact = z.infer<typeof DistrictArtifactSchema>;
 
 // ---------------------------------------------------------------------------
 // Pre-schedule rank-simulation sidecar — v1/presim/{eventKey}/{algorithmId}@{version}.json
-// (quick task 260905-tll Task 1, PD-01)
 // ---------------------------------------------------------------------------
 
 /**
  * `preScheduleKey` is declared as its OWN exported function and
  * deliberately NOT added to `PageKind`/`ArtifactKeyParams` above, following
- * `districtsIndexKey`/`districtDetailKey`'s precedent immediately above
- * (PD-01). Three consequences fall out of that single choice at once:
+ * `districtsIndexKey`/`districtDetailKey`'s precedent immediately above.
+ * Three consequences fall out of that single choice at once:
  * `apps/worker/src/artifactWriter.ts`'s exhaustive `SCHEMA_BY_PAGE`-keyed
  * writer structurally cannot address (and therefore cannot clobber or
- * delete) a sidecar the Worker must never regenerate (C-18 — the Worker
- * never simulates); `packages/harness/payloadBudget.test.ts`'s own
- * `PAGE_KINDS` list stays untouched, so the sidecar lives outside the
- * machine-readable size-budget block on purpose; and the event artifact's
- * reachable 350,000-byte ceiling is never approached, because the sidecar
- * is a separate, lazily-fetched object rather than new bytes on the event
+ * delete) a sidecar the Worker must never regenerate (the Worker never
+ * simulates); `packages/harness/payloadBudget.test.ts`'s own `PAGE_KINDS`
+ * list stays untouched, so the sidecar lives outside the machine-readable
+ * size-budget block on purpose; and the event artifact's reachable
+ * 350,000-byte ceiling is never approached, because the sidecar is a
+ * separate, lazily-fetched object rather than new bytes on the event
  * page's own key. `PAGE_ARTIFACT_SCHEMA_VERSION` is NOT bumped — this
  * file's established convention (the districts note above) is that an
  * additive new artifact kind never bumps it.
@@ -1976,8 +1885,8 @@ const PreScheduleMatchSchema = z.object({
  * carries the priced-schedule block: `eventKey`/`season`/`pricedFrom`/
  * `matchesPerTeam`/`roster` identify what was priced, and `baked` is the
  * default rank distribution the Simulation tab renders on first paint with
- * zero client compute. Split out (260912-2ur) so `PreScheduleArtifactSchema`
- * (the builder's in-memory shape, `schedules` required) and
+ * zero client compute. Split out so `PreScheduleArtifactSchema` (the
+ * builder's in-memory shape, `schedules` required) and
  * `PublishedPreScheduleArtifactSchema` (the R2 wire shape, `schedules`
  * dropped) share one field list and one set of reader-protecting
  * invariants instead of two copies that could drift apart.
@@ -1985,7 +1894,7 @@ const PreScheduleMatchSchema = z.object({
 const PreScheduleArtifactBaseSchema = AlgorithmScopedPreambleSchema.extend({
   eventKey: z.string().min(1),
   season: z.number().int(),
-  /** How this sidecar was priced (PD-02): walk-forward pre-event state when the corpus shows the event's schedule has landed, current (season-final) state when it has not. */
+  /** How this sidecar was priced: walk-forward pre-event state when the corpus shows the event's schedule has landed, current (season-final) state when it has not. */
   pricedFrom: z.enum(["pre-event-walk-forward", "current-state"]),
   matchesPerTeam: z.number().int().positive(),
   /** The team keys that define the index space for every `r`/`b` array and every baked histogram below — sorted ascending by the builder, so republishes are byte-stable regardless of corpus row order. */
@@ -2147,16 +2056,16 @@ export const PublishedPreScheduleArtifactSchema = PreScheduleArtifactBaseSchema.
 export type PublishedPreScheduleArtifact = z.infer<typeof PublishedPreScheduleArtifactSchema>;
 
 /**
- * THE FIELD-AVERAGED pre-schedule sidecar (plan 09-09 rung 1; D-16, D-17).
+ * THE FIELD-AVERAGED pre-schedule sidecar.
  *
  * WHAT THIS REPLACES. `PreScheduleArtifactSchema` above carries K priced
  * synthetic schedules plus a baked rank histogram per team. This carries ONE
- * per-match pmf per team, and nothing else. D-16 names why the schedules were
- * never the thing that was needed: the 20 of them were a MONTE CARLO
- * APPROXIMATION OF AN EXPECTATION OVER SCHEDULE RANDOMNESS — the same insight
- * as the RP pmf, one level up — so if schedule randomness is averaged away in
- * the end, what is needed is the DISTRIBUTION A RANDOM SCHEDULE INDUCES, and
- * that has a closed form.
+ * per-match pmf per team, and nothing else. The schedules were never the
+ * thing that was needed: the 20 of them were a MONTE CARLO APPROXIMATION OF
+ * AN EXPECTATION OVER SCHEDULE RANDOMNESS — the same insight as the RP pmf,
+ * one level up — so if schedule randomness is averaged away in the end,
+ * what is needed is the DISTRIBUTION A RANDOM SCHEDULE INDUCES, and that
+ * has a closed form.
  *
  * `perTeamPmf[i]` is `roster[i]`'s FIELD-AVERAGED distribution over its own
  * alliance's TOTAL ranking points in ONE qualification match — NOT its season
@@ -2171,7 +2080,7 @@ export type PublishedPreScheduleArtifact = z.infer<typeof PublishedPreScheduleAr
  * mulberry32(seed))` on identical inputs and get IDENTICAL histograms. That
  * identity is a test, not a hope.
  *
- * THE HONEST CAVEATS (D-16 requires these wherever this ships): the
+ * THE HONEST CAVEATS: the
  * field-averaged form assumes a team's matches are near-independent, and it
  * washes out coupling from teams that share specific matches — AND, IN THE
  * SAME BREATH, the 20-schedule form washed that same coupling out BY DESIGN,
@@ -2180,35 +2089,22 @@ export type PublishedPreScheduleArtifact = z.infer<typeof PublishedPreScheduleAr
  * a defect unique to this one. The composition-induced spread is treated as
  * Gaussian, the same approximation class used elsewhere here.
  *
- * WHICH OF THE OLD SCHEMA'S REFINEMENTS SURVIVE, NAMED RATHER THAN LEFT TO A
- * DIFF:
- *   - the valid-pmf refine SURVIVES, widened from `rp`/`bp` to every
- *     `perTeamPmf` entry, calling the file's EXISTING shared `isValidPmf` and
- *     its existing tolerance — no second pmf tolerance is introduced;
- *   - the duplicate-roster-key refine SURVIVES, load-bearing for exactly the
- *     reason its original comment gives: the client indexes by team key, so a
- *     duplicate collapses two entries into one;
- *   - a length refine is ADDED (`perTeamPmf.length === roster.length`) — a
- *     short or long array desynchronises team keys from distributions, so
- *     every band is attributed to the wrong team with no error anywhere;
- *   - the roster-index bounds refine is GONE because it has no referent —
- *     there are no `r`/`b` arrays here;
- *   - the two `baked` refinements are GONE for the same reason — there is no
- *     baked block. The properties they guaranteed (one histogram per roster
- *     team, each of length `roster.length`, each summing to `draws`) did not
- *     disappear: they MOVED to the client, where the histograms are now
- *     computed, and are asserted there
- *     (`apps/web/src/lib/preScheduleResult.test.ts`).
+ * The refines below guard three invariants: every `perTeamPmf` entry is a
+ * valid pmf (reusing the file's shared `isValidPmf` and its tolerance); the
+ * roster carries no duplicate team keys, since the client indexes
+ * per-team distributions by team key; and `perTeamPmf.length ===
+ * roster.length`, because a short or long array would desynchronise team
+ * keys from distributions with no error anywhere. This schema carries no
+ * `baked` histogram block — that computation now runs client-side, and is
+ * asserted in `apps/web/src/lib/preScheduleResult.test.ts`.
  *
- * `preScheduleKey` is UNCHANGED by this plan — same function, same
- * `v1/presim/{eventKey}/{algorithmId}@{version}.json` key form. The
- * algorithm-id segment moving off retired `vpr` is plan 09-10's Delta A and is
- * not touched here.
+ * `preScheduleKey` is unchanged — same function, same
+ * `v1/presim/{eventKey}/{algorithmId}@{version}.json` key form.
  */
 export const FieldAveragedPreScheduleArtifactSchema = AlgorithmScopedPreambleSchema.extend({
   eventKey: z.string().min(1),
   season: z.number().int(),
-  /** How this sidecar was priced (PD-02) — unchanged in meaning from the schedule-based schema above. */
+  /** How this sidecar was priced — unchanged in meaning from the schedule-based schema above. */
   pricedFrom: z.enum(["pre-event-walk-forward", "current-state"]),
   /** How many qualification matches each team plays. The consumer convolves this many copies of its `perTeamPmf` entry for the season total. */
   matchesPerTeam: z.number().int().positive(),
@@ -2235,7 +2131,6 @@ export type FieldAveragedPreScheduleArtifact = z.infer<typeof FieldAveragedPreSc
 
 // ---------------------------------------------------------------------------
 // EPA vs Statbotics comparison — v1/methodology/epa-vs-statbotics.json
-// (quick task 260908-n5o)
 // ---------------------------------------------------------------------------
 
 /**
@@ -2267,10 +2162,10 @@ export function epaComparisonKey(): string {
  * disappearing into an unlabelled number: a reader of the raw artifact can
  * tell what it measures without consulting a doc.
  *
- * Revision 260908-n5o (same-day, post-ship): this replaced a two-arm design
- * — `includeOffseason: true/false`, one row per season per arm — measured
- * against each team's SEASON-FINAL total. That design was retired because
- * it measured a quantity nobody is shown anywhere on this site. Every
+ * This replaced an earlier two-arm design — `includeOffseason: true/false`,
+ * one row per season per arm — measured against each team's SEASON-FINAL
+ * total. That design was retired because it measured a quantity nobody is
+ * shown anywhere on this site. Every
  * visible surface (the Teams list, the top of a team page) shows a team's
  * total as of its own LAST OFFICIAL match
  * (`packages/harness/publish.ts`'s `lastOfficialMetricsByTeam`), and
@@ -2311,8 +2206,8 @@ const EpaComparisonHeadToHeadRowSchema = z.object({
 
 /**
  * `v1/methodology/epa-vs-statbotics.json` — the EPA-vs-Statbotics explainer
- * page's one published artifact (quick task 260908-n5o). Deliberately NOT
- * algorithm-scoped (extends `PagePreambleSchema`, not
+ * page's one published artifact. Deliberately NOT algorithm-scoped
+ * (extends `PagePreambleSchema`, not
  * `AlgorithmScopedPreambleSchema`) — there is no algorithm SEGMENT here (this
  * document measures exactly one algorithm, EPA, always), matching
  * `CompareArtifactSchema`'s and `DistrictsIndexArtifactSchema`'s own
