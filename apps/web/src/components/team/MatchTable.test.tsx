@@ -78,9 +78,9 @@ describe("theme.css alliance ground tint tokens & rule block (sketch 010-C, quic
   });
 
   it("declares .match-alliance-nums--even as a fixed-width line whose leftover space is distributed", () => {
-    // 2026-09-08 fix: event-page alliance lines were ragged because a text-node
-    // space made each line as wide as its own digits happened to be. Fixing the
-    // width and distributing the remainder is what makes red and blue agree.
+    // Event-page alliance lines were ragged because a text-node space made
+    // each line as wide as its own digits happened to be. Fixing the width
+    // and distributing the remainder is what makes red and blue agree.
     const css = readThemeCss();
     const body = findRuleBody(css, /^\.match-alliance-nums--even$/);
     expect(body, "expected a `.match-alliance-nums--even { ... }` rule").not.toBeNull();
@@ -145,9 +145,9 @@ function makeMatch(overrides: Partial<TeamSeasonMatch> = {}): TeamSeasonMatch {
     predictedBlueScore: 220,
     redTeams: ["frc118", "frc254", "frc971"],
     blueTeams: ["frc604", "frc1678", "frc2056"],
-    // Quick task 260913-g66: the band is read from the published Match Band
-    // keys, Sigma algorithms (SPR) only. `*ScoreVarianceOwn` is kept in the
-    // fixture and deliberately NOT read.
+    // The band is read from the published Match Band keys, Sigma
+    // algorithms (SPR) only. `*ScoreVarianceOwn` is kept in the fixture
+    // and deliberately NOT read.
     redScoreVarianceOwn: 100,
     blueScoreVarianceOwn: 64,
     redMatchBandVariance: 100,
@@ -178,8 +178,8 @@ describe("matchLabel", () => {
 
 describe("MatchTable", () => {
   it("links every roster number on both alliances to that team's page, carrying year and algorithm", () => {
-    // 2026-09-08 fix: team-page roster numbers were plain text, so the one
-    // place a reader most wants to jump from was a dead end.
+    // Team-page roster numbers link out, so the one place a reader most
+    // wants to jump from is not a dead end.
     renderWithRouter(
       <MatchTable
         matches={[makeMatch({ matchKey: "m1", redTeams: ["frc118", "frc1690", "frc10935"], blueTeams: ["frc254", "frc33", "frc111"] })]}
@@ -222,8 +222,7 @@ describe("MatchTable", () => {
   });
 
   /**
-   * WR-02 (260902-post-phase08-ungoverned-ui/REVIEW.md): a played match
-   * whose rosters contain NEITHER the page's `teamKey` — the published
+   * A played match whose rosters contain NEITHER the page's `teamKey` — the published
    * letter-suffixed shape `teamKey.ts` documents as real (a team's second
    * robot, e.g. `frc5199B` when the page renders the parent `frc5199`) —
    * must render an EMPTY Result cell, never a fabricated "Loss". Paired with
@@ -311,8 +310,8 @@ describe("MatchTable", () => {
     expect(screen.queryByTestId("alliance-mark-m1-blue-dot")).toBeNull();
 
     const actual = screen.getByTestId("actual-m1");
-    // WR-06 (260902-post-phase08-ungoverned-ui/REVIEW.md): the rendered time
-    // must carry a trailing zone label so a scout reading another timezone's
+    // The rendered time must carry a trailing zone label so a scout
+    // reading another timezone's
     // schedule can see the time is THEIRS, not the venue's. The zone token
     // itself is environment-dependent (e.g. "PST", "GMT-8", "UTC"), so the
     // regex requires SOME trailing token rather than a fixed one — this is
@@ -391,10 +390,9 @@ describe("MatchTable", () => {
   });
 
   /**
-   * Sketch 010 variant C, selected 2026-09-06 (quick task 260906-80e):
-   * replaces the roster-line `font-semibold` with an alliance ground tint —
-   * the team's own alliance line wrapped in a pill, its own number a deeper
-   * tint on top. Figure stays neutral throughout.
+   * The roster line uses an alliance ground tint rather than
+   * `font-semibold` — the team's own alliance line wrapped in a pill, its
+   * own number a deeper tint on top. Figure stays neutral throughout.
    */
   describe("alliance ground tint (sketch 010-C, quick 260906-80e)", () => {
     it("marks the red-alliance team's own line as a red pill, its own number as --own, and leaves the opposing line unmarked", () => {
@@ -612,9 +610,9 @@ describe("MatchTable", () => {
   });
 
   /**
-   * Plan 06.1-06, Task 2 (F-06-1): real dot states on every eligible match
-   * row. Closes success criterion 1 — no dot remains `unknown` for a played
-   * qualification match with published per-bonus data.
+   * Real dot states on every eligible match row — no dot remains
+   * `unknown` for a played qualification match with published per-bonus
+   * data.
    */
   describe("real bonus-RP dot states (plan 06.1-06, F-06-1)", () => {
     function collectDotStates(groupTestId: string): (string | null)[] {
@@ -792,13 +790,12 @@ describe("MatchTable", () => {
     });
 
     /**
-     * G-06.1-26 (plan 06.1-08, Task 2): a played playoff match must render
-     * every bonus dot `unknown` — never `earned`/`missed` — EVEN WHEN the
-     * artifact handed to the component still carries populated actual
-     * per-bonus arrays on that row (exactly the shape the 54,671
-     * already-published 2022-2026 artifacts carry, per PD-16/PD-18). This is
-     * the client-side defence-in-depth guard: it must hold with no
-     * republish.
+     * A played playoff match must render every bonus dot `unknown` —
+     * never `earned`/`missed` — EVEN WHEN the artifact handed to the
+     * component still carries populated actual per-bonus arrays on that
+     * row (exactly the shape the 54,671 already-published 2022-2026
+     * artifacts carry). This is the client-side defence-in-depth guard:
+     * it must hold with no republish.
      */
     it("greys every dot to unknown for a played sf row whose artifact still carries populated actual per-bonus arrays (G-06.1-26, 2024 two-bonus season)", () => {
       renderWithRouter(
