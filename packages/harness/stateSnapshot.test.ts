@@ -304,7 +304,7 @@ describe("serializeState — stability (unchanged state produces identical state
 });
 
 // ---------------------------------------------------------------------------
-// Missing league row
+// Unknown passenger keys and algorithm ids
 // ---------------------------------------------------------------------------
 
 describe("deserializeState — an extra unknown passenger key on a team row is ignored (quick task 260913-it4)", () => {
@@ -355,6 +355,10 @@ describe("serializeState/deserializeState — unknown algorithm id", () => {
     expect(() => deserializeState("vpr", rows)).toThrow(/"vpr"/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Missing league row
+// ---------------------------------------------------------------------------
 
 describe("deserializeState — missing league row", () => {
   it("throws MissingLeagueRowError when no scopeKind:'league' row is present", () => {
