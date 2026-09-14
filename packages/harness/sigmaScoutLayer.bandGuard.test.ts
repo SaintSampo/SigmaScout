@@ -1,28 +1,11 @@
 /**
- * `#rpFieldsFor`'s ALLIANCE BAND GUARD, asserted behaviorally.
+ * `#rpFieldsFor`'s ALLIANCE BAND GUARD: no RP fields at all when either
+ * alliance's band variance is undefined, since an alliance with unknown score
+ * variance has no honest pmf.
  *
- * The guard returns no RP fields at all when either alliance's band variance
- * is undefined — which happens exactly when a rostered team has too little
- * play to have a consistency figure yet. An alliance whose score variance is
- * unknown has no honest pmf, so it gets none.
- *
- * WHY THIS FILE EXISTS, AND WHY IT MUST NOT BE DELETED AS REDUNDANT.
- *
- * Plan 09-06 collapsed the RP layer back to a single model after the
- * pre-committed bar refused all three candidate changes. One of those
- * candidates (taking the win half from the published win probability) would,
- * if it had shipped, have left the alliance band variance with NO CONSUMER in
- * the RP layer at all — 09-05 proved that by sweeping the score variance
- * across three orders of magnitude for an identical pmf. A routine
- * "unused parameter" cleanup would then have deleted the guard along with the
- * arguments it guards, silently changing what the site publishes on cold
- * rosters.
- *
- * That candidate did NOT ship, so the band is genuinely read again. This test
- * is kept anyway, because the reasoning that made the guard load-bearing does
- * not depend on which arm shipped: the cold-start behaviour it protects
- * (F8/F9) is out of scope for the whole phase, and it must change only
- * deliberately, never as a side effect of tidying.
+ * Do not delete as redundant: if the band variance ever looks unused, an
+ * "unused parameter" cleanup would drop the guard and silently change what cold
+ * rosters publish. That cold-start behaviour must change only deliberately.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -48,8 +31,7 @@ function upcomingMatch(): UpcomingMatch {
 
 describe("#rpFieldsFor's alliance band guard (F8/F9 — out of scope, and deliberately untouched)", () => {
   it("produces NO RP fields when the alliances have no band yet — a cold roster gets no pmf rather than a guessed one", () => {
-    // A layer that has folded nothing has no consistency figure for any team,
-    // so both alliance bands are undefined.
+    // A layer that has folded nothing leaves both alliance bands undefined here.
     const layer = new SigmaScoutLayer(RP_RULE_MODULES[2026], "spr");
     const enriched = layer.enrichUpcoming(upcomingMatch(), { winner: "red", redScore: 100, blueScore: 90, pRedWin: 0.6 });
 
@@ -57,10 +39,8 @@ describe("#rpFieldsFor's alliance band guard (F8/F9 — out of scope, and delibe
     expect(enriched.prediction.blueRpPmf).toBeUndefined();
     expect(enriched.prediction.redBonusRp).toBeUndefined();
     expect(enriched.prediction.blueBonusRp).toBeUndefined();
-    // 09-07's decomposition fields are downstream of the same gate and must be
-    // absent together with it — an absent key, never an empty array, so a
-    // consumer cannot mistake "we could not price this" for "we priced it as
-    // nothing".
+    // The decomposition fields share the gate: absent keys, never empty arrays,
+    // so "could not price" never reads as "priced as nothing".
     expect(enriched.prediction.matchOutcomePmf).toBeUndefined();
     expect(enriched.prediction.redBonusRpPmf).toBeUndefined();
     expect(enriched.prediction.blueBonusRpPmf).toBeUndefined();
