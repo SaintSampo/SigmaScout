@@ -1,38 +1,32 @@
 /**
- * Cross-season carry (D-16/D-17/D-18/D-19) — Statbotics' reference shape
- * for carrying a team's rating across a season boundary, verified verbatim
- * against `backend/src/models/epa/init.py`/`constants.py` this phase's
- * RESEARCH.md session: `0.7 * last year's normalized rating + 0.3 * the
- * year before`, then reverted 40% toward a rookie baseline of
- * `NORM_MEAN - 0.2 * NORM_SD`, converted into the new season's point units,
- * floored at non-negative.
+ * Cross-season carry — Statbotics' reference shape for carrying a team's
+ * rating across a season boundary, verified verbatim against
+ * `backend/src/models/epa/init.py`/`constants.py`: `0.7 * last year's
+ * normalized rating + 0.3 * the year before`, then reverted 40% toward a
+ * rookie baseline of `NORM_MEAN - 0.2 * NORM_SD`, converted into the new
+ * season's point units, floored at non-negative.
  *
- * D-13 divergence, stated once here rather than per-function: this module
- * does NOT port Statbotics' per-season post-processing (the 2018
- * switch/scale sigmoid, the per-year clamps) — `epa.ts`'s file header
+ * This module does NOT port Statbotics' per-season post-processing (the
+ * 2018 switch/scale sigmoid, the per-year clamps) — `epa.ts`'s file header
  * documents the same exclusion for the rest of the algorithm.
  *
- * SCALE ANCHOR — RESOLVED as of `epa@8.0.0+baseline` (quick task 260911-3kc,
- * 2026-09-11). `normalizedToSeasonUnits` needs a `seasonScoreMean`/
+ * SCALE ANCHOR. `normalizedToSeasonUnits` needs a `seasonScoreMean`/
  * `seasonScoreSd` to convert a normalized rating into point units, but at
  * the moment a boundary is carried, `toSeason` has not been observed yet —
  * there is no live point-unit scale for it, the same gap `epa.ts`'s
  * `EPA_INIT_COMPONENT_TOTAL` comment already names for pure intra-season
  * cold start.
  *
- * `epaCarryover` below still converts BOTH directions with the OUTGOING
- * season's own per-team point-total distribution (mean/sd across every team
- * with a rating in `fromSeason`), and that is deliberate rather than
- * unfinished: it keeps this function's round trip self-consistent, since a
- * team's `fromSeason` points convert to normalized and back using the same
- * mean/sd. What used to be MISSING — the conversion into the INCOMING
- * season's units that D-16's own verbatim reading of Statbotics' `init.py`
- * specifies — is now composed ON TOP of this function rather than inside it:
- * lazily, per team, on first sight in the new season. Follow the path:
- * `epa.carrySeason` captures `EpaState.carrySeedMean` BEFORE calling
- * `epaCarryover` and marks every carried team pending; `epa.predict` and
- * `epa.update` then read `epaCarryScale.ts`'s `cleanSeasonMean` +
- * `carryRescaleRatio` and apply the factor through `materializePendingTeams`.
+ * `epaCarryover` below converts BOTH directions with the OUTGOING season's
+ * own per-team point-total distribution (mean/sd across every team with a
+ * rating in `fromSeason`), which keeps this function's round trip
+ * self-consistent. The conversion into the INCOMING season's units is
+ * composed ON TOP of this function rather than inside it: lazily, per team,
+ * on first sight in the new season. Follow the path: `epa.carrySeason`
+ * captures `EpaState.carrySeedMean` BEFORE calling `epaCarryover` and marks
+ * every carried team pending; `epa.predict` and `epa.update` then read
+ * `epaCarryScale.ts`'s `cleanSeasonMean` + `carryRescaleRatio` and apply the
+ * factor through `materializePendingTeams`.
  *
  * THE WALK-FORWARD CONSTRAINT, stated plainly rather than glossed:
  * **Statbotics runs offline and simply KNOWS the incoming season's scale. We
@@ -44,30 +38,20 @@
  * WORSE: `docs/models/epa-divergences.md` §8.
  *
  * Module ownership note: `EPA_NORM_MEAN`/`EPA_NORM_SD`/`EPA_INIT_PENALTY`/
- * `EPA_MEAN_REVERSION` are defined HERE (not in `epa.ts`, where plan 02-01
- * originally parked them "for a later plan") and re-exported by `epa.ts`
- * for its own unrelated intra-season cold-start seed
+ * `EPA_MEAN_REVERSION` are defined HERE, not in `epa.ts`, and re-exported by
+ * `epa.ts` for its own unrelated intra-season cold-start seed
  * (`EPA_INIT_COMPONENT_TOTAL`). This module owning them and `epa.ts`
  * importing back is the only acyclic direction: `epa.carrySeason` needs
- * this module's `epaCarryover`, so the reverse (`carryover.ts` importing
- * from `epa.ts`) would be a circular import that breaks at module-init
- * time (`EPA_ROOKIE_BASELINE` below dereferences `EPA_NORM_MEAN` at the
- * top level, before a circularly-imported `epa.ts` would have finished
- * initializing its own top-level constants).
+ * this module's `epaCarryover`, so the reverse would be a circular import
+ * that breaks at module-init time (`EPA_ROOKIE_BASELINE` below dereferences
+ * `EPA_NORM_MEAN` at the top level, before a circularly-imported `epa.ts`
+ * would have finished initializing its own top-level constants).
  *
- * D-04 (Phase 3): `EPA_MEAN_REVERSION`/`EPA_CARRY_LAST_YEAR_WEIGHT`/
+ * `EPA_MEAN_REVERSION`/`EPA_CARRY_LAST_YEAR_WEIGHT`/
  * `EPA_CARRY_PRIOR_YEAR_WEIGHT` are FROZEN at Statbotics' own published
- * values — they are the baseline SC-3's "beats EPA" claim is measured
- * against, and "beats EPA" has to mean "beats what Statbotics actually
- * ships." Sigma1's OWN tunable copy of this carry math lived in
- * the retired Sigma1 core (deleted by quick task 260913-it4) (`sigma1Carryover`), which imported
- * `EPA_NORM_MEAN`/`EPA_NORM_SD`/`EPA_INIT_PENALTY`/`EPA_ROOKIE_BASELINE`/
- * `populationMeanSd`/`normalizedFromPoints`/`normalizedToSeasonUnits` from
- * THIS module unchanged, but substitutes its OWN tunable parameter set's
- * fields for the three frozen constants above. Nothing in THIS module may
- * be made to read Sigma1's parameter set, ever — that would dissolve the
- * frozen-EPA-baseline guarantee D-04 exists to protect, silently, the
- * moment a future edit "unifies" the two carry paths.
+ * values — they are the baseline the project's "beats EPA" claim is
+ * measured against, and "beats EPA" has to mean "beats what Statbotics
+ * actually ships."
  */
 
 /**
@@ -92,7 +76,7 @@ export const EPA_INIT_PENALTY = 0.2;
 
 /**
  * How far a carried-over rating reverts toward the rookie baseline at a
- * season boundary (Statbotics' `MEAN_REVERSION`). Phase 3 hyperparameter,
+ * season boundary (Statbotics' `MEAN_REVERSION`). A hyperparameter,
  * default unverified.
  */
 export const EPA_MEAN_REVERSION = 0.4;
@@ -100,13 +84,13 @@ export const EPA_MEAN_REVERSION = 0.4;
 /**
  * Weight given to a team's immediately-prior season's normalized rating
  * when carrying across a season boundary (Statbotics' `YEAR_ONE_WEIGHT`).
- * Phase 3 hyperparameter, default unverified.
+ * A hyperparameter, default unverified.
  */
 export const EPA_CARRY_LAST_YEAR_WEIGHT = 0.7;
 
 /**
  * Complement of `EPA_CARRY_LAST_YEAR_WEIGHT` — weight given to the season
- * before that. Phase 3 hyperparameter, default unverified.
+ * before that. A hyperparameter, default unverified.
  */
 export const EPA_CARRY_PRIOR_YEAR_WEIGHT = 0.3;
 
@@ -121,7 +105,7 @@ export const EPA_ROOKIE_BASELINE = EPA_NORM_MEAN - EPA_INIT_PENALTY * EPA_NORM_S
 
 /**
  * Blends a team's normalized ratings from the two seasons before a
- * boundary into its carried-in normalized rating, per D-16's reference
+ * boundary into its carried-in normalized rating, per Statbotics' reference
  * shape:
  *
  *   - Both inputs present: `0.7 * lastYear + 0.3 * yearBefore`, then
@@ -180,9 +164,9 @@ export function normalizedToSeasonUnits(normalized: number, seasonScoreMean: num
 /**
  * Population mean/sd (matches `expandingStats.ts`'s population convention,
  * not sample). Exported (pure widening, no behaviour change) so
- * the retired Sigma1 core could reuse this exact scale-conversion math rather
- * than re-deriving it — two copies of a scale conversion is exactly the
- * drift this project's failure log (REBUILD_SPEC.md) warns about.
+ * a caller could reuse this exact scale-conversion math rather than
+ * re-deriving it — two copies of a scale conversion is exactly the drift
+ * this project's failure log (REBUILD_SPEC.md) warns about.
  */
 export function populationMeanSd(values: readonly number[]): { mean: number; sd: number } {
   if (values.length === 0) return { mean: 0, sd: 0 };
@@ -226,7 +210,7 @@ export interface EpaCarryoverResult {
 }
 
 /**
- * The season-boundary math, independent of `EpaState`'s shape (D-16):
+ * The season-boundary math, independent of `EpaState`'s shape:
  * converts `fromSeason`'s final point totals into normalized ratings,
  * blends them against the two preceding seasons' normalized ratings per
  * `carryNormalizedRating`, and converts the result back into point units
