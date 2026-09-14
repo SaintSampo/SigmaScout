@@ -1,31 +1,28 @@
 /**
- * Unified cold-start predicate (D-01, quick task 260909-t5q): a match is
- * cold start iff ALL SIX of its robots are making their CORPUS-GLOBAL first
- * appearance — zero prior PLAYED matches anywhere in the ingested corpus,
- * strictly before this match, evaluated walk-forward (predict-before-update,
- * matching this project's one standing rule for every algorithm).
+ * Unified cold-start predicate: a match is cold start iff ALL SIX of its
+ * robots are making their CORPUS-GLOBAL first appearance — zero prior PLAYED
+ * matches anywhere in the ingested corpus, strictly before this match,
+ * evaluated walk-forward (predict-before-update, matching this project's one
+ * standing rule for every algorithm).
  *
  * Dependency-free leaf: no Node APIs, no database import, so this module
- * stays importable unchanged by the Phase 4 Cloudflare Worker — the same
- * discipline `predictionValidity.ts` follows, and for the same reason this
- * is hoisted here rather than implemented three times (once per algorithm).
- * That triple implementation is exactly what "unify" in this task's name
- * means to end: OPR, EPA and BPR must consult this ONE predicate through
- * ONE seam (`packages/harness/replay.ts`'s `WalkForwardSimulator`) so all
- * three produce the identical excluded set.
+ * stays importable unchanged by the Cloudflare Worker — the same discipline
+ * `predictionValidity.ts` follows, and for the same reason this is hoisted
+ * here rather than implemented once per algorithm. OPR, EPA and every other
+ * algorithm must consult this ONE predicate through ONE seam
+ * (`packages/harness/replay.ts`'s `WalkForwardSimulator`) so all produce the
+ * identical excluded set.
  *
- * Why corpus-global, not per-algorithm state or season-global (D-01):
+ * Why corpus-global, not per-algorithm state or season-global:
  *
- *   - Per-algorithm state ("has MY rating store seen this team?") was
- *     REJECTED. OPR is event-scoped, so a per-algorithm rule would flag
- *     every event's opening matches in every season and hand each algorithm
- *     a DIFFERENT excluded set — the opposite of unification, and it would
- *     make Compare's coverage rows disagree across algorithms exactly the
- *     way this task exists to stop.
- *   - Season-global first appearance was also REJECTED. It would flag every
+ *   - Per-algorithm state ("has MY rating store seen this team?") is wrong.
+ *     OPR is event-scoped, so a per-algorithm rule would flag every event's
+ *     opening matches in every season and hand each algorithm a DIFFERENT
+ *     excluded set, making Compare's coverage rows disagree across
+ *     algorithms.
+ *   - Season-global first appearance is also wrong: it would flag every
  *     season's week-1 openers, not just the corpus's true first season
- *     (2016) — a much larger and less honest exclusion than the structural
- *     class this task targets.
+ *     (2016) — a much larger and less honest exclusion than intended.
  */
 
 /** The minimal structural shape the index builder needs from a match — no MatchResult import, so this stays a leaf. */
@@ -50,8 +47,8 @@ export interface ColdStartCandidateMatch {
  *   - restricted to PLAYED matches (a match with no recorded winner cannot
  *     teach the predicate anything about who has played before).
  *
- * The definition is corpus-global per D-01: the caller's stream should
- * normally span the WHOLE ingested corpus, not one season or one event —
+ * The definition is corpus-global: the caller's stream should normally span
+ * the WHOLE ingested corpus, not one season or one event —
  * see `packages/harness/corpusColdStart.ts` for the harness-side builder
  * that supplies exactly that.
  */
@@ -107,7 +104,7 @@ function buildFrozenEmptyColdStartIndex(): ReadonlySet<string> {
  */
 export const NO_COLD_START_INDEX: ReadonlySet<string> = buildFrozenEmptyColdStartIndex();
 
-/** The forced-tie probability every cold-start prediction carries (D-01). Exact, never a tolerance-based comparison. */
+/** The forced-tie probability every cold-start prediction carries. Exact, never a tolerance-based comparison. */
 export const COLD_START_TIE_PROBABILITY = 0.5 as const;
 
 /**
