@@ -52,12 +52,13 @@ import {
   STATE_SNAPSHOT_SHAPE_VERSION,
   type StateStamp,
 } from "../../../packages/harness/stateSnapshot.js";
-import { SigmaScoreAccumulator, usesSigmaScore } from "../../../packages/harness/sigmaScore.js";
+import { SigmaScoreAccumulator, usesSigmaScore, publishesRankingPoints, sigmaMatchBandVariance } from "../../../packages/harness/sigmaScore.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
 import { RpMeanShiftAccumulator, rosterIsFullyWarm } from "../../../packages/core/rankingPoints/meanShift.js";
 import { analyticRpPmf } from "../../../packages/core/rankingPoints/analyticPmf.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import { isRpEligibleEventType } from "../../../packages/core/rankingPoints/constants.js";
+import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import type { SprState } from "../../../packages/core/algorithms/spr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
@@ -408,20 +409,26 @@ async function readAndDeserializeAll(
 
 /**
  * The fold, `spr` only (matching `wrangler.toml`'s `LIVE_ALGORITHM_IDS`), in
- * a live tick's order: resume Sigma/RP accumulators, price `folded` played
- * matches (predict, band, RP fields, update, fold), price `upcoming` matches
- * read-only, then serialize and discard.
+ * a live tick's order: resume Sigma/RP accumulators, derive the touched
+ * roster, price `folded` played matches (predict, band, RP fields, update,
+ * fold, talent), price `upcoming` matches read-only (predict, band, RP
+ * fields), read the touched metrics/Sigma, then serialize and discard.
  *
  * `rpEnabled` false skips exactly the ranking-point operations:
- *     1. the accumulator resume (`RP_RULE_MODULES[season]`, `readRpBeliefs`,
- *        `RpMomentsAccumulator.fromBeliefs`, `rpKnownTeams`, `readRpMeanShift`,
- *        `RpMeanShiftAccumulator.fromState`)
+ *     1. the accumulator resume (the `publishesRankingPoints` gate,
+ *        `RP_RULE_MODULES[season]`, `readRpBeliefs`, `RpMomentsAccumulator.fromBeliefs`,
+ *        `rpKnownTeams`, `readRpMeanShift`, `RpMeanShiftAccumulator.fromState`) —
+ *        unlike `scheduled.ts`, which builds `readRpBeliefs`/`rpKnownTeams`
+ *        unconditionally, both stay inside this gate here: removing RP removes
+ *        the accumulator they exist to seed, so there is nothing left for them
+ *        to feed
  *     2. `rpFieldsFor` (mean shift `apply`, `analyticRpPmf` and its gates) in both loops
  *     3. `observeMatch` then `foldObservedRp`
  *     4. `withRpBeliefs` and `withRpMeanShift`
- * Both arms keep the upcoming loop, every `bandFor` call (`bandsProduced` must
- * match across arms, asserted by `stateProbe.test.ts`), predict/update, the
- * Sigma fold, the talent read and `serializeState` with the Sigma passengers.
+ * Both arms keep the upcoming loop, every `displayBandFor` call (`bandsProduced`
+ * must match across arms, asserted by `stateProbe.test.ts`), predict/update, the
+ * Sigma fold, the talent read, the touched metrics/Sigma read and
+ * `serializeState` with the Sigma passengers.
  */
 function runSprFold(
   sprRows: StateRow[],
@@ -452,12 +459,25 @@ function runSprFold(
   try {
     // Resumed from the rows just read, as a real tick resumes.
     const sigma = usesSigmaScore("spr") ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(sprRows), readSigmaPopulation(sprRows)) : undefined;
-    const bandFor = (roster: readonly string[]): number | undefined => (sigma === undefined ? undefined : sigma.bandVarianceFor(roster));
+    // One alliance's win-odds variance, mirroring scheduled.ts's accessor name; `rpFieldsFor` reads it, `displayBandFor` derives the published band from it.
+    const winOddsVarianceFor = (roster: readonly string[]): number | undefined => (sigma === undefined ? undefined : sigma.bandVarianceFor(roster));
+    // The published Match Band, through the same helper the offline SigmaScoutLayer uses. OPR/EPA publish none (sigma undefined).
+    const displayBandFor = (
+      view: { redTeams: readonly string[]; blueTeams: readonly string[] },
+      redWinOddsVariance: number | undefined,
+      blueWinOddsVariance: number | undefined
+    ): { red?: number; blue?: number } => {
+      if (sigma === undefined) return {};
+      const red = sigmaMatchBandVariance(view.redTeams.length, redWinOddsVariance);
+      const blue = sigmaMatchBandVariance(view.blueTeams.length, blueWinOddsVariance);
+      return { ...(red !== undefined ? { red } : {}), ...(blue !== undefined ? { blue } : {}) };
+    };
 
     // Indexed lookup, never `rpRuleModuleForSeason` (which throws): an
-    // unregistered season yields no accumulator and a warning. Gating here
-    // (ablation operation 1) disables operations 2-4, which all guard on `rp`.
-    const rpRuleModule = rpEnabled ? RP_RULE_MODULES[season] : undefined;
+    // unregistered season, or an algorithm that publishes no RP, yields no
+    // accumulator and a warning. Gating here (ablation operation 1) disables
+    // operations 2-4, which all guard on `rp`.
+    const rpRuleModule = rpEnabled && publishesRankingPoints("spr") ? RP_RULE_MODULES[season] : undefined;
     const rpBeliefs = rpEnabled ? readRpBeliefs(sprRows) : undefined;
     const rp = rpRuleModule !== undefined && rpBeliefs !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs) : undefined;
     // Mirrors `scheduled.ts`'s resume, gated with the accumulator so `rp=0` ablates it.
@@ -542,17 +562,31 @@ function runSprFold(
       for (const teamKey of [...result.redTeams, ...result.blueTeams]) rpKnownTeams.add(teamKey);
     };
 
-    let state = sprState;
-    let matchesFolded = 0;
+    // Built up front, mirroring `scheduled.ts`'s own `touchedTeams` derivation
+    // ahead of its Phase A loop: the sorted unique teams the folded synthetic
+    // matches touch. `realTouchedTeams` strips demo keys, like the tick's copy.
+    const foldedMatches: MatchResult[] = [];
     for (let i = 0; i < folded; i++) {
       const roster = rosterAt(teamKeys, i);
-      const result = buildPlayedMatch(eventKey, eventType, i + 1, roster.red, roster.blue);
+      foldedMatches.push(buildPlayedMatch(eventKey, eventType, i + 1, roster.red, roster.blue));
+    }
+    const touchedTeams = [...new Set(foldedMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))].sort();
+    const realTouchedTeams = touchedTeams.filter((teamKey) => !isDemoTeamKey(teamKey));
+
+    let state = sprState;
+    let matchesFolded = 0;
+    // Mirrors `scheduled.ts`'s `newBands`/`newPredictions`; discarded like everything else here, but built the same shape so this loop's real cost is priced.
+    const newBands = new Map<string, { red?: number; blue?: number }>();
+    const newPredictions = new Map<string, Prediction>();
+    for (const result of foldedMatches) {
       const prediction = spr.predict(state, toLeakProofUpcoming(result));
-      const redBandVariance = bandFor(result.redTeams);
-      const blueBandVariance = bandFor(result.blueTeams);
-      if (redBandVariance !== undefined) bandsProduced++;
-      if (blueBandVariance !== undefined) bandsProduced++;
-      const fields = rpFieldsFor(result, prediction, redBandVariance, blueBandVariance);
+      const redWinOddsVariance = winOddsVarianceFor(result.redTeams);
+      const blueWinOddsVariance = winOddsVarianceFor(result.blueTeams);
+      if (redWinOddsVariance !== undefined) bandsProduced++;
+      if (blueWinOddsVariance !== undefined) bandsProduced++;
+      newBands.set(result.matchKey, displayBandFor(result, redWinOddsVariance, blueWinOddsVariance));
+      const fields = rpFieldsFor(result, prediction, redWinOddsVariance, blueWinOddsVariance);
+      newPredictions.set(result.matchKey, { ...prediction, ...fields });
       // One increment per match: `rpFieldsFor`'s gates are all-or-nothing
       // per match. `stateProbe.test.ts` pins this to `folded + upcoming`.
       if (fields.redRpPmf !== undefined) rpPmfsProduced++;
@@ -575,19 +609,39 @@ function runSprFold(
     }
 
     let upcomingPriced = 0;
+    const upcomingBands = new Map<string, { red?: number; blue?: number }>();
+    const upcomingPredictions = new Map<string, Prediction>();
     for (let i = 0; i < upcoming; i++) {
       const roster = rosterAt(teamKeys, folded + i);
       const match = buildUpcomingMatch(eventKey, eventType, folded + i + 1, roster.red, roster.blue);
       const prediction = spr.predict(state, match);
-      const redBandVariance = bandFor(match.redTeams);
-      const blueBandVariance = bandFor(match.blueTeams);
-      if (redBandVariance !== undefined) bandsProduced++;
-      if (blueBandVariance !== undefined) bandsProduced++;
-      const fields = rpFieldsFor(match, prediction, redBandVariance, blueBandVariance);
+      const redWinOddsVariance = winOddsVarianceFor(match.redTeams);
+      const blueWinOddsVariance = winOddsVarianceFor(match.blueTeams);
+      if (redWinOddsVariance !== undefined) bandsProduced++;
+      if (blueWinOddsVariance !== undefined) bandsProduced++;
+      upcomingBands.set(match.matchKey, displayBandFor(match, redWinOddsVariance, blueWinOddsVariance));
+      const fields = rpFieldsFor(match, prediction, redWinOddsVariance, blueWinOddsVariance);
+      upcomingPredictions.set(match.matchKey, { ...prediction, ...fields });
       // Same one-per-match counting rule as the played loop above.
       if (fields.redRpPmf !== undefined) rpPmfsProduced++;
       upcomingPriced++;
     }
+    // Both Maps mirror `scheduled.ts`'s Phase A output shape; the probe writes
+    // no artifact, so neither is read again.
+    void newBands;
+    void newPredictions;
+    void upcomingBands;
+    void upcomingPredictions;
+
+    // Read-only, zero subrequests, same instant as `scheduled.ts`'s copy;
+    // discarded like everything else here, since the probe writes nothing.
+    const touchedMetrics = spr.teamMetrics(state, touchedTeams);
+    void touchedMetrics;
+    const touchedSigma = new Map<string, number>();
+    if (sigma !== undefined) {
+      for (const teamKey of realTouchedTeams) touchedSigma.set(teamKey, sigma.sigmaFor(teamKey));
+    }
+    void touchedSigma;
 
     // Serialize and discard: building the write payload is real tick CPU, but
     // the rows are never written.

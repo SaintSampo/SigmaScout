@@ -705,3 +705,78 @@ describe("stateProbe — Group 6: the mean shift mirrors scheduled.ts (shape 16)
     }
   });
 });
+
+// Group 7: the Phase A mirror guard.
+//
+// Groups 1-6 pin RP/mean-shift SEMANTICS. This group pins SHAPE: every call
+// the live tick's Phase A makes (minus a four-name tick-only skeleton
+// allowlist) must appear, by name, somewhere in the probe's source. A future
+// refactor that adds a call to `processEvent`'s Phase A without adding it
+// here fails this group, rather than silently drifting.
+
+const PHASE_A_START_MARKER = "for (const [algorithmId, algorithm] of algorithmModules) {";
+const PHASE_A_END_MARKER = "perAlgorithm.set(algorithmId";
+
+/** Slices `source` from the Phase A start marker up to (not including) the end marker. Throws, naming whichever marker is absent, rather than silently returning an empty or wrong-bounded region. */
+function extractPhaseARegion(source: string): string {
+  const startIdx = source.indexOf(PHASE_A_START_MARKER);
+  if (startIdx === -1) {
+    throw new Error(`extractPhaseARegion: missing start marker ${JSON.stringify(PHASE_A_START_MARKER)} — scheduled.ts's Phase A loop was renamed or restructured`);
+  }
+  const endIdx = source.indexOf(PHASE_A_END_MARKER, startIdx);
+  if (endIdx === -1) {
+    throw new Error(`extractPhaseARegion: missing end marker ${JSON.stringify(PHASE_A_END_MARKER)} — scheduled.ts's Phase A loop was renamed or restructured`);
+  }
+  return source.slice(startIdx, endIdx);
+}
+
+const CALL_NAME_RE = /([A-Za-z_$][\w$]*)\s*\(/g;
+const JS_KEYWORDS = new Set(["if", "for", "while", "switch", "catch", "return", "typeof", "function"]);
+
+/** Every identifier immediately followed by `(`, minus JS keywords — a call-name set, not a full parse. */
+function extractCallNames(source: string): Set<string> {
+  const names = new Set<string>();
+  for (const match of source.matchAll(CALL_NAME_RE)) {
+    const name = match[1]!;
+    if (JS_KEYWORDS.has(name)) continue;
+    names.add(name);
+  }
+  return names;
+}
+
+describe("stateProbe — Group 7: Phase A mirror guard (call-name equivalence with scheduled.ts)", () => {
+  const strippedWorker = stripComments(readFileSync(resolve(__dirname, "../src/scheduled.ts"), "utf8"));
+  const strippedProbe = stripComments(readFileSync(STATE_PROBE_SRC, "utf8"));
+  const phaseARegion = extractPhaseARegion(strippedWorker);
+  const callNames = extractCallNames(phaseARegion);
+
+  it("test A: extracts a non-empty Phase A region, and throws by name when a marker is missing", () => {
+    expect(phaseARegion.length).toBeGreaterThan(0);
+    expect(() => extractPhaseARegion("no markers in this source at all")).toThrow(/missing start marker/);
+    expect(() => extractPhaseARegion(PHASE_A_START_MARKER)).toThrow(/missing end marker/);
+  });
+
+  it("test B (positive control): the extracted call-name set is non-trivial and includes the calls this task must re-mirror", () => {
+    expect(callNames.size).toBeGreaterThanOrEqual(25);
+    for (const name of ["analyticRpPmf", "withRpBeliefs", "sigmaMatchBandVariance", "publishesRankingPoints", "teamMetrics", "sigmaFor"]) {
+      expect(callNames, `Phase A no longer calls ${name} — update the positive control`).toContain(name);
+    }
+  });
+
+  // Mirrors scheduled.ts's own skeleton, not RP semantics — see each entry's comment.
+  const TICK_ONLY_ALLOWLIST = new Set([
+    "selectionsFor", // the probe's copy is probeSelectionsFor, pinned equal by Group 2.
+    "loadOrInitState", // the probe calls readScopedState plus deserializeState, and deliberately never takes the initState cold path.
+    "consume", // subrequest budget bookkeeping that the probe does not have.
+    "writeScopedState", // forbidden in the probe, and Group 1 bans it.
+  ]);
+
+  it("test C: every mirrored call name (minus the tick-only allowlist) appears in the probe's source", () => {
+    const missing: string[] = [];
+    for (const name of callNames) {
+      if (TICK_ONLY_ALLOWLIST.has(name)) continue;
+      if (!strippedProbe.includes(`${name}(`)) missing.push(name);
+    }
+    expect(missing, `probe.ts is missing these Phase A calls: ${missing.join(", ")}`).toEqual([]);
+  });
+});
