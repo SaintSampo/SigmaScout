@@ -61,9 +61,9 @@ import type {
 } from "../core/algorithms/types.js";
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { seasonBoundaryFor } from "./seasonBoundary.js";
-import { opr, type OprState } from "../core/algorithms/opr.js";
-import { epa, type EpaState } from "../core/algorithms/epa.js";
-import { spr } from "../core/algorithms/spr.js";
+import type { OprState } from "../core/algorithms/opr.js";
+import type { EpaState } from "../core/algorithms/epa.js";
+import type { SprState } from "../core/algorithms/spr.js";
 import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
 import { isOfficialEventType } from "../core/algorithms/eventTypes.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
@@ -106,7 +106,7 @@ import {
   type TeamSeasonArtifact,
 } from "./pageArtifacts.js";
 import { buildTeamRankScopesByTeam, deriveTeamRegions, type RankableTeamRow, type TeamRankScope } from "./teamRanks.js";
-import { consistencyMetricByTeam, type ConsistencyMetricEntry } from "./consistencyMetric.js";
+import { sigmaMetricByTeam, type SigmaMetricEntry } from "./sigmaMetric.js";
 import {
   allianceSigmaBandVariance,
   publishesRankingPoints,
@@ -132,7 +132,7 @@ import {
   type TeamMetricWithPercentile,
   type TeamMetricsWithPercentile,
 } from "./percentiles.js";
-import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS } from "./manifests.js";
+import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS, PUBLISHED_ALGORITHM_MODULES } from "./manifests.js";
 import {
   emitSeedSql,
   serializeState,
@@ -208,8 +208,8 @@ const PRESIM_SCHEDULE_COUNT = 1000;
  */
 const PRESIM_DRAWS_PER_SCHEDULE = 50;
 
-/** D-03 (re-keyed by quick task 260912-ivg): the modules for `PUBLISHED_ALGORITHM_IDS`. `spr` (the module `packages/core/algorithms/spr.ts` exports — wire id and file both renamed from their BPR-era names by quick task 260912-ivg) joined the site on 2026-09-08. None of the three carries a tuned parameter file, so `resolvePublishAlgorithms` returns these modules directly; the retired Sigma1 core and its promoted-version override were deleted by quick task 260913-it4. Each object key and its module's `id` must agree (T-07-16-01). No pre-rename key remains here: the earlier wire ids retired entirely, per `PUBLISHED_ALGORITHM_IDS`. */
-export const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = { opr, epa, spr };
+/** The opr/epa/spr modules keyed by wire id — `manifests.ts`'s `PUBLISHED_ALGORITHM_MODULES`, the single registry, re-exported under the name publish callers and scripts already import. */
+export const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = PUBLISHED_ALGORITHM_MODULES;
 
 // ---------------------------------------------------------------------------
 // Small local helpers shared by every assembly function below
@@ -2209,12 +2209,12 @@ export function withPublishedTiers(metrics: Record<string, { value: number; spre
  * Quick task 260913-jkp: `sigmaByTeam` is REQUIRED, not optional, for the
  * same PD-02 reason — an optional input is an opt-out. Sigma-enabled
  * algorithms pass the SAME `sigmaMetricForAlgo` object that already feeds the
- * Teams row and the team-season artifact (`consistencyMetricByTeam`, computed
+ * Teams row and the team-season artifact (`sigmaMetricByTeam`, computed
  * once per (algorithm, season)); every other algorithm passes an empty
  * object. The entry is merged in AFTER `withEventPercentiles`, as the LAST
  * key, so the season ranking pool never sees or re-ranks Sigma: its
  * percentile is already the inverted residual percentile
- * `consistencyMetricByTeam` produced, never re-inverted or recomputed here. A
+ * `sigmaMetricByTeam` produced, never re-inverted or recomputed here. A
  * team with no entry gets no key at all (present-and-undefined is never
  * published). This is why SPR standings now carry the season-final sigma
  * entry beside the AS-OF-EVENT Total and phase values: the same value the
@@ -2225,7 +2225,7 @@ function buildEventTeamsStanding(
   teamKeys: readonly string[],
   teamInfo: ReadonlyMap<string, TeamInfo>,
   rankingPools: ReadonlyMap<string, readonly number[]>,
-  sigmaByTeam: Readonly<Record<string, ConsistencyMetricEntry>>
+  sigmaByTeam: Readonly<Record<string, SigmaMetricEntry>>
 ): EventTeamStandingInput[] {
   return teamKeys.map((teamKey) => {
     const info = teamInfoOrFallback(teamInfo, teamKey);
@@ -3085,7 +3085,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       const version = algorithm.version;
       // Season-final metrics (the algorithm's final state). NOT a ranking pool
       // (quick task 260912-tnk): still the rating axis for
-      // `consistencyMetricByTeam`, the `metricsAsOfEvent` fallback, and an
+      // `sigmaMetricByTeam`, the `metricsAsOfEvent` fallback, and an
       // offseason-only team's `seasonStats` values.
       const metricsByTeam = state !== undefined ? algorithm.teamMetrics(state, teamsThisSeason) : {};
       const metricHistoryForAlgo = metricHistoryByAlgoTeam.get(algorithm.id)!;
@@ -3151,7 +3151,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       // show no consistency column). Since quick task 260913-g66 they publish no
       // match band, and since quick task 260913-it4 no ranking-point odds.
       const sigmaMetricForAlgo = usesSigmaScore(algorithm.id)
-        ? consistencyMetricByTeam({
+        ? sigmaMetricByTeam({
             valueByTeam: sigmaByTeamForAlgo,
             metricsByTeam,
             teamKeys: teamsThisSeason,
@@ -3638,7 +3638,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       // just handed.
       let rows = withRpBeliefs(
         withSigmaBeliefs(
-          serializeState(algorithm.id, algorithm.version, state as EpaState | OprState, stamp),
+          serializeState(algorithm.id, algorithm.version, state as EpaState | OprState | SprState, stamp),
           finalSeasonSigma.get(algorithm.id) ?? new Map()
         ),
         finalSeasonRp.get(algorithm.id) ?? new Map()
@@ -3696,7 +3696,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
 // CLI
 // ---------------------------------------------------------------------------
 
-/** D-03 (rename D-04/D-05, plan 07-16/07-18; re-split then re-collapsed by quick task 260912-ivg): resolves the requested `--algorithm` ids (default: `PUBLISHED_ALGORITHM_IDS`, the single algorithm-id constant again as of 260912-ivg Stage 5) against the base modules, then swaps in the promoted VPR the same way `manifests.ts`'s `buildAlgorithmsManifest` (still read-tier) does (T-04-16) — never a second, independent resolution. Exported (plan 07-16 Task 2) so the rename's default-set/artifact-key/unknown-id behavior is directly testable rather than only reachable through the CLI entry point. */
+/** Resolves the requested `--algorithm` ids (default: `PUBLISHED_ALGORITHM_IDS`) against `BASE_PUBLISH_ALGORITHMS`, throwing on an unknown id. Exported so the default-set, artifact-key and unknown-id behavior is testable without the CLI entry point. */
 export function resolvePublishAlgorithms(idsCsv: string | undefined): AlgorithmModule<any>[] {
   const ids = idsCsv
     ? idsCsv

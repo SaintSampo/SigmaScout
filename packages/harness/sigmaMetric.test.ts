@@ -5,13 +5,13 @@
  * module this construction was relocated from (quick task 260909-tgf, Task 1).
  *
  * D1 locked the RESIDUAL framing; the running-median-over-rating-neighbours
- * functional form was that task's discretion -- see `consistencyMetric.ts`'s
+ * functional form was that task's discretion -- see `sigmaMetric.ts`'s
  * file header for the rationale and the two rejected alternatives (coefficient
  * of variation, rating-decile strata).
  */
 import { describe, expect, it } from "vitest";
 import { TOTAL_METRIC_KEY, type TeamMetrics } from "../core/algorithms/types.js";
-import { consistencyMetricByTeam, expectedConsistencyByTeam } from "./consistencyMetric.js";
+import { sigmaMetricByTeam, expectedSigmaByTeam } from "./sigmaMetric.js";
 import { SIGMA_METRIC_KEY } from "./sigmaScore.js";
 
 /** Builds a smooth linear figure-vs-rating pool with tiny deterministic jitter so the fit is not trivially exact. */
@@ -38,10 +38,10 @@ function toMetricsByTeam(ratingByTeam: ReadonlyMap<string, number>): TeamMetrics
   return metrics;
 }
 
-describe("expectedConsistencyByTeam", () => {
+describe("expectedSigmaByTeam", () => {
   it("returns, for each team in a linear figure-vs-rating pool, an expected value close to that team's own figure", () => {
     const { valueByTeam, ratingByTeam, teamKeys } = buildLinearPool(200, 0.1, 2);
-    const expected = expectedConsistencyByTeam(valueByTeam, ratingByTeam, teamKeys);
+    const expected = expectedSigmaByTeam(valueByTeam, ratingByTeam, teamKeys);
 
     let maxAbsResidual = 0;
     let valueMin = Infinity;
@@ -68,7 +68,7 @@ describe("expectedConsistencyByTeam", () => {
     const perturbedValueByTeam = new Map(valueByTeam);
     perturbedValueByTeam.set(outlierKey, outlierValue);
 
-    const expected = expectedConsistencyByTeam(perturbedValueByTeam, ratingByTeam, teamKeys);
+    const expected = expectedSigmaByTeam(perturbedValueByTeam, ratingByTeam, teamKeys);
 
     const neighbourKey = "frc99";
     const neighbourExpected = expected.get(neighbourKey)!;
@@ -77,7 +77,7 @@ describe("expectedConsistencyByTeam", () => {
   });
 });
 
-describe("consistencyMetricByTeam -- THE HEADLINE TEST", () => {
+describe("sigmaMetricByTeam -- THE HEADLINE TEST", () => {
   it("a high-rated team with a high raw figure that is below its expected figure out-tiers a low-rated team with a low raw figure that is above its expected figure", () => {
     const n = 60;
     const slope = 0.15;
@@ -103,7 +103,7 @@ describe("consistencyMetricByTeam -- THE HEADLINE TEST", () => {
     expect(adjustedValueByTeam.get(highRatedKey)!).toBeGreaterThan(adjustedValueByTeam.get(lowRatedKey)!);
 
     const metricsByTeam = toMetricsByTeam(ratingByTeam);
-    const result = consistencyMetricByTeam({
+    const result = sigmaMetricByTeam({
       valueByTeam: adjustedValueByTeam,
       metricsByTeam,
       teamKeys,
@@ -122,7 +122,7 @@ describe("consistencyMetricByTeam -- THE HEADLINE TEST", () => {
     prunedValueByTeam.delete(noValueKey);
 
     const metricsByTeam = toMetricsByTeam(ratingByTeam);
-    const result = consistencyMetricByTeam({
+    const result = sigmaMetricByTeam({
       valueByTeam: prunedValueByTeam,
       metricsByTeam,
       teamKeys,
@@ -138,7 +138,7 @@ describe("consistencyMetricByTeam -- THE HEADLINE TEST", () => {
     const metricsByTeam = toMetricsByTeam(ratingByTeam);
     delete metricsByTeam[noTotalKey];
 
-    const result = consistencyMetricByTeam({ valueByTeam, metricsByTeam, teamKeys, metricKey: SIGMA_METRIC_KEY });
+    const result = sigmaMetricByTeam({ valueByTeam, metricsByTeam, teamKeys, metricKey: SIGMA_METRIC_KEY });
 
     expect(noTotalKey in result).toBe(false);
   });
@@ -149,7 +149,7 @@ describe("consistencyMetricByTeam -- THE HEADLINE TEST", () => {
     const scopedTeamKeys = teamKeys.filter((k) => k !== excludedKey);
     const metricsByTeam = toMetricsByTeam(ratingByTeam);
 
-    const result = consistencyMetricByTeam({
+    const result = sigmaMetricByTeam({
       valueByTeam,
       metricsByTeam,
       teamKeys: scopedTeamKeys,
@@ -162,7 +162,7 @@ describe("consistencyMetricByTeam -- THE HEADLINE TEST", () => {
   it("returned entries carry exactly {value, percentile} and no other keys", () => {
     const { valueByTeam, ratingByTeam, teamKeys } = buildLinearPool(30, 0.1, 2);
     const metricsByTeam = toMetricsByTeam(ratingByTeam);
-    const result = consistencyMetricByTeam({ valueByTeam, metricsByTeam, teamKeys, metricKey: SIGMA_METRIC_KEY });
+    const result = sigmaMetricByTeam({ valueByTeam, metricsByTeam, teamKeys, metricKey: SIGMA_METRIC_KEY });
 
     const entry = result["frc15"]!;
     expect(entry).toBeDefined();

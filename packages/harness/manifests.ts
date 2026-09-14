@@ -21,6 +21,7 @@
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
 import { spr } from "../core/algorithms/spr.js";
+import type { AlgorithmModule } from "../core/algorithms/types.js";
 import type { Corpus } from "../corpus/db.js";
 import {
   AlgorithmManifestEntrySchema,
@@ -199,6 +200,13 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
 // D-03: the algorithms manifest (offline builder only — schema in manifestSchemas.ts)
 // ---------------------------------------------------------------------------
 
+/**
+ * D-03: the one opr/epa/spr registry, keyed by wire id. `publish.ts` re-exports
+ * it as `BASE_PUBLISH_ALGORITHMS`; each key must equal its module's `id`
+ * (T-07-16-01).
+ */
+export const PUBLISHED_ALGORITHM_MODULES: Record<string, AlgorithmModule<any>> = { opr, epa, spr };
+
 export interface BuildAlgorithmsManifestOptions {
   /** D-04: a short opaque string identifying the publish run that produced this manifest. */
   readonly generation: string;
@@ -235,7 +243,7 @@ export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions)
   // override, once `PUBLISHED_ALGORITHM_IDS` itself moved to the renamed id
   // in the same commit — the module's own id and the manifest's read-tier
   // id agree again, so no override is needed.
-  const modules: Record<string, { id: string; version: string }> = { opr, epa, spr };
+  const modules = PUBLISHED_ALGORITHM_MODULES;
 
   const algorithms: AlgorithmManifestEntry[] = PUBLISHED_ALGORITHM_IDS.map((id) => {
     const mod = modules[id];

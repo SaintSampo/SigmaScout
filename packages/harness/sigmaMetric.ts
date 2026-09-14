@@ -65,7 +65,7 @@ function median(values: readonly number[]): number {
  * in BOTH `valueByTeam` and `ratingByTeam` — a team missing either cannot be
  * placed on the curve.
  */
-export function expectedConsistencyByTeam(
+export function expectedSigmaByTeam(
   valueByTeam: ReadonlyMap<string, number>,
   ratingByTeam: ReadonlyMap<string, number>,
   teamKeys: readonly string[]
@@ -98,7 +98,7 @@ export function expectedConsistencyByTeam(
 }
 
 /** One team's published consistency entry — the RAW figure and the inverted residual percentile. No other keys. */
-export interface ConsistencyMetricEntry {
+export interface SigmaMetricEntry {
   value: number;
   percentile: number;
 }
@@ -124,7 +124,7 @@ export interface ConsistencyMetricEntry {
  * (`rounding.ts`'s header), and a second rounding pass here would make the
  * site's number disagree with the harness's.
  */
-export function consistencyMetricByTeam(params: {
+export function sigmaMetricByTeam(params: {
   valueByTeam: ReadonlyMap<string, number>;
   metricsByTeam: TeamMetrics;
   teamKeys: readonly string[];
@@ -135,7 +135,7 @@ export function consistencyMetricByTeam(params: {
    * says which published entry the answer is for.
    */
   metricKey: string;
-}): Record<string, ConsistencyMetricEntry> {
+}): Record<string, SigmaMetricEntry> {
   const { valueByTeam, metricsByTeam, teamKeys, metricKey } = params;
 
   const ratingByTeam = new Map<string, number>();
@@ -145,10 +145,10 @@ export function consistencyMetricByTeam(params: {
   }
 
   const eligible = teamKeys.filter((teamKey) => valueByTeam.has(teamKey) && ratingByTeam.has(teamKey));
-  const result: Record<string, ConsistencyMetricEntry> = {};
+  const result: Record<string, SigmaMetricEntry> = {};
   if (eligible.length === 0) return result;
 
-  const expected = expectedConsistencyByTeam(valueByTeam, ratingByTeam, eligible);
+  const expected = expectedSigmaByTeam(valueByTeam, ratingByTeam, eligible);
   const residuals = eligible.map((teamKey) => valueByTeam.get(teamKey)! - expected.get(teamKey)!);
   const rawPercentiles = percentileRanks(residuals);
 

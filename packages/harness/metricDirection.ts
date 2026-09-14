@@ -96,7 +96,7 @@ DIRECTION_BY_METRIC_NAME.set(SIGMA_METRIC_KEY, "lower-is-better");
 /**
  * STRICT accessor. Throws `UndeclaredMetricDirectionError` on an undeclared
  * name rather than defaulting. Called by the test suite's coverage
- * assertions and by `consistencyMetric.ts` for `SIGMA_METRIC_KEY` itself —
+ * assertions and by `sigmaMetric.ts` for `SIGMA_METRIC_KEY` itself —
  * that name is declared by THIS module, so a throw there would mean the
  * registry lost its own entry, a defect worth crashing on rather than
  * degrading past.
