@@ -1,21 +1,19 @@
 /**
- * D-T6's event-blocked bootstrap (quick task 260901-trz), as ONE tested,
- * exported helper so no call site rolls its own resampler.
+ * Event-blocked bootstrap, as ONE tested, exported helper so no call site
+ * rolls its own resampler.
  *
  * Why blocking by event and not by match. Matches inside one event share
  * teams, a field, a game state and a day's officiating. Resampling MATCHES
  * independently pretends those are independent draws and therefore
- * understates every interval it produces. Measured on the tune pool (47,851
- * matches across 561 events, D-T6): match-level bootstrap SE **0.000896**,
- * event-blocked SE **0.001219** — the naive figure is 40% too small. An
- * acceptance bar built on the naive number would accept candidates that are
- * indistinguishable from resampling noise, which is exactly the failure this
- * project's log records once already.
+ * understates every interval it produces. Measured on the tune pool:
+ * match-level bootstrap SE **0.000896**, event-blocked SE **0.001219** —
+ * the naive figure is 40% too small. An acceptance bar built on the naive
+ * number would accept candidates that are indistinguishable from resampling
+ * noise.
  *
  * Deliberately lives in `packages/harness`, not `packages/core` — this is a
  * TUNING/EVALUATION concern, and `packages/core` must stay free of anything
- * that is not Worker-importable prediction logic (the same argument
- * the retired Sigma1 tuner's search-bounds module made for search bounds).
+ * that is not Worker-importable prediction logic.
  *
  * ## The generic `statistic` parameter IS the design
  *
@@ -23,20 +21,21 @@
  * distinction decides whether an acceptance rule is honest:
  *
  *   - **LEVEL SE** — `statistic = mean Brier of one model`. This is the
- *     0.001219 figure D-T6 quotes and the one to attach to a published
+ *     0.001219 figure quoted above and the one to attach to a published
  *     interval around a single model's score.
  *   - **PAIRED-DIFFERENCE SE** — `statistic = mean of per-match
  *     (candidateBrier - incumbentBrier)`, both models scored on the SAME
- *     resampled events. This is what D-T7's acceptance bar actually governs:
- *     the bar is on a DIFFERENCE, so the paired SE is the faithful quantity.
- *     It is materially TIGHTER than either side's level SE, because the two
- *     models see the same matches and the shared match-difficulty variance
- *     cancels inside the difference before the resampling ever happens.
+ *     resampled events. This is what an acceptance bar on a difference
+ *     actually needs: the bar is on a DIFFERENCE, so the paired SE is the
+ *     faithful quantity. It is materially TIGHTER than either side's level
+ *     SE, because the two models see the same matches and the shared
+ *     match-difficulty variance cancels inside the difference before the
+ *     resampling ever happens.
  *
  * Using a level SE where a paired SE belongs sets the bar far too high and
  * rejects real improvements; using a paired SE where a level SE belongs
  * publishes an interval that is too narrow. Both remain computable here on
- * purpose, and D-T7's rule takes the PAIRED one.
+ * purpose; an acceptance rule on a difference must take the PAIRED one.
  */
 
 /** The minimum a unit must carry for this module to block it: the event it belongs to. Any richer per-match record (a scored prediction, a paired Brier difference) structurally satisfies this. */
@@ -63,9 +62,9 @@ export interface EventBootstrapResult {
  * 2000 resamples. At B resamples the Monte Carlo error on the reported
  * STANDARD ERROR is roughly `1 / sqrt(2B)` of that standard error — about
  * 1.6% here. The quantity this helper exists to keep apart is the ~36% gap
- * between the event-blocked and match-level figures (0.001219 vs 0.000896,
- * D-T6), so 1.6% is an order of magnitude below the smallest difference that
- * has to be readable. More resamples would buy resolution nothing consumes;
+ * between the event-blocked and match-level figures (0.001219 vs 0.000896),
+ * so 1.6% is an order of magnitude below the smallest difference that has
+ * to be readable. More resamples would buy resolution nothing consumes;
  * fewer would put the resampler's own noise within sight of the effect.
  */
 export const DEFAULT_EVENT_BOOTSTRAP_RESAMPLES = 2000;
