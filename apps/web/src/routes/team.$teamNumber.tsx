@@ -16,20 +16,19 @@ import { SeasonHeader } from "../components/team/SeasonHeader.js";
 import { NoEventDataState, YearMismatchEmptyState } from "../components/team/TeamStates.js";
 
 /**
- * The `/team/{number}` route (06-01-PLAN.md). Task 1's tracer proved the
- * single artifact-fetch path; Task 2 added D-16's tab shell; this task adds
- * the page's four non-populated states (loading, error, D-19 year-mismatch,
- * E5 zero-events).
+ * The `/team/{number}` route: the single artifact-fetch path, the tab
+ * shell, and the page's four non-populated states (loading, error,
+ * year-mismatch, zero-events).
  */
 export const Route = createFileRoute("/team/$teamNumber")({
   validateSearch: TeamSearchSchema,
   component: TeamPage,
 });
 
-/** A route param that is not a bare positive-integer string never fires a fetch — D-19's "explain, don't silently redirect" rule, applied one level up from D-19's own year mismatch (this is the path segment itself being nonsense). */
+/** A route param that is not a bare positive-integer string never fires a fetch — "explain, don't silently redirect" applied one level up from the year-mismatch case (this is the path segment itself being nonsense). */
 const TEAM_NUMBER_PATTERN = /^\d+$/;
 
-/** How many event-section skeleton cards render during the pending state (06-UI-SPEC.md E5 loading: "2-3 skeleton event-section cards"). */
+/** How many event-section skeleton cards render during the pending state. */
 const PENDING_EVENT_SECTION_SKELETON_COUNT = 3;
 
 type TeamTab = (typeof TEAM_TABS)[number];
@@ -43,10 +42,10 @@ function TeamPage() {
   const teamNumber = isValidTeamNumber ? Number.parseInt(teamNumberParam, 10) : Number.NaN;
   const teamKey = isValidTeamNumber ? toTeamKey(teamNumber) : "";
 
-  // 05-05-PLAN.md Task 2's established pattern, mirrored here: the artifact
-  // query stays DISABLED until the algorithms manifest resolves a real
-  // version, and disabled entirely for an invalid team number so no fetch
-  // ever fires against a nonsense key.
+  // The established pattern, mirrored across the app: the artifact query
+  // stays DISABLED until the algorithms manifest resolves a real version,
+  // and disabled entirely for an invalid team number so no fetch ever fires
+  // against a nonsense key.
   const version = useAlgorithmVersion(algorithm);
 
   const { data, isPending, error, refetch } = useQuery({
@@ -55,23 +54,21 @@ function TeamPage() {
     placeholderData: keepPreviousData,
   });
 
-  // 2026-09-01 (user request): the header tiles show the team's stats AS OF
-  // THEIR LAST OFFICIAL MATCH, not the season-final values (which keep
-  // learning through offseason/preseason play). The team artifact itself
-  // carries no official/offseason flag per event, but the events/{year}
-  // artifact does — one small, CDN-cached parallel fetch closes the gap
-  // with no republish. Until it resolves (or if it errors) the tiles show
-  // the season-final values, then swap.
+  // The header tiles show the team's stats AS OF THEIR LAST OFFICIAL MATCH,
+  // not the season-final values (which keep learning through
+  // offseason/preseason play). The team artifact itself carries no
+  // official/offseason flag per event, but the events/{year} artifact does
+  // — one small, CDN-cached parallel fetch closes the gap with no
+  // republish. Until it resolves (or if it errors) the tiles show the
+  // season-final values, then swap.
   //
-  // IN-01 (260902-post-phase08-ungoverned-ui/REVIEW.md): `headerMetrics` used
-  // to fall back to `data.seasonStats.metrics` right here, which made
-  // `metricsOverride !== undefined` an untrustworthy signal for labelling —
-  // a team with no resolvable official snapshot would still receive a
-  // defined (but SEASON-FINAL) override, and labelling that "as of last
-  // official match" would have shipped a new false claim in the act of
-  // fixing a missing one. The fallback is removed here so `headerMetrics` is
-  // the official snapshot or `undefined` and nothing else — the prop now
-  // MEANS "this is the official-match snapshot", which is the precondition
+  // `headerMetrics` is the official snapshot or `undefined` and nothing
+  // else — never a fallback to `data.seasonStats.metrics` here, which would
+  // make `metricsOverride !== undefined` an untrustworthy signal for
+  // labelling: a team with no resolvable official snapshot would still
+  // receive a defined (but SEASON-FINAL) override, and labelling that "as
+  // of last official match" would be a false claim. The prop now MEANS
+  // "this is the official-match snapshot", which is the precondition
   // `SeasonHeader` needs before it can label the tiles that way. This is
   // behaviour-preserving for the RENDERED NUMBERS: `SeasonHeader.tsx`
   // already resolves `metricsOverride ?? artifact.seasonStats.metrics`
@@ -80,11 +77,11 @@ function TeamPage() {
     ...eventsQueryOptions({ year, algorithmId: algorithm, version: version ?? "" }),
     enabled: isValidTeamNumber && version !== undefined,
   });
-  // Quick task 260908-5wd: resolve the snapshot ROW, not just its metrics, so
-  // the header can bound its browser-computed consistency figure to the same as-of
-  // instant the tiles beside it show. `headerMetrics` is derived from the row
-  // and keeps its exact prior meaning ("the official snapshot or undefined,
-  // nothing else"), so the labelling precondition above is untouched.
+  // Resolves the snapshot ROW, not just its metrics, so the header can
+  // bound its browser-computed consistency figure to the same as-of instant
+  // the tiles beside it show. `headerMetrics` is derived from the row and
+  // keeps its exact prior meaning, so the labelling precondition above is
+  // untouched.
   const snapshotRow = data !== undefined && eventsQuery.data !== undefined ? officialSnapshotRow(data.metricHistory, eventsQuery.data.events) : undefined;
   const headerMetrics = snapshotRow?.metrics;
 
@@ -104,10 +101,9 @@ function TeamPage() {
     void navigate({ search: (prev) => ({ ...prev, tab: nextTab }) });
   }
 
-  // A 404 means "no artifact was ever published for this team-year" — D-05's
-  // own bootstrap wrinkle (06-CONTEXT.md): the year the team did not play.
-  // Every OTHER fetch failure (500, network error, a validation failure)
-  // stays the ordinary page-level error.
+  // A 404 means "no artifact was ever published for this team-year" — the
+  // year the team did not play. Every OTHER fetch failure (500, network
+  // error, a validation failure) stays the ordinary page-level error.
   const is404 = error instanceof ArtifactFetchError && error.status === 404;
 
   function renderOverviewContent() {
@@ -139,9 +135,7 @@ function TeamPage() {
 
       return (
         <div className="flex flex-col gap-[var(--spacing-xl)]">
-          {/* The identity chrome (name, number — image/TBA link join once
-              plan 06-07 wires D-03) is not year-scoped and renders normally
-              above the empty body, per D-19/E5's own instruction. */}
+          {/* The identity chrome (name, number) is not year-scoped and renders normally above the empty body. */}
           <div className="data-card p-[var(--spacing-md)]"><SeasonHeader artifact={data} algorithmId={algorithm} season={year} teamNumber={teamNumber} metricsOverride={headerMetrics} snapshotMatchKey={snapshotRow?.matchKey} ranks={data.ranks} /></div>
           {yearMismatch ? (
             <YearMismatchEmptyState teamNumber={teamNumber} nickname={data.nickname} year={year} activeYears={activeYears} />
@@ -155,17 +149,17 @@ function TeamPage() {
     return <OverviewTab artifact={data} algorithmId={algorithm} season={year} teamNumber={teamNumber} metricsOverride={headerMetrics} snapshotMatchKey={snapshotRow?.matchKey} />;
   }
 
-  // Both tabs render from first paint regardless of query state
-  // (06-UI-SPEC.md E8) — they gate CONTENT, never their own existence.
+  // Both tabs render from first paint regardless of query state — they gate
+  // CONTENT, never their own existence.
   return (
-    // The match table's plot column is a deliberate fixed ~470px (D-10), so
-    // the table's natural width is ~905px and it can never fill a 1440px
-    // card — an unconstrained page left ~455px of dead space to the right of
-    // every match table and stretched the metric tiles across the full
-    // viewport. Constraining the content column (rather than stretching the
-    // table) is what closes that gap, and it centres the page on wide
-    // displays. 1200px leaves the 905px table comfortable margins without
-    // shrinking the 6-up metric grid below a readable tile width.
+    // The match table's plot column is a deliberate fixed ~470px, so the
+    // table's natural width is ~905px and it can never fill a 1440px card —
+    // an unconstrained page left dead space to the right of every match
+    // table and stretched the metric tiles across the full viewport.
+    // Constraining the content column (rather than stretching the table) is
+    // what closes that gap, and it centres the page on wide displays.
+    // 1200px leaves the 905px table comfortable margins without shrinking
+    // the 6-up metric grid below a readable tile width.
     <div className="mx-auto w-full max-w-[1200px] p-[var(--spacing-lg)]">
       <Tabs value={tab} onValueChange={handleTabChange}>
         <TabsList variant="line" className="border-b border-[var(--color-border)]">
@@ -180,13 +174,13 @@ function TeamPage() {
           {renderOverviewContent()}
         </TabsContent>
         <TabsContent value="history" className="mt-[var(--spacing-lg)]">
-          {/* Testid kept on this always-present wrapper (06-01-PLAN.md
-              Task 2's own test asserts it renders even before the artifact
-              resolves) — `MetricHistoryTab` mounts inside it only once a
-              real artifact is available; the pending/error/empty states
-              above already cover the Overview panel's equivalents, and the
-              chart's own dynamic-import loading/error states (D-14) are
-              MetricHistoryTab's job, not this wrapper's. */}
+          {/* Testid kept on this always-present wrapper — a test asserts it
+              renders even before the artifact resolves. `MetricHistoryTab`
+              mounts inside it only once a real artifact is available; the
+              pending/error/empty states above already cover the Overview
+              panel's equivalents, and the chart's own dynamic-import
+              loading/error states are MetricHistoryTab's job, not this
+              wrapper's. */}
           <div data-testid="metric-history-panel">
             {data !== undefined && !is404 && !error ? (
               <MetricHistoryTab artifact={data} algorithmId={algorithm} season={year} />

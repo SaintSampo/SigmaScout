@@ -11,15 +11,13 @@ import type { PublishedAlgorithmId } from "../../../../../packages/harness/publi
 
 /**
  * One event: heading, date, Upcoming badge, the team's end-of-event metric
- * snapshot, and its own horizontal scroll region (06-08-PLAN.md Task 2). This
- * is the highest-risk surface in the phase (D-10) — it recurs once per event
+ * snapshot, and its own horizontal scroll region. It recurs once per event
  * section, so every flex/grid ancestor of the scroller below carries
  * `min-w-0`, and the scroller itself is a single native `overflow-x-auto`
- * element with `touch-pan-xy`/`overscroll-x-contain` (07-UAT.md G-4: a
- * custom Tailwind utility for `touch-action: pan-x pan-y pinch-zoom` — the
- * plain `touch-pan-x` this used to carry blocked every vertical touch
- * gesture starting here — / `overscroll-behavior-x: contain`), never fused
- * with the page's own vertical scroll.
+ * element with `touch-pan-xy` (a custom Tailwind utility for
+ * `touch-action: pan-x pan-y pinch-zoom` — the plain `touch-pan-x` blocks
+ * every vertical touch gesture starting here) / `overscroll-x-contain`,
+ * never fused with the page's own vertical scroll.
  */
 export interface EventSectionProps {
   event: TeamSeasonEvent;
@@ -53,9 +51,7 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
   const snapshot = endOfEventMetrics(metricHistory, event.eventKey);
   const metricKeys = metricKeysFor(algorithmId, season);
 
-  /**
-   * D-06.1-A (plan 06.1-06, Task 3): the per-event metric line's tiles.
-   */
+  /** The per-event metric line's tiles. */
   const totalTile = snapshot === undefined ? undefined : { key: TOTAL_KEY, label: "Total", metric: snapshot.metrics[TOTAL_KEY] };
   const groupTiles =
     snapshot === undefined || metricKeys.length <= 1
@@ -68,9 +64,9 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
       className="event-card shadow-sm flex min-w-0 flex-col gap-[var(--spacing-sm)] p-[var(--spacing-lg)]"
     >
       <div className="flex min-w-0 items-center gap-[var(--spacing-sm)]">
-        {/* 2026-09-01 (user request): the event name is the way INTO the
-            event page, and it should look like one — accent ink + hover
-            underline, the same obvious-link treatment as any nav link. */}
+        {/* The event name is the way INTO the event page, and it should
+            look like one — accent ink + hover underline, the same
+            obvious-link treatment as any nav link. */}
         <h2 className="text-role-heading min-w-0 truncate">
           <Link
             to="/event/$eventKey"
@@ -87,12 +83,11 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
       <p className="flex items-center gap-[var(--spacing-xs)] text-role-body text-[var(--color-text-muted)]">
         <span>{event.startDate}</span>
         {/*
-          TEAM-04/F-06-3 (plan 06.1-01): the standing line, rendered ONLY
-          when BOTH rank and totalTeams are present — a half-present pair
-          (TeamSeasonEventSchema declares them independently optional) never
-          renders a partial standing. No Badge (PD-03): a rank is data, not
-          status. No fallback, no client-derived rank, no zero default — see
-          this plan's must_haves.prohibitions.
+          The standing line, rendered ONLY when BOTH rank and totalTeams are
+          present — a half-present pair (independently optional in the
+          schema) never renders a partial standing. No Badge: a rank is
+          data, not status. No fallback, no client-derived rank, no zero
+          default.
         */}
         {event.rank !== undefined && event.totalTeams !== undefined && (
           <>
@@ -107,12 +102,10 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
       {snapshot !== undefined && (
         <div data-testid={`event-snapshot-${event.eventKey}`} className="flex min-w-0 flex-col gap-[var(--spacing-xs)]">
           {/*
-            Same four-way grouping as the season header: this line previously
-            spilled all 13 of 2024's raw components across three wrapped rows.
-            2026-09-13 (user request): Total leads on its own line, and Auto,
-            Teleop and Endgame share the line below it. That line never wraps;
-            below `sm` each label stacks over its value so the three still fit
-            side by side on a phone.
+            Same four-way grouping as the season header: Total leads on its
+            own line, and Auto, Teleop and Endgame share the line below it.
+            That line never wraps; below `sm` each label stacks over its
+            value so the three still fit side by side on a phone.
           */}
           {totalTile?.metric !== undefined && (
             <span className="flex items-baseline gap-[var(--spacing-xs)]">
@@ -128,28 +121,20 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
                   <span key={tile.key} className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)] sm:flex-row sm:items-baseline">
                     <span className="text-role-label text-[var(--color-text-muted)]">{tile.label}</span>
                     {/*
-                      D-06.1-A (plan 06.1-06, Task 3): the tier comes from THIS
-                      history row's own published percentile
-                      (`MetricValueSchema.percentile`, plan 06.1-03/06.1-05) —
-                      which ranks this as-of-this-event value against the
-                      season's last-official-match field for that metric (quick
-                      task 260912-tnk: the ONE pool the Teams list and the season
+                      The tier comes from THIS history row's own published
+                      percentile — which ranks this as-of-this-event value
+                      against the season's last-official-match field for that
+                      metric (the ONE pool the Teams list and the season
                       header rank against, so an equal value carries an equal
                       tier on all three) — never from the team's own
-                      `TeamMetricSchema.percentile`/`tier`, which describes a
-                      different value. That substitution is exactly the defect
-                      F-06-3 was filed to prevent.
-    
-                      G-06.1-28 (plan 06.1-08, Task 1, option-a): the caption that
-                      used to state this basis on every event card was removed
-                      per user request (UAT test 28 — clutter, not disagreement
-                      with the tiers themselves). The basis is now DELIBERATELY
-                      NOT stated anywhere on this surface — a signed accepted
-                      risk (T-06.1-24, signed Jacob Williams, 2026-08-26; the
-                      full disposition lives in that plan's threat register), not
-                      an oversight. A future reader who wants to relocate the
-                      explanation should start there, not assume it was dropped
-                      by mistake.
+                      season-level percentile/tier, which describes a
+                      different value.
+
+                      The caption that used to state this basis on every
+                      event card was removed per user request (clutter, not
+                      disagreement with the tiers themselves). The basis is
+                      now DELIBERATELY NOT stated anywhere on this surface —
+                      an accepted risk, not an oversight.
                     */}
                     <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric.percentile)} />
                   </span>
