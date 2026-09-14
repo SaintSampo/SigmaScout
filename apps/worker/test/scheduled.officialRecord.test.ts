@@ -1,16 +1,14 @@
 /**
- * Quick task 260908-615: the live Worker's per-team merge writes an
- * OFFICIAL-ONLY `seasonStats.record`, matching what `publish.ts` writes
- * offline (`teamStatsOfficial`).
+ * The live Worker's per-team merge writes an OFFICIAL-ONLY
+ * `seasonStats.record`, matching what `publish.ts` writes offline
+ * (`teamStatsOfficial`).
  *
  * Why this test exists rather than trusting the offline change alone: the
- * offline publisher and the live Worker write the SAME artifact. Scoping only
- * the publisher would leave the Worker re-adding offseason wins one tick at a
- * time, so a team's record would drift away from the published value between
- * republishes — a live/offline divergence with no loud failure, which is the
- * exact defect class this repo has already logged once (see
- * `project_worker_typecheck_preexisting_red` — a "cosmetic" DQ drift that
- * turned out to be a real live/offline split).
+ * offline publisher and the live Worker write the SAME artifact. Scoping
+ * only the publisher would leave the Worker re-adding offseason wins one
+ * tick at a time, so a team's record would drift away from the published
+ * value between republishes — a live/offline divergence with no loud
+ * failure.
  *
  * The asymmetry pinned below is the whole point: an offseason match's match
  * row and metric-history row are still appended; only the summary record
@@ -151,14 +149,12 @@ describe("mergeTeamSeasonArtifact — official-only seasonStats.record (quick ta
 });
 
 /**
- * Quick task 260908-5wd: the live merge must PRESERVE every field the offline
- * publisher wrote and this tick does not own.
- *
- * Before this, `mergeTeamSeasonArtifact` constructed a fresh object naming
- * twelve fields, so the first live tick touching a team silently deleted its
- * rank cards, its robot photo, its active-years list and its per-team consistency figure —
- * for the rest of the event, until the next offline publish restored them.
- * There was no error and no log line; the team page simply got worse mid-event.
+ * The live merge must PRESERVE every field the offline publisher wrote and
+ * this tick does not own. Constructing a fresh object naming only the
+ * fields this tick owns would silently delete a team's rank cards, robot
+ * photo, active-years list and per-team consistency figure on the first
+ * live tick touching it, with no error and no log line — the team page
+ * would simply get worse mid-event until the next offline publish.
  */
 describe("mergeTeamSeasonArtifact — preserves offline-published fields (quick task 260908-5wd)", () => {
   function existingArtifact(): TeamSeasonArtifact {
@@ -241,12 +237,11 @@ describe("mergeTeamSeasonArtifact — preserves offline-published fields (quick 
 });
 
 /**
- * Quick task 260913-m45 Task 2: `sigmaAfterTick` — this team's Sigma Score at
- * the SAME instant as `metrics` (end of tick) — lands ONLY on this tick's
- * NEW metric-history rows, never on `seasonStats`, which keeps the
- * publisher's season-final, tiered entry (`touchedEventTeamMetrics` carries
- * it forward). A required parameter (may be `undefined`), so no caller can
- * opt out by omission.
+ * `sigmaAfterTick` — this team's Sigma Score at the SAME instant as
+ * `metrics` (end of tick) — lands ONLY on this tick's NEW metric-history
+ * rows, never on `seasonStats`, which keeps the publisher's season-final,
+ * tiered entry (`touchedEventTeamMetrics` carries it forward). A required
+ * parameter (may be `undefined`), so no caller can opt out by omission.
  */
 describe("mergeTeamSeasonArtifact — Sigma on appended history rows (quick task 260913-m45)", () => {
   it("appends sigma.value as the LAST key on every NEW history row when sigmaAfterTick is defined", () => {
