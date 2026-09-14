@@ -1,93 +1,83 @@
 /**
- * Backfill entry point over a season range (DATA-01/DATA-02):
+ * Backfill entry point over a season range:
  *
  *   pnpm ingest --years 2022-2026
  *   pnpm ingest --year 2024
  *   pnpm ingest --event 2024casj
  *   pnpm ingest --years 2022-2026 --force   (bypass the ETag cache)
- *   pnpm ingest --years 2022-2026 --events-only   (EVNT-01, plan 05-02: refresh
- *     only /events/{year} for the requested range — no teams, no per-event
+ *   pnpm ingest --years 2022-2026 --events-only   (refresh only
+ *     /events/{year} for the requested range — no teams, no per-event
  *     matches. Always bypasses the ETag cache, the same way --force does,
  *     because a 304 carries no body and a body is exactly what's needed to
- *     fill the new name/week/country/stateProv/districtKey columns.)
- *   pnpm ingest:media --years 2022-2026   (TEAM-02, plan 06-03: resolves each
- *     team's robot photo via /team/{key}/media/{year} and stores the result
- *     in team_media. Uses the corpus's existing ETag cache, so a repeat run
- *     costs the same request count but less bandwidth.)
- *   pnpm ingest:rankings --year 2024   (TEAM-04/F-06-3, plan 06.1-01: resolves
- *     every team's standing at each of the season's events via
- *     /event/{key}/rankings and stores the result in event_rankings. One
- *     request per event, not per team; includes offseason events (PD-01).
- *     Also fills record_wins/record_losses/record_ties and ranking_score
- *     (D-18.6, plan 07-04) with TBA's own reported record and ranking-score
- *     value.)
- *   pnpm ingest:rankings --years 2022-2026 --force   (D-18.6, plan 07-04:
- *     the flag is REQUIRED to backfill record_wins/record_losses/
- *     record_ties/ranking_score onto an already-ingested season — an
- *     un-forced re-run's cached-ETag 304s carry no body, so the four
- *     columns stay NULL otherwise.)
- *   pnpm ingest:alliances --years 2022-2026   (EVNT-05, D-18.7, plan 07-03:
- *     resolves each event's playoff alliance selection via
- *     /event/{key}/alliances, one request per event, and stores the result
- *     in event_alliances. Includes offseason events, matching PD-01.)
- *   pnpm ingest:districts --years 2022-2026   (quick task 260905-lic Task 1;
- *     widened by revision R2a to also fetch awards: resolves each season's
- *     district point data -- capacity, per-team rankings, event registration
- *     and award recipients -- via /districts/{year}, /district/{key}/rankings,
- *     /district/{key}/events/keys, /event/{key}/teams/keys and
- *     /event/{key}/awards, and stores the result in
- *     districts/district_rankings/event_teams/event_awards. Same --force
- *     caching rule as --rankings-only: an already-ingested season's cached
- *     ETags 304 with no body, so a re-run needs --force to get real rows
- *     again. --years only accepts one contiguous range; a gap season like
- *     2021 requires a separate invocation.)
- *   pnpm ingest:event-teams --years 2026-2026   (quick task 260905-tll Task 3,
- *     C-16: resolves registered teams for EVERY official event of a season —
- *     not just district events the way --districts-only does — via
- *     /event/{key}/teams/keys, one request per event, storing the result in
- *     event_teams. Standalone: reads the official-event-key set from the
- *     corpus's own `events` table rather than re-fetching /events/{year}.
- *     Same --force caching rule as every other *-only mode: a re-run over an
- *     already-ingested season needs --force, because a cached-ETag 304
- *     carries no body.)
- *   pnpm ingest:awards --years 2022-2026   (revision R2a: resolves ONLY award
- *     recipients for one season via /event/{key}/awards, one request per
- *     district event, and stores the result in event_awards. Standalone:
- *     reads the district-event-key set from the corpus's OWN `events` table
+ *     fill the name/week/country/stateProv/districtKey columns.)
+ *   pnpm ingest:media --years 2022-2026   (resolves each team's robot photo
+ *     via /team/{key}/media/{year} and stores the result in team_media.
+ *     Uses the corpus's existing ETag cache, so a repeat run costs the same
+ *     request count but less bandwidth.)
+ *   pnpm ingest:rankings --year 2024   (resolves every team's standing at
+ *     each of the season's events via /event/{key}/rankings and stores the
+ *     result in event_rankings. One request per event, not per team;
+ *     includes offseason events. Also fills record_wins/record_losses/
+ *     record_ties and ranking_score with TBA's own reported record and
+ *     ranking-score value.)
+ *   pnpm ingest:rankings --years 2022-2026 --force   (the flag is required
+ *     to backfill record_wins/record_losses/record_ties/ranking_score onto
+ *     an already-ingested season — an un-forced re-run's cached-ETag 304s
+ *     carry no body, so the four columns stay NULL otherwise.)
+ *   pnpm ingest:alliances --years 2022-2026   (resolves each event's
+ *     playoff alliance selection via /event/{key}/alliances, one request
+ *     per event, and stores the result in event_alliances. Includes
+ *     offseason events.)
+ *   pnpm ingest:districts --years 2022-2026   (resolves each season's
+ *     district point data -- capacity, per-team rankings, event
+ *     registration and award recipients -- via /districts/{year},
+ *     /district/{key}/rankings, /district/{key}/events/keys,
+ *     /event/{key}/teams/keys and /event/{key}/awards, and stores the
+ *     result in districts/district_rankings/event_teams/event_awards. Same
+ *     --force caching rule as --rankings-only. --years only accepts one
+ *     contiguous range; a gap season like 2021 requires a separate
+ *     invocation.)
+ *   pnpm ingest:event-teams --years 2026-2026   (resolves registered teams
+ *     for EVERY official event of a season — not just district events the
+ *     way --districts-only does — via /event/{key}/teams/keys, one request
+ *     per event, storing the result in event_teams. Standalone: reads the
+ *     official-event-key set from the corpus's own `events` table rather
+ *     than re-fetching /events/{year}. Same --force caching rule as every
+ *     other *-only mode.)
+ *   pnpm ingest:awards --years 2022-2026   (resolves ONLY award recipients
+ *     for one season via /event/{key}/awards, one request per district
+ *     event, and stores the result in event_awards. Standalone: reads the
+ *     district-event-key set from the corpus's OWN `events` table
  *     (district_key IS NOT NULL, already filled by a prior --districts-only
  *     or plain ingest run) rather than re-fetching /districts/{year} or
  *     /district/{key}/rankings the way --districts-only does -- so an
  *     already-ingested season can be backfilled with award data without
- *     needing --force, which would otherwise force a needless re-fetch and
- *     re-parse of every ranking row's event_points_raw. Same --force caching
- *     rule as every other *-only mode applies to the awards endpoint itself.)
- *   pnpm ingest:awards-all --years 2022-2026   (quick task 260912-5n8 T1:
- *     the WIDE award backfill, additive to --awards-only above and no
- *     replacement for it. Fetches the same /event/{key}/awards endpoint but
- *     for EVERY event of the season (regionals, championships, offseason and
- *     preseason included) and keeps EVERY award type and EVERY recipient,
- *     storing into event_awards_all. --awards-only stays deliberately narrow
- *     -- four award types, district events -- because
+ *     needing --force.)
+ *   pnpm ingest:awards-all --years 2022-2026   (the WIDE award backfill,
+ *     additive to --awards-only above and no replacement for it. Fetches
+ *     the same /event/{key}/awards endpoint but for EVERY event of the
+ *     season (regionals, championships, offseason and preseason included)
+ *     and keeps EVERY award type and EVERY recipient, storing into
+ *     event_awards_all. --awards-only stays deliberately narrow -- four
+ *     award types, district events -- because
  *     packages/core/districts/qualification.ts throws on any other type and
  *     is a shipped surface. Uses its OWN ETag namespace
  *     (/event/{key}/awards#all) so a key already cached by --awards-only
  *     cannot 304 this mode into storing nothing. Reads the event-key set
  *     from the corpus's own `events` table; never re-fetches /events/{year}.)
- *   pnpm ingest:teams --years 2022-2026   (quick task 260912-7bp T1: refreshes
- *     ONLY the `teams` table — no events, no matches — via
- *     /teams/{year}/{page}, which is how teams.rookie_year gets filled on an
- *     already-ingested corpus. No --force flag: that endpoint is
- *     un-conditional by design and sends no ETag, so there is no cache to
- *     bypass. Prints, per season, teams upserted and how many carried a null
+ *   pnpm ingest:teams --years 2022-2026   (refreshes ONLY the `teams`
+ *     table — no events, no matches — via /teams/{year}/{page}, which is
+ *     how teams.rookie_year gets filled on an already-ingested corpus. No
+ *     --force flag: that endpoint is un-conditional by design and sends no
+ *     ETag. Prints, per season, teams upserted and how many carried a null
  *     rookie_year. --years only accepts one contiguous range; the 2021 gap
  *     requires a separate invocation.)
  *
- * Drives the Task 2 client's capability helpers through the corpus:
- * checks TBA's status once, fetches each season's teams and events, then
- * each event's matches, normalizing and upserting as it goes (D-05
- * through D-08). Progress is durable per-write (better-sqlite3 commits
- * each statement immediately) and `ingest_runs` records total/304 request
- * counts so a repeat run's conditional-request savings are measurable.
+ * Checks TBA's status once, fetches each season's teams and events, then
+ * each event's matches, normalizing and upserting as it goes. Progress is
+ * durable per-write (better-sqlite3 commits each statement immediately)
+ * and `ingest_runs` records total/304 request counts so a repeat run's
+ * conditional-request savings are measurable.
  */
 import { randomUUID } from "node:crypto";
 import { parseArgs } from "node:util";
@@ -167,23 +157,23 @@ interface CliOptions {
   seasonEnd: number;
   eventKey: string | undefined;
   force: boolean;
-  /** EVNT-01 (plan 05-02): refresh only /events/{year} for the requested season range. */
+  /** Refresh only /events/{year} for the requested season range. */
   eventsOnly: boolean;
-  /** TEAM-02 (plan 06-03): resolve/refresh only team_media for the requested season range. */
+  /** Resolve/refresh only team_media for the requested season range. */
   mediaOnly: boolean;
-  /** TEAM-04/F-06-3 (plan 06.1-01): resolve/refresh only event_rankings for the requested season range. */
+  /** Resolve/refresh only event_rankings for the requested season range. */
   rankingsOnly: boolean;
-  /** EVNT-05, D-18.7 (plan 07-03): resolve/refresh only event_alliances for the requested season range. */
+  /** Resolve/refresh only event_alliances for the requested season range. */
   alliancesOnly: boolean;
-  /** quick task 260905-lic Task 1: resolve/refresh only districts/district_rankings/event_teams for the requested season range. Revision R2a: this mode ALSO now fetches award recipients for every district event. */
+  /** Resolve/refresh only districts/district_rankings/event_teams (and award recipients for every district event) for the requested season range. */
   districtsOnly: boolean;
-  /** revision R2a: resolve/refresh ONLY event_awards for the requested season range, reading the district-event-key set from the corpus's own events table rather than re-fetching /districts/{year} or /district/{key}/rankings. */
+  /** Resolve/refresh ONLY event_awards for the requested season range, reading the district-event-key set from the corpus's own events table rather than re-fetching /districts/{year} or /district/{key}/rankings. */
   awardsOnly: boolean;
-  /** quick task 260905-tll Task 3 (C-16): resolve/refresh ONLY event_teams for the requested season range, for EVERY official event — the districts loop populated it for district events alone, which left regionals/championships with no registered-team roster and made the pre-schedule (scheduleless-event) publish path nearly inert. */
+  /** Resolve/refresh ONLY event_teams for the requested season range, for EVERY official event — the districts loop populates it for district events alone, which leaves regionals/championships with no registered-team roster otherwise. */
   eventTeamsOnly: boolean;
-  /** quick task 260912-7bp T1: refresh ONLY the `teams` table for the requested season range — the one mode that fills teams.rookie_year without also re-ingesting every event and match in the season. */
+  /** Refresh ONLY the `teams` table for the requested season range — the one mode that fills teams.rookie_year without also re-ingesting every event and match in the season. */
   teamsOnly: boolean;
-  /** quick task 260912-5n8 T1: resolve/refresh ONLY event_awards_all — EVERY award type at EVERY event (including offseason/preseason) — for the requested season range. Additive to --awards-only, which stays narrow (four award types, district events) because packages/core/districts/qualification.ts throws on any other type. */
+  /** Resolve/refresh ONLY event_awards_all — EVERY award type at EVERY event (including offseason/preseason) — for the requested season range. Additive to --awards-only, which stays narrow (four award types, district events) because packages/core/districts/qualification.ts throws on any other type. */
   awardsAllOnly: boolean;
 }
 
@@ -318,12 +308,12 @@ async function ingestEvent(
 
 /**
  * Fetches every `/teams/{year}/{page}` page for one season and upserts each
- * team, returning how many rows were written and how many of those carried a
- * null `rookie_year` (quick task 260912-7bp). The null count is the single
- * number that says whether the field actually arrived: a run that upserts
- * thousands of rows with 100% nulls is the one failure mode that otherwise
- * looks exactly like success. Shared by the full `ingestSeason` and the
- * standalone `--teams-only` mode so the two cannot drift.
+ * team, returning how many rows were written and how many of those carried
+ * a null `rookie_year`. The null count is the single number that says
+ * whether the field actually arrived: a run that upserts thousands of rows
+ * with 100% nulls is the one failure mode that otherwise looks exactly
+ * like success. Shared by the full `ingestSeason` and the standalone
+ * `--teams-only` mode so the two cannot drift.
  */
 async function upsertSeasonTeams(
   db: Corpus,
@@ -388,20 +378,20 @@ async function ingestSeason(
 }
 
 /**
- * EVNT-01 (plan 05-02): refreshes only `/events/{year}` for one season — no
- * teams, no per-event matches — so filling the five new location/calendar
- * columns costs roughly one request per season rather than a full
- * multi-season match re-ingest. Always bypasses the ETag cache (the same
- * bypass `--force` performs in `ingestSeason`): a cached 304 carries no
- * body, and a body is exactly what's needed to read the new fields.
+ * Refreshes only `/events/{year}` for one season — no teams, no per-event
+ * matches — so filling the five location/calendar columns costs roughly
+ * one request per season rather than a full multi-season match re-ingest.
+ * Always bypasses the ETag cache (the same bypass `--force` performs in
+ * `ingestSeason`): a cached 304 carries no body, and a body is exactly
+ * what's needed to read the new fields.
  */
 /**
- * quick task 260912-7bp: refreshes only the `teams` table for one season —
- * no events, no matches — so filling the new `rookie_year` column costs a
- * handful of requests per season rather than a full multi-season match
- * re-ingest. None of the other `*-only` modes touches `teams` at all; the
- * teams loop otherwise lives only inside `ingestSeason`, which also fetches
- * the season's full event list and every event's matches.
+ * Refreshes only the `teams` table for one season — no events, no
+ * matches — so filling the `rookie_year` column costs a handful of
+ * requests per season rather than a full multi-season match re-ingest.
+ * None of the other `*-only` modes touches `teams` at all; the teams loop
+ * otherwise lives only inside `ingestSeason`, which also fetches the
+ * season's full event list and every event's matches.
  *
  * Takes no `force` parameter, deliberately: `fetchAllTeams` is
  * un-conditional by design (it sends no ETag, because a 304 carries no body
@@ -433,8 +423,8 @@ async function ingestSeasonEventsOnly(db: Corpus, ctx: TbaClientContext, year: n
 }
 
 /**
- * TEAM-02 (plan 06-03): resolves each team's robot photo for one season via
- * TBA's `/team/{key}/media/{year}`, offline, and stores the result — a URL
+ * Resolves each team's robot photo for one season via TBA's
+ * `/team/{key}/media/{year}`, offline, and stores the result — a URL
  * or an honest null — in `team_media`. Scope matches
  * `selectTeamKeysForYear`'s own `excludeOffseason` default so the media
  * pass and the publish pass agree on which teams count. Uses the corpus's
@@ -504,56 +494,44 @@ async function ingestSeasonMediaOnly(db: Corpus, ctx: TbaClientContext, year: nu
 }
 
 /**
- * TEAM-04/F-06-3 (plan 06.1-01): resolves every team's standing for one
- * season via TBA's `/event/{key}/rankings`, one request per event (Pitfall
- * 5 — never a per-team loop), and stores the result in `event_rankings`.
- * Iterates the corpus's OWN `events` table for the season — the
- * `ingestSeasonEventsOnly` iteration shape, not `ingestSeasonMediaOnly`'s
- * team-key loop — and deliberately does NOT filter offseason events (PD-01):
- * TBA computes rankings for offseason events too, and TEAM-04's "attended...
- * event" is not scoped to in-season only. Tallies four separate counts
- * (populated / null-body / empty-rankings / cache hits this run) so a null
- * TBA response body stays distinguishable from a genuine empty rankings
- * array at the layer where that distinction is actionable (PD-02).
+ * Resolves every team's standing for one season via TBA's
+ * `/event/{key}/rankings`, one request per event (never a per-team loop),
+ * and stores the result in `event_rankings`. Iterates the corpus's OWN
+ * `events` table for the season and deliberately does NOT filter offseason
+ * events: TBA computes rankings for offseason events too. Tallies four
+ * separate counts (populated / null-body / empty-rankings / cache hits
+ * this run) so a null TBA response body stays distinguishable from a
+ * genuine empty rankings array.
  *
- * Rule 1 fix (discovered running the real `pnpm ingest:rankings --year
- * 2024` command against the live corpus): some multi-robot remote-league
- * events (e.g. `2024azrl1`..`5`) report a ranking for a synthetic
- * second-robot team key (`frc1165B`, `frc1165C`, ...) that has no
- * corresponding `/team/{key}` record at all (confirmed live: 404) and
- * therefore no row in this corpus's `teams` table — `event_rankings.
- * team_key REFERENCES teams(team_key)` would otherwise fail the whole
- * event's upsert on a single unregistered slot, mirroring
- * `ingestSeasonMediaOnly`'s existing "frc0"/placeholder-slot 404 precedent.
- * Rather than fabricating a `teams` row for an entity this corpus has no
- * real record of, that one team's ranking row is skipped and counted
- * separately (`unknownTeamCount`) — `totalTeams` on every OTHER team's row
- * for that event is unaffected, since it is `response.rankings.length`,
- * the true pool size TBA reported, not a count of rows this corpus chose
- * to store.
+ * Some multi-robot remote-league events (e.g. `2024azrl1`..`5`) report a
+ * ranking for a synthetic second-robot team key (`frc1165B`, `frc1165C`,
+ * ...) that has no corresponding `/team/{key}` record at all and therefore
+ * no row in this corpus's `teams` table — `event_rankings.team_key
+ * REFERENCES teams(team_key)` would otherwise fail the whole event's
+ * upsert on a single unregistered slot. Rather than fabricating a `teams`
+ * row for an entity this corpus has no real record of, that one team's
+ * ranking row is skipped and counted separately (`unknownTeamCount`) —
+ * `totalTeams` on every OTHER team's row for that event is unaffected,
+ * since it is `response.rankings.length`, the true pool size TBA reported.
  *
- * D-18.6 (plan 07-04): also persists TBA's own authoritative `record`
- * (wins/losses/ties) and the position-0 ranking-score value alongside
- * `rank`/`totalTeams`, both read from `normalizeEventRankings`'s widened
- * result. Both come from TBA's own computation, never a tally this
- * pipeline derives from `matches` — TBA's record accounts for
+ * Also persists TBA's own authoritative `record` (wins/losses/ties) and
+ * the position-0 ranking-score value alongside `rank`/`totalTeams`, both
+ * read from `normalizeEventRankings`'s widened result — never a tally this
+ * pipeline derives from `matches`, since TBA's record accounts for
  * disqualifications and surrogate appearances that a match-derived count
  * would misreport. `nullRankingScoreCount` tallies rows whose
- * `rankingScore` is `null` (an absent or empty `sort_orders`); there is no
- * corresponding counter for the sort-order-drift case, because drift
- * throws — `RankingScoreSortOrderError` from `normalizeEventRankings` is
- * deliberately NOT caught here. It propagates out of this function and
- * aborts the season so a human sees the vocabulary drift, and a resumed
- * run stays cheap: the failing event's own ETag was never written, so it
- * is re-fetched (not re-walked from event 1) on the next attempt.
+ * `rankingScore` is `null` (an absent or empty `sort_orders`). There is no
+ * corresponding counter for the sort-order-drift case: `
+ * RankingScoreSortOrderError` from `normalizeEventRankings` is
+ * deliberately NOT caught here, so it propagates out and aborts the
+ * season, letting a human see the vocabulary drift; the failing event's
+ * own ETag was never written, so a resumed run re-fetches it cheaply.
  *
  * WARNING — the single most likely way these four columns ship empty: a
  * run WITHOUT `--force` writes nothing for any event whose cached ETag is
  * still current, since a 304 carries no body and the 304 branch below
  * `continue`s before any upsert. Backfilling these columns onto an
- * already-ingested season therefore REQUIRES `--force`; 06.1-04 already
- * measured all 324 of 2024's requests returning 304 on exactly such a
- * re-run with no `--force`.
+ * already-ingested season therefore REQUIRES `--force`.
  */
 async function ingestSeasonRankingsOnly(db: Corpus, ctx: TbaClientContext, year: number, force: boolean): Promise<void> {
   const eventKeys = (
@@ -568,11 +546,10 @@ async function ingestSeasonRankingsOnly(db: Corpus, ctx: TbaClientContext, year:
   let emptyRankingsCount = 0;
   let cacheHitCount = 0;
   let unknownTeamCount = 0;
-  // D-18.6 (plan 07-04): tallies rows stored with a null ranking_score (an
-  // absent or empty sort_orders). RESEARCH.md Question 1 found sort_orders
-  // non-null in every sampled populated row — this counter is how that
-  // expectation gets measured on the real corpus rather than assumed. No
-  // counter exists for the drift case: drift throws, it is never counted.
+  // Tallies rows stored with a null ranking_score (an absent or empty
+  // sort_orders) so that expectation is measured on the real corpus rather
+  // than assumed. No counter exists for the drift case: drift throws, it
+  // is never counted.
   let nullRankingScoreCount = 0;
 
   for (const eventKey of eventKeys) {
@@ -608,10 +585,10 @@ async function ingestSeasonRankingsOnly(db: Corpus, ctx: TbaClientContext, year:
     const fetchedAt = new Date().toISOString();
     for (const ranking of normalized) {
       if (!knownTeamKeys.has(ranking.teamKey)) {
-        // See this function's header comment (Rule 1 fix) — a real TBA
-        // ranking entry for a team key this corpus has no /team/{key}
-        // record for. Skip this one row rather than fail the whole event's
-        // upsert or fabricate a teams row.
+        // See this function's header comment — a real TBA ranking entry
+        // for a team key this corpus has no /team/{key} record for. Skip
+        // this one row rather than fail the whole event's upsert or
+        // fabricate a teams row.
         unknownTeamCount++;
         continue;
       }
@@ -640,15 +617,14 @@ async function ingestSeasonRankingsOnly(db: Corpus, ctx: TbaClientContext, year:
 }
 
 /**
- * EVNT-05/D-18.7 (plan 07-03): resolves every event's playoff alliance
- * selection for one season via TBA's `/event/{key}/alliances`, one request
- * per event, and stores the result in `event_alliances`. Structurally
- * identical to `ingestSeasonRankingsOnly` above — iterates the corpus's OWN
- * `events` table for the season, deliberately does NOT filter offseason
- * events (PD-01 remains in force here too — RESEARCH.md Q2's live probe
- * found offseason events are exactly where the two empty-array cases live,
- * so excluding them would hide the absent-data case D-17 is designed
- * around), and tallies the same tri-state parse-result split.
+ * Resolves every event's playoff alliance selection for one season via
+ * TBA's `/event/{key}/alliances`, one request per event, and stores the
+ * result in `event_alliances`. Structurally identical to
+ * `ingestSeasonRankingsOnly` above — iterates the corpus's OWN `events`
+ * table for the season, deliberately does NOT filter offseason events
+ * (offseason events are exactly where the two empty-array cases live, so
+ * excluding them would hide the absent-data case), and tallies the same
+ * tri-state parse-result split.
  *
  * Two deliberate divergences from `ingestSeasonRankingsOnly`, stated here
  * so a reader does not assume they were forgotten:
@@ -658,11 +634,9 @@ async function ingestSeasonRankingsOnly(db: Corpus, ctx: TbaClientContext, year:
  *    team_key REFERENCES teams(team_key)`, and TBA reports rankings for
  *    synthetic second-robot keys such as `frc1165B` at `2024azrl1`..`5`
  *    that TBA's own `/team/{key}` 404s on. `event_alliances` stores
- *    `picks` as a JSON array with no team-key foreign key — 07-02's
- *    explicit decision, taken because of that very incident — so a
- *    synthetic key inside `picks` is harmless here and must not be
- *    filtered out. Filtering it would silently drop a real team from a
- *    real alliance.
+ *    `picks` as a JSON array with no team-key foreign key, so a synthetic
+ *    key inside `picks` is harmless here and must not be filtered out.
+ *    Filtering it would silently drop a real team from a real alliance.
  * 2. There IS a `notFoundCount`, mirroring `ingestSeasonMediaOnly`'s
  *    rather than `ingestSeasonRankingsOnly`'s bare log line. With it, the
  *    five counters — `populatedCount`, `nullBodyCount`,
@@ -731,21 +705,19 @@ async function ingestSeasonAlliancesOnly(db: Corpus, ctx: TbaClientContext, year
 }
 
 /**
- * quick task 260905-lic Task 1: resolves a season's district point data --
- * every active district's capacity/metadata, each team's district ranking,
- * and event registration for every event in each district's authoritative
- * membership list -- via TBA's `/districts/{year}`,
- * `/district/{key}/rankings`, `/district/{key}/events/keys` and
- * `/event/{key}/teams/keys`, storing the result in
- * districts/district_rankings/event_teams.
+ * Resolves a season's district point data -- every active district's
+ * capacity/metadata, each team's district ranking, and event registration
+ * for every event in each district's authoritative membership list -- via
+ * TBA's `/districts/{year}`, `/district/{key}/rankings`,
+ * `/district/{key}/events/keys` and `/event/{key}/teams/keys`, storing the
+ * result in districts/district_rankings/event_teams.
  *
- * Widened by revision R2a: for every district event key (regular AND DCMP --
- * both come from the same `/district/{key}/events/keys` list, no separate
- * membership call), also fetches `/event/{key}/awards` and stores the
- * qualification-relevant recipients in `event_awards`. This is the same
- * per-event loop that already fetches `/event/{key}/teams/keys` -- the
- * awards fetch is appended alongside it, not a second pass over the event
- * list.
+ * For every district event key (regular AND DCMP -- both come from the
+ * same `/district/{key}/events/keys` list, no separate membership call),
+ * also fetches `/event/{key}/awards` and stores the qualification-relevant
+ * recipients in `event_awards`. This is the same per-event loop that
+ * already fetches `/event/{key}/teams/keys` -- the awards fetch is
+ * appended alongside it, not a second pass over the event list.
  *
  * Carries forward `ingestSeasonRankingsOnly`'s caching rule verbatim: a
  * re-run over an already-ingested season needs `--force`, because a
@@ -864,8 +836,8 @@ async function ingestSeasonDistrictsOnly(db: Corpus, ctx: TbaClientContext, year
         console.log(`  ${teamsUrl}: 304 Not Modified`);
       }
 
-      // revision R2a: award recipients for this same district event
-      // (regular or DCMP -- both are members of districtEventKeys above).
+      // Award recipients for this same district event (regular or DCMP --
+      // both are members of districtEventKeys above).
       const awardsUrl = `/event/${eventKey}/awards`;
       let awardsResult: Awaited<ReturnType<typeof fetchEventAwards>> | undefined;
       try {
@@ -902,7 +874,7 @@ async function ingestSeasonDistrictsOnly(db: Corpus, ctx: TbaClientContext, year
 }
 
 /**
- * revision R2a: resolves ONLY award recipients for one season via TBA's
+ * Resolves ONLY award recipients for one season via TBA's
  * `/event/{key}/awards`, one request per district event, and stores the
  * result in `event_awards`. Runs standalone over an ALREADY-INGESTED season
  * -- it reads the district-event-key set from the corpus's OWN `events`
@@ -980,14 +952,13 @@ async function ingestSeasonAwardsOnly(db: Corpus, ctx: TbaClientContext, year: n
 }
 
 /**
- * quick task 260905-tll Task 3 (C-16): resolves registered teams for EVERY
- * official event of one season via TBA's `/event/{key}/teams/keys`, one
- * request per event, and stores the result in `event_teams`. Before this
- * mode, `event_teams` was populated only inside `ingestSeasonDistrictsOnly`'s
- * per-district-event loop, covering 150 of 2026's 310 events and ZERO
- * regionals, championships, preseason or offseason events — which left the
- * scheduleless-event publish path (`packages/harness/publish.ts`'s roster
- * fallback) with almost nothing to publish.
+ * Resolves registered teams for EVERY official event of one season via
+ * TBA's `/event/{key}/teams/keys`, one request per event, and stores the
+ * result in `event_teams`. `ingestSeasonDistrictsOnly`'s per-district-event
+ * loop only covers district events; this mode is what fills `event_teams`
+ * for regionals, championships and preseason/offseason events too, which
+ * the scheduleless-event publish path (`packages/harness/publish.ts`'s
+ * roster fallback) needs.
  *
  * Runs standalone over an ALREADY-INGESTED season: the official-event-key
  * set comes from the corpus's OWN `events` table
@@ -1057,10 +1028,10 @@ async function ingestSeasonEventTeamsOnly(db: Corpus, ctx: TbaClientContext, yea
 }
 
 /**
- * quick task 260912-5n8 T1: resolves EVERY award of EVERY type at EVERY
- * event of one season via `/event/{key}/awards`, one request per event, and
- * stores the result in `event_awards_all` — the research table that lives
- * alongside `event_awards` without replacing it.
+ * Resolves EVERY award of EVERY type at EVERY event of one season via
+ * `/event/{key}/awards`, one request per event, and stores the result in
+ * `event_awards_all` — the research table that lives alongside
+ * `event_awards` without replacing it.
  *
  * The difference from `ingestSeasonAwardsOnly` above is entirely in what is
  * KEPT, not in how it is fetched — same endpoint, same throttle, same 404
