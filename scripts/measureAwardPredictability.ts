@@ -1,123 +1,67 @@
 /**
- * Can FRC awards be predicted, and at what accuracy? (quick task 260912-5n8 T3)
+ * Can FRC awards be predicted, and at what accuracy? A FEASIBILITY PROBE, not
+ * a model and not a shipped surface: the deliverable is a table of measured
+ * top-1 accuracies next to their baselines. Nothing here is promoted, nothing
+ * renders, nothing is tuned.
  *
- * A FEASIBILITY PROBE, not a model and not a shipped surface. The deliverable
- * is a table of measured top-1 accuracies next to their baselines. Nothing here
- * is promoted, nothing renders, nothing is tuned.
+ * TWO ARMS, run in one pass, printed side by side. The NO-AGE arm uses two
+ * feature families: (a) prior award history (how often/recently this team
+ * has won this award before, plus overall decoration — prior seasons only),
+ * and (b) pre-event on-field strength (the team's BPR rating going into the
+ * event). The AGE arm adds one further family: (c) team age as of the
+ * event's season (`eventYear - rookie_year`, as `isRookie`, `log1p(age)` and
+ * an explicit `ageKnown` flag). Event context (week/district/country) is
+ * deliberately not selected in either arm. The no-age arm is kept intact
+ * rather than "upgraded" because the deliverable is the DELTA between arms
+ * per award type — an upgraded arm would have nothing to subtract from.
  *
- * ---------------------------------------------------------------------------
- * TWO ARMS, RUN IN ONE PASS, PRINTED SIDE BY SIDE (quick task 260912-7bp)
- * ---------------------------------------------------------------------------
+ * THE ROOKIE-AWARD ARTIFACT: the three rookie award types (10 Rookie All
+ * Star, 14 Highest Rookie Seed, 15 Rookie Inspiration) structurally pin
+ * baselines B1/B2 at 0.0% (B1 cannot pick a team with no prior wins, B2
+ * cannot pick a team with no rating), so beating them proves nothing —
+ * and an age feature would manufacture an even larger fake win against
+ * that same zero. RB1 (`pickMostDecoratedRookie`) and RB2
+ * (`pickStrongestRookie`) fix this: the verdict rule is "beats the BEST of
+ * B1, B2, RB1, RB2", applied to both arms.
  *
- * The NO-AGE ARM is 5n8's original four features, unchanged — same encodings,
- * same fit, same defaults — over exactly two families:
+ * WALK-FORWARD IS MANDATORY: for a scored season Y, both the fitted
+ * coefficients and every prior-award count come from seasons strictly less
+ * than Y (2016 is training data only; 2022's prior set is 2016-2020, the
+ * 2021 gap is real). `measureAwardPredictability.test.ts` pins this with a
+ * leak test. The one legitimately in-season input is the BPR rating: a
+ * pre-event rating snapshotted at the event's first match, built only from
+ * matches already played when the awards were judged.
  *
- *   (a) PRIOR AWARD HISTORY — how often and how recently this team has won
- *       this award before, plus how decorated it is overall. PRIOR SEASONS
- *       ONLY.
- *   (b) PRE-EVENT ON-FIELD STRENGTH — the team's BPR rating going into the
- *       event.
- *
- * The AGE ARM adds ONE further family and nothing else:
- *
- *   (c) TEAM AGE AS OF THE EVENT'S SEASON — `eventYear - rookie_year`, as
- *       `isRookie`, `log1p(age)` and an explicit `ageKnown` flag.
- *
- * Event context (week / district / country) remains DELIBERATELY NOT SELECTED
- * and must not be smuggled in. The deliverable of this script is the DELTA
- * between the two arms per award type, which is why the no-age arm is kept
- * intact rather than "upgraded": a new absolute number with nothing to subtract
- * from answers a different question.
- *
- * ---------------------------------------------------------------------------
- * THE ROOKIE-AWARD ARTIFACT, AND THE BASELINES THAT KILL IT
- * ---------------------------------------------------------------------------
- *
- * In 5n8 the three rookie award types (10 Rookie All Star, 14 Highest Rookie
- * Seed, 15 Rookie Inspiration) showed large apparent model wins. All three were
- * ARTIFACTS: B1 cannot pick a team with no prior wins and B2 cannot pick a team
- * with no rating, so BOTH baselines are STRUCTURALLY PINNED at exactly 0.0%
- * there and beating them proves nothing.
- *
- * Handing the model an explicit age feature while leaving those baselines at
- * zero would repeat the identical fallacy in reverse and manufacture a much
- * LARGER fake win. So the age feature never ships alone: RB1
- * (`pickMostDecoratedRookie`) and RB2 (`pickStrongestRookie`) land beside it,
- * and the pre-committed verdict rule is "beats the BEST of B1, B2, RB1, RB2"
- * — applied to BOTH arms, so one rule scores both and the comparison means
- * something. A rookie award can no longer be won against a structural zero.
- *
- * ---------------------------------------------------------------------------
- * WALK-FORWARD IS MANDATORY AND IS THE WHOLE POINT
- * ---------------------------------------------------------------------------
- *
- * For a scored season Y, BOTH the fitted coefficients AND every prior-award
- * count come from seasons strictly less than Y. The first scored season is the
- * second season present in the corpus (2016 has no prior, so it is training
- * data only). 2022's prior set is 2016-2020 — the 2021 gap is real, not an
- * off-by-one. A model fit on all seasons and scored in-sample is not an
- * acceptable answer to this question, and `measureAwardPredictability.test.ts`
- * pins that with a leak test rather than a comment.
- *
- * The ONE thing that is legitimately in-season is the BPR rating: it is a
- * PRE-EVENT rating, snapshotted at the event's first match before the model
- * updates on it, so it is built only from matches that had already been played
- * when the awards were judged. That is past information, not future
- * information, and it is exactly what the plan asks for.
- *
- * ---------------------------------------------------------------------------
- * THE BPR REPLAY DOES NOT TOUCH `runEval`
- * ---------------------------------------------------------------------------
- *
- * `replayPreEventRatings` below is this script's OWN chronological loop. It
- * mirrors `packages/spr/evaluate.ts`'s `runEval` sequencing exactly — predict
- * strictly before update, every match in the shared total order, no exclusions
- * from the state stream (a surrogate-affected match leaves the SCOREBOARD, not
- * the state) — but `runEval` is a scoring function and this is not scoring
- * matches, so it is mirrored rather than modified. `evaluate.ts` is read-only
+ * `replayPreEventRatings` below is this script's own chronological loop —
+ * it mirrors `packages/spr/evaluate.ts`'s `runEval` sequencing (predict
+ * strictly before update, every match in the shared total order, no
+ * exclusions from the state stream) rather than calling it, because
+ * `runEval` scores matches and this does not. `evaluate.ts` is read-only
  * reference material here.
  *
- * ---------------------------------------------------------------------------
- * EVERY METRIC CARRIES ITS OWN MEASURED NOISE BAND (quick task 260912-i13 T3)
- * ---------------------------------------------------------------------------
+ * EVERY METRIC CARRIES ITS OWN MEASURED NOISE BAND: `NOISE_MARGIN_PP = 1`
+ * was measured for top-1 accuracy only and does not transfer to a recall
+ * cutoff, MRR or rank percentile. Running this script at `--iterations 200`
+ * vs `--iterations 1500` (same data/features/walk-forward, only optimizer
+ * budget differs) and taking the max absolute movement per metric at pooled
+ * `n >= 30` gives: R@1 0.77pp, R@3 1.50pp, MRR 0.0046, norm% 0.17pp — R@3
+ * needed a wider band than the inherited 1.0pp constant, or a 1.2pp gap
+ * would have read as a result. `RANK_NOISE_BANDS` holds one band per metric,
+ * `null` for the five unmeasured (R@5, R@10, meanRank, medRank, Brier
+ * skill) — those print "CANNOT BE SCORED" rather than borrow a number
+ * measured on something else.
  *
- * `NOISE_MARGIN_PP = 1` was measured for TOP-1 ACCURACY ONLY, and there was no
- * reason it transferred to a recall cutoff, an MRR or a rank percentile. So it
- * was not assumed: running this script at `--iterations 200` and at
- * `--iterations 1500` — same data, same features, same walk-forward, only the
- * optimizer budget differs — and taking the maximum absolute movement per
- * metric across judged types with pooled `n >= 30` gives, measured 2026-09-12:
+ * The report ends with a `PRACTICAL ANSWER` block stating, per flagship
+ * judged award type, the ORDERING result and the CALIBRATION result
+ * together — the ordering is genuinely useful, the stated probability is
+ * not, and printing only the first half would let a reader believe a
+ * probability could be shown beside a team's name on a page.
  *
- *     R@1 0.77pp     R@3 1.50pp     MRR 0.0046     norm% 0.17pp
- *
- * THE INHERITED CONSTANT IS TOO TIGHT FOR R@3. A 1.2pp R@3 gap scored against
- * 1.0pp would have read as a result and been optimizer noise. `RANK_NOISE_BANDS`
- * therefore holds one band PER METRIC, and holds `null` for the five metrics
- * that were not measured (R@5, R@10, meanRank, medRank, Brier skill) — those
- * print "CANNOT BE SCORED" rather than borrowing a number measured on something
- * else.
- *
- * The report ends with a generated `PRACTICAL ANSWER` block that states, per
- * flagship judged award type, the ORDERING result and the CALIBRATION result
- * TOGETHER. Together is the whole design: the ordering is genuinely useful and
- * the stated probability is not, and an answer that gave only the first half
- * would leave a reader believing a probability could be printed beside a team's
- * name on a page.
- *
- * ---------------------------------------------------------------------------
- * CREDENTIAL-FREE AND OFFLINE
- * ---------------------------------------------------------------------------
- *
- * Reads `data/corpus.sqlite` READ-ONLY and makes no network request, uses no
- * environment variable and touches no credential of any kind. Its
- * `package.json` entry deliberately omits `--env-file`, placing it with the
- * other corpus-only offline scripts. `.env` is never read, printed or
- * interpolated.
- *
- * NOTE: the corpus mutation that feeds this script (`event_awards_all`, quick
- * task 260912-5n8 T1/T2) is gitignored and does NOT travel via git. Any other
- * checkout must run the T2 backfill itself before this script has anything to
- * measure.
+ * CREDENTIAL-FREE AND OFFLINE: reads `data/corpus.sqlite` read-only, makes
+ * no network request, uses no environment variable, touches no credential.
+ * `.env` is never read, printed or interpolated. The corpus mutation that
+ * feeds this script (`event_awards_all`) is gitignored and does not travel
+ * via git — any other checkout must run its own backfill first.
  *
  * Usage:
  *   npx tsx scripts/measureAwardPredictability.ts [--json] [--iterations 200]
@@ -161,14 +105,11 @@ export const FEATURE_COUNT = 4;
 export const AGE_FEATURE_COUNT = 7;
 
 /**
- * The cutoffs `recall@k` is reported at (quick task 260912-i13).
- *
- * `k = 1` is not decoration: because an unreachable or abstaining instance stays
- * in the recall denominator and scores 0, `recall@1` is BY CONSTRUCTION identical
- * to the top-1 accuracy the same predictor already reported. That identity is the
- * control for the whole ranking extension — it is asserted as a test, and if it
- * ever fails the ranking work has moved the fit and nothing downstream is
- * trustworthy.
+ * The cutoffs `recall@k` is reported at. `k = 1` is not decoration: because
+ * an unreachable or abstaining instance stays in the recall denominator and
+ * scores 0, `recall@1` is by construction identical to the top-1 accuracy
+ * the same predictor already reported — that identity is the control for
+ * the whole ranking extension and is asserted as a test.
  */
 export const K_VALUES = [1, 3, 5, 10] as const;
 
@@ -576,7 +517,7 @@ export function buildFeatures(
 }
 
 // ---------------------------------------------------------------------------
-// Feature family (c): team age AS OF THE EVENT'S SEASON (quick task 260912-7bp)
+// Feature family (c): team age AS OF THE EVENT'S SEASON
 // ---------------------------------------------------------------------------
 
 /**
@@ -816,14 +757,13 @@ export function argmaxIndex(values: readonly number[]): number {
 }
 
 /**
- * The model's UTILITY VECTOR: `u_i = x_i · beta` for EVERY candidate in the
- * pool (quick task 260912-i13).
+ * The model's UTILITY VECTOR: `u_i = x_i · beta` for every candidate in the
+ * pool.
  *
- * This loop is 5n8's, lifted verbatim out of `pickByWeights` rather than
- * written beside it. That is the structural point: `pickByWeights` is now
- * DEFINED as the argmax of this vector, so the ranking and the top-1 pick
- * cannot disagree — the k=1 control reproduces the existing accuracy
- * mechanically rather than by assertion.
+ * This loop is lifted verbatim out of `pickByWeights` rather than written
+ * beside it: `pickByWeights` is DEFINED as the argmax of this vector, so the
+ * ranking and the top-1 pick cannot disagree — the k=1 control reproduces
+ * the existing accuracy mechanically rather than by assertion.
  *
  * The dot product runs over `weights.length`, not a module constant, so the
  * same function scores a 4-wide no-age vector and a 7-wide age vector without
@@ -1185,7 +1125,7 @@ export function isThinPrior(priorInstanceCount: number): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Rank metrics, and THE TWO DENOMINATORS (quick task 260912-i13)
+// Rank metrics, and THE TWO DENOMINATORS
 // ---------------------------------------------------------------------------
 
 /**
@@ -1375,7 +1315,7 @@ export function medianOf(values: readonly number[]): number {
 }
 
 // ---------------------------------------------------------------------------
-// Calibration: are the stated probabilities honest? (quick task 260912-i13 T2)
+// Calibration: are the stated probabilities honest?
 // ---------------------------------------------------------------------------
 
 /**
@@ -1717,16 +1657,16 @@ export interface Cell {
    */
   smallPoolInstances: number;
   /**
-   * ONE `RankStats` PER PREDICTOR, not a scatter of fields (quick task
-   * 260912-i13). Both arms still share this one cell and therefore one
-   * denominator, exactly as the accuracy columns do.
+   * ONE `RankStats` per predictor, not a scatter of fields. Both arms
+   * still share this one cell and therefore one denominator, exactly as
+   * the accuracy columns do.
    */
   rank: Record<RankPredictor, RankStats>;
   /**
-   * ONE `CalibrationStats` PER FITTED ARM (quick task 260912-i13 T2). Only the
-   * two arms: B1/B2/RB1/RB2 are heuristics and emit no probability, and
-   * inventing one for them would be the same fabrication the thin-prior
-   * exclusion exists to refuse.
+   * ONE `CalibrationStats` per fitted arm — only the two arms: B1/B2/RB1/RB2
+   * are heuristics and emit no probability, and inventing one for them
+   * would be the same fabrication the thin-prior exclusion exists to
+   * refuse.
    */
   calibration: Record<Arm, CalibrationStats>;
 }
@@ -1769,11 +1709,11 @@ export interface AwardTypeReport {
   pooled: Cell;
   perSeason: Map<number, Cell>;
   /**
-   * THE DCMP STRATUM CELLS (quick task 260912-l8t T2). OPTIONAL, and ABSENT
-   * entirely without `--dcmp`: the map is created lazily on the first instance
-   * that is actually assigned a stratum, which can only happen when
-   * `runExperiment` was handed a `districtCuts`. No flag, no map, no DCMP block,
-   * and a byte-identical default run.
+   * The DCMP stratum cells. Optional, and absent entirely without `--dcmp`:
+   * the map is created lazily on the first instance actually assigned a
+   * stratum, which can only happen when `runExperiment` was handed a
+   * `districtCuts`. No flag, no map, no DCMP block, and a byte-identical
+   * default run.
    */
   byStratum?: Map<StratumRow, Cell>;
 }
@@ -1807,7 +1747,7 @@ export interface ExperimentReport {
    * left for the reader to infer from a flat delta column.
    */
   rookieYearsKnown: number;
-  /** The DCMP stratification (quick task 260912-l8t). ABSENT without `--dcmp`. */
+  /** The DCMP stratification. ABSENT without `--dcmp`. */
   dcmp?: DcmpSection;
 }
 
@@ -1959,7 +1899,7 @@ export function verdictMarginPp(c: Cell, arm: Arm = "model"): number {
 export const NOISE_MARGIN_PP = 1;
 
 // ---------------------------------------------------------------------------
-// The measured per-metric noise bands (quick task 260912-i13 T3)
+// The measured per-metric noise bands
 // ---------------------------------------------------------------------------
 
 /** Every rank or calibration metric the report compares two predictors on. */
@@ -2006,43 +1946,19 @@ export interface RankNoiseBand {
 }
 
 /**
- * THE MEASURED NOISE BANDS. Measured 2026-09-12 by running this script at
- * `--iterations 200` and `--iterations 1500` and taking, per metric, the MAXIMUM
- * ABSOLUTE MOVEMENT between the two runs across every judged award type with
- * pooled `n >= 30`. Both runs are the SAME data, the SAME features and the SAME
- * walk-forward sequencing — the only difference is how far the gradient ascent
- * was allowed to run — so whatever moves between them is the optimizer talking,
- * not the model.
- *
- * A difference between two predictors that is INSIDE its metric's band prints as
- * "no difference", never as "slightly better". That is the same discipline 5n8
- * and 7bp applied to top-1 accuracy, extended to metrics that had never had it.
- *
- *   R@1    0.77pp
- *   R@3    1.50pp   <-- WIDER THAN `NOISE_MARGIN_PP`
- *   MRR    0.0046
- *   norm%  0.17pp   <-- by far the most stable metric measured
- *
- * THE CONSEQUENCE, WHICH IS ITSELF A FINDING: the inherited `NOISE_MARGIN_PP = 1`
- * IS TOO TIGHT FOR R@3. R@3 moves up to 1.50pp on a fit that is already
- * converged, so a 1.2pp R@3 "win" scored against the inherited 1.0pp constant
- * would have been reported as a result and been noise. Each metric needs its own
- * band; one shared constant cannot serve them all, and the fact that the
- * constant happens to be conservative for R@1 (0.77pp < 1.0pp) does not make it
- * safe anywhere else.
- *
- * Only one award type moved more than 0.9pp on either recall metric: type 4
- * FIRST Dean's List Finalist (model R@1 0.75pp / R@3 1.22pp, age arm R@1 0.75pp
- * / R@3 1.50pp). It is the single instance that sets the R@3 band.
- *
- * The normalized rank percentile is the most stable metric in the set by a
- * factor of four or more, which makes it the most trustworthy one for comparing
- * predictors — with the caveat, already printed beside every RB row, that the
- * rookie baselines' percentile is taken over a DIFFERENT denominator.
- *
- * R@5, R@10, meanRank, medRank and the Brier skill score were NOT measured and
- * are `null` here on purpose. Inventing a band for them would be exactly the
- * fabrication the thin-prior exclusion already refuses elsewhere in this script.
+ * The measured noise bands (see file header for how they were measured). A
+ * difference inside its metric's band prints as "no difference", never as
+ * "slightly better" — the same discipline top-1 accuracy already applied,
+ * extended to metrics that had never had it. `NOISE_MARGIN_PP = 1` is too
+ * tight for R@3 specifically: type 4 FIRST Dean's List Finalist moves R@3 up
+ * to 1.50pp on an already-converged fit, so a 1.2pp R@3 "win" scored against
+ * the shared 1.0pp constant would have read as a result and been noise. The
+ * normalized rank percentile is the most stable metric by a factor of four
+ * or more (with the caveat, already printed beside every RB row, that the
+ * rookie baselines' percentile uses a different denominator). R@5, R@10,
+ * meanRank, medRank and the Brier skill score are `null` because they were
+ * not measured — inventing a band for them would be the same fabrication
+ * the thin-prior exclusion refuses elsewhere in this script.
  */
 export const RANK_NOISE_BANDS: Readonly<Record<RankMetric, RankNoiseBand>> = {
   "R@1": { band: 0.77, unit: "pp", higherIsBetter: true, perOrderingLength: false },
@@ -2111,11 +2027,9 @@ export function bandGloss(metric: RankMetric, cmp: BandComparison): string {
 }
 
 /**
- * The three ROOKIE award types, read against RB1/RB2 and NEVER against B1/B2.
- *
- * Pre-committed reading 3 of quick task 260912-i13, and it is 7bp's lesson in
- * rank form: B1 and B2 are structurally near-bottom rankers here for exactly the
- * same reason they are pinned at 0.0% on top-1, so a rank "win" over them would
+ * The three ROOKIE award types, read against RB1/RB2 and NEVER against B1/B2:
+ * B1 and B2 are structurally near-bottom rankers here for exactly the same
+ * reason they are pinned at 0.0% on top-1, so a rank "win" over them would
  * be the identical artifact wearing new clothes.
  */
 export const ROOKIE_AWARD_TYPES: readonly number[] = [10, 14, 15];
@@ -2123,10 +2037,8 @@ export const ROOKIE_AWARD_TYPES: readonly number[] = [10, 14, 15];
 /**
  * The predictor a given award type's ordering is scored AGAINST. For the rookie
  * types it is whichever of RB1/RB2 orders better on R@3; for everything else it
- * is B1, the decoration ordering.
- *
- * This is the load-bearing requirement of 260912-i13 in one function: a model
- * ordering is never reported without the ordering it has to beat beside it.
+ * is B1, the decoration ordering. A model ordering is never reported without
+ * the ordering it has to beat beside it.
  */
 export function rankReferencePredictor(awardType: number, c: Cell): RankPredictor {
   if (!ROOKIE_AWARD_TYPES.includes(awardType)) return "b1";
@@ -2184,7 +2096,6 @@ function addCell(
 
 // ---------------------------------------------------------------------------
 // SCORE NARROW: the stratum cells, and the small-n floor under the bands
-// (quick task 260912-l8t T2)
 // ---------------------------------------------------------------------------
 
 /**
@@ -2414,18 +2325,19 @@ export function runExperiment(input: {
    */
   rookieYearByTeam?: ReadonlyMap<string, number>;
   /**
-   * THE DISTRICT CUTS (quick task 260912-l8t T2). Omitted, NOTHING about this
-   * run changes: no stratum is assigned, no stratum cell is created, no DCMP
-   * section is returned and the printed report is byte-identical.
+   * The district cuts. Omitted, nothing about this run changes: no stratum
+   * is assigned, no stratum cell is created, no DCMP section is returned
+   * and the printed report is byte-identical.
    *
-   * TRAIN WIDE, SCORE NARROW, AND THE REASON IS NOT CONVENIENCE. DCMP instances
-   * are thin — roughly 170 per award type across 9 scored seasons. Restricting
-   * TRAINING to DCMP would drop below `THIN_PRIOR_INSTANCES` in the early
-   * seasons, collapse both arms into the B1 fallback and MEASURE THE FALLBACK
-   * INSTEAD OF THE MODEL. Worse, it would quietly redefine prior decoration as
-   * "prior DCMP decoration" — a different model wearing this one's name. So
-   * `instances`, `buildPriorHistory`, `trainPool`, both `fitConditionalLogit`
-   * calls and `isThinPrior` are COMPLETELY UNTOUCHED by this option.
+   * TRAIN WIDE, SCORE NARROW — not convenience. DCMP instances are thin
+   * (roughly 170 per award type across 9 scored seasons); restricting
+   * training to DCMP would drop below `THIN_PRIOR_INSTANCES` in the early
+   * seasons, collapse both arms into the B1 fallback and measure the
+   * fallback instead of the model, and would quietly redefine prior
+   * decoration as "prior DCMP decoration" — a different model wearing this
+   * one's name. So `instances`, `buildPriorHistory`, `trainPool`, both
+   * `fitConditionalLogit` calls and `isThinPrior` are untouched by this
+   * option.
    */
   districtCuts?: DistrictCuts;
   /**
@@ -2567,8 +2479,8 @@ export function runExperiment(input: {
         //
         // EVERY PICK IS THE HEAD OF AN ORDERING, never computed beside one.
         // That is what makes `recall@1` reproduce the existing accuracy column
-        // mechanically rather than by assertion (quick task 260912-i13). In the
-        // thin-prior case the model's ORDERING is B1's ordering too, for the
+        // mechanically rather than by assertion. In the thin-prior case the
+        // model's ORDERING is B1's ordering too, for the
         // same reason its pick is B1's pick — anything else would make the k=1
         // control disagree with the accuracy it is meant to reproduce.
         const b1Order = orderMostDecorated(p.candidates, awardType, p.history);
@@ -2653,8 +2565,8 @@ export function runExperiment(input: {
           else if (isTop1Hit(p.candidates, rb2Pick, p.recipientSet)) target.rb2Hits += 1;
           if (thin) target.thinPriorRows += 1;
 
-          // The ranking that used to be discarded at `argmaxIndex`. B0 was
-          // already folded in by `addCell`, exactly and without an RNG.
+          // B0 is skipped here: it was already folded in by `addCell`,
+          // exactly and without an RNG.
           for (const which of RANK_PREDICTORS) {
             if (which === "b0") continue;
             const order = orders[which];
@@ -2741,7 +2653,7 @@ interface RookieYearRow {
 }
 
 /**
- * teamKey -> `rookie_year`, NON-NULL ROWS ONLY (quick task 260912-7bp).
+ * teamKey -> `rookie_year`, non-null rows only.
  *
  * A team TBA reports no rookie year for is ABSENT from the map rather than
  * present with a fabricated value. Absence is what `teamAge` turns into `null`
@@ -2851,7 +2763,6 @@ export function loadSprParams(path: string): BprParams {
 
 // ---------------------------------------------------------------------------
 // THE DISTRICT POINTS CUT, AND THE STRATUM EVERY DCMP AWARD BELONGS TO
-// (quick task 260912-l8t T1)
 // ---------------------------------------------------------------------------
 
 /**
@@ -3147,10 +3058,10 @@ export function loadDistrictCuts(db: Corpus): DistrictCuts {
 export type Stratum = "INSIDE" | "OUTSIDE" | "UNKNOWN";
 
 /**
- * Print order. OUTSIDE FIRST, BECAUSE OUTSIDE IS THE ANSWER — it is the stratum
- * where the award was the entire reason the team reached Worlds. INSIDE is
- * context. This ordering is not cosmetic; it is the load-bearing requirement of
- * quick task 260912-l8t expressed as a constant.
+ * Print order. OUTSIDE FIRST, because it is the stratum where the award was
+ * the entire reason the team reached Worlds; INSIDE is context. Not
+ * cosmetic — this ordering is the load-bearing requirement, expressed as a
+ * constant.
  */
 export const STRATA: readonly Stratum[] = ["OUTSIDE", "INSIDE", "UNKNOWN"];
 
@@ -3229,13 +3140,12 @@ const emptyStratumCounts = (): Record<Stratum, number> => ({
  *   was below the cut, so the instance-level OUTSIDE share is MECHANICALLY
  *   HIGHER than the recipient-level one — measured at 68.4%, not about 50%.
  *
- * THAT IS EXPECTED ARITHMETIC, NOT A BROKEN JOIN, and it is the one place the
- * plan of quick task 260912-l8t mis-specified itself: it set the +/-10%-of-519
- * and 45-55% tolerances against the pre-measured RECIPIENT numbers while
- * describing them as bounds on the INSTANCE count. Checking the instance count
+ * THAT IS EXPECTED ARITHMETIC, NOT A BROKEN JOIN — the original tolerances
+ * (+/-10%-of-519, 45-55%) were set against the pre-measured RECIPIENT numbers
+ * but described as bounds on the INSTANCE count; checking the instance count
  * against 519 would fail on a CORRECT implementation. The assertion therefore
- * runs on the recipient denominator the figures were actually measured on, and
- * BOTH counts are printed so no reader mistakes one for the other.
+ * runs on the recipient denominator the figures were actually measured on,
+ * and BOTH counts are printed so no reader mistakes one for the other.
  */
 export interface DcmpPremise {
   /** `(event, award_type)` instances of a berth award type at a DCMP event. */
@@ -3842,19 +3752,11 @@ export function orderingWinner(
 }
 
 /**
- * THE PRACTICAL ANSWER BLOCK (quick task 260912-i13 T3).
- *
- * Answers the question the whole award chain was asked — "for each award, can we
- * rank each team at an event for how likely they are to win it?" — in plain
- * language, GENERATED from the cells above so it cannot drift from them.
- *
- * EVERY ENTRY STATES BOTH HALVES: the ordering result AND the calibration
- * result. That is not formatting preference. The honest answer to the question
- * is "the ORDER is useful and the NUMBER is not", and an entry that reported
- * only the recall figures would leave a reader believing a probability could be
- * printed next to a team's name on a page. It cannot. So the two halves are
- * emitted together, per type, by construction, and the block says so in its own
- * header rather than trusting the reader to notice.
+ * The practical-answer block (see file header). Generated from the cells
+ * above rather than hand-written, so it cannot drift from them. Every entry
+ * states both the ordering result and the calibration result together, by
+ * construction — an entry that reported only the recall figures would leave
+ * a reader believing a probability could be printed next to a team's name.
  */
 export function formatPracticalAnswer(report: ExperimentReport): string[] {
   const lines: string[] = [];
@@ -4003,7 +3905,6 @@ export function formatPracticalAnswer(report: ExperimentReport): string[] {
 
 // ---------------------------------------------------------------------------
 // THE DCMP BLOCK — printed only under `--dcmp`, after the existing output
-// (quick task 260912-l8t T2)
 // ---------------------------------------------------------------------------
 
 /** `41.2% (31 of 75)`. A bare percentage at n around 75 invites over-reading. */
@@ -4042,15 +3943,11 @@ function stratumLine(label: string, c: Cell, reference: RankPredictor): string {
 }
 
 /**
- * THE FOUR ROWS, EMITTED BY ONE FUNCTION.
- *
- * The load-bearing requirement of quick task 260912-l8t enforced in code rather
- * than in prose: there is no code path that produces the `DCMP-ALL` row without
- * producing `OUTSIDE` and `INSIDE` beside it, so a pooled DCMP headline cannot
- * be printed alone. A test asserts that any output containing `DCMP-ALL` also
- * contains both strata.
- *
- * OUTSIDE IS PRINTED FIRST BECAUSE OUTSIDE IS THE ANSWER.
+ * THE FOUR ROWS, EMITTED BY ONE FUNCTION: there is no code path that
+ * produces the `DCMP-ALL` row without producing `OUTSIDE` and `INSIDE`
+ * beside it, so a pooled DCMP headline cannot be printed alone (a test
+ * asserts any output containing `DCMP-ALL` also contains both strata).
+ * OUTSIDE is printed first because it is the answer.
  */
 export function dcmpStratumRows(
   byStratum: ReadonlyMap<StratumRow, Cell>,
@@ -4148,8 +4045,6 @@ export interface DcmpBerthVerdict {
 }
 
 /**
- * PRE-COMMITTED READING 2 of quick task 260912-l8t, in one function.
- *
  * A berth award is PREDICTABLE on a stratum only if the better of {the no-age
  * arm, the reference ordering} beats THAT STRATUM'S OWN exact random null on
  * R@3 by more than `stratumBand("R@3", n)`, with `n >= THIN_PRIOR_INSTANCES`.
