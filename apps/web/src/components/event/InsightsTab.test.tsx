@@ -80,7 +80,7 @@ function team(overrides: Partial<ArtifactTeam> = {}): ArtifactTeam {
   };
 }
 
-describe("buildInsightsRows — official vs fallback ordering (EVNT-02, D-07/D-08)", () => {
+describe("buildInsightsRows — official vs fallback ordering", () => {
   it("every team carrying a rank returns orderSource 'official' and rows in ascending rank order, regardless of input order", () => {
     const artifact = makeArtifact([
       team({ teamKey: "frc3", teamNumber: 3, rank: 3, metrics: { [TOTAL_KEY]: { value: 1 } } }),
@@ -212,7 +212,7 @@ describe("buildInsightsRows — official vs fallback ordering (EVNT-02, D-07/D-0
   });
 });
 
-describe("buildInsightsRows — record/rp pass-through (EVNT-02 empty)", () => {
+describe("buildInsightsRows — record/rp pass-through", () => {
   it("record passes through verbatim: a published record carries exactly that object; a team with no record carries undefined", () => {
     const artifact = makeArtifact([
       team({ teamKey: "frc1", teamNumber: 1, record: { wins: 4, losses: 2, ties: 1 } }),
@@ -246,12 +246,12 @@ describe("buildInsightsRows — record/rp pass-through (EVNT-02 empty)", () => {
   });
 });
 
-describe("formatEventRecord (EVNT-02 empty)", () => {
+describe("formatEventRecord", () => {
   it("returns wins-losses-ties hyphenated for a published record", () => {
     expect(formatEventRecord({ wins: 4, losses: 2, ties: 1 })).toBe("4-2-1");
   });
 
-  it("returns an empty string for an absent record (2026-09-01: blank, never an em-dash placeholder)", () => {
+  it("returns an empty string for an absent record (blank, never an em-dash placeholder)", () => {
     expect(formatEventRecord(undefined)).toBe("");
     // The neighbouring all-zero test is what keeps this from being a weak
     // assertion: absence renders as nothing, a real 0-0-0 still renders.
@@ -262,7 +262,7 @@ describe("formatEventRecord (EVNT-02 empty)", () => {
   });
 });
 
-describe("insightsFallbackNotice (D-08 Copywriting Contract)", () => {
+describe("insightsFallbackNotice — the no-ranking fallback notice copy", () => {
   it("begins with the hand-written literal leading clause and contains the given label", () => {
     const sentence = insightsFallbackNotice("SPR");
     expect(sentence.startsWith("This event has no official TBA ranking. Teams below are ordered by ")).toBe(true);
@@ -270,7 +270,7 @@ describe("insightsFallbackNotice (D-08 Copywriting Contract)", () => {
   });
 });
 
-describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
+describe("InsightsTab — column set", () => {
   it("vpr/2024: exactly nine headers, in the declared order", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -337,7 +337,7 @@ describe("InsightsTab — column set (EVNT-02, Task 2)", () => {
   });
 });
 
-describe("InsightsTab — Total ± Sigma pill (quick task 260913-jkp Task 1)", () => {
+describe("InsightsTab — Total ± Sigma pill", () => {
   function sprArtifactWithSigma(sigma?: { value: number; percentile?: number }) {
     return EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -419,7 +419,7 @@ describe("InsightsTab — Total ± Sigma pill (quick task 260913-jkp Task 1)", (
   });
 });
 
-describe("InsightsTab — D-08 fallback header and banner", () => {
+describe("InsightsTab — no-ranking fallback header and banner", () => {
   function artifactWithRanks(teams: { rank?: number }[]) {
     return EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -465,7 +465,7 @@ describe("InsightsTab — D-08 fallback header and banner", () => {
   });
 });
 
-describe("InsightsTab — no sticky columns (2026-09-13)", () => {
+describe("InsightsTab — no sticky columns", () => {
   const artifact = EventArtifactSchema.parse({
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: "gen-1",
@@ -525,7 +525,7 @@ describe("InsightsTab — no sticky columns (2026-09-13)", () => {
   });
 });
 
-describe("InsightsTab — Record and RP cells (EVNT-02 empty, RP prohibition)", () => {
+describe("InsightsTab — Record and RP cells (RP prohibition)", () => {
   function oneTeamArtifact(overrides: Partial<ArtifactTeam> = {}) {
     return EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -604,7 +604,7 @@ describe("InsightsTab — Record and RP cells (EVNT-02 empty, RP prohibition)", 
   });
 });
 
-describe("InsightsTab — tier boundaries on the Auto column (D-09)", () => {
+describe("InsightsTab — tier boundaries on the Auto column", () => {
   async function renderWithAutoPercentile(percentile: number) {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -640,7 +640,7 @@ describe("InsightsTab — tier boundaries on the Auto column (D-09)", () => {
   it("percentile 50 yields rare", async () => {
     expect((await renderWithAutoPercentile(50)).className).toContain("metric-tier--rare");
   });
-  it("percentile 49.9 yields the common tier ring (260904-7rt, sketch 008 winner C)", async () => {
+  it("percentile 49.9 yields the common tier ring (sketch 008 winner C)", async () => {
     expect((await renderWithAutoPercentile(49.9)).className).toContain("metric-tier--common");
   });
 
@@ -734,7 +734,7 @@ describe("InsightsTab — partial phase-metric data", () => {
   });
 });
 
-describe("InsightsTab — EPA derived group columns (D-4, 260904-5zg; stale-artifact fallback as of 260904-7id)", () => {
+describe("InsightsTab — EPA derived group columns, with the stale-artifact fallback", () => {
   it("stale-artifact fallback: an EPA event fixture carrying components but no phaseAuto/phaseTeleop/phaseEndgame — the shape of a cached pre-republish artifact — renders real derived sums, where before every cell in those columns was blank", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -797,7 +797,7 @@ describe("InsightsTab — EPA derived group columns (D-4, 260904-5zg; stale-arti
     expect(cell.querySelector(".metric-tier--legendary")).not.toBeNull();
   });
 
-  it("D-3 (260904-7id): an EPA event fixture whose team standing carries a PUBLISHED phaseEndgame: { value, percentile } (not derived) renders a tiered Endgame cell, with no plus-minus glyph (EPA carries no spread, ever)", async () => {
+  it("an EPA event fixture whose team standing carries a PUBLISHED phaseEndgame: { value, percentile } (not derived) renders a tiered Endgame cell, with no plus-minus glyph (EPA carries no spread, ever)", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
@@ -827,7 +827,7 @@ describe("InsightsTab — EPA derived group columns (D-4, 260904-5zg; stale-arti
   });
 });
 
-describe("InsightsTab — empty and zero-one-many (EVNT-02 empty)", () => {
+describe("InsightsTab — empty and zero-one-many", () => {
   it("teams: [] renders EmptyState naming the event and no table element", async () => {
     const artifact = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -891,7 +891,7 @@ describe("InsightsTab — empty and zero-one-many (EVNT-02 empty)", () => {
   });
 });
 
-describe("InsightsTab — long text (UI-SPEC E3 long-text)", () => {
+describe("InsightsTab — long text", () => {
   it("a 60-character nickname renders in full inside the cell's title attribute and carries a truncation class", async () => {
     const longNickname = "A".repeat(60);
     const artifact = EventArtifactSchema.parse({
