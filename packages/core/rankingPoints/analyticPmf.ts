@@ -1,58 +1,44 @@
 /**
- * THE CLOSED FORM — an EXACT analytic pmf: one marginal per threshold
+ * The closed form — an exact analytic pmf: one marginal per threshold
  * variable (`marginals.ts`), bonuses grouped by shared threshold variable
  * and enumerated from marginal CDFs, groups convolved into a bonus-only
  * pmf, and that pmf convolved with the win/tie outcome half.
  *
- * WHY THIS IS EXACT, NOT AN APPROXIMATION: `empiricalMoments.ts`'s
- * `momentsFor` builds a DIAGONAL `varianceBlock` and an ALL-ZERO
+ * Exact, not an approximation, because `empiricalMoments.ts`'s
+ * `momentsFor` builds a diagonal `varianceBlock` and an all-zero
  * `scoreCrossCovariance` by construction — the joint is already exactly
- * independent. A closed form over independent marginals computes the exact
- * distribution, with no sampling noise. This module ASSERTS that
+ * independent, so a closed form over independent marginals computes the
+ * exact distribution with no sampling noise. This module asserts that
  * diagonal/zero precondition on every call (`assertIndependencePrecondition`
- * below) rather than assuming it — a caller supplying a genuine, non-zero
+ * below) rather than assuming it: a caller supplying a genuine, non-zero
  * correlation would have it silently discarded by a function whose whole
  * correctness argument depends on its absence, so this module refuses that
  * caller instead.
  *
- * THE HAND-COMPUTED TEST DEBT THIS MODULE OWES: `analyticPmf.test.ts` and
- * `analyticPmf.seasons.test.ts` carry expected values computed from this
- * module's own specification, never produced by running this file. The
- * single highest-risk computation in the whole module lives here — 2026's
- * `energized`/`supercharged` pair both threshold `hubTotalCount`, and
- * `SUPERCHARGED_THRESHOLD[tier] >= ENERGIZED_THRESHOLD[tier]` at every
- * tier, so supercharged structurally IMPLIES energized. Treating the pair
+ * The single highest-risk computation in the whole module: 2026's
+ * `energized`/`supercharged` pair both threshold `hubTotalCount`, and the
+ * supercharged threshold is always at or above the energized one at every
+ * tier, so supercharged structurally implies energized. Treating the pair
  * as independent Bernoulli events understates `P(both)` — the
  * nested-threshold interval enumeration below (`groupContribution`'s
  * `nestedSameVariable` branch) exists specifically to get this right, and
- * the test suite asserts the correct answer is NOT the independent product.
+ * the test suite asserts the correct answer is not the independent product.
  *
- * THE MODEL THIS FILE IMPLEMENTS.
- *
+ * The model this file implements:
  *   - each threshold variable's marginal is Gaussian;
- *   - the win/tie/loss split comes from the difference of the two alliances'
- *     independent Gaussian score distributions, `D = redScore - blueScore`.
- *     A tie is the event that the real, integer-valued margin ROUNDS to
- *     zero (`tieProbability` below gives its exact probability under a
- *     continuous latent `D`), and the decisive share (red vs blue) is
- *     EITHER the score-draw comparison `P(D > 0)` OR, when the caller
- *     supplies its own `pRedWin` (every SPR call site does, since
- *     2026-09-13's quick task 260913-qyn), the algorithm's own published win
- *     probability, split proportionally against `1 - pTie`.
+ *   - the win/tie/loss split comes from the difference of the two
+ *     alliances' independent Gaussian score distributions, `D = redScore -
+ *     blueScore`. A tie is the event that the real, integer-valued margin
+ *     rounds to zero (`tieProbability` below gives its exact probability
+ *     under a continuous latent `D`), and the decisive share (red vs blue)
+ *     is either the score-draw comparison `P(D > 0)` or, when the caller
+ *     supplies its own `pRedWin` (every SPR call site does), the
+ *     algorithm's own published win probability, split proportionally
+ *     against `1 - pTie`.
  *
- * WIN (using the algorithm's own `pRedWin` in place of the score-draw
- * comparison) and TIE (the discrete integer-margin probability, replacing a
- * structural zero) were both measured against control through the
- * publisher's own scorer under a bar built to see this half specifically
- * (`applyRpOutcomeArmBar`, `scripts/measureRpCalibration.ts`) and BOTH
- * cleared it, alongside a combined WIN+TIE arm that had the lowest pooled
- * score of the three and is what shipped — see
- * `data/baselines/rp-outcome-arms-2026-09.json` and
- * `docs/models/rp-layer-config-arms.md` for the 2026-09-13 record. An
- * EARLIER, near-identical pair of fixes was measured on 2026-09-11 against a
- * bar that scored bonuses only, was blind to this half, tied 30 of 30 cells,
- * and was refused — `docs/models/rp-attribution.md` carries that (voided)
- * measurement.
+ * Both the win-probability substitution and the discrete tie probability
+ * were measured against control through the publisher's own scorer, and
+ * both cleared the bar — see `docs/models/rp-layer-config-arms.md` for the record.
  */
 import type { CompLevel } from "../algorithms/types.js";
 import type {
@@ -77,7 +63,7 @@ import {
 
 /**
  * A fallback-ladder diagnostic: running counts of what a set of
- * `fitMarginal` calls actually RESOLVED to — `FittedMarginal.resolved`,
+ * `fitMarginal` calls actually resolved to — `FittedMarginal.resolved`,
  * never `.declared`. A variable can declare Gaussian and still resolve to a
  * degenerate point mass when a fit over its data cannot support any
  * distribution; this counts how often that happens.
@@ -86,14 +72,9 @@ import {
  * fit is undefined for `mean <= 0` and for `variance <= mean`, both of
  * which fall back to Gaussian. Without this counter, a measurement arm
  * labelled `"negative-binomial"` whose fits mostly fell back is
- * indistinguishable from a genuine one — a verdict taken on that arm would
- * be a verdict about the fit's APPLICABILITY wearing the costume of a
- * verdict about the family. Any measurement using the arm must report what
- * fraction of its fits actually resolved here.
- *
- * `fallbacks` is counted SEPARATELY from `gaussian` — a fit that resolved
- * to what it declared is not a fallback, and conflating the two would
- * overstate how often the ladder fired.
+ * indistinguishable from a genuine one. `fallbacks` is counted separately
+ * from `gaussian` — a fit that resolved to what it declared is not a
+ * fallback.
  */
 export interface MarginalResolutionTally {
   negativeBinomial: number;
@@ -145,11 +126,10 @@ export function convolvePmf(a: readonly number[], b: readonly number[]): number[
 // ---------------------------------------------------------------------------
 
 /**
- * `analyticRpPmf`/`allianceBonusRpPmf` are exact ONLY because the joint is
+ * `analyticRpPmf`/`allianceBonusRpPmf` are exact only because the joint is
  * diagonal: every `scoreCrossCovariance` entry zero, every off-diagonal
  * `varianceBlock` entry zero. Throws naming the season and the violating
- * index/variable pair otherwise — a caller supplying a learned score/threshold
- * correlation must not reach this function.
+ * index/variable pair otherwise.
  */
 function assertIndependencePrecondition(moments: AllianceRpMoments, season: number): void {
   for (let i = 0; i < moments.scoreCrossCovariance.length; i++) {
@@ -189,17 +169,14 @@ function intersects(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
 }
 
 /**
- * Which `MarginalFamily` a clause's COMBINED moments may be fitted with,
- * DERIVED from the families its contributing terms declare rather than
- * asserted here. Reads `FittedMarginal.declared` — the per-variable
- * declaration site — so a future family extends the declarations and this
- * derivation picks it up, rather than reintroducing a global switch.
+ * Which `MarginalFamily` a clause's combined moments may be fitted with,
+ * derived from the families its contributing terms declare rather than
+ * asserted here. Reads `FittedMarginal.declared` so a future family
+ * extends the declarations and this derivation picks it up.
  *
- * Refuses, loudly, in both cases where no exact closed form exists. That is
- * this module's house style (`assertIndependencePrecondition`,
- * `assertPairwiseDisjoint`, `groupContribution`'s multi-bonus throw): name the
- * season, name the subject, name the violated precondition, and never fall
- * back silently to a distribution the caller did not ask for.
+ * Refuses, loudly, in both cases where no exact closed form exists — this
+ * module's house style: name the season, name the subject, name the
+ * violated precondition, never fall back silently to an unrequested distribution.
  */
 function familyForClauseSum(
   marginals: readonly FittedMarginal[],
@@ -217,37 +194,28 @@ function familyForClauseSum(
   const family = [...declared][0]!;
   switch (family) {
     case "gaussian":
-      // The Gaussian family RETURNS here rather than throwing for one reason,
-      // and it is the reason the hardcoded literal this function replaced was
-      // numerically correct rather than merely convenient: a sum of
-      // independently-scaled Gaussians is exactly Gaussian, with the summed
-      // mean and the summed scaled variance. Closure under scaled addition is
-      // the whole precondition; a family without it cannot be fitted from
-      // combined moments at all.
+      // Returns here rather than throwing: a sum of independently-scaled
+      // Gaussians is exactly Gaussian, with the summed mean and the summed
+      // scaled variance. Closure under scaled addition is the whole
+      // precondition; a family without it cannot be fitted from combined
+      // moments at all.
       return "gaussian";
     case "negative-binomial":
-      // Negative binomial is NOT closed under scaled addition: a sum of
-      // independent NB variables is NB only when every `p` matches —
-      // nothing here guarantees that — and `X / divisor` is not even
-      // integer-supported, so a divided term has left the family outright.
-      // Fitting the combined moments with an NB would therefore publish a
-      // probability from a distribution the terms do not have.
-      //
-      // Throwing is the only correct answer here; a silent Gaussian
-      // fallback would make a measurement using this family structurally
-      // incapable of responding to a family change while still reporting a
-      // tie. A caller that wants NB on a variable must confine it to
-      // clauses of one unscaled term.
+      // Negative binomial is not closed under scaled addition: a sum of
+      // independent NB variables is NB only when every `p` matches, and
+      // `X / divisor` is not even integer-supported. Fitting the combined
+      // moments with an NB would publish a probability from a distribution
+      // the terms do not have, so this throws rather than silently
+      // falling back to Gaussian.
       throw new Error(
         `analyticRpPmf: season ${season} bonus "${bonusName}" sums scaled terms all declaring "negative-binomial" over variables {${clause.terms.map((term) => term.variable).join(", ")}}, which is not closed under scaled addition — a sum of independent negative binomials is negative binomial only when every p matches, and a divided term is not even integer-supported, so implement that joint explicitly or declare "gaussian" on every variable appearing in a multi-term or divisor-bearing clause`
       );
     default: {
-      // `never` so a THIRD union member fails to compile here — before it can
-      // fail at runtime on real data. Whoever adds that member gets a type
-      // error pointing at this arm, which is the design: they must decide
-      // whether their family is closed under scaled addition, not discover the
-      // answer from a wrong published probability. That is not hypothetical —
-      // it is what happened when `"negative-binomial"` was added above.
+      // `never` so a third union member fails to compile here, before it
+      // can fail at runtime on real data — whoever adds that member gets a
+      // type error pointing at this arm, and must decide whether their
+      // family is closed under scaled addition rather than discover the
+      // answer from a wrong published probability.
       const exhaustive: never = family;
       throw new Error(
         `analyticRpPmf: season ${season} bonus "${bonusName}" sums scaled terms all declaring "${String(exhaustive)}", which is not closed under scaled addition — a sum of its scaled terms has no exact closed form in that family, so implement that joint explicitly rather than fitting the combined moments with it`
@@ -259,36 +227,24 @@ function familyForClauseSum(
 /**
  * One clause's probability, by one of two routes.
  *
- * A SINGLE UNSCALED TERM (`divisor` absent or 1) REUSES that variable's own
- * `FittedMarginal` verbatim. The clause's random variable IS the variable's,
- * so correctness here rests on identity rather than on any closure property,
- * no family derivation applies, and the variable's own `resolved` /
- * `fallbackReason` survive instead of being re-derived from its moments. The
- * structural consequence is the point: `singleThreshold` — the most common
- * predicate shape in the registry — now honours a FUTURE declared family for
- * free, including one NOT closed under scaled addition, which a refit of the
- * combined moments could never have done.
+ * A single unscaled term (`divisor` absent or 1) reuses that variable's own
+ * `FittedMarginal` verbatim: the clause's random variable is the
+ * variable's, so correctness rests on identity rather than any closure
+ * property, and the variable's own `resolved`/`fallbackReason` survive
+ * instead of being re-derived from its moments. This is why
+ * `singleThreshold`, the most common predicate shape, honours a future
+ * declared family for free — including one not closed under scaled
+ * addition, which a refit of the combined moments could never do.
  *
- * EVERY OTHER CLAUSE builds its own marginal as the sum of its scaled terms
- * (mean and variance divided by each term's own `divisor`, summed LEFT TO
- * RIGHT in declared term order — floating-point addition is not associative,
- * and `RpLinearTerm.divisor` is always a DIVISOR, never a multiplier), fits it
- * with the family `familyForClauseSum` DERIVES from those terms' declarations,
- * and compares against the resolved threshold. A single term with a divisor
- * takes this route deliberately: `X / c` is not `X`, so closure under scaling
- * is load-bearing there and identity is not available.
- *
- * The family used to be written here as the string literal `"gaussian"`,
- * discarding whatever the contributing `RpThresholdVariable`s declared. Quick
- * task 260911-w7k removed that literal on 2026-09-11. It moved NO published
- * number — every declaration in the tree is Gaussian, which is closed under
- * scaled addition, so the derived value equals the literal it replaced; that
- * inertness is pinned by `analyticPmfGolden.json`, captured before the change
- * and green after it with exact equality. The value of the change is REACH,
- * not accuracy: a second family would now be honoured by every predicate shape
- * whose terms declare it, where before only `nestedSameVariable` — 6 of 30
- * season/bonus cells — could respond to one at all. See
- * `docs/models/rp-attribution.md` for the measurement that found that limit.
+ * Every other clause builds its own marginal as the sum of its scaled
+ * terms (mean and variance divided by each term's own `divisor`, summed
+ * left to right in declared term order — floating-point addition is not
+ * associative, and `RpLinearTerm.divisor` is always a divisor, never a
+ * multiplier), fits it with the family `familyForClauseSum` derives from
+ * those terms' declarations, and compares against the resolved threshold.
+ * A single term with a divisor takes this route deliberately: `X / c` is
+ * not `X`, so closure under scaling is load-bearing there and identity is
+ * not available.
  */
 function clauseProbability(
   clause: RpThresholdClause,
@@ -297,9 +253,9 @@ function clauseProbability(
   season: number,
   bonusName: string
 ): number {
-  // Every term's marginal is looked up FIRST, in declared order, so the
-  // missing-marginal throw still surfaces at the same term and still surfaces
-  // BEFORE any threshold-resolution throw below.
+  // Every term's marginal is looked up first, in declared order, so the
+  // missing-marginal throw still surfaces at the same term and before any
+  // threshold-resolution throw below.
   const marginals: FittedMarginal[] = [];
   for (const term of clause.terms) {
     const marginal = marginalsByName.get(term.variable);
@@ -317,10 +273,9 @@ function clauseProbability(
     return clause.direction === "gte" ? probAtLeast(only, threshold) : probAtMost(only, threshold);
   }
 
-  // Left-to-right in declared term order, dividing rather than multiplying by
-  // a precomputed coefficient. Both are load-bearing per `RpLinearTerm`'s own
-  // doc comment: a threshold comparison is exactly where that float difference
-  // becomes observable.
+  // Left-to-right in declared term order, dividing rather than multiplying
+  // by a precomputed coefficient — a threshold comparison is exactly where
+  // that float difference becomes observable.
   let mean = 0;
   let variance = 0;
   for (let i = 0; i < clause.terms.length; i++) {
@@ -602,7 +557,7 @@ export function allianceBonusRpPmf(
   const tier = eventTierFor(eventType);
   // Each variable's own declared family is honored verbatim: this stays a
   // per-variable read even though every variable currently declares the
-  // same family — a future family extends the declaration rather than
+  // same family, so a future family extends the declaration rather than
   // reintroducing a global switch.
   const marginalsByName = fitAllianceMarginals(moments, ruleModule.thresholdVariables);
   if (tally !== undefined) {
@@ -653,18 +608,11 @@ export interface RpOutcomeDistribution {
 }
 
 /**
- * Half the width of the integer-margin bin centred on zero. Real FRC scores
- * are integers, so the observed margin is the rounding of a continuous
- * latent margin, and a tie is exactly the event that the latent margin
- * rounds to zero — the interval `(-0.5, 0.5)`. STRUCTURAL, not tunable: it
- * follows from "integers round to the nearest integer", not from a fit to
- * data.
- *
- * SHIPPED 2026-09-13 (quick task 260913-qyn, reintroduced from `2731bfab^`,
- * measured against `applyRpOutcomeArmBar` and accepted as part of the
- * WIN+TIE arm — `data/baselines/rp-outcome-arms-2026-09.json`). Read by
- * `tieProbability` below, which `matchOutcomeDistribution`'s
- * `varianceD > 0` branch now calls unconditionally.
+ * Half the width of the integer-margin bin centred on zero. Real FRC
+ * scores are integers, so the observed margin is the rounding of a
+ * continuous latent margin, and a tie is exactly the event that the
+ * latent margin rounds to zero — the interval `(-0.5, 0.5)`. Structural,
+ * not tunable: it follows from "integers round to the nearest integer".
  */
 const TIE_MARGIN_HALF_WIDTH = 0.5;
 
@@ -674,20 +622,15 @@ const TIE_MARGIN_HALF_WIDTH = 0.5;
  *
  *   `pTie = Phi((0.5 - marginMean) / marginSd) - Phi((-0.5 - marginMean) / marginSd)`
  *
- * At `marginMean = 0` and `marginSd = 36.5` (an ordinary FRC margin sd) this
- * returns `0.0109297`, against the audit's measured base rate of
- * `1206 / 110362 = 0.0109277` real qualification matches (F7).
+ * Measured against the real base rate of ties in official qualification
+ * matches and found to match closely (see `docs/models/rp-layer-config-arms.md`).
  *
- * The degenerate guard is ordered BEFORE the division, deliberately: if
- * `marginVariance` is not finite or is at or below zero, `pTie` is `1` when
- * the (deterministic) margin is within the tie window and `0` otherwise —
- * the same limit `matchOutcomeDistribution`'s own `varianceD <= 0` branch
- * already uses for the win/loss split, restated here so this function never
- * divides by zero or propagates a `NaN` variance into the CDF.
- *
- * SHIPPED 2026-09-13 (quick task 260913-qyn, reintroduced from
- * `2731bfab^`) — called unconditionally from `matchOutcomeDistribution`'s
- * `varianceD > 0` branch.
+ * The degenerate guard is ordered before the division, deliberately: if
+ * `marginVariance` is not finite or is at or below zero, `pTie` is `1`
+ * when the (deterministic) margin is within the tie window and `0`
+ * otherwise — the same limit `matchOutcomeDistribution`'s own
+ * `varianceD <= 0` branch uses for the win/loss split, restated here so
+ * this function never divides by zero or propagates a `NaN` variance into the CDF.
  */
 function tieProbability(marginMean: number, marginVariance: number): number {
   if (!Number.isFinite(marginVariance) || marginVariance <= 0) {
@@ -701,16 +644,13 @@ function tieProbability(marginMean: number, marginVariance: number): number {
 }
 
 /**
- * Input to `matchOutcomeDistribution` — each alliance's OWN predicted score
+ * Input to `matchOutcomeDistribution` — each alliance's own predicted score
  * mean/variance (never the combined win-probability variance), plus the
  * season's `winRp`/`tieRp`.
  *
- * `pRedWin` (260913-qyn) is OPTIONAL — not because it is a measurement seam
- * (WIN shipped 2026-09-13, and every SPR call site holding a real
- * `Prediction` passes it) but because
- * `packages/core/rankingPoints/fieldAveraged.ts` prices a hypothetical
- * field-averaged match with no `Prediction` at all (design point 6 of
- * 260913-qyn) and must keep the score-draw limit.
+ * `pRedWin` is optional: every SPR call site holding a real `Prediction`
+ * passes it, but `fieldAveraged.ts` prices a hypothetical field-averaged
+ * match with no `Prediction` at all and must keep the score-draw limit.
  */
 export interface RpOutcomeInput {
   readonly redScoreMean: number;
@@ -720,12 +660,11 @@ export interface RpOutcomeInput {
   readonly winRp: number;
   readonly tieRp: number;
   /**
-   * When supplied, this is used in place of the score-draw comparison as the
-   * win probability the outcome split is built from — the algorithm's own
-   * published `Prediction.pRedWin` (SHIPPED 2026-09-13, quick task
-   * 260913-qyn — see `data/baselines/rp-outcome-arms-2026-09.json`). Absent
-   * only from `fieldAveraged.ts`, which has no `Prediction` to read one
-   * from, and falls back to the score-draw expression `P(D > 0)`.
+   * When supplied, this is used in place of the score-draw comparison as
+   * the win probability the outcome split is built from — the algorithm's
+   * own published `Prediction.pRedWin`. Absent only from
+   * `fieldAveraged.ts`, which has no `Prediction` to read one from, and
+   * falls back to the score-draw expression `P(D > 0)`.
    */
   readonly pRedWin?: number;
 }
@@ -737,37 +676,31 @@ export interface RpOutcomeInput {
  * `meanD = red.scoreMean - blue.scoreMean` and
  * `varianceD = red.scoreVariance + blue.scoreVariance`.
  *
- * SHIPPED 2026-09-13 (quick task 260913-qyn, the WIN+TIE arm — see
- * `data/baselines/rp-outcome-arms-2026-09.json`). The `varianceD > 0` branch
- * computes `pRedWinEffective` (the caller's supplied `input.pRedWin`, or the
- * score-draw expression `P(D > 0)` when absent — `fieldAveraged.ts` is the
- * only absent case) and `rawPTie` (`tieProbability(meanD, varianceD)`,
- * unconditional), then splits the two PROPORTIONALLY:
+ * The `varianceD > 0` branch computes `pRedWinEffective` (the caller's
+ * supplied `input.pRedWin`, or the score-draw expression `P(D > 0)` when
+ * absent) and `rawPTie` (`tieProbability(meanD, varianceD)`,
+ * unconditional), then splits the two proportionally:
  * `pRedWin = pRedWinEffective * (1 - rawPTie)`,
  * `pBlueWin = (1 - pRedWinEffective) * (1 - rawPTie)`. This never goes
- * negative and preserves an exact identity CONDITIONAL ON A DECISIVE RESULT:
- * `pRedWin / (pRedWin + pBlueWin) === pRedWinEffective` (the `(1 - rawPTie)`
- * factor cancels). `pRedWinEffective` is clamped into `[0, 1]` ONLY when it
- * is FINITE but out of range; a NON-FINITE value is left unclamped and
- * propagates to this function's own normalization check below, rather than
- * a clamp silently laundering a corrupted upstream computation into a
- * plausible-looking pmf.
+ * negative and preserves an exact identity conditional on a decisive
+ * result: `pRedWin / (pRedWin + pBlueWin) === pRedWinEffective` (the
+ * `(1 - rawPTie)` factor cancels). `pRedWinEffective` is clamped into
+ * `[0, 1]` only when it is finite but out of range; a non-finite value is
+ * left unclamped and propagates to this function's own normalization
+ * check below, rather than a clamp silently laundering a corrupted
+ * upstream computation into a plausible-looking pmf.
  *
- * Before this ship, a tie had probability ZERO whenever `varianceD > 0`,
- * because a tie would need exact floating-point equality of two continuous
- * draws — a known and measured shortcoming, since about 1.09% of real
- * qualification matches tie. An earlier, near-identical pair of fixes was
- * measured on 2026-09-11 against a bar that scored bonuses only, was blind
- * to this half, tied 30 of 30 cells, and was refused —
- * `docs/models/rp-attribution.md` carries that (voided) measurement. Quick
- * task 260913-qyn re-measured both against a NEW bar built to see this half
- * (`applyRpOutcomeArmBar`, `scripts/measureRpCalibration.ts`), and both
- * cleared it — see `docs/models/rp-layer-config-arms.md`'s 2026-09-13
- * section for the figures and the ship decision.
+ * Before the win/tie model shipped, a tie had probability zero whenever
+ * `varianceD > 0`, because a tie would need exact floating-point equality
+ * of two continuous draws — a known and measured shortcoming, since about
+ * 1.09% of real qualification matches tie. Both the win-probability
+ * substitution and the discrete tie probability were measured against a
+ * bar built to see this half specifically and cleared it — see
+ * `docs/models/rp-layer-config-arms.md` for the figures.
  *
- * The `varianceD <= 0` DEGENERATE branch — both alliances' predicted score
+ * The `varianceD <= 0` degenerate branch — both alliances' predicted score
  * variance exactly zero, a deterministic score pair — is the one place
- * `pTie` can be non-zero for a reason OTHER than the shipped tie model:
+ * `pTie` can be non-zero for a reason other than the shipped tie model:
  * comparing the two deterministic means directly is the correct limit
  * regardless of `input.pRedWin`, which this branch ignores.
  */
@@ -828,18 +761,16 @@ export interface AnalyticRpPmfInput {
   readonly eventType: number;
   readonly compLevel: CompLevel;
   /**
-   * Optional EXTERNAL accumulator — when supplied, this call's marginal
-   * fits (both alliances) are ALSO folded into it, so a caller
-   * (`SigmaScoutLayer.rpMarginalResolutionTally`) can track the
-   * resolved-family mix across many calls. A call given no tally still
+   * Optional external accumulator — when supplied, this call's marginal
+   * fits (both alliances) are also folded into it, so a caller can track
+   * the resolved-family mix across many calls. A call given no tally still
    * returns a correct pmf and does not throw.
    */
   readonly tally?: MarginalResolutionTally;
   /**
    * Forwarded verbatim to `matchOutcomeDistribution`'s
-   * `RpOutcomeInput.pRedWin` (SHIPPED 2026-09-13, quick task 260913-qyn) —
-   * see that field's doc comment. Absent only from `fieldAveraged.ts`, which
-   * has no `Prediction` to read one from.
+   * `RpOutcomeInput.pRedWin` — see that field's doc comment. Absent only
+   * from `fieldAveraged.ts`, which has no `Prediction` to read one from.
    */
   readonly pRedWin?: number;
 }
@@ -886,7 +817,7 @@ export function analyticRpPmf(input: AnalyticRpPmfInput): AnalyticRpPmfResult {
     return { redPmf: [1], bluePmf: [1] };
   }
 
-  // THIS CALL's own tally (both alliances) — always built when the bonus
+  // This call's own tally (both alliances) — always built when the bonus
   // path runs, regardless of whether an external `tally` accumulator was
   // also supplied. Merged into the external accumulator below, never
   // replacing it.
