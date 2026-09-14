@@ -1,58 +1,45 @@
 /**
  * The Districts page's District-Locks/Champ-Locks tabs — ONE component,
- * taking `which` ("district" or "champ") as a prop, rendered by both tabs
- * (this plan's own instruction: "rendered by both the District Locks and
- * Champ Locks tabs"). Per team: current points, maximum still attainable,
- * status, the awards ("Sent by") sending it, and the page's actual
- * question — points still needed to lock, or an explicit "not attainable
- * this season"/allocation note. A `"unknown"` status (TBA published no
- * capacity for this district-year) renders as an honest "Capacity not
- * published", never as a guessed number — `packages/core/districts/locks.ts`'s
- * own contract for `slots: null`.
+ * taking `which` ("district" or "champ") as a prop, rendered by both tabs.
+ * Per team: current points, maximum still attainable, status, the awards
+ * ("Sent by") sending it, and points still needed to lock, or an explicit
+ * "not attainable this season"/allocation note. A `"unknown"` status (TBA
+ * published no capacity for this district-year) renders as an honest
+ * "Capacity not published", never as a guessed number —
+ * `packages/core/districts/locks.ts`'s own contract for `slots: null`.
  *
- * Revision R2 (quick task 260905-lic, `260905-lic-RESEARCH-awards.md`) widens
- * this component three ways:
- *   - Status now renders as a COLOUR-CODED chip for four of the six
- *     verdicts, per the user's own explicit mapping: green = locked on
- *     district points, blue = locked by an award, red = eliminated, purple =
- *     prequalified. `contending`/`unknown` stay the ORIGINAL plain-text
- *     treatment — this site's one interactive accent is otherwise reserved
- *     for interactive/active elements only (sketch-findings-sigmascout's
- *     palette rule), and the user's mapping only names the four statuses
- *     above, so only those four break that reservation. The status WORD
- *     always stays visible alongside the colour — colour is never the only
- *     encoding.
- *   - An awards ("Sent by") column, from `team.qualifyingAwards`, filtered to
- *     THIS tab's tier via each award's own `eventKey` cross-referenced
- *     against the team's `eventPoints`/`remainingEvents` (the schema's own
- *     documented way to recover which tier an award recipiency belongs to —
- *     see `DistrictQualifyingAwardSchema`'s doc comment). District-tier
- *     award-only invites (Engineering Inspiration, Rookie All Star) are
- *     annotated "(award-only invite)"; DCMP-tier awards never carry that
- *     annotation (none are award-only at that tier).
- *   - A richer header: the District Locks tab additionally shows a per-team
- *     season ceiling, a played/upcoming event schedule strip, and a
- *     district-wide points pool (distributed, and an explicitly-marked "~"
- *     estimate for what remains); the Champ Locks tab shows a
- *     "Remaining district points: X / Y pre-DCMP" line. Both are computed
- *     client-side by `districtLocksHeaderStats.ts` — see that module's own
- *     doc comment for why (the published artifact carries no dedicated
- *     aggregate field for either).
+ * Status renders as a COLOUR-CODED chip for four of the six verdicts: green
+ * = locked on district points, blue = locked by an award, red = eliminated,
+ * purple = prequalified. `contending`/`unknown` stay the ORIGINAL
+ * plain-text treatment — this site's one interactive accent is otherwise
+ * reserved for interactive/active elements only. The status WORD always
+ * stays visible alongside the colour — colour is never the only encoding.
  *
- * Revision R3 (quick task 260905-lic, user correction: "the district
- * insights and breakdown tables are now for VPR/opr/epa") folds the OLD
- * `DistrictBreakdownTab.tsx`'s per-team expandable-dropdown-row district-
- * points detail into THIS component instead, as COLUMNS behind a single
- * expand toggle — explicitly never as expandable rows again (the user's own
- * rejection of that pattern). Toggled on, every default column above stays
- * exactly as it is; Rookie Bonus and Adjustments append as two more
+ * An awards ("Sent by") column, from `team.qualifyingAwards`, is filtered
+ * to THIS tab's tier via each award's own `eventKey` cross-referenced
+ * against the team's `eventPoints`/`remainingEvents` (see
+ * `DistrictQualifyingAwardSchema`'s doc comment). District-tier award-only
+ * invites (Engineering Inspiration, Rookie All Star) are annotated
+ * "(award-only invite)"; DCMP-tier awards never carry that annotation.
+ *
+ * A richer header: the District Locks tab additionally shows a per-team
+ * season ceiling, a played/upcoming event schedule strip, and a
+ * district-wide points pool (distributed, and an explicitly-marked "~"
+ * estimate for what remains); the Champ Locks tab shows a "Remaining
+ * district points: X / Y pre-DCMP" line. Both are computed client-side by
+ * `districtLocksHeaderStats.ts` (the published artifact carries no
+ * dedicated aggregate field for either).
+ *
+ * Per-team district-points detail lives as COLUMNS behind a single expand
+ * toggle, never as expandable rows. Toggled on, every default column above
+ * stays exactly as it is; Rookie Bonus and Adjustments append as two more
  * columns, then every event either tab's roster has ever played — the union
- * across BOTH tiers, in chronological (week) order, matching the old
- * Breakdown's own scope — appends as a four-column band (Qualification,
- * Alliance Selection, Playoff Advancement, Award) grouped under an
- * event-name header, mirroring `event/BreakdownTab.tsx`'s own group-band
- * pattern. A team that did not play a given event renders an honest em-dash
- * across that event's four cells, never a fabricated zero.
+ * across BOTH tiers, in chronological (week) order — appends as a
+ * four-column band (Qualification, Alliance Selection, Playoff Advancement,
+ * Award) grouped under an event-name header, mirroring
+ * `event/BreakdownTab.tsx`'s own group-band pattern. A team that did not
+ * play a given event renders an honest em-dash across that event's four
+ * cells, never a fabricated zero.
  */
 import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -82,7 +69,7 @@ const LOCK_KIND_TIER: Record<DistrictLockKind, DistrictEventTier> = {
   champ: "dcmp",
 };
 
-/** The expanded event-columns band's tooltip label per tier — restated locally (the old `DistrictBreakdownTab.tsx` carried an identical map before revision R3 removed that component's own per-team expandable rows). */
+/** The expanded event-columns band's tooltip label per tier. */
 const EVENT_TIER_LABEL: Record<DistrictEventPoints["tier"], string> = {
   district: "District Event",
   dcmp: "District Championship",
@@ -115,13 +102,9 @@ function statusChipClass(status: LockVerdict["status"]): string | undefined {
 }
 
 /**
- * The conservatism caveat, plainly worded (must-have: "a locked verdict is a
- * guarantee; a team that is not locked has not been eliminated, and declines
- * and wildcards can only ever help"), the exact rule
- * `packages/core/districts/locks.ts`'s own doc comments establish for why
- * declines/waitlist/wildcard movement are not modeled at all — that
- * omission only ever makes a `locked` verdict MORE conservative, never
- * wrong.
+ * The conservatism caveat: declines/waitlist/wildcard movement are not
+ * modeled at all (`packages/core/districts/locks.ts`), and that omission
+ * only ever makes a `locked` verdict MORE conservative, never wrong.
  */
 export const DISTRICT_LOCKS_CAVEAT =
   "A locked verdict is a guarantee. A team that is not locked has not been eliminated: declines, waitlist movement and wildcard slots can only ever help a team's chances, never hurt them.";
@@ -133,11 +116,10 @@ function formatPoints(value: number): string {
 /**
  * Never returns a bare number for `"unknown"` or an unattainable `null` —
  * those two cases each get their own honest, non-numeric string.
- * `allocationNote` (revision R2a, the `2025fsc` special-allocation case)
- * takes precedence over every other case: when the pipeline has flagged a
- * district-year the ordinary model does not apply to at all, that honest
- * note is strictly more informative than any of this function's other
- * branches, unknown-capacity included.
+ * `allocationNote` (the `2025fsc` special-allocation case) takes precedence
+ * over every other case: when the pipeline has flagged a district-year the
+ * ordinary model does not apply to at all, that honest note is strictly
+ * more informative than any of this function's other branches.
  */
 function formatPointsToLock(verdict: LockVerdict): string {
   if (verdict.allocationNote !== null) return verdict.allocationNote;
@@ -146,7 +128,7 @@ function formatPointsToLock(verdict: LockVerdict): string {
   return verdict.pointsToLock === 0 ? "0" : `${formatPoints(verdict.pointsToLock)} more points`;
 }
 
-/** Which tier (per `eventKey`) a team's own `eventPoints`/`remainingEvents` cross-reference reports — the schema's own documented way to recover an award recipiency's tier (`DistrictQualifyingAwardSchema`'s doc comment). `undefined` when neither array has a row for this `eventKey` (should not happen for a published award, but never assumed). */
+/** Which tier (per `eventKey`) a team's own `eventPoints`/`remainingEvents` cross-reference reports (see `DistrictQualifyingAwardSchema`'s doc comment). `undefined` when neither array has a row for this `eventKey`. */
 function tierForEventKey(team: DistrictTeam, eventKey: string): DistrictEventTier | undefined {
   return team.eventPoints.find((event) => event.eventKey === eventKey)?.tier ?? team.remainingEvents.find((event) => event.eventKey === eventKey)?.tier;
 }
@@ -165,11 +147,8 @@ function AwardsCell({ awards, which }: { awards: QualifyingAward[]; which: Distr
         <span key={`${award.eventKey}-${award.awardType}`}>
           {index > 0 && ", "}
           {award.label}
-          {/* Award-only invites (Engineering Inspiration, Rookie All Star at
-              the district-event tier) never grant a play slot — only the
-              District Locks tab's own tier ever carries one (schema doc
-              comment on `DistrictQualifyingAwardSchema`: DCMP-tier awards
-              are never award-only). */}
+          {/* Award-only invites never grant a play slot; DCMP-tier awards
+              are never award-only (see `DistrictQualifyingAwardSchema`). */}
           {which === "district" && award.awardOnly && " (award-only invite)"}
         </span>
       ))}
@@ -247,11 +226,9 @@ interface DistrictEventColumn {
 }
 
 /**
- * Every distinct event across the WHOLE roster's `eventPoints` (both tiers,
- * matching the old `DistrictBreakdownTab.tsx`'s own pre-R3 scope, which
- * showed a team's full point history regardless of which Locks tab a reader
- * might separately be viewing), in chronological (week) order — unknown
- * week sorts last, then by event name for a stable tie-break.
+ * Every distinct event across the WHOLE roster's `eventPoints` (both
+ * tiers), in chronological (week) order — unknown week sorts last, then by
+ * event name for a stable tie-break.
  */
 function collectAllEvents(teams: readonly DistrictTeam[]): DistrictEventColumn[] {
   const byKey = new Map<string, DistrictEventColumn>();
