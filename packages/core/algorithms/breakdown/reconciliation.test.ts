@@ -1,16 +1,16 @@
 /**
- * Corpus-backed proof (D-01, D-02) that each registered season's component
- * map reconciles against the alliance's own `totalPoints`: for every
- * sampled match, sum(offensive components of one alliance) +
- * foulsCommitted(the OTHER alliance) === that alliance's `totalPoints` —
- * fouls are attributed to whichever alliance committed them, not the
- * alliance that received the bonus (see each season module's own
- * `foulsCommitted` comment for the derivation).
+ * Corpus-backed proof that each registered season's component map
+ * reconciles against the alliance's own `totalPoints`: for every sampled
+ * match, sum(offensive components of one alliance) + foulsCommitted(the
+ * OTHER alliance) === that alliance's `totalPoints` — fouls are attributed
+ * to whichever alliance committed them, not the alliance that received the
+ * bonus (see each season module's own `foulsCommitted` comment for the
+ * derivation).
  *
- * Reads `data/corpus.sqlite` read-only (T-01-13's guarantee: a write
- * attempted through this handle fails at the SQLite layer). Skips with an
- * explicit message, not a silent pass, if the corpus file is absent, so a
- * fresh clone's CI run does not fail for the wrong reason.
+ * Reads `data/corpus.sqlite` read-only (a write attempted through this
+ * handle fails at the SQLite layer). Skips with an explicit message, not a
+ * silent pass, if the corpus file is absent, so a fresh clone's CI run does
+ * not fail for the wrong reason.
  */
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -27,16 +27,8 @@ import type { ParsedComponents } from "./constants.js";
 const CORPUS_PATH = "data/corpus.sqlite";
 const SAMPLE_SIZE = 2000;
 const RECONCILIATION_TOLERANCE = 1e-6;
-/**
- * Provenance of the seasons registered in `breakdown/index.ts` (D-19:
- * additive, no dispatch branching). 2024 was registered by plan 02-01;
- * 2022/2023 by plan 02-01's Task 1; 2025/2026 by its Task 2; 2020 and 2019
- * by quick task 260903-4fs's Tasks 1 and 2 respectively; 2018 by quick task
- * 260907-057. 2021 is deliberately absent — no standard FRC season was
- * played that year. The list itself is now derived from the dispatch table
- * (`BREAKDOWN_REGISTERED_SEASONS`, imported above) rather than restated
- * here (quick task 260906-8kd).
- */
+// 2021 is deliberately absent from BREAKDOWN_REGISTERED_SEASONS — no
+// standard FRC season was played that year.
 
 interface SampledBreakdownRow {
   match_key: string;
@@ -45,21 +37,19 @@ interface SampledBreakdownRow {
 
 /**
  * One season's named, capped reconciliation tolerance — the breakdown-side
- * mirror of `rp/reconciliation.test.ts`'s `KNOWN_TOLERANCES` (D-2). A
- * season with NO entry here stays at an EFFECTIVE rate of exactly 0 —
- * unchanged behaviour, since `breakdownToleranceFor` returns `undefined` and
- * the assertion below falls back to "any exception fails".
+ * mirror of `rp/reconciliation.test.ts`'s `KNOWN_TOLERANCES`. A season with
+ * NO entry here stays at an EFFECTIVE rate of exactly 0 — unchanged
+ * behaviour, since `breakdownToleranceFor` returns `undefined` and the
+ * assertion below falls back to "any exception fails".
  *
  * `rate` is the measured EXCEPTION rate (mismatches / sampled sides) as a
- * decimal fraction, plus a small stated margin — never a guess.
- * `maxAbsGap` caps the absolute size of any TOLERATED exception; an
- * exception larger than this fails regardless of `rate`, which is what
- * keeps a genuine regression (e.g. a broken component extractor producing a
- * huge gap) failing even under an otherwise-satisfied rate budget. This
- * tolerance covers a MEASURED ARTIFACT IN TBA's OWN ARITHMETIC (D-2: 196 of
- * 28,312 sides also fail TBA's own `totalPoints == autoPoints + teleopPoints
- * + foulPoints + adjustPoints` identity) and MUST NEVER be widened to cover
- * a component-map error.
+ * decimal fraction, plus a small stated margin — never a guess. `maxAbsGap`
+ * caps the absolute size of any TOLERATED exception; an exception larger
+ * than this fails regardless of `rate`, which is what keeps a genuine
+ * regression (e.g. a broken component extractor producing a huge gap)
+ * failing even under an otherwise-satisfied rate budget. These tolerances
+ * cover MEASURED ARTIFACTS IN TBA's OWN ARITHMETIC and MUST NEVER be
+ * widened to cover a component-map error.
  */
 interface BreakdownTolerance {
   readonly season: number;
@@ -72,51 +62,26 @@ interface BreakdownTolerance {
 }
 
 /**
- * 2018: TBA's own roll-up-identity residual (D-2), measured over the FULL
- * official qual population — 196 / 28,312 sides (0.6923%), magnitudes 1 (188
- * sides) and 2 (8 sides) only, EVERY exception carrying the SAME sign
- * (`reconciledTotal - expectedTotal > 0` for all 196; 0 negative). Proven to
- * be TBA's own arithmetic, not a component-map defect, three ways (see
- * `2018.ts`'s file header): our auto half reconciles 0/28,312 against TBA's
- * auto half; our teleop half reconciles 0/28,312 against TBA's teleop half;
- * all 196 of 196 mismatching sides also fail TBA's OWN four-term identity
- * (`totalPoints == autoPoints + teleopPoints + foulPoints + adjustPoints`).
- *
- * This suite's own `SAMPLE_SIZE=2000`-windowed run (ordered by `match_key`
- * ASC) observed 8/2000 red (0.400%) and 6/2000 blue (0.300%) exceptions,
- * every one +1 — consistent with the population figure and its direction.
- * `0.008` keeps a small margin above the larger of the population rate
- * (0.6923%) and the sampled-window rate (0.400%/0.300%), and is no more
- * than 1.5x either.
+ * 2018: TBA's own roll-up-identity residual, measured over the FULL official
+ * qual population — 196 / 28,312 sides (0.6923%), every exception carrying
+ * the SAME sign. Proven to be TBA's own arithmetic, not a component-map
+ * defect, three ways (see `2018.ts`'s file header): our auto/teleop halves
+ * both reconcile exactly against TBA's own halves, and all 196 mismatching
+ * sides also fail TBA's OWN four-term identity (`totalPoints ==
+ * autoPoints + teleopPoints + foulPoints + adjustPoints`). `0.008` keeps a
+ * small margin above the measured rate.
  */
 const KNOWN_BREAKDOWN_TOLERANCES: readonly BreakdownTolerance[] = [
   // 2016: TBA's own roll-up-identity residual, measured over the FULL
   // official non-offseason population, ALL comp levels — 3 / 26,604 sides
-  // (0.01128%), magnitude 25 on every one, and ALL THREE are ELIMINATION
-  // matches: `2016capl_f1m1` (+25), `2016milsu_qf4m1` (+25),
-  // `2016mndu2_f1m2` (-25). Proven to be TBA's arithmetic, not a
-  // component-map defect, the same three ways 2018's entry below is (see
-  // `2016.ts`'s file header): our auto half reconciles 0/3 against TBA's own
-  // `autoPoints`; our teleop half reconciles 0/3 against TBA's own
-  // `teleopPoints`; and all 3 of 3 also fail TBA's OWN
-  // `totalPoints == autoPoints + teleopPoints + foulPoints + adjustPoints`
-  // identity with the exact OPPOSITE-signed gap.
-  //
-  // Exactly ONE of the three (`2016capl_f1m1`, BLUE side, +25) falls inside
-  // this suite's `SAMPLE_SIZE=2000` `match_key`-ordered window, which is
-  // playoff-inclusive: measured red 0/2000 (0.000%) and blue 1/2000
-  // (0.0005). `rate: 0.001` is exactly 2x that binding sampled-window rate —
-  // the smallest round margin that does not sit ON the boundary of the
-  // single observed exception, so a one-row shift in the window cannot flip
-  // this suite red for a reason unrelated to the component map — and ~8.9x
-  // the full-population rate of 0.0001128. `maxAbsGap: 25` is the exact
-  // observed magnitude, so any LARGER gap still fails regardless of rate.
-  //
-  // `direction` is deliberately OMITTED. The three observed signs are MIXED
-  // (+25, +25, -25) and only the positive one is in today's window, so
-  // recording `direction: "positive"` from the window alone would encode a
-  // sampling artifact as a fact — precisely what the field's own doc comment
-  // above forbids. MUST NEVER be widened to cover a component-map error.
+  // (0.01128%), and ALL THREE are ELIMINATION matches. Proven to be TBA's
+  // arithmetic, not a component-map defect, the same three ways 2018's
+  // entry above is (see `2016.ts`'s file header). `direction` is
+  // deliberately OMITTED: the three observed signs are MIXED, so recording
+  // one from a sampled window alone would encode a sampling artifact as a
+  // fact. `maxAbsGap: 25` is the exact observed magnitude, so any LARGER
+  // gap still fails regardless of rate. MUST NEVER be widened to cover a
+  // component-map error.
   //
   // 2017 gets NO entry: 0 exceptions / 30,880 sides over the same full
   // all-comp-level population, so its absence here is a measured result.
@@ -131,12 +96,12 @@ function breakdownToleranceFor(season: number): BreakdownTolerance | undefined {
 /**
  * Offseason events (`is_offseason = 1`, TBA `event_type = 99`) are excluded
  * from the sample — same discipline `selectMatchesChronological`'s
- * `excludeOffseason` option already applies for "anything feeding ratings
- * or scoring" (D-06). Offseason breakdowns are self-reported by event
- * organizers rather than FMS-generated and are not guaranteed to follow
- * the official season schema: a live corpus check found offseason matches
- * missing fields as basic as `adjustPoints` entirely. That is a genuine
- * data-shape difference in the corpus, not a component-map defect, so this
+ * `excludeOffseason` option already applies for anything feeding ratings or
+ * scoring. Offseason breakdowns are self-reported by event organizers
+ * rather than FMS-generated and are not guaranteed to follow the official
+ * season schema: a live corpus check found offseason matches missing
+ * fields as basic as `adjustPoints` entirely. That is a genuine data-shape
+ * difference in the corpus, not a component-map defect, so this
  * reconciliation proof is scoped to official (non-offseason) matches, the
  * population every per-season map is actually built to parse.
  */
@@ -333,16 +298,14 @@ describe("2026: structurally different shape must not silently parse under anoth
 
 describe("prototype-pollution regression (T-02-04)", () => {
   /**
-   * T-02-04 (02-SECURITY.md:49, closed "— with caveat" precisely because
-   * this test did not exist): six sites build `ParsedComponents` with
-   * `Object.create(null)` plus a fixed allowlist loop, so a `__proto__`,
-   * `constructor`, or `prototype` key in third-party TBA JSON cannot reach
-   * `Object.prototype`.
+   * Six sites build `ParsedComponents` with `Object.create(null)` plus a
+   * fixed allowlist loop, so a `__proto__`, `constructor`, or `prototype`
+   * key in third-party TBA JSON cannot reach `Object.prototype`.
    *
    * The vector is injected into the raw JSON *string* and driven through
-   * `parseBreakdown`, which owns the real `JSON.parse` boundary
-   * (`breakdown/index.ts:74`) — the actual path a poisoned corpus row would
-   * take. This matters: an object *literal* written `{ __proto__: {...} }`
+   * `parseBreakdown`, which owns the real `JSON.parse` boundary — the
+   * actual path a poisoned corpus row would take. This matters: an object
+   * *literal* written `{ __proto__: {...} }`
    * sets the object's prototype and creates NO own property, so a
    * literal-based fixture silently tests nothing. `assertVectorIsLive`
    * below fails loudly if that ever regresses into a tautology.
@@ -419,10 +382,11 @@ describe("prototype-pollution regression (T-02-04)", () => {
 
 describe("2026 field-rename assertion (T-02-07)", () => {
   /**
-   * GAP 3 (ALGO-02, T-02-07): 2026 renames foul fields to majorFoulCount/minorFoulCount.
-   * The old field names (foulCount/techFoulCount) must not appear in the implementation
-   * except as comments documenting the rename. This test reads the file, strips comments,
-   * and asserts zero occurrences of the old field names.
+   * 2026 renames foul fields to majorFoulCount/minorFoulCount. The old
+   * field names (foulCount/techFoulCount) must not appear in the
+   * implementation except as comments documenting the rename. This test
+   * reads the file, strips comments, and asserts zero occurrences of the
+   * old field names.
    */
   it("2026.ts: no foulCount or techFoulCount field reads (only comments documenting the rename)", async () => {
     const fs = await import("node:fs");
@@ -462,17 +426,17 @@ describe("2026 field-rename assertion (T-02-07)", () => {
 describe("2018 Scale/Switch split source gate (D-1)", () => {
   /**
    * The corpus reconciliation proof above CANNOT catch a substitution of
-   * TBA's fused ownership roll-ups for the split components D-1 requires,
+   * TBA's fused ownership roll-ups for the required split components,
    * because the fused form reconciles EXACTLY too (see `2018.ts`'s file
    * header, "The roll-up hazards"). This is the identical class of hazard
    * `2019.ts`'s `autoPoints`/`sandStormBonusPoints` numeric-identity roll-up
-   * gets its own gate for, in the "2019 roll-up source gate (BD-1)" block
-   * below — a comment-stripped source scan is the only thing that can catch
-   * it, since the corpus proof alone would pass either way.
+   * gets its own gate for, in the "2019 roll-up source gate" block below —
+   * a comment-stripped source scan is the only thing that can catch it,
+   * since the corpus proof alone would pass either way.
    *
    * The negative half (no roll-up field read) is paired with a POSITIVE
-   * assertion that both split pairs are actually present in
-   * `components` — pinning D-1's decision as a test, not only as a comment.
+   * assertion that both split pairs are actually present in `components` —
+   * pinning the decision as a test, not only as a comment.
    */
   it("2018.ts: never reads TBA's fused ownership/roll-up fields or the teleop Force fields (only comments documenting why)", async () => {
     const fs = await import("node:fs");
