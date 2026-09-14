@@ -1,10 +1,7 @@
 /**
- * Assembly-level coverage for plan 04-04's widened `publish.ts` (T-04-22:
- * every assembly function parses through its Zod schema before returning,
- * so a validation failure occurs before any upload could possibly be
- * attempted). All fixtures are small, in-memory, hand-built objects — no
- * network, no corpus. The real full 2022-2026 run is recorded in the
- * SUMMARY, not re-run on every `pnpm test`.
+ * Assembly-level coverage for `publish.ts`: every assembly function parses
+ * through its Zod schema before returning, so a validation failure happens
+ * before any upload. Fixtures are small, in-memory and hand-built; no network.
  */
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -87,9 +84,7 @@ vi.mock("./r2Client.js", () => ({
   getObject: vi.fn(async () => ""),
 }));
 import { putObject } from "./r2Client.js";
-// Quick task 260913-nvn: the ceilings replaced by a MUTABLE copy, so the
-// ceiling-gate tests below can lower one and restore it; every other test sees
-// the real values.
+// A mutable copy of the ceilings, so the ceiling-gate tests can lower one and restore it.
 vi.mock("./publishBudget.js", async (importOriginal) => {
   const real = await importOriginal<typeof import("./publishBudget.js")>();
   return { ...real, PAGE_BUDGET_MAX_BYTES: { ...real.PAGE_BUDGET_MAX_BYTES } };
@@ -150,13 +145,9 @@ function fixtureUpcoming(overrides: Partial<UpcomingMatch> = {}): UpcomingMatch 
 }
 
 /**
- * Plan 07-08 Task 1: a complete `BuildEventArtifactParams` — one played
- * `PredictionRecord`, one `UpcomingPredictionRecord`, one team, a fixed
- * `generation`/`computedAt` — so Tasks 1-3 extend ONE helper instead of each
- * hand-building params. `prediction`/`upcomingPrediction` override the
- * FIRST played/upcoming record's `Prediction` only (this fixture always
- * carries exactly one of each); every other top-level field is overridable
- * directly through the rest of `overrides`.
+ * A complete `BuildEventArtifactParams` with one played and one upcoming record.
+ * `prediction`/`upcomingPrediction` override those records' `Prediction`; every
+ * other top-level field is overridable directly.
  */
 function eventArtifactParams(
   overrides: Partial<BuildEventArtifactParams> & {
@@ -179,14 +170,13 @@ function eventArtifactParams(
   };
 }
 
-/** Plan 07-08 Task 1: mirrors `findTeamArtifact`'s shape exactly, for the seeded-corpus `publishSeasons` harness's `v1/event/{eventKey}/{algorithmId}@...` `putObject` calls. */
+/** `findTeamArtifact`'s counterpart for `v1/event/{eventKey}/{algorithmId}@...` uploads. */
 function findEventArtifact(eventKey: string, algorithmId: string): EventArtifact {
   const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/event/${eventKey}/${algorithmId}@`));
   expect(call, `expected a v1/event/${eventKey}/${algorithmId}@... putObject call`).toBeDefined();
   return JSON.parse(call![2] as string) as EventArtifact;
 }
 
-/** Hoisted to module scope (plan 07-08) so Tasks 1-3's own seeded-corpus describe blocks can reuse it alongside the pre-existing `publishSeasons — Phase 6` block. */
 function seasonEvent(overrides: Partial<CorpusEvent> = {}): CorpusEvent {
   return {
     eventKey: "2026casj",
@@ -203,7 +193,6 @@ function seasonEvent(overrides: Partial<CorpusEvent> = {}): CorpusEvent {
   };
 }
 
-/** Hoisted to module scope (plan 07-08) — see `seasonEvent`'s comment. */
 function seasonMatch(overrides: Partial<CorpusMatch> = {}): CorpusMatch {
   return {
     matchKey: "2026casj_qm1",
@@ -231,14 +220,13 @@ function seasonMatch(overrides: Partial<CorpusMatch> = {}): CorpusMatch {
   };
 }
 
-/** Hoisted to module scope (plan 07-08) — see `seasonEvent`'s comment. */
 function findTeamArtifact(teamKey: string, year = 2026): TeamSeasonArtifact {
   const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/team/${teamKey}/${year}/`));
   expect(call, `expected a v1/team/${teamKey}/${year}/... putObject call`).toBeDefined();
   return JSON.parse(call![2] as string) as TeamSeasonArtifact;
 }
 
-/** Plan 07-08 Task 3: a complete `EventTeamRankingInput`, overridable field-by-field. */
+/** A complete `EventTeamRankingInput`, overridable field-by-field. */
 function seasonRankingRow(overrides: Partial<EventTeamRankingInput> = {}): EventTeamRankingInput {
   return {
     rank: 7,
@@ -251,18 +239,10 @@ function seasonRankingRow(overrides: Partial<EventTeamRankingInput> = {}): Event
 }
 
 /**
- * Plan 07-09 (D-10, Wave 0 case): seeds two 2026 events over the SAME six
- * teams — an early event ("2026ear") and a later one ("2026lat"), each with
- * two `qm` matches at distinct `sortTime` ranges (1,000/2,000 vs
- * 10,000/11,000). Scores deliberately differ between the two events so a
- * team's event-scoped OPR rating (D-01: one independent least-squares fit
- * per event) at the early event's end differs from its rating at the
- * season's end — OPR's `teamMetrics` headlines each team's MOST RECENT
- * event (`lastEventByTeam`), so after both events replay, every one of
- * these six teams' season-final value is its LATE-event rating, while the
- * as-of-early-event snapshot this plan captures is its EARLY-event rating
- * alone. Returns the event keys and the team keys seeded so each case names
- * what it is asserting about rather than re-deriving it.
+ * Seeds two 2026 events ("2026ear", "2026lat") over the same six teams with
+ * different scores. OPR fits each event independently and headlines a team's
+ * most recent event, so season-final values are late-event ratings while an
+ * as-of-early-event snapshot holds early-event ratings.
  */
 function seedTwoEventSeason(db: Corpus): { earlyEventKey: string; lateEventKey: string; teamKeys: string[] } {
   const earlyEventKey = "2026ear";
@@ -333,26 +313,14 @@ function seedTwoEventSeason(db: Corpus): { earlyEventKey: string; lateEventKey: 
 }
 
 describe("resolvePublishAlgorithms — D-03/D-04/D-05 rename (plan 07-16 Task 2, repointed at the collapsed single tier by plan 07-18 Task 1; re-collapsed again by quick task 260912-ivg Stage 5)", () => {
-  // Test 7: the default publish set (an operator who omits `--algorithm`,
-  // the path an operator actually takes) resolves to the OPR id, the EPA
-  // id, and the premier algorithm's id — read from `PUBLISHED_ALGORITHM_IDS`,
-  // the single algorithm-id constant again as of 260912-ivg Stage 5's
-  // collapse (mirroring plan 07-18's earlier collapse for the sigma1 -> vpr
-  // rename).
+  // Omitting `--algorithm` publishes exactly `PUBLISHED_ALGORITHM_IDS`.
   it("the default (undefined) publish set resolves to PUBLISHED_ALGORITHM_IDS (opr, epa, spr)", () => {
     const algorithms = resolvePublishAlgorithms(undefined);
     expect(algorithms.map((a) => a.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
     expect(PUBLISHED_ALGORITHM_IDS).toEqual(["opr", "epa", "spr"]);
   });
 
-  // Test 8: every emitted artifact key for the published algorithm carries
-  // the renamed segment, and none carries the retired one — across all four
-  // algorithm-scoped page kinds (`compare` carries no algorithm segment by
-  // design, so it is excluded here).
-  // 2026-09-09: the third published module is BPR, not VPR — VPR was retired
-  // from the published set. The claim is unchanged in substance: whatever sits
-  // in that position, every artifact key carries ITS id, never the long-retired
-  // `sigma1@` segment.
+  // All four algorithm-scoped page kinds (`compare` has no algorithm segment).
   it("every artifact key built for the premier algorithm carries the spr@{version} segment, never the retired sigma1@ segment", () => {
     const [, , premierModule] = resolvePublishAlgorithms(undefined);
     const module = premierModule!;
@@ -368,9 +336,7 @@ describe("resolvePublishAlgorithms — D-03/D-04/D-05 rename (plan 07-16 Task 2,
     }
   });
 
-  // Test 9 (T-07-16-01): an unknown/stale id throws loudly rather than
-  // resolving silently — this is what makes a half-applied rename loud
-  // instead of a run that quietly publishes nothing under the requested id.
+  // An unknown or stale id throws rather than quietly publishing nothing.
   it("throws on the pre-rename id, listing the three known keys in the message", () => {
     expect(() => resolvePublishAlgorithms("opr,epa,sigma1")).toThrow(/Unknown algorithm for publish: "sigma1"/);
     try {
@@ -434,12 +400,7 @@ describe("buildEventArtifact", () => {
   });
 });
 
-/**
- * Plan 07-08 Task 1 (D-18 item 3, D-13 routed from 07-12): each alliance's
- * own predicted-score variance and each row's `sortTime`, threaded onto both
- * event match row builders. Every case asserts on a value read off the
- * returned or published artifact — never merely that a call did not throw.
- */
+/** Each alliance's own predicted-score variance and each row's `sortTime` on both event match row builders. */
 describe("buildEventArtifact — D-18 item 3 own predicted-score variance and D-13 sortTime (plan 07-08 Task 1)", () => {
   it("Test 1 (regression floor): a call supplying none of this plan's new parameters still produces a parsing artifact with both fields undefined", () => {
     const artifact = buildEventArtifact(eventArtifactParams());
@@ -460,21 +421,9 @@ describe("buildEventArtifact — D-18 item 3 own predicted-score variance and D-
   });
 
   /**
-   * Deviation from the plan's literal `[0.2, 0.2]` wording (Rule 1, found
-   * RED-first): `buildEventArtifact`'s existing `roundPmf` call
-   * UNCONDITIONALLY renormalizes any non-empty pmf so its rounded entries
-   * sum to exactly 1 (adding the residual to the largest entry) — so a
-   * `[0.2, 0.2]` input renormalizes to `[0.8, 0.2]` and parses successfully
-   * through this path; `[0.2, 0.2]`'s failure mode is only reachable by
-   * calling `EventArtifactSchema` directly with the UNROUNDED value, which
-   * `pageArtifacts.test.ts`'s own "Test 3b" (plan 07-07) already covers. An
-   * EMPTY `redRpPmf` genuinely reaches a throw through THIS function — the
-   * conditional guard above `roundPmf` treats an empty array as truthy and
-   * hands it to `roundPmf`, whose own explicit guard rejects it ("an empty
-   * array is never a valid distribution") — the same non-empty rule
-   * `EventUpcomingMatchSchema`'s refine enforces. This still proves the
-   * point the plan named: the new variance fields sit inside the object
-   * literal without disturbing this pmf handling.
+   * An empty pmf, not a non-summing one: `roundPmf` renormalizes any non-empty
+   * pmf to sum to 1, so only an empty `redRpPmf` reaches a throw through this
+   * builder.
    */
   it("Test 3 (pmf refines still fire): an upcoming prediction carrying both variance fields AND an empty redRpPmf still throws, naming the pmf rule", () => {
     expect(() =>
@@ -550,12 +499,7 @@ describe("buildEventArtifact — D-18 item 3 own predicted-score variance and D-
   });
 });
 
-/**
- * Plan 08-02 Task 1 (D-03): `buildEventArtifact`'s `matches` row builder gains
- * `redRpPmf`/`blueRpPmf`, a two-line mirror of the `upcoming` builder's own
- * pair immediately below it. Every case asserts on the built/published value,
- * never merely that a call did not throw (PD-06).
- */
+/** Played match rows carry `redRpPmf`/`blueRpPmf`, mirroring the `upcoming` builder. */
 describe("buildEventArtifact — redRpPmf/blueRpPmf on played matches (D-03, plan 08-02 Task 1)", () => {
   it("Test 9 (regression floor): a call supplying no prediction pmf leaves matches[0]'s pmf keys undefined", () => {
     const artifact = buildEventArtifact(eventArtifactParams());
@@ -649,13 +593,7 @@ describe("buildEventArtifact — matchOutcomePmf/redBonusRpPmf/blueBonusRpPmf/rp
   });
 });
 
-/**
- * Plan 08-02 Task 2 (D-12): `buildEventArtifact`'s `matches` row builder
- * gains `actualRedRp`/`actualBlueRp`, mirroring `buildTeamSeasonArtifact`'s
- * played branch exactly through the existing `toIntegerRpOrNull` guard —
- * direct assignment, never a conditional spread and never a nullish-
- * coalescing default (PD-04).
- */
+/** Played match rows carry `actualRedRp`/`actualBlueRp` through `toIntegerRpOrNull`, exactly as the team-season builder does. */
 describe("buildEventArtifact — actualRedRp/actualBlueRp on played matches (D-12, plan 08-02 Task 2)", () => {
   it("Test 7: the builder publishes both, including a real zero, derived from fixtureMatch's own redRpEarned/blueRpEarned", () => {
     const artifact = buildEventArtifact(eventArtifactParams());
@@ -703,15 +641,7 @@ describe("buildEventArtifact — actualRedRp/actualBlueRp on played matches (D-1
   });
 });
 
-/**
- * Plan 08-02 Task 3 (PD-02): the claim that `buildEventArtifact` and
- * `buildTeamSeasonArtifact` agree on all four of this plan's fields for the
- * SAME match and the SAME prediction, proven rather than asserted in prose —
- * one rule across three row builders (the third, `EventUpcomingMatchSchema`'s
- * own `upcoming` builder, is covered by Task 1's Test 10/11), not a fourth
- * convention that could silently diverge if a future contributor added a
- * competition-level gate to one builder and not the others.
- */
+/** Guards against the event and team-season row builders diverging on the four RP fields (e.g. a comp-level gate added to one). */
 describe("buildEventArtifact / buildTeamSeasonArtifact — cross-builder equivalence on D-03/D-12's four fields (PD-02, plan 08-02 Task 3)", () => {
   it("agree on redRpPmf/blueRpPmf/actualRedRp/actualBlueRp for one shared elimination match and one shared prediction", () => {
     const sharedMatch = fixtureMatch({ matchKey: "2026casj_sf1m1", compLevel: "sf", redRpEarned: 0, blueRpEarned: 0 });
@@ -748,18 +678,13 @@ describe("buildEventArtifact / buildTeamSeasonArtifact — cross-builder equival
     expect(eventRow.blueRpPmf).toEqual(teamRow.blueRpPmf);
     expect(eventRow.actualRedRp).toBe(teamRow.actualRedRp);
     expect(eventRow.actualBlueRp).toBe(teamRow.actualBlueRp);
-    // Non-vacuity: the elimination match's degenerate one-entry pmf and its
-    // real zero actual RP are the exact playoff-row shape PD-02 records —
-    // asserting the agreement is non-trivial (not two undefined values).
+    // Non-vacuity: the playoff row's one-entry pmf and zero actual RP, not two undefined values.
     expect(eventRow.redRpPmf).toEqual([1]);
     expect(eventRow.actualRedRp).toBe(0);
   });
 });
 
-/**
- * Quick task 260906-7eu Task 1: `videoByMatchKey` end-to-end through both
- * builders, parsed through the real schema.
- */
+/** `videoByMatchKey` end-to-end through both builders, parsed through the real schema. */
 describe("buildEventArtifact / buildTeamSeasonArtifact — videoByMatchKey (quick task 260906-7eu)", () => {
   it("buildEventArtifact publishes `video` on a mapped played match and omits it on an unmapped one", () => {
     const mappedMatch = fixtureMatch({ matchKey: "2026casj_qm1" });
@@ -856,12 +781,7 @@ describe("buildEventArtifact / buildTeamSeasonArtifact — videoByMatchKey (quic
   });
 });
 
-/**
- * Plan 07-08 Task 1, Tests 7-8: the seeded-corpus `publishSeasons` harness,
- * proving the variance/sortTime seam and the folded playoff bonus-RP
- * criterion against REAL published JSON bytes rather than in-memory
- * assertions.
- */
+/** The variance/sortTime fields and the playoff bonus-RP rule, checked on real published JSON through `publishSeasons`. */
 describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criterion, end-to-end (plan 07-08 Task 1)", () => {
   let dir: string;
   let db: Corpus;
@@ -891,29 +811,14 @@ describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criteri
   });
 
   /**
-   * PD-08: the seeded corpus rows actively carry a REAL, populated 2024
-   * score breakdown on BOTH the qm and the sf match (the same
-   * `rawBreakdown2024()` fixture `actualBonusFlagsForSeason`'s own tests
-   * use) — so this is a genuine input that could produce bonus-RP data for
-   * the playoff match, not a well-behaved fixture that happens not to
-   * supply it. The qualification-side assertions below are what makes this
-   * non-vacuous.
+   * Both the qm and the sf match carry a real populated 2024 breakdown, so the
+   * playoff row could produce bonus-RP data; the qualification-side assertions
+   * keep this non-vacuous.
    */
   it("Test 8 (folded todo, PD-08; qm-side event assertions flipped by quick 260905-jj8): a freshly published playoff row carries no bonus-RP key on either artifact kind, while the qualification row carries all four on BOTH artifact kinds", async () => {
     upsertEvent(db, seasonEvent({ eventKey: "2024early", year: 2024 }));
     upsertEvent(db, seasonEvent({ eventKey: "2024casj", year: 2024 }));
-    // Plan 09-04 Task 3: the retired VPR no longer computed its OWN RP pmf
-    // independent of band history (that bypass died when VPR's own RP block
-    // was removed, not repointed), so `#rpFieldsFor`'s band-variance gate
-    // applied to every algorithm, and the per-robot consistency accumulator of
-    // the time needed 2 PLAYED matches per team before a band existed. These
-    // two warm-up matches (an earlier event, same roster, real scores) exist
-    // solely to give every team on "2024casj_qm1" that history BEFORE it
-    // folds — F8/F9's cold-start gate is explicitly out of scope for this
-    // phase (09-CONTEXT.md), so this test widens its fixture rather than
-    // relying on a bypass this phase intentionally removed. (Since quick task
-    // 260913-it4 this test publishes SPR, whose Sigma Score needs no warm-up;
-    // the fixture is kept as-is.)
+    // Two warm-up matches give every "2024casj_qm1" team prior played history.
     upsertMatch(db, seasonMatch({ matchKey: "2024early_qm1", eventKey: "2024early", compLevel: "qm", sortTime: 100, redScore: 90, blueScore: 70 }));
     upsertMatch(db, seasonMatch({ matchKey: "2024early_qm2", eventKey: "2024early", compLevel: "qm", sortTime: 200, redScore: 85, blueScore: 75 }));
     upsertMatch(
@@ -961,13 +866,7 @@ describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criteri
     expect(sfTeamRow).not.toHaveProperty("actualRedBonusRp");
     expect(sfTeamRow).not.toHaveProperty("actualBlueBonusRp");
 
-    // Quick 260905-jj8 (todo `event-per-bonus-rp-publish`): the EVENT
-    // artifact now carries the same four per-bonus keys on the
-    // qualification row (previously it carried none at all — the gap that
-    // left every Quals-tab dot permanently `unknown`), under the exact
-    // comp-level gate the team artifact applies: the playoff row still
-    // carries none of them, against the same real qualification-side bonus
-    // set that keeps this non-vacuous (PD-08).
+    // The event artifact applies the same comp-level gate; without these keys every Quals-tab dot reads `unknown`.
     const qmEventRow = eventArtifact.matches.find((m) => m.matchKey === "2024casj_qm1") as object;
     const sfEventRow = eventArtifact.matches.find((m) => m.matchKey === "2024casj_sf1m1") as object;
     for (const key of ["redBonusRp", "blueBonusRp", "actualRedBonusRp", "actualBlueBonusRp"]) {
@@ -977,12 +876,7 @@ describe("buildEventArtifact — D-18 item 3 and folded playoff bonus-RP criteri
   });
 });
 
-/**
- * Plan 07-08 Task 2 (D-18 items 7/8): the event's own identity
- * (`name`/`startDate`/`location`/`week`) and its playoff alliance selection
- * (`alliances`). Every case asserts on a value read off the returned or
- * published artifact.
- */
+/** The event's identity (`name`/`startDate`/`location`/`week`) and playoff `alliances`. */
 describe("buildEventArtifact — D-18 items 7/8: event identity and playoff alliances (plan 07-08 Task 2)", () => {
   it("Test 1: no eventMeta, no alliances parameter -> none of the five keys are properties", () => {
     const artifact = buildEventArtifact(eventArtifactParams()) as object;
@@ -1114,10 +1008,7 @@ describe("buildEventArtifact — D-18 items 7/8: event identity and playoff alli
   });
 });
 
-/**
- * Plan 07-08 Task 2, Test 11: identity and alliances through the real
- * seeded-corpus `publishSeasons` path.
- */
+/** Identity and alliances through the seeded-corpus `publishSeasons` path. */
 describe("buildEventArtifact — D-18 items 7/8, end-to-end (plan 07-08 Task 2)", () => {
   let dir: string;
   let db: Corpus;
@@ -1207,12 +1098,7 @@ describe("buildEventArtifact — D-18 items 7/8, end-to-end (plan 07-08 Task 2)"
   });
 });
 
-/**
- * Plan 07-08 Task 3 (D-18 item 6, D-07, D-08): official rank, TBA's
- * authoritative record and ranking points on each team row, from the
- * extended `event_rankings`. Every case asserts on a value read off the
- * returned or published artifact.
- */
+/** Official rank, TBA's record and ranking points on each team row, from `event_rankings`. */
 describe("buildEventArtifact — D-18 item 6: rank/record/rp on team rows (plan 07-08 Task 3)", () => {
   it("Test 1 (D-08): a team with no rankings entry publishes none of rank/record/rp", () => {
     const artifact = buildEventArtifact(eventArtifactParams());
@@ -1310,7 +1196,7 @@ describe("buildEventArtifact — D-18 item 6: rank/record/rp on team rows (plan 
   });
 });
 
-/** Plan 07-08 Task 3, Test 9: rank/record/rp through the real seeded-corpus `publishSeasons` path. */
+/** Rank, record and RP through the seeded-corpus `publishSeasons` path. */
 describe("buildEventArtifact — D-18 item 6, end-to-end (plan 07-08 Task 3)", () => {
   let dir: string;
   let db: Corpus;
@@ -1432,12 +1318,8 @@ describe("buildTeamsArtifact", () => {
       computedAt: "2026-08-22T00:00:00.000Z",
     });
     expect(artifact.teams).toHaveLength(1);
-    // 260902-pbe: buildTeamsArtifact returns the WIRE shape — `metricKeys`
-    // carries the ordered key list, and each row's `metrics` is the
-    // positional array aligned to it, not the pre-existing object-form
-    // record. `decodeTeamsRowMetrics` (the schema's own decode helper) is
-    // the round-trip proof this assertion leans on rather than re-deriving
-    // the encoding by hand.
+    // Wire shape: `metricKeys` is the ordered key list and each row's `metrics`
+    // is a positional array aligned to it; decoded with the schema's own helper.
     expect(artifact.metricKeys).toEqual(["total"]);
     expect(artifact.teams[0]?.metrics).toEqual([[12.35]]);
     expect(decodeTeamsRowMetrics(artifact.teams[0]!.metrics as never, artifact.metricKeys!).total?.value).toBe(12.35);
@@ -1542,11 +1424,8 @@ describe("buildTeamsArtifact — sigma metric (quick task 260909-tgf)", () => {
       teams: [baseTeamInput({ [SIGMA_METRIC_KEY]: { value: 8.42, tier: "legendary" } })],
       generation: "g1",
     });
-    // TeamsArtifactSchema.parse (the DECODING schema, deliberately distinct
-    // from TeamsArtifactWireSchema) already reconstructs each row's metrics
-    // to record-form and drops metricKeys entirely -- see its own doc
-    // comment. So the round-trip is a direct field read, not a second
-    // decodeTeamsRowMetrics call.
+    // TeamsArtifactSchema (the decoding schema) already restores record-form
+    // metrics and drops metricKeys, so this is a direct field read.
     const parsed = TeamsArtifactSchema.parse(artifact);
     expect(parsed.teams[0]!.metrics[SIGMA_METRIC_KEY]).toEqual({ value: 8.42, tier: "legendary" });
   });
@@ -1681,9 +1560,7 @@ describe("buildTeamSeasonArtifact", () => {
 
     const row = artifact.events[0]?.matches[0];
     expect(row).toBeDefined();
-    // Every numeric value equals itself re-rounded at its own decimal count —
-    // proof rounding was applied, not skipped (matches the plan's own
-    // acceptance criterion wording).
+    // Every numeric value equals itself re-rounded, so rounding was applied.
     expect(row!.pRedWin).toBeCloseTo(Math.round(row!.pRedWin * 10 ** ROUNDING_RULE.probability) / 10 ** ROUNDING_RULE.probability, 10);
     expect(row!.predictedRedScore).toBeCloseTo(Math.round(row!.predictedRedScore * 10 ** ROUNDING_RULE.score) / 10 ** ROUNDING_RULE.score, 10);
     expect(row!.predictedBlueScore).toBeCloseTo(
