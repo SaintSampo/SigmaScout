@@ -1,16 +1,14 @@
 /**
- * 07-VALIDATION.md's Wave 0 EVNT-05 test file, authored before the component
- * (07-14-PLAN.md Task 1, TDD). Every fixture is a hand-written
- * `EventArtifact`-shaped object literal, never a network response and never
- * a helper that reads a real artifact off disk — mirrors
- * `BreakdownTab.test.tsx`'s established fixture discipline exactly.
+ * Every fixture is a hand-written `EventArtifact`-shaped object literal,
+ * never a network response and never a helper that reads a real artifact
+ * off disk — mirrors `BreakdownTab.test.tsx`'s established fixture
+ * discipline exactly.
  *
- * Task 1 covers the tracer path: `combineAlliancePicks`'s D-15 arithmetic
- * (both hand-computed fixtures), `buildAllianceRows`'s ordering, and the
- * rendered six-column table with the independence caveat. Task 2 extends
- * this file with the all-or-nothing absence contracts, the incomplete
- * notice, and the identity guarantees. Task 3 extends it with
- * `hasAllianceData`.
+ * Covers the tracer path: `combineAlliancePicks`'s arithmetic (both
+ * hand-computed fixtures), `buildAllianceRows`'s ordering, and the
+ * rendered six-column table with the independence caveat; the
+ * all-or-nothing absence contracts, the incomplete notice, and the
+ * identity guarantees; and `hasAllianceData`.
  */
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -100,11 +98,9 @@ afterEach(() => {
 });
 
 describe("combineAlliancePicks — D-15 combination arithmetic (EVNT-05)", () => {
-  // 2026-09-09: this pair used to pin the quadrature COMBINATION of the picks'
-  // `spread`. That combination is gone — spread is the algorithm's own
-  // confidence and must never reach the screen in any form, including summed.
-  // The values still sum, and this function itself makes no uncertainty claim
-  // (unchanged). Quick task 260913-jkp wires the real replacement alongside
+  // The values sum, and this function makes no uncertainty claim: spread is
+  // the algorithm's own confidence and must never reach the screen in any
+  // form, including summed. The real Sigma replacement wires in alongside
   // this function, at `buildAllianceRows`'s own `combinedSigma` field — see
   // the "Combined Total renders the neutral Sigma band" describe block below.
   it("sums the picks' values and returns NO combined ± — the spread-derived one was removed", () => {
@@ -299,8 +295,8 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     // `aria-label` is a PROHIBITED attribute on `role="generic"` — a bare
     // <span>'s implicit role — so browsers drop it from the accessibility
     // tree entirely and the disclosure reaches no screen-reader user. The
-    // visible "≈" glyph stays removed (2026-09-01 user request); this pins
-    // only that the remaining disclosure is exposed, the same way
+    // visible "≈" glyph stays removed; this pins only that the remaining
+    // disclosure is exposed, the same way
     // `BonusRpDots.tsx` exposes its own title+aria-label pairing.
     const highPercentileTeams = FOUR_TEAMS.map((t) => ({
       ...t,
@@ -324,8 +320,8 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
   it("the Combined Total cell renders the common tier ring AND the approximation disclosure when the interpolated percentile lands in Common (260904-7rt, sketch 008 winner C — supersedes 07-UAT.md G-8's no-box behaviour)", async () => {
     // Every event team at value 10, percentile 10 (Common): combined 30 / 3 = 10 matches
     // exactly, interpolated percentile 10 -> Common -> the hairline ring, per
-    // MetricValue's post-260904-7rt contract. The disclosure tracks "a box is
-    // drawn", and Common now draws one, so it is exposed here too.
+    // MetricValue's own contract. The disclosure tracks "a box is drawn",
+    // and Common draws one, so it is exposed here too.
     const commonPercentileTeams = FOUR_TEAMS.map((t) => ({
       ...t,
       metrics: { [TOTAL_KEY]: { value: 10, spread: 10, percentile: 10 } },
@@ -377,8 +373,8 @@ describe("AlliancesTab — seven-column anatomy (EVNT-05, D-15/D-16, 07-UAT.md G
     renderAlliances(makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
     const captainCell = await screen.findByTestId("alliances-cell-pick0");
     expect(captainCell.textContent).toContain("74.76");
-    // 2026-09-09: the pick's published `spread` (3.47) must NOT render — it is
-    // the algorithm's own confidence. The tier box, which is a percentile
+    // The pick's published `spread` (3.47) must NOT render — it is the
+    // algorithm's own confidence. The tier box, which is a percentile
     // claim rather than an uncertainty one, is unaffected.
     expect(captainCell.textContent).not.toContain("±");
     expect(captainCell.textContent).not.toContain("3.47");
@@ -550,8 +546,8 @@ describe("AlliancesTab — ordering, adjacency and identity (EVNT-05 adjacency)"
   });
 
   it("a one-alliance fixture and an eight-alliance fixture render identical header rows and body-row counts of 1 and 8 — the count is never branched on", async () => {
-    // Neither fixture has a backup pick anywhere (Task 2, 260902-ixg), so
-    // both render SIX headers, not seven — row count and column count are
+    // Neither fixture has a backup pick anywhere, so both render SIX
+    // headers, not seven — row count and column count are
     // two independent facts, and this test pins that column count tracks
     // backup presence, never row count.
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
@@ -613,9 +609,9 @@ describe("AlliancesTab — Record column (07-UAT.md G-8)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Task 3 — D-17: hasAllianceData, the predicate the route's disabled-trigger
-// state consults. Absent and empty are two separately named cases because
-// 07-08's PD-03 makes them distinguishable at the artifact level and D-17
+// hasAllianceData: the predicate the route's disabled-trigger state
+// consults. Absent and empty are two separately named cases because they
+// are distinguishable at the artifact level and this predicate
 // deliberately collapses them — a test exercising only one would not prove
 // the collapse.
 // ---------------------------------------------------------------------------
@@ -638,9 +634,9 @@ describe("hasAllianceData — D-17's collapse of two distinguishable absences (E
 });
 
 // ---------------------------------------------------------------------------
-// Quick task 260913-jkp — each pick's own Sigma Score renders as the right
-// half of its total's split pill, and the Combined Total carries the
-// all-or-nothing neutral √(3 * ΣSigma²) band.
+// Each pick's own Sigma Score renders as the right half of its total's
+// split pill, and the Combined Total carries the all-or-nothing neutral
+// √(3 * ΣSigma²) band.
 // ---------------------------------------------------------------------------
 
 /** A team fixture carrying both a published total and a published Sigma Score entry. */
@@ -771,8 +767,8 @@ describe("AlliancesTab — Combined Total's neutral Sigma band (quick task 26091
 });
 
 // ---------------------------------------------------------------------------
-// 2026-09-13 (user request): no column on any event-page table stays frozen
-// during horizontal scroll — see EventMatchTable.test.tsx's identical assertion.
+// No column on any event-page table stays frozen during horizontal scroll
+// — see EventMatchTable.test.tsx's identical assertion.
 // ---------------------------------------------------------------------------
 
 describe("AlliancesTab — no sticky columns (2026-09-13)", () => {
