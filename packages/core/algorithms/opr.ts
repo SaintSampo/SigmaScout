@@ -1,25 +1,20 @@
 /**
  * OPR (Offensive Power Rating) baseline — a no-variance AlgorithmModule.
  *
- * Event-scoped, quals-only, no-ridge — TBA's own definition: a fit over ONE
+ * Event-scoped, quals-only, no-ridge — TBA's own definition: a fit over one
  * event's qualification matches, a plain minimum-norm pseudo-inverse
  * (verified against `matchstats_helper.py`'s `build_Minv_matrix`: filters
- * to `comp_level == "qm"`, calls bare `np.linalg.pinv(M)`, no ridge
- * anywhere).
+ * to `comp_level == "qm"`, calls bare `np.linalg.pinv(M)`, no ridge anywhere).
  *
- * WHY no penalty term: season pooling let a team accumulate ~30-40
- * observations by mid-season, so a ridge penalty's bias stayed small. Event
- * scope with quals only finishes a regional at ~12 observations — the same
- * penalty would shrink ratings far more early on. Rank deficiency becomes a
- * well-defined minimum-norm answer once the term is gone.
+ * No penalty term because event scope with quals only finishes a regional
+ * at ~12 observations, where a ridge penalty would shrink ratings far more
+ * than under season pooling; rank deficiency becomes a well-defined
+ * minimum-norm answer once the term is gone.
  *
- * WHY state is keyed by event, not reset: `replay.ts`'s `buildSeasonStream`
- * interleaves concurrent events in one chronological stream — resetting on
- * every `eventKey` change would corrupt every simultaneously-running event.
- * State is partitioned by `eventKey` instead.
- *
- * Surrogate / disqualification handling below is orthogonal to the
- * event-scope choice above — see their own comments.
+ * State is keyed by event, not reset, because `replay.ts`'s
+ * `buildSeasonStream` interleaves concurrent events in one chronological
+ * stream — resetting on every `eventKey` change would corrupt every
+ * simultaneously-running event.
  */
 import { Matrix, SingularValueDecomposition } from "ml-matrix";
 import { TOTAL_METRIC_KEY, type AlgorithmModule, type MatchResult, type Prediction, type TeamMetrics, type UpcomingMatch } from "./types.js";
@@ -40,17 +35,15 @@ import {
  * `scale = standardDeviation(state.allianceScoreStats, OPR_FALLBACK_SCORE_SD)
  * / OPR_SCALE_DIVISOR_K`.
  *
- * The expanding-window form (rather than a fixed constant, or a constant
- * fit per season) is leak-free by construction: it only ever reflects
- * matches already passed to `update`, and beats both a fixed scale and a
- * per-season-fit "leaky" ceiling on measured Brier across five seasons — see
- * `docs/models/opr-baseline-change.md` for the method and figures.
+ * The expanding-window form is leak-free by construction: it only ever
+ * reflects matches already passed to `update`, and beats both a fixed
+ * scale and a per-season-fit ceiling on measured Brier across five
+ * seasons — see `docs/models/opr-baseline-change.md`.
  *
- * What this does NOT fix: OPR's no-call rate. A no-call is a predicted margin
- * of exactly 0 (an event-scoped, quals-only design matrix has no rank at each
- * event's start), and `0 / scale === 0` for ANY scale, so those predictions
- * stay at exactly 0.5, counted as misses. That is expected and is not
- * something this constant can address.
+ * What this does not fix: OPR's no-call rate. A no-call is a predicted
+ * margin of exactly 0 (an event-scoped, quals-only design matrix has no
+ * rank at each event's start), and `0 / scale === 0` for any scale, so
+ * those predictions stay at exactly 0.5, counted as misses.
  */
 export const OPR_SCALE_DIVISOR_K = 1.1;
 
@@ -59,12 +52,11 @@ export const OPR_SCALE_DIVISOR_K = 1.1;
  * scores — with `count < 2` the Welford SD is undefined, and this keeps
  * `predict` from producing a 0 or NaN scale on an event's opening matches.
  *
- * Equal in value to `EPA_FALLBACK_SCORE_SD` in `epa.ts`, deliberately, since
- * both answer the same question ("what is a typical FRC alliance score SD
- * before we have measured one?"). It is declared here rather than imported
- * because `epa.ts` already imports `ratingEligibleTeams` from this module,
- * so importing back would create a module cycle. `opr.test.ts` pins the two
- * to equality so they cannot silently drift.
+ * Equal in value to `EPA_FALLBACK_SCORE_SD` in `epa.ts`, deliberately, both
+ * answering "what is a typical FRC alliance score SD before we have
+ * measured one?" Declared here rather than imported because `epa.ts`
+ * already imports `ratingEligibleTeams` from this module, so importing
+ * back would create a module cycle. `opr.test.ts` pins the two to equality.
  */
 export const OPR_FALLBACK_SCORE_SD = 25;
 
@@ -82,21 +74,17 @@ interface PerEventOprState {
 
 /**
  * `perEvent`: every event accumulated independently, keyed by `eventKey`.
- * `lastEventByTeam`: explicitly tracked. Map insertion order alone would
- * record a team's FIRST event, not its MOST RECENT one — wrong once two
- * events interleave — so this field is written explicitly on every
- * `update()` call instead.
+ * `lastEventByTeam`: explicitly tracked, since map insertion order alone
+ * would record a team's first event, not its most recent one, once two
+ * events interleave.
  *
  * `allianceScoreStats`: the expanding-window Welford accumulator over every
- * alliance score folded so far, feeding `predict`'s logistic scale. Note it
- * is SEASON-wide even though OPR's ratings are strictly event-scoped, and
- * that asymmetry is deliberate: this is a LINK-FUNCTION scale (how many
- * points of margin constitute a confident prediction this year), not a
- * rating, so pooling it across a season's events is the right estimator. No
- * `carrySeason` is needed to bound it — `opr` implements none, so every
- * season-loop orchestration in this repo starts OPR from `initState` every
- * season, which gives exactly the season-wide-but-not-cross-season scope
- * wanted.
+ * alliance score folded so far, feeding `predict`'s logistic scale. Season-
+ * wide even though OPR's ratings are strictly event-scoped, deliberately:
+ * this is a link-function scale (how many points of margin constitute a
+ * confident prediction this year), not a rating, so pooling it across a
+ * season's events is the right estimator. No `carrySeason` is needed to
+ * bound it — `opr` implements none, so it starts fresh every season.
  */
 export interface OprState {
   readonly perEvent: ReadonlyMap<string, PerEventOprState>;
@@ -106,39 +94,25 @@ export interface OprState {
 
 /**
  * Teams whose column should appear in the design matrix for this alliance:
- * every listed team except surrogates. A surrogate appearance must produce
- * no rating update for the surrogate itself; excluding its column here is
- * how that is enforced (its contribution is still accounted for — see
- * `allianceObservation` — via a subtracted offset, not simply discarded).
+ * every listed team except surrogates. A surrogate's contribution is still
+ * accounted for via a subtracted offset (see `allianceObservation`), not
+ * simply discarded.
  *
- * Disqualification policy — deliberately the OPPOSITE policy from
- * surrogates for a PARTIAL disqualification (see `allianceObservation` for
- * the fuller reasoning): a disqualified team physically played the match
- * and physically contributed to the alliance's score. A disqualification is
- * a ranking-and-record ruling, not a statement that the robot was absent,
- * and OPR models score contribution — so removing a disqualified team's
- * column would misattribute its real contribution to its teammates. A
- * disqualified team therefore still keeps its column here; this function
- * does NOT filter individual DQ'd teams out of an otherwise-normal
- * alliance. `update()` below drops the entire alliance observation (this
- * function is never even called for it) in the narrower case where EVERY
- * team on the alliance is disqualified AND TBA recorded the alliance's
- * score as 0 (`isFullyDqZeroScoreAlliance`, `dq.ts`) — there, the "real
- * contribution to misattribute" this comment describes does not exist; only
- * a 0 describing the ruling does.
+ * Disqualification policy is the opposite of surrogates for a partial
+ * disqualification: a disqualified team physically played and contributed
+ * to the score, and OPR models score contribution, so removing its column
+ * would misattribute its real contribution to its teammates. It keeps its
+ * column here; this function does not filter individual DQ'd teams. The
+ * narrower whole-alliance-zero-score case is handled by `update()` below
+ * dropping the entire observation before this function is even called
+ * (`isFullyDqZeroScoreAlliance`, `dq.ts`).
  *
- * Demo-team handling (`demoTeams.ts`): every demo key in
- * `teams`/`surrogates` is remapped to the shared `DEMO_PSEUDO_TEAM_KEY`
- * BEFORE the surrogate filter runs — the OPPOSITE treatment from
- * surrogates. A surrogate's column is REMOVED (its contribution subtracted
- * as a known offset instead, see `allianceObservation`); a demo team's
- * column is KEPT, under a shared identity, so the design matrix stays
- * balanced and the demo robot's real contribution to the alliance's real
- * score is never silently reattributed to its real teammates. This is the
- * ONE choke point every one of this project's algorithms routes team
- * identity through (`epa.ts` and `spr.ts` call this same function), so the
- * remap applies everywhere team eligibility is decided, without a second
- * call site per algorithm.
+ * Demo-team handling (`demoTeams.ts`): every demo key is remapped to the
+ * shared `DEMO_PSEUDO_TEAM_KEY` before the surrogate filter runs — the
+ * opposite treatment from surrogates (removed) — so the design matrix
+ * stays balanced and a demo robot's real contribution is never silently
+ * reattributed to its real teammates. This is the one choke point every
+ * algorithm in this project routes team identity through.
  */
 export function ratingEligibleTeams(
   teams: readonly string[],
@@ -152,31 +126,22 @@ export function ratingEligibleTeams(
 
 /**
  * Builds one alliance's `OprObservation`, resolving how to treat a
- * surrogate's slot in the alliance observation for the other teams.
+ * surrogate's slot for the other teams.
  *
- * Approach: treat the surrogate as a known quantity rather than an unknown.
- * Its column never appears in the design matrix (via `ratingEligibleTeams`),
- * so it receives no rating update. Its contribution to the alliance's
- * actual score is not simply thrown away (which would discard real
- * information about its non-surrogate teammates) nor left in the design
- * matrix (which would update its rating) — instead its current rating at
- * THIS event (or, if it has none yet, this event's current league-mean
- * per-team share, as a cold-start substitute) is subtracted from the
- * target alliance score, so its teammates keep a correctly-scaled
- * observation instead of one inflated by absorbing the surrogate's share.
+ * Treats the surrogate as a known quantity rather than an unknown: its
+ * column never appears in the design matrix (via `ratingEligibleTeams`),
+ * so it receives no rating update, but its contribution is not simply
+ * thrown away either — its current rating at this event (or, if it has
+ * none yet, this event's current league-mean per-team share as a
+ * cold-start substitute) is subtracted from the target alliance score, so
+ * its teammates keep a correctly-scaled observation instead of one
+ * inflated by absorbing the surrogate's share.
  *
- * Disqualification policy — the opposite position from surrogates for a
- * PARTIAL disqualification: a disqualified team physically played the
- * match and physically contributed to the alliance's score. A
- * disqualification is a ranking-and-record ruling, not a statement that
- * the robot was absent, and OPR models score contribution — so removing a
- * disqualified team's column would misattribute its real contribution to
- * its teammates. The column is kept here and the rating IS updated — but
- * only when the alliance is NOT the narrower whole-alliance-DQ-with-zero-score
- * case: `update()` below never even calls this function for that case
- * (`isFullyDqZeroScoreAlliance`, `dq.ts`), since there the "real
- * contribution to misattribute" this comment describes does not exist —
- * only a 0 describing the ruling does.
+ * Disqualification policy is the opposite position from surrogates for a
+ * partial disqualification, for the reason `ratingEligibleTeams` documents:
+ * the column is kept and the rating is updated, except in the narrower
+ * whole-alliance-zero-score case, which `update()` handles by never even
+ * calling this function.
  */
 export function allianceObservation(
   teams: readonly string[],
@@ -186,11 +151,11 @@ export function allianceObservation(
   leagueMeanPerTeamShare: number
 ): OprObservation {
   const eligibleTeams = ratingEligibleTeams(teams, surrogates);
-  // Defense-in-depth remap (surrogates are, in practice, never also demo
-  // teams — but `ratings` is keyed by whatever identity `ratingEligibleTeams`
-  // produces, which is the REMAPPED identity for a demo team, so this lookup
-  // must use the same remapped key or it would silently miss and fall back
-  // to `leagueMeanPerTeamShare` for a surrogate that happens to be a demo key.
+  // Defense-in-depth remap: `ratings` is keyed by whatever identity
+  // `ratingEligibleTeams` produces, the remapped identity for a demo team,
+  // so this lookup must use the same remapped key or it would silently
+  // miss and fall back to `leagueMeanPerTeamShare` for a surrogate that
+  // happens to be a demo key.
   const remappedSurrogates = remapDemoTeams(surrogates);
   const surrogateOffset = remappedSurrogates.reduce(
     (sum, team) => sum + (ratings.get(team) ?? leagueMeanPerTeamShare),
@@ -199,7 +164,7 @@ export function allianceObservation(
   return { teams: eligibleTeams, allianceScore: allianceScore - surrogateOffset };
 }
 
-/** This event's mean per-team-slot contribution, from THIS EVENT ONLY (D-02: cross-event data would leak season-wide info into a surrogate's offset). Cold-start substitute for a surrogate with no rating yet. */
+/** This event's mean per-team-slot contribution, from this event only — cross-event data would leak season-wide info into a surrogate's offset. Cold-start substitute for a surrogate with no rating yet. */
 function currentLeagueMeanPerTeamShare(
   observations: readonly OprObservation[],
   fallbackAllianceScore: number
@@ -224,26 +189,22 @@ function buildTeamIndex(observations: readonly OprObservation[]): Map<string, nu
 }
 
 /**
- * Minimum-norm least-squares OPR solve for one event (D-06): normal
- * equations `M^T M x = M^T s` via `SingularValueDecomposition` — no ridge,
- * no hand-rolled cutoff (`.solve()` already zeroes singular values at or
- * below its own relative `threshold`, matching `np.linalg.pinv`'s default).
- * Solving via `M^T M` rather than an SVD of the raw `M` is a DELIBERATE
- * fidelity choice — it squares the effective condition number, but TBA's
- * own `build_Minv_matrix` builds this same Gram matrix and pseudo-inverts
- * it; "improving" this would make our OPR a different computation than
- * TBA's.
+ * Minimum-norm least-squares OPR solve for one event: normal equations
+ * `M^T M x = M^T s` via `SingularValueDecomposition` — no ridge, no
+ * hand-rolled cutoff (`.solve()` already zeroes singular values at or below
+ * its own relative `threshold`, matching `np.linalg.pinv`'s default).
+ * Solving via `M^T M` rather than an SVD of the raw `M` is deliberate
+ * fidelity to TBA's own `build_Minv_matrix`, which builds this same Gram
+ * matrix and pseudo-inverts it — "improving" this would make our OPR a
+ * different computation than TBA's.
  *
- * Demo-team handling (`demoTeams.ts`): `obs.teams` can legitimately list the
- * SAME team key twice in one row (two demo robots on one alliance, both
- * remapped to `DEMO_PSEUDO_TEAM_KEY` — measured directly against the real
- * corpus: not a rare case). The column value is therefore ACCUMULATED
+ * Demo-team handling: `obs.teams` can legitimately list the same team key
+ * twice in one row (two demo robots on one alliance, both remapped to
+ * `DEMO_PSEUDO_TEAM_KEY`). The column value is therefore accumulated
  * (`M.get(row, idx) + 1`), never overwritten to a flat `1` — a repeated key
- * correctly contributes coefficient 2 to that row, matching what the
- * alliance's real slot count actually was. Overwriting instead would
- * silently under-count that row's design-matrix equation for every ordinary
- * real team it shares a system of equations with, a bias this fix closes
- * rather than accepts.
+ * correctly contributes coefficient 2, matching the alliance's real slot
+ * count. Overwriting would silently under-count that row's equation for
+ * every real team it shares a system of equations with.
  */
 export function solveEventOpr(
   observations: readonly OprObservation[],
@@ -272,52 +233,41 @@ export function solveEventOpr(
   return ratings;
 }
 
-/** D-Q4: `scale` is now always supplied by the caller from `OprState.allianceScoreStats` — there is no fixed default, because a fixed scale was the defect. */
+/** `scale` is always supplied by the caller from `OprState.allianceScoreStats` — there is no fixed default, because a fixed scale was the defect. */
 function logisticWinProbability(scoreMargin: number, scale: number): number {
   return 1 / (1 + Math.exp(-scoreMargin / scale));
 }
 
 export const opr: AlgorithmModule<OprState> = {
   id: "opr",
-  // Bumped 2.0.0 -> 3.0.0 (D-13's version-identity scheme): no artifact may
-  // show one code version standing for two structurally different algorithms.
-  // Bumped again 3.0.0 -> 3.1.0
-  // (`.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`,
-  // 2026-08-30): `update()`'s observable output changed — a whole-alliance
-  // disqualification with a recorded 0 score is now dropped as a rating
-  // observation instead of fitted as real performance
-  // (`isFullyDqZeroScoreAlliance`, `dq.ts`), the same D-13 invariant this
-  // comment already names.
-  // Bumped again 3.1.0 -> 4.0.0 (D-Q4, quick task 260901-is2): both
-  // `predict()`'s and `update()`'s observable output changed — the logistic
-  // scale is no longer the fixed `OPR_LOGISTIC_SCALE = 10` but this season's
-  // expanding-window alliance-score SD over `OPR_SCALE_DIVISOR_K`, and
-  // `OprState` gained `allianceScoreStats` to carry it. MAJOR because every
-  // win probability this module has ever emitted moves (the per-season optimum
-  // ranged 19-75 against the retired constant's 10), and because the state
-  // shape changed — see `STATE_SNAPSHOT_SHAPE_VERSION` in
-  // `packages/harness/stateSnapshot.ts`, bumped 2 -> 3 in the same commit.
+  // Version bumps: no artifact may show one code version standing for two
+  // structurally different algorithms. 3.1.0 dropped a whole-alliance
+  // zero-score disqualification as a rating observation instead of fitting
+  // it as real performance. 4.0.0 replaced the fixed logistic scale with
+  // this season's expanding-window alliance-score SD, changing every win
+  // probability this module has ever emitted and the state shape (see
+  // `STATE_SNAPSHOT_SHAPE_VERSION` in `packages/harness/stateSnapshot.ts`).
   version: "4.0.0+baseline",
 
   initState(): OprState {
     return { perEvent: new Map(), lastEventByTeam: new Map(), allianceScoreStats: emptyExpandingStats() };
   },
 
-  // D-05: no comp-level branch — every comp level is predicted and scored.
+  // No comp-level branch — every comp level is predicted and scored.
   predict(state: OprState, match: UpcomingMatch): Prediction {
     const eventRatings = state.perEvent.get(match.eventKey)?.ratings;
     const redTeams = ratingEligibleTeams(match.redTeams, match.redSurrogates);
     const blueTeams = ratingEligibleTeams(match.blueTeams, match.blueSurrogates);
-    // D-02: literal-zero cold start — a team with no observations yet at
-    // this event predicts exactly 0 (the `?? 0` below).
+    // Literal-zero cold start — a team with no observations yet at this
+    // event predicts exactly 0 (the `?? 0` below).
     const redScore = redTeams.reduce((sum, team) => sum + (eventRatings?.get(team) ?? 0), 0);
     const blueScore = blueTeams.reduce((sum, team) => sum + (eventRatings?.get(team) ?? 0), 0);
-    // D-Q4: season-wide expanding SD, reflecting ONLY matches already folded
-    // by `update` (leak-free by construction), with a documented `count < 2`
+    // Season-wide expanding SD, reflecting only matches already folded by
+    // `update` (leak-free by construction), with a documented `count < 2`
     // fallback so an event's opening matches get a real scale rather than 0/NaN.
     const scale = standardDeviation(state.allianceScoreStats, OPR_FALLBACK_SCORE_SD) / OPR_SCALE_DIVISOR_K;
     const pRedWin = logisticWinProbability(redScore - blueScore, scale);
-    // 01-REVIEW WR-05 / D-05: validated at emission, before returning.
+    // Validated at emission, before returning.
     assertValidPRedWin(pRedWin, `opr.predict (${match.matchKey})`);
     return {
       winner: pRedWin >= 0.5 ? "red" : "blue",
@@ -327,23 +277,18 @@ export const opr: AlgorithmModule<OprState> = {
     };
   },
 
-  // D-05: only quals feed the fit — playoff alliances are hand-selected,
-  // not a random draw, so a non-"qm" match is a genuine update() no-op.
+  // Only quals feed the fit — playoff alliances are hand-selected, not a
+  // random draw, so a non-"qm" match is a genuine update() no-op.
   update(state: OprState, result: MatchResult): OprState {
     if (result.compLevel !== "qm") return state;
-    // Case 1 (`demoTeams.ts`): a fully-demo alliance is a non-contest — a
-    // forfeit/no-show bucket or an offseason bracket bye, not a real
-    // opponent. Checked against the RAW (pre-remap) team lists, since
-    // remapping would collapse a fully-demo alliance into repeated pseudo
-    // entries that `isFullyDemoAlliance` would need to see through anyway.
-    // The WHOLE MATCH is skipped — both alliances' observations, not just
-    // the demo side's — because "a real alliance beating three placeholders"
-    // carries no real information about that real alliance either. Measured:
-    // every real-event (non-offseason) occurrence of this is already at a
-    // non-"qm" comp level, so this line is a defensive no-op against today's
-    // corpus for OPR specifically; it is NOT redundant for EPA/Sigma1, which
-    // (unlike OPR) do fold every comp level, including the 195 fully-demo
-    // `qm` rows this corpus carries at offseason events.
+    // A fully-demo alliance is a non-contest — a forfeit/no-show bucket or
+    // an offseason bracket bye, not a real opponent. Checked against the
+    // raw (pre-remap) team lists. The whole match is skipped, both
+    // alliances' observations, because "a real alliance beating three
+    // placeholders" carries no real information about that real alliance
+    // either. This is a defensive no-op against today's corpus for OPR
+    // specifically (every real occurrence is already at a non-"qm" comp
+    // level); it is not redundant for EPA, which does fold every comp level.
     if (isFullyDemoAlliance(result.redTeams) || isFullyDemoAlliance(result.blueTeams)) return state;
 
     const eventKey = result.eventKey;
@@ -353,44 +298,37 @@ export const opr: AlgorithmModule<OprState> = {
     const redObservation = allianceObservation(result.redTeams, result.redSurrogates, result.redScore, eventState.ratings, meanShare);
     const blueObservation = allianceObservation(result.blueTeams, result.blueSurrogates, result.blueScore, eventState.ratings, meanShare);
 
-    // `.planning/todos/pending/exclude-whole-alliance-dq-zero-scores.md`:
-    // an alliance whose every rating-eligible team is disqualified AND whose
-    // RAW recorded score (never `redObservation.allianceScore`, which is
+    // An alliance whose every rating-eligible team is disqualified and
+    // whose raw recorded score (never `redObservation.allianceScore`,
     // already surrogate-offset-adjusted) is exactly 0 contributes no row —
-    // the same treatment as an all-surrogate alliance below, and for the
-    // same reason: nothing left to attribute to any real teammate. Checked
-    // per-alliance, NOT per-match like `isFullyDemoAlliance` above — the
-    // opposing alliance's own score is still a genuine observation of real
-    // robots and must not be dropped just because this alliance's own
-    // ruling zeroed its score.
+    // the same treatment as an all-surrogate alliance below: nothing left
+    // to attribute to any real teammate. Checked per-alliance, not
+    // per-match like `isFullyDemoAlliance` above — the opposing alliance's
+    // own score is still a genuine observation and must not be dropped.
     const redIsDqZero = isFullyDqZeroScoreAlliance(redObservation.teams, result.redDqs, result.redScore);
     const blueIsDqZero = isFullyDqZeroScoreAlliance(blueObservation.teams, result.blueDqs, result.blueScore);
     const redRow = redIsDqZero ? { teams: [], allianceScore: 0 } : redObservation;
     const blueRow = blueIsDqZero ? { teams: [], allianceScore: 0 } : blueObservation;
 
-    // D-Q4: fold both alliances' RAW recorded scores into the season-wide
+    // Fold both alliances' raw recorded scores into the season-wide
     // expanding SD that `predict` reads for its logistic scale, reusing the
-    // very same DQ predicates the rows above are built from — a
-    // whole-alliance-DQ zero is a ruling, not an observed score, and folding
-    // it would drag this season's scale toward zero for no real reason
-    // (the identical `dq.ts` exclusion `epa.ts` applies).
+    // same DQ predicates the rows above are built from — a whole-alliance-DQ
+    // zero is a ruling, not an observed score, and folding it would drag
+    // this season's scale toward zero for no real reason.
     //
-    // Placement is load-bearing, and this is the mistake to avoid: the fold
-    // sits ABOVE the `newRows.length === 0` early return, and that path
-    // returns the state WITH the updated stats rather than the untouched
-    // `state`. An alliance whose every slot was a surrogate produces no
-    // design-matrix row, but its score was still genuinely observed and
-    // belongs in the scale. Dropping it there would make the scale silently
-    // depend on surrogate scheduling.
+    // Placement is load-bearing: the fold sits above the
+    // `newRows.length === 0` early return, so that path returns the state
+    // with the updated stats rather than the untouched `state`. An alliance
+    // whose every slot was a surrogate produces no design-matrix row, but
+    // its score was still genuinely observed and belongs in the scale.
     let allianceScoreStats = state.allianceScoreStats;
     if (!redIsDqZero) allianceScoreStats = foldObservation(allianceScoreStats, result.redScore);
     if (!blueIsDqZero) allianceScoreStats = foldObservation(allianceScoreStats, result.blueScore);
 
-    // An alliance whose every listed team is a surrogate (or, per the DQ
-    // check just above, fully disqualified with a zero score) contributes no
-    // row (filtered here, not pushed in as an all-zero row); if both
-    // alliances end up empty, nothing to re-solve — no rating changes, but
-    // the scores above have still been folded into the scale.
+    // An alliance whose every listed team is a surrogate (or fully
+    // disqualified with a zero score, per the DQ check above) contributes
+    // no row; if both alliances end up empty, nothing to re-solve, but the
+    // scores above have still been folded into the scale.
     const newRows = [redRow, blueRow].filter((obs) => obs.teams.length > 0);
     if (newRows.length === 0) return { ...state, allianceScoreStats };
 
@@ -398,8 +336,8 @@ export const opr: AlgorithmModule<OprState> = {
     const teamIndex = buildTeamIndex(observations);
     const ratings = solveEventOpr(observations, teamIndex);
 
-    // 01-REVIEW WR-01 / D-03: surviving finiteness guard — throw loudly
-    // rather than fold a corrupt rating into every later prediction here.
+    // Finiteness guard — throw loudly rather than fold a corrupt rating
+    // into every later prediction here.
     for (const [team, rating] of ratings) {
       if (!Number.isFinite(rating)) {
         throw new Error(
@@ -413,8 +351,8 @@ export const opr: AlgorithmModule<OprState> = {
     const nextPerEvent = new Map(state.perEvent);
     nextPerEvent.set(eventKey, { observations, ratings });
 
-    // D-04: track each team's MOST RECENT event explicitly — insertion
-    // order records a team's FIRST event, wrong for an interleaved stream.
+    // Track each team's most recent event explicitly — insertion order
+    // records a team's first event, wrong for an interleaved stream.
     const touchedTeams = newRows.flatMap((obs) => obs.teams);
     let nextLastEventByTeam = state.lastEventByTeam;
     if (touchedTeams.length > 0) {
@@ -425,8 +363,8 @@ export const opr: AlgorithmModule<OprState> = {
     return { perEvent: nextPerEvent, lastEventByTeam: nextLastEventByTeam, allianceScoreStats };
   },
 
-  // D-27: no-variance baseline, one `TOTAL_METRIC_KEY` value per team. D-04:
-  // headlines each team's MOST RECENT event via `lastEventByTeam`.
+  // No-variance baseline, one `TOTAL_METRIC_KEY` value per team.
+  // Headlines each team's most recent event via `lastEventByTeam`.
   teamMetrics(state: OprState, teams?: readonly string[]): TeamMetrics {
     const requestedTeams = teams ?? [...state.lastEventByTeam.keys()];
     const result: TeamMetrics = {};
