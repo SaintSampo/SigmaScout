@@ -165,7 +165,7 @@ export function assertSubsetEntryShape<T extends AbsenceCapableEntry>(entries: r
     if (entry.expectAbsent === true && (entry.version === undefined || entry.version.length === 0)) {
       throw new Error(
         `${tableName}: entry "${describeAbsenceCapableEntry(entry)}" carries expectAbsent:true but no literal ` +
-          `"version" — PD-05 requires one, since resolvePublishedVersions cannot supply a version for an id no ` +
+          `"version" — an absence entry needs one, since resolvePublishedVersions cannot supply a version for an id no ` +
           `manifest names`
       );
     }
@@ -192,8 +192,8 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     algorithmId: "spr",
     note:
       'TRACER. The one key whose pre-enrichment state is measured field by field; the only event where ' +
-      '"the enrichment landed" is a before/after claim rather than an absolute one. Also 07-12\'s ordinary ' +
-      "full case and an ordinary regional for 07-15's precondition. 08-05: event_type 0 (Regional) is " +
+      '"the enrichment landed" is a before/after claim rather than an absolute one. Also an ordinary ' +
+      "full case and an ordinary regional. event_type 0 (Regional) is " +
       "isRpEligibleEventType-eligible with 72 played qm rows, so it expects both pmf and actual-RP present.",
     expectMatches: 87,
     expectUpcoming: 0,
@@ -208,9 +208,9 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2022ilpe",
     algorithmId: "spr",
     note:
-      "07-13's played+upcoming elimination INTERLEAVE case (qf2m3 between played qf2m2 and qf3m1) — the real " +
+      "The played+upcoming elimination INTERLEAVE case (qf2m3 between played qf2m2 and qf3m1) — the real " +
       "case a played-then-upcoming concatenation fails while passing a contiguous fixture. Second ordinary " +
-      "regional for 07-15. 08-05: event_type 0 (Regional) is isRpEligibleEventType-eligible with 70 played " +
+      "regional. event_type 0 (Regional) is isRpEligibleEventType-eligible with 70 played " +
       "qm rows, 2022's own RP-eligible entry.",
     expectMatches: 85,
     expectUpcoming: 3,
@@ -225,9 +225,9 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2022mirr",
     algorithmId: "spr",
     note:
-      "07-13/07-20's pure all-unplayed elimination slate: zero played elimination rows against 60 upcoming ef " +
-      "rows across 20 sets. Offseason, reachable only once an offseason publish reaches it — this plan is that " +
-      "publish. 08-05: event_type 99 (Offseason) is excluded from isRpEligibleEventType, so it " +
+      "The pure all-unplayed elimination slate: zero played elimination rows against 60 upcoming ef " +
+      "rows across 20 sets. Offseason, so only a publish that includes offseason events reaches it. " +
+      "event_type 99 (Offseason) is excluded from isRpEligibleEventType, so it " +
       "expects ZERO pmf on any of its 38 played qm rows while still carrying actual-RP.",
     expectMatches: 38,
     expectUpcoming: 60,
@@ -242,8 +242,8 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2023cur",
     algorithmId: "spr",
     note:
-      "07-20's widest roster (78 ranked teams, tied max) and 130 qualification rows — the E3 roster and E5 " +
-      "density target. 08-05: event_type 3 (Championship Division) is isRpEligibleEventType-eligible with " +
+      "The widest roster (78 ranked teams, tied max) and 130 qualification rows — the roster and quals-table " +
+      "density target. event_type 3 (Championship Division) is isRpEligibleEventType-eligible with " +
       "130 played qm rows, 2023's own RP-eligible entry.",
     expectMatches: 145,
     expectUpcoming: 0,
@@ -258,8 +258,8 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2023cnsh",
     algorithmId: "spr",
     note:
-      "D-08 / RESEARCH Pitfall 1's own named event, one of the exact three D-08's fallback was measured and " +
-      "written around. Offseason, zero ranking rows. 08-05: event_type 99 (Offseason) is excluded from " +
+      "A named no-ranking event, one of the exact three the no-ranking fallback was measured and " +
+      "written around. Offseason, zero ranking rows. event_type 99 (Offseason) is excluded from " +
       "isRpEligibleEventType, so it expects ZERO pmf on any of its 58 played qm rows " +
       "while still carrying actual-RP.",
     expectMatches: 62,
@@ -275,8 +275,8 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2023nhgrs",
     algorithmId: "spr",
     note:
-      "07-12's adjacency measurement event: 52 played + 26 upcoming qualification rows (zero duplicate " +
-      "matchNumber across the two arrays), a second-season D-13 quals-merge case. 08-05: event_type 1 " +
+      "The adjacency measurement event: 52 played + 26 upcoming qualification rows (zero duplicate " +
+      "matchNumber across the two arrays), a second-season quals-merge case. event_type 1 " +
       "(District) is isRpEligibleEventType-eligible with 52 played qm rows, 2023's second RP-eligible entry.",
     expectMatches: 67,
     expectUpcoming: 26,
@@ -291,8 +291,8 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2024new",
     algorithmId: "spr",
     note:
-      "07-20's E4 target and the payload gate: the corpus's current maximum-bytes event object (285,437 " +
-      "pre-plan) and the widest column set in the app. D-08 CONTROL — every team carries a rank. 08-05: " +
+      "The payload gate: the corpus's maximum-bytes event object (285,437 " +
+      "bytes when measured) and the widest column set in the app. No-ranking-fallback CONTROL — every team carries a rank. " +
       "event_type 3 (Championship Division) is isRpEligibleEventType-eligible with 125 played qm rows, " +
       "2024's own RP-eligible entry.",
     expectMatches: 140,
@@ -308,8 +308,8 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2024vabrb",
     algorithmId: "spr",
     note:
-      "07-14's explicit routed recommendation, three-in-one: offseason, zero ranking rows (D-08's banner), and " +
-      "five alliances of exactly two picks (D-16's incomplete-sum rule on every row). 08-05: event_type 99 " +
+      "Three shapes in one: offseason, zero ranking rows (the no-ranking fallback banner), and " +
+      "five alliances of exactly two picks (the incomplete-sum rule on every row). event_type 99 " +
       "(Offseason) is excluded from isRpEligibleEventType, so it expects ZERO pmf on " +
       "any of its 16 played qm rows while still carrying actual-RP.",
     expectMatches: 26,
@@ -327,9 +327,9 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2024wvrox",
     algorithmId: "spr",
     note:
-      "07-20/07-14: the true corpus quals maximum (135 qualification rows) and RESEARCH.md Question 2's " +
+      "The true corpus quals maximum (135 qualification rows) and the " +
       "live-observed absent alliance name case — an alliance carrying declines/picks/status but no name key. " +
-      "08-05: event_type 99 (Offseason) is excluded from isRpEligibleEventType, so it " +
+      "event_type 99 (Offseason) is excluded from isRpEligibleEventType, so it " +
       "expects ZERO pmf on any of its 135 played qm rows while still carrying actual-RP.",
     expectMatches: 154,
     expectUpcoming: 0,
@@ -345,8 +345,8 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2025flta",
     algorithmId: "spr",
     note:
-      "07-12/07-20: 63 played + 21 upcoming = the 84-row merged quals slate 07-12's width target and 07-20's " +
-      "E5 merge case. Third ordinary regional for 07-15. 08-05: event_type 0 (Regional) is " +
+      "63 played + 21 upcoming = the 84-row merged quals slate, the quals-table width target and the " +
+      "quals merge case. Third ordinary regional. event_type 0 (Regional) is " +
       "isRpEligibleEventType-eligible with 63 played qm rows, 2025's own RP-eligible entry.",
     expectMatches: 78,
     expectUpcoming: 21,
@@ -361,11 +361,11 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2025isios",
     algorithmId: "spr",
     note:
-      "D-08 / Pitfall 1's headline event (68 matches, zero ranking rows) and 07-20's named D-08 positive case. " +
+      "The headline no-ranking-fallback event (68 matches, zero ranking rows) and that fallback's named positive case. " +
       "Only subset event with upcoming qualification rows AND zero elimination matches of any kind. " +
-      "expectAlliances corrected populated -> empty by plan 07-19 (WINDOWS.md ledger #13): confirmed live " +
-      "against TBA (GET /event/2025isios/alliances -> 200, []) as real production state, not a data defect — " +
-      "this was a stale seed expectation, not an observed-value adjustment to a still-live check. 08-05: " +
+      "expectAlliances is empty, confirmed live " +
+      "against TBA (GET /event/2025isios/alliances -> 200, []) as real production state, " +
+      "not a data defect. " +
       "event_type 99 (Offseason) is excluded from isRpEligibleEventType, so it expects " +
       "ZERO pmf on any of its 43 played qm rows while still carrying actual-RP.",
     expectMatches: 43,
@@ -381,8 +381,8 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2025bc",
     algorithmId: "spr",
     note:
-      "D-17: RESEARCH.md Question 2 live-observed an EMPTY alliances array here — a valid 200 with [], on an " +
-      "event that ran 83 qualification matches and published 62 rankings. 08-05: event_type 99 (Offseason) is " +
+      "The empty-alliances case: an EMPTY alliances array was live-observed here — a valid 200 with [], on an " +
+      "event that ran 83 qualification matches and published 62 rankings. event_type 99 (Offseason) is " +
       "excluded from isRpEligibleEventType, so it expects ZERO pmf on any of its 83 " +
       "played qm rows while still carrying actual-RP.",
     expectMatches: 113,
@@ -398,11 +398,11 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2025cmptx",
     algorithmId: "spr",
     note:
-      "07-11's own named expected no-ranking candidate — Einstein is playoff-only, so zero ranking rows is a " +
-      "format fact, not an offseason fact. Also zero qualification rows in both arrays (UI-SPEC E5 empty) and " +
-      "a 4-pick alliance shape for D-16's excluded-fourth-pick rule. 08-05: zero played qm rows (Einstein is " +
+      "A named expected no-ranking candidate — Einstein is playoff-only, so zero ranking rows is a " +
+      "format fact, not an offseason fact. Also zero qualification rows in both arrays (the empty quals state) and " +
+      "a 4-pick alliance shape for the excluded-fourth-pick rule. Zero played qm rows (Einstein is " +
       "playoff-only), so this entry deliberately carries NEITHER expectPlayedQmRpPmf NOR " +
-      "expectPlayedQmActualRp — nothing to assert, per PD-05's own instruction.",
+      "expectPlayedQmActualRp — nothing to assert.",
     expectMatches: 16,
     expectUpcoming: 0,
     expectTeams: 26,
@@ -414,8 +414,8 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2026vache",
     algorithmId: "spr",
     note:
-      "07-20's E1 target. Published name is 124 characters — the longest event name in five seasons of corpus " +
-      "data — the header truncation + title backstop needs a real published artifact carrying it. 08-05: " +
+      "The header-truncation target. Published name is 124 characters — the longest event name in five seasons of corpus " +
+      "data — the header truncation + title backstop needs a real published artifact carrying it. " +
       "event_type 1 (District) is isRpEligibleEventType-eligible with 60 played qm rows, 2026's own " +
       "RP-eligible entry.",
     expectMatches: 75,
@@ -431,9 +431,9 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2026wvrox",
     algorithmId: "spr",
     note:
-      "D-17, second season: the other live-observed empty-alliances event, so the [] case is proven in two " +
-      "seasons. Also 5 upcoming qualification rows against 120 played — the D-13 quals merge in a third " +
-      "season and a different ratio. 08-05: event_type 99 (Offseason) is excluded from isRpEligibleEventType, " +
+      "The empty-alliances case, second season: the other live-observed empty-alliances event, so the [] case is proven in two " +
+      "seasons. Also 5 upcoming qualification rows against 120 played — the quals merge in a third " +
+      "season and a different ratio. event_type 99 (Offseason) is excluded from isRpEligibleEventType, " +
       "so it expects ZERO pmf on any of its 120 played qm rows while still carrying " +
       "actual-RP.",
     expectMatches: 120,
@@ -449,16 +449,16 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2024casf",
     algorithmId: "opr",
     note:
-      "UI-SPEC E4 partial and E5 partial on real data. metricKeysFor('opr', 2024) is the Total key alone, so an " +
+      "Partial-column and no-variance shapes on real data. metricKeysFor('opr', 2024) is the Total key alone, so an " +
       "OPR-selected Breakdown tab is a legitimately 2-column table; OPR sets no alliance-level own variance, so " +
       "every Quals/Elims row publishes NEITHER variance field. The negative half that gives the spr " +
-      "assertion its meaning. 08-05 (D-04) HISTORY: this arm used to expect ZERO pmf because OPR models no " +
-      "ranking points. 2026-09-10: commit 160401fe's SigmaScout-layer RP model (learned from results alone) " +
-      "deliberately inverted that — every algorithm's artifacts now carry pmfs on RP-eligible played qm rows, " +
-      "sourced from the layer, not the algorithm. Flipped to \"partial\" (57/72 live-measured at generation " +
-      "2f1a8885 — same coverage as every algorithm; see expectPlayedQmRpPmf's doc comment). 2026-09-14: back " +
-      "to \"absent\" — quick task 260913-it4 (094667e9) made publishesRankingPoints() true for spr only, so OPR " +
-      "publishes no pmf on any row (0 of 72 played qm rows live-measured at generation 2dcc057f); still " +
+      "assertion its meaning. publishesRankingPoints() is true " +
+      "for spr only, " +
+      "so OPR " +
+      "publishes no pmf on any row " +
+      "(0 of 72 played qm rows " +
+      "live-measured at generation 2dcc057f), " +
+      "while still " +
       "carrying actual-RP (algorithm-independent, sourced from MatchResult).",
     expectMatches: 87,
     expectUpcoming: 0,
@@ -473,11 +473,11 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2024casf",
     algorithmId: "epa",
     note:
-      "The same no-variance state at a different column set — the third arm that lets 07-01/07-11/07-12 flip " +
-      "?algorithm= on ONE real event page and see three real, differently-shaped artifacts. 08-05 (D-04) " +
-      "HISTORY: used to expect ZERO pmf (EPA models no ranking points). 2026-09-10: flipped to \"partial\" for " +
-      "the same 160401fe SigmaScout-layer reason as the opr arm above (57/72 live-measured at 2f1a8885). " +
-      "2026-09-14: back to \"absent\" for the same 260913-it4 reason as the opr arm (0 of 72 at 2dcc057f).",
+      "The same no-variance state at a different column set — the third arm, so flipping " +
+      "?algorithm= on ONE real event page shows three real, differently-shaped artifacts. publishesRankingPoints() " +
+      "is true for spr only, so EPA publishes no pmf on any row either " +
+      "(0 of 72 played qm rows " +
+      "live-measured at generation 2dcc057f).",
     expectMatches: 87,
     expectUpcoming: 0,
     expectTeams: 43,
@@ -491,12 +491,12 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     eventKey: "2024auwarp",
     algorithmId: "spr",
     note:
-      "D-08's third named event, deliberately excluded by 07-10 — the first artifact it will ever have had. " +
+      "The third named no-ranking-fallback event. " +
       "Offseason, zero ranking rows, zero alliances. Corpus-measured: 47 qm + 13 sf + 2 f played, 0 scheduled, " +
-      "25-team roster. 08-05: event_type 99 (Offseason) is excluded from isRpEligibleEventType, so this entry " +
-      "expects ZERO pmf on any of its 47 played qm rows while still carrying actual-RP — this is also D-12's " +
-      "own summed-fallback proof case (0 teams carry EventTeamSchema.rp on this offseason-with-zero-rankings " +
-      "event, so 08-11's fallback branch reads its 47 rows' actualRedRp/actualBlueRp directly).",
+      "25-team roster. event_type 99 (Offseason) is excluded from isRpEligibleEventType, so this entry " +
+      "expects ZERO pmf on any of its 47 played qm rows while still carrying actual-RP — this is also the " +
+      "summed-RP fallback's own proof case (0 teams carry EventTeamSchema.rp on this offseason-with-zero-rankings " +
+      "event, so the fallback branch reads its 47 rows' actualRedRp/actualBlueRp directly).",
     expectMatches: 62,
     expectUpcoming: 0,
     expectTeams: 25,
@@ -555,7 +555,7 @@ export const PUBLISHED_TEAM_SUBSET: readonly TeamSubsetEntry[] = [
     year: 2024,
     algorithmId: "spr",
     note:
-      "2024's playoff-row entry AND the veteran half of PD-08's spread comparison — 83 total matches (the " +
+      "2024's playoff-row entry AND the veteran half of the spread comparison — 83 total matches (the " +
       "corpus-measured 2024 maximum among zero-offseason teams), 25 playoff rows.",
     expectPlayoffRows: 25,
   },
@@ -564,8 +564,8 @@ export const PUBLISHED_TEAM_SUBSET: readonly TeamSubsetEntry[] = [
     year: 2024,
     algorithmId: "spr",
     note:
-      "The low-match half of PD-08's spread comparison — 3 total matches in 2024, zero playoff rows, zero " +
-      "offseason/preseason involvement. Under D-01/D-02's redefinition this team's spread ratio (spread/value " +
+      "The low-match half of the spread comparison — 3 total matches in 2024, zero playoff rows, zero " +
+      "offseason/preseason involvement. This team's spread ratio (spread/value " +
       "or the raw spread magnitude relative to a same-metric veteran) is expected to read WIDER than " +
       "frc4206's, since the model has seen it in far fewer matches.",
     expectPlayoffRows: 0,
