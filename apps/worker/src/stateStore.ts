@@ -1,34 +1,31 @@
 /**
- * D-13/D-19: batched D1 reads and writes of algorithm state, plus per-event
- * cron bookkeeping (`event_cursor`). This module is the ONLY place a Worker
+ * Batched D1 reads and writes of algorithm state, plus per-event cron
+ * bookkeeping (`event_cursor`). This module is the only place a Worker
  * tick touches `apps/worker/migrations/0001_algorithm_state.sql`'s two
  * tables — every column name and the `algorithm_state` primary key
  * `(algorithm_id, scope_kind, scope_key)` below must match that migration
  * exactly.
  *
- * TRANSACTION SEMANTICS (load-bearing, read before calling `writeScopedState`
- * — Pitfall 2, 04-RESEARCH.md): a D1 `batch()` call is a SQL TRANSACTION. If
- * any statement in it fails, D1 rolls back the WHOLE batch — there is no
- * partial-success outcome. `writeScopedState` does not (and must not) try to
- * interpret a rejected `batch()` as "some rows landed" — a caller that
- * catches the rejection must treat it as "nothing advanced this tick" and
- * either retry the whole batch or defer to the next tick. This is a
- * DIFFERENT failure model from the other two storage systems this Worker
- * talks to: R2's `put()` calls each succeed or fail independently, and KV is
- * eventually consistent (~60s global propagation). Three different failure
- * models sit side by side in one Worker on purpose — conflating them is how
- * a subtle inconsistency ships.
+ * TRANSACTION SEMANTICS (load-bearing, read before calling
+ * `writeScopedState`): a D1 `batch()` call is a SQL transaction. If any
+ * statement in it fails, D1 rolls back the whole batch — there is no
+ * partial-success outcome. A caller that catches the rejection must treat
+ * it as "nothing advanced this tick" and either retry the whole batch or
+ * defer to the next tick. This is a different failure model from the other
+ * two storage systems this Worker talks to: R2's `put()` calls each
+ * succeed or fail independently, and KV is eventually consistent. Three
+ * different failure models sit side by side in one Worker on purpose —
+ * conflating them is how a subtle inconsistency ships.
  *
- * `readScopedState`/`writeScopedState` cost exactly ONE D1 subrequest each,
- * regardless of how many teams a tick touches (D-13/D-19/Pattern 1): the
- * read is one prepared statement with a `scope_key IN (...)` placeholder
- * list (the league row rides along in the SAME query rather than costing a
- * second one), and the write is one `db.batch([...])` call over as many
- * upsert statements as there are changed rows.
+ * `readScopedState`/`writeScopedState` cost exactly one D1 subrequest each,
+ * regardless of how many teams a tick touches: the read is one prepared
+ * statement with a `scope_key IN (...)` placeholder list (the league row
+ * rides along in the same query), and the write is one `db.batch([...])`
+ * call over as many upsert statements as there are changed rows.
  *
  * The Worker reads back rows the offline seed wrote and rebuilds an
  * in-memory algorithm state through `packages/harness/stateSnapshot.ts`'s
- * `deserializeState` — the SAME deserializer the offline pipeline's own
+ * `deserializeState` — the same deserializer the offline pipeline's own
  * round-trip tests already prove lossless — this module must never grow a
  * second deserializer that could drift from it.
  */
@@ -37,17 +34,15 @@ import type { StateRow, StateRowScopeKind } from "../../../packages/harness/stat
 export type { StateRow, StateRowScopeKind } from "../../../packages/harness/stateSnapshot.js";
 
 /**
- * A generous, named ceiling on how many scope keys a single `readScopedState`
- * call will bind into one `IN (...)` clause, TOTALED ACROSS every selection
- * in the request (plan 04-08: a request may now name more than one scope
- * kind — e.g. OPR's event key plus its touched teams — in one call). The
- * peak realistic tick (~21-38 teams, 04-RESEARCH.md Pattern 1) is nowhere
- * near this, but a caller that one day passes an unbounded key list should
- * get a named, actionable error here rather than an opaque D1/SQLite
- * bound-parameter-limit failure. Chunked reads are deliberately NOT
- * implemented — a chunked read would cost more than one subrequest, which is
- * exactly the invariant this module exists to hold; a caller that genuinely
- * needs more than this should reconsider scope, not raise this constant.
+ * A generous, named ceiling on how many scope keys a single
+ * `readScopedState` call will bind into one `IN (...)` clause, totaled
+ * across every selection in the request (a request may name more than one
+ * scope kind — e.g. OPR's event key plus its touched teams — in one call).
+ * The peak realistic tick is nowhere near this, but a caller that one day
+ * passes an unbounded key list should get a named, actionable error here
+ * rather than an opaque D1/SQLite bound-parameter-limit failure. Chunked
+ * reads are deliberately not implemented — a chunked read would cost more
+ * than one subrequest, exactly the invariant this module exists to hold.
  */
 export const MAX_SCOPE_KEYS_PER_READ = 100;
 
@@ -63,11 +58,11 @@ interface AlgorithmStateRow {
 const ALGORITHM_STATE_SELECT_COLUMNS = "scope_kind, scope_key, algorithm_version, state_json, generation, computed_at";
 
 /**
- * One scope kind's own key list within a `readScopedState` request. Plan
- * 04-08: an algorithm that stores more than one scope kind (OPR's `event`
- * rows alongside its `team` rows, since `lastEventByTeam` moved out of the
- * league row) names ALL of them here, in one request — never a second
- * `readScopedState` call, which would spend a second subrequest.
+ * One scope kind's own key list within a `readScopedState` request. An
+ * algorithm that stores more than one scope kind (OPR's `event` rows
+ * alongside its `team` rows) names all of them here, in one request —
+ * never a second `readScopedState` call, which would spend a second
+ * subrequest.
  */
 export interface ScopeSelection {
   readonly scopeKind: StateRowScopeKind;
@@ -76,15 +71,14 @@ export interface ScopeSelection {
 
 /**
  * One D1 statement, one subrequest, however many selections or keys: reads
- * every row for `algorithmId` matching ANY of `selections` (each selection's
- * key list is matched against its OWN `scopeKind` explicitly — a team key is
- * never satisfied by an event row, and vice versa, even if the two key
- * spaces happen not to collide today), PLUS the algorithm's single
- * `scope_kind = 'league'` row (a value every tick needs — folded into the
- * SAME query rather than costing a second one). Returns an empty array
- * (never throws) for an algorithm with no rows at all, so a not-yet-seeded
- * algorithm degrades to "nothing to advance" instead of taking the tick
- * down (D-13's partial-load property).
+ * every row for `algorithmId` matching any of `selections` (each
+ * selection's key list is matched against its own `scopeKind` explicitly —
+ * a team key is never satisfied by an event row, and vice versa), plus the
+ * algorithm's single `scope_kind = 'league'` row (a value every tick
+ * needs, folded into the same query rather than costing a second one).
+ * Returns an empty array (never throws) for an algorithm with no rows at
+ * all, so a not-yet-seeded algorithm degrades to "nothing to advance"
+ * instead of taking the tick down.
  */
 export async function readScopedState(db: D1Database, algorithmId: string, selections: readonly ScopeSelection[]): Promise<StateRow[]> {
   const totalKeys = selections.reduce((sum, s) => sum + s.scopeKeys.length, 0);
@@ -99,27 +93,14 @@ export async function readScopedState(db: D1Database, algorithmId: string, selec
   const nonEmptySelections = selections.filter((s) => s.scopeKeys.length > 0);
   const groups = nonEmptySelections.map((s) => `(scope_kind = ? AND scope_key IN (${s.scopeKeys.map(() => "?").join(",")}))`);
   const whereTail = groups.length > 0 ? `(${groups.join(" OR ")}) OR scope_kind = 'league'` : `scope_kind = 'league'`;
-  // Quick task 260822-wqt (Rule 1/3 deviation — a real, deterministic
-  // production bug found running this task's own required live-fold
-  // verification): `whereTail` MUST be wrapped in its own parens here. SQL
-  // binds AND tighter than OR, so the previous
-  // `algorithm_id = ? AND ${whereTail}` (no outer parens) parsed as
-  // `(algorithm_id = ? AND (groups)) OR (scope_kind = 'league')` — the
-  // league-row fallback was NOT scoped to `algorithmId` at all, contrary to
-  // this function's own doc comment ("PLUS the algorithm's single
-  // scope_kind = 'league' row"). Whenever the CALLING algorithm's own
-  // league row happened to sort first in D1's (unordered-by-contract) result
-  // set this went unnoticed; the moment it does not — e.g. a cold-started
-  // algorithm with no league row of its own yet — this returned a DIFFERENT
-  // algorithm's league row instead, and `deserializeState` parsed its
-  // (differently-shaped) JSON as this algorithm's own, corrupting the fold.
-  // Reproduced live: sigma1 [pre-rename], cold-started via the replay rig with opr/epa
-  // both already seeded, deterministically deserialized OPR's league row
-  // (`{"snapshotShapeVersion":2}`, no `componentOrder` field) as its own,
-  // throwing `TypeError: state.componentOrder is not iterable` in
-  // `predict()` on every tick. See `readScopedStateSql.test.ts` (a real
-  // SQLite engine, not a JS fake — the bug lives in the SQL text itself) for
-  // the regression test binding this exact scenario.
+  // `whereTail` must be wrapped in its own parens here. SQL binds AND
+  // tighter than OR, so an unparenthesized `algorithm_id = ? AND ${whereTail}`
+  // parses as `(algorithm_id = ? AND (groups)) OR (scope_kind = 'league')`
+  // — the league-row fallback would not be scoped to `algorithmId` at all,
+  // and a cold-started algorithm with no league row of its own could
+  // deserialize a DIFFERENT algorithm's league row as its own, corrupting
+  // the fold. See `readScopedStateSql.test.ts` (a real SQLite engine, not
+  // a JS fake) for the regression test binding this exact scenario.
   const sql = `SELECT ${ALGORITHM_STATE_SELECT_COLUMNS} FROM algorithm_state WHERE algorithm_id = ? AND (${whereTail})`;
   const bindArgs: (string | number)[] = [algorithmId];
   for (const selection of nonEmptySelections) {
@@ -152,13 +133,11 @@ ON CONFLICT(algorithm_id, scope_kind, scope_key) DO UPDATE SET
 
 /**
  * One `db.batch([...])` call, one subrequest, regardless of row count — an
- * empty `rows` array performs ZERO calls rather than an empty batch (there
- * is nothing to write, so there is nothing to spend a subrequest on). See
+ * empty `rows` array performs zero calls rather than an empty batch. See
  * this module's header for the transaction semantics a rejection implies:
- * NONE of `rows` advanced this tick, never a partial application. Callers
+ * none of `rows` advanced this tick, never a partial application. Callers
  * should filter `rows` through `selectChangedRows` first so an unchanged
- * team (byte-identical `stateJson`, per `stateSnapshot.ts`'s stable
- * serializer) never costs a write — a direct saving against D1's
+ * team never costs a write — a direct saving against D1's
  * 100,000-rows-written-per-day free allowance.
  */
 export async function writeScopedState(db: D1Database, rows: readonly StateRow[]): Promise<void> {
@@ -177,21 +156,18 @@ function rowIdentity(row: Pick<StateRow, "algorithmId" | "scopeKind" | "scopeKey
 
 /**
  * Drops every `candidateRow` whose `stateJson` is byte-identical to the
- * matching `priorRow` (same `algorithmId`/`scopeKind`/`scopeKey`) — a row
- * with no matching prior row at all counts as changed (it is new). This is
- * what makes advancing an event twice with the same match list a genuine
- * no-op at the write layer: `stateSnapshot.ts`'s serializer is key-sorted and
- * stable precisely so re-serializing an untouched team's state produces the
- * identical string. Pass the result straight to `writeScopedState`.
+ * matching `priorRow` — a row with no matching prior row at all counts as
+ * changed (it is new). This is what makes advancing an event twice with
+ * the same match list a genuine no-op at the write layer:
+ * `stateSnapshot.ts`'s serializer is key-sorted and stable precisely so
+ * re-serializing an untouched team's state produces the identical string.
  */
 export function selectChangedRows(priorRows: readonly StateRow[], candidateRows: readonly StateRow[]): StateRow[] {
   const priorStateJsonByIdentity = new Map(priorRows.map((row) => [rowIdentity(row), row.stateJson]));
   return candidateRows.filter((row) => priorStateJsonByIdentity.get(rowIdentity(row)) !== row.stateJson);
 }
 
-// ---------------------------------------------------------------------------
-// event_cursor: per-event cron bookkeeping (D-15/D-19/D-22)
-// ---------------------------------------------------------------------------
+// event_cursor: per-event cron bookkeeping.
 
 /** `apps/worker/migrations/0001_algorithm_state.sql`'s `event_cursor` row, camelCased. */
 export interface EventCursor {
@@ -242,19 +218,16 @@ export async function writeEventCursor(db: D1Database, cursor: EventCursor): Pro
 }
 
 /**
- * D-15/D-19's idempotency anchor: `cursor`'s `lastFoldedMatchKey` marks the
- * last match, in the EVENT'S OWN order (`orderedMatchKeys` — never a
- * timestamp comparison, which can tie), that has already been folded into
- * `algorithm_state`. A tick folds only matches that come strictly AFTER that
- * anchor. `matchKey` at or before the anchor is a genuine no-op — a retried
- * invocation, an overlapping invocation, or an unchanged TBA payload cannot
- * double-apply a match's `update()`, which would otherwise silently update a
- * team's rating twice for one match.
+ * The idempotency anchor: `cursor`'s `lastFoldedMatchKey` marks the last
+ * match, in the event's own order (`orderedMatchKeys` — never a timestamp
+ * comparison, which can tie), that has already been folded into
+ * `algorithm_state`. A tick folds only matches that come strictly after
+ * that anchor, so a retried invocation, an overlapping invocation, or an
+ * unchanged TBA payload cannot double-apply a match's `update()`.
  *
  * A cursor with `lastFoldedMatchKey: null` (nothing folded yet for this
- * event) means every match is unfolded — always returns `false`. Throws for
- * a `matchKey` genuinely absent from `orderedMatchKeys` (a caller bug: the
- * event's own order list is the one authoritative source for this check).
+ * event) means every match is unfolded — always returns `false`. Throws
+ * for a `matchKey` genuinely absent from `orderedMatchKeys` (a caller bug).
  */
 export function hasAlreadyFolded(
   cursor: Pick<EventCursor, "lastFoldedMatchKey">,
@@ -269,10 +242,10 @@ export function hasAlreadyFolded(
   }
 
   const cursorIndex = orderedMatchKeys.indexOf(cursor.lastFoldedMatchKey);
-  // The cursor's own anchor is missing from this tick's order list (e.g. a
-  // stale cursor from before a replay correction) — degrade to "not yet
-  // folded" rather than throw, since THIS tick's list is authoritative and
-  // failing loudly here would take the whole tick down over bookkeeping.
+  // The cursor's own anchor is missing from this tick's order list —
+  // degrade to "not yet folded" rather than throw, since this tick's list
+  // is authoritative and failing loudly here would take the whole tick
+  // down over bookkeeping.
   if (cursorIndex === -1) return false;
 
   return matchIndex <= cursorIndex;
