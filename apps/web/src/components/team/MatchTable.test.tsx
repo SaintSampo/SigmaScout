@@ -45,7 +45,7 @@ function findDeclarationValue(css: string, propertyName: string): string | null 
   return match ? (match[1] ?? "").trim() : null;
 }
 
-describe("theme.css alliance ground tint tokens & rule block (sketch 010-C, quick 260906-80e)", () => {
+describe("theme.css alliance ground tint tokens & rule block (sketch 010-C)", () => {
   it("declares four color-mix-derived ground tokens from the existing alliance tokens, no rgba()/hex literal", () => {
     const css = readThemeCss();
     const redGround = findDeclarationValue(css, "alliance-red-ground");
@@ -229,7 +229,7 @@ describe("MatchTable", () => {
    * a positive case in the same describe so the gate cannot pass by
    * rendering nothing ever.
    */
-  describe("Result chip roster-participation gate (WR-02)", () => {
+  describe("Result chip roster-participation gate", () => {
     it("renders an empty Result cell for a played match whose rosters exclude the page's team (letter-suffixed B-team roster)", () => {
       renderWithRouter(
         <MatchTable
@@ -394,7 +394,7 @@ describe("MatchTable", () => {
    * `font-semibold` — the team's own alliance line wrapped in a pill, its
    * own number a deeper tint on top. Figure stays neutral throughout.
    */
-  describe("alliance ground tint (sketch 010-C, quick 260906-80e)", () => {
+  describe("alliance ground tint (sketch 010-C)", () => {
     it("marks the red-alliance team's own line as a red pill, its own number as --own, and leaves the opposing line unmarked", () => {
       renderWithRouter(
         <MatchTable
@@ -486,7 +486,7 @@ describe("MatchTable", () => {
       expect(redWrapper!.className).not.toContain("match-alliance-nums--mine");
     });
 
-    it("marks neither roster --mine nor any number --own for the WR-02 letter-suffixed-second-robot case", () => {
+    it("marks neither roster --mine nor any number --own for the letter-suffixed-second-robot case", () => {
       renderWithRouter(
         <MatchTable
           matches={[
@@ -532,7 +532,7 @@ describe("MatchTable", () => {
     expect(screen.getAllByTestId("axis-tick").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("renders alternating row tints — adjacent rows carry differing background classes (06-09-PLAN.md Task 3 polish pass)", () => {
+  it("renders alternating row tints — adjacent rows carry differing background classes", () => {
     renderWithRouter(
       <MatchTable
         matches={[makeMatch({ matchKey: "m1" }), makeMatch({ matchKey: "m2" }), makeMatch({ matchKey: "m3" })]}
@@ -576,7 +576,7 @@ describe("MatchTable", () => {
     expect(row2.className).toContain("match-row-tint");
   });
 
-  it("has no sticky column anywhere, header or body (2026-09-13)", () => {
+  it("has no sticky column anywhere, header or body", () => {
     const { container } = renderWithRouter(
       <MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={DOMAIN} teamKey="frc118" season={2024} algorithm="spr" />,
     );
@@ -614,7 +614,7 @@ describe("MatchTable", () => {
    * `unknown` for a played qualification match with published per-bonus
    * data.
    */
-  describe("real bonus-RP dot states (plan 06.1-06, F-06-1)", () => {
+  describe("real bonus-RP dot states", () => {
     function collectDotStates(groupTestId: string): (string | null)[] {
       const group = screen.getByTestId(groupTestId);
       return Array.from(group.querySelectorAll("[data-testid^='bonus-dot-']")).map((dot) => dot.getAttribute("data-state"));
@@ -815,7 +815,7 @@ describe("MatchTable", () => {
      * artifacts carry). This is the client-side defence-in-depth guard:
      * it must hold with no republish.
      */
-    it("greys every dot to unknown for a played sf row whose artifact still carries populated actual per-bonus arrays (G-06.1-26, 2024 two-bonus season)", () => {
+    it("greys every dot to unknown for a played sf row whose artifact still carries populated actual per-bonus arrays (2024 two-bonus season)", () => {
       renderWithRouter(
         <MatchTable
           matches={[
@@ -849,7 +849,7 @@ describe("MatchTable", () => {
       expect(allStates).not.toContain("missed");
     });
 
-    it("greys every dot to unknown for a played f row whose artifact still carries populated actual per-bonus arrays (G-06.1-26, 2026 three-bonus season)", () => {
+    it("greys every dot to unknown for a played f row whose artifact still carries populated actual per-bonus arrays (2026 three-bonus season)", () => {
       renderWithRouter(
         <MatchTable
           matches={[
@@ -886,7 +886,7 @@ describe("MatchTable", () => {
   });
 });
 
-describe("Match-column label links to /match/{matchKey} (260909-tiq-PLAN.md Task 3)", () => {
+describe("Match-column label links to /match/{matchKey}", () => {
   it("a played row's Match label is a link whose href contains the match key, carrying the year and algorithm", () => {
     renderWithRouter(
       <MatchTable
