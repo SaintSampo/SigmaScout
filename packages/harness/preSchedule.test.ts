@@ -1,21 +1,19 @@
 /**
  * Quick task 260905-tll Task 2 (TDD): the pure pre-schedule sidecar
  * builder. Every test uses a hand-written `predict` stub returning a fixed
- * seven-entry pmf, so no model and no corpus is needed — but the REAL
- * template cache in `data/schedule-templates/` is read (6_12.csv and
- * 10_10.csv), gated on existence per `scheduleTemplates.test.ts`'s own
- * discipline.
+ * seven-entry pmf, so no model, no corpus and no files are needed: the
+ * pairing structures come from the rules-based generator
+ * (`generatedSchedules.ts`), so every test here runs everywhere.
  *
- * Fixture facts: `6_12.csv` has 12 rows and no surrogate slots; `10_10.csv`
- * has 17 rows and DOES carry surrogate slots (row 5: red slot 7 and blue
- * slot 9 are surrogates) — which is why the surrogate-honouring tests
- * (PD-03) use a 10-team roster at 10 matches per team.
+ * Generator facts: 6 teams at 12 matches per team gives 12 matches with no
+ * surrogate slots; 10 teams at 10 gives 17 matches with 2 surrogate slots
+ * (`surrogateSlotCount(10, 10)`) — which is why the surrogate-honouring
+ * tests (PD-03) use a 10-team roster at 10 matches per team.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Prediction, UpcomingMatch } from "../core/algorithms/types.js";
 import { PreScheduleArtifactSchema } from "./pageArtifacts.js";
-import { SCHEDULE_TEMPLATE_DIR } from "./scheduleTemplates.js";
 import {
   buildPreScheduleArtifact,
   buildFieldAveragedPreScheduleArtifact,
@@ -29,8 +27,6 @@ import {
 import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
 import { fieldStatistics } from "../core/rankingPoints/fieldAveraged.js";
-
-const CACHE_AVAILABLE = existsSync(SCHEDULE_TEMPLATE_DIR);
 
 /** Sums to exactly 1 and survives `roundPmf` unchanged (every entry already at pmf precision). */
 const STUB_PMF = [0.05, 0.1, 0.15, 0.2, 0.25, 0.15, 0.1];
@@ -127,12 +123,7 @@ describe("toSimMatchInput (PD-03 — the one implementation the builder hands si
   });
 });
 
-describe("buildPreScheduleArtifact against the real template cache", () => {
-  if (!CACHE_AVAILABLE) {
-    it.skip(`skipped: ${SCHEDULE_TEMPLATE_DIR} is absent — run \`pnpm fetch:schedule-templates\` to populate it`, () => {});
-    return;
-  }
-
+describe("buildPreScheduleArtifact over generated pairing structures", () => {
   it("two calls with identical parameters produce deep-equal artifacts (seeds, shuffles, histograms and all)", () => {
     const first = buildPreScheduleArtifact(baseParams());
     const second = buildPreScheduleArtifact(baseParams());
@@ -215,8 +206,8 @@ describe("buildPreScheduleArtifact against the real template cache", () => {
     );
     expect(artifact).not.toBeNull();
 
-    // 10_10.csv carries surrogate slots (row 5), so at least one synthetic
-    // match per schedule must flag them.
+    // 10 teams at 10 matches per team leaves surrogateSlotCount(10, 10) = 2
+    // surrogate slots, so at least one synthetic match per schedule flags one.
     const withSurrogates = seen.filter((match) => match.redSurrogates.length > 0 || match.blueSurrogates.length > 0);
     expect(withSurrogates.length).toBeGreaterThan(0);
     for (const match of withSurrogates) {
@@ -386,11 +377,11 @@ describe("buildFieldAveragedPreScheduleArtifact (plan 09-09 Task 2)", () => {
     expect(buildFieldAveragedPreScheduleArtifact(faParams({ algorithmVersion: "3.0.1+x" }))!.seed).not.toBe(base.seed);
   });
 
-  it("produces an artifact for a FIVE-team roster — below the schedule-template grid's 6-team floor, which the schedule-based builder cannot serve at all", () => {
+  it("produces an artifact for a FIVE-team roster — below the generator's 6-team floor, which the schedule-based builder cannot serve at all", () => {
     // The single most direct proof that this path is genuinely independent of
-    // the template grid: no filesystem access, no template lookup, no
-    // ScheduleTemplateUnavailableError. This is the coverage WIDENING the
-    // plan's must_haves names, asserted as a behaviour.
+    // schedule generation: no pairing structure is built, so no
+    // GeneratedScheduleError. This is the coverage WIDENING the plan's
+    // must_haves names, asserted as a behaviour.
     const roster = ["frc1", "frc2", "frc3", "frc4", "frc5"];
     const contributions = buildFieldContributions({
       roster,
@@ -403,7 +394,7 @@ describe("buildFieldAveragedPreScheduleArtifact (plan 09-09 Task 2)", () => {
     expect(artifact.perTeamPmf).toHaveLength(5);
   });
 
-  it("never reads the filesystem: the whole build runs with no schedule-template cache access", () => {
+  it("never reads the filesystem: the whole build runs with no file access of any kind", () => {
     // Proven positively above by the 5-team case. Proven structurally here:
     // the module's own import surface is pinned by the case below, and this
     // builder touches none of it.
@@ -418,18 +409,17 @@ describe("preSchedule.ts's static import surface (plan 09-09 Task 2)", () => {
    * imports, following 08-04's `readFileSync` + regex precedent (the same
    * shape `browserSafeSchemas.test.ts` uses to read a shipped file off disk).
    *
-   * Written NOW, while the schedule-template import is still present and
-   * therefore still in the expected set. Plan 09-09 Task 5 updates the
-   * expected set when that import goes — which is what turns "schedule
-   * generation was deleted" into a FAILING TEST rather than a diff someone
-   * has to read.
+   * The schedule-generation import is in the expected set, so a change to
+   * where pairing structures come from (or their removal) is a FAILING TEST
+   * rather than a diff someone has to read.
    */
   const EXPECTED_IMPORT_SPECIFIERS: readonly string[] = [
     "./pageArtifacts.js",
     "../core/rankingPoints/fieldAveraged.js",
     "../core/rankingPoints/empiricalMoments.js",
     "../core/rankingPoints/constants.js",
-    "./scheduleTemplates.js",
+    // The reader import was replaced by the generator in quick task 260913-pnp.
+    "./generatedSchedules.js",
     "./rounding.js",
     "../core/algorithms/simulation/rankSimulation.js",
     "../core/algorithms/types.js",
