@@ -1,6 +1,6 @@
 /**
- * D-04 (Phase 6, plan 06-04 Task 2): the mid-rank percentile pass over a
- * season's full team pool for a given (algorithm, season) pair.
+ * The mid-rank percentile pass over a season's full team pool for a given
+ * (algorithm, season) pair.
  *
  * A team's percentile on a metric is
  * `(countStrictlyBelow + 0.5 * countEqual) / n * 100`, computed over EVERY
@@ -11,9 +11,9 @@
  * for a metric receives no `percentile` key at all on that metric — never a
  * coerced `0`, which would read as bottom-of-field.
  *
- * ONE POOL, ONE HELPER (quick task 260912-tnk). A rarity tier is a function
- * of (metric value, the one season ranking pool) on every surface of the
- * site. `packages/harness/publish.ts` builds that pool exactly once per
+ * ONE POOL, ONE HELPER. A rarity tier is a function of (metric value, the
+ * one season ranking pool) on every surface of the site.
+ * `packages/harness/publish.ts` builds that pool exactly once per
  * (algorithm, season) with `sortedPoolsByMetric`, from every team's metrics
  * as of its LAST OFFICIAL match (`lastOfficialMetricsByTeam`), and every
  * published percentile is ranked against it: the teams/{year} row's tier,
@@ -36,8 +36,8 @@ import { roundMetric, roundTo, ROUNDING_RULE } from "./rounding.js";
  * `TeamMetric` itself — it is a publish-time-only derived quantity, not
  * something any `AlgorithmModule` computes.
  *
- * Since quick task 260909-tgf (D2), the published `percentile` means
- * GOODNESS rank, not value rank: `metricDirectionOrDefault` looks up each
+ * The published `percentile` means GOODNESS rank, not value rank:
+ * `metricDirectionOrDefault` looks up each
  * metric name's declared direction and `goodnessPercentile` inverts it for a
  * declared lower-is-better name. This is identical to the raw value-rank
  * percentile for every higher-is-better metric — which was every metric
@@ -112,15 +112,15 @@ export function percentileRanks(values: readonly number[]): number[] {
  * source of truth for pool membership, matching this phase's prohibition
  * against ranking over a convenient subset).
  *
- * The published `percentile` is a GOODNESS rank (D2, quick task
- * 260909-tgf): the raw value-rank percentile is passed through
- * `goodnessPercentile` with that metric name's `metricDirectionOrDefault` —
- * the LENIENT accessor, never the strict one (see `metricDirection.ts`'s
- * file header for why a throw here would turn a multi-hour manual
- * `pnpm publish:seasons` run into a hard crash on an unrecognized name).
+ * The published `percentile` is a GOODNESS rank: the raw value-rank
+ * percentile is passed through `goodnessPercentile` with that metric name's
+ * `metricDirectionOrDefault` — the LENIENT accessor, never the strict one
+ * (see `metricDirection.ts`'s file header for why a throw here would turn a
+ * multi-hour manual `pnpm publish:seasons` run into a hard crash on an
+ * unrecognized name).
  *
- * Quick task 260912-tnk: every percentile is produced by
- * `goodnessPercentileAgainstPools` against `sortedPools` — the one pool the
+ * Every percentile is produced by `goodnessPercentileAgainstPools` against
+ * `sortedPools` — the one pool the
  * caller already built, or `sortedPoolsByMetric(metricsByTeam, teamKeys)`
  * when omitted — so a teams row, a history row and an event standing
  * carrying the same value always carry the same percentile. For a pool
@@ -147,11 +147,11 @@ export function withPercentiles(
 }
 
 /**
- * Quick task 260912-tnk: THE single function every pool-ranked published
- * percentile goes through — the teams row's tier, `seasonStats`, every
- * `metricHistory` row, every event standing, and the live Worker's Teams-row
- * tier re-derivation. Keeping it single is what makes the tier a function of
- * (value, pool) and nothing else.
+ * THE single function every pool-ranked published percentile goes through —
+ * the teams row's tier, `seasonStats`, every `metricHistory` row, every
+ * event standing, and the live Worker's Teams-row tier re-derivation.
+ * Keeping it single is what makes the tier a function of (value, pool) and
+ * nothing else.
  *
  * Ranks `roundMetric(value)` against `sortedPools.get(metricName)` with
  * `percentileAgainstSortedPool`'s mid-rank formula, then applies the metric's
@@ -162,7 +162,7 @@ export function withPercentiles(
  * teams that print the same number must share a percentile.
  *
  * Returns `undefined` when the map has no pool for `metricName` — never a
- * coerced 0, which would read as bottom-of-field (PD-07's absence contract).
+ * coerced 0, which would read as bottom-of-field.
  */
 export function goodnessPercentileAgainstPools(
   sortedPools: ReadonlyMap<string, readonly number[]>,
@@ -175,7 +175,7 @@ export function goodnessPercentileAgainstPools(
 }
 
 /**
- * Quick task 260912-tnk: one team's metric record, each metric widened with
+ * One team's metric record, each metric widened with
  * its percentile against `sortedPools` through
  * `goodnessPercentileAgainstPools`. A metric receives a percentile only when
  * (no `allowlist` is given, or its name is in it) AND a pool exists for that
@@ -201,8 +201,8 @@ export function withPoolPercentiles(
  * Thrown by `percentileAgainstSortedPool` for an empty pool. An empty pool
  * has no defensible percentile — a zero here would read downstream as
  * bottom-of-field, which is a positive false claim about a team the
- * pipeline actually knows nothing about (T-06.1-12). `sortedPoolsByMetric`
- * omits a metric name entirely when no team has a value for it (PD-07), so
+ * pipeline actually knows nothing about. `sortedPoolsByMetric`
+ * omits a metric name entirely when no team has a value for it, so
  * this throw path is unreachable in normal operation and is a defect
  * signal when it fires.
  */
@@ -214,14 +214,13 @@ export class EmptyPoolError extends Error {
 }
 
 /**
- * D-06.1-A: ranks an arbitrary query `value` — typically a team's metric
- * value at some EARLIER point in the season — against `sortedValues`. Since
- * quick task 260912-tnk that pool is the season's last-official-match field
- * (every team's metrics as of its last official match), so this reads as
- * "an earlier value ranked against the season's last-official-match field".
- * It is deliberately NOT "the field as of that match index" (the rejected
- * alternative from 06-UAT.md F-06-3, not planned, not sketched, and not
- * left as a TODO anywhere in this codebase).
+ * Ranks an arbitrary query `value` — typically a team's metric value at
+ * some EARLIER point in the season — against `sortedValues`. That pool is
+ * the season's last-official-match field (every team's metrics as of its
+ * last official match), so this reads as "an earlier value ranked against
+ * the season's last-official-match field". It is deliberately NOT "the
+ * field as of that match index" — a rejected alternative, not planned, not
+ * sketched, and not left as a TODO anywhere in this codebase.
  *
  * Direction-unaware and unrounded on purpose: published percentiles never
  * call this directly — they go through `goodnessPercentileAgainstPools`,
@@ -263,7 +262,7 @@ export function percentileAgainstSortedPool(sortedValues: readonly number[], val
 
 /**
  * Builds, once per `(algorithm, season)`, an ascending sorted-values array
- * per metric name — THE season ranking pool (quick task 260912-tnk) that
+ * per metric name — THE season ranking pool that
  * `goodnessPercentileAgainstPools` queries for every published percentile
  * (teams rows, `seasonStats`, every `metricHistory` row, every event
  * standing) rather than re-sorting per row.
@@ -278,13 +277,13 @@ export function percentileAgainstSortedPool(sortedValues: readonly number[], val
  * Worker only ever sees rounded published values, so its tier re-derivation
  * can reproduce the offline tiers exactly only if the offline pool is rounded
  * too — otherwise a rounding-created tie near a tier cut would resolve
- * differently on the two sides. `publish.ts`'s `rankableTeamRows` comment
- * (quick task 260905-ttv) already ranks ROUNDED metrics for the same reason.
- * Published values themselves are not rounded here; `buildTeamsArtifact` and
- * `buildTeamSeasonArtifact` still own that boundary.
+ * differently on the two sides. `publish.ts`'s `rankableTeamRows` already
+ * ranks ROUNDED metrics for the same reason. Published values themselves are
+ * not rounded here; `buildTeamsArtifact` and `buildTeamSeasonArtifact` still
+ * own that boundary.
  *
  * A metric name no team in `teamKeys` has a value for is OMITTED entirely
- * from the returned map (PD-07) — never mapped to an empty array. An empty
+ * from the returned map — never mapped to an empty array. An empty
  * array is a value a caller could mistake for "checked, pool is empty";
  * absence is the honest representation, and it is what makes
  * `percentileAgainstSortedPool`'s `EmptyPoolError` unreachable in normal
@@ -311,28 +310,20 @@ export function sortedPoolsByMetric(metricsByTeam: TeamMetrics, teamKeys: readon
 }
 
 /**
- * PD-06: the publishable metric-name allowlist for per-history-row
- * percentiles — the three `COMPONENT_GROUP_METRIC_KEYS` values
+ * The publishable metric-name allowlist for per-history-row percentiles —
+ * the three `COMPONENT_GROUP_METRIC_KEYS` values
  * (`phaseAuto`/`phaseTeleop`/`phaseEndgame`) plus `TOTAL_METRIC_KEY`,
  * imported from core rather than re-declared as string literals, so the
  * pipeline learns nothing about the UI and this list can never drift from
  * the names `breakdown/groups.ts` actually assigns.
  *
  * NOT every metric — this is a measured payload-budget decision, not an
- * oversight. `docs/publish-budget.md`'s git history records the budget-critical artifact
- * (`v1/team/frc118/2024/sigma1@2.0.0+tuned-2026-08.json`) [pre-rename] at 304,862 bytes
- * under a 375,000-byte ceiling: 70,138 bytes of headroom. That team-season
- * carries 292 `metricHistory` rows; a 2024 row's `metrics` record holds 17
- * names (13 season components, `total`, and the three phase groups). A
- * published `percentile` key costs roughly 18 bytes. All 17 names on all
- * 292 rows is roughly 89,000 bytes — more than the entire remaining
- * headroom, before this phase's per-bonus fields spend any of it. This
- * four-name set costs roughly 21,000 bytes, which fits alongside them.
- * Reversibility: costly — widening this set later needs another full
- * republish, but nothing breaks and no migration is needed. Plan 06.1-07
- * Task 1 re-measures this projection against the real corpus before the
- * republish is spent, and carries a pre-approved mitigation ladder if the
- * projection lands over.
+ * oversight. A published `percentile` key costs roughly 18 bytes, and the
+ * budget-critical team-season artifact carries hundreds of `metricHistory`
+ * rows, each with over a dozen metric names — widening this list to every
+ * metric would spend more than the remaining artifact-size headroom on its
+ * own. Reversibility: costly — widening this set later needs another full
+ * republish, but nothing breaks and no migration is needed.
  */
 export const HISTORY_PERCENTILE_METRIC_KEYS: readonly string[] = [...Object.values(COMPONENT_GROUP_METRIC_KEYS), TOTAL_METRIC_KEY];
 
