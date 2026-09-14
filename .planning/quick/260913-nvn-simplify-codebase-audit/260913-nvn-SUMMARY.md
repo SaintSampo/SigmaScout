@@ -2,8 +2,9 @@
 quick_id: 260913-nvn
 slug: simplify-codebase-audit
 date: 2026-09-13
-status: incomplete
-stopped_reason: all unreserved work done; last pass waits for sigmascout-26's all-clear and the 260913-pnp merge
+status: complete
+closed: 2026-09-14
+closed_reason: Jacob closed it with the held-back remainder moved to .planning/todos/pending/finish-nvn-held-back-trims-and-sigma-rename.md
 commits: 182
 net_lines_outside_planning: -35575
 files_deleted: 82
@@ -97,6 +98,6 @@ one `algorithms.json` request with no unused-preload warning; `/assets/*` immuta
 
 ## Remaining approved work
 
-1. After sigmascout-26's all-clear and sigmascout-37's merge message: the `consistencyByTeam` rename (byte-identity or tsc-proven), then comment trims of every held-back file above, `publish.ts` first.
-2. Close out: `status: complete`, STATE.md row via the patched `gsd-tools quick-tasks-append --task ... --dir 260913-nvn-simplify-codebase-audit --commit <sha>`.
-3. Still stale: `docs/first-paint-measurement.md` cites old line numbers (worker-operations.md and verifySubsetPublish.ts citations were fixed in c4e878e1).
+Closed 2026-09-14 by Jacob. The remainder is the pending todo `finish-nvn-held-back-trims-and-sigma-rename`:
+the `consistencyByTeam` rename, the comment trims of every held-back file above (`publish.ts` first), and the stale
+line citations in `docs/first-paint-measurement.md`. It waits for 260914-01x to push and the 260913-pnp branch to merge.
