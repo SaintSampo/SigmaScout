@@ -8,8 +8,9 @@ priority: high
 
 # A generated schedule structure matches the licensed grid — the template dependency can go
 
-Measured by two independent sessions, different routes, agreeing floors (73.7% vs 74.2% at
-`2025cur` / n=1000).
+Measured by two independent harnesses on the same six events: at n=2,000 their same-construction
+floors read 91.8% vs 89.3% pooled and 88.2% vs 78.9% at `2025cur`; the second is lower in both, as
+its 20-vs-50 draws per schedule predict; they agree in direction and neither reproduces the other.
 
 Compared at the **same** schedule count (n=4000), a rules-based generated structure agrees with the
 licensed cheesy-arena grid on **97.1%** of teams within half a median rank (clause 1 needs 95%),
@@ -76,7 +77,15 @@ re-run. Both halves are false. `09-CONTEXT.md:402` is scoped to rung 2 being cho
 exactly what happened, and it says D-19 is live. **This work is blocked on that judgement**, not
 merely on the schedule count.
 
-## MUST FIX BEFORE WIRING — the corroboration sentence cites a figure that does not exist
+## RESOLVED (quick task 260913-pnp) — MUST FIX BEFORE WIRING — the corroboration sentence cites a figure that does not exist
+
+**Resolution, 2026-09-13.** The old figure was the POOLED generated-vs-generated floor at N=1000
+and 20 draws per schedule, from the FIRST version of `docs/models/random-vs-generated-schedules.md`
+(commit `5454999e`, overwritten 41 minutes later by `71dccb26`), paired with rung-2's PER-EVENT
+`2025cur` figure — apples to oranges. `scripts/measureGeneratedSchedules.ts` no longer hardcodes the
+comparison: it now reads the comparand from the CURRENT `random-vs-generated-schedules.md`'s JSON
+block at matched scope (pooled and `2025cur`, both at n=2,000) and computes the sentence at render
+time. `docs/models/rung2-generated-schedules.md` was re-rendered with a one-line diff on line 31.
 
 Moved here 2026-09-12 when `reconcile-the-two-rung2-documents` was closed. It is that todo's only
 real residue, and it belongs to this work because it over-credits the generator **in exactly the
@@ -131,3 +140,35 @@ which means the gate could never have lifted on its own terms.
 **This does not unblock the work.** D-19 does that, and D-19 is live, unanswered, and Jacob's — see
 the correction block at the top of this file. What is removed is one *spurious* blocker sitting in
 front of a real one, which is worth removing precisely because it made the real one harder to see.
+
+## CLOSED 2026-09-13 — quick task 260913-pnp
+
+Jacob decided D-19 on 2026-09-13 that the generator's structurally-derived rules may be published.
+The "D-19 is LIVE / unanswered / blocked" passages above are superseded. See `09-CONTEXT.md`'s dated
+resolution beside both D-19 consequences (about lines 423 and 500). No reason is given here.
+
+The corroboration was fixed (`ca5114d2`).
+
+The generator is wired per schedule (`4daf2232`): `packages/harness/scheduleTemplates.ts`,
+`packages/harness/scheduleTemplates.test.ts`, `packages/harness/fixtures/schedule-templates/` (three
+CSVs plus its README), `scripts/measureGeneratedSchedules.ts`, `scripts/measureRandomSchedules.ts`
+and `scripts/fetchScheduleTemplates.ts` are deleted, along with the `fetch:schedule-templates` entry
+in root `package.json`. `scripts/measureFieldAveragedRanks.ts` stays, repointed at
+`packages/harness/generatedSchedules.ts` for `matchesPerTeamFor`, with its own binding-floor helpers
+now living in it instead of the deleted script.
+
+The measured generation cost: ~15.2 ms per `generateSchedule` call at 76 teams x 10 matches per team
+and ~4.8 ms at 37x12, against 215 RP-eligible 2026 events and 72 distinct (roster size, matches per
+team) cells. Jacob's 2026-09-14 choice to share grids by (roster size, matches per team) — schedule
+k's structure is generated once per shape and memoized in a bounded, transparent
+`ScheduleStructureCache` (`packages/harness/preSchedule.ts`), keyed
+`generate|<rosterSize>|<matchesPerTeam>|<k>` — brings the added publish time to about 6.2 minutes,
+instead of about 17.6 minutes without sharing.
+
+The behaviour change: 101-200-team events, formerly split into two template blocks, are now
+scheduled whole, up to `MAX_SCHEDULE_TEAMS` = 1,024 teams (the capacity of the generator's `pairKey`).
+
+Owed, and not done by this task: the republish from the main context (every published pre-schedule
+band moves), and the orchestrator's local deletion of the gitignored `data/schedule-templates/`.
+That deletion must wait until this branch is on main AND no publish from pre-merge code is still
+pending, because until then main's publish path still reads that cache.

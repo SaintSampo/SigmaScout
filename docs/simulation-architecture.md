@@ -106,13 +106,15 @@ other ~76 ms is Worker construction plus request/result transfer.
 |---|---|
 | `roster` | match-derived when matches exist, `event_teams` otherwise; sorted — the sort **is** the published index space |
 | `matchesPerTeam` | the real schedule's own when it exists, else Statbotics' 12 (10 for Champs divisions) |
-| schedule template | `data/schedule-templates/` — Team 254's cheesy-arena balanced grids, **gitignored** (custom licence, not MIT); a 3-cell committed fixture grid covers CI only |
+| pairing structure | `packages/harness/generatedSchedules.ts` — generates a fresh balanced structure per schedule, seeded from `eventKey`, `algorithmVersion`, a `generate` salt and `k`; needs no files |
 | `predict` closure | bound to the walk-forward **pre-event** state when the schedule has landed, **season-final** state when it hasn't (`pricedFrom`) |
 | `fillRankingPoints` | the SigmaScout level-2 RP filler, so opr/epa get pmfs too (before 2026-09-09 this was VPR-only) |
 
-K = `PRESIM_SCHEDULE_COUNT` = **20** synthetic schedules, each a seeded Fisher–Yates shuffle of
-roster→template slots. Seeds are FNV-1a over `eventKey|algorithmVersion|shuffle|k` — no
-platform RNG anywhere, so a republish is byte-identical.
+K = `PRESIM_SCHEDULE_COUNT` = **1,000** synthetic schedules. Each schedule is its own generated
+structure plus a seeded Fisher–Yates shuffle of the roster onto its slots. Structure k is shared
+by every event with the same roster size and matches per team (seeded over `generate`, the roster
+size, matches per team and `k`, and memoized), and the shuffle and baked seeds are per event.
+Seeds are FNV-1a — no platform RNG anywhere, so a republish is byte-identical.
 
 ### Pipeline outputs — the sidecar
 
@@ -269,10 +271,9 @@ zero-baselines every team, and runs the existing Worker.
 Client does the Fisher–Yates shuffle itself and prices each synthetic match.
 
 - **Payload**: could drop to a few KB per event.
-- **Blocker 1 — templates.** `data/schedule-templates/` is Team 254's licensed cache,
-  gitignored and explicitly not redistributable. Shipping it to browsers is a licence
-  question, not an engineering one. A browser-side balanced-schedule generator would be new
-  work and would no longer reproduce the published pricing.
+- **Blocker 1 — the generator.** The template cache no longer exists; the pairing structure
+  comes from `packages/harness/generatedSchedules.ts`. A browser-side run would have to
+  reproduce the generator's seeded output to match the published pricing.
 - **Blocker 2 — the RP model.** `predict()` → `rpPmfForMatch` needs, per alliance:
   `meanVector`, a T×T `varianceBlock`, `scoreMean`, `scoreVariance`, and a length-T
   `scoreCrossCovariance`, assembled by `RpMomentsAccumulator.momentsFor(roster, scoreMean,
@@ -325,7 +326,7 @@ feature regardless of where it runs:
 |---|---|
 | `packages/core/algorithms/simulation/rankSimulation.ts` | the one Monte Carlo core; `mulberry32`, `drawCategorical`, `simulateRanks` |
 | `packages/harness/preSchedule.ts` | pure sidecar builder; owns no pricing math |
-| `packages/harness/scheduleTemplates.ts` | licensed template reader + CI fixture fallback |
+| `packages/harness/generatedSchedules.ts` | the rules-based pairing-structure generator |
 | `packages/harness/publish.ts:1657` | per-event skip/price decisions, `pricedFrom` switch |
 | `packages/harness/pageArtifacts.ts:1798,1837` | `preScheduleKey`, `PreScheduleArtifactSchema` |
 | `apps/web/src/lib/simulationInputs.ts` | artifact + start match → `SimulationInputs` |

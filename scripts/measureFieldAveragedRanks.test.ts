@@ -19,25 +19,19 @@ import {
   CLAUSE_2_EDGE_TOLERANCE,
   CLAUSE_2_RATE,
   CLAUSE_3_MEAN_SHIFT,
+  DRAWS_PER_SCHEDULE,
   InsufficientSampleError,
   MINIMUM_EVENT_COUNT,
   evaluateRungOneCriterion,
   DEFAULT_SCHEDULE_COUNT,
+  REPLICATE_SUFFIX,
+  measureEdgeNoiseFloor,
+  measureResamplingFloor,
   measureSeedNoiseFloor,
   resolveScheduleSplit,
   rosterWeighted,
   type TeamQuantileRow,
 } from "./measureFieldAveragedRanks.js";
-// Imported SECOND and on purpose: `measureFieldAveragedRanks.js` above pulls
-// `measureGeneratedSchedules.js` in as part of its own import graph, and that
-// module imports back. The assertions in the cycle-load block below read these
-// bindings to prove the cycle still initialises.
-import {
-  DRAWS_PER_SCHEDULE,
-  REPLICATE_SUFFIX,
-  measureEdgeNoiseFloor,
-  measureResamplingFloor,
-} from "./measureGeneratedSchedules.js";
 
 /** Six synthetic event keys — the criterion's own minimum, so every table below is evaluable. */
 const EVENT_KEYS = ["evA", "evB", "evC", "evD", "evE", "evF"] as const;
@@ -349,20 +343,17 @@ describe("resolveScheduleSplit — an invalid count THROWS, naming the script an
 });
 
 // ---------------------------------------------------------------------------
-// The module cycle between the two measurement scripts
+// The binding floors, exported from this module (no module cycle)
 // ---------------------------------------------------------------------------
 
-describe("the measureFieldAveragedRanks <-> measureGeneratedSchedules module cycle still initialises", () => {
+describe("the binding noise floors are exported from this module, with no module cycle left", () => {
   /**
-   * `measureGeneratedSchedules.ts` imports this module, and this module now
-   * imports back for the BINDING noise floors. An ES module cycle resolves by
-   * handing the partially-initialised namespace to whichever side evaluates
-   * second, which is safe here ONLY because neither module reads an imported
-   * binding during top-level evaluation.
+   * The binding floors used to live in the retired rung-2 script, which this
+   * module imported back from, closing an ES module cycle. Quick task
+   * 260913-pnp moved them here and removed the cycle.
    *
-   * These assertions are what makes that a checked property rather than a
-   * comment. A later edit that adds top-level work touching an imported
-   * binding breaks the cycle and one side silently sees `undefined` — this
+   * These assertions pin that every binding the floors are computed from is
+   * exported from this module and initialised — a missing or undefined export
    * fails in a second, instead of ten minutes into a run that has already
    * replayed five seasons.
    */
@@ -380,7 +371,7 @@ describe("the measureFieldAveragedRanks <-> measureGeneratedSchedules module cyc
     expect(resolveScheduleSplit(1000).drawsPerSchedule).toBe(DRAWS_PER_SCHEDULE);
   });
 
-  it("resolves the OTHER direction of the cycle too — this module's own exports are not half-initialised", () => {
+  it("resolves this module's own criterion exports beside the floors — nothing is half-initialised", () => {
     expect(typeof evaluateRungOneCriterion).toBe("function");
     expect(typeof resolveScheduleSplit).toBe("function");
     expect(DEFAULT_SCHEDULE_COUNT).toBe(20);

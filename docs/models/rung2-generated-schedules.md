@@ -1,5 +1,7 @@
 # Rung 2 — a rules-based schedule generator, measured against the licensed template grid
 
+> **Retired 2026-09-13:** this document's measurement harness, `scripts/measureGeneratedSchedules.ts`, was retired along with the licensed templates (quick task 260913-pnp) and cannot be re-run.
+
 **This is an experiment, not a ship.** Nothing here was published, deployed or deleted; `data/schedule-templates/` and `packages/harness/scheduleTemplates.ts` are untouched; `PRESIM_SCHEDULE_COUNT` and `PRESIM_DRAWS_PER_SCHEDULE` keep their shipped values (20 schedules x 50 draws); and the generator is not wired into `publish.ts`.
 
 **Written by `npx tsx scripts/measureGeneratedSchedules.ts --render-doc`, not transcribed from terminal output.** On this project `publish:seasons` prints a payload-budget summary it does not write, and the budget tests stay red until a human copies the numbers across. This record does not reproduce that trap.
@@ -28,7 +30,7 @@ The rung-1 criterion's clause 1 asks that at least 95% of teams agree within 0.5
 
 **Resampling floor — the one that binds.** The licensed construction built **twice**, with fully independent shuffle-and-draw streams at the same count. A candidate arm draws its *own* K shuffles, so the disagreement it has to survive includes "which K shuffles did each side happen to draw", not just "which draws did each side happen to take". The two replicates are obtained by salting `algorithmVersion`, which in `buildPreScheduleArtifact` feeds the shuffle and baked seed hashes and nothing else — pricing is the same bound `predict` closure on both sides.
 
-The gap between the two columns below is large and it matters: the draw-only floor reaches 100% while the binding floor is still near 80%. A concurrent session's rung-2 work (`docs/models/random-vs-generated-schedules.md`) raises exactly this criticism of the seed-only control, and it lands on this table with equal force, so the binding floor is measured here rather than argued about. Its n=1000 value independently reproduces that session's separately-built 74.2% at `2025cur`.
+The gap between the two columns below is large and it matters: the draw-only floor reaches 100% while the binding floor is still near 80%. A concurrent session's rung-2 work (`docs/models/random-vs-generated-schedules.md`) raises exactly this criticism of the seed-only control, and it lands on this table with equal force, so the binding floor is measured here rather than argued about. Matched at the same count, that document's generated-vs-generated floor (the same construction built twice on the same six events, but at 20 draws per schedule where this table uses 50) reads 89.3% pooled and 78.9% at `2025cur` at n=2,000, against 91.8% and 88.2% here: lower in both cells, the direction its fewer draws per schedule predict. The two harnesses agree in direction; neither reproduces the other's figures.
 
 ### Clause-1 ceiling per event, read `draw-only / resampling`
 

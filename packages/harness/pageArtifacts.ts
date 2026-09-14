@@ -1952,10 +1952,9 @@ const HISTOGRAM_LENGTH_AND_SUM_MESSAGE =
  * RP model, plus the baked default rank distribution described on
  * `PreScheduleArtifactBaseSchema` above. This is `buildPreScheduleArtifact`'s
  * IN-MEMORY return type — `schedules` stays required here (260912-2ur)
- * because `scripts/measureFieldAveragedRanks.ts` and
- * `scripts/measureGeneratedSchedules.ts` read it directly as their
- * rung-1/rung-2 acceptance harness; making it optional would push
- * possibly-`undefined` reads into both scripts under `strict`. The bytes
+ * because `scripts/measureFieldAveragedRanks.ts` reads it directly as its
+ * rung-1 acceptance harness; making it optional would push
+ * possibly-`undefined` reads into that script under `strict`. The bytes
  * this schema describes are never what reaches R2 — see
  * `PublishedPreScheduleArtifactSchema` below for that. The five refinements
  * below are the guarantee that makes `MalformedRankHistogramError` in
