@@ -120,7 +120,7 @@ function fullEpaMetrics2024(): ArtifactTeam["metrics"] {
   return record;
 }
 
-/** The per-team metric set SPR's event artifacts publish: Total plus the three published phase columns. Sigma is omitted here — the 260913-jkp describe below covers the Total split pill. */
+/** The per-team metric set SPR's event artifacts publish: Total plus the three published phase columns. Sigma is omitted here — the describe below covers the Total split pill. */
 function sprMetrics2024(): ArtifactTeam["metrics"] {
   return {
     [TOTAL_KEY]: { value: 10, spread: 1 },
@@ -142,7 +142,7 @@ function renderBreakdown(artifact: EventArtifact, algorithmId = "spr", season = 
  * The DOM-ordered column ids of the LABEL row's header cells
  * (`breakdown-header-*` testids) — the stable way to read the column set now
  * that the grouped header also contains a toggle/spacer band row whose cells
- * carry no column identity (260905-3rq, sketch 009-A).
+ * carry no column identity.
  */
 function headerIds(): string[] {
   return screen.getAllByTestId(/^breakdown-header-/).map((el) => (el.getAttribute("data-testid") as string).replace("breakdown-header-", ""));
@@ -206,8 +206,8 @@ describe("BreakdownTab — column set (EVNT-03, collapsed default per sketch 009
       "nickname",
       TOTAL_KEY,
       "phaseAuto",
-      // 2024's map is grouped at phase granularity (quick task 260910-5ym), so
-      // expanding `teleop` reveals exactly one component column.
+      // 2024's map is grouped at phase granularity, so expanding `teleop`
+      // reveals exactly one component column.
       "teleop",
       "phaseEndgame",
       "foulsCommitted",
@@ -335,9 +335,9 @@ describe("BreakdownTab — tier key row and model-estimates caption (D-11)", () 
     expect(captions[0]?.textContent).toContain("SPR");
   });
 
-  // 260904-7rt (sketch 008 winner C): the key row's own Common swatch must
-  // draw the same ring every Common cell in the table draws, or the key and
-  // the cells it explains could disagree.
+  // The key row's own Common swatch must draw the same ring every Common
+  // cell in the table draws, or the key and the cells it explains could
+  // disagree.
   it("TierKeyRow's Common swatch carries the common tier ring, same as every other band", async () => {
     const artifact = makeArtifact([team()]);
     renderBreakdown(artifact, "spr", 2024);
@@ -432,8 +432,8 @@ describe("BreakdownTab — derived phase fallback (stale pre-260904-7id cache sh
     renderBreakdown(artifact, "epa", 2024);
 
     const cell = await screen.findByTestId("breakdown-cell-phaseAuto");
-    // 2024's `auto` group holds the single collapsed `auto` component (quick
-    // task 260910-5ym), at 10 in the fixture.
+    // 2024's `auto` group holds the single collapsed `auto` component, at
+    // 10 in the fixture.
     expect(cell.textContent).toBe("10.00");
     expect(cell.querySelector(".metric-tier")).toBeNull();
   });
@@ -667,9 +667,9 @@ describe("BreakdownTab: clean SPR table (quick task 260913-mgn)", () => {
   });
 
   it("desktop header labels share one box: Team # and Team Name sit in the same 44px centered box the sort buttons use, so every label in the row lines up (spr and epa); opr has no sort buttons and keeps bare labels", async () => {
-    // Visual check 2026-09-13: with SPR's band row gone the label row is the
-    // table's top edge, and the bare, top-aligned identity labels sat about
-    // 14px above the sort buttons' centered text.
+    // With SPR's band row gone the label row is the table's top edge, and
+    // the bare, top-aligned identity labels sat about 14px above the sort
+    // buttons' centered text.
     const boxClasses = (el: Element | null | undefined) => (el?.getAttribute("class") ?? "").split(/\s+/).filter((c) => c === "tap-target" || c === "inline-flex" || c === "items-center");
     for (const [algorithmId, metrics] of [
       ["spr", sprMetrics2024()],
