@@ -1,9 +1,9 @@
 /**
- * The message contract and plumbing for the app's first Web Worker (D-07:
- * 1000 draws in a browser Web Worker, live progress during the run, total
- * elapsed time on completion). All arithmetic here is orchestration —
+ * The message contract and plumbing for the app's first Web Worker: 1000
+ * draws in a browser Web Worker, live progress during the run, total
+ * elapsed time on completion. All arithmetic here is orchestration —
  * request validation, chunked-progress accumulation, error translation —
- * never draw/rank math, which stays entirely in 08-03's
+ * never draw/rank math, which stays entirely in
  * `packages/core/algorithms/simulation/rankSimulation.ts`.
  *
  * This module is plain TypeScript, importable and callable directly by
@@ -16,24 +16,24 @@
 import { simulateRanks, mulberry32 } from "../../../../packages/core/algorithms/simulation/rankSimulation.js";
 import type { SimMatchInput, SimTeamBaseline } from "../../../../packages/core/algorithms/simulation/rankSimulation.js";
 
-/** The fixed draw count EVNT-07 specifies. Single definition site — no component types the literal `1000`. */
+/** The fixed draw count. Single definition site — no component types the literal `1000`. */
 export const SIMULATION_DRAWS = 1000;
 
-/** Draws per progress message (20 updates across a full `SIMULATION_DRAWS` run). Chunking is how live progress is achieved against 08-03's `simulateRanks(matches, baselines, draws, rng)` signature, which has no progress callback of its own (PD-01). */
+/** Draws per progress message (20 updates across a full `SIMULATION_DRAWS` run). Chunking is how live progress is achieved against `simulateRanks(matches, baselines, draws, rng)`'s signature, which has no progress callback of its own. */
 export const PROGRESS_CHUNK_DRAWS = 50;
 
-/** Upper bound on `draws` accepted from a request — a denial-of-service ceiling on the visitor's own CPU (T-08-07-01), not a realistic operating value. */
+/** Upper bound on `draws` accepted from a request — a denial-of-service ceiling on the visitor's own CPU, not a realistic operating value. */
 export const MAX_SIMULATION_DRAWS = 10000;
 
-/** Upper bound on `matches.length` accepted from a request. The corpus's measured worst case is 135 qualification matches (`2024wvrox`); this ceiling is well above that with margin for a DoS-shaped or accidentally-wrong request (T-08-07-01). */
+/** Upper bound on `matches.length` accepted from a request. The corpus's measured worst case is 135 qualification matches (`2024wvrox`); this ceiling is well above that with margin for a DoS-shaped or accidentally-wrong request. */
 export const MAX_SIMULATION_MATCHES = 500;
 
 /**
- * Fixed so a simulation run is reproducible (PD-04): the same event and the
- * same start match must always yield the same rank distribution, so that
- * any change a visitor sees is a change in the underlying data, never an
- * artifact of the draw. 08-13 owns the call site and must record a reason
- * if it ever varies this value.
+ * Fixed so a simulation run is reproducible: the same event and the same
+ * start match must always yield the same rank distribution, so that any
+ * change a visitor sees is a change in the underlying data, never an
+ * artifact of the draw. The call site must record a reason if it ever
+ * varies this value.
  */
 export const DEFAULT_SIMULATION_SEED = 20260830;
 
@@ -48,8 +48,8 @@ export interface SimulationRequest {
   readonly draws: number;
   /**
    * Randomness crosses the thread boundary as a plain number, never as an
-   * rng function (PD-03): a function is not structured-cloneable, so a
-   * request carrying one would fail at `postMessage` with a runtime
+   * rng function: a function is not structured-cloneable, so a request
+   * carrying one would fail at `postMessage` with a runtime
    * `DataCloneError` that no typecheck would have caught. The worker
    * constructs `mulberry32(seed)` itself, on its own side of the boundary.
    * See `DEFAULT_SIMULATION_SEED` for why the value passed here is fixed.
@@ -69,26 +69,25 @@ export interface SimulationResultMessage {
   readonly type: "result";
   /**
    * `teamKey` -> a per-rank DRAW COUNT (never a probability), indexed
-   * `rank - 1`, exactly as 08-03's `simulateRanks` returns it and exactly
-   * as 08-04's `continuousQuantile(dist, p, draws)` consumes it
-   * unconverted. The Worker computes no quantile of its own.
+   * `rank - 1`, exactly as `simulateRanks` returns it and exactly as
+   * `continuousQuantile(dist, p, draws)` consumes it unconverted. The
+   * Worker computes no quantile of its own.
    */
   readonly rankHistograms: ReadonlyMap<string, Int32Array>;
   readonly draws: number;
   /**
    * The draw loop's OWN `performance.now()` duration. This is NOT the
-   * figure a user should read (PD-05): 08-13 measures the user-facing
-   * elapsed time on the main thread, from Run press to result arrival,
-   * which also includes worker construction and message-transfer latency —
-   * that is what the visitor actually waited through. `computeMs` exists so
-   * SC-2's representative measurement (08-13's SUMMARY) can be split into
-   * construction-plus-transfer versus compute. It must never become a
-   * second user-facing number.
+   * figure a user should read: the user-facing elapsed time is measured on
+   * the main thread, from Run press to result arrival, which also includes
+   * worker construction and message-transfer latency — that is what the
+   * visitor actually waited through. `computeMs` exists so a
+   * representative measurement can be split into construction-plus-transfer
+   * versus compute. It must never become a second user-facing number.
    */
   readonly computeMs: number;
 }
 
-/** The terminal failure message. Carries only `name`/`message` — never a stack, never a serialized object (T-08-07-06). */
+/** The terminal failure message. Carries only `name`/`message` — never a stack, never a serialized object. */
 export interface SimulationErrorMessage {
   readonly type: "error";
   readonly name: string;
@@ -100,10 +99,10 @@ export type SimulationOutboundMessage = SimulationProgressMessage | SimulationRe
 /**
  * A bound on cost and shape at the thread boundary — NOT a re-validation of
  * pmf contents. Pmf validity (each entry finite, non-empty, summing to 1
- * within tolerance) is the publish boundary's job
- * (`EventMatchSchema`'s `.refine(isValidPmf, ...)`, 08-02), with 08-03's own
- * up-front pass as defence-in-depth. Duplicating a numeric tolerance here is
- * how two tolerances drift apart from each other.
+ * within tolerance) is the publish boundary's job (`EventMatchSchema`'s
+ * `.refine(isValidPmf, ...)`), with `simulateRanks`'s own up-front pass as
+ * defence-in-depth. Duplicating a numeric tolerance here is how two
+ * tolerances drift apart from each other.
  */
 export function isSimulationRequest(value: unknown): value is SimulationRequest {
   if (typeof value !== "object" || value === null) return false;
@@ -120,14 +119,14 @@ export function isSimulationRequest(value: unknown): value is SimulationRequest 
 }
 
 /**
- * Runs one simulation job: validates `message`, then drives 08-03's
+ * Runs one simulation job: validates `message`, then drives
  * `simulateRanks` in `PROGRESS_CHUNK_DRAWS`-sized chunks sharing ONE
  * `mulberry32` rng instance, emitting one `progress` message per chunk and
  * a final `result` message. Any rejection or thrown error ends the run with
  * exactly one `error` message and nothing else — no partial result, no
  * further progress.
  *
- * Chunking is exact, not approximate (PD-01): each draw inside
+ * Chunking is exact, not approximate: each draw inside
  * `simulateRanks` resets its accumulators from `baselines` and consumes the
  * same number of rng values regardless of how many draws are requested in
  * one call, and per-rank draw counts are additive across calls sharing one
