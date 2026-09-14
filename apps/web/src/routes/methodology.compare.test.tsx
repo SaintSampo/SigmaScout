@@ -1,8 +1,7 @@
 /**
- * D-10's parity check (SC-4, EVAL-05, 08-01-PLAN.md Task 3; grown to all
- * three compLevel views by 08-06-PLAN.md Task 3): renders the REAL exported
- * `Route` object from `compare.tsx` against committed copies of the five
- * real published `v1/compare/{year}.json` artifacts, and proves the page is
+ * The parity check: renders the REAL exported `Route` object from
+ * `compare.tsx` against committed copies of the five real published
+ * `v1/compare/{year}.json` artifacts, and proves the page is
  * faithful to those artifacts — every expected value below is an
  * expression computed from the imported fixture at run time, never a
  * hand-typed second copy that could silently drift from it.
@@ -38,21 +37,21 @@ import { coverageCellTestId, DATA_COVERAGE_SCROLL_TESTID, DATA_COVERAGE_SECTION_
 import { COVERAGE_EXCLUSION_COLUMNS } from "../components/compare/coverageRows.js";
 import { Route as CompareRouteImport } from "./methodology.compare.js";
 /**
+/**
  * Fixture provenance, and why this set is deliberately MIXED-GENERATION.
  *
- * 2022-2026 are frozen snapshots of generation `1c11cdd8` (2026-08-30,
- * vpr 2.1.0+tuned-2026-08). They are NOT refreshed on each republish, because
- * several tests below pin hand-picked cases against their exact figures — the
- * 2023 elimination near-tie is described in its own test name as "the tightest
- * above-threshold case in the corpus", and re-fetching would silently
- * re-select which case that is, turning a deliberate boundary test into
- * whatever the newest data happens to contain.
+ * 2022-2026 are frozen snapshots of one generation. They are NOT refreshed
+ * on each republish, because several tests below pin hand-picked cases
+ * against their exact figures — the 2023 elimination near-tie is described
+ * in its own test name as "the tightest above-threshold case in the
+ * corpus", and re-fetching would silently re-select which case that is,
+ * turning a deliberate boundary test into whatever the newest data happens
+ * to contain.
  *
- * 2016-2020 were added 2026-09-07 when the Compare floor moved 2022 -> 2016,
- * fetched from the live origin at generation `969314df` (vpr
- * 10.0.0+rolling-2026-09e). They carry no pinned figures — nothing below
- * asserts a specific number from them — so the generation skew costs nothing
- * and is preferable to the alternative of refreshing all ten and losing the
+ * 2016-2020 were added later, fetched from the live origin at a newer
+ * generation. They carry no pinned figures — nothing below asserts a
+ * specific number from them — so the generation skew costs nothing and is
+ * preferable to the alternative of refreshing all ten and losing the
  * pinned cases above.
  */
 import compare2016 from "./__fixtures__/compare-2016.json";
@@ -103,9 +102,9 @@ function renderCompareRoute() {
 /**
  * Reads the rendered cell text for one (season, algorithm, metric) triple, by
  * locating the row whose first cell is that season and the fixed column
- * index PUBLISHED_ALGORITHM_IDS/D-08's column order implies. Scoped to the
+ * index `PUBLISHED_ALGORITHM_IDS`'s column order implies. Scoped to the
  * accuracy table's OWN scroll region (`COMPARE_ACCURACY_SCROLL_TESTID`) —
- * 08-12's `DataCoverageTable` mounts a SECOND `<table>` on this same page, so
+ * `DataCoverageTable` mounts a SECOND `<table>` on this same page, so
  * `screen.getByRole("table")` alone is no longer unambiguous.
  */
 function readCellText(season: number, algorithmId: string, metric: "accuracy" | "brier"): string {
@@ -128,7 +127,7 @@ function readCellIsBold(season: number, algorithmId: string, metric: "accuracy" 
   const algorithmIndex = PUBLISHED_ALGORITHM_IDS.indexOf(algorithmId as (typeof PUBLISHED_ALGORITHM_IDS)[number]);
   const cellIndex = 1 + algorithmIndex * 2 + (metric === "accuracy" ? 0 : 1);
   const cells = within(row).getAllByRole("cell");
-  // Emphasis is a pill element, not a font weight (quick task 260908-b4t).
+  // Emphasis is a pill element, not a font weight.
   return cells[cellIndex]!.querySelector("[data-emphasis]") !== null;
 }
 
@@ -257,22 +256,12 @@ describe("/compare route — D-11 naive-divergence lock (real fixtures, 3 views 
 
     const diverged = decisions.filter((d) => !sameLeaderSet(d.computed, d.naive));
 
-    // Measured against the ten committed real fixtures. History: four
-    // divergences at planning time (08-CONTEXT.md D-11), nine after the
-    // Compare floor moved 2022 -> 2016 on 2026-09-07, ten once SPR was
-    // published (quick task 260908-b4t), and eleven at generation 40e7277d.
-    //
-    // The move from ten to eleven is NOT drift -- it is one specific,
-    // explainable consequence of the SPR no-call fix (260908-b4t addendum 2).
-    // That fix cost SPR exactly 1.00pp of 2016 accuracy, dropping it from
-    // 71.46% to 70.46% and just BEHIND epa's 70.49%. A 0.03pp gap is deep
-    // inside the near-tie threshold, so 2016 combined and 2016 qualification
-    // became divergences with EPA as the naive leader. Meanwhile 2026
-    // elimination stopped diverging under the vpr 09g re-fit. Net +2 -1.
-    //
-    // Consequently the naive leader is NO LONGER always spr: two of the
-    // eleven are epa. What stays invariant is the DIRECTION, asserted at the
-    // bottom of this test -- the real rule only ever withholds emphasis.
+    // Measured against the ten committed real fixtures. The naive leader is
+    // NOT always spr: two of the eleven divergences have epa as the naive
+    // leader (SPR trails EPA by 0.03pp in 2016 combined and qualification,
+    // inside the near-tie threshold). What stays invariant is the
+    // DIRECTION, asserted at the bottom of this test -- the real rule only
+    // ever withholds emphasis.
     expect(diverged).toHaveLength(11);
     expect(diverged.every((d) => d.metric === "accuracy")).toBe(true);
     expect(diverged.every((d) => d.naive.length === 1)).toBe(true);
@@ -329,13 +318,11 @@ describe("/compare route — D-11 named real-data regression cases (elimination 
   }
 
   it("2023 elimination Winner Accuracy renders no bold at all — SPR leads but inside the near-tie threshold", async () => {
-    // Was "renders VPR bold — the tightest above-threshold case in the
-    // corpus". Publishing the spr algorithm (quick task 260908-b4t) ended
-    // that: SPR now leads 2023 elimination accuracy, but by less than the
-    // near-tie threshold, so the rule withholds emphasis from EVERY cell
-    // rather than moving the bold from VPR to SPR. Asserting the whole row
-    // is unbolded is the stronger claim, and it is the same case the D-11
-    // divergence lock above names as `elimination 2023 accuracy`.
+    // SPR leads 2023 elimination accuracy, but by less than the near-tie
+    // threshold, so the rule withholds emphasis from EVERY cell rather than
+    // bolding just the leader. Asserting the whole row is unbolded is the
+    // stronger claim, and it is the same case the divergence lock above
+    // names as `elimination 2023 accuracy`.
     mockFetch();
     renderCompareRoute();
     await waitFor(() => expect(within(screen.getByTestId(COMPARE_ACCURACY_SCROLL_TESTID)).getByRole("table")).toBeDefined());
@@ -532,7 +519,7 @@ describe("/compare route — Calibration section (sketch 006-C cards, 2026-09-01
     return slice;
   }
 
-  /** The fixture-recomputed headline sentence for one card — the SAME pure model the component renders through, per D-10. */
+  /** The fixture-recomputed headline sentence for one card — the SAME pure model the component renders through. */
   function expectedSentence(year: number, algorithmId: PublishedAlgorithmId, view: string): string {
     const card = buildCalibrationCard(calibrationSliceFor(year, algorithmId, view));
     if (card.headline === null) throw new Error("fixture unexpectedly has no valid bins");
@@ -677,9 +664,9 @@ describe("/compare route — Data coverage per year (08-12, COMP-01, D-09, D-10 
         expect(screen.getByTestId(coverageCellTestId(season, "tieCount")).textContent).toBe(expectedSharedText(entries, (s) => s.tieCount));
         for (const column of COVERAGE_EXCLUSION_COLUMNS) {
           if (column.key === "coldStart") {
-            // Quick task 260909-t5q (D-04): every committed fixture predates
-            // this field entirely — none of the three algorithms publishes
-            // it, so the column collapses to the ABSENT variant (a blank
+            // Every committed fixture predates this field entirely — none
+            // of the three algorithms publishes it, so the column
+            // collapses to the ABSENT variant (a blank
             // cell), never to an agreed 0. `expectedSharedText`'s `reader`
             // contract assumes an always-present number, which does not
             // hold for this one optional column, hence the direct assertion
@@ -707,11 +694,11 @@ describe("/compare route — Data coverage per year (08-12, COMP-01, D-09, D-10 
           (s) => s.candidateCount,
           (s) => s.scoredCount,
           (s) => s.tieCount,
-          // Quick task 260909-t5q: the committed fixtures predate `coldStart`
-          // entirely, so `exclusionCounts` here structurally has only the
-          // original four keys — cast to a wider index type rather than
-          // widening every fixture, since the runtime value is legitimately
-          // `undefined` for that column on every committed fixture (D-04).
+          // The committed fixtures predate `coldStart` entirely, so
+          // `exclusionCounts` here structurally has only the original four
+          // keys — cast to a wider index type rather than widening every
+          // fixture, since the runtime value is legitimately `undefined`
+          // for that column on every committed fixture.
           ...COVERAGE_EXCLUSION_COLUMNS.map(
             (column) => (s: FixtureSlice) => (s.exclusionCounts as Record<string, number | undefined>)[column.key] as number,
           ),
