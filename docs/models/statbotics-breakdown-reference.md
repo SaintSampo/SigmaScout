@@ -1,5 +1,9 @@
 # Statbotics' EPA model — verbatim reference
 
+> **License.** The Python quoted in this file is Statbotics' source,
+> Copyright (c) 2020 Abhijit Gupta, used under the MIT License. The full license text is in
+> [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
+
 **Why this file exists.** Three times now a SigmaScout measurement has been blocked because a
 Statbotics detail was NAMED in a planning document but never transcribed into the repo. Quick
 task 260910-x09 hit it with the 2018 switch/scale sigmoid (`unmeasurable-no-reference`); quick

@@ -4,6 +4,8 @@
  * github.com/avgupta456/statbotics/blob/master/backend/src/models/epa/{math,main}.py
  * (`add_obs`'s two-stage EWMA, `percent_func`'s decaying learning rate, and
  * `k_func`'s margin-over-season-SD win-probability logistic).
+ * Statbotics is Copyright (c) 2020 Abhijit Gupta, MIT License; see
+ * THIRD_PARTY_NOTICES.md at the repo root.
  *
  * Component attribution splits an alliance's ERROR across its
  * rating-eligible teammates, computed once per component from the
