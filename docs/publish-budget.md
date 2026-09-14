@@ -261,8 +261,8 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
 
 ```json budget
 {
-  "measuredAt": "2026-09-14T06:33:02.434Z",
-  "run": "tsx packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2026 --write-budget -- generation 4645739b-f1f5-4aac-95db-9c7e01cb8ff3, 108976 objects, 3908787937 bytes total, 214 presim sidecars (median 6828 B, p95 15932 B, max 23820 B), 2026-09-14T06:05:31.789Z to 2026-09-14T06:33:02.434Z (0h27m31s)",
+  "measuredAt": "2026-09-14T07:09:26.708Z",
+  "run": "tsx packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2026 --write-budget -- generation 3ba2b580-dc28-47f2-9c5f-2eba28b3748f, 108976 objects, 3908787937 bytes total, 214 presim sidecars (median 6842 B, p95 15997 B, max 23839 B), 2026-09-14T06:38:36.309Z to 2026-09-14T07:09:26.708Z (0h30m50s)",
   "pages": {
     "teams": {
       "count": 30,

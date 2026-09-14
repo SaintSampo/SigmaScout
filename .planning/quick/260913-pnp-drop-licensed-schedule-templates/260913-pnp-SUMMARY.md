@@ -2,7 +2,7 @@
 quick_id: 260913-pnp
 slug: drop-licensed-schedule-templates
 date: 2026-09-14
-status: incomplete
+status: complete
 stopped_reason: all work committed on branch quick/260913-pnp and handed to Jacob (2026-09-14), who takes the merge from here; it waits on sigmascout-26's all-clear for packages/harness/publish.ts (260914-01x)
 branch: quick/260913-pnp
 worktree: removed at handoff (the branch keeps every commit)
