@@ -17,10 +17,8 @@ function preserveSearch(prev: Record<string, unknown>): never {
 }
 
 /**
- * The Acknowledgments page body (quick task 260905-tor). Maps
- * `ACKNOWLEDGMENTS_ENTRIES` to `<section>` elements — content-as-data,
- * matching the structure and closing-link treatment the former Intro to
- * VPR page used before its retirement (quick task 260908-n5o).
+ * The Acknowledgments page body. Maps `ACKNOWLEDGMENTS_ENTRIES` to
+ * `<section>` elements — content-as-data.
  *
  * The outbound anchor for each credit lives inside its `<h2>` rather than
  * beside it: that keeps one accessible name shared by both the heading role
@@ -30,9 +28,8 @@ function preserveSearch(prev: Record<string, unknown>): never {
  *
  * The internal link to the accuracy-comparison route is keyed by
  * `ACKNOWLEDGMENTS_ACCURACY_LINK_ENTRY_ID` rather than folded into the
- * paragraph strings, because it's DOM (a typed `Link`), not prose — the same
- * reason the former Intro to VPR page keyed its own closing link by section
- * id instead of putting a raw `<a>` string in `readonly string[]` content
+ * paragraph strings, because it's DOM (a typed `Link`), not prose — a raw
+ * `<a>` string would not belong in `readonly string[]` content
  * data.
  */
 export function AcknowledgmentsPage() {

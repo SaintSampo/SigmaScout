@@ -6,15 +6,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { teamFilterOptions, type TeamFilterOptionLists, type TeamFilterRow, type TeamFilters as TeamFiltersModel } from "./teamFilterModel";
 
 /**
- * Quick task 260905-ttv: the Country/State/District control row for the
- * Teams page. Filter state never lives here — this component reports
- * changes up via callbacks; the caller (`routes/teams.tsx`) owns
- * reading/writing the URL through `TeamsSearchSchema`, mirroring
- * `EventFilters.tsx`'s own discipline exactly.
+ * The Country/State/District control row for the Teams page. Filter state
+ * never lives here — this component reports changes up via callbacks; the
+ * caller (`routes/teams.tsx`) owns reading/writing the URL through
+ * `TeamsSearchSchema`, mirroring `EventFilters.tsx`'s own discipline
+ * exactly.
  *
  * ONE wrapping control row for both viewports, deliberately no mobile sheet
  * — a difference from `EventFilters.tsx` worth naming rather than leaving as
- * an apparent oversight. The Events page's sheet exists because of D-15's
+ * an apparent oversight. The Events page's sheet exists because of its
  * staged "Apply filters" decision over FOUR dimensions (week plus three
  * region filters); this page has three dimensions and no staged-apply
  * decision, and three controls sized as the Events row already sizes them

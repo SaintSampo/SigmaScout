@@ -1,7 +1,7 @@
 /**
- * Human event-date formatting (2026-09-01 redesign): the artifact's ISO
- * `startDate` ("2026-03-04") renders as "Mar 4" — the page is already
- * scoped to a year, so the year is never repeated per row.
+ * Human event-date formatting: the artifact's ISO `startDate`
+ * ("2026-03-04") renders as "Mar 4" — the page is already scoped to a
+ * year, so the year is never repeated per row.
  *
  * Parsed and formatted in UTC on both sides so the calendar date can never
  * shift across the viewer's timezone (a bare ISO date parses as UTC

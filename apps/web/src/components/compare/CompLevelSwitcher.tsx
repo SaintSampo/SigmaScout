@@ -3,24 +3,22 @@ import { cn } from "@/lib/utils";
 import type { CompareCompLevelView } from "../../lib/api/compare.js";
 
 /**
- * The Compare page's three-segment compLevel switcher (08-06-PLAN.md Task 2,
- * D-09/UI-SPEC C2). Three `Button`s in a labelled `role="group"`, NOT Radix
- * `Tabs` (Decision 1) — this control re-slices two sibling sections that
- * stay mounted, rather than swapping one panel, and `Tabs`' `TabsList` locks
- * a 32px height that fights UI-SPEC's 44x44 tap-target exception for this
- * exact control.
+ * The Compare page's three-segment compLevel switcher. Three `Button`s in
+ * a labelled `role="group"`, NOT Radix `Tabs` — this control re-slices two
+ * sibling sections that stay mounted, rather than swapping one panel, and
+ * `Tabs`' `TabsList` locks a 32px height that fights the 44x44 tap-target
+ * exception for this exact control.
  *
  * FULLY CONTROLLED: `value`/`onValueChange` only, no internal state hook.
  * `compare.tsx` holds the ONE `compLevelView` state both this switcher and
- * `AccuracyTable` (and 08-10's calibration section) read — a second copy of
+ * `AccuracyTable` (and the calibration section) read — a second copy of
  * the selection here would be exactly the "two controls that could
- * disagree" shape D-09's "one state, two consumers" obligation exists to
- * prevent.
+ * disagree" shape this design exists to prevent.
  */
 
 export const COMP_LEVEL_SWITCHER_TESTID = "compare-comp-level-switcher";
 
-/** Decision 2: the group's accessible name matches the register its own segment labels are written in. */
+/** The group's accessible name matches the register its own segment labels are written in. */
 const COMP_LEVEL_SWITCHER_GROUP_LABEL = "Match type";
 
 export interface CompLevelViewOption {
@@ -28,7 +26,7 @@ export interface CompLevelViewOption {
   readonly label: string;
 }
 
-/** Copywriting Contract's exact three labels, in the fixed Combined/Qualification/Elimination order. */
+/** The exact three labels, in the fixed Combined/Qualification/Elimination order. */
 export const COMP_LEVEL_VIEW_OPTIONS: readonly CompLevelViewOption[] = [
   { view: "combined", label: "Combined" },
   { view: "qualification", label: "Qualification" },
@@ -37,7 +35,7 @@ export const COMP_LEVEL_VIEW_OPTIONS: readonly CompLevelViewOption[] = [
 
 export const DEFAULT_COMP_LEVEL_VIEW: CompareCompLevelView = "combined";
 
-/** A stable per-segment test id, so the route test and 08-15's narrow-width check address segments without depending on label text. */
+/** A stable per-segment test id, so the route test and the narrow-width check address segments without depending on label text. */
 export function compLevelSegmentTestId(view: CompareCompLevelView): string {
   return `${COMP_LEVEL_SWITCHER_TESTID}-segment-${view}`;
 }

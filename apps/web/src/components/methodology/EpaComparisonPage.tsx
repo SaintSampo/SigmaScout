@@ -18,12 +18,12 @@ import {
 import type { EpaComparisonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
- * The `/methodology/epa-vs-statbotics` page body (quick task 260912-tib, a
- * from-scratch rewrite). The route owns the single query; this file never
- * fetches. Static prose (the lead, the shared list, every difference card)
- * renders from first paint, including while the artifact is pending, on a
- * 404, and on a fetch error — only the `results` slot waits on the artifact,
- * filled in by the route with the appropriate branch.
+ * The `/methodology/epa-vs-statbotics` page body. The route owns the
+ * single query; this file never fetches. Static prose (the lead, the
+ * shared list, every difference card) renders from first paint, including
+ * while the artifact is pending, on a 404, and on a fetch error — only the
+ * `results` slot waits on the artifact, filled in by the route with the
+ * appropriate branch.
  *
  * `.event-card` is this app's shared card treatment, reused from
  * `MethodologyCards.tsx` and `CalibrationSection.tsx`. The head-to-head
@@ -32,9 +32,8 @@ import type { EpaComparisonArtifact } from "../../../../../packages/harness/page
  *
  * The published artifact's `agreement` array is intentionally unused here —
  * this page dropped the per-season agreement table (OLS slope, Pearson
- * correlation, mean absolute difference) by a locked decision (Jacob,
- * 2026-09-12); the schema still requires the field so the artifact and its
- * writer are untouched by this plan.
+ * correlation, mean absolute difference) by a locked decision; the schema
+ * still requires the field so the artifact and its writer are untouched.
  */
 
 const SAME_LIST_TESTID = "epa-comparison-same-list";

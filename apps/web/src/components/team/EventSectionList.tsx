@@ -5,9 +5,8 @@ import { computeAxisDomain } from "./matchAxis.js";
 import { EventSection } from "./EventSection.js";
 
 /**
- * The second composition seam `OverviewTab.tsx` freezes (06-01-PLAN.md
- * Task 2) — this plan (06-08) fills in each section's match table without
- * editing this prop contract or `OverviewTab.tsx`.
+ * The second composition seam `OverviewTab.tsx` freezes — a section's match
+ * table fills in without editing this prop contract or `OverviewTab.tsx`.
  */
 export interface EventSectionListProps {
   artifact: TeamSeasonArtifact;
@@ -21,10 +20,9 @@ export interface EventSectionListProps {
  * season, ordered by `startDate` ascending — ISO `YYYY-MM-DD` strings sort
  * correctly with a plain string comparator, no `Date` parsing needed. An
  * event carrying zero matches is not rendered at all — that case folds into
- * the page-level zero-events state plan 06-01 built (E5 empty). The shared
- * score axis domain is computed ONCE here, across the whole team-season
- * (D-06), and passed down to every section — never recomputed per event or
- * per row.
+ * the page-level zero-events state. The shared score axis domain is
+ * computed ONCE here, across the whole team-season, and passed down to
+ * every section — never recomputed per event or per row.
  */
 export function EventSectionList({ artifact, algorithmId, season }: EventSectionListProps) {
   const events = [...artifact.events]
