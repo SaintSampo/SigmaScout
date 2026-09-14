@@ -1,0 +1,567 @@
+{
+  "measuredAt": "2026-09-14T02:08:27.489Z",
+  "command": "npx tsx scripts/measureRpCalibration.ts --seasons 2016-2020,2022 --algorithm spr --outcome-arms --emit-outcome-arms data/baselines/rp-outcome-arms-2026-09.json",
+  "corpusIdentity": {
+    "path": "data/corpus.sqlite",
+    "sizeBytes": 591257600,
+    "mtime": "2026-09-13T23:51:32.579Z"
+  },
+  "algorithmVersions": {
+    "spr": "4.0.0+baseline"
+  },
+  "seasons": [
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2022
+  ],
+  "arms": [
+    {
+      "arm": "control",
+      "totalRp": {
+        "count": 137482,
+        "rankedProbabilityScore": 0.16030306690742607,
+        "meanPredictedRp": 1.2145967948547687,
+        "meanActualRp": 1.5230793849376645,
+        "excludedNullActual": 0,
+        "excludedOutOfSupport": 0
+      },
+      "outcome": {
+        "count": 68741,
+        "brierScore": 0.3820457547550947,
+        "meanPredictedTie": 0,
+        "observedTieRate": 0.012918054727164284
+      },
+      "perSeason": [
+        {
+          "season": 2016,
+          "totalRp": {
+            "count": 22158,
+            "rankedProbabilityScore": 0.23095210299902996,
+            "meanPredictedRp": 1.0479256237110923,
+            "meanActualRp": 1.8296326383247585,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 11079,
+            "brierScore": 0.38591993952837034,
+            "meanPredictedTie": 0,
+            "observedTieRate": 0.013178084664680928
+          }
+        },
+        {
+          "season": 2017,
+          "totalRp": {
+            "count": 25386,
+            "rankedProbabilityScore": 0.12495889910016492,
+            "meanPredictedRp": 1.0430891146774122,
+            "meanActualRp": 1.1184117229969275,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 12693,
+            "brierScore": 0.4474276151476986,
+            "meanPredictedTie": 0,
+            "observedTieRate": 0.01693847002284724
+          }
+        },
+        {
+          "season": 2018,
+          "totalRp": {
+            "count": 28312,
+            "rankedProbabilityScore": 0.15895306365877365,
+            "meanPredictedRp": 1.2031162332133054,
+            "meanActualRp": 1.576645945182255,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 14156,
+            "brierScore": 0.36271817024638164,
+            "meanPredictedTie": 0,
+            "observedTieRate": 0.0018366770274088726
+          }
+        },
+        {
+          "season": 2019,
+          "totalRp": {
+            "count": 29858,
+            "rankedProbabilityScore": 0.1460373943546728,
+            "meanPredictedRp": 1.2493518771531835,
+            "meanActualRp": 1.4785987005157746,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 14929,
+            "brierScore": 0.3878837451448997,
+            "meanPredictedTie": 0,
+            "observedTieRate": 0.02016210060955188
+          }
+        },
+        {
+          "season": 2020,
+          "totalRp": {
+            "count": 7640,
+            "rankedProbabilityScore": 0.17008816084193298,
+            "meanPredictedRp": 1.0430294581675363,
+            "meanActualRp": 1.1464659685863874,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 3820,
+            "brierScore": 0.39879008555262496,
+            "meanPredictedTie": 0,
+            "observedTieRate": 0.007068062827225131
+          }
+        },
+        {
+          "season": 2022,
+          "totalRp": {
+            "count": 24128,
+            "rankedProbabilityScore": 0.1487485794916833,
+            "meanPredictedRp": 1.5728978826118802,
+            "meanActualRp": 1.7787632625994696,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 12064,
+            "brierScore": 0.3198498443657402,
+            "meanPredictedTie": 0,
+            "observedTieRate": 0.014340185676392572
+          }
+        }
+      ]
+    },
+    {
+      "arm": "win",
+      "totalRp": {
+        "count": 137482,
+        "rankedProbabilityScore": 0.15966410583639654,
+        "meanPredictedRp": 1.2145967948547987,
+        "meanActualRp": 1.5230793849376645,
+        "excludedNullActual": 0,
+        "excludedOutOfSupport": 0
+      },
+      "outcome": {
+        "count": 68741,
+        "brierScore": 0.37987185188079997,
+        "meanPredictedTie": 0,
+        "observedTieRate": 0.012918054727164284
+      },
+      "perSeason": [
+        {
+          "season": 2016,
+          "totalRp": {
+            "count": 22158,
+            "rankedProbabilityScore": 0.22844874554740727,
+            "meanPredictedRp": 1.0479256237111036,
+            "meanActualRp": 1.8296326383247585,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 11079,
+            "brierScore": 0.38593004039621326,
+            "meanPredictedTie": 0,
+            "observedTieRate": 0.013178084664680928
+          }
+        },
+        {
+          "season": 2017,
+          "totalRp": {
+            "count": 25386,
+            "rankedProbabilityScore": 0.12322274764269986,
+            "meanPredictedRp": 1.043089114677415,
+            "meanActualRp": 1.1184117229969275,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 12693,
+            "brierScore": 0.4387699664745451,
+            "meanPredictedTie": 0,
+            "observedTieRate": 0.01693847002284724
+          }
+        },
+        {
+          "season": 2018,
+          "totalRp": {
+            "count": 28312,
+            "rankedProbabilityScore": 0.1587144114756685,
+            "meanPredictedRp": 1.2031162332133087,
+            "meanActualRp": 1.576645945182255,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 14156,
+            "brierScore": 0.36156347460528965,
+            "meanPredictedTie": 0,
+            "observedTieRate": 0.0018366770274088726
+          }
+        },
+        {
+          "season": 2019,
+          "totalRp": {
+            "count": 29858,
+            "rankedProbabilityScore": 0.14616793333776498,
+            "meanPredictedRp": 1.2493518771531773,
+            "meanActualRp": 1.4785987005157746,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 14929,
+            "brierScore": 0.3863462928212149,
+            "meanPredictedTie": 0,
+            "observedTieRate": 0.02016210060955188
+          }
+        },
+        {
+          "season": 2020,
+          "totalRp": {
+            "count": 7640,
+            "rankedProbabilityScore": 0.17033445431459035,
+            "meanPredictedRp": 1.043029458167536,
+            "meanActualRp": 1.1464659685863874,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 3820,
+            "brierScore": 0.3997147046647895,
+            "meanPredictedTie": 0,
+            "observedTieRate": 0.007068062827225131
+          }
+        },
+        {
+          "season": 2022,
+          "totalRp": {
+            "count": 24128,
+            "rankedProbabilityScore": 0.14927390669929133,
+            "meanPredictedRp": 1.5728978826118851,
+            "meanActualRp": 1.7787632625994696,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 12064,
+            "brierScore": 0.31952738264814373,
+            "meanPredictedTie": 0,
+            "observedTieRate": 0.014340185676392572
+          }
+        }
+      ]
+    },
+    {
+      "arm": "tie",
+      "totalRp": {
+        "count": 137482,
+        "rankedProbabilityScore": 0.16018526013833845,
+        "meanPredictedRp": 1.2145967948547902,
+        "meanActualRp": 1.5230793849376645,
+        "excludedNullActual": 0,
+        "excludedOutOfSupport": 0
+      },
+      "outcome": {
+        "count": 68741,
+        "brierScore": 0.38158399254102204,
+        "meanPredictedTie": 0.013626480060680367,
+        "observedTieRate": 0.012918054727164284
+      },
+      "perSeason": [
+        {
+          "season": 2016,
+          "totalRp": {
+            "count": 22158,
+            "rankedProbabilityScore": 0.229902254388177,
+            "meanPredictedRp": 1.0479256237110954,
+            "meanActualRp": 1.8296326383247585,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 11079,
+            "brierScore": 0.38535238198570154,
+            "meanPredictedTie": 0.016376651000896657,
+            "observedTieRate": 0.013178084664680928
+          }
+        },
+        {
+          "season": 2017,
+          "totalRp": {
+            "count": 25386,
+            "rankedProbabilityScore": 0.12487063698283901,
+            "meanPredictedRp": 1.0430891146774073,
+            "meanActualRp": 1.1184117229969275,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 12693,
+            "brierScore": 0.4468696749349127,
+            "meanPredictedTie": 0.005916964034313937,
+            "observedTieRate": 0.01693847002284724
+          }
+        },
+        {
+          "season": 2018,
+          "totalRp": {
+            "count": 28312,
+            "rankedProbabilityScore": 0.15893569857376386,
+            "meanPredictedRp": 1.2031162332133056,
+            "meanActualRp": 1.576645945182255,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 14156,
+            "brierScore": 0.3627914898315933,
+            "meanPredictedTie": 0.00367550784568531,
+            "observedTieRate": 0.0018366770274088726
+          }
+        },
+        {
+          "season": 2019,
+          "totalRp": {
+            "count": 29858,
+            "rankedProbabilityScore": 0.14611135242213105,
+            "meanPredictedRp": 1.2493518771531886,
+            "meanActualRp": 1.4785987005157746,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 14929,
+            "brierScore": 0.3868195121229445,
+            "meanPredictedTie": 0.024805767010901758,
+            "observedTieRate": 0.02016210060955188
+          }
+        },
+        {
+          "season": 2020,
+          "totalRp": {
+            "count": 7640,
+            "rankedProbabilityScore": 0.17009685877401098,
+            "meanPredictedRp": 1.0430294581675397,
+            "meanActualRp": 1.1464659685863874,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 3820,
+            "brierScore": 0.39879498116191425,
+            "meanPredictedTie": 0.010526597195509635,
+            "observedTieRate": 0.007068062827225131
+          }
+        },
+        {
+          "season": 2022,
+          "totalRp": {
+            "count": 24128,
+            "rankedProbabilityScore": 0.14906040830095363,
+            "meanPredictedRp": 1.5728978826118778,
+            "meanActualRp": 1.7787632625994696,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 12064,
+            "brierScore": 0.3195563455500424,
+            "meanPredictedTie": 0.01803626814229377,
+            "observedTieRate": 0.014340185676392572
+          }
+        }
+      ]
+    },
+    {
+      "arm": "win+tie",
+      "totalRp": {
+        "count": 137482,
+        "rankedProbabilityScore": 0.15962672811257442,
+        "meanPredictedRp": 1.214596794854789,
+        "meanActualRp": 1.5230793849376645,
+        "excludedNullActual": 0,
+        "excludedOutOfSupport": 0
+      },
+      "outcome": {
+        "count": 68741,
+        "brierScore": 0.37976894826162266,
+        "meanPredictedTie": 0.013626480060680367,
+        "observedTieRate": 0.012918054727164284
+      },
+      "perSeason": [
+        {
+          "season": 2016,
+          "totalRp": {
+            "count": 22158,
+            "rankedProbabilityScore": 0.2275602275613957,
+            "meanPredictedRp": 1.0479256237110968,
+            "meanActualRp": 1.8296326383247585,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 11079,
+            "brierScore": 0.385903852327034,
+            "meanPredictedTie": 0.016376651000896657,
+            "observedTieRate": 0.013178084664680928
+          }
+        },
+        {
+          "season": 2017,
+          "totalRp": {
+            "count": 25386,
+            "rankedProbabilityScore": 0.12320819814399109,
+            "meanPredictedRp": 1.0430891146774122,
+            "meanActualRp": 1.1184117229969275,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 12693,
+            "brierScore": 0.4385260593682923,
+            "meanPredictedTie": 0.005916964034313937,
+            "observedTieRate": 0.01693847002284724
+          }
+        },
+        {
+          "season": 2018,
+          "totalRp": {
+            "count": 28312,
+            "rankedProbabilityScore": 0.15868951506038223,
+            "meanPredictedRp": 1.2031162332133065,
+            "meanActualRp": 1.576645945182255,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 14156,
+            "brierScore": 0.36160170636815475,
+            "meanPredictedTie": 0.00367550784568531,
+            "observedTieRate": 0.0018366770274088726
+          }
+        },
+        {
+          "season": 2019,
+          "totalRp": {
+            "count": 29858,
+            "rankedProbabilityScore": 0.1463835620315793,
+            "meanPredictedRp": 1.249351877153186,
+            "meanActualRp": 1.4785987005157746,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 14929,
+            "brierScore": 0.3859992531880562,
+            "meanPredictedTie": 0.024805767010901758,
+            "observedTieRate": 0.02016210060955188
+          }
+        },
+        {
+          "season": 2020,
+          "totalRp": {
+            "count": 7640,
+            "rankedProbabilityScore": 0.17037930290665648,
+            "meanPredictedRp": 1.0430294581675412,
+            "meanActualRp": 1.1464659685863874,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 3820,
+            "brierScore": 0.39982948896709863,
+            "meanPredictedTie": 0.010526597195509635,
+            "observedTieRate": 0.007068062827225131
+          }
+        },
+        {
+          "season": 2022,
+          "totalRp": {
+            "count": 24128,
+            "rankedProbabilityScore": 0.14964038354810283,
+            "meanPredictedRp": 1.5728978826118827,
+            "meanActualRp": 1.7787632625994696,
+            "excludedNullActual": 0,
+            "excludedOutOfSupport": 0
+          },
+          "outcome": {
+            "count": 12064,
+            "brierScore": 0.31956995746955474,
+            "meanPredictedTie": 0.01803626814229377,
+            "observedTieRate": 0.014340185676392572
+          }
+        }
+      ]
+    }
+  ],
+  "f6Gap": [
+    {
+      "arm": "control",
+      "n": 68741,
+      "medianAbsDiff": 0.027404132371756873,
+      "p90AbsDiff": 0.08823837151149927,
+      "maxAbsDiff": 0.19705058519245927,
+      "favouriteDisagreements": 0
+    },
+    {
+      "arm": "win",
+      "n": 68741,
+      "medianAbsDiff": 0,
+      "p90AbsDiff": 0,
+      "maxAbsDiff": 0,
+      "favouriteDisagreements": 0
+    },
+    {
+      "arm": "tie",
+      "n": 68741,
+      "medianAbsDiff": 0.026725354756267028,
+      "p90AbsDiff": 0.08528263846689188,
+      "maxAbsDiff": 0.1988005339550383,
+      "favouriteDisagreements": 699
+    },
+    {
+      "arm": "win+tie",
+      "n": 68741,
+      "medianAbsDiff": 0.0041343833170993105,
+      "p90AbsDiff": 0.01660785271931542,
+      "maxAbsDiff": 0.15845425510661726,
+      "favouriteDisagreements": 889
+    }
+  ],
+  "barVerdicts": [
+    {
+      "arm": "control",
+      "accepted": false,
+      "rpsDelta": 0,
+      "brierDelta": 0
+    },
+    {
+      "arm": "win",
+      "accepted": true,
+      "rpsDelta": -0.0006389610710295368,
+      "brierDelta": -0.002173902874294753
+    },
+    {
+      "arm": "tie",
+      "accepted": true,
+      "rpsDelta": -0.000117806769087625,
+      "brierDelta": -0.0004617622140726807
+    },
+    {
+      "arm": "win+tie",
+      "accepted": true,
+      "rpsDelta": -0.0006763387948516553,
+      "brierDelta": -0.002276806493472061
+    }
+  ],
+  "ship": "win+tie"
+}
