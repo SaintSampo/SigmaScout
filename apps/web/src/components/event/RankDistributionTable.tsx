@@ -1,26 +1,24 @@
 /**
- * The rank-distribution table (08-14-PLAN.md Task 3, D-05/D-06/D-14, EVNT-07)
- * — the Simulation tab's central visualization. Four columns: Team #,
- * Nickname (both leading, matching `BreakdownTab.tsx`'s own identity-column
- * lead), Median (a plain display integer) and Distribution (the three-layer
- * plot cell on a shared 1..N rank axis drawn exactly once in the column
- * header). No column is frozen horizontally (2026-09-13).
+ * The rank-distribution table — the Simulation tab's central visualization.
+ * Four columns: Team #, Nickname (both leading, matching `BreakdownTab.tsx`'s
+ * own identity-column lead), Median (a plain display integer) and
+ * Distribution (the three-layer plot cell on a shared 1..N rank axis drawn
+ * exactly once in the column header). No column is frozen horizontally.
  *
  * Every position in this file comes from `simAxis.ts` (`x`, `histBarExtent`,
  * `rankBandExtent`, `medianTickLeft`, `rankAxisTicks`, `PLOT_W`,
  * `SIM_GEOMETRY`) or `rankRows.ts` (`histBarHeight`, `rankBandLabel`) — no
  * second, hand-tuned position is computed here. The row order this table
- * renders is whatever `buildRankDistributionRows` (Task 1) produced; this
- * component re-sorts nothing, computes no quantile and no median of its own.
+ * renders is whatever `buildRankDistributionRows` produced; this component
+ * re-sorts nothing, computes no quantile and no median of its own.
  *
- * This file deliberately does NOT add a probability-of-finishing-top-8 or
- * alliance-captain column (D-06, dropped on the user's explicit instruction
- * — and the cutoff is not universally 8 anyway: 1,193 of 1,355 corpus events
- * run 8 alliances, 104 run 4 and 22 run 6, so such a column would have had
- * to derive its threshold per event). It renders no caption claiming the
- * ranking method replicates official tie-breaking, because only TBA's
- * position-0 sort order is ever ingested and no data-backed secondary sort
- * exists anywhere in this pipeline (D-14).
+ * This file deliberately does not add a probability-of-finishing-top-8 or
+ * alliance-captain column — the cutoff is not universally 8 across the
+ * corpus's events, so such a column would have had to derive its threshold
+ * per event. It renders no caption claiming the ranking method replicates
+ * official tie-breaking, because only TBA's position-0 sort order is ever
+ * ingested and no data-backed secondary sort exists anywhere in this
+ * pipeline.
  */
 import { columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -40,17 +38,15 @@ import type { PublishedAlgorithmId } from "../../../../../packages/harness/publi
 export const RANK_TABLE_HEADERS = ["Team #", "Team Name", "Median", "Distribution"] as const;
 
 /**
- * The shared 1..N rank axis, drawn EXACTLY ONCE inside the Distribution
+ * The shared 1..N rank axis, drawn exactly once inside the Distribution
  * column's own header cell — mirroring `EventMatchTable.tsx`'s
- * `EventAxisHeader` generalized from a score axis to a rank axis. A per-row
- * scale was rejected by the user on sight in sketch 005, and this axis is
- * deliberately NEVER clipped to the union of occupied ranks: every one of
+ * `EventAxisHeader` generalized from a score axis to a rank axis. This axis
+ * is deliberately never clipped to the union of occupied ranks: every one of
  * the 1000 draws assigns every team to exactly one of the N ranks, so every
- * rank is occupied by somebody across the table, and clipping reclaims
- * exactly zero pixels (measured in sketch 005, independently confirmed by
- * the user seeing no difference). The visually-hidden "Distribution" span
- * keeps this cell's accessible name and `RANK_TABLE_HEADERS`'s own text in
- * agreement without competing with the axis for the reader's attention.
+ * rank is occupied by somebody across the table. The visually-hidden
+ * "Distribution" span keeps this cell's accessible name and
+ * `RANK_TABLE_HEADERS`'s own text in agreement without competing with the
+ * axis for the reader's attention.
  */
 function RankAxisHeader({ teamCount, plotW }: { teamCount: number; plotW: number }) {
   const ticks = rankAxisTicks(teamCount, plotW);
@@ -75,18 +71,15 @@ function RankAxisHeader({ teamCount, plotW }: { teamCount: number; plotW: number
 
 /**
  * One row's plot cell: histogram bars, then the translucent 10th-90th band,
- * then the median tick — drawn in THAT DOM order so the tick is never
+ * then the median tick — drawn in that DOM order so the tick is never
  * obscured. Bars are emitted only for ranks with a non-zero draw count (the
- * one real per-row node reduction available; `docs/ui/rank-distribution-mock.md`
- * reports the measured node count this produces at the largest sampled
- * roster). The band carries the `sim-band-overlay` class and NOTHING ELSE —
- * no inline opacity, no filter, no blend mode: that token already carries
- * its own 18% alpha, and applying `SIM_GEOMETRY.BAND_OPACITY` a second time
- * as a CSS opacity would render the band at roughly 3.2%, invisible — the
- * same zero-width-band defect arriving by a second route, which is exactly
- * why 08-04 couples the constant and the token by its own test. The band's
- * extents are already clamped inside `rankBandExtent` against real measured
- * overflows and are never re-clamped or adjusted here.
+ * one real per-row node reduction available). The band carries the
+ * `sim-band-overlay` class and nothing else — no inline opacity, no filter,
+ * no blend mode: that token already carries its own alpha, and applying
+ * `SIM_GEOMETRY.BAND_OPACITY` a second time as a CSS opacity would render the
+ * band nearly invisible. The band's extents are already clamped inside
+ * `rankBandExtent` against real measured overflows and are never re-clamped
+ * or adjusted here.
  */
 function RankDistributionPlotCell({ row, teamCount, plotW }: { row: RankDistributionRow; teamCount: number; plotW: number }) {
   const bars = [];
@@ -105,15 +98,15 @@ function RankDistributionPlotCell({ row, teamCount, plotW }: { row: RankDistribu
   }
 
   const band = rankBandExtent(row.p10, row.p90, teamCount, plotW);
-  // The CONTINUOUS median, never the display integer — this is the render-layer
-  // proof of 08-14 Decision 1's coupled-geometry rule (chart-craft.md).
+  // The continuous median, never the display integer — coupled geometry, not
+  // a second computation.
   const tickLeft = medianTickLeft(row.medianRank, teamCount, plotW);
 
   return (
-    // Bounded to the plot's own width so the percentile label below can
-    // never be the thing that widens the column: at 390px the label
-    // ("10th-90th: 19.9-28.1") measures wider than the shrunken plot and was
-    // pushing 17px of overflow into a table that must never scroll sideways.
+    // Bounded to the plot's own width so the percentile label below can never
+    // be the thing that widens the column: a wide label can measure wider
+    // than a shrunken plot and push overflow into a table that must never
+    // scroll sideways.
     <div className="flex flex-col gap-[var(--spacing-xs)]" style={{ width: plotW }}>
       <div data-testid={`rank-plot-${row.teamKey}`} className="relative" style={{ width: plotW, height: SIM_GEOMETRY.ROW_PLOT_H }}>
         {bars}
@@ -130,14 +123,12 @@ function RankDistributionPlotCell({ row, teamCount, plotW }: { row: RankDistribu
       </div>
       {/*
         An explicit percentile range, one decimal place, joined by an en
-        dash — NEVER a plus-or-minus quantity. Phase 7 D-01 reserves that
-        glyph for exactly one standard deviation of full predictive
-        variance at every aggregation level on this site; a rank spread is
-        not that quantity, because rank is bounded, integer and skewed.
-        `rankBandLabel` (rankRows.ts) is the one function that formats this
-        string, and neither it nor this file ever types that glyph. The
-        app's shared metric-value primitive is never imported here or
-        anywhere else in this table — it prints that glyph by construction.
+        dash — never a plus-or-minus quantity: that glyph is reserved for
+        exactly one standard deviation of full predictive variance, and a
+        rank spread is not that quantity, because rank is bounded, integer
+        and skewed. `rankBandLabel` (rankRows.ts) is the one function that
+        formats this string, and neither it nor this file ever types that
+        glyph.
       */}
       <span data-testid={`rank-band-label-${row.teamKey}`} className="text-role-label truncate text-[var(--color-text-muted)]">
         {rankBandLabel(row.p10, row.p90)}
@@ -148,9 +139,9 @@ function RankDistributionPlotCell({ row, teamCount, plotW }: { row: RankDistribu
 
 /**
  * Registered once, module-level: only column sizing is registered (no
- * pinning feature — no column in this table is frozen, 2026-09-13). The
- * column helper is typed against THIS module's own `RankDistributionRow`, so
- * it is declared locally rather than imported across a module boundary.
+ * pinning feature — no column in this table is frozen). The column helper is
+ * typed against this module's own `RankDistributionRow`, so it is declared
+ * locally rather than imported across a module boundary.
  */
 const features = tableFeatures({ columnSizingFeature });
 const columnHelper = createColumnHelper<typeof features, RankDistributionRow>();
@@ -161,19 +152,18 @@ const columnHelper = createColumnHelper<typeof features, RankDistributionRow>();
  * every row's team-page links share the same values the caller passed to the
  * table. `algorithmId` is typed as plain `string` here and cast to
  * `PublishedAlgorithmId` at the one call site that needs it — the same
- * loose-cast escape hatch `InsightsTab.tsx`/`BreakdownTab.tsx` already use
- * for a value the type system widened crossing a component-prop boundary
- * (it was already validated upstream through `RootSearchSchema.algorithm`,
- * T-05-02, before this table ever rendered).
+ * loose-cast escape hatch `InsightsTab.tsx`/`BreakdownTab.tsx` already use for
+ * a value the type system widened crossing a component-prop boundary (it was
+ * already validated upstream through `RootSearchSchema.algorithm` before this
+ * table ever rendered).
  */
 function buildRankTableColumns(teamCount: number, season: number, algorithmId: string, isNarrow: boolean, plotColumnW: number) {
   const algorithm = algorithmId as PublishedAlgorithmId;
   return columnHelper.columns([
     columnHelper.accessor("teamNumber", {
       header: RANK_TABLE_HEADERS[0],
-      // Same real-geometry derivation InsightsTab.tsx sizes its own
-      // Team # column at (72/88 at the two breakpoints); the narrow width
-      // is the shared exported constant, never a new literal.
+      // Same derivation InsightsTab.tsx sizes its own Team # column at; the
+      // narrow width is the shared exported constant, never a new literal.
       size: isNarrow ? RANK_COLUMN_WIDTHS.narrow.teamNumber : RANK_COLUMN_WIDTHS.wide.teamNumber,
       cell: (info) => (
         <Link to="/team/$teamNumber" params={{ teamNumber: String(info.getValue()) }} search={{ year: season, algorithm, tab: "overview" }}>
@@ -192,9 +182,8 @@ function buildRankTableColumns(teamCount: number, season: number, algorithmId: s
             params={{ teamNumber: String(info.row.original.teamNumber) }}
             search={{ year: season, algorithm, tab: "overview" }}
             title={nickname}
-            // `truncate` on the ANCHOR, not the cell — the anchor is the box
-            // that actually overflows (InsightsTab.tsx's own measured
-            // correction, Phase 7's 390px finding).
+            // `truncate` on the anchor, not the cell — the anchor is the box
+            // that actually overflows.
             className="block max-w-full truncate"
           >
             {nickname ?? ""}
@@ -206,9 +195,8 @@ function buildRankTableColumns(teamCount: number, season: number, algorithmId: s
       header: RANK_TABLE_HEADERS[2],
       size: isNarrow ? RANK_COLUMN_WIDTHS.narrow.median : RANK_COLUMN_WIDTHS.wide.median,
       // A plain numeric-cell integer — no tier box, no colour, no weight
-      // change. This is the display rounding of the CONTINUOUS median the
-      // tick draws (rankRows.ts's own medianDisplayRank), never a second
-      // computation.
+      // change. This is the display rounding of the continuous median the
+      // tick draws, never a second computation.
       cell: (info) => <span className="numeric-cell text-role-body">{info.getValue()}</span>,
     }),
     columnHelper.accessor((row) => row, {
@@ -228,28 +216,23 @@ export interface RankDistributionTableProps {
 }
 
 /**
- * The rank-distribution table. `tableLayout: "fixed"` (07-UAT.md G-1's own
- * measured reasoning, reproduced by `InsightsTab.tsx`): an `auto` layout
- * lets the browser resize columns past their declared `size`, and the
+ * The rank-distribution table. `tableLayout: "fixed"`: an `auto` layout lets
+ * the browser resize columns past their declared `size`, and the
  * leftover-width computation below (`fixedColumnsWidth`) depends on every
  * column actually rendering at its declared width. The table is sized to
- * `max-content` (2026-09-01) so there is no slack to redistribute and no
- * trailing filler cell is needed.
+ * `max-content` so there is no slack to redistribute and no trailing filler
+ * cell is needed.
  */
 /**
- * The three non-plot columns' declared widths, per breakpoint — the ONE
+ * The three non-plot columns' declared widths, per breakpoint — the one
  * source both `buildRankTableColumns` and the leftover-width computation
  * read, so the columns' declared sizes and the space left for the plot can
- * never disagree.
+ * never disagree. A team number is at most five digits and a median at most
+ * three, so both carry only what their content needs; the nickname keeps
+ * enough room for a typical FRC name and ellipsises the rest (every cell
+ * already carries `truncate` and a `title` with the full name).
  *
- * 2026-09-01 (user: "team number, nickname, and median columns look wide"):
- * trimmed from 88/220/84 to 72/176/64. A team number is at most five digits
- * and a median at most three, so both were carrying far more width than
- * their content ever needs; the nickname keeps enough room for a typical
- * FRC name and ellipsises the rest (every cell already carries `truncate`
- * and a `title` with the full name).
- *
- * These widths INCLUDE each cell's own horizontal padding, because
+ * These widths include each cell's own horizontal padding, because
  * Tailwind's preflight sets `box-sizing: border-box`.
  */
 const RANK_COLUMN_WIDTHS = {
@@ -266,11 +249,10 @@ function fixedColumnsWidth(isNarrow: boolean): number {
 const CELL_PADDING_X_PX = 16;
 
 /**
- * The plot COLUMN's floor, chosen so it is never actually reached at any
+ * The plot column's floor, chosen so it is never actually reached at any
  * supported width. The narrowest device this project targets is 320px, whose
  * card measures 255px; the narrow fixed columns take 180, leaving 75 — above
- * this floor, so the table fits exactly rather than clipping. Verified live
- * at 320/390/600/900/1280/1600: horizontal overflow is 0 at every one.
+ * this floor, so the table fits exactly rather than clipping.
  */
 const MIN_PLOT_COLUMN_W = 72;
 
@@ -278,18 +260,15 @@ export function RankDistributionTable({ rows, teamCount, season, algorithmId }: 
   const isNarrow = useIsMobile();
 
   /*
-   * 2026-09-01 (user: "the simulation table is not wide enough, it should be
-   * symmetrically wide, aligned with the above text"): the plot stretches to
-   * fill whatever width the card actually has, instead of every row being a
-   * fixed 470px island inside a card that hugged it and left the rest of the
-   * content column empty.
+   * The plot stretches to fill whatever width the card actually has, rather
+   * than every row being a fixed-width island inside a card that hugged it.
    *
    * Measured rather than assumed, using the same measure-with-a-sane-fallback
-   * pattern `MetricHistoryChart.tsx` established for exactly this problem:
-   * jsdom always measures 0, so tests and the first paint fall back to
-   * `PLOT_W` and render the geometry this table shipped with. `PLOT_W` is also
-   * the FLOOR — on a viewport too narrow to grant more, the plot keeps its
-   * original width and the card scrolls horizontally exactly as before.
+   * pattern `MetricHistoryChart.tsx` established: jsdom always measures 0, so
+   * tests and the first paint fall back to `PLOT_W` and render the geometry
+   * this table shipped with. `PLOT_W` is also the floor — on a viewport too
+   * narrow to grant more, the plot keeps its original width and the card
+   * scrolls horizontally.
    */
   const containerRef = useRef<HTMLDivElement>(null);
   const [plotColumnW, setPlotColumnW] = useState<number>(PLOT_W + CELL_PADDING_X_PX);
@@ -298,9 +277,9 @@ export function RankDistributionTable({ rows, teamCount, season, algorithmId }: 
       const el = containerRef.current;
       if (!el) return;
       // A zero measurement means "not laid out" — jsdom always reports 0, and
-      // so does a real browser before first layout. KEEP the fallback in that
-      // case rather than clamping to the floor, which would silently render
-      // every plot at its minimum width under test.
+      // so does a real browser before first layout. Keep the fallback rather
+      // than clamping to the floor, which would silently render every plot at
+      // its minimum width under test.
       const measured = el.clientWidth;
       if (measured <= 0) return;
       const available = measured - fixedColumnsWidth(isNarrow);
@@ -318,33 +297,28 @@ export function RankDistributionTable({ rows, teamCount, season, algorithmId }: 
   const table = useTable({ features, columns, data: rows as RankDistributionRow[] });
 
   return (
-    // `max-h-[70vh]` + `overflow-y-auto` (2026-09-01 user request: a sticky
-    // title row). This element was ALREADY a vertical scroll container —
-    // `overflow-x: auto` forces `overflow-y`'s used value to `auto` per the
-    // CSS Overflow spec, the same rule that bit the ribbon in G-12 — but with
+    // `max-h-[70vh]` + `overflow-y-auto` for a sticky title row. This element
+    // is already a vertical scroll container — `overflow-x: auto` forces
+    // `overflow-y`'s used value to `auto` per the CSS Overflow spec — but with
     // an unbounded height it never actually scrolled, so a `position: sticky`
     // header inside it would have had nothing to stick against. Bounding the
-    // height is what gives the sticky header a scrollport; one row per team
-    // at ~70px means a 75-team division is over 5000px tall, so this table
-    // genuinely wants its own scrollport rather than the page's.
+    // height is what gives the sticky header a scrollport; a large division
+    // renders well over 5000px tall, so this table genuinely wants its own
+    // scrollport rather than the page's.
     <div
       ref={containerRef}
       data-testid="rank-distribution-table-scroll"
-      // Full width, not hug-the-content (2026-09-01): the card spans the same width
-      // as the run summary and the picker above it, and the plot grows to
-      // fill it, rather than the card shrinking to a fixed-width plot and
-      // leaving the right half of the content column empty.
+      // Full width, not hug-the-content: the card spans the same width as the
+      // run summary and the picker above it, and the plot grows to fill it.
       className="data-card max-h-[70vh] w-full min-w-0 touch-pan-xy overflow-x-hidden overflow-y-auto overscroll-contain"
     >
       <table
         style={{
           tableLayout: "fixed",
-          // Exactly the card's width, never more (2026-09-01, user: "should
-          // not ever have a horizontal scroll bar"). The declared column
-          // sizes are computed to SUM to this width — the three fixed
-          // columns plus the measured leftover — so `100%` neither leaves a
-          // dead strip nor overflows, and there is no `minWidth` to force a
-          // scrollbar back.
+          // Exactly the card's width, never more. The declared column sizes
+          // are computed to sum to this width — the three fixed columns plus
+          // the measured leftover — so `100%` neither leaves a dead strip nor
+          // overflows, and there is no `minWidth` to force a scrollbar back.
           width: "100%",
           borderCollapse: "separate",
           borderSpacing: 0,
@@ -361,9 +335,8 @@ export function RankDistributionTable({ rows, teamCount, season, algorithmId }: 
                   style={{
                     width: header.getSize(),
                     // `top: 0` keeps the title row visible inside this
-                    // table's own scrollport while the reader scrolls
-                    // (2026-09-01 user request); no column is frozen
-                    // horizontally (2026-09-13).
+                    // table's own scrollport while the reader scrolls; no
+                    // column is frozen horizontally.
                     position: "sticky",
                     top: 0,
                     zIndex: 4,

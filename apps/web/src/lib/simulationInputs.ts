@@ -7,43 +7,40 @@ import type {
 import { mergeEventMatches, isQualCompLevel, type EventMatchRow } from "../components/event/eventMatchAxis.js";
 
 /**
- * The pure assembly layer between a parsed event artifact and 08-03's
- * `simulateRanks` core (08-11-PLAN.md Task 1). Answers the two questions
- * `rankSimulation.ts` deliberately refused to own: which qualification rows
- * are "remaining" from a chosen start match (D-13), and what each team has
- * already earned going into that start match (D-12). No React import, no
- * Web Worker, no call to `simulateRanks` anywhere in this file — it only
- * assembles that function's future arguments.
+ * The pure assembly layer between a parsed event artifact and
+ * `simulateRanks` (rankSimulation.ts). Answers the two questions that core
+ * deliberately refused to own: which qualification rows are "remaining" from
+ * a chosen start match, and what each team has already earned going into
+ * that start match. No React import, no Web Worker, no call to
+ * `simulateRanks` anywhere in this file — it only assembles that function's
+ * future arguments.
  */
 
 /**
  * The number of Monte Carlo draws every simulation run performs. This exact
- * value has FOUR render sites across the phase: the Copywriting Contract's
- * picker hint (`START_MATCH_PICKER_HINT`, `StartMatchPicker.tsx`), this
- * module's own scope-line text (`simulationScopeText`), and 08-13's
- * in-progress counter and completion summary. Every one of those sites
- * imports this constant rather than retyping the digits, so a future change
- * to the draw count cannot land in three places and miss a fourth.
+ * value has render sites across the picker hint, this module's own
+ * scope-line text, and the in-progress counter and completion summary. Every
+ * one of those sites imports this constant rather than retyping the digits.
  */
 export const SIMULATION_DRAWS = 1000;
 
 /**
  * The four paths a team's already-earned-RP baseline can take, recorded per
  * team so a disagreement between the two arithmetic paths is attributable
- * rather than anonymous (D-12's own "the two paths must never be described
- * as if they were the same computation").
+ * rather than anonymous — the two paths must never be described as if they
+ * were the same computation.
  *
  * - `ranking-score-with-record` — TBA's `rp` (Ranking Score), converted to a
- *   total using TBA's own reported `record` as the denominator (PD-02).
+ *   total using TBA's own reported `record` as the denominator.
  * - `ranking-score-with-appearances` — the same conversion, falling back to
- *   this team's counted prefix APPEARANCES as the denominator because
- *   `record` was absent (PD-02's documented second fallback).
- * - `summed-actual-rp` — no Ranking Score was usable for this quantity (D-12
- *   rule 2): the sum of this team's own per-match actual RP across the
- *   played qualification rows strictly before the start.
+ *   this team's counted prefix appearances as the denominator because
+ *   `record` was absent.
+ * - `summed-actual-rp` — no Ranking Score was usable for this quantity: the
+ *   sum of this team's own per-match actual RP across the played
+ *   qualification rows strictly before the start.
  * - `no-played-matches` — this team has zero played qualification
- *   appearances before the start (D-12 rule 3); its baseline is 0 and 0
- *   regardless of whether `rp` happens to be present.
+ *   appearances before the start; its baseline is 0 and 0 regardless of
+ *   whether `rp` happens to be present.
  */
 export type BaselineSource =
   | "ranking-score-with-record"
@@ -51,16 +48,16 @@ export type BaselineSource =
   | "summed-actual-rp"
   | "no-played-matches";
 
-/** The complete, assembled input to one `simulateRanks` call, plus the two honesty gaps D-12/D-13 require to be disclosed rather than absorbed silently. */
+/** The complete, assembled input to one `simulateRanks` call, plus the two honesty gaps that must be disclosed rather than absorbed silently. */
 export interface SimulationInputs {
   readonly startMatchKey: string;
-  /** PD-08: true when any qualification row at or after the start index is played — not merely the start row's own `played` flag. See `isRewindStart`'s own doc comment for why the two differ. */
+  /** True when any qualification row at or after the start index is played — not merely the start row's own `played` flag. See `isRewindStart`'s own doc comment for why the two differ. */
   readonly isRewindStart: boolean;
   readonly remainingMatches: readonly SimMatchInput[];
   readonly baselines: readonly SimTeamBaseline[];
-  /** Qualification rows at or after the start that carried no usable pmf pair (D-12 PD-05) — excluded from `remainingMatches`, never given a fabricated distribution. Sorted for a stable order. */
+  /** Qualification rows at or after the start that carried no usable pmf pair — excluded from `remainingMatches`, never given a fabricated distribution. Sorted for a stable order. */
   readonly excludedMatchKeys: readonly string[];
-  /** Team keys whose prefix baseline was built from at least one `null` actual-RP value (PD-04) — the sum and count both exclude that match, so the baseline is known-incomplete rather than silently depressed. Sorted for a stable order. */
+  /** Team keys whose prefix baseline was built from at least one `null` actual-RP value — the sum and count both exclude that match, so the baseline is known-incomplete rather than silently depressed. Sorted for a stable order. */
   readonly incompleteBaselineTeamKeys: readonly string[];
   /** Per-team provenance for the baseline above — see `BaselineSource`. */
   readonly baselineSources: ReadonlyMap<string, BaselineSource>;
@@ -84,14 +81,14 @@ export function findStartIndex(rows: readonly EventMatchRow[], startMatchKey: st
 }
 
 /**
- * PD-08: "rewind" is defined as "at least one played qualification row lies
- * at or after the start," not as "the selected row is played." The two
- * agree on every ordinary event, but `compareEventMatchRows` can order an
- * unplayed row ahead of a played one (its own leading timestamp-presence
- * split), so the start row's own `played` flag alone would miss that shape.
- * The condition this predicate names is the one that actually creates D-01's
- * overconfidence problem: a later match's stored prediction absorbed a
- * result the simulation is pretending has not happened yet.
+ * "Rewind" is defined as "at least one played qualification row lies at or
+ * after the start," not as "the selected row is played." The two agree on
+ * every ordinary event, but `compareEventMatchRows` can order an unplayed row
+ * ahead of a played one (its own leading timestamp-presence split), so the
+ * start row's own `played` flag alone would miss that shape. The condition
+ * this predicate names is the one that actually creates the overconfidence
+ * problem: a later match's stored prediction absorbed a result the
+ * simulation is pretending has not happened yet.
  */
 export function isRewindStart(rows: readonly EventMatchRow[], startIndex: number): boolean {
   for (let i = startIndex; i < rows.length; i++) {
@@ -102,20 +99,17 @@ export function isRewindStart(rows: readonly EventMatchRow[], startIndex: number
 
 /**
  * The `matchKey` of the first genuinely-unplayed row, or `null` when every
- * row is played (the common case — 41 of 1,353 corpus events have any
- * unplayed qualification match at all) or the list is empty. A rewind
- * default the reader did not choose would be an unexplained starting point
- * on the other 97%, so no default is offered there.
+ * row is played (the common case) or the list is empty. A rewind default the
+ * reader did not choose would be an unexplained starting point, so no
+ * default is offered there.
  */
 export function defaultStartMatchKey(rows: readonly EventMatchRow[]): string | null {
-  // A RUNNING event defaults to where the event actually is — the first
-  // match that has not been played, so the default run simulates exactly
-  // the remaining schedule.
+  // A running event defaults to where the event actually is — the first
+  // match that has not been played, so the default run simulates exactly the
+  // remaining schedule.
   const firstUnplayed = rows.find((candidate) => !candidate.played);
   if (firstUnplayed) return firstUnplayed.matchKey;
-  // A FINISHED event has no unplayed match, and used to default to NOTHING
-  // selected, which left the tab showing an empty picker and a dead Run
-  // button (2026-09-01 user request). It now defaults to the first
+  // A finished event has no unplayed match; it defaults to the first
   // qualification match, so a completed event opens on a full-event rewind.
   return rows[0]?.matchKey ?? null;
 }
@@ -124,13 +118,12 @@ type RawQualRow = EventArtifact["matches"][number] | EventArtifact["upcoming"][n
 
 /**
  * A `matchKey` -> raw-row index over the qualification rows of
- * `artifact.matches`/`artifact.upcoming`, applying the SAME
+ * `artifact.matches`/`artifact.upcoming`, applying the same
  * played-supersedes-scheduled collapse `mergeEventMatches` applies (upcoming
  * rows loaded first, played rows loaded second so a shared key resolves to
  * the played row). This index exists because `EventMatchRow` deliberately
- * carries no pmf pair or actual-RP pair (08-09's PD-05) — those two fields
- * are what this module needs and `eventMatchAxis.ts`'s shared row type does
- * not carry.
+ * carries no pmf pair or actual-RP pair — those two fields are what this
+ * module needs and `eventMatchAxis.ts`'s shared row type does not carry.
  */
 function buildRawQualRowIndex(artifact: EventArtifact): Map<string, RawQualRow> {
   const raw = new Map<string, RawQualRow>();
@@ -146,15 +139,15 @@ function buildRawQualRowIndex(artifact: EventArtifact): Map<string, RawQualRow> 
 }
 
 /**
- * True for a played row. Discriminates on `actualWinner` — REQUIRED on every
+ * True for a played row. Discriminates on `actualWinner` — required on every
  * `EventMatchSchema` row in every artifact era, and structurally absent from
- * `EventUpcomingMatchSchema` — never on the OPTIONAL `actualRedRp` pair
- * (08-REVIEW WR-01): a pre-republish artifact's played rows carry
- * `actualWinner` but not `actualRedRp`, and keying on the optional field
- * would silently reclassify them as upcoming, reproducing exactly the
- * "coerce a missing baseline to 0 with no caveat" outcome D-12 rejects.
- * On such rows `actualRedRp` reads `undefined`, which `accumulateAlliance`
- * treats as an appearance with unknowable RP credit (known-incomplete).
+ * `EventUpcomingMatchSchema` — never on the optional `actualRedRp` pair: a
+ * pre-republish artifact's played rows carry `actualWinner` but not
+ * `actualRedRp`, and keying on the optional field would silently reclassify
+ * them as upcoming, reproducing exactly the "coerce a missing baseline to 0
+ * with no caveat" outcome this module rejects. On such rows `actualRedRp`
+ * reads `undefined`, which `accumulateAlliance` treats as an appearance with
+ * unknowable RP credit (known-incomplete).
  */
 function isPlayedRawRow(row: RawQualRow): row is EventArtifact["matches"][number] {
   return "actualWinner" in row;
@@ -163,50 +156,45 @@ function isPlayedRawRow(row: RawQualRow): row is EventArtifact["matches"][number
 /**
  * Assembles the complete, honest input to one `simulateRanks` call for a
  * chosen start match, or `null` when `startMatchKey` is not among this
- * event's qualification rows (PD-06's resolve-to-none rule — never a thrown
- * error, never a guess at a neighbouring match).
+ * event's qualification rows — never a thrown error, never a guess at a
+ * neighbouring match.
  *
  * ---
  *
- * **The unit conversion this module exists to get right (PD-01/PD-02/PD-03,
- * 08-03's own PD-02).** `EventTeamSchema.rp` (`pageArtifacts.ts`'s own doc
- * comment) is TBA's Ranking Score, a per-match AVERAGE. `SimTeamBaseline
- * .earnedRpSum` (`rankSimulation.ts`'s own doc comment) is a TOTAL. A caller
- * that forwards the average unconverted mis-ranks the entire field by a
- * factor of each team's match count, and no test on either side of that
- * boundary would catch it alone — 08-03's tests pass on self-consistent
- * inputs and this module's own tests would pass on a plausible-looking map.
- * The conversion below is the one place that gap is closed: `rp` is
- * multiplied by TBA's own played-match denominator (D-12's own reason for
- * preferring rule 1 at all — that denominator already accounts for
- * surrogate appearances and disqualifications) and rounded to the nearest
- * integer.
+ * **The unit conversion this module exists to get right.**
+ * `EventTeamSchema.rp` (`pageArtifacts.ts`'s own doc comment) is TBA's
+ * Ranking Score, a per-match average. `SimTeamBaseline.earnedRpSum`
+ * (`rankSimulation.ts`'s own doc comment) is a total. A caller that forwards
+ * the average unconverted mis-ranks the entire field by a factor of each
+ * team's match count, and no test on either side of that boundary would
+ * catch it alone. The conversion below is the one place that gap is closed:
+ * `rp` is multiplied by TBA's own played-match denominator (that denominator
+ * already accounts for surrogate appearances and disqualifications) and
+ * rounded to the nearest integer.
  *
  * **The nearest-integer step is a recovery, not a tolerance.** `rp` is
  * rounded exactly once at the publish boundary, to `ROUNDING_RULE
  * .rankingPoints` (2 decimals), so `rp * denominator` differs from the true
  * integer total by at most `0.005 * denominator`. Every per-match RP value
- * is a non-negative integer (`actualRedRp`/`actualBlueRp` are
- * `z.number().int()`), so the true total is itself an integer, and rounding
- * the product to the nearest integer recovers it EXACTLY whenever the error
- * is under 0.5 — true for any denominator below 100, far above any real FRC
- * qualification schedule.
+ * is a non-negative integer, so the true total is itself an integer, and
+ * rounding the product to the nearest integer recovers it exactly whenever
+ * the error is under 0.5 — true for any denominator below 100, far above any
+ * real FRC qualification schedule.
  *
- * **The two precedence paths are not the same computation (D-12, restated
- * here as a contract).** Rule 1 reconstructs an integer total from TBA's
- * surrogate- and DQ-adjusted average. Rule 2 sums this module's own
- * per-match actual-RP reads and reproduces none of that adjustment. Rule 2
- * is used only where TBA published no Ranking Score to disagree with, which
- * bounds but does not remove the exposure — the two must never be described,
- * in code or in copy, as interchangeable.
+ * **The two precedence paths are not the same computation.** Rule 1
+ * reconstructs an integer total from TBA's surrogate- and DQ-adjusted
+ * average. Rule 2 sums this module's own per-match actual-RP reads and
+ * reproduces none of that adjustment. Rule 2 is used only where TBA
+ * published no Ranking Score to disagree with, which bounds but does not
+ * remove the exposure — the two must never be described, in code or in
+ * copy, as interchangeable.
  *
- * **D-13's boundary.** This module reads no offseason, surrogate or
+ * **Scope boundary.** This module reads no offseason, surrogate or
  * quarantine flag anywhere, because the event artifact carries none of
- * those (they live on the corpus `matches` table and the Compare artifact's
- * `exclusionCounts`). The only reason a qualification row at or after the
- * start is ever left out of `remainingMatches` is that it carries no
- * ranking-point distribution to draw from (PD-05) — an absence of data, not
- * a classification of the row.
+ * those. The only reason a qualification row at or after the start is ever
+ * left out of `remainingMatches` is that it carries no ranking-point
+ * distribution to draw from — an absence of data, not a classification of
+ * the row.
  */
 export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: string): SimulationInputs | null {
   const rows = buildQualRows(artifact);
@@ -216,9 +204,9 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
   const rawIndex = buildRawQualRowIndex(artifact);
   const rewind = isRewindStart(rows, startIndex);
 
-  // Step 1: the remaining set (D-13) — every row from the start index
-  // onward, excluded only when it carries no usable pmf pair (PD-05). Never
-  // a fabricated distribution.
+  // Step 1: the remaining set — every row from the start index onward,
+  // excluded only when it carries no usable pmf pair. Never a fabricated
+  // distribution.
   const remainingMatches: SimMatchInput[] = [];
   const excludedMatchKeys: string[] = [];
   for (let i = startIndex; i < rows.length; i++) {
@@ -227,14 +215,14 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
     const redPmf = raw?.redRpPmf;
     const bluePmf = raw?.blueRpPmf;
     if (redPmf !== undefined && redPmf.length > 0 && bluePmf !== undefined && bluePmf.length > 0) {
-      // D-15, plan 09-07: the inclusion rule above is UNCHANGED — a row
-      // still enters `remainingMatches` on the strength of its total-pmf
-      // pair alone. `outcome` is attached ADDITIONALLY, when — and only
-      // when — the complete decomposition is present (all three row fields
-      // plus the artifact's top-level `rpOutcomeRp`); it is never a
-      // precondition for inclusion. Requiring it here would empty
-      // `remainingMatches` for every event published before 09-10's
-      // republish and take the Simulation tab dark across the whole site.
+      // The inclusion rule above is unchanged — a row still enters
+      // `remainingMatches` on the strength of its total-pmf pair alone.
+      // `outcome` is attached additionally, when — and only when — the
+      // complete decomposition is present (all three row fields plus the
+      // artifact's top-level `rpOutcomeRp`); it is never a precondition for
+      // inclusion. Requiring it here would empty `remainingMatches` for
+      // every event published before a full republish and take the
+      // Simulation tab dark across the whole site.
       const outcomePmf = raw?.matchOutcomePmf;
       const redBonusRpPmf = raw?.redBonusRpPmf;
       const blueBonusRpPmf = raw?.blueBonusRpPmf;
@@ -269,11 +257,11 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
     }
   }
 
-  // Step 2: the prefix accumulation (D-12) — every PLAYED row strictly
-  // before the start index, walked once per alliance. `appearances` tracks
-  // every team that showed up in a played prefix row regardless of whether
-  // its actual RP was recorded; `counted`/`sum` track only the matches whose
-  // actual RP was a real number (PD-04).
+  // Step 2: the prefix accumulation — every played row strictly before the
+  // start index, walked once per alliance. `appearances` tracks every team
+  // that showed up in a played prefix row regardless of whether its actual
+  // RP was recorded; `counted`/`sum` track only the matches whose actual RP
+  // was a real number.
   const prefixAppearances = new Map<string, number>();
   const prefixCounted = new Map<string, number>();
   const prefixSum = new Map<string, number>();
@@ -286,10 +274,10 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
         prefixSum.set(teamKey, (prefixSum.get(teamKey) ?? 0) + actualRp);
         prefixCounted.set(teamKey, (prefixCounted.get(teamKey) ?? 0) + 1);
       } else {
-        // `null` (published as not-derivable) OR `undefined` (pre-republish
-        // artifact, field absent — 08-REVIEW WR-01): either way the
-        // appearance is real but its RP credit is unknowable from these
-        // bytes, so the baseline is known-incomplete rather than quietly 0.
+        // `null` (published as not-derivable) or `undefined` (pre-republish
+        // artifact, field absent): either way the appearance is real but its
+        // RP credit is unknowable from these bytes, so the baseline is
+        // known-incomplete rather than quietly 0.
         incompleteTeamKeys.add(teamKey);
       }
     }
@@ -304,9 +292,9 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
     accumulateAlliance(row.blueTeams, raw.actualBlueRp);
   }
 
-  // Step 3: every team referenced by a simulated match, PLUS every rostered
-  // team, gets a baseline (RESEARCH assumption A2) — this is what makes
-  // 08-03's UnknownTeamKeyError unreachable in front of a visitor.
+  // Step 3: every team referenced by a simulated match, plus every rostered
+  // team, gets a baseline — this is what makes `simulateRanks`'
+  // UnknownTeamKeyError unreachable in front of a visitor.
   const teamsByKey = new Map(artifact.teams.map((team) => [team.teamKey, team]));
   const allTeamKeys = new Set<string>(teamsByKey.keys());
   for (const match of remainingMatches) {
@@ -320,7 +308,7 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
   for (const teamKey of allTeamKeys) {
     const appearances = prefixAppearances.get(teamKey) ?? 0;
 
-    // D-12 rule 3: zero played prefix appearances, regardless of `rp`.
+    // Zero played prefix appearances, regardless of `rp`.
     if (appearances === 0) {
       baselines.push({ teamKey, earnedRpSum: 0, matchesPlayed: 0 });
       baselineSources.set(teamKey, "no-played-matches");
@@ -329,9 +317,9 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
 
     const team = teamsByKey.get(teamKey);
 
-    // D-12 rule 1, scoped by PD-01 to the quantity it actually answers: only
-    // when no played qualification row lies at or after the start does
-    // end-of-event Ranking Score describe "RP as of the start match."
+    // Scoped to the quantity it actually answers: only when no played
+    // qualification row lies at or after the start does end-of-event Ranking
+    // Score describe "RP as of the start match."
     if (!rewind && team?.rp !== undefined) {
       const hasRecord = team.record !== undefined;
       const denominator = hasRecord ? team.record!.wins + team.record!.losses + team.record!.ties : appearances;
@@ -344,8 +332,8 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
       continue;
     }
 
-    // D-12 rule 2: the summed fallback, used both for a genuine rewind start
-    // and for an event where TBA published no Ranking Score at all.
+    // The summed fallback, used both for a genuine rewind start and for an
+    // event where TBA published no Ranking Score at all.
     baselines.push({
       teamKey,
       earnedRpSum: prefixSum.get(teamKey) ?? 0,
