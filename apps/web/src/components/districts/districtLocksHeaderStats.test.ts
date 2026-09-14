@@ -204,26 +204,26 @@ describe("computeDistrictLocksHeaderStats", () => {
 });
 
 describe("computeChampLocksHeaderStats", () => {
-  it("maxRemainingAcrossRoster reads maxRemainingChamp (not maxRemainingDistrict), and preDcmpCeiling mirrors the district tab's fixed 2-event ceiling", () => {
+  it("maxRemainingAcrossRoster reads maxRemainingChamp (not maxRemainingDistrict), and seasonCeiling is the 2-event pre-DCMP ceiling plus one DCMP at 3x", () => {
     const teams = parseTeams([
       team({ teamKey: "frc1", maxRemainingDistrict: 5, maxRemainingChamp: 332 }),
       team({ teamKey: "frc2", maxRemainingDistrict: 999, maxRemainingChamp: 10 }),
     ]);
     const champStats = computeChampLocksHeaderStats(teams, REGISTERED_SEASON);
     expect(champStats.maxRemainingAcrossRoster).toBe(332);
-    expect(champStats.preDcmpCeiling).toBe(166);
+    expect(champStats.seasonCeiling).toBe(415);
   });
 
   it("matches the user-approved preview numbers: 332 / 166 mid-season, 0 / 166 when done", () => {
     const midSeason = parseTeams([team({ teamKey: "frc1", maxRemainingChamp: 332 })]);
     const done = parseTeams([team({ teamKey: "frc1", maxRemainingChamp: 0 })]);
-    expect(computeChampLocksHeaderStats(midSeason, REGISTERED_SEASON)).toEqual({ maxRemainingAcrossRoster: 332, preDcmpCeiling: 166 });
-    expect(computeChampLocksHeaderStats(done, REGISTERED_SEASON)).toEqual({ maxRemainingAcrossRoster: 0, preDcmpCeiling: 166 });
+    expect(computeChampLocksHeaderStats(midSeason, REGISTERED_SEASON)).toEqual({ maxRemainingAcrossRoster: 332, seasonCeiling: 415 });
+    expect(computeChampLocksHeaderStats(done, REGISTERED_SEASON)).toEqual({ maxRemainingAcrossRoster: 0, seasonCeiling: 415 });
   });
 
-  it("returns a null preDcmpCeiling for an unregistered season", () => {
+  it("returns a null seasonCeiling for an unregistered season", () => {
     const teams = parseTeams([team({ teamKey: "frc1", maxRemainingChamp: 100 })]);
     const champStats = computeChampLocksHeaderStats(teams, UNREGISTERED_SEASON);
-    expect(champStats.preDcmpCeiling).toBeNull();
+    expect(champStats.seasonCeiling).toBeNull();
   });
 });

@@ -27,7 +27,7 @@
  * Locks tab those are a per-team season ceiling and a district-wide points
  * pool (Available/Total, the available part an estimate), with the
  * played/upcoming event chips below the row, inside the same card. On the
- * Champ Locks tab it is a "Remaining district points: X / Y pre-DCMP" stat.
+ * Champ Locks tab it is a "Remaining district points: X / Y per team" stat.
  * Both are computed client-side by `districtLocksHeaderStats.ts` (the
  * published artifact carries no dedicated aggregate field for either).
  *
@@ -204,9 +204,9 @@ function LocksHeaderCard({ artifact, which, slots, cutLine }: { artifact: Distri
           <div>
             <span className="text-role-label text-[var(--color-text-muted)]">Remaining district points</span>
             <p className="text-role-heading" data-testid="champ-locks-remaining-district-points">
-              {champStats.preDcmpCeiling === null
+              {champStats.seasonCeiling === null
                 ? formatPoints(champStats.maxRemainingAcrossRoster)
-                : `${formatPoints(champStats.maxRemainingAcrossRoster)} / ${formatPoints(champStats.preDcmpCeiling)} pre-DCMP`}
+                : `${formatPoints(champStats.maxRemainingAcrossRoster)} / ${formatPoints(champStats.seasonCeiling)} per team`}
             </p>
           </div>
         )}

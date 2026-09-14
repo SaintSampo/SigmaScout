@@ -404,7 +404,7 @@ describe("DistrictLocksTab", () => {
     expect(pool.textContent).not.toContain(".");
   });
 
-  it("the Champ Locks header shows 'Remaining district points: X / Y pre-DCMP' with X the roster max of maxRemainingChamp and Y the fixed 2-event pre-DCMP ceiling (166)", async () => {
+  it("the Champ Locks header shows 'Remaining district points: X / Y per team' with X the roster max of maxRemainingChamp and Y the per-team season ceiling (2 events + DCMP at 3x = 415)", async () => {
     const t1 = team({ teamKey: "frc16", teamNumber: 16, rank: 16, maxRemainingChamp: 332 });
     render(
       <TestHarness>
@@ -412,10 +412,10 @@ describe("DistrictLocksTab", () => {
       </TestHarness>,
     );
     const stat = await screen.findByTestId("champ-locks-remaining-district-points");
-    expect(stat.textContent).toBe("332 / 166 pre-DCMP");
+    expect(stat.textContent).toBe("332 / 415 per team");
   });
 
-  it("the Champ Locks header reads '0 / 166 pre-DCMP' once every team is done (matches the user-approved preview)", async () => {
+  it("the Champ Locks header reads '0 / 415 per team' once every team is done (matches the user-approved preview)", async () => {
     const t1 = team({ teamKey: "frc21", teamNumber: 21, rank: 21, maxRemainingChamp: 0 });
     render(
       <TestHarness>
@@ -423,7 +423,7 @@ describe("DistrictLocksTab", () => {
       </TestHarness>,
     );
     const stat = await screen.findByTestId("champ-locks-remaining-district-points");
-    expect(stat.textContent).toBe("0 / 166 pre-DCMP");
+    expect(stat.textContent).toBe("0 / 415 per team");
   });
 
   describe("quick task 260914-3zj: one merged header card per tab", () => {

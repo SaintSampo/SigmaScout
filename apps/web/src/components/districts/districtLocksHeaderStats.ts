@@ -169,9 +169,8 @@ function perEventMaxForSeason(season: number, tier: DistrictTier): number | null
  * district-wide points pool, a per-team ceiling, and a schedule strip. The
  * District Locks tab calls this with `tier="district"`. The Champ Locks
  * header also reads `tier="district"` stats via
- * `computeChampLocksHeaderStats` below — "Remaining district points" is
- * about pre-DCMP DISTRICT points, not DCMP-tier points, even on the Champ
- * Locks tab.
+ * `computeChampLocksHeaderStats` below, adding one DCMP-tier event on top
+ * of the 2-event pre-DCMP ceiling for the champ-tier season ceiling.
  */
 export function computeDistrictLocksHeaderStats(teams: readonly DistrictTeam[], tier: DistrictEventTier, season: number): DistrictLocksHeaderStats {
   const { played, upcoming } = accumulateTierEntries(teams, tier);
@@ -231,16 +230,17 @@ export function computeDistrictLocksHeaderStats(teams: readonly DistrictTeam[], 
 export interface ChampLocksHeaderStats {
   /** The maximum, across the whole roster, of each team's own `maxRemainingChamp` — the team closest to locking champ, not "the" team. `0` for an empty roster. */
   maxRemainingAcrossRoster: number;
-  /** `computeDistrictLocksHeaderStats(teams, "district", season).perTeamCeiling` — the SAME fixed 2-event pre-DCMP ceiling the District Locks tab shows. */
-  preDcmpCeiling: number | null;
+  /** The FIXED per-team season ceiling `maxRemainingChamp` counts down from: the district tab's 2-event pre-DCMP ceiling plus one DCMP at its 3x weight — or `null` for an unregistered season. */
+  seasonCeiling: number | null;
 }
 
-/** The Champ Locks header's "Remaining district points: X / Y pre-DCMP" line — X and Y are both per-team figures, never district-wide totals. */
+/** The Champ Locks header's "Remaining district points: X / Y per team" line — X and Y are both per-team figures, never district-wide totals. */
 export function computeChampLocksHeaderStats(teams: readonly DistrictTeam[], season: number): ChampLocksHeaderStats {
-  const districtStats = computeDistrictLocksHeaderStats(teams, "district", season);
+  const preDcmpCeiling = computeDistrictLocksHeaderStats(teams, "district", season).perTeamCeiling;
+  const dcmpMax = perEventMaxForSeason(season, "dcmp");
   const maxRemainingAcrossRoster = teams.reduce((max, team) => Math.max(max, team.maxRemainingChamp), 0);
   return {
     maxRemainingAcrossRoster,
-    preDcmpCeiling: districtStats.perTeamCeiling,
+    seasonCeiling: preDcmpCeiling !== null && dcmpMax !== null ? preDcmpCeiling + dcmpMax : null,
   };
 }
