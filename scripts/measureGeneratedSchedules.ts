@@ -86,6 +86,45 @@ import {
 const CORPUS_PATH = "data/corpus.sqlite";
 export const RUNG_TWO_DOC_PATH = "docs/models/rung2-generated-schedules.md";
 
+/** The concurrent session's rung-2 record (260913-pnp comparand). READ, never written, by this script. */
+export const RANDOM_VS_GENERATED_DOC_PATH = "docs/models/random-vs-generated-schedules.md";
+
+/**
+ * The matched-scope comparand read from `docs/models/random-vs-generated-schedules.md`'s own
+ * JSON block (260913-pnp): that document's schedule count, its draws per schedule, and its
+ * pooled and `2025cur` generated-vs-generated (same-construction) clause-1 rates. Pure — takes
+ * the document text, throws loudly if a piece it needs is missing.
+ */
+export interface RandomVsGeneratedComparand {
+  readonly scheduleCount: number;
+  readonly drawsPerSchedule: number;
+  readonly pooledClause1TightRate: number;
+  readonly event2025curClause1TightRate: number;
+}
+
+export function readRandomVsGeneratedComparand(docText: string): RandomVsGeneratedComparand {
+  const match = docText.match(/```json random-vs-generated-schedules\r?\n([\s\S]*?)\r?\n```/);
+  if (match === null) {
+    throw new Error(`readRandomVsGeneratedComparand: ${RANDOM_VS_GENERATED_DOC_PATH} carries no \`\`\`json random-vs-generated-schedules fenced block`);
+  }
+  const parsed = JSON.parse(match[1]!) as Record<string, any>;
+  const pooledGenBVsGenA = parsed["pooled"]?.["genBVsGenA"];
+  if (pooledGenBVsGenA === undefined) {
+    throw new Error(`readRandomVsGeneratedComparand: ${RANDOM_VS_GENERATED_DOC_PATH}'s JSON block has no pooled.genBVsGenA`);
+  }
+  const events = (parsed["events"] as any[] | undefined) ?? [];
+  const event2025cur = events.find((e) => e["eventKey"] === "2025cur");
+  if (event2025cur === undefined || event2025cur["genBVsGenA"] === undefined) {
+    throw new Error(`readRandomVsGeneratedComparand: ${RANDOM_VS_GENERATED_DOC_PATH}'s JSON block has no events[eventKey === "2025cur"].genBVsGenA`);
+  }
+  return {
+    scheduleCount: parsed["scheduleCount"],
+    drawsPerSchedule: parsed["drawsPerSchedule"],
+    pooledClause1TightRate: pooledGenBVsGenA["clause1TightRate"],
+    event2025curClause1TightRate: event2025cur["genBVsGenA"]["clause1TightRate"],
+  };
+}
+
 /**
  * Held FIXED at the shipped value across every schedule count measured here
  * (`PRESIM_DRAWS_PER_SCHEDULE`, publish.ts). Varying it at the same time as the
@@ -757,7 +796,8 @@ export async function main(argv: readonly string[]): Promise<void> {
       throw new Error("measureGeneratedSchedules: --render-doc needs --inputs <one or more --out-json paths, comma separated>");
     }
     const parsed = paths.map((path) => JSON.parse(readFileSync(path, "utf8")) as Record<string, any>);
-    writeFileSync(RUNG_TWO_DOC_PATH, renderRungTwoDoc(parsed), "utf8");
+    const comparand = readRandomVsGeneratedComparand(readFileSync(RANDOM_VS_GENERATED_DOC_PATH, "utf8"));
+    writeFileSync(RUNG_TWO_DOC_PATH, renderRungTwoDoc(parsed, comparand), "utf8");
     console.log(`wrote ${RUNG_TWO_DOC_PATH} from ${paths.length} measurement file(s)`);
     return;
   }
@@ -1051,7 +1091,7 @@ export function phaseCCounts(
  * This record does not reproduce that trap — every number below is serialised
  * from the run that produced it.
  */
-export function renderRungTwoDoc(inputs: readonly Record<string, any>[]): string {
+export function renderRungTwoDoc(inputs: readonly Record<string, any>[], comparand: RandomVsGeneratedComparand): string {
   const noise = new Map<string, any>();
   const pooled = new Map<number, any>();
   const sizes = new Map<string, any>();
@@ -1166,10 +1206,30 @@ export function renderRungTwoDoc(inputs: readonly Record<string, any>[]): string
         "The two replicates are obtained by salting `algorithmVersion`, which in `buildPreScheduleArtifact` feeds the shuffle and baked seed hashes and nothing else — pricing is the same bound `predict` closure on both sides."
     );
     L.push("");
+    const rungTwoPooledRow = pooled.get(comparand.scheduleCount);
+    const rungTwoEventRow = noise.get(`2025cur|${comparand.scheduleCount}`);
+    if (rungTwoPooledRow?.resampleWithinTightRate === undefined || rungTwoEventRow?.resampling?.withinTightRate === undefined) {
+      throw new Error(
+        `renderRungTwoDoc: comparand scheduleCount=${comparand.scheduleCount} has no pooled resampling row or no 2025cur resampling row in this table`
+      );
+    }
+    const rungTwoPooledRate: number = rungTwoPooledRow.resampleWithinTightRate;
+    const rungTwoEventRate: number = rungTwoEventRow.resampling.withinTightRate;
+    const pooledWord = comparand.pooledClause1TightRate < rungTwoPooledRate ? "lower" : comparand.pooledClause1TightRate > rungTwoPooledRate ? "higher" : "equal";
+    const eventWord =
+      comparand.event2025curClause1TightRate < rungTwoEventRate ? "lower" : comparand.event2025curClause1TightRate > rungTwoEventRate ? "higher" : "equal";
+    const directionClause = pooledWord === eventWord ? `${pooledWord} in both cells` : `${pooledWord} pooled and ${eventWord} at \`2025cur\``;
+    const predictNote =
+      pooledWord === "lower" && eventWord === "lower" && comparand.drawsPerSchedule < DRAWS_PER_SCHEDULE
+        ? ", the direction its fewer draws per schedule predict"
+        : "";
     L.push(
       "The gap between the two columns below is large and it matters: the draw-only floor reaches 100% while the binding floor is still near 80%. " +
         "A concurrent session's rung-2 work (`docs/models/random-vs-generated-schedules.md`) raises exactly this criticism of the seed-only control, and it lands on this table with equal force, " +
-        "so the binding floor is measured here rather than argued about. Its n=1000 value independently reproduces that session's separately-built 74.2% at `2025cur`."
+        `so the binding floor is measured here rather than argued about. Matched at the same count, that document's generated-vs-generated floor (the same construction built twice on the same six events, but at ${comparand.drawsPerSchedule} draws per schedule where this table uses ${DRAWS_PER_SCHEDULE}) ` +
+        `reads ${p1(comparand.pooledClause1TightRate)} pooled and ${p1(comparand.event2025curClause1TightRate)} at \`2025cur\` at n=${comparand.scheduleCount.toLocaleString("en-US")}, ` +
+        `against ${p1(rungTwoPooledRate)} and ${p1(rungTwoEventRate)} here: ${directionClause}${predictNote}. ` +
+        "The two harnesses agree in direction; neither reproduces the other's figures."
     );
     L.push("");
     L.push("### Clause-1 ceiling per event, read `draw-only / resampling`");

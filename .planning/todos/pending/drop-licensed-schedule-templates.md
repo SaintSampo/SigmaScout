@@ -8,8 +8,9 @@ priority: high
 
 # A generated schedule structure matches the licensed grid — the template dependency can go
 
-Measured by two independent sessions, different routes, agreeing floors (73.7% vs 74.2% at
-`2025cur` / n=1000).
+Measured by two independent harnesses on the same six events: at n=2,000 their same-construction
+floors read 91.8% vs 89.3% pooled and 88.2% vs 78.9% at `2025cur`; the second is lower in both, as
+its 20-vs-50 draws per schedule predict; they agree in direction and neither reproduces the other.
 
 Compared at the **same** schedule count (n=4000), a rules-based generated structure agrees with the
 licensed cheesy-arena grid on **97.1%** of teams within half a median rank (clause 1 needs 95%),
@@ -76,7 +77,15 @@ re-run. Both halves are false. `09-CONTEXT.md:402` is scoped to rung 2 being cho
 exactly what happened, and it says D-19 is live. **This work is blocked on that judgement**, not
 merely on the schedule count.
 
-## MUST FIX BEFORE WIRING — the corroboration sentence cites a figure that does not exist
+## RESOLVED (quick task 260913-pnp) — MUST FIX BEFORE WIRING — the corroboration sentence cites a figure that does not exist
+
+**Resolution, 2026-09-13.** The old figure was the POOLED generated-vs-generated floor at N=1000
+and 20 draws per schedule, from the FIRST version of `docs/models/random-vs-generated-schedules.md`
+(commit `5454999e`, overwritten 41 minutes later by `71dccb26`), paired with rung-2's PER-EVENT
+`2025cur` figure — apples to oranges. `scripts/measureGeneratedSchedules.ts` no longer hardcodes the
+comparison: it now reads the comparand from the CURRENT `random-vs-generated-schedules.md`'s JSON
+block at matched scope (pooled and `2025cur`, both at n=2,000) and computes the sentence at render
+time. `docs/models/rung2-generated-schedules.md` was re-rendered with a one-line diff on line 31.
 
 Moved here 2026-09-12 when `reconcile-the-two-rung2-documents` was closed. It is that todo's only
 real residue, and it belongs to this work because it over-credits the generator **in exactly the
