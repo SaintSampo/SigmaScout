@@ -158,7 +158,7 @@ const TAB_CASES: readonly TabCase[] = [
   { tab: "elims", triggerName: "Playoffs", scrollTestId: "elims-table-scroll", artifact: () => eventArtifactResponse({ matches: [ELIMS_PLAYED_MATCH] }) },
 ];
 
-describe("/event/$eventKey route — invalid event key (07-01-PLAN.md Task 1)", () => {
+describe("/event/$eventKey route — invalid event key", () => {
   it("renders the invalid-event-key message and fires no event artifact fetch", async () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL) => Promise.resolve(manifestResponse()));
     global.fetch = fetchMock;
@@ -170,7 +170,7 @@ describe("/event/$eventKey route — invalid event key (07-01-PLAN.md Task 1)", 
   });
 });
 
-describe("/event/$eventKey route — per-tab 404/500/pending/panel/scroll-sibling/click-preserves-search (07-VALIDATION.md Wave 0, collapsed by 260913-nvn Task 3a)", () => {
+describe("/event/$eventKey route — per-tab 404/500/pending/panel/scroll-sibling/click-preserves-search", () => {
   it.each(TAB_CASES)("$tab: a mocked 404 artifact response renders the empty state naming the event key, with no button", async ({ tab }) => {
     stubFetch(404);
     renderEventRoute(`/event/2024casf?algorithm=spr&tab=${tab}`);
@@ -246,10 +246,10 @@ describe("/event/$eventKey route — per-tab 404/500/pending/panel/scroll-siblin
   });
 });
 
-describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)", () => {
+describe("/event/$eventKey route — tab strip and states", () => {
   // Merges what were once four duplicated "six tabs in order from first
   // paint" tests into one.
-  it("exactly six tabs exist, named Insights, Breakdown, Qualifications, Alliances, Playoffs and Simulation IN THAT ORDER, before any artifact data resolves (08-09-PLAN.md registers Simulation, the last of EVENT_TABS)", async () => {
+  it("exactly six tabs exist, named Insights, Breakdown, Qualifications, Alliances, Playoffs and Simulation IN THAT ORDER, before any artifact data resolves (Simulation is the last of EVENT_TABS)", async () => {
     stubFetch("pending");
     renderEventRoute("/event/2024casf?algorithm=spr");
 
@@ -258,7 +258,7 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
     expect(tabs.map((tab) => tab.textContent)).toEqual(["Insights", "Breakdown", "Qualifications", "Alliances", "Playoffs", "Simulation"]);
   });
 
-  it("spr: the Breakdown tab renders Team #, Team Name, Total and the three phase columns only, with no Fouls Committed column and no phase toggles (quick task 260913-mgn)", async () => {
+  it("spr: the Breakdown tab renders Team #, Team Name, Total and the three phase columns only, with no Fouls Committed column and no phase toggles", async () => {
     stubFetch(() => eventArtifactResponse());
     // Explicit ?tab=breakdown (the no-param default is insights) — this
     // case tests Breakdown's OWN column set, not "whichever tab is active
@@ -272,7 +272,7 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
     expect(screen.queryByTestId("breakdown-group-row")).toBeNull();
   });
 
-  it("epa: a populated artifact whose season is 2024, loaded at ?year=2026, expands Auto into the 2024 auto components (sketch 009-A drill-down, 260905-3rq) — the column set follows artifact.season, not ?year=", async () => {
+  it("epa: a populated artifact whose season is 2024, loaded at ?year=2026, expands Auto into the 2024 auto components (sketch 009-A drill-down) — the column set follows artifact.season, not ?year=", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse([EPA_MANIFEST_ENTRY]));
@@ -290,7 +290,7 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
     );
   });
 
-  it("DEFAULT_EVENT_TAB is now the string 'insights' (was 'breakdown' through 07-11; flipped by plan 07-18 Task 2)", () => {
+  it("DEFAULT_EVENT_TAB is the string 'insights'", () => {
     expect(DEFAULT_EVENT_TAB).toBe("insights");
   });
 
@@ -327,7 +327,7 @@ describe("/event/$eventKey route — tab strip and states (07-01-PLAN.md Task 3)
   });
 });
 
-describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md Task 3)", () => {
+describe("/event/$eventKey route — the Insights tab registered", () => {
   it("?tab=insights in the pending state renders the Insights skeleton and zero progressbar elements; ?tab=breakdown in the same state still renders the Breakdown skeleton", async () => {
     stubFetch("pending");
     renderEventRoute("/event/2024casf?algorithm=spr&tab=insights");
@@ -371,7 +371,7 @@ describe("/event/$eventKey route — the Insights tab registered (07-11-PLAN.md 
   });
 });
 
-describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled trigger (07-14-PLAN.md Task 3)", () => {
+describe("/event/$eventKey route — the Alliances tab registered, with its no-alliance-data disabled trigger", () => {
   it("with the artifact resolved and alliances absent, the Alliances trigger is disabled; with an empty array, likewise; with one alliance, it is enabled", async () => {
     stubFetch(() => eventArtifactResponse());
     renderEventRoute("/event/2024casf?algorithm=spr");
@@ -453,7 +453,7 @@ describe("/event/$eventKey route — the Alliances tab registered, D-17 disabled
   });
 });
 
-describe("/event/$eventKey route — the identity header (07-15-PLAN.md Task 1)", () => {
+describe("/event/$eventKey route — the identity header", () => {
   it("Test 13: a populated artifact renders the h1 carrying the artifact's name, and the header is a DOM sibling of the tab strip in both directions", async () => {
     stubFetch(() => eventArtifactResponse({ name: "San Francisco Regional", startDate: "2024-03-07", location: "CA, USA", week: 1 }));
     renderEventRoute("/event/2024casf?algorithm=spr");
@@ -492,7 +492,7 @@ describe("/event/$eventKey route — the identity header (07-15-PLAN.md Task 1)"
   });
 });
 
-describe("/event/$eventKey route — the Simulation tab, SPR-gated (D-04, 260913-nvn)", () => {
+describe("/event/$eventKey route — the Simulation tab, SPR-gated", () => {
   // `isSimulationDisabled` is `!usesSigmaScore(algorithm)`, so the trigger
   // is enabled for SPR and disabled for OPR/EPA — the boolean still
   // resolves before any data does.
