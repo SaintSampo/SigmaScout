@@ -1769,12 +1769,9 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
   });
 
   it("degrades a non-integer stored redRpEarned/blueRpEarned to null rather than failing TeamSeasonMatchSchema's .int() assertion (2024orbb/2025orbb regression)", () => {
-    // SQLite's loose type affinity does not enforce matches.red_rp_earned/
-    // blue_rp_earned as integers, so a non-integer value written before
-    // normalize.ts's extractRp guard existed (2024orbb/2025orbb's non-FRC
-    // self-reported `rp` field) can still reach this assignment from the
-    // corpus. Without the toIntegerRpOrNull defence-in-depth guard, this
-    // would throw at TeamSeasonArtifactSchema.parse() and abort the batch.
+    // SQLite does not enforce integer RP columns, so an offseason non-integer `rp`
+    // (2024orbb/2025orbb) can reach this builder; without toIntegerRpOrNull the
+    // schema parse would abort the batch.
     const artifact = buildTeamSeasonArtifact({
       ...baseParams,
       events: [
@@ -1973,12 +1970,9 @@ describe("actualBonusFlagsForSeason (Phase 06.1, plan 06.1-05 Task 2, F-06-3/PD-
   });
 
   /**
-   * G-06.1-26 (plan 06.1-08, Task 3): the generalized invariant that
-   * prevents silent reintroduction — written over the FULL comp-level set
-   * (qm + all four playoff levels) in ONE mixed stream, so a future comp
-   * level or a reintroduced ungated form fails here, not just for `sf`.
-   * Non-vacuous: asserts the stream length (5) against the map size (1)
-   * rather than only the per-match membership checks.
+   * Covers the full comp-level set (qm plus all four playoff levels) in one
+   * stream, so a new level or a reintroduced ungated form fails here, not just
+   * `sf`. Non-vacuous: stream length 5 against map size 1.
    */
   it("G-06.1-26 (plan 06.1-08): a match maps into the result set IFF its compLevel is qm, asserted over one mixed stream containing all five comp levels", () => {
     const compLevels = ["qm", "ef", "qf", "sf", "f"] as const;
@@ -2044,9 +2038,7 @@ describe("buildTeamSeasonArtifact — predicted/actual per-bonus RP fields (Phas
       ],
     });
     const row = artifact.events[0]?.matches[0];
-    // Direct-assignment field (matches `redRpPmf`/`redScoreVarianceOwn`'s own
-    // existing convention above) — undefined, not genuinely absent; this
-    // still parses `TeamSeasonMatchSchema`'s `.optional()` field correctly.
+    // Direct assignment, so the key is present as undefined; the `.optional()` field still parses.
     expect(row?.redBonusRp).toBeUndefined();
     expect(row?.blueBonusRp).toBeUndefined();
   });
@@ -2128,13 +2120,9 @@ describe("buildTeamSeasonArtifact — predicted/actual per-bonus RP fields (Phas
   });
 
   /**
-   * G-06.1-26 (plan 06.1-08, Task 3): the cross-side invariant — pins
-   * predicted and actual to the SAME gating rule. Deliberately feeds a
-   * `Prediction` carrying populated bonus marginals AND a populated
-   * `actualBonusFlagsByMatchKey` entry for BOTH the qm and the sf match, so
-   * this proves `buildTeamSeasonArtifact` itself defends against a
-   * playoff-match input carrying either kind of per-bonus data — never
-   * merely that a well-behaved caller happens not to supply it.
+   * Predicted and actual bonus data share one gating rule. Both the qm and the
+   * sf match are fed populated data of both kinds, so the builder itself must
+   * drop it on the playoff match.
    */
   it("G-06.1-26 (plan 06.1-08): a played sf row carries NEITHER predicted nor actual per-bonus keys, while a qm row in the same artifact carries all four", () => {
     const qmMatch = fixtureMatch({ matchKey: "2024casj_qm1", compLevel: "qm" });
@@ -2292,11 +2280,10 @@ describe("withHistorySigma (quick task 260913-m45)", () => {
 });
 
 /**
- * Quick task 260913-m45 Task 1: SPR metric-history rows now carry each
- * match's per-match Sigma Score (`SigmaScoutLayer.sigmaFor`, read right after
- * `foldPlayed`), merged in ONLY at the team-season artifact build — after
- * `withHistoryPercentiles`, never into `metricHistoryForAlgo` itself — so
- * ranking pools, the Teams row and seasonStats never see it (T-m45-02).
+ * SPR metric-history rows carry each match's Sigma Score (`sigmaFor`, read
+ * after `foldPlayed`), merged only at the team-season artifact build, after
+ * `withHistoryPercentiles` and never into `metricHistoryForAlgo`, so ranking
+ * pools, the Teams row and seasonStats never see it.
  */
 describe("publishSeasons — metric history rows carry the per-match Sigma Score (quick task 260913-m45)", () => {
   let dir: string;
@@ -2381,7 +2368,6 @@ describe("publishSeasons — metric history rows carry the per-match Sigma Score
   });
 });
 
-/** The metric name this suite's real-corpus invariant case checks — always present via `HISTORY_PERCENTILE_METRIC_KEYS` and computed independently per team by `epa` (no cross-team coupling in `epa.update`/`teamMetrics`, unlike OPR's shared least-squares solve — see this file's own doc comment above). */
 const INVARIANT_SEASON = 2022;
 const INVARIANT_MIN_TEAM_COUNT = 50;
 const CORPUS_PATH = "data/corpus.sqlite";
@@ -2401,18 +2387,10 @@ describe("withHistoryPercentiles — real-corpus pool-member agreement invariant
     return;
   }
 
-  // Replays the real ${INVARIANT_SEASON} season for `epa` only — mirrors
-  // `publish.ts`'s own season-loop shape (buildSeasonStream, onMatchComplete
-  // metric-history collection, teamMetrics(finalState, teamsThisSeason))
-  // at a scale that stays well inside this suite's feedback ceiling
-  // (measured ~8s for the full non-offseason 2022 season, 14,677 matches,
-  // 3,062 teams — mirrors `payloadBudget.test.ts`'s own real-slice
-  // precedent). `epa` chosen deliberately: its `update()`/`teamMetrics()`
-  // are per-team-independent (no cross-team coupling like OPR's shared
-  // least-squares solve), so a team's LAST metricHistory row IS its
-  // season-final metric for every team that plays at least once — this is
-  // what makes the filtered-set floor trivially satisfiable while still
-  // being a genuine, unconditional-on-luck real-corpus proof.
+  // Replays the real season for `epa` only, in publish.ts's season-loop shape
+  // (about 8s for 2022). EPA is per-team independent, unlike OPR's shared
+  // least-squares solve, so a team's last metricHistory row is its season-final
+  // metric.
   const stream = buildSeasonStream(corpus, INVARIANT_SEASON, { includeOffseason: false });
   const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
   const matchIndexByKey = new Map(stream.map((m, i) => [m.matchKey, i]));
@@ -2465,8 +2443,7 @@ describe("withHistoryPercentiles — real-corpus pool-member agreement invariant
       const rows = historyByTeam.get(teamKey)!;
       const [widenedLastRow] = withHistoryPercentiles([rows[rows.length - 1]!], sortedPools);
       const rowPercentile = widenedLastRow?.metrics[TOTAL_METRIC_KEY]?.percentile;
-      // Computed through the ONE ranking helper, so display-precision
-      // rounding cannot make this comparison flaky.
+      // Through the one ranking helper, so display rounding cannot make this flaky.
       const poolMemberPercentile = goodnessPercentileAgainstPools(sortedPools, TOTAL_METRIC_KEY, metricsByTeam[teamKey]![TOTAL_METRIC_KEY]!.value);
       expect(poolMemberPercentile, `team ${teamKey}: pool has a ${TOTAL_METRIC_KEY} entry`).toBeDefined();
       expect(rowPercentile, `team ${teamKey}: row percentile should equal the pool member's percentile exactly`).toBe(poolMemberPercentile);
@@ -2490,9 +2467,6 @@ describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus 
     db.close();
     rmSync(dir, { recursive: true, force: true });
   });
-
-  // `seasonEvent`/`seasonMatch`/`findTeamArtifact` hoisted to module scope
-  // (plan 07-08) — see their definitions above, beside `eventArtifactParams`.
 
   it("fixes the eventName defect (real name published, null-column corpus degrades to the event key) and keeps an event with only a scheduled match as its own section, not dropped", async () => {
     upsertEvent(db, seasonEvent({ eventKey: "2026casj", name: "Sacramento Regional" }));
@@ -2566,18 +2540,18 @@ describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus 
     const artifact2026 = findTeamArtifact("frc1", 2026);
     const artifact2025 = findTeamArtifact("frc1", 2025);
 
-    // D-04: percentile present, bounded [0, 100], at most one decimal place.
+    // Percentile present, bounded [0, 100], at most one decimal place.
     const pct = artifact2026.seasonStats.metrics.total?.percentile;
     expect(pct).toBeDefined();
     expect(pct!).toBeGreaterThanOrEqual(0);
     expect(pct!).toBeLessThanOrEqual(100);
     expect(Number.isInteger(pct! * 10)).toBe(true);
 
-    // D-03: robotImageUrl present when the corpus has a URL, absent when the corpus row's value is null (here: no row at all for 2025).
+    // robotImageUrl present when the corpus has a URL, absent otherwise (no 2025 row).
     expect(artifact2026.robotImageUrl).toBe("https://i.imgur.com/example.jpg");
     expect(artifact2025.robotImageUrl).toBeUndefined();
 
-    // D-05: activeYears is a sorted ascending integer array containing exactly the seasons frc1 appears in, published on BOTH year's artifacts.
+    // activeYears lists exactly frc1's seasons, ascending, on both years' artifacts.
     expect(artifact2026.activeYears).toEqual([2025, 2026]);
     expect(artifact2025.activeYears).toEqual([2025, 2026]);
   });
@@ -2605,14 +2579,10 @@ describe("publishSeasons — Phase 6 team-artifact wiring against a real corpus 
 });
 
 /**
- * D-2/D-4 (quick task 260903-n2o, Task 4): real coverage on `publish.ts`'s
- * `compare/{year}.json` call site — the CONTEXT's first surviving finding
- * was that this call site decides EVERY published `headlineEligible`, and
- * today reverting either of its two eligibility arguments keeps the suite
- * green. The corpus below seeds two priors (2022, 2023) that exist in the
- * corpus but are ABSENT from the publish range (`--seasons 2024` alone) —
- * the exact shape that distinguishes a corpus-derived `corpusSeasons` from
- * a range- or loop-derived one.
+ * The `compare/{year}.json` call site decides every published
+ * `headlineEligible`. Priors 2022 and 2023 exist in the corpus but not in the
+ * publish range, which distinguishes a corpus-derived `corpusSeasons` from a
+ * range- or loop-derived one.
  */
 describe("publishSeasons — compare artifact eligibility sources the CORPUS, not the published range (D-2/D-4, quick task 260903-n2o Task 4)", () => {
   let dir: string;
@@ -2654,20 +2624,14 @@ describe("publishSeasons — compare artifact eligibility sources the CORPUS, no
     expect(oprCombined2024).toBeDefined();
     expect(oprCombined2024?.headlineEligible).toBe(true);
 
-    // Standing guard: reverting publish.ts's `corpusSeasons` argument (at
-    // the compare-artifact `aggregateScores` call) to this loop's own
-    // `[season]`, or to `seasonsSorted` (the `--seasons` range), leaves 2024
-    // with zero declared priors instead of two, so `headlineEligible` above
-    // reads `false`.
+    // Deriving `corpusSeasons` from `[season]` or the `--seasons` range leaves
+    // 2024 with no priors, so `headlineEligible` above would read `false`.
   });
 });
 
 /**
- * Published-surface exclusion (`.planning/todos/pending/exclude-offseason-demo-teams.md`
- * scope item 2): no `team/{teamKey}/{year}` page, no `teams/{year}` list
- * entry, for any of the 30 `frc9970`-`frc9999` "Off-Season Demo Team" keys —
- * asserted against `publishSeasons`'s real `putObject` calls, not against
- * `teamsThisSeason` as an internal implementation detail.
+ * No `team/{teamKey}/{year}` page and no `teams/{year}` entry for any of the 30
+ * `frc9970`-`frc9999` "Off-Season Demo Team" keys, asserted on the real uploads.
  */
 describe("publishSeasons — off-season demo team exclusion from every published team surface", () => {
   let dir: string;
@@ -2706,8 +2670,7 @@ describe("publishSeasons — off-season demo team exclusion from every published
 
     const teamCalls = vi.mocked(putObject).mock.calls.filter(([, key]) => (key as string).startsWith("v1/team/"));
     expect(teamCalls.some(([, key]) => (key as string).startsWith("v1/team/frc9985/"))).toBe(false);
-    // The real teammates DID get published — this is an exclusion, not an
-    // accidental drop of the whole event.
+    // The real teammates are published: an exclusion, not a dropped event.
     expect(teamCalls.some(([, key]) => (key as string).startsWith("v1/team/frc1/"))).toBe(true);
   });
 
@@ -2769,11 +2732,7 @@ describe("publishSeasons — off-season demo team exclusion from every published
   });
 });
 
-/**
- * Quick task 260904-586: direct unit coverage of `lastOfficialMetricsByTeam`
- * — the exported Teams-list official-play snapshot, tested in isolation
- * before the end-to-end `publishSeasons` describe block below wires it in.
- */
+/** Unit coverage of `lastOfficialMetricsByTeam`, the Teams-list official-play snapshot. */
 describe("lastOfficialMetricsByTeam — direct (quick task 260904-586)", () => {
   function historyRow(overrides: Partial<MetricHistoryRow> = {}): MetricHistoryRow {
     return {
@@ -2827,12 +2786,7 @@ describe("lastOfficialMetricsByTeam — direct (quick task 260904-586)", () => {
   });
 });
 
-/**
- * Quick task 260908-wpo: direct unit coverage of `seasonStatsMetricsForTeam`
- * — the team-artifact call site's official-vs-season-final selection helper
- * — tested in isolation before the end-to-end `publishSeasons` describe
- * block below wires it in.
- */
+/** Unit coverage of `seasonStatsMetricsForTeam`, the team artifact's official-vs-season-final selection. */
 describe("seasonStatsMetricsForTeam — direct (quick task 260908-wpo; unified pool since 260912-tnk)", () => {
   // THE season ranking pool: last-official-match totals of three teams.
   const rankingPools = sortedPoolsByMetric({ frc1: { total: { value: 313.95 } }, frc2: { total: { value: 200 } }, frc3: { total: { value: 100 } } }, [
@@ -2882,11 +2836,7 @@ describe("seasonStatsMetricsForTeam — direct (quick task 260908-wpo; unified p
   });
 });
 
-/**
- * Quick task 260904-586: end-to-end proof, through the real `publishSeasons`
- * path against a synthetic temp-dir corpus, that the Teams-list snapshot is
- * scoped to official play while team/event artifacts stay untouched.
- */
+/** End to end: the Teams-list snapshot is scoped to official play while team and event artifacts are untouched. */
 describe("publishSeasons — Teams-list official-play scoping (quick task 260904-586)", () => {
   let dir: string;
   let db: Corpus;
@@ -2958,24 +2908,17 @@ describe("publishSeasons — Teams-list official-play scoping (quick task 260904
 
     // The published teams-row metric equals the official-event snapshot...
     expect(row?.metrics.total?.value).toBe(roundTo(officialRow!.metrics.total!.value, ROUNDING_RULE.metric));
-    // ...and NOT the offseason (season-final) snapshot, which is a
-    // different number by construction of this fixture (a 250-10 offseason
-    // blowout that would otherwise swamp the 100-50 official result).
+    // ...and not the season-final snapshot, which the 250-10 offseason blowout makes different.
     expect(row?.metrics.total?.value).not.toBe(roundTo(offseasonRow!.metrics.total!.value, ROUNDING_RULE.metric));
 
-    // The team artifact itself is untouched — the offseason event and its
-    // matches are still fully present.
+    // The team artifact still carries the offseason event and its matches.
     const offseasonSection = teamArtifact.events.find((e) => e.eventKey === "2026off");
     expect(offseasonSection).toBeDefined();
     expect(offseasonSection?.matches).toHaveLength(1);
   });
 
   it("a team appearing ONLY at an offseason event still has a teams/{year} row (teamKey, teamNumber, nickname, record present) with an empty metrics record", async () => {
-    // An official event elsewhere in the season, involving different teams —
-    // present only so the season has at least one non-offseason match
-    // (`selectCorpusSeasons` requires that for `compare/{year}.json`'s
-    // aggregation to declare 2026 in scope; unrelated to what this test is
-    // actually asserting, which is about frc1's own row).
+    // An unrelated official event, so `selectCorpusSeasons` puts 2026 in scope.
     upsertEvent(db, seasonEvent({ eventKey: "2026casj", name: "Official Event" }));
     upsertMatch(
       db,
@@ -3013,10 +2956,8 @@ describe("publishSeasons — Teams-list official-play scoping (quick task 260904
     const row = teamsArtifact.teams.find((t) => t.teamKey === "frc1");
     expect(row).toBeDefined();
     expect(row?.teamNumber).toBe(1);
-    // Quick task 260908-615: PRESENT-AND-ZERO, not absent. frc1 won its only
-    // match, but that match was at an offseason event, so the official-scoped
-    // record counts nothing — while the row itself still exists so the team
-    // remains findable and its page still links.
+    // Present and zero, not absent: frc1's only win was offseason, but the row
+    // stays so the team remains findable and its page still links.
     expect(row?.record).toEqual({ wins: 0, losses: 0, ties: 0 });
     expect(row?.eventCount).toBe(0);
     expect(row?.matchCount).toBe(0);
@@ -3025,21 +2966,13 @@ describe("publishSeasons — Teams-list official-play scoping (quick task 260904
 });
 
 /**
- * Quick task 260912-tnk: a rarity tier is a function of (metric value, the ONE
- * season ranking pool) on every surface. Before this task the Teams list and
- * `seasonStats` ranked against every team's last-official-match metrics while
- * `metricHistory` rows and event standings ranked against the season-final
- * metrics — so a team could read Epic in the Teams list and Legendary on its
- * own last official event card (spr 2026 team 6919, measured live).
+ * A rarity tier is a function of (metric value, the one season ranking pool) on
+ * every surface; two pools once let a team read Epic in the Teams list and
+ * Legendary on its own event card.
  *
- * The fixture separates the two pools on purpose: a late, lopsided offseason
- * event moves several teams' season-final values away from their official
- * ones, and one team plays ONLY that offseason event. `epa` is per-team
- * independent, so a team's as-of-event value is exactly its value after its
- * last match at that event.
- *
- * Iterates the PUBLISHED teams rows, never a hardcoded list (the
- * iteration-list trap), with a non-vacuous floor.
+ * A late lopsided offseason event separates official from season-final values,
+ * and one team plays only that event. `epa` is per-team independent. Iterates
+ * the published teams rows, never a hardcoded list, with a non-vacuous floor.
  */
 describe("publishSeasons — one ranking pool across every tier surface (quick task 260912-tnk)", () => {
   const OFFICIAL_A = "2026tnka";
@@ -3174,9 +3107,8 @@ describe("publishSeasons — one ranking pool across every tier surface (quick t
     expect(offseasonTotal, "offseason-only team has a season-final total").toBeDefined();
     expect(offseasonTotal!.percentile).toBe(goodnessPercentileAgainstPools(pools, TOTAL_METRIC_KEY, offseasonTotal!.value));
 
-    // DISCRIMINATOR: the fixture genuinely separates the two pools — the old
-    // season-final pool (every team's LAST history row, offseason included)
-    // would have given at least one team a different percentile.
+    // Discriminator: a season-final pool (last history row, offseason included)
+    // gives at least one team a different percentile.
     const seasonFinalByTeam: TeamMetrics = {};
     for (const teamsRow of teamsArtifact.teams) {
       const last = findTeamArtifact(teamsRow.teamKey, 2026).metricHistory.at(-1);
@@ -3315,12 +3247,8 @@ describe("publishSeasons — official-only record, eventCount and matchCount (qu
 
     const teamsArtifact = TeamsArtifactSchema.parse(findTeamsArtifactRaw(2026));
 
-    // The offseason-only team: zero official counts, and NO region — not
-    // because this task narrowed the region input (it did not; the all-play
-    // map is still passed), but because `deriveTeamRegions` applies its own
-    // `isRegionEligibleEvent` official-type filter. Pinned here so a future
-    // reader does not "fix" the region input believing it was broken by the
-    // record scoping.
+    // The offseason-only team has no region because `deriveTeamRegions` filters
+    // with `isRegionEligibleEvent`, not because the region input was narrowed.
     const offseasonOnly = teamsArtifact.teams.find((t) => t.teamKey === "frc1");
     expect(offseasonOnly?.record).toEqual({ wins: 0, losses: 0, ties: 0 });
     expect(offseasonOnly?.country).toBeUndefined();
@@ -3333,12 +3261,7 @@ describe("publishSeasons — official-only record, eventCount and matchCount (qu
   });
 });
 
-/**
- * Quick task 260908-wpo: end-to-end proof, through the real `publishSeasons`
- * path against a synthetic temp-dir corpus, that the published team
- * artifact's `seasonStats.metrics` reads the last-official-match basis with
- * a season-final fallback for a team with no official play at all.
- */
+/** End to end: `seasonStats.metrics` uses the last official match, falling back to season-final for a team with no official play. */
 describe("publishSeasons — seasonStats.metrics official-with-fallback (quick task 260908-wpo)", () => {
   let dir: string;
   let db: Corpus;
@@ -3394,9 +3317,7 @@ describe("publishSeasons — seasonStats.metrics official-with-fallback (quick t
   });
 
   it("an offseason-only team publishes NON-EMPTY seasonStats.metrics, tagged season-final — the trap this task closes", async () => {
-    // An official event elsewhere, involving different teams, so the season
-    // qualifies for aggregation (matches the sibling 260904-586 block's own
-    // fixture reasoning).
+    // An unrelated official event, so the season qualifies for aggregation.
     upsertEvent(db, seasonEvent({ eventKey: "2026casj", name: "Official Event", eventType: 0 }));
     upsertMatch(
       db,
@@ -3426,12 +3347,10 @@ describe("publishSeasons — seasonStats.metrics official-with-fallback (quick t
 
     const teamArtifact = findTeamArtifact("frc1", 2026);
     expect(teamArtifact.seasonStats.metricsBasis).toBe("season-final");
-    // The trap: assert the VALUES are present, not merely the basis string —
-    // a basis-only assertion passes on a blanked team too.
+    // Assert the values, not just the basis string, which a blanked team also passes.
     expect(Object.keys(teamArtifact.seasonStats.metrics).length).toBeGreaterThan(0);
     expect(teamArtifact.seasonStats.metrics.total?.value).toBeDefined();
-    // Cross-check against the same team's own metricHistory, which stays
-    // season-final regardless — the fallback must equal that value exactly.
+    // The fallback must equal the team's own (season-final) metricHistory exactly.
     const lastHistoryRow = teamArtifact.metricHistory.at(-1);
     expect(teamArtifact.seasonStats.metrics.total?.value).toBe(lastHistoryRow?.metrics.total?.value);
   });
@@ -3457,15 +3376,9 @@ describe("publishSeasons — seasonStats.metrics official-with-fallback (quick t
 });
 
 /**
- * Quick task 260905-ldu: the cross-artifact agreement the whole rank-cards
- * feature rests on — the World rank published on a team's OWN artifact must
- * equal that team's index+1 in the published teams/{year} artifact's rows,
- * after filtering to real team keys and sorting with the shared
- * `compareTeamsByTotal`. This is asserted end-to-end against real
- * `publishSeasons` output, not against `teamRanks.ts` in isolation — the
- * risk this guards against is the two call sites (publish.ts's per-team loop
- * and its Teams-artifact assembly) drifting apart, which a pure unit test of
- * `teamRanks.ts` alone cannot catch.
+ * A team's published World rank must equal its index+1 in the published
+ * teams/{year} rows (real keys, sorted by `compareTeamsByTotal`). End to end,
+ * because the risk is publish.ts's two call sites drifting apart.
  */
 describe("publishSeasons — World rank cross-artifact agreement (quick task 260905-ldu)", () => {
   let dir: string;
@@ -3520,9 +3433,7 @@ describe("publishSeasons — World rank cross-artifact agreement (quick task 260
         matchKey: "2026rnk_qm3",
         eventKey: "2026rnk",
         sortTime: 3_000,
-        // frc9B (a letter-suffixed non-real key) is deliberately included:
-        // it must be excluded from every ranking pool before ranks are
-        // computed, per teamRanks.ts's own contract.
+        // frc9B (non-real key) must be excluded from every ranking pool.
         redTeams: ["frc3", "frc6", "frc9"],
         blueTeams: ["frc1", "frc8", "frc9B"],
         redScore: 70,
@@ -3545,9 +3456,7 @@ describe("publishSeasons — World rank cross-artifact agreement (quick task 260
       expect(world?.rank, `world rank for ${row.teamKey}`).toBe(expectedRank);
       expect(world?.total).toBe(sorted.length);
 
-      // Quick task 260905-ttv: every real team here played only at
-      // "2026rnk" (USA/MI/fim) -- its published teams/{year} row carries
-      // exactly that inferred home region.
+      // Every real team played only at "2026rnk" (USA/MI/fim), so that is its inferred region.
       expect(row.country).toBe("USA");
       expect(row.stateProv).toBe("MI");
       expect(row.districtKey).toBe("fim");
@@ -3555,10 +3464,7 @@ describe("publishSeasons — World rank cross-artifact agreement (quick task 260
   });
 
   it("frc9B (a letter-suffixed non-real key) is excluded from the published teams artifact's region assertions but does not corrupt the real rows' ranks", () => {
-    // Regression guard, deliberately trivial: isRealPublishedTeamKey already
-    // filters non-real keys out of `realRows` above -- this test exists so a
-    // future reader confirms that exclusion by name rather than by inference
-    // from the previous test's row count alone.
+    // Deliberately trivial: names the non-real-key exclusion explicitly.
     expect(isRealPublishedTeamKey("frc9B")).toBe(false);
   });
 
@@ -3567,13 +3473,8 @@ describe("publishSeasons — World rank cross-artifact agreement (quick task 260
       "(always paired on the same alliance) and therefore tie EXACTLY, the published World rank still equals each team's index+1 in the " +
       "wire-round-tripped teams artifact sorted by compareTeamsByTotal, broken by ascending team number",
     async () => {
-      // frc1 and frc2 NEVER appear on separate alliances or with different
-      // teammates across any of these three matches -- OPR's least-squares
-      // design matrix cannot distinguish their columns, so the minimum-norm
-      // solution assigns them EXACTLY equal ratings. This is the same class
-      // of collision `roundTeamMetricRecord` guards against (two distinct-
-      // by-construction values landing on the same published number) without
-      // depending on an unverifiable floating-point coincidence.
+      // frc1 and frc2 always play together with the same teammates, so OPR's minimum-norm solve
+      // gives them exactly equal ratings: a guaranteed tie, not a float coincidence.
       upsertEvent(db, seasonEvent({ eventKey: "2026tie", name: "Tie Event", country: "USA", stateProv: "MI", districtKey: "fim" }));
       upsertMatch(
         db,
