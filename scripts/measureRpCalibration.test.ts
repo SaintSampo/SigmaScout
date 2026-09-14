@@ -1015,3 +1015,42 @@ describe("RpOutcomeArmRecordSchema", () => {
     expect(() => RpOutcomeArmRecordSchema.parse(candidate)).not.toThrow();
   });
 });
+
+describe("data/baselines/rp-outcome-arms-2026-09.json — the committed arm comparison (260913-qyn Task 2 Step 1)", () => {
+  const RECORD = RpOutcomeArmRecordSchema.parse(
+    JSON.parse(readFileSync(new URL("../data/baselines/rp-outcome-arms-2026-09.json", import.meta.url), "utf8"))
+  );
+
+  it("ran on exactly the selection slice — 2016, 2017, 2018, 2019, 2020, 2022", () => {
+    expect(RECORD.seasons).toEqual([2016, 2017, 2018, 2019, 2020, 2022]);
+  });
+
+  it("re-applying applyRpOutcomeArmBar over its own pooled figures reproduces the recorded verdicts and ship — the bar is applied mechanically, not hand-transcribed", () => {
+    const pooled: ArmPooledFigures[] = RECORD.arms.map((a) => ({
+      arm: a.arm,
+      totalRpCount: a.totalRp?.count ?? 0,
+      totalRpRps: a.totalRp?.rankedProbabilityScore ?? Number.NaN,
+      outcomeCount: a.outcome?.count ?? 0,
+      outcomeBrier: a.outcome?.brierScore ?? Number.NaN,
+    }));
+    const reproduced = applyRpOutcomeArmBar(pooled);
+    expect(reproduced.ship).toBe(RECORD.ship);
+    expect(reproduced.verdicts).toEqual(RECORD.barVerdicts);
+  });
+
+  it("shipped win+tie — all three arms cleared the bar, and win+tie has the lowest pooled RPS", () => {
+    expect(RECORD.ship).toBe("win+tie");
+    for (const arm of ["win", "tie", "win+tie"] as const) {
+      const verdict = RECORD.barVerdicts.find((v) => v.arm === arm);
+      expect(verdict?.accepted, `${arm} should be accepted`).toBe(true);
+    }
+  });
+
+  it("every arm scored the identical pooled totalRp/outcome counts — the identical-observation-set requirement, re-checked from the committed record", () => {
+    const control = RECORD.arms.find((a) => a.arm === "control")!;
+    for (const arm of RECORD.arms) {
+      expect(arm.totalRp?.count).toBe(control.totalRp?.count);
+      expect(arm.outcome?.count).toBe(control.outcome?.count);
+    }
+  });
+});
