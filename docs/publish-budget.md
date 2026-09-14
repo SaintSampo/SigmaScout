@@ -261,24 +261,24 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
 
 ```json budget
 {
-  "measuredAt": "2026-09-13T18:41:04.000Z",
-  "run": "pnpm publish:seasons (= tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2026) -- generation 174d585f-16c8-4a0d-b342-dbd3f7acda6e, 108,979 objects, 4,163,068,726 bytes total, 641 presim sidecars, 16:45:35-18:41:04 UTC 2026-09-13 (1h55m), attended. REPUBLISH ONLY for quick task 260913-g66 -- no retune, no promotion, no algorithm version changed (opr 4.0.0 / epa 10.0.0 / spr 3.0.0), so every key was overwritten in place and no generation was orphaned. It also carries 260912-tnk (pool-ranked percentiles) into R2. Wire changes: the retired per-match band keys were renamed to redMatchBandVariance/blueMatchBandVariance and are now emitted for spr only, as rosterSize x sum of squared Sigma Scores (display-only; the RP pmf still uses the uncorrected variance); the retired top-level per-team consistency field is no longer published for any algorithm. That removal is why total bytes FELL 158.8 MB (4,321,867,353 -> 4,163,068,726) at an identical object count: teams max 1,573,854 -> 1,500,066 B, event median 74,611 -> 70,580 B and max 272,530 -> 256,899 B, team median 31,305 -> 30,749 B and max 267,128 -> 256,681 B. Every page kind remains inside its budget. Verified by CONTENT: v1/manifest/algorithms.json reads opr 4.0.0 / epa 10.0.0 / spr 3.0.0 at this generation; 2026casnv spr carries redMatchBandVariance on 89/89 rows and zero retired keys, while opr and epa carry no band key; the 2026 teams artifacts carry the retired per-team consistency field for no algorithm and a sigma column only for spr (3,721/3,721); live 2026 spr event artifacts put 72.1% of 40,816 played alliance scores inside 1 band and 94.6% inside 2 (measure:match-band predicted 72.2%). verify:subset 65 entries, 0 failing, generation uniformity 1 distinct value; its vpr 404s are the retired-algorithm control entries.",
+  "measuredAt": "2026-09-14T00:15:15.990Z",
+  "run": "tsx packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2026 --write-budget -- generation 2dcc057f-be4c-4a00-9749-00412e23994d, 108976 objects, 3903651039 bytes total, 214 presim sidecars (median 6859 B, p95 16085 B, max 23785 B), 2026-09-13T23:51:47.632Z to 2026-09-14T00:15:15.990Z (0h23m28s)",
   "pages": {
     "teams": {
       "count": 30,
-      "medianBytes": 913216,
-      "p95Bytes": 1372026,
-      "maxBytes": 1500066,
+      "medianBytes": 913093,
+      "p95Bytes": 1372024,
+      "maxBytes": 1500278,
       "budgetMaxBytes": 3500000,
       "largestKey": "v1/teams/2026/epa@10.0.0+baseline.json"
     },
     "team": {
-      "count": 101409,
-      "medianBytes": 30749,
-      "p95Bytes": 84709,
-      "maxBytes": 256681,
+      "count": 101397,
+      "medianBytes": 28774,
+      "p95Bytes": 81818,
+      "maxBytes": 262087,
       "budgetMaxBytes": 500000,
-      "largestKey": "v1/team/frc3538/2024/spr@3.0.0+baseline.json"
+      "largestKey": "v1/team/frc3538/2024/spr@4.0.0+baseline.json"
     },
     "events": {
       "count": 30,
@@ -289,18 +289,18 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
       "largestKey": "v1/events/2025/epa@10.0.0+baseline.json"
     },
     "event": {
-      "count": 7500,
-      "medianBytes": 70580,
-      "p95Bytes": 113663,
-      "maxBytes": 256899,
+      "count": 7509,
+      "medianBytes": 54108,
+      "p95Bytes": 104761,
+      "maxBytes": 227726,
       "budgetMaxBytes": 350000,
-      "largestKey": "v1/event/2016micmp/epa@10.0.0+baseline.json"
+      "largestKey": "v1/event/2016micmp/spr@4.0.0+baseline.json"
     },
     "compare": {
       "count": 10,
-      "medianBytes": 14583,
-      "p95Bytes": 14878,
-      "maxBytes": 14878,
+      "medianBytes": 14314,
+      "p95Bytes": 14498,
+      "maxBytes": 14498,
       "budgetMaxBytes": 20000,
       "largestKey": "v1/compare/2026.json"
     }
