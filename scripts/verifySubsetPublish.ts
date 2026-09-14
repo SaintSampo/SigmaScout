@@ -1,33 +1,25 @@
 /**
- * Credential-free, re-runnable verifier for 07-10's real-data subset publish
- * (PD-08), extended by plan 07-17 (PD-03) for the D-18 full republish under
- * the renamed `vpr` algorithm id. Reads published artifacts from the SAME
- * public origin the browser reads (`apps/web/src/lib/artifactOrigin.ts`,
- * Phase 4 D-25) — never the R2 bucket directly, never
- * `packages/harness/r2Client.ts`'s `getObject` / `deleteObject` — and
- * resolves each algorithm's published version from the public algorithms
- * manifest rather than hardcoding or hand-typing one (PD-02). Parses every
- * artifact through the publisher's own `EventArtifactSchema` /
- * `TeamSeasonArtifactSchema` and asserts thirteen classes of expectation
- * against two committed expectation tables — `PUBLISHED_SUBSET` (event-level,
- * checks 1-10) and `PUBLISHED_TEAM_SUBSET` (team-level, checks 11-13) — whose
- * numbers are direct corpus measurements and never adjusted to match an
- * observed result (this plan's first prohibition; PD-03).
+ * Credential-free, re-runnable verifier for published event and team
+ * artifacts. Reads from the SAME public origin the browser reads
+ * (`apps/web/src/lib/artifactOrigin.ts`) — never the R2 bucket directly,
+ * never `packages/harness/r2Client.ts` — and resolves each algorithm's
+ * published version from the public algorithms manifest rather than a
+ * hand-typed one (PD-02). Parses every artifact through the publisher's own
+ * `EventArtifactSchema` / `TeamSeasonArtifactSchema` and asserts its checks
+ * against two committed expectation tables whose numbers are direct corpus
+ * measurements, never adjusted to match an observed result (PD-03):
  *
- * 07-17's own fifteen `PUBLISHED_SUBSET` entries are kept EXACTLY as 07-10
- * left them (`PRE_RENAME_EVENT_SUBSET` below) — the old-key control: every
- * one of these seventeen entries (fifteen `sigma1` + the two non-`sigma1`
- * `2024casf` arms) must stay green after 07-17's full republish, proving
- * nothing was deleted or clobbered. `RENAMED_EVENT_SUBSET` derives a renamed
- * duplicate of every one of those seventeen PROGRAMMATICALLY (a `.map()`,
- * never hand-retyped) so the expectation numbers can never silently drift
- * between the control and the renamed-run assertion — for the fifteen
- * `sigma1` entries the duplicate's `algorithmId` becomes `vpr`; the two
- * `opr`/`epa` arms are duplicated unchanged (opr/epa are overwritten in
- * place by the same run, never renamed), so the table reads as "every
- * algorithm this run touches, once for old-key control, once for the
- * renamed-run assertion" rather than silently omitting two of seventeen
- * (PD-03).
+ * - `PUBLISHED_SUBSET` (event-level, checks 1-10, 14, 15): fifteen `spr`
+ *   entries chosen for their shapes (interleaved eliminations, empty
+ *   alliances, zero-ranking offseasons, the widest roster, the longest name),
+ *   the `opr` and `epa` arms at `2024casf`, and `2024auwarp`.
+ * - `PUBLISHED_TEAM_SUBSET` (team-level, checks 11-13): one `spr`
+ *   team-season with playoff rows per season 2022-2026, plus a low-match team.
+ *
+ * Both tables still accept `expectAbsent` + `version` entries (a 404 check
+ * against a retired `{id}@{version}` prefix); none are listed today, because
+ * every retired prefix is already gone from the bucket by full-listing census.
+ * The earlier retirement-control tables (sigma1, vpr, bpr) are in git history.
  *
  * This script needs NO credential of any kind: it never reads an
  * environment variable, never constructs a signed request, and never
@@ -55,40 +47,6 @@ import {
   type EventArtifact,
   type TeamSeasonArtifact,
 } from "../packages/harness/pageArtifacts.js";
-
-/**
- * D-04/D-05 (plan 07-16): the live premier algorithm id — every `sigma1`
- * control entry's renamed duplicate carries this id instead. Was `"vpr"`
- * until 2026-09-10: VPR was retired from the site 2026-09-09 (commit
- * eae2defb) and the manifest no longer resolves it, so the live presence
- * layer now targets its successor, `bpr`.
- *
- * 2026-09-12 (quick task 260912-tay): the orphaned `vpr@*` objects are gone.
- * That task deleted every generation the live manifest does not name, all
- * seven vpr versions still in the bucket among them, selected from a FULL
- * bucket listing and proven by a second full listing afterwards (0 objects
- * left under any deleted generation; `docs/publish-budget.md`, "Delete pass —
- * 2026-09-12"). Vpr-key ABSENCE is therefore assertable, and
- * `RETIRED_VPR_FINAL_EVENT_SUBSET` (15 event entries) plus one
- * `PUBLISHED_TEAM_SUBSET` entry (frc4206/2024) pin VPR's final published
- * generation, `11.0.0+rolling-2026-09g`. The earlier 9.0.0 layer
- * (`RETIRED_VPR_EVENT_SUBSET`) stays alongside it. The new absence claims are
- * not vacuous: 16/16 of their keys were present in the pre-delete full
- * listing (`260912-tay-spotchecks.txt`).
- *
- * 2026-09-12 (quick task 260912-ivg): renamed again, to `spr` — the same
- * algorithm under a new wire id, not a new algorithm. The full cutover ran the
- * same day: every `spr@` artifact was published (generation
- * 2c22394b-de85-44f5-b80a-bfdca523ee98), the manifest was flipped last, D1 was
- * reseeded, the Worker redeployed onto the renamed live tier, and every
- * `bpr@` object was deleted from R2 — 36,537 page objects at `3.0.0+baseline`
- * plus 2,825 presim keys, and a further 214 presim sidecars left behind at the
- * earlier `1.0.0+baseline`. A full bucket census taken afterwards reports ZERO
- * objects under the retired id, which is why the pre-rename id needs no
- * absence entries of its own here: there is no partially-deleted state left to
- * assert against, unlike the `vpr@*` case above.
- */
-const RENAMED_ALGORITHM_ID = "spr";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -141,7 +99,7 @@ export interface SubsetEntry {
    * the honest current claim for EVERY algorithm on RP-eligible events:
    * the RP layer (commit 160401fe) gives all three algorithms pmfs, but
    * coverage is uniformly incomplete — 57/72 played qm rows at `2024casf`
-   * for opr, epa AND bpr alike (live-measured 2026-09-10 at generation
+   * for opr, epa AND spr (then bpr) alike (live-measured 2026-09-10 at generation
    * `2f1a8885`; the other 15 pmf pairs in the histogram are degenerate
    * length-1 ELIMINATION pmfs, not qual coverage). The 15 uncovered qual
    * rows are the cold-start -> no-band -> no-pmf chain filed with the
@@ -225,50 +183,46 @@ export function assertSubsetEntryShape<T extends AbsenceCapableEntry>(entries: r
 }
 
 /**
- * 07-10's committed table, extended (not otherwise altered) by plan 07-19.
- * Every number came from a direct corpus measurement recorded in
- * 07-10-PLAN.md's <subset_selection> table; none may be adjusted to match an
- * observed result. The FIFTEEN `sigma1` entries below now carry
- * `expectAbsent: true` plus a literal `version` (PD-05) — this plan's own
- * live third of the standing D-05 assertion — while the two `opr`/`epa`
- * arms at `2024casf` remain untouched presence controls.
+ * The event-level expectation table. Every number came from a direct corpus
+ * measurement (07-10-PLAN.md's <subset_selection> table, extended by 07-17
+ * and 07-19); none may be adjusted to match an observed result.
  *
- * ONE exception to "never adjusted to match an observed result," made
- * explicit here rather than silently: `2025isios`'s `expectAlliances` is
- * corrected from `"populated"` to `"empty"`, closing WINDOWS.md ledger #13.
- * This is the first plan whose own task (PD-05's flip) brings this exact
- * expectation table into direct editing scope, and the correction is a
- * stale SEED VALUE fix (confirmed live against TBA: `GET
- * /event/2025isios/alliances` -> 200, `[]`, real production state — not a
- * data defect), not an adjustment of a still-running check to match an
- * observation: this entry's own `expectAbsent: true` means it no longer
- * runs the alliances check at all. The correction exists because its
- * `RENAMED_EVENT_SUBSET` duplicate — a genuinely live presence check — was
- * failing on exactly this stale value every single run since 07-10.
+ * The fifteen `spr` entries expect `"partial"` RP pmfs on RP-eligible events
+ * (see `expectPlayedQmRpPmf`'s doc comment) and `"absent"` on offseasons. The
+ * `opr`/`epa` arms at `2024casf` expect no pmfs at all: since quick task
+ * 260913-it4 only `spr` publishes ranking-point odds.
+ *
+ * `2025isios`'s `expectAlliances` was corrected from `"populated"` to
+ * `"empty"` by plan 07-19 (WINDOWS.md ledger #13): confirmed live against TBA
+ * (`GET /event/2025isios/alliances` -> 200, `[]`) as real production state, a
+ * stale seed value rather than an adjustment to a still-running check.
+ *
+ * `2024auwarp` (event type 99, offseason, `start_date` 2024-08-23) is the
+ * third of D-08's three named events, corpus-measured by 07-17: 47 `qm` + 13
+ * `sf` + 2 `f` played rows (62 total) and zero scheduled, a 25-team roster,
+ * zero `event_rankings` rows and zero `event_alliances` rows.
  */
-export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
+export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
   {
     eventKey: "2024casf",
-    algorithmId: "sigma1",
+    algorithmId: "spr",
     note:
       'TRACER. The one key whose pre-enrichment state is measured field by field; the only event where ' +
       '"the enrichment landed" is a before/after claim rather than an absolute one. Also 07-12\'s ordinary ' +
       "full case and an ordinary regional for 07-15's precondition. 08-05: event_type 0 (Regional) is " +
-      "isRpEligibleEventType-eligible with 72 played qm rows, so its renamed vpr duplicate expects both pmf and actual-RP present.",
+      "isRpEligibleEventType-eligible with 72 played qm rows, so it expects both pmf and actual-RP present.",
     expectMatches: 87,
     expectUpcoming: 0,
     expectTeams: 43,
     expectRankedTeams: 43,
     expectAlliances: "populated",
     expectVariance: "present",
-    expectPlayedQmRpPmf: "present",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2022ilpe",
-    algorithmId: "sigma1",
+    algorithmId: "spr",
     note:
       "07-13's played+upcoming elimination INTERLEAVE case (qf2m3 between played qf2m2 and qf3m1) — the real " +
       "case a played-then-upcoming concatenation fails while passing a contiguous fixture. Second ordinary " +
@@ -280,19 +234,17 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 38,
     expectAlliances: "populated",
     expectVariance: "present",
-    expectPlayedQmRpPmf: "present",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2022mirr",
-    algorithmId: "sigma1",
+    algorithmId: "spr",
     note:
       "07-13/07-20's pure all-unplayed elimination slate: zero played elimination rows against 60 upcoming ef " +
       "rows across 20 sets. Offseason, reachable only once an offseason publish reaches it — this plan is that " +
-      "publish. 08-05: event_type 99 (Offseason) is excluded from isRpEligibleEventType, so its renamed vpr " +
-      "duplicate expects ZERO pmf on any of its 38 played qm rows while still carrying actual-RP.",
+      "publish. 08-05: event_type 99 (Offseason) is excluded from isRpEligibleEventType, so it " +
+      "expects ZERO pmf on any of its 38 played qm rows while still carrying actual-RP.",
     expectMatches: 38,
     expectUpcoming: 60,
     expectTeams: 15,
@@ -301,12 +253,10 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectVariance: "present",
     expectPlayedQmRpPmf: "absent",
     expectPlayedQmActualRp: "present",
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2023cur",
-    algorithmId: "sigma1",
+    algorithmId: "spr",
     note:
       "07-20's widest roster (78 ranked teams, tied max) and 130 qualification rows — the E3 roster and E5 " +
       "density target. 08-05: event_type 3 (Championship Division) is isRpEligibleEventType-eligible with " +
@@ -317,18 +267,16 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 78,
     expectAlliances: "populated",
     expectVariance: "present",
-    expectPlayedQmRpPmf: "present",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2023cnsh",
-    algorithmId: "sigma1",
+    algorithmId: "spr",
     note:
       "D-08 / RESEARCH Pitfall 1's own named event, one of the exact three D-08's fallback was measured and " +
       "written around. Offseason, zero ranking rows. 08-05: event_type 99 (Offseason) is excluded from " +
-      "isRpEligibleEventType, so its renamed vpr duplicate expects ZERO pmf on any of its 58 played qm rows " +
+      "isRpEligibleEventType, so it expects ZERO pmf on any of its 58 played qm rows " +
       "while still carrying actual-RP.",
     expectMatches: 62,
     expectUpcoming: 0,
@@ -338,12 +286,10 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectVariance: "present",
     expectPlayedQmRpPmf: "absent",
     expectPlayedQmActualRp: "present",
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2023nhgrs",
-    algorithmId: "sigma1",
+    algorithmId: "spr",
     note:
       "07-12's adjacency measurement event: 52 played + 26 upcoming qualification rows (zero duplicate " +
       "matchNumber across the two arrays), a second-season D-13 quals-merge case. 08-05: event_type 1 " +
@@ -354,14 +300,12 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 39,
     expectAlliances: "populated",
     expectVariance: "present",
-    expectPlayedQmRpPmf: "present",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2024new",
-    algorithmId: "sigma1",
+    algorithmId: "spr",
     note:
       "07-20's E4 target and the payload gate: the corpus's current maximum-bytes event object (285,437 " +
       "pre-plan) and the widest column set in the app. D-08 CONTROL — every team carries a rank. 08-05: " +
@@ -373,18 +317,16 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 75,
     expectAlliances: "populated",
     expectVariance: "present",
-    expectPlayedQmRpPmf: "present",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2024vabrb",
-    algorithmId: "sigma1",
+    algorithmId: "spr",
     note:
       "07-14's explicit routed recommendation, three-in-one: offseason, zero ranking rows (D-08's banner), and " +
       "five alliances of exactly two picks (D-16's incomplete-sum rule on every row). 08-05: event_type 99 " +
-      "(Offseason) is excluded from isRpEligibleEventType, so its renamed vpr duplicate expects ZERO pmf on " +
+      "(Offseason) is excluded from isRpEligibleEventType, so it expects ZERO pmf on " +
       "any of its 16 played qm rows while still carrying actual-RP.",
     expectMatches: 26,
     expectUpcoming: 0,
@@ -396,16 +338,14 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectEveryAlliancePicks: 2,
     expectPlayedQmRpPmf: "absent",
     expectPlayedQmActualRp: "present",
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2024wvrox",
-    algorithmId: "sigma1",
+    algorithmId: "spr",
     note:
       "07-20/07-14: the true corpus quals maximum (135 qualification rows) and RESEARCH.md Question 2's " +
       "live-observed absent alliance name case — an alliance carrying declines/picks/status but no name key. " +
-      "08-05: event_type 99 (Offseason) is excluded from isRpEligibleEventType, so its renamed vpr duplicate " +
+      "08-05: event_type 99 (Offseason) is excluded from isRpEligibleEventType, so it " +
       "expects ZERO pmf on any of its 135 played qm rows while still carrying actual-RP.",
     expectMatches: 154,
     expectUpcoming: 0,
@@ -416,12 +356,10 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectSomeAllianceWithoutName: true,
     expectPlayedQmRpPmf: "absent",
     expectPlayedQmActualRp: "present",
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2025flta",
-    algorithmId: "sigma1",
+    algorithmId: "spr",
     note:
       "07-12/07-20: 63 played + 21 upcoming = the 84-row merged quals slate 07-12's width target and 07-20's " +
       "E5 merge case. Third ordinary regional for 07-15. 08-05: event_type 0 (Regional) is " +
@@ -432,23 +370,19 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 42,
     expectAlliances: "populated",
     expectVariance: "present",
-    expectPlayedQmRpPmf: "present",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2025isios",
-    algorithmId: "sigma1",
+    algorithmId: "spr",
     note:
       "D-08 / Pitfall 1's headline event (68 matches, zero ranking rows) and 07-20's named D-08 positive case. " +
       "Only subset event with upcoming qualification rows AND zero elimination matches of any kind. " +
       "expectAlliances corrected populated -> empty by plan 07-19 (WINDOWS.md ledger #13): confirmed live " +
       "against TBA (GET /event/2025isios/alliances -> 200, []) as real production state, not a data defect — " +
-      "this was a stale seed expectation, not an observed-value adjustment to a still-live check (the entry " +
-      "itself is now expectAbsent and no longer runs the alliances check at all; the correction exists so its " +
-      "RENAMED_EVENT_SUBSET duplicate, which DOES still check alliances, reads the real value). 08-05: " +
-      "event_type 99 (Offseason) is excluded from isRpEligibleEventType, so its renamed vpr duplicate expects " +
+      "this was a stale seed expectation, not an observed-value adjustment to a still-live check. 08-05: " +
+      "event_type 99 (Offseason) is excluded from isRpEligibleEventType, so it expects " +
       "ZERO pmf on any of its 43 played qm rows while still carrying actual-RP.",
     expectMatches: 43,
     expectUpcoming: 25,
@@ -458,16 +392,14 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectVariance: "present",
     expectPlayedQmRpPmf: "absent",
     expectPlayedQmActualRp: "present",
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2025bc",
-    algorithmId: "sigma1",
+    algorithmId: "spr",
     note:
       "D-17: RESEARCH.md Question 2 live-observed an EMPTY alliances array here — a valid 200 with [], on an " +
       "event that ran 83 qualification matches and published 62 rankings. 08-05: event_type 99 (Offseason) is " +
-      "excluded from isRpEligibleEventType, so its renamed vpr duplicate expects ZERO pmf on any of its 83 " +
+      "excluded from isRpEligibleEventType, so it expects ZERO pmf on any of its 83 " +
       "played qm rows while still carrying actual-RP.",
     expectMatches: 113,
     expectUpcoming: 0,
@@ -477,12 +409,10 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectVariance: "present",
     expectPlayedQmRpPmf: "absent",
     expectPlayedQmActualRp: "present",
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2025cmptx",
-    algorithmId: "sigma1",
+    algorithmId: "spr",
     note:
       "07-11's own named expected no-ranking candidate — Einstein is playoff-only, so zero ranking rows is a " +
       "format fact, not an offseason fact. Also zero qualification rows in both arrays (UI-SPEC E5 empty) and " +
@@ -495,12 +425,10 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 0,
     expectAlliances: "populated",
     expectVariance: "present",
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2026vache",
-    algorithmId: "sigma1",
+    algorithmId: "spr",
     note:
       "07-20's E1 target. Published name is 124 characters — the longest event name in five seasons of corpus " +
       "data — the header truncation + title backstop needs a real published artifact carrying it. 08-05: " +
@@ -512,19 +440,17 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 30,
     expectAlliances: "populated",
     expectVariance: "present",
-    expectPlayedQmRpPmf: "present",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2026wvrox",
-    algorithmId: "sigma1",
+    algorithmId: "spr",
     note:
       "D-17, second season: the other live-observed empty-alliances event, so the [] case is proven in two " +
       "seasons. Also 5 upcoming qualification rows against 120 played — the D-13 quals merge in a third " +
       "season and a different ratio. 08-05: event_type 99 (Offseason) is excluded from isRpEligibleEventType, " +
-      "so its renamed vpr duplicate expects ZERO pmf on any of its 120 played qm rows while still carrying " +
+      "so it expects ZERO pmf on any of its 120 played qm rows while still carrying " +
       "actual-RP.",
     expectMatches: 120,
     expectUpcoming: 5,
@@ -534,8 +460,6 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectVariance: "present",
     expectPlayedQmRpPmf: "absent",
     expectPlayedQmActualRp: "present",
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
   },
   {
     eventKey: "2024casf",
@@ -543,7 +467,7 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     note:
       "UI-SPEC E4 partial and E5 partial on real data. metricKeysFor('opr', 2024) is the Total key alone, so an " +
       "OPR-selected Breakdown tab is a legitimately 2-column table; OPR sets no alliance-level own variance, so " +
-      "every Quals/Elims row publishes NEITHER variance field. The negative half that gives the sigma1 " +
+      "every Quals/Elims row publishes NEITHER variance field. The negative half that gives the spr " +
       "assertion its meaning. 08-05 (D-04) HISTORY: this arm used to expect ZERO pmf because OPR models no " +
       "ranking points. 2026-09-10: commit 160401fe's SigmaScout-layer RP model (learned from results alone) " +
       "deliberately inverted that — every algorithm's artifacts now carry pmfs on RP-eligible played qm rows, " +
@@ -579,145 +503,25 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
     expectPlayedQmRpPmf: "absent",
     expectPlayedQmActualRp: "present",
   },
-];
-
-/**
- * PD-03: a renamed duplicate of every one of `PRE_RENAME_EVENT_SUBSET`'s
- * seventeen entries, derived PROGRAMMATICALLY (never hand-retyped) so the
- * expectation numbers are, by construction, identical — a disagreement
- * between an event's single-event artifact and its seasons-pass artifact
- * would show up as a real check failure here, never as a copy-paste drift in
- * this table. The fifteen `sigma1` entries become `vpr` (D-04/D-05); the two
- * `opr`/`epa` arms at `2024casf` are duplicated with their `algorithmId`
- * UNCHANGED, since opr/epa are overwritten in place by 07-17's run rather
- * than renamed — their "renamed-run duplicate" therefore targets the exact
- * same key as the control entry, which is deliberate (PD-03's own text names
- * this arrangement): the SAME key checked twice, once before the run
- * (`PRE_RENAME_EVENT_SUBSET`, run early to establish the RED baseline) and
- * once after (this table, run again after Task 3's real publish), is exactly
- * how an `opr`/`epa` overwrite-in-place gets its own before/after proof
- * without a second, redundant table.
- *
- * `expectAbsent`/`version` are deliberately CLEARED here rather than
- * spread through unchanged (PD-05, plan 07-19): the fifteen `sigma1`
- * entries above are absence checks against the RETIRED prefix, but their
- * renamed `vpr` duplicates below check for PRESENCE against the live,
- * still-published prefix — the manifest resolves `vpr`'s current version,
- * exactly like every other presence entry in this table.
- */
-export const RENAMED_EVENT_SUBSET: readonly SubsetEntry[] = PRE_RENAME_EVENT_SUBSET.map((entry) => ({
-  ...entry,
-  algorithmId: entry.algorithmId === "sigma1" ? RENAMED_ALGORITHM_ID : entry.algorithmId,
-  note: `[renamed-run duplicate, PD-03] ${entry.note}`,
-  // 2026-09-10: the premier-algorithm duplicates (sigma1 -> bpr) downgrade
-  // "present" to "partial" — bpr's RP-pmf coverage is measurably incomplete
-  // (57/72 at 2024casf) while the cold-start -> no-band -> no-pmf chain is
-  // open; see expectPlayedQmRpPmf's doc comment. The opr/epa duplicates keep
-  // their controls' own values untouched (full 72/72 coverage, "present").
-  expectPlayedQmRpPmf:
-    entry.algorithmId === "sigma1" && entry.expectPlayedQmRpPmf === "present" ? "partial" : entry.expectPlayedQmRpPmf,
-  expectAbsent: false,
-  version: undefined,
-}));
-
-/**
- * The one genuinely new entry (Task 1 step 4): `2024auwarp`, event type 99
- * (offseason), `start_date` 2024-08-23 — the third of D-08's three named
- * events and the one 07-10 deliberately excluded. Corpus-measured (read-only,
- * `data/corpus.sqlite`, this plan's own baseline capture): 47 `qm` + 13 `sf`
- * + 2 `f` played rows (62 total) and zero scheduled, a 25-team roster, zero
- * `event_rankings` rows (offseason, D-08's fallback banner fires), and zero
- * `event_alliances` rows. This is the first artifact this event will ever
- * have had under any algorithm id.
- */
-const NEW_2024AUWARP_ENTRY: SubsetEntry = {
-  eventKey: "2024auwarp",
-  algorithmId: RENAMED_ALGORITHM_ID,
-  note:
-    "D-08's third named event, deliberately excluded by 07-10 — the first artifact it will ever have had. " +
-    "Offseason, zero ranking rows, zero alliances. Corpus-measured: 47 qm + 13 sf + 2 f played, 0 scheduled, " +
-    "25-team roster. 08-05: event_type 99 (Offseason) is excluded from isRpEligibleEventType, so this entry " +
-    "expects ZERO pmf on any of its 47 played qm rows while still carrying actual-RP — this is also D-12's " +
-    "own summed-fallback proof case (0 teams carry EventTeamSchema.rp on this offseason-with-zero-rankings " +
-    "event, so 08-11's fallback branch reads its 47 rows' actualRedRp/actualBlueRp directly).",
-  expectMatches: 62,
-  expectUpcoming: 0,
-  expectTeams: 25,
-  expectRankedTeams: 0,
-  expectAlliances: "empty",
-  expectVariance: "present",
-  expectPlayedQmRpPmf: "absent",
-  expectPlayedQmActualRp: "present",
-};
-
-/**
- * 2026-09-10: the retired `vpr` prefix's absence layer, exactly the sigma1
- * pattern one retirement later. The `retire-vpr-9-generation` delete pass
- * ran this day (25,724 keys over --seasons 2019-2026, pre-census 56/60
- * present, post-census 0/60 — `docs/publish-budget.md`'s delete-pass
- * section), so `vpr@9.0.0+rolling-2026-09c` absence is now a live,
- * re-runnable claim. Derived programmatically from the fifteen sigma1
- * controls (same events, same PD-05 shape); the version literal is the
- * historical record of what was deleted and cannot go stale — nothing will
- * ever publish under `vpr@9.0.0+rolling-2026-09c` again.
- *
- * Corrected 2026-09-12: this comment used to say the layer pins "only its
- * final version", like sigma1's. 9.0.0 was NOT vpr's final generation —
- * 10.0.0 and 11.0.0 generations were published after it. The final one,
- * `11.0.0+rolling-2026-09g`, now has its own layer
- * (`RETIRED_VPR_FINAL_EVENT_SUBSET` below, quick task 260912-tay), and this
- * 9.0.0 layer is kept alongside it because its claim is still true and
- * removing an assertion would only narrow the verifier.
- */
-export const RETIRED_VPR_EVENT_SUBSET: readonly SubsetEntry[] = retiredVprAbsenceLayer(
-  "9.0.0+rolling-2026-09c",
-  "[retired-vpr absence, 2026-09-10]"
-);
-
-/**
- * 2026-09-12 (quick task 260912-tay): the retired-vpr FINAL-generation
- * absence layer, pinned to `11.0.0+rolling-2026-09g` — the last generation
- * vpr ever published, per the house convention that an absence layer pins
- * the final version. Assertable because that task deleted every orphaned
- * generation from R2 by full-listing census. Same fifteen sigma1 controls,
- * derived the same way as the 9.0.0 layer above. Non-vacuity: all 15 of
- * these event keys (and the frc4206/2024 team key in
- * `PUBLISHED_TEAM_SUBSET`) were present in the pre-delete full listing.
- */
-export const RETIRED_VPR_FINAL_EVENT_SUBSET: readonly SubsetEntry[] = retiredVprAbsenceLayer(
-  "11.0.0+rolling-2026-09g",
-  "[retired-vpr final-generation absence, 2026-09-12]"
-);
-
-/**
- * Derives one retired-vpr absence layer from the fifteen sigma1 controls in
- * `PRE_RENAME_EVENT_SUBSET` — programmatically, never hand-retyped, so the
- * event list cannot drift between layers.
- */
-function retiredVprAbsenceLayer(version: string, notePrefix: string): SubsetEntry[] {
-  return PRE_RENAME_EVENT_SUBSET.filter((entry) => entry.algorithmId === "sigma1").map((entry) => ({
-    ...entry,
-    algorithmId: "vpr",
-    note: `${notePrefix} ${entry.note}`,
-    expectAbsent: true,
-    version,
-  }));
-}
-
-/**
- * The full event-level expectation table this plan's verifier runs against:
- * the seventeen 07-10 control entries, their seventeen renamed-run
- * duplicates, the one genuinely new `2024auwarp` entry, (2026-09-10) the
- * fifteen retired-vpr absence entries at `9.0.0+rolling-2026-09c`, and
- * (2026-09-12, quick task 260912-tay) the fifteen retired-vpr
- * final-generation absence entries at `11.0.0+rolling-2026-09g` — 65 total.
- */
-export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
-  ...PRE_RENAME_EVENT_SUBSET,
-  ...RENAMED_EVENT_SUBSET,
-  NEW_2024AUWARP_ENTRY,
-  ...RETIRED_VPR_EVENT_SUBSET,
-  ...RETIRED_VPR_FINAL_EVENT_SUBSET,
+  {
+    eventKey: "2024auwarp",
+    algorithmId: "spr",
+    note:
+      "D-08's third named event, deliberately excluded by 07-10 — the first artifact it will ever have had. " +
+      "Offseason, zero ranking rows, zero alliances. Corpus-measured: 47 qm + 13 sf + 2 f played, 0 scheduled, " +
+      "25-team roster. 08-05: event_type 99 (Offseason) is excluded from isRpEligibleEventType, so this entry " +
+      "expects ZERO pmf on any of its 47 played qm rows while still carrying actual-RP — this is also D-12's " +
+      "own summed-fallback proof case (0 teams carry EventTeamSchema.rp on this offseason-with-zero-rankings " +
+      "event, so 08-11's fallback branch reads its 47 rows' actualRedRp/actualBlueRp directly).",
+    expectMatches: 62,
+    expectUpcoming: 0,
+    expectTeams: 25,
+    expectRankedTeams: 0,
+    expectAlliances: "empty",
+    expectVariance: "present",
+    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmActualRp: "present",
+  },
 ];
 assertSubsetEntryShape(PUBLISHED_SUBSET, "PUBLISHED_SUBSET");
 
@@ -741,50 +545,31 @@ export interface TeamSubsetEntry {
 
 /**
  * One team-season per season (2022-2026) chosen for having playoff matches,
- * plus the two teams Task 4's `spread` comparison needs — a low-match team
- * and a veteran, both selected to have played ZERO offseason/preseason
- * matches that season so the comparison isolates D-01/D-02's redefinition
- * from the offseason-inclusion methodology change (PD-08). `frc4206`
- * (2024) serves BOTH roles at once (25 playoff rows, 83 total matches, the
- * corpus-measured 2024 maximum among zero-offseason teams) rather than
- * duplicating a second 2024 entry. One control entry
- * (`frc4206`/2024/`sigma1`) is included so Task 1 step 6 can point check 11
- * at a REAL pre-rename object with real playoff rows before trusting the
- * check against the renamed artifacts. All counts measured read-only against
- * `data/corpus.sqlite` at this plan's Task 1 baseline capture.
+ * plus a low-match team — both selected to have played ZERO
+ * offseason/preseason matches that season (PD-08). `frc4206` (2024) is the
+ * 2024 playoff entry and the veteran (25 playoff rows, 83 total matches, the
+ * corpus-measured 2024 maximum among zero-offseason teams). All counts
+ * measured read-only against `data/corpus.sqlite`.
  */
 export const PUBLISHED_TEAM_SUBSET: readonly TeamSubsetEntry[] = [
   {
-    teamKey: "frc4206",
-    year: 2024,
-    algorithmId: "sigma1",
-    note:
-      "Formerly the CONTROL 07-17's own Task 1 step 6 pointed check 11 at before trusting it against the " +
-      "renamed artifacts — that job is done (07-17-SUMMARY.md: playoffRows=25, 2 of 25 rows carried a stale " +
-      "property). Flipped to expectAbsent by plan 07-19 (PD-05): the retired team object this check now proves " +
-      "is gone, the live third of the standing D-05 assertion at the team-artifact level.",
-    expectPlayoffRows: 25,
-    expectAbsent: true,
-    version: "2.0.0+tuned-2026-08",
-  },
-  {
     teamKey: "frc59",
     year: 2022,
-    algorithmId: RENAMED_ALGORITHM_ID,
+    algorithmId: "spr",
     note: "2022's playoff-row entry — 53 total matches, 12 playoff rows, zero offseason/preseason involvement.",
     expectPlayoffRows: 12,
   },
   {
     teamKey: "frc7072",
     year: 2023,
-    algorithmId: RENAMED_ALGORITHM_ID,
+    algorithmId: "spr",
     note: "2023's playoff-row entry — 35 total matches, 5 playoff rows, zero offseason/preseason involvement.",
     expectPlayoffRows: 5,
   },
   {
     teamKey: "frc4206",
     year: 2024,
-    algorithmId: RENAMED_ALGORITHM_ID,
+    algorithmId: "spr",
     note:
       "2024's playoff-row entry AND the veteran half of PD-08's spread comparison — 83 total matches (the " +
       "corpus-measured 2024 maximum among zero-offseason teams), 25 playoff rows.",
@@ -793,7 +578,7 @@ export const PUBLISHED_TEAM_SUBSET: readonly TeamSubsetEntry[] = [
   {
     teamKey: "frc9969",
     year: 2024,
-    algorithmId: RENAMED_ALGORITHM_ID,
+    algorithmId: "spr",
     note:
       "The low-match half of PD-08's spread comparison — 3 total matches in 2024, zero playoff rows, zero " +
       "offseason/preseason involvement. Under D-01/D-02's redefinition this team's spread ratio (spread/value " +
@@ -804,29 +589,16 @@ export const PUBLISHED_TEAM_SUBSET: readonly TeamSubsetEntry[] = [
   {
     teamKey: "frc7111",
     year: 2025,
-    algorithmId: RENAMED_ALGORITHM_ID,
+    algorithmId: "spr",
     note: "2025's playoff-row entry — 27 total matches, 7 playoff rows, zero offseason/preseason involvement.",
     expectPlayoffRows: 7,
   },
   {
     teamKey: "frc2638",
     year: 2026,
-    algorithmId: RENAMED_ALGORITHM_ID,
+    algorithmId: "spr",
     note: "2026's playoff-row entry — 40 total matches, 11 playoff rows, zero offseason/preseason involvement.",
     expectPlayoffRows: 11,
-  },
-  {
-    teamKey: "frc4206",
-    year: 2024,
-    algorithmId: "vpr",
-    note:
-      "[retired-vpr final-generation absence, 2026-09-12] Quick task 260912-tay deleted every orphaned R2 " +
-      "generation by full-listing census, vpr's final 11.0.0+rolling-2026-09g among them. This team object was " +
-      "present in the pre-delete full listing, so its 404 is a real claim. expectPlayoffRows mirrors the sigma1 " +
-      "team control above.",
-    expectPlayoffRows: 25,
-    expectAbsent: true,
-    version: "11.0.0+rolling-2026-09g",
   },
 ];
 assertSubsetEntryShape(PUBLISHED_TEAM_SUBSET, "PUBLISHED_TEAM_SUBSET");
@@ -1152,7 +924,7 @@ export function verifyEntry(
         failures.push(`rpPmf: ${emptyPmfCount} row(s) carry a present-but-EMPTY pmf array — should be omitted entirely, never []`);
       }
     } else if (entry.expectPlayedQmRpPmf === "partial") {
-      // 2026-09-10: bpr's honest current state on RP-eligible events — see
+      // 2026-09-10: spr's honest current state on RP-eligible events — see
       // the field's doc comment. Some rows must carry both, none may carry
       // exactly one; full coverage is NOT asserted while the cold-start ->
       // no-band -> no-pmf chain remains open.
@@ -1692,9 +1464,9 @@ function formatResultLine(result: SubsetEntryResult): string {
 
 /**
  * The algorithm part of a FAIL label. Absence entries carry their pinned
- * version (e.g. `vpr@11.0.0+rolling-2026-09g`) because, since 2026-09-12, two
- * vpr absence layers share the same eventKey and algorithmId and a failure
- * must name which one failed. Presence entries keep the bare algorithm id.
+ * version (`{id}@{version}`), because two absence entries can share an
+ * eventKey and algorithmId and a failure must name which one failed.
+ * Presence entries keep the bare algorithm id.
  */
 function failLabelAlgorithm(entry: AbsenceCapableEntry & { readonly algorithmId: string }): string {
   return entry.expectAbsent === true && entry.version !== undefined
@@ -1744,12 +1516,10 @@ async function runTeamMode(options: CliOptions): Promise<void> {
     const failingEntries = results.filter((r) => r.failures.length > 0).length;
     const totalFailures = results.reduce((n, r) => n + r.failures.length, 0);
     console.log(`\n${entries.length} team entr${entries.length === 1 ? "y" : "ies"} checked, ${failingEntries} failing, ${totalFailures} total failure(s).`);
-    // The control entry (algorithmId "sigma1") is deliberately excluded from
-    // the "one pass" generation-uniformity scope — it comes from an older
-    // publish run by design (07-10), not this run.
+    // Absence entries fetch nothing, so they contribute no generation.
     reportGenerationUniformity(
-      "team subset, non-control",
-      results.filter((r) => r.entry.algorithmId !== "sigma1").map((r) => r.generation)
+      "team subset",
+      results.map((r) => r.generation)
     );
   }
 
@@ -1817,13 +1587,11 @@ async function main(): Promise<void> {
     const failingEntries = results.filter((r) => r.failures.length > 0).length;
     const totalFailures = results.reduce((n, r) => n + r.failures.length, 0);
     console.log(`\n${entries.length} entr${entries.length === 1 ? "y" : "ies"} checked, ${failingEntries} failing, ${totalFailures} total failure(s).`);
-    // Check 12: the "one pass" scope is every entry NOT in the `sigma1`
-    // old-key control (PRE_RENAME_EVENT_SUBSET's own sigma1 rows) — those
-    // are deliberately from an OLDER run (07-10's) and mixing them in would
-    // manufacture a false finding every time.
+    // Check 12: every entry is expected from one publish pass; absence
+    // entries fetch nothing, so they contribute no generation.
     reportGenerationUniformity(
-      "event subset, non-control",
-      results.filter((r) => r.entry.algorithmId !== "sigma1").map((r) => r.generation)
+      "event subset",
+      results.map((r) => r.generation)
     );
   }
 
