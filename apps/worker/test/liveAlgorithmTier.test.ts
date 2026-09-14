@@ -1,16 +1,12 @@
 /**
- * Quick task 260822-wqt (D-04 regression fix): the guard that stops the
- * live-folding-defers-forever defect from being rediscovered during a future
- * event weekend. `processEvent`'s `estimatedCost` for ONE ordinary 3v3 match
- * (6 touched teams) is 50 with all three published algorithms live, against
- * ~41 subrequests actually available per tick — that estimate never clears,
- * so the event defers every tick, forever (measured on the deployed Worker
- * during plan 04-07, recorded in `docs/publish-budget.md`'s "Worker runtime
- * budget" section). This file asserts, against the REAL exported formula
+ * Guards against a live-folding-defers-forever defect: `processEvent`'s
+ * `estimatedCost` for ONE ordinary 3v3 match (6 touched teams) is 50 with
+ * all three published algorithms live, against ~41 subrequests actually
+ * available per tick — that estimate never clears, so the event defers
+ * every tick, forever. This file asserts, against the REAL exported formula
  * (`estimateEventSubrequestCost`) and the REAL exported constants
  * (`TICK_FIXED_SUBREQUEST_COST`, `EVENT_PREFLIGHT_SUBREQUEST_COST`) — never a
- * re-typed copy of the arithmetic, which is precisely how this defect
- * survived four plans undetected — that the tracked `LIVE_ALGORITHM_IDS`
+ * re-typed copy of the arithmetic — that the tracked `LIVE_ALGORITHM_IDS`
  * value in `wrangler.toml` fits the measured per-tick budget, that a live
  * tier of all three does not, that only the live tier actually folds, and
  * that the three decided misconfiguration behaviors (default+warn / throw /
@@ -510,22 +506,15 @@ describe("liveAlgorithmTier — the three decided misconfiguration behaviors", (
     expect(() => parseLiveAlgorithmIds("opr,sigma7")).toThrow(/sigma7/);
   });
 
-  // 260912-ivg: parseLiveAlgorithmIds validates against
-  // PUBLISHED_ALGORITHM_IDS, the single algorithm-id constant again as of
-  // Stage 5's collapse. `spr` (the renamed premier id) is accepted; `bpr`
-  // (the pre-rename premier id, retired entirely by this task) is correctly
-  // REJECTED here — the negative half that proves the retired id did not
-  // silently come back as a member.
+  // parseLiveAlgorithmIds validates against PUBLISHED_ALGORITHM_IDS.
   it("accepts the current premier id (spr) and rejects the retired premier id (bpr)", () => {
     expect(parseLiveAlgorithmIds("spr")).toEqual(["spr"]);
     expect(() => parseLiveAlgorithmIds("bpr")).toThrow(UnknownLiveAlgorithmIdError);
     expect(() => parseLiveAlgorithmIds("bpr")).toThrow(/bpr/);
   });
 
-  // Test 10 (plan 07-18 Task 1): the accepted-ids message lists the three ids
-  // read from the collapsed PUBLISHED_ALGORITHM_IDS constant, joined at
-  // runtime — never a hardcoded sentence — the same assertion shape 07-16
-  // Task 2 Test 3 used, now reading the collapsed constant.
+  // The accepted-ids message lists the ids read from PUBLISHED_ALGORITHM_IDS,
+  // joined at runtime — never a hardcoded sentence.
   it("the accepted-ids message lists all three published ids, joined from the imported constant", () => {
     let message = "";
     try {
@@ -536,9 +525,6 @@ describe("liveAlgorithmTier — the three decided misconfiguration behaviors", (
     expect(message).toContain("accepted: opr, epa, spr");
   });
 
-  // Test 11 (plan 07-18 Task 1): the retired id is still rejected at the
-  // Worker tier — a collapse that reintroduced it as a member would be a
-  // silent regression.
   it("the retired pre-rename id (sigma1) is still rejected, not silently folded", () => {
     expect(() => parseLiveAlgorithmIds("sigma1")).toThrow(UnknownLiveAlgorithmIdError);
   });
@@ -550,13 +536,10 @@ describe("liveAlgorithmTier — the three decided misconfiguration behaviors", (
 });
 
 /**
- * Quick task 260908-5wd: `buildAlgorithmModules` used to END in an unguarded
- * `else` that constructed a Sigma1 module for any id it did not recognise.
- * Setting the live tier to `spr` would therefore have folded live events with
- * the WRONG MODEL and written the results to BPR's artifacts — silently,
- * because `serializeState` has a real `spr` branch so the state round-trips and
- * nothing throws. These pin the two halves of the fix: spr builds a real BPR
- * module, and an unknown id is loud rather than plausible.
+ * `buildAlgorithmModules` must never construct a plausible module for an id
+ * it does not recognise — a silent fallthrough would fold live events with
+ * the WRONG MODEL and write results to the wrong artifacts. These pin the
+ * two halves: `spr` builds a real module, and an unknown id is loud.
  */
 describe("buildAlgorithmModules — no silent Sigma1 fallthrough (quick task 260908-5wd)", () => {
   function manifestOf(ids: readonly string[]) {
@@ -580,8 +563,6 @@ describe("buildAlgorithmModules — no silent Sigma1 fallthrough (quick task 260
     expect(() => buildAlgorithmModules(manifestOf(["mystery"]), ["mystery"])).toThrow(UnknownLiveAlgorithmIdError);
   });
 
-  // Quick task 260913-it4 deleted the retired Sigma1 core and the Worker's
-  // branch for it, so a manifest still naming the retired id must throw.
   it("throws on the retired vpr id rather than building any module for it", () => {
     expect(() => buildAlgorithmModules(manifestOf(["vpr"]), ["vpr"])).toThrow(UnknownLiveAlgorithmIdError);
   });
