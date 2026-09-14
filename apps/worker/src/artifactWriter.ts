@@ -8,10 +8,10 @@
  * same secret-scrub refusal before any write ever reaches R2.
  *
  * `writeArtifactObject` validates-then-persists, in that order, and never
- * the reverse — a malformed object never reaches R2 (T-04-22). Every
- * subrequest-consuming call (the actual `put`/`get`) clears `budget.
- * tryConsume` first; a refusal returns/throws a DEFERRED result, never an
- * attempt-then-throw against the platform's real cap.
+ * the reverse — a malformed object never reaches R2. Every subrequest-
+ * consuming call (the actual `put`/`get`) clears `budget.tryConsume` first;
+ * a refusal returns/throws a DEFERRED result, never an attempt-then-throw
+ * against the platform's real cap.
  */
 import {
   artifactKey,
@@ -26,19 +26,18 @@ import {
 import type { SubrequestBudget } from "./subrequestBudget.js";
 import type { Env } from "./env.js";
 
-/** D-26: a 60-second max-age set as object metadata AT WRITE TIME — there is no purge call and no pointer to invalidate on the cron path, matching the offline publisher's own `r2Client.ts` cache policy exactly. */
+/** A 60-second max-age set as object metadata at write time — there is no purge call and no pointer to invalidate on the cron path, matching the offline publisher's own `r2Client.ts` cache policy exactly. */
 export const ARTIFACT_CACHE_CONTROL = "public, max-age=60";
 export const ARTIFACT_CONTENT_TYPE = "application/json";
 
 /**
- * 260902-pbe: `teams` validates against `TeamsArtifactWireSchema`, NOT the
- * decoding `TeamsArtifactSchema` used everywhere this Worker READS a teams
- * artifact (`scheduled.ts`'s `runGlobalRebuild`). `writeArtifactObject`
- * below `JSON.stringify`s exactly what this map's `.parse()` call returns —
+ * `teams` validates against `TeamsArtifactWireSchema`, NOT the decoding
+ * `TeamsArtifactSchema` used everywhere this Worker READS a teams artifact
+ * (`scheduled.ts`'s `runGlobalRebuild`). `writeArtifactObject` below
+ * `JSON.stringify`s exactly what this map's `.parse()` call returns —
  * decoding here would silently turn every write back into the object-form
- * shape this task exists to shrink, undoing the entire wire saving on the
- * one path (the live Worker's incremental rebuild) that writes a teams
- * artifact between now and the later full republish.
+ * shape the wire format exists to shrink, undoing the wire saving on the
+ * live Worker's incremental rebuild path.
  */
 const SCHEMA_BY_PAGE: Record<PageKind, { parse(input: unknown): unknown }> = {
   teams: TeamsArtifactWireSchema,
@@ -65,7 +64,7 @@ export class ArtifactReadBudgetExhaustedError extends Error {
 }
 
 export interface WriteArtifactResult {
-  /** `true` when the budget could not accommodate this put — the write was NOT attempted, and the caller should treat this event/team as still-pending for the next tick (D-15). Never thrown for this case; deferral is a normal outcome. */
+  /** `true` when the budget could not accommodate this put — the write was NOT attempted, and the caller should treat this event/team as still-pending for the next tick. Never thrown for this case; deferral is a normal outcome. */
   readonly deferred: boolean;
 }
 
@@ -74,8 +73,8 @@ export interface WriteArtifactResult {
  * ZERO puts), refuses to write a body containing `env.TBA_API_KEY`, asks
  * `budget.tryConsume(1)` and returns `{ deferred: true }` without writing if
  * the budget cannot accommodate it, and otherwise issues exactly one R2
- * `put` at `artifactKey(page, params)` with D-26's cache-control/content-type
- * metadata.
+ * `put` at `artifactKey(page, params)` with `ARTIFACT_CACHE_CONTROL`'s
+ * cache-control/content-type metadata.
  */
 export async function writeArtifactObject(env: Env, budget: SubrequestBudget, page: PageKind, params: ArtifactKeyParams, artifact: unknown): Promise<WriteArtifactResult> {
   const schema = SCHEMA_BY_PAGE[page];
