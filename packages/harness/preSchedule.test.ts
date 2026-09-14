@@ -255,7 +255,7 @@ function faInputs(overrides: Partial<FieldContributionInputs> = {}): FieldContri
   return {
     roster,
     rpAccumulator: accumulatorWith(roster, 4),
-    consistencyByTeam: new Map(roster.map((t) => [t, 12])),
+    sigmaScoreByTeam: new Map(roster.map((t) => [t, 12])),
     teamTotals: new Map(roster.map((t, i) => [t, 40 + i * 5])),
     ...overrides,
   };
@@ -264,9 +264,9 @@ function faInputs(overrides: Partial<FieldContributionInputs> = {}): FieldContri
 describe("buildFieldContributions (plan 09-09 Task 2 — the all-or-nothing roster rule, reproduced)", () => {
   it("returns null when ANY roster team is missing a consistency figure", () => {
     const inputs = faInputs();
-    const partial = new Map(inputs.consistencyByTeam);
+    const partial = new Map(inputs.sigmaScoreByTeam);
     partial.delete("frc2");
-    expect(buildFieldContributions({ ...inputs, consistencyByTeam: partial })).toBeNull();
+    expect(buildFieldContributions({ ...inputs, sigmaScoreByTeam: partial })).toBeNull();
   });
 
   it("returns null when ANY roster team is missing a TOTAL_METRIC_KEY total", () => {
@@ -306,7 +306,7 @@ describe("buildFieldContributions (plan 09-09 Task 2 — the all-or-nothing rost
     const inputs: FieldContributionInputs = {
       roster,
       rpAccumulator: accumulatorWith(["frc1", "frc2"], 4),
-      consistencyByTeam: new Map(roster.map((t) => [t, 9])),
+      sigmaScoreByTeam: new Map(roster.map((t) => [t, 9])),
       teamTotals: new Map(roster.map((t) => [t, 50])),
     };
     const contributions = buildFieldContributions(inputs)!;
@@ -388,7 +388,7 @@ describe("buildFieldAveragedPreScheduleArtifact (plan 09-09 Task 2)", () => {
     const contributions = buildFieldContributions({
       roster,
       rpAccumulator: accumulatorWith(roster, 3),
-      consistencyByTeam: new Map(roster.map((t) => [t, 10])),
+      sigmaScoreByTeam: new Map(roster.map((t) => [t, 10])),
       teamTotals: new Map(roster.map((t, i) => [t, 40 + i])),
     })!;
     const artifact = buildFieldAveragedPreScheduleArtifact(faParams({ contributions }))!;

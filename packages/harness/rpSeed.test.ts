@@ -210,7 +210,7 @@ describe("makeRankingPointFiller applies the mean shift per synthetic alliance (
 
   it("absent shift prices exactly as a zero-observation shift does, and a warm shift raises the bonus odds", () => {
     const layer = warmedLayer();
-    const sigma = layer.consistencyByTeam();
+    const sigma = layer.sigmaScoreByTeam();
     const shift = RpMeanShiftAccumulator.fromState(RULES_2026, layer.rpMeanShiftState());
     const input = prediction(140, 135);
     const m = upcoming(RED, BLUE);
@@ -230,7 +230,7 @@ describe("makeRankingPointFiller applies the mean shift per synthetic alliance (
 
   it("an alliance with a team lacking history prices unshifted, the other alliance still shifts", () => {
     const layer = warmedLayer();
-    const sigma = new Map([...layer.consistencyByTeam(), ["frc99", 5]]);
+    const sigma = new Map([...layer.sigmaScoreByTeam(), ["frc99", 5]]);
     const shift = RpMeanShiftAccumulator.fromState(RULES_2026, layer.rpMeanShiftState());
     const input = prediction(140, 135);
     const coldRed = ["frc1", "frc2", "frc99"];

@@ -868,8 +868,8 @@ export function measureEvent(
   }
 
   const layer = replay.layer;
-  const consistency = layer.consistencyByTeam();
-  const filler = makeRankingPointFiller(layer.rpAccumulator, ruleModule, consistency, roster);
+  const sigmaScores = layer.sigmaScoreByTeam();
+  const filler = makeRankingPointFiller(layer.rpAccumulator, ruleModule, sigmaScores, roster);
   if (filler === undefined) {
     throw new Error(`measureFieldAveragedRanks: the ranking-point filler is unavailable for ${target.eventKey} — the all-or-nothing roster rule rejected this roster.`);
   }
@@ -943,7 +943,7 @@ export function measureEvent(
   const contributions = buildFieldContributions({
     roster,
     rpAccumulator: layer.rpAccumulator,
-    consistencyByTeam: consistency,
+    sigmaScoreByTeam: sigmaScores,
     teamTotals,
   });
   if (contributions === null) {

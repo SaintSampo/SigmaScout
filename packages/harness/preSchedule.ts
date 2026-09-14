@@ -491,8 +491,8 @@ export interface FieldContributionInputs {
   readonly roster: readonly string[];
   /** The season's walk-forward per-team RP beliefs — `SigmaScoutLayer.rpAccumulator`. */
   readonly rpAccumulator: RpMomentsAccumulator | undefined;
-  /** `SigmaScoutLayer.consistencyByTeam()` — Sigma Score for SPR; empty for algorithms without one. */
-  readonly consistencyByTeam: ReadonlyMap<string, number>;
+  /** `SigmaScoutLayer.sigmaScoreByTeam()` — Sigma Score for SPR; empty for algorithms without one. */
+  readonly sigmaScoreByTeam: ReadonlyMap<string, number>;
   /** `algorithm.teamMetrics(pricingState, roster)[team][TOTAL_METRIC_KEY].value`, per team. */
   readonly teamTotals: ReadonlyMap<string, number>;
 }
@@ -516,7 +516,7 @@ export interface FieldContributionInputs {
  * `buildFieldAveragedPreScheduleArtifact`'s own `null` contract.
  *
  * The two absences have different causes and are checked separately: a team
- * missing from `consistencyByTeam` has played too little, and a team missing
+ * missing from `sigmaScoreByTeam` has played too little, and a team missing
  * from `teamTotals` is one this algorithm has never rated. Both mean the same
  * thing here — this roster cannot be priced honestly.
  *
@@ -539,19 +539,19 @@ export interface FieldContributionInputs {
  * silently narrow every band in the event.
  */
 export function buildFieldContributions(inputs: FieldContributionInputs): FieldTeamContribution[] | null {
-  const { rpAccumulator, consistencyByTeam, teamTotals } = inputs;
+  const { rpAccumulator, sigmaScoreByTeam, teamTotals } = inputs;
   if (rpAccumulator === undefined) return null;
   // Sorted first, for the same determinism reason
   // `buildFieldAveragedPreScheduleArtifact` states below.
   const sortedRoster = [...inputs.roster].sort();
   if (sortedRoster.length === 0) return null;
   for (const teamKey of sortedRoster) {
-    if (!consistencyByTeam.has(teamKey)) return null;
+    if (!sigmaScoreByTeam.has(teamKey)) return null;
     if (!teamTotals.has(teamKey)) return null;
   }
   return sortedRoster.map((teamKey) => {
     const own = rpAccumulator.momentsFor([teamKey], 0, 0);
-    const consistency = consistencyByTeam.get(teamKey) as number;
+    const sigmaScore = sigmaScoreByTeam.get(teamKey) as number;
     return {
       teamKey,
       variableMeans: own.meanVector,
@@ -560,7 +560,7 @@ export function buildFieldContributions(inputs: FieldContributionInputs): FieldT
       // Squared: `allianceSigmaBandVariance`'s own per-team term is
       // `sigma * sigma`, so this is the identical quantity under the
       // identical convention.
-      bandVariance: consistency * consistency,
+      bandVariance: sigmaScore * sigmaScore,
     };
   });
 }

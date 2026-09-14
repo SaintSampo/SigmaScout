@@ -77,7 +77,7 @@ export interface UpcomingLayerRecord {
  * One algorithm's level-2 state for one season.
  *
  * Construct one per algorithm, drive it with that algorithm's chronological
- * played stream via `foldPlayed`, then read `consistencyByTeam()` and
+ * played stream via `foldPlayed`, then read `sigmaScoreByTeam()` and
  * `rpAccumulator` for the not-yet-played work.
  */
 export class SigmaScoutLayer {
@@ -163,7 +163,7 @@ export class SigmaScoutLayer {
    * evidence), so a Sigma layer returns an entry for every team it has ever
    * seen.
    */
-  consistencyByTeam(): ReadonlyMap<string, number> {
+  sigmaScoreByTeam(): ReadonlyMap<string, number> {
     if (this.#sigma === undefined) return new Map();
     return this.#sigma.scoreByTeam();
   }
@@ -178,7 +178,7 @@ export class SigmaScoutLayer {
    * created a belief entry, and whichever path read a team first changed
    * what the other could see).
    *
-   * Costs ONE team, unlike `consistencyByTeam()` above, which scores EVERY
+   * Costs ONE team, unlike `sigmaScoreByTeam()` above, which scores EVERY
    * team the layer has ever seen and must NEVER be called once per match.
    *
    * Call this right after `foldPlayed` for a match: the value it returns at
@@ -227,7 +227,7 @@ export class SigmaScoutLayer {
    * Worker resumes from (shape 11).
    *
    * The counterpart of `rpVariableBeliefs()` above and distinct from
-   * `consistencyByTeam()`, which returns finished Sigma Scores: this is the
+   * `sigmaScoreByTeam()`, which returns finished Sigma Scores: this is the
    * raw running state a resumed accumulator needs to CONTINUE this
    * publisher's history rather than start a second, shorter one. Seed a
    * Worker without it and every band it computes live is built from one
@@ -337,9 +337,9 @@ export class SigmaScoutLayer {
    * Simulation tab and then give it nothing to draw.
    */
   enrichUpcoming(match: UpcomingMatch, prediction: Prediction): UpcomingLayerRecord {
-    const consistencyByTeam = this.consistencyByTeam();
-    const red = allianceSigmaBandVariance(match.redTeams, consistencyByTeam);
-    const blue = allianceSigmaBandVariance(match.blueTeams, consistencyByTeam);
+    const sigmaScoreByTeam = this.sigmaScoreByTeam();
+    const red = allianceSigmaBandVariance(match.redTeams, sigmaScoreByTeam);
+    const blue = allianceSigmaBandVariance(match.blueTeams, sigmaScoreByTeam);
     const upcomingRp =
       prediction.redRpPmf === undefined ? this.#rpFieldsFor(match, prediction, red, blue) : {};
 

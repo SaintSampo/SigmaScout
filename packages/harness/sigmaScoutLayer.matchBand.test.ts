@@ -291,7 +291,7 @@ describe("the layer publishes a Sigma-only display band (D1b, D3)", () => {
       expect(enriched.prediction.redRpPmf).toBeUndefined();
     }
 
-    expect(layer.consistencyByTeam().size).toBe(0);
+    expect(layer.sigmaScoreByTeam().size).toBe(0);
     expect(layer.rpVariableBeliefs().size).toBe(0);
     expect(layer.rpAccumulator).toBeUndefined();
   }

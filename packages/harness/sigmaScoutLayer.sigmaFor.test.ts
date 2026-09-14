@@ -3,7 +3,7 @@
  * one-team accessor `publish.ts`'s fold loop reads right after `foldPlayed`,
  * to capture each match's per-team Sigma Score for the metric-history rows.
  *
- * Distinct from `consistencyByTeam()`, which scores EVERY team the layer has
+ * Distinct from `sigmaScoreByTeam()`, which scores EVERY team the layer has
  * ever seen and must never be called once per match (see that method's own
  * doc comment). `sigmaFor` delegates to the accumulator's own read-only
  * `sigmaFor`, which goes through `#readBelief` rather than `#mutableBelief` —
@@ -61,7 +61,7 @@ describe("SigmaScoutLayer.sigmaFor (quick task 260913-m45)", () => {
     expect(value as number).toBeGreaterThan(0);
   });
 
-  it("equals consistencyByTeam().get(teamKey) for every roster team right after folding one match with talent", () => {
+  it("equals sigmaScoreByTeam().get(teamKey) for every roster team right after folding one match with talent", () => {
     const layer = new SigmaScoutLayer(undefined, "spr");
     const match = fixtureMatch();
     const prediction = fixturePrediction();
@@ -76,20 +76,20 @@ describe("SigmaScoutLayer.sigmaFor (quick task 260913-m45)", () => {
 
     layer.foldPlayed(match, prediction, talentAfterMatch);
 
-    const consistency = layer.consistencyByTeam();
+    const sigmaScores = layer.sigmaScoreByTeam();
     for (const teamKey of [...match.redTeams, ...match.blueTeams]) {
-      expect(layer.sigmaFor(teamKey)).toBe(consistency.get(teamKey));
+      expect(layer.sigmaFor(teamKey)).toBe(sigmaScores.get(teamKey));
     }
   });
 
-  it("reading an unseen team adds no key to consistencyByTeam() or sigmaBeliefs()", () => {
+  it("reading an unseen team adds no key to sigmaScoreByTeam() or sigmaBeliefs()", () => {
     const layer = new SigmaScoutLayer(undefined, "spr");
-    expect(layer.consistencyByTeam().has("frcUnseen")).toBe(false);
+    expect(layer.sigmaScoreByTeam().has("frcUnseen")).toBe(false);
     expect(layer.sigmaBeliefs().has("frcUnseen")).toBe(false);
 
     layer.sigmaFor("frcUnseen");
 
-    expect(layer.consistencyByTeam().has("frcUnseen")).toBe(false);
+    expect(layer.sigmaScoreByTeam().has("frcUnseen")).toBe(false);
     expect(layer.sigmaBeliefs().has("frcUnseen")).toBe(false);
   });
 

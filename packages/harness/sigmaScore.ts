@@ -161,7 +161,7 @@ export function publishesRankingPoints(algorithmId: string): boolean {
  * quadrature sum of its roster's figures, or `undefined` if any member has none.
  *
  * The upcoming-row and pre-schedule RP paths read this over
- * `SigmaScoutLayer.consistencyByTeam()`, and the Sigma methodology page's figure
+ * `SigmaScoutLayer.sigmaScoreByTeam()`, and the Sigma methodology page's figure
  * uses it. It is NOT `SigmaScoreAccumulator.bandVarianceFor`, which prices a
  * never-seen team from its prior: this helper keeps the all-or-nothing gate over
  * the map, so a roster member absent from the map yields no variance at all.

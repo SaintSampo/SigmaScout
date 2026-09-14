@@ -140,7 +140,7 @@ describe("the D1 seed carries the Sigma Score beliefs (shape 11, the gap plan 09
     // The assertion that matters operationally: what the Worker rebuilds from
     // the seed must be the same estimator the publisher had.
     const resumed = SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(rows), readSigmaPopulation(rows));
-    expect(new Map(resumed.scoreByTeam())).toEqual(new Map(layer.consistencyByTeam()));
+    expect(new Map(resumed.scoreByTeam())).toEqual(new Map(layer.sigmaScoreByTeam()));
   });
 
   it("the LEAGUE row is load-bearing, not decoration -- beliefs WITHOUT the population score differently", () => {
@@ -152,7 +152,7 @@ describe("the D1 seed carries the Sigma Score beliefs (shape 11, the gap plan 09
     // accumulator handed beliefs but no population falls back to the flat
     // prior and computes different bands from the very beliefs it was handed.
     const withoutPopulation = SigmaScoreAccumulator.fromBeliefs(beliefs, undefined);
-    expect(new Map(withoutPopulation.scoreByTeam())).not.toEqual(new Map(layer.consistencyByTeam()));
+    expect(new Map(withoutPopulation.scoreByTeam())).not.toEqual(new Map(layer.sigmaScoreByTeam()));
   });
 
   it("a non-Sigma algorithm seeds with NO Sigma key rather than an empty one", () => {

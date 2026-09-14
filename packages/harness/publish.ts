@@ -2947,7 +2947,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       // Quick task 260913-m45 Task 1: read right after THIS match's fold —
       // the same read-after-fold instant every other history-row metric
       // uses. One team at a time (`SigmaScoutLayer.sigmaFor`), never
-      // `consistencyByTeam()` (which scores every team the layer has ever
+      // `sigmaScoreByTeam()` (which scores every team the layer has ever
       // seen and must never be called per match).
       if (usesSigmaScore(r.algorithmId)) {
         const byTeam = sigmaByMatchKeyForAlgoTeam.get(r.algorithmId)!;
@@ -3150,7 +3150,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       // cannot disagree about which estimator this algorithm is on. (The
       // published match band no longer reads this map: it rides each upcoming
       // record's `matchBand`, quick task 260913-g66.)
-      const sigmaByTeamForAlgo = layerForAlgo.consistencyByTeam();
+      const sigmaByTeamForAlgo = layerForAlgo.sigmaScoreByTeam();
       // Quick task 260909-tgf: the published consistency metric (value + tier on
       // the teams row, value + percentile on the team-season artifact),
       // computed ONCE here per (algorithm, season) and consumed by BOTH
