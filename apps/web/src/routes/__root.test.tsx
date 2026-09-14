@@ -4,7 +4,7 @@ import { CURRENT_SEASON } from "../lib/seasons.js";
 import { RootSearchSchema, TeamsSearchSchema, type TeamsSearch } from "../lib/searchParams.js";
 
 /**
- * 05-05-PLAN.md Task 2's NAV-05/T-05-02 round-trip coverage. Tests the real
+ * URL round-trip coverage. Tests the real
  * `RootSearchSchema`/`TeamsSearchSchema` this app's `__root.tsx`/`teams.tsx`
  * actually use — but exercises them through a small, SELF-CONTAINED route
  * tree built with `createRootRoute`/`createRoute` rather than importing the
@@ -16,7 +16,7 @@ import { RootSearchSchema, TeamsSearchSchema, type TeamsSearch } from "../lib/se
  * must not have.
  */
 
-describe("RootSearchSchema / TeamsSearchSchema — NAV-05 URL round trip", () => {
+describe("RootSearchSchema / TeamsSearchSchema — URL round trip", () => {
   it("a URL string carrying year, algorithm, sort and direction parses to the expected state", () => {
     const params = new URLSearchParams("year=2024&algorithm=epa&sort=hubShift1&sortDir=asc");
     const parsed = TeamsSearchSchema.parse(Object.fromEntries(params));
@@ -70,7 +70,7 @@ describe("RootSearchSchema / TeamsSearchSchema — NAV-05 URL round trip", () =>
   });
 });
 
-describe("navigation updater form — untouched params survive a route change (NAV-05)", () => {
+describe("navigation updater form — untouched params survive a route change", () => {
   it("preserves year/algorithm/sort/sortDir when navigating with the (prev) => ({ ...prev }) updater form", async () => {
     const rootRoute = createRootRoute({ validateSearch: RootSearchSchema });
     const teamsLikeRoute = createRoute({

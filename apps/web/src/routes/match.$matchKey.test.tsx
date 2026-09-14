@@ -95,7 +95,7 @@ function renderMatchRoute(initialEntry: string) {
   return router;
 }
 
-describe("/match/$matchKey route — invalid match key (260909-tiq-PLAN.md Task 1)", () => {
+describe("/match/$matchKey route — invalid match key", () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
@@ -115,7 +115,7 @@ describe("/match/$matchKey route — invalid match key (260909-tiq-PLAN.md Task 
   });
 });
 
-describe("/match/$matchKey route — states (260909-tiq-PLAN.md Task 1)", () => {
+describe("/match/$matchKey route — states", () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
@@ -205,7 +205,7 @@ describe("/match/$matchKey route — states (260909-tiq-PLAN.md Task 1)", () => 
   });
 });
 
-describe("/match/$matchKey route — the six roster team artifacts (260909-tiq-PLAN.md Task 2)", () => {
+describe("/match/$matchKey route — the six roster team artifacts", () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {

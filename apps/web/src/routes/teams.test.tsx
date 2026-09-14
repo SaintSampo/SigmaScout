@@ -245,7 +245,7 @@ describe("/teams route bubble-chart toggle", () => {
     expect(screen.getByRole("button", { name: "Bubble chart" }).getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("with a region filter active, the plotted dot count equals the filtered rows that have both a Total and a Sigma Score (D-03)", async () => {
+  it("with a region filter active, the plotted dot count equals the filtered rows that have both a Total and a Sigma Score", async () => {
     global.fetch = stubFetch();
     const { container } = renderTeamsRoute("/teams?algorithm=spr&chart=bubble&country=USA");
 
@@ -255,7 +255,7 @@ describe("/teams route bubble-chart toggle", () => {
     await waitFor(() => expect(countDots(container)).toBe(2));
   });
 
-  it("under OPR the toggle still renders, and the chart shows the plain no-Sigma state with no axis (260913-g66)", async () => {
+  it("under OPR the toggle still renders, and the chart shows the plain no-Sigma state with no axis", async () => {
     global.fetch = stubFetch("opr");
     const { container } = renderTeamsRoute("/teams?algorithm=opr&chart=bubble");
 

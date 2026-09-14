@@ -68,7 +68,7 @@ function renderTeamRoute(initialEntry: string) {
   return router;
 }
 
-describe("/team/$teamNumber route — invalid team number (06-01-PLAN.md Task 1)", () => {
+describe("/team/$teamNumber route — invalid team number", () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
@@ -88,7 +88,7 @@ describe("/team/$teamNumber route — invalid team number (06-01-PLAN.md Task 1)
   });
 });
 
-describe("/team/$teamNumber route — tab shell (06-01-PLAN.md Task 2)", () => {
+describe("/team/$teamNumber route — tab shell", () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
@@ -121,7 +121,7 @@ describe("/team/$teamNumber route — tab shell (06-01-PLAN.md Task 2)", () => {
   });
 });
 
-describe("/team/$teamNumber route — states (06-01-PLAN.md Task 3)", () => {
+describe("/team/$teamNumber route — states", () => {
   const originalFetch = global.fetch;
 
   afterEach(() => {
@@ -142,7 +142,7 @@ describe("/team/$teamNumber route — states (06-01-PLAN.md Task 3)", () => {
     expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
   });
 
-  it("a mocked 404 artifact response renders the D-19 year-mismatch empty state, not the generic error", async () => {
+  it("a mocked 404 artifact response renders the year-mismatch empty state, not the generic error", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
