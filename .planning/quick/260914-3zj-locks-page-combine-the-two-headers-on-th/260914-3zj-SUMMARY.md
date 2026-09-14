@@ -26,8 +26,7 @@ when narrow:
 - Champ Locks: FIRST Championship capacity, Lock Line, Remaining district points.
 
 All labels, number formats and testids are unchanged. The one new testid is
-`{which}-locks-header-stat-row`. The champ header still shows the same stats. Changing what it
-shows is sketch 013, which is still pending and was not touched.
+`{which}-locks-header-stat-row`. The champ header still shows the same stats.
 
 Commits:
 
@@ -63,5 +62,3 @@ No champ status contradicts the line: 8429 at 231 is locked, and 6500 at 216 is 
 
 - Not pushed. The web change goes live on the next push to main.
 - Not visually checked in a browser.
-- Sketch 013's point that a divided DCMP's finals can award more than the modelled 249 (a ceiling
-  that can be too low) is still open. This task did not address it.
