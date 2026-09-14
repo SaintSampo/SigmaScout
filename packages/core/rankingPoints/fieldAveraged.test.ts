@@ -299,7 +299,7 @@ describe("fieldAveragedRankInputs", () => {
   });
 });
 
-describe("the mean shift in the field-averaged moments (quick task 260914-01x, CD-05)", () => {
+describe("the mean shift in the field-averaged moments", () => {
   it("adds the shift ONCE to each alliance's mean, own and opponent, and moves nothing else (hand-computed)", () => {
     const stats = fieldStatistics(THREE_TEAM_FIELD, ONE_VARIABLE);
     const plain = fieldAveragedAllianceMoments(THREE_TEAM_FIELD[1]!, stats);

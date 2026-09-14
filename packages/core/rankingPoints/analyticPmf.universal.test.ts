@@ -91,7 +91,7 @@ describe("analyticRpPmf — universal, with no algorithm anywhere in the test", 
     }
   });
 
-  it("a degenerate alliance (no rated teams — every threshold variable and score at zero mean/variance) still returns a well-formed pmf (ALGO-08 empty edge)", () => {
+  it("a degenerate alliance (no rated teams — every threshold variable and score at zero mean/variance) still returns a well-formed pmf (empty edge)", () => {
     const degenerate = moments({ meanVector: [0, 0], varianceBlock: [[0, 0], [0, 0]], scoreMean: 0, scoreVariance: 0 });
     const result = analyticRpPmf({ ...BASE, red: degenerate, blue: degenerate });
     const sum = result.redPmf.reduce((a, b) => a + b, 0);
@@ -103,7 +103,7 @@ describe("analyticRpPmf — universal, with no algorithm anywhere in the test", 
   });
 });
 
-describe("pmfMean — hand-computed (D-07), carried forward from the deleted sigma1/rp/distribution.test.ts", () => {
+describe("pmfMean — hand-computed", () => {
   it("pmfMean of a point mass at index k is exactly k", () => {
     expect(pmfMean([0, 0, 1, 0])).toBe(2);
     expect(pmfMean([1, 0, 0, 0])).toBe(0);

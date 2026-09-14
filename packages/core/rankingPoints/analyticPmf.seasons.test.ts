@@ -96,7 +96,7 @@ const TIERS: readonly { eventType: number; tier: EventTier }[] = [
   { eventType: 3, tier: "championship" },
 ];
 
-describe("analyticRpPmf — structural sweep over RP_RULE_MODULES (Task 2, plan 09-04)", () => {
+describe("analyticRpPmf — structural sweep over RP_RULE_MODULES", () => {
   it("grouping is exactly what the code claims — the only multi-bonus group in the whole registry is 2026's {energized, supercharged}", () => {
     let multiBonusGroupCount = 0;
     for (const season of RP_REGISTERED_SEASONS) {

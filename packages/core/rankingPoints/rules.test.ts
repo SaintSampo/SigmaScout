@@ -68,11 +68,11 @@ describe.each(RP_REGISTERED_SEASONS)("season %i RP rule module shape", (season) 
 
   // --- structural assertions over the declarative contract ---
 
-  it("bonusNames is DERIVED from bonusPredicates (Pitfall 2) — one list, never two that can drift", () => {
+  it("bonusNames is DERIVED from bonusPredicates — one list, never two that can drift", () => {
     expect(module.bonusNames).toEqual(module.bonusPredicates.map((p) => p.name));
   });
 
-  it("every threshold variable's marginalFamily is a member of the MarginalFamily union (per-season smoke check; the cross-season PINNED list lives in its own describe block below, 09-05 Task 3)", () => {
+  it("every threshold variable's marginalFamily is a member of the MarginalFamily union (per-season smoke check; the cross-season PINNED list lives in its own describe block below)", () => {
     for (const v of module.thresholdVariables) {
       expect(["gaussian", "negative-binomial", "lattice"]).toContain(v.marginalFamily);
     }
@@ -86,7 +86,7 @@ describe.each(RP_REGISTERED_SEASONS)("season %i RP rule module shape", (season) 
     }
   });
 
-  it("nestedSameVariable groups are consistently ordered at every tier (D-07: supercharged implies energized at base, districtChampionship AND championship)", () => {
+  it("nestedSameVariable groups are consistently ordered at every tier (supercharged implies energized at base, districtChampionship AND championship)", () => {
     const nested = module.bonusPredicates.filter((p): p is Extract<BonusPredicate, { kind: "nestedSameVariable" }> => p.kind === "nestedSameVariable");
     for (const predicate of nested) {
       for (const siblingName of predicate.nestedWith) {
@@ -249,7 +249,7 @@ describe("total bonus count across every registered season is 21 (moves if any s
   });
 });
 
-describe("winRp per season (Pitfall 2)", () => {
+describe("winRp per season", () => {
   it("is 2 for 2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024", () => {
     expect(rpRuleModuleForSeason(2016).winRp).toBe(2);
     expect(rpRuleModuleForSeason(2017).winRp).toBe(2);
@@ -267,8 +267,8 @@ describe("winRp per season (Pitfall 2)", () => {
   });
 });
 
-describe("predictThresholds (plan 03-03) — evaluates bonuses from tracked threshold-variable values alone", () => {
-  it("2018: both bonuses computable via the numeric fallback (D-4) — clears both at threshold, clears neither at zero", () => {
+describe("predictThresholds — evaluates bonuses from tracked threshold-variable values alone", () => {
+  it("2018: both bonuses computable via the numeric fallback — clears both at threshold, clears neither at zero", () => {
     const module = rpRuleModuleForSeason(2018);
     const cleared = module.predictThresholds({ autoRunPoints: 15, autoSwitchOwnershipSec: 1, endgamePoints: 90 }, 0);
     expect(cleared.bonusFlags.autoQuest).toBe(true);

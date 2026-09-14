@@ -19,7 +19,7 @@ import type { RpThresholdVariable } from "./constants.js";
 import { RpMomentsAccumulator } from "./empiricalMoments.js";
 import { rp2026 } from "./2026.js";
 
-describe("fitMarginal — negative-binomial pinned parameterization (D-01)", () => {
+describe("fitMarginal — negative-binomial pinned parameterization", () => {
   it("fitMarginal(2, 4, 'negative-binomial') yields the exact pinned r and p — r = mean²/(variance−mean), p = mean/(mean+r)", () => {
     const fit = fitMarginal(2, 4, "negative-binomial");
     expect(fit.resolved).toBe("negative-binomial");
@@ -89,14 +89,14 @@ describe("Gaussian family — retained as the inert default, no continuity corre
     expect(probAtMost(fit, 10)).toBe(0.5);
   });
 
-  it("no continuity correction: probAtLeast(14) equals 1 − Φ((14−10)/4) exactly, not 1 − Φ((13.5−10)/4) — the Gaussian model treats this as a continuous normal, matching the deleted Monte Carlo's own draw semantics (plan 09-04)", () => {
+  it("no continuity correction: probAtLeast(14) equals 1 − Φ((14−10)/4) exactly, not 1 − Φ((13.5−10)/4) — the Gaussian model treats this as a continuous normal, matching the deleted Monte Carlo's own draw semantics", () => {
     const fit = fitMarginal(10, 16, "gaussian");
     const expected = 1 - standardNormalCdf((14 - 10) / 4);
     expect(probAtLeast(fit, 14)).toBe(expected);
   });
 });
 
-describe("the fallback ladder (Pitfall 3) — ordered, documented, and never NaN", () => {
+describe("the fallback ladder — ordered, documented, and never NaN", () => {
   it("mean=NaN or variance=Infinity -> degenerate/non-finite, probAtLeast(0)===1, everything finite", () => {
     const fitNanMean = fitMarginal(Number.NaN, 4, "gaussian");
     expect(fitNanMean.resolved).toBe("degenerate");
@@ -131,7 +131,7 @@ describe("the fallback ladder (Pitfall 3) — ordered, documented, and never NaN
     expect(p).toBeLessThanOrEqual(1);
   });
 
-  it("mean=13.586547164699777, variance=4.5, declared 'negative-binomial' -> gaussian/variance-le-mean — the real 2-observation alliance from 09-03-PLAN.md's <baseline> table, not a contrived input", () => {
+  it("mean=13.586547164699777, variance=4.5, declared 'negative-binomial' -> gaussian/variance-le-mean — a real 2-observation alliance, not a contrived input", () => {
     const fit = fitMarginal(13.586547164699777, 4.5, "negative-binomial");
     expect(fit.resolved).toBe("gaussian");
     expect(fit.fallbackReason).toBe("variance-le-mean");
@@ -154,7 +154,7 @@ describe("the fallback ladder (Pitfall 3) — ordered, documented, and never NaN
   });
 });
 
-describe("declared vs resolved — three separate facts, never conflated (D-09 observability)", () => {
+describe("declared vs resolved — three separate facts, never conflated", () => {
   it("a fit that resolves to Gaussian under a 'negative-binomial' declaration carries declared:'negative-binomial', resolved:'gaussian' and a reason", () => {
     const fit: FittedMarginal = fitMarginal(0, 3, "negative-binomial");
     expect(fit.declared).toBe("negative-binomial");
@@ -281,7 +281,7 @@ describe("invariants across a grid of fits (negative-binomial, Gaussian, degener
     ["degenerate", degenerateFit],
   ];
 
-  it("probAtLeast is monotone non-increasing over t = -1..50 for every resolved family — protects 09-04's nested-threshold differencing (P(only energized) = probAtLeast(T_e) - probAtLeast(T_s))", () => {
+  it("probAtLeast is monotone non-increasing over t = -1..50 for every resolved family — protects the nested-threshold differencing (P(only energized) = probAtLeast(T_e) - probAtLeast(T_s))", () => {
     for (const [name, fit] of fits) {
       let prev = probAtLeast(fit, -1);
       for (let t = 0; t <= 50; t++) {
@@ -340,7 +340,7 @@ describe("invariants across a grid of fits (negative-binomial, Gaussian, degener
   });
 });
 
-describe("cold-team well-formedness — proven against the REAL RpMomentsAccumulator (Pitfall 3's named warning sign)", () => {
+describe("cold-team well-formedness — proven against the REAL RpMomentsAccumulator", () => {
   it("one observation: variance-le-mean's sibling, zero-variance — degenerate/zero-variance, probAtLeast(12)===1, probAtLeast(13)===0", () => {
     const accumulator = new RpMomentsAccumulator(rp2026);
     const roster = ["frc1", "frc2", "frc3"];

@@ -123,7 +123,7 @@ function summedRpToleranceFor(season: number, eventType: number): number {
   return KNOWN_TOLERANCES.filter((t) => t.season === season && t.eventTypes.includes(eventType)).reduce((sum, t) => sum + t.rate, 0);
 }
 
-describe.each(RP_REGISTERED_SEASONS)("season %i RP reconciliation (D-12)", (year) => {
+describe.each(RP_REGISTERED_SEASONS)("season %i RP reconciliation", (year) => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest) first`, () => {});
     return;
@@ -328,7 +328,7 @@ describe("exact-boundary behaviour (>= semantics, must_haves backstop)", () => {
  */
 const NULL_ELIMINATION_RP_SEASONS: readonly number[] = [2016, 2017];
 
-describe.each(RP_REGISTERED_SEASONS)("season %i elimination RP invariant (Pitfall 3)", (year) => {
+describe.each(RP_REGISTERED_SEASONS)("season %i elimination RP invariant", (year) => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} not found`, () => {});
     return;
@@ -460,7 +460,7 @@ describe("2025 Coral Bonus: coopertition requires BOTH alliances' criteria met (
 });
 
 /** Missing-breakdown population: reported, not asserted, so the fallback path is scoped against a measured population. */
-describe("missing-breakdown population report (informational, Pitfall 4)", () => {
+describe("missing-breakdown population report (informational)", () => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} not found`, () => {});
     return;
