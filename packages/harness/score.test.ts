@@ -12,12 +12,12 @@ import {
 } from "./score.js";
 
 /**
- * The tracer for quick task 260903-krp: this is the exact shape that used to
+ * The tracer for 2019/2020 unblocking: this is the exact shape that used to
  * throw (`seasonSplit: season 2019 is outside the covered range
  * (2022-2026)`) and blocks every scoring path for the 2019/2020-backfilled
  * corpus. Declaring all three seasons and asserting 2019/2020 come back
- * ineligible while 2022 comes back eligible proves both D-1 (the call no
- * longer throws) and D-2 (the origin-based rule) in one shot.
+ * ineligible while 2022 comes back eligible proves both that the call no
+ * longer throws and that the origin-based rule works, in one shot.
  */
 describe("aggregateScores — 2019/2020 unblocked (D-1/D-2 tracer)", () => {
   function prediction(season: number, matchKey: string): HarnessPredictionInput {
@@ -76,9 +76,8 @@ describe("isHeadlineEligible", () => {
 });
 
 /**
- * D-2/D-3 (quick task 260903-krp): the five behaviours the plan's own
- * `<behavior>` block requires, each an OUTPUT of the rule rather than a
- * second hardcoded list.
+ * The five behaviours corpus-relative eligibility requires, each an
+ * OUTPUT of the rule rather than a second hardcoded list.
  */
 describe("aggregateScores — D-2/D-3 corpus-relative eligibility", () => {
   // The real seven-season corpus (2019, 2020, then 2022-2026 — no FRC season
@@ -115,7 +114,7 @@ describe("aggregateScores — D-2/D-3 corpus-relative eligibility", () => {
     // DERIVED by filtering the declared corpus through the same
     // distinct-prior-count reasoning the rule itself states — restating
     // 2022-2026 as a literal array here would make this a second copy of
-    // the hardcoded list D-2 forbids, not a test of the rule.
+    // the hardcoded list the rule forbids, not a test of the rule.
     const expectedEligible = SEVEN_SEASON_CORPUS.filter(
       (season) => new Set(SEVEN_SEASON_CORPUS.filter((s) => s < season)).size >= MIN_PRIOR_SEASONS_FOR_HEADLINE
     );
@@ -527,9 +526,8 @@ describe("aggregateScores — D-06/D-07 quarantine and bound", () => {
 });
 
 /**
- * D-2 (quick task 260903-n2o): `eligibility`'s own contract — a required,
- * non-defaulting input whose strictest value is the explicit
- * `ELIGIBILITY_NOT_CLAIMED` sentinel.
+ * `eligibility`'s own contract — a required, non-defaulting input whose
+ * strictest value is the explicit `ELIGIBILITY_NOT_CLAIMED` sentinel.
  */
 describe("aggregateScores — D-2 eligibility contract", () => {
   function prediction(algorithmId: string, season: number, matchKey: string): HarnessPredictionInput {
@@ -564,12 +562,11 @@ describe("aggregateScores — D-2 eligibility contract", () => {
 });
 
 /**
- * D-2 (quick task 260903-n2o, Task 4): the structural guarantee that
- * eligibility feeds ONLY `headlineEligible` — no `brierScore`,
- * `winnerAccuracy`, `scoredCount`, `tieCount`, `noCallCount`,
- * `exclusionCounts`, `candidateCount` or `calibrationBins` value can move
- * because of this task. Two `aggregateScores` calls over identical
- * predictions, differing only in `eligibility`, prove it.
+ * The structural guarantee that eligibility feeds ONLY `headlineEligible`
+ * — no `brierScore`, `winnerAccuracy`, `scoredCount`, `tieCount`,
+ * `noCallCount`, `exclusionCounts`, `candidateCount` or `calibrationBins`
+ * value can move. Two `aggregateScores` calls over identical predictions,
+ * differing only in `eligibility`, prove it.
  */
 describe("aggregateScores — eligibility feeds only headlineEligible (no-number-moved proof)", () => {
   function predictionsFixture(): HarnessPredictionInput[] {
@@ -616,10 +613,10 @@ describe("aggregateScores — eligibility feeds only headlineEligible (no-number
 });
 
 /**
- * D-3 (quick task 260903-n2o, Task 4): over the real seven-season corpus,
- * every published algorithm is eligible from 2022 onward — asserted as an
- * OUTPUT of the rule, never as an input to it — so a future change moves
- * those badges on purpose, not by accident.
+ * Over the real seven-season corpus, every published algorithm is
+ * eligible from 2022 onward — asserted as an OUTPUT of the rule, never as
+ * an input to it — so a future change moves those badges on purpose, not
+ * by accident.
  */
 describe("aggregateScores — D-3 pin: opr/epa/spr are eligible from 2022 onward", () => {
   const SEVEN_SEASON_CORPUS = [2019, 2020, 2022, 2023, 2024, 2025, 2026];
@@ -668,7 +665,7 @@ describe("aggregateScores — D-3 pin: opr/epa/spr are eligible from 2022 onward
   });
 });
 
-/** D-02 (quick task 260909-t5q): the equality pin the plan's own must_haves require — a future sixth key must fail loudly. */
+/** The equality pin: a future sixth exclusion key must fail loudly, never pass silently. */
 describe("EMPTY_EXCLUSIONS — exact five-key equality pin (D-02)", () => {
   it("is exactly these five keys, all zero — never a subset, never an extra key", () => {
     expect(EMPTY_EXCLUSIONS).toEqual({
@@ -682,11 +679,11 @@ describe("EMPTY_EXCLUSIONS — exact five-key equality pin (D-02)", () => {
 });
 
 /**
- * D-02 (quick task 260909-t5q): cold start diverges from every other
- * exclusion in ONE crucial way — it is keyed off the structural
- * `isColdStart` flag, NEVER off `pRedWin === 0.5`. This describe block pins
- * both halves of that divergence: a flagged candidate is excluded, and an
- * UNFLAGGED 0.5 no-call keeps its D-Q3 treatment (in `scoredCount`, in
+ * Cold start diverges from every other exclusion in ONE crucial way — it
+ * is keyed off the structural `isColdStart` flag, NEVER off
+ * `pRedWin === 0.5`. This describe block pins both halves of that
+ * divergence: a flagged candidate is excluded, and an UNFLAGGED 0.5
+ * no-call keeps its ordinary no-call treatment (in `scoredCount`, in
  * `noCallCount`, counted a miss).
  */
 describe("aggregateScores — D-02 cold-start exclusion, keyed off isColdStart alone", () => {
@@ -747,7 +744,7 @@ describe("aggregateScores — D-02 cold-start exclusion, keyed off isColdStart a
     expect(combined.exclusionCounts.coldStart).toBe(0);
     expect(combined.scoredCount).toBe(1);
     expect(combined.noCallCount).toBe(1);
-    // D-Q3: a 0.5 no-call against a decided match is counted a MISS — 0
+    // A 0.5 no-call against a decided match is counted a MISS — 0
     // correct out of 1 scorable, non-tie candidate.
     expect(combined.winnerAccuracy).toBe(0);
   });

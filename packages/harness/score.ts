@@ -1,14 +1,12 @@
 /**
  * Aggregation by season, competition-level view, and provenance-aware
- * headline eligibility (D-1/D-2, quick task 260903-n2o — supersedes quick
- * task 260903-krp's ordering-only rule, which itself superseded
- * D-09/D-10/D-11's retired fixed tune/holdout split), with exclusion
- * accounting (this plan's must_haves: "MUST NOT silently narrow the scored
- * population"). This is the mechanism that makes headline eligibility
- * structural: a slice's `headlineEligible` flag requires that the season
- * have enough distinct priors in the corpus's own season set (never a
- * hardcoded year list, never remembered by an operator). No published
- * algorithm carries tuned hyperparameters, so no selected-on clause remains.
+ * headline eligibility, with exclusion accounting — this module must not
+ * silently narrow the scored population. This is the mechanism that makes
+ * headline eligibility structural: a slice's `headlineEligible` flag
+ * requires that the season have enough distinct priors in the corpus's own
+ * season set (never a hardcoded year list, never remembered by an
+ * operator). No published algorithm carries tuned hyperparameters, so no
+ * selected-on clause remains.
  */
 import type { CompLevel } from "../core/algorithms/types.js";
 import { scoreSet, type MatchOutcome, type ScoredPrediction } from "../core/scoring/brier.js";
@@ -16,19 +14,18 @@ import { calibrationBins, type CalibrationBin } from "../core/scoring/calibratio
 import { isValidPRedWin } from "../core/scoring/predictionValidity.js";
 
 /**
- * D-2 (quick task 260903-krp): the minimum number of DISTINCT seasons that
- * must precede a season, within the run's own season set, for that season to
- * carry a headline accuracy claim. Two, not one —
- * `rolling-origin-hyperparameter-tuning`'s D-4 ruled that a single-season
- * prior is too thin to carry a headline claim; that ruling is preserved here
- * with only its inputs changed, from a fixed 2022-2026 corpus to whatever
- * seasons the run actually declares.
+ * The minimum number of DISTINCT seasons that must precede a season,
+ * within the run's own season set, for that season to carry a headline
+ * accuracy claim. Two, not one — a single-season prior is too thin to
+ * carry a headline claim; that ruling is preserved here with only its
+ * inputs changed, from a fixed corpus to whatever seasons the run actually
+ * declares.
  */
 export const MIN_PRIOR_SEASONS_FOR_HEADLINE = 2;
 
 /**
- * D-1 (quick task 260903-n2o): whether `season` is headline-eligible, given
- * the full set of seasons in play (`corpusSeasons`). It needs at least
+ * Whether `season` is headline-eligible, given the full set of seasons in
+ * play (`corpusSeasons`). It needs at least
  * `MIN_PRIOR_SEASONS_FOR_HEADLINE` DISTINCT seasons in `corpusSeasons`
  * strictly less than `season` — a duplicated prior season must not buy
  * eligibility, and no year literal appears in the rule.
@@ -51,7 +48,7 @@ export function isHeadlineEligible(season: number, corpusSeasons: readonly numbe
 }
 
 /**
- * D-2: the sentinel a caller passes to `AggregateScoresOptions.eligibility`
+ * The sentinel a caller passes to `AggregateScoresOptions.eligibility`
  * when it does not read `headlineEligible` at all — never a permissive empty
  * map. Forces every produced slice's `headlineEligible` to `false`, the
  * strictest possible answer, so a caller with no provenance to support an
@@ -60,13 +57,13 @@ export function isHeadlineEligible(season: number, corpusSeasons: readonly numbe
 export const ELIGIBILITY_NOT_CLAIMED = "eligibility-not-claimed" as const;
 
 /**
- * D-2: how `aggregateScores` answers `headlineEligible`. `"from-corpus-seasons"`
+ * How `aggregateScores` answers `headlineEligible`. `"from-corpus-seasons"`
  * applies `isHeadlineEligible` against `corpusSeasons`; the
  * `ELIGIBILITY_NOT_CLAIMED` sentinel forces every slice to `false`.
  */
 export type HeadlineEligibility = "from-corpus-seasons" | typeof ELIGIBILITY_NOT_CLAIMED;
 
-/** D-11: every season is reported three ways. */
+/** Every season is reported three ways. */
 export type CompLevelView = "qualification" | "elimination" | "combined";
 
 const COMP_LEVEL_VIEWS: readonly CompLevelView[] = ["qualification", "elimination", "combined"];
@@ -79,48 +76,48 @@ function matchesView(compLevel: CompLevel, view: CompLevelView): boolean {
 
 /** Reasons a candidate match is excluded from scoring entirely (never reaches `scoreSet`). */
 export interface ExclusionCounts {
-  /** D-06: excluded from scoring by default. */
+  /** Excluded from scoring by default. */
   offseason: number;
-  /** D-07: a surrogate's slot makes the prediction not attributable to a genuine rating. */
+  /** A surrogate's slot makes the prediction not attributable to a genuine rating. */
   surrogateAffected: number;
   /** No recorded outcome for this match. */
   missingResult: number;
   /**
-   * D-06 / 01-REVIEW WR-05: a prediction whose `pRedWin` is non-finite or
-   * outside the closed interval [0, 1] (`isValidPRedWin` from
+   * A prediction whose `pRedWin` is non-finite or outside the closed
+   * interval [0, 1] (`isValidPRedWin` from
    * `packages/core/scoring/predictionValidity.ts` — the SAME predicate
    * `assertValidPRedWin` uses at emission, so the two can never disagree
    * about what "valid" means). Excluded from `scoreSet`/`calibrationBins`
    * and counted here, rather than silently dropped or allowed to produce a
    * `NaN` Brier score. Bounded by `QUARANTINE_ABSOLUTE_LIMIT`/
-   * `QUARANTINE_SHARE_LIMIT` below — see their doc comment for D-07's
+   * `QUARANTINE_SHARE_LIMIT` below — see their doc comment for the full
    * rationale.
    */
   quarantined: number;
   /**
-   * D-02 (quick task 260909-t5q): a match where all six robots are making
-   * their corpus-global first appearance — no prior data exists for any of
-   * them, so every algorithm predicts a forced tie (`pRedWin === 0.5`, see
+   * A match where all six robots are making their corpus-global first
+   * appearance — no prior data exists for any of them, so every algorithm
+   * predicts a forced tie (`pRedWin === 0.5`, see
    * `packages/core/scoring/coldStart.ts`) rather than a genuine call.
-   * Deliberately DIVERGES from the D-Q3 no-call contract just above
-   * (`brier.ts`'s header): D-Q3 counts an ordinary `pRedWin === 0.5`
-   * prediction as a miss because the model HAD information and chose not to
-   * use it to make a call; this bucket is keyed off the structural
-   * `isColdStart` flag alone, never off the probability value, because here
-   * there was no information available to call the match AT ALL. Excluded
-   * from both `scoreSet` and `calibrationBins`, exactly like `offseason`/
-   * `surrogateAffected`/`missingResult` above — counted, never silently
-   * dropped.
+   * Deliberately DIVERGES from the no-call contract just above
+   * (`brier.ts`'s header): that contract counts an ordinary
+   * `pRedWin === 0.5` prediction as a miss because the model HAD
+   * information and chose not to use it to make a call; this bucket is
+   * keyed off the structural `isColdStart` flag alone, never off the
+   * probability value, because here there was no information available to
+   * call the match AT ALL. Excluded from both `scoreSet` and
+   * `calibrationBins`, exactly like `offseason`/`surrogateAffected`/
+   * `missingResult` above — counted, never silently dropped.
    */
   coldStart: number;
 }
 
 /**
- * D-07: an unbounded quarantine could hollow out a season and produce a
- * Brier score that looks good precisely because the hard cases left — the
- * exact silent-narrowing failure this project exists to prevent (a
- * non-finite `pRedWin` usually means a team's state is already corrupt, so
- * one glitch can cascade across that team's remaining matches). Two bounds,
+ * An unbounded quarantine could hollow out a season and produce a Brier
+ * score that looks good precisely because the hard cases left — the exact
+ * silent-narrowing failure this project exists to prevent (a non-finite
+ * `pRedWin` usually means a team's state is already corrupt, so one
+ * glitch can cascade across that team's remaining matches). Two bounds,
  * both required to trip the throw in `aggregateScores` below:
  *
  *   - `QUARANTINE_ABSOLUTE_LIMIT` tolerates a handful of genuine one-off
@@ -136,9 +133,9 @@ export interface ExclusionCounts {
  * currently-published figure is affected by these bounds existing.
  */
 export const QUARANTINE_ABSOLUTE_LIMIT = 25;
-/** See `QUARANTINE_ABSOLUTE_LIMIT`'s doc comment for the full D-07 rationale. */
+/** See `QUARANTINE_ABSOLUTE_LIMIT`'s doc comment for the full rationale. */
 export const QUARANTINE_SHARE_LIMIT = 0.005;
-/** See `QUARANTINE_ABSOLUTE_LIMIT`'s doc comment for the full D-07 rationale. */
+/** See `QUARANTINE_ABSOLUTE_LIMIT`'s doc comment for the full rationale. */
 export const QUARANTINE_SHARE_MIN_POPULATION = 200;
 
 /**
@@ -146,22 +143,22 @@ export const QUARANTINE_SHARE_MIN_POPULATION = 200;
  * no result is available yet (should not normally reach the harness, but
  * the exclusion accounting must not silently drop it if it does).
  *
- * D-24 additions: `algorithmId` identifies which algorithm produced this
- * prediction (D-20/D-22 — one harness run scores many algorithms over the
- * same match stream, so every prediction must be attributable back to its
- * algorithm). `predictedRedScore`/`predictedBlueScore` are the predicted
- * scores, kept rather than discarded after prediction — this is what lets a
- * published match row (`publish.ts`) show more than just win probability.
+ * `algorithmId` identifies which algorithm produced this prediction — one
+ * harness run scores many algorithms over the same match stream, so every
+ * prediction must be attributable back to its algorithm.
+ * `predictedRedScore`/`predictedBlueScore` are the predicted scores, kept
+ * rather than discarded after prediction — this is what lets a published
+ * match row (`publish.ts`) show more than just win probability.
  */
 export interface HarnessPredictionInput {
   matchKey: string;
   season: number;
   /**
-   * D-T6 (quick task 260901-trz): the event this match belongs to, carried so
-   * downstream consumers can BLOCK on it — matches inside one event share
-   * teams, a field and a game state, so every interval and comparison this
-   * project makes resamples whole events rather than individual matches
-   * (`eventBootstrap.ts`; the match-level figure understates by 40%).
+   * The event this match belongs to, carried so downstream consumers can
+   * BLOCK on it — matches inside one event share teams, a field and a game
+   * state, so every interval and comparison this project makes resamples
+   * whole events rather than individual matches (`eventBootstrap.ts`; the
+   * match-level figure understates by 40%).
    *
    * `aggregateScores` below does NOT read this field, deliberately: it is
    * carried FOR downstream blocking, not consumed here, so a reader should
@@ -185,22 +182,22 @@ export interface HarnessPredictionInput {
   isOffseason: boolean;
   isSurrogateAffected: boolean;
   /**
-   * D-01/D-02 (quick task 260909-t5q): true iff `packages/harness/replay.ts`'s
-   * `WalkForwardSimulator` stamped this prediction's record as cold start —
-   * the SINGLE source of truth every producer below reads rather than
-   * re-deriving. REQUIRED, not optional with a `false` default: an optional
-   * field would let a producer silently opt out of the unification D-01
-   * exists to guarantee, and the typechecker would never catch it.
+   * True iff `packages/harness/replay.ts`'s `WalkForwardSimulator` stamped
+   * this prediction's record as cold start — the SINGLE source of truth
+   * every producer below reads rather than re-deriving. REQUIRED, not
+   * optional with a `false` default: an optional field would let a
+   * producer silently opt out of the unification this guarantees, and the
+   * typechecker would never catch it.
    */
   isColdStart: boolean;
 }
 
 export interface ScoreSlice {
-  /** D-20/D-21: identifies which algorithm this slice's metrics belong to. */
+  /** Identifies which algorithm this slice's metrics belong to. */
   algorithmId: string;
   season: number;
   /**
-   * D-2/D-3: whether this season has at least `MIN_PRIOR_SEASONS_FOR_HEADLINE`
+   * Whether this season has at least `MIN_PRIOR_SEASONS_FOR_HEADLINE`
    * distinct prior seasons within the run's own declared season set — the
    * single honest flag; the retired `seasonLabel` tune/holdout vocabulary is
    * deleted rather than kept as an alias. Meaningful at slice level, rather
@@ -223,10 +220,10 @@ export interface ScoreSlice {
 }
 
 /**
- * D-02 (quick task 260909-t5q): exported so `score.test.ts` can pin the
- * exact key set with a single `toEqual` against a literal — a future sixth
- * exclusion key added here without a matching test update fails loudly
- * rather than being silently skipped by a test that iterates a key list.
+ * Exported so `score.test.ts` can pin the exact key set with a single
+ * `toEqual` against a literal — a future sixth exclusion key added here
+ * without a matching test update fails loudly rather than being silently
+ * skipped by a test that iterates a key list.
  */
 export const EMPTY_EXCLUSIONS: ExclusionCounts = {
   offseason: 0,
@@ -243,13 +240,12 @@ export const EMPTY_EXCLUSIONS: ExclusionCounts = {
  * one season (e.g. `publish.ts`'s per-season loop) would silently make
  * every slice ineligible under a self-derived rule, and every test would
  * still pass. Callers whose own scope is narrower than the run's full season
- * set (e.g. `promote.ts`'s bounded single-season slice) must say so
- * explicitly via this field, never by omission.
+ * set must say so explicitly via this field, never by omission.
  *
- * `eligibility` (D-2, quick task 260903-n2o) is REQUIRED for the same
- * reason: a caller that does not read `headlineEligible` must say so with the
- * `ELIGIBILITY_NOT_CLAIMED` sentinel, the strictest answer, rather than
- * manufacturing eligibility by omission.
+ * `eligibility` is REQUIRED for the same reason: a caller that does not
+ * read `headlineEligible` must say so with the `ELIGIBILITY_NOT_CLAIMED`
+ * sentinel, the strictest answer, rather than manufacturing eligibility by
+ * omission.
  */
 export interface AggregateScoresOptions {
   /** The full set of seasons this run has in play — see the interface doc comment above. */
@@ -261,13 +257,12 @@ export interface AggregateScoresOptions {
 
 /**
  * Produces one slice per algorithm per season per competition-level view
- * (D-11: quals-only, elims-only, and combined; D-20/D-22: grouped by
- * `algorithmId` first, so one harness run scoring many algorithms over the
- * same shared stream still produces per-algorithm slices rather than
- * conflating them). Per D-06 offseason matches are excluded by default and
- * counted as such; D-07-affected predictions and missing results are
- * excluded the same explicit way. Every exclusion is counted, never
- * silently dropped.
+ * (quals-only, elims-only, and combined; grouped by `algorithmId` first,
+ * so one harness run scoring many algorithms over the same shared stream
+ * still produces per-algorithm slices rather than conflating them).
+ * Offseason matches are excluded by default and counted as such;
+ * quarantine-affected predictions and missing results are excluded the
+ * same explicit way. Every exclusion is counted, never silently dropped.
  */
 export function aggregateScores(
   predictions: readonly HarnessPredictionInput[],
@@ -279,8 +274,7 @@ export function aggregateScores(
 
   // A caller scoring a season it did not declare is narrowing the population
   // the headline-eligibility rule is measured against — that must be loud,
-  // not silent (Finding 1: a self-derived rule would pass every test while
-  // being wrong).
+  // not silent: a self-derived rule would pass every test while being wrong.
   const corpusSeasonSet = new Set(corpusSeasons);
   const undeclaredSeasons = seasons.filter((s) => !corpusSeasonSet.has(s));
   if (undeclaredSeasons.length > 0) {
@@ -314,12 +308,10 @@ export function aggregateScores(
             exclusionCounts.surrogateAffected += 1;
             continue;
           }
-          // D-02: placed AFTER surrogate and BEFORE missing-result, so every
+          // Placed AFTER surrogate and BEFORE missing-result, so every
           // existing exclusion's attribution stays byte-identical — a
           // candidate that is ALSO offseason or surrogate-affected is
           // attributed to that earlier branch, never double-counted here.
-          // This is what makes a future republish's delta a pure transfer
-          // out of scoredCount into this one bucket (Task 3's census).
           if (candidate.isColdStart) {
             exclusionCounts.coldStart += 1;
             continue;
@@ -335,7 +327,7 @@ export function aggregateScores(
           scorable.push({ pRedWin: candidate.pRedWin, actualWinner: candidate.actualWinner });
         }
 
-        // D-07: bounded quarantine — a hollowed-out population must never
+        // Bounded quarantine — a hollowed-out population must never
         // silently publish a flatteringly small Brier score. Never caught;
         // the run is meant to fail here rather than continue.
         const candidateCount = candidates.length;
