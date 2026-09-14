@@ -1702,8 +1702,18 @@ void _rpCalibrationSchemaMatchesWireType;
  * `--algorithm spr` over the same ten seasons from the POST-ship code, so its
  * per-bonus figures are the same population `-09c` measured but under the
  * shipped WIN+TIE model rather than the pre-260913-qyn one.
+ *
+ * REPOINTED 2026-09-14 at `-09e` (quick task 260914-01x). Lattice marginals and
+ * the walk-forward mean shift shipped together on the bonus half, because the
+ * bonus-arm bar (`applyRpBonusArmBar`, committed before any figure existed)
+ * accepted all three arms and lattice+meanShift had the lowest pooled total-RP
+ * RPS (`data/baselines/rp-bonus-arms-2026-09.json`). `-09e` is measured with
+ * `--algorithm spr` over the same ten seasons as `-09d`, from the post-ship
+ * tree. Its outcome blocks equal `-09d`'s in every season, because the ship
+ * touched only the bonus half. `-09d` stays as the frozen pre-lattice record
+ * its own tests pin.
  */
-export const RP_CALIBRATION_MEASUREMENT_PATH = "data/baselines/rp-calibration-2026-09d.json";
+export const RP_CALIBRATION_MEASUREMENT_PATH = "data/baselines/rp-calibration-2026-09e.json";
 
 /**
  * A committed, self-describing measurement of every registered season's
