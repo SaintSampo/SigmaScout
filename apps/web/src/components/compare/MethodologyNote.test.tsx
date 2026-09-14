@@ -152,7 +152,7 @@ describe("buildMethodologyFigures", () => {
     expect(buildMethodologyFigures(new Map())).toBeUndefined();
   });
 
-  it("reads no seasonLabel and produces identical figures whether or not every slice carries the vestigial field (D-4 tolerance)", () => {
+  it("reads no seasonLabel and produces identical figures whether or not every slice carries the vestigial field", () => {
     const withLabel = new Map<number, CompareArtifact>([
       [2022, makeMinimalArtifact(2022, 0.19, { includeSeasonLabel: true })],
       [2023, makeMinimalArtifact(2023, 0.17, { includeSeasonLabel: true })],
@@ -166,7 +166,7 @@ describe("buildMethodologyFigures", () => {
 });
 
 describe("MethodologyNote — rendering", () => {
-  it("the complete case renders every season's Brier figure and the best-season clause naming the derived season (D-5, quick task 260903-n2o: no season-list assertion — that text only ever came from the retired selection sentence)", () => {
+  it("the complete case renders every season's Brier figure and the best-season clause naming the derived season (no season-list assertion — that text only ever came from the retired selection sentence)", () => {
     const artifactsByYear = realArtifactsByYear();
     const figures = buildMethodologyFigures(artifactsByYear);
     if (figures?.complete !== true) throw new Error("expected complete figures");
@@ -178,7 +178,7 @@ describe("MethodologyNote — rendering", () => {
     expect(text).toContain(String(figures.bestSeason));
   });
 
-  it("the incomplete case renders the near-tie caption and the always-visible cold-start explanation, and no THIRD paragraph (D-5, quick task 260903-n2o: the retired selection sentence is gone, not replaced; quick task 260909-t5q added the cold-start paragraph as the new second, unconditional line)", () => {
+  it("the incomplete case renders the near-tie caption and the always-visible cold-start explanation, and no THIRD paragraph (the retired selection sentence is gone, not replaced; the cold-start paragraph is the second, unconditional line)", () => {
     const artifactsByYear = new Map<number, CompareArtifact>([
       [2022, makeMinimalArtifact(2022, 0.19)],
       [2023, makeMinimalArtifact(2023, 0.17)],
@@ -190,14 +190,14 @@ describe("MethodologyNote — rendering", () => {
     expect(note.querySelectorAll("p")).toHaveLength(2);
   });
 
-  it("renders the cold-start explanation in plain language (D-03, quick task 260909-t5q)", () => {
+  it("renders the cold-start explanation in plain language", () => {
     const artifactsByYear = realArtifactsByYear();
     render(<MethodologyNote artifactsByYear={artifactsByYear} />);
     const text = screen.getByTestId(METHODOLOGY_NOTE_TESTID).textContent ?? "";
     expect(text).toContain(COLD_START_EXPLANATION);
   });
 
-  it("the complete form renders neither fragment of the retired leak-free-selection claim (D-5, quick task 260903-n2o)", () => {
+  it("the complete form renders neither fragment of the retired leak-free-selection claim", () => {
     const artifactsByYear = realArtifactsByYear();
     render(<MethodologyNote artifactsByYear={artifactsByYear} />);
     const text = screen.getByTestId(METHODOLOGY_NOTE_TESTID).textContent ?? "";
@@ -205,7 +205,7 @@ describe("MethodologyNote — rendering", () => {
     expect(text).not.toMatch(/no displayed season was scored/i);
   });
 
-  it("the D-11 caption renders in every case, including when buildMethodologyFigures returns nothing", () => {
+  it("the near-tie caption renders in every case, including when buildMethodologyFigures returns nothing", () => {
     render(<MethodologyNote artifactsByYear={new Map()} />);
     const text = screen.getByTestId(METHODOLOGY_NOTE_TESTID).textContent ?? "";
     expect(text).toContain(NEAR_TIE_CAPTION);
@@ -242,7 +242,7 @@ describe("MethodologyNote — rendering", () => {
     expect(text).not.toMatch(/\bholdout\b/);
   });
 
-  it("renders identically whether or not every slice carries seasonLabel (D-4 tolerance, asserted at the component)", () => {
+  it("renders identically whether or not every slice carries seasonLabel (asserted at the component)", () => {
     const withLabel = new Map<number, CompareArtifact>([
       [2022, makeMinimalArtifact(2022, 0.19, { includeSeasonLabel: true })],
       [2023, makeMinimalArtifact(2023, 0.17, { includeSeasonLabel: true })],

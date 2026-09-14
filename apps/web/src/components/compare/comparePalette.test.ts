@@ -57,7 +57,7 @@ function declaredValue(css: string, propertyName: string): string | undefined {
   return re.exec(css)?.[1]?.trim();
 }
 
-describe("comparePalette — theme.css token pinning (Task 1 acceptance)", () => {
+describe("comparePalette — theme.css token pinning", () => {
   it("declares all three --compare-algo-* tokens at their sketch-006-validated hex values", () => {
     const css = readThemeCss();
     for (const [propertyName, expectedHex] of Object.entries(EXPECTED_TOKENS)) {

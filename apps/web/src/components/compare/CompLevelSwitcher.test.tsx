@@ -13,7 +13,7 @@ afterEach(() => {
 });
 
 describe("COMP_LEVEL_VIEW_OPTIONS", () => {
-  it("is ordered Combined, Qualification, Elimination and carries the Copywriting Contract's exact labels", () => {
+  it("is ordered Combined, Qualification, Elimination and carries the exact labels", () => {
     expect(COMP_LEVEL_VIEW_OPTIONS.map((o) => o.view)).toEqual(["combined", "qualification", "elimination"]);
     expect(COMP_LEVEL_VIEW_OPTIONS.map((o) => o.label)).toEqual(["Combined", "Qualification", "Elimination"]);
   });

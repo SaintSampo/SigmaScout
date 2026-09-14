@@ -175,7 +175,7 @@ function makeRow(season: number, cells: Partial<Record<PublishedAlgorithmId, Acc
   return { season, cells: full };
 }
 
-describe("buildRowEmphasis (D-11) — direct, unrendered, on hand-built rows", () => {
+describe("buildRowEmphasis — direct, unrendered, on hand-built rows", () => {
   it("a row with a clear leader in both metrics names that leader in both", () => {
     const row = makeRow(2022, {
       opr: makeCell({ brierScore: 0.2, winnerAccuracy: 0.5, scoredCount: 1000 }),
@@ -236,7 +236,7 @@ const ALGORITHM_HEADER_PATTERN = new RegExp(
   `^(${PUBLISHED_ALGORITHM_IDS.map((id) => id.toUpperCase()).join("|")})$`,
 );
 
-describe("AccuracyTable — header structure and Copywriting Contract strings", () => {
+describe("AccuracyTable — header structure and exact header strings", () => {
   it("renders a row-label header 'Year' spanning two rows, one algorithm-group header spanning two columns per published algorithm in PUBLISHED_ALGORITHM_IDS order, and a second header row of matching metric-header pairs", () => {
     const artifactsByYear = fullArtifactsByYear();
     render(<AccuracyTable artifactsByYear={artifactsByYear} compLevelView="combined" />);
@@ -261,13 +261,13 @@ describe("AccuracyTable — header structure and Copywriting Contract strings", 
     expect(within(bodyRows[0]!).getAllByRole("cell")).toHaveLength(1 + PUBLISHED_ALGORITHM_IDS.length * 2);
   });
 
-  it("the accuracy header's accessible text is exactly the Copywriting Contract's Winner Accuracy string, and the Brier header carries the lower-is-better parenthetical", () => {
+  it("the accuracy header's accessible text is exactly the Winner Accuracy string, and the Brier header carries the lower-is-better parenthetical", () => {
     expect(WINNER_ACCURACY_HEADER_LABEL).toBe("Winner Accuracy");
     expect(BRIER_HEADER_LABEL).toBe("Brier Score (lower is better)");
   });
 });
 
-describe("AccuracyTable — ordering (COMP-01)", () => {
+describe("AccuracyTable — ordering", () => {
   it("column order is PUBLISHED_ALGORITHM_IDS' own order even when the artifact's algorithms array is reversed and slices shuffled", () => {
     const artifactsByYear = new Map<number, CompareArtifact>();
     for (const season of COMPARE_SEASONS) {
@@ -296,7 +296,7 @@ describe("AccuracyTable — ordering (COMP-01)", () => {
   });
 });
 
-describe("AccuracyTable — precision formatting (COMP-01)", () => {
+describe("AccuracyTable — precision formatting", () => {
   it("formats brierScore as a four-decimal fixed-point string and winnerAccuracy as a one-decimal percentage, computed from the same inputs the test feeds — never hand-typed digit strings", () => {
     const season = COMPARE_SEASONS[0]!;
     const rawBrier = 0.15012807378698909;
@@ -314,7 +314,7 @@ describe("AccuracyTable — precision formatting (COMP-01)", () => {
   });
 });
 
-describe("AccuracyTable — empty/absent values (COMP-01)", () => {
+describe("AccuracyTable — empty/absent values", () => {
   it("a null brierScore renders a blank cell (never an em-dash), with its column header still present", () => {
     const season = COMPARE_SEASONS[0]!;
     const artifact = makeArtifact(season, [
@@ -374,7 +374,7 @@ describe("AccuracyTable — empty/absent values (COMP-01)", () => {
   });
 });
 
-describe("AccuracyTable — slice selection by view (COMP-01)", () => {
+describe("AccuracyTable — slice selection by view", () => {
   it("with the combined view selected, qualification and elimination figures appear nowhere in the rendered output", () => {
     const season = COMPARE_SEASONS[0]!;
     const artifact = fullSeasonArtifact(season, [PUBLISHED_ALGORITHM_IDS[0]!]);
@@ -388,7 +388,7 @@ describe("AccuracyTable — slice selection by view (COMP-01)", () => {
   });
 });
 
-describe("AccuracyTable — plain weight and no tiering (D-08); D-11 emphasis (08-06)", () => {
+describe("AccuracyTable — plain weight, no tiering, and row emphasis", () => {
   it("every numeric cell carries the numeric-cell class, no muted/greyed/reduced-opacity/loser-ink/per-algorithm-colour class ever reaches any cell, and a semibold class reaches EXACTLY the cells buildRowEmphasis names for each row — computed, never hand-typed", () => {
     const artifactsByYear = fullArtifactsByYear();
     const { container } = render(<AccuracyTable artifactsByYear={artifactsByYear} compLevelView="combined" />);

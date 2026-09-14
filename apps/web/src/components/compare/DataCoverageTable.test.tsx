@@ -172,12 +172,12 @@ describe("DataCoverageTable — cell rendering (published zero vs absent slice)"
     expect(oprNoCallCell.textContent).toBe("");
   });
 
-  it("the coldStart column's header label renders (D-03, quick task 260909-t5q)", () => {
+  it("the coldStart column's header label renders", () => {
     render(<DataCoverageTable artifactsByYear={fullYearArtifact()} compLevelView="combined" />);
     expect(screen.getByRole("columnheader", { name: "No prior data" })).toBeDefined();
   });
 
-  it("a slice missing the coldStart key renders the absent (blank) cell in that column, while a genuinely-zero original column in the SAME row still renders a printed digit (D-02/D-04, quick task 260909-t5q)", () => {
+  it("a slice missing the coldStart key renders the absent (blank) cell in that column, while a genuinely-zero original column in the SAME row still renders a printed digit", () => {
     const artifactsByYear = fullYearArtifact({
       opr: { exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 } },
       epa: { exclusionCounts: { offseason: 0, surrogateAffected: 0, missingResult: 0, quarantined: 0 } },
@@ -250,7 +250,7 @@ describe("DataCoverageTable — structure, order and emphasis", () => {
 });
 
 describe("DataCoverageSection — the explainer", () => {
-  it("renders the Copywriting Contract's D-09 sentence character for character", () => {
+  it("renders the explainer sentence character for character", () => {
     render(<DataCoverageSection artifactsByYear={fullYearArtifact()} compLevelView="combined" />);
     expect(screen.getByTestId(DATA_COVERAGE_EXPLAINER_TESTID).textContent).toContain(DATA_COVERAGE_EXPLAINER_D09);
   });

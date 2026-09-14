@@ -291,10 +291,10 @@ describe("buildCoverageRows", () => {
   });
 
   /**
-   * D-02/D-04 (quick task 260909-t5q): the `coldStart` column's own
-   * dedicated coverage, per the plan's `<behavior>` block.
+   * The `coldStart` column's own
+   * dedicated coverage.
    */
-  describe("coldStart column — absent-vs-agreed-vs-disagreed (D-02/D-04)", () => {
+  describe("coldStart column — absent-vs-agreed-vs-disagreed", () => {
     it("a slice whose published exclusion counts carry only the original four keys collapses coldStart to the ABSENT variant, not to an agreed value of 0", () => {
       const artifactsByYear = new Map<number, CompareArtifact>();
       artifactsByYear.set(
