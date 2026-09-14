@@ -1,33 +1,29 @@
 /**
- * Pure projection for the Teams page's bubble-chart view (quick task
- * 260909-tom). No React import, no TanStack import, no DOM access — the
- * same discipline `rowModel.ts` keeps.
+ * Pure projection for the Teams page's bubble-chart view. No React import, no
+ * TanStack import, no DOM access — the same discipline `rowModel.ts` keeps.
  *
- * D-01 — bubble size is UNIFORM: this module emits no size channel at all.
+ * Bubble size is uniform: this module emits no size channel at all.
  * `BubblePoint` carries no radius field; `BUBBLE_CHART.dotRadius` is the one
- * constant every rendered dot shares, cited again on that field below.
+ * constant every rendered dot shares.
  *
- * D-02 — colour is the rarity tier of the TOTAL metric: `tone` comes from
+ * Colour is the rarity tier of the Total metric: `tone` comes from
  * `row.metrics[TOTAL_KEY].tier`, with a `"neutral"` fallback for a Total
- * metric that carries no tier — never coerced to `"common"` (see
- * `colour_decision` in 260909-tom-PLAN.md for why the chart resolves the
- * common/unranked ambiguity differently from the table). Per D-02, this
- * module never imports `tiers.ts`'s `tierForPercentile`: the teams artifact
+ * metric that carries no tier — never coerced to `"common"`. This module
+ * never imports `tiers.ts`'s `tierForPercentile`: the teams artifact
  * publishes `tier` directly on the metric entry, and there is no percentile
  * on this row to derive one from.
  *
- * D-03 — same filtered set, no re-filter: `rows` arrive already filtered
- * (by the route's own filter model) and are neither re-filtered nor
- * reordered here. `buildBubbleModel` makes a single pass over `rows` in the
- * order given.
+ * Same filtered set, no re-filter: `rows` arrive already filtered (by the
+ * route's own filter model) and are neither re-filtered nor reordered here.
+ * `buildBubbleModel` makes a single pass over `rows` in the order given.
  *
- * Quick task 260909-v5v: this module also now serves pointer hit-testing —
- * `buildHitIndex`/`hitTestNearest` resolve a pointer position to the nearest
- * plotted point, and `tooltipAnchorFor` places the hover card. The hit test
- * lives HERE, in a pure module, rather than in the component, because jsdom
- * does no layout: a hit test written against live element geometry would be
- * untestable in this repo's test environment, while a pure function over
- * numbers is exhaustively testable.
+ * This module also serves pointer hit-testing — `buildHitIndex`/
+ * `hitTestNearest` resolve a pointer position to the nearest plotted point,
+ * and `tooltipAnchorFor` places the hover card. The hit test lives here, in a
+ * pure module, rather than in the component, because jsdom does no layout: a
+ * hit test written against live element geometry would be untestable in this
+ * repo's test environment, while a pure function over numbers is exhaustively
+ * testable.
  */
 import type { TeamRow } from "./rowModel.js";
 import { TOTAL_KEY } from "../../lib/metricKeys.js";
@@ -37,10 +33,9 @@ export type BubbleTone = "neutral" | "rare" | "epic" | "legendary";
 /**
  * Draw order for the tone paths — neutral first, legendary last — and the
  * order the key row lists its four entries in. Load-bearing, not cosmetic:
- * at the real 2026 field size Legendary is 186 teams against 1,856 Common
- * (colour-and-tiers.md's measured distribution), so painting neutral first
- * and legendary last is what keeps the rare tiers visible on top of the
- * neutral mass rather than buried under it.
+ * at the real field size the rare tiers are heavily outnumbered by Common, so
+ * painting neutral first and legendary last is what keeps the rare tiers
+ * visible on top of the neutral mass rather than buried under it.
  */
 export const BUBBLE_TONE_DRAW_ORDER: readonly BubbleTone[] = ["neutral", "rare", "epic", "legendary"];
 
@@ -73,9 +68,9 @@ export interface BubbleModel {
   omittedNoSigma: number;
   /**
    * True when at least one input row carries a defined `sigmaScore`. False for
-   * every OPR and EPA row set (Sigma Score is published for SPR only, quick
-   * task 260913-g66), which is what the chart keys its no-Sigma state on. Data
-   * driven on purpose: no algorithm id is consulted here or in the chart.
+   * every OPR and EPA row set (Sigma Score is published for SPR only), which
+   * is what the chart keys its no-Sigma state on. Data driven on purpose: no
+   * algorithm id is consulted here or in the chart.
    */
   hasAnySigma: boolean;
   /** Rows omitted for lacking a Total metric entirely. */
@@ -92,10 +87,10 @@ export interface PlotRect {
 }
 
 /**
- * Every geometric number the chart component uses comes from here.
- * chart-craft.md: "derive coupled geometry; never hand-tune both ends" — the
- * plot rect, the tick positions and the dot positions must all descend from
- * this one object or they will drift.
+ * Every geometric number the chart component uses comes from here: derive
+ * coupled geometry, never hand-tune both ends — the plot rect, the tick
+ * positions and the dot positions must all descend from this one object or
+ * they will drift.
  */
 export const BUBBLE_CHART = Object.freeze({
   height: 420,
@@ -104,23 +99,21 @@ export const BUBBLE_CHART = Object.freeze({
   marginRight: 16,
   marginBottom: 48,
   marginLeft: 64,
-  /** D-01: uniform by decision, not oversight — ~4000 teams at full filter width make a size channel pure clutter. */
+  /** Uniform by decision, not oversight — thousands of teams at full filter width make a size channel pure clutter. */
   dotRadius: 2.5,
   targetTickCount: 6,
   /**
-   * Quick task 260909-v5v: the pointer-to-point distance inside which a
-   * point counts as hit, AND the spatial grid's cell size (`buildHitIndex`).
-   * These are DELIBERATELY the same number — the 3x3-neighbourhood scan
-   * `hitTestNearest` runs is exhaustive only because the cell size is at
-   * least the hit radius. Changing one without the other starts silently
-   * missing points.
+   * The pointer-to-point distance inside which a point counts as hit, and the
+   * spatial grid's cell size (`buildHitIndex`). These are deliberately the
+   * same number — the 3x3-neighbourhood scan `hitTestNearest` runs is
+   * exhaustive only because the cell size is at least the hit radius.
+   * Changing one without the other starts silently missing points.
    */
   hitRadius: 12,
   /** The hover ring's radius — about 2.4x `dotRadius`, big enough to read against a dense cloud without hiding its neighbours. */
   highlightRadius: 6,
   /**
-   * The tooltip card's declared geometry (chart-craft.md: "derive coupled
-   * geometry; never hand-tune both ends"). `TeamsBubbleChart.tsx`'s inline
+   * The tooltip card's declared geometry. `TeamsBubbleChart.tsx`'s inline
    * card width and `tooltipAnchorFor`'s flip arithmetic both read these same
    * fields, or the card will flip at the wrong moment.
    */
@@ -132,12 +125,10 @@ export const BUBBLE_CHART = Object.freeze({
 /**
  * The per-team published number and the Y axis title: Sigma Score, the 1
  * standard deviation of a robot's share of its alliance's miss, published for
- * SPR only (quick task 260913-g66). NOT the Match Band (that is an alliance
- * quantity drawn on match rows) and NEVER the algorithm's own internal
- * confidence field. The axis title and the tooltip's row label both read
- * this ONE constant, so "the same label the axis uses, never a re-typed
- * literal" (D-01, quick task 260909-v5v) is structural rather than a
- * convention two call sites could drift apart on.
+ * SPR only. Not the Match Band (that is an alliance quantity drawn on match
+ * rows) and never the algorithm's own internal confidence field. The axis
+ * title and the tooltip's row label both read this one constant, so neither
+ * call site can drift onto a re-typed literal.
  */
 export const SIGMA_AXIS_LABEL = "Sigma Score";
 
@@ -218,10 +209,10 @@ export function projectY(value: number, axis: BubbleAxis, plot: PlotRect): numbe
 }
 
 /**
- * Single pass over `rows` in the order given — no sort, no filter beyond
- * the two omission cases (D-03). Axes are built from the SURVIVING points
- * only; with zero points, both axes fall back to `niceAxis(0, 1, ...)` so
- * the caller never has to special-case an undefined axis.
+ * Single pass over `rows` in the order given — no sort, no filter beyond the
+ * two omission cases. Axes are built from the surviving points only; with
+ * zero points, both axes fall back to `niceAxis(0, 1, ...)` so the caller
+ * never has to special-case an undefined axis.
  */
 export function buildBubbleModel(rows: readonly TeamRow[]): BubbleModel {
   const points: BubblePoint[] = [];
@@ -278,9 +269,8 @@ function roundCoord(value: number): number {
 /**
  * Concatenates one arc-pair circle subpath per point into a single `d`
  * string for one tone — the whole reason the point cloud costs at most four
- * DOM nodes regardless of team count (see 260909-tom-PLAN.md's
- * `rendering_decision`). Coordinates are rounded to one decimal to keep the
- * string tight. Returns `""` for an empty input.
+ * DOM nodes regardless of team count. Coordinates are rounded to one decimal
+ * to keep the string tight. Returns `""` for an empty input.
  *
  * Uses the DEFAULT fill-rule (nonzero), never `evenodd`: two overlapping
  * dots inside one path would punch a hole under `evenodd`, since all
@@ -299,13 +289,12 @@ export function tonePathData(points: readonly BubblePoint[], x: BubbleAxis, y: B
 
 /**
  * A uniform-grid spatial index over a `BubbleModel`'s points, built once per
- * `[model, plot]` (quick task 260909-v5v). `cx`/`cy`/`teamNumbers` are
- * parallel typed arrays, one entry per `points[i]`. `teamNumbers` is
- * duplicated into the index rather than read back off `points` so
- * `hitTestNearest` needs no second argument and no property access in its
- * inner loop.
+ * `[model, plot]`. `cx`/`cy`/`teamNumbers` are parallel typed arrays, one
+ * entry per `points[i]`. `teamNumbers` is duplicated into the index rather
+ * than read back off `points` so `hitTestNearest` needs no second argument
+ * and no property access in its inner loop.
  *
- * `buckets` is a FLAT grid indexed `row * cols + col`, deliberately NOT a
+ * `buckets` is a flat grid indexed `row * cols + col`, deliberately not a
  * `Map` with string keys: the lookup runs at pointer rate, and a string key
  * would allocate on every move.
  */
