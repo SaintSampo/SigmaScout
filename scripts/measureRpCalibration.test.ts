@@ -51,6 +51,7 @@ const FROZEN_BASELINE_ALGORITHM_ID_ALIASES: Readonly<Record<string, string>> = {
 const liveAlgorithmId = (frozenId: string): string => FROZEN_BASELINE_ALGORITHM_ID_ALIASES[frozenId] ?? frozenId;
 import { RpCalibrationMeasurementSchema } from "../packages/harness/publish.js";
 import {
+  applyRpBonusArmBar,
   applyRpOutcomeArmBar,
   assertMarginalArmSliceAllowed,
   assertOutcomeArmAlgorithmAllowed,
@@ -73,6 +74,8 @@ import {
   ruleModuleWithMarginalArm,
   SHIPPED_RP_LAYER_LABEL,
   type ArmPooledFigures,
+  type BonusArmName,
+  type BonusArmPooledFigures,
   type MatchOutcomeObservation,
   type Observation,
   type TotalRpObservation,
@@ -748,6 +751,109 @@ describe("applyRpOutcomeArmBar (260913-qyn's pre-committed outcome-arm bar)", ()
       arm("win", 0.28, 0.4),
     ]);
     expect(byOrder.ship).toBe("win");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyRpBonusArmBar — 260914-01x's pre-committed bonus-arm bar, committed
+// before any lattice or mean-shift figure exists. Every figure is hand-picked.
+// ---------------------------------------------------------------------------
+
+describe("applyRpBonusArmBar (260914-01x's pre-committed bonus-arm bar)", () => {
+  const counts = { bonusCount: 2000, totalRpCount: 1000 };
+  const fig = (arm: BonusArmName, bonusBrier: number, totalRpRps: number, c = counts): BonusArmPooledFigures => ({
+    arm,
+    bonusBrier,
+    totalRpRps,
+    ...c,
+  });
+  const control = fig("control", 0.2, 0.3);
+
+  it("accepts an arm strictly better on BOTH pooled bonus Brier and pooled RPS", () => {
+    const result = applyRpBonusArmBar([control, fig("lattice", 0.19, 0.29)]);
+    const verdict = result.verdicts.find((v) => v.arm === "lattice")!;
+    expect(verdict.accepted).toBe(true);
+    expect(verdict.bonusBrierDelta).toBeCloseTo(-0.01, 12);
+    expect(verdict.rpsDelta).toBeCloseTo(-0.01, 12);
+    expect(result.ship).toBe("lattice");
+    expect(result.verdicts.find((v) => v.arm === "control")).toEqual({ arm: "control", accepted: false, bonusBrierDelta: 0, rpsDelta: 0 });
+  });
+
+  it("rejects an arm with EQUAL RPS even when bonus Brier improves — no tolerance", () => {
+    const result = applyRpBonusArmBar([control, fig("lattice", 0.19, 0.3)]);
+    expect(result.verdicts.find((v) => v.arm === "lattice")!.accepted).toBe(false);
+    expect(result.ship).toBe("control");
+  });
+
+  it("rejects an arm that improves RPS but regresses bonus Brier", () => {
+    const result = applyRpBonusArmBar([control, fig("meanShift", 0.21, 0.2)]);
+    expect(result.verdicts.find((v) => v.arm === "meanShift")!.accepted).toBe(false);
+    expect(result.ship).toBe("control");
+  });
+
+  it("lattice accepted, meanShift accepted, lattice+meanShift rejected (lowest RPS) -> meanShift ships", () => {
+    const result = applyRpBonusArmBar([
+      control,
+      fig("lattice", 0.199, 0.295),
+      fig("meanShift", 0.199, 0.29),
+      fig("lattice+meanShift", 0.2, 0.28),
+    ]);
+    expect(result.verdicts.find((v) => v.arm === "lattice")!.accepted).toBe(true);
+    expect(result.verdicts.find((v) => v.arm === "meanShift")!.accepted).toBe(true);
+    expect(result.verdicts.find((v) => v.arm === "lattice+meanShift")!.accepted).toBe(false);
+    expect(result.ship).toBe("meanShift");
+  });
+
+  it("all three accepted -> the lowest pooled RPS ships", () => {
+    const result = applyRpBonusArmBar([
+      control,
+      fig("lattice", 0.19, 0.295),
+      fig("meanShift", 0.19, 0.29),
+      fig("lattice+meanShift", 0.19, 0.285),
+    ]);
+    expect(result.verdicts.every((v) => v.arm === "control" || v.accepted)).toBe(true);
+    expect(result.ship).toBe("lattice+meanShift");
+  });
+
+  it("none accepted -> ship is control", () => {
+    const result = applyRpBonusArmBar([control, fig("lattice", 0.21, 0.31), fig("meanShift", 0.2, 0.29), fig("lattice+meanShift", 0.19, 0.3)]);
+    expect(result.verdicts.every((v) => !v.accepted)).toBe(true);
+    expect(result.ship).toBe("control");
+  });
+
+  it("an exact RPS tie breaks on lower bonus Brier, then on the order lattice, meanShift, lattice+meanShift", () => {
+    const byBrier = applyRpBonusArmBar([control, fig("lattice", 0.19, 0.28), fig("meanShift", 0.18, 0.28)]);
+    expect(byBrier.ship).toBe("meanShift");
+
+    const byOrder = applyRpBonusArmBar([
+      control,
+      fig("lattice+meanShift", 0.18, 0.28),
+      fig("meanShift", 0.18, 0.28),
+      fig("lattice", 0.18, 0.28),
+    ]);
+    expect(byOrder.ship).toBe("lattice");
+
+    const byOrderWithoutLattice = applyRpBonusArmBar([control, fig("lattice+meanShift", 0.18, 0.28), fig("meanShift", 0.18, 0.28)]);
+    expect(byOrderWithoutLattice.ship).toBe("meanShift");
+  });
+
+  it("throws when an arm's bonusCount or totalRpCount differs from control's", () => {
+    expect(() => applyRpBonusArmBar([control, fig("lattice", 0.19, 0.29, { bonusCount: 1999, totalRpCount: 1000 })])).toThrow(
+      /identical observation set/
+    );
+    expect(() => applyRpBonusArmBar([control, fig("lattice", 0.19, 0.29, { bonusCount: 2000, totalRpCount: 1001 })])).toThrow(
+      /identical observation set/
+    );
+  });
+
+  it("throws on a non-finite figure, control included", () => {
+    expect(() => applyRpBonusArmBar([control, fig("lattice", Number.NaN, 0.29)])).toThrow(/non-finite/);
+    expect(() => applyRpBonusArmBar([control, fig("lattice", 0.19, Number.POSITIVE_INFINITY)])).toThrow(/non-finite/);
+    expect(() => applyRpBonusArmBar([fig("control", 0.2, Number.NaN), fig("lattice", 0.19, 0.29)])).toThrow(/non-finite/);
+  });
+
+  it("throws when no control entry is supplied", () => {
+    expect(() => applyRpBonusArmBar([fig("lattice", 0.19, 0.29)])).toThrow(/no "control" entry/);
   });
 });
 

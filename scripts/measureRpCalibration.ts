@@ -518,6 +518,97 @@ export function applyRpOutcomeArmBar(pooled: readonly ArmPooledFigures[]): RpOut
 }
 
 // ---------------------------------------------------------------------------
+// THE BONUS-ARM ACCEPTANCE BAR (quick task 260914-01x, 2026-09-14)
+// ---------------------------------------------------------------------------
+//
+// PRE-COMMITTED BEFORE ANY ARM FIGURE EXISTS. `applyRpBonusArmBar` lands in
+// git before the lattice and mean-shift knobs it judges can produce a number.
+// Applied mechanically, with no override.
+//
+// An arm is accepted if and only if its pooled bonus Brier AND its pooled
+// total-RP RPS are BOTH strictly lower than control's, with no tolerance.
+// "Pooled" means observation-weighted over the whole selection slice
+// (2016-2020 plus 2022), never a mean of per-season figures. Among accepted
+// arms the lowest pooled RPS ships; an exact RPS tie breaks on lower pooled
+// bonus Brier, then on the fixed order lattice, meanShift, lattice+meanShift.
+// lattice+meanShift ships only when it is itself accepted. When nothing is
+// accepted, `control` ships and nothing changes for F4.
+export type BonusArmName = "control" | "lattice" | "meanShift" | "lattice+meanShift";
+
+/** Tie-break order between accepted arms that tie exactly on RPS and bonus Brier. `control` is never a candidate. */
+const BONUS_ARM_TIE_BREAK_ORDER: readonly BonusArmName[] = ["lattice", "meanShift", "lattice+meanShift"];
+
+/** One arm's pooled figures over the whole selection slice: every (alliance, bonus) observation and every total-RP observation. */
+export interface BonusArmPooledFigures {
+  readonly arm: BonusArmName;
+  readonly bonusCount: number;
+  readonly bonusBrier: number;
+  readonly totalRpCount: number;
+  readonly totalRpRps: number;
+}
+
+/** One arm's verdict and signed deltas (arm minus control; negative is better). Control's own verdict is always `accepted: false`. */
+export interface BonusArmVerdict {
+  readonly arm: BonusArmName;
+  readonly accepted: boolean;
+  readonly bonusBrierDelta: number;
+  readonly rpsDelta: number;
+}
+
+export interface RpBonusArmBarResult {
+  readonly verdicts: readonly BonusArmVerdict[];
+  readonly ship: BonusArmName;
+}
+
+/**
+ * Applies the pre-committed bonus-arm bar. `pooled` must contain a `"control"`
+ * entry. Throws when control is missing, when any figure is non-finite (a NaN
+ * would read as an honest rejection), or when an arm's `bonusCount` or
+ * `totalRpCount` differs from control's (the comparison is then void).
+ */
+export function applyRpBonusArmBar(pooled: readonly BonusArmPooledFigures[]): RpBonusArmBarResult {
+  const control = pooled.find((p) => p.arm === "control");
+  if (control === undefined) {
+    throw new Error(`applyRpBonusArmBar: no "control" entry in the supplied pooled figures — the bar has nothing to compare against`);
+  }
+  for (const p of pooled) {
+    if (!Number.isFinite(p.bonusBrier) || !Number.isFinite(p.totalRpRps)) {
+      throw new Error(`applyRpBonusArmBar: arm "${p.arm}" has a non-finite figure (bonusBrier=${p.bonusBrier}, totalRpRps=${p.totalRpRps}) — refusing to judge it`);
+    }
+    if (p.arm === "control") continue;
+    if (p.bonusCount !== control.bonusCount || p.totalRpCount !== control.totalRpCount) {
+      throw new Error(
+        `applyRpBonusArmBar: arm "${p.arm}" scored bonusCount=${p.bonusCount}/totalRpCount=${p.totalRpCount} against control's bonusCount=${control.bonusCount}/totalRpCount=${control.totalRpCount} — the arms must see the identical observation set, so this comparison is void`
+      );
+    }
+  }
+
+  const verdicts: BonusArmVerdict[] = pooled.map((p) => {
+    if (p.arm === "control") return { arm: p.arm, accepted: false, bonusBrierDelta: 0, rpsDelta: 0 };
+    const bonusBrierDelta = p.bonusBrier - control.bonusBrier;
+    const rpsDelta = p.totalRpRps - control.totalRpRps;
+    const accepted = p.bonusBrier < control.bonusBrier && p.totalRpRps < control.totalRpRps;
+    return { arm: p.arm, accepted, bonusBrierDelta, rpsDelta };
+  });
+
+  const accepted = verdicts.filter((v) => v.accepted);
+  let ship: BonusArmName = "control";
+  if (accepted.length > 0) {
+    const byArm = new Map(pooled.map((p) => [p.arm, p]));
+    const sorted = [...accepted].sort((a, b) => {
+      const figA = byArm.get(a.arm)!;
+      const figB = byArm.get(b.arm)!;
+      if (figA.totalRpRps !== figB.totalRpRps) return figA.totalRpRps - figB.totalRpRps;
+      if (figA.bonusBrier !== figB.bonusBrier) return figA.bonusBrier - figB.bonusBrier;
+      return BONUS_ARM_TIE_BREAK_ORDER.indexOf(a.arm) - BONUS_ARM_TIE_BREAK_ORDER.indexOf(b.arm);
+    });
+    ship = sorted[0]!.arm;
+  }
+
+  return { verdicts, ship };
+}
+
+// ---------------------------------------------------------------------------
 // THE OUTCOME-ARM COMPARISON'S READER HALF. The measurement flag that
 // produced the committed record (`data/baselines/rp-outcome-arms-2026-09.json`,
 // ship: win+tie) is deleted, per this codebase's "the measurement seam is
