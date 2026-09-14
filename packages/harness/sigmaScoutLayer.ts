@@ -9,31 +9,16 @@
  *            alone — Sigma Score, the Match Band and ranking-point odds. No
  *            algorithm models them and no algorithm may import them.
  *
- * All three level-2 features are published for SIGMA algorithms only (SPR
- * today). OPR and EPA get none of the three: no Sigma Score, no Match Band,
- * and no ranking-point odds — they have no per-robot score variance to build
- * RP odds from. Gated by `usesSigmaScore` and `publishesRankingPoints`.
+ * All three are published for Sigma algorithms only (SPR), gated by
+ * `usesSigmaScore` and `publishesRankingPoints`.
  *
- * ---------------------------------------------------------------------------
- * WHY THIS IS A MODULE AND NOT A LOOP BODY
- * ---------------------------------------------------------------------------
+ * Level-2 per-match math lives only here; adding a level-2 field in a caller's
+ * loop instead creates a second write path that can drop it.
  *
- * Level-2 per-match math lives only here, and `publishSeasons` calls it.
- * Adding a level-2 field in a caller's loop instead recreates the
- * drop-a-field defect a second write path once caused.
- *
- * ---------------------------------------------------------------------------
- * PREDICT BEFORE UPDATE
- * ---------------------------------------------------------------------------
- *
- * `foldPlayed` READS this match's band and pmf from history so far and only
- * then folds this match's own result in. A match never informs its own band.
- * That is the project's walk-forward rule generally, and it is load-bearing
- * here specifically: a band answers "how unsure were we when we predicted
- * this", and a later match is not an admissible answer to that question.
- *
- * The caller's obligation is therefore ORDER. Drive this with a chronological
- * match stream and one instance per algorithm, or the guarantee is void.
+ * PREDICT BEFORE UPDATE: `foldPlayed` reads this match's band and pmf from
+ * history so far and only then folds the result, so a match never informs its
+ * own band. Callers must drive one instance per algorithm with a chronological
+ * match stream, or the guarantee is void.
  */
 
 import type { CompLevel, MatchResult, Prediction, UpcomingMatch } from "../core/algorithms/types.js";
@@ -58,70 +43,42 @@ import {
 } from "./sigmaScore.js";
 
 /**
- * A scheduled match with its level-2 fields attached. Structurally the
- * `UpcomingPredictionRecord` `publish.ts` exports — declared here rather than
- * imported so this module has no dependency back on the CLI that drives it.
+ * A scheduled match with its level-2 fields attached. Structurally publish.ts's
+ * `UpcomingPredictionRecord`, declared here so this module does not depend on
+ * the CLI that drives it.
  */
 export interface UpcomingLayerRecord {
   readonly match: UpcomingMatch;
   readonly prediction: Prediction;
-  /**
-   * The PUBLISHED display band: each alliance's `sigmaMatchBandVariance`.
-   * Sigma algorithms only — absent for OPR and EPA. Never the win-odds
-   * variance the ranking-point pmf reads.
-   */
+  /** The PUBLISHED display band (`sigmaMatchBandVariance`), never the win-odds variance. Absent for non-Sigma algorithms. */
   readonly matchBand?: { red?: number; blue?: number };
 }
 
 /**
- * One algorithm's level-2 state for one season.
- *
- * Construct one per algorithm, drive it with that algorithm's chronological
- * played stream via `foldPlayed`, then read `sigmaScoreByTeam()` and
- * `rpAccumulator` for the not-yet-played work.
+ * One algorithm's level-2 state for one season: drive it with that algorithm's
+ * chronological played stream via `foldPlayed`, then read `sigmaScoreByTeam()`
+ * and `rpAccumulator` for the not-yet-played work.
  */
 export class SigmaScoutLayer {
-  /**
-   * Present ONLY for an algorithm in `SIGMA_SCORE_ALGORITHM_IDS` (SPR today).
-   * When present it is the source of this algorithm's per-team consistency
-   * figure, its win-odds variance AND its published match band. When absent
-   * (OPR, EPA) the layer publishes no consistency figure, no match band and no
-   * ranking-point odds.
-   */
+  /** Present only for Sigma algorithms: the source of Sigma Score, the win-odds variance and the match band. */
   readonly #sigma: SigmaScoreAccumulator | undefined;
   readonly #rp: RpMomentsAccumulator | undefined;
   readonly #ruleModule: RpRuleModule | undefined;
   /**
-   * Running resolved-family mix across every pmf this layer instance has
-   * built. IN-MEMORY ONLY — never put on `Prediction`, never written to any
-   * artifact. A permanent diagnostic of the fallback ladder: it says how
-   * often a fit resolved to something other than what its variable
-   * declared, e.g. how much of a `"negative-binomial"` arm actually
-   * resolved to negative binomial rather than silently falling back to
-   * Gaussian.
+   * Running resolved-family mix across every pmf this instance has built: how
+   * often a marginal fit fell back from its declared family. In-memory only,
+   * never written to any artifact.
    */
   readonly #rpMarginalResolutionTally: MarginalResolutionTally = emptyMarginalResolutionTally();
-  /**
-   * The walk-forward mean shift (`meanShift.ts`), present whenever this layer
-   * publishes ranking points. Shipped 2026-09-14 (quick task 260914-01x) as
-   * half of lattice+meanShift, the arm the committed bonus-arm bar accepted
-   * (`data/baselines/rp-bonus-arms-2026-09.json`).
-   */
+  /** The walk-forward RP mean shift (`meanShift.ts`), present whenever this layer publishes ranking points. */
   readonly #rpMeanShift: RpMeanShiftAccumulator | undefined;
 
   /**
-   * `ruleModule` is the season's RP rules, or `undefined` for a season with no
-   * registered rules (2021, and any season before the vocabulary starts). A
-   * season without rules still gets bands — the two features are independent,
-   * and RP simply does not appear.
-   *
-   * `algorithmId` decides which level-2 features this layer produces. Sigma
-   * Score and the Match Band need `usesSigmaScore`; the RP accumulator is
-   * constructed only when `ruleModule` is defined AND
-   * `publishesRankingPoints(algorithmId)`. It is OPTIONAL: with no algorithm id
-   * the layer has no Sigma, no RP and no band — every feature is opt-in by id,
-   * never the silent default. The walk-forward mean shift is built beside
-   * the RP accumulator, under the same condition.
+   * `ruleModule` is the season's RP rules, or `undefined` for a season without
+   * them (bands still work; RP simply does not appear). `algorithmId` opts in to
+   * features: Sigma and the band need `usesSigmaScore`, the RP accumulator and
+   * mean shift need `ruleModule` and `publishesRankingPoints`. With no id the
+   * layer produces nothing.
    */
   constructor(ruleModule: RpRuleModule | undefined, algorithmId?: string) {
     const rankingPoints = algorithmId !== undefined && publishesRankingPoints(algorithmId);
@@ -139,13 +96,7 @@ export class SigmaScoutLayer {
     return this.#rpMeanShift?.toState();
   }
 
-  /**
-   * The resolved-family mix accumulated across every `#rpFieldsFor` call
-   * this layer instance has made so far. Read-only:
-   * reading it never mutates it. Returns a fresh copy each read, so a
-   * caller cannot accidentally mutate this layer's own running counts.
-   * In-memory only — see this field's own doc comment.
-   */
+  /** A fresh copy of the resolved-family tally, so a caller cannot mutate the running counts. */
   get rpMarginalResolutionTally(): MarginalResolutionTally {
     return { ...this.#rpMarginalResolutionTally };
   }
@@ -155,107 +106,51 @@ export class SigmaScoutLayer {
     return this.#sigma !== undefined;
   }
 
-  /**
-   * This algorithm's per-team consistency figure — Sigma Score where enabled,
-   * an EMPTY map otherwise.
-   *
-   * Sigma always has a figure (its prior is a legitimate answer before any
-   * evidence), so a Sigma layer returns an entry for every team it has ever
-   * seen.
-   */
+  /** Finished Sigma Scores for every team the layer has seen, or an empty map for a non-Sigma algorithm. Scores every team: never call it per match. */
   sigmaScoreByTeam(): ReadonlyMap<string, number> {
     if (this.#sigma === undefined) return new Map();
     return this.#sigma.scoreByTeam();
   }
 
   /**
-   * This team's Sigma Score, READ-ONLY — never creates a belief. Delegates
-   * to `SigmaScoreAccumulator.sigmaFor`, which goes through `#readBelief`
-   * rather than `#mutableBelief` (see that method's own doc comment for the
-   * real order-dependence bug a single insert-on-read accessor once caused:
-   * two orchestrations that wrote the same artifacts produced different
-   * ranking-point pmfs for the same event because merely reading a team
-   * created a belief entry, and whichever path read a team first changed
-   * what the other could see).
-   *
-   * Costs ONE team, unlike `sigmaScoreByTeam()` above, which scores EVERY
-   * team the layer has ever seen and must NEVER be called once per match.
-   *
-   * Call this right after `foldPlayed` for a match: the value it returns at
-   * that instant is this team's Sigma Score "after this match", the same
-   * "after this match" meaning every other metric a metric-history row
-   * already publishes.
-   *
-   * `undefined` for a layer with no Sigma accumulator (an algorithm outside
-   * `SIGMA_SCORE_ALGORITHM_IDS`) — the same absent-key convention every
-   * other Sigma-only field on this layer uses.
+   * One team's Sigma Score, read-only (never creates a belief, which would make
+   * results order-dependent). Called right after `foldPlayed`, it is the "after
+   * this match" figure a metric-history row publishes. `undefined` for a
+   * non-Sigma layer.
    */
   sigmaFor(teamKey: string): number | undefined {
     return this.#sigma?.sigmaFor(teamKey);
   }
 
-  /**
-   * One alliance's WIN-ODDS variance from history so far, from the Sigma
-   * accumulator, or `undefined` for a layer without one. This is what
-   * `#rpFieldsFor` reads; the published display band is derived from it by
-   * `#matchBandFields`.
-   */
+  /** One alliance's WIN-ODDS variance from history so far (what `#rpFieldsFor` reads), or `undefined` for a non-Sigma layer. */
   #bandVarianceFor(roster: readonly string[]): number | undefined {
     return this.#sigma?.bandVarianceFor(roster);
   }
 
   /**
-   * Every team's RAW running RP state, for the D1 seed the live Worker
-   * resumes from (shape 15).
-   *
-   * Distinct from anything the publisher renders: this is raw running
-   * state, not a finished figure. Dropping a single-observation team from a
-   * seed would make its first live match fold against an empty belief and
-   * diverge from what the offline publisher would have produced — silently,
-   * because the resulting pmf is still a valid distribution.
-   *
-   * Empty for a season that registers no RP rules, or for an algorithm that
-   * publishes no ranking points, which is the honest answer rather than an
-   * error: the feature is ABSENT there, not empty.
+   * Every team's RAW running RP state for the Worker's D1 seed, not a finished
+   * figure: dropping even a single-observation team makes its first live match
+   * diverge from the offline publisher. Empty when the layer publishes no
+   * ranking points.
    */
   rpVariableBeliefs(): ReadonlyMap<string, RpTeamBeliefs> {
     return this.#rp?.beliefsByTeam() ?? new Map();
   }
 
   /**
-   * Every team's RAW running Sigma Score state, for the D1 seed the live
-   * Worker resumes from (shape 11).
-   *
-   * The counterpart of `rpVariableBeliefs()` above and distinct from
-   * `sigmaScoreByTeam()`, which returns finished Sigma Scores: this is the
-   * raw running state a resumed accumulator needs to CONTINUE this
-   * publisher's history rather than start a second, shorter one. Seed a
-   * Worker without it and every band it computes live is built from one
-   * event's matches while the artifacts it serves carry the whole season's —
-   * both sides look healthy and only the numbers differ.
-   *
-   * EMPTY for an algorithm outside `SIGMA_SCORE_ALGORITHM_IDS`, which is the
-   * honest answer rather than an error: such an algorithm has no Sigma
-   * accumulator at all, so its seed must carry no Sigma key rather than an
-   * empty one. `usesSigma` is the gate for a caller that needs to know which
-   * case it is in.
+   * Every team's RAW running Sigma state for the Worker's D1 seed (unlike the
+   * finished `sigmaScoreByTeam()`), so live bands continue the season's history
+   * instead of silently restarting from one event. Empty for a non-Sigma
+   * algorithm, whose seed carries no Sigma key; `usesSigma` tells the cases apart.
    */
   sigmaBeliefs(): ReadonlyMap<string, SigmaBelief> {
     return this.#sigma?.beliefsByTeam() ?? new Map();
   }
 
   /**
-   * The Sigma talent prior's population statistics, or `undefined` for an
-   * algorithm that publishes no Sigma Score.
-   *
-   * THREE NUMBERS, not per team, so this rides the LEAGUE row rather than the
-   * team rows `sigmaBeliefs()` feeds — see `withSigmaPopulation`. It is not
-   * optional decoration: a resumed accumulator handed beliefs but no
-   * population falls back to the flat prior (`MIN_POPULATION_FOR_TALENT_PRIOR`)
-   * and computes different numbers from the same beliefs.
-   *
-   * `undefined` rather than a zeroed triple on purpose, so a caller cannot
-   * seed a league row claiming a population that was never folded.
+   * The Sigma talent prior's population statistics for the LEAGUE row (a resumed
+   * accumulator without them falls back to the flat prior). `undefined`, not a
+   * zeroed triple, for a non-Sigma algorithm, so no seed claims an unfolded population.
    */
   sigmaPopulation(): SigmaPopulation | undefined {
     return this.#sigma?.population();
@@ -272,12 +167,9 @@ export class SigmaScoutLayer {
   }
 
   /**
-   * Attaches this match's level-2 fields, THEN folds the match in.
-   *
-   * Call once per played match, in chronological order. The returned record is
-   * the ONE object both the event-artifact builder and the team-artifact
-   * builder should read, which is what makes a match's band byte-identical on
-   * an event page and a team page rather than merely intended to be.
+   * Attaches this match's level-2 fields, THEN folds the match in. Call once per
+   * played match, in order. Both the event and team artifact builders read the
+   * returned record, so a match's band is byte-identical on both pages.
    */
   foldPlayed(
     match: MatchResult,
@@ -287,10 +179,8 @@ export class SigmaScoutLayer {
     const redBandVariance = this.#bandVarianceFor(match.redTeams);
     const blueBandVariance = this.#bandVarianceFor(match.blueTeams);
     this.#sigma?.foldMatch(match, prediction);
-    // Talent is applied AFTER the fold, on purpose: `talentAfterMatch` is read
-    // from the algorithm's state as of AFTER this match, so it is admissible
-    // evidence for the team's NEXT match and not for this one. Applying it
-    // before the fold would let a match inform its own prior.
+    // Talent after the fold: it is read from post-match state, so applying it
+    // first would let a match inform its own prior.
     if (talentAfterMatch !== undefined && this.#sigma !== undefined) {
       for (const [teamKey, talent] of talentAfterMatch) this.#sigma.observeTalent(teamKey, talent);
     }
@@ -310,12 +200,7 @@ export class SigmaScoutLayer {
     };
   }
 
-  /**
-   * The published display band for one match, derived from the two win-odds
-   * variances. Sigma layers only: an OPR or EPA layer returns no `matchBand`
-   * key at all, the same absent-key convention the band has always used for
-   * "nothing to draw".
-   */
+  /** The published display band from the two win-odds variances. A non-Sigma layer returns no `matchBand` key. */
   #matchBandFields(
     match: { redTeams: readonly string[]; blueTeams: readonly string[] },
     redWinOddsVariance: number | undefined,
@@ -329,12 +214,8 @@ export class SigmaScoutLayer {
   }
 
   /**
-   * Attaches level-2 fields to a NOT-YET-PLAYED match. Reads only — a match
-   * that has not happened has no result to fold.
-   *
-   * This is the case the rank simulation actually consumes: it simulates the
-   * REMAINING schedule, so a pmf on played rows alone would enable the
-   * Simulation tab and then give it nothing to draw.
+   * Attaches level-2 fields to a NOT-YET-PLAYED match, reading only. The rank
+   * simulation draws from these remaining-schedule pmfs.
    */
   enrichUpcoming(match: UpcomingMatch, prediction: Prediction): UpcomingLayerRecord {
     const sigmaScoreByTeam = this.sigmaScoreByTeam();
@@ -351,14 +232,10 @@ export class SigmaScoutLayer {
   }
 
   /**
-   * The RP fields for one match, given each alliance's band as its score
-   * variance. The band arguments are the WIN-ODDS variance (the uncorrected
-   * sum), never the published display band.
-   * Empty when this layer publishes no ranking points (no rules for the
-   * season, or an algorithm without a Sigma Score), when the event type awards
-   * no RP, or when either band is undefined — an upcoming band is undefined
-   * when a rostered team has no Sigma Score yet, and an alliance whose score
-   * variance is unknown has no honest pmf.
+   * The RP fields for one match, with each alliance's WIN-ODDS variance (never
+   * the display band) as its score variance. Empty when the layer publishes no
+   * ranking points, the event type awards none, or either variance is undefined
+   * (no honest pmf without it).
    */
   #rpFieldsFor(
     match: { redTeams: readonly string[]; blueTeams: readonly string[]; eventType: number; matchKey: string; compLevel: CompLevel },
@@ -382,27 +259,14 @@ export class SigmaScoutLayer {
       ruleModule: this.#ruleModule,
       eventType: match.eventType,
       compLevel: match.compLevel,
-      // The layer's own running accumulator, folded into by every call.
-      // In-memory only — see rpMarginalResolutionTally's own doc comment.
       tally: this.#rpMarginalResolutionTally,
-      // The algorithm's own published win probability is the outcome split's
-      // decisive share. See `analyticPmf.ts`'s `RpOutcomeInput.pRedWin` doc
-      // comment.
+      // The algorithm's published win probability is the outcome split's decisive share.
       pRedWin: prediction.pRedWin,
     });
 
-    // Composes the five decomposition fields the rank simulation's coupled
-    // draw consumes, from the exported halves (`pmf.outcome`,
-    // `pmf.redBonusPmf`/`pmf.blueBonusPmf`) plus this season's own
-    // winRp/tieRp constants — read from `#ruleModule`, never hardcoded (2/1
-    // in 2016-2024, 3/1 in 2025-2026). This function is the ONE place in the
-    // pipeline that knows both the decomposition and the season's RP
-    // constants, which is why the outcome-RP vectors are composed here
-    // rather than in either transport. Gated on `pmf.outcome` actually being
-    // present (absent only for the non-qualification short-circuit, which
-    // fits no marginal at all) — an algorithm or configuration that produces
-    // no decomposition keeps every one of these five keys absent rather than
-    // empty.
+    // The five decomposition fields the rank simulation's coupled draw consumes,
+    // with the season's winRp/tieRp from the rule module (never hardcoded).
+    // Absent as a set when the pmf has no decomposition (non-qualification).
     const decomposition: Partial<Prediction> =
       pmf.outcome !== undefined && pmf.redBonusPmf !== undefined && pmf.blueBonusPmf !== undefined
         ? {
@@ -434,9 +298,7 @@ export class SigmaScoutLayer {
         const parsed = this.#ruleModule.parse(JSON.parse(match.scoreBreakdownRaw), side, match.eventType);
         this.#rp.fold(side === "red" ? match.redTeams : match.blueTeams, parsed.thresholdVariables);
       } catch {
-        // A breakdown this season's module cannot parse contributes nothing
-        // rather than aborting the publish — the same degrade-to-a-counted-skip
-        // discipline `parseBreakdown` uses.
+        // An unparseable breakdown contributes nothing rather than aborting the publish.
       }
     }
   }
