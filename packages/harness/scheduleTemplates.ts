@@ -1,22 +1,22 @@
 /**
  * Reader for the gitignored cheesy-arena qualification-schedule template
- * cache (quick task 260905-tll Task 1, C-11/C-12/C-13). Templates are
- * Team 254's own pre-computed balanced schedules, cached locally by
- * `scripts/fetchScheduleTemplates.ts` into `data/schedule-templates/` and
- * NEVER committed — the upstream licence is Team 254's own custom licence
- * (not MIT) and grants redistribution only for contributing back upstream;
- * see the fetch script's header for the full statement.
+ * cache. Templates are Team 254's own pre-computed balanced schedules,
+ * cached locally by `scripts/fetchScheduleTemplates.ts` into
+ * `data/schedule-templates/` and NEVER committed — the upstream licence is
+ * Team 254's own custom licence (not MIT) and grants redistribution only
+ * for contributing back upstream; see the fetch script's header for the
+ * full statement.
  *
  * A pure Node module: no I/O beyond `readFileSync`/`existsSync`, no
  * network, no clock. There is no silent degrade path and no fabricated
  * schedule anywhere in this module — a missing cache file throws
  * `ScheduleTemplateMissingError` naming the exact path and the fetch
- * script (C-11), and a malformed cache line throws
- * `ScheduleTemplateParseError` naming the file and line number rather than
- * producing an off-by-one schedule. The ONE exception is a wholly absent
- * cache directory, which falls back to the committed
- * `SCHEDULE_TEMPLATE_FIXTURE_DIR` grid — see that constant for why that is
- * a CI affordance rather than a degrade path.
+ * script, and a malformed cache line throws `ScheduleTemplateParseError`
+ * naming the file and line number rather than producing an off-by-one
+ * schedule. The ONE exception is a wholly absent cache directory, which
+ * falls back to the committed `SCHEDULE_TEMPLATE_FIXTURE_DIR` grid — see
+ * that constant for why that is a CI affordance rather than a degrade
+ * path.
  *
  * A positive fact about template geometry, stated here rather than
  * rediscovered per caller: a template's row count is
@@ -80,7 +80,7 @@ const MIN_TEMPLATE_TEAMS = 6;
 const MAX_TEMPLATE_TEAMS = 100;
 
 /**
- * C-11's loud failure: the cache file for a `(numTeams, matchesPerTeam)`
+ * A loud failure: the cache file for a `(numTeams, matchesPerTeam)`
  * pair inside the servable range does not exist on disk. This is an
  * OPERATOR problem (the cache was never fetched, or was partially
  * fetched), never an event-shape problem — callers must let this
@@ -116,7 +116,7 @@ export class ScheduleTemplateUnavailableError extends Error {
  * carries a slot index outside `1..numTeams`, or a surrogate flag that is
  * neither 0 nor 1. Names the file and the one-based line number — a
  * tampered or truncated cache entry must fail loudly rather than produce
- * an off-by-one schedule (threat T-tll-01).
+ * an off-by-one schedule.
  */
 export class ScheduleTemplateParseError extends Error {
   constructor(path: string, lineNumber: number, detail: string) {
@@ -130,7 +130,7 @@ export class ScheduleTemplateParseError extends Error {
  * a (shuffled) team list — converted on read from the cache's one-based
  * encoding — and `redSurrogate`/`blueSurrogate` flag, positionally, which
  * of those three slots is a surrogate appearance (plays the match, earns
- * no ranking credit — PD-03).
+ * no ranking credit).
  */
 export interface ScheduleTemplateMatch {
   readonly red: readonly number[];
@@ -140,11 +140,10 @@ export interface ScheduleTemplateMatch {
 }
 
 /**
- * C-12: cheesy-arena's own matches-per-team derivation from a real
- * schedule's shape — `trunc(qualMatchCount * 6 / numTeams)`, TRUNCATED
- * (cheesy-arena `tournament/schedule.go`'s own convention; CONTEXT.md's
- * earlier "round" phrasing is superseded by the upstream convention),
- * clamped into the closed interval 1..14 (the template grid's own range).
+ * Cheesy-arena's own matches-per-team derivation from a real schedule's
+ * shape — `trunc(qualMatchCount * 6 / numTeams)`, TRUNCATED (cheesy-arena
+ * `tournament/schedule.go`'s own convention), clamped into the closed
+ * interval 1..14 (the template grid's own range).
  */
 export function matchesPerTeamFor(numTeams: number, qualMatchCount: number): number {
   const truncated = Math.trunc((qualMatchCount * 6) / numTeams);
@@ -152,7 +151,7 @@ export function matchesPerTeamFor(numTeams: number, qualMatchCount: number): num
 }
 
 /**
- * C-12: the matches-per-team to assume when the real schedule is unknown —
+ * The matches-per-team to assume when the real schedule is unknown —
  * 10 for TBA event type 3 (Championship Division), 12 otherwise. This is
  * the Statbotics convention, named here as the source rather than invented.
  */
@@ -245,7 +244,7 @@ function loadTemplateFileDirect(numTeams: number, matchesPerTeam: number): reado
 /**
  * Loads the template for `numTeams` at `matchesPerTeam` matches per team.
  *
- * Team-count coverage (C-13): a `numTeams` in 6..100 reads
+ * Team-count coverage: a `numTeams` in 6..100 reads
  * `{numTeams}_{matchesPerTeam}.csv` directly. Above 100, the grid has no
  * file, so the field is split into two blocks of `ceil(n/2)` and
  * `floor(n/2)`, each loaded independently, every index in the second block
