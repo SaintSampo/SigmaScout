@@ -87,6 +87,7 @@ import {
   type DistrictsIndexArtifact,
 } from "../packages/harness/pageArtifacts.js";
 import { putObject } from "../packages/harness/r2Client.js";
+import { parseSeasonSpec } from "../packages/harness/seasonSpec.js";
 
 const DEFAULT_BUCKET = "sigmascout-artifacts";
 const CORPUS_PATH = "data/corpus.sqlite";
@@ -537,31 +538,9 @@ function parseOptions(argv: readonly string[]): CliOptions {
   return { years: parseYearsSpec(yearsSpec), bucket: values.bucket ?? DEFAULT_BUCKET, dryRun: values["dry-run"] === true };
 }
 
-/** `--years` accepts a single year, a range (`"2022-2026"`), or a comma-separated list of these — the same term grammar `packages/harness/publish.ts`'s own `parseSeasonsRange` accepts, reimplemented locally (small enough not to warrant a cross-file dependency into that much larger module) so this file stays standalone, matching `scripts/publishAlgorithmsManifest.ts`'s own shape. */
+/** `--years` accepts a single year, a range (`"2022-2026"`), or a comma-separated list of these — `packages/harness/seasonSpec.ts`'s shared grammar, the same one `publish.ts`'s `--seasons` uses. */
 export function parseYearsSpec(spec: string): number[] {
-  const terms = spec
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  if (terms.length === 0) throw new Error(`--years must not be empty, got "${spec}"`);
-
-  const years = new Set<number>();
-  for (const term of terms) {
-    const singleMatch = /^(\d{4})$/.exec(term);
-    if (singleMatch) {
-      years.add(Number.parseInt(singleMatch[1]!, 10));
-      continue;
-    }
-    const rangeMatch = /^(\d{4})-(\d{4})$/.exec(term);
-    if (!rangeMatch) {
-      throw new Error(`--years terms must each be a single year like "2026" or a range like "2022-2026", got invalid term "${term}" in "${spec}"`);
-    }
-    const start = Number.parseInt(rangeMatch[1]!, 10);
-    const end = Number.parseInt(rangeMatch[2]!, 10);
-    if (end < start) throw new Error(`--years range end (${end}) must be >= start (${start}), in term "${term}" of "${spec}"`);
-    for (let year = start; year <= end; year++) years.add(year);
-  }
-  return Array.from(years).sort((a, b) => a - b);
+  return parseSeasonSpec(spec, "--years");
 }
 
 export async function run(options: CliOptions): Promise<void> {
