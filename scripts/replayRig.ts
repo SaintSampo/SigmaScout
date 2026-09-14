@@ -70,7 +70,7 @@ export const MEASUREMENT_GAP_NOTE =
   "The rig replaces TBA with a recorded fixture, so this measurement does not exercise real TBA response " +
   "latency. A --live-trigger cron run covers Cloudflare's own scheduling jitter but still not TBA's own " +
   "timing. A live offseason event (2026azscor 2026-08-28, 2026scsc 2026-08-29) remains available as optional " +
-  "later confirmation and is not required to close the criterion (D-20).";
+  "later confirmation and is not required to close the criterion.";
 
 const __filename = fileURLToPath(import.meta.url);
 const REPO_ROOT = resolve(dirname(__filename), "..");

@@ -254,7 +254,7 @@ function reportBlock(label: string, rows: readonly CoverageRow[], matches: numbe
     printSummaryLine(`coldest robot ${bucket}`, rows.filter((r) => coldestBucket(r.coldestPrior) === bucket));
   }
   console.log(
-    `   PRE-CORRECTION REFERENCE (band variance / roster size, the band before 260913-g66): inside 1 band ${formatShare(s.preCorrectionInside1)}`
+    `   PRE-CORRECTION REFERENCE (band variance / roster size, the band before the roster-size correction): inside 1 band ${formatShare(s.preCorrectionInside1)}`
   );
   console.log("");
 }

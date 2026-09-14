@@ -4070,7 +4070,7 @@ function dcmpTypeBlock(r: AwardTypeReport): string[] {
   if (ROOKIE_AWARD_TYPES.includes(r.awardType)) {
     lines.push(
       `    ROOKIE TYPE: read against RB1/RB2, NEVER against B1/B2 — both are structurally ` +
-        `near-bottom rankers here (260912-7bp).`
+        `near-bottom rankers here.`
     );
   }
   lines.push(...dcmpStratumRows(byStratum, r.awardType));
@@ -4115,7 +4115,7 @@ export function formatDcmpBerthAnswer(report: ExperimentReport): string[] {
   lines.push("  4. A gap inside the stratum band is NO DIFFERENCE, never 'slightly better'.");
   lines.push("  5. The cut is APPROXIMATE and CONSERVATIVE; every OUTSIDE share carries that.");
   lines.push("  6. NO PROBABILITY measured anywhere in this script may be stated to a user.");
-  lines.push("     Both arms came out NEEDS RECALIBRATION in 260912-i13 and nothing here changed");
+  lines.push("     Both arms came out NEEDS RECALIBRATION under the calibration rule and nothing here changed");
   lines.push("     that. This block reports ORDERING only.");
   lines.push("");
 
@@ -4231,7 +4231,7 @@ export function formatDcmpSection(report: ExperimentReport): string[] {
   );
   lines.push("");
   lines.push("    TYPE 10 ROOKIE ALL STAR IS READ AGAINST RB1/RB2, NEVER B1/B2 — both are");
-  lines.push("    structurally near-bottom rankers there, and a 'win' over them is 260912-7bp's");
+  lines.push("    structurally near-bottom rankers there, and a 'win' over them is the near-bottom-ranker");
   lines.push("    artifact in a fourth outfit. Types 0 and 9 are read against B1.");
   lines.push("");
   lines.push("    TRAIN WIDE, SCORE NARROW. The fit, the prior-decoration counts and the training");
@@ -4280,7 +4280,7 @@ export function formatReport(report: ExperimentReport): string {
   lines.push("AWARD PREDICTABILITY — walk-forward top-1, two arms side by side");
   lines.push(`  ${report.command}`);
   lines.push("");
-  lines.push("NO-AGE arm (f1-f4, unchanged from 260912-5n8):");
+  lines.push("NO-AGE arm (f1-f4, unchanged):");
   lines.push("  f1 log1p(prior wins of this type), f2 recency of last win of this type,");
   lines.push("  f3 log1p(prior wins of any type), f4 pre-event BPR z-scored within pool.");
   lines.push("AGE arm (f1-f7) adds, with age = eventYear - rookie_year clamped at 0:");
@@ -4303,7 +4303,7 @@ export function formatReport(report: ExperimentReport): string {
   );
   lines.push("Top-1 rule: one predicted team; correct iff it is in the actual recipient set.");
   lines.push("");
-  lines.push("RANK BLOCK (quick task 260912-i13) — the ordering the model already computed:");
+  lines.push("RANK BLOCK — the ordering the model already computed:");
   lines.push("  Every ordering is DERIVED from the pick that was already being made, never built");
   lines.push("  beside it, so R@1 is by construction the same number as the accuracy column above");
   lines.push("  it. If those two ever disagree, the ranking work has moved the fit and NOTHING");
@@ -4316,7 +4316,7 @@ export function formatReport(report: ExperimentReport): string {
   lines.push("  a different denominator that is NOT comparable to the model's.");
   lines.push("  THE ROOKIE TYPES (10, 14, 15) ARE READ AGAINST RB1/RB2, NEVER B1/B2 — B1 and B2");
   lines.push("  are structurally near-bottom rankers there for the same reason they are pinned at");
-  lines.push("  0.0% on top-1, and a rank 'win' over them is 260912-7bp's artifact in new clothes.");
+  lines.push("  0.0% on top-1, and a rank 'win' over them is the near-bottom-ranker artifact in new clothes.");
   lines.push("");
   lines.push(
     `THE NOISE BANDS ARE MEASURED PER METRIC, NOT INHERITED (measured ${RANK_NOISE_BANDS_MEASURED}):`

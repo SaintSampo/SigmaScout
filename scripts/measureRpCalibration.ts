@@ -1083,7 +1083,7 @@ async function main(): Promise<void> {
   console.log(`RP calibration — algorithms [${algorithms.map((a) => `${a.id}@${a.version}`).join(", ")}], seasons ${seasons.join(", ")}`);
   console.log(`Walk-forward through the same SigmaScoutLayer the publisher runs.\n`);
   if (marginalArm) {
-    console.log(`NEGATIVE-BINOMIAL ARM ACTIVE (quick task 260912-2uz) — control and NB layers folded from ONE replay per season,`);
+    console.log(`NEGATIVE-BINOMIAL ARM ACTIVE — control and NB layers folded from ONE replay per season,`);
     console.log(`scored by the SAME brier/rate/meanPredicted helpers. Selection slice only; ${RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON}-2026 is refused by construction.\n`);
   }
 
@@ -1411,7 +1411,7 @@ async function main(): Promise<void> {
       const max = sorted[sorted.length - 1]!;
       const disagreements = f6FavouriteDisagreementsByAlgo.get(algorithm.id) ?? 0;
       const total = f6TotalByAlgo.get(algorithm.id) ?? 0;
-      console.log(`═══ F6 GAP (descriptive only, NOT a gate) [${algorithm.id}] ═══`);
+      console.log(`═══ PMF-VS-PREDWIN GAP (descriptive only, NOT a gate) [${algorithm.id}] ═══`);
       console.log(
         `n=${diffs.length}  median|diff|=${median.toFixed(6)}  p90=${p90.toFixed(6)}  max=${max.toFixed(6)}  ` +
           `favourite disagreements=${disagreements}/${total}\n`
