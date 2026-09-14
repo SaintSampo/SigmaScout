@@ -13,6 +13,7 @@ import { TeamsTable, type TeamsTableStatus } from "../components/teams-table/Tea
 import { TeamsFilters } from "../components/teams-table/TeamsFilters.js";
 import { applyTeamFilters, type TeamFilters as TeamFiltersModel } from "../components/teams-table/teamFilterModel.js";
 import { TeamsBubbleChart } from "../components/teams-table/TeamsBubbleChart.js";
+import { TierKeyRow } from "../components/team/TierKeyRow.js";
 import type { BubblePoint } from "../components/teams-table/teamsBubbleModel.js";
 
 export const Route = createFileRoute("/teams")({
@@ -234,6 +235,12 @@ function TeamsPage() {
         {data && (
           <div className="mb-[var(--spacing-md)]">
             <TeamsFilters rows={data.teams} filters={filters} onFiltersChange={handleFiltersChange} onClearFilters={handleClearFilters} />
+          </div>
+        )}
+        {/* Table mode only: the bubble chart carries its own tier legend. */}
+        {data && !isChart && (
+          <div className="mb-[var(--spacing-sm)]">
+            <TierKeyRow />
           </div>
         )}
         {/*
