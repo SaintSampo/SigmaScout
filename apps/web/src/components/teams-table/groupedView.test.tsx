@@ -8,7 +8,7 @@ import { displayedMetricKeys, sortableColumnIds } from "./columns";
 import { metricDisplayLabel } from "@/lib/metricLabels";
 import { GROUP_METRIC_KEYS, metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 
-describe("displayedMetricKeys (decision T1, D-5 Total-leads order per 260904-5zg)", () => {
+describe("displayedMetricKeys (Total-leads order)", () => {
   it("VPR grouped view shows exactly Total then Auto/Teleop/Endgame", () => {
     expect(displayedMetricKeys("spr", 2026, "grouped")).toEqual([TOTAL_KEY, ...GROUP_METRIC_KEYS]);
   });
@@ -17,11 +17,11 @@ describe("displayedMetricKeys (decision T1, D-5 Total-leads order per 260904-5zg
     expect(displayedMetricKeys("spr", 2026, "components")).toEqual(metricKeysFor("spr", 2026));
   });
 
-  it("EPA now has a real grouped view too (D-2, 260904-5zg): Total then Auto/Teleop/Endgame, derived from published components", () => {
+  it("EPA now has a real grouped view too: Total then Auto/Teleop/Endgame, derived from published components", () => {
     expect(displayedMetricKeys("epa", 2026, "grouped")).toEqual([TOTAL_KEY, ...GROUP_METRIC_KEYS]);
   });
 
-  it("EPA components view is unchanged — the full declared component set, Total leading (D-5)", () => {
+  it("EPA components view is unchanged — the full declared component set, Total leading", () => {
     expect(displayedMetricKeys("epa", 2026, "components")).toEqual(metricKeysFor("epa", 2026));
   });
 

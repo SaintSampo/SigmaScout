@@ -131,7 +131,7 @@ describe("teams-table columns — team-number/nickname links (E11)", () => {
   });
 });
 
-describe("buildColumns — D-20's per-algorithm rank header", () => {
+describe("buildColumns — per-algorithm rank header", () => {
   it("Test 1: the leading column header names the selected algorithm, read from algorithmDisplayLabel, never a string literal", () => {
     const columns = buildColumns("spr", 2024, false);
     const rankColumn = columns[0] as { header: unknown };
@@ -153,10 +153,10 @@ describe("buildColumns — D-20's per-algorithm rank header", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 07-UAT.md G-2 — narrow-viewport column-size derivation
+// Narrow-viewport column-size derivation
 // ---------------------------------------------------------------------------
 
-describe("buildColumns — G-2's isNarrow column-size switch", () => {
+describe("buildColumns — isNarrow column-size switch", () => {
   it("wide (isNarrow=false): rank/teamNumber sizes are UNCHANGED at 96/88 — the wide layout never regresses", () => {
     const columns = buildColumns("spr", 2024, false) as { id?: string; size: number }[];
     const rank = columns[0]!;
@@ -181,7 +181,7 @@ describe("buildColumns — G-2's isNarrow column-size switch", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 260902-rax Task 1 — the G-2/D-20 resolution: narrow mode shows the bare
+// Narrow mode shows the bare
 // "Rank" (not the truncated-away half of "VPR Rank"), while the algorithm's
 // provenance moves to `rankColumnAccessibleLabel` for `TeamsTable.tsx` to
 // hang off the `<th>` as its accessible name. The full render-level
@@ -190,7 +190,7 @@ describe("buildColumns — G-2's isNarrow column-size switch", () => {
 // these tests cover the two pieces `buildColumns`/`columns.tsx` themselves
 // own: the VISIBLE header string, and the exported label helper.
 // ---------------------------------------------------------------------------
-describe("buildColumns — 260902-rax's narrow-mode rank header text", () => {
+describe("buildColumns — narrow-mode rank header text", () => {
   it("narrow (isNarrow=true): the VISIBLE header is the bare literal 'Rank', not the algorithm-prefixed string", () => {
     const columns = buildColumns("spr", 2026, true) as { header: unknown }[];
     expect(columns[0]!.header).toBe("Rank");
@@ -216,7 +216,7 @@ describe("buildColumns — 260902-rax's narrow-mode rank header text", () => {
 // later edit cannot silently reintroduce a per-algorithm difference.
 // ---------------------------------------------------------------------------
 describe("buildColumns — one wide-viewport metric column width for every algorithm", () => {
-  it("buildColumns applies METRIC_COLUMN_WIDTH_PX at/above the breakpoint to a NON-Total metric column for both spr and epa, and the pre-existing literal 120 unchanged below it (G-2/G-11); Total's own width is now quick task 260913-jkp's business, covered in its own describe block below", () => {
+  it("buildColumns applies METRIC_COLUMN_WIDTH_PX at/above the breakpoint to a NON-Total metric column for both spr and epa, and the pre-existing literal 120 unchanged below it; Total's own width is covered in its own describe block below", () => {
     const wideEpa = buildColumns("epa", 2026, false) as { id?: string; size: number }[];
     const wideSpr = buildColumns("spr", 2026, false) as { id?: string; size: number }[];
     // opr has no phase-group column at all, so a non-Total metric key exists
@@ -234,10 +234,10 @@ describe("buildColumns — one wide-viewport metric column width for every algor
 });
 
 // ---------------------------------------------------------------------------
-// Quick task 260913-jkp — the standalone Sigma column is deleted; a
+// The standalone Sigma column is deleted; a
 // Sigma-carrying Total cell now renders the shared split pill instead.
 // ---------------------------------------------------------------------------
-describe("buildColumns — Sigma column removed, Total renders the split pill (quick task 260913-jkp)", () => {
+describe("buildColumns — Sigma column removed, Total renders the split pill", () => {
   // Only the metric/record/win-rate columns set an explicit `id` on the raw
   // column-def object `buildColumns` returns; `rank`/`teamNumber`/`nickname`
   // rely on `@tanstack/react-table`'s own accessor-key-as-id default, which

@@ -265,7 +265,7 @@ describe("TeamsTable", () => {
   });
 
   it(
-    "quick task 260905-ttv: with an active filter and zero rows, the empty state names the filters as the cause and offers Clear filters",
+    "with an active filter and zero rows, the empty state names the filters as the cause and offers Clear filters",
     async () => {
       const onClearFilters = vi.fn();
       render(

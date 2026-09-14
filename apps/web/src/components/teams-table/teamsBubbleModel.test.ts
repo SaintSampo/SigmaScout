@@ -57,7 +57,7 @@ describe("teamsBubbleModel", () => {
     expect(model.points.some((point) => point.teamKey === "frc1")).toBe(false);
   });
 
-  it("hasAnySigma is true when any row carries a sigmaScore, false for an OPR or EPA row set and for no rows at all (260913-g66)", () => {
+  it("hasAnySigma is true when any row carries a sigmaScore, false for an OPR or EPA row set and for no rows at all", () => {
     const opr: TeamRow[] = [
       makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 } } }),
       makeRow({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20 } } }),

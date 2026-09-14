@@ -119,7 +119,7 @@ describe("buildTeamRows", () => {
   });
 });
 
-describe("buildTeamRows — derived group metrics (D-2/D-3, 260904-5zg)", () => {
+describe("buildTeamRows — derived group metrics", () => {
   it("an EPA row's metrics carry a derived phaseAuto, summed from that row's own published components", () => {
     const rows = buildTeamRows(
       artifact([team({ metrics: { [TOTAL_KEY]: { value: 50 }, autoTower: { value: 3 }, hubAuto: { value: 5 } } })]),
@@ -147,7 +147,7 @@ describe("buildTeamRows — derived group metrics (D-2/D-3, 260904-5zg)", () => 
   });
 });
 
-describe("buildTeamRows — sigma tier (quick task 260909-tgf)", () => {
+describe("buildTeamRows — sigma tier", () => {
   it("a published row whose metrics carry a sigma entry with a tier produces sigmaScore from the entry's value and sigmaTier from the entry's tier", () => {
     const rows = buildTeamRows(
       artifact([team({ metrics: { [TOTAL_KEY]: { value: 50 }, [SIGMA_METRIC_KEY]: { value: 8.42, tier: "legendary" } } })]),

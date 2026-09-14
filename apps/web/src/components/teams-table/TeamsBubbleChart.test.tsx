@@ -323,11 +323,11 @@ describe("TeamsBubbleChart hover and click", () => {
 });
 
 /**
- * Quick task 260913-g66: Sigma Score is published for SPR only, so OPR and EPA
+ * Sigma Score is published for SPR only, so OPR and EPA
  * row sets carry no `sigmaScore` at all. The chart then renders a plain
  * no-Sigma state instead of an axis.
  */
-describe("TeamsBubbleChart: no-Sigma state (260913-g66)", () => {
+describe("TeamsBubbleChart: no-Sigma state", () => {
   afterEach(() => cleanup());
 
   const NO_SIGMA_ROWS: TeamRow[] = [
