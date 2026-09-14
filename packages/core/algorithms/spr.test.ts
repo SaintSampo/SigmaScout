@@ -1,17 +1,12 @@
 /**
  * Regression cover for BPR's link boundary at a dead-even matchup.
  *
- * `packages/core/scoring/brier.ts` identifies a no-call by EXACT equality with
- * 0.5, and D-Q3 counts a no-call against a decided match as a MISS. BPR reaches
- * that boundary for real -- 275 matches over 2016-2026, all at cold start when
- * both alliances are entirely unseen -- but the Abramowitz-Stegun erf
- * approximation returns +1.0e-9 at the origin, so `normCdf(0)` came out as
- * 0.5000000005: a hair above the line, scored as a confident red pick, and
- * credited on the 134 of those the red alliance happened to win.
- *
- * That was a real scoring advantage over OPR/EPA/VPR, whose logistic links land
- * on 0.5 exactly and pay the D-Q3 penalty. These tests pin the exactness,
- * because the boundary -- not the approximation's accuracy -- is what both the
+ * `packages/core/scoring/brier.ts` identifies a no-call by EXACT equality
+ * with 0.5, and counts a no-call against a decided match as a MISS. The
+ * Abramowitz-Stegun erf approximation returns +1.0e-9 at the origin, so
+ * `normCdf(0)` can land a hair above 0.5 -- a confident pick instead of a
+ * no-call. These tests pin the exactness at that boundary, because the
+ * boundary -- not the approximation's accuracy -- is what both the
  * reporting layer and the accuracy rule key off.
  */
 import { describe, expect, it } from "vitest";
@@ -244,15 +239,10 @@ describe("spr phase components are display-only", () => {
 
 
 /**
- * Quick task 260910-2pt. The displayed interval is calibrated; the prediction is
- * not. These pin the boundary between the two, because the whole justification
- * for calibrating at display time — that the sealed 78.05% holdout accuracy
- * still describes this module — rests on `pRedWin` being untouched.
- *
- * Measured over the design era at the time of the change: the port's
- * pRedWin fingerprint (sha256 over 83,095 full-precision values) was
- * BIT-IDENTICAL before and after, while sd(z) on the emitted variance moved
- * 0.7052 -> 0.9987. See `.planning/quick/260910-2pt-.../verify-{before,after}.txt`.
+ * The displayed interval is calibrated; the prediction is not. These tests
+ * pin the boundary between the two, because the whole justification for
+ * calibrating at display time — that the sealed holdout accuracy still
+ * describes this module — rests on `pRedWin` being untouched.
  */
 describe("spr display-variance calibration", () => {
   const seeded = (): SprState => {
@@ -324,11 +314,8 @@ describe("spr display-variance calibration", () => {
 });
 
 /**
- * Quick task 260910-4bf. The deltas measured for this change had accuracy
- * intervals spanning zero on both slices tested (2023: +0.087pp
- * [-0.062, +0.229]; 2024-25 holdout: +0.003pp [-0.071, +0.070]). These tests
- * pin an ATTRIBUTION rule -- a scorekeeper correction is not robot
- * performance -- not a performance claim.
+ * These tests pin an ATTRIBUTION rule -- a scorekeeper correction is not
+ * robot performance.
  */
 function breakdownJson(
   red: { foulPoints?: number; adjustPoints?: number } = {},
