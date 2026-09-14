@@ -1,8 +1,8 @@
 /**
- * Pure, DOM-free parsing for a TBA-published match video key (quick task
- * 260906-7eu). No React, no browser globals beyond `URL`/`URLSearchParams`
- * (both available in the Vitest/jsdom environment this file's own tests run
- * under, and in every browser this site ships to).
+ * Pure, DOM-free parsing for a TBA-published match video key. No React, no
+ * browser globals beyond `URL`/`URLSearchParams` (both available in the
+ * Vitest/jsdom environment this file's own tests run under, and in every
+ * browser this site ships to).
  *
  * `packages/ingest/normalize.ts` stores TBA's `videos[].key` verbatim,
  * including any trailing timestamp suffix — this file is where that raw
@@ -16,9 +16,8 @@ const YOUTUBE_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
  * A generous upper bound on the raw input this function will even attempt to
  * parse — rejecting anything longer up front, before any regex or URL
  * parsing runs, is this function's first line of defence against a string
- * "long enough to be an attack payload rather than an id" (this file's own
- * `<behavior>` contract). A real TBA video key or a real YouTube URL is
- * always far shorter than this.
+ * "long enough to be an attack payload rather than an id". A real TBA video
+ * key or a real YouTube URL is always far shorter than this.
  */
 const MAX_INPUT_LENGTH = 512;
 
@@ -96,8 +95,8 @@ function tryParseUrl(input: string): MatchVideo | undefined {
  * Resolves a raw TBA-stored video key into a validated `MatchVideo`, or
  * `undefined` when it cannot be confidently resolved.
  *
- * `undefined` is BOTH the correctness boundary and the security boundary
- * (T-7eu-01): the returned `id` is interpolated into an iframe `src` by
+ * `undefined` is BOTH the correctness boundary and the security boundary:
+ * the returned `id` is interpolated into an iframe `src` by
  * `youTubeEmbedUrl`/`MatchVideoCell`, so this function validates the id
  * against the YouTube id character set and a plausible length bound and
  * rejects everything else, rather than passing an unrecognized string

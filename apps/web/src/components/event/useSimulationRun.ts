@@ -5,19 +5,18 @@ import type { SimulationOutboundMessage, SimulationRequest } from "../../workers
 import type { SimMatchInput, SimResult, SimTeamBaseline } from "../../../../../packages/core/algorithms/simulation/rankSimulation.js";
 
 /**
- * The run state machine and Worker lifecycle for D-07's run control
- * (08-13-PLAN.md Task 1): live progress during a run, and the total elapsed
- * time the visitor actually waited through on completion. `RunControl.tsx`
- * (Task 2) is a pure function of the `state` this hook returns — every
- * stateful concern (construction, termination, timing, the run-id guard)
- * lives here so that component stays testable with no `Worker` present at
- * all.
+ * The run state machine and Worker lifecycle for the simulation run
+ * control: live progress during a run, and the total elapsed time the
+ * visitor actually waited through on completion. `RunControl.tsx` is a
+ * pure function of the `state` this hook returns — every stateful concern
+ * (construction, termination, timing, the run-id guard) lives here so that
+ * component stays testable with no `Worker` present at all.
  *
  * One-Worker-at-a-time lifecycle, in three lines: `start()` terminates any
  * live Worker before constructing a new one; every terminal message
  * (`result` or `error`) terminates the Worker that sent it, so the common
  * path leaves nothing alive; the unmount cleanup terminates whatever
- * remains, as a backstop rather than the primary mechanism (PD-09).
+ * remains, as a backstop rather than the primary mechanism.
  */
 
 /** The elapsed timer's tick cadence — one order finer than the one-decimal display (`RunControl.tsx`'s `formatElapsedSeconds`). */
@@ -38,12 +37,12 @@ export interface SimulationRunCompleteState {
   readonly status: "complete";
   readonly result: SimResult;
   /**
-   * The user-facing figure (PD-07, 08-07's PD-05): measured on the MAIN
-   * thread, from the instant `start()` runs to the instant the `result`
-   * message arrives. This spans Worker construction, the structured-clone
-   * transfer of the request, the draw loop, and the transfer back — the
-   * interval the visitor actually waited through. `computeMs` below is the
-   * draw loop alone and must never become a second user-facing number.
+   * The user-facing figure: measured on the MAIN thread, from the instant
+   * `start()` runs to the instant the `result` message arrives. This spans
+   * Worker construction, the structured-clone transfer of the request, the
+   * draw loop, and the transfer back — the interval the visitor actually
+   * waited through. `computeMs` below is the draw loop alone and must
+   * never become a second user-facing number.
    */
   readonly elapsedMs: number;
   readonly computeMs: number;
@@ -54,9 +53,9 @@ export interface SimulationRunCompleteState {
 
 export interface SimulationRunErrorState {
   /**
-   * No payload field of any kind (PD-13): a thrown error's `name`/`message`
-   * are logged nowhere and rendered nowhere. Giving this state a field for
-   * them is how they would eventually reach a screen.
+   * No payload field of any kind: a thrown error's `name`/`message` are
+   * logged nowhere and rendered nowhere. Giving this state a field for them
+   * is how they would eventually reach a screen.
    */
   readonly status: "error";
 }
@@ -67,7 +66,7 @@ export type SimulationRunState =
   | SimulationRunCompleteState
   | SimulationRunErrorState;
 
-/** One run's assembled inputs, forwarded unreshaped (08-11's decision and 08-07's guard — a second opinion here would be a second place for the two to drift), plus the signature `SimulationTab.tsx` derives (PD-02). */
+/** One run's assembled inputs, forwarded unreshaped — a second opinion here would be a second place for the two to drift — plus the signature `SimulationTab.tsx` derives. */
 export interface SimulationRunRequest {
   readonly matches: readonly SimMatchInput[];
   readonly baselines: readonly SimTeamBaseline[];
@@ -91,8 +90,8 @@ export function useSimulationRun(): {
   const workerRef = useRef<Worker | null>(null);
   /**
    * A monotonically increasing run id, captured by every handler at
-   * construction time and compared against the current value before acting
-   * (PD-10). Redundant with `terminate()` by specification — a real Worker
+   * construction time and compared against the current value before
+   * acting. Redundant with `terminate()` by specification — a real Worker
    * must deliver nothing after `terminate()` — and kept as defence in depth
    * because a message already dispatched into the task queue when
    * `terminate()` runs is not something this component can prove is
@@ -120,8 +119,8 @@ export function useSimulationRun(): {
 
   const start = useCallback(
     (request: SimulationRunRequest): void => {
-      // One Worker at a time (PD-09): terminate and clear whatever is live
-      // before constructing a new one.
+      // One Worker at a time: terminate and clear whatever is live before
+      // constructing a new one.
       terminateWorker();
       stopTicking();
 
@@ -138,8 +137,7 @@ export function useSimulationRun(): {
 
       // The construction call happens HERE, inside the handler — never at
       // module scope, never in an effect, never on mount. An unsupported
-      // browser throws synchronously from `new Worker(...)`; this is the
-      // construction half of UI-SPEC's S2 error state.
+      // browser throws synchronously from `new Worker(...)`.
       let worker: Worker;
       try {
         worker = createSimulationWorker();
@@ -188,9 +186,9 @@ export function useSimulationRun(): {
         enterErrorState();
       };
 
-      // The mid-run half of UI-SPEC's S2 error state: the Worker SCRIPT
-      // itself throwing (not a throw `runSimulationJob` already caught and
-      // translated into an `error` message above).
+      // The mid-run error path: the Worker SCRIPT itself throwing (not a
+      // throw `runSimulationJob` already caught and translated into an
+      // `error` message above).
       worker.onerror = (): void => enterErrorState();
 
       const outboundRequest: SimulationRequest = {
@@ -207,10 +205,10 @@ export function useSimulationRun(): {
 
   /**
    * Exists for the unmount path and for a caller abandoning a run in
-   * progress. PD-02's render-time signature comparison means the normal
+   * progress. The render-time signature comparison means the normal
    * selection-change path never needs this — do not wire it to a
-   * `useEffect` on the selection, which would reintroduce the
-   * after-the-frame correction PD-02 deliberately rejects.
+   * `useEffect` on the selection, which would reintroduce an
+   * after-the-frame correction this design deliberately rejects.
    */
   const reset = useCallback((): void => {
     runIdRef.current++;
@@ -219,8 +217,8 @@ export function useSimulationRun(): {
     setState(IDLE_STATE);
   }, [stopTicking, terminateWorker]);
 
-  // Backstop, not the primary mechanism (PD-09 already terminates on every
-  // terminal message): terminates whatever is still live on unmount.
+  // Backstop, not the primary mechanism (a terminal message already
+  // terminates the Worker): terminates whatever is still live on unmount.
   useEffect(() => {
     return () => {
       runIdRef.current++;
