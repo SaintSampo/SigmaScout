@@ -21,7 +21,7 @@
  *
  * `--marginal-arm` scores a measurement-only second layer whose eligible
  * threshold variables declare `"negative-binomial"` instead of the season
- * module's family (see `assertMarginalArmSliceAllowed` for the refused slice).
+ * module's family. It runs on whatever `--seasons` names.
  *
  * Usage:
  *   npx tsx scripts/measureRpCalibration.ts [--seasons 2024-2026] [--algorithm spr] [--emit-artifact <path>] [--marginal-arm]
@@ -102,25 +102,6 @@ function meanPredicted(observations: readonly Observation[]): number {
 // `SigmaScoutLayer` with the publisher's two-argument construction. The arms
 // multiply layers, never replays (one stream and one simulator run per season),
 // and share the control path's `brier`/`rate`/`meanPredicted` helpers.
-
-/** The first season of the reporting slice, already spent on this question and not to be spent again. */
-export const RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON = 2023;
-
-/**
- * Refuses the negative-binomial arm on any season at or above
- * `RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON`. It reads the parsed season list
- * (a spanning spec is refused, never trimmed) and runs before the corpus opens.
- * There is no override flag by design: spending the reporting slice is Jacob's
- * decision, not a flag's.
- */
-export function assertMarginalArmSliceAllowed(parsedSeasons: readonly number[]): void {
-  const forbidden = parsedSeasons.filter((s) => s >= RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON);
-  if (forbidden.length === 0) return;
-  throw new Error(
-    `--marginal-arm refuses season(s) ${forbidden.join(", ")}: the ${RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON}-2026 reporting slice was already spent on this question on 2026-09-11, and the recorded decision of 2026-09-12 forbids spending it again. ` +
-      `This arm runs on the SELECTION SLICE only — 2016-2020 plus 2022. A spec that merely spans the reporting slice is refused rather than trimmed, so that asking for it is never quietly answered with something else. There is no override flag, deliberately.`
-  );
-}
 
 /** Why a threshold variable cannot carry a negative-binomial declaration. */
 export interface PoisonedVariable {
@@ -442,25 +423,10 @@ export function applyRpBonusArmBar(pooled: readonly BonusArmPooledFigures[]): Rp
 }
 
 // ---------------------------------------------------------------------------
-// The outcome-arm comparison's reader half: slice and algorithm guards, the
+// The outcome-arm comparison's reader half: the algorithm guard, the
 // bar and the record schema, for reuse by any future re-measurement. The test
 // re-applies the bar to `data/baselines/rp-outcome-arms-2026-09.json`.
 // ---------------------------------------------------------------------------
-
-/** The first season of the outcome-arm comparison's reporting slice (same boundary as the marginal arm, its own axis). */
-export const RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON = 2023;
-
-/** The selection slice `--outcome-arms` runs on — 2016-2020 plus 2022, named in `assertOutcomeArmSliceAllowed`'s own error message. */
-export const RP_OUTCOME_ARM_SELECTION_SEASONS = [2016, 2017, 2018, 2019, 2020, 2022];
-
-/** Refuses any season at or above `RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON`, as `assertMarginalArmSliceAllowed` does on its axis. */
-export function assertOutcomeArmSliceAllowed(parsedSeasons: readonly number[]): void {
-  const forbidden = parsedSeasons.filter((s) => s >= RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON);
-  if (forbidden.length === 0) return;
-  throw new Error(
-    `--outcome-arms refuses season(s) ${forbidden.join(", ")}: this comparison runs on the SELECTION SLICE only — ${RP_OUTCOME_ARM_SELECTION_SEASONS.join(", ")} — never the ${RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON}-2026 reporting slice. A spec that merely spans the reporting slice is refused rather than trimmed, so that asking for it is never quietly answered with something else. There is no override flag, deliberately.`
-  );
-}
 
 /** Requires exactly `["spr"]`: `matchOutcomePmf` exists only for SPR, so any other list would silently measure zero observations. */
 export function assertOutcomeArmAlgorithmAllowed(algorithmIds: readonly string[]): void {
@@ -540,29 +506,14 @@ export type RpOutcomeArmRecord = z.infer<typeof RpOutcomeArmRecordSchema>;
 
 // ---------------------------------------------------------------------------
 // The bonus-arm comparison's reader half: `applyRpBonusArmBar` (above), the
-// guards and `RpBonusArmRecordSchema`, for reuse by any future re-measurement.
+// algorithm guard and `RpBonusArmRecordSchema`, for reuse by any future re-measurement.
 // Lattice marginals and the walk-forward mean shift are the model's
 // unconditional behavior; the test re-applies the bar to
 // `data/baselines/rp-bonus-arms-2026-09.json`.
 // ---------------------------------------------------------------------------
 
-/** The first season of the reporting slice on the bonus-arm axis. */
-export const RP_BONUS_ARM_FORBIDDEN_FROM_SEASON = 2023;
-
-/** The selection slice the bonus arms run on. */
-export const RP_BONUS_ARM_SELECTION_SEASONS = [2016, 2017, 2018, 2019, 2020, 2022];
-
 /** Every bonus arm in measurement order. */
 export const BONUS_ARM_NAMES: readonly BonusArmName[] = ["control", "lattice", "meanShift", "lattice+meanShift"];
-
-/** Refuses any season at or above `RP_BONUS_ARM_FORBIDDEN_FROM_SEASON`; a spanning spec is refused, never trimmed. */
-export function assertBonusArmSliceAllowed(parsedSeasons: readonly number[]): void {
-  const forbidden = parsedSeasons.filter((s) => s >= RP_BONUS_ARM_FORBIDDEN_FROM_SEASON);
-  if (forbidden.length === 0) return;
-  throw new Error(
-    `a bonus-arm measurement refuses season(s) ${forbidden.join(", ")}: this comparison runs on the SELECTION SLICE only — ${RP_BONUS_ARM_SELECTION_SEASONS.join(", ")} — never the ${RP_BONUS_ARM_FORBIDDEN_FROM_SEASON}-2026 reporting slice. A spec that merely spans the reporting slice is refused rather than trimmed. There is no override flag, deliberately.`
-  );
-}
 
 /** Requires the resolved algorithm list to be exactly `["spr"]`, the only algorithm with ranking-point odds. */
 export function assertBonusArmAlgorithmAllowed(algorithmIds: readonly string[]): void {
@@ -1071,10 +1022,7 @@ async function main(): Promise<void> {
   const emitArtifactPath = args.indexOf("--emit-artifact") === -1 ? undefined : args[args.indexOf("--emit-artifact") + 1];
   const marginalArm = args.includes("--marginal-arm");
 
-  // The slice guard reads the parsed list, before the rule-module filter, the
-  // corpus and any replay.
   const parsedSeasons = parseSeasons(seasonsSpec);
-  if (marginalArm) assertMarginalArmSliceAllowed(parsedSeasons);
 
   const seasons = parsedSeasons.filter((s) => RP_RULE_MODULES[s] !== undefined);
   const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
@@ -1084,7 +1032,7 @@ async function main(): Promise<void> {
   console.log(`Walk-forward through the same SigmaScoutLayer the publisher runs.\n`);
   if (marginalArm) {
     console.log(`NEGATIVE-BINOMIAL ARM ACTIVE — control and NB layers folded from ONE replay per season,`);
-    console.log(`scored by the SAME brier/rate/meanPredicted helpers. Selection slice only; ${RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON}-2026 is refused by construction.\n`);
+    console.log(`scored by the SAME brier/rate/meanPredicted helpers.\n`);
   }
 
   const db = openCorpusReadOnly(CORPUS_PATH);

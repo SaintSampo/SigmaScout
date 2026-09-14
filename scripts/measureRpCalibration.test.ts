@@ -21,7 +21,7 @@ import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms
 
 /**
  * Frozen baselines keep the premier algorithm's id from when they were measured
- * and are never rewritten (the sealed holdout's audit trail rests on them), so
+ * and are never rewritten (they are the dated record of what was measured), so
  * the id is resolved on read. The pins below stay derived from the live
  * `PUBLISHED_ALGORITHM_IDS`, so a newly published algorithm widens them.
  */
@@ -33,14 +33,9 @@ import {
   applyRpBonusArmBar,
   applyRpOutcomeArmBar,
   assertBonusArmAlgorithmAllowed,
-  assertBonusArmSliceAllowed,
   BONUS_ARM_NAMES,
-  RP_BONUS_ARM_FORBIDDEN_FROM_SEASON,
-  RP_BONUS_ARM_SELECTION_SEASONS,
   RpBonusArmRecordSchema,
-  assertMarginalArmSliceAllowed,
   assertOutcomeArmAlgorithmAllowed,
-  assertOutcomeArmSliceAllowed,
   buildOutcomeSummary,
   buildRpAttributionDigest,
   buildRpCalibrationRecord,
@@ -50,9 +45,6 @@ import {
   parseSeasons,
   rankedProbabilityScore,
   RP_DOT_THRESHOLD_DEFAULT,
-  RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON,
-  RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON,
-  RP_OUTCOME_ARM_SELECTION_SEASONS,
   RP_RELIABILITY_BUCKET_EDGES,
   RpAttributionRecordSchema,
   RpOutcomeArmRecordSchema,
@@ -431,50 +423,6 @@ describe("data/baselines/rp-calibration-2026-09b.json — re-emitted from the co
 // The measurement-only negative-binomial arm
 // ---------------------------------------------------------------------------
 
-describe("--marginal-arm slice guard — the 2023-2026 reporting slice is unspendable", () => {
-  for (const season of [2023, 2024, 2025, 2026]) {
-    it(`refuses season ${season}`, () => {
-      expect(() => assertMarginalArmSliceAllowed([season])).toThrow(/refuses season/);
-    });
-  }
-
-  it("refuses a RANGE that merely spans the reporting slice rather than silently trimming it — the guard reads the PARSED list, so asking for it is never quietly answered with something else", () => {
-    const parsed = parseSeasons("2016-2026");
-    // Through the real parse, so the forbidden seasons reach the guard.
-    expect(parsed).toContain(2023);
-    expect(parsed).toContain(2026);
-    expect(() => assertMarginalArmSliceAllowed(parsed)).toThrow(/2023, 2024, 2025, 2026/);
-  });
-
-  it("the refusal cites the recorded decision, not just the fact — so nobody reads it as a bug to route around", () => {
-    let message = "";
-    try {
-      assertMarginalArmSliceAllowed([2024]);
-    } catch (error) {
-      message = (error as Error).message;
-    }
-    expect(message).toContain("2026-09-11");
-    expect(message).toContain("2026-09-12");
-    expect(message).toContain("SELECTION SLICE");
-    expect(message).toMatch(/no override flag/i);
-  });
-
-  it("allows the whole selection slice — 2016-2020 plus 2022 — and 2021, which has no rule module and drops out later", () => {
-    expect(() => assertMarginalArmSliceAllowed([2016, 2017, 2018, 2019, 2020, 2021, 2022])).not.toThrow();
-    expect(() => assertMarginalArmSliceAllowed(parseSeasons("2016-2020,2022"))).not.toThrow();
-  });
-
-  it("the forbidden boundary is 2023 — the first season of the reporting slice", () => {
-    expect(RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON).toBe(2023);
-    expect(() => assertMarginalArmSliceAllowed([RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON - 1])).not.toThrow();
-    expect(() => assertMarginalArmSliceAllowed([RP_MARGINAL_ARM_FORBIDDEN_FROM_SEASON])).toThrow();
-  });
-
-  it("has no override flag anywhere in the source — the prohibition is structural, not a default", () => {
-    expect(SOURCE).not.toMatch(/--allow-reporting-slice|--force-slice|--override-slice/);
-  });
-});
-
 describe("--marginal-arm eligibility partition — derived at runtime from bonusPredicates, never hardcoded", () => {
   it("2018: all three variables eligible, none poisoned, and both bonuses can move", () => {
     const partition = deriveMarginalArmEligibility(RP_RULE_MODULES[2018]!);
@@ -802,28 +750,13 @@ describe("applyRpBonusArmBar (the pre-committed bonus-arm bar)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The bonus-arm reader half: the slice and algorithm guards and the record schema.
+// The bonus-arm reader half: the algorithm guard and the record schema.
 // ---------------------------------------------------------------------------
 
-describe("assertBonusArmSliceAllowed", () => {
-  it("throws naming 2023-2026 for a spec spanning the reporting slice", () => {
-    expect(() => assertBonusArmSliceAllowed(parseSeasons("2016-2026"))).toThrow(/2023, 2024, 2025, 2026/);
-  });
-
-  it("passes for the selection slice exactly (2016-2020,2022)", () => {
-    expect(() => assertBonusArmSliceAllowed(parseSeasons("2016-2020,2022"))).not.toThrow();
-    expect(parseSeasons("2016-2020,2022")).toEqual(RP_BONUS_ARM_SELECTION_SEASONS);
-  });
-
-  it("refuses a single reporting-slice season too", () => {
-    expect(() => assertBonusArmSliceAllowed(parseSeasons("2023"))).toThrow(/2023/);
-    expect(RP_BONUS_ARM_FORBIDDEN_FROM_SEASON).toBe(2023);
-  });
-
-  it("the --bonus-arms flag is gone from main() with the measurement it gated, and there is no override flag", () => {
+describe("--bonus-arms", () => {
+  it("the --bonus-arms flag is gone from main() with the measurement it gated", () => {
     const mainBody = SOURCE.slice(SOURCE.indexOf("async function main("));
     expect(mainBody).not.toMatch(/--bonus-arms|--emit-bonus-arms|assertBonusArm/);
-    expect(SOURCE).not.toMatch(/--allow-reporting|--force/);
   });
 });
 
@@ -1064,24 +997,9 @@ describe("buildRpCalibrationRecord — the optional third argument", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Outcome-arm guards and RpOutcomeArmRecordSchema. Bonus-half identity is
+// Outcome-arm algorithm guard and RpOutcomeArmRecordSchema. Bonus-half identity is
 // pinned by `sigmaScoutLayer.outcomeArms.test.ts`'s bonus-half digest.
 // ---------------------------------------------------------------------------
-
-describe("assertOutcomeArmSliceAllowed", () => {
-  it("throws naming the forbidden seasons for a spec spanning the reporting slice", () => {
-    expect(() => assertOutcomeArmSliceAllowed(parseSeasons("2016-2026"))).toThrow(/2023, 2024, 2025, 2026/);
-  });
-
-  it("passes for the selection slice exactly (2016-2020,2022)", () => {
-    expect(() => assertOutcomeArmSliceAllowed(parseSeasons("2016-2020,2022"))).not.toThrow();
-  });
-
-  it("RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON is 2023, and RP_OUTCOME_ARM_SELECTION_SEASONS is exactly the selection slice", () => {
-    expect(RP_OUTCOME_ARM_FORBIDDEN_FROM_SEASON).toBe(2023);
-    expect(RP_OUTCOME_ARM_SELECTION_SEASONS).toEqual([2016, 2017, 2018, 2019, 2020, 2022]);
-  });
-});
 
 describe("assertOutcomeArmAlgorithmAllowed", () => {
   it("passes for exactly ['spr']", () => {

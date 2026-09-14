@@ -47,10 +47,9 @@
  * ---------------------------------------------------------------------------
  *
  * Output is split into a SELECTION SLICE (2016-2020, 2022) and a REPORTING
- * SLICE (2023-2026, reported but not acted on). This measurement is
- * descriptive and selects nothing — but a reader must not mistake a
- * reporting-slice number for one that informed a choice. Any decision
- * derived from this record must cite the selection slice.
+ * SLICE (2023-2026). This measurement is descriptive and selects nothing;
+ * the split keeps the two eras' figures under separate headings. 2023-2026
+ * was released for use on 2026-09-14 (quick task 260914-ndu).
  *
  * ---------------------------------------------------------------------------
  * CREDENTIAL-FREE
@@ -413,8 +412,7 @@ function printSlice(title: string, seasons: readonly number[], rows: { allRoster
 
 function printReport(report: MeanDeficitReport): void {
   printSlice("SELECTION SLICE (2016-2020, 2022)", report.selectionSeasons, report.rows);
-  printSlice("REPORTING SLICE (2023-2026 — reported, not acted on)", report.reportingSeasons, report.rows);
-  console.log(`\nAny decision derived from this record cites the SELECTION SLICE (2016-2020, 2022), never the reporting slice.`);
+  printSlice("REPORTING SLICE (2023-2026)", report.reportingSeasons, report.rows);
 
   console.log(`\nHeadline — season-variables with a predicted mean below the observed mean:`);
   console.log(`  all-rosters: ${report.headline.allRosters.below} of ${report.headline.allRosters.total}`);
