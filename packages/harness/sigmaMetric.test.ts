@@ -1,13 +1,7 @@
 /**
  * Coverage for the rating-local expected-consistency curve and the published
- * consistency metric it feeds (today SPR's `sigma` entry). Ported by quick task
- * 260913-it4 with identical fixtures and expected numbers from the tests of the
- * module this construction was relocated from (quick task 260909-tgf, Task 1).
- *
- * D1 locked the RESIDUAL framing; the running-median-over-rating-neighbours
- * functional form was that task's discretion -- see `sigmaMetric.ts`'s
- * file header for the rationale and the two rejected alternatives (coefficient
- * of variation, rating-decile strata).
+ * consistency metric it feeds (today SPR's `sigma` entry). See `sigmaMetric.ts`'s
+ * file header for the median-window rationale.
  */
 import { describe, expect, it } from "vitest";
 import { TOTAL_METRIC_KEY, type TeamMetrics } from "../core/algorithms/types.js";
@@ -54,8 +48,8 @@ describe("expectedSigmaByTeam", () => {
       valueMax = Math.max(valueMax, actual);
     }
     const valueRange = valueMax - valueMin;
-    // The property that kills "strong robots are automatically inconsistent":
-    // residuals stay small relative to the whole range of figures across the pool.
+    // Guards "strong robots are automatically inconsistent": residuals stay
+    // small relative to the pool's whole figure range.
     expect(maxAbsResidual).toBeLessThan(valueRange * 0.1);
   });
 
@@ -85,21 +79,17 @@ describe("sigmaMetricByTeam -- THE HEADLINE TEST", () => {
     const { valueByTeam, ratingByTeam, teamKeys } = buildLinearPool(n, slope, intercept);
     const trendAt = (rating: number) => intercept + slope * rating;
 
-    const highRatedKey = "frc50"; // high rating
-    const lowRatedKey = "frc5"; // low rating
+    const highRatedKey = "frc50";
+    const lowRatedKey = "frc5";
     const margin = 2;
 
     const adjustedValueByTeam = new Map(valueByTeam);
-    // High-rated team: raw figure is HIGH in absolute terms (trend at its
-    // rating is already high), but BELOW its own expected figure -- more
-    // consistent than robots of its caliber.
+    // High-rated team: raw figure is high but below its own expected figure
+    // (more consistent than robots of its caliber); low-rated team is the
+    // mirror (low raw figure, above its own expected figure).
     adjustedValueByTeam.set(highRatedKey, trendAt(ratingByTeam.get(highRatedKey)!) - margin);
-    // Low-rated team: raw figure is LOW in absolute terms, but ABOVE its own
-    // expected figure -- less consistent than robots of its (weak) caliber.
     adjustedValueByTeam.set(lowRatedKey, trendAt(ratingByTeam.get(lowRatedKey)!) + margin);
 
-    // Confirm the "high raw figure / low raw figure" framing actually holds
-    // before asserting anything about tiers.
     expect(adjustedValueByTeam.get(highRatedKey)!).toBeGreaterThan(adjustedValueByTeam.get(lowRatedKey)!);
 
     const metricsByTeam = toMetricsByTeam(ratingByTeam);
