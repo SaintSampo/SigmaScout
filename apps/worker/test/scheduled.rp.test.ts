@@ -651,6 +651,21 @@ describe("scheduled.rp — ranking points on live rows (D-21, F5)", () => {
   );
 
   it(
+    "TIE SHIPPED (260913-qyn, WIN+TIE arm): some live decomposed row carries a nonzero matchOutcomePmf[1] — a live tick is not silently stuck on the pre-260913-qyn structural zero",
+    async () => {
+      const { r2 } = await driveFixture();
+      const rows = await publishedLiveRows(r2, "spr");
+      const decomposed = rows.filter((r) => r?.matchOutcomePmf !== undefined);
+      expect(decomposed.length, "no played row carried the decomposition, so the tie assertion below would be vacuous").toBeGreaterThan(0);
+      expect(
+        decomposed.some((row) => row.matchOutcomePmf![1]! > 0),
+        "no live row carried a nonzero tie probability — WIN+TIE shipped 2026-09-13 (data/baselines/rp-outcome-arms-2026-09.json), so every varianceD > 0 row should"
+      ).toBe(true);
+    },
+    60_000
+  );
+
+  it(
     "the artifact carries this season's own win/tie RP constants once, read off the rule module rather than hardcoded",
     async () => {
       const { r2 } = await driveFixture();

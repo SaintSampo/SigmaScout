@@ -590,6 +590,9 @@ function runSprFold(
         ruleModule: rpRuleModule,
         eventType: view.eventType,
         compLevel: view.compLevel,
+        // WIN SHIPPED 2026-09-13 (quick task 260913-qyn) — mirrors
+        // `scheduled.ts`'s `rpFieldsFor` exactly.
+        pRedWin: prediction.pRedWin,
       });
 
       const decomposition: Partial<Prediction> =

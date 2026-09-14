@@ -1139,6 +1139,9 @@ async function processEvent(
             ruleModule: rpRuleModule,
             eventType: view.eventType,
             compLevel: view.compLevel,
+            // WIN SHIPPED 2026-09-13 (quick task 260913-qyn) — mirrors
+            // `SigmaScoutLayer.#rpFieldsFor` exactly, field for field.
+            pRedWin: prediction.pRedWin,
           });
 
           // The five decomposition fields, composed exactly as

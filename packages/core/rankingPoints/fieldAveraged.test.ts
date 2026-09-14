@@ -167,7 +167,14 @@ describe("fieldAveragedMatchPmf", () => {
       winRp: RULE_2023.winRp,
       tieRp: RULE_2023.tieRp,
     });
-    expect(outcome.pRedWin).toBeCloseTo(0.5, 12);
+    // SHIPPED 2026-09-13 (quick task 260913-qyn, WIN+TIE arm): a symmetric
+    // mean means `pTie` is now genuinely nonzero (no `pRedWin` input is
+    // supplied here, so it falls back to the score-draw comparison — see
+    // `RpOutcomeInput`'s own doc comment), so the decisive split is no
+    // longer exactly 0.5. It is still EXACTLY EVEN between red and blue,
+    // which is the property this "identical field" test is actually for.
+    expect(outcome.pRedWin).toBe(outcome.pBlueWin);
+    expect(outcome.pRedWin).toBeCloseTo((1 - outcome.pTie) / 2, 12);
     const expectedBonusRp = pmfMean(allianceBonusRpPmf(own, RULE_2023, REGIONAL_EVENT_TYPE).pmf);
     const expectedMean = RULE_2023.winRp * outcome.pRedWin + RULE_2023.tieRp * outcome.pTie + expectedBonusRp;
     expect(pmfMean(pmfA)).toBeCloseTo(expectedMean, 10);

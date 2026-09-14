@@ -1,23 +1,24 @@
 /**
- * Tests for `SigmaScoutLayer`'s measurement-only third constructor
- * parameter, `rpOutcomeArms` (quick task 260913-qyn, Task 1 Step 2). This is
- * the INERTNESS proof required before any arm figure is measured: a layer
- * given no `rpOutcomeArms` (or an empty one) must reproduce EXACTLY what the
- * two-argument constructor always produced, and each arm flag must move
- * only the outcome half it names — never the bonus half.
+ * Tests for the SHIPPED outcome half (quick task 260913-qyn, Task 2 Step 2):
+ * WIN+TIE was the accepted arm with the lowest pooled RPS
+ * (`data/baselines/rp-outcome-arms-2026-09.json`, ship: win+tie), so its
+ * identities are now the DEFAULT two-argument `SigmaScoutLayer`'s behavior —
+ * there is no longer a measurement-only third constructor argument to
+ * select between arms.
  *
  * Folded over `packages/harness/fixtures/digest-slice.json`, the same
  * committed fixture `sigmaScoutLayer.matchBand.test.ts` pins its RP digest
  * against, so this file exercises a real 2022 spr slice rather than a
  * synthetic one.
  */
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AlgorithmModule, MatchResult, Prediction } from "../core/algorithms/types.js";
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
-import { SigmaScoutLayer, type RpOutcomeArms } from "./sigmaScoutLayer.js";
+import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
 import { WalkForwardSimulator } from "./replay.js";
 import { resolvePublishAlgorithms } from "./publish.js";
 import { usesSigmaScore } from "./sigmaScore.js";
@@ -42,12 +43,12 @@ interface DecomposedRow {
 }
 
 /**
- * Folds the fixture's PLAYED matches through one `SigmaScoutLayer` built
- * with the given `rpOutcomeArms` — enough to exercise `#rpFieldsFor`'s
- * decomposition on every row, the same construction
- * `sigmaScoutLayer.matchBand.test.ts`'s `runLayer` uses for its played pass.
+ * Folds the fixture's PLAYED matches through one two-argument
+ * `SigmaScoutLayer` — the same construction `sigmaScoutLayer.matchBand.test.ts`'s
+ * `runLayer` uses for its played pass, and the only construction that exists
+ * now that the measurement-only third argument is deleted.
  */
-function runLayer(algorithm: AlgorithmModule<unknown>, fixture: DigestSliceFixture, rpOutcomeArms?: RpOutcomeArms): DecomposedRow[] {
+function runLayer(algorithm: AlgorithmModule<unknown>, fixture: DigestSliceFixture): DecomposedRow[] {
   const stream = fixture.matches;
   const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
   const talentAfterMatch = new Map<string, Map<string, number>>();
@@ -63,7 +64,7 @@ function runLayer(algorithm: AlgorithmModule<unknown>, fixture: DigestSliceFixtu
     talentAfterMatch.set(match.matchKey, talent);
   });
 
-  const layer = new SigmaScoutLayer(RP_RULE_MODULES[fixture.sliceSeason], algorithm.id, rpOutcomeArms);
+  const layer = new SigmaScoutLayer(RP_RULE_MODULES[fixture.sliceSeason], algorithm.id);
   const rows: DecomposedRow[] = [];
   for (const record of records) {
     const folded = layer.foldPlayed(record.match, record.prediction, talentAfterMatch.get(record.match.matchKey));
@@ -72,7 +73,29 @@ function runLayer(algorithm: AlgorithmModule<unknown>, fixture: DigestSliceFixtu
   return rows;
 }
 
-describe("SigmaScoutLayer's rpOutcomeArms constructor parameter (260913-qyn, measurement-only)", () => {
+const BONUS_HALF_FIELDS = ["redBonusRpPmf", "blueBonusRpPmf", "redBonusRp", "blueBonusRp"] as const;
+
+function bonusHalfDigest(rows: readonly DecomposedRow[]): string {
+  const serialized = rows.map((row) => {
+    const out: Record<string, unknown> = { matchKey: row.matchKey };
+    for (const field of BONUS_HALF_FIELDS) out[field] = (row.prediction as unknown as Record<string, unknown>)[field] ?? null;
+    return out;
+  });
+  return createHash("sha256").update(JSON.stringify(serialized)).digest("hex");
+}
+
+/**
+ * Captured from the CONTROL arm during Task 2's measurement, before the
+ * collapse edit deleted the four-layer fold — `assertBonusHalfIdentical` ran
+ * on every folded record across the whole 2016-2020,2022 selection slice and
+ * never threw, which is what proves this digest is unaffected by which
+ * outcome arm was active. NEVER EDIT: a mismatch here means the shipped WIN+TIE
+ * change reached the bonus half, which the bar never measured and never
+ * approved.
+ */
+const PINNED_BONUS_HALF_DIGEST = "0cbffcb5a9c07ed328fc4afe8f22ee8ecec6b120f2e79e3709c8d0989343f518";
+
+describe("SHIPPED outcome half (260913-qyn, WIN+TIE) on the default two-argument SigmaScoutLayer", () => {
   const fixture = loadFixture();
   const algorithms = resolvePublishAlgorithms(undefined);
   const spr = algorithms.find((a) => a.id === "spr") as AlgorithmModule<unknown>;
@@ -82,42 +105,26 @@ describe("SigmaScoutLayer's rpOutcomeArms constructor parameter (260913-qyn, mea
     expect(rows.some((r) => r.prediction.matchOutcomePmf !== undefined)).toBe(true);
   });
 
-  it("the default (two-argument) layer and a layer given an EMPTY rpOutcomeArms produce bitwise-equal RP fields", () => {
-    const control = runLayer(spr, fixture);
-    const empty = runLayer(spr, fixture, {});
-    expect(empty).toEqual(control);
-  });
-
-  it("the win layer's matchOutcomePmf[0] === prediction.pRedWin on every decomposed row", () => {
-    const rows = runLayer(spr, fixture, { win: true });
+  it("WIN shipped: the decisive share matchOutcomePmf[0]/(matchOutcomePmf[0]+matchOutcomePmf[2]) is within 1e-12 of pRedWin on every decomposed row", () => {
+    const rows = runLayer(spr, fixture);
     const decomposed = rows.filter((r) => r.prediction.matchOutcomePmf !== undefined);
     expect(decomposed.length).toBeGreaterThan(0);
     for (const row of decomposed) {
-      expect(row.prediction.matchOutcomePmf![0]).toBe(row.prediction.pRedWin);
+      const pmf = row.prediction.matchOutcomePmf!;
+      const decisiveShare = pmf[0]! / (pmf[0]! + pmf[2]!);
+      expect(Math.abs(decisiveShare - row.prediction.pRedWin)).toBeLessThan(1e-12);
     }
   });
 
-  it("the tie layer has matchOutcomePmf[1] > 0 on some row", () => {
-    const rows = runLayer(spr, fixture, { tie: true });
+  it("TIE shipped: some row has matchOutcomePmf[1] > 0", () => {
+    const rows = runLayer(spr, fixture);
     const decomposed = rows.filter((r) => r.prediction.matchOutcomePmf !== undefined);
     expect(decomposed.length).toBeGreaterThan(0);
     expect(decomposed.some((r) => r.prediction.matchOutcomePmf![1]! > 0)).toBe(true);
   });
 
-  it("every arm layer's bonus-half fields (redBonusRpPmf, blueBonusRpPmf, redBonusRp, blueBonusRp) are elementwise === control's, on every row", () => {
-    const control = runLayer(spr, fixture);
-    const arms: readonly RpOutcomeArms[] = [{ win: true }, { tie: true }, { win: true, tie: true }];
-    for (const arm of arms) {
-      const rows = runLayer(spr, fixture, arm);
-      expect(rows.length).toBe(control.length);
-      for (let i = 0; i < rows.length; i++) {
-        expect(rows[i]!.matchKey).toBe(control[i]!.matchKey);
-        const controlPred = control[i]!.prediction;
-        const armPred = rows[i]!.prediction;
-        for (const field of ["redBonusRpPmf", "blueBonusRpPmf", "redBonusRp", "blueBonusRp"] as const) {
-          expect(armPred[field], `${JSON.stringify(arm)} row ${i} field ${field}`).toEqual(controlPred[field]);
-        }
-      }
-    }
+  it("the bonus half is bitwise equal to the digest pinned on the control arm before the collapse edit", () => {
+    const rows = runLayer(spr, fixture);
+    expect(bonusHalfDigest(rows)).toBe(PINNED_BONUS_HALF_DIGEST);
   });
 });

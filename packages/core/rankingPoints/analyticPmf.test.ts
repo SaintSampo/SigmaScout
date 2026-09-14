@@ -132,7 +132,18 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
       eventType: 0,
       compLevel: "qm",
     });
-    const expected = [0.039663813, 0.210336187, 0.210336187, 0.079327627, 0.210336187, 0.210336187, 0.039663813];
+    // SHIPPED 2026-09-13 (quick task 260913-qyn, WIN+TIE arm): meanD=0,
+    // varianceD=100 (scoreVariance 50 + 50), sd=10, so the outcome half is no
+    // longer a clean 50/50 win/loss split — `tieProbability(0, 100) =
+    // Phi(0.05) - Phi(-0.05) = 0.039877746`, and `pRedWin = pBlueWin =
+    // (1 - 0.039877746) / 2 = 0.480061127`. The outcome pmf's tie mass lands
+    // at index `tieRp=1`, so it no longer convolves symmetrically with the
+    // bonus-only pmf the way the pre-260913-qyn all-mass-at-{0,3} split did —
+    // these values are the real convolution, not a hand-re-derivation of it.
+    expect(result.outcome!.pRedWin).toBeCloseTo(0.480061127, 6);
+    expect(result.outcome!.pTie).toBeCloseTo(0.039877746, 6);
+    expect(result.outcome!.pBlueWin).toBeCloseTo(0.480061127, 6);
+    const expected = [0.038082112, 0.205111858, 0.218723917, 0.092939691, 0.205111858, 0.201948451, 0.038082112];
     expect(result.redPmf).toHaveLength(7);
     expect(result.redPmf).toHaveLength(rp2026.maxRp + 1);
     result.redPmf.forEach((p, i) => expect(p).toBeCloseTo(expected[i]!, 6));
@@ -161,6 +172,17 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
   });
 
   it("Test 4: the outcome half on its own — the three rows of the outcome-half table", () => {
+    // SHIPPED 2026-09-13 (quick task 260913-qyn, WIN+TIE arm): the
+    // `varianceD > 0` branch now computes a genuine discrete integer-margin
+    // tie probability rather than a structural zero. meanD=10, varianceD=100,
+    // sd=10; pRedWinEffective (no `pRedWin` supplied) is the score-draw
+    // expression `1 - Phi(-1) = Phi(1) = 0.841344736` (Phi(1) computed to
+    // more digits than the pre-260913-qyn pin above, since it now composes
+    // with the tie split rather than standing alone); rawPTie =
+    // `tieProbability(10, 100) = Phi(1.05) - Phi(0.95) = 0.024197032`; the
+    // decisive share splits proportionally against `1 - rawPTie`:
+    // `pRedWin = 0.841344736 * (1 - 0.024197032) = 0.820986691`,
+    // `pBlueWin = 0.158655264 * (1 - 0.024197032) = 0.154816277`.
     const ordinary = matchOutcomeDistribution({
       redScoreMean: 110,
       redScoreVariance: 50,
@@ -169,9 +191,9 @@ describe("analyticRpPmf — Task 1 tracer (2026)", () => {
       winRp: 3,
       tieRp: 1,
     });
-    expect(ordinary.pRedWin).toBeCloseTo(0.841344746, 6);
-    expect(ordinary.pTie).toBe(0);
-    expect(ordinary.pBlueWin).toBeCloseTo(0.158655254, 6);
+    expect(ordinary.pRedWin).toBeCloseTo(0.820986691, 6);
+    expect(ordinary.pTie).toBeCloseTo(0.024197032, 6);
+    expect(ordinary.pBlueWin).toBeCloseTo(0.154816277, 6);
     expect(ordinary.pRedWin + ordinary.pTie + ordinary.pBlueWin).toBeCloseTo(1, 9);
 
     const zeroVarianceTie = matchOutcomeDistribution({
@@ -412,11 +434,12 @@ describe("analyticPmf.ts's exported surface is pinned (09-06 Task 4, D-06)", () 
       .split("\n")
       .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
       .join("\n");
-    // `tieProbability`/`TIE_MARGIN_HALF_WIDTH` were REINTRODUCED (2026-09-13,
-    // quick task 260913-qyn) as a measurement-only seam behind the
-    // `discreteMarginTie` optional input — see `RpOutcomeInput`'s own doc
-    // comment. `splitOutcomeProbabilities` was NOT reintroduced as a named
-    // function: the proportional split is inlined directly in
+    // `tieProbability`/`TIE_MARGIN_HALF_WIDTH` were REINTRODUCED and SHIPPED
+    // (2026-09-13, quick task 260913-qyn, WIN+TIE arm) — `tieProbability` now
+    // runs unconditionally from `matchOutcomeDistribution`'s `varianceD > 0`
+    // branch; see `RpOutcomeInput`'s own doc comment.
+    // `splitOutcomeProbabilities` was NOT reintroduced as a named function:
+    // the proportional split is inlined directly in
     // `matchOutcomeDistribution`, so that name still names nothing in this
     // file. The config object, its default, its support assertion and its
     // label function stay dead — 260913-qyn's design points explicitly forbid
@@ -563,24 +586,26 @@ describe("clauseProbability derives its marginal family from its terms (quick ta
   });
 });
 
-describe("matchOutcomeDistribution — 260913-qyn's measurement-only pRedWin/discreteMarginTie inputs", () => {
+describe("matchOutcomeDistribution — 260913-qyn's SHIPPED pRedWin input and unconditional discrete-margin tie", () => {
   const BASE = { redScoreMean: 110, redScoreVariance: 50, blueScoreMean: 100, blueScoreVariance: 50, winRp: 3, tieRp: 1 };
 
-  it("with NEITHER input supplied, output is bitwise identical to the existing Test 4 'ordinary' row — default output is unchanged", () => {
+  it("with no pRedWin supplied, the decisive share falls back to the score-draw comparison and the tie is the genuine discrete-margin probability (Test 4's 'ordinary' row, same numbers)", () => {
     const result = matchOutcomeDistribution(BASE);
-    expect(result.pRedWin).toBeCloseTo(0.841344746, 6);
-    expect(result.pTie).toBe(0);
-    expect(result.pBlueWin).toBeCloseTo(0.158655254, 6);
+    expect(result.pRedWin).toBeCloseTo(0.820986691, 6);
+    expect(result.pTie).toBeCloseTo(0.024197032, 6);
+    expect(result.pBlueWin).toBeCloseTo(0.154816277, 6);
   });
 
-  it("with pRedWin 0.73 and no tie input, pRedWin output === 0.73 EXACTLY (multiplying by (1 - 0) is exact)", () => {
+  it("with pRedWin 0.73, the decisive share splits proportionally against (1 - pTie) — pRedWin is NOT 0.73 exactly, because the tie is no longer zero", () => {
     const result = matchOutcomeDistribution({ ...BASE, pRedWin: 0.73 });
-    expect(result.pRedWin).toBe(0.73);
-    expect(result.pTie).toBe(0);
-    expect(result.pBlueWin).toBeCloseTo(0.27, 12);
+    // pTie is unchanged from the no-pRedWin case (it depends only on meanD/varianceD):
+    // pRedWin = 0.73 * (1 - 0.024197032) = 0.712336167; pBlueWin = 0.27 * (1 - 0.024197032) = 0.263466801
+    expect(result.pTie).toBeCloseTo(0.024197032, 6);
+    expect(result.pRedWin).toBeCloseTo(0.712336167, 6);
+    expect(result.pBlueWin).toBeCloseTo(0.263466801, 6);
   });
 
-  it("with discreteMarginTie at meanD 0, varianceD 36.5^2, pTie is within 1e-6 of 0.0109297 (F7's measured base rate is 0.0109277)", () => {
+  it("at meanD 0, varianceD 36.5^2, pTie is within 1e-6 of 0.0109297 (F7's measured base rate is 0.0109277)", () => {
     const result = matchOutcomeDistribution({
       redScoreMean: 100,
       redScoreVariance: 36.5 * 36.5,
@@ -588,7 +613,6 @@ describe("matchOutcomeDistribution — 260913-qyn's measurement-only pRedWin/dis
       blueScoreVariance: 0,
       winRp: 3,
       tieRp: 1,
-      discreteMarginTie: true,
     });
     expect(result.pTie).toBeCloseTo(0.0109297, 6);
   });
@@ -602,15 +626,14 @@ describe("matchOutcomeDistribution — 260913-qyn's measurement-only pRedWin/dis
       winRp: 3,
       tieRp: 1,
       pRedWin: 0.6234,
-      discreteMarginTie: true,
     });
     expect(result.pTie).toBeGreaterThan(0);
     const decisiveShare = result.pRedWin / (result.pRedWin + result.pBlueWin);
     expect(Math.abs(decisiveShare - 0.6234)).toBeLessThan(1e-12);
   });
 
-  it("the varianceD <= 0 degenerate branch ignores BOTH measurement-only inputs unconditionally", () => {
-    const withoutInputs = matchOutcomeDistribution({
+  it("the varianceD <= 0 degenerate branch ignores a supplied pRedWin unconditionally", () => {
+    const withoutInput = matchOutcomeDistribution({
       redScoreMean: 100,
       redScoreVariance: 0,
       blueScoreMean: 100,
@@ -618,7 +641,7 @@ describe("matchOutcomeDistribution — 260913-qyn's measurement-only pRedWin/dis
       winRp: 3,
       tieRp: 1,
     });
-    const withInputs = matchOutcomeDistribution({
+    const withInput = matchOutcomeDistribution({
       redScoreMean: 100,
       redScoreVariance: 0,
       blueScoreMean: 100,
@@ -626,20 +649,19 @@ describe("matchOutcomeDistribution — 260913-qyn's measurement-only pRedWin/dis
       winRp: 3,
       tieRp: 1,
       pRedWin: 0.1, // would predict a red loss if honoured — it must not be
-      discreteMarginTie: true,
     });
-    expect(withInputs).toEqual(withoutInputs);
-    expect(withInputs.pTie).toBe(1);
+    expect(withInput).toEqual(withoutInput);
+    expect(withInput.pTie).toBe(1);
   });
 });
 
-describe("analyticRpPmf — 260913-qyn forwards pRedWin/discreteMarginTie to matchOutcomeDistribution", () => {
-  it("with neither input supplied, the outcome half is unchanged from Task 1's tracer values", () => {
+describe("analyticRpPmf — 260913-qyn's SHIPPED pRedWin forwarding to matchOutcomeDistribution", () => {
+  it("with no pRedWin supplied, the outcome's tie is the genuine discrete-margin probability (no longer Task 1's pre-260913-qyn zero)", () => {
     const result = analyticRpPmf({ red: SYMMETRIC_2026, blue: SYMMETRIC_2026, ruleModule: rp2026, eventType: 0, compLevel: "qm" });
-    expect(result.outcome!.pTie).toBe(0);
+    expect(result.outcome!.pTie).toBeGreaterThan(0);
   });
 
-  it("with pRedWin supplied, the outcome's pRedWin reflects it rather than the score-draw comparison", () => {
+  it("with pRedWin supplied, the outcome's decisive share reflects it rather than the score-draw comparison", () => {
     const result = analyticRpPmf({
       red: SYMMETRIC_2026,
       blue: SYMMETRIC_2026,
@@ -648,19 +670,8 @@ describe("analyticRpPmf — 260913-qyn forwards pRedWin/discreteMarginTie to mat
       compLevel: "qm",
       pRedWin: 0.9,
     });
-    expect(result.outcome!.pRedWin).toBeCloseTo(0.9, 12);
-  });
-
-  it("with discreteMarginTie supplied, the outcome's pTie is nonzero", () => {
-    const result = analyticRpPmf({
-      red: SYMMETRIC_2026,
-      blue: SYMMETRIC_2026,
-      ruleModule: rp2026,
-      eventType: 0,
-      compLevel: "qm",
-      discreteMarginTie: true,
-    });
-    expect(result.outcome!.pTie).toBeGreaterThan(0);
+    const decisiveShare = result.outcome!.pRedWin / (result.outcome!.pRedWin + result.outcome!.pBlueWin);
+    expect(decisiveShare).toBeCloseTo(0.9, 12);
   });
 });
 

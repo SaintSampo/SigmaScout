@@ -27,21 +27,32 @@
  * `nestedSameVariable` branch) exists specifically to get this right, and
  * the test suite asserts the correct answer is NOT the independent product.
  *
- * THE MODEL THIS FILE IMPLEMENTS. ONE model, one path, no selectable
- * surface:
+ * THE MODEL THIS FILE IMPLEMENTS.
  *
- *   - the win/loss split comes from the difference of the two alliances'
- *     independent Gaussian score distributions;
- *   - a tie has zero probability whenever that difference has positive
- *     variance, and probability one only in the degenerate equal-deterministic-
- *     means case;
- *   - each threshold variable's marginal is Gaussian.
+ *   - each threshold variable's marginal is Gaussian;
+ *   - the win/tie/loss split comes from the difference of the two alliances'
+ *     independent Gaussian score distributions, `D = redScore - blueScore`.
+ *     A tie is the event that the real, integer-valued margin ROUNDS to
+ *     zero (`tieProbability` below gives its exact probability under a
+ *     continuous latent `D`), and the decisive share (red vs blue) is
+ *     EITHER the score-draw comparison `P(D > 0)` OR, when the caller
+ *     supplies its own `pRedWin` (every SPR call site does, since
+ *     2026-09-13's quick task 260913-qyn), the algorithm's own published win
+ *     probability, split proportionally against `1 - pTie`.
  *
- * Alternative formulations were measured against this one through the
- * publisher's own scorer under a pre-committed per-bonus acceptance bar and
- * did not clear it. The measurement, the rejected formulations and the
- * reason each was refused are recorded in `docs/models/rp-attribution.md`
- * and `docs/models/rp-layer-config-arms.md`.
+ * WIN (using the algorithm's own `pRedWin` in place of the score-draw
+ * comparison) and TIE (the discrete integer-margin probability, replacing a
+ * structural zero) were both measured against control through the
+ * publisher's own scorer under a bar built to see this half specifically
+ * (`applyRpOutcomeArmBar`, `scripts/measureRpCalibration.ts`) and BOTH
+ * cleared it, alongside a combined WIN+TIE arm that had the lowest pooled
+ * score of the three and is what shipped — see
+ * `data/baselines/rp-outcome-arms-2026-09.json` and
+ * `docs/models/rp-layer-config-arms.md` for the 2026-09-13 record. An
+ * EARLIER, near-identical pair of fixes was measured on 2026-09-11 against a
+ * bar that scored bonuses only, was blind to this half, tied 30 of 30 cells,
+ * and was refused — `docs/models/rp-attribution.md` carries that (voided)
+ * measurement.
  */
 import type { CompLevel } from "../algorithms/types.js";
 import type {
@@ -647,9 +658,13 @@ export interface RpOutcomeDistribution {
  * latent margin, and a tie is exactly the event that the latent margin
  * rounds to zero — the interval `(-0.5, 0.5)`. STRUCTURAL, not tunable: it
  * follows from "integers round to the nearest integer", not from a fit to
- * data. MEASUREMENT-ONLY (260913-qyn, reintroduced from `2731bfab^`) — read
- * by `tieProbability` below, which only ever runs when a caller opts into
- * `discreteMarginTie`.
+ * data.
+ *
+ * SHIPPED 2026-09-13 (quick task 260913-qyn, reintroduced from `2731bfab^`,
+ * measured against `applyRpOutcomeArmBar` and accepted as part of the
+ * WIN+TIE arm — `data/baselines/rp-outcome-arms-2026-09.json`). Read by
+ * `tieProbability` below, which `matchOutcomeDistribution`'s
+ * `varianceD > 0` branch now calls unconditionally.
  */
 const TIE_MARGIN_HALF_WIDTH = 0.5;
 
@@ -670,9 +685,9 @@ const TIE_MARGIN_HALF_WIDTH = 0.5;
  * already uses for the win/loss split, restated here so this function never
  * divides by zero or propagates a `NaN` variance into the CDF.
  *
- * MEASUREMENT-ONLY (260913-qyn, reintroduced from `2731bfab^`) — called only
- * from `matchOutcomeDistribution`'s `discreteMarginTie` branch, never from
- * any production path.
+ * SHIPPED 2026-09-13 (quick task 260913-qyn, reintroduced from
+ * `2731bfab^`) — called unconditionally from `matchOutcomeDistribution`'s
+ * `varianceD > 0` branch.
  */
 function tieProbability(marginMean: number, marginVariance: number): number {
   if (!Number.isFinite(marginVariance) || marginVariance <= 0) {
@@ -690,11 +705,12 @@ function tieProbability(marginMean: number, marginVariance: number): number {
  * mean/variance (never the combined win-probability variance), plus the
  * season's `winRp`/`tieRp`.
  *
- * `pRedWin` and `discreteMarginTie` (260913-qyn) are a MEASUREMENT-ONLY
- * seam, not a production surface: optional, absent by default, and never
- * set by any production constructor. See `SigmaScoutLayer`'s
- * `rpOutcomeArms` constructor parameter for the only caller permitted to
- * set them.
+ * `pRedWin` (260913-qyn) is OPTIONAL — not because it is a measurement seam
+ * (WIN shipped 2026-09-13, and every SPR call site holding a real
+ * `Prediction` passes it) but because
+ * `packages/core/rankingPoints/fieldAveraged.ts` prices a hypothetical
+ * field-averaged match with no `Prediction` at all (design point 6 of
+ * 260913-qyn) and must keep the score-draw limit.
  */
 export interface RpOutcomeInput {
   readonly redScoreMean: number;
@@ -704,19 +720,14 @@ export interface RpOutcomeInput {
   readonly winRp: number;
   readonly tieRp: number;
   /**
-   * MEASUREMENT-ONLY (260913-qyn). When supplied, this is used in place of
-   * the score-draw comparison as the win probability the outcome split is
-   * built from — the algorithm's own published `Prediction.pRedWin`.
-   * Absent means today's exact score-draw expression.
+   * When supplied, this is used in place of the score-draw comparison as the
+   * win probability the outcome split is built from — the algorithm's own
+   * published `Prediction.pRedWin` (SHIPPED 2026-09-13, quick task
+   * 260913-qyn — see `data/baselines/rp-outcome-arms-2026-09.json`). Absent
+   * only from `fieldAveraged.ts`, which has no `Prediction` to read one
+   * from, and falls back to the score-draw expression `P(D > 0)`.
    */
   readonly pRedWin?: number;
-  /**
-   * MEASUREMENT-ONLY (260913-qyn). When `true`, a tie draws
-   * `tieProbability`'s genuine integer-margin probability instead of the
-   * legacy `varianceD > 0` branch's structural zero. Absent means today's
-   * exact expression (a tie has probability zero whenever `varianceD > 0`).
-   */
-  readonly discreteMarginTie?: true;
 }
 
 /**
@@ -726,27 +737,13 @@ export interface RpOutcomeInput {
  * `meanD = red.scoreMean - blue.scoreMean` and
  * `varianceD = red.scoreVariance + blue.scoreVariance`.
  *
- * A TIE HAS PROBABILITY ZERO whenever `varianceD > 0` AND NEITHER
- * MEASUREMENT-ONLY INPUT IS SUPPLIED, because a tie would need exact
- * floating-point equality of two continuous draws. That is a known and
- * measured shortcoming, not an oversight: about 1.09% of real qualification
- * matches tie. A replacement that gave the tie its own integer-margin
- * probability, and a replacement that used the algorithm's own published win
- * probability instead of the score-draw comparison, were both measured
- * through the publisher's own PER-BONUS scorer on 2026-09-11 and REFUSED by
- * that bar, which reads bonus Brier and is blind to a change that only moves
- * the win/tie/loss half. `docs/models/rp-attribution.md` carries those
- * figures. Quick task 260913-qyn re-measures both fixes against a NEW bar
- * that can actually see this half (`applyRpOutcomeArmBar`,
- * `scripts/measureRpCalibration.ts`) — see that record for the 2026-09-13
- * verdict.
- *
- * WHEN `input.pRedWin` OR `input.discreteMarginTie` IS SUPPLIED (measurement
- * only; absent in every production call), the `varianceD > 0` branch instead
- * computes `pRedWinEffective` (the supplied `pRedWin`, or the score-draw
- * expression when absent), `rawPTie` (`tieProbability(meanD, varianceD)`
- * when `discreteMarginTie` is set, or `0` otherwise), and splits the two
- * PROPORTIONALLY: `pRedWin = pRedWinEffective * (1 - rawPTie)`,
+ * SHIPPED 2026-09-13 (quick task 260913-qyn, the WIN+TIE arm — see
+ * `data/baselines/rp-outcome-arms-2026-09.json`). The `varianceD > 0` branch
+ * computes `pRedWinEffective` (the caller's supplied `input.pRedWin`, or the
+ * score-draw expression `P(D > 0)` when absent — `fieldAveraged.ts` is the
+ * only absent case) and `rawPTie` (`tieProbability(meanD, varianceD)`,
+ * unconditional), then splits the two PROPORTIONALLY:
+ * `pRedWin = pRedWinEffective * (1 - rawPTie)`,
  * `pBlueWin = (1 - pRedWinEffective) * (1 - rawPTie)`. This never goes
  * negative and preserves an exact identity CONDITIONAL ON A DECISIVE RESULT:
  * `pRedWin / (pRedWin + pBlueWin) === pRedWinEffective` (the `(1 - rawPTie)`
@@ -756,13 +753,23 @@ export interface RpOutcomeInput {
  * a clamp silently laundering a corrupted upstream computation into a
  * plausible-looking pmf.
  *
+ * Before this ship, a tie had probability ZERO whenever `varianceD > 0`,
+ * because a tie would need exact floating-point equality of two continuous
+ * draws — a known and measured shortcoming, since about 1.09% of real
+ * qualification matches tie. An earlier, near-identical pair of fixes was
+ * measured on 2026-09-11 against a bar that scored bonuses only, was blind
+ * to this half, tied 30 of 30 cells, and was refused —
+ * `docs/models/rp-attribution.md` carries that (voided) measurement. Quick
+ * task 260913-qyn re-measured both against a NEW bar built to see this half
+ * (`applyRpOutcomeArmBar`, `scripts/measureRpCalibration.ts`), and both
+ * cleared it — see `docs/models/rp-layer-config-arms.md`'s 2026-09-13
+ * section for the figures and the ship decision.
+ *
  * The `varianceD <= 0` DEGENERATE branch — both alliances' predicted score
  * variance exactly zero, a deterministic score pair — is the one place
- * `pTie` can be non-zero: two equal deterministic means ARE a tie. That is
- * not the dead branch described above, which is a claim about
- * `varianceD > 0` only, and this branch IGNORES both measurement-only
- * inputs unconditionally: comparing the two deterministic means directly is
- * the correct limit regardless of which arm is active.
+ * `pTie` can be non-zero for a reason OTHER than the shipped tie model:
+ * comparing the two deterministic means directly is the correct limit
+ * regardless of `input.pRedWin`, which this branch ignores.
  */
 export function matchOutcomeDistribution(input: RpOutcomeInput): RpOutcomeDistribution {
   const meanD = input.redScoreMean - input.blueScoreMean;
@@ -772,22 +779,13 @@ export function matchOutcomeDistribution(input: RpOutcomeInput): RpOutcomeDistri
   let pTie: number;
   let pBlueWin: number;
   if (varianceD > 0) {
-    if (input.pRedWin === undefined && input.discreteMarginTie === undefined) {
-      // Today's exact expression, UNTOUCHED — default output stays
-      // byte-identical to before 260913-qyn when neither measurement-only
-      // input is supplied.
-      pRedWin = 1 - standardNormalCdf(-meanD / Math.sqrt(varianceD));
-      pTie = 0;
-      pBlueWin = 1 - pRedWin;
-    } else {
-      const pRedWinEffective = input.pRedWin !== undefined ? input.pRedWin : 1 - standardNormalCdf(-meanD / Math.sqrt(varianceD));
-      const rawPTie = input.discreteMarginTie === true ? tieProbability(meanD, varianceD) : 0;
-      const outOfRange = Number.isFinite(pRedWinEffective) && (pRedWinEffective < 0 || pRedWinEffective > 1);
-      const clampedPRedWin = outOfRange ? Math.min(1, Math.max(0, pRedWinEffective)) : pRedWinEffective;
-      pRedWin = clampedPRedWin * (1 - rawPTie);
-      pTie = rawPTie;
-      pBlueWin = (1 - clampedPRedWin) * (1 - rawPTie);
-    }
+    const pRedWinEffective = input.pRedWin !== undefined ? input.pRedWin : 1 - standardNormalCdf(-meanD / Math.sqrt(varianceD));
+    const rawPTie = tieProbability(meanD, varianceD);
+    const outOfRange = Number.isFinite(pRedWinEffective) && (pRedWinEffective < 0 || pRedWinEffective > 1);
+    const clampedPRedWin = outOfRange ? Math.min(1, Math.max(0, pRedWinEffective)) : pRedWinEffective;
+    pRedWin = clampedPRedWin * (1 - rawPTie);
+    pTie = rawPTie;
+    pBlueWin = (1 - clampedPRedWin) * (1 - rawPTie);
   } else {
     pRedWin = meanD > 0 ? 1 : 0;
     pTie = meanD === 0 ? 1 : 0;
@@ -838,17 +836,12 @@ export interface AnalyticRpPmfInput {
    */
   readonly tally?: MarginalResolutionTally;
   /**
-   * MEASUREMENT-ONLY (260913-qyn), forwarded verbatim to
-   * `matchOutcomeDistribution`'s `RpOutcomeInput.pRedWin` — see that field's
-   * doc comment. Absent in every production call.
+   * Forwarded verbatim to `matchOutcomeDistribution`'s
+   * `RpOutcomeInput.pRedWin` (SHIPPED 2026-09-13, quick task 260913-qyn) —
+   * see that field's doc comment. Absent only from `fieldAveraged.ts`, which
+   * has no `Prediction` to read one from.
    */
   readonly pRedWin?: number;
-  /**
-   * MEASUREMENT-ONLY (260913-qyn), forwarded verbatim to
-   * `matchOutcomeDistribution`'s `RpOutcomeInput.discreteMarginTie` — see
-   * that field's doc comment. Absent in every production call.
-   */
-  readonly discreteMarginTie?: true;
 }
 
 export interface AnalyticRpPmfResult {
@@ -887,7 +880,7 @@ export function pmfMean(pmf: readonly number[]): number {
  * computes for a qualification match.
  */
 export function analyticRpPmf(input: AnalyticRpPmfInput): AnalyticRpPmfResult {
-  const { red, blue, ruleModule, eventType, compLevel, tally, pRedWin, discreteMarginTie } = input;
+  const { red, blue, ruleModule, eventType, compLevel, tally, pRedWin } = input;
 
   if (!isBonusRpCompLevel(compLevel)) {
     return { redPmf: [1], bluePmf: [1] };
@@ -915,7 +908,6 @@ export function analyticRpPmf(input: AnalyticRpPmfInput): AnalyticRpPmfResult {
     winRp: ruleModule.winRp,
     tieRp: ruleModule.tieRp,
     ...(pRedWin !== undefined ? { pRedWin } : {}),
-    ...(discreteMarginTie !== undefined ? { discreteMarginTie } : {}),
   });
 
   const redOutcomePmf = allianceOutcomePmf(outcome.pRedWin, outcome.pTie, outcome.pBlueWin, ruleModule.winRp, ruleModule.tieRp);

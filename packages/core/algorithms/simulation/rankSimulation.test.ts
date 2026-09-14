@@ -519,6 +519,60 @@ describe("simulateRanks — Test 17: the tie outcome is reachable and pays both 
   });
 });
 
+describe("simulateRanks — Test 17b: partial tie mass awards tieRp to BOTH alliances together, on the same draws (260913-qyn, WIN+TIE shipped)", () => {
+  it("a 0.25 tie mass lands a third reference team at last place on a draw share between 0.2 and 0.3, and never in first", () => {
+    // outcomePmf: [0.375, 0.25, 0.375] — a genuine partial tie mass, unlike
+    // Test 17's deterministic [0, 1, 0]. No bonus RP on either side
+    // (redBonusRpPmf/blueBonusRpPmf both [1], a point mass at 0), so red's
+    // whole-match RP is exactly redOutcomeRp[outcomeIndex] and blue's is
+    // exactly blueOutcomeRp[outcomeIndex] — 2/1/0 for red, 0/1/2 for blue,
+    // by the SAME shared outcomeIndex draw (the module draws the outcome
+    // ONCE per match, never twice independently).
+    const outcome: SimMatchOutcomeInput = {
+      outcomePmf: [0.375, 0.25, 0.375],
+      redOutcomeRp: [2, 1, 0],
+      blueOutcomeRp: [0, 1, 2],
+      redBonusRpPmf: [1],
+      blueBonusRpPmf: [1],
+    };
+    const remainingMatches: SimMatchInput[] = [
+      { redTeamKeys: ["frcRed"], blueTeamKeys: ["frcBlue"], redRpPmf: [1], blueRpPmf: [1], outcome },
+    ];
+    // frcRef's baseline average is fixed at exactly 1 (tieRp). On a DECISIVE
+    // draw, red and blue land at {0, 2} in some order, so frcRef (1) is
+    // always strictly between them — rank 1 (middle), never first or last.
+    // frcRef can reach LAST place ONLY when BOTH red and blue also land at
+    // 1 — which happens if and only if the SAME draw hit the tie outcome for
+    // both alliances at once (the coupled draw's whole point, Test 15's own
+    // subject). A three-way tie at 1 resolves by ascending team key
+    // (Test 7's convention): "frcBlue" < "frcRed" < "frcRef", so frcRef is
+    // last among the three ties. Measuring frcRef's "last place" share is
+    // therefore a direct, non-vacuous measurement of the shared tie draw's
+    // frequency, not a re-derivation of `outcomePmf` itself.
+    const baselines: SimTeamBaseline[] = [
+      { teamKey: "frcRed", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frcBlue", earnedRpSum: 0, matchesPlayed: 0 },
+      { teamKey: "frcRef", earnedRpSum: 1, matchesPlayed: 1 },
+    ];
+    const draws = 2000;
+    const result = simulateRanks(remainingMatches, baselines, draws, mulberry32(17));
+    const refHistogram = result.rankHistograms.get("frcRef")!;
+
+    // Non-vacuity: frcRef never lands first (a decisive draw always puts it
+    // strictly between the 0 and the 2), and DOES land in the middle on the
+    // decisive share of draws.
+    expect(refHistogram[0]).toBe(0);
+    expect(refHistogram[1]).toBeGreaterThan(0);
+
+    const tieShare = refHistogram[2]! / draws;
+    expect(tieShare).toBeGreaterThan(0.2);
+    expect(tieShare).toBeLessThan(0.3);
+    // The middle and last buckets partition every draw between them (first
+    // is structurally unreachable for frcRef here).
+    expect(refHistogram[1]! + refHistogram[2]!).toBe(draws);
+  });
+});
+
 describe("simulateRanks — Test 18: rng consumption is fixed per match list, never data-dependent", () => {
   function countingRng(seed: number): { rng: () => number; count: () => number } {
     const inner = mulberry32(seed);

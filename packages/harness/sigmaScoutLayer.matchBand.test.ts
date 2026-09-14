@@ -18,7 +18,23 @@
  * Quick task 260913-it4 REMOVED the opr and epa entries, by developer decision
  * (2026-09-13) rather than as a refresh: OPR and EPA publish no ranking-point
  * odds at all any more, so their pins are replaced by absence assertions over
- * the same played and upcoming passes. The spr entry is untouched.
+ * the same played and upcoming passes.
+ *
+ * Quick task 260913-qyn REPLACED the spr entry (2026-09-13), also by
+ * developer decision rather than a refresh, following the 260913-it4
+ * precedent: WIN+TIE was measured against the pre-committed
+ * `applyRpOutcomeArmBar` on the selection slice (2016-2020,2022) and
+ * ACCEPTED — pooled totalRp RPS -0.000676 and outcome Brier -0.002277
+ * against control, the lowest RPS of the three accepted arms
+ * (`data/baselines/rp-outcome-arms-2026-09.json`, ship: win+tie) — so the
+ * algorithm's own `pRedWin` now replaces the score-draw comparison as the
+ * decisive share, and a genuine discrete integer-margin tie probability
+ * replaces the prior structural zero, on `matchOutcomePmf`/`redOutcomeRp`/
+ * `blueOutcomeRp`. `redRpPmf`/`blueRpPmf` (which convolve the outcome half
+ * with the unchanged bonus half) move accordingly. `redBonusRpPmf`,
+ * `blueBonusRpPmf`, `redBonusRp` and `blueBonusRp` are UNCHANGED — proven so
+ * by `sigmaScoutLayer.outcomeArms.test.ts`'s own pinned bonus-half digest,
+ * captured on the control arm before this collapse.
  *
  * The slice is read from the committed fixture ONLY, never the corpus, so the
  * digest is deterministic whether or not `data/corpus.sqlite` is present.
@@ -49,9 +65,14 @@ function loadFixture(): DigestSliceFixture {
   return JSON.parse(readFileSync(DIGEST_SLICE_FIXTURE_PATH, "utf8")) as DigestSliceFixture;
 }
 
-/** Captured on unmodified source (HEAD 4310e961) before any 260913-g66 edit. Never edit. */
+/**
+ * spr REPLACED 2026-09-13 (quick task 260913-qyn, WIN+TIE arm shipped — see
+ * this file's header comment and `data/baselines/rp-outcome-arms-2026-09.json`).
+ * Captured on the shipped WIN+TIE source. Never edit except on another
+ * developer-decided model change, following this same precedent.
+ */
 const PINNED_RP_DIGESTS: Readonly<Record<string, string>> = {
-  spr: "18d8d9011db5df9adeeb2f1c9204ba02fa80e0f7685c1276ec91e753a0839ab4",
+  spr: "fee852b6c27c82b198b733937e97a7a353fa3e0fe72efc3f1e502cc5ec172cfa",
 };
 
 const RP_FIELDS = [

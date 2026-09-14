@@ -365,6 +365,11 @@ export function fieldAveragedMatchPmf(
   eventType: number
 ): readonly number[] {
   const { own, opponent } = fieldAveragedAllianceMoments(contribution, stats);
+  // No `pRedWin` passed (260913-qyn design point 6): this prices a
+  // HYPOTHETICAL field-averaged match with no real `Prediction` to read a
+  // win probability from, so it keeps `analyticRpPmf`'s score-draw fallback
+  // — the correct limit for a team's own average opponent, not a
+  // discrepancy with the shipped WIN arm.
   return analyticRpPmf({
     red: own,
     blue: opponent,

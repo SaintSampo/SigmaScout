@@ -824,6 +824,10 @@ export function makeRankingPointFiller(
       ruleModule,
       eventType: match.eventType,
       compLevel: match.compLevel,
+      // WIN SHIPPED 2026-09-13 (quick task 260913-qyn) — this pricer holds a
+      // real `Prediction`, so it passes the algorithm's own win probability
+      // like every other Prediction-bearing RP call site.
+      pRedWin: prediction.pRedWin,
     });
     return {
       ...prediction,

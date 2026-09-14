@@ -29,7 +29,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { AlgorithmModule, MatchResult, Prediction } from "../packages/core/algorithms/types.js";
+import type { AlgorithmModule, MatchResult } from "../packages/core/algorithms/types.js";
 import { WalkForwardSimulator } from "../packages/harness/replay.js";
 import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms.js";
@@ -52,7 +52,6 @@ const liveAlgorithmId = (frozenId: string): string => FROZEN_BASELINE_ALGORITHM_
 import { RpCalibrationMeasurementSchema } from "../packages/harness/publish.js";
 import {
   applyRpOutcomeArmBar,
-  assertBonusHalfIdentical,
   assertMarginalArmSliceAllowed,
   assertOutcomeArmAlgorithmAllowed,
   assertOutcomeArmSliceAllowed,
@@ -232,29 +231,29 @@ describe("widened emitter (Task 2, D-09) — one runAll, disjoint per-algorithm 
 });
 
 describe("same-scorer structural assertions (D-11)", () => {
-  it("constructs SigmaScoutLayer exactly five times — control, the --marginal-arm layer, and the three --outcome-arms layers (win/tie/win+tie) — and EVERY one carries a resolved algorithm id as the second argument", () => {
+  it("constructs SigmaScoutLayer exactly two times — control and the --marginal-arm layer — and EVERY one carries a resolved algorithm id as the second argument", () => {
     const matches = [...SOURCE.matchAll(/new SigmaScoutLayer\(/g)];
-    // Five, not two: quick task 260912-2uz added the measurement-only
-    // negative-binomial arm (control + 1), and quick task 260913-qyn added
-    // the three outcome arms (win, tie, win+tie), each multiplying LAYERS
-    // (never replays) off the SAME one walk-forward pass per season. The
-    // count is asserted so a SIXTH construction — a second replay, or a
-    // layer built some other way — has to be justified here rather than
-    // appearing silently.
-    expect(matches).toHaveLength(5);
+    // Two: quick task 260912-2uz added the measurement-only negative-binomial
+    // arm (control + 1), multiplying LAYERS (never replays) off the SAME one
+    // walk-forward pass per season. Quick task 260913-qyn's three outcome-arm
+    // layers (win, tie, win+tie) briefly added a third and fourth and fifth
+    // construction here during Task 1/Task 2's measurement; WIN+TIE shipped
+    // (`data/baselines/rp-outcome-arms-2026-09.json`) and the four-layer fold
+    // that produced them — along with `SigmaScoutLayer`'s measurement-only
+    // third constructor argument — was deleted at ship time, so the shipped
+    // WIN+TIE behavior is now the DEFAULT two-argument construction rather
+    // than a separate layer. The count is asserted so a THIRD construction —
+    // a second replay, or a layer built some other way — has to be justified
+    // here rather than appearing silently.
+    expect(matches).toHaveLength(2);
     // The second argument is the resolved algorithm id — 09-01's same-scorer
     // fix, and the premise of every figure this script produces. The third
-    // argument this site briefly carried (an arm's model config) is gone with
-    // the rest of the temporary selectable surface: there is one production
-    // model again, and the marginal arm is a variant RULE MODULE rather than
-    // a config. The outcome arms' third argument (`rpOutcomeArms`) is a
-    // DIFFERENT, measurement-only seam — see SigmaScoutLayer's own doc
-    // comment — never the deleted config surface.
+    // argument this site briefly carried (an arm's model config, then
+    // 260913-qyn's `rpOutcomeArms`) is gone with the rest of the temporary
+    // selectable surface: there is one production model again, and the
+    // marginal arm is a variant RULE MODULE rather than a config.
     expect(SOURCE).toMatch(/new SigmaScoutLayer\(ruleModule, \w+\.id\)/);
     expect(SOURCE).toMatch(/new SigmaScoutLayer\(armRuleModule, \w+\.id\)/);
-    expect(SOURCE).toMatch(/new SigmaScoutLayer\(ruleModule, "spr", \{ win: true \}\)/);
-    expect(SOURCE).toMatch(/new SigmaScoutLayer\(ruleModule, "spr", \{ tie: true \}\)/);
-    expect(SOURCE).toMatch(/new SigmaScoutLayer\(ruleModule, "spr", \{ win: true, tie: true \}\)/);
     // No construction may be one-argument: that is the exact defect the
     // SAME-SCORER FIX header records, and it once manufactured a phantom
     // ~0.003 regression on this very question.
@@ -457,8 +456,9 @@ describe("data/baselines/rp-calibration-2026-09b.json — re-emitted from the co
     expect(new Set(REEMITTED.records.map((r) => `${r.season}|${liveAlgorithmId(r.algorithmId)}`))).toEqual(expected);
   });
 
-  it("records the shipped combination as a LABEL, now that the config object that described it is gone (D-05 after D-06)", () => {
-    expect(REEMITTED.rpLayer).toBe(SHIPPED_RP_LAYER_LABEL);
+  it("records the shipped combination as a LABEL, now that the config object that described it is gone (D-05 after D-06) — pinned to its OWN frozen literal (design point 9, 260913-qyn), since SHIPPED_RP_LAYER_LABEL changed after this file was emitted", () => {
+    expect(REEMITTED.rpLayer).toBe("winSource=score-draw, tieModel=continuous-equality, marginal=gaussian");
+    expect(REEMITTED.rpLayer).not.toBe(SHIPPED_RP_LAYER_LABEL);
   });
 
   it("09-01's frozen pre-phase measurement is untouched — a re-measurement gets a NEW dated filename so before/after stays a real comparison", () => {
@@ -895,8 +895,12 @@ describe("buildRpCalibrationRecord — the optional third argument (260913-qyn)"
 });
 
 // ---------------------------------------------------------------------------
-// Outcome-arm guards, assertBonusHalfIdentical and RpOutcomeArmRecordSchema
-// (260913-qyn Task 1 Step 4)
+// Outcome-arm guards and RpOutcomeArmRecordSchema (260913-qyn) — the READER
+// half that survives the ship-time collapse. `assertBonusHalfIdentical`,
+// which used to have its own describe block here, was deleted at ship time
+// along with the four-layer fold it guarded; the bonus-half identity it once
+// enforced live is now proven by
+// `sigmaScoutLayer.outcomeArms.test.ts`'s pinned bonus-half digest.
 // ---------------------------------------------------------------------------
 
 describe("assertOutcomeArmSliceAllowed", () => {
@@ -932,45 +936,6 @@ describe("assertOutcomeArmAlgorithmAllowed", () => {
   });
 });
 
-describe("assertBonusHalfIdentical", () => {
-  function makePrediction(overrides: Partial<Prediction> = {}): Prediction {
-    return {
-      winner: "red",
-      pRedWin: 0.6,
-      redScore: 100,
-      blueScore: 80,
-      redBonusRpPmf: [0.5, 0.5, 0],
-      blueBonusRpPmf: [0.6, 0.4, 0],
-      redBonusRp: [0.3, 0.2],
-      blueBonusRp: [0.4, 0.1],
-      ...overrides,
-    };
-  }
-
-  it("does not throw when all four bonus-half fields are elementwise === identical", () => {
-    const control = makePrediction();
-    const arm = makePrediction({ matchOutcomePmf: [0.6, 0, 0.4] }); // outcome half may differ freely
-    expect(() => assertBonusHalfIdentical(control, arm, "2022test_qm1", "win")).not.toThrow();
-  });
-
-  it("throws on a presence mismatch (control has a field, arm omits it)", () => {
-    const control = makePrediction();
-    const arm = makePrediction({ redBonusRpPmf: undefined });
-    expect(() => assertBonusHalfIdentical(control, arm, "2022test_qm1", "tie")).toThrow(/presence differs/);
-  });
-
-  it("throws on an elementwise mismatch", () => {
-    const control = makePrediction();
-    const arm = makePrediction({ blueBonusRp: [0.4, 0.099999] });
-    expect(() => assertBonusHalfIdentical(control, arm, "2022test_qm1", "win+tie")).toThrow(/must be bitwise/);
-  });
-
-  it("throws on a length mismatch", () => {
-    const control = makePrediction();
-    const arm = makePrediction({ redBonusRp: [0.3] });
-    expect(() => assertBonusHalfIdentical(control, arm, "2022test_qm1", "win")).toThrow(/length differs/);
-  });
-});
 
 describe("RpOutcomeArmRecordSchema", () => {
   it("parses a well-formed record with every arm and both blocks present", () => {

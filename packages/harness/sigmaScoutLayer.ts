@@ -64,17 +64,6 @@ import {
  * `UpcomingPredictionRecord` `publish.ts` exports — declared here rather than
  * imported so this module has no dependency back on the CLI that drives it.
  */
-/**
- * MEASUREMENT-ONLY (260913-qyn) — see `SigmaScoutLayer`'s constructor doc
- * comment. `win`/`tie` each forward straight through to `analyticRpPmf`'s
- * own measurement-only `pRedWin`/`discreteMarginTie` inputs; absent or
- * `false` reproduces today's exact expression.
- */
-export interface RpOutcomeArms {
-  readonly win?: boolean;
-  readonly tie?: boolean;
-}
-
 export interface UpcomingLayerRecord {
   readonly match: UpcomingMatch;
   readonly prediction: Prediction;
@@ -116,13 +105,6 @@ export class SigmaScoutLayer {
   readonly #rpMarginalResolutionTally: MarginalResolutionTally = emptyMarginalResolutionTally();
 
   /**
-   * MEASUREMENT-ONLY (260913-qyn) — see the constructor's own doc comment.
-   * `undefined` for every production construction, which is the same as
-   * `{}`: neither `win` nor `tie` set.
-   */
-  readonly #rpOutcomeArms: RpOutcomeArms | undefined;
-
-  /**
    * `ruleModule` is the season's RP rules, or `undefined` for a season with no
    * registered rules (2021, and any season before the vocabulary starts). A
    * season without rules still gets bands — the two features are independent,
@@ -134,28 +116,12 @@ export class SigmaScoutLayer {
    * `publishesRankingPoints(algorithmId)`. It is OPTIONAL: with no algorithm id
    * the layer has no Sigma, no RP and no band — every feature is opt-in by id,
    * never the silent default.
-   *
-   * `rpOutcomeArms` (260913-qyn) is a MEASUREMENT-ONLY third parameter, NOT a
-   * reintroduction of the config surface plan 09-06 deleted: it selects
-   * between exactly two independent flags (`win`, `tie`), each of which
-   * forwards straight through to `analyticRpPmf`'s own measurement-only
-   * `pRedWin`/`discreteMarginTie` inputs, and it is doc-commented here as
-   * never passed by a publisher. `scripts/measureRpCalibration.ts`'s
-   * outcome-arm comparison is the only caller that sets it, to fold the SAME
-   * walk-forward records through control and each arm from one replay. Every
-   * production `SigmaScoutLayer` construction in this tree passes two
-   * arguments, so `#rpOutcomeArms` is `undefined` there and every RP field
-   * this layer computes is exactly what it was before this parameter
-   * existed. The measurement seam itself — this parameter, and the optional
-   * inputs it forwards to — is deleted at ship time, in every outcome of the
-   * 260913-qyn bar (`applyRpOutcomeArmBar`).
    */
-  constructor(ruleModule: RpRuleModule | undefined, algorithmId?: string, rpOutcomeArms?: RpOutcomeArms) {
+  constructor(ruleModule: RpRuleModule | undefined, algorithmId?: string) {
     const rankingPoints = algorithmId !== undefined && publishesRankingPoints(algorithmId);
     this.#ruleModule = rankingPoints ? ruleModule : undefined;
     this.#rp = rankingPoints && ruleModule !== undefined ? new RpMomentsAccumulator(ruleModule) : undefined;
     this.#sigma = algorithmId !== undefined && usesSigmaScore(algorithmId) ? new SigmaScoreAccumulator() : undefined;
-    this.#rpOutcomeArms = rpOutcomeArms;
   }
 
   /**
@@ -396,12 +362,12 @@ export class SigmaScoutLayer {
       // into by every call. In-memory only — see rpMarginalResolutionTally's
       // own doc comment.
       tally: this.#rpMarginalResolutionTally,
-      // MEASUREMENT-ONLY (260913-qyn): absent whenever this.#rpOutcomeArms is
-      // undefined (every production construction), so a production layer
-      // forwards neither key and analyticRpPmf's default expressions run
-      // unchanged. See RpOutcomeArms's own doc comment.
-      ...(this.#rpOutcomeArms?.win === true ? { pRedWin: prediction.pRedWin } : {}),
-      ...(this.#rpOutcomeArms?.tie === true ? { discreteMarginTie: true as const } : {}),
+      // WIN SHIPPED 2026-09-13 (quick task 260913-qyn) — the algorithm's own
+      // published win probability replaces the score-draw comparison as the
+      // outcome split's decisive share. See `analyticPmf.ts`'s
+      // `RpOutcomeInput.pRedWin` doc comment and
+      // `data/baselines/rp-outcome-arms-2026-09.json`.
+      pRedWin: prediction.pRedWin,
     });
 
     // D-15 (plan 09-07): compose the five decomposition fields the rank
