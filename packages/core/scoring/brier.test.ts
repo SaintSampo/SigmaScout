@@ -24,7 +24,7 @@ describe("scoreSet", () => {
     expect(result.noCallCount).toBe(0);
   });
 
-  it("counts a 0.5 prediction as a MISS, not an exclusion (D-Q3)", () => {
+  it("counts a 0.5 prediction as a MISS, not an exclusion", () => {
     const predictions: ScoredPrediction[] = [
       { pRedWin: 0.8, actualWinner: "red" },
       { pRedWin: 0.5, actualWinner: "red" },
@@ -106,7 +106,7 @@ describe("scoreSet", () => {
     expect(result.brierScore).toBeCloseTo(((0.5 - 0.5) ** 2 + (0.9 - 0.5) ** 2) / 2, 10);
   });
 
-  it("keeps the tie exclusion and the no-call miss as two distinct rules (D-Q3)", () => {
+  it("keeps the tie exclusion and the no-call miss as two distinct rules", () => {
     // Same predicted probability, different outcomes: the tie leaves the
     // denominator, the decided match stays in it and scores 0.
     const predictions: ScoredPrediction[] = [

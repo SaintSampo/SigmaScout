@@ -17,7 +17,7 @@ import { breakdown2024 } from "./2024.js";
 import { ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT, isRecoverableBreakdownParseError, tryParseBreakdownPair } from "./index.js";
 import type { MatchResult, UpcomingMatch } from "../types.js";
 
-describe("distributeResidual (D-05)", () => {
+describe("distributeResidual", () => {
   it("splits the observed total across components in proportion to their predicted shares", () => {
     const result = distributeResidual(100, { a: 30, b: 10, c: 0 }, ["a", "b", "c"]);
     // Predicted total is 40; a gets 30/40 of 100, b gets 10/40 of 100, c gets 0.
@@ -135,7 +135,7 @@ const ALL_2024_FIELDS_EXCEPT_AUTO_LEAVE = [
   "foulPoints",
 ];
 
-describe("tryParseBreakdownPair (T-03-18b)", () => {
+describe("tryParseBreakdownPair", () => {
   it('yields kind "absent" for a null scoreBreakdownRaw', () => {
     expect(tryParseBreakdownPair(2024, null)).toEqual({ kind: "absent" });
   });
@@ -173,7 +173,7 @@ describe("tryParseBreakdownPair (T-03-18b)", () => {
   });
 });
 
-describe("isRecoverableBreakdownParseError (T-03-21 narrowness proof)", () => {
+describe("isRecoverableBreakdownParseError (narrowness proof)", () => {
   it("is true for a real ZodError captured from a failing schema parse", () => {
     let captured: unknown;
     try {
@@ -222,7 +222,7 @@ function matchResult(overrides: Partial<MatchResult> = {}): MatchResult {
   };
 }
 
-describe("epa.update — D-05 fallback fixture replay", () => {
+describe("epa.update — breakdown-less fallback fixture replay", () => {
   it("a breakdown-less match still moves the involved teams' component means off their cold-start value", () => {
     const initial = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
 

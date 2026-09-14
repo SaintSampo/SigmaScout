@@ -63,7 +63,7 @@ describe("assertValidPRedWin", () => {
   });
 });
 
-describe("opr.predict end-to-end — regression proof for 01-REVIEW WR-05", () => {
+describe("opr.predict end-to-end — non-finite pRedWin regression proof", () => {
   it("throws instead of returning a Prediction with a non-finite pRedWin when a team's rating is non-finite", () => {
     // A directly-constructed OprState (event-scoped shape, Phase 3.2) with
     // one participating team's rating at this event set to NaN — simulates

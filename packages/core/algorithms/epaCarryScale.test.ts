@@ -137,7 +137,7 @@ describe("rescaleComponents / materializePendingTeams", () => {
 });
 
 describe("EPA_CARRY_RESCALE_MIN_OBS — a MEASURED default, not an assumed one", () => {
-  it("is the threshold quick task 260911-3kc selected from its pre-declared candidate set", () => {
+  it("is the threshold selected from its pre-declared candidate set", () => {
     // The value itself is pinned so a future edit cannot quietly retune a
     // number that was chosen by a rule written down before any threshold
     // existed. See data/diagnostics/epa-deviation-ablation.json's

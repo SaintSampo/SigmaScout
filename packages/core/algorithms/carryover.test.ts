@@ -240,7 +240,7 @@ describe("epa.carrySeason — end-to-end state carry", () => {
     expect(Object.prototype.hasOwnProperty.call(frc1Components, "link")).toBe(true);
   });
 
-  it("allianceScoreStats is RE-SEEDED at the boundary: the prior season's SD survives, its observation count does not (quick task 260910-5ym)", () => {
+  it("allianceScoreStats is RE-SEEDED at the boundary: the prior season's SD survives, its observation count does not", () => {
     const state: EpaState = {
       season: 2022,
       teamComponents: new Map([["frc1", { autoTaxi: 10 }]]),

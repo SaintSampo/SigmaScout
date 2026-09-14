@@ -121,7 +121,7 @@ function allianceTotalPoints(rawJson: unknown, side: "red" | "blue"): number {
 
 const CORPUS_AVAILABLE = existsSync(CORPUS_PATH);
 
-describe.each(BREAKDOWN_REGISTERED_SEASONS)("season %i component map reconciliation (D-01, D-02)", (year) => {
+describe.each(BREAKDOWN_REGISTERED_SEASONS)("season %i component map reconciliation", (year) => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest) first`, () => {});
     return;
@@ -213,7 +213,7 @@ describe.each(BREAKDOWN_REGISTERED_SEASONS)("season %i component map reconciliat
   });
 });
 
-describe("malformed breakdown handling (T-02-01)", () => {
+describe("malformed breakdown handling", () => {
   it("2022: throws rather than emitting a zero when a mapped key is missing", async () => {
     const { breakdown2022 } = await import("./2022.js");
     const side = { autoCargoPoints: 5, teleopCargoPoints: 5, endgamePoints: 5, adjustPoints: 0, foulPoints: 0 };
@@ -283,7 +283,7 @@ describe("2026: structurally different shape must not silently parse under anoth
   });
 });
 
-describe("prototype-pollution regression (T-02-04)", () => {
+describe("prototype-pollution regression", () => {
   /**
    * Six sites build `ParsedComponents` with `Object.create(null)` plus a
    * fixed allowlist loop, so a `__proto__`, `constructor`, or `prototype`
@@ -367,7 +367,7 @@ describe("prototype-pollution regression (T-02-04)", () => {
   });
 });
 
-describe("2026 field-rename assertion (T-02-07)", () => {
+describe("2026 field-rename assertion", () => {
   /**
    * 2026 renames foul fields to majorFoulCount/minorFoulCount. The old
    * field names (foulCount/techFoulCount) must not appear in the
@@ -410,7 +410,7 @@ describe("2026 field-rename assertion (T-02-07)", () => {
   });
 });
 
-describe("2018 Scale/Switch split source gate (D-1)", () => {
+describe("2018 Scale/Switch split source gate", () => {
   /**
    * The corpus reconciliation proof above CANNOT catch a substitution of
    * TBA's fused ownership roll-ups for the required split components,
@@ -459,7 +459,7 @@ describe("2018 Scale/Switch split source gate (D-1)", () => {
     }
   });
 
-  it("2018.ts: components split BOTH auto and teleop ownership into separate Scale/Switch entries (D-1 pinned as a test)", () => {
+  it("2018.ts: components split BOTH auto and teleop ownership into separate Scale/Switch entries", () => {
     const components = componentMapForSeason(2018).components;
     expect(components).toContain("autoSwitchOwnership");
     expect(components).toContain("autoScaleOwnership");

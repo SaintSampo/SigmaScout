@@ -511,7 +511,7 @@ describe("simulateRanks — Test 17: the tie outcome is reachable and pays both 
   });
 });
 
-describe("simulateRanks — Test 17b: partial tie mass awards tieRp to BOTH alliances together, on the same draws (260913-qyn, WIN+TIE shipped)", () => {
+describe("simulateRanks — Test 17b: partial tie mass awards tieRp to BOTH alliances together, on the same draws", () => {
   it("a 0.25 tie mass lands a third reference team at last place on a draw share between 0.2 and 0.3, and never in first", () => {
     // outcomePmf: [0.375, 0.25, 0.375] — a genuine partial tie mass, unlike
     // Test 17's deterministic [0, 1, 0]. No bonus RP on either side
