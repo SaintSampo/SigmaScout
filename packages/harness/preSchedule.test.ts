@@ -1,14 +1,10 @@
 /**
- * Quick task 260905-tll Task 2 (TDD): the pure pre-schedule sidecar
- * builder. Every test uses a hand-written `predict` stub returning a fixed
- * seven-entry pmf, so no model, no corpus and no files are needed: the
- * pairing structures come from the rules-based generator
- * (`generatedSchedules.ts`), so every test here runs everywhere.
+ * The pure pre-schedule sidecar builder, tested with a `predict` stub returning
+ * a fixed seven-entry pmf, so no model, corpus or files are needed.
  *
- * Generator facts: 6 teams at 12 matches per team gives 12 matches with no
- * surrogate slots; 10 teams at 10 gives 17 matches with 2 surrogate slots
- * (`surrogateSlotCount(10, 10)`) — which is why the surrogate-honouring
- * tests (PD-03) use a 10-team roster at 10 matches per team.
+ * 6 teams at 12 matches per team gives 12 matches and no surrogate slots; 10
+ * teams at 10 gives 17 matches with 2 surrogate slots, hence the 10-team roster
+ * in the surrogate tests.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -44,7 +40,7 @@ function stubPredict(_match: UpcomingMatch): Prediction {
   };
 }
 
-/** Deliberately unsorted roster — the builder must sort it itself (republish determinism independent of corpus row order). */
+/** Deliberately unsorted roster: the builder must sort it itself. */
 const SIX_TEAM_ROSTER = ["frc6", "frc2", "frc10", "frc1", "frc4", "frc3"];
 const SIX_TEAM_ROSTER_SORTED = ["frc1", "frc10", "frc2", "frc3", "frc4", "frc6"];
 
@@ -229,7 +225,7 @@ describe("buildPreScheduleArtifact over generated pairing structures", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The FIELD-AVERAGED path (plan 09-09 Task 2; D-16, D-17)
+// The FIELD-AVERAGED path
 // ---------------------------------------------------------------------------
 
 /** 2023 — two threshold variables, `winRp` 2, `tieRp` 1, three bonuses. */
@@ -270,10 +266,8 @@ describe("buildFieldContributions (plan 09-09 Task 2 — the all-or-nothing rost
   });
 
   it("returns null when ANY roster team is missing a TOTAL_METRIC_KEY total", () => {
-    // A SEPARATE case from the consistency one on purpose: the two absences
-    // have different causes (too little play versus an algorithm that has
-    // never rated the team) and collapsing them into one case would let a fix
-    // for one silently break the other.
+    // Separate from the Sigma case: the absences have different causes, and one
+    // case would let a fix for one silently break the other.
     const inputs = faInputs();
     const partial = new Map(inputs.teamTotals);
     partial.delete("frc2");
@@ -289,9 +283,7 @@ describe("buildFieldContributions (plan 09-09 Task 2 — the all-or-nothing rost
     const contributions = buildFieldContributions(inputs)!;
     expect(contributions.map((c) => c.teamKey)).toEqual(["frc1", "frc2", "frc3"]);
     for (const contribution of contributions) {
-      // Asserted against the accumulator DIRECTLY, so "a one-team roster
-      // returns the team's own belief" is proven here rather than argued in a
-      // comment.
+      // Against the accumulator directly: a one-team roster returns the team's own belief.
       const own = inputs.rpAccumulator!.momentsFor([contribution.teamKey], 0, 0);
       expect(contribution.variableMeans).toEqual(own.meanVector);
       expect(contribution.variableVariances).toEqual(own.varianceBlock.map((row, i) => row[i]));
@@ -368,8 +360,7 @@ describe("buildFieldAveragedPreScheduleArtifact (plan 09-09 Task 2)", () => {
   it("is deterministic: two calls with identical params produce BYTE-identical JSON", () => {
     const first = JSON.stringify(buildFieldAveragedPreScheduleArtifact(faParams()));
     const second = JSON.stringify(buildFieldAveragedPreScheduleArtifact(faParams()));
-    // `toBe` on the STRINGS, not a deep-equal on the objects: key order is
-    // part of what a republish would churn in R2.
+    // `toBe` on the strings: key order is part of what a republish would churn in R2.
     expect(second).toBe(first);
   });
 
@@ -380,10 +371,7 @@ describe("buildFieldAveragedPreScheduleArtifact (plan 09-09 Task 2)", () => {
   });
 
   it("produces an artifact for a FIVE-team roster — below the generator's 6-team floor, which the schedule-based builder cannot serve at all", () => {
-    // The single most direct proof that this path is genuinely independent of
-    // schedule generation: no pairing structure is built, so no
-    // GeneratedScheduleError. This is the coverage WIDENING the plan's
-    // must_haves names, asserted as a behaviour.
+    // No pairing structure is built, so a roster below the generator's floor raises no GeneratedScheduleError.
     const roster = ["frc1", "frc2", "frc3", "frc4", "frc5"];
     const contributions = buildFieldContributions({
       roster,
@@ -397,9 +385,7 @@ describe("buildFieldAveragedPreScheduleArtifact (plan 09-09 Task 2)", () => {
   });
 
   it("never reads the filesystem: the whole build runs with no file access of any kind", () => {
-    // Proven positively above by the 5-team case. Proven structurally here:
-    // the module's own import surface is pinned by the case below, and this
-    // builder touches none of it.
+    // The 5-team case above proves it positively; the import pin below proves it structurally.
     const artifact = buildFieldAveragedPreScheduleArtifact(faParams())!;
     expect(artifact.perTeamPmf.every((pmf) => pmf.every((p) => Number.isFinite(p)))).toBe(true);
   });
@@ -471,24 +457,14 @@ describe("the field-averaged presim and the mean shift (quick task 260914-01x, C
 });
 
 describe("preSchedule.ts's static import surface (plan 09-09 Task 2)", () => {
-  /**
-   * A SET-EQUALITY pin on the module specifiers `preSchedule.ts` statically
-   * imports, following 08-04's `readFileSync` + regex precedent (the same
-   * shape `browserSafeSchemas.test.ts` uses to read a shipped file off disk).
-   *
-   * The schedule-generation import is in the expected set, so a change to
-   * where pairing structures come from (or their removal) is a FAILING TEST
-   * rather than a diff someone has to read.
-   */
+  /** A set-equality pin on `preSchedule.ts`'s static import specifiers, so a change to where pairing structures come from is a failing test. */
   const EXPECTED_IMPORT_SPECIFIERS: readonly string[] = [
     "./pageArtifacts.js",
     "../core/rankingPoints/fieldAveraged.js",
     "../core/rankingPoints/empiricalMoments.js",
     "../core/rankingPoints/constants.js",
-    // 2026-09-14, quick task 260914-01x: the mean-shift leaf, for
-    // `fieldMeanShiftVector`'s fully-warm check. A leaf with no pricing math.
+    // The mean-shift leaf, for `fieldMeanShiftVector`'s fully-warm check; no pricing math.
     "../core/rankingPoints/meanShift.js",
-    // The reader import was replaced by the generator in quick task 260913-pnp.
     "./generatedSchedules.js",
     "./rounding.js",
     "../core/algorithms/simulation/rankSimulation.js",
