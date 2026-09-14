@@ -1,33 +1,23 @@
 /**
- * READ-ONLY PRE-EVENT STATE PROBE (quick task 260912-3e6).
+ * READ-ONLY PRE-EVENT STATE PROBE.
  *
  * A separate Worker deployment (`wrangler.probe.toml`) that answers two
- * questions nothing else in this system answers, and that would otherwise be
- * answered for the first time during a live event, in front of visitors:
+ * questions nothing else in this system answers, and that would otherwise
+ * be answered for the first time during a live event, in front of visitors:
  *
- *   1. Can the DEPLOYED bundle read the rows now sitting in live D1? The
- *      real `deserializeState` has been run locally over rows pulled
- *      verbatim from live D1 and opr/epa/spr all deserialize — but that only
- *      proves the CODE can do it. Whether the currently-DEPLOYED Worker
- *      bundle can is a deploy-ordering property (which
- *      `STATE_SNAPSHOT_SHAPE_VERSION` it was built against), not a code
- *      property, and only something running inside the deployed runtime can
- *      settle it.
+ *   1. Can the deployed bundle read the rows now sitting in live D1? Whether
+ *      the currently-deployed Worker bundle can deserialize live rows is a
+ *      deploy-ordering property (which `STATE_SNAPSHOT_SHAPE_VERSION` it was
+ *      built against), not a code property, and only something running
+ *      inside the deployed runtime can settle it.
  *   2. What does a tick that actually folds the ranking-point path cost, in
- *      real Workers CPU time? Completely unmeasured. Live ticks report
- *      `cpuTime` 1 ms, and that number is worthless: the live-windows
- *      manifest is `windows: []`, so `processEvent` (`scheduled.ts:1002`)
- *      returns at its `newlyFolded.length === 0` check BEFORE a single
- *      league row is read. Every green tick since the 2026-09-12 seed is
- *      green for a reason that has nothing to do with this question — the
- *      Phase 9 ranking-point work (`analyticRpPmf` per match, on every
- *      still-upcoming match at the event) has never executed inside the
- *      Workers runtime against real beliefs.
+ *      real Workers CPU time? A live tick with no live events never reads a
+ *      league row at all, so its reported `cpuTime` says nothing about this
+ *      question.
  *
- * THE TWO-LAYER WRITE GUARANTEE (state this in exactly these terms — see the
- * plan's own table, and do not restate the brief's stronger, false claim
- * that the absence of write bindings is "the structural guarantee it cannot
- * mutate anything"; that is true for R2/KV and FALSE for D1):
+ * THE TWO-LAYER WRITE GUARANTEE (state this in exactly these terms — the
+ * absence of write bindings is the structural guarantee for R2/KV, but is
+ * FALSE for D1):
  *
  *   | Surface | What stops a write                         | Strength           |
  *   |---------|---------------------------------------------|--------------------|
@@ -40,7 +30,7 @@
  * Workers has no read-only D1 binding — this probe needs `DB` bound to read
  * state at all, and a bound D1 is writable. The guarantee that this file
  * never actually writes to it is held by `apps/worker/test/stateProbe.test.ts`
- * (static import-graph + comment-stripped source scan, PLUS a fake-D1
+ * (static import-graph + comment-stripped source scan, plus a fake-D1
  * write-count assertion), not by the binding list. THIS FILE MUST NEVER:
  *   - call `writeScopedState` / `writeEventCursor` / any `artifactWriter.ts`
  *     export, or import `scheduled.ts` at all (importing it would pull
@@ -58,15 +48,11 @@
  * file carries its own `probeSelectionsFor`, a deliberate duplicate pinned
  * equal to the real one by `stateProbe.test.ts`'s own equivalence test.
  *
- * ARMS (quick task 260912-iur): `?rp=0` ablates exactly the operations plan
- * 09-08 added to the live tick's Phase A, so Phase 9's share of the
- * `rp-fold-exceeds-worker-cpu-budget` overrun can be MEASURED as the
- * difference between two otherwise-identical runs instead of inferred. Which
- * operations those are was settled from `git log -S`, not from which code
- * reads as RP-shaped — see `runSprFold`'s own comment for the list and the
- * commits behind it. `rp` absent is ON and byte-identical to the pre-flag
- * probe, which is what keeps the existing 13 ms p50 / 28 ms p90 numbers
- * comparable.
+ * ARMS: `?rp=0` ablates exactly the operations added to the live tick's
+ * Phase A for ranking-point folding, so that work's share of the tick's CPU
+ * cost can be measured as the difference between two otherwise-identical
+ * runs instead of inferred — see `runSprFold`'s own comment for the
+ * operation list. `rp` absent is ON and byte-identical to the pre-flag probe.
  *
  * SCOPE: this probe prices Phase A only (state read, fold, serialize,
  * discard) — never Phase B (artifact merge, R2 reads/writes), TBA polling,
@@ -74,13 +60,6 @@
  * `docs/worker-operations.md`'s "Pre-event probe" section for the full
  * runbook, the same-commit ordering rule, and the conditions under which a
  * reported `cpuTime` is not a measurement at all.
- *
- * 260912-ivg (Sigma Power Rating rename): this probe reads
- * `PUBLISHED_ALGORITHM_IDS`, whose premier member is `spr` as of Stage 5.
- * Between Stage 1 (source rename) and Stage 3 (D1 reseed), a probe run in
- * that window legitimately reported `NoLeagueRow`/zero rows for the premier
- * algorithm rather than an error — the expected, not-yet-seeded state, not a
- * probe failure. That transitional window is closed as of this stage.
  */
 import {
   readScopedState,
@@ -138,7 +117,7 @@ interface ProbeEnv {
 
 const DEFAULT_SEASON = 2026;
 const DEFAULT_EVENT_TYPE = 0; // TBA event_type 0 = Regional, RP-eligible.
-/** 04-RESEARCH.md Pattern 1's peak realistic tick. */
+/** Peak realistic tick roster size. */
 const DEFAULT_TEAM_COUNT = 21;
 const DEFAULT_FOLDED = 2;
 const DEFAULT_UPCOMING = 60;
@@ -158,10 +137,9 @@ function clampInt(raw: string | null, fallback: number, min: number, max: number
 }
 
 /**
- * `rp` — THE ABLATION ARM SELECTOR (quick task 260912-iur). Recognized values
- * only; anything else is ON *and warned about*, so a typo'd arm can never be
- * silently measured as the other one. Absent/empty is ON, which is what keeps
- * the existing 13 ms p50 / 28 ms p90 measurements comparable.
+ * `rp` — the ablation arm selector. Recognized values only; anything else is
+ * ON and warned about, so a typo'd arm can never be silently measured as
+ * the other one. Absent/empty is ON, which keeps existing measurements comparable.
  */
 const RP_ON_VALUES = new Set(["1", "on", "true", "yes"]);
 const RP_OFF_VALUES = new Set(["0", "off", "false", "no"]);
@@ -191,7 +169,7 @@ interface ProbeParams {
   readonly teamCount: number;
   readonly folded: number;
   readonly upcoming: number;
-  /** Ablation arm. True = today's behaviour, byte-identical. False = every operation plan 09-08 (`dc30636e`) added to the tick's Phase A is skipped; see `runSprFold`. */
+  /** Ablation arm. True = today's behaviour, byte-identical. False = every ranking-point operation added to the tick's Phase A is skipped; see `runSprFold`. */
   readonly rp: boolean;
   /** The `rp=` value that was neither an on- nor an off-value, if any — surfaced as a warning rather than being silently coerced. */
   readonly rpUnrecognized: string | undefined;
@@ -213,13 +191,11 @@ function parseParams(url: URL): ProbeParams {
   return { season, eventType, eventOverride, teamsOverride, teamCount, folded, upcoming, rp: rp.enabled, rpUnrecognized: rp.unrecognized };
 }
 
-// ---------------------------------------------------------------------------
 // Discovery — scope_key-only, never state_json. These two queries cannot
 // deserialize anything; `readScopedState` below remains the only reader of a
 // state payload in this file. Discovery is overhead a real tick never pays,
 // so it is counted in `discovery` below rather than folded into `algorithms`
 // or `fold`.
-// ---------------------------------------------------------------------------
 
 interface DiscoveryRow {
   readonly scope_kind: string;
@@ -242,14 +218,11 @@ async function discoverEventKey(db: D1Database): Promise<string | undefined> {
   return row?.scope_key;
 }
 
-// ---------------------------------------------------------------------------
-// probeSelectionsFor — a DELIBERATE DUPLICATE of `scheduled.ts`'s
+// probeSelectionsFor — a deliberate duplicate of `scheduled.ts`'s
 // `selectionsFor`. See this file's header for why importing the real one is
 // not an option. `stateProbe.test.ts` asserts these two produce deep-equal
-// output across a case table including the event-scoped `opr` case, so a
-// future edit to either that drifts from the other fails a named test
-// instead of silently reading a different row set than a real tick.
-// ---------------------------------------------------------------------------
+// output, so a future edit to either that drifts from the other fails a
+// named test instead of silently reading a different row set than a real tick.
 
 /** Mirrors `scheduled.ts`'s `EVENT_SCOPED_ALGORITHM_IDS` — which published algorithms keep EVENT-scoped state, alongside their team rows. */
 const PROBE_EVENT_SCOPED_ALGORITHM_IDS = new Set(["opr"]);
@@ -482,38 +455,32 @@ async function readAndDeserializeAll(
 }
 
 /**
- * The fold, `spr` ONLY — matching `wrangler.toml`'s tracked
- * `LIVE_ALGORITHM_IDS`. Drives the SAME sequence `scheduled.ts:1080-1300`
- * drives, in the same order: resume Sigma/RP accumulators from the
- * rows just read, price `folded` played matches (predict, band, RP fields,
- * update, fold), then price `upcoming` still-upcoming matches (predict,
- * band, RP fields — read-only), then serialize-and-discard.
+ * The fold, `spr` only — matching `wrangler.toml`'s tracked
+ * `LIVE_ALGORITHM_IDS`. Drives the same sequence a live tick drives, in the
+ * same order: resume Sigma/RP accumulators from the rows just read, price
+ * `folded` played matches (predict, band, RP fields, update, fold), then
+ * price `upcoming` still-upcoming matches (predict, band, RP fields —
+ * read-only), then serialize-and-discard.
  *
- * THE `rpEnabled` ABLATION ARM (quick task 260912-iur). `false` skips exactly
- * the operations plan 09-08 (`dc30636e`, 2026-09-11) added to `processEvent`'s
- * Phase A, established from `git log -S` rather than from which code looks
- * RP-shaped:
+ * `rpEnabled` is the ablation arm: `false` skips exactly the ranking-point
+ * operations, so their share of tick cost can be measured, not inferred.
  *
- *   SKIPPED when off — all four are `+` lines in `dc30636e`:
+ *   SKIPPED when off:
  *     1. the accumulator resume: `RP_RULE_MODULES[season]`, `readRpBeliefs`,
  *        `RpMomentsAccumulator.fromBeliefs`, and the `rpKnownTeams` set
- *     2. `rpFieldsFor` — the `analyticRpPmf` call, its four gates, and 09-07's
- *        decomposition — in BOTH the played and the upcoming loop
+ *     2. `rpFieldsFor` — the `analyticRpPmf` call and its gates — in both
+ *        the played and the upcoming loop
  *     3. `foldObservedRp` — the per-side `rpRuleModule.parse` + `rp.fold`
  *     4. `withRpBeliefs` on the serialize-and-discard path
  *
- *   KEPT in BOTH arms — these PREDATE Phase 9 and are not its cost to bear:
- *     - the whole upcoming-repricing loop, `dabe9acd` (04-06, 2026-08-22).
- *       Phase 9 added `analyticRpPmf` INTO an already-costly loop; it did not
- *       create the loop.
- *     - every `bandFor` call in both loops: `63596da3` (2026-09-09) as the
- *       retired per-robot consistency accumulator's band variance, then
- *       `447395a1` (2026-09-10) as the Sigma-dispatching `bandFor` closure,
- *       Sigma-only since quick task 260913-it4. Both land BEFORE Phase 9's first
- *       commit (2026-09-11), so `bandsProduced` must come out IDENTICAL in the
- *       two arms — `stateProbe.test.ts` asserts exactly that. Ablating the
- *       bands would credit Phase 9 with work that was already there and
- *       overstate its share of the overrun.
+ *   KEPT in both arms — these predate the ranking-point work and are not
+ *   its cost to bear:
+ *     - the whole upcoming-repricing loop, which existed before ranking
+ *       points were added into it
+ *     - every `bandFor` call in both loops (`bandsProduced` must come out
+ *       identical in the two arms — `stateProbe.test.ts` asserts exactly
+ *       that; ablating the bands would overstate ranking points' share of
+ *       the overrun)
  *     - `spr.predict`/`spr.update`, the Sigma fold, the talent read, and
  *       `serializeState` + the Sigma passengers.
  */
@@ -543,8 +510,8 @@ function runSprFold(
 
   try {
     // Resumed from the rows just read — a fresh accumulator would price
-    // these synthetic matches from nothing, which answers a different
-    // question than "what does a REAL tick's resumed fold cost".
+    // these synthetic matches from nothing, answering a different question
+    // than "what does a real tick's resumed fold cost".
     const sigma = usesSigmaScore("spr") ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(sprRows), readSigmaPopulation(sprRows)) : undefined;
     const bandFor = (roster: readonly string[]): number | undefined => (sigma === undefined ? undefined : sigma.bandVarianceFor(roster));
 
@@ -552,12 +519,10 @@ function runSprFold(
     // unmapped season) — an unregistered season yields no accumulator and a
     // named warning at the response level, never a failed probe.
     //
-    // OPERATION 1 of the ablation set. Gating the module lookup and the
-    // belief read here is what makes operations 2-4 fall out: `rpFieldsFor`,
-    // `foldObservedRp` and the `withRpBeliefs` call below are ALL already
-    // guarded on `rp === undefined`, which is the same guard an unregistered
-    // season (2021) trips. Off-arm therefore skips the `readRpBeliefs` JSON
-    // walk and the `fromBeliefs` reconstruction too, not merely the pmf call.
+    // Operation 1 of the ablation set: gating the module lookup and belief
+    // read here is what makes operations 2-4 fall out, since `rpFieldsFor`,
+    // `foldObservedRp` and `withRpBeliefs` below are all already guarded on
+    // `rp === undefined`.
     const rpRuleModule = rpEnabled ? RP_RULE_MODULES[season] : undefined;
     const rpBeliefs = rpEnabled ? readRpBeliefs(sprRows) : undefined;
     const rp = rpRuleModule !== undefined && rpBeliefs !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs) : undefined;
@@ -576,10 +541,9 @@ function runSprFold(
       if (rp === undefined || rpRuleModule === undefined) return {};
       if (!isRpEligibleEventType(view.eventType)) return {};
       if (redBandVariance === undefined || blueBandVariance === undefined) return {};
-      // THE PARTIAL-ROSTER GATE — mirrors `scheduled.ts:1140-1156` exactly.
-      // Removing it would OVER-price as surely as tripping it under-prices;
-      // it is part of what this probe exists to measure, not overhead to
-      // strip out.
+      // The partial-roster gate — mirrors `scheduled.ts`'s exactly.
+      // Removing it would over-price as surely as tripping it under-prices;
+      // it is part of what this probe exists to measure, not overhead to strip out.
       for (const teamKey of [...view.redTeams, ...view.blueTeams]) {
         if (!rpKnownTeams.has(teamKey)) return {};
       }
@@ -590,8 +554,7 @@ function runSprFold(
         ruleModule: rpRuleModule,
         eventType: view.eventType,
         compLevel: view.compLevel,
-        // WIN SHIPPED 2026-09-13 (quick task 260913-qyn) — mirrors
-        // `scheduled.ts`'s `rpFieldsFor` exactly.
+        // Mirrors `scheduled.ts`'s `rpFieldsFor` exactly.
         pRedWin: prediction.pRedWin,
       });
 
@@ -644,23 +607,16 @@ function runSprFold(
       if (redBandVariance !== undefined) bandsProduced++;
       if (blueBandVariance !== undefined) bandsProduced++;
       const fields = rpFieldsFor(result, prediction, redBandVariance, blueBandVariance);
-      // ONE increment per MATCH, not per alliance — `rpFieldsFor`'s gates
-      // (rule module, event eligibility, band presence, partial roster) are
-      // all-or-nothing for a given match: either both alliances get a pmf or
-      // neither does. `stateProbe.test.ts` asserts this counter by EQUALITY
-      // against `folded + upcoming`, so double-counting here would silently
-      // halve the threshold at which a suppressed pmf becomes visible.
-      //
-      // With `rp=0` this is 0 BY CONSTRUCTION, which is why the test pins the
-      // two arms as two equalities (`=== folded + upcoming` and `=== 0`)
-      // rather than relaxing to `>= 0` — an inequality would pass vacuously in
-      // both arms and destroy the guarantee above.
+      // One increment per match, not per alliance — `rpFieldsFor`'s gates
+      // are all-or-nothing for a given match, either both alliances get a
+      // pmf or neither does. `stateProbe.test.ts` asserts this counter by
+      // equality against `folded + upcoming` (and `=== 0` with `rp=0`).
       if (fields.redRpPmf !== undefined) rpPmfsProduced++;
 
       state = spr.update(state, result);
       sigma?.foldMatch(result, prediction);
       foldObservedRp(result);
-      // Talent AFTER the fold, from the post-update state — mirrors
+      // Talent after the fold, from the post-update state — mirrors
       // `scheduled.ts`'s ordering exactly (predict-before-update for the
       // band/RP reads above, talent read only once the fold has happened).
       if (sigma !== undefined) {
@@ -697,13 +653,9 @@ function runSprFold(
     if (sigma !== undefined) {
       candidateRows = withSigmaPopulation(withSigmaBeliefs(candidateRows, sigma.beliefsByTeam()), sigma.population());
     }
-    // `selectChangedRows` is imported from `./stateStore.js` — a module this
-    // file's import graph already carries (`readScopedState`/
-    // `MAX_SCOPE_KEYS_PER_READ` above) — rather than reproduced inline. It is
-    // a pure comparison with no write helper anywhere in ITS own graph, so
-    // importing it does not change what `stateProbe.test.ts`'s Group 1
-    // static scan forbids (`writeScopedState`, `writeEventCursor`,
-    // `artifactWriter.ts`, `scheduled.ts` stay unreachable either way).
+    // `selectChangedRows` is a pure comparison with no write helper anywhere
+    // in its own graph, so importing it does not change what
+    // `stateProbe.test.ts`'s static scan forbids.
     const changedRowsDiscarded = selectChangedRows(sprRows, candidateRows).length;
 
     return { algorithmId: "spr", matchesFolded, upcomingPriced, bandsProduced, rpPmfsProduced, rpObservedFolds, changedRowsDiscarded };
@@ -760,10 +712,8 @@ function buildWarnings(params: {
   if (resolvedTeamCount < requestedTeamCount) {
     warnings.push(`roster smaller than requested: found/used ${resolvedTeamCount} team(s) against a requested teamCount of ${requestedTeamCount} — the fold below prices a smaller roster than a real tick's peak`);
   }
-  // Gated on `rpEnabled`: in the ablated arm a 0 here is the REQUESTED
-  // outcome, and this warning's list of causes (partial-roster gate,
-  // ineligible event type, no rule module) would name three things that did
-  // not happen. The `rp=0` warning above already says what did.
+  // Gated on `rpEnabled`: in the ablated arm a 0 here is the requested
+  // outcome, and the `rp=0` warning above already says what happened.
   if (rpEnabled && fold.error === undefined && folded + upcoming > 0 && fold.rpPmfsProduced === 0) {
     warnings.push(`rpPmfsProduced is 0 — every RP pmf was suppressed (the partial-roster gate, an ineligible event type, or no registered rule module); the reported cpuTime is NOT evidence about the RP path`);
   }
