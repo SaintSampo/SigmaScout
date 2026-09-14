@@ -1,30 +1,20 @@
 /**
- * 2023 (Charged Up) RP rule module (D-09, D-12). Manual citation: official
- * 2023 FRC Game Manual §6.4.3, Table 6-2
- * (`firstfrc.blob.core.windows.net/frc2023/Manual/HTML/2023FRCGameManual.htm`,
- * RESEARCH.md Code Examples). Verification method: corpus reconciliation
- * (`reconciliation.test.ts`) against TBA's own recorded
- * `activationBonusAchieved`/`sustainabilityBonusAchieved` flags — verified
- * this phase at 0/27116 mismatches, full season, all event types
- * (RESEARCH.md).
+ * 2023 (Charged Up) RP rule module. Source: 2023 FRC Game Manual §6.4.3, Table 6-2.
+ * Verified by corpus reconciliation (`reconciliation.test.ts`) against TBA's
+ * recorded `activationBonusAchieved`/`sustainabilityBonusAchieved` flags: 0/27116
+ * mismatches, full season, all event types.
  *
  * Deliberately never read: `autoPoints`/`teleopPoints` (roll-ups),
- * `autoCommunity`/`teleopCommunity` (per-node placement grids, structural
- * detail not a point/count value), `links` (structural array, use
- * `linkPoints` instead), `coopGamePieceCount` (not RP-relevant — the RP
- * coopertition gate is `coopertitionCriteriaMet`, a boolean), the
- * per-robot `autoChargeStationRobot1/2/3`/`endGameChargeStationRobot1/2/3`/
- * `mobilityRobot1/2/3` fields (Pitfall Sigma1-2/Assumption A1).
+ * `autoCommunity`/`teleopCommunity` (per-node grids), `links` (structural array;
+ * `linkPoints` is read instead), `coopGamePieceCount` (the RP gate is the
+ * `coopertitionCriteriaMet` boolean), and the per-robot
+ * `autoChargeStationRobot1/2/3`/`endGameChargeStationRobot1/2/3`/`mobilityRobot1/2/3` fields.
  *
- * Threshold comparison semantics are `>=` throughout (the manual states
- * every bonus as "at least N").
- *
- * The single most important tier fact in this phase (RESEARCH.md): District
- * Championship (event_type 2/5) does NOT get the Sustainability Bonus tier
- * bump — only Championship (event_type 3/4) does. Coopertition requires
- * BOTH alliances' `coopertitionCriteriaMet === true` (AND, never OR — an
- * OR-based check produced 609/6000 mismatches; the AND-based, tier-aware
- * check produced 0/27116), so `parse` reads both sides of the raw object.
+ * Thresholds compare with `>=` (the manual states every bonus as "at least N").
+ * District Championship does NOT get the Sustainability tier bump; only
+ * Championship does. Coopertition requires BOTH alliances'
+ * `coopertitionCriteriaMet` (AND, never OR: OR produced 609/6000 mismatches), so
+ * `parse` reads both sides of the raw object.
  */
 import { z } from "zod";
 import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
@@ -43,7 +33,7 @@ const Rp2023Schema = z.object({
   blue: SideSchema,
 });
 
-/** Activation Bonus threshold: `totalChargeStationPoints >= 26`. Not tiered — 0/1000 mismatches (RESEARCH.md). */
+/** Activation Bonus threshold: `totalChargeStationPoints >= 26`. Not tiered. */
 const ACTIVATION_BONUS_THRESHOLD: RpTieredThreshold = { base: 26, districtChampionship: 26, championship: 26 };
 
 /**
@@ -57,25 +47,12 @@ const SUSTAINABILITY_THRESHOLD_NON_COOP: RpTieredThreshold = { base: 5, district
 const SUSTAINABILITY_THRESHOLD_COOP: RpTieredThreshold = { base: 4, districtChampionship: 4, championship: 5 };
 
 /**
- * Points per link, used to convert `linkPoints` into a LINK count. Verified
- * 100% integer across 27,116 sides with 0 exceptions (D-03) — the quotient
- * `linkPoints / LINK_POINTS_PER_LINK` is exact, never fractional. Named here
- * (09-02 Task 2) rather than left as `parse`'s previous inline `/ 5`
- * literal, and used in BOTH `parse` and `BONUS_PREDICATES` below so there is
- * exactly one spelling of this number in the module.
+ * Points per link. `linkPoints / LINK_POINTS_PER_LINK` is an exact integer across all
+ * 27,116 corpus sides; `parse` and `BONUS_PREDICATES` share this one spelling.
  */
 const LINK_POINTS_PER_LINK = 5;
 
-// 09-05 Task 3 (D-01): both variables below flip to "negative-binomial".
-// totalChargeStationPoints is MEASURED evidence (09-RESEARCH.md's broader
-// corpus probe). linkPoints is DERIVED-INTEGER evidence: it feeds `links`
-// (divisor above), one of the three D-03 linear combinations verified 100%
-// integer-valued with ZERO exceptions across 27,116 alliance-sides. See
-// constants.ts's `MarginalFamily` doc comment for the evidence-class
-// framework.
-// 2026-09-14, quick task 260914-01x: every variable below declares "lattice",
-// shipped by the committed bonus-arm bar (data/baselines/rp-bonus-arms-2026-09.json,
-// ship: lattice+meanShift). Any other family named above is history.
+// Every variable declares "lattice"; the shipping evidence is data/baselines/rp-bonus-arms-2026-09.json.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "totalChargeStationPoints",
@@ -93,14 +70,6 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   },
 ];
 
-/**
- * D-02, D-07, Pitfall 4: `activationBonus` is `singleThreshold`.
- * `sustainabilityBonus` is `linearCombination` — one term, `linkPoints`
- * divided by `LINK_POINTS_PER_LINK` — evaluated at the STRICTER
- * `SUSTAINABILITY_THRESHOLD_NON_COOP` table, carrying an `RpUntrackedGate`
- * for the untracked both-alliances `coopertitionCriteriaMet` signal
- * (conservative, understates).
- */
 const BONUS_PREDICATES: readonly BonusPredicate[] = [
   {
     kind: "singleThreshold",
@@ -176,15 +145,9 @@ export const rp2023: RpRuleModule = {
   },
 
   /**
-   * `activationBonus` is fully computable from `totalChargeStationPoints`
-   * alone. `sustainabilityBonus`'s real condition also gates on BOTH
-   * alliances' `coopertitionCriteriaMet` (untracked, not a threshold
-   * variable) — evaluated here assuming coopertition is NOT met, i.e. the
-   * stricter `SUSTAINABILITY_THRESHOLD_NON_COOP` table, per
-   * `RpRuleModule.predictThresholds`'s documented conservative-gate
-   * convention (understates, never overstates, this bonus's probability).
-   * Delegates to the shared declarative evaluator (D-02, D-07); see
-   * `BONUS_PREDICATES` above.
+   * `sustainabilityBonus` also gates on BOTH alliances' untracked
+   * `coopertitionCriteriaMet`, so it is evaluated at the stricter non-coop table
+   * (the conservative-gate convention: understates, never overstates).
    */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
     return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
