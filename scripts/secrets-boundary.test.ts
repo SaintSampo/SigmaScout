@@ -53,7 +53,7 @@ function getEnvValue(filePath: string, key: string): string | null {
   return null;
 }
 
-describe("secrets boundary (T-01-02)", () => {
+describe("secrets boundary", () => {
   it("should have .env git-ignored so the TBA key cannot be committed", () => {
     // This is assertion (a) from the gap spec.
     // On Windows and Unix, git check-ignore outputs the path if it is ignored,
@@ -120,14 +120,14 @@ describe("secrets boundary (T-01-02)", () => {
 });
 
 /**
- * D-24: the Cloudflare credentials (`CLOUDFLARE_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
+ * The Cloudflare credentials (`CLOUDFLARE_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`,
  * `R2_SECRET_ACCESS_KEY`, `R2_PUBLIC_BASE_URL`) enter `.env` alongside
  * `TBA_API_KEY` for `packages/harness/r2Client.ts`. This block mirrors the
- * "secrets boundary (T-01-02)" suite above exactly, using the same `sha256`/
+ * "secrets boundary" suite above exactly, using the same `sha256`/
  * `getEnvValue` helpers, so the Cloudflare token carries the identical
- * never-print, hash-compare protection the TBA key has had since Phase 1.
+ * never-print, hash-compare protection the TBA key already has.
  */
-describe("cloudflare credentials boundary (D-24)", () => {
+describe("cloudflare credentials boundary", () => {
   const CLOUDFLARE_ENV_KEYS = ["CLOUDFLARE_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_PUBLIC_BASE_URL"] as const;
   /** Only these two are bearer-token-shaped secrets; `CLOUDFLARE_ACCOUNT_ID` and `R2_PUBLIC_BASE_URL` are not secret (an account ID and a public bucket URL are meant to be visible). */
   const CLOUDFLARE_SECRET_KEYS = ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"] as const;

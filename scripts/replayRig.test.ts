@@ -24,7 +24,7 @@ import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms
 // harness) is built directly from `PUBLISHED_ALGORITHM_IDS` — asserted here
 // against the imported constant, never a re-typed array literal, so a future
 // rename of the constant's members is caught here without editing this test.
-describe("replayRig's default --algorithm list (plan 07-16/07-18)", () => {
+describe("replayRig's default --algorithm list", () => {
   // VPR left this list on 2026-09-09 (`eae2defb`) and this pin was not
   // updated with it, so it sat red. An equality pin is the right shape here —
   // it fails loudly on a membership change, which is exactly what happened —
@@ -168,7 +168,7 @@ describe("ReplayRigResultSchema", () => {
     expect(() => ReplayRigResultSchema.parse(bad)).toThrow();
   });
 
-  it("requires the D-20 gap note field to be present and non-empty", () => {
+  it("requires the gap note field to be present and non-empty", () => {
     const { gap: _gap, ...withoutGap } = base;
     expect(() => ReplayRigResultSchema.parse(withoutGap)).toThrow();
   });

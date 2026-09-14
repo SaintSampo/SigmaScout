@@ -36,7 +36,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-describe("publishAlgorithmsManifest.run — WR-01 read-back verification", () => {
+describe("publishAlgorithmsManifest.run — read-back verification", () => {
   let dir: string;
   let sourcePath: string;
   let fetchMock: ReturnType<typeof vi.fn>;

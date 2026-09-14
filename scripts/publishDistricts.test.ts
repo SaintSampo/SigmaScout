@@ -416,7 +416,7 @@ describe("buildDistrictArtifact — award-based qualification (revision R2a)", (
   });
 });
 
-describe("buildDistrictArtifact cut lines (260913-l8q: share the lock verdicts' own pool/slot derivation)", () => {
+describe("buildDistrictArtifact cut lines (sharing the lock verdicts' own pool/slot derivation)", () => {
   it("a DCMP Winner award (award_type 1, consuming at the DCMP tier) to a team ranked below cmpSlots pulls insights.cmpCutLinePoints ABOVE the naive rank-slot value, and every team's champLock.cutLinePoints matches it", () => {
     const rankings = [
       ranking({ teamKey: "a", rank: 1, pointTotal: 100 }),

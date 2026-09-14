@@ -137,7 +137,7 @@ const NO_FRONTMATTER_AT_ALL = `# Just a markdown file
 No frontmatter delimiters anywhere in this file.
 `;
 
-describe("lintReviewFile (D-16)", () => {
+describe("lintReviewFile", () => {
   it("reports no problem for a fresh, unresolved review (no resolution: key, no body resolution subsections)", () => {
     expect(lintReviewFile("fixture.md", FRESH_UNRESOLVED)).toEqual([]);
   });
@@ -233,7 +233,7 @@ Resolved via commit def5678.
     expect(problems[0]!.message).toMatch(/no frontmatter delimiters/);
   });
 
-  it("runs over every real review file under .planning/phases/ and reports zero problems (Task 2's regression proof)", () => {
+  it("runs over every real review file under .planning/phases/ and reports zero problems (the regression proof)", () => {
     const files = findReviewFiles(PHASES_DIR);
     expect(files.length).toBeGreaterThan(0);
     const allProblems: ReviewLintProblem[] = [];
