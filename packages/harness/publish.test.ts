@@ -159,7 +159,7 @@ function eventArtifactParams(
   return {
     eventKey: "2026casj",
     season: 2026,
-    algorithmId: "vpr",
+    algorithmId: "spr",
     algorithmVersion: "2.0.0+test",
     predictions: [{ match: fixtureMatch(), prediction: fixturePrediction(prediction) }],
     upcoming: [{ match: fixtureUpcoming(), prediction: fixturePrediction(upcomingPrediction) }],
@@ -656,7 +656,7 @@ describe("buildEventArtifact / buildTeamSeasonArtifact — cross-builder equival
       teamNumber: 254,
       nickname: "The Cheesy Poofs",
       season: 2026,
-      algorithmId: "vpr",
+      algorithmId: "spr",
       algorithmVersion: "2.0.0+test",
       seasonStats: { record: { wins: 10, losses: 2, ties: 0 }, metrics: { total: { value: 12.34567 } }, metricsBasis: "last-official-match" },
       events: [
@@ -728,7 +728,7 @@ describe("buildEventArtifact / buildTeamSeasonArtifact — videoByMatchKey (quic
       teamNumber: 254,
       nickname: "The Cheesy Poofs",
       season: 2026,
-      algorithmId: "vpr",
+      algorithmId: "spr",
       algorithmVersion: "2.0.0+test",
       seasonStats: { record: { wins: 10, losses: 2, ties: 0 }, metrics: { total: { value: 12.34567 } }, metricsBasis: "last-official-match" },
       events: [
@@ -761,7 +761,7 @@ describe("buildEventArtifact / buildTeamSeasonArtifact — videoByMatchKey (quic
       teamNumber: 254,
       nickname: "The Cheesy Poofs",
       season: 2026,
-      algorithmId: "vpr",
+      algorithmId: "spr",
       algorithmVersion: "2.0.0+test",
       seasonStats: { record: { wins: 10, losses: 2, ties: 0 }, metrics: { total: { value: 12.34567 } }, metricsBasis: "last-official-match" },
       events: [
@@ -1700,7 +1700,7 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
   } as const;
 
   it("D-01: rounds a Sigma1-shaped prediction's own-variance fields to 4 decimals; an OPR-shaped prediction leaves both undefined", () => {
-    const vprArtifact = buildTeamSeasonArtifact({
+    const varianceArtifact = buildTeamSeasonArtifact({
       ...baseParams,
       events: [
         {
@@ -1713,9 +1713,9 @@ describe("buildTeamSeasonArtifact — Phase 6 D-01/D-02/D-08/D-09 per-match fiel
         },
       ],
     });
-    const vprRow = vprArtifact.events[0]?.matches[0];
-    expect(vprRow?.redScoreVarianceOwn).toBe(12.3457);
-    expect(vprRow?.blueScoreVarianceOwn).toBe(9.8765);
+    const varianceRow = varianceArtifact.events[0]?.matches[0];
+    expect(varianceRow?.redScoreVarianceOwn).toBe(12.3457);
+    expect(varianceRow?.blueScoreVarianceOwn).toBe(9.8765);
 
     const oprArtifact = buildTeamSeasonArtifact({
       ...baseParams,
@@ -2001,7 +2001,7 @@ describe("buildTeamSeasonArtifact — predicted/actual per-bonus RP fields (Phas
     teamNumber: 254,
     nickname: "The Cheesy Poofs",
     season: 2024,
-    algorithmId: "vpr",
+    algorithmId: "spr",
     algorithmVersion: "2.0.0+test",
     seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 45.6 } }, metricsBasis: "last-official-match" },
     metricHistory: [],
@@ -2106,17 +2106,17 @@ describe("buildTeamSeasonArtifact — predicted/actual per-bonus RP fields (Phas
       events: [{ eventKey: "2024casj", eventName: "2024casj", startDate: "2024-03-01", matches: [{ match, prediction: fixturePrediction() }] }],
       actualBonusFlagsByMatchKey: flagMap,
     });
-    const vprArtifact = buildTeamSeasonArtifact({
+    const sprArtifact = buildTeamSeasonArtifact({
       ...baseParams,
-      algorithmId: "vpr",
+      algorithmId: "spr",
       algorithmVersion: "2.0.0+test",
       events: [{ eventKey: "2024casj", eventName: "2024casj", startDate: "2024-03-01", matches: [{ match, prediction: fixturePrediction() }] }],
       actualBonusFlagsByMatchKey: flagMap,
     });
     const oprRow = oprArtifact.events[0]?.matches[0];
-    const vprRow = vprArtifact.events[0]?.matches[0];
-    expect(oprRow?.actualRedBonusRp).toEqual(vprRow?.actualRedBonusRp);
-    expect(oprRow?.actualBlueBonusRp).toEqual(vprRow?.actualBlueBonusRp);
+    const sprRow = sprArtifact.events[0]?.matches[0];
+    expect(oprRow?.actualRedBonusRp).toEqual(sprRow?.actualRedBonusRp);
+    expect(oprRow?.actualBlueBonusRp).toEqual(sprRow?.actualBlueBonusRp);
   });
 
   /**
@@ -2167,7 +2167,7 @@ function historyRow(overrides: Partial<MetricHistoryRow> = {}): MetricHistoryRow
     matchKey: "2026casj_qm1",
     season: 2026,
     eventKey: "2026casj",
-    algorithmId: "vpr",
+    algorithmId: "spr",
     teamKey: "frc254",
     matchIndex: 0,
     metrics: { [TOTAL_METRIC_KEY]: { value: 10 } },
