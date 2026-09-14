@@ -629,7 +629,7 @@ export function replaySeason(
         preTargetMatchCountByEvent,
         replayMode:
           replayFrom === season
-            ? `cold (target season ${season} only, assumption A-FA3)`
+            ? `cold (target season ${season} only, replay-mode assumption)`
             : `carried from ${replayFrom} through ${season}`,
       };
     }
@@ -683,7 +683,7 @@ export function measureEvent(
   const pricingState = replay.preEventStateByEvent.get(target.eventKey);
   if (pricingState === undefined) {
     throw new Error(
-      `measureFieldAveragedRanks: no pre-event walk-forward state was captured for ${target.eventKey} (PD-04 — the cold-start season's first event). Re-run with --replay-from an earlier season.`
+      `measureFieldAveragedRanks: no pre-event walk-forward state was captured for ${target.eventKey} (the cold-start season's first event). Re-run with --replay-from an earlier season.`
     );
   }
 
@@ -970,13 +970,13 @@ export function printEvent(m: EventMeasurement): void {
       `fieldBytes/team=${m.bytes.fieldBytesPerTeam.toFixed(1)}  baked schedules block=${(m.bytes.bakedSchedulesFraction * 100).toFixed(1)}% of baked`
   );
   console.log(
-    `A-FA1 residual (predicted alliance score minus the sum of its members' totals), over ${m.residual.allianceCount} alliances: ` +
+    `Additivity residual (predicted alliance score minus the sum of its members' totals), over ${m.residual.allianceCount} alliances: ` +
       `mean=${m.residual.mean.toFixed(3)}  sd=${m.residual.sd.toFixed(3)}  max|.|=${m.residual.maxAbs.toFixed(3)}   ` +
       `as a fraction of the model's own score uncertainty (sqrt(meanOfBandVariances * ${ALLIANCE_SIZE}) = ${m.residual.scoreUncertainty.toFixed(3)}): ` +
       `mean=${m.residual.meanFraction.toFixed(3)}  sd=${m.residual.sdFraction.toFixed(3)}  max=${m.residual.maxAbsFraction.toFixed(3)}`
   );
   console.log(
-    "A-FA1: a large residual STANDARD DEVIATION is the first thing to examine if the band-edge (clause 2) or systematic-shift (clause 3) clauses fail."
+    "Additivity assumption: a large residual STANDARD DEVIATION is the first thing to examine if the band-edge (clause 2) or systematic-shift (clause 3) clauses fail."
   );
   console.log(
     `diagnostics (NOT part of the criterion, and never used to overrule it): mean season-total RP per team — baked=${m.bakedMeanSeasonRp.toFixed(2)} fieldAveraged=${m.fieldMeanSeasonRp.toFixed(2)}; ` +
@@ -1040,7 +1040,7 @@ export async function main(argv: readonly string[]): Promise<void> {
   // Resolved here too, so an invalid --schedules throws before any replay.
   const split = resolveScheduleSplit(draws, scheduleCountFlag);
 
-  console.log("measureFieldAveragedRanks — D-16/D-17 rung 1 vs the BAKED path, at the schedule count printed below");
+  console.log("measureFieldAveragedRanks — rung 1 vs the BAKED path, at the schedule count printed below");
   console.log(
     `algorithm=${algorithm.id}@${algorithm.version}  draws=${draws} total  schedules=${split.scheduleCount}  drawsPerSchedule=${split.drawsPerSchedule}  events=${targets.map((t) => t.eventKey).join(", ")}`
   );
@@ -1353,7 +1353,7 @@ export function renderDoc(measurements: readonly EventMeasurement[], verdict: Ru
   lines.push("## The criterion, fixed before the measurement");
   lines.push("");
   lines.push(
-    "Quoted verbatim from `09-PLAN-OUTLINE.md`'s \"Answer to the open question — rung 1's pass/fail bar\" and encoded as named constants in the measurement script. No threshold was changed after the run."
+    "Encoded as named constants in the measurement script before the run. No threshold was changed after the run."
   );
   lines.push("");
   lines.push(
@@ -1434,7 +1434,7 @@ export function renderDoc(measurements: readonly EventMeasurement[], verdict: Ru
     "The `schedules` fraction is **computed from the artifacts measured here**, not quoted from `docs/simulation-architecture.md`'s recorded 95.4%."
   );
   lines.push("");
-  lines.push("## Assumption A-FA1 — the additivity residual, measured");
+  lines.push("## The additivity assumption — its residual, measured");
   lines.push("");
   lines.push(
     "The score half of the field-averaged construction rests on `allianceScore = Σ member totals + C`, under which the per-season additive constant cancels out of the mean score difference. Measured rather than asserted: for every played qualification match of every sampled event, the residual `predict(match).redScore − Σ member totals` (and the blue counterpart)."
@@ -1484,13 +1484,13 @@ export function renderDoc(measurements: readonly EventMeasurement[], verdict: Ru
     `- **Coupling from teams that share specific matches is washed out** — two teams scheduled against each other have correlated outcomes and nothing in the field-averaged form represents that. **And the baked arm washes that same coupling out by design**, averaging over ${scheduleCount.toLocaleString("en-US")} independent shuffles precisely so no particular pairing survives into the published band. It is a shared property of both forms, not a defect unique to the new one.`
   );
   lines.push(
-    "- **The composition-induced spread is treated as Gaussian** — the same approximation class used elsewhere in this pipeline, and the one D-16 names and accepts. The exact mixture over all partner pairs crossed with all opposing triples is computable and is deliberately not computed: roughly 5.7 million `analyticRpPmf` calls per team on a 40-team roster."
+    "- **The composition-induced spread is treated as Gaussian** — the same approximation class used elsewhere in this pipeline, and the one this pre-schedule design names and accepts. The exact mixture over all partner pairs crossed with all opposing triples is computable and is deliberately not computed: roughly 5.7 million `analyticRpPmf` calls per team on a 40-team roster."
   );
   lines.push(
-    "- **Assumption A-FA1 (additivity)** is measured above rather than asserted. A large residual standard deviation is the first thing to examine if clause 2 or clause 3 fails."
+    "- **The additivity assumption** is measured above rather than asserted. A large residual standard deviation is the first thing to examine if clause 2 or clause 3 fails."
   );
   lines.push(
-    `- **Assumption A-FA3 (replay mode).** Each event's season was replayed in the mode printed in the per-event table above. Both arms read the SAME state, so the comparison stays internally valid either way; the mode is recorded because a cold replay makes the baked arm non-identical to the production sidecar.`
+    `- **The replay-mode assumption.** Each event's season was replayed in the mode printed in the per-event table above. Both arms read the SAME state, so the comparison stays internally valid either way; the mode is recorded because a cold replay makes the baked arm non-identical to the production sidecar.`
   );
   lines.push(
     "- **Neither arm is validated against realised rankings here.** This measures agreement between two forecasts, not the accuracy of either. The rewind-honesty question is `docs/models/rewind-overconfidence-gap.md`'s."

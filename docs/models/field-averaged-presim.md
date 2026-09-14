@@ -274,7 +274,7 @@
 
 ## The criterion, fixed before the measurement
 
-Quoted verbatim from `09-PLAN-OUTLINE.md`'s "Answer to the open question — rung 1's pass/fail bar" and encoded as named constants in the measurement script. No threshold was changed after the run.
+Encoded as named constants in the measurement script before the run. No threshold was changed after the run.
 
 1. **Median rank:** `|median_rung1 − median_baked| ≤ 0.5` ranks for **≥ 95.0%** of teams, and `≤ 1` ranks for **every** team.
 2. **Band edges:** `|p10 diff| ≤ 1` **and** `|p90 diff| ≤ 1` ranks for **≥ 90.0%** of teams.
@@ -300,12 +300,12 @@ Each rate is read **candidate / binding floor** at the same schedule count, so t
 
 | Event | Season | Teams | Quals | Matches/team | Replay | Clause-1 rate | p10 rate | p90 rate | Mean signed median shift |
 |---|---|---|---|---|---|---|---|---|---|
-| `2022on034` | 2022 | 14 | 21 | 9 | cold (target season 2022 only, assumption A-FA3) | 92.9% / **100.0%** | 100.0% / **100.0%** | 78.6% / **100.0%** | -0.012 |
-| `2023gaalb` | 2023 | 21 | 42 | 12 | cold (target season 2023 only, assumption A-FA3) | 100.0% / **100.0%** | 100.0% / **100.0%** | 100.0% / **100.0%** | -0.006 |
-| `2024caav` | 2024 | 40 | 74 | 11 | cold (target season 2024 only, assumption A-FA3) | 60.0% / **100.0%** | 67.5% / **100.0%** | 75.0% / **100.0%** | -0.002 |
-| `2025cur` | 2025 | 76 | 127 | 10 | cold (target season 2025 only, assumption A-FA3) | 13.2% / **97.4%** | 42.1% / **100.0%** | 43.4% / **100.0%** | -0.047 |
-| `2026joh` | 2026 | 75 | 125 | 10 | cold (target season 2026 only, assumption A-FA3) | 21.3% / **97.3%** | 53.3% / **100.0%** | 57.3% / **100.0%** | -0.056 |
-| `2026txmca` | 2026 | 18 | 36 | 12 | cold (target season 2026 only, assumption A-FA3) | 94.4% / **100.0%** | 100.0% / **100.0%** | 94.4% / **100.0%** | -0.008 |
+| `2022on034` | 2022 | 14 | 21 | 9 | cold (target season 2022 only, replay-mode assumption) | 92.9% / **100.0%** | 100.0% / **100.0%** | 78.6% / **100.0%** | -0.012 |
+| `2023gaalb` | 2023 | 21 | 42 | 12 | cold (target season 2023 only, replay-mode assumption) | 100.0% / **100.0%** | 100.0% / **100.0%** | 100.0% / **100.0%** | -0.006 |
+| `2024caav` | 2024 | 40 | 74 | 11 | cold (target season 2024 only, replay-mode assumption) | 60.0% / **100.0%** | 67.5% / **100.0%** | 75.0% / **100.0%** | -0.002 |
+| `2025cur` | 2025 | 76 | 127 | 10 | cold (target season 2025 only, replay-mode assumption) | 13.2% / **97.4%** | 42.1% / **100.0%** | 43.4% / **100.0%** | -0.047 |
+| `2026joh` | 2026 | 75 | 125 | 10 | cold (target season 2026 only, replay-mode assumption) | 21.3% / **97.3%** | 53.3% / **100.0%** | 57.3% / **100.0%** | -0.056 |
+| `2026txmca` | 2026 | 18 | 36 | 12 | cold (target season 2026 only, replay-mode assumption) | 94.4% / **100.0%** | 100.0% / **100.0%** | 94.4% / **100.0%** | -0.008 |
 
 ## Artifact size
 
@@ -322,7 +322,7 @@ Each rate is read **candidate / binding floor** at the same schedule count, so t
 
 The `schedules` fraction is **computed from the artifacts measured here**, not quoted from `docs/simulation-architecture.md`'s recorded 95.4%.
 
-## Assumption A-FA1 — the additivity residual, measured
+## The additivity assumption — its residual, measured
 
 The score half of the field-averaged construction rests on `allianceScore = Σ member totals + C`, under which the per-season additive constant cancels out of the mean score difference. Measured rather than asserted: for every played qualification match of every sampled event, the residual `predict(match).redScore − Σ member totals` (and the blue counterpart).
 
@@ -355,8 +355,8 @@ A systematic season-RP difference points at the moments construction; a systemat
 
 - **A team's matches are assumed near-independent.** Partners differ each match, which is what makes the assumption reasonable, but the matches of one event are not literally independent draws.
 - **Coupling from teams that share specific matches is washed out** — two teams scheduled against each other have correlated outcomes and nothing in the field-averaged form represents that. **And the baked arm washes that same coupling out by design**, averaging over 4,000 independent shuffles precisely so no particular pairing survives into the published band. It is a shared property of both forms, not a defect unique to the new one.
-- **The composition-induced spread is treated as Gaussian** — the same approximation class used elsewhere in this pipeline, and the one D-16 names and accepts. The exact mixture over all partner pairs crossed with all opposing triples is computable and is deliberately not computed: roughly 5.7 million `analyticRpPmf` calls per team on a 40-team roster.
-- **Assumption A-FA1 (additivity)** is measured above rather than asserted. A large residual standard deviation is the first thing to examine if clause 2 or clause 3 fails.
-- **Assumption A-FA3 (replay mode).** Each event's season was replayed in the mode printed in the per-event table above. Both arms read the SAME state, so the comparison stays internally valid either way; the mode is recorded because a cold replay makes the baked arm non-identical to the production sidecar.
+- **The composition-induced spread is treated as Gaussian** — the same approximation class used elsewhere in this pipeline, and the one this pre-schedule design names and accepts. The exact mixture over all partner pairs crossed with all opposing triples is computable and is deliberately not computed: roughly 5.7 million `analyticRpPmf` calls per team on a 40-team roster.
+- **The additivity assumption** is measured above rather than asserted. A large residual standard deviation is the first thing to examine if clause 2 or clause 3 fails.
+- **The replay-mode assumption.** Each event's season was replayed in the mode printed in the per-event table above. Both arms read the SAME state, so the comparison stays internally valid either way; the mode is recorded because a cold replay makes the baked arm non-identical to the production sidecar.
 - **Neither arm is validated against realised rankings here.** This measures agreement between two forecasts, not the accuracy of either. The rewind-honesty question is `docs/models/rewind-overconfidence-gap.md`'s.
 
