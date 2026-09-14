@@ -282,25 +282,6 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
 
   return (
     <tr data-testid={`match-row-${match.matchKey}`} className={cn(tinted ? "match-row-tint" : "match-row-untinted")}>
-      {/* This team's outcome, computed from actualWinner against the side the
-          roster puts the team on. Empty when unplayed, and empty when the
-          team is on neither roster — a real third case: the published
-          letter-suffixed key shape (`teamKey.ts`'s `frc5199B`, a team's
-          second robot, offseason-only) matches neither `redTeams` nor
-          `blueTeams` when the page renders the parent key, so the
-          `teamOnRoster` gate below is required to avoid rendering a
-          confident "Loss" for a match the team never played. */}
-      <td data-testid={`result-${match.matchKey}`} className="w-[64px] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        {played &&
-          teamOnRoster &&
-          (match.actualWinner === "tie" ? (
-            <span className="result-chip result-chip--tie">Tie</span>
-          ) : (match.actualWinner === "red" && teamIsRed) || (match.actualWinner === "blue" && teamIsBlue) ? (
-            <span className="result-chip result-chip--win">Win</span>
-          ) : (
-            <span className="result-chip result-chip--loss">Loss</span>
-          ))}
-      </td>
       <td className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         <div className="flex min-w-0 flex-col gap-[1px]">
           {/* The Match-column label links to that match's own page, carrying
@@ -360,7 +341,50 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
           </span>
         </div>
       </td>
-      <td className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
+      {/* This team's outcome, computed from actualWinner against the side the
+          roster puts the team on. Empty when unplayed, and empty when the
+          team is on neither roster — a real third case: the published
+          letter-suffixed key shape (`teamKey.ts`'s `frc5199B`, a team's
+          second robot, offseason-only) matches neither `redTeams` nor
+          `blueTeams` when the page renders the parent key, so the
+          `teamOnRoster` gate below is required to avoid rendering a
+          confident "Loss" for a match the team never played. */}
+      <td data-testid={`result-${match.matchKey}`} className="w-[64px] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
+        {played &&
+          teamOnRoster &&
+          (match.actualWinner === "tie" ? (
+            <span className="result-chip result-chip--tie">Tie</span>
+          ) : (match.actualWinner === "red" && teamIsRed) || (match.actualWinner === "blue" && teamIsBlue) ? (
+            <span className="result-chip result-chip--win">Win</span>
+          ) : (
+            <span className="result-chip result-chip--loss">Loss</span>
+          ))}
+      </td>
+      <td data-testid={`confidence-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
+        <span className="flex items-center gap-[var(--spacing-xs)]">
+          <AllianceChip side={match.predictedWinner} />
+          <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
+        </span>
+      </td>
+      <td data-testid={`predicted-score-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
+        <div className="flex flex-col gap-[2px]">
+          <PredictedScoreLine matchKey={match.matchKey} side="red" score={match.predictedRedScore} variance={match.redMatchBandVariance} season={season} bonusRp={match.redBonusRp} compLevel={match.compLevel} />
+          <PredictedScoreLine matchKey={match.matchKey} side="blue" score={match.predictedBlueScore} variance={match.blueMatchBandVariance} season={season} bonusRp={match.blueBonusRp} compLevel={match.compLevel} />
+        </div>
+      </td>
+      <td data-testid={`actual-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
+        {played ? (
+          <div className="flex flex-col gap-[2px]">
+            <ActualScoreLine matchKey={match.matchKey} side="red" score={match.actualRedScore!} isLoser={redLoses} season={season} actualBonusRp={match.actualRedBonusRp} compLevel={match.compLevel} />
+            <ActualScoreLine matchKey={match.matchKey} side="blue" score={match.actualBlueScore!} isLoser={blueLoses} season={season} actualBonusRp={match.actualBlueBonusRp} compLevel={match.compLevel} />
+          </div>
+        ) : (
+          <span className="text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
+            {match.sortTime !== undefined ? formatScheduledTime(match.sortTime) : ""}
+          </span>
+        )}
+      </td>
+      <td className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] pl-[var(--spacing-lg)] align-top">
         <div className="relative" style={{ width: PLOT_W, height: MATCH_GEOMETRY.PLOT_H }}>
           <AllianceRow
             matchKey={match.matchKey}
@@ -385,30 +409,6 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
             softVar="var(--alliance-blue-soft)"
           />
         </div>
-      </td>
-      <td data-testid={`confidence-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] pl-[var(--spacing-lg)] align-top">
-        <span className="flex items-center gap-[var(--spacing-xs)]">
-          <AllianceChip side={match.predictedWinner} />
-          <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
-        </span>
-      </td>
-      <td data-testid={`predicted-score-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        <div className="flex flex-col gap-[2px]">
-          <PredictedScoreLine matchKey={match.matchKey} side="red" score={match.predictedRedScore} variance={match.redMatchBandVariance} season={season} bonusRp={match.redBonusRp} compLevel={match.compLevel} />
-          <PredictedScoreLine matchKey={match.matchKey} side="blue" score={match.predictedBlueScore} variance={match.blueMatchBandVariance} season={season} bonusRp={match.blueBonusRp} compLevel={match.compLevel} />
-        </div>
-      </td>
-      <td data-testid={`actual-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        {played ? (
-          <div className="flex flex-col gap-[2px]">
-            <ActualScoreLine matchKey={match.matchKey} side="red" score={match.actualRedScore!} isLoser={redLoses} season={season} actualBonusRp={match.actualRedBonusRp} compLevel={match.compLevel} />
-            <ActualScoreLine matchKey={match.matchKey} side="blue" score={match.actualBlueScore!} isLoser={blueLoses} season={season} actualBonusRp={match.actualBlueBonusRp} compLevel={match.compLevel} />
-          </div>
-        ) : (
-          <span className="text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
-            {match.sortTime !== undefined ? formatScheduledTime(match.sortTime) : ""}
-          </span>
-        )}
       </td>
       <td data-testid={`call-${match.matchKey}`} className="text-role-body px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top text-[var(--color-text-primary)]">
         <CallBadge played={played} coldStart={match.coldStart === true} winnerCorrect={winnerCorrect} />
@@ -480,19 +480,19 @@ export function MatchTable({ matches, domain, teamKey, season, algorithm }: Matc
     <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
       <thead>
         <tr>
-          {/* Leftmost W/L/T chip for this team. No column in this table is sticky: Result and Match scroll with the rest of the row. */}
-          <th className="w-[64px] p-[var(--spacing-sm)] text-left">
-            <span className="text-role-label text-[var(--color-text-muted)]">Result</span>
-          </th>
           <th className="p-[var(--spacing-sm)] text-left">
             <span className="text-role-label text-[var(--color-text-muted)]">Match</span>
           </th>
-          <th className="p-[var(--spacing-sm)] text-left">
+          {/* W/L/T chip for this team, right of Match. No column in this table is sticky: Result and Match scroll with the rest of the row. */}
+          <th className="w-[64px] p-[var(--spacing-sm)] text-left">
+            <span className="text-role-label text-[var(--color-text-muted)]">Result</span>
+          </th>
+          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Confidence</th>
+          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Predicted RP</th>
+          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Actual RP</th>
+          <th className="p-[var(--spacing-sm)] pl-[var(--spacing-lg)] text-left">
             <AxisHeader domain={domain} />
           </th>
-          <th className="text-role-label p-[var(--spacing-sm)] pl-[var(--spacing-lg)] text-left text-[var(--color-text-muted)]">Confidence</th>
-          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Prediction</th>
-          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Actual</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Call</th>
         </tr>
       </thead>
