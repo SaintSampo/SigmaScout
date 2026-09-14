@@ -1,34 +1,25 @@
 /**
  * Pure row construction, ranking, win-rate derivation and the deterministic
- * sort for the Teams table (Task 1, 05-06-PLAN.md). Imports no React and no
- * TanStack anything — this file is a plain data transform over the published
- * `TeamsArtifact` (`packages/harness/pageArtifacts.ts`'s teams-table row),
- * consumed by `columns.tsx`/`TeamsTable.tsx` (Task 2) and `routes/teams.tsx`
- * (Task 3).
+ * sort for the Teams table. Imports no React and no TanStack anything — this
+ * file is a plain data transform over the published `TeamsArtifact`,
+ * consumed by `columns.tsx`/`TeamsTable.tsx` and `routes/teams.tsx`.
  *
- * 260902-pbe: on the WIRE, a row's `metrics` may be encoded positionally (an
- * array aligned to the artifact's top-level `metricKeys` list) rather than
- * the keyed record shown below — this file never sees that shape. Decoding
- * both the positional form and the pre-existing (pre-republish) object form
- * back to the one canonical `Record<string, TeamMetric>` happens once, in
- * `pageArtifacts.ts`'s `TeamsArtifactSchema` itself (a `.transform()` on the
- * wire schema), before `fetchTeamsArtifact` ever returns. `TeamMetrics`
- * below is that decoded shape — nothing in this file changed for the
- * positional encoding to exist.
+ * On the WIRE, a row's `metrics` may be encoded positionally (an array
+ * aligned to the artifact's top-level `metricKeys` list) rather than the
+ * keyed record shown below — this file never sees that shape. Decoding both
+ * the positional and the object form back to one canonical
+ * `Record<string, TeamMetric>` happens once, in `pageArtifacts.ts`'s
+ * `TeamsArtifactSchema` (a `.transform()` on the wire schema), before
+ * `fetchTeamsArtifact` ever returns.
  *
- * Nothing here derives a statistic the artifact does not carry beyond
- * NAV-06's own permitted class of presentation arithmetic. `winRate` is
- * arithmetic over three published integers; as of 2026-09-04 (quick task
- * 260904-5zg, D-2/D-3/D-4), `row.metrics` is ALSO no longer purely "exactly
- * as published" — `withDerivedGroupMetrics` (lib/metricGroups.ts) adds a
- * value-only `phaseAuto`/`phaseTeleop`/`phaseEndgame` entry, summed from
- * PUBLISHED component values, for any algorithm that has components but no
- * published group metric (EPA today). It is the same class of arithmetic
- * `winRate` already performs here — exact, never defaulting, rounding or
- * rescaling an input — and it NEVER overwrites a published group entry
- * (VPR's honest, covariance-derived spread/percentile survive untouched).
- * Ranking still keys off `TOTAL_KEY`, which no derivation ever touches, so
- * ranking itself is unaffected.
+ * Nothing here derives a statistic the artifact does not carry beyond exact
+ * presentation arithmetic. `winRate` is arithmetic over three published
+ * integers. `row.metrics` is also widened by `withDerivedGroupMetrics`
+ * (lib/metricGroups.ts), which adds a value-only `phaseAuto`/`phaseTeleop`/
+ * `phaseEndgame` entry, summed from PUBLISHED component values, for any
+ * algorithm that has components but no published group metric — the same
+ * class of exact arithmetic, and it NEVER overwrites a published group entry.
+ * Ranking keys off `TOTAL_KEY`, which no derivation ever touches.
  */
 import type { TeamsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
@@ -43,18 +34,14 @@ export type SortDirection = "asc" | "desc";
 
 /**
  * One Teams-table row, derived once per artifact load. `rank` is computed
- * here — the team's position ordered by the total metric descending with
- * ascending team number as the tie-break — and is NEVER recomputed by
- * `sortTeamRows`. That choice makes rank a stable property of the
- * algorithm-and-year pair: sorting by a component column changes the row
- * ORDER without renumbering anyone, matching the behaviour this table's
- * users already expect from comparable FRC tools.
+ * here — total metric descending, ascending team number as the tie-break —
+ * and is NEVER recomputed by `sortTeamRows`, so sorting by a component
+ * column changes row ORDER without renumbering anyone.
  *
- * Quick task 260905-ldu: the ranking rule itself now lives in
- * `packages/harness/teamRanks.ts`'s `compareTeamsByTotal` — the SAME
- * comparator the offline pipeline uses to publish each team's World rank
- * card. A single shared implementation is what makes this table's rank and
- * the published per-team World rank incapable of disagreeing.
+ * The ranking rule lives in `packages/harness/teamRanks.ts`'s
+ * `compareTeamsByTotal` — the SAME comparator the offline pipeline uses to
+ * publish each team's World rank card, so this table's rank can't disagree
+ * with the published one.
  */
 export interface TeamRow {
   teamKey: string;
@@ -75,10 +62,7 @@ export interface TeamRow {
    */
   sigmaScore?: number;
   /**
-   * This team's Sigma Score's rarity tier (first shipped by quick task
-   * 260909-tgf; the standalone Sigma column it originally tiered was deleted
-   * by quick task 260913-jkp, which renders this value as the right half of
-   * the Total column's split pill instead), sourced from the published
+   * This team's Sigma Score's rarity tier, sourced from the published
    * `sigma` metric entry, NEVER derived here from `sigmaScore`. `undefined`
    * means the pipeline has not ranked this team's Sigma Score at all (a
    * pre-republish artifact, or a live-worker-rebuilt row) — see
@@ -107,9 +91,8 @@ function byTeamNumberAscending(a: { teamNumber: number }, b: { teamNumber: numbe
 }
 
 /**
- * Reserved sort key for the win-rate column (Task 2, 05-06-PLAN.md — "sortable
- * for every metric column plus win rate"). Not a metric key: win rate lives on
- * `TeamRow.winRate`, never inside the published `metrics` record, so
+ * Reserved sort key for the win-rate column. Not a metric key: win rate
+ * lives on `TeamRow.winRate`, never inside the published `metrics` record, so
  * `sortTeamRows` special-cases this one string sentinel to read that field
  * instead of indexing `metrics`. `columns.tsx`'s win-rate column id and any
  * caller's "valid sort keys" set both reference this same constant, never a
@@ -118,12 +101,10 @@ function byTeamNumberAscending(a: { teamNumber: number }, b: { teamNumber: numbe
 export const WIN_RATE_SORT_KEY = "winRate";
 
 /**
- * Quick task 260909-tgf: `TeamRow.sigmaTier`'s derivation, pulled
- * into its own function with an explicit `Tier | undefined` return type so
- * the `"common"` fallback keeps its literal type rather than widening to
- * plain `string` inside the larger object-literal `.map()` in `buildTeamRows`
- * below (a bare inline `?? "common"` there loses the literal union under
- * this file's `noUncheckedIndexedAccess`/`verbatimModuleSyntax` config).
+ * `TeamRow.sigmaTier`'s derivation, pulled into its own function with an
+ * explicit `Tier | undefined` return type so the `"common"` fallback keeps
+ * its literal type rather than widening to plain `string` inside the larger
+ * object-literal `.map()` in `buildTeamRows` below.
  */
 function deriveSigmaTier(entry: { tier?: "rare" | "epic" | "legendary" } | undefined): Tier | undefined {
   if (entry === undefined) return undefined;
@@ -143,30 +124,27 @@ function sortValueFor(row: TeamRow, key: string): number | undefined {
  * `TeamRow`, computing `winRate` and `rank` once. `algorithmId` is part of
  * this function's contract (mirroring `columns.tsx`'s `buildColumns`) even
  * though ranking itself is algorithm-agnostic — every algorithm guarantees
- * `TOTAL_KEY` (D-27), so the total metric is always the correct ranking
- * axis regardless of which algorithm produced the artifact.
+ * `TOTAL_KEY`, so the total metric is always the correct ranking axis
+ * regardless of which algorithm produced the artifact.
  */
 export function buildTeamRows(artifact: TeamsArtifact, algorithmId: string): TeamRow[] {
   void algorithmId; // reserved for signature symmetry with buildColumns; ranking itself is algorithm-agnostic (see doc comment above)
-  // Non-real team keys are dropped BEFORE ranking (2026-09-01) — see
-  // `lib/teamKey.ts`'s `isRealTeamKey` for what they are and why. Filtering
-  // here rather than at render is what keeps `rank` honest: an offseason
-  // B-team held rank 3 of all 2024, pushing every real team below it down
-  // one place.
+  // Non-real team keys are dropped BEFORE ranking — see `lib/teamKey.ts`'s
+  // `isRealTeamKey` for what they are and why. Filtering here rather than at
+  // render is what keeps `rank` honest: an offseason B-team held rank 3 of
+  // all 2024, pushing every real team below it down one place.
   const unranked = artifact.teams.filter((team) => isRealTeamKey(team.teamKey)).map((team) => ({
     teamKey: team.teamKey,
     teamNumber: team.teamNumber,
     nickname: team.nickname,
     record: team.record,
     winRate: winRate(team.record),
-    // Quick task 260909-tgf: the tier, deliberately kept apart from the value
-    // -- this is the single most "fixable-back-to-wrong" line in this file.
+    // The tier is deliberately kept apart from the value.
     //
     // Entry present: the published `sigma` metric entry IS the source of
     // truth for both the value and the tier. `entry.tier ?? "common"` is
     // correct HERE because the entry's PRESENCE proves the pipeline ranked
-    // this team -- Common is omitted from the wire purely for size (the same
-    // argument `columns.tsx`'s existing metric cells already make), so its
+    // this team — Common is omitted from the wire purely for size, so its
     // absence on a present entry means "ranked, Common tier," never
     // "unranked."
     //
@@ -176,11 +154,9 @@ export function buildTeamRows(artifact: TeamsArtifact, algorithmId: string): Tea
     // pipeline know this team's tier. Coalescing to `"common"` here would be
     // a positive false claim about a team the pipeline has not ranked.
     //
-    // SIGMA SCORE comes from that entry and NOTHING ELSE. Stale rows may still
-    // carry a top-level field left by the retired per-robot consistency
-    // accumulator; it was a different estimator on a different scale, so
-    // reading it would print a wrong number under the "Sigma" heading, not a
-    // degraded one. The web never reads it.
+    // SIGMA SCORE comes from that entry and NOTHING ELSE — never a stale
+    // top-level field on a different scale that would print a wrong number
+    // under the "Sigma" heading.
     //
     // The consequence is intended: until the pipeline republishes, and for
     // every algorithm outside `SIGMA_SCORE_ALGORITHM_IDS`, this is `undefined`
@@ -188,16 +164,14 @@ export function buildTeamRows(artifact: TeamsArtifact, algorithmId: string): Tea
     sigmaScore: team.metrics[SIGMA_METRIC_KEY]?.value,
     sigmaTier: deriveSigmaTier(team.metrics[SIGMA_METRIC_KEY]),
     // Published metrics widened with any derivable group entries this
-    // algorithm/season combination supports (D-2/D-3/D-4) — see this
-    // module's own header comment. `sortValueFor` reads `row.metrics[key]`
-    // directly, so a derived `phaseAuto` is sortable exactly like a
-    // published one.
+    // algorithm/season combination supports — see this module's own header
+    // comment. `sortValueFor` reads `row.metrics[key]` directly, so a
+    // derived `phaseAuto` is sortable exactly like a published one.
     metrics: withDerivedGroupMetrics(team.metrics, artifact.season),
   }));
 
-  // Quick task 260905-ldu: `compareTeamsByTotal` (shared with
-  // `packages/harness/publish.ts`'s published World rank) replaces the
-  // total-descending sort body that used to live here inline.
+  // `compareTeamsByTotal` is shared with `packages/harness/publish.ts`'s
+  // published World rank.
   const ranked = [...unranked].sort(compareTeamsByTotal);
 
   return ranked.map((row, index) => ({ ...row, rank: index + 1 }));
