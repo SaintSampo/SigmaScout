@@ -1,15 +1,6 @@
 /**
- * Tests for the SHIPPED outcome half (quick task 260913-qyn, Task 2 Step 2):
- * WIN+TIE was the accepted arm with the lowest pooled RPS
- * (`data/baselines/rp-outcome-arms-2026-09.json`, ship: win+tie), so its
- * identities are now the DEFAULT two-argument `SigmaScoutLayer`'s behavior —
- * there is no longer a measurement-only third constructor argument to
- * select between arms.
- *
- * Folded over `packages/harness/fixtures/digest-slice.json`, the same
- * committed fixture `sigmaScoutLayer.matchBand.test.ts` pins its RP digest
- * against, so this file exercises a real 2022 spr slice rather than a
- * synthetic one.
+ * Tests for the shipped WIN+TIE outcome half of `SigmaScoutLayer`, folded over
+ * the committed 2022 spr digest slice `sigmaScoutLayer.matchBand.test.ts` pins.
  */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -42,12 +33,7 @@ interface DecomposedRow {
   readonly prediction: Prediction;
 }
 
-/**
- * Folds the fixture's PLAYED matches through one two-argument
- * `SigmaScoutLayer` — the same construction `sigmaScoutLayer.matchBand.test.ts`'s
- * `runLayer` uses for its played pass, and the only construction that exists
- * now that the measurement-only third argument is deleted.
- */
+/** Folds the fixture's PLAYED matches through one `SigmaScoutLayer`, as `sigmaScoutLayer.matchBand.test.ts`'s played pass does. */
 function runLayer(algorithm: AlgorithmModule<unknown>, fixture: DigestSliceFixture): DecomposedRow[] {
   const stream = fixture.matches;
   const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
@@ -121,13 +107,9 @@ function outcomeHalfDigest(rows: readonly DecomposedRow[]): string {
 }
 
 /**
- * Captured 2026-09-14 (quick task 260914-01x, Task 5) on the pre-flip tree,
- * before any line of the lattice+meanShift ship was written: the outcome
- * half over the played AND upcoming passes. The bonus-arm record
- * (`data/baselines/rp-bonus-arms-2026-09.json`) proved the outcome half
- * identical across all four arms on every folded record; this pin carries
- * that proof past the collapse. NEVER EDIT: a mismatch means the bonus ship
- * reached the outcome half, which the bar never measured.
+ * Pinned digest of the outcome half over the played and upcoming passes,
+ * captured before the lattice+meanShift bonus change. NEVER EDIT: a mismatch
+ * means a bonus-half change reached the outcome half.
  */
 const PINNED_OUTCOME_HALF_DIGEST = "b4a746d8d54df7487e0b3782014a5f34bfff7d6db2145261072644ecf2cc4cbf";
 
@@ -143,22 +125,9 @@ function bonusHalfDigest(rows: readonly DecomposedRow[]): string {
 }
 
 /**
- * Originally captured from the CONTROL arm during 260913-qyn Task 2's
- * measurement, before the collapse edit deleted the four-layer fold —
- * `assertBonusHalfIdentical` ran on every folded record across the whole
- * 2016-2020,2022 selection slice and never threw, which proved this digest
- * unaffected by which outcome arm was active. NEVER EDIT except on a
- * developer-decided bonus-half model change: a mismatch otherwise means an
- * outcome-half change reached the bonus half, which no bar measured.
- *
- * REPLACED 2026-09-14 (quick task 260914-01x), a developer-decided model
- * change rather than a refresh, following the 260913-it4/qyn precedent:
- * lattice+meanShift was accepted by the pre-committed `applyRpBonusArmBar`
- * with the lowest pooled total-RP RPS and shipped
- * (`data/baselines/rp-bonus-arms-2026-09.json`, ship: lattice+meanShift).
- * Was `0cbffcb5a9c07ed328fc4afe8f22ee8ecec6b120f2e79e3709c8d0989343f518`.
- * The outcome half across that change is pinned separately, above, by
- * `PINNED_OUTCOME_HALF_DIGEST`.
+ * Pinned digest of the bonus half on the shipped lattice+meanShift source.
+ * NEVER EDIT except on a developer-decided bonus-half model change: a mismatch
+ * otherwise means an outcome-half change reached the bonus half.
  */
 const PINNED_BONUS_HALF_DIGEST = "db06b44e954d6b860314a7581b4120defb47140e8adc3d361700e33893d78ca2";
 
