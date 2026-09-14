@@ -145,9 +145,10 @@ export interface SubsetEntry {
    * `2f1a8885`; the other 15 pmf pairs in the histogram are degenerate
    * length-1 ELIMINATION pmfs, not qual coverage). The 15 uncovered qual
    * rows are the cold-start -> no-band -> no-pmf chain filed with the
-   * simulation rethink. (Since quick task 260913-it4 OPR and EPA publish no
-   * ranking-point pmfs at all; only Sigma algorithms do.) When that chain is
-   * resolved, these entries
+   * simulation rethink. Since quick task 260913-it4 OPR and EPA publish no
+   * ranking-point pmfs at all, so their `2024casf` arms expect `"absent"`;
+   * only Sigma algorithms can be `"partial"`. When that chain is
+   * resolved, the Sigma entries
    * should be promoted back to `"present"`; `"partial"` exists so the gap
    * stays measured without leaving the whole subset red-for-known-reasons.
    */
@@ -547,15 +548,17 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
       "ranking points. 2026-09-10: commit 160401fe's SigmaScout-layer RP model (learned from results alone) " +
       "deliberately inverted that — every algorithm's artifacts now carry pmfs on RP-eligible played qm rows, " +
       "sourced from the layer, not the algorithm. Flipped to \"partial\" (57/72 live-measured at generation " +
-      "2f1a8885 — same coverage as every algorithm; see expectPlayedQmRpPmf's doc comment); still carrying " +
-      "actual-RP (algorithm-independent, sourced from MatchResult).",
+      "2f1a8885 — same coverage as every algorithm; see expectPlayedQmRpPmf's doc comment). 2026-09-14: back " +
+      "to \"absent\" — quick task 260913-it4 (094667e9) made publishesRankingPoints() true for spr only, so OPR " +
+      "publishes no pmf on any row (0 of 72 played qm rows live-measured at generation 2dcc057f); still " +
+      "carrying actual-RP (algorithm-independent, sourced from MatchResult).",
     expectMatches: 87,
     expectUpcoming: 0,
     expectTeams: 43,
     expectRankedTeams: 43,
     expectAlliances: "populated",
     expectVariance: "absent",
-    expectPlayedQmRpPmf: "partial",
+    expectPlayedQmRpPmf: "absent",
     expectPlayedQmActualRp: "present",
   },
   {
@@ -565,14 +568,15 @@ export const PRE_RENAME_EVENT_SUBSET: readonly SubsetEntry[] = [
       "The same no-variance state at a different column set — the third arm that lets 07-01/07-11/07-12 flip " +
       "?algorithm= on ONE real event page and see three real, differently-shaped artifacts. 08-05 (D-04) " +
       "HISTORY: used to expect ZERO pmf (EPA models no ranking points). 2026-09-10: flipped to \"partial\" for " +
-      "the same 160401fe SigmaScout-layer reason as the opr arm above (57/72 live-measured at 2f1a8885).",
+      "the same 160401fe SigmaScout-layer reason as the opr arm above (57/72 live-measured at 2f1a8885). " +
+      "2026-09-14: back to \"absent\" for the same 260913-it4 reason as the opr arm (0 of 72 at 2dcc057f).",
     expectMatches: 87,
     expectUpcoming: 0,
     expectTeams: 43,
     expectRankedTeams: 43,
     expectAlliances: "populated",
     expectVariance: "absent",
-    expectPlayedQmRpPmf: "partial",
+    expectPlayedQmRpPmf: "absent",
     expectPlayedQmActualRp: "present",
   },
 ];
