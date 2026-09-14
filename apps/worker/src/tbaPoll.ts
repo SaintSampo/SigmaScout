@@ -1,28 +1,26 @@
 /**
- * D-22: a thin Worker wrapper over `packages/ingest/tbaClient.ts` — the SAME
- * TBA client the offline ingest pipeline has used since Phase 1, imported
- * unchanged. This module adds only the three genuinely Worker-specific
- * things: reading the key from `env.TBA_API_KEY` (a Cloudflare secret, never
- * a `.env` value), building the `TbaClientContext`, and mapping one live
- * event key to one `fetchEventMatches` call.
+ * A thin Worker wrapper over `packages/ingest/tbaClient.ts` — the SAME TBA
+ * client the offline ingest pipeline uses, imported unchanged. This module
+ * adds only the three genuinely Worker-specific things: reading the key from
+ * `env.TBA_API_KEY` (a Cloudflare secret, never a `.env` value), building the
+ * `TbaClientContext`, and mapping one live event key to one
+ * `fetchEventMatches` call.
  *
  * It deliberately does NOT re-implement `THROTTLE_INTERVAL_MS`'s spacing or
  * `tbaFetch`'s conditional-request (ETag) handling — both are imported and
  * used exactly as `tbaClient.ts` defines them. A second TBA client is two
  * politeness policies that agree until the day they do not, and the day they
- * do not is a live event (D-22's own reasoning, restated here because this
- * is the file someone editing the live path will open first). The 100ms
- * spacing across up to 38 concurrently live events is ~3.8s of wall clock,
- * which costs nothing against a CPU-time budget — CPU time excludes waiting
- * on the network.
+ * do not is a live event. The 100ms spacing across up to 38 concurrently live
+ * events is ~3.8s of wall clock, which costs nothing against a CPU-time
+ * budget — CPU time excludes waiting on the network.
  *
  * A 304 costs exactly the same ONE subrequest as a 200 — conditional
  * requests save bandwidth and downstream CPU, not subrequest budget. Nothing
  * in this file (or `subrequestBudget.ts`) ever treats a cache hit as free.
  *
  * Per-event errors throw with the event key in the message and nothing
- * else — never the TBA key, never a header dump — so the caller (`scheduled.
- * ts`) can catch per event and confine the failure to it (D-15).
+ * else — never the TBA key, never a header dump — so the caller
+ * (`scheduled.ts`) can catch per event and confine the failure to it.
  */
 import { fetchEventMatches, TbaRequestCounter, THROTTLE_INTERVAL_MS, type TbaClientContext, type TbaFetchResult } from "../../../packages/ingest/tbaClient.js";
 import type { Env } from "./env.js";
@@ -30,7 +28,7 @@ import type { Env } from "./env.js";
 export { TbaRequestCounter, THROTTLE_INTERVAL_MS };
 export type { TbaClientContext, TbaFetchResult };
 
-/** Builds the `TbaClientContext` `pollEventMatches` needs from the Worker's typed `Env` and a counter the caller owns for the whole tick (one counter, shared across every event polled this tick — D-15's own "TBA requests" figure comes from it). */
+/** Builds the `TbaClientContext` `pollEventMatches` needs from the Worker's typed `Env` and a counter the caller owns for the whole tick (one counter, shared across every event polled this tick — the tick's "TBA requests" figure comes from it). */
 export function createTbaContext(env: Env, counter: TbaRequestCounter): TbaClientContext {
   return { apiKey: env.TBA_API_KEY, counter, baseUrl: env.TBA_BASE_URL };
 }
