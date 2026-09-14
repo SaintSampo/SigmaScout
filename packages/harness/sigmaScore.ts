@@ -2,39 +2,29 @@
  * SIGMA SCORE — a Bayesian, talent-informed estimate of how widely a robot's
  * contribution might vary in its NEXT match.
  *
- * SHIPPED FOR BPR ONLY (quick task 260910-u7g measured it; the ship decision is
- * the developer's, 2026-09-10). `SIGMA_SCORE_ALGORITHM_IDS` is the single place
- * that scope is declared — OPR and EPA publish no consistency metric at all and,
- * since quick task 260913-g66, no match band either. Since quick task
- * 260913-it4 they also publish no ranking-point odds: the retired per-robot
- * consistency accumulator that used to supply their internal win-odds variance
- * was deleted outright (developer decision, 2026-09-13), with no replacement.
- * See `sigmaMatchBandVariance` and `publishesRankingPoints`.
+ * SHIPPED FOR SPR ONLY. `SIGMA_SCORE_ALGORITHM_IDS` is the single place that
+ * scope is declared — OPR and EPA publish no consistency metric, no match
+ * band, and no ranking-point odds (they have no per-robot score variance to
+ * build RP odds from). See `sigmaMatchBandVariance` and
+ * `publishesRankingPoints`.
  *
  * Consumers: `sigmaScoutLayer.ts` (bands and the per-team figure), `publish.ts`
- * (the published `sigma` metric). The head-to-head script that justified
- * shipping it was deleted by quick task 260913-it4 along with the retired
- * accumulator it compared against; it is restorable from git history.
+ * (the published `sigma` metric).
  *
- * WHY BPR ONLY, since "better metric, ship it everywhere" is the obvious
- * alternative: measured over 110,232 rows per algorithm on 2026, Sigma beats
- * the retired per-robot consistency accumulator on calibration, on separating
- * steady robots from erratic ones, and on catastrophic-failure avoidance for
- * ALL THREE algorithms — but on volatility RANKING and trimmed likelihood it
- * wins for OPR and BPR and LOSES for EPA. It is scoped to the premier algorithm
- * rather than shipped where it is worse.
+ * WHY SPR ONLY, since "better metric, ship it everywhere" is the obvious
+ * alternative: measured across all three algorithms, Sigma wins on
+ * calibration, on separating steady robots from erratic ones, and on
+ * catastrophic-failure avoidance — but on volatility RANKING and trimmed
+ * likelihood it loses for EPA. It is scoped to the premier algorithm rather
+ * than shipped where it is worse.
  *
  * ---------------------------------------------------------------------------
  * WHAT IT IS FOR, WHICH DECIDES ITS SHAPE
  * ---------------------------------------------------------------------------
  *
- * From the developer, and every design choice below traces to one of these two
- * sentences:
- *
- *   (paraphrased) How widely might their performance vary next match? If a
- *   robot breaks, or finally starts working, Sigma Score captures that for a
- *   scout. Versus if they have performed the same every match, Sigma Score
- *   should be low.
+ * How widely might a robot's performance vary next match? If it breaks, or
+ * finally starts working, Sigma Score should capture that for a scout; if it
+ * has performed the same every match, Sigma Score should be low.
  *
  * So there are exactly two requirements, and they pull in opposite directions:
  *
@@ -42,17 +32,15 @@
  *   QUIETNESS       a robot that repeats itself must read LOW.
  *
  * ---------------------------------------------------------------------------
- * WHY THE MEAN'S TRACKING SPEED IS THE CRUX, NOT AN INHERITED CONSTANT
+ * WHY THE MEAN'S TRACKING SPEED IS THE CRUX
  * ---------------------------------------------------------------------------
  *
- * The retired per-robot consistency accumulator centred squared residuals on a
- * recency-weighted mean with a SIX MATCH half-life — the same half-life it used
- * for the variance. That
- * is fine for quietness and actively hostile to responsiveness: when a robot
- * breaks, the fast mean chases the new (lower) level within a few matches, the
- * residuals about it shrink back toward normal, and the metric stops reporting
- * the very event the scout needed to see. The break is absorbed into the bias
- * term instead of surfacing as volatility.
+ * A single shared half-life for both the bias term and the variance is fine
+ * for quietness and actively hostile to responsiveness: when a robot breaks,
+ * a fast mean chases the new (lower) level within a few matches, the
+ * residuals about it shrink back toward normal, and the metric stops
+ * reporting the very event the scout needed to see. The break gets absorbed
+ * into the bias term instead of surfacing as volatility.
  *
  * Sigma Score therefore carries TWO INDEPENDENT HALF-LIVES:
  *
@@ -61,27 +49,17 @@
  *   `varHalfLife`   how fast the volatility estimate forgets old evidence. FAST,
  *                   so a break shows up promptly rather than being diluted.
  *
- * Separating them is the whole idea. The retired accumulator was the special
- * case where both are 6, which is why it could not satisfy both requirements at
- * once.
+ * Separating them is the whole idea.
  *
  * ---------------------------------------------------------------------------
- * THE BAYESIAN PART, AND THE THREE MEASURED DEFECTS IT EXISTS TO FIX
+ * THE BAYESIAN PART, AND THE DEFECTS IT EXISTS TO FIX
  * ---------------------------------------------------------------------------
  *
- * Quick task 260910-sz9 measured the shipped estimator over 297,854 team-matches
- * and found three things, all traceable to it being an unregularised sample
- * statistic over an effective sample of about nine:
- *
- *   1. A near-zero tail. 0.06-0.35% of rows carry a spread below 1 point (two
- *      near-identical deviations), and under a log score those few hundred rows
- *      carry 83-100% of the total loss. The site publishes "perfectly
- *      consistent" and the robot then misses by 40 points.
- *   2. Regression to the mean. The ratio of published spread to realized spread
- *      climbs monotonically 0.80 -> 1.94 across deciles: low-spread teams are
- *      badly under-estimated, high-spread teams about right.
- *   3. It does not beat a single population constant on median NLL for EPA
- *      (-0.015) or BPR (-0.006).
+ * An unregularised sample statistic over an effective sample this small has
+ * three defects: a near-zero tail (two near-identical deviations reads as
+ * "perfectly consistent" right before a 40-point miss), regression to the
+ * mean (low-spread teams under-estimated, high-spread teams about right),
+ * and it does not beat a single population constant on median NLL.
  *
  * A conjugate inverse-gamma prior on the variance fixes all three STRUCTURALLY
  * rather than by tuning:
@@ -115,11 +93,11 @@
  * WHY THE PRIOR SCALES WITH TALENT
  * ---------------------------------------------------------------------------
  *
- * Volatility is measured in POINTS, and a robot that scores more has more points
- * to vary by. Measured on BPR 2024-2026, mean spread runs 5.93 in the lowest decile
- * against 64.46 in the highest — better than a 10x range. A flat prior would
- * therefore drag strong robots down and weak robots up, which is the opposite of
- * shrinking toward a comparable peer group.
+ * Volatility is measured in POINTS, and a robot that scores more has more
+ * points to vary by — measured mean spread runs over a 10x range from the
+ * lowest to highest decile. A flat prior would therefore drag strong robots
+ * down and weak robots up, which is the opposite of shrinking toward a
+ * comparable peer group.
  *
  * `priorSigma = priorK * max(talent, TALENT_FLOOR)`, where `talent` is the
  * team's own rating from the algorithm's state as of BEFORE the match, and
@@ -127,21 +105,15 @@
  * talent^2)`. One number keeps it walk-forward and O(1); `TALENT_FLOOR` exists
  * because OPR ratings can be zero or negative and a prior of zero would
  * reintroduce the very tail this is built to remove.
- *
- * The talent-independent control variant (`talentPrior: false`) and the
- * head-to-head that ran it against this prior were deleted (quick tasks
- * 260913-it4 and 260913-nvn); both are restorable from git history.
  */
 
 /**
  * The published metric key Sigma Score is injected under at publish time.
  *
- * A DISTINCT key from the retired per-robot consistency accumulator's old
- * metric key, not a replacement of its contents, and the distinction is what
- * keeps the UI free of algorithm-ID branching: the
- * Sigma column and tile render exactly when this key is present on the row, so
- * "which algorithms show a consistency number" is answered by the data rather
- * than by a hardcoded list in the browser. An algorithm that starts or stops
+ * Keeps the UI free of algorithm-ID branching: the Sigma column and tile
+ * render exactly when this key is present on the row, so "which algorithms
+ * show a consistency number" is answered by the data rather than by a
+ * hardcoded list in the browser. An algorithm that starts or stops
  * publishing Sigma needs no web change at all.
  */
 export const SIGMA_METRIC_KEY = "sigma";
@@ -149,27 +121,16 @@ export const SIGMA_METRIC_KEY = "sigma";
 /**
  * The algorithms that publish Sigma Score.
  *
- * BPR ONLY, by developer decision (2026-09-10), on the measured result in quick
- * task 260910-u7g: Sigma beats the retired per-robot consistency accumulator on
- * calibration, separation and catastrophic-failure avoidance for all three
- * algorithms, but on volatility RANKING and trimmed likelihood it wins for OPR
- * and BPR and LOSES for EPA. Rather than ship a metric that is better on two
- * algorithms and worse on the third, the developer scoped it to the premier
+ * SPR ONLY: Sigma wins on calibration, separation and catastrophic-failure
+ * avoidance for all three algorithms, but on volatility RANKING and trimmed
+ * likelihood it loses for EPA. Rather than ship a metric that is better on
+ * two algorithms and worse on the third, it is scoped to the premier
  * algorithm.
  *
- * OPR and EPA therefore publish NO consistency metric at all and show no column
- * — also a developer decision, over the alternative of leaving the retired
- * accumulator's figure visible for them. Since quick task 260913-g66 they also
- * publish NO match band, and since quick task 260913-it4 NO ranking-point odds
- * (see `publishesRankingPoints`). The display band is Sigma-only, built by
+ * OPR and EPA therefore publish NO consistency metric at all and show no
+ * column, NO match band, and NO ranking-point odds (see
+ * `publishesRankingPoints`). The display band is Sigma-only, built by
  * `sigmaMatchBandVariance`.
- *
- * 260912-ivg (BPR -> SPR identifier cutover): Stages 1-4 held this as a
- * transitional two-member set — the deployed browser-READ tier's pre-rename
- * id, still live at the time, alongside `spr` (the publisher/Worker-WRITE
- * tier) — so the predicate answered identically for either name during the
- * split. Stage 5 (this edit) removes the retired pre-rename member in the
- * same commit that collapses `PUBLISHED_ALGORITHM_IDS` onto `spr`.
  */
 export const SIGMA_SCORE_ALGORITHM_IDS: ReadonlySet<string> = new Set(["spr"]);
 
@@ -183,11 +144,9 @@ export function usesSigmaScore(algorithmId: string): boolean {
  * decomposition, the bonus-RP probabilities and the pre-schedule sidecars the
  * rank simulation draws from).
  *
- * Ranking-point odds need a per-robot score variance, and only Sigma algorithms
- * carry one. OPR and EPA publish none, by developer decision of 2026-09-13
- * (quick task 260913-it4): the retired per-robot consistency accumulator that
- * used to supply their variance was deleted with no replacement, so the rank
- * simulation works under Sigma algorithms (SPR) only.
+ * Ranking-point odds need a per-robot score variance, and only Sigma
+ * algorithms carry one, so the rank simulation works under Sigma algorithms
+ * (SPR) only.
  *
  * Declared as its own predicate, rather than every caller reusing
  * `usesSigmaScore`, so a reader of an RP gate sees which capability it is
@@ -234,36 +193,29 @@ export function allianceSigmaBandVariance(
 
 /**
  * The PUBLISHED Match Band variance for one alliance, from its win-odds
- * variance (quick task 260913-g66). The single display-band helper: the
- * offline layer (`SigmaScoutLayer.foldPlayed` / `enrichUpcoming`), the live
- * Worker and the Sigma methodology page all call this one function.
+ * variance. The single display-band helper: the offline layer
+ * (`SigmaScoutLayer.foldPlayed` / `enrichUpcoming`), the live Worker and the
+ * Sigma methodology page all call this one function.
  *
- * UNDO THE EVEN-SPLIT SHRINKAGE (measured 2026-09-12).
- *
- * A robot's Sigma Score is the 1 standard deviation of its EVEN-SPLIT SHARE of
- * the alliance's miss: `SigmaScoreAccumulator.foldMatch` folds
- * `(actual - predicted) / rosterSize` into every roster member. So the sum of
- * `rosterSize` shares' variances — `bandVarianceFor`, the win-odds variance —
- * estimates `Var(alliance) / rosterSize`, not `Var(alliance)`, and a band drawn
- * from it is `sqrt(rosterSize)` too narrow. Multiplying by `rosterSize` turns
- * the shares back into a whole alliance. The same shrinkage, and the same
- * correction, as `empiricalMoments.ts`'s RP variances.
- *
- * Measured by walk-forward replay through `SigmaScoutLayer.foldPlayed` over
- * 2024 to 2026 at alliance level: SPR's share of results inside 1 band was
- * 47.1% before this correction and 71.7% after (72.2% on warm rosters), against
- * a 68.3% target.
+ * UNDOES THE EVEN-SPLIT SHRINKAGE. A robot's Sigma Score is the 1 standard
+ * deviation of its EVEN-SPLIT SHARE of the alliance's miss:
+ * `SigmaScoreAccumulator.foldMatch` folds `(actual - predicted) / rosterSize`
+ * into every roster member. So the sum of `rosterSize` shares' variances —
+ * `bandVarianceFor`, the win-odds variance — estimates `Var(alliance) /
+ * rosterSize`, not `Var(alliance)`, and a band drawn from it is
+ * `sqrt(rosterSize)` too narrow. Multiplying by `rosterSize` turns the shares
+ * back into a whole alliance. The same shrinkage, and the same correction, as
+ * `empiricalMoments.ts`'s RP variances.
  *
  * DISPLAY ONLY. The win and tie spread keeps the UNCORRECTED sum on purpose:
- * widening it by the same factor worsened Brier from 0.1559 to 0.1631, because
- * red's and blue's misses in one match are correlated (+0.21 for SPR) and the
- * margin's variance is therefore smaller than the two alliance variances
- * added. So `#rpFieldsFor` and the Worker's `rpFieldsFor` keep receiving the
- * win-odds variance, and only the published band is corrected.
+ * widening it by the same factor worsens Brier, because red's and blue's
+ * misses in one match are correlated and the margin's variance is therefore
+ * smaller than the two alliance variances added. So `#rpFieldsFor` and the
+ * Worker's `rpFieldsFor` keep receiving the win-odds variance, and only the
+ * published band is corrected.
  *
- * OPR and EPA publish no display band at all, and since quick task 260913-it4
- * no win-odds variance either. Callers gate on `usesSigmaScore` before calling
- * this.
+ * OPR and EPA publish no display band and no win-odds variance either.
+ * Callers gate on `usesSigmaScore` before calling this.
  *
  * Returns `undefined` when the win-odds variance is undefined, the roster is
  * empty, or either input is non-finite — no band rather than a wrong one.
@@ -503,17 +455,11 @@ export class SigmaScoreAccumulator {
     // defensive padding — it repairs a measured blow-up.
     //
     // `priorK` is `sqrt(sum residual^2 / sum talent^2)`, so early in a season,
-    // when ratings are still near zero but residuals are already full-sized, its
-    // denominator is tiny and it spikes. Measured on 2026: priorK peaks at 34.06
-    // against a settled value of 0.33-0.75. Multiply that by an early OPR rating
-    // (max observed talent: 9,310, because an under-determined least-squares
-    // solve produces nonsense before it has enough matches) and the prior claimed
-    // a 2,780-point spread for a single robot.
-    //
-    // The damage was real and the holdout is what caught it: 2024-2025 tuning
-    // looked healthy, and the 2026 confirmation run showed trimmed-mean NLL at
-    // 23.3 for the talent-prior variants against 4.99 for the flat-prior control
-    // — the control being clean is what localised it to this line.
+    // when ratings are still near zero but residuals are already full-sized,
+    // its denominator is tiny and it spikes. Multiply that by an early OPR
+    // rating (an under-determined least-squares solve produces nonsense
+    // before it has enough matches) and the prior can claim a wildly
+    // oversized spread for a single robot.
     //
     // A prior may refine WITHIN the range the population actually exhibits; it
     // may not assert a spread an order of magnitude outside it on the strength of
@@ -526,14 +472,11 @@ export class SigmaScoreAccumulator {
   /**
    * This team's Sigma Score from everything folded so far.
    *
-   * ALWAYS DEFINED, including for a team seen zero times, and that is a
-   * deliberate divergence from the retired per-robot consistency accumulator's
-   * below-two-observations `undefined`. The prior alone is a legitimate answer
-   * to "how widely might this robot vary" — it is what a scout would assume
-   * from the robot's talent before seeing it play — whereas the retired
-   * accumulator had no prior and so genuinely had nothing to say. It also means
-   * Sigma Score can price a band for every match including a team's first,
-   * which the retired accumulator structurally could not.
+   * ALWAYS DEFINED, including for a team seen zero times: the prior alone is
+   * a legitimate answer to "how widely might this robot vary" — it is what a
+   * scout would assume from the robot's talent before seeing it play. That
+   * also means Sigma Score can price a band for every match, including a
+   * team's first.
    */
   sigmaFor(teamKey: string): number {
     const belief = this.#readBelief(teamKey);
@@ -649,13 +592,10 @@ export class SigmaScoreAccumulator {
    * undefined case here beyond an empty roster, because Sigma always has a
    * figure. The rule that helper enforces — better no band than one built from
    * part of the variance — does not arise: every roster member contributes a
-   * real term, from its prior if it has no history of its own.
-   *
-   * A consequence worth stating: a BPR match whose roster is all debutants now
-   * carries a band where the retired per-robot consistency accumulator produced
-   * none. That is the intended behaviour,
-   * not an accident, and it is what lets the rank simulation price matches that
-   * previously had no pmf at all.
+   * real term, from its prior if it has no history of its own. That means a
+   * match whose roster is all debutants still carries a band, which is what
+   * lets the rank simulation price matches that would otherwise have no pmf
+   * at all.
    */
   bandVarianceFor(roster: readonly string[]): number | undefined {
     if (roster.length === 0) return undefined;
