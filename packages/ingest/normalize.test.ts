@@ -164,7 +164,7 @@ describe("normalizeEvent — offseason flag", () => {
   });
 });
 
-describe("normalizeEvent — location and calendar fields (EVNT-01, plan 05-02)", () => {
+describe("normalizeEvent — location and calendar fields", () => {
   it("maps a full TBA event's name, week, country, stateProv and districtKey through", () => {
     const result = normalizeEvent(
       tbaEvent({
@@ -250,7 +250,7 @@ describe("normalizeMatch — tie", () => {
   });
 });
 
-describe("normalizeMatch — winner imputation (D-01, 01-REVIEW WR-06)", () => {
+describe("normalizeMatch — winner imputation", () => {
   it("derives winner red and imputes when winning_alliance is empty and red outscored blue", () => {
     const match = tbaMatch({
       winning_alliance: "",
@@ -388,7 +388,7 @@ describe("normalizeMatch — ranking points", () => {
   });
 });
 
-describe("normalizeMatch — videoKey (quick task 260906-7eu)", () => {
+describe("normalizeMatch — videoKey", () => {
   it("a youtube entry yields its key", () => {
     const match = tbaMatch({ videos: [{ type: "youtube", key: "abc123XYZ90" }] });
 

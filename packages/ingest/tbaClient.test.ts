@@ -171,7 +171,7 @@ describe("capability surface", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("fetchTeamMedia issues /team/{key}/media/{year} and forwards a cached ETag as a conditional request header (plan 06-03 Task 2)", async () => {
+  it("fetchTeamMedia issues /team/{key}/media/{year} and forwards a cached ETag as a conditional request header", async () => {
     await fetchTeamMedia(ctx, "frc254", 2024, "\"cached-media-etag\"");
 
     const [url, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -180,7 +180,7 @@ describe("capability surface", () => {
     expect(headers["If-None-Match"]).toBe("\"cached-media-etag\"");
   });
 
-  it("fetchEventAlliances issues /event/{key}/alliances and forwards a cached ETag as a conditional request header (D-18.7, plan 07-03)", async () => {
+  it("fetchEventAlliances issues /event/{key}/alliances and forwards a cached ETag as a conditional request header", async () => {
     await fetchEventAlliances(ctx, "2024casj", "\"cached-alliances-etag\"");
 
     const [url, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];

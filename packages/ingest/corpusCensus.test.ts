@@ -65,7 +65,7 @@ const ALLIANCE_EVENT_FLOOR = 100;
  */
 const ABSENT_ALLIANCE_EVENT_KEYS = ["2025bc", "2026wvrox", "2022ispr"] as const;
 
-describe("event_rankings — full-corpus census after the forced 2022-2026 pass (plan 07-05)", () => {
+describe("event_rankings — full-corpus census after the forced 2022-2026 pass", () => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} is absent — run the ingest pipeline (pnpm ingest) to generate it`, () => {});
     return;
@@ -95,7 +95,7 @@ describe("event_rankings — full-corpus census after the forced 2022-2026 pass 
     });
   }
 
-  it("event_rankings holds at least 47695 rows total — the forced pass refreshes in place and never deletes, so the count is monotone against 06.1-04's measured 47,695", () => {
+  it("event_rankings holds at least 47695 rows total — the forced pass refreshes in place and never deletes, so the count is monotone against the measured 47,695", () => {
     const row = db.prepare(`SELECT COUNT(*) AS n FROM event_rankings`).get() as { n: number };
     expect(row.n).toBeGreaterThanOrEqual(47695);
   });
@@ -143,7 +143,7 @@ describe("event_rankings — full-corpus census after the forced 2022-2026 pass 
     });
   }
 
-  it("zero rows violate rank >= 1 AND total_teams >= 1 — 06.1-04's own invariant, re-asserted at the new row count", () => {
+  it("zero rows violate rank >= 1 AND total_teams >= 1 — re-asserted at the new row count", () => {
     const row = db
       .prepare(`SELECT COUNT(*) AS n FROM event_rankings WHERE NOT (rank >= 1 AND total_teams >= 1)`)
       .get() as { n: number };
@@ -189,7 +189,7 @@ describe("event_rankings — full-corpus census after the forced 2022-2026 pass 
   });
 });
 
-describe("event_alliances — full-corpus census after the 2022-2026 pass (plan 07-05)", () => {
+describe("event_alliances — full-corpus census after the 2022-2026 pass", () => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} is absent — run the ingest pipeline (pnpm ingest) to generate it`, () => {});
     return;
@@ -287,7 +287,7 @@ describe("event_alliances — full-corpus census after the 2022-2026 pass (plan 
     expect(offenders).toEqual([]);
   });
 
-  it("the maximum fetched_at across 2022 and 2024 event_alliances rows is strictly less than the minimum fetched_at across 2023, 2025 and 2026 rows — 07-03's rows survived this pass untouched", () => {
+  it("the maximum fetched_at across 2022 and 2024 event_alliances rows is strictly less than the minimum fetched_at across 2023, 2025 and 2026 rows — the 2022 and 2024 rows survived this pass untouched", () => {
     const older = db
       .prepare(
         `SELECT MAX(ea.fetched_at) AS maxFetched

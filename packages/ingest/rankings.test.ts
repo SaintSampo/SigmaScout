@@ -47,7 +47,7 @@ function rankingsResponse(
 }
 
 describe("tbaEventRankingsResponseSchema", () => {
-  it("parses a null body without throwing and yields null (T-06.1-02, Pitfall 2)", () => {
+  it("parses a null body without throwing and yields null", () => {
     expect(() => tbaEventRankingsResponseSchema.parse(null)).not.toThrow();
     expect(tbaEventRankingsResponseSchema.parse(null)).toBeNull();
   });
@@ -65,7 +65,7 @@ describe("tbaEventRankingsResponseSchema", () => {
     expect(() => tbaEventRankingsResponseSchema.parse(response)).not.toThrow();
   });
 
-  it("parses a populated response with 2026-shaped sort_order_info (3 differently-named entries) — Pitfall 3, no code path depends on these names", () => {
+  it("parses a populated response with 2026-shaped sort_order_info (3 differently-named entries) — no code path depends on these names", () => {
     const response = rankingsResponse({
       sort_order_info: [
         { name: "Ranking Score", precision: 2 },
@@ -83,7 +83,7 @@ describe("tbaEventRankingsResponseSchema", () => {
     expect(() => tbaEventRankingsResponseSchema.parse(response)).not.toThrow();
   });
 
-  it("throws on a drifted payload — team_key renamed to teamKey (T-06.1-01, schema drift is loud, never coerced)", () => {
+  it("throws on a drifted payload — team_key renamed to teamKey (schema drift is loud, never coerced)", () => {
     const drifted = {
       ...rankingsResponse(),
       rankings: [{ ...rankingEntry(), team_key: undefined, teamKey: "frc254" }],
@@ -96,7 +96,7 @@ describe("tbaEventRankingsResponseSchema", () => {
     expect(() => tbaEventRankingsResponseSchema.parse(drifted)).toThrow();
   });
 
-  it("throws on a drifted payload — rank is non-integral (WR-01, never silently coerced into a SQLite INTEGER column)", () => {
+  it("throws on a drifted payload — rank is non-integral (never silently coerced into a SQLite INTEGER column)", () => {
     const drifted = { ...rankingsResponse(), rankings: [{ ...rankingEntry(), rank: 3.5 }] };
     expect(() => tbaEventRankingsResponseSchema.parse(drifted)).toThrow();
   });
@@ -149,7 +149,7 @@ describe("normalizeEventRankings", () => {
     ]);
   });
 
-  describe("D-18.6 sort-order guard", () => {
+  describe("sort-order guard", () => {
     it("a populated response whose position-0 sort-order name matches the exported constant normalizes without throwing and returns one record per ranking entry", () => {
       const response = rankingsResponse({
         rankings: [rankingEntry({ team_key: "frc1" }), rankingEntry({ team_key: "frc2" })],
@@ -196,7 +196,7 @@ describe("normalizeEventRankings", () => {
     });
   });
 
-  describe("D-18.6 record and ranking-score fields", () => {
+  describe("record and ranking-score fields", () => {
     it("each returned record's recordWins/recordLosses/recordTies equal the corresponding record.wins/record.losses/record.ties verbatim, including a 0", () => {
       const response = rankingsResponse({
         rankings: [rankingEntry({ record: { wins: 0, losses: 5, ties: 1 } })],

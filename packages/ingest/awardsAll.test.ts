@@ -48,7 +48,7 @@ function corpusEvent(overrides: Partial<CorpusEvent> = {}): CorpusEvent {
   };
 }
 
-describe("normalizeEventAwardsAll (quick task 260912-5n8 T1)", () => {
+describe("normalizeEventAwardsAll", () => {
   it("keeps award types OUTSIDE the qualification set {0,1,9,10}", () => {
     // 13 = Judges' Award, 16 = Excellence in Engineering, 68 = a type this
     // pipeline has never enumerated anywhere. All three are dropped on the
@@ -133,7 +133,7 @@ describe("normalizeEventAwardsAll (quick task 260912-5n8 T1)", () => {
   });
 });
 
-describe("eventAwardsAllEtagKey (quick task 260912-5n8 T1)", () => {
+describe("eventAwardsAllEtagKey", () => {
   it("is NOT the /event/{key}/awards fetch URL that --awards-only already cached", () => {
     // THE trap. readEtag/writeEtag are keyed by URL string, and --awards-only
     // has already stored an ETag under the bare URL for every district event.
@@ -150,7 +150,7 @@ describe("eventAwardsAllEtagKey (quick task 260912-5n8 T1)", () => {
   });
 });
 
-describe("selectAllEventKeysForYear (quick task 260912-5n8 T1)", () => {
+describe("selectAllEventKeysForYear", () => {
   let dir: string;
   let db: Corpus;
 
@@ -196,7 +196,7 @@ describe("selectAllEventKeysForYear (quick task 260912-5n8 T1)", () => {
   });
 });
 
-describe("replaceEventAwardsAll (quick task 260912-5n8 T1)", () => {
+describe("replaceEventAwardsAll", () => {
   let dir: string;
   let db: Corpus;
 

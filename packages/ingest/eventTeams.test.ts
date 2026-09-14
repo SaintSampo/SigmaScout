@@ -28,7 +28,7 @@ function corpusEvent(overrides: Partial<CorpusEvent> = {}): CorpusEvent {
   };
 }
 
-describe("selectOfficialEventKeysForYear / eventTeamsUrlFor (quick task 260905-tll Task 3)", () => {
+describe("selectOfficialEventKeysForYear / eventTeamsUrlFor", () => {
   let dir: string;
   let db: Corpus;
 

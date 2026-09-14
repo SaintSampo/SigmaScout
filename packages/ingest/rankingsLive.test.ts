@@ -84,7 +84,7 @@ function resolveHighestMatchCountEvent(db: Corpus, year: number): string {
   return row.eventKey;
 }
 
-describe("rankingsLive — the D-18.6 guard's premise against real TBA responses (plan 07-04 Task 2)", () => {
+describe("rankingsLive — the sort-order guard's premise against real TBA responses", () => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} is absent — run the ingest pipeline (pnpm ingest) to generate it`, () => {});
     return;
@@ -131,7 +131,7 @@ describe("rankingsLive — the D-18.6 guard's premise against real TBA responses
   }, 60000);
 
   it(
-    "makes at most seven /event/{key}/rankings requests total (T-07-04-04's own bound — a free, volunteer-run service)",
+    "makes at most seven /event/{key}/rankings requests total (a free, volunteer-run service)",
     () => {
       expect(counter.total).toBeLessThanOrEqual(7);
     },
@@ -259,7 +259,7 @@ describe("rankingsLive — the D-18.6 guard's premise against real TBA responses
  * in-memory console tally (T-07-04-06, 06.1-04's repudiation-resistance
  * discipline).
  */
-describe("event_rankings — record and ranking score after a forced ingest (plan 07-04 Task 3)", () => {
+describe("event_rankings — record and ranking score after a forced ingest", () => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} is absent — run the ingest pipeline (pnpm ingest) to generate it`, () => {});
     return;
