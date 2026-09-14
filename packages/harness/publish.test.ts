@@ -3540,7 +3540,7 @@ describe("publishSeasons — World rank cross-artifact agreement", () => {
 });
 
 /** Unit coverage of `withEventPercentiles`, the exported merge function. */
-describe("withEventPercentiles — direct (plan 07-09 Task 1)", () => {
+describe("withEventPercentiles — direct", () => {
   it("Test 2: a pool hit attaches the exact percentileAgainstSortedPool value; a pool miss attaches no percentile key at all", () => {
     const metrics: Record<string, TeamMetric> = { total: { value: 50 }, spread: { value: 12 } };
     const pool = [10, 20, 50, 80];
@@ -3550,7 +3550,7 @@ describe("withEventPercentiles — direct (plan 07-09 Task 1)", () => {
     expect(result.spread).not.toHaveProperty("percentile");
   });
 
-  it("Test 3 (PD-03 — deliberate divergence from withHistoryPercentiles): a raw metric name NOT in HISTORY_PERCENTILE_METRIC_KEYS still receives a percentile when the pool has it", () => {
+  it("Test 3 (deliberate divergence from withHistoryPercentiles): a raw metric name NOT in HISTORY_PERCENTILE_METRIC_KEYS still receives a percentile when the pool has it", () => {
     const rawComponentName = "autoMobility";
     expect(HISTORY_PERCENTILE_METRIC_KEYS).not.toContain(rawComponentName);
     const metrics: Record<string, TeamMetric> = { [rawComponentName]: { value: 5 } };
@@ -3583,7 +3583,7 @@ describe("withEventPercentiles — direct (plan 07-09 Task 1)", () => {
     expect(result.other).not.toHaveProperty("spread");
   });
 
-  it("Test 6 (EVNT-03 precision): a value exactly equal to a pool member gets EXACTLY that member's percentile, via toBe", () => {
+  it("Test 6 (precision): a value exactly equal to a pool member gets EXACTLY that member's percentile, via toBe", () => {
     const pool = [10, 20, 30, 40, 50];
     const metrics: Record<string, TeamMetric> = { total: { value: 30 } };
     const sortedPools = new Map<string, number[]>([["total", pool]]);
@@ -3591,7 +3591,7 @@ describe("withEventPercentiles — direct (plan 07-09 Task 1)", () => {
     expect(result.total?.percentile).toBe(percentileAgainstSortedPool(pool, 30));
   });
 
-  it("Test 11a (EVNT-02/EVNT-03 adjacency): two teams with exactly equal values receive the identical percentile", () => {
+  it("Test 11a (adjacency): two teams with exactly equal values receive the identical percentile", () => {
     const pool = [10, 20, 20, 40];
     const sortedPools = new Map<string, number[]>([["total", pool]]);
     const teamA = withEventPercentiles({ total: { value: 20 } }, sortedPools);
@@ -3599,7 +3599,7 @@ describe("withEventPercentiles — direct (plan 07-09 Task 1)", () => {
     expect(teamA.total?.percentile).toBe(teamB.total?.percentile);
   });
 
-  it("Test 12 (PD-03, direct form): attaches a percentile to MORE metric names than HISTORY_PERCENTILE_METRIC_KEYS.length when the pool has all of them — the machine-checked form of the no-allowlist claim", () => {
+  it("Test 12 (direct form): attaches a percentile to MORE metric names than HISTORY_PERCENTILE_METRIC_KEYS.length when the pool has all of them — the machine-checked form of the no-allowlist claim", () => {
     const metrics: Record<string, TeamMetric> = {
       total: { value: 50 },
       phaseAuto: { value: 10 },
@@ -3620,7 +3620,7 @@ describe("withEventPercentiles — direct (plan 07-09 Task 1)", () => {
  * last official match), end to end to published JSON. `opr`'s event-scoped fit
  * makes different as-of-event and season-final values cheap to construct.
  */
-describe("publishSeasons — D-10 as-of-event value + season-pool percentile on published event artifacts (plan 07-09 Task 1; one pool since 260912-tnk)", () => {
+describe("publishSeasons — as-of-event value + season-pool percentile on published event artifacts", () => {
   let dir: string;
   let db: Corpus;
 
@@ -3635,7 +3635,7 @@ describe("publishSeasons — D-10 as-of-event value + season-pool percentile on 
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("Test 7 (Wave 0 D-10 case, non-vacuous): the early event publishes its as-of-event OPR value, distinct from the season-final value the late event publishes", async () => {
+  it("Test 7 (non-vacuous): the early event publishes its as-of-event OPR value, distinct from the season-final value the late event publishes", async () => {
     const { earlyEventKey, lateEventKey, teamKeys } = seedTwoEventSeason(db);
 
     // (a) fixture-vacuity guard, asserted FIRST: replay independently, in-test.
@@ -3676,7 +3676,7 @@ describe("publishSeasons — D-10 as-of-event value + season-pool percentile on 
     expect(lateRow?.metrics.total?.value).toBe(roundedSeasonFinalValue);
   });
 
-  it("Test 8: the published percentile is ranked against the season ranking pool (every team's last official match, quick task 260912-tnk), never the early event's own (smaller) roster", async () => {
+  it("Test 8: the published percentile is ranked against the season ranking pool (every team's last official match), never the early event's own (smaller) roster", async () => {
     const { earlyEventKey, teamKeys } = seedTwoEventSeason(db);
     // frc7/frc8 play only the late event, so the early roster (six) and season pool (eight) differ.
     upsertMatch(
@@ -3732,7 +3732,7 @@ describe("publishSeasons — D-10 as-of-event value + season-pool percentile on 
     );
   });
 
-  it("Test 9 (PD-04): an event with no completed matches publishes season-final metrics through the same merge, not an empty record", async () => {
+  it("Test 9: an event with no completed matches publishes season-final metrics through the same merge, not an empty record", async () => {
     seedTwoEventSeason(db);
     upsertEvent(db, seasonEvent({ eventKey: "2026sch", name: "Scheduled Only" }));
     upsertMatch(
@@ -3767,7 +3767,7 @@ describe("publishSeasons — D-10 as-of-event value + season-pool percentile on 
     expect(row.metrics.total?.value).toBe(lateRow.metrics.total?.value);
   });
 
-  it("Test 10 (UI-SPEC E3/E4 partial): a team the as-of-event state knows nothing about publishes metrics: {} — no fabricated value", async () => {
+  it("Test 10: a team the as-of-event state knows nothing about publishes metrics: {} — no fabricated value", async () => {
     const { earlyEventKey } = seedTwoEventSeason(db);
     upsertMatch(
       db,
@@ -3796,7 +3796,7 @@ describe("publishSeasons — D-10 as-of-event value + season-pool percentile on 
     expect(row.metrics).toEqual({});
   });
 
-  it("Test 11b (EVNT-02/EVNT-03 ordering): the published teams array order is the caller's order, not a value-derived one", async () => {
+  it("Test 11b (ordering): the published teams array order is the caller's order, not a value-derived one", async () => {
     const { earlyEventKey } = seedTwoEventSeason(db);
     await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
     const earlyArtifact = findEventArtifact(earlyEventKey, "opr");
@@ -3836,7 +3836,7 @@ const fakeRpAlgorithm: AlgorithmModule<FakeRpState> = {
     Object.fromEntries((teams ?? []).map((teamKey) => [teamKey, { total: { value: state.matchCount } }])),
 };
 
-describe("publishSeasons — pre-event walk-forward state, scheduleless events, and the presim sidecar (quick task 260905-tll Task 4)", () => {
+describe("publishSeasons — pre-event walk-forward state, scheduleless events, and the presim sidecar", () => {
   let dir: string;
   let db: Corpus;
 
@@ -3859,7 +3859,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
       | undefined;
   }
 
-  it("C-06/PD-02/PD-04: the later event's sidecar is priced from the PRE-event walk-forward state (the state after the earlier event's last match), never its post-event state — and the cold-start season's first event gets NO sidecar", async () => {
+  it("the later event's sidecar is priced from the PRE-event walk-forward state (the state after the earlier event's last match), never its post-event state — and the cold-start season's first event gets NO sidecar", async () => {
     seedTwoEventSeason(db);
 
     // The published body carries no priced `schedules`, so record each
@@ -3952,7 +3952,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     expect(emptyCall).toBeUndefined();
   });
 
-  it("CR-03: an event whose schedule has landed but which has NOT started still gets a sidecar, priced from current state — never left serving a stale one", async () => {
+  it("an event whose schedule has landed but which has NOT started still gets a sidecar, priced from current state — never left serving a stale one", async () => {
     seedTwoEventSeason(db); // gives the algorithm real season-final state
     // A posted schedule with no played match must still regenerate its sidecar,
     // or a stale one serves through the pre-event window, when readers most want it.
@@ -4004,7 +4004,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
   });
 
   it.each([opr.id, epa.id])(
-    "the sidecar gate is by algorithm id, not by probe: the same RP-modeling fake registered under %s gets NO sidecar (quick task 260913-nvn)",
+    "the sidecar gate is by algorithm id, not by probe: the same RP-modeling fake registered under %s gets NO sidecar",
     async (algorithmId) => {
       seedTwoEventSeason(db);
 
@@ -4060,7 +4060,7 @@ describe("buildCompareArtifact", () => {
   });
 });
 
-describe("buildCompareArtifact — rpCalibration attachment (F1/D-09/D-11, phase 09 plan 09-01 Task 1)", () => {
+describe("buildCompareArtifact — rpCalibration attachment", () => {
   function sliceFor(algorithmId: string, compLevelView: ScoreSlice["compLevelView"]): ScoreSlice {
     return {
       algorithmId,
@@ -4128,7 +4128,7 @@ describe("buildCompareArtifact — rpCalibration attachment (F1/D-09/D-11, phase
     expect(MEASUREMENT.records[0]?.calibration.bonuses[0]?.meanPredicted).toBe(0.123456789);
   });
 
-  it("a measurement record for opr or epa attaches nothing; one for spr attaches as before (quick task 260913-it4)", () => {
+  it("a measurement record for opr or epa attaches nothing; one for spr attaches as before", () => {
     const record = MEASUREMENT.records[0]!;
     const measurement: RpCalibrationMeasurement = {
       ...MEASUREMENT,
@@ -4152,7 +4152,7 @@ describe("buildCompareArtifact — rpCalibration attachment (F1/D-09/D-11, phase
     expect(artifact.slices[0]?.rpCalibration).toBeUndefined();
   });
 
-  describe("totalRp/outcome attachment (2026-09-13, quick task 260913-qyn)", () => {
+  describe("totalRp/outcome attachment", () => {
     const MEASUREMENT_WITH_TOTAL_RP: RpCalibrationMeasurement = {
       ...MEASUREMENT,
       records: [
@@ -4210,7 +4210,7 @@ describe("buildCompareArtifact — rpCalibration attachment (F1/D-09/D-11, phase
   });
 });
 
-describe("loadRpCalibrationMeasurement (T-09-03)", () => {
+describe("loadRpCalibrationMeasurement", () => {
   let dir: string;
 
   beforeEach(() => {
@@ -4274,7 +4274,7 @@ describe("computeSizeStats", () => {
   });
 });
 
-describe("selectScheduledMatches never carries an outcome key (D-08) — publish.ts's own re-check", () => {
+describe("selectScheduledMatches never carries an outcome key — publish.ts's own re-check", () => {
   let dir: string;
   let db: Corpus;
 
@@ -4344,7 +4344,7 @@ describe("selectScheduledMatches never carries an outcome key (D-08) — publish
   });
 });
 
-describe("parseSeasonsRange — gapped list form (quick task 260904-nt4)", () => {
+describe("parseSeasonsRange — gapped list form", () => {
   it("a single year is unchanged", () => {
     expect(parseSeasonsRange("2026")).toEqual([2026]);
   });
@@ -4405,8 +4405,8 @@ describe("parseSeasonsRange — gapped list form (quick task 260904-nt4)", () =>
     expect(
       presimMatch,
       `--presim-from-season argument not found in publish:seasons script: ${script}. ` +
-        `The flag is kept with an EXPLICIT value on purpose (09-10 Task 1): the value is Claude's ` +
-        `Discretion under 09-CONTEXT.md, so an explicit year is a recorded decision while a deletion ` +
+        `The flag is kept with an EXPLICIT value on purpose: the value is a recorded decision, ` +
+        `so an explicit year is deliberate while a deletion ` +
         `is a silent fallback to DEFAULT_PRESCHEDULE_FROM_SEASON — and this tripwire needs something ` +
         `to assert equality against rather than an absence.`
     ).not.toBeNull();
@@ -4451,7 +4451,7 @@ describe("parseSeasonsRange — gapped list form (quick task 260904-nt4)", () =>
   });
 });
 
-describe("publishSeasons — EPA carries from the last official match (quick task 260908-615)", () => {
+describe("publishSeasons — EPA carries from the last official match", () => {
   let dir: string;
   let db: Corpus;
 
@@ -4568,7 +4568,7 @@ describe("publishSeasons — EPA carries from the last official match (quick tas
   });
 });
 
-describe("SigmaScout-layer match band (quick task 260908-5wd, renamed and Sigma-only since 260913-g66)", () => {
+describe("SigmaScout-layer match band", () => {
   // One match, one shared PredictionRecord, so the same band on event and team
   // pages; both builders get the identical object, as in publishSeasons.
   it("publishes a byte-identical band on the event artifact and the team artifact from one shared record", () => {
@@ -4669,7 +4669,7 @@ describe("SigmaScout-layer match band (quick task 260908-5wd, renamed and Sigma-
 
 });
 
-describe("publishSeasons — OPR publishes no band or ranking-point odds (quick tasks 260913-g66 and 260913-it4)", () => {
+describe("publishSeasons — OPR publishes no band or ranking-point odds", () => {
   let dir: string;
   let db: Corpus;
 
@@ -4684,7 +4684,7 @@ describe("publishSeasons — OPR publishes no band or ranking-point odds (quick 
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("OPR publishes no band and no ranking-point field on any row of any event, team or teams artifact (quick tasks 260913-g66 and 260913-it4)", async () => {
+  it("OPR publishes no band and no ranking-point field on any row of any event, team or teams artifact", async () => {
     seedTwoEventSeason(db);
     await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
 
@@ -4723,7 +4723,7 @@ describe("publishSeasons — OPR publishes no band or ranking-point odds (quick 
  * Total and phase values (`sigmaByTeam`), so the event tabs render the split
  * pill without fetching the ~200KB Teams artifact.
  */
-describe("publishSeasons — event standings carry the season-final Sigma entry (quick task 260913-jkp Task 1)", () => {
+describe("publishSeasons — event standings carry the season-final Sigma entry", () => {
   let dir: string;
   let db: Corpus;
 
@@ -4774,7 +4774,7 @@ describe("publishSeasons — event standings carry the season-final Sigma entry 
 
 });
 
-describe("publishSeasons — the pre-schedule sidecar is SPR-only (quick task 260913-it4)", () => {
+describe("publishSeasons — the pre-schedule sidecar is SPR-only", () => {
   let dir: string;
   let db: Corpus;
 
@@ -4789,7 +4789,7 @@ describe("publishSeasons — the pre-schedule sidecar is SPR-only (quick task 26
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("OPR and EPA build no pre-schedule sidecar on the fixture where SPR builds one (quick task 260913-it4)", async () => {
+  it("OPR and EPA build no pre-schedule sidecar on the fixture where SPR builds one", async () => {
     const { lateEventKey } = seedTwoEventSeason(db);
     await publishSeasons(db, { seasons: [2026], algorithms: [opr, epa, spr], bucket: "test-bucket", dryRun: false, skipState: true });
     const presimKeys = vi
@@ -4803,7 +4803,7 @@ describe("publishSeasons — the pre-schedule sidecar is SPR-only (quick task 26
 
 });
 
-describe("publishSeasons — per-object ceiling gate and upload failures (quick task 260913-nvn)", () => {
+describe("publishSeasons — per-object ceiling gate and upload failures", () => {
   let dir: string;
   let db: Corpus;
 
@@ -4841,7 +4841,7 @@ describe("publishSeasons — per-object ceiling gate and upload failures (quick 
   });
 });
 
-describe("buildCompareArtifact — one write path (F1/D-09/D-11, phase 09 plan 09-01 Task 2 Step 4)", () => {
+describe("buildCompareArtifact — one write path", () => {
   it("every buildCompareArtifact({ call site in publish.ts passes an rpCalibration argument — a second call site added later cannot silently omit it", () => {
     const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8");
     const callSiteCount = (source.match(/buildCompareArtifact\(\{/g) ?? []).length;
@@ -4910,7 +4910,7 @@ describe("RP_CALIBRATION_MEASUREMENT_PATH — the measurement the publisher atta
   }
 });
 
-describe("RP calibration wire-budget cost (F1/D-09/D-11, phase 09 plan 09-01 Task 2 Step 5)", () => {
+describe("RP calibration wire-budget cost", () => {
   const measurement = existsSync(RP_CALIBRATION_MEASUREMENT_PATH) ? loadRpCalibrationMeasurement(RP_CALIBRATION_MEASUREMENT_PATH) : undefined;
   const COMPARE_FIXTURE_YEARS = [2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026];
 
