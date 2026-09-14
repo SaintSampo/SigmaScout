@@ -1,42 +1,25 @@
 /**
- * 2022 (Rapid React) RP rule module (D-09, D-12). Manual citation: official
- * 2022 FRC Game Manual §6.4.1, Table 6-1
- * (`firstfrc.blob.core.windows.net/frc2022/Manual/HTML/2022FRCGameManual.htm`,
- * RESEARCH.md Code Examples). Verification method: corpus reconciliation
- * (`reconciliation.test.ts`) against TBA's own recorded
- * `cargoBonusRankingPoint`/`hangarBonusRankingPoint` flags in
- * `score_breakdown_raw`, for every played, non-offseason `qm` match with a
- * breakdown.
+ * 2022 (Rapid React) RP rule module. Source: 2022 FRC Game Manual §6.4.1, Table 6-1.
+ * Verified by corpus reconciliation (`reconciliation.test.ts`) against TBA's
+ * recorded `cargoBonusRankingPoint`/`hangarBonusRankingPoint` flags, for every
+ * played, non-offseason `qm` match with a breakdown.
  *
  * Deliberately never read: `autoPoints`/`teleopPoints` (roll-ups),
- * `autoCargoLower*`/`autoCargoUpper*`/`teleopCargo*` (per-goal breakdown
- * detail, not the RP-relevant totals), `endgameRobot1/2/3`/`taxiRobot1/2/3`
- * (per-robot fields — Pitfall Sigma1-2/Assumption A1, same discipline
- * `breakdown/2022.ts` already applies).
+ * `autoCargoLower*`/`autoCargoUpper*`/`teleopCargo*` (per-goal detail), and the
+ * per-robot `endgameRobot1/2/3`/`taxiRobot1/2/3` fields.
  *
- * Threshold comparison semantics are `>=` throughout (the manual states
- * every bonus as "at least N").
+ * Thresholds compare with `>=` (the manual states every bonus as "at least N").
  *
- * Known data artifact (Pitfall 5, RESEARCH.md): a small, non-tiered
- * mismatch rate in Cargo Bonus reconciliation, concentrated at Regional/
- * District events (event_type 0/1), mismatches running in both directions
- * — inconsistent with a threshold error, consistent with a small number of
- * anomalous events (2022azfl, 2022txwac and others). Documented and
- * tolerated in `reconciliation.test.ts`, never chased by changing this
- * rule.
+ * Known data artifact: a small Cargo Bonus mismatch rate at Regional/District
+ * events, running in both directions (so not a threshold error) and concentrated
+ * in a few anomalous events (2022azfl, 2022txwac and others). Tolerated in
+ * `reconciliation.test.ts`, never chased by changing this rule.
  */
 import { z } from "zod";
 import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
 import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor } from "./constants.js";
 
-/**
- * Only the subset of TBA's `score_breakdown.{side}` object this module
- * reads. Unknown extra fields (`autoPoints`, `teleopPoints`,
- * `autoCargoLower*`, `autoCargoUpper*`, `teleopCargo*`, `endgameRobot1/2/3`,
- * `taxiRobot1/2/3`, `rp`, etc.) are ignored, not rejected — zod's default
- * "strip" mode drops them without erroring. Deliberately NOT
- * `.passthrough()`/`.loose()`, matching `breakdown/2022.ts`'s discipline.
- */
+/** Only the fields this module reads; zod's default strip mode drops the rest without erroring (deliberately not `.passthrough()`/`.loose()`). */
 const SideSchema = z.object({
   matchCargoTotal: z.number().finite(),
   autoCargoTotal: z.number().finite(),
@@ -51,25 +34,19 @@ const Rp2022Schema = z.object({
   blue: SideSchema,
 });
 
-/** Quintet condition: `autoCargoTotal >= 5` reduces the Cargo Bonus threshold. Not tiered (same value at every event tier — manual Table 6-1 states one flat number). */
+/** Quintet condition: `autoCargoTotal >= 5` reduces the Cargo Bonus threshold. Not tiered (manual Table 6-1 states one flat number). */
 const QUINTET_AUTO_CARGO_THRESHOLD: RpTieredThreshold = { base: 5, districtChampionship: 5, championship: 5 };
 
-/** Cargo Bonus threshold when quintet NOT achieved: `matchCargoTotal >= 20`. Not tiered — 0 mismatches observed at event_type 2/3/5/100 (RESEARCH.md). */
+/** Cargo Bonus threshold when quintet NOT achieved: `matchCargoTotal >= 20`. Not tiered. */
 const CARGO_BONUS_THRESHOLD_NON_QUINTET: RpTieredThreshold = { base: 20, districtChampionship: 20, championship: 20 };
 
 /** Cargo Bonus threshold when quintet achieved: `matchCargoTotal >= 18`. Not tiered. */
 const CARGO_BONUS_THRESHOLD_QUINTET: RpTieredThreshold = { base: 18, districtChampionship: 18, championship: 18 };
 
-/** Hangar Bonus threshold: `endgamePoints >= 16`. Not tiered — 0/1000 mismatches (RESEARCH.md). */
+/** Hangar Bonus threshold: `endgamePoints >= 16`. Not tiered. */
 const HANGAR_BONUS_THRESHOLD: RpTieredThreshold = { base: 16, districtChampionship: 16, championship: 16 };
 
-// 09-05 Task 3 (D-01): all three variables below flip to "negative-binomial"
-// — MEASURED evidence class (09-RESEARCH.md's broader corpus probe). See
-// constants.ts's `MarginalFamily` doc comment for the evidence-class
-// framework.
-// 2026-09-14, quick task 260914-01x: every variable below declares "lattice",
-// shipped by the committed bonus-arm bar (data/baselines/rp-bonus-arms-2026-09.json,
-// ship: lattice+meanShift). Any other family named above is history.
+// Every variable declares "lattice"; the shipping evidence is data/baselines/rp-bonus-arms-2026-09.json.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "matchCargoTotal",
@@ -94,12 +71,6 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   },
 ];
 
-/**
- * D-02, D-07: `cargoBonus` is `dataDependentMixture` — selector
- * `autoCargoTotal >= QUINTET_AUTO_CARGO_THRESHOLD` picks between the
- * quintet and non-quintet `matchCargoTotal` branches. `hangarBonus` is
- * `singleThreshold`. Neither gates on an untracked signal.
- */
 const BONUS_PREDICATES: readonly BonusPredicate[] = [
   {
     kind: "dataDependentMixture",
@@ -164,7 +135,7 @@ export const rp2022: RpRuleModule = {
     };
   },
 
-  /** Fully computable from tracked threshold variables alone — no untracked alliance-level gate (see `RpRuleModule.predictThresholds`'s doc comment for the general contract). Delegates to the shared declarative evaluator (D-02, D-07); see `BONUS_PREDICATES` above. */
+  /** Fully computable from tracked threshold variables; no untracked alliance-level gate. */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
     return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
   },
