@@ -359,14 +359,33 @@ test.describe("at least one full data column visible at scroll 0 (no scrolling)"
         report.push(`  ${testId}: w=${box.width.toFixed(1)} start=${start.toFixed(1)} visible=${visible.toFixed(1)}`);
       }
 
+      // Under SPR the lead data column is Total ± Sigma, a split pill in a
+      // 154px column (TOTAL_SIGMA_COLUMN_WIDTH_PX). 260913-jkp measured that
+      // the pill's Sigma half runs past a phone scroller at scroll 0 and chose
+      // to leave it (9bf8829d, recorded in teams-table/columns.tsx). What that
+      // decision keeps is a tiered value on the first screenful: the pill's
+      // Total half. So a table rendering the pill passes when that Total half
+      // is fully visible; any other table still needs a whole data column.
+      const pillTotal = region.locator('[data-testid="total-sigma-pill"] .metric-pill__total').first();
+      let pillTotalFullyVisible = false;
+      let pillReport = "no Total ± Sigma pill rendered";
+      if ((await pillTotal.count()) > 0) {
+        const pillBox = await pillTotal.boundingBox();
+        if (pillBox !== null) {
+          const pillVisible = Math.max(0, Math.min(pillBox.x + pillBox.width, regionBox.x + regionBox.width) - Math.max(pillBox.x, regionBox.x));
+          pillTotalFullyVisible = pillVisible >= pillBox.width - SUBPIXEL_TOLERANCE_PX;
+          pillReport = `first pill's Total half: w=${pillBox.width.toFixed(1)} start=${(pillBox.x - regionBox.x).toFixed(1)} visible=${pillVisible.toFixed(1)}`;
+        }
+      }
+
       expect(
-        fullyVisibleCount,
+        fullyVisibleCount > 0 || pillTotalFullyVisible,
         `${spec.name}: 0 of ${dataCount} data columns fully visible at scroll 0 inside a ${regionBox.width.toFixed(
           1,
         )}px scroller (total ${totalVisiblePx.toFixed(
           1,
-        )}px of data-column pixels visible) — this is the exact "zero data pixels visible on first paint" defect. Columns:\n${report.join("\n")}`,
-      ).toBeGreaterThan(0);
+        )}px of data-column pixels visible), and ${pillReport} — this is the exact "zero data pixels visible on first paint" defect. Columns:\n${report.join("\n")}`,
+      ).toBe(true);
     });
   }
 });
