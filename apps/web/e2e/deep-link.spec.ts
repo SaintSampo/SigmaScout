@@ -37,7 +37,7 @@ test.describe("Teams deep link (year, algorithm, sort, sortDir)", () => {
   test("a pasted URL restores the right year, algorithm and sort state in a fresh context", async ({ browser }) => {
     const { context, page } = await freshPage(browser, TEAMS_URL);
     try {
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Teams — 2022");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Teams 2022");
       await expect(page.getByRole("combobox", { name: "Algorithm" })).toContainText("OPR");
 
       const totalHeader = page.locator('[data-testid="teams-header-total"]');
@@ -82,7 +82,7 @@ test.describe("Teams deep link (year, algorithm, sort, sortDir)", () => {
       await expect(pageB.locator('[data-testid="teams-header-winRate"]')).toHaveAttribute("aria-sort", "descending");
       // Year/algorithm survived the round-trip too — the updater form
       // (`onSortChange`'s `(prev) => ({...prev, ...})`) never drops them.
-      await expect(pageB.getByRole("heading", { level: 1 })).toHaveText("Teams — 2022");
+      await expect(pageB.getByRole("heading", { level: 1 })).toHaveText("Teams 2022");
     } finally {
       await contextB.close();
     }
@@ -93,7 +93,7 @@ test.describe("Events deep link (year, algorithm, filter)", () => {
   test("a pasted URL with an active filter restores the same filtered list in a fresh context", async ({ browser }) => {
     const { context, page } = await freshPage(browser, EVENTS_URL);
     try {
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Events — 2025");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Events 2025");
       await expect(page.getByRole("combobox", { name: "Week" })).toContainText("Week 3");
       await expect(page.getByRole("combobox", { name: "District" })).toContainText("ne");
 
@@ -129,7 +129,7 @@ test.describe("Events deep link (year, algorithm, filter)", () => {
 
     const { context: contextB, page: pageB } = await freshPage(browser, capturedUrl);
     try {
-      await expect(pageB.getByRole("heading", { level: 1 })).toHaveText("Events — 2025");
+      await expect(pageB.getByRole("heading", { level: 1 })).toHaveText("Events 2025");
       await expect(pageB.getByRole("combobox", { name: "Week" })).not.toContainText("Week 3");
       const rowCountFiltered = await pageB.locator('[data-slot="table-body"] [data-slot="table-row"]').count();
       // The unfiltered 2025 season has strictly MORE events than the
