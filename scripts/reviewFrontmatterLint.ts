@@ -1,5 +1,5 @@
 /**
- * Review-frontmatter drift linter (D-16, 03.1-05-PLAN.md).
+ * Review-frontmatter drift linter.
  *
  * WHAT THIS CHECKS (one mechanical invariant, deliberately narrow):
  * ===================================================================
@@ -16,15 +16,12 @@
  * ===================================================================
  * This is NOT a full cross-artifact consistency checker. It was deliberately scoped to this one
  * invariant rather than built as a general review-to-resolutions / verification-to-UAT /
- * STATE-blockers-to-security checker, for two recorded reasons (03.1-CONTEXT.md D-16):
- *   1. A full checker would have caught all four drift cases the 2026-08-19 milestone audit found
- *      (this review-frontmatter drift, a stale VERIFICATION.md human-verification item, and a
- *      stale STATE.md blocker claim), but doing so means parsing prose out of STATE.md — a
- *      meaningful tooling build that risks becoming its own phase rather than a narrow guard.
- *   2. Relying on existing GSD tooling was also rejected: `gsd-tools audit-open` was run during
- *      this phase's discussion and reported all artifact types clear while two REVIEW.md files
- *      carried an `issues_found` status with no resolution recorded — it does not detect this
- *      class of drift at all.
+ * STATE-blockers-to-security checker:
+ *   1. A full checker would need to parse prose out of STATE.md — a meaningful tooling build that
+ *      risks becoming its own phase rather than a narrow guard.
+ *   2. Relying on existing GSD tooling was also rejected: `gsd-tools audit-open` reported all
+ *      artifact types clear while REVIEW.md files carried an `issues_found` status with no
+ *      resolution recorded — it does not detect this class of drift at all.
  * This linter therefore says nothing about whether a VERIFICATION.md's human-verification section
  * is stale, whether STATE.md's Blockers/Concerns list is stale, or whether a review's *content*
  * (as opposed to its resolution bookkeeping) is accurate. A future reader should not mistake a
