@@ -11,37 +11,31 @@ import { eventKeyForSeason } from "@/lib/eventKey";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 
 /**
- * NAV-02's year dropdown. Options are `SEASONS` (Task 1) — descending,
- * current season first — with NO fetch dependency, so no loading state and
- * no error state (05-UI-SPEC.md "Year dropdown" row). Roughly five to eight
- * options: shadcn `Select`'s own built-in scroll handles overflow, no
- * custom treatment.
+ * The year dropdown. Options are `SEASONS` — descending, current season
+ * first — with NO fetch dependency, so no loading state and no error state.
+ * Roughly five to eight options: shadcn `Select`'s own built-in scroll
+ * handles overflow, no custom treatment.
  *
  * Mounted once at the root layout (`Ribbon`), so it is visible on every
  * route — `useSearch({ strict: false })` reads whatever the CURRENT route's
- * validated search happens to be (year/algorithm always present via
- * `RootSearchSchema`; sort/sortDir present only on routes that extend it,
- * e.g. Teams) rather than being coupled to one specific route's own search
- * type.
+ * validated search happens to be rather than being coupled to one specific
+ * route's own search type.
  */
 /**
  * `useNavigate()`'s search-updater type is resolved against the SPECIFIC
  * active route — but this component is mounted once at the root layout and
- * must work no matter which child route (each with its own search schema:
- * root-only on Events/Compare, root-extended on Teams) is currently active.
- * TanStack Router's typed search params have no single type that covers
- * "any route in the tree" for a cross-route search-updater call, so this
- * narrow, local cast is the documented escape hatch (mirrors
- * `__root.test.tsx`'s identical, already-reviewed cast) — the runtime
- * behavior (spread `prev`, override specific fields) is unaffected either
- * way.
+ * must work no matter which child route is currently active. TanStack
+ * Router's typed search params have no single type that covers "any route
+ * in the tree" for a cross-route search-updater call, so this narrow, local
+ * cast is the documented escape hatch (mirrors `__root.test.tsx`'s
+ * identical, already-reviewed cast) — the runtime behavior (spread `prev`,
+ * override specific fields) is unaffected either way.
  *
- * Widened by 07-15-PLAN.md Task 3 (Phase 5 D-12's reserved extension point)
- * to carry an optional `to`/`params` alongside the search updater, following
- * `SearchBox.tsx`'s `SearchNavigate` precedent for a globally-mounted
- * component whose target route genuinely varies: on every route family
- * except an event detail page, `to`/`params` stay `undefined` and this
- * behaves exactly as before (a plain search-only navigation); on an event
+ * Widened to carry an optional `to`/`params` alongside the search updater,
+ * following `SearchBox.tsx`'s `SearchNavigate` precedent for a
+ * globally-mounted component whose target route genuinely varies: on every
+ * route family except an event detail page, `to`/`params` stay `undefined`
+ * and this behaves exactly as a plain search-only navigation; on an event
  * detail route, a year change may instead rewrite the PATHNAME to the same
  * event code in the target season.
  */
@@ -51,31 +45,25 @@ type CrossRouteNavigate = (opts: {
   search: (prev: YearChangeableSearch) => YearChangeableSearch;
 }) => Promise<void>;
 
-/** D-15's route shape: `/team/{number}`, the plain team number, never `frc{number}`. Matches with or without a trailing path segment so this stays correct if a future plan adds one (e.g. an event-detail sub-path). */
+/** Route shape: `/team/{number}`, the plain team number, never `frc{number}`. Matches with or without a trailing path segment so this stays correct if a future plan adds one (e.g. an event-detail sub-path). */
 const TEAM_ROUTE_PATTERN = /^\/team\/(\d+)(?:\/|$)/;
 
-/** Phase 5 D-12's target: `/event/{eventKey}`. Matches with or without a trailing path segment, same tolerance `TEAM_ROUTE_PATTERN` already carries. */
+/** Event detail route: `/event/{eventKey}`. Matches with or without a trailing path segment, same tolerance `TEAM_ROUTE_PATTERN` already carries. */
 const EVENT_DETAIL_ROUTE_PATTERN = /^\/event\/([^/]+)(?:\/|$)/;
 
 /** The two shapes `resolveYearChangeTarget` can resolve to — an allow-list hit on the mapped event, or the target season's Events list in every other case. */
 type YearChangeTarget = { to: "/event/$eventKey"; params: { eventKey: string } } | { to: "/events" };
 
 /**
- * Phase 5 D-12's reserved extension point, discharged at the `navigate()`
- * call site exactly as `applyYearChange`'s own doc comment prescribes:
- * `applyYearChange` itself is not modified, not wrapped and not duplicated.
- *
  * Returns the event detail route and the swapped key when, and only when,
  * ALL of these hold: the pathname matches an event detail route;
  * `eventKeyForSeason` produces a candidate without throwing; the algorithms
  * manifest resolves a version for the currently-selected algorithm; and the
  * target season's PUBLISHED events artifact contains an entry whose
  * `eventKey` equals the candidate. This is an ALLOW-LIST membership test,
- * not a syntactic guess — the candidate is navigated to only because it was
- * found in a published list. In every other case (a non-event route, a
- * thrown key error, an unresolved version, a rejected fetch, or a genuine
- * miss) it returns the events-list route, per D-12's own text naming the
- * Events list as the fallback: a dead-end 404 is a worse answer than a
+ * not a syntactic guess. In every other case (a non-event route, a thrown
+ * key error, an unresolved version, a rejected fetch, or a genuine miss) it
+ * returns the events-list route: a dead-end 404 is a worse answer than a
  * correct list. Both fetches are wrapped in one try/catch so a rejection
  * routes to the fallback rather than escaping as an unhandled rejection.
  *
@@ -112,12 +100,11 @@ export async function resolveYearChangeTarget(
 }
 
 /**
- * D-18's constrained year dropdown, modelled directly on
- * `AlgorithmSelect.tsx`'s `useAlgorithmOptions` "upgrade in place, never
- * remount" shape: render the unconstrained/global list first, narrow once
- * `activeYears` resolves, degrade back to the global list in every
- * unresolved case (loading, error, non-team route, empty/absent
- * `activeYears`).
+ * The constrained year dropdown, modelled directly on `AlgorithmSelect.tsx`'s
+ * `useAlgorithmOptions` "upgrade in place, never remount" shape: render the
+ * unconstrained/global list first, narrow once `activeYears` resolves,
+ * degrade back to the global list in every unresolved case (loading, error,
+ * non-team route, empty/absent `activeYears`).
  *
  * `YearSelect` mounts once at the root layout, above the route tree, so it
  * cannot use a strict route hook for the team route's own typed params —
@@ -129,21 +116,18 @@ export async function resolveYearChangeTarget(
  * itself already queries with, and reads with `enabled: false` — TanStack
  * Query's cache is keyed, not per-call, so this observer subscribes to (and
  * re-renders when) the route's own already-enabled query resolves, without
- * ever triggering a fetch of its own (D-07: one artifact per page).
+ * ever triggering a fetch of its own.
  *
- * The algorithm-version lookup is INLINED here (reading the same
- * `algorithms-manifest` query key `AlgorithmSelect.tsx`'s `useAlgorithmVersion`
- * uses) rather than calling that hook directly, because `useAlgorithmVersion`
+ * The algorithm-version lookup is INLINED here rather than calling
+ * `AlgorithmSelect.tsx`'s `useAlgorithmVersion` directly, because that hook
  * has no `enabled` toggle — it would fire the manifest fetch unconditionally
- * on every route, including the vast majority (`/teams`, `/events`,
- * `/compare`) where this hook needs no version at all. Gating it on
- * `isTeamRoute` here keeps this hook self-contained and inert off a team
- * route, without changing `AlgorithmSelect.tsx`'s own contract.
+ * on every route, including the vast majority where this hook needs no
+ * version at all. Gating it on `isTeamRoute` here keeps this hook
+ * self-contained and inert off a team route.
  *
  * Exported (not module-private) so `YearSelect.test.tsx` can assert the
  * narrow-over-time behaviour directly via `renderHook`, decoupled from
- * Radix `Select`'s own conditional (open-only) content mounting — the same
- * reason `AlgorithmSelect.tsx`'s `useAlgorithmOptions` is exported.
+ * Radix `Select`'s own conditional (open-only) content mounting.
  */
 export function useConstrainedYears(): readonly number[] {
   const location = useLocation();
@@ -178,18 +162,17 @@ export function YearSelect() {
 
   function handleChange(value: string) {
     const newYear = Number(value);
-    // NAV-02 adjacency edge: reselecting the already-selected value is a
-    // no-op — no navigation, no refetch, no duplicate history entry.
+    // Reselecting the already-selected value is a no-op — no navigation, no
+    // refetch, no duplicate history entry.
     if (newYear === search.year) return;
 
     // The common path (every route except an event detail page) must NOT
-    // become async or acquire a fetch — this stays exactly as synchronous
-    // as it was before Phase 5 D-12's extension point existed.
+    // become async or acquire a fetch.
     if (!EVENT_DETAIL_ROUTE_PATTERN.test(location.pathname)) {
       void navigate({
-        // The shared D-11 year-change handler (searchParams.ts, Task 2):
-        // preserves filters/sort/column state and re-resolves the sort key
-        // through the same resolveSortKey the algorithm-change path uses.
+        // `applyYearChange` (searchParams.ts) preserves filters/sort/column
+        // state and re-resolves the sort key through the same
+        // resolveSortKey the algorithm-change path uses.
         search: (prev) => applyYearChange(prev, newYear),
       });
       return;
@@ -207,22 +190,20 @@ export function YearSelect() {
 
   return (
     <Select value={String(search.year)} onValueChange={handleChange}>
-      {/* Pine ribbon control treatment (2026-09-01 redesign): translucent white on the dark green bar. */}
+      {/* Ribbon control treatment: translucent white on the dark green bar. */}
       <SelectTrigger
         aria-label="Year"
         className="data-[size=default]:h-9 w-[6rem] border-[var(--ribbon-control-border)] bg-[var(--ribbon-control-bg)] text-[15px] text-[var(--ribbon-ink)] [&_svg]:text-[var(--ribbon-ink-muted)]"
       >
         {/*
-          D-19: explicit children, not Radix's own item-derived label. Radix
+          Explicit children, not Radix's own item-derived label. Radix
           `Select.Value` only auto-derives its displayed text by portaling a
-          MATCHING, currently-rendered `SelectItem`'s text into this node
-          (`@radix-ui/react-select`'s `SelectItemText` "bubble" mechanism) —
+          MATCHING, currently-rendered `SelectItem`'s text into this node —
           when the routed year isn't in the constrained `years` list, no
           `SelectItem` for it exists to bubble from, and the trigger would
           render blank. Passing `search.year` directly here decouples the
           CLOSED trigger's displayed value from which options happen to be
-          OPEN-state selectable, satisfying "the control and the URL never
-          disagree" for every year, matched or not.
+          OPEN-state selectable.
         */}
         <SelectValue>{search.year}</SelectValue>
       </SelectTrigger>

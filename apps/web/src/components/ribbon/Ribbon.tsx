@@ -6,20 +6,19 @@ import { AlgorithmSelect } from "./AlgorithmSelect.js";
 import { SearchBox } from "../search/SearchBox.js";
 
 /**
- * NAV-01's persistent top ribbon: wordmark, three nav links in a FIXED
- * order, both global dropdowns, and the search box (05-08-PLAN.md Task 2 —
- * `SearchBox` itself decides, via the shared `useIsMobile()` breakpoint,
- * whether to render as the inline desktop search box or the 44x44 icon
- * trigger that opens a phone dialog; this component just places it in the
- * same reserved slot on both branches below).
+ * The persistent top ribbon: wordmark, nav links in a FIXED order, both
+ * global dropdowns, and the search box (`SearchBox` itself decides, via the
+ * shared `useIsMobile()` breakpoint, whether to render as the inline desktop
+ * search box or the 44x44 icon trigger that opens a phone dialog; this
+ * component just places it in the same reserved slot on both branches
+ * below).
  *
  * No fetch of its own — this component is static chrome and must never be
  * gated on a query. `YearSelect` has no fetch either; `AlgorithmSelect`
  * fetches the algorithms manifest internally, but renders its full
- * build-time option list on the very first paint regardless (05-UI-SPEC.md
- * "Algorithm dropdown" empty row — it can never be empty). `SearchBox`
+ * build-time option list on the very first paint regardless. `SearchBox`
  * itself is also never gated on a fetch resolving before it renders — its
- * two artifact queries stay `enabled: false` until D-10's lazy-fetch trigger
+ * two artifact queries stay `enabled: false` until its lazy-fetch trigger
  * fires.
  */
 const NAV_LINKS = [
@@ -30,11 +29,11 @@ const NAV_LINKS = [
 ] as const;
 
 /**
- * The active-link indicator, restated for the Pine ribbon (2026-09-01
- * redesign): on the dark green bar the active link is WHITE with a light
- * green (`--ribbon-accent`) underline; inactive links are translucent
- * white. The page-level `--color-accent` never appears in this component —
- * the ribbon has its own token vocabulary (theme.css `--ribbon-*` block).
+ * The active-link indicator: on the dark green bar the active link is WHITE
+ * with a light green (`--ribbon-accent`) underline; inactive links are
+ * translucent white. The page-level `--color-accent` never appears in this
+ * component — the ribbon has its own token vocabulary (theme.css
+ * `--ribbon-*` block).
  */
 const ACTIVE_LINK_CLASS =
   "text-role-ribbon-nav whitespace-nowrap border-b-2 border-[var(--ribbon-accent)] pb-[6px] text-[var(--ribbon-ink)] transition-colors";
@@ -49,11 +48,11 @@ const GLOBAL_SEARCH_KEYS = Object.keys(RootSearchSchema.shape);
 
 /**
  * Carries ONLY the site-wide params across a nav click. Page-owned params
- * stay on their page: carrying every param forward (this function's original
- * identity behavior) leaked the Locks page's `?district=` into the Teams
- * page's same-named district filter, and the Teams filters into Events.
- * Values are still read from `prev`, never replaced with literals, so the
- * selected year and algorithm survive every navigation (NAV-02).
+ * stay on their page: carrying every param forward would leak the Locks
+ * page's `?district=` into the Teams page's same-named district filter, and
+ * the Teams filters into Events. Values are still read from `prev`, never
+ * replaced with literals, so the selected year and algorithm survive every
+ * navigation.
  *
  * `Link`'s typed `search` updater expects the TARGET route's fully-required
  * search shape back, and no single TanStack Router type means "any target
@@ -76,14 +75,9 @@ function NavLinks({ gapClass = "gap-[var(--spacing-md)]" }: { gapClass?: string 
   // still names the ONE canonical Teams/Events/Locks/Methodology order
   // both branches below render.
   //
-  // Revision R2 (quick task 260905-lic Task R2b, user decision): Districts
-  // moves to the THIRD slot, ahead of what is now Methodology (renamed from
-  // Compare by quick task 260905-phf) — the user's own explicit "Teams,
-  // Events, Districts, Compare" ordering, restated against the current
-  // Methodology name. `gap-[var(--spacing-md)]` (was `--spacing-lg`, 24px)
-  // stays narrowed to 16px (260905-lic's original narrowing) on desktop; the
-  // mobile branch passes 12px, because its second row must also hold the
-  // GitHub and search icons (see that row's budget comment).
+  // `gap-[var(--spacing-md)]` (16px) on desktop; the mobile branch passes
+  // 12px, because its second row must also hold the GitHub and search
+  // icons (see that row's budget comment).
   return (
     <nav aria-label="Primary" className={`flex items-center ${gapClass}`}>
       <Link to="/teams" search={preserveSearch} className={INACTIVE_LINK_CLASS} activeProps={{ className: ACTIVE_LINK_CLASS }}>
@@ -107,10 +101,9 @@ function NavLinks({ gapClass = "gap-[var(--spacing-md)]" }: { gapClass?: string 
  * drawn inline with `currentColor`), wearing the same muted-ink-to-ink hover
  * treatment as an inactive nav link — it is chrome, not navigation, so it
  * never carries the active underline. Sized to the icon alone (no
- * `.tap-target`): a 44px minimum here would grow the ribbon's row height,
- * a regression the user reported on 2026-09-04. It sits immediately LEFT
- * of the search control on both branches so the search bar keeps its
- * far-right position.
+ * `.tap-target`): a 44px minimum here would grow the ribbon's row height.
+ * It sits immediately LEFT of the search control on both branches so the
+ * search bar keeps its far-right position.
  */
 function GitHubLink() {
   return (
@@ -138,21 +131,17 @@ function GlobalSelects() {
 }
 
 export function Ribbon() {
-  // Read from the shared breakpoint constant (05-05-PLAN.md Task 3's own
-  // instruction: "Read the breakpoint from the shared constant rather than
-  // declaring a media query inline") — `useIsMobile` and Tailwind's `md:`
-  // prefix both resolve to the SAME `MOBILE_BREAKPOINT_PX` (breakpoints.ts),
-  // so this component and any CSS elsewhere can never disagree about which
-  // side of the line they are on.
+  // `useIsMobile` and Tailwind's `md:` prefix both resolve to the SAME
+  // `MOBILE_BREAKPOINT_PX` (breakpoints.ts), so this component and any CSS
+  // elsewhere can never disagree about which side of the line they are on.
   const isMobile = useIsMobile();
 
-  // 2026-09-01 (user request): the wordmark is the way home. The Σ wears
-  // the ribbon's light-green accent — the one place the user's #4CAF50 seed
-  // family gets used near-raw, because it passes contrast on the dark bar
-  // (it never does on white). 2026-09-13 (user request): a smaller, grey
-  // "Beta" tag sits right after the wordmark, as a sibling `span` OUTSIDE
-  // the `Link` on purpose — the home link's accessible text must stay
-  // exactly the wordmark (Ribbon.test.tsx pins the link's own text to
+  // The wordmark is the way home. The Σ wears the ribbon's light-green
+  // accent — the one place the site's raw green seed color gets used
+  // near-raw, because it passes contrast on the dark bar (it never does on
+  // white). The grey "Beta" tag sits right after the wordmark, as a sibling
+  // `span` OUTSIDE the `Link` on purpose — the home link's accessible text
+  // must stay exactly the wordmark (Ribbon.test.tsx pins it to
   // "ΣigmaScout"), so the tag cannot live inside it.
   const wordmark = (
     <div className="flex shrink-0 items-baseline gap-[var(--spacing-sm)]">
@@ -165,42 +154,34 @@ export function Ribbon() {
 
   if (isMobile) {
     return (
-      // G-12 (07-UAT.md): `overflow-x-hidden` alone forces `overflow-y`'s
-      // USED value to `auto` per the CSS Overflow spec — this header
-      // silently became a Y-axis scroll container, so SearchBox's
-      // absolutely-positioned results list was clipped to (and scrolled
-      // within) the header instead of overlaying the page below it.
-      // `overflow-x-clip` clips the X axis WITHOUT forcing a scroll
-      // container on Y, so the dropdown escapes normally. Still blocks
-      // horizontal overflow exactly as `hidden` did — `no-page-pan.spec.ts`
-      // (the property this token exists to guard) is unaffected.
+      // `overflow-x-hidden` alone forces `overflow-y`'s USED value to `auto`
+      // per the CSS Overflow spec, turning this header into a Y-axis scroll
+      // container that clips SearchBox's absolutely-positioned results list
+      // instead of letting it overlay the page below. `overflow-x-clip`
+      // clips the X axis WITHOUT forcing a scroll container on Y, so the
+      // dropdown escapes normally, while still blocking horizontal overflow.
       //
-      // Phone gutter is `--spacing-md` (16px), not the desktop's 24px: at 24px
-      // the first row (wordmark + both selects, 364px measured) only fit at
-      // 412px and truncated the algorithm select on 390-402px iPhones.
+      // Phone gutter is `--spacing-md` (16px), not the desktop's 24px: at
+      // 24px the first row (wordmark + both selects, 364px measured) only
+      // fit at 412px and truncated the algorithm select on 390-402px
+      // iPhones.
       <header className="shadow-sm w-full max-w-full overflow-x-clip bg-[var(--ribbon-bg)] px-[var(--spacing-md)] py-[var(--spacing-md)]">
         <div className="flex min-w-0 items-center justify-between gap-[var(--spacing-md)]">
           {wordmark}
           <GlobalSelects />
         </div>
-        {/* The "compact second row" (05-UI-SPEC.md "Top ribbon" overflow row):
-            the SAME NavLinks element the desktop branch below renders — the
-            link order (Teams, Events, Locks, Methodology) never differs
-            between the two branches, only the surrounding layout reflows. `SearchBox`
-            renders as the 44x44 icon trigger here (`useIsMobile()` inside it
-            resolves the same way this component's own `isMobile` did). */}
-        {/* Row budget, measured 2026-09-13: the four labels are 265px. The
-            icons were once plain flex items with no shrink guard, so the nav
-            pushed the search trigger past the header's clip edge (x=382-426
-            on a 412px phone), leaving a sliver of magnifier. Now:
-            - the icon group is `shrink-0`, so it can never be pushed out;
-            - the search trigger's 44px tap target overhangs the gutter by
-              14px, so its 16px glyph lines up with the select above;
-            - the GitHub icon drops below 400px, where keeping it would cut
-              "Methodology" off (the row fits down to 375px without it);
-            - below 375px the link gap tightens to 8px, which still fits a
-              360px phone; anything narrower scrolls the nav sideways
-              instead of clipping it. */}
+        {/* The compact second row: the SAME NavLinks element the desktop
+            branch below renders — the link order never differs between the
+            two branches, only the surrounding layout reflows. `SearchBox`
+            renders as the 44x44 icon trigger here. */}
+        {/* Row budget: the icon group is `shrink-0`, so it can never be
+            pushed out of the header's clip edge; the search trigger's 44px
+            tap target overhangs the gutter by 14px, so its 16px glyph lines
+            up with the select above; the GitHub icon drops below 400px,
+            where keeping it would cut "Methodology" off; below 375px the
+            link gap tightens to 8px, which still fits a 360px phone —
+            anything narrower scrolls the nav sideways instead of clipping
+            it. */}
         <div className="mt-[var(--spacing-sm)] flex min-w-0 items-center justify-between gap-[var(--spacing-sm)]">
           <div className="min-w-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <NavLinks gapClass="gap-[12px] max-[374px]:gap-[var(--spacing-sm)]" />
@@ -219,17 +200,15 @@ export function Ribbon() {
   }
 
   return (
-    // Same G-12 fix as the mobile branch above — `overflow-x-clip` in place
-    // of `overflow-x-hidden` (never authored `overflow-y`, so the used value
-    // was silently forced to `auto`).
+    // Same overflow-x-clip fix as the mobile branch above.
     <header className="shadow-sm w-full max-w-full overflow-x-clip bg-[var(--ribbon-bg)] px-[var(--spacing-lg)] py-[var(--spacing-md)]">
       <div className="flex min-w-0 items-center justify-between gap-[var(--spacing-lg)]">
         {wordmark}
         <NavLinks />
         <GlobalSelects />
         {/* Grouped so `justify-between` can't spread the GitHub icon toward
-            the ribbon's center — it must hug the search box (user request,
-            2026-09-04), matching the mobile branch's grouping above. */}
+            the ribbon's center — it must hug the search box, matching the
+            mobile branch's grouping above. */}
         <div className="flex items-center gap-[var(--spacing-md)]">
           <GitHubLink />
           <SearchBox tone="ribbon" />
