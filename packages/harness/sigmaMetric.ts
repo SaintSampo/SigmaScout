@@ -1,50 +1,15 @@
 /**
  * The rating-local residual percentile behind a published per-robot
- * consistency metric — today SPR's `sigma` entry (value, percentile, tier).
+ * consistency metric (SPR's `sigma` entry: value, percentile, tier).
  *
- * Relocated verbatim by quick task 260913-it4 from the module that built the
- * retired per-robot consistency accumulator's published metric (quick task
- * 260909-tgf, Task 1, whose D1 locked the residual framing; the functional form
- * below was that task's discretion). Quick task 260910-x parameterised it by
- * metric key so Sigma Score reused this exact construction rather than getting a
- * second copy; with the retired accumulator gone, Sigma Score is its only
- * consumer and the key is now REQUIRED.
- *
- * ---------------------------------------------------------------------------
- * THE FIT: A RUNNING MEDIAN OVER RATING-RANK NEIGHBOURS
- * ---------------------------------------------------------------------------
- *
- * Sort the eligible teams ascending by their `total` metric value (the
- * rating axis). Each team's expected consistency figure is the MEDIAN figure
- * of the `k` teams nearest it in that rating ordering, its own window centred
- * on itself. `k = max(25, round(n / 20))`, clamped to `n`. Residual = actual
- * figure minus that local median.
- *
- * Two alternatives were considered and REJECTED (recorded here so nobody
- * re-proposes them — see `.planning/quick/260909-tgf-.../260909-tgf-
- * CONTEXT.md` D1):
- *   - Coefficient of variation (`figure / rating`) — unstable at low ratings;
- *     a team rated 2.0 with a figure of 3.0 produces a wild ratio, so weak
- *     teams dominate both tails.
- *   - Rating-decile strata — creates visible discontinuities at bucket
- *     edges; two near-identical teams can land in different tiers.
- *
- * Why a running median over neighbours instead:
- *   - It assumes NO functional form. Consistency-vs-rating is not known to be
- *     linear, and a mis-specified curve would push its own shape into every
- *     residual.
- *   - The MEDIAN makes it robust to outliers by construction — an
- *     Einstein-bias team or a two-match team with a wild figure moves its
- *     window's median by essentially nothing.
- *   - Every team gets its OWN window, centred on itself, so there are no
- *     bucket edges: two near-identical teams see near-identical windows and
- *     near-identical expected values. This is exactly what disqualified
- *     rating-decile strata.
- *   - It is O(n log n) to sort plus O(n*k) to sweep — roughly 685k
- *     operations for a real 3,700-team season, computed once per
- *     (algorithm, season).
- *   - It has no low-rating instability, which is what disqualified the
- *     coefficient-of-variation ratio.
+ * Each eligible team's expected consistency figure is the MEDIAN figure of
+ * the `k` teams nearest it in rating rank, its own window centred on itself
+ * (`k = max(25, round(n / 20))`, clamped to `n`). Residual = actual figure
+ * minus that local median. A running median over rating-rank neighbours
+ * assumes no functional form and is robust to outliers by construction, and
+ * every team's own centred window avoids the bucket-edge discontinuities a
+ * rating-decile stratification would create; coefficient-of-variation
+ * (figure / rating) is rejected because it is unstable at low ratings.
  */
 import { TOTAL_METRIC_KEY, type TeamMetrics } from "../core/algorithms/types.js";
 import { goodnessPercentile, metricDirection } from "./metricDirection.js";
@@ -60,10 +25,8 @@ function median(values: readonly number[]): number {
 
 /**
  * Each eligible team's expected consistency figure: the median figure of the
- * `k` rating-rank-nearest teams, its own window centred on itself (clamped at
- * the pool's edges). The eligible pool is `teamKeys` filtered to teams present
- * in BOTH `valueByTeam` and `ratingByTeam` — a team missing either cannot be
- * placed on the curve.
+ * `k` rating-rank-nearest teams (clamped at the pool's edges). Eligible means
+ * present in both `valueByTeam` and `ratingByTeam`.
  */
 export function expectedSigmaByTeam(
   valueByTeam: ReadonlyMap<string, number>,
@@ -105,35 +68,18 @@ export interface SigmaMetricEntry {
 
 /**
  * Computes a published consistency metric for every eligible team in
- * `teamKeys`, ONCE per `(algorithm, season)`. Callers (`publish.ts`) feed
- * this result to BOTH the teams row and the team-season artifact, so the
- * two cannot structurally disagree about a team's tier.
- *
- * The eligible pool is teams in `teamKeys` that have BOTH a figure (in
- * `valueByTeam`) and a `total` metric value (in `metricsByTeam`, the rating
- * axis) — a team missing either gets NO entry, never a coerced zero
- * (honest absence, matching `percentiles.ts`'s own "no value, no
- * percentile" rule). The pool is exactly `teamKeys`, never
- * `Object.keys(metricsByTeam)` — the same pool-scoping rule `withPercentiles`
- * and `sortedPoolsByMetric` both state.
- *
- * The residual (actual figure minus expected figure) is never published —
- * it is an intermediate nothing renders, and the teams artifact is this
- * project's largest payload. Nothing is rounded here: `buildTeamsArtifact` /
- * `buildTeamSeasonArtifact` own the single rounding boundary
- * (`rounding.ts`'s header), and a second rounding pass here would make the
- * site's number disagree with the harness's.
+ * `teamKeys`, ONCE per `(algorithm, season)` — callers feed this same result
+ * to both the teams row and the team-season artifact so the two cannot
+ * disagree. A team missing either a figure or a rating gets no entry, never
+ * a coerced zero. The pool is exactly `teamKeys`, never
+ * `Object.keys(metricsByTeam)`. Nothing is rounded here: `buildTeamsArtifact`
+ * / `buildTeamSeasonArtifact` own the single rounding boundary.
  */
 export function sigmaMetricByTeam(params: {
   valueByTeam: ReadonlyMap<string, number>;
   metricsByTeam: TeamMetrics;
   teamKeys: readonly string[];
-  /**
-   * Which metric key's declared direction to apply. REQUIRED — there is no
-   * default key. The question this construction answers is "is this robot
-   * more or less consistent than others at its rating", and the metric key
-   * says which published entry the answer is for.
-   */
+  /** Which metric key's declared direction to apply. Required, no default. */
   metricKey: string;
 }): Record<string, SigmaMetricEntry> {
   const { valueByTeam, metricsByTeam, teamKeys, metricKey } = params;
@@ -152,11 +98,8 @@ export function sigmaMetricByTeam(params: {
   const residuals = eligible.map((teamKey) => valueByTeam.get(teamKey)! - expected.get(teamKey)!);
   const rawPercentiles = percentileRanks(residuals);
 
-  // The STRICT accessor is correct here, deliberately: every caller passes a
-  // name `metricDirection.ts` declares, so a throw would mean the registry lost
-  // its own entry -- a defect worth crashing on rather than degrading past. It
-  // is the SAME declared-direction mechanism the percentile pass uses, so this
-  // metric is an instance of it rather than a second one.
+  // Strict accessor: an unknown key means the registry lost its own entry,
+  // a defect worth crashing on rather than degrading past.
   const direction = metricDirection(metricKey);
 
   eligible.forEach((teamKey, i) => {
