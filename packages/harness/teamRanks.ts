@@ -1,27 +1,25 @@
 /**
- * Quick task 260905-ldu: the single home for two related rules that must
- * never drift apart — which team keys are real, and how teams are ranked and
- * scoped into World/Country/District/State pools for the per-team rank
- * cards. This module is dependency-free (no Node built-ins, no
- * `better-sqlite3`, no `zod`) so BOTH the offline pipeline
- * (`packages/harness/publish.ts`, which publishes the World/Country/
- * District/State ranks onto each team's artifact) and the browser bundle
+ * The single home for two related rules that must never drift apart —
+ * which team keys are real, and how teams are ranked and scoped into
+ * World/Country/District/State pools for the per-team rank cards. This
+ * module is dependency-free (no Node built-ins, no `better-sqlite3`, no
+ * `zod`) so BOTH the offline pipeline (`packages/harness/publish.ts`, which
+ * publishes the World/Country/District/State ranks onto each team's
+ * artifact) and the browser bundle
  * (`apps/web/src/components/teams-table/rowModel.ts`, which ranks the same
  * pool client-side for the Teams table) import the exact same
- * implementation. Before this module existed, `rowModel.ts` carried its own
- * copy of the ranking rule and `apps/web/src/lib/teamKey.ts` carried its own
- * copy of the real-team-key rule; a single shared home is what makes "the
- * World rank on a team's page" and "that team's row in the Teams table"
- * incapable of disagreeing, by construction rather than by convention.
+ * implementation. A single shared home is what makes "the World rank on a
+ * team's page" and "that team's row in the Teams table" incapable of
+ * disagreeing, by construction rather than by convention.
  *
  * It imports only `isOfficialEventType`/`OFFSEASON_EVENT_TYPE`/
  * `PRESEASON_EVENT_TYPE` from `../core/algorithms/eventTypes.js`,
- * `TOTAL_METRIC_KEY` from `../core/algorithms/types.js`, and (quick task
- * 260912-tnk) `roundTo`/`ROUNDING_RULE` from `./rounding.js` — all three
- * files are themselves import-nothing/framework-agnostic leaves (see their
- * own header comments), so this module stays safe to bundle into the
- * browser. `packages/harness/browserSafeSchemas.test.ts` enforces this with
- * a static import-graph scan.
+ * `TOTAL_METRIC_KEY` from `../core/algorithms/types.js`, and
+ * `roundTo`/`ROUNDING_RULE` from `./rounding.js` — all three files are
+ * themselves import-nothing/framework-agnostic leaves (see their own
+ * header comments), so this module stays safe to bundle into the browser.
+ * `packages/harness/browserSafeSchemas.test.ts` enforces this with a
+ * static import-graph scan.
  */
 import { isOfficialEventType, OFFSEASON_EVENT_TYPE, PRESEASON_EVENT_TYPE } from "../core/algorithms/eventTypes.js";
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
@@ -35,25 +33,18 @@ export { OFFSEASON_EVENT_TYPE, PRESEASON_EVENT_TYPE };
 const TEAM_KEY_PATTERN = /^frc(\d+)$/;
 
 /**
- * Whether a corpus team key names a REAL, competing FRC team registration
- * (originally `apps/web/src/lib/teamKey.ts`'s `isRealTeamKey`, 2026-09-01
- * user report: "long names like 5199 don't show up in the teams list"). Two
- * published key shapes are not real teams and are excluded from every
+ * Whether a corpus team key names a REAL, competing FRC team registration.
+ * Two published key shapes are not real teams and are excluded from every
  * MODEL-DERIVED ranking surface — the Teams list, the team page's own rank
- * cards, and (per the "Off-Season Demo Team" decision already recorded in
- * `.planning/todos/completed/exclude-offseason-demo-teams.md`) every ranking
- * pool below:
+ * cards, and every ranking pool below:
  *
  * 1. LETTER-SUFFIXED keys (`frc5199B`, `frc1165C`) — a team's second robot,
  *    entered at offseason events only. TBA publishes no nickname for them,
  *    and `teamNumber` is the PARENT's number, so they render as a nameless
- *    duplicate of a real team. Measured across the published artifacts:
- *    43-54 such rows per season. The concrete report that surfaced this:
- *    `frc5199B` sat at RANK 3 of all 2024 on 15 offseason matches at one
- *    event (Tidal Tumble, `eventType` 99), directly above real teams with
- *    ninety-plus official matches.
+ *    duplicate of a real team. A letter-suffixed key can rank ahead of real
+ *    teams with far more official matches if left in a pool.
  * 2. `frc0` — a zero-numbered row carrying no matches and no `total` metric
- *    at all (present in 2024 only). FRC team numbers start at 1.
+ *    at all. FRC team numbers start at 1.
  */
 export function isRealPublishedTeamKey(teamKey: string): boolean {
   const match = TEAM_KEY_PATTERN.exec(teamKey);
@@ -248,8 +239,8 @@ export interface BuildTeamRankScopesParams {
 }
 
 /**
- * Quick task 260905-ttv: the rank-to-percentile rule a rank card's tier
- * colour is derived from — `((total - rank) + 0.5) / total * 100`.
+ * The rank-to-percentile rule a rank card's tier colour is derived from —
+ * `((total - rank) + 0.5) / total * 100`.
  *
  * This is `percentiles.ts`'s `percentileRanks` mid-rank formula
  * (`((countStrictlyBelow + 0.5 * countEqual) / n) * 100`) specialised to a
@@ -263,7 +254,7 @@ export interface BuildTeamRankScopesParams {
  * beside it would be the same class of drift this project's failure log
  * names.
  *
- * Rounded to `ROUNDING_RULE.percentile` (quick task 260912-tnk), exactly as
+ * Rounded to `ROUNDING_RULE.percentile`, exactly as
  * `percentileRanks` rounds, so a regional card resolves a borderline position
  * exactly as a metric tile does — rank 126 of 2,500 is 94.98 raw, 95.0
  * rounded, and Legendary on both. It now agrees EXACTLY with
@@ -299,7 +290,7 @@ export function percentileForRank(rank: number, total: number): number {
  * team key, maps to an EMPTY array: a team with no published value has no
  * honest rank, and does not get placed last and shown anyway.
  *
- * Quick task 260913-nvn: each pool is sorted ONCE (world once, each
+ * Each pool is sorted ONCE (world once, each
  * country/district/state group once) and every member's rank is read from
  * an index map, instead of copying and re-sorting the pool per team. Every
  * group keeps the real rows' iteration order before sorting and
