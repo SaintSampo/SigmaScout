@@ -1,57 +1,24 @@
 /**
- * D-16/D-17's rung-1 measurement (plan 09-09): does the FIELD-AVERAGED
- * pre-schedule predictor reproduce the rank bands the 20-schedule BAKED path
- * produces, on real finished events?
+ * Does the FIELD-AVERAGED pre-schedule predictor reproduce the rank bands the
+ * 20-schedule BAKED path produces, on real finished events?
  *
- * THE TWO ARMS, PRECISELY.
- *
- *   `baked` — the shipped path: synthetic qualification schedules whose
- *   pairing structures come from the rules-based generator
- *   (`packages/harness/generatedSchedules.ts`; records written before
- *   2026-09-13 used the licensed grid), every synthetic match
- *   priced through the real RP path by `makeRankingPointFiller` (imported from
- *   `packages/harness/publish.ts`, the publisher's OWN closure, not a
- *   re-creation of it), and a rank distribution baked over all 20 by
+ *   `baked` — the shipped path: synthetic qualification schedules from
+ *   `packages/harness/generatedSchedules.ts`, every match priced by the
+ *   publisher's own `makeRankingPointFiller`, ranks baked by
  *   `buildPreScheduleArtifact`.
  *
- *   `fieldAveraged` — rung 1: no schedule anywhere. The event's roster is
- *   summarised into field-level statistics (the mean AND the variance of
- *   per-team contributions across that roster), each team's field-averaged
- *   per-match pmf is built from its own belief plus those statistics through
- *   the SAME `analyticRpPmf` every real match runs, and its season total is an
- *   exact `convolvePmf` of `matchesPerTeam` copies of it.
+ *   `fieldAveraged` — no schedule. Each team's per-match pmf comes from its own
+ *   belief plus the roster's field statistics (mean and variance of per-team
+ *   contributions) through the same `analyticRpPmf`, and its season total is an
+ *   exact `convolvePmf` of `matchesPerTeam` copies.
  *
- * Both arms pass through the SAME imported `simulateRanks`
- * (`packages/core/algorithms/simulation/rankSimulation.ts`) and the SAME
- * imported `continuousQuantile` (`apps/web/src/lib/simQuantile.ts`) — never
- * reimplemented, wrapped, or approximated here. The arms differ ONLY in the
- * pmf inputs handed to the simulator, never in the scorer. That is
- * the retired rewind-gap script's own convention and the same-scorer discipline D-11
- * imposes on the RP side, and it is not ceremony: a scorer mismatch has
- * previously manufactured a ~0.003 phantom regression on this project.
+ * Both arms share the imported `simulateRanks` and `continuousQuantile`, one
+ * replay, one model state and one `SigmaScoutLayer` per event; they differ only
+ * in the pmf inputs. A scorer mismatch has manufactured a ~0.003 phantom
+ * regression on this project before.
  *
- * Both arms also come from ONE replay, ONE model state and ONE
- * `SigmaScoutLayer` per event — the instants are exactly the publisher's own
- * (pre-event walk-forward pricing state, season-final accumulator and
- * consistency map), so the baked arm this measures is the sidecar the
- * publisher would write.
- *
- * ---------------------------------------------------------------------------
- * NO CREDENTIAL, NO NETWORK, NO WRITE TO THE CORPUS
- * ---------------------------------------------------------------------------
- *
- * This script reads `data/corpus.sqlite` READ-ONLY and touches NO credential
- * of any kind: no network request, no R2 client, no D1 access, no environment
- * variable read, and its `package.json` entry deliberately omits the
- * environment-file flag, placing it with `fingerprint` and
- * `identifiability` — the corpus-only offline
- * scripts. `.env` is never read, printed, copied or interpolated, not even to
- * confirm a key is set. No R2 object is read, written, listed or deleted; no
- * manifest is bumped; no publish command of any kind runs.
- *
- * Standalone-script shape matching the retired rewind-gap script (deleted by quick task 260913-it4): a long
- * explanatory header, `parseArgs`, `async function main()`, an entry-point
- * guard, deep relative imports with explicit `.js` suffixes.
+ * Reads `data/corpus.sqlite` read-only: no network, no credential, no R2 or D1,
+ * no environment variable, and `.env` is never read.
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -102,20 +69,10 @@ export interface TargetEvent {
 }
 
 /**
- * The measurement sample (plan 09-09 `## The measurement sample`). Six real
- * finished events, every one verified against `data/corpus.sqlite` at planning
- * time and RE-ASSERTED at run time — the retired rewind-gap script's own
- * `DEFAULT_TARGET_EVENTS` discipline, so a re-ingest that moved one of these
- * numbers is LOUD rather than silently producing a different measurement under
- * the same document.
- *
- * A recorded fact about "spanning the 6-100 team range": `6-100` is the
- * SCHEDULE-TEMPLATE GRID's coverage, not the corpus's. Across every
- * non-offseason, RP-eligible, fully-played event in the corpus for 2022-2026,
- * observed rosters span 14 to 78 teams — there is no 6-team and no 100-team
- * event to sample. This table spans the observed range end to end, and the
- * script PRINTS the sample's own min and max roster size with the verdict so
- * the span is a reported number rather than a claim.
+ * Six real finished events. Roster and qual counts are re-asserted at run time
+ * so a re-ingest that moved one is loud rather than a silently different
+ * measurement. Corpus rosters for 2022-2026 span 14 to 78 teams, and this table
+ * spans that range end to end.
  */
 export const DEFAULT_TARGET_EVENTS: readonly TargetEvent[] = [
   { eventKey: "2022on034", season: 2022, expectedRoster: 14, expectedQuals: 21 },
@@ -130,15 +87,8 @@ export const DEFAULT_TARGET_EVENTS: readonly TargetEvent[] = [
 export const DEFAULT_DRAWS = 1000;
 
 /**
- * The measurement's DEFAULT schedule count, and the value every figure in the
- * committed n=20 record was produced at.
- *
- * It MIRRORS the shipped `PRESIM_SCHEDULE_COUNT` (`packages/harness/publish.ts`)
- * — READ from it conceptually, NEVER written back to it.
- * Nothing in this script may change what the publisher ships; a measurement
- * that edits the thing it is measuring is not a measurement.
- *
- * `--schedules` overrides it for a RUN. The override never reaches publish.ts.
+ * Mirrors the shipped `PRESIM_SCHEDULE_COUNT` (publish.ts) and is never written
+ * back to it. `--schedules` overrides it for a run only.
  */
 export const DEFAULT_SCHEDULE_COUNT = 20;
 
@@ -149,22 +99,10 @@ export interface ScheduleSplit {
 }
 
 /**
- * Splits a TOTAL draw count across schedules. `--draws` stays the total and
- * draws-per-schedule stays derived, which is the relationship the two numbers
- * have always had here — `--schedules` only changes what the total is divided
- * by.
- *
- * The derivation is the EXPRESSION THAT WAS INLINE in `measureEvent`, copied
- * rather than rewritten, so the default path cannot drift: at
- * `scheduleCount = DEFAULT_SCHEDULE_COUNT` this returns byte-identical values
- * to the code that produced the committed n=20 record.
- * `measureFieldAveragedRanks.test.ts` pins that over a table of draw counts.
- *
- * A count that is not a finite positive integer THROWS, in the loud house
- * style the corpus re-assertions above use. It does not clamp: a silently
- * clamped count would produce a real-looking measurement at a count nobody
- * asked for, and the whole point of this flag is that the count a figure was
- * measured at is knowable from the figure.
+ * Splits a TOTAL draw count (`--draws`) across schedules. At the default count
+ * the result must stay identical to the committed n=20 record (the test pins it
+ * over a table of draw counts). A non-positive-integer count throws rather than
+ * clamping, so a figure's schedule count is always the one asked for.
  */
 export function resolveScheduleSplit(draws: number, scheduleCount?: number): ScheduleSplit {
   const resolved = scheduleCount ?? DEFAULT_SCHEDULE_COUNT;
@@ -176,7 +114,7 @@ export function resolveScheduleSplit(draws: number, scheduleCount?: number): Sch
   return { scheduleCount: resolved, drawsPerSchedule: Math.max(1, Math.round(draws / resolved)) };
 }
 
-/** SPR (wire id renamed by quick task 260912-ivg from the id it carried before) is the premier published algorithm and the only one carrying a Sigma Score consistency figure for every team it has seen. */
+/** SPR is the only published algorithm carrying a Sigma Score for every team it has seen. */
 export const DEFAULT_ALGORITHM_ID = "spr";
 
 export const FIELD_AVERAGED_DOC_PATH = join("docs", "models", "field-averaged-presim.md");
@@ -201,14 +139,10 @@ export interface TeamQuantileRow {
 }
 
 // ---------------------------------------------------------------------------
-// The rung-1 acceptance criterion, encoded as code (plan 09-09 Task 3)
+// The field-averaged acceptance criterion
 // ---------------------------------------------------------------------------
 
-/**
- * Thrown when the sample is too small to evaluate the criterion at all. The
- * criterion says at least six events; an evaluator that quietly returns `pass`
- * on one event is how a bar gets lowered without anybody deciding to lower it.
- */
+/** Thrown below six events, so a small sample can never quietly return `pass`. */
 export class InsufficientSampleError extends Error {
   constructor(eventCount: number) {
     super(
@@ -224,7 +158,7 @@ export const CLAUSE_1_MEDIAN_TIGHT = 0.5;
 export const CLAUSE_1_TIGHT_RATE = 0.95;
 /** Clause 1's hard half: no single-team outlier worse than ONE rank. */
 export const CLAUSE_1_MEDIAN_HARD = 1.0;
-/** Clause 2: `|p10 diff| <= 1.0` AND `|p90 diff| <= 1.0`. The sketch measurements found the middle 80% of a real rank distribution spans only 1-5 ranks of 17, so a 1-rank band-edge error is already a material fraction of a typical band. */
+/** Clause 2: `|p10 diff| <= 1.0` AND `|p90 diff| <= 1.0`. A real rank band's middle 80% spans only 1-5 ranks of 17, so one rank is already material. */
 export const CLAUSE_2_EDGE_TOLERANCE = 1.0;
 /** Clause 2: both edge tolerances must hold for at least 90% of teams. */
 export const CLAUSE_2_RATE = 0.9;
@@ -234,45 +168,25 @@ export const CLAUSE_3_MEAN_SHIFT = 0.25;
 export const MINIMUM_EVENT_COUNT = 6;
 
 // ---------------------------------------------------------------------------
-// The binding noise floors (moved from the retired rung-2 script, 260913-pnp)
+// The binding noise floors
 // ---------------------------------------------------------------------------
 
 /**
- * The draws per schedule both binding floors below are measured at, held
- * FIXED at the shipped value (`PRESIM_DRAWS_PER_SCHEDULE`, publish.ts).
- * Varying it at the same time as the schedule count would conflate "more
- * schedules" with "more draws", which is the single most likely way a floor
- * measurement produces a wrong answer. Moved here from the retired rung-2
- * script in quick task 260913-pnp.
+ * Held at the shipped `PRESIM_DRAWS_PER_SCHEDULE` (publish.ts): varying draws
+ * together with the schedule count would conflate "more schedules" with "more
+ * draws".
  */
 export const DRAWS_PER_SCHEDULE = 50;
 
 /**
- * THE RESAMPLING FLOOR — and why the seed-only floor above is not enough.
+ * The resampling floor: the baked construction against itself with two fully
+ * independent shuffle-and-draw streams. A seed-only floor reuses the same K
+ * shuffles and so misses shuffle noise, which a candidate arm does face.
  *
- * `measureSeedNoiseFloor` re-simulates the SAME K priced schedules at two draw
- * seeds. Both sides therefore see the IDENTICAL set of team-to-slot shuffles,
- * so it isolates Monte-Carlo draw noise and nothing else. That is a real
- * quantity, and it is NOT the quantity a two-arm comparison is up against: a
- * candidate arm draws its OWN K shuffles, so the disagreement it must survive
- * includes "which K shuffles did each side happen to draw", not just "which
- * draws did each side happen to take".
- *
- * The rung-2 record `docs/models/random-vs-generated-schedules.md` makes
- * exactly this criticism of plan 09-09's control. So the binding floor is
- * measured rather than argued about: the baked construction against ITSELF,
- * with two fully independent shuffle-and-draw streams at the same schedule
- * count.
- *
- * The two streams are obtained by salting `algorithmVersion`, which in
- * `buildPreScheduleArtifact` feeds the shuffle and baked seed hashes and
- * NOTHING else — pricing comes from the caller's bound `predict`, which is the
- * same closure for both sides. So the two replicates share every input except
- * the random streams, which is precisely what "two independent draws of one
- * construction" has to mean.
- *
- * Reported for clauses 1 and 2 both, and as with every floor on this project it
- * is a DIAGNOSTIC: it may explain a verdict, never overrule one.
+ * The streams come from salting `algorithmVersion`, which in
+ * `buildPreScheduleArtifact` feeds only the shuffle and seed hashes; pricing is
+ * the same bound `predict` on both sides. A floor is a diagnostic: it may
+ * explain a verdict, never overrule one.
  */
 export interface ResamplingFloor {
   readonly withinTightRate: number;
@@ -280,23 +194,11 @@ export interface ResamplingFloor {
   readonly maxAbsMedianDiff: number;
   readonly p10WithinRate: number;
   readonly p90WithinRate: number;
-  /**
-   * Every team's `|median_A - median_B|`, retained so the POOLED 95th
-   * percentile can be computed across the whole sample rather than averaged
-   * out of per-event percentiles. Clause 1 asks for 95% of teams within 0.5,
-   * so the pooled 95th percentile IS the quantity the clause is about, and it
-   * is what makes the required-count extrapolation a calculation rather than
-   * an eyeball.
-   */
+  /** Every team's `|median_A - median_B|`, kept so the pooled 95th percentile (clause 1's quantity) is computed across the whole sample. */
   readonly absMedianDiffs: readonly number[];
 }
 
-/**
- * Sums `count` of an artifact's priced schedules into one rank histogram per
- * team, re-simulated with a draw stream derived from each schedule's own seed.
- * The SAME derivation is used for every arm, so no arm gets a luckier stream by
- * construction.
- */
+/** Sums `count` priced schedules into one rank histogram per team; every arm uses the same seed derivation. */
 export function aggregateOverPrefix(artifact: PreScheduleArtifact, count: number, drawSalt: number): number[][] {
   const roster = artifact.roster;
   const baselines: SimTeamBaseline[] = roster.map((teamKey) => ({ teamKey, earnedRpSum: 0, matchesPlayed: 0 }));
@@ -346,28 +248,14 @@ export function measureResamplingFloor(
   };
 }
 
-/**
- * The salt that turns one baked build into an independent replicate of the
- * SAME construction. Appended to `algorithmVersion`, which
- * `buildPreScheduleArtifact` uses only for seed hashing.
- */
+/** Appended to `algorithmVersion` (used only for seed hashing) to make an independent replicate of the same baked build. */
 export const REPLICATE_SUFFIX = "+resample-replicate";
 
 /**
- * THE SAME CONTROL, EXTENDED TO CLAUSE 2 — and it is an EXTENSION, not an
- * alteration. `measureSeedNoiseFloor` (09-09) measures how far a team's MEDIAN
- * rank moves between two seeds of the identical arm, which is clause 1's
- * ceiling. Clause 2 is scored on the p10 and p90 BAND EDGES, which are
- * estimated from the tails of the same finite draw count and therefore carry
- * their own, different noise. Without this, a clause-2 failure could not be
- * attributed between "the structures differ" and "the edges are not resolved at
- * this draw count" — the exact ambiguity the seed-noise floor removes for
- * clause 1.
- *
- * Identical construction to `measureSeedNoiseFloor`, deliberately: the baked
- * arm's own priced schedules, two seeds, NEITHER of them the published one, and
- * the SAME imported `continuousQuantile`. Nothing here is part of the criterion
- * and nothing here may overrule it.
+ * `measureSeedNoiseFloor` for clause 2: the p10 and p90 edges come from the
+ * distribution's tails and carry their own draw noise, so a clause-2 failure
+ * needs this to be attributable. Same construction (the baked arm's schedules,
+ * two non-published seeds); a diagnostic, never part of the criterion.
  */
 export interface EdgeNoiseFloor {
   readonly p10WithinRate: number;
@@ -454,61 +342,21 @@ export interface RungOneVerdict {
 }
 
 /**
- * THE RUNG-1 ACCEPTANCE CRITERION.
+ * The acceptance criterion, fixed before any measurement; do not adjust a
+ * number after seeing a result. Over at least six finished events, with the
+ * `continuousQuantile` p10/median/p90 the live rank band uses:
  *
- * Quoted verbatim from `09-PLAN-OUTLINE.md` section "Answer to the open
- * question — rung 1's pass/fail bar", reproduced in `09-09-PLAN.md` section
- * `## The rung-1 acceptance criterion`. It was fixed BEFORE any measurement
- * existed. Do not paraphrase it, do not re-derive it, and do not adjust a
- * number in it after seeing a result.
+ * 1. `|median_field - median_baked| <= 0.5` for >= 95% of teams and `<= 1.0`
+ *    for every team.
+ * 2. `|p10 diff| <= 1.0` and `|p90 diff| <= 1.0` for >= 90% of teams.
+ * 3. The mean signed median difference is within +/-0.25.
  *
- * > **PLANNER ASSUMPTION (not from CONTEXT.md — recorded because D-17 rung 1
- * > states its bar in prose and RESEARCH.md Open Question 1 / assumption A4
- * > leave the statistic open).** Rung 1 passes when, measured with the **same
- * > `continuousQuantile` p10 / median / p90 rank statistics the live rank-band
- * > display already uses**, across a sample of **at least six real finished
- * > events spanning the 6-100 team template coverage range, with at least one
- * > event per season 2022-2026 where one exists**:
- * >
- * > 1. **Median rank:** `|median_rung1 - median_baked| <= 0.5` ranks for
- * >    **>= 95%** of teams, and `<= 1.0` ranks for **every** team (no
- * >    single-team outlier worse than one rank).
- * > 2. **Band edges:** `|p10_rung1 - p10_baked| <= 1.0` **and**
- * >    `|p90_rung1 - p90_baked| <= 1.0` ranks for **>= 90%** of teams.
- * > 3. **No systematic shift:** the **mean signed** median-rank difference
- * >    across all sampled teams is within `+/-0.25` ranks.
- * >
- * > Both arms must be produced by the **same imported `simulateRanks`** and
- * > the same quantile helper — the arms differ only in the pmf inputs, never
- * > in the scorer (the retired rewind-gap script's convention, and the same-scorer
- * > discipline D-11 imposes on the RP side).
- *
- * WHY THESE NUMBERS (outline, same section, reproduced so nobody
- * re-litigates them): the settled display convention is a 10th-90th band
- * printed to ONE DECIMAL PLACE, so `0.5` ranks is the smallest median
- * difference the rendered page can show as distinct; and the sketch
- * measurements found the middle 80% of a real rank distribution spans only
- * 1-5 RANKS OF 17, so a 1-rank band-edge error is already a material fraction
- * of a typical band rather than a rounding artefact. The tolerance is
- * deliberately in RANK UNITS, not probability units, because that is the unit
- * a human reads off the page — an abstract distributional distance
- * (Wasserstein/EMD) nobody will eyeball was considered and rejected.
- *
- * ONE RECORDED READING OF CLAUSE 1, FIXED BEFORE THE RUN SO IT CANNOT BE
- * CHOSEN AFTERWARDS: "`<= 0.5` for >= 95% of teams AND `<= 1.0` for every
- * team" is evaluated POOLED ACROSS THE WHOLE SAMPLE, not per event. A 6-event
- * sample of 30-70 teams each gives roughly 250 teams, and a per-event 95% on a
- * 22-team roster would round to "at most one team may miss", which is a
- * materially stricter bar than the sentence says. The per-event breakdown is
- * still returned and printed, so a single bad event cannot hide inside the
- * pool.
- *
- * TWO THINGS THE CRITERION DELIBERATELY DOES NOT MEASURE, named so their
- * absence is a decision: it says nothing about the two arms agreeing on WHICH
- * team holds a given rank (a permutation-level claim the bands themselves do
- * not make), and it says nothing about either arm being RIGHT about the real
- * event (that is the rewind-honesty question 08-08 already measured; neither
- * arm is validated against realised rankings here).
+ * Tolerances are in rank units, the unit a reader takes off the page; 0.5 is
+ * the smallest median difference a one-decimal band can show. Clause 1 is
+ * pooled across the sample, not per event (a per-event 95% on a 22-team roster
+ * is a stricter bar); the per-event breakdown is still returned. The criterion
+ * does not test which team holds a rank, or either arm against realised
+ * rankings.
  */
 export function evaluateRungOneCriterion(rows: readonly TeamQuantileRow[]): RungOneVerdict {
   const eventKeys = new Set(rows.map((r) => r.eventKey));
@@ -554,9 +402,7 @@ export function evaluateRungOneCriterion(rows: readonly TeamQuantileRow[]): Rung
     p90Rate,
   };
 
-  // --- Clause 3: SIGNED, never absolute. Averaging absolute values here
-  // would make clause 3 a fourth copy of clause 1 and stop it detecting the
-  // systematic shift it exists to detect. ---
+  // --- Clause 3: SIGNED, never absolute, or it could not detect a systematic shift. ---
   const meanSignedMedianDiff = medianDiffs.reduce((a, b) => a + b, 0) / medianDiffs.length;
   const clause3: Clause3Outcome = {
     pass: Math.abs(meanSignedMedianDiff) <= CLAUSE_3_MEAN_SHIFT,
@@ -588,7 +434,7 @@ export function evaluateRungOneCriterion(rows: readonly TeamQuantileRow[]): Rung
   };
 }
 
-/** The A-FA1 additivity residual, measured on one event's played qualification matches. */
+/** The additivity residual, measured on one event's played qualification matches. */
 export interface AdditivityResidual {
   readonly allianceCount: number;
   readonly mean: number;
@@ -627,29 +473,19 @@ export interface EventMeasurement {
   /** Mean band WIDTH (`p90 - p10`) in each arm — a systematic difference points at the composition-spread terms. */
   readonly bakedMeanBandWidth: number;
   readonly fieldMeanBandWidth: number;
-  /** The same-arm seed-noise control. A DIAGNOSTIC — never part of the criterion and never able to overrule it. */
+  /** The same-arm seed-noise control; a diagnostic, never part of the criterion. */
   readonly noise: SeedNoiseFloor;
-  /** The schedule count this event was measured at. Carried on the record so no figure below can be read without it. */
+  /** The schedule count this event was measured at. */
   readonly scheduleCount: number;
   /** Draws per schedule, derived from the total. Asserted equal to the imported `DRAWS_PER_SCHEDULE` before either binding floor is read. */
   readonly drawsPerSchedule: number;
   /**
-   * THE FLOOR THAT ACTUALLY BINDS A TWO-ARM COMPARISON — the baked
-   * construction built TWICE with fully independent shuffle-and-draw streams,
-   * at this event's schedule count.
-   *
-   * This is the number a candidate has to be read against. The draw-only
-   * `noise` field above does NOT bind, because it holds the priced schedules
-   * FIXED and varies only the draw stream — a candidate arm draws its own K
-   * shuffles too, so the disagreement it must survive includes "which K
-   * shuffles did each side happen to draw". Holding those fixed understates
-   * the floor, and at the shipped count it understates it by a factor of
-   * roughly two and a half.
-   *
-   * Still a DIAGNOSTIC. It may explain a verdict; it may never overrule one.
+   * The floor a two-arm comparison is read against (see `ResamplingFloor`).
+   * The draw-only `noise` field holds the shuffles fixed and understates it,
+   * by roughly 2.5x at the shipped count. A diagnostic, never an overrule.
    */
   readonly resampling: ResamplingFloor;
-  /** Clause 2's counterpart control — the band EDGES' own noise, which is not the median's. Same standing: explains, never overrules. */
+  /** Clause 2's counterpart control: the band edges' own noise. */
   readonly edges: EdgeNoiseFloor;
 }
 
@@ -666,7 +502,7 @@ export function uniqueSortedRoster(quals: readonly MatchResult[]): string[] {
   return [...keys].sort();
 }
 
-/** Reads a `SimResult`'s per-team `continuousQuantile` at `p`. ONE quantile helper, called identically for both arms. */
+/** One quantile helper, called identically for both arms. */
 export function quantilesOf(result: SimResult, teamKey: string): { p10: number; median: number; p90: number } {
   const dist = result.rankHistograms.get(teamKey);
   if (dist === undefined) {
@@ -679,11 +515,7 @@ export function quantilesOf(result: SimResult, teamKey: string): { p10: number; 
   };
 }
 
-/**
- * Decodes the baked artifact's histogram block into the same `SimResult`
- * shape `simulateRanks` returns, so BOTH arms reach `continuousQuantile`
- * through one code path.
- */
+/** Decodes baked histograms into a `SimResult` so both arms reach `continuousQuantile` through one code path. */
 export function bakedSimResult(roster: readonly string[], histograms: readonly (readonly number[])[], draws: number): SimResult {
   const rankHistograms = new Map<string, Int32Array>();
   for (let i = 0; i < roster.length; i++) {
@@ -718,13 +550,10 @@ export interface SeasonReplayResult {
 }
 
 /**
- * Replays one season (optionally carrying in from `replayFrom`), mirroring
- * `publishSeasons`' own composition: an offseason-inclusive stream, the
- * corpus-global cold-start index, an `onMatchComplete` hook capturing the
- * PRE-EVENT state per event and the Sigma talent map per match from the
- * metrics pass it already runs, and a `SigmaScoutLayer` constructed PER SEASON
- * and folded over the returned records in chronological order AFTER the
- * replay.
+ * Replays one season (carrying in from `replayFrom`) the way `publishSeasons`
+ * does: offseason-inclusive stream, corpus-global cold-start index, pre-event
+ * state and per-match Sigma talent captured in `onMatchComplete`, and a
+ * per-season `SigmaScoutLayer` folded over the records after the replay.
  */
 export function replaySeason(
   db: Corpus,
@@ -749,9 +578,7 @@ export function replaySeason(
       initialStates = new Map<string, unknown>([[algorithm.id, algorithm.carrySeason(carriedState, boundary)]]);
     }
 
-    // The publisher's own hook, reproduced: pre-event state captured ONCE per
-    // event on that event's FIRST completed match, plus the Sigma talent map
-    // from the same `teamMetrics` call.
+    // Pre-event state is captured once, on each event's first completed match.
     const preEventStateByEvent = new Map<string, unknown>();
     const preTargetMatchCountByEvent = new Map<string, number>();
     const talentAfterMatch = new Map<string, Map<string, number>>();
@@ -768,8 +595,7 @@ export function replaySeason(
         } else if (initialStates !== undefined && initialStates.has(algorithm.id)) {
           preEventStateByEvent.set(match.eventKey, initialStates.get(algorithm.id));
         }
-        // else: the cold-start season's very first event — deliberately NO
-        // entry, exactly as publish.ts does (PD-04).
+        // else: the cold-start season's first event gets no entry, as in publish.ts.
         if (targetEventKeys.has(match.eventKey)) preTargetMatchCountByEvent.set(match.eventKey, replayedSoFar);
       }
       lastState = state;
@@ -816,10 +642,7 @@ export interface MeasureOptions {
   readonly draws: number;
   readonly algorithmId: string;
   readonly replayFrom?: number;
-  /**
-   * OPTIONAL on purpose. Every existing caller of `measureEvent` keeps today's
-   * behaviour structurally — by the type, not by remembering to pass a value.
-   */
+  /** Defaults to `DEFAULT_SCHEDULE_COUNT`. */
   readonly scheduleCount?: number;
 }
 
@@ -830,12 +653,9 @@ export function measureEvent(
   replay: SeasonReplayResult,
   options: MeasureOptions
 ): EventMeasurement {
-  // PLAYED matches only (`selectMatchesChronological`'s own contract: rows
-  // with a recorded winner). The unplayed cross-check is the separate
-  // `selectScheduledMatches` read below.
+  // Played matches only; unplayed ones are checked separately below.
   const quals = selectMatchesChronological(db, { eventKey: target.eventKey }).filter((m) => m.compLevel === "qm");
 
-  // Re-assert the corpus against the pinned table. Loud, never silent.
   if (quals.length !== target.expectedQuals) {
     throw new Error(
       `measureFieldAveragedRanks: ${target.eventKey}'s corpus qual count (${quals.length}) no longer matches the pinned expectation (${target.expectedQuals}) — the corpus may have been re-ingested. Update DEFAULT_TARGET_EVENTS or investigate before trusting this measurement.`
@@ -874,10 +694,9 @@ export function measureEvent(
     throw new Error(`measureFieldAveragedRanks: the ranking-point filler is unavailable for ${target.eventKey} — the all-or-nothing roster rule rejected this roster.`);
   }
 
-  // --- Arm `baked`: the REAL publisher path, through the REAL closure. ---
+  // --- Arm `baked`: the publisher's own path and closure. ---
   const { scheduleCount, drawsPerSchedule } = resolveScheduleSplit(options.draws, options.scheduleCount);
-  // ONE bound closure, shared by the baked arm and by its replicate below, so
-  // the two cannot differ in pricing even by accident.
+  // One bound closure for the baked arm and its replicate, so pricing cannot differ.
   const predict = (match: UpcomingMatch) => filler(match, algorithm.predict(pricingState, match));
   const bakedArtifact = buildPreScheduleArtifact({
     eventKey: target.eventKey,
@@ -900,16 +719,9 @@ export function measureEvent(
   }
   const bakedDraws = bakedArtifact.baked.draws;
 
-  // --- The BINDING floor's second side: an independent replicate of the SAME
-  // construction. It differs from the artifact above in EXACTLY ONE FIELD —
-  // `algorithmVersion` carries `REPLICATE_SUFFIX` — which
-  // `buildPreScheduleArtifact` uses ONLY for seed hashing. Same roster, same
-  // bound `predict`, same schedule count, same draws-per-schedule, same
-  // generation, same timestamp. If any other field ever differs, this stops
-  // being a same-construction control and the whole comparison below is void.
-  //
-  // THIS ARTIFACT FEEDS THE FLOOR ONLY. No criterion number may ever be
-  // computed from it: it is not an arm, it is the measurement's own ruler. ---
+  // --- The resampling floor's replicate: identical to the artifact above except
+  // `algorithmVersion` (seed hashing only); any other difference voids the
+  // control. It feeds the floor only, never a criterion number. ---
   const replicateArtifact = buildPreScheduleArtifact({
     eventKey: target.eventKey,
     season: target.season,
@@ -949,11 +761,8 @@ export function measureEvent(
   if (contributions === null) {
     throw new Error(`measureFieldAveragedRanks: the field-averaged arm returned null for ${target.eventKey} — the all-or-nothing roster rule rejected this roster.`);
   }
-  // The arm being measured is the arm that would SHIP: the bands below are
-  // derived from the PARSED, ROUNDED, published-shape artifact via the shared
-  // `fieldAveragedRankInputs`, not from an unrounded in-memory intermediate.
-  // That is what makes this a measurement of the artifact rather than of
-  // something adjacent to it.
+  // Bands come from the rounded, published-shape artifact via the shared
+  // `fieldAveragedRankInputs`, so this measures what would ship.
   const fieldArtifact = buildFieldAveragedPreScheduleArtifact({
     eventKey: target.eventKey,
     season: target.season,
@@ -975,8 +784,7 @@ export function measureEvent(
   const { matches, baselines } = fieldAveragedRankInputs(fieldArtifact.roster, fieldArtifact.perTeamPmf, fieldArtifact.matchesPerTeam);
   const fieldResult = simulateRanks(matches, baselines, fieldArtifact.draws, mulberry32(fieldArtifact.seed));
 
-  // Both arms MUST rank over the same draw count, or every difference below
-  // is meaningless. Asserted, not assumed.
+  // Both arms must rank over the same draw count.
   for (const teamKey of roster) {
     const bakedSum = [...bakedResult.rankHistograms.get(teamKey)!].reduce((a, b) => a + b, 0);
     const fieldSum = [...fieldResult.rankHistograms.get(teamKey)!].reduce((a, b) => a + b, 0);
@@ -1002,7 +810,7 @@ export function measureEvent(
     };
   });
 
-  // --- A-FA1: the additivity residual, measured not asserted. ---
+  // --- The additivity residual. ---
   const residuals: number[] = [];
   for (const match of quals) {
     const prediction = algorithm.predict(pricingState, toLeakProofUpcoming(match));
@@ -1024,7 +832,6 @@ export function measureEvent(
     maxAbsFraction: scoreUncertainty > 0 ? r.maxAbs / scoreUncertainty : Number.NaN,
   };
 
-  // --- Byte sizes, measured on the real artifacts. ---
   const bakedBytes = Buffer.byteLength(JSON.stringify(bakedArtifact), "utf8");
   const schedulesBytes = Buffer.byteLength(JSON.stringify(bakedArtifact.schedules), "utf8");
   const fieldAveragedBytes = Buffer.byteLength(JSON.stringify(fieldArtifact), "utf8");
@@ -1044,13 +851,9 @@ export function measureEvent(
 
   const noise = measureSeedNoiseFloor(bakedArtifact, bakedDraws);
 
-  // `measureResamplingFloor` derives its OWN draw count as
-  // `count * DRAWS_PER_SCHEDULE` from this module's constant. If this run's
-  // draws-per-schedule is anything else, the floor would be read at a
-  // different draw count than the candidate and the two numbers printed side
-  // by side below would not be comparable — a silent, invisible mismatch of
-  // exactly the class that manufactured a phantom regression on this project
-  // before. It throws. It does not clamp and it does not proceed.
+  // `measureResamplingFloor` derives its draw count from `DRAWS_PER_SCHEDULE`;
+  // any other draws-per-schedule would silently compare the floor and the
+  // candidate at different draw counts, so this throws.
   if (drawsPerSchedule !== DRAWS_PER_SCHEDULE) {
     throw new Error(
       `measureFieldAveragedRanks: this run resolves to ${drawsPerSchedule} draws per schedule, but measureResamplingFloor derives its own draw count from DRAWS_PER_SCHEDULE = ${DRAWS_PER_SCHEDULE}. The binding floor would be measured at a different draw count than the candidate. Re-run with --draws equal to --schedules * ${DRAWS_PER_SCHEDULE} (for ${scheduleCount} schedules that is ${scheduleCount * DRAWS_PER_SCHEDULE}).`
@@ -1083,13 +886,7 @@ export function measureEvent(
   };
 }
 
-/**
- * The baked arm's own mean season-total RP per team, derived from its priced
- * pmfs: each team's expected per-match RP averaged across the schedules it
- * appears in, times `matchesPerTeam`. This is the diagnostic counterpart to
- * the rung-1 arm's `pmfMean` read — a systematic difference points at the
- * moments construction.
- */
+/** The baked arm's mean season-total RP per team: each team's mean per-match RP across its schedules, times `matchesPerTeam`. */
 function bakedMeanSeasonRpOf(
   artifact: { roster: readonly string[]; schedules: readonly { matches: readonly { r: readonly number[]; b: readonly number[]; rp: readonly number[]; bp: readonly number[] }[] }[] },
   matchesPerTeam: number
@@ -1117,7 +914,7 @@ function bakedMeanSeasonRpOf(
   return sum / artifact.roster.length;
 }
 
-/** FNV-1a 32-bit — the same hashing convention `preSchedule.ts` uses for every seed (cite, don't rederive: http://www.isthe.com/chongo/tech/comp/fnv/). */
+/** FNV-1a 32-bit, the seed hash `preSchedule.ts` uses (http://www.isthe.com/chongo/tech/comp/fnv/). */
 function fnv1a32(input: string): number {
   let hash = 0x811c9dc5;
   for (let i = 0; i < input.length; i++) {
@@ -1136,29 +933,16 @@ function f2(n: number): string {
 }
 
 /**
- * Roster-weighted pooling across the sample — deliberately NOT the mean of the
- * per-event rates, which would give a 14-team event the same say as a 76-team
- * one. Because each event's rate is already `teamsWithin / rosterSize`,
- * weighting by roster size recovers the exact pooled team fraction, which is
- * the quantity clause 1 is written about. The same weighting the rung-2 Phase A
- * table uses, so the two records can be read against each other.
- *
- * ONE implementation, shared by the console summary and `renderDoc`, so the
- * printed figure and the written figure cannot disagree.
+ * Roster-weighted pooling, which recovers the exact pooled team fraction clause
+ * 1 is about (a plain mean of per-event rates would weight a 14-team event like
+ * a 76-team one). Shared by the console summary and `renderDoc`.
  */
 export function rosterWeighted(measurements: readonly EventMeasurement[], pick: (m: EventMeasurement) => number): number {
   const weight = measurements.reduce((t, m) => t + m.rosterSize, 0);
   return measurements.reduce((t, m) => t + pick(m) * m.rosterSize, 0) / weight;
 }
 
-/**
- * The binding floor's POOLED 95th percentile of `|median_A − median_B|`, over
- * every team of every event. Clause 1 is satisfied exactly when that number
- * falls to `CLAUSE_1_MEDIAN_TIGHT`, so this is the floor's own distance from
- * being able to resolve the clause at all — pooled across the sample rather
- * than averaged out of per-event percentiles, for the same reason clause 1
- * itself is pooled.
- */
+/** The binding floor's pooled 95th percentile of `|median_A − median_B|`; the floor can resolve clause 1 only once this reaches `CLAUSE_1_MEDIAN_TIGHT`. */
 export function pooledBindingQ95(measurements: readonly EventMeasurement[]): number {
   const all = measurements.flatMap((m) => [...m.resampling.absMedianDiffs]).sort((a, b) => a - b);
   if (all.length === 0) return Number.NaN;
@@ -1250,13 +1034,10 @@ export async function main(argv: readonly string[]): Promise<void> {
   const algorithm = BASE_PUBLISH_ALGORITHMS[algorithmId];
   if (algorithm === undefined) throw new Error(`measureFieldAveragedRanks: unknown algorithm "${algorithmId}"`);
   const replayFromOpt = values["replay-from"] === undefined ? undefined : Number(values["replay-from"]);
-  // The flag's raw value: `undefined` when `--schedules` is absent, which is
-  // what makes the default path the default path. Named apart from the
-  // RESOLVED count below, because the two are not the same thing.
+  // Raw flag value, `undefined` when `--schedules` is absent; distinct from the resolved count.
   const scheduleCountFlag = values.schedules === undefined ? undefined : Number(values.schedules);
 
-  // Resolved HERE as well as inside `measureEvent`, so an invalid --schedules
-  // throws before a single season is replayed rather than minutes in.
+  // Resolved here too, so an invalid --schedules throws before any replay.
   const split = resolveScheduleSplit(draws, scheduleCountFlag);
 
   console.log("measureFieldAveragedRanks — D-16/D-17 rung 1 vs the BAKED path, at the schedule count printed below");
@@ -1303,13 +1084,8 @@ export async function main(argv: readonly string[]): Promise<void> {
   console.log("--- THE RUNG-1 ACCEPTANCE CRITERION, fixed before this measurement existed and unchanged after it ---");
   console.log("");
   console.log("per-event clause rates (printed so a single bad event cannot hide inside the pool; the CLAUSES are evaluated POOLED):");
-  // The candidate's rate and the BINDING floor's rate, SIDE BY SIDE, at the
-  // same schedule count — `candidate / floor`, so the gap between a verdict and
-  // the measurement's own resolution can be attributed by reading one line.
-  // (The pairing lives here rather than in `printEvent` because the clause
-  // rates come from `evaluateRungOneCriterion`, which needs the whole sample
-  // and therefore does not exist yet while each event is being printed. One
-  // scorer, read once, rather than a second copy of the rate computed early.)
+  // `candidate / binding floor` per event. Printed here, not in `printEvent`,
+  // because the clause rates need the whole sample.
   for (const e of verdict.perEvent) {
     const m = measurements.find((x) => x.eventKey === e.eventKey)!;
     console.log(
@@ -1366,25 +1142,10 @@ wrote ${FIELD_AVERAGED_DOC_PATH}`);
 }
 
 /**
- * The SEED-NOISE FLOOR — a same-arm control, and DELIBERATELY NOT PART OF THE
- * CRITERION.
- *
- * Both arms estimate their quantiles from a finite number of seeded draws, so
- * even two runs of the IDENTICAL arm over the IDENTICAL inputs disagree by
- * some amount. Without that number a FAIL cannot be attributed between "rung 1
- * genuinely differs from the baked path" and "1000 draws cannot resolve half a
- * rank", and the checkpoint briefing the verdict feeds would be unreadable.
- *
- * It is measured the only way that isolates the seed: the BAKED arm's own
- * priced schedules are re-simulated TWICE, at two seeds that are not the
- * published one, and the two runs are compared to each other. Both sides share
- * every other property — same pmfs, same rows, same draw count, same
- * surrogate treatment — so the whole difference is the draw stream.
- *
- * The retired rewind-gap script carried the same idea in its
- * `NOISE_CONTROL_SEED_OFFSET`. This number may NEVER be used to overrule the
- * criterion, which was fixed before any measurement existed (T-09-09-09); it
- * exists so a reader can tell what a measured difference means.
+ * The seed-noise floor: the baked arm's own priced schedules re-simulated at two
+ * non-published seeds, so the whole difference is the draw stream. It tells a
+ * reader whether finite draws can resolve half a rank; it is never part of the
+ * criterion and never overrules it.
  */
 export interface SeedNoiseFloor {
   /** Fraction of teams whose median rank moved by at most `CLAUSE_1_MEDIAN_TIGHT` between two seeds of the SAME arm. */
@@ -1409,8 +1170,7 @@ export function measureSeedNoiseFloor(
       redRpPmf: m.rp,
       blueRpPmf: m.bp,
     }));
-    // Two streams, NEITHER of them the published one, so the two sides are
-    // symmetric: any difference between them is the seed and nothing else.
+    // Two streams, neither the published one, so the sides are symmetric.
     const a = simulateRanks(inputs, baselines, drawsPerSchedule, mulberry32(schedule.seed ^ 0x5a5a5a5a));
     const b = simulateRanks(inputs, baselines, drawsPerSchedule, mulberry32(schedule.seed ^ 0x3c3c3c3c));
     for (let t = 0; t < roster.length; t++) {
@@ -1434,29 +1194,16 @@ export function measureSeedNoiseFloor(
 }
 
 // ---------------------------------------------------------------------------
-// The measurement record — WRITTEN BY THE SCRIPT, never transcribed
+// The measurement record, written by the script
 // ---------------------------------------------------------------------------
 
-/**
- * Renders `docs/models/field-averaged-presim.md`, following
- * `docs/models/rewind-overconfidence-gap.md`'s shape: a headline sentence, a
- * fenced JSON block, the per-event table, the byte-size table, the A-FA1
- * block, and a caveats section.
- *
- * THE SCRIPT WRITES THIS; NOBODY TRANSCRIBES IT. That is deliberate and worth
- * a line in the document itself: on this project a sibling measurement
- * (`publish:seasons`' payload-budget summary) PRINTS a summary it does not
- * write, and its budget tests stay red until a human copies the numbers
- * across. This record does not reproduce that trap.
- */
+/** Renders `docs/models/field-averaged-presim.md`; the script writes it so figures are never hand-transcribed. */
 export function renderDoc(measurements: readonly EventMeasurement[], verdict: RungOneVerdict, algorithmLabel: string): string {
   const rosterSizes = measurements.map((m) => m.rosterSize);
   const pct = (x: number): string => `${(x * 100).toFixed(1)}%`;
 
-  // The counts are READ FROM THE MEASUREMENTS, never taken as a parameter — a
-  // parameter could disagree with what was actually measured, which is the one
-  // failure this self-labelling is meant to make impossible. A sample that
-  // disagrees with itself throws rather than picking a number to print.
+  // Counts are read from the measurements, never passed in, so the label cannot
+  // disagree with what was measured; a mixed sample throws.
   const scheduleCount = measurements[0]!.scheduleCount;
   const drawsPerSchedule = measurements[0]!.drawsPerSchedule;
   for (const m of measurements) {
@@ -1520,10 +1267,7 @@ export function renderDoc(measurements: readonly EventMeasurement[], verdict: Ru
       maxAbs: Number(m.residual.maxAbs.toFixed(6)),
       asFractionOfScoreUncertainty: Number(m.residual.sdFraction.toFixed(6)),
     })),
-    /**
-     * THE FLOOR THAT BINDS. Per event and pooled, at the same schedule count
-     * every candidate figure above was measured at.
-     */
+    /** The binding floor, per event and pooled, at the candidate's schedule count. */
     bindingResamplingFloor: {
       pooledWithinTightRate: Number(bindingC1.toFixed(4)),
       pooledP10WithinRate: Number(bindingP10.toFixed(4)),
@@ -1540,7 +1284,7 @@ export function renderDoc(measurements: readonly EventMeasurement[], verdict: Ru
         p90WithinRate: Number(m.resampling.p90WithinRate.toFixed(4)),
       })),
     },
-    /** Clause 2's own draw-only control on the BAND EDGES. Explains, never overrules. */
+    /** Clause 2's draw-only control on the band edges. */
     edgeNoiseFloor: {
       pooledP10WithinRate: Number(edgeP10.toFixed(4)),
       pooledP90WithinRate: Number(edgeP90.toFixed(4)),
@@ -1552,7 +1296,7 @@ export function renderDoc(measurements: readonly EventMeasurement[], verdict: Ru
         meanAbsP90Diff: Number(m.edges.meanAbsP90Diff.toFixed(3)),
       })),
     },
-    /** DRAW-ONLY. Retained, still reported, and explicitly NOT the criterion's floor — it holds the priced schedules fixed. */
+    /** Draw-only; not the binding floor, because it holds the priced schedules fixed. */
     seedNoiseFloor: {
       pooledWithinTightRate: Number(drawOnlyC1.toFixed(4)),
       binds: false,
