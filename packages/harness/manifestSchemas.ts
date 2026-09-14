@@ -2,23 +2,21 @@
  * The Worker-importable half of `packages/harness/manifests.ts` — the two
  * manifests' Zod schemas, `isLiveAt`, and the published-algorithm-id
  * constants, with NO Node-only imports at all (no `node:fs`, no `node:path`,
- * no `./cli.js`, no corpus). Extracted (plan 04-06 Task 1, Rule 3 blocking
- * fix) for the exact reason `packages/core/algorithms/leakProof.ts`'s own
- * header already documents for the identical situation: `manifests.ts`
- * imports `readFileSync`/`join` from `node:fs`/`node:path` directly (used by
- * `buildAlgorithmsManifest`) and at the time also imported `./cli.js`, which
- * itself imports the corpus (`better-sqlite3`) at module top level — since
- * ES module imports are FILE-scoped, not export-scoped, importing even a
- * single schema from `manifests.ts` would drag that entire transitive graph
- * into the Worker's bundle. `apps/worker/src/liveWindows.ts`
- * needs exactly these schemas (per this plan's own read_first/key_links: "the
- * Worker validates the fetched manifests against these same schemas ... uses
- * isLiveAt rather than writing its own inequality") — this file is what makes
- * that safe. `manifests.ts` re-exports every symbol below unchanged, so
- * every existing call site (`publish.ts`, `manifests.test.ts`) keeps working
- * without modification.
+ * no `./cli.js`, no corpus). Extracted for the exact reason
+ * `packages/core/algorithms/leakProof.ts`'s own header already documents
+ * for the identical situation: `manifests.ts` imports
+ * `readFileSync`/`join` from `node:fs`/`node:path` directly (used by
+ * `buildAlgorithmsManifest`) — since ES module imports are FILE-scoped,
+ * not export-scoped, importing even a single schema from `manifests.ts`
+ * would drag that entire transitive graph into the Worker's bundle.
+ * `apps/worker/src/liveWindows.ts` needs exactly these schemas: the
+ * Worker validates the fetched manifests against these same schemas and
+ * uses `isLiveAt` rather than writing its own inequality — this file is
+ * what makes that safe. `manifests.ts` re-exports every symbol below
+ * unchanged, so every existing call site (`publish.ts`, `manifests.test.ts`)
+ * keeps working without modification.
  *
- * This module must stay importable unchanged by the Phase 4 Worker — same
+ * This module must stay importable unchanged by the Worker — same
  * constraint `packages/core/algorithms/types.ts`'s own header states.
  */
 import { z } from "zod";
@@ -29,10 +27,10 @@ export { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "./publishedA
 export const MANIFEST_SCHEMA_VERSION = 1;
 
 // ---------------------------------------------------------------------------
-// D-18: the live-windows manifest
+// The live-windows manifest
 // ---------------------------------------------------------------------------
 
-/** D-18/D-15: one hour of pad on each side of an event's own observed match timestamps. */
+/** One hour of pad on each side of an event's own observed match timestamps. */
 export const LIVE_WINDOW_PAD_MS = 60 * 60 * 1000;
 
 export const LiveWindowEntrySchema = z.object({
@@ -41,7 +39,7 @@ export const LiveWindowEntrySchema = z.object({
   /** Integer epoch milliseconds — a numeric half-open interval, not a date string, so `isLiveAt` is an integer comparison, never a parse. */
   startMs: z.number().int(),
   endMs: z.number().int(),
-  /** D-18: true when this window was derived from `start_date` alone (the event has no matches in the corpus yet) rather than from real observed match timestamps. */
+  /** True when this window was derived from `start_date` alone (the event has no matches in the corpus yet) rather than from real observed match timestamps. */
   inferred: z.boolean(),
 });
 
@@ -80,7 +78,7 @@ export const LiveWindowsManifestEnvelopeSchema = z.object({
 export type LiveWindowsManifestEnvelope = z.infer<typeof LiveWindowsManifestEnvelopeSchema>;
 
 /**
- * D-18's single liveness predicate — the offline builder and the Worker
+ * The single liveness predicate — the offline builder and the Worker
  * share this one definition of "live" rather than each writing their own
  * inequality. Half-open: `[startMs, endMs)`.
  */
@@ -89,22 +87,21 @@ export function isLiveAt(window: Pick<LiveWindowEntry, "startMs" | "endMs">, epo
 }
 
 // ---------------------------------------------------------------------------
-// D-03: the algorithms manifest
+// The algorithms manifest
 // ---------------------------------------------------------------------------
 
 export const AlgorithmManifestEntrySchema = z.object({
   id: z.string().min(1),
-  /** `{codeVersion}+{paramSetName}` — D-13's version identity. */
+  /** `{codeVersion}+{paramSetName}` version identity. */
   version: z.string().min(1),
   codeVersion: z.string().min(1),
   paramSetName: z.string().min(1),
   /**
-   * D-2 (quick task 260904-100): the season whose tuned parameter set an
-   * entry carried. OPTIONAL and never written by any published algorithm since
-   * the retired Sigma1 core (deleted by quick task 260913-it4), whose
-   * `params` field was removed from this schema with it. The schema is
-   * non-strict, so a legacy `params` key on an already-published manifest is
-   * stripped on parse rather than rejected; no `MANIFEST_SCHEMA_VERSION` bump.
+   * The season whose tuned parameter set an entry carried. OPTIONAL and
+   * never written by any published algorithm today — no published
+   * algorithm carries a tuned parameter set. The schema is non-strict, so
+   * a legacy `params` key on an already-published manifest is stripped on
+   * parse rather than rejected; no `MANIFEST_SCHEMA_VERSION` bump.
    */
   paramsSeason: z.number().int().optional(),
 });

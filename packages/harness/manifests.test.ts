@@ -1,9 +1,9 @@
 /**
- * Coverage for the two offline-published manifests (D-18/D-03, plan 04-03
- * Task 1): the live-windows half-open-interval contract, the corpus-derived
- * window builder (including the zero-match inferred fallback), and the
- * algorithms manifest built from each published module, and legacy manifest
- * keys stripped on parse.
+ * Coverage for the two offline-published manifests: the live-windows
+ * half-open-interval contract, the corpus-derived window builder
+ * (including the zero-match inferred fallback), and the algorithms
+ * manifest built from each published module, and legacy manifest keys
+ * stripped on parse.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -146,13 +146,9 @@ describe("buildLiveWindowsManifest — corpus-derived windows", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // REGRESSION (2026-08-29 outage, cause B). These replace the old
-  // "falls back to [start_date, +4 days) and flags inferred: true" test — the
-  // behaviour that test pinned is precisely the defect. A zero-match event's
-  // window was a pure guess from `start_date`, and 200 of them sat in the
-  // published manifest silently arming four-day spans in which the deployed
-  // Worker believed an event was live. Two opened on 2026-08-28 and every cron
-  // tick thereafter was killed with `outcome:"exceededCpu"`.
+  // REGRESSION: a zero-match event's window used to be a pure guess from
+  // `start_date`, silently arming a four-day span in which the deployed
+  // Worker believed an event was live and burned its whole CPU budget.
   // ---------------------------------------------------------------------------
 
   it("REGRESSION: emits NO window at all for an event with zero matches in the corpus", () => {
@@ -168,12 +164,8 @@ describe("buildLiveWindowsManifest — corpus-derived windows", () => {
   });
 
   it("REGRESSION: a zero-match event is never live, at any instant across the four days its guessed window used to span", () => {
-    // The exact shape of the outage: 2026scsc, offseason, zero matches,
-    // start_date 2026-08-29. The old builder gave it
-    // [2026-08-29T00:00Z, 2026-09-02T00:00Z) and the Worker dutifully ran its
-    // full live path — 38 ms CPU against a 10 ms budget — on every tick in
-    // that span. This asserts the end-to-end consequence, not just the absence
-    // of a row: the liveness predicate the Worker actually calls must answer
+    // Asserts the end-to-end consequence, not just the absence of a row:
+    // the liveness predicate the Worker actually calls must answer
     // "nothing is live" at every hour of the formerly-blind window.
     upsertEvent(db, event({ eventKey: "2026scsc", startDate: "2026-08-29", eventType: 99, isOffseason: true }));
 
@@ -193,9 +185,9 @@ describe("buildLiveWindowsManifest — corpus-derived windows", () => {
   });
 
   it("REGRESSION: an OFFSEASON event that has real matches still gets a real window — the fix is zero-match, never event_type", () => {
-    // Guards the fix against being "simplified" into an offseason exclusion.
-    // Plan 07-17 deliberately made offseason events first-class; a genuinely
-    // running offseason event must still be folded live.
+    // Guards the fix against being "simplified" into an offseason
+    // exclusion — a genuinely running offseason event must still be
+    // folded live.
     const startMs = Date.parse("2026-08-29T14:00:00.000Z");
     upsertEvent(db, event({ eventKey: "2026azscor", startDate: "2026-08-28", eventType: 99, isOffseason: true }));
     upsertMatch(db, match({ matchKey: "2026azscor_qm1", eventKey: "2026azscor", sortTime: startMs }));
@@ -231,10 +223,8 @@ describe("buildLiveWindowsManifest — corpus-derived windows", () => {
 
 describe("buildLiveWindowsManifest — retention: windows that can never be live again (2026-08-29 outage, cause A)", () => {
   // The Worker Zod-validates this manifest inside a 10 ms CPU budget on every
-  // single cron tick. 1,542 of the deployed manifest's 1,581 windows belonged
-  // to seasons that had ended, which made the do-nothing tick cost 5-9 ms
-  // before it did anything at all. Anything that cannot be live for any reader
-  // of this manifest must not be shipped in it.
+  // single cron tick. Anything that cannot be live for any reader of this
+  // manifest must not be shipped in it.
 
   function windowEndingAt(endMs: number, padMs: number): void {
     upsertEvent(db, event({ eventKey: "2026azfg" }));
@@ -380,9 +370,9 @@ describe("AlgorithmsManifestSchema — legacy keys", () => {
     };
   }
 
-  // Quick task 260913-it4 removed the entry schema's tuned-parameter field with
-  // the retired Sigma1 core. Already-published manifests may still carry that
-  // key, so it must be stripped on parse, never rejected.
+  // The entry schema no longer declares a tuned-parameter field.
+  // Already-published manifests may still carry that key, so it must be
+  // stripped on parse, never rejected.
   it("strips a legacy params key from an already-published entry instead of rejecting it", () => {
     const legacy = baseManifest("spr");
     const withParams = { ...legacy, algorithms: [{ ...legacy.algorithms[0]!, params: { anything: 1 } }] };
@@ -402,16 +392,6 @@ describe("AlgorithmsManifestSchema — legacy keys", () => {
 });
 
 describe("buildAlgorithmsManifest — D-03's published set", () => {
-  // Test 1 (plan 07-16 Task 1): the manifest's third entry is `vpr`, the
-  // renamed publisher-side identity — deliberately asserted against a
-  // literal array, NOT `[...PUBLISHED_ALGORITHM_IDS]`. Through 07-16 Task 1
-  // and 07-17's write pass, `PUBLISHED_ALGORITHM_IDS` (the browser-facing
-  // tier) and this manifest's id were DELIBERATELY different values, so a
-  // literal was required to avoid silently re-coupling the two tiers the
-  // phase's whole safety property depended on keeping apart. Plan 07-18
-  // collapsed the two tiers back into one; the literal stays as written
-  // (it is still correct, and a future accidental re-split would now fail
-  // this case rather than pass vacuously).
   it("returns one entry per published id, in PUBLISHED_ALGORITHM_IDS order", () => {
     const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
     expect(manifest.algorithms).toHaveLength(PUBLISHED_ALGORITHM_IDS.length);

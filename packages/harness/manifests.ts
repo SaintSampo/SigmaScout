@@ -1,22 +1,22 @@
 /**
- * The two offline-published manifests the Worker reads every tick (D-18/D-03,
- * plan 04-03 Task 1): which events are currently live, and which algorithm
- * versions it is allowed to advance. Both follow `pageArtifacts.ts`'s
- * preamble convention (`schemaVersion`/`generation`/`computedAt`, D-04) so a
- * published manifest carries the same "which publish run produced this"
- * stamp every other published object does.
+ * The two offline-published manifests the Worker reads every tick: which
+ * events are currently live, and which algorithm versions it is allowed
+ * to advance. Both follow `pageArtifacts.ts`'s preamble convention
+ * (`schemaVersion`/`generation`/`computedAt`) so a published manifest
+ * carries the same "which publish run produced this" stamp every other
+ * published object does.
  *
  * The schemas/predicate/constants themselves live in `./manifestSchemas.js`
- * (plan 04-06 Task 1, Rule 3 blocking fix) — see that file's header for why:
- * this module imports the corpus types and the offline algorithm modules
- * directly, so it must never be imported by the
- * Worker, but `apps/worker/src/liveWindows.ts` genuinely needs the SAME
- * schemas/`isLiveAt` this file's builders validate against (one definition,
- * shared, never redefined). This file re-exports every symbol
- * `manifestSchemas.ts` defines, unchanged, so every pre-existing call site
- * here and in `manifests.test.ts` keeps working without modification — this
- * file is still where the OFFLINE builders (`buildLiveWindowsManifest`,
- * `buildAlgorithmsManifest`) live; only the pure schema half moved.
+ * — see that file's header for why: this module imports the corpus types
+ * and the offline algorithm modules directly, so it must never be
+ * imported by the Worker, but `apps/worker/src/liveWindows.ts` genuinely
+ * needs the SAME schemas/`isLiveAt` this file's builders validate against
+ * (one definition, shared, never redefined). This file re-exports every
+ * symbol `manifestSchemas.ts` defines, unchanged, so every pre-existing
+ * call site here and in `manifests.test.ts` keeps working without
+ * modification — this file is still where the OFFLINE builders
+ * (`buildLiveWindowsManifest`, `buildAlgorithmsManifest`) live; only the
+ * pure schema half moved.
  */
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
@@ -54,7 +54,7 @@ export {
 export type { AlgorithmManifestEntry, AlgorithmsManifest, LiveWindowEntry, LiveWindowsManifest };
 
 // ---------------------------------------------------------------------------
-// D-18: the live-windows manifest (offline builder only — schema above)
+// The live-windows manifest (offline builder only — schema above)
 // ---------------------------------------------------------------------------
 
 interface EventWindowRow {
@@ -70,9 +70,9 @@ export interface BuildLiveWindowsManifestOptions {
   readonly seasons: readonly number[];
   /** Overrides `LIVE_WINDOW_PAD_MS` for testing/tuning. */
   readonly padMs?: number;
-  /** D-04: a short opaque string identifying the publish run that produced this manifest. */
+  /** A short opaque string identifying the publish run that produced this manifest. */
   readonly generation: string;
-  /** D-04: ISO timestamp of when this manifest was computed. */
+  /** ISO timestamp of when this manifest was computed. */
   readonly computedAt: string;
   /**
    * The retention clock for the "can this window ever be live again?" filter
@@ -87,59 +87,40 @@ export interface BuildLiveWindowsManifestOptions {
 
 /**
  * Derives every requested season's event windows from the events' OWN match
- * timestamps rather than from a calendar (D-18). The corpus's `events` table
+ * timestamps rather than from a calendar. The corpus's `events` table
  * has a `start_date` but no end date, while `matches.sort_time` already
  * resolves to `actual_time ?? predicted_time ?? time ?? fallback`
  * (`packages/ingest/normalize.ts`) — so a live event's scheduled matches
  * already carry usable predicted times, and the real window is exactly the
  * span of the event's own matches, padded by `LIVE_WINDOW_PAD_MS` on each side.
  *
- * TWO THINGS THIS DELIBERATELY DOES NOT EMIT (both added 2026-08-29)
- * -----------------------------------------------------------------
- * Both come out of the outage post-mortem in
- * `.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md`.
+ * TWO THINGS THIS DELIBERATELY DOES NOT EMIT, both traced to a production
+ * outage (`.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md`):
  *
- * 1. NO BLIND WINDOW FOR A ZERO-MATCH EVENT (the outage's trigger).
- *    This used to fall back to `[start_date 00:00 UTC, +4 days)` flagged
- *    `inferred: true`, so that a brand-new event could still be "discovered"
- *    before its schedule reached the corpus. That guess has no observational
- *    basis at all, and 200 of the corpus's events had zero matches — every one
- *    of them silently armed a four-day window in which the deployed Worker
- *    believed an event was live. On 2026-08-28 two such windows opened for
- *    offseason events that were not running (`2026azscor`, `2026scsc`), the
- *    tick stopped taking its `liveEvents.length === 0` early exit, and the full
- *    live path measured 38 ms CPU against a 10 ms budget — 100% of cron ticks
- *    killed with `outcome:"exceededCpu"`, for days, self-healing only when the
- *    guessed windows happened to expire.
+ * 1. NO BLIND WINDOW FOR A ZERO-MATCH EVENT. A guessed `[start_date 00:00
+ *    UTC, +4 days)` window flagged `inferred: true` had no observational
+ *    basis at all; two such windows once opened for offseason events that
+ *    were not running, and the deployed Worker's tick measured 38ms CPU
+ *    against a 10ms budget — 100% of cron ticks killed, for days.
+ *    Discovery is now served by the ingest -> republish cycle instead: TBA
+ *    publishes match schedules well before an event runs, so a
+ *    merely-SCHEDULED event already yields a real, measured window — an
+ *    event must be ingested before it can be folded live, the same
+ *    cadence `docs/worker-operations.md` already documents for a stale
+ *    manifest. The `inferred` FIELD remains in the schema and the Worker
+ *    still reads it (manifests published before this change carry
+ *    `inferred: true` entries, and removing the field would be a breaking
+ *    schema change for no gain); this builder simply never sets it to
+ *    `true` any more.
  *
- *    D-18's discovery intent is therefore NARROWED, not preserved-in-part:
- *    the `else` branch that produced these was EXACTLY the zero-match case
- *    (`matches.sort_time` is `NOT NULL` in `packages/corpus/schema.sql`, so
- *    `match_count > 0` always implies non-null `MIN`/`MAX`), leaving no
- *    legitimate residue to keep. Discovery is now served by the ingest →
- *    republish cycle instead of a guess: TBA publishes match schedules well
- *    before an event runs, and `sort_time`'s `predicted_time ?? time` fallback
- *    means a merely-SCHEDULED event already yields a real, measured window.
- *    The operational contract this creates is explicit — an event must be
- *    ingested before it can be folded live. That is the same cadence
- *    `docs/worker-operations.md` already documents for a stale manifest.
- *
- *    NOTE the `inferred` FIELD remains in the schema and the Worker still reads
- *    it. Manifests published before this change carry 200 `inferred: true`
- *    entries; removing the field would be a breaking schema change for no gain.
- *    This builder simply never sets it to `true` any more.
- *
- * 2. NO WINDOW THAT CAN NEVER BE LIVE AGAIN (the outage's structural cause).
- *    A window is dropped when `endMs <= nowMs`, i.e. it had already closed when
- *    the manifest was built, so it cannot be live at any instant at which this
- *    manifest could be read. 1,542 of 1,581 windows were in that state. The
- *    Worker reads this object on EVERY cron tick and must decide liveness from
- *    it inside a 10 ms CPU budget; shipping years of dead seasons made the
- *    do-nothing tick cost 5-9 ms before it did anything at all. Pruning here is
- *    the version of that fix with no validation trade-off — it just costs a
- *    republish to take effect, which is why `liveWindows.ts` ALSO defends
- *    itself at read time. Keep both: this one shrinks the artifact, that one
- *    bounds the cost of whatever the artifact happens to contain.
+ * 2. NO WINDOW THAT CAN NEVER BE LIVE AGAIN. A window is dropped when
+ *    `endMs <= nowMs` — already closed when the manifest was built, so it
+ *    cannot be live at any instant at which this manifest could be read.
+ *    The Worker reads this object on EVERY cron tick inside a 10ms CPU
+ *    budget; shipping years of dead seasons made the do-nothing tick cost
+ *    several ms before it did anything at all. `liveWindows.ts` ALSO
+ *    defends itself at read time — keep both: this one shrinks the
+ *    artifact, that one bounds the cost of whatever it contains.
  */
 export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsManifestOptions): LiveWindowsManifest {
   const { seasons, generation, computedAt } = options;
@@ -167,10 +148,8 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
       .all(...seasons) as EventWindowRow[];
 
     for (const row of rows) {
-      // (1) An event with no matches in the corpus gets NO window. Its window
-      // would have to be guessed from `start_date`, and a guessed window is a
-      // window in which the Worker burns its whole CPU budget on an event that
-      // may not be running at all. See this function's header.
+      // (1) An event with no matches in the corpus gets NO window — see
+      // this function's header for why a guessed window is unsafe.
       if (row.match_count === 0 || row.min_sort_time === null || row.max_sort_time === null) continue;
 
       const endMs = row.max_sort_time + padMs;
@@ -197,52 +176,36 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
 }
 
 // ---------------------------------------------------------------------------
-// D-03: the algorithms manifest (offline builder only — schema in manifestSchemas.ts)
+// The algorithms manifest (offline builder only — schema in manifestSchemas.ts)
 // ---------------------------------------------------------------------------
 
 /**
- * D-03: the one opr/epa/spr registry, keyed by wire id. `publish.ts` re-exports
- * it as `BASE_PUBLISH_ALGORITHMS`; each key must equal its module's `id`
- * (T-07-16-01).
+ * The one opr/epa/spr registry, keyed by wire id. `publish.ts` re-exports
+ * it as `BASE_PUBLISH_ALGORITHMS`; each key must equal its module's `id`.
  */
 export const PUBLISHED_ALGORITHM_MODULES: Record<string, AlgorithmModule<any>> = { opr, epa, spr };
 
 export interface BuildAlgorithmsManifestOptions {
-  /** D-04: a short opaque string identifying the publish run that produced this manifest. */
+  /** A short opaque string identifying the publish run that produced this manifest. */
   readonly generation: string;
-  /** D-04: ISO timestamp of when this manifest was computed. */
+  /** ISO timestamp of when this manifest was computed. */
   readonly computedAt: string;
 }
 
 /**
- * D-03: the three published entries, each reading its `id` and `version`
+ * The three published entries, each reading its `id` and `version`
  * straight from its own module (never a guessed/hardcoded string), so the
- * manifest id and the artifact-key id segment cannot disagree (T-07-16-01).
+ * manifest id and the artifact-key id segment cannot disagree.
  */
 export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions): AlgorithmsManifest {
   const { generation, computedAt } = options;
 
-  // VPR's retirement (2026-09-09) removed the ONE promoted-version entry this
-  // builder had, and quick task 260913-it4 deleted the retired Sigma1 core's
-  // promoted-version machinery outright. Every published algorithm carries its
-  // version on its own module.
-  //
+  // Every published algorithm carries its version on its own module.
   // Derived from PUBLISHED_ALGORITHM_IDS rather than written out, so adding an
   // algorithm is a registry edit rather than an edit here that someone has to
   // remember. The lookup throws on an unregistered id instead of silently
   // emitting a short manifest -- a missing entry would make the algorithm
   // invisible to the browser while every test still passed.
-  //
-  // 260912-ivg Stage 1 (Task 1) through Stage 4 briefly carried an explicit
-  // id-substitution override here — `packages/core/algorithms/spr.ts`'s own
-  // module reported the WRITE-tier (renamed) id while this manifest (a
-  // READ-tier artifact) still had to report the pre-rename id, matching the
-  // R2 objects live at the time and what `useAlgorithmVersion`
-  // (`apps/web/src/components/ribbon/AlgorithmSelect.tsx`) looked up by
-  // `PUBLISHED_ALGORITHM_IDS`'s member. Stage 5 (this edit) deletes that
-  // override, once `PUBLISHED_ALGORITHM_IDS` itself moved to the renamed id
-  // in the same commit — the module's own id and the manifest's read-tier
-  // id agree again, so no override is needed.
   const modules = PUBLISHED_ALGORITHM_MODULES;
 
   const algorithms: AlgorithmManifestEntry[] = PUBLISHED_ALGORITHM_IDS.map((id) => {
