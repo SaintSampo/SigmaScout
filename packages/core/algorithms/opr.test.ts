@@ -1,8 +1,7 @@
 /**
  * Synthetic-fixture tests for the event-scoped, quals-only, no-ridge OPR
- * baseline (Phase 3.2, D-01/D-02/D-03/D-05/D-06). Every fixture here has a
- * known answer or a provable structural property, so a failure points at
- * the math, not at the corpus.
+ * baseline. Every fixture here has a known answer or a provable structural
+ * property, so a failure points at the math, not at the corpus.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -58,7 +57,7 @@ function buildTeamIndex(observations: readonly OprObservation[]): Map<string, nu
   return index;
 }
 
-/** Convenience accessors into the event-scoped state shape (D-01). */
+/** Convenience accessors into the event-scoped state shape. */
 function ratingsAt(state: OprState, eventKey: string): ReadonlyMap<string, number> {
   return state.perEvent.get(eventKey)?.ratings ?? new Map();
 }
@@ -306,7 +305,7 @@ describe("opr — end-to-end through WalkForwardSimulator (tracer)", () => {
       expect(Number.isFinite(record.prediction.blueScore)).toBe(true);
     }
 
-    // D-02: the first qualification match of each event predicts exactly 0.5.
+    // The first qualification match of each event predicts exactly 0.5.
     const firstAaa = records.find((r) => r.match.matchKey === "2024aaa_qm1")!;
     const firstBbb = records.find((r) => r.match.matchKey === "2024bbb_qm1")!;
     expect(firstAaa.prediction.pRedWin).toBe(0.5);
@@ -314,7 +313,7 @@ describe("opr — end-to-end through WalkForwardSimulator (tracer)", () => {
     expect(firstAaa.prediction.blueScore).toBe(0);
     expect(firstBbb.prediction.pRedWin).toBe(0.5);
 
-    // D-01: a team present at both events holds two different ratings.
+    // A team present at both events holds two different ratings.
     const sharedAtAaa = finalState.perEvent.get("2024aaa")!.ratings.get("SHARED");
     const sharedAtBbb = finalState.perEvent.get("2024bbb")!.ratings.get("SHARED");
     expect(sharedAtAaa).toBeDefined();
@@ -326,7 +325,7 @@ describe("opr — end-to-end through WalkForwardSimulator (tracer)", () => {
 describe("opr — public export surface (SC-1)", () => {
   it("exports exactly the surviving symbols — no accidental re-export of retired season-pooled machinery, no accidental loss of a symbol epa.ts depends on", () => {
     expect(Object.keys(oprModule).sort()).toEqual([
-      // D-Q4: OPR_LOGISTIC_SCALE retired — the fixed scale WAS the defect.
+      // No OPR_LOGISTIC_SCALE: a fixed scale would be the defect.
       "OPR_FALLBACK_SCORE_SD",
       "OPR_SCALE_DIVISOR_K",
       "allianceObservation",
@@ -350,10 +349,10 @@ describe("opr — harness registry resolves to the rewritten module (SC-1)", () 
 
 describe("solveEventOpr — synthetic strength recovery without shrinkage (D-06)", () => {
   it("recovers known synthetic team strengths near-exactly at event scale (~39 teams) — no ridge term means no shrinkage bias to tolerate", () => {
-    // Corpus-measured event scale: mean 38.7 / median 38 teams per event
-    // (03.2-RESEARCH.md). Every 3-team combination among 39 teams (9139
-    // alliances), scored as an exact sum of the true strengths (no noise)
-    // — a well-connected, heavily overdetermined design matrix.
+    // Corpus-measured event scale: mean 38.7 / median 38 teams per event.
+    // Every 3-team combination among 39 teams (9139 alliances), scored as an
+    // exact sum of the true strengths (no noise) — a well-connected, heavily
+    // overdetermined design matrix.
     const teamCount = 39;
     const teams = Array.from({ length: teamCount }, (_, i) => `T${i}`);
     const strengths = new Map(teams.map((team, i) => [team, 10 + ((i * 7) % 40)]));
@@ -397,11 +396,11 @@ describe("opr — literal-zero cold start (D-02)", () => {
 
 describe("opr — rank-deficient event scale stays finite", () => {
   it("returns an all-finite rating for every team in a ~39-team event fixture with only 4 qualification matches played (8 alliance rows, far fewer independent rows than teams)", () => {
-    // Corpus-measured event scale (39 teams — 03.2-RESEARCH.md), but only 4
-    // of an event's ~73 qualification matches played so far: massively
-    // rank-deficient by construction, with no team repeating across
-    // alliances. D-08: this measures the regime — no fallback, floor, or
-    // seeded value is asserted, because none exists and none is added.
+    // Corpus-measured event scale (39 teams), but only 4 of an event's ~73
+    // qualification matches played so far: massively rank-deficient by
+    // construction, with no team repeating across alliances. This measures
+    // the regime — no fallback, floor, or seeded value is asserted, because
+    // none exists and none is added.
     const teamCount = 39;
     const teams = Array.from({ length: teamCount }, (_, i) => `R${i}`);
     let state: OprState = opr.initState([]);
