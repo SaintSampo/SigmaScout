@@ -1,19 +1,16 @@
 /**
- * The single-scroll-container virtualized, pinned Teams table (Task 2,
- * 05-06-PLAN.md), built on the composition plan 05-04's throwaway touch spike
- * proved under real touch input before it was removed (05-08-PLAN.md Task 3;
- * see `apps/web/e2e/touch-scroll.spec.ts`, retargeted at this real table):
- * TanStack Table's column pinning composed with TanStack Virtual's row
- * virtualizer over exactly ONE native scrolling element, which is also the
- * virtualizer's scroll element. A second scrolling region anywhere in this
- * file is the D-04 failure shape — do not introduce one.
+ * The single-scroll-container virtualized, pinned Teams table: TanStack
+ * Table's column pinning composed with TanStack Virtual's row virtualizer
+ * over exactly ONE native scrolling element, which is also the virtualizer's
+ * scroll element. A second scrolling region anywhere in this file breaks
+ * that composition — do not introduce one (see `apps/web/e2e/touch-scroll.spec.ts`).
  *
  * This component is CONTROLLED for sort: it renders rows in whatever order
- * the caller passes (`routes/teams.tsx`, Task 3, resolves the sort key and
- * calls `sortTeamRows` before handing rows here) and only reports which
- * column header was clicked via `onSortChange` — it never reorders rows
- * itself. That keeps the URL (D-14) as the single source of truth for sort
- * state, rather than a second, driftable copy living in table state.
+ * the caller passes (`routes/teams.tsx` resolves the sort key and calls
+ * `sortTeamRows` before handing rows here) and only reports which column
+ * header was clicked via `onSortChange` — it never reorders rows itself.
+ * That keeps the URL as the single source of truth for sort state, rather
+ * than a second, driftable copy living in table state.
  */
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTable } from "@tanstack/react-table";
@@ -47,20 +44,19 @@ export interface TeamsTableProps {
   rows: readonly TeamRow[];
   algorithmId: string;
   season: number;
-  /** Grouped (Auto/Teleop/Endgame/Total, the default) vs full components — decision T1's URL-backed toggle; the route owns the state. */
+  /** Grouped (Auto/Teleop/Endgame/Total, the default) vs full components — a URL-backed toggle; the route owns the state. */
   view: TeamsTableView;
   sortKey: string;
   sortDirection: SortDirection;
   onSortChange: (columnId: string) => void;
   onRetry: () => void;
   /**
-   * Quick task 260905-ttv: whether a Country/State/District filter is
-   * currently active. Branches the empty state (below) between the
-   * pre-existing year-gap copy and a filtered-to-zero copy that names the
-   * filters as the cause and offers a Clear-filters action — mirroring
-   * `EventsList.tsx`'s own empty branch. Without this, a filter's
-   * zero-result state told the reader to check a different year, which is
-   * the wrong diagnosis and an unrecoverable dead end on a phone.
+   * Whether a Country/State/District filter is currently active. Branches
+   * the empty state (below) between the year-gap copy and a filtered-to-zero
+   * copy that names the filters as the cause and offers a Clear-filters
+   * action, mirroring `EventsList.tsx`'s own empty branch — otherwise a
+   * filter's zero-result state wrongly tells the reader to check a
+   * different year.
    */
   hasActiveFilter?: boolean;
   onClearFilters?: () => void;
@@ -73,15 +69,12 @@ function cellClassName(columnId: string): string {
 export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, sortDirection, onSortChange, onRetry, hasActiveFilter, onClearFilters }: TeamsTableProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
-  // 07-UAT.md G-2: below `MOBILE_BREAKPOINT_PX`, nickname unpins and
-  // rank/teamNumber tighten (`buildColumns`'s own `isNarrow` doc comment).
-  // Reuses the SAME sitewide breakpoint hook `Ribbon.tsx`/`SearchBox.tsx`
-  // already switch their own compact treatment on, rather than a new
-  // ResizeObserver-based mechanism — one definition of "mobile" for the
-  // whole page, so this table's compact pinning and the ribbon's compact
-  // layout always agree on which viewports are narrow. `useIsMobile`
-  // subscribes to `matchMedia`'s `change` event, so a resize or device
-  // rotation re-evaluates it live, not just on first mount.
+  // Below `MOBILE_BREAKPOINT_PX`, nickname unpins and rank/teamNumber
+  // tighten (`buildColumns`'s own `isNarrow` doc comment). Reuses the SAME
+  // sitewide breakpoint hook `Ribbon.tsx`/`SearchBox.tsx` use, so this
+  // table's compact pinning always agrees with the ribbon's compact layout
+  // on which viewports are narrow. `useIsMobile` subscribes to
+  // `matchMedia`'s `change` event, so it re-evaluates live on resize/rotate.
   const isNarrow = useIsMobile();
   const isF3Width = useIsF3MetricFirstWidth();
 
@@ -105,9 +98,9 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
 
   const tableRows = table.getRowModel().rows;
 
-  // Real virtualization even during loading/empty/error early returns below
-  // — the hook must run unconditionally (React's rules of hooks), the
-  // virtual item LIST is simply unused on those branches.
+  // The hook must run unconditionally (React's rules of hooks) even during
+  // loading/empty/error early returns below; the virtual item LIST is simply
+  // unused on those branches.
   const rowVirtualizer = useVirtualizer({
     count: tableRows.length,
     getScrollElement: () => parentRef.current,
@@ -115,9 +108,8 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
     overscan: VIRTUAL_OVERSCAN,
     // Without this, the virtualizer's `scrollRect` starts at the library's
     // own `{ width: 0, height: 0 }` default until the first ResizeObserver
-    // callback fires — a real first-paint flash of zero rows on every load,
-    // not just a jsdom-under-test artifact (jsdom's stubbed ResizeObserver
-    // never calls back at all, per apps/web/src/test/setup.ts).
+    // callback fires — a real first-paint flash of zero rows on every load
+    // (jsdom's stubbed ResizeObserver never calls back at all).
     initialRect: { width: 960, height: 640 },
   });
 
@@ -125,15 +117,14 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
   // resize and orientation change; falls back to a sane min so the table is
   // never collapsed to nothing while measuring.
   //
-  // MUST stay ABOVE the empty/error early returns below. It used to sit under
-  // them, so an empty or error render called two fewer hooks than a table
-  // render — and clearing a filter (empty -> rows) then rendered MORE hooks
-  // than the previous render: React error #310, thrown on the click.
+  // MUST stay ABOVE the empty/error early returns below: an empty or error
+  // render must call the same number of hooks as a table render, or React
+  // throws error #310 when a state change crosses between them.
   //
-  // Keyed on `status` rather than `[]` because it now also runs on renders
-  // where `parentRef` is unattached and `measure()` bails; re-running when
-  // status changes is what makes it measure for real once the scroll
-  // container actually exists.
+  // Keyed on `status` rather than `[]` because it also runs on renders where
+  // `parentRef` is unattached and `measure()` bails; re-running on status
+  // change is what makes it measure for real once the scroll container
+  // actually exists.
   const [scrollHeight, setScrollHeight] = useState<number>(SCROLL_CONTAINER_MIN_HEIGHT_PX);
   useLayoutEffect(() => {
     const measure = (): void => {
@@ -152,10 +143,9 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
     };
   }, [status]);
 
-  // NAV-04 empty edge: an empty or error state renders OUTSIDE the
-  // horizontally scrolling table region entirely, so it is fully visible at
-  // phone width without a sideways scroll — never nested inside the
-  // virtualized container below.
+  // An empty or error state renders OUTSIDE the horizontally scrolling table
+  // region entirely, so it is fully visible at phone width without a
+  // sideways scroll — never nested inside the virtualized container below.
   if (status === "empty") {
     if (hasActiveFilter) {
       return (
@@ -176,45 +166,32 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
     <div
       ref={parentRef}
       data-testid="teams-table-scroll"
-      // `.data-card` (2026-09-01 redesign): the white card the table sits in.
-      // Its `overflow: hidden` is overridden by this element's own inline
-      // `overflow: auto` — inline always wins — so the scroll behavior is
-      // untouched; the card contributes border, radius and shadow only.
+      // `.data-card` is the white card the table sits in. Its
+      // `overflow: hidden` is overridden by this element's own inline
+      // `overflow: auto` — inline always wins — so the card contributes
+      // border, radius and shadow only, and scroll behavior is untouched.
       className="data-card"
-      // `fit-content` capped at 100% (2026-09-01 user report: "way too much
-      // white space on the right"): the card hugs the table's declared total
-      // width — ~1050px grouped, ~2000px components — instead of stretching
-      // a mostly-empty card across an ultrawide viewport. When the declared
-      // total exceeds the viewport, fit-content resolves to the available
-      // width and the inner overflow scrolls exactly as before.
+      // `fit-content` capped at 100%: the card hugs the table's declared
+      // total width instead of stretching across an ultrawide viewport; when
+      // the declared total exceeds the viewport, fit-content resolves to the
+      // available width and the inner overflow scrolls as before.
       style={{ overflow: "auto", height: scrollHeight, width: "fit-content", maxWidth: "100%", position: "relative" }}
     >
       <table
         style={{
-          // 07-UAT.md G-1: `table-layout: fixed` makes every column's
-          // ACTUAL rendered width equal its DECLARED `size` — with `auto`
-          // (the prior default), the browser treated `width` as a hint and
-          // resized columns to content instead, desyncing every pinned
-          // column's sticky `left` (`getStart("start")`, derived from
-          // DECLARED sizes) from where its neighbour actually rendered.
-          // This table's own virtualizer-driven `position: absolute` rows
-          // partly masked the bug in the HEADER row (only the header
-          // participates in `auto`'s column-width algorithm once body rows
-          // are taken out of normal flow) but not in the BODY rows
-          // themselves, where the desync was real and measured — see
-          // `07-UAT.md` G-1's own table for the live numbers.
+          // `table-layout: fixed` makes every column's ACTUAL rendered width
+          // equal its DECLARED `size`. Under `auto`, the browser resizes
+          // columns to content instead, desyncing each pinned column's
+          // sticky `left` (derived from DECLARED sizes) from where its
+          // neighbour actually rendered — most visible in the virtualized
+          // BODY rows, which sit outside normal table flow.
           tableLayout: "fixed",
-          // `max-content`, not `100%` (2026-09-01, user: "the table is too
-          // wide, too much empty space on the right"). At `100%` the table
-          // always filled its container, and the container could only hug if
-          // the table had an intrinsic width to hug — which the trailing
-          // filler cell (removed below) deliberately prevented. `max-content`
-          // under `table-layout: fixed` resolves to exactly the sum of the
-          // declared column sizes, so the table can never stretch and can
-          // never redistribute slack across columns — which is what the
-          // filler existed to prevent in the first place. Pinned columns'
-          // sticky `left` offsets come from those same declared sizes, so
-          // they stay in sync by construction.
+          // `max-content`, not `100%`: at `100%` the table always fills its
+          // container, which stretches a mostly-empty card on a wide
+          // viewport. `max-content` under `table-layout: fixed` resolves to
+          // exactly the sum of the declared column sizes, so the table can
+          // never stretch and pinned columns' sticky `left` offsets stay in
+          // sync with those same declared sizes by construction.
           width: "max-content",
           minWidth: table.getTotalSize(),
           borderCollapse: "separate",
@@ -229,18 +206,14 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
                 const isSortable = sortableIds.has(header.column.id);
                 const isActive = isSortable && header.column.id === sortKey;
                 const ariaSort = !isSortable ? undefined : isActive ? (sortDirection === "asc" ? "ascending" : "descending") : "none";
-                // 260902-rax Task 1: below the breakpoint the rank header's
-                // VISIBLE text is the bare "Rank" (`columns.tsx`'s own
-                // `isNarrow` branch) so it stops truncating away the one
-                // informative half of "VPR Rank" — but D-20's
-                // algorithm-provenance disclosure still has to reach
-                // assistive tech and hover. `aria-label`/`title` go on the
-                // `<th>` itself, which already carries the implicit
-                // `columnheader` role: a bare `<span>`'s `role="generic"`
-                // drops `aria-label` outright (the CR-02 bug this must not
-                // repeat), and the `<th>` is not wrapped in a button here
-                // since `rank` is never sortable. Wide mode needs neither —
-                // the visible text already IS the full accessible name.
+                // Below the breakpoint the rank header's VISIBLE text is the
+                // bare "Rank" (`columns.tsx`'s own `isNarrow` branch), so
+                // which algorithm's rank it is still has to reach assistive
+                // tech and hover via `aria-label`/`title` on the `<th>`
+                // itself — a bare `<span>`'s `role="generic"` drops
+                // `aria-label` outright, and the `<th>` is not wrapped in a
+                // button since `rank` is never sortable. Wide mode needs
+                // neither: the visible text already IS the full accessible name.
                 const rankAccessibleName = isNarrow && header.column.id === "rank" ? rankColumnAccessibleLabel(algorithmId) : undefined;
 
                 return (
@@ -255,9 +228,9 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
                     style={{
                       // `minWidth`/`maxWidth` paired with `width`: see the
                       // body `TableCell`'s identical style-object comment
-                      // below for why (the header row itself never needed
-                      // this — it stays in normal table flow — but carries
-                      // the same pair for defense in depth).
+                      // below. The header row itself stays in normal table
+                      // flow and doesn't need this, but carries the same
+                      // pair for defense in depth.
                       width: header.getSize(),
                       minWidth: header.getSize(),
                       maxWidth: header.getSize(),
@@ -286,17 +259,6 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
                   </TableHead>
                 );
               })}
-              {/*
-                The trailing filler cell that used to live here is GONE
-                (2026-09-01). It existed to absorb slack while the table was
-                `width: 100%`, so that stretching could not redistribute width
-                across the real columns and desync the pinned columns' sticky
-                `left` offsets. The table is now `width: max-content` (see the
-                style block above), so there is no slack to absorb and nothing
-                to guard against — and the filler was measured at 767px on a
-                1900px viewport, which is precisely what stopped the card from
-                hugging its content.
-              */}
             </TableRow>
           ))}
         </TableHeader>
@@ -323,37 +285,28 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
                         data-pinned={pinned ? "true" : "false"}
                         className={cellClassName(cell.column.id)}
                         style={{
-                          // 07-UAT.md G-1, measured finding beyond the plain
-                          // `table-layout: fixed` fix: a `<tr>` with
-                          // `position: absolute` (this table's own row
-                          // virtualizer) is blockified by the CSS Display
-                          // spec's "absolutely positioned boxes are
-                          // blockified" rule, which disconnects its `<td>`s
-                          // from the real table's column grid — each
-                          // virtualized row's cells get rebuilt into their
-                          // own anonymous one-row table, where `auto` sizing
-                          // and content-driven growth apply regardless of
-                          // `tableLayout: "fixed"` on the table element
-                          // above (verified live: `width` alone left a real
-                          // ~31px sticky gap even after that fix). Pairing
-                          // `width` with an EQUAL `minWidth`/`maxWidth`
-                          // forces an exact box size that a table-cell must
-                          // honor even inside that anonymous auto-layout
-                          // table — re-measured at 0px gap. `HEADER` cells
-                          // never needed this (they stay in normal table
-                          // flow, so `tableLayout: "fixed"` alone already
-                          // sizes them correctly) but carry the same pair
-                          // for defense in depth against the same class of
-                          // future regression.
+                          // A `<tr>` with `position: absolute` (this table's
+                          // row virtualizer) is blockified by the CSS
+                          // Display spec, which disconnects its `<td>`s from
+                          // the real table's column grid: each virtualized
+                          // row's cells get rebuilt into their own anonymous
+                          // one-row table, where `auto` sizing applies
+                          // regardless of `tableLayout: "fixed"` above.
+                          // Pairing `width` with an EQUAL `minWidth`/
+                          // `maxWidth` forces an exact box size that
+                          // survives that anonymous auto-layout table.
+                          // HEADER cells stay in normal table flow and don't
+                          // need this, but carry the same pair for defense
+                          // in depth.
                           width: cell.column.getSize(),
                           minWidth: cell.column.getSize(),
                           maxWidth: cell.column.getSize(),
                           position: pinned ? "sticky" : undefined,
                           left: pinned ? cell.column.getStart("start") : undefined,
                           zIndex: pinned ? 1 : undefined,
-                          // Surface, not page (2026-09-01 redesign): rows now
-                          // sit on a white card, so the opaque pinned-cell
-                          // backing must match the card, not the slate page.
+                          // Rows sit on a white card, so the opaque
+                          // pinned-cell backing must match the card, not the
+                          // slate page.
                           background: pinned ? "var(--color-bg-surface)" : undefined,
                         }}
                       >
@@ -361,7 +314,6 @@ export function TeamsTable({ status, rows, algorithmId, season, view, sortKey, s
                       </TableCell>
                     );
                   })}
-                  {/* Matches the header's trailing filler — see the note there. */}
                   <TableCell aria-hidden="true" style={{ padding: 0 }} />
                 </TableRow>
               );

@@ -8,39 +8,30 @@ import { mergeEventMatches, isQualCompLevel, type EventMatchRow } from "../compo
 
 /**
  * The pure assembly layer between a parsed event artifact and
- * `simulateRanks` (rankSimulation.ts). Answers the two questions that core
- * deliberately refused to own: which qualification rows are "remaining" from
- * a chosen start match, and what each team has already earned going into
- * that start match. No React import, no Web Worker, no call to
- * `simulateRanks` anywhere in this file — it only assembles that function's
- * future arguments.
+ * `simulateRanks` (rankSimulation.ts): which qualification rows are
+ * "remaining" from a chosen start match, and what each team has already
+ * earned going into that start match. No React import, no Web Worker, no
+ * call to `simulateRanks` anywhere in this file — it only assembles that
+ * function's future arguments.
  */
 
-/**
- * The number of Monte Carlo draws every simulation run performs. This exact
- * value has render sites across the picker hint, this module's own
- * scope-line text, and the in-progress counter and completion summary. Every
- * one of those sites imports this constant rather than retyping the digits.
- */
+/** The number of Monte Carlo draws every simulation run performs. Every render site (picker hint, in-progress counter, completion summary) imports this constant rather than retyping the digits. */
 export const SIMULATION_DRAWS = 1000;
 
 /**
  * The four paths a team's already-earned-RP baseline can take, recorded per
- * team so a disagreement between the two arithmetic paths is attributable
- * rather than anonymous — the two paths must never be described as if they
- * were the same computation.
+ * team so a disagreement between the two arithmetic paths is attributable —
+ * the two must never be described as if they were the same computation.
  *
  * - `ranking-score-with-record` — TBA's `rp` (Ranking Score), converted to a
  *   total using TBA's own reported `record` as the denominator.
  * - `ranking-score-with-appearances` — the same conversion, falling back to
- *   this team's counted prefix appearances as the denominator because
- *   `record` was absent.
- * - `summed-actual-rp` — no Ranking Score was usable for this quantity: the
- *   sum of this team's own per-match actual RP across the played
- *   qualification rows strictly before the start.
- * - `no-played-matches` — this team has zero played qualification
- *   appearances before the start; its baseline is 0 and 0 regardless of
- *   whether `rp` happens to be present.
+ *   this team's counted prefix appearances because `record` was absent.
+ * - `summed-actual-rp` — no Ranking Score was usable: the sum of this team's
+ *   own per-match actual RP across the played qualification rows strictly
+ *   before the start.
+ * - `no-played-matches` — zero played qualification appearances before the
+ *   start; baseline is 0 and 0 regardless of whether `rp` is present.
  */
 export type BaselineSource =
   | "ranking-score-with-record"
@@ -66,10 +57,9 @@ export interface SimulationInputs {
 /**
  * Every `qm` row at the event, drawn from `matches[]` and `upcoming[]`
  * together, in `compareEventMatchRows` order (a key present in both arrays
- * collapses to the played row). This is the SAME ordering source
- * `StartMatchPicker.tsx` renders from, because a picker that displays one
- * order while this module slices a different one would take the reader's
- * chosen index and simulate a different set of matches than the one shown.
+ * collapses to the played row) — the SAME ordering source
+ * `StartMatchPicker.tsx` renders from, so the picker's displayed order and
+ * this module's sliced order never disagree.
  */
 export function buildQualRows(artifact: EventArtifact): EventMatchRow[] {
   return mergeEventMatches(artifact.matches, artifact.upcoming, isQualCompLevel);
@@ -81,14 +71,12 @@ export function findStartIndex(rows: readonly EventMatchRow[], startMatchKey: st
 }
 
 /**
- * "Rewind" is defined as "at least one played qualification row lies at or
- * after the start," not as "the selected row is played." The two agree on
- * every ordinary event, but `compareEventMatchRows` can order an unplayed row
- * ahead of a played one (its own leading timestamp-presence split), so the
- * start row's own `played` flag alone would miss that shape. The condition
- * this predicate names is the one that actually creates the overconfidence
- * problem: a later match's stored prediction absorbed a result the
- * simulation is pretending has not happened yet.
+ * "Rewind" means "at least one played qualification row lies at or after the
+ * start," not "the selected row is played." The two agree on every ordinary
+ * event, but `compareEventMatchRows` can order an unplayed row ahead of a
+ * played one, so the start row's own `played` flag alone would miss that
+ * shape — and miss the case where a later match's stored prediction absorbed
+ * a result the simulation is pretending has not happened yet.
  */
 export function isRewindStart(rows: readonly EventMatchRow[], startIndex: number): boolean {
   for (let i = startIndex; i < rows.length; i++) {
@@ -117,13 +105,11 @@ export function defaultStartMatchKey(rows: readonly EventMatchRow[]): string | n
 type RawQualRow = EventArtifact["matches"][number] | EventArtifact["upcoming"][number];
 
 /**
- * A `matchKey` -> raw-row index over the qualification rows of
- * `artifact.matches`/`artifact.upcoming`, applying the same
- * played-supersedes-scheduled collapse `mergeEventMatches` applies (upcoming
- * rows loaded first, played rows loaded second so a shared key resolves to
- * the played row). This index exists because `EventMatchRow` deliberately
- * carries no pmf pair or actual-RP pair — those two fields are what this
- * module needs and `eventMatchAxis.ts`'s shared row type does not carry.
+ * A `matchKey` -> raw-row index over the qualification rows, applying the
+ * same played-supersedes-scheduled collapse `mergeEventMatches` applies.
+ * Exists because `EventMatchRow` deliberately carries no pmf pair or
+ * actual-RP pair — this module needs both and the shared row type does not
+ * carry them.
  */
 function buildRawQualRowIndex(artifact: EventArtifact): Map<string, RawQualRow> {
   const raw = new Map<string, RawQualRow>();
@@ -139,15 +125,14 @@ function buildRawQualRowIndex(artifact: EventArtifact): Map<string, RawQualRow> 
 }
 
 /**
- * True for a played row. Discriminates on `actualWinner` — required on every
- * `EventMatchSchema` row in every artifact era, and structurally absent from
+ * True for a played row. Discriminates on `actualWinner` — required on
+ * every `EventMatchSchema` row and structurally absent from
  * `EventUpcomingMatchSchema` — never on the optional `actualRedRp` pair: a
  * pre-republish artifact's played rows carry `actualWinner` but not
  * `actualRedRp`, and keying on the optional field would silently reclassify
- * them as upcoming, reproducing exactly the "coerce a missing baseline to 0
- * with no caveat" outcome this module rejects. On such rows `actualRedRp`
- * reads `undefined`, which `accumulateAlliance` treats as an appearance with
- * unknowable RP credit (known-incomplete).
+ * them as upcoming. On such rows `actualRedRp` reads `undefined`, which
+ * `accumulateAlliance` treats as an appearance with unknowable RP credit
+ * (known-incomplete).
  */
 function isPlayedRawRow(row: RawQualRow): row is EventArtifact["matches"][number] {
   return "actualWinner" in row;
@@ -159,42 +144,21 @@ function isPlayedRawRow(row: RawQualRow): row is EventArtifact["matches"][number
  * event's qualification rows — never a thrown error, never a guess at a
  * neighbouring match.
  *
- * ---
+ * The unit conversion this function exists to get right: `EventTeamSchema.rp`
+ * is TBA's Ranking Score, a per-match average, while `SimTeamBaseline
+ * .earnedRpSum` is a total. `rp` is multiplied by TBA's own played-match
+ * denominator (already surrogate/DQ-adjusted) and rounded to the nearest
+ * integer — a recovery, not a tolerance: `rp` is rounded once at publish to 2
+ * decimals, so `rp * denominator` differs from the true integer total by at
+ * most `0.005 * denominator`, and rounding the product recovers that integer
+ * exactly for any denominator under 100 (far above a real qualification
+ * schedule).
  *
- * **The unit conversion this module exists to get right.**
- * `EventTeamSchema.rp` (`pageArtifacts.ts`'s own doc comment) is TBA's
- * Ranking Score, a per-match average. `SimTeamBaseline.earnedRpSum`
- * (`rankSimulation.ts`'s own doc comment) is a total. A caller that forwards
- * the average unconverted mis-ranks the entire field by a factor of each
- * team's match count, and no test on either side of that boundary would
- * catch it alone. The conversion below is the one place that gap is closed:
- * `rp` is multiplied by TBA's own played-match denominator (that denominator
- * already accounts for surrogate appearances and disqualifications) and
- * rounded to the nearest integer.
- *
- * **The nearest-integer step is a recovery, not a tolerance.** `rp` is
- * rounded exactly once at the publish boundary, to `ROUNDING_RULE
- * .rankingPoints` (2 decimals), so `rp * denominator` differs from the true
- * integer total by at most `0.005 * denominator`. Every per-match RP value
- * is a non-negative integer, so the true total is itself an integer, and
- * rounding the product to the nearest integer recovers it exactly whenever
- * the error is under 0.5 — true for any denominator below 100, far above any
- * real FRC qualification schedule.
- *
- * **The two precedence paths are not the same computation.** Rule 1
- * reconstructs an integer total from TBA's surrogate- and DQ-adjusted
- * average. Rule 2 sums this module's own per-match actual-RP reads and
- * reproduces none of that adjustment. Rule 2 is used only where TBA
- * published no Ranking Score to disagree with, which bounds but does not
- * remove the exposure — the two must never be described, in code or in
- * copy, as interchangeable.
- *
- * **Scope boundary.** This module reads no offseason, surrogate or
- * quarantine flag anywhere, because the event artifact carries none of
- * those. The only reason a qualification row at or after the start is ever
- * left out of `remainingMatches` is that it carries no ranking-point
- * distribution to draw from — an absence of data, not a classification of
- * the row.
+ * The two baseline precedence paths are not the same computation: the
+ * Ranking Score path reconstructs a total from TBA's adjusted average; the
+ * summed-actual-RP path (used only where TBA published no Ranking Score)
+ * reproduces none of that adjustment. Never describe the two as
+ * interchangeable.
  */
 export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: string): SimulationInputs | null {
   const rows = buildQualRows(artifact);
@@ -215,14 +179,10 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
     const redPmf = raw?.redRpPmf;
     const bluePmf = raw?.blueRpPmf;
     if (redPmf !== undefined && redPmf.length > 0 && bluePmf !== undefined && bluePmf.length > 0) {
-      // The inclusion rule above is unchanged — a row still enters
-      // `remainingMatches` on the strength of its total-pmf pair alone.
-      // `outcome` is attached additionally, when — and only when — the
-      // complete decomposition is present (all three row fields plus the
-      // artifact's top-level `rpOutcomeRp`); it is never a precondition for
-      // inclusion. Requiring it here would empty `remainingMatches` for
-      // every event published before a full republish and take the
-      // Simulation tab dark across the whole site.
+      // A row enters `remainingMatches` on its total-pmf pair alone.
+      // `outcome` is attached additionally, only when the complete
+      // decomposition is present; requiring it for inclusion would empty
+      // `remainingMatches` for every event published before a full republish.
       const outcomePmf = raw?.matchOutcomePmf;
       const redBonusRpPmf = raw?.redBonusRpPmf;
       const blueBonusRpPmf = raw?.blueBonusRpPmf;
@@ -236,9 +196,8 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
         artifact.rpOutcomeRp !== undefined
           ? {
               outcomePmf,
-              // EventMatchSchema.matchOutcomePmf's doc comment
-              // (packages/harness/pageArtifacts.ts) is the single
-              // definition site of this order: [red win, tie, blue win].
+              // Order is [red win, tie, blue win], per EventMatchSchema
+              // .matchOutcomePmf's doc comment in pageArtifacts.ts.
               redOutcomeRp: [artifact.rpOutcomeRp.win, artifact.rpOutcomeRp.tie, 0],
               blueOutcomeRp: [0, artifact.rpOutcomeRp.tie, artifact.rpOutcomeRp.win],
               redBonusRpPmf,
@@ -257,11 +216,10 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
     }
   }
 
-  // Step 2: the prefix accumulation — every played row strictly before the
-  // start index, walked once per alliance. `appearances` tracks every team
-  // that showed up in a played prefix row regardless of whether its actual
-  // RP was recorded; `counted`/`sum` track only the matches whose actual RP
-  // was a real number.
+  // The prefix accumulation: every played row strictly before the start
+  // index, walked once per alliance. `appearances` tracks every team that
+  // showed up regardless of whether its actual RP was recorded; `counted`/
+  // `sum` track only the matches whose actual RP was a real number.
   const prefixAppearances = new Map<string, number>();
   const prefixCounted = new Map<string, number>();
   const prefixSum = new Map<string, number>();
@@ -274,10 +232,9 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
         prefixSum.set(teamKey, (prefixSum.get(teamKey) ?? 0) + actualRp);
         prefixCounted.set(teamKey, (prefixCounted.get(teamKey) ?? 0) + 1);
       } else {
-        // `null` (published as not-derivable) or `undefined` (pre-republish
-        // artifact, field absent): either way the appearance is real but its
-        // RP credit is unknowable from these bytes, so the baseline is
-        // known-incomplete rather than quietly 0.
+        // `null` or `undefined`: the appearance is real but its RP credit is
+        // unknowable from these bytes, so the baseline is known-incomplete
+        // rather than quietly 0.
         incompleteTeamKeys.add(teamKey);
       }
     }
@@ -292,9 +249,9 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
     accumulateAlliance(row.blueTeams, raw.actualBlueRp);
   }
 
-  // Step 3: every team referenced by a simulated match, plus every rostered
-  // team, gets a baseline — this is what makes `simulateRanks`'
-  // UnknownTeamKeyError unreachable in front of a visitor.
+  // Every team referenced by a simulated match, plus every rostered team,
+  // gets a baseline — makes `simulateRanks`' UnknownTeamKeyError unreachable
+  // in front of a visitor.
   const teamsByKey = new Map(artifact.teams.map((team) => [team.teamKey, team]));
   const allTeamKeys = new Set<string>(teamsByKey.keys());
   for (const match of remainingMatches) {
