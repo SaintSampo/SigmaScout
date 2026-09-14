@@ -1,19 +1,16 @@
 /**
- * Season -> component-map dispatch table (D-02, D-19). Adding a new season
- * is a new entry in `SEASON_COMPONENT_MAPS` below and a new `{year}.ts`
- * file — never a branch here. The corpus's cold start is positional, not a
- * named season (D-1, quick task 260904-cs1) — see
- * `packages/harness/seasonBoundary.ts`'s `seasonBoundaryFor`, which every
- * replay loop uses instead of hardcoding a comparison here.
+ * Season -> component-map dispatch table. Adding a new season is a new
+ * entry in `SEASON_COMPONENT_MAPS` below and a new `{year}.ts` file — never
+ * a branch here. The corpus's cold start is positional, not a named season
+ * — see `packages/harness/seasonBoundary.ts`'s `seasonBoundaryFor`, which
+ * every replay loop uses instead of hardcoding a comparison here.
  *
- * Shared types/constants (`ParsedComponents`, `SeasonComponentMap`,
- * `FOULS_COMMITTED_COMPONENT`, `ADJUST_COMPONENT`) live in `./constants.js`,
- * a dependency-free leaf module, and are re-exported here for every existing
- * import site. This module (the dispatch table) imports every season file,
- * and every season file imports the shared constants from `constants.js` —
- * never from this file — so the dependency graph stays acyclic (see
- * `constants.ts`'s file header for the circular-import bug this split
- * fixes).
+ * Shared types/constants live in `./constants.js`, a dependency-free leaf
+ * module, and are re-exported here for every existing import site. This
+ * module imports every season file, and every season file imports the
+ * shared constants from `constants.js` — never from this file — so the
+ * dependency graph stays acyclic (see `constants.ts`'s file header for the
+ * circular-import bug this split fixes).
  */
 export {
   ADJUST_COMPONENT,
@@ -34,8 +31,8 @@ export {
 import type { ParsedComponents, SeasonComponentMap } from "./constants.js";
 import { ZodError } from "zod";
 
-// Registered seasons (D-19: adding one is data entry — a new import plus a
-// new record entry — never a branch in this dispatch function).
+// Registered seasons: adding one is data entry — a new import plus a new
+// record entry — never a branch in this dispatch function.
 import { breakdown2016 } from "./2016.js";
 import { breakdown2017 } from "./2017.js";
 import { breakdown2018 } from "./2018.js";
@@ -66,9 +63,9 @@ const SEASON_COMPONENT_MAPS: Readonly<Record<number, SeasonComponentMap>> = {
  * registering a new season automatically extends both suites without a
  * second edit. This export exists specifically to close a failure mode in
  * which a season registered above but missing from a test-local list
- * shipped an unproven component map with a green suite (quick task
- * 260906-8kd). The one conscious edit that remains when a season is
- * registered: the pinned equality assertion in `groups.test.ts`.
+ * shipped an unproven component map with a green suite. The one conscious
+ * edit that remains when a season is registered: the pinned equality
+ * assertion in `groups.test.ts`.
  */
 export const BREAKDOWN_REGISTERED_SEASONS = Object.keys(SEASON_COMPONENT_MAPS)
   .map(Number)
@@ -108,19 +105,15 @@ export function parseBreakdown(
 }
 
 /**
- * T-03-18b (security audit, phase 03): true only for a `ZodError` (a raw
- * corpus `score_breakdown` payload that failed a season's Zod schema) or a
- * `SyntaxError` (raw corpus text that is not even valid JSON) — both are the
- * SAME class of untrusted, self-reported third-party payload defect
- * `tryParseBreakdownPair` below recovers from. Everything else —
- * `componentMapForSeason`'s unmapped-season `Error`,
- * `assertFiniteComponents`'s plain `Error`, or any future non-Zod defect
- * inside a season module — is deliberately NOT recoverable and must keep
- * propagating and abort loudly (T-03-21: this predicate is the direct,
- * unit-tested narrowness proof the security review required — a bare
- * `catch` around the same `parseBreakdown` calls would swallow all three of
- * the loud cases above too, which is exactly what this predicate exists to
- * avoid).
+ * True only for a `ZodError` (a raw corpus `score_breakdown` payload that
+ * failed a season's Zod schema) or a `SyntaxError` (raw corpus text that is
+ * not even valid JSON) — the same class of untrusted, self-reported
+ * third-party payload defect `tryParseBreakdownPair` below recovers from.
+ * Everything else — an unmapped-season `Error`, `assertFiniteComponents`'s
+ * plain `Error`, or any future non-Zod defect inside a season module — is
+ * deliberately not recoverable and must keep propagating and abort loudly:
+ * a bare `catch` around the same `parseBreakdown` calls would swallow those
+ * loud cases too, which is exactly what this predicate exists to avoid.
  */
 export function isRecoverableBreakdownParseError(err: unknown): boolean {
   return err instanceof ZodError || err instanceof SyntaxError;
@@ -133,43 +126,31 @@ export type BreakdownParsePairOutcome =
   | { readonly kind: "malformed"; readonly issueCount: number };
 
 /**
- * T-03-18b: the guarded replacement for calling `parseBreakdown` twice (once
- * per side) at the two call sites this closes
- * (the retired Sigma1 core (deleted by quick task 260913-it4) and `epa.ts`, formerly `:735-736`/`:432-433`).
- * Replaces an earlier bare `catch` around the same `parseBreakdown` calls
- * with a shared, directly-tested helper both algorithms use instead of each
- * duplicating the narrowing logic (D-Q1).
+ * The guarded replacement for calling `parseBreakdown` twice (once per
+ * side): a shared, directly-tested helper every algorithm uses instead of
+ * each duplicating the narrowing logic.
  *
- * Parses BOTH alliances from a SINGLE `JSON.parse` of `scoreBreakdownRaw`
- * (D-Q1) — each season map's `parse` already validates the WHOLE `{red,
- * blue}` payload before selecting one `side`, so the two sides already
- * succeed or fail together today; pairing them here removes a duplicated
- * `JSON.parse` of the same string and is a structural no-op relative to two
- * separate `parseBreakdown` calls on the success path, never a semantic
- * change.
+ * Parses both alliances from a single `JSON.parse` of `scoreBreakdownRaw` —
+ * each season map's `parse` already validates the whole `{red, blue}`
+ * payload before selecting one `side`, so the two sides already succeed or
+ * fail together; pairing them here removes a duplicated `JSON.parse`.
  *
- * `componentMapForSeason(season)` is resolved BEFORE the `try` entirely, so
- * an unregistered season stays a loud, unrecoverable throw (T-03-21) — never
- * folded into the guarded region below. Inside the `try`, a schema/JSON
- * failure on self-reported offseason data (measured: 1,004/4,757 2024
- * offseason matches carrying a breakdown fail this parse, phase-03 security
- * audit) degrades to `"malformed"` rather than aborting the whole harness
- * batch (T-03-18b) — every other exception is rethrown immediately via
- * `isRecoverableBreakdownParseError` (T-03-21).
+ * `componentMapForSeason(season)` is resolved before the `try` entirely, so
+ * an unregistered season stays a loud, unrecoverable throw, never folded
+ * into the guarded region below. Inside the `try`, a schema/JSON failure on
+ * self-reported offseason data degrades to `"malformed"` rather than
+ * aborting the whole harness batch; every other exception is rethrown
+ * immediately via `isRecoverableBreakdownParseError`.
  *
- * `"malformed"` carries only a numeric `issueCount` (a `ZodError`'s issue
- * count, or 0 for a `SyntaxError`) — deliberately no error message, no field
- * values, no payload fragment (T-03-27: third-party payload content must
- * never reach a log line through this path).
+ * `"malformed"` carries only a numeric `issueCount` — deliberately no error
+ * message, no field values, no payload fragment: third-party payload
+ * content must never reach a log line through this path.
  *
- * `map` (quick task 260911-gfe) overrides the season's registered map for this
- * one call. ABSENT MEANS RESOLVE EXACTLY AS BEFORE — `componentMapForSeason(season)`,
- * same call, same position ahead of the `try`, so an unregistered season is
- * still a loud unrecoverable throw (T-03-21) and is never folded into the
- * guarded region. The seam exists so a measurement arm can replay a season
- * under a DIFFERENT component map without editing this package; nothing in the
- * shipped pipeline passes it, and `epa.test.ts`'s seam block is what holds that
- * default inert rather than a comment saying so.
+ * `map` overrides the season's registered map for this one call. Absent
+ * means resolve exactly as before — `componentMapForSeason(season)`, same
+ * call, same position ahead of the `try`. The seam exists so a measurement
+ * arm can replay a season under a different component map without editing
+ * this package; nothing in the shipped pipeline passes it.
  */
 export function tryParseBreakdownPair(
   season: number,

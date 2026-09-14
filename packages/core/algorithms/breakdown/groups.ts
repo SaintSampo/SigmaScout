@@ -5,41 +5,38 @@ import { ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT } from "./constants.js";
  * Endgame — published as first-class metrics alongside the raw components
  * and `total`.
  *
- * This lives in core, not in the web app, because the group's SPREAD can
- * only be computed here: it is the quadratic form of Sigma1's per-team
+ * This lives in core, not in the web app, because the group's spread can
+ * only be computed here: it is the quadratic form of the per-team
  * component covariance matrix restricted to the group's own indices
  * (`covariance.ts`'s `subsetVariance`). A client summing published
  * per-component spreads cannot reproduce it — that would need the
- * inter-component covariances, which are not published and which are
- * decidedly non-zero (a team good at auto tends also to be good at teleop,
- * which is the entire reason `covariance.ts` exists).
+ * inter-component covariances, which are not published and are decidedly
+ * non-zero.
  *
- * The mapping is DECLARED per season, never derived from a key prefix. A
+ * The mapping is declared per season, never derived from a key prefix. A
  * prefix heuristic breaks immediately: 2022's endgame component is the bare
  * `endgame`, 2023 has `link`, 2025 has `algae`, and almost all of 2026's
- * scoring is the `hub*` family, whose names carry no phase prefix at all
- * (`hubShift1`..`hubShift4`). `groups.test.ts` asserts every component of
- * every registered season is assigned exactly once or explicitly excluded,
- * so a new season cannot be registered without deciding its grouping.
+ * scoring is the `hub*` family, whose names carry no phase prefix at all.
+ * `groups.test.ts` asserts every component of every registered season is
+ * assigned exactly once or explicitly excluded, so a new season cannot be
+ * registered without deciding its grouping.
  */
 export type ComponentGroupId = "auto" | "teleop" | "endgame";
 
 export const COMPONENT_GROUP_IDS: readonly ComponentGroupId[] = ["auto", "teleop", "endgame"];
 
 /**
- * Components deliberately belonging to NO group, and therefore never shown
+ * Components deliberately belonging to no group, and therefore never shown
  * as part of a phase.
  *
  * `adjust` is TBA's own `adjustPoints` — a manual scorekeeper correction
- * that belongs to no scoring phase and is almost always zero. `foulsCommitted`
- * is points conceded to the opponent, not points this alliance scored.
- * Grouping is unrelated to summing, so whether these two still contribute to
- * `total` is now ALGORITHM-DEPENDENT (D-01, quick task 260904-5px): VPR's
- * `total` still spans every component, `adjust` and `foulsCommitted`
- * included — but EPA's published `total` (`epa.ts`'s `teamMetrics()`)
- * excludes `FOULS_COMMITTED_COMPONENT` specifically, to match Statbotics'
- * no-foul `epa.total_points`. `adjust` still contributes to EPA's `total`
- * too; only `foulsCommitted` is carved out, and only for EPA.
+ * that belongs to no scoring phase and is almost always zero.
+ * `foulsCommitted` is points conceded to the opponent, not points this
+ * alliance scored. Grouping is unrelated to summing, so whether these two
+ * still contribute to `total` is algorithm-dependent: EPA's published
+ * `total` (`epa.ts`'s `teamMetrics()`) excludes `FOULS_COMMITTED_COMPONENT`
+ * specifically, to match Statbotics' no-foul `epa.total_points`; `adjust`
+ * still contributes to EPA's `total`.
  */
 export const UNGROUPED_COMPONENTS: readonly string[] = [ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT];
 
@@ -67,36 +64,23 @@ export type SeasonComponentGroups = Readonly<Record<ComponentGroupId, readonly s
  *    and `hubShift1`..`hubShift4` are the teleop shifts; `hubEndgame` is the
  *    endgame period. `autoTower`/`endGameTower` group by their own names.
  *  - 2020 `autoInitLine`/`autoCell` are auto-period; `teleopCell`/
- *    `controlPanel` are teleop; `endgame` groups by its own name, same
- *    treatment 2022's bare `endgame` component already gets.
+ *    `controlPanel` are teleop; `endgame` groups by its own name.
  *  - 2019 `habClimb`: TBA's own `teleopPoints` roll-up bundles HAB climb
- *    together with hatch panels and cargo, but the climb is plainly an
- *    ENDGAME action and is grouped as endgame here — the identical
- *    treatment 2022 already gives its own endgame component, which TBA
- *    likewise folds into a `teleopPoints` roll-up.
+ *    with hatch panels and cargo, but the climb is plainly an endgame
+ *    action and is grouped as endgame here.
  *  - 2018 `vault`: the Vault is a teleop activity (cubes are exchanged
- *    during teleop for power-ups), so it groups there. Both ownership
- *    components (D-1's Scale/Switch split) group by their own phase
- *    prefix — `autoSwitchOwnership`/`autoScaleOwnership` in auto,
- *    `teleopSwitchOwnership`/`teleopScaleOwnership` in teleop — never
- *    merged into one cross-phase "ownership" group.
+ *    during teleop for power-ups), so it groups there. Both Scale/Switch
+ *    ownership components group by their own phase prefix — never merged
+ *    into one cross-phase "ownership" group.
  *  - 2016 `breach`/`capture`: both are playoff-only bonuses (always 0 in
- *    quals) and both are grouped in TELEOP for the same reason 2017's two
- *    are — that is where TBA itself counts them, inside its own
- *    `teleopPoints` roll-up. `teleopChallenge` and `teleopScale` are both
- *    ENDGAME tower actions (a robot challenging or scaling the opponent's
- *    tower at the end of the match) and are grouped as endgame despite
- *    their `teleop` name prefixes — the same treatment 2019's `habClimb`
- *    and 2017's `teleopTakeoff` already get, and another instance of why
- *    the mapping is declared rather than derived from a key prefix.
- *  - 2017 `kPaBonus`/`rotorBonus`: both are playoff-only bonuses (always 0
- *    in quals) and both are grouped in TELEOP because that is where TBA
- *    itself counts them — inside its own `teleopPoints` roll-up. Grouping
- *    them anywhere else would put this project's phase split at odds with
- *    the source's. `teleopTakeoff` is the endgame action and is grouped as
- *    endgame despite its `teleop` name prefix — the same treatment 2019's
- *    `habClimb` already gets, and the reason the mapping is declared rather
- *    than derived from a key prefix.
+ *    quals) and both are grouped in teleop — that is where TBA itself
+ *    counts them, inside its own `teleopPoints` roll-up. `teleopChallenge`
+ *    and `teleopScale` are both endgame tower actions and are grouped as
+ *    endgame despite their `teleop` name prefixes.
+ *  - 2017 `kPaBonus`/`rotorBonus`: both are playoff-only bonuses and both
+ *    are grouped in teleop, where TBA itself counts them. `teleopTakeoff`
+ *    is the endgame action and is grouped as endgame despite its `teleop`
+ *    name prefix.
  */
 const GROUPS_BY_SEASON: Readonly<Record<number, SeasonComponentGroups>> = {
   2016: {
@@ -134,12 +118,11 @@ const GROUPS_BY_SEASON: Readonly<Record<number, SeasonComponentGroups>> = {
     teleop: ["teleopGamePiece", "link"],
     endgame: ["endGameChargeStation", "endGamePark"],
   },
-  // 2024's component map was collapsed to phase granularity by quick task
-  // 260910-5ym (see `2024.ts` for the measurement), so each group here holds
-  // exactly the one component of the same name rather than a list of
-  // finer-grained ones. The group METRIC keys stay `phaseAuto`/`phaseTeleop`/
-  // `phaseEndgame`, so nothing collides — `groups.test.ts` pins that, and
-  // 2022's bare `endgame` component is the precedent.
+  // 2024's component map was collapsed to phase granularity (see `2024.ts`
+  // for the measurement), so each group here holds exactly the one
+  // component of the same name. The group metric keys stay
+  // `phaseAuto`/`phaseTeleop`/`phaseEndgame`, so nothing collides —
+  // `groups.test.ts` pins that.
   2024: {
     auto: ["auto"],
     teleop: ["teleop"],
