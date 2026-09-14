@@ -619,6 +619,8 @@ curl -s "https://sigmascout-state-probe.<subdomain>.workers.dev/?folded=2&upcomi
 | `teamCount` | `21` | Peak realistic tick roster size — clamped under `MAX_SCOPE_KEYS_PER_READ` |
 | `folded` | `2` | Synthetic *played* matches priced (predict, band, RP fields, update, fold) |
 | `upcoming` | `60` | Synthetic *still-upcoming* matches priced (predict, band, RP fields — read only) |
+| `rp` | on | Whole-path ablation arm. `0`/`off`/`false`/`no` turns every RP component off (`rpBeliefTeamsResumed`, `rpGatesOpened`, `rpPmfsProduced`, etc. all read 0/false); any other unrecognized value runs ON and warns, so a typo is never silently measured as the ablated arm |
+| `rpSkip` | empty | Comma-separated list of RP components to skip independently, layered under `rp` (ignored when `rp=0`, since every component is already off). Case-insensitive; the param name itself is not. Six names: `resume` (the belief/mean-shift resume — skipping it forces every other component off too), `foldedPmf` (RP fields in the played-match loop), `upcomingPmf` (RP fields in the upcoming loop), `formula` (`analyticRpPmf` and its decomposition — the gates/`momentsFor`/mean-shift `apply` still run), `observe` (`observeMatch` + `foldObservedRp`), `beliefs` (the `withRpBeliefs`/`withRpMeanShift` write-back passengers). An unknown name skips **nothing** and warns; read `params.rpArm.id` and `params.rpArm.ran` in the response before trusting a `cpuTime` — they echo exactly what ran |
 
 `upcoming` defaults to 60, not a small number, because **the upcoming loop is where the CPU goes** —
 `processEvent` prices every still-upcoming match at the event, and early in a qual schedule that is

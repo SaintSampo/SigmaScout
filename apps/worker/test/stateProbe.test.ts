@@ -12,7 +12,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import stateProbe, { probeSelectionsFor } from "../src/stateProbe.js";
+import stateProbe, { probeSelectionsFor, resolveRpArm } from "../src/stateProbe.js";
 import { selectionsFor } from "../src/scheduled.js";
 import {
   serializeState,
@@ -706,6 +706,7 @@ describe("stateProbe — Group 6: the mean shift mirrors scheduled.ts (shape 16)
   });
 });
 
+
 // Group 7: the Phase A mirror guard.
 //
 // Groups 1-6 pin RP/mean-shift SEMANTICS. This group pins SHAPE: every call
@@ -780,3 +781,327 @@ describe("stateProbe — Group 7: Phase A mirror guard (call-name equivalence wi
     expect(missing, `probe.ts is missing these Phase A calls: ${missing.join(", ")}`).toEqual([]);
   });
 });
+
+// Group 8: per-component RP ablation arms (`rpSkip`), layered on top of `rp`.
+//
+// Uses the Group 6 fixture with SEEDED_SHIFT, so the mean shift's `apply` is
+// observable (every seeded team is fully warm for both 2026 variables).
+
+interface Group8Fold {
+  matchesFolded: number;
+  upcomingPriced: number;
+  bandsProduced: number;
+  rpPmfsProduced: number;
+  rpObservedFolds: number;
+  rpMeanShiftObservations: number;
+  rpMeanShiftedAlliances: number;
+  rpBeliefTeamsResumed: number;
+  rpGatesOpened: number;
+  rpBeliefTeamsAttached: number;
+  rpMeanShiftAttached: boolean;
+  changedRowsDiscarded: number;
+  error?: { name: string; message: string };
+}
+
+interface Group8Ran {
+  resume: boolean;
+  foldedPmf: boolean;
+  upcomingPmf: boolean;
+  formula: boolean;
+  observe: boolean;
+  beliefs: boolean;
+}
+
+interface Group8Body {
+  ok: boolean;
+  params: { rp: boolean; rpArm: { id: string; ran: Group8Ran } };
+  fold: Group8Fold;
+  warnings: string[];
+}
+
+async function runGroup8Arm(query: string, shift: typeof SEEDED_SHIFT | undefined): Promise<{ body: Group8Body; writes: number; status: number }> {
+  const db = new FakeD1Database();
+  seedAllAlgorithms(db);
+  if (shift !== undefined) seedMeanShift(db, shift);
+  const response = await stateProbe.fetch(new Request(`https://probe/?${query}`), { DB: db as unknown as D1Database });
+  return { body: JSON.parse(await response.text()) as Group8Body, writes: db.writeStatementCount, status: response.status };
+}
+
+describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () => {
+  const variableCount = RP_RULE_MODULES[2026]!.thresholdVariables.length;
+  const shiftObsWhenObserved = 2 * ARM_FOLDED * variableCount;
+  const ALL_BANDS = 2 * (ARM_FOLDED + ARM_UPCOMING);
+
+  interface ArmCase {
+    readonly label: string;
+    readonly query: string;
+    readonly expectedId: string;
+    readonly ran: Group8Ran;
+    readonly resumed: number;
+    readonly gates: number;
+    readonly pmfs: number;
+    readonly shifted: number;
+    readonly obsFolds: number;
+    readonly shiftObs: number;
+    readonly attached: number;
+    readonly shiftAtt: boolean;
+  }
+
+  const RAN_ALL: Group8Ran = { resume: true, foldedPmf: true, upcomingPmf: true, formula: true, observe: true, beliefs: true };
+  const RAN_NONE: Group8Ran = { resume: false, foldedPmf: false, upcomingPmf: false, formula: false, observe: false, beliefs: false };
+
+  const CASES: readonly ArmCase[] = [
+    {
+      label: "all",
+      query: `${ARM_QUERY}&rp=1`,
+      expectedId: "all",
+      ran: RAN_ALL,
+      resumed: 21,
+      gates: 7,
+      pmfs: 7,
+      shifted: 14,
+      obsFolds: 4,
+      shiftObs: shiftObsWhenObserved,
+      attached: 21,
+      shiftAtt: true,
+    },
+    {
+      label: "none",
+      query: `${ARM_QUERY}&rp=0`,
+      expectedId: "none",
+      ran: RAN_NONE,
+      resumed: 0,
+      gates: 0,
+      pmfs: 0,
+      shifted: 0,
+      obsFolds: 0,
+      shiftObs: 0,
+      attached: 0,
+      shiftAtt: false,
+    },
+    {
+      label: "resumeOnly",
+      query: `${ARM_QUERY}&rpSkip=foldedPmf,upcomingPmf,observe,beliefs`,
+      expectedId: "skip:foldedPmf,upcomingPmf,observe,beliefs",
+      ran: { resume: true, foldedPmf: false, upcomingPmf: false, formula: false, observe: false, beliefs: false },
+      resumed: 21,
+      gates: 0,
+      pmfs: 0,
+      shifted: 0,
+      obsFolds: 0,
+      shiftObs: 0,
+      attached: 0,
+      shiftAtt: false,
+    },
+    {
+      label: "skipFoldedPmf",
+      query: `${ARM_QUERY}&rpSkip=foldedPmf`,
+      expectedId: "skip:foldedPmf",
+      ran: { resume: true, foldedPmf: false, upcomingPmf: true, formula: true, observe: true, beliefs: true },
+      resumed: 21,
+      gates: 5,
+      pmfs: 5,
+      shifted: 10,
+      obsFolds: 4,
+      shiftObs: shiftObsWhenObserved,
+      attached: 21,
+      shiftAtt: true,
+    },
+    {
+      label: "skipUpcomingPmf",
+      query: `${ARM_QUERY}&rpSkip=upcomingPmf`,
+      expectedId: "skip:upcomingPmf",
+      ran: { resume: true, foldedPmf: true, upcomingPmf: false, formula: true, observe: true, beliefs: true },
+      resumed: 21,
+      gates: 2,
+      pmfs: 2,
+      shifted: 4,
+      obsFolds: 4,
+      shiftObs: shiftObsWhenObserved,
+      attached: 21,
+      shiftAtt: true,
+    },
+    {
+      label: "skipBothPmf",
+      query: `${ARM_QUERY}&rpSkip=foldedPmf,upcomingPmf`,
+      expectedId: "skip:foldedPmf,upcomingPmf",
+      ran: { resume: true, foldedPmf: false, upcomingPmf: false, formula: false, observe: true, beliefs: true },
+      resumed: 21,
+      gates: 0,
+      pmfs: 0,
+      shifted: 0,
+      obsFolds: 4,
+      shiftObs: shiftObsWhenObserved,
+      attached: 21,
+      shiftAtt: true,
+    },
+    {
+      label: "skipFormula",
+      query: `${ARM_QUERY}&rpSkip=formula`,
+      expectedId: "skip:formula",
+      ran: { resume: true, foldedPmf: true, upcomingPmf: true, formula: false, observe: true, beliefs: true },
+      resumed: 21,
+      gates: 7,
+      pmfs: 0,
+      shifted: 14,
+      obsFolds: 4,
+      shiftObs: shiftObsWhenObserved,
+      attached: 21,
+      shiftAtt: true,
+    },
+    {
+      label: "skipObserve",
+      query: `${ARM_QUERY}&rpSkip=observe`,
+      expectedId: "skip:observe",
+      ran: { resume: true, foldedPmf: true, upcomingPmf: true, formula: true, observe: false, beliefs: true },
+      resumed: 21,
+      gates: 7,
+      pmfs: 7,
+      shifted: 14,
+      obsFolds: 0,
+      shiftObs: 0,
+      attached: 21,
+      shiftAtt: true,
+    },
+    {
+      label: "skipBeliefs",
+      query: `${ARM_QUERY}&rpSkip=beliefs`,
+      expectedId: "skip:beliefs",
+      ran: { resume: true, foldedPmf: true, upcomingPmf: true, formula: true, observe: true, beliefs: false },
+      resumed: 21,
+      gates: 7,
+      pmfs: 7,
+      shifted: 14,
+      obsFolds: 4,
+      shiftObs: shiftObsWhenObserved,
+      attached: 0,
+      shiftAtt: false,
+    },
+  ];
+
+  it.each(CASES.map((c) => [c.label, c] as const))(
+    "arm %s: id, ran, counters, bandsProduced, matches, D1 writes and warning shape are pinned by equality",
+    async (_label, c) => {
+      const { body, writes, status } = await runGroup8Arm(c.query, SEEDED_SHIFT);
+      expect(status).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.fold.error).toBeUndefined();
+
+      expect(body.params.rpArm.id).toBe(c.expectedId);
+      expect(body.params.rpArm.ran).toEqual(c.ran);
+      expect(body.params.rp).toBe(c.ran.resume);
+
+      expect(body.fold.matchesFolded).toBe(ARM_FOLDED);
+      expect(body.fold.upcomingPriced).toBe(ARM_UPCOMING);
+      expect(body.fold.bandsProduced).toBe(14);
+      expect(body.fold.bandsProduced).toBe(ALL_BANDS);
+
+      expect(body.fold.rpBeliefTeamsResumed).toBe(c.resumed);
+      expect(body.fold.rpGatesOpened).toBe(c.gates);
+      expect(body.fold.rpPmfsProduced).toBe(c.pmfs);
+      expect(body.fold.rpMeanShiftedAlliances).toBe(c.shifted);
+      expect(body.fold.rpObservedFolds).toBe(c.obsFolds);
+      expect(body.fold.rpMeanShiftObservations).toBe(c.shiftObs);
+      expect(body.fold.rpBeliefTeamsAttached).toBe(c.attached);
+      expect(body.fold.rpMeanShiftAttached).toBe(c.shiftAtt);
+
+      expect(writes).toBe(0);
+
+      if (c.label === "all") {
+        expect(body.warnings).toEqual([]);
+      } else {
+        expect(body.warnings).toHaveLength(1);
+        expect(body.warnings[0]).toContain("ABLATED ARM");
+        // The plain rp=0 arm keeps its pre-existing (unmodified) wording, which
+        // never quoted the id; every rpSkip-driven arm's NEW wording does.
+        if (c.label !== "none") {
+          expect(body.warnings[0]).toContain(`"${c.expectedId}"`);
+        }
+      }
+    }
+  );
+
+  it("changedRowsDiscarded: beliefs-on arms match the all arm; beliefs-off arms match the rp=0 arm", async () => {
+    const all = await runGroup8Arm(`${ARM_QUERY}&rp=1`, SEEDED_SHIFT);
+    const none = await runGroup8Arm(`${ARM_QUERY}&rp=0`, SEEDED_SHIFT);
+    const beliefsOn = new Set(["skipFoldedPmf", "skipUpcomingPmf", "skipBothPmf", "skipFormula", "skipObserve"]);
+    const beliefsOff = new Set(["resumeOnly", "skipBeliefs"]);
+    for (const c of CASES) {
+      if (c.label === "all" || c.label === "none") continue;
+      const arm = await runGroup8Arm(c.query, SEEDED_SHIFT);
+      if (beliefsOn.has(c.label)) {
+        expect(arm.body.fold.changedRowsDiscarded, c.label).toBe(all.body.fold.changedRowsDiscarded);
+      } else if (beliefsOff.has(c.label)) {
+        expect(arm.body.fold.changedRowsDiscarded, c.label).toBe(none.body.fold.changedRowsDiscarded);
+      } else {
+        throw new Error(`unclassified arm: ${c.label}`);
+      }
+    }
+  });
+
+  it('rpSkip=resume ablates via the dependency rule: id "none", fold deep-equals rp=0\'s, one warning naming the forced-off dependents', async () => {
+    const viaRpSkip = await runGroup8Arm(`${ARM_QUERY}&rpSkip=resume`, SEEDED_SHIFT);
+    const viaRpZero = await runGroup8Arm(`${ARM_QUERY}&rp=0`, SEEDED_SHIFT);
+
+    expect(viaRpSkip.body.params.rpArm.id).toBe("none");
+    expect(viaRpSkip.body.params.rpArm.ran).toEqual(RAN_NONE);
+    expect(viaRpSkip.body.fold).toEqual(viaRpZero.body.fold);
+
+    expect(viaRpSkip.body.warnings).toHaveLength(1);
+    expect(viaRpSkip.body.warnings[0]).toContain("ABLATED ARM");
+    expect(viaRpSkip.body.warnings[0]).toContain('"none"');
+    expect(viaRpSkip.body.warnings[0]!.toLowerCase()).toContain("forced off");
+  });
+
+  it('rpSkip=upcomingPmf,obsrve (unknown token): id "all", counters match the all arm, one warning naming the typo with no ABLATED ARM substring', async () => {
+    const typo = await runGroup8Arm(`${ARM_QUERY}&rpSkip=upcomingPmf,obsrve`, SEEDED_SHIFT);
+    const all = await runGroup8Arm(`${ARM_QUERY}&rp=1`, SEEDED_SHIFT);
+
+    expect(typo.body.params.rpArm.id).toBe("all");
+    expect(typo.body.params.rpArm.ran).toEqual(RAN_ALL);
+    expect(typo.body.fold).toEqual(all.body.fold);
+
+    expect(typo.body.warnings).toHaveLength(1);
+    expect(typo.body.warnings[0]).toContain("obsrve");
+    expect(typo.body.warnings[0]).toContain("NO component was skipped");
+    expect(typo.body.warnings[0]).not.toContain("ABLATED ARM");
+  });
+
+  it("rpSkip is matched case-insensitively; an empty rpSkip= is byte-identical to the all arm", async () => {
+    const upper = await runGroup8Arm(`${ARM_QUERY}&rpSkip=UPCOMINGPMF`, SEEDED_SHIFT);
+    expect(upper.body.params.rpArm.id).toBe("skip:upcomingPmf");
+
+    const emptyDb = new FakeD1Database();
+    seedAllAlgorithms(emptyDb);
+    seedMeanShift(emptyDb, SEEDED_SHIFT);
+    const emptyResponse = await stateProbe.fetch(new Request(`https://probe/?${ARM_QUERY}&rp=1&rpSkip=`), { DB: emptyDb as unknown as D1Database });
+
+    const allDb = new FakeD1Database();
+    seedAllAlgorithms(allDb);
+    seedMeanShift(allDb, SEEDED_SHIFT);
+    const allResponse = await stateProbe.fetch(new Request(`https://probe/?${ARM_QUERY}&rp=1`), { DB: allDb as unknown as D1Database });
+
+    expect(await emptyResponse.text()).toBe(await allResponse.text());
+  });
+
+  it('rp=0&rpSkip=beliefs: id "none", two warnings — the existing rp=0 warning first, then an ignored-rpSkip warning with no ABLATED ARM substring', async () => {
+    const arm = await runGroup8Arm(`${ARM_QUERY}&rp=0&rpSkip=beliefs`, SEEDED_SHIFT);
+
+    expect(arm.body.params.rpArm.id).toBe("none");
+    expect(arm.body.warnings).toHaveLength(2);
+    expect(arm.body.warnings[0]).toContain("rp=0");
+    expect(arm.body.warnings[0]).toContain("ABLATED ARM");
+    expect(arm.body.warnings[1]).not.toContain("ABLATED ARM");
+    expect(arm.body.warnings[1]!.toLowerCase()).toContain("ignored");
+  });
+
+  it("resolveRpArm is a pure function: same inputs, same outputs, no D1/network access required to call it", () => {
+    const a = resolveRpArm("1", "foldedPmf");
+    const b = resolveRpArm("1", "foldedPmf");
+    expect(a).toEqual(b);
+    expect(a.id).toBe("skip:foldedPmf");
+    expect(a.ran.foldedPmf).toBe(false);
+    expect(a.ran.upcomingPmf).toBe(true);
+  });
+});
+

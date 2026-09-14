@@ -25,7 +25,10 @@
  *
  * ARMS: `?rp=0` skips exactly the tick's Phase A ranking-point operations
  * (mean shift included; list in `runSprFold`), so their CPU share is measured
- * as a difference between two runs. `rp` absent is ON.
+ * as a difference between two runs. `rp` absent is ON. `?rpSkip=` further
+ * splits that arm into six independently switchable RP components (see
+ * `resolveRpArm`), so a single component's cost can be attributed rather than
+ * the whole RP path at once. Runbook: `docs/worker-operations.md`, "Pre-event probe".
  *
  * SCOPE: Phase A only (state read, fold, serialize, discard), never Phase B,
  * TBA polling, the KV read or the global rebuild. Runbook:
@@ -114,6 +117,134 @@ function parseRpParam(raw: string | null): { enabled: boolean; unrecognized: str
   return { enabled: true, unrecognized: raw.trim() };
 }
 
+// ---------------------------------------------------------------------------
+// `rpSkip`: six independently switchable RP components, layered on top of
+// `rp`. See `runSprFold`'s doc comment for exactly which tick operations each
+// name gates.
+// ---------------------------------------------------------------------------
+
+/** Canonical order: `resume` is the dependency root — every other name is one of its dependents. */
+const RP_ARM_COMPONENT_NAMES = ["resume", "foldedPmf", "upcomingPmf", "formula", "observe", "beliefs"] as const;
+type RpArmComponentName = (typeof RP_ARM_COMPONENT_NAMES)[number];
+
+interface RpArmRan {
+  readonly resume: boolean;
+  readonly foldedPmf: boolean;
+  readonly upcomingPmf: boolean;
+  readonly formula: boolean;
+  readonly observe: boolean;
+  readonly beliefs: boolean;
+}
+
+interface RpArmResolution {
+  readonly id: string;
+  readonly ran: RpArmRan;
+  readonly warnings: readonly string[];
+}
+
+const RP_ARM_ALL: RpArmRan = { resume: true, foldedPmf: true, upcomingPmf: true, formula: true, observe: true, beliefs: true };
+const RP_ARM_NONE: RpArmRan = { resume: false, foldedPmf: false, upcomingPmf: false, formula: false, observe: false, beliefs: false };
+
+/** Splits `raw` on commas, trims, drops empties, and matches case-insensitively against the six component names. Unknown tokens are reported, never guessed at. */
+function parseRpSkipTokens(raw: string | null): { skipped: Set<RpArmComponentName>; unknown: string[] } {
+  if (raw === null || raw.trim() === "") return { skipped: new Set(), unknown: [] };
+  const byLower = new Map<string, RpArmComponentName>(RP_ARM_COMPONENT_NAMES.map((name) => [name.toLowerCase(), name]));
+  const skipped = new Set<RpArmComponentName>();
+  const unknown: string[] = [];
+  for (const token of raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0)) {
+    const canonical = byLower.get(token.toLowerCase());
+    if (canonical === undefined) unknown.push(token);
+    else skipped.add(canonical);
+  }
+  return { skipped, unknown };
+}
+
+/** `ran` from a validated (all-known-tokens) skip set. Without `resume`, every other component is off — there is nothing left for them to feed. */
+function deriveRpArmRan(skipped: ReadonlySet<RpArmComponentName>): RpArmRan {
+  if (skipped.has("resume")) return RP_ARM_NONE;
+  const foldedPmf = !skipped.has("foldedPmf");
+  const upcomingPmf = !skipped.has("upcomingPmf");
+  return {
+    resume: true,
+    foldedPmf,
+    upcomingPmf,
+    // Moot once neither pmf loop calls rpFieldsFor at all — nothing for `formula` to gate.
+    formula: (foldedPmf || upcomingPmf) && !skipped.has("formula"),
+    observe: !skipped.has("observe"),
+    beliefs: !skipped.has("beliefs"),
+  };
+}
+
+/** The arm id: "all", "none", or "skip:a,b,c" in canonical order. `formula` is dropped from the listing once both pmf loops are already skipped, since requesting it changes nothing further. */
+function buildRpArmId(skipped: ReadonlySet<RpArmComponentName>, ran: RpArmRan): string {
+  if (!ran.resume) return "none";
+  const bothPmfSkipped = skipped.has("foldedPmf") && skipped.has("upcomingPmf");
+  const displayed = RP_ARM_COMPONENT_NAMES.filter((name) => skipped.has(name) && !(name === "formula" && bothPmfSkipped));
+  return displayed.length === 0 ? "all" : `skip:${displayed.join(",")}`;
+}
+
+/**
+ * Pure resolver for both ablation params: `rp` (whole-path on/off, existing)
+ * layered under `rpSkip` (six independently switchable components, new).
+ * `rp=0` always wins — every component is off regardless of `rpSkip`, and the
+ * existing `rp=0` warning (built by `buildWarnings`) is untouched; this
+ * function only adds a second warning when `rpSkip` was also supplied, so the
+ * caller knows it had no effect.
+ */
+export function resolveRpArm(rpRaw: string | null, rpSkipRaw: string | null): RpArmResolution {
+  const rp = parseRpParam(rpRaw);
+  const rpSkipRawTrimmed = rpSkipRaw?.trim() ?? "";
+  const rpSkipSupplied = rpSkipRawTrimmed !== "";
+
+  if (!rp.enabled) {
+    return {
+      id: "none",
+      ran: RP_ARM_NONE,
+      warnings: rpSkipSupplied
+        ? [`rpSkip="${rpSkipRawTrimmed}" was ignored because rp=0 already turns every RP component off`]
+        : [],
+    };
+  }
+
+  const { skipped, unknown } = parseRpSkipTokens(rpSkipRaw);
+
+  if (unknown.length > 0) {
+    return {
+      id: "all",
+      ran: RP_ARM_ALL,
+      warnings: [
+        `rpSkip="${rpSkipRawTrimmed}" names unrecognized component(s) ${unknown.map((t) => `"${t}"`).join(", ")} — valid names are ${RP_ARM_COMPONENT_NAMES.join(", ")} — NO component was skipped`,
+      ],
+    };
+  }
+
+  const ran = deriveRpArmRan(skipped);
+  const id = buildRpArmId(skipped, ran);
+
+  if (id === "all") return { id, ran, warnings: [] };
+
+  if (id === "none") {
+    return {
+      id,
+      ran,
+      warnings: [
+        `rpSkip="${rpSkipRawTrimmed}" — ABLATED ARM "${id}": resume was skipped, so every dependent component (foldedPmf, upcomingPmf, formula, observe, beliefs) was forced off. Compare this cpuTime against an otherwise-identical rp=1 run`,
+      ],
+    };
+  }
+
+  const bothPmfSkipped = skipped.has("foldedPmf") && skipped.has("upcomingPmf");
+  const skippedNames = RP_ARM_COMPONENT_NAMES.filter((name) => skipped.has(name) && !(name === "formula" && bothPmfSkipped));
+  const ranNames = RP_ARM_COMPONENT_NAMES.filter((name) => ran[name]);
+  return {
+    id,
+    ran,
+    warnings: [
+      `rpSkip="${rpSkipRawTrimmed}" — PARTIALLY ABLATED ARM "${id}": skipped ${skippedNames.join(",")}; ran ${ranNames.join(",")}. Compare this cpuTime against an otherwise-identical rp=1 run`,
+    ],
+  };
+}
+
 function parseTeamsParam(raw: string | null): readonly string[] | undefined {
   if (raw === null || raw.trim() === "") return undefined;
   const keys = raw
@@ -131,10 +262,12 @@ interface ProbeParams {
   readonly teamCount: number;
   readonly folded: number;
   readonly upcoming: number;
-  /** Ablation arm: false skips every Phase A ranking-point operation (see `runSprFold`). */
-  readonly rp: boolean;
+  /** The raw `rp=` on/off flag, kept separate from `rpArm` for the existing `rp=0` warning, which must fire only for THIS flag, never for an `rpSkip=resume` arm that reaches the same "none" id by a different route. */
+  readonly rpEnabled: boolean;
   /** An `rp=` value that was neither on nor off, surfaced as a warning. */
   readonly rpUnrecognized: string | undefined;
+  /** The resolved ablation arm: `rp` layered under `rpSkip`'s six components (see `resolveRpArm`). */
+  readonly rpArm: RpArmResolution;
 }
 
 function parseParams(url: URL): ProbeParams {
@@ -149,8 +282,10 @@ function parseParams(url: URL): ProbeParams {
   if (folded + upcoming > MAX_FOLDED_PLUS_UPCOMING) {
     upcoming = Math.max(0, MAX_FOLDED_PLUS_UPCOMING - folded);
   }
-  const rp = parseRpParam(search.get("rp"));
-  return { season, eventType, eventOverride, teamsOverride, teamCount, folded, upcoming, rp: rp.enabled, rpUnrecognized: rp.unrecognized };
+  const rpRaw = search.get("rp");
+  const rp = parseRpParam(rpRaw);
+  const rpArm = resolveRpArm(rpRaw, search.get("rpSkip"));
+  return { season, eventType, eventOverride, teamsOverride, teamCount, folded, upcoming, rpEnabled: rp.enabled, rpUnrecognized: rp.unrecognized, rpArm };
 }
 
 // Discovery reads scope keys only, never state_json. It is overhead a real
@@ -301,6 +436,14 @@ interface FoldResult {
   readonly rpMeanShiftObservations: number;
   /** Alliances whose moments the mean shift actually moved, in both loops. 0 before the warmup or with a cold roster. */
   readonly rpMeanShiftedAlliances: number;
+  /** The `resume` component: the resumed belief map's size, or 0 when `resume` did not run. */
+  readonly rpBeliefTeamsResumed: number;
+  /** Incremented inside `rpFieldsFor` once every gate has passed, before `momentsFor` — independent of `formula`. */
+  readonly rpGatesOpened: number;
+  /** The `beliefs` component: the size of the map passed to `withRpBeliefs`, or 0 when `beliefs` did not run. */
+  readonly rpBeliefTeamsAttached: number;
+  /** The `beliefs` component: whether `withRpMeanShift` ran. */
+  readonly rpMeanShiftAttached: boolean;
   readonly changedRowsDiscarded: number;
   readonly error?: { readonly name: string; readonly message: string };
 }
@@ -316,8 +459,10 @@ interface ProbeResponseBody {
     readonly teamCount: number;
     readonly folded: number;
     readonly upcoming: number;
-    /** The ablation arm, echoed so a `cpuTime` from `wrangler tail` is never attributed to the wrong arm. */
+    /** The whole-path ablation arm, echoed so a `cpuTime` from `wrangler tail` is never attributed to the wrong arm. Always equal to `rpArm.ran.resume`. */
     readonly rp: boolean;
+    /** The resolved component arm: `id` ("all" | "none" | "skip:a,b,c") plus which of the six components actually ran. Read this before trusting a `cpuTime` — a typo in `rpSkip` skips nothing. */
+    readonly rpArm: { readonly id: string; readonly ran: RpArmRan };
   };
   readonly discovery: {
     readonly teamKeysFound: number;
@@ -414,18 +559,24 @@ async function readAndDeserializeAll(
  * fold, talent), price `upcoming` matches read-only (predict, band, RP
  * fields), read the touched metrics/Sigma, then serialize and discard.
  *
- * `rpEnabled` false skips exactly the ranking-point operations:
- *     1. the accumulator resume (the `publishesRankingPoints` gate,
+ * `ran` — the resolved `rpSkip` component set (see `resolveRpArm`) — gates the
+ * ranking-point operations independently:
+ *     1. `resume`: the accumulator resume (the `publishesRankingPoints` gate,
  *        `RP_RULE_MODULES[season]`, `readRpBeliefs`, `RpMomentsAccumulator.fromBeliefs`,
  *        `rpKnownTeams`, `readRpMeanShift`, `RpMeanShiftAccumulator.fromState`) —
  *        unlike `scheduled.ts`, which builds `readRpBeliefs`/`rpKnownTeams`
  *        unconditionally, both stay inside this gate here: removing RP removes
  *        the accumulator they exist to seed, so there is nothing left for them
- *        to feed
- *     2. `rpFieldsFor` (mean shift `apply`, `analyticRpPmf` and its gates) in both loops
- *     3. `observeMatch` then `foldObservedRp`
- *     4. `withRpBeliefs` and `withRpMeanShift`
- * Both arms keep the upcoming loop, every `displayBandFor` call (`bandsProduced`
+ *        to feed. Without `resume`, every other component is off (`resolveRpArm`'s
+ *        dependency rule)
+ *     2. `foldedPmf`/`upcomingPmf`: whether `rpFieldsFor` is called at all, per loop
+ *     3. `formula`: inside `rpFieldsFor`, everything from `analyticRpPmf` onward
+ *        (the gates, `momentsFor` x2, `rosterIsFullyWarm` x2 and the mean shift
+ *        `apply` x2 still run either way; `rpGatesOpened` counts the gate pass,
+ *        independent of `formula`)
+ *     4. `observe`: `rpMeanShift.observeMatch` then `foldObservedRp`
+ *     5. `beliefs`: `withRpBeliefs` and `withRpMeanShift`
+ * Every arm keeps the upcoming loop, every `displayBandFor` call (`bandsProduced`
  * must match across arms, asserted by `stateProbe.test.ts`), predict/update, the
  * Sigma fold, the talent read, the touched metrics/Sigma read and
  * `serializeState` with the Sigma passengers.
@@ -439,7 +590,7 @@ function runSprFold(
   teamKeys: readonly string[],
   folded: number,
   upcoming: number,
-  rpEnabled: boolean
+  ran: RpArmRan
 ): FoldResult {
   if (teamKeys.length === 0) {
     return {
@@ -451,6 +602,10 @@ function runSprFold(
       rpObservedFolds: 0,
       rpMeanShiftObservations: 0,
       rpMeanShiftedAlliances: 0,
+      rpBeliefTeamsResumed: 0,
+      rpGatesOpened: 0,
+      rpBeliefTeamsAttached: 0,
+      rpMeanShiftAttached: false,
       changedRowsDiscarded: 0,
       error: { name: "EmptyRoster", message: "no teams available (discovery found none and no teams= override was supplied) — cannot build synthetic matches" },
     };
@@ -475,19 +630,22 @@ function runSprFold(
 
     // Indexed lookup, never `rpRuleModuleForSeason` (which throws): an
     // unregistered season, or an algorithm that publishes no RP, yields no
-    // accumulator and a warning. Gating here (ablation operation 1) disables
-    // operations 2-4, which all guard on `rp`.
-    const rpRuleModule = rpEnabled && publishesRankingPoints("spr") ? RP_RULE_MODULES[season] : undefined;
-    const rpBeliefs = rpEnabled ? readRpBeliefs(sprRows) : undefined;
+    // accumulator and a warning. Gating here (component `resume`) disables
+    // every other component, all of which guard on `rp`/`rpMeanShift`.
+    const rpRuleModule = ran.resume && publishesRankingPoints("spr") ? RP_RULE_MODULES[season] : undefined;
+    const rpBeliefs = ran.resume ? readRpBeliefs(sprRows) : undefined;
     const rp = rpRuleModule !== undefined && rpBeliefs !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs) : undefined;
-    // Mirrors `scheduled.ts`'s resume, gated with the accumulator so `rp=0` ablates it.
+    // Mirrors `scheduled.ts`'s resume, gated with the accumulator so ablating `resume` ablates it too.
     const rpMeanShift = rp !== undefined && rpRuleModule !== undefined ? RpMeanShiftAccumulator.fromState(rpRuleModule, readRpMeanShift(sprRows)) : undefined;
     const rpKnownTeams = new Set(rpBeliefs?.keys() ?? []);
+    // The `resume` component's own counter: independent of every downstream skip.
+    const rpBeliefTeamsResumed = rpBeliefs?.size ?? 0;
 
     let bandsProduced = 0;
     let rpPmfsProduced = 0;
     let rpObservedFolds = 0;
     let rpMeanShiftedAlliances = 0;
+    let rpGatesOpened = 0;
     const shiftObservationTotal = (): number =>
       rpMeanShift === undefined ? 0 : Object.values(rpMeanShift.toState().variables).reduce((total, v) => total + v.count, 0);
     const shiftObservationsAtResume = shiftObservationTotal();
@@ -506,15 +664,21 @@ function runSprFold(
       for (const teamKey of [...view.redTeams, ...view.blueTeams]) {
         if (!rpKnownTeams.has(teamKey)) return {};
       }
+      // Every gate passed: counted here, before `momentsFor`, independent of `formula`.
+      rpGatesOpened++;
 
       // The mean shift per alliance, fully-warm rosters only. `apply` returns
       // its input unchanged when it shifts nothing, which the counter reads.
+      // Still runs when `formula` is ablated — only `analyticRpPmf` onward is skipped.
       const redMoments = rp.momentsFor(view.redTeams, prediction.redScore, redBandVariance);
       const blueMoments = rp.momentsFor(view.blueTeams, prediction.blueScore, blueBandVariance);
       const red = rpMeanShift.apply(redMoments, rosterIsFullyWarm(rp, view.redTeams));
       const blue = rpMeanShift.apply(blueMoments, rosterIsFullyWarm(rp, view.blueTeams));
       if (red !== redMoments) rpMeanShiftedAlliances++;
       if (blue !== blueMoments) rpMeanShiftedAlliances++;
+
+      if (!ran.formula) return {};
+
       const pmf = analyticRpPmf({
         red,
         blue,
@@ -585,7 +749,8 @@ function runSprFold(
       if (redWinOddsVariance !== undefined) bandsProduced++;
       if (blueWinOddsVariance !== undefined) bandsProduced++;
       newBands.set(result.matchKey, displayBandFor(result, redWinOddsVariance, blueWinOddsVariance));
-      const fields = rpFieldsFor(result, prediction, redWinOddsVariance, blueWinOddsVariance);
+      // Component `foldedPmf`: when off, `rpFieldsFor` is never called for this loop — only its own work disappears.
+      const fields = ran.foldedPmf ? rpFieldsFor(result, prediction, redWinOddsVariance, blueWinOddsVariance) : {};
       newPredictions.set(result.matchKey, { ...prediction, ...fields });
       // One increment per match: `rpFieldsFor`'s gates are all-or-nothing
       // per match. `stateProbe.test.ts` pins this to `folded + upcoming`.
@@ -593,9 +758,11 @@ function runSprFold(
 
       state = spr.update(state, result);
       sigma?.foldMatch(result, prediction);
-      // Mirrors `scheduled.ts`: after the RP fields, before the threshold fold.
-      if (rp !== undefined) rpMeanShift?.observeMatch(rp, result);
-      foldObservedRp(result);
+      // Component `observe`: both the mean-shift residual booking and the
+      // threshold fold below are skipped together, mirroring `scheduled.ts`'s
+      // order (after the RP fields, before the threshold fold).
+      if (ran.observe && rp !== undefined) rpMeanShift?.observeMatch(rp, result);
+      if (ran.observe) foldObservedRp(result);
       // Talent after the fold, from the post-update state, as `scheduled.ts` orders it.
       if (sigma !== undefined) {
         const roster2 = [...result.redTeams, ...result.blueTeams];
@@ -620,7 +787,8 @@ function runSprFold(
       if (redWinOddsVariance !== undefined) bandsProduced++;
       if (blueWinOddsVariance !== undefined) bandsProduced++;
       upcomingBands.set(match.matchKey, displayBandFor(match, redWinOddsVariance, blueWinOddsVariance));
-      const fields = rpFieldsFor(match, prediction, redWinOddsVariance, blueWinOddsVariance);
+      // Component `upcomingPmf`: same rule as `foldedPmf`, for this loop.
+      const fields = ran.upcomingPmf ? rpFieldsFor(match, prediction, redWinOddsVariance, blueWinOddsVariance) : {};
       upcomingPredictions.set(match.matchKey, { ...prediction, ...fields });
       // Same one-per-match counting rule as the played loop above.
       if (fields.redRpPmf !== undefined) rpPmfsProduced++;
@@ -646,8 +814,19 @@ function runSprFold(
     // Serialize and discard: building the write payload is real tick CPU, but
     // the rows are never written.
     let candidateRows = serializeState("spr", spr.version, state, PROBE_STAMP);
-    if (rp !== undefined) candidateRows = withRpBeliefs(candidateRows, rp.beliefsByTeam());
-    if (rpMeanShift !== undefined) candidateRows = withRpMeanShift(candidateRows, rpMeanShift.toState());
+    // Component `beliefs`: the write-back passengers only. `resume` (the read
+    // side) is a separate component and stays gated above.
+    let rpBeliefTeamsAttached = 0;
+    if (ran.beliefs && rp !== undefined) {
+      const beliefsByTeam = rp.beliefsByTeam();
+      candidateRows = withRpBeliefs(candidateRows, beliefsByTeam);
+      rpBeliefTeamsAttached = beliefsByTeam.size;
+    }
+    let rpMeanShiftAttached = false;
+    if (ran.beliefs && rpMeanShift !== undefined) {
+      candidateRows = withRpMeanShift(candidateRows, rpMeanShift.toState());
+      rpMeanShiftAttached = true;
+    }
     if (sigma !== undefined) {
       candidateRows = withSigmaPopulation(withSigmaBeliefs(candidateRows, sigma.beliefsByTeam()), sigma.population());
     }
@@ -664,6 +843,10 @@ function runSprFold(
       rpObservedFolds,
       rpMeanShiftObservations,
       rpMeanShiftedAlliances,
+      rpBeliefTeamsResumed,
+      rpGatesOpened,
+      rpBeliefTeamsAttached,
+      rpMeanShiftAttached,
       changedRowsDiscarded,
     };
   } catch (err) {
@@ -676,6 +859,10 @@ function runSprFold(
       rpObservedFolds: 0,
       rpMeanShiftObservations: 0,
       rpMeanShiftedAlliances: 0,
+      rpBeliefTeamsResumed: 0,
+      rpGatesOpened: 0,
+      rpBeliefTeamsAttached: 0,
+      rpMeanShiftAttached: false,
       changedRowsDiscarded: 0,
       error: { name: err instanceof Error ? err.name : "UnknownError", message: err instanceof Error ? err.message : String(err) },
     };
@@ -692,11 +879,14 @@ function buildWarnings(params: {
   requestedTeamCount: number;
   resolvedTeamCount: number;
   fold: FoldResult;
+  /** The raw `rp=` flag — NOT `rpArm.ran.resume` — so this fires only for the literal `rp=0` case, never for an `rpSkip=resume` arm, which carries its own warning from `resolveRpArm`. */
   rpEnabled: boolean;
   rpUnrecognized: string | undefined;
+  /** The resolved arm id. The generic "every RP pmf was suppressed" warning below is scoped to "all": a partial or fully-ablated `rpSkip` arm already explains its own zero via `resolveRpArm`'s warning, and stacking both would break the "exactly one warning" contract Group 8 pins. */
+  armId: string;
 }): string[] {
   const warnings: string[] = [];
-  const { season, folded, upcoming, eventOverrideSupplied, discoveredEventKey, resolvedEventKey, requestedTeamCount, resolvedTeamCount, fold, rpEnabled, rpUnrecognized } = params;
+  const { season, folded, upcoming, eventOverrideSupplied, discoveredEventKey, resolvedEventKey, requestedTeamCount, resolvedTeamCount, fold, rpEnabled, rpUnrecognized, armId } = params;
 
   if (rpUnrecognized !== undefined) {
     warnings.push(
@@ -721,8 +911,9 @@ function buildWarnings(params: {
   if (resolvedTeamCount < requestedTeamCount) {
     warnings.push(`roster smaller than requested: found/used ${resolvedTeamCount} team(s) against a requested teamCount of ${requestedTeamCount} — the fold below prices a smaller roster than a real tick's peak`);
   }
-  // In the ablated arm a 0 here is the requested outcome.
-  if (rpEnabled && fold.error === undefined && folded + upcoming > 0 && fold.rpPmfsProduced === 0) {
+  // In an ablated arm a 0 here is the requested outcome, already explained by
+  // that arm's own warning — so this generic one is scoped to "all".
+  if (armId === "all" && fold.error === undefined && folded + upcoming > 0 && fold.rpPmfsProduced === 0) {
     warnings.push(`rpPmfsProduced is 0 — every RP pmf was suppressed (the partial-roster gate, an ineligible event type, or no registered rule module); the reported cpuTime is NOT evidence about the RP path`);
   }
   if (fold.error === undefined && folded + upcoming > 0 && fold.bandsProduced === 0) {
@@ -747,7 +938,7 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ body: ProbeR
 
   const fold: FoldResult =
     sprRows !== undefined && sprState !== undefined
-      ? runSprFold(sprRows, sprState, eventKey, params.eventType, params.season, teamKeys, params.folded, params.upcoming, params.rp)
+      ? runSprFold(sprRows, sprState, eventKey, params.eventType, params.season, teamKeys, params.folded, params.upcoming, params.rpArm.ran)
       : {
           algorithmId: "spr",
           matchesFolded: 0,
@@ -757,23 +948,34 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ body: ProbeR
           rpObservedFolds: 0,
           rpMeanShiftObservations: 0,
           rpMeanShiftedAlliances: 0,
+          rpBeliefTeamsResumed: 0,
+          rpGatesOpened: 0,
+          rpBeliefTeamsAttached: 0,
+          rpMeanShiftAttached: false,
           changedRowsDiscarded: 0,
           error: { name: "SprNotDeserialized", message: "spr state was not available — see algorithms[] for the read/deserialize failure; the fold was skipped rather than measuring a fiction" },
         };
 
-  const warnings = buildWarnings({
-    season: params.season,
-    folded: params.folded,
-    upcoming: params.upcoming,
-    eventOverrideSupplied: params.eventOverride !== undefined,
-    discoveredEventKey,
-    resolvedEventKey: eventKey,
-    requestedTeamCount: params.teamCount,
-    resolvedTeamCount: teamKeys.length,
-    fold,
-    rpEnabled: params.rp,
-    rpUnrecognized: params.rpUnrecognized,
-  });
+  const warnings = [
+    ...buildWarnings({
+      season: params.season,
+      folded: params.folded,
+      upcoming: params.upcoming,
+      eventOverrideSupplied: params.eventOverride !== undefined,
+      discoveredEventKey,
+      resolvedEventKey: eventKey,
+      requestedTeamCount: params.teamCount,
+      resolvedTeamCount: teamKeys.length,
+      fold,
+      rpEnabled: params.rpEnabled,
+      rpUnrecognized: params.rpUnrecognized,
+      armId: params.rpArm.id,
+    }),
+    // rpSkip's own warnings (unknown token, partial/full ablation, or the
+    // rp=0-override notice) — kept separate so the rp=0 warning above always
+    // sorts first when both fire (the rp=0&rpSkip=... override case).
+    ...params.rpArm.warnings,
+  ];
 
   const ok = algorithms.every((a) => a.ok) && fold.error === undefined;
 
@@ -788,7 +990,8 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ body: ProbeR
       teamCount: params.teamCount,
       folded: params.folded,
       upcoming: params.upcoming,
-      rp: params.rp,
+      rp: params.rpArm.ran.resume,
+      rpArm: { id: params.rpArm.id, ran: params.rpArm.ran },
     },
     discovery: {
       teamKeysFound: discoveredTeamKeys.length,
