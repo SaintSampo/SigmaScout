@@ -73,6 +73,13 @@ note:
 - The actual dots keep their two states. Their faint earned tint is a separate question.
 - Ship it with or after the F4 fix. On today's odds most dots would render nearly empty.
 
+**Built in quick task 260914-01x (2026-09-14).** `PREDICTED_BONUS_THRESHOLD` and
+`bonusStatesFromProbabilities` are deleted. A predicted dot is `data-state="predicted"` and fills
+`round(p x 12)` whole pixels of its 12px interior, clamped to 1-11. The fill is 60% alliance colour
+(`--alliance-*-fill`). The letter uses a 950 ink (`--alliance-*-dot-ink`) that clears 4.5:1 on both
+sides of the fill line. Unknown and actual dots are unchanged. Offline screenshots of the real component
+are in `.planning/quick/260914-01x-ship-f4-lattice-marginals-and-mean-shift/f10-dots-{1x,2x}.png`.
+
 ## Data
 
 `data.js` holds real walk-forward SPR bonus odds for twelve qualification matches each from `2016necmp`

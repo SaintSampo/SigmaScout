@@ -289,7 +289,7 @@ describe("Bonus-RP dots", () => {
   // Quick 260905-jj8 (todo `event-per-bonus-rp-publish`): the event schemas
   // now publish the per-bonus arrays, and the dots must map them through the
   // same published-data-to-dot-state functions the team page uses.
-  it("a qm row WITH published per-bonus fields renders real dot states: predicted via the 0.5 threshold, actual via the flags", () => {
+  it("a qm row WITH published per-bonus fields renders real dot states: predicted filled to the odds, actual via the flags", () => {
     renderWithRouter(
       <EventMatchTable
         rows={[
@@ -311,9 +311,15 @@ describe("Bonus-RP dots", () => {
         algorithm="spr"
       />,
     );
-    expect(collectDotStates("bonus-rp-predicted-m1-red")).toEqual(["earned", "missed"]);
-    // Exactly 0.5 resolves to earned (PD-11's half-away-from-zero convention).
-    expect(collectDotStates("bonus-rp-predicted-m1-blue")).toEqual(["earned", "missed"]);
+    // F10 (quick task 260914-01x) retired the 0.5 threshold: 0.5 and 0.49 no
+    // longer split into earned/missed. Both are "predicted" and fill to 6px of
+    // the 12px interior (0.49 * 12 = 5.88 rounds to 6).
+    expect(collectDotStates("bonus-rp-predicted-m1-red")).toEqual(["predicted", "predicted"]);
+    expect(collectDotStates("bonus-rp-predicted-m1-blue")).toEqual(["predicted", "predicted"]);
+    const fillPx = (groupTestId: string) =>
+      Array.from(screen.getByTestId(groupTestId).querySelectorAll("[data-testid^='bonus-dot-']")).map((dot) => dot.getAttribute("data-fill-px"));
+    expect(fillPx("bonus-rp-predicted-m1-red")).toEqual(["10", "2"]);
+    expect(fillPx("bonus-rp-predicted-m1-blue")).toEqual(["6", "6"]);
     expect(collectDotStates("bonus-rp-actual-m1-red")).toEqual(["earned", "missed"]);
     expect(collectDotStates("bonus-rp-actual-m1-blue")).toEqual(["missed", "earned"]);
   });
@@ -341,8 +347,10 @@ describe("Bonus-RP dots", () => {
     );
     expect(collectDotStates("bonus-rp-actual-m1-red")).toEqual(["unknown", "unknown"]);
     expect(collectDotStates("bonus-rp-actual-m1-blue")).toEqual(["unknown", "unknown"]);
-    // The predicted side is independent and keeps its real states.
-    expect(collectDotStates("bonus-rp-predicted-m1-red")).toEqual(["earned", "missed"]);
+    // The predicted side is independent and keeps its real states. F10
+    // (quick task 260914-01x) retired the 0.5 threshold, so those are
+    // "predicted" rather than earned/missed.
+    expect(collectDotStates("bonus-rp-predicted-m1-red")).toEqual(["predicted", "predicted"]);
   });
 
   it("a 2024 row renders two dots per group and a 2025 row renders three", () => {

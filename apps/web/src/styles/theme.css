@@ -80,6 +80,19 @@
   --alliance-red-ground-own: color-mix(in srgb, var(--alliance-red) 20%, transparent);
   --alliance-blue-ground-own: color-mix(in srgb, var(--alliance-blue) 20%, transparent);
 
+  /* Predicted bonus-dot fill (F10, quick task 260914-01x, sketch 012 C): the
+   * dot fills from the bottom to its odds. 60% alliance colour, twice the 30%
+   * soft tint, because at 30% a 40% and a 60% dot read alike at 14px. The
+   * letter crosses the fill line, so it takes a 950 ink that clears 4.5:1 on
+   * both sides (WCAG, fill composited on the dot's white ground): red
+   * #450A0A 16.14:1 on white, 5.94:1 on the fill; blue #172554 14.69:1 on
+   * white, 5.77:1 on the fill. The fill is color-mix-derived so an alliance
+   * colour change carries through. */
+  --alliance-red-fill: color-mix(in srgb, var(--alliance-red) 60%, transparent);
+  --alliance-blue-fill: color-mix(in srgb, var(--alliance-blue) 60%, transparent);
+  --alliance-red-dot-ink: #450a0a;
+  --alliance-blue-dot-ink: #172554;
+
   /*
    * Rarity-tier tokens (`colour-and-tiers.md`'s decided palette) for
    * `MetricValue.tsx`'s boxed metric cells. Common (0-50th percentile) gets
@@ -828,6 +841,38 @@ body {
 .bonus-dot--missed.bonus-dot--blue {
   border-color: var(--alliance-blue);
   color: var(--alliance-blue);
+}
+
+/* Predicted: filled from the bottom to the odds, no threshold (F10, quick
+   task 260914-01x). Alliance border on a white ground; the fill child is
+   absolutely placed inside the border and clipped by the dot's radius, and
+   its whole-pixel height comes from `bonusDotFillPx`. The letter sits above
+   the fill in the dark dot ink, which clears 4.5:1 on either side of the
+   fill line. */
+.bonus-dot--predicted {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--color-bg-surface);
+}
+.bonus-dot--predicted.bonus-dot--red {
+  border-color: var(--alliance-red);
+  color: var(--alliance-red-dot-ink);
+  --bonus-dot-fill: var(--alliance-red-fill);
+}
+.bonus-dot--predicted.bonus-dot--blue {
+  border-color: var(--alliance-blue);
+  color: var(--alliance-blue-dot-ink);
+  --bonus-dot-fill: var(--alliance-blue-fill);
+}
+.bonus-dot__fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--bonus-dot-fill);
+}
+.bonus-dot__letter {
+  position: relative;
 }
 
 /* Unknown: no per-bonus data published. Dashed and desaturated so it reads

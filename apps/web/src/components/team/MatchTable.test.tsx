@@ -620,7 +620,7 @@ describe("MatchTable", () => {
       return Array.from(group.querySelectorAll("[data-testid^='bonus-dot-']")).map((dot) => dot.getAttribute("data-state"));
     }
 
-    it("resolves every predicted and every actual dot to earned or missed — none unknown — for a two-bonus season (2024)", () => {
+    it("resolves every predicted dot to predicted and every actual dot to earned or missed — none unknown — for a two-bonus season (2024)", () => {
       renderWithRouter(
         <MatchTable
           matches={[
@@ -652,12 +652,17 @@ describe("MatchTable", () => {
       expect(actualRed).toHaveLength(2);
       expect(actualBlue).toHaveLength(2);
 
-      const allStates = [...predictedRed, ...predictedBlue, ...actualRed, ...actualBlue];
-      expect(allStates.every((state) => state === "earned" || state === "missed")).toBe(true);
-      expect(allStates).not.toContain("unknown");
+      // F10 (quick task 260914-01x) retired the 0.5 threshold: a predicted dot
+      // with a probability is "predicted" (filled to its odds), never
+      // earned/missed. Actual dots keep earned/missed.
+      const predictedStates = [...predictedRed, ...predictedBlue];
+      const actualStates = [...actualRed, ...actualBlue];
+      expect(predictedStates.every((state) => state === "predicted")).toBe(true);
+      expect(actualStates.every((state) => state === "earned" || state === "missed")).toBe(true);
+      expect([...predictedStates, ...actualStates]).not.toContain("unknown");
     });
 
-    it("resolves every predicted and every actual dot to earned or missed — none unknown — for a three-bonus season (2025)", () => {
+    it("resolves every predicted dot to predicted and every actual dot to earned or missed — none unknown — for a three-bonus season (2025)", () => {
       renderWithRouter(
         <MatchTable
           matches={[
@@ -690,9 +695,14 @@ describe("MatchTable", () => {
       expect(actualRed).toHaveLength(3);
       expect(actualBlue).toHaveLength(3);
 
-      const allStates = [...predictedRed, ...predictedBlue, ...actualRed, ...actualBlue];
-      expect(allStates.every((state) => state === "earned" || state === "missed")).toBe(true);
-      expect(allStates).not.toContain("unknown");
+      // F10 (quick task 260914-01x) retired the 0.5 threshold: a predicted dot
+      // with a probability is "predicted" (filled to its odds), never
+      // earned/missed. Actual dots keep earned/missed.
+      const predictedStates = [...predictedRed, ...predictedBlue];
+      const actualStates = [...actualRed, ...actualBlue];
+      expect(predictedStates.every((state) => state === "predicted")).toBe(true);
+      expect(actualStates.every((state) => state === "earned" || state === "missed")).toBe(true);
+      expect([...predictedStates, ...actualStates]).not.toContain("unknown");
     });
 
     it("renders every actual dot unknown when actual bonus arrays are null, while predicted dots still resolve", () => {
@@ -722,8 +732,10 @@ describe("MatchTable", () => {
       const actualRed = collectDotStates("bonus-rp-actual-m1-red");
       const actualBlue = collectDotStates("bonus-rp-actual-m1-blue");
 
-      expect(predictedRed).not.toContain("unknown");
-      expect(predictedBlue).not.toContain("unknown");
+      // F10 (quick task 260914-01x) retired the 0.5 threshold: predicted dots
+      // with probabilities are "predicted", filled to their odds.
+      expect(predictedRed).toEqual(["predicted", "predicted"]);
+      expect(predictedBlue).toEqual(["predicted", "predicted"]);
       expect(actualRed.every((state) => state === "unknown")).toBe(true);
       expect(actualBlue.every((state) => state === "unknown")).toBe(true);
     });
@@ -783,8 +795,14 @@ describe("MatchTable", () => {
         />,
       );
 
-      expect(collectDotStates("bonus-rp-predicted-m1-red")).toEqual(["earned", "earned"]);
-      expect(collectDotStates("bonus-rp-predicted-m1-blue")).toEqual(["missed", "missed"]);
+      // F10 (quick task 260914-01x) retired the 0.5 threshold, so the two
+      // sides are told apart by fill height, not by earned/missed.
+      expect(collectDotStates("bonus-rp-predicted-m1-red")).toEqual(["predicted", "predicted"]);
+      expect(collectDotStates("bonus-rp-predicted-m1-blue")).toEqual(["predicted", "predicted"]);
+      const fillPx = (groupTestId: string) =>
+        Array.from(screen.getByTestId(groupTestId).querySelectorAll("[data-testid^='bonus-dot-']")).map((dot) => dot.getAttribute("data-fill-px"));
+      expect(fillPx("bonus-rp-predicted-m1-red")).toEqual(["11", "11"]);
+      expect(fillPx("bonus-rp-predicted-m1-blue")).toEqual(["1", "1"]);
       expect(collectDotStates("bonus-rp-actual-m1-red")).toEqual(["earned", "earned"]);
       expect(collectDotStates("bonus-rp-actual-m1-blue")).toEqual(["missed", "missed"]);
     });

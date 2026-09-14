@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, PLOT_W, scaleToPlot, type AxisDomain, type TeamSeasonMatch } from "./matchAxis.js";
-import { bonusRpForSeason, bonusStatesFromFlags, bonusStatesFromProbabilities } from "../../lib/bonusRp.js";
+import { bonusRpForSeason, bonusStatesFromFlags } from "../../lib/bonusRp.js";
 import { snapToDevicePixelPhase, useDevicePixelPhaseStep } from "../../lib/devicePixelGrid.js";
 import { predictionPercent } from "../../lib/predictionPercent.js";
 // Imported directly from core rather than copied into apps/web —
@@ -217,11 +217,10 @@ export function PredictedScoreLine({
   compLevel: Parameters<typeof isBonusRpCompLevel>[0];
 }) {
   const sd = variance === undefined ? undefined : Math.sqrt(Math.max(0, variance));
-  const bonusCount = bonusRpForSeason(season).length;
-  const bonusStates = bonusStatesFromProbabilities(bonusRp, bonusCount);
   return (
     <span className="flex items-center gap-[var(--spacing-xs)]">
-      <BonusRpDots season={season} side={side} kind="predicted" matchKey={matchKey} states={bonusStates} probabilities={bonusRp} applicable={isBonusRpCompLevel(compLevel)} />
+      {/* Probabilities only: each predicted dot fills to its own odds (F10). */}
+      <BonusRpDots season={season} side={side} kind="predicted" matchKey={matchKey} probabilities={bonusRp} applicable={isBonusRpCompLevel(compLevel)} />
       <span data-testid={`predicted-score-${matchKey}-${side}`} className="numeric-cell whitespace-nowrap text-[var(--color-text-primary)]">
         {Math.round(score)}
         {sd !== undefined && <span className="text-role-spread-suffix text-[var(--color-text-muted)]">{` ± ${Math.round(sd)}`}</span>}

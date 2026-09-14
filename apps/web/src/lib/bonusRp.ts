@@ -103,40 +103,37 @@ export function bonusRpForSeason(season: number): readonly BonusRp[] {
 export type BonusRpState = "earned" | "missed" | "unknown";
 
 /**
- * The threshold at which a published predicted per-bonus PROBABILITY
- * (`TeamSeasonMatchSchema.redBonusRp`/`blueBonusRp`) renders as an `earned`
- * dot rather than `missed`.
- *
- * A two-state mark cannot express a probability — a dot is either solid or
- * hollow, never "51% solid" — so SOME threshold is unavoidable the moment a
- * probability drives that binary. The exact boundary (a probability of
- * exactly one half) resolves to `earned`, matching this codebase's existing
- * half-away-from-zero rounding convention (`packages/harness/rounding.ts`).
- * The dot's own tooltip/accessible label (`bonusDotLabel`) carries the real
- * probability as a percentage, so the reader is never left with only the
- * binary — the visual is a summary, not the only representation of the
- * number.
+ * A drawn dot's state. Actual dots use `BonusRpState`. A predicted dot with a
+ * probability is `predicted`: it fills from the bottom to its odds (F10, quick
+ * task 260914-01x, sketch 012 variant C). A predicted dot with no probability
+ * is `unknown`, exactly like an actual dot with no flag.
  */
-export const PREDICTED_BONUS_THRESHOLD = 0.5;
+export type BonusDotState = BonusRpState | "predicted";
 
 /**
- * Maps a season's published predicted per-bonus probabilities to dot states,
- * positionally aligned to that season's own bonus list.
- *
- * Always returns exactly `count` entries. A probability at or above
- * `PREDICTED_BONUS_THRESHOLD` maps to `earned`, otherwise `missed`. An
- * undefined `probabilities` array — the RP pricing engine did not run for
- * this match — maps every position to `unknown`. An array shorter than `count`
- * maps its own trailing, absent positions to `unknown` as well: a length
- * mismatch is missing data, never a claim that the alliance will not earn
- * the remaining bonuses.
+ * The dot's interior height in CSS pixels: `.bonus-dot`'s 14px width minus
+ * its 1px border on each side, in `styles/theme.css`. `bonusRp.test.ts` reads
+ * that CSS text and fails if the two drift apart.
  */
-export function bonusStatesFromProbabilities(probabilities: readonly number[] | undefined, count: number): BonusRpState[] {
-  return Array.from({ length: count }, (_, index) => {
-    const probability = probabilities?.[index];
-    if (probability === undefined) return "unknown";
-    return probability >= PREDICTED_BONUS_THRESHOLD ? "earned" : "missed";
-  });
+export const BONUS_DOT_INNER_PX = 12;
+
+/**
+ * How many whole pixels of a predicted dot's interior to fill for a
+ * probability. There is no threshold: the fill carries the odds directly,
+ * and the dot's title and aria-label carry the exact percentage.
+ *
+ * The height is `round(probability * innerPx)`, clamped to
+ * `[1, innerPx - 1]`, so a prediction never draws as empty or full. That
+ * matches `predictionPercent`'s 1-99% display policy. Whole pixels keep
+ * neighbouring dots from blurring differently.
+ *
+ * Returns `undefined` for an absent or non-finite probability. The dot then
+ * renders `unknown`, never an empty fill, because an empty fill would read as
+ * "almost certainly not".
+ */
+export function bonusDotFillPx(probability: number | undefined, innerPx: number): number | undefined {
+  if (probability === undefined || !Number.isFinite(probability)) return undefined;
+  return Math.min(innerPx - 1, Math.max(1, Math.round(probability * innerPx)));
 }
 
 /**
@@ -151,8 +148,8 @@ export function bonusStatesFromProbabilities(probabilities: readonly number[] | 
  * earn that bonus, a claim the data does not support. An undefined array
  * (an artifact predating this field, or a season with no registered RP
  * rules) maps every position to `unknown` as well. A shorter-than-`count`
- * array maps its own trailing positions to `unknown`, matching
- * `bonusStatesFromProbabilities`'s own convention.
+ * array maps its own trailing positions to `unknown`: a length mismatch is
+ * missing data, never a claim that the alliance did not earn the rest.
  */
 export function bonusStatesFromFlags(flags: readonly boolean[] | null | undefined, count: number): BonusRpState[] {
   return Array.from({ length: count }, (_, index) => {
@@ -170,14 +167,14 @@ export function bonusStatesFromFlags(flags: readonly boolean[] | null | undefine
  * Precedence, in order:
  *   1. `unknown` state — "no data published", regardless of kind.
  *   2. `predicted` kind with a defined `probability` — the probability as a
- *      whole-number percentage, so a 51% prediction is never flattened to
- *      only the binary dot.
+ *      whole-number percentage, the exact figure the dot's whole-pixel fill
+ *      can only approximate.
  *   3. `actual` kind, `earned` state — "earned".
  *   4. `actual` kind, `missed` state — "not earned".
  *   5. `predicted` kind with no `probability` (a states-only caller) — the
  *      word "predicted" plus the state word.
  */
-export function bonusDotLabel(label: string, state: BonusRpState, kind: "predicted" | "actual", probability?: number): string {
+export function bonusDotLabel(label: string, state: BonusDotState, kind: "predicted" | "actual", probability?: number): string {
   if (state === "unknown") {
     return `${label}: no data published`;
   }

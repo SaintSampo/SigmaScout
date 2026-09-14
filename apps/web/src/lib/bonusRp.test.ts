@@ -5,11 +5,26 @@ import { RP_RULE_MODULES } from "../../../../packages/core/rankingPoints/rules.j
 import {
   BONUS_RP_BY_SEASON,
   bonusDotLabel,
+  BONUS_DOT_INNER_PX,
+  bonusDotFillPx,
   bonusRpForSeason,
   bonusStatesFromFlags,
-  bonusStatesFromProbabilities,
-  PREDICTED_BONUS_THRESHOLD,
 } from "./bonusRp.js";
+
+/**
+ * Walks up from the working directory to a repo-relative file. Used rather
+ * than `import.meta.url` because this file runs under the web project's jsdom
+ * environment, where `import.meta.url` is not a file: URL.
+ */
+function findUpward(relative: string): string | undefined {
+  let dir = process.cwd();
+  for (let i = 0; i < 6; i++) {
+    const candidate = resolve(dir, relative);
+    if (existsSync(candidate)) return candidate;
+    dir = resolve(dir, "..");
+  }
+  return undefined;
+}
 
 /**
  * `bonusRp.ts` copies each season's BONUS_NAMES rather than importing the
@@ -42,44 +57,51 @@ describe("bonusRp table matches the core RP rule modules", () => {
 });
 
 /**
- * Plan 06.1-06, Task 1: the published-data-to-dot-state mapping. Three
- * published states — a probability, a boolean, and absence — each map to
- * exactly one `BonusRpState`, with the threshold boundary and the
- * null-is-not-missed rule pinned by their own dedicated cases.
+ * F10 (quick task 260914-01x, sketch 012 variant C): a predicted dot fills
+ * from the bottom to its probability. There is no threshold any more. The
+ * height is `round(p * innerPx)` clamped to `[1, innerPx - 1]`, so a
+ * prediction never draws as empty or full, matching `predictionPercent`'s
+ * 1-99% display policy (CD-06).
  */
-describe("bonusStatesFromProbabilities", () => {
-  it("maps a probability at or above the threshold to earned", () => {
-    expect(bonusStatesFromProbabilities([0.7, 0.9], 2)).toEqual(["earned", "earned"]);
+describe("bonusDotFillPx", () => {
+  it.each([
+    [0, 1],
+    [0.02, 1],
+    [0.5, 6],
+    [0.72, 9],
+    [0.99, 11],
+    [1, 11],
+  ])("fills %s to %s px of a 12px interior", (probability, px) => {
+    expect(bonusDotFillPx(probability, 12)).toBe(px);
   });
 
-  it("maps a probability below the threshold to missed", () => {
-    expect(bonusStatesFromProbabilities([0.1, 0.3], 2)).toEqual(["missed", "missed"]);
+  it("returns undefined (unknown) for an absent or non-finite probability", () => {
+    expect(bonusDotFillPx(undefined, 12)).toBeUndefined();
+    expect(bonusDotFillPx(Number.NaN, 12)).toBeUndefined();
+    expect(bonusDotFillPx(Number.POSITIVE_INFINITY, 12)).toBeUndefined();
   });
 
-  // Load-bearing boundary: three separate, adjacent cases rather than one
-  // parameterised sweep, so a boundary regression names itself.
-  it("maps a probability of 0.4999 (just below the threshold) to missed", () => {
-    expect(bonusStatesFromProbabilities([0.4999], 1)).toEqual(["missed"]);
+  it("always returns a whole number of pixels", () => {
+    for (let i = 0; i <= 100; i++) {
+      const px = bonusDotFillPx(i / 100, BONUS_DOT_INNER_PX);
+      expect(Number.isInteger(px)).toBe(true);
+    }
   });
 
-  it("maps a probability of exactly 0.5 (the threshold) to earned (PD-11)", () => {
-    expect(bonusStatesFromProbabilities([0.5], 1)).toEqual(["earned"]);
-  });
-
-  it("maps a probability of 0.5001 (just above the threshold) to earned", () => {
-    expect(bonusStatesFromProbabilities([0.5001], 1)).toEqual(["earned"]);
-  });
-
-  it("maps every position to unknown when the probabilities array is undefined", () => {
-    expect(bonusStatesFromProbabilities(undefined, 3)).toEqual(["unknown", "unknown", "unknown"]);
-  });
-
-  it("maps the missing trailing positions of a shorter-than-count array to unknown, never missed", () => {
-    expect(bonusStatesFromProbabilities([0.9], 3)).toEqual(["earned", "unknown", "unknown"]);
-  });
-
-  it("always returns exactly count entries regardless of input length", () => {
-    expect(bonusStatesFromProbabilities([0.9, 0.1, 0.5, 0.2], 2)).toHaveLength(2);
+  it("BONUS_DOT_INNER_PX equals .bonus-dot's width minus twice its border in theme.css", () => {
+    // jsdom applies no CSS, so the shipped CSS TEXT is the source of truth.
+    // If the dot's size or border changes, this fails instead of the fill
+    // silently overshooting or falling short of the dot's interior.
+    const themePath = findUpward("apps/web/src/styles/theme.css") ?? findUpward("src/styles/theme.css");
+    expect(themePath, "could not locate theme.css").toBeDefined();
+    const css = readFileSync(themePath!, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    const body = /(?:^|\})\s*\.bonus-dot\s*\{([^{}]*)\}/.exec(css)?.[1];
+    expect(body, "expected a bare .bonus-dot rule").toBeDefined();
+    const width = Number(/(?:^|;)\s*width:\s*(\d+)px/.exec(body!)?.[1]);
+    const border = Number(/(?:^|;)\s*border:\s*(\d+)px/.exec(body!)?.[1]);
+    expect(width).toBeGreaterThan(0);
+    expect(border).toBeGreaterThan(0);
+    expect(BONUS_DOT_INNER_PX).toBe(width - 2 * border);
   });
 });
 
@@ -142,40 +164,18 @@ describe("bonusDotLabel", () => {
   });
 });
 
-describe("PREDICTED_BONUS_THRESHOLD", () => {
-  it("is exported and equals one half (PD-11)", () => {
-    expect(PREDICTED_BONUS_THRESHOLD).toBe(0.5);
-  });
-});
-
-describe("F10's upstream measurement stays pinned to the threshold it describes", () => {
-  it("the committed attribution record's dotThreshold equals PREDICTED_BONUS_THRESHOLD exactly", () => {
-    // `scripts/measureRpCalibration.ts` measures F10's dot-eligible share
-    // against a threshold it duplicates as a default rather than importing
-    // from this app — an offline pipeline script should not depend on the
-    // client bundle for one float. THIS TEST IS WHAT KEEPS THE TWO HONEST:
-    // if either side moves, the measurement stops describing the constant it
-    // claims to describe, and that failure is loud here instead of silent in
-    // a published document.
-    //
-    // The threshold itself is NOT changed by phase 09. F10's display half was
-    // offered and not taken up; only its upstream cause is in scope.
-    // Resolved by walking up from the working directory rather than from
-    // `import.meta.url`: this file runs under the web project's jsdom
-    // environment, where `import.meta.url` is not a file: URL.
+describe("F10's upstream measurement record stays pinned to the threshold it describes", () => {
+  it("the committed attribution record's dotThreshold equals the literal 0.5", () => {
+    // 2026-09-14, quick task 260914-01x (CD-08): F10 retired the web app's
+    // PREDICTED_BONUS_THRESHOLD. Predicted dots now fill to their odds with no
+    // threshold at all. The attribution record is a frozen measurement of the
+    // dot as it was drawn before that change, a solid dot at 50% or more, so
+    // its dotThreshold stays 0.5 and is pinned here as a literal. It no longer
+    // mirrors any live constant.
     const RECORD_RELATIVE = "data/baselines/rp-attribution-2026-09.json";
-    let dir = process.cwd();
-    let recordPath: string | undefined;
-    for (let i = 0; i < 6; i++) {
-      const candidate = resolve(dir, RECORD_RELATIVE);
-      if (existsSync(candidate)) {
-        recordPath = candidate;
-        break;
-      }
-      dir = resolve(dir, "..");
-    }
+    const recordPath = findUpward(RECORD_RELATIVE);
     expect(recordPath, `could not locate ${RECORD_RELATIVE} above ${process.cwd()}`).toBeDefined();
     const record = JSON.parse(readFileSync(recordPath!, "utf8")) as { dotThreshold: number };
-    expect(record.dotThreshold).toBe(PREDICTED_BONUS_THRESHOLD);
+    expect(record.dotThreshold).toBe(0.5);
   });
 });
