@@ -1,64 +1,21 @@
 /**
- * Per-team beliefs over a season's RP THRESHOLD VARIABLES, learned from
- * observed results alone.
+ * Per-team beliefs over a season's RP threshold variables, learned from
+ * observed results alone (no model state, no algorithm import). Which
+ * algorithms publish ranking points is decided by `publishesRankingPoints` in
+ * `packages/harness/sigmaScore.ts`.
  *
- * `distribution.ts` needs an `AllianceRpMoments` per alliance. This module
- * produces that contract from NOTHING BUT PAST RESULTS — no model state, no
- * per-team rating, no algorithm import. The module itself is
- * algorithm-agnostic; which algorithms PUBLISH ranking points is decided by
- * the harness (`publishesRankingPoints` in `packages/harness/sigmaScore.ts`):
- * Sigma algorithms (SPR) only, because the pmf also needs a per-robot score
- * variance and only Sigma Score supplies one.
+ * Threshold variables are observed at alliance level and FRC records no
+ * per-robot breakdown, so a team's share is the even split
+ * `value / rosterSize`, a noisy estimate that absorbs partners' contributions.
  *
- * It is a level-2 SigmaScout feature, built the same way Sigma Score is: a
- * team's share of an alliance-level observation, recency-weighted, folded
- * walk-forward.
- *
- * ---------------------------------------------------------------------------
- * WHAT IS OBSERVED, AND HOW IT IS SPLIT
- * ---------------------------------------------------------------------------
- *
- * A season's rule module reports threshold variables at ALLIANCE level — for
- * 2026, `hubTotalCount` (a raw fuel count) and `totalTowerPoints`. FRC records
- * no per-robot breakdown (this project's Assumption A1), so a team's share is
- * the even split `value / rosterSize`, the identical inference
- * `sigmaScore.ts` makes for score residuals and with the identical caveat: it
- * absorbs partners' contributions and is a genuinely noisy per-robot estimate.
- *
- * An alliance's predicted mean is then the sum of its three teams' means, and
- * its variance the sum of their variances. That summation is an
- * independent-teams assumption, and it is the reason the covariance block
- * this module emits is DIAGONAL.
- *
- * THE THREE ASSUMPTIONS, MADE DELIBERATELY.
- *
- * `moments.ts` warns that a diagonal block and a zero cross-covariance are
- * decisions rather than defaults. This module makes both, on purpose, and says
- * why rather than inheriting them silently:
- *
- *   1. DIAGONAL `varianceBlock` — no covariance BETWEEN threshold variables.
- *      For 2026 that claims `hubTotalCount` and `totalTowerPoints` are
- *      uncorrelated, which is very likely false: an alliance good at one is
- *      probably good at the other, so the joint draw will understate how often
- *      an alliance clears BOTH thresholds together and overstate how often it
- *      splits them. Chosen because estimating a stable cross-term per team
- *      needs far more observations than a team plays in a season, and a noisy
- *      off-diagonal is worse than an honest zero.
- *
- *   2. ZERO `scoreCrossCovariance` — no correlation between the alliance's
- *      predicted SCORE and its threshold variables. Also likely false for the
- *      same reason. Same justification, and the same direction of error.
- *
- *   3. VARIANCE IS ABOUT THE TEAM'S OWN MEAN, not about zero, and uses the
- *      effective-sample denominator `W − W2/W` (recency-weighted count minus
- *      the sum of squared weights over it), which is exactly 0 after a single
- *      observation — so one observation yields no variance rather than a fake
- *      zero.
- *
- * All three make the predicted distribution NARROWER and less correlated than
- * reality. The published effect is bonus probabilities pulled toward the
- * extremes. That is a known bias with a known sign, which is the condition
- * this project accepts a simplification under.
+ * Three deliberate simplifications, each making the distribution narrower
+ * and less correlated than reality (bonus odds pulled toward the extremes):
+ *   1. Diagonal `varianceBlock`: no covariance between threshold variables; a
+ *      stable per-team cross-term needs more matches than a season has.
+ *   2. Zero `scoreCrossCovariance`, for the same reason.
+ *   3. Variance is about the team's own mean, with the effective-sample
+ *      denominator `W − W2/W`, which is 0 after one observation, so one
+ *      observation yields no variance rather than a fake zero.
  */
 
 import type { AllianceRpMoments } from "./moments.js";
@@ -66,27 +23,13 @@ import type { RpRuleModule } from "./constants.js";
 
 /**
  * Half-life in matches: an observation six matches old counts half as much as
- * the newest.
- *
- * MEASURED, not chosen — swept walk-forward over 275,172 team-matches
- * (2024-2026) against how well the estimate predicts a team's ACTUAL
- * next-match deviation. 6 sits at the top of a plateau spanning roughly 4 to
- * 12, where decay beats a flat average by 2.3%. A future re-measurement
- * landing on 5 or 8 would not contradict it.
+ * the newest. Measured walk-forward: 6 tops a plateau spanning roughly 4 to 12.
  */
 export const RP_MOMENTS_HALF_LIFE_MATCHES = 6;
 
 const DECAY = 0.5 ** (1 / RP_MOMENTS_HALF_LIFE_MATCHES);
 
-/**
- * One team's running belief about one threshold variable.
- *
- * EXPORTED so the live Worker can persist it into D1 as a `sigmascoutRp`
- * passenger and resume from it. The name says which feature it belongs to
- * on purpose: `stateSnapshot.ts` also carries a RETIRED `rpBeliefs` field
- * from a different, deleted algorithm's serializer, which is a completely
- * different thing that happens to share a word.
- */
+/** One team's running belief about one threshold variable, persisted to D1 as a `sigmascoutRp` passenger. */
 export interface RpVariableBelief {
   weight: number;
   weightSquares: number;
@@ -94,16 +37,9 @@ export interface RpVariableBelief {
   m2: number;
 }
 
-/**
- * One team's beliefs across EVERY threshold variable this season tracks,
- * keyed by variable NAME — which is why the persisted value is a nested
- * record rather than a flat object. 2026 tracks two (`hubTotalCount` and
- * `totalTowerPoints`), so a single-variable round-trip would not exercise
- * the nesting at all.
- */
+/** One team's beliefs across every threshold variable this season tracks, keyed by variable name. */
 export type RpTeamBeliefs = Readonly<Record<string, RpVariableBelief>>;
 
-/** Internal alias kept so the helpers below read unchanged. */
 type VariableBelief = RpVariableBelief;
 
 function emptyBelief(): VariableBelief {
@@ -112,9 +48,7 @@ function emptyBelief(): VariableBelief {
 
 /**
  * West's weighted incremental update, decaying every prior weight first.
- * Numerically stable — it never subtracts two large nearly-equal numbers,
- * which is the failure the naive `E[x²] − E[x]²` form suffers on the large,
- * nearly-equal values a points threshold produces.
+ * Unlike the naive `E[x²] − E[x]²`, it never subtracts two large nearly-equal numbers.
  */
 function fold(belief: VariableBelief, x: number): void {
   const decayedWeight = DECAY * belief.weight;
@@ -137,13 +71,9 @@ function varianceOf(belief: VariableBelief): number | undefined {
 }
 
 /**
- * Walk-forward per-team beliefs over one season's threshold variables.
- *
- * Read a match's moments BEFORE folding it in — the same predict-before-update
- * discipline the rest of this project runs on. A team with no history yet
- * contributes a zero mean and no variance, which is the honest cold start: the
- * alliance's predicted total is simply smaller and tighter than it will be once
- * the team has played.
+ * Walk-forward per-team beliefs over one season's threshold variables. Read a
+ * match's moments before folding it in (predict-before-update). A team with no
+ * history contributes a zero mean and no variance.
  */
 export class RpMomentsAccumulator {
   readonly #ruleModule: RpRuleModule;
@@ -158,12 +88,7 @@ export class RpMomentsAccumulator {
     return this.#ruleModule.thresholdVariables.map((v) => v.name);
   }
 
-  /**
-   * One alliance's moments from history SO FAR, ready for
-   * `rpPmfForMatch`. `scoreMean` and `scoreVariance` come from whatever the
-   * ALGORITHM predicted for this alliance — this module never estimates a
-   * score.
-   */
+  /** One alliance's moments from history so far. `scoreMean` and `scoreVariance` come from the algorithm; this module never estimates a score. */
   momentsFor(roster: readonly string[], scoreMean: number, scoreVariance: number): AllianceRpMoments {
     const names = this.variableNames;
     const meanVector: number[] = [];
@@ -181,24 +106,14 @@ export class RpMomentsAccumulator {
         contributing++;
       }
       meanVector.push(mean);
-      // UNDO THE EVEN-SPLIT SHRINKAGE. A team's belief is folded from
-      // `allianceValue / rosterSize`, so what it estimates is not that
-      // robot's own contribution variance — it is the WHOLE ALLIANCE's
-      // variance divided by `rosterSize²`, because the even split carries
-      // the partners' variability too. Each contributing team implies
-      // `rosterSize² · Var(belief)` for the alliance, so the alliance
-      // estimate is the AVERAGE of those implications over the teams that
-      // actually have one; with a partial roster it degrades correctly
-      // instead of under-counting once for the missing team and again for
-      // the shrinkage. The mean needs no such correction: `rosterSize` even
-      // splits summed back reconstruct the alliance value exactly. This
-      // shrinkage is one of three causes; the DIAGONAL block and the zero
-      // cross-covariance in this module's header are deliberate and remain.
+      // Undo the even-split shrinkage: a belief folded from `allianceValue / rosterSize`
+      // estimates the alliance variance over `rosterSize²`. Each contributing team implies
+      // `rosterSize² · Var(belief)`, averaged over the teams that have one, so a partial
+      // roster does not under-count. The mean needs no correction.
       variances.push(contributing > 0 ? (varianceSum * roster.length * roster.length) / contributing : 0);
     }
 
-    // Diagonal by construction — see this module's header for why the
-    // off-diagonals are deliberately zero rather than estimated badly.
+    // Diagonal by construction (see the module header).
     const varianceBlock = names.map((_, i) => names.map((__, j) => (i === j ? (variances[i] as number) : 0)));
 
     return {
@@ -212,12 +127,9 @@ export class RpMomentsAccumulator {
   }
 
   /**
-   * Folds one alliance's OBSERVED threshold variables into each of its teams,
-   * as an even split of the alliance value.
-   *
-   * A non-finite observation is skipped rather than folded — the same
-   * discipline `SigmaScoreAccumulator.fold` applies, and for the same reason: a coerced
-   * value would quietly corrupt every later prediction for that team.
+   * Folds one alliance's observed threshold variables into each of its teams
+   * as an even split. A non-finite observation is skipped, since a coerced
+   * value would corrupt every later prediction for that team.
    */
   fold(roster: readonly string[], observedThresholdVariables: Readonly<Record<string, number>>): void {
     if (roster.length === 0) return;
@@ -242,18 +154,9 @@ export class RpMomentsAccumulator {
   }
 
   /**
-   * Every team's RAW running state, for the D1 seed the live Worker resumes
-   * from.
-   *
-   * The same distinction `SigmaScoreAccumulator.beliefsByTeam()` draws, and
-   * for the same reason: this is the raw running state, NOT `momentsFor`'s
-   * derived output. A team with a single observation must carry that
-   * observation forward, or its first live match would fold against an empty
-   * belief and the live pmf would diverge from what the offline publisher
-   * would have produced — with both sides looking perfectly healthy.
-   *
-   * The returned records are COPIES all the way down, so a caller cannot
-   * reach through them and mutate this accumulator's internals.
+   * Every team's raw running state (not `momentsFor`'s derived output), for
+   * the D1 seed the live Worker resumes from. Anything less and the live pmf
+   * silently diverges from the offline publisher's. Returns deep copies.
    */
   beliefsByTeam(): ReadonlyMap<string, RpTeamBeliefs> {
     const out = new Map<string, RpTeamBeliefs>();
@@ -266,14 +169,9 @@ export class RpMomentsAccumulator {
   }
 
   /**
-   * Rebuilds an accumulator from `beliefsByTeam()`'s output — the live
-   * Worker's resume path.
-   *
-   * Keeps ONLY the variable names `ruleModule` declares. A seed written under
-   * a different season's rules therefore cannot smuggle a stale variable into
-   * a new season's accumulator: an unknown name is dropped rather than
-   * carried, so `momentsFor` can never sum over a variable this season does
-   * not track.
+   * Rebuilds an accumulator from `beliefsByTeam()`'s output (the live Worker's
+   * resume path). Keeps only the variable names `ruleModule` declares, so a
+   * seed from another season's rules cannot carry a stale variable.
    */
   static fromBeliefs(ruleModule: RpRuleModule, beliefs: ReadonlyMap<string, RpTeamBeliefs>): RpMomentsAccumulator {
     const accumulator = new RpMomentsAccumulator(ruleModule);
