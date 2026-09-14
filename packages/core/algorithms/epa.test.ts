@@ -198,11 +198,9 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
     // twoStageEwma(mean, mean + 0/n, percent, 1) === mean for every teammate,
     // regardless of how unequal their levels are.
     //
-    // This is the case that fails loudly against the retired EVEN SPLIT, which
-    // fed every teammate allianceValue/n === 20 and therefore dragged the
-    // 40-point robot down to 40 + (1/3)(20 - 40) = 33.33 and pushed both
-    // 10-point robots up to 10 + (1/3)(20 - 10) = 13.33 — pulling every team
-    // toward its alliance's mean on a match that told us nothing new.
+    // Guards against an even split (allianceValue/n fed to every teammate
+    // regardless of level), which would pull every team toward its
+    // alliance's mean on a match that told us nothing new.
     const next = epa.update(unequalTeammatesState(), redObservationOf(60));
 
     expect(next.teamComponents.get("frc1")!["auto"]).toBeCloseTo(40, 10);
@@ -242,8 +240,7 @@ describe("epa.update — D-Q1 error-split attribution (Statbotics post_process_a
 
   it("with one rating-eligible team the error split is arithmetically identical to the retired even split", () => {
     // n === 1: currentMean + (allianceValue - currentMean)/1 === allianceValue,
-    // which is exactly the observedShare the retired formula fed. This is why
-    // every pre-existing n === 1 fixture in this file is unchanged by D-Q1.
+    // so every n === 1 fixture in this file is unaffected by the error split.
     const state: EpaState = {
       season: 2024,
       teamComponents: new Map([["frc1", { auto: 10 }]]),
@@ -467,10 +464,9 @@ describe("epa.predict — foulsCommitted no longer enters either predicted score
     // Red's own foulsCommitted (5) must NOT inflate red's own predicted score
     // — it never did; `redOffensiveTotal` has always excluded it.
     expect(prediction.redScore).toBe(30);
-    // And it must no longer land in BLUE's predicted score either. This is the
-    // assertion that moved: it used to read 15 (10 + red's 5). With no foul
-    // information the rate is EPA_FALLBACK_FOUL_RATE (0), so blue's published
-    // score is its plain no-foul total.
+    // Nor may it land in BLUE's predicted score. With no foul information the
+    // rate is EPA_FALLBACK_FOUL_RATE (0), so blue's published score is its
+    // plain no-foul total.
     expect(prediction.blueScore).toBe(10);
     // The returned component records are unchanged and UNSCALED, matching how
     // `AlliancePred` carries an unscaled breakdown beside a scaled score.
@@ -750,11 +746,10 @@ describe("epa.carrySeason — D-01: the carryover input stays fouls-INCLUSIVE, d
 describe("epa.update — D-05 fallback attribution (CR-01, code review phase 02)", () => {
   it("a NON-uniform predicted vector with a nonzero prior foulsCommitted mean: foulsCommitted is carried forward unchanged, and the opponent's predicted foul contribution is netted out before the offensive split", () => {
     // R1's predicted shares are deliberately non-uniform (40 vs 10) and its
-    // prior foulsCommitted mean (8) is nonzero, so CR-01's bug (feeding a
-    // share of red's own score into foulsCommitted, and never netting
-    // blue's predicted foul contribution out of red's own score before the
-    // split) cannot hide behind distributeResidual's uniform cold-start
-    // branch.
+    // prior foulsCommitted mean (8) is nonzero, so a regression that fed a
+    // share of red's own score into foulsCommitted — or skipped netting
+    // blue's predicted foul contribution out first — cannot hide behind
+    // distributeResidual's uniform cold-start branch.
     const state: EpaState = {
       season: 2024,
       teamComponents: new Map<string, Record<string, number>>([
@@ -789,19 +784,16 @@ describe("epa.update — D-05 fallback attribution (CR-01, code review phase 02)
 
     const next = epa.update(state, fallbackMatch);
 
-    // Invariant 1 (CR-01): none of red's own actual score lands in red's
-    // own foulsCommitted slot — it is carried forward EXACTLY unchanged
-    // (never a coerced zero, never a synthesized share of red's score).
+    // Invariant 1: none of red's own actual score lands in red's own
+    // foulsCommitted slot — it is carried forward EXACTLY unchanged (never a
+    // coerced zero, never a synthesized share of red's score).
     expect(next.teamComponents.get("R1")!["foulsCommitted"]).toBeCloseTo(8, 10);
     expect(next.teamComponents.get("B1")!["foulsCommitted"]).toBeCloseTo(4, 10);
 
-    // Invariant 2 (CR-01): blue's currently-predicted foulsCommitted mean
-    // (4 — points blue's fouls would cost red) is netted out of
-    // result.redScore (100 -> 96) BEFORE the split across red's own
-    // non-fouls components, in proportion to their predicted shares
-    // (40:10 of a 50 total) — NOT the pre-fix formula, which would have
-    // split the full, un-netted 100 across all 13 components including
-    // foulsCommitted (giving auto = 100*40/58 ~= 68.97, not 52.27).
+    // Invariant 2: blue's currently-predicted foulsCommitted mean (4 —
+    // points blue's fouls would cost red) is netted out of result.redScore
+    // (100 -> 96) BEFORE the split across red's own non-fouls components,
+    // in proportion to their predicted shares (40:10 of a 50 total).
     const expectedAutoLeave = (2 / 3) * 40 + (1 / 3) * (96 * (40 / 50));
     const expectedTeleopSpeakerNote = (2 / 3) * 10 + (1 / 3) * (96 * (10 / 50));
     expect(next.teamComponents.get("R1")!["auto"]).toBeCloseTo(expectedAutoLeave, 9);
@@ -829,12 +821,7 @@ describe("epa.update — WR-01 finite-value gate (code review phase 02)", () => 
   });
 });
 
-/**
- * T-03-18b (security audit, phase 03, quick task 260818-inm): derives a
- * malformed 2024 payload from the well-formed `breakdown2024Json()`
- * baseline by deleting `fieldsToOmit` from BOTH sides, rather than
- * hand-typing a second payload.
- */
+/** Derives a malformed 2024 payload from the well-formed `breakdown2024Json()` baseline by deleting `fieldsToOmit` from BOTH sides, rather than hand-typing a second payload. */
 function breakdown2024JsonMissingFields(fieldsToOmit: readonly string[]): string {
   const full = JSON.parse(breakdown2024Json()) as { red: Record<string, unknown>; blue: Record<string, unknown> };
   for (const side of [full.red, full.blue]) {
@@ -1013,8 +1000,7 @@ describe("epa — whole-alliance DQ zero-score exclusion (.planning/todos/pendin
       expect(afterDq.teamComponents.get(team)).toEqual(initial.teamComponents.get(team));
       expect(afterDq.teamMatchCounts.get(team)).toBe(0);
     }
-    // Without the fix (redDqs ignored), the SAME 0 score would have been
-    // fitted as real per-component performance — this pins that contrast.
+    // A DQ'd-alliance's 0 must never fit as real per-component performance.
     expect(afterNoDq.teamComponents.get("D1")).not.toEqual(initial.teamComponents.get("D1"));
 
     // Blue's real observation is a genuine, ordinary fold either way — the
@@ -2022,9 +2008,8 @@ describe("epa.predict — the foul term is a post-win-probability scalar (l2k)",
   it("neither alliance's foulsCommitted mean appears in either predicted score before the win probability", () => {
     // With no foul information at all the rate is EPA_FALLBACK_FOUL_RATE (0),
     // so both published scores are the plain NO-FOUL totals. Red's own
-    // foulsCommitted of 5 reaches NEITHER score: not its own (it never did —
-    // `redOffensiveTotal` already excluded it) and no longer the opponent's
-    // (the cross-attribution this task retires).
+    // foulsCommitted of 5 reaches NEITHER score — not its own
+    // (`redOffensiveTotal` already excludes it) nor the opponent's.
     const prediction = epa.predict(foulPredictState(), FOUL_PREDICT_MATCH());
     expect(prediction.redScore).toBe(30);
     expect(prediction.blueScore).toBe(10);
