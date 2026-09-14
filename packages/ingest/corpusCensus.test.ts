@@ -1,9 +1,7 @@
 /**
- * A corpus-wide census gate for plan 07-05's full 2022-2026 pass, asserting
- * facts about the WHOLE `data/corpus.sqlite` rather than about one response
- * or one event. Written before the live ingest ran, as this plan's own
- * specification and its evidence — writing it after the run would turn it
- * into a description of whatever happened, not a check of what should have.
+ * A corpus-wide census gate for the full 2022-2026 pass, asserting facts
+ * about the WHOLE `data/corpus.sqlite` rather than about one response or
+ * one event.
  *
  * This file opens the corpus read-only via `openCorpusReadOnly`, acquires no
  * write lock, writes no row, and issues no network request of any kind. It
@@ -36,14 +34,10 @@ const SEASONS = [2022, 2023, 2024, 2025, 2026] as const;
 
 /**
  * Per-season floor for "distinct events with at least one `event_rankings`
- * row", each roughly 10% below 06.1-04's own measured value (recorded in
- * `06.1-match-and-event-data-enrichment/COVERAGE.md`'s per-season table:
- * 2022 236, 2023 249, 2024 unmeasured/all-cache-hits, 2025 311, 2026 246).
- * 2024's floor of 250 is this plan's own stated value (there is no 06.1-04
- * figure to derive it from — that pass never force-fetched 2024). These are
- * deliberately NOT predictions: 06.1-04's own SUMMARY records that three of
- * five seasons undershot its 250-per-season estimate, so a floor here exists
- * to catch a season that silently regressed, not to guess the real answer.
+ * row", each set below its own measured value. These are deliberately NOT
+ * predictions: several seasons have undershot an over-confident estimate
+ * before, so a floor here exists to catch a season that silently
+ * regressed, not to guess the real answer.
  */
 const POPULATED_EVENT_FLOORS: Record<(typeof SEASONS)[number], number> = {
   2022: 210,
@@ -54,23 +48,20 @@ const POPULATED_EVENT_FLOORS: Record<(typeof SEASONS)[number], number> = {
 };
 
 /**
- * A deliberately low non-vacuity bound, not a prediction: the corpus-wide
- * count of events with `event_alliances` rows has never been measured
- * before this plan's pass — RESEARCH.md Question 2's own sample was only 40
- * events. Set low (erring below 06.1-04's own 250-per-season estimate, which
- * three of five seasons then honestly undershot) so this catches a season
- * that silently ingested nothing rather than trying to predict the real
- * figure. The real per-season numbers are recorded in COVERAGE.md by Task 3.
+ * A deliberately low non-vacuity bound, not a prediction: set low so this
+ * catches a season that silently ingested nothing rather than trying to
+ * predict the real figure. The real per-season numbers are recorded in
+ * COVERAGE.md.
  */
 const ALLIANCE_EVENT_FLOOR = 100;
 
 /**
- * RESEARCH.md Open Question 2's three live-observed absent shapes: `2025bc`
- * and `2026wvrox` each returned a valid 200 with an empty array despite
- * carrying real rankings (an event that ran qualification matches but never
- * held an alliance selection), and `2022ispr` returned a bare null body.
- * Both halves are asserted for each key below — existence AND zero rows —
- * so a typo'd key can never pass vacuously.
+ * Three live-observed absent shapes: `2025bc` and `2026wvrox` each returned
+ * a valid 200 with an empty array despite carrying real rankings (an event
+ * that ran qualification matches but never held an alliance selection),
+ * and `2022ispr` returned a bare null body. Both halves are asserted for
+ * each key below — existence AND zero rows — so a typo'd key can never
+ * pass vacuously.
  */
 const ABSENT_ALLIANCE_EVENT_KEYS = ["2025bc", "2026wvrox", "2022ispr"] as const;
 
@@ -171,81 +162,20 @@ describe("event_rankings — full-corpus census after the forced 2022-2026 pass 
   });
 
   /**
-   * Upper bound raised 400 -> 550 on 2026-09-03, when the corpus grew from five
-   * seasons (2022-2026) to seven (2019, 2020 added; 2021 is permanently excluded
-   * -- the at-home season has no conventional alliance matches). The bound is a
-   * function of corpus SIZE, so it had to move; what matters is that it moved for
-   * a stated reason and only after the real fix was applied.
-   *
-   * The real fix came first. Adding the two seasons took this count 259 -> 758,
-   * because `pnpm ingest --years 2019-2020` writes events and matches but not
-   * rankings. Running `pnpm ingest:rankings --years 2019-2020` brought it to
-   * **449**, which is where it now sits:
-   *
-   *     season | no rankings | of which never played a match
-   *     2019   |  47         |  37
-   *     2020   | 143         | 139   <-- the cancelled season
-   *     2022-2026 (unchanged) | 259
-   *
-   * 2020's 143 are irreducible: that season was cancelled after roughly three
-   * weeks, so 139 of its listed events never happened and can never post a
-   * ranking. Chasing this count below 400 would mean deleting real events from
-   * the corpus to satisfy a test, which is backwards.
-   *
-   * 550 was chosen to leave room for roughly two more seasons at the observed
-   * per-season rate of ~40-65 events that never post rankings (2026 contributed
-   * 64), rather than being set just above the current reading. If a future season
-   * pushes past it, re-measure and re-document -- do NOT raise it reflexively,
-   * because the failure this bound exists to catch is `ingestSeasonRankingsOnly`
-   * silently writing nothing, which looks exactly like a slow upward drift.
-   *
-   * Raised 550 -> 634 on 2026-09-07 (quick task 260907-203), for the same
-   * reason and after the same discipline: the corpus grew again, backward,
-   * from eight seasons to ten (2017 and 2016 ingested 2026-09-07). The
-   * reading moved 490 -> 570. Re-measured directly, read-only, the same day:
-   *
-   *     year | events with no event_rankings row | of which never played a match
-   *     2016 |  37 |  21
-   *     2017 |  43 |  30
-   *     2018 |  41 |  29
-   *     2019 |  47 |  37
-   *     2020 | 143 | 139   <-- the cancelled season
-   *     2022 |  52 |  35
-   *     2023 |  60 |  51
-   *     2024 |  44 |  32
-   *     2025 |  39 |  24
-   *     2026 |  64 |  57
-   *     TOTAL | 570
-   *
-   * The 80 new rows (37 + 43) are legitimately rankings-less, and NOT for
-   * 2020's cancelled-season reason. Classified exhaustively, 80 = 66 + 9 + 4 + 1:
-   *
-   *   - 66 (33 per season) are OFFSEASON events (`is_offseason = 1`,
-   *     `event_type` 99). TBA holds rankings for only some offseason events
-   *     at all -- 31 of 2016's 64 and 52 of 2017's 85 have them -- and this
-   *     is not a "never played" story: 15 of 2016's 33 and 8 of 2017's 33
-   *     DO carry qualification matches. TBA simply never posted a rankings
-   *     table for them, and no ingest run can conjure one.
-   *   - 9 are PRESEASON shells (`event_type` 100) carrying zero matches:
-   *     2016cass, 2016ctss, 2016tnt, 2017aurb, 2017capb, 2017ckw0,
-   *     2017ctss, 2017mike0, 2017mnw0.
-   *   - 4 are PLAYOFF-ONLY events with zero `qm` matches, which structurally
-   *     cannot have a qualification ranking: 2016cmp, 2017cmpmo and
-   *     2017cmptx (Championship Finals -- 2017 ran two championships), and
-   *     2017nhfoc (Festival of Champions).
-   *   - 1 is 2017micmp (`event_type` 2, the FiM District Championship),
-   *     6 matches and 0 `qm`: the finals-only shell over its own divisions.
-   *
-   * 634 = 570 + 64, where 64 is the largest number of rankings-less events
-   * any single NON-cancelled season contributes (2026's, from the table
-   * above). That is one season of headroom at the worst observed rate --
-   * a stated margin of 11.2% over today's reading, derived from the data
-   * rather than rounded up to a comfortable 650. It affords exactly ONE
-   * more season: an eleventh must re-measure and re-document this block,
-   * which is the point. The bound still catches what it exists to catch,
-   * with room to spare -- `ingestSeasonRankingsOnly` silently writing
-   * nothing for a season would add that season's FULL event count (~200+),
-   * not ~60.
+   * The upper bound is a function of corpus SIZE, so it must move as
+   * seasons are added — and only after re-measuring, never reflexively.
+   * Events with no `event_rankings` row are legitimately absent for a
+   * handful of reasons: a cancelled season (2020, where 139 listed events
+   * never happened), an offseason event TBA never posted rankings for even
+   * though it played matches, a preseason shell with zero matches, or a
+   * playoff-only event with zero `qm` matches (structurally cannot have a
+   * qualification ranking). Current bound: one season of headroom above the
+   * measured total, at the worst observed per-season rate (2026's 64) — a
+   * margin derived from the data, not rounded up to a comfortable number.
+   * It affords exactly ONE more season before this block needs
+   * re-measuring. The bound still catches what it exists to catch, with
+   * room to spare: `ingestSeasonRankingsOnly` silently writing nothing for
+   * a season would add that season's FULL event count (~200+), not ~60.
    */
   it("the count of corpus events with no event_rankings row at all is less than 634", () => {
     const row = db
@@ -290,14 +220,12 @@ describe("event_alliances — full-corpus census after the 2022-2026 pass (plan 
   }
 
   /**
-   * The 2016–2020 alliance backfill (2026-09-08) gets its own sweep rather
-   * than joining SEASONS, whose doc comment scopes it to plan 07-05's five
-   * seasons. Floors sit below the measured figures (2016: 168, 2017: 216,
-   * 2018: 237, 2019: 262 populated events) for the same catch-a-zero reason
-   * as ALLIANCE_EVENT_FLOOR. 2020's floor is far lower and that is honest,
-   * not lenient: COVID cancelled most of the season and 141 of its 196
-   * events returned a null alliances body — 55 populated events is the
-   * full real figure.
+   * The 2016–2020 alliance backfill gets its own sweep, since `SEASONS`
+   * scopes to a different five seasons. Floors sit below the measured
+   * figures for the same catch-a-zero reason as `ALLIANCE_EVENT_FLOOR`.
+   * 2020's floor is far lower and that is honest, not lenient: COVID
+   * cancelled most of the season and most of its events returned a null
+   * alliances body.
    */
   const BACKFILL_ALLIANCE_FLOORS: ReadonlyArray<readonly [year: number, floor: number]> = [
     [2016, 100],
