@@ -4,9 +4,14 @@ created: 2026-09-13
 updated: 2026-09-14
 source: stray-team-scope-keys-in-live-d1 (closed 2026-09-13); republish, D1 seed and Worker deploy done by quick task 260913-rh5
 priority: low
+closed: 2026-09-14
 ---
 
-# Remaining: delete the orphaned spr@3.0.0 generation and the stale OPR/EPA presim sidecars
+> **CLOSED 2026-09-14.** Both deletions below ran with Jacob's permission. 427 stale presim
+> sidecars were deleted, leaving 0 non-SPR. spr@3.0.0 had 36,532 objects deleted, 0 failures, and
+> the post-census shows 0 remaining with live unchanged. The bucket is now 109,314 objects / 3.92 GB.
+
+# Remaining (historical): delete the orphaned spr@3.0.0 generation and the stale OPR/EPA presim sidecars
 
 Quick task 260913-rh5 did steps 1-3 and 5 on 2026-09-14:
 - **Publish:** generation `2dcc057f`.

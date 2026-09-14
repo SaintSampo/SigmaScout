@@ -63,12 +63,20 @@ executor was spawned.
    - 260913-it4 removed OPR/EPA RP odds on purpose (`094667e9`) and never updated the verifier table.
      This is not a publish defect. The verifier was left unedited.
 
+7. **R2 cleanup, 2026-09-14 ~01:30Z.** The classifier blocked the first attempt. It ran once Jacob
+   explicitly gave permission ("removed everything old and stale for me").
+   - **427 stale opr/epa presim sidecars** (213 opr, 214 epa, generation 174d585f, from before it4):
+     deleted. The re-list shows 0 non-SPR presim objects, 428 SPR kept.
+   - **spr@3.0.0+baseline:** `pnpm cleanup:r2-generations --execute`, 36,532 deleted, 0 failures,
+     152.6s. The post-census finds 0 remaining, `Live unchanged: true`.
+   - **Bucket:** 146,273 objects / 5.44 GB before, 109,314 objects / 3.92 GB after.
+   - **Kept on purpose:** `fixtures/2026cmptx`, which the Worker fixture server uses.
+
 ## Not done
 
-- **R2 deletions, blocked by the classifier:**
-  - spr@3.0.0 generation: 36,532 objects, 1.52 GB. The tool's own 6h RECENT_WRITE guard also refused
-    it until 00:41Z.
-  - 427 stale opr/epa presim sidecars left over from before it4.
-  - The census taken right after publishing showed the bucket at 146,273 objects / 5.44 GB.
+- **Three stale D1 `event_cursor` rows** (2026cmptx, 2026azscor, 2026scsc) left over from the August
+  freshness rigs. All three events are over and none is in a live window. The classifier blocked the
+  DELETE ("Modify Shared Resources"), so it's left for Jacob. The `__scheduler_meta__` row must stay.
 - **Push:** Jacob pushes. Pages is manifest-driven, so the web needs no push for this data.
+- **`verify:subset`:** the 2024casf opr/epa rpPmf expectation needs updating for it4.
 - **260913-qyn:** that session's own republish is still ahead.
