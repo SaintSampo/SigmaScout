@@ -10,7 +10,7 @@
  * FACTS and LIABILITIES are asserted at RUNTIME over the exported string
  * VALUES, never grepped from this file's source text — this module's own
  * header comment (and this file's) legitimately discuss the internal
- * algorithm id `spr` and the retired 78.05% sealed-holdout figure in prose,
+ * algorithm id `spr` and the retired 78.05% figure in prose,
  * so a whole-file grep would false-positive on them.
  *
  * The DERIVATION gate recomputes SPR's rank weights independently, from
@@ -35,8 +35,8 @@ const EXPECTED_SECTION_IDS = [
   "what-it-does-not-do",
 ];
 
-/** The retired sealed-holdout figure this page must never transcribe. */
-const RETIRED_HOLDOUT_FIGURE = "78.05";
+/** The retired 78.05% figure this page must never transcribe. */
+const RETIRED_78_05_FIGURE = "78.05";
 /** The retired display label this page must never render. */
 const RETIRED_DISPLAY_LABEL = "BPR";
 
@@ -102,9 +102,9 @@ describe("fact gate over the joined prose", () => {
 });
 
 describe("liability gate over every exported string value", () => {
-  it("never transcribes the retired sealed-holdout figure", () => {
+  it("never transcribes the retired 78.05% figure", () => {
     for (const { where, text } of collectStrings()) {
-      expect(text, `${where} states the retired holdout figure`).not.toContain(RETIRED_HOLDOUT_FIGURE);
+      expect(text, `${where} states the retired 78.05% figure`).not.toContain(RETIRED_78_05_FIGURE);
     }
   });
 

@@ -150,8 +150,8 @@ buckets. No algorithm treats them differently from any other component.
 **One open ablation, deliberately NOT run.** The corpus-extension job flagged that parameters
 selected on a window containing 2018 may transfer worse to normal seasons, and proposed comparing
 origin-2022 parameters selected with and without 2018. **Do not run it.** Two reasons, and the
-second is decisive: BPR's parameters were frozen on a 2016-2022 window that contains 2018 and spent
-once against a sealed 2023-2026 holdout, which is a direct answer to the exact transfer risk the
+second is decisive: BPR's parameters were frozen on a 2016-2022 window that contains 2018 and
+evaluated once on 2023-2026 (2026-09-08), which is a direct answer to the exact transfer risk the
 ablation was written to probe; and running it means re-tuning BPR, which Jacob has barred outright
 (2026-09-09). It is recorded as declined, not as pending.
 

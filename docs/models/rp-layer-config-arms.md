@@ -288,9 +288,9 @@ exactly what was measured and are unchanged; what changed is what a future measu
 
 This document carries no accuracy claim of its own and no figure that was not measured by 09-06's
 committed run. Its original reservation — that the 2023-2026 slice was D-04's to spend and not
-this document's — was RELEASED on 2026-09-11 when 09-06 spent it, once, against a bar frozen as
+this document's — was RELEASED on 2026-09-11 when 09-06 measured it, once, against a bar frozen as
 executable code before any of those figures existed. The verdict above is that bar's mechanical
-answer, taken without override.
+answer, taken without override. 2023-2026 was released for use on 2026-09-14 (quick task 260914-ndu).
 
 ---
 
@@ -322,10 +322,10 @@ scorers. Out-of-support actuals (an integer RP below 0 or above `maxRp`) are exc
 separately (`excludedOutOfSupport`) from a null actual (`excludedNullActual`); neither counts
 toward `count`.
 
-**The slice and the guards.** Selection slice: 2016-2020 and 2022, `--algorithm spr` only —
-`assertOutcomeArmSliceAllowed` refuses any season at or above 2023 (no override, no trimming) and
-an algorithm guard requires the resolved list to be exactly `spr`, both evaluated on the parsed
-season list BEFORE the corpus opens.
+**The slice and the guards.** Selection slice: 2016-2020 and 2022, `--algorithm spr` only. When
+this ran, a slice guard refused any season at or above 2023 and an algorithm guard required the
+resolved list to be exactly `spr`, both evaluated on the parsed season list BEFORE the corpus opened.
+The slice guard was removed when 2023-2026 was released for use on 2026-09-14 (quick task 260914-ndu); the algorithm guard remains.
 
 **The bar, committed before any arm was measured.** `applyRpOutcomeArmBar` (`scripts/
 measureRpCalibration.ts`, bar commit `757a4723`, dated 2026-09-13, preceding the scorer commit and
@@ -426,9 +426,10 @@ pooled total-RP RPS are strictly lower than control's, with no tolerance. The ac
 lowest RPS ships. Ties break on bonus Brier, then the order lattice, meanShift, lattice+meanShift.
 If none is accepted, nothing ships.
 
-**The slice and the guards.** 2016-2020 and 2022, `--algorithm spr` only. `assertBonusArmSliceAllowed`
-refuses any season from 2023 on, and the algorithm guard requires exactly `spr`. Both run on the
-parsed list before the corpus opens. The 2023-2026 slice was never used to accept anything.
+**The slice and the guards.** 2016-2020 and 2022, `--algorithm spr` only. When this ran, a slice
+guard refused any season from 2023 on, and the algorithm guard required exactly `spr`, both on the
+parsed list before the corpus opened. The 2023-2026 slice was never used to accept anything. The
+slice guard was removed when 2023-2026 was released for use on 2026-09-14 (quick task 260914-ndu).
 
 **The measurement.** One replay per season folds every record through four layers, scored by the
 same helpers and gates the published scorecard uses. The outcome half was asserted identical across

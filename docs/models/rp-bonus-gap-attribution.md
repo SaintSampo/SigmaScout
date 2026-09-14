@@ -288,7 +288,7 @@ Not supported: a correlated joint for the threshold variables. It closes -1.0% p
 Brier.
 
 Any fix is a new knob. It must be inert at its default and earn promotion on the 2016-2022 selection
-slice, and the later reporting slice stays unspent.
+slice. 2023-2026 was released for use on 2026-09-14 (quick task 260914-ndu).
 
 Decision (Jacob, 2026-09-13): build candidates 1 and 3 as two separate knobs. Each starts inert and
 must earn promotion on its own. Ranges are declared from the game rules, not from season data.
@@ -336,9 +336,10 @@ lattice, meanShift, lattice+meanShift. If no arm is accepted, nothing ships.
 The record is `data/baselines/rp-bonus-arms-2026-09.json` (`4921dabf`). It comes from one run of
 `--seasons 2016-2020,2022 --algorithm spr --bonus-arms` at `8b1fed09`, with a clean packages and
 scripts tree at start and end. There was no re-run. A test (`fa766899`) re-applies the bar to the
-record's own pooled figures and requires the recorded verdict. The measurement code refuses any
-season from 2023 on and any algorithm other than `spr` before the corpus opens. **The 2023-2026
-slice was never used to accept anything.**
+record's own pooled figures and requires the recorded verdict. At the time, the measurement code
+refused any season from 2023 on and any algorithm other than `spr` before the corpus opened; the
+season refusal was removed when 2023-2026 was released for use on 2026-09-14 (quick task 260914-ndu). **The 2023-2026 slice was never used to
+accept anything.**
 
 ### Pooled, 2016-2020 and 2022 (267,324 bonus and 137,482 total-RP observations)
 

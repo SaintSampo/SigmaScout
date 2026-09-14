@@ -51,10 +51,10 @@ describe("/methodology/spr", () => {
     }
   });
 
-  it("never states the retired sealed-holdout figure or the retired display label in rendered text", async () => {
+  it("never states the retired 78.05% figure or the retired display label in rendered text", async () => {
     await renderMethodologySpr();
     const bodyText = document.body.textContent ?? "";
-    expect(bodyText, "rendered text states the retired holdout figure").not.toContain("78.05");
+    expect(bodyText, "rendered text states the retired 78.05% figure").not.toContain("78.05");
     expect(bodyText, "rendered text renders the retired display label").not.toContain("BPR");
   });
 

@@ -17,7 +17,7 @@
  * `sprContent.test.ts` run at RUNTIME over the exported string VALUES, never
  * as a grep over this file's source text. That is what lets this comment (and
  * others below) discuss the internal algorithm id `spr` and the retired
- * 78.05% sealed-holdout figure in prose, while the page itself, which reads
+ * 78.05% figure in prose, while the page itself, which reads
  * only the exported values, states neither.
  *
  * Every claim below is verified against `packages/core/algorithms/spr.ts` at

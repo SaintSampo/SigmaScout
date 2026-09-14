@@ -21,7 +21,8 @@
 > (21 improved / 3 regressed / 0 tied). **Negative binomial helps; this table's "revert" was not a
 > finding about the family.** Jacob closed the question on 2026-09-12 anyway, declining the cost
 > rather than the result — the gain is ~1.2% on bonus RP alone, only 35.78% of fits resolved to NB,
-> and confirming it would have cost the 2023-2026 reporting slice, which remains UNSPENT. Figures
+> and confirming it would have meant re-measuring on the 2023-2026 reporting slice, which was then
+> held back. 2023-2026 was released for use on 2026-09-14 (quick task 260914-ndu). Figures
 > and reasoning: `.planning/todos/completed/restore-negative-binomial-to-retest-it.md`.
 >
 > The `win` and `tie` rows are unaffected by this — they moved nothing for a different and still
@@ -380,7 +381,7 @@ Three things were kept deliberately, each with its reason written at the site:
   which moved no number in this document — pinned by
   `packages/core/rankingPoints/analyticPmfGolden.json`, captured before the change and green after it
   with exact equality. Nothing above was re-measured and nothing above is any less refused. A future
-  attempt would still be measuring a different thing, and would still need a fresh reporting slice.
+  attempt would still be measuring a different thing.
 
 ## Machine-readable record
 

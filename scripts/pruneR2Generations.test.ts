@@ -32,7 +32,7 @@ const OLD = "2026-09-01T00:00:00.000Z";
 
 const LIVE_OPR = "opr@3.2.0+baseline";
 const LIVE_EPA = "epa@9.0.0+baseline";
-const LIVE_SPR = "spr@3.0.0+sealed";
+const LIVE_SPR = "spr@3.0.0+baseline";
 const ORPHAN_A = "vpr@10.0.0+rolling-2026-09e";
 const ORPHAN_NEAR = "vpr@10.0.0+rolling-2026-09ee";
 const ORPHAN_X = "xvpr@10.0.0+rolling-2026-09e";
@@ -45,7 +45,7 @@ function manifestBody(entries: ReadonlyArray<{ id: unknown; version: unknown }>)
 const LIVE_ENTRIES = [
   { id: "opr", version: "3.2.0+baseline" },
   { id: "epa", version: "9.0.0+baseline" },
-  { id: "spr", version: "3.0.0+sealed" },
+  { id: "spr", version: "3.0.0+baseline" },
 ];
 
 function okManifest(entries: ReadonlyArray<{ id: unknown; version: unknown }> = LIVE_ENTRIES): PruneDeps["fetchArtifactFresh"] {

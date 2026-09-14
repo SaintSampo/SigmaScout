@@ -12,9 +12,10 @@ repository under the name "BPR" applies unchanged to "SPR", and vice versa.
   (research harness) and `packages/core/algorithms/bpr.ts` (production port).
   Named "BPR" (Bayesian Power Rating) throughout.
 - **2026-09-09** — BPR becomes SigmaScout's premier published algorithm, on the
-  strength of the sealed 2023-2026 holdout (78.05% winner accuracy, 78.37% over
-  qualification matches alone; structure and hyperparameters selected using only
-  2016-2022 evidence — see `packages/spr/` for the harness and the sealed run).
+  strength of its one 2023-2026 evaluation of 2026-09-08 (78.05% winner accuracy,
+  78.37% over qualification matches alone; structure and hyperparameters selected
+  using only 2016-2022 evidence — see `packages/spr/` for the harness and that run).
+  2023-2026 was released for use on 2026-09-14 (quick task 260914-ndu).
 - **2026-09-10** — "SPR" (Sigma Power Rating) becomes the **display name**: every
   user-visible surface (the `/methodology/spr` route, `sprContent.ts`, team-table
   column headers) reads "SPR". The underlying identifier layer — the package
@@ -32,8 +33,8 @@ repository under the name "BPR" applies unchanged to "SPR", and vice versa.
 
 ## What this means for anyone reading a measurement
 
-Every number attributed to "BPR" anywhere in this repository — the sealed
-78.05%/78.37% 2023-2026 holdout, the 2016-2022 design-era component deltas
+Every number attributed to "BPR" anywhere in this repository — the
+78.05%/78.37% 2023-2026 figures, the 2016-2022 design-era component deltas
 (season carryover +1.80pp, two-timescale state +1.05pp, anti-additivity
 +0.53pp, foul-adjusted signal +0.30pp), every `bpr@<version>` R2 object-key
 citation, every `docs/models/*.md` figure, every `.planning/` quick-task
@@ -41,9 +42,7 @@ record — describes the SAME algorithm SPR now identifies. Nothing was
 re-tuned, re-measured, or re-run to produce this rename; nothing in
 `data/baselines/` or `.planning/` was rewritten to read as though it was
 always called SPR. That is deliberate: rewriting history to match a later
-name would falsify the audit trail the sealed holdout depends on — see
-`packages/spr/sealedPaths.ts` for the mechanism that makes the seal's
-git-blob-sha attestation survive a pure rename unchanged, and
+name would falsify the audit trail those measurements rest on — see
 `.planning/quick/260912-ivg-rename-bpr-to-spr-sigma-power-rating-acr/` for
 this rename's own plan and summary.
 

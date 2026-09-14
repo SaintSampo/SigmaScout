@@ -39,11 +39,9 @@ arguments pass straight through to `AllianceRpMoments` without touching `meanVec
 was resolved and no `WalkForwardSimulator` ran — this measurement is exactly what its result
 depends on, and nothing else.
 
-**D-04's selection/reporting split.** Output is reported under two separate headings below.
-**SELECTION SLICE (2016-2020, 2022)** is the population any decision from this record must cite.
-**REPORTING SLICE (2023-2026)** is out-of-sample with respect to any family choice and is reported
-for completeness only — it is not acted on here, and the 2026 holdout is not being spent a second
-time by this document.
+**D-04's selection/reporting split.** Output is reported under two separate headings below:
+**SELECTION SLICE (2016-2020, 2022)** and **REPORTING SLICE (2023-2026)**. This record selected
+nothing from the reporting slice. 2023-2026 was released for use on 2026-09-14 (quick task 260914-ndu).
 
 ## Census
 
@@ -109,11 +107,10 @@ Mean deficit across this slice's 20 season-variables: **10.4% (`all-rosters`)** 
 | 2022 | matchCargoTotal | all-rosters | 29,354 | 14.1845 | 16.1330 | 12.1% |
 | 2022 | matchCargoTotal | warm-3of3 | 27,944 | 14.7249 | 16.4295 | 10.4% |
 
-## REPORTING SLICE (2023-2026 — reported, not acted on)
+## REPORTING SLICE (2023-2026)
 
 Mean deficit across this slice's 14 season-variables: **12.0% (`all-rosters`)** vs **10.3%
-(`warm-3of3`)**. **Any decision derived from this record cites the SELECTION SLICE above, never
-this one.**
+(`warm-3of3`)**.
 
 | Season | Variable | Arm | n | Predicted mean | Observed mean | Deficit |
 |---|---|---|---:|---:|---:|---:|
