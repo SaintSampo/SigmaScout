@@ -4,53 +4,36 @@ import { BONUS_DOT_INNER_PX, bonusDotFillPx, bonusDotLabel, bonusRpForSeason, ty
 export interface BonusRpDotsProps {
   season: number;
   side: "red" | "blue";
-  /**
-   * Actual dots only: one state per bonus, in the season's own BONUS_NAMES
-   * order. A shorter (or omitted) list leaves the remaining dots `unknown`.
-   * Ignored for a `predicted` group, which reads `probabilities` instead.
-   */
+  /** Actual dots only: one state per bonus, in the season's BONUS_NAMES order; missing entries render `unknown`. */
   states?: readonly BonusRpState[];
   /**
    * Predicted dots only: one probability per bonus, positionally aligned to
-   * the season's bonus list. A defined, finite probability fills its dot from
-   * the bottom to the odds (F10, quick task 260914-01x, sketch 012 variant C),
-   * and the exact percentage goes in the title and aria-label. An absent or
-   * non-finite entry, or a shorter array, leaves that dot `unknown`. Omitted
-   * for an `actual` group.
+   * the season's bonus list. A finite probability fills its dot from the
+   * bottom to the odds; an absent or non-finite entry, or a shorter array,
+   * leaves that dot `unknown`.
    */
   probabilities?: readonly number[];
   /** "predicted" or "actual": selects which prop drives the dots, the testid, and the accessible label. */
   kind: "predicted" | "actual";
   matchKey: string;
   /**
-   * REQUIRED (G-06.1-26, plan 06.1-08, PD-18): whether bonus RP can exist at
-   * all for this match's `compLevel` — the caller passes
-   * `isBonusRpCompLevel(match.compLevel)` (`packages/core/rankingPoints/constants.ts`).
-   * When `false`, every dot renders `unknown` REGARDLESS of `states` or
-   * `probabilities` — this is the client-side defence-in-depth guard against
-   * the ~54,671 already-published artifacts that still carry actual per-bonus
-   * arrays on playoff rows (PD-16: no republish). Required, not optional, so a
-   * future call site that forgets to pass it fails `pnpm typecheck` rather
-   * than silently shipping a false earned/missed claim — the exact drift that
-   * produced this gap on the pipeline's actual side in the first place.
+   * Whether bonus RP can exist for this match's `compLevel`: pass
+   * `isBonusRpCompLevel(match.compLevel)`. When `false`, every dot renders
+   * `unknown` whatever `states` or `probabilities` carry, guarding against
+   * published artifacts that carry per-bonus arrays on playoff rows. Required
+   * so a forgotten call site fails typecheck instead of shipping a false
+   * earned/missed claim.
    */
   applicable: boolean;
 }
 
 /**
- * The per-bonus RP dots drawn above one alliance's score (06 follow-up).
- *
- * One dot per bonus ranking point THAT SEASON — two for 2022–2024, three for
- * 2025–2026 — each carrying the bonus's initial. Win/tie RP is deliberately
- * absent: the Confidence chip and the Call column already carry it.
- *
- * An actual dot is solid when earned and hollow when not. A predicted dot has
- * no threshold: it fills from the bottom to its probability in whole pixels
- * (`bonusDotFillPx`), and never draws as empty or full. A third state,
- * `unknown`, is drawn dashed and muted for either kind — see `bonusRp.ts`'s
- * `BonusRpState` for why that is not the same thing as hollow. Every dot is
- * ALSO forced `unknown` when `applicable` is `false` (a playoff match — bonus
- * RP is a qualification-only mechanic), whatever the data carries.
+ * One dot per bonus ranking point that season, above one alliance's score,
+ * each carrying the bonus's initial. An actual dot is solid when earned and
+ * hollow when not; a predicted dot fills to its probability
+ * (`bonusDotFillPx`). `unknown` draws dashed and muted for either kind (see
+ * `BonusRpState`), and every dot is `unknown` when `applicable` is `false`
+ * because bonus RP is qualification-only.
  */
 export function BonusRpDots({ season, side, states, probabilities, kind, matchKey, applicable }: BonusRpDotsProps) {
   const bonuses = bonusRpForSeason(season);
