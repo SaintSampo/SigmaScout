@@ -1,22 +1,18 @@
 /**
- * 2018 (FIRST POWER UP) RP rule module. Both bonuses are exact and flat
- * across event tiers (measured 0 mismatches at every tier, full official
- * qual population); 2018 adds no `KNOWN_TOLERANCES` entry.
+ * 2018 (FIRST POWER UP) RP rule module. Both bonuses are exact and flat across event
+ * tiers (0 mismatches at every tier, full official qual population); 2018 has no
+ * `KNOWN_TOLERANCES` entry.
  *
- * `faceTheBoss` is fully numeric and identical in `parse` and
- * `predictThresholds`. `autoQuest`'s exact rule needs `autoSwitchAtZero`, a
- * boolean the threshold-only prediction path cannot reach, so
- * `predictThresholds` falls back to `autoSwitchOwnershipSec >= 1`. That
- * fallback slightly OVER-fires (0 false negatives, ~0.19% false positives at
- * base tier) rather than under-predicting — the opposite of this codebase's
- * usual conservative-branch convention, a deliberate departure: understating
- * a bonus with a ~62% base rate entirely is a far larger error than a 0.19%
- * over-fire. `autoSwitchOwnershipSec` is integral across the population, so
- * the fallback floor uses `>= 1` rather than `> 0` for the house convention.
+ * `faceTheBoss` is fully numeric and identical in `parse` and `predictThresholds`.
+ * `autoQuest`'s exact rule needs the `autoSwitchAtZero` boolean, which the
+ * prediction path cannot reach, so `predictThresholds` falls back to
+ * `autoSwitchOwnershipSec >= 1`. That fallback slightly OVER-fires (0 false
+ * negatives, ~0.19% false positives at base tier), a deliberate departure from the
+ * conservative convention: understating a bonus with a ~62% base rate is a far
+ * larger error. The seconds are integral, so the floor is `>= 1`.
  *
- * All RP measurements in this project exclude offseason events — 2018's
- * offseason `autoQuest` disagreement is 11.19% against 0.000% on official
- * data.
+ * Offseason events are excluded: 2018's offseason `autoQuest` disagreement is
+ * 11.19% against 0.000% on official data.
  *
  * Deliberately never read: the roll-up totals, the numeric `rp` roll-up, the
  * per-robot string fields (positional correspondence is unverified), the
@@ -28,11 +24,7 @@ import { z } from "zod";
 import type { BonusPredicate, RpParsedResult, RpRuleModule, RpThresholdPrediction, RpThresholdVariable, RpTieredThreshold } from "./constants.js";
 import { assertFiniteThresholdVariables, evaluateBonusPredicates, eventTierFor } from "./constants.js";
 
-/**
- * Only the subset of TBA's `score_breakdown.{side}` object this module
- * reads. Unknown extra fields are ignored, not rejected — zod's default
- * "strip" mode drops them without erroring. Deliberately not `.passthrough()`.
- */
+/** Only the fields this module reads; zod's default strip mode drops the rest (deliberately not `.passthrough()`). */
 const SideSchema = z.object({
   autoRunPoints: z.number().finite(),
   autoSwitchOwnershipSec: z.number().finite(),
@@ -53,16 +45,10 @@ const AUTO_RUN_THRESHOLD: RpTieredThreshold = { base: 15, districtChampionship: 
 /** Face The Boss threshold: `endgamePoints >= 90`. Not tiered — flatness measured. */
 const FACE_THE_BOSS_THRESHOLD: RpTieredThreshold = { base: 90, districtChampionship: 90, championship: 90 };
 
-/**
- * The `predictThresholds`-only numeric fallback floor for Auto Quest's
- * boolean half: `autoSwitchOwnershipSec >= 1`, uniform across tiers.
- * `parse` never uses this — it reads the exact `autoSwitchAtZero` boolean.
- */
+/** `predictThresholds`-only fallback floor for Auto Quest's boolean half; `parse` reads the exact `autoSwitchAtZero` boolean instead. */
 const AUTO_SWITCH_SECONDS_FALLBACK_FLOOR: RpTieredThreshold = { base: 1, districtChampionship: 1, championship: 1 };
 
-// 2026-09-14, quick task 260914-01x: every variable below declares "lattice",
-// shipped by the committed bonus-arm bar (data/baselines/rp-bonus-arms-2026-09.json,
-// ship: lattice+meanShift). Any other family named above is history.
+// Every variable declares "lattice"; the shipping evidence is data/baselines/rp-bonus-arms-2026-09.json.
 const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   {
     name: "autoRunPoints",
@@ -71,8 +57,7 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
     // Rule: AUTO-RUN 5 per robot, 3 robots.
     lattice: { step: 5, min: 0, max: 15 },
   },
-  // `count`, not `points`: ownership seconds are a raw quantity, not a
-  // derived point value.
+  // `count`, not `points`: ownership seconds are a raw quantity.
   {
     name: "autoSwitchOwnershipSec",
     unit: "count",
@@ -89,14 +74,7 @@ const THRESHOLD_VARIABLES: readonly RpThresholdVariable[] = [
   },
 ];
 
-/**
- * `autoQuest`'s real condition also gates on `autoSwitchAtZero`, a boolean
- * `predictThresholds` cannot reach — declared `conjunctionDistinct` over the
- * two numeric fallback clauses, carrying an `RpUntrackedGate` whose
- * `errorDirection` is `"overstates"`, the one documented exception in the
- * project (see file header). `faceTheBoss` is fully numeric —
- * `singleThreshold`, no gate.
- */
+/** `autoQuest` declares the numeric fallback clauses with an `"overstates"` gate (see file header). */
 const BONUS_PREDICATES: readonly BonusPredicate[] = [
   {
     kind: "conjunctionDistinct",
@@ -169,13 +147,7 @@ export const rp2018: RpRuleModule = {
     };
   },
 
-  /**
-   * `faceTheBoss` is fully numeric and identical to `parse`. `autoQuest`
-   * uses the measured numeric fallback (see file header): auto-run points
-   * at or above threshold AND auto-switch seconds at or above the fallback
-   * floor. Delegates to the shared declarative evaluator; see
-   * `BONUS_PREDICATES` above.
-   */
+  /** `autoQuest` uses the measured numeric fallback (see file header); `faceTheBoss` is identical to `parse`. */
   predictThresholds(values: Readonly<Record<string, number>>, eventType: number): RpThresholdPrediction {
     return evaluateBonusPredicates(BONUS_PREDICATES, values, eventType);
   },
