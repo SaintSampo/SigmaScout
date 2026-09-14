@@ -143,6 +143,7 @@ import {
 } from "./stateSnapshot.js";
 import type { RpTeamBeliefs } from "../core/rankingPoints/empiricalMoments.js";
 import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
+import { splitManifestVersion } from "./manifestSchemas.js";
 import type { MetricHistoryRow } from "./metricHistorySchema.js";
 import { putObject } from "./r2Client.js";
 import { UploadQueue } from "./uploadQueue.js";
@@ -458,23 +459,6 @@ export function withEventPercentiles(
   rankingPools: ReadonlyMap<string, readonly number[]>
 ): Record<string, TeamMetricWithPercentile> {
   return withPoolPercentiles(metrics, rankingPools);
-}
-
-/**
- * Splits an algorithm's `version` on its first `+` — the same D-13 identity
- * split `packages/harness/manifestSchemas.ts`'s `splitManifestVersion`
- * already implements. This is a small, deliberate duplication of the same
- * few lines, following the precedent that module already set for this exact
- * situation.
- */
-function splitVersion(algorithmId: string, version: string): { codeVersion: string; paramSetName: string } {
-  const separatorIndex = version.indexOf("+");
-  if (separatorIndex === -1) {
-    throw new Error(
-      `publish: algorithm "${algorithmId}"'s version "${version}" does not carry the "{codeVersion}+{paramSetName}" shape (no "+" found)`
-    );
-  }
-  return { codeVersion: version.slice(0, separatorIndex), paramSetName: version.slice(separatorIndex + 1) };
 }
 
 /** `frc254` -> `254`. Defensive fallback only — `lookupAllTeamInfo` is the real source of a team's number/nickname; this covers the edge case of a team key present on a match but absent from the `teams` table. */
@@ -1876,7 +1860,7 @@ export interface BuildCompareArtifactParams {
  */
 export function buildCompareArtifact(params: BuildCompareArtifactParams): CompareArtifact {
   const algorithms = params.algorithms.map((a) => {
-    const { codeVersion, paramSetName } = splitVersion(a.id, a.version);
+    const { codeVersion, paramSetName } = splitManifestVersion(a.id, a.version);
     return { id: a.id, version: a.version, codeVersion, paramSetName };
   });
   const slices = attachRpCalibration(params.slices, params.rpCalibration);
@@ -2366,15 +2350,6 @@ export interface PublishSeasonsOptions {
    */
   readonly includeOffseason?: boolean;
   /**
-   * Quick task 260904-cs1 (D-1/D-4): the cold start is positional by
-   * construction — the first season of `options.seasons` (sorted) has no
-   * predecessor to carry from, so it cold-starts with no flag needed. This
-   * field survives only as a deliberate diagnostic override: set it to
-   * force some OTHER season to start cold, discarding its carried state.
-   * Leave it unset for an ordinary publish run.
-   */
-  readonly coldStartSeason?: number;
-  /**
    * Quick task 260905-tll Task 4 (C-05): the first season that gets
    * pre-schedule sidecars. Defaults to `DEFAULT_PRESCHEDULE_FROM_SEASON`
    * (2026); settable from the CLI as `--presim-from-season`. A parameter
@@ -2620,7 +2595,6 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
   const computedAt = options.computedAt ?? new Date().toISOString();
   const dryRun = options.dryRun ?? false;
   const includeOffseason = options.includeOffseason ?? false;
-  const coldStartSeason = options.coldStartSeason;
   const preScheduleFromSeason = options.preScheduleFromSeason ?? DEFAULT_PRESCHEDULE_FROM_SEASON;
   const seasonsSorted = [...options.seasons].sort((a, b) => a - b);
   const stamp: StateStamp = { generation, computedAt };
@@ -2771,11 +2745,10 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     // element of `seasonsSorted`, not `season - 1` — see `seasonBoundary.ts`'s
     // doc comment for why a hardcoded label became a live behavioural input
     // the moment `carrySeason` started reading `fromSeason` to compute a gap.
-    const boundary = seasonBoundaryFor(seasonsSorted, seasonIdx, coldStartSeason);
+    const boundary = seasonBoundaryFor(seasonsSorted, seasonIdx);
     let initialStates: ReadonlyMap<string, unknown> | undefined;
     if (boundary.isColdStart) {
-      const reason = coldStartSeason === undefined ? "first season in this run" : `coldStartSeason=${coldStartSeason} override`;
-      console.log(`publish: season ${season} is the cold-start season (${reason}) — every algorithm starts fresh.`);
+      console.log(`publish: season ${season} is the cold-start season (first season in this run) — every algorithm starts fresh.`);
     } else {
       const carried = new Map<string, unknown>();
       for (const algorithm of options.algorithms) {
@@ -3616,11 +3589,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
   // --- Manifests (D-18/D-03) and D-12's state snapshot / D1 seed ---
   if (!options.skipState) {
     const liveWindows = buildLiveWindowsManifest(db, { seasons: seasonsSorted, generation, computedAt });
-    // D-2 (quick task 260904-100): the manifest carries the season whose set
-    // is actually LIVE for the Worker — the maximum season this publish run
-    // covers, sourced from the run's own already-sorted season list, never a
-    // hardcoded year.
-    const algorithmsManifest = buildAlgorithmsManifest({ generation, computedAt, paramsSeason: seasonsSorted[seasonsSorted.length - 1]! });
+    const algorithmsManifest = buildAlgorithmsManifest({ generation, computedAt });
     const liveWindowsKey = "v1/manifest/live-windows.json";
     const algorithmsManifestKey = "v1/manifest/algorithms.json";
     if (!dryRun) {
@@ -3812,17 +3781,13 @@ async function runSeasonsCliMode(
   skipState: boolean,
   includeOffseason: boolean,
   preScheduleFromSeason: number | undefined,
-  rpCalibrationPathOverride: string | undefined,
-  noRpCalibration: boolean,
   writeBudget: boolean
 ): Promise<void> {
   const seasons = parseSeasonsRange(seasonsSpec);
   const algorithms = resolvePublishAlgorithms(algorithmIdsCsv);
-  // F1/D-09/D-11 (phase 09 plan 09-01 Task 2): `--no-rp-calibration` suppresses attachment entirely;
-  // otherwise `--rp-calibration <path>` overrides the default `RP_CALIBRATION_MEASUREMENT_PATH`.
-  // `loadRpCalibrationMeasurement` returns `undefined` for a path that does not exist yet — an
-  // ordinary run before this phase's baseline is committed attaches nothing, with no flag needed.
-  const rpCalibration = noRpCalibration ? undefined : loadRpCalibrationMeasurement(rpCalibrationPathOverride ?? RP_CALIBRATION_MEASUREMENT_PATH);
+  // F1/D-09/D-11 (phase 09 plan 09-01 Task 2): `loadRpCalibrationMeasurement` returns `undefined`
+  // for a path that does not exist, so a run without a committed baseline attaches nothing.
+  const rpCalibration = loadRpCalibrationMeasurement(RP_CALIBRATION_MEASUREMENT_PATH);
 
   const db = openCorpusReadOnly(CORPUS_PATH);
   const startedAt = new Date();
@@ -3875,10 +3840,6 @@ async function main(): Promise<void> {
       // season cutoff, threaded through runSeasonsCliMode into
       // publishSeasons — the default lives on DEFAULT_PRESCHEDULE_FROM_SEASON.
       "presim-from-season": { type: "string" },
-      // F1/D-09/D-11 (phase 09 plan 09-01 Task 2): override the committed
-      // RP calibration measurement path, or suppress attachment entirely.
-      "rp-calibration": { type: "string" },
-      "no-rp-calibration": { type: "boolean" },
       // Quick task 260913-nvn: rewrite docs/publish-budget.md's json budget
       // block from this run's measurements after a successful run.
       "write-budget": { type: "boolean" },
@@ -3906,8 +3867,6 @@ async function main(): Promise<void> {
       values["skip-state"] === true,
       values["include-offseason"] === true,
       preScheduleFromSeason,
-      values["rp-calibration"],
-      values["no-rp-calibration"] === true,
       values["write-budget"] === true
     );
   } else {

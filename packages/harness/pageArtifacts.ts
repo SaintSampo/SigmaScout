@@ -120,9 +120,8 @@ export type ArtifactKeyParams = TeamsPageParams | TeamPageParams | EventsPagePar
 
 /**
  * Splits an algorithm's `version` string on its FIRST `+` — the same
- * `{codeVersion}+{paramSetName}` split discipline `publish.ts`'s
- * `splitVersion` and `manifestSchemas.ts`'s `splitManifestVersion` each
- * implement, deliberately reimplemented here rather than imported across
+ * `{codeVersion}+{paramSetName}` split discipline `manifestSchemas.ts`'s
+ * `splitManifestVersion` implements, deliberately reimplemented here rather than imported across
  * the module boundary. Throws a named error when the `+` separator is
  * absent, so a version string that lost D-13's shape fails at key-build
  * time instead of publishing to a path nothing will ever fetch.

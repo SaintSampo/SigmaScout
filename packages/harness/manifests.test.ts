@@ -413,13 +413,13 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
   // (it is still correct, and a future accidental re-split would now fail
   // this case rather than pass vacuously).
   it("returns one entry per published id, in PUBLISHED_ALGORITHM_IDS order", () => {
-    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2026 });
+    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
     expect(manifest.algorithms).toHaveLength(PUBLISHED_ALGORITHM_IDS.length);
     expect(manifest.algorithms.map((a) => a.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
   });
 
   it("reads opr/epa's id and version straight from the modules", () => {
-    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2026 });
+    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
     const oprEntry = manifest.algorithms.find((a) => a.id === "opr")!;
     const epaEntry = manifest.algorithms.find((a) => a.id === "epa")!;
     expect(oprEntry.version).toBe(opr.version);
@@ -441,7 +441,7 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
   // algorithm's file on every publish. These replace them with the contract
   // that is now true.
   it("builds EVERY entry from its own module — no entry is read from a pinned version file", () => {
-    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2026 });
+    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
     expect(manifest.algorithms.map((a) => a.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
     expect(manifest.algorithms.find((a) => a.id === "opr")!.version).toBe(opr.version);
     expect(manifest.algorithms.find((a) => a.id === "epa")!.version).toBe(epa.version);
@@ -453,7 +453,7 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
   });
 
   it("carries no tunable params or paramsSeason on any entry, since no published algorithm is promoted-versioned any more", () => {
-    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2023 });
+    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
     for (const entry of manifest.algorithms) {
       expect(Object.keys(entry), `${entry.id} must carry no params`).not.toContain("params");
       expect(entry.paramsSeason, `${entry.id} must carry no paramsSeason`).toBeUndefined();
@@ -461,7 +461,7 @@ describe("buildAlgorithmsManifest — D-03's published set", () => {
   });
 
   it("does NOT advertise the retired vpr id", () => {
-    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", paramsSeason: 2026 });
+    const manifest = buildAlgorithmsManifest({ generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
     expect(manifest.algorithms.some((a) => a.id === "vpr")).toBe(false);
   });
 });

@@ -204,13 +204,6 @@ export interface BuildAlgorithmsManifestOptions {
   readonly generation: string;
   /** D-04: ISO timestamp of when this manifest was computed. */
   readonly computedAt: string;
-  /**
-   * D-2 (quick task 260904-100): REQUIRED, no default — a default is how the
-   * wrong season's parameter set gets published silently. The Worker only
-   * ever runs the LIVE season, so the manifest names exactly one season's
-   * set (never the full `paramSetsBySeason` map); this is that season.
-   */
-  readonly paramsSeason: number;
 }
 
 /**
@@ -219,7 +212,7 @@ export interface BuildAlgorithmsManifestOptions {
  * manifest id and the artifact-key id segment cannot disagree (T-07-16-01).
  */
 export function buildAlgorithmsManifest(options: BuildAlgorithmsManifestOptions): AlgorithmsManifest {
-  const { generation, computedAt, paramsSeason } = options;
+  const { generation, computedAt } = options;
 
   // VPR's retirement (2026-09-09) removed the ONE promoted-version entry this
   // builder had, and quick task 260913-it4 deleted the retired Sigma1 core's

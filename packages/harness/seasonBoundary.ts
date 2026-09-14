@@ -48,18 +48,12 @@ import type { SeasonBoundary } from "../core/algorithms/types.js";
  * so matching a remembered value was never the right test. `index === 0` is
  * that definition made literal, and it cannot go stale the way a constant
  * can, because there is no second fact for it to disagree with.
- *
- * `coldStartSeason` survives as an optional third argument, but its purpose
- * is now narrow and deliberate (D-4): it forces a season that is NOT at
- * index 0 to start cold, discarding carry, as a diagnostic override. It is
- * NOT the mechanism for extending the corpus backward — the positional
- * default handles that with no flag at all.
  */
-export function seasonBoundaryFor(seasons: readonly number[], index: number, coldStartSeason?: number): SeasonBoundary {
+export function seasonBoundaryFor(seasons: readonly number[], index: number): SeasonBoundary {
   const season = seasons[index]!;
   return {
     fromSeason: index > 0 ? seasons[index - 1]! : season - 1,
     toSeason: season,
-    isColdStart: coldStartSeason === undefined ? index === 0 : season === coldStartSeason,
+    isColdStart: index === 0,
   };
 }
