@@ -31,8 +31,9 @@ seeing the result.
   real artifact) is satisfied; `www.sigmascout.org/teams` was independently confirmed to return
   `200` and serve the same bundle.
 - **Artifact measured:** `v1/teams/2024/sigma1@2.0.0+tuned-2026-08.json`, **2,721,887 bytes**
-  — the measured max `teams/{year}` artifact per `docs/publish-budget.md` line 28 (`| teams/{year}
-  | 15 | 1,361,992 | 2,721,887 | 2,721,887 | v1/teams/2024/sigma1@2.0.0+tuned-2026-08.json |`).
+  — the measured max `teams/{year}` artifact per `docs/publish-budget.md`'s budget table as it
+  stood at measurement time (`| teams/{year} | 15 | 1,361,992 | 2,721,887 | 2,721,887 |
+  v1/teams/2024/sigma1@2.0.0+tuned-2026-08.json |`).
   The Teams route is hard-coded to `year: 2024, algorithmId: "sigma1", version:
   "2.0.0+tuned-2026-08"` for this tracer (plan 05-01 Task 3, not yet parameterized by URL search
   params — plan 05-05's job), so the `?year=2024&algorithm=sigma1` query string is inert but the
@@ -66,8 +67,8 @@ captured directly against `https://data.sigmascout.org/v1/teams/2024/sigma1@2.0.
 - **Transferred (wire) size: 346,427 bytes** — measured by downloading the response body with
   compression negotiated and no client-side auto-decode (so the byte count on disk is the actual
   wire size, not the decompressed size).
-- **Raw artifact size: 2,721,887 bytes** (source: `docs/publish-budget.md` line 28, matches the
-  `Content-Length` returned on an uncompressed request).
+- **Raw artifact size: 2,721,887 bytes** (source: the `docs/publish-budget.md` row quoted in Run
+  metadata, matches the `Content-Length` returned on an uncompressed request).
 - **Compression ratio:** 346,427 / 2,721,887 ≈ 12.7% of the raw size (~87.3% reduction).
 
 Compression is confirmed active and working well. This check runs first in the decision rule
@@ -211,8 +212,9 @@ about JS bundle size, not artifact size.
 (RAIL model), deferred by plan 05-04 because no search box existed yet, and restated by the first
 entry above ("05-08... exists now. Measure it as that gate specifies"). It exists now.
 
-**Method:** `SearchBox.tsx`'s `handleValueChange` calls `performance.mark("search-keystroke")` at
-the very start of the `onChange` handler (`lib/perfMarks.ts`); a `useEffect` keyed on the rendered
+**Method:** `SearchBox.tsx`'s `markStartAndSetQuery` (wired to the search input's `onValueChange`)
+calls `markSearchKeystroke()`, which calls `performance.mark("search-keystroke")`
+(`lib/perfMarks.ts`); a `useEffect` keyed on the rendered
 results calls `performance.mark("search-results-rendered")` once the new dropdown content has
 committed, then `performance.measure(...)` between the two marks and logs a structured
 `{"event":"search-keystroke-to-render","durationMs":...}` console line — the same pattern
