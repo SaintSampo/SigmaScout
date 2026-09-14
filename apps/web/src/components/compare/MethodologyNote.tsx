@@ -3,47 +3,24 @@ import { COMPARE_SEASONS } from "../../lib/api/compare.js";
 import type { CompareArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
- * D-11's near-tie caption and D-08's methodology note (08-06-PLAN.md Task 3)
- * as one always-visible muted block beneath the accuracy table — never a
- * tooltip, never behind a disclosure toggle.
+ * The near-tie caption and the methodology note, as one always-visible
+ * muted block beneath the accuracy table — never a tooltip, never behind a
+ * disclosure toggle.
  *
  * Every figure this module prints is DERIVED from the same fetched
- * artifacts the table renders (Decision 4): nothing here is transcribed.
- * `buildMethodologyFigures` reads only VPR's COMBINED-view slice per season
- * (Decision 5 — this note's claim and SC-3's verdict are both measured on
- * the combined view; re-slicing to the elimination view would make the
- * note's own best-season clause false against the committed data, since
- * VPR's 2022 elimination Brier is lower than its 2026 one).
+ * artifacts the table renders: nothing here is transcribed.
+ * `buildMethodologyFigures` reads only the premier algorithm's
+ * COMBINED-view slice per season — re-slicing to the elimination view could
+ * make the best-season clause false against the committed data.
  *
- * Quick task 260903-n2o (D-5) removed this module's selection-claim
- * paragraph entirely — the sentence quick task 260903-krp installed here
- * asserted that every displayed season's hyperparameters were chosen using
- * only seasons before it. The shipped `provenance.tuneSeasons` names 2022,
- * 2023 and 2024 as seasons the optimizer WAS fitted on, so that sentence was
- * false for three of the five displayed seasons. It is not replaced with a
- * corrected version: the fetched Compare artifact carries no record of any
- * algorithm's selected-on set, so a replacement sentence cannot be derived
- * from it. `headlineEligible` is NOT an acceptable substitute source for
- * that claim — a `false` there conflates "too few prior seasons" with "the
- * optimizer saw this season," and this module deliberately reads neither
- * `seasonLabel` nor `headlineEligible` (unchanged from the instruction
- * below). Per D-5, saying less is preferred to saying something false.
- *
- * This module now reads NEITHER `seasonLabel` NOR `headlineEligible` — the
- * inverse of this module's prior instruction to read `seasonLabel`.
- *
- * CORRECTED 2026-09-07: this paragraph used to justify that by asserting
- * "every season `COMPARE_SEASONS` selects is, by construction, an origin
- * season", which stopped being true when the Compare floor moved 2022 -> 2016
- * — 2016 and 2017 publish `headlineEligible: false` (zero and one prior
- * corpus season). The conclusion is unchanged and the reason is the ORIGINAL
- * one, stated two paragraphs up: a `false` there conflates "too few prior
- * seasons" with "the optimizer saw this season", so it cannot support the
- * holdout claim this note would need it for. Per D-5, saying less is
- * preferred to saying something false. What is gone is only the extra
- * by-construction argument, which was load-bearing for nothing and is now
- * simply wrong. `AccuracyTable.tsx` continues to read neither field
- * either, and this note must never be mounted inside it.
+ * This module deliberately makes no claim about which seasons an
+ * algorithm's hyperparameters were tuned on: the fetched Compare artifact
+ * carries no record of any algorithm's selected-on set, and neither
+ * `seasonLabel` nor `headlineEligible` is an acceptable substitute for that
+ * claim (a `false` `headlineEligible` conflates "too few prior seasons"
+ * with "the optimizer saw this season"). Saying less is preferred to saying
+ * something false. `AccuracyTable.tsx` reads neither field either, and this
+ * note must never be mounted inside it.
  */
 
 export const METHODOLOGY_NOTE_TESTID = "compare-methodology-note";
@@ -53,32 +30,21 @@ export const NEAR_TIE_CAPTION =
   "Where two algorithms' scores are this close, the published data can't tell us which is really better. The threshold below is a judgement call, not a statistical test.";
 
 /**
- * D-03 (quick task 260909-t5q): explains the cold-start rule in plain
- * language, in the site's established register. Unlike `NEAR_TIE_CAPTION`
- * (a fixed caption) and `buildMethodologySentence`'s Brier list (a DERIVED
- * figure, per this module's own header discipline), this is a STATIC RULE —
- * it transcribes no number and needs no republish to stay accurate, so it
- * renders unconditionally rather than gated on `figures?.complete`. No count
- * is published here: D-04 explicitly defers the republish that would make
- * one measurable on-site (Task 3's census answers "what a republish would
- * change" in this quick task's own SUMMARY instead).
+ * Explains the cold-start rule in plain language, in the site's established
+ * register. Unlike `NEAR_TIE_CAPTION` (a fixed caption) and
+ * `buildMethodologySentence`'s Brier list (a DERIVED figure), this is a
+ * STATIC RULE — it transcribes no number and needs no republish to stay
+ * accurate, so it renders unconditionally rather than gated on
+ * `figures?.complete`.
  */
 export const COLD_START_EXPLANATION =
   "When every robot in a match is playing its first-ever match, there's nothing to predict from. All three algorithms call it an even matchup, and the match is left out of the accuracy and Brier figures above rather than counted as a wrong guess.";
 
 /**
  * The algorithm this note's Brier list and best-season clause describe —
- * SigmaScout's premier algorithm. This algorithm became SigmaScout's premier
- * rating on 2026-09-09 when the prior premier rating left the published set,
- * and the label displayed on methodology pages became SPR on 2026-09-10
- * (quick task 260910-vof); the internal id itself did not change then.
- * Quick task 260912-ivg renamed the id itself to `spr` (Sigma Power Rating),
- * matching the display name it had carried since 2026-09-10. Named for its
- * ROLE rather than hardcoded at each use, so the note follows the premier
- * algorithm instead of
- * having to be rewritten around it. The compare artifact still carries `vpr`
- * slices for the seasons it was published on; they are simply no longer what
- * this note reads.
+ * SigmaScout's premier algorithm (Sigma Power Rating). Named for its ROLE
+ * rather than hardcoded at each use, so the note follows the premier
+ * algorithm instead of having to be rewritten around it.
  */
 const PREMIER_ALGORITHM_ID = "spr";
 
@@ -88,7 +54,7 @@ interface SeasonBrier {
 }
 
 interface MethodologyFiguresBase {
-  /** The seasons that yielded a VPR combined-view slice, ascending — the displayed set, per Decision 5. */
+  /** The seasons that yielded a premier-algorithm combined-view slice, ascending — the displayed set. */
   readonly seasons: readonly number[];
 }
 
@@ -106,9 +72,9 @@ export interface MethodologyFiguresComplete extends MethodologyFiguresBase {
 export type MethodologyFigures = MethodologyFiguresComplete | MethodologyFiguresIncomplete;
 
 /**
- * For each season in `COMPARE_SEASONS` ascending, selects VPR's own
- * combined-view slice from that season's fetched artifact — never another
- * algorithm's, never another view's. Returns the COMPLETE form only when
+ * For each season in `COMPARE_SEASONS` ascending, selects the premier
+ * algorithm's own combined-view slice from that season's fetched artifact —
+ * never another algorithm's, never another view's. Returns the COMPLETE form only when
  * every one of the five seasons yielded a slice carrying a non-null Brier;
  * otherwise the INCOMPLETE form (the season list alone, built from whatever
  * seasons are present); with no slice at all, returns `undefined` — a claim
@@ -176,11 +142,11 @@ function buildBrierListSentence(seasonBriers: readonly SeasonBrier[]): string {
 }
 
 /**
- * The D-08 methodology sentence, minus the retired selection claim (D-5,
- * quick task 260903-n2o — see this module's header comment for why). Only
- * ever called on the COMPLETE form: the Brier list and the best-season
- * clause both rest on a claim over all five seasons and must not render
- * from fewer, so the incomplete form now has nothing left to say here.
+ * The methodology sentence — see this module's header comment for why it
+ * makes no selection claim. Only ever called on the COMPLETE form: the
+ * Brier list and the best-season clause both rest on a claim over all five
+ * seasons and must not render from fewer, so the incomplete form has
+ * nothing left to say here.
  */
 function buildMethodologySentence(figures: MethodologyFiguresComplete): string {
   const brierList = buildBrierListSentence(figures.seasonBriers);

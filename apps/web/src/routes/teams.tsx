@@ -21,32 +21,29 @@ export const Route = createFileRoute("/teams")({
 });
 
 function TeamsPage() {
-  // 05-06-PLAN.md Task 3: the real table replaces the tracer's plain one,
-  // with sort bound to the URL (D-14) instead of a hard-coded slice.
   const { year, algorithm, sort, sortDir, cols, country, state, district, chart } = Route.useSearch();
   const navigate = Route.useNavigate();
 
-  // Quick task 260909-tom (D-04): the bubble-chart toggle's state lives
-  // entirely in `chart` — no local view state to hold or fall out of sync.
+  // The bubble-chart toggle's state lives entirely in `chart` — no local
+  // view state to hold or fall out of sync.
   const isChart = chart === "bubble";
 
-  // Quick task 260905-ttv: the three region filter dimensions, read from the
-  // URL exactly like every other search-param-backed piece of state on this
-  // route.
+  // The three region filter dimensions, read from the URL exactly like
+  // every other search-param-backed piece of state on this route.
   const filters: TeamFiltersModel = { country, state, district };
   const hasActiveFilter = country !== undefined || state !== undefined || district !== undefined;
 
-  // Decision T1 (2026-09-01 redesign): grouped Auto/Teleop/Endgame/Total by
-  // default, the full component set behind the URL-backed `cols` toggle.
-  // Algorithms whose teams artifact carries no phase metrics (EPA today)
-  // resolve to the components view regardless — `displayedMetricKeys`
-  // handles that — so the toggle is only rendered where it does anything.
+  // Grouped Auto/Teleop/Endgame/Total by default, the full component set
+  // behind the URL-backed `cols` toggle. Algorithms whose teams artifact
+  // carries no phase metrics (EPA today) resolve to the components view
+  // regardless — `displayedMetricKeys` handles that — so the toggle is only
+  // rendered where it does anything.
   const view: TeamsTableView = cols === "components" ? "components" : "grouped";
   const canToggleView = hasGroupedTeamsView(algorithm);
 
-  // 05-05-PLAN.md Task 2: until the algorithms manifest resolves a real
-  // version, the artifact query below stays DISABLED rather than firing
-  // with a placeholder version.
+  // Until the algorithms manifest resolves a real version, the artifact
+  // query below stays DISABLED rather than firing with a placeholder
+  // version.
   const version = useAlgorithmVersion(algorithm);
 
   // `placeholderData: keepPreviousData` keeps the PREVIOUS artifact on
@@ -70,20 +67,20 @@ function TeamsPage() {
   const validSortKeys = useMemo(() => [...displayedMetricKeys(algorithm, year, view), WIN_RATE_SORT_KEY], [algorithm, year, view]);
   const effectiveSortKey = resolveSortKey(sort, validSortKeys);
 
-  // "the URL never claims a sort the table is not showing" (this plan's own
-  // key_links entry) — fires only when an EXPLICIT, stale `sort` param needs
-  // correcting (a hand-edited URL, or a key valid for a different year/algo
-  // pair). A plain ABSENT `sort` (the common first-visit case) resolves to
-  // the total key locally without forcing a redirect on every load.
+  // The URL never claims a sort the table is not showing — fires only when
+  // an EXPLICIT, stale `sort` param needs correcting (a hand-edited URL, or
+  // a key valid for a different year/algo pair). A plain ABSENT `sort` (the
+  // common first-visit case) resolves to the total key locally without
+  // forcing a redirect on every load.
   useEffect(() => {
     if (sort !== undefined && sort !== effectiveSortKey) {
       navigate({ search: (prev) => ({ ...prev, sort: effectiveSortKey }), replace: true });
     }
   }, [sort, effectiveSortKey, navigate]);
 
-  // 05-VALIDATION.md's "Measurement Gate (NAV-06)" — the render side of the
-  // parse-to-paint split. Fires once per artifact load (guarded on the
-  // specific `data` reference, not a boolean), never on the skeleton render.
+  // The render side of the parse-to-paint measurement split. Fires once per
+  // artifact load (guarded on the specific `data` reference, not a
+  // boolean), never on the skeleton render.
   const markedDataRef = useRef<typeof data>(undefined);
   useEffect(() => {
     if (!data || markedDataRef.current === data) return;
@@ -94,10 +91,10 @@ function TeamsPage() {
   }, [data]);
 
   // Clicking a sortable header writes the new key/direction back to the URL
-  // with the updater form so year/algorithm survive (05-05's D-14 pattern).
-  // Re-clicking the ACTIVE column toggles direction; clicking a different
-  // column starts it at descending (the common "biggest first" reading for
-  // this project's metrics).
+  // with the updater form so year/algorithm survive. Re-clicking the ACTIVE
+  // column toggles direction; clicking a different column starts it at
+  // descending (the common "biggest first" reading for this project's
+  // metrics).
   function handleSortChange(columnId: string) {
     navigate({
       search: (prev) => {
@@ -109,14 +106,11 @@ function TeamsPage() {
 
   const rows = useMemo(() => {
     if (!data) return [];
-    // Quick task 260905-ttv: rows are filtered BEFORE buildTeamRows, so the
-    // rank column is the rank WITHIN the active filter, not the World rank
-    // filtered down after the fact. This is the invariant the rank cards'
-    // links depend on (see 260905-ttv-PLAN.md's
-    // <the_invariant_this_task_rests_on>): a District rank card reading
-    // "#3 of 60" must land on a table where the team shows "#3", not its
-    // World rank. It is also what a reader coming from Statbotics expects a
-    // filtered ranking to mean.
+    // Rows are filtered BEFORE buildTeamRows, so the rank column is the rank
+    // WITHIN the active filter, not the World rank filtered down after the
+    // fact — a District rank card reading "#3 of 60" must land on a table
+    // where the team shows "#3", not its World rank. It is also what a
+    // reader coming from Statbotics expects a filtered ranking to mean.
     const filteredTeams = applyTeamFilters(data.teams, filters);
     return sortTeamRows(buildTeamRows({ ...data, teams: filteredTeams }, algorithm), effectiveSortKey, sortDir);
   }, [data, algorithm, effectiveSortKey, sortDir, filters]);
@@ -133,21 +127,18 @@ function TeamsPage() {
     });
   }
 
-  // Quick task 260909-tom: mirrors `handleViewToggle`'s updater form exactly
-  // so year, algorithm, sort and the three region filters all survive a
-  // chart-view toggle.
+  // Mirrors `handleViewToggle`'s updater form exactly so year, algorithm,
+  // sort and the three region filters all survive a chart-view toggle.
   function handleChartToggle() {
     navigate({
       search: (prev) => ({ ...prev, chart: prev.chart === "bubble" ? undefined : "bubble" }),
     });
   }
 
-  // Quick task 260909-v5v (D-02): `columns.tsx`'s link shape verbatim — a
-  // team opened from a bubble-chart dot lands in exactly the state a team
-  // opened from a table row lands in. `navigate` rather than a `<Link>`
-  // deliberately; see `TeamsBubbleChart.tsx`'s header comment for the full
-  // tradeoff (one canonical copy of that reasoning, beside the code it
-  // constrains, rather than restated here).
+  // `columns.tsx`'s link shape verbatim — a team opened from a bubble-chart
+  // dot lands in exactly the state a team opened from a table row lands in.
+  // `navigate` rather than a `<Link>` deliberately; see
+  // `TeamsBubbleChart.tsx`'s header comment for the full tradeoff.
   function handleSelectTeam(point: BubblePoint) {
     void navigate({
       to: "/team/$teamNumber",
@@ -156,8 +147,8 @@ function TeamsPage() {
     });
   }
 
-  // Quick task 260905-ttv: the updater form so year/algorithm/sort/cols all
-  // survive, mirroring `events.tsx`'s `handleFiltersChange`/`handleClearFilters`.
+  // The updater form so year/algorithm/sort/cols all survive, mirroring
+  // `events.tsx`'s `handleFiltersChange`/`handleClearFilters`.
   function handleFiltersChange(nextFilters: TeamFiltersModel) {
     navigate({
       search: (prev) => ({
@@ -184,28 +175,26 @@ function TeamsPage() {
     <div className="p-[var(--spacing-lg)]">
       {/*
         One centered, CONTENT-WIDTH column holding the heading row and the
-        table together (2026-09-01 user request). `w-fit` takes the widest
-        child — always the table — so `mx-auto` centres the whole block, and
-        the heading row, being a full-width flex child of that column, lands
-        its `justify-between` ends exactly on the TABLE's left and right
-        edges rather than on the page's. That is what puts the view toggle
-        directly above the table's right edge at every viewport width and in
-        both column views.
+        table together. `w-fit` takes the widest child — always the table —
+        so `mx-auto` centres the whole block, and the heading row, being a
+        full-width flex child of that column, lands its `justify-between`
+        ends exactly on the TABLE's left and right edges rather than on the
+        page's. That is what puts the view toggle directly above the
+        table's right edge at every viewport width and in both column views.
       */}
       <div className="mx-auto flex w-fit max-w-full flex-col">
         <div className="mb-[var(--spacing-md)] flex items-center justify-between gap-[var(--spacing-md)]">
           <h1 className="text-role-heading text-[var(--color-text-primary)]">Teams {year}</h1>
           <div className="flex items-center gap-[var(--spacing-sm)]">
             {/*
-              Quick task 260909-tom: rendered UNCONDITIONALLY, unlike the
-              `cols` toggle below (gated on `canToggleView`) — the chart view
-              must always be reachable regardless of which algorithm is
-              selected. `aria-pressed` carries the state; the visible LABEL
-              stays the stable string "Bubble chart" in both states (never
-              flipped with the state) so a screen-reader user is not told the
-              state twice, once by the announcement and once by a relabelled
-              name. The pressed style (accent border + inset background)
-              gives the state a visible signal too, not announced-only.
+              Rendered UNCONDITIONALLY, unlike the `cols` toggle below (gated
+              on `canToggleView`) — the chart view must always be reachable
+              regardless of which algorithm is selected. `aria-pressed`
+              carries the state; the visible LABEL stays the stable string
+              "Bubble chart" in both states so a screen-reader user is not
+              told the state twice. The pressed style (accent border + inset
+              background) gives the state a visible signal too, not
+              announced-only.
             */}
             <button
               type="button"
@@ -220,7 +209,7 @@ function TeamsPage() {
             >
               Bubble chart
             </button>
-            {/* Quick task 260909-tom: hidden in chart mode -- it changes only table columns and would be a control with no effect there. */}
+            {/* Hidden in chart mode -- it changes only table columns and would be a control with no effect there. */}
             {canToggleView && !isChart && (
               <button
                 type="button"
@@ -234,13 +223,13 @@ function TeamsPage() {
           </div>
         </div>
         {/*
-          Quick task 260905-ttv: gated on `data !== undefined` (the artifact
-          fetch itself succeeded), NOT on `status === "success"` — that local
-          `status` also folds in the filtered row count, and hiding the
-          controls the moment a filter empties the table would strand the
-          reader with no way back except the empty state's own Clear-filters
-          link. Option lists derive from `data.teams` UNFILTERED, so
-          selecting a country never empties the district list.
+          Gated on `data !== undefined` (the artifact fetch itself
+          succeeded), NOT on `status === "success"` — that local `status`
+          also folds in the filtered row count, and hiding the controls the
+          moment a filter empties the table would strand the reader with no
+          way back except the empty state's own Clear-filters link. Option
+          lists derive from `data.teams` UNFILTERED, so selecting a country
+          never empties the district list.
         */}
         {data && (
           <div className="mb-[var(--spacing-md)]">
@@ -248,13 +237,13 @@ function TeamsPage() {
           </div>
         )}
         {/*
-          Quick task 260909-tom: `status === "success"` gates the chart body
-          rather than the chart component duplicating the loading skeleton,
-          the error state with its retry, and the filtered-to-zero empty
-          state with its Clear-filters link — `TeamsTable` already owns all
-          three. Falling back to `TeamsTable` for every non-success status
-          means chart mode inherits those behaviours for free, with no
-          second, driftable implementation of any of them.
+          `status === "success"` gates the chart body rather than the chart
+          component duplicating the loading skeleton, the error state with
+          its retry, and the filtered-to-zero empty state with its
+          Clear-filters link — `TeamsTable` already owns all three. Falling
+          back to `TeamsTable` for every non-success status means chart mode
+          inherits those behaviours for free, with no second, driftable
+          implementation of any of them.
         */}
         {isChart && status === "success" ? (
           // The centred column is `mx-auto flex w-fit`, which sizes to its
