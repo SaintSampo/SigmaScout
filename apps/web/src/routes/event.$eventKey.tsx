@@ -20,10 +20,9 @@ import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.j
 import { usesSigmaScore } from "../../../../packages/harness/sigmaScore.js";
 
 /**
- * The `/event/{eventKey}` route (07-01-PLAN.md). Task 1's tracer proved the
- * single artifact-fetch path; this task adds the scrollable tab strip (its
- * own DOM-sibling scroll region relative to the Breakdown table's) and the
- * page's four non-populated states.
+ * The `/event/{eventKey}` route: the single artifact-fetch path, the
+ * scrollable tab strip (its own DOM-sibling scroll region relative to the
+ * Breakdown table's), and the page's four non-populated states.
  */
 export const Route = createFileRoute("/event/$eventKey")({
   validateSearch: EventSearchSchema,
@@ -31,47 +30,43 @@ export const Route = createFileRoute("/event/$eventKey")({
 });
 
 /**
- * Every id `EVENT_TABS` declares now has a trigger AND a content panel
- * (07-14-PLAN.md registered `alliances`; 08-09-PLAN.md registers the last
- * one, `simulation`) — this narrowing array is kept rather than removed
- * because `EventSearchSchema`'s `.catch()` cannot help here on its own: an
- * id is a valid member of `EVENT_TABS`'s enum whether or not this route has
- * a matching trigger/panel for it, so the narrowing is what stopped an empty
- * panel between waves and stays as the one list a reader checks against the
- * tab strip below.
+ * Every id `EVENT_TABS` declares now has a trigger AND a content panel —
+ * this narrowing array is kept rather than removed because
+ * `EventSearchSchema`'s `.catch()` cannot help here on its own: an id is a
+ * valid member of `EVENT_TABS`'s enum whether or not this route has a
+ * matching trigger/panel for it, so the narrowing is what stops an empty
+ * panel and stays as the one list a reader checks against the tab strip
+ * below.
  *
  * `alliances` sits BETWEEN `quals` and `elims`, matching `EVENT_TABS`'s own
- * fixed declared order and 07-13's comment asking that plan to insert it
- * exactly there rather than append it. `simulation` is appended LAST,
- * matching `EVENT_TABS`'s own declared order.
+ * fixed declared order. `simulation` is appended LAST, also matching that
+ * order.
  *
- * 08-09: registering an id here is no longer the ONLY reachability rule on
- * this page. `simulation` is registered (has a trigger and a panel) but
- * still conditionally UNREACHABLE — D-04's Sigma-algorithm-only rule
- * plain-disables its trigger on OPR/EPA (see `isSimulationDisabled` below), a
- * second narrowing this array cannot express on its own.
+ * Registering an id here is not the ONLY reachability rule on this page.
+ * `simulation` is registered (has a trigger and a panel) but still
+ * conditionally UNREACHABLE — a Sigma-algorithm-only rule plain-disables its
+ * trigger on OPR/EPA (see `isSimulationDisabled` below), a second narrowing
+ * this array cannot express on its own.
  */
 const REGISTERED_EVENT_TABS: readonly EventTab[] = ["insights", "breakdown", "quals", "alliances", "elims", "simulation"];
 
 /**
  * `isAlliancesDisabled` and `isSimulationDisabled` extend this narrowing
- * rather than adding a third/fourth mechanism (07-14-PLAN.md Task 3, D-17;
- * 08-09-PLAN.md Task 3, D-04): a tab whose trigger is CURRENTLY disabled
- * resolves to `DEFAULT_EVENT_TAB` the same way an unregistered id does, so a
- * shared `?tab=alliances`/`?tab=simulation` link on a disabled tab lands on
- * the default tab instead of opening a disabled tab onto an empty panel.
- * Resolve only — this never navigates and never rewrites the search param,
- * so the URL stays shareable and back/forward-navigable for a reader who
- * DOES have the right data/algorithm selected. This is what makes
- * 07-UI-SPEC.md's E7 `empty` dismissal true rather than merely asserted, and
- * what 08-09-PLAN.md's own resolve-only truth extends by one branch.
+ * rather than adding a third/fourth mechanism: a tab whose trigger is
+ * CURRENTLY disabled resolves to `DEFAULT_EVENT_TAB` the same way an
+ * unregistered id does, so a shared `?tab=alliances`/`?tab=simulation` link
+ * on a disabled tab lands on the default tab instead of opening a disabled
+ * tab onto an empty panel. Resolve only — this never navigates and never
+ * rewrites the search param, so the URL stays shareable and
+ * back/forward-navigable for a reader who DOES have the right data/algorithm
+ * selected.
  *
- * PD-01 (08-09-PLAN.md): takes `tab` plus one named-field options object
- * rather than a second positional boolean — this function is module-private
- * with exactly one call site and no test importer, so a transposition
- * between two adjacent same-typed booleans would compile cleanly and
- * type-check cleanly while silently disabling the wrong tab. Named fields
- * make that transposition a compile error instead of a rendering bug.
+ * Takes `tab` plus one named-field options object rather than a second
+ * positional boolean — this function is module-private with exactly one
+ * call site and no test importer, so a transposition between two adjacent
+ * same-typed booleans would compile cleanly and type-check cleanly while
+ * silently disabling the wrong tab. Named fields make that transposition a
+ * compile error instead of a rendering bug.
  */
 function resolveActiveTab(
   tab: EventTab,
@@ -84,20 +79,12 @@ function resolveActiveTab(
 }
 
 /**
- * The route's ONE shared page-state branch order (07-11-PLAN.md Decision 4),
- * extracted here rather than copied into each tab's own render function.
- * 07-01-PLAN.md Task 3 built this inline inside the `breakdown` `TabsContent`
- * alone; 07-12/07-13/07-14 each add another panel to this same file, and
- * four independent copies of the invalid-key / 404 / other-error / pending /
- * populated branch order is four chances for UI-SPEC's "inherits the
- * page-level error" rows to become true for some tabs and false for others.
- * Both `renderBreakdownContent` and `renderInsightsContent` below call this
- * one function; neither restates the branch order itself.
- *
- * Every branch here — 404, other error, pending — is byte-identical to what
- * 07-01 shipped for Breakdown; this refactor is deliberately
- * behaviour-preserving, proven by every pre-existing assertion in this file
- * continuing to pass unmodified.
+ * The route's ONE shared page-state branch order, extracted here rather
+ * than copied into each tab's own render function — six independent copies
+ * of the invalid-key / 404 / other-error / pending / populated branch order
+ * would be six chances for that ordering to become true for some tabs and
+ * false for others. Every render function below calls this one function;
+ * none restates the branch order itself.
  */
 function renderTabState({
   is404,
@@ -147,10 +134,10 @@ function EventPage() {
 
   const isValidKey = isValidEventKey(eventKey);
 
-  // 05-05-PLAN.md Task 2's established pattern, mirrored here (and by
-  // `team.$teamNumber.tsx`): the artifact query stays DISABLED until the
-  // algorithms manifest resolves a real version, and disabled entirely for
-  // an invalid event key so no fetch ever fires against a nonsense key.
+  // The established pattern, mirrored by `team.$teamNumber.tsx`: the
+  // artifact query stays DISABLED until the algorithms manifest resolves a
+  // real version, and disabled entirely for an invalid event key so no
+  // fetch ever fires against a nonsense key.
   const version = useAlgorithmVersion(algorithm);
 
   const { data, isPending, error, refetch, isPlaceholderData } = useQuery({
@@ -159,23 +146,19 @@ function EventPage() {
     placeholderData: keepPreviousData,
   });
 
-  // D-17: the Alliances trigger is disabled only once the artifact for THIS
-  // event key has genuinely resolved — data present, not pending, no error,
-  // and NOT placeholder data. `placeholderData: keepPreviousData` (above)
-  // means `data` can still be the PREVIOUS event's artifact mid-navigation;
+  // The Alliances trigger is disabled only once the artifact for THIS event
+  // key has genuinely resolved — data present, not pending, no error, and
+  // NOT placeholder data. `placeholderData: keepPreviousData` (above) means
+  // `data` can still be the PREVIOUS event's artifact mid-navigation;
   // deriving the disabled state from it would let one event's alliance
-  // array decide another event's trigger — the same class of wrong-
-  // provenance problem 07-11 refused when it declined to guess the fallback
-  // header before the artifact resolved. Disabling is itself a claim about
+  // array decide another event's trigger. Disabling is itself a claim about
   // this event's data, so an unresolved/errored/placeholder query leaves the
   // trigger enabled rather than asserting a claim the page cannot support.
   const isAlliancesDisabled = !isPending && !error && !isPlaceholderData && data !== undefined && !hasAllianceData(data);
-  // D-04 (08-09-PLAN.md Task 3): deliberately NOT gated on query state the
-  // way `isAlliancesDisabled` above is. `isAlliancesDisabled` waits for
-  // `data` to be present, non-pending, non-error and non-placeholder
-  // specifically because disabling Alliances is a CLAIM about THIS event's
-  // alliance data, and a claim must not be made from another event's
-  // keep-previous-data artifact. D-04's rule makes no claim about data at
+  // Deliberately NOT gated on query state the way `isAlliancesDisabled`
+  // above is: disabling Alliances is a CLAIM about THIS event's alliance
+  // data, and a claim must not be made from another event's
+  // keep-previous-data artifact. This rule makes no claim about data at
   // all — it depends only on the already-resolved `algorithm` search param,
   // which `RootSearchSchema` has already coerced to a member of the
   // published id set before this component ever reads it. Gating it on
@@ -185,21 +168,17 @@ function EventPage() {
   const activeTab = resolveActiveTab(tab, { isAlliancesDisabled, isSimulationDisabled });
 
   /**
-   * C-10 (quick task 260905-tll Task 5): the pre-schedule sidecar is
-   * LAZY — fetched only while the Simulation tab is genuinely the active
-   * tab, never with the main event artifact.
+   * The pre-schedule sidecar is LAZY — fetched only while the Simulation
+   * tab is genuinely the active tab, never with the main event artifact.
    *
    * **This gate MUST live here and never inside `SimulationTab`.** Radix
    * keeps every `TabsContent` mounted with `hidden`, so `SimulationTab`
-   * renders on EVERY event page view regardless of which tab is active
-   * (that component's own file header says so, and it is the stated reason
-   * `useSimulationRun` constructs nothing until `start()` is called). A
+   * renders on EVERY event page view regardless of which tab is active. A
    * `useQuery` placed inside it would therefore fetch a ~160KB sidecar on
    * every event page load in the app, defeating the lazy requirement
-   * entirely — the exact same trap, one layer up, that the Worker
-   * lazy-construction rule already avoids.
+   * entirely.
    *
-   * `!isSimulationDisabled` is part of the gate because D-04 makes the tab
+   * `!isSimulationDisabled` is part of the gate because the tab is
    * Sigma-algorithm-only: on OPR/EPA the trigger is disabled,
    * `resolveActiveTab` sends `?tab=simulation` back to the default tab, and
    * no sidecar exists for those algorithms anyway (they model no ranking
@@ -234,16 +213,15 @@ function EventPage() {
     void navigate({ search: (prev) => ({ ...prev, tab: nextTab }) });
   }
 
-  // A 404 means no artifact was ever published for this event — measured
-  // live for every offseason event until 07-09 wires --include-offseason.
-  // Every OTHER fetch failure (500, network error, a validation failure)
-  // stays the ordinary page-level error.
+  // A 404 means no artifact was ever published for this event. Every OTHER
+  // fetch failure (500, network error, a validation failure) stays the
+  // ordinary page-level error.
   const is404 = error instanceof ArtifactFetchError && error.status === 404;
 
   // The rendered column set follows `artifact.season` — the published field
   // — never the `?year=` search param, so a hand-edited year cannot produce
-  // a mismatched column set (07-01-PLAN.md Decision 1). Both panels below
-  // pass `artifact.season` to their populated renderer for that reason.
+  // a mismatched column set. Both panels below pass `artifact.season` to
+  // their populated renderer for that reason.
   function renderBreakdownContent() {
     return renderTabState({
       is404,
@@ -300,8 +278,8 @@ function EventPage() {
     });
   }
 
-  // PD-05: the header renders on the populated and pending branches only,
-  // and on NO error branch (including the 404) — the tab content's own
+  // The header renders on the populated and pending branches only, and on
+  // NO error branch (including the 404) — the tab content's own
   // EmptyState/ErrorState already name the event key and are the page's
   // whole message there. `data === undefined` covers both "still pending"
   // and "the manifest version hasn't resolved yet, so the query is
@@ -355,55 +333,45 @@ function EventPage() {
     });
   }
 
-  // 07-UAT.md G-7: the Breakdown tab's own column set (14 metric columns at
-  // `size: 120`, plus the leading `teamNumber`/`nickname` identity block) is
-  // 1988px wide — most of that width is the value-display box's own
-  // real-geometry floor (`.metric-tier`'s `min-width: 80px` plus `TableCell`'s
-  // `p-2` padding, plus the widest real "value ± spread" string this
-  // component ever renders, measured at ~97px content width against a real
-  // deployed 2024 event artifact — see this task's SUMMARY for the exact
-  // capture), not the header text this task also fixes. The shared
-  // `max-w-[1200px]` (below) was never sized for that, so this tab alone
-  // drops the cap: `BreakdownTab.tsx`'s own `<table>` now declares an EXACT
-  // pixel `width` (`table.getTotalSize()`, never `"100%"`), so widening this
-  // wrapper can only ever let the table use MORE of a wide viewport — it can
-  // never stretch the table past its own declared total on an ultra-wide
-  // monitor. Scoped to `breakdown` alone: every other tab keeps the
-  // unmodified 1200px cap below (Quals/Elims's own fixed 470px plot-width
-  // math, named in the comment this branch replaces, depends on it staying
-  // put).
+  // The Breakdown tab's own column set (14 metric columns plus the leading
+  // `teamNumber`/`nickname` identity block) is wider than the shared
+  // `max-w-[1200px]` (below) was ever sized for — most of that width is the
+  // value-display box's own real-geometry floor plus the widest real "value
+  // ± spread" string this component ever renders. `BreakdownTab.tsx`'s own
+  // `<table>` declares an EXACT pixel `width` (`table.getTotalSize()`, never
+  // `"100%"`) and scrolls inside its own card, so the outer page cap below
+  // can stay constant for every tab without ever clipping or stretching the
+  // table.
   return (
     // Same `max-w-[1200px]` centred content column `team.$teamNumber.tsx`
-    // uses. 2026-09-01 (user report): the cap is now CONSTANT — the old
-    // Breakdown-only uncap made the header and tab strip jump sideways on
-    // every switch into or out of that tab. Breakdown's wide table scrolls
-    // inside its own card instead of dropping the page cap.
+    // uses, kept CONSTANT across every tab — an uncapped Breakdown tab made
+    // the header and tab strip jump sideways on every switch into or out of
+    // it. Breakdown's wide table scrolls inside its own card instead of
+    // dropping the page cap.
     <div className="mx-auto w-full max-w-[1200px] p-[var(--spacing-lg)]">
       {/*
-        07-15-PLAN.md Task 1's identity header — a DOM SIBLING of the tab
-        strip below, never its ancestor and never its descendant, so a long
-        name truncates rather than scrolls and the strip's own scroll region
-        stays untouched.
+        The identity header — a DOM SIBLING of the tab strip below, never
+        its ancestor and never its descendant, so a long name truncates
+        rather than scrolls and the strip's own scroll region stays
+        untouched.
       */}
       <div className="mb-[var(--spacing-lg)]">{renderHeader()}</div>
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         {/*
-          The THIRD independent scroll region 07-RESEARCH.md's Open Question
-          5 resolves: page-chrome level, a DOM SIBLING of the Breakdown
+          A page-chrome-level scroll region, a DOM SIBLING of the Breakdown
           table's own `breakdown-table-scroll` region — never its ancestor
           and never its descendant, so the two can never trap one another.
         */}
         <div data-testid="event-tab-strip-scroll" className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain [scrollbar-width:none]">
           {/*
-            `w-full flex-wrap justify-start` (2026-09-01, user: "I should not
-            be able to scroll the events tab bar, it shouldn't move"). The
-            strip's scroll region is kept — six e2e specs assert its
-            touch-action, overscroll and sibling-not-nested properties — but
-            the tabs now WRAP instead of running off the end, so the content
-            can never exceed the container and the scroller therefore never
-            has anything to scroll. Wrapping to a second line is also a
-            better narrow-viewport answer than a horizontally scrolling strip
-            whose scrollbar is hidden (`[scrollbar-width:none]`), which gave
+            `w-full flex-wrap justify-start`: the strip's scroll region is
+            kept — several e2e specs assert its touch-action, overscroll and
+            sibling-not-nested properties — but the tabs WRAP instead of
+            running off the end, so the content can never exceed the
+            container and the scroller therefore never has anything to
+            scroll. Wrapping to a second line is also a better
+            narrow-viewport answer than a horizontally scrolling strip whose
+            scrollbar is hidden (`[scrollbar-width:none]`), which would give
             a reader no cue that tabs were off-screen at all.
           */}
           <TabsList variant="line" className="w-full flex-wrap justify-start border-b border-[var(--color-border)]">
@@ -417,13 +385,11 @@ function EventPage() {
               Qualifications
             </TabsTrigger>
             {/*
-              D-17 shipped `disabled` alone as the whole treatment (no copy at
-              all); user request 2026-09-05 supersedes that — a greyed tab now
-              explains itself on hover. The explanation is a native `title`
-              (the same quiet mechanism as AlliancesTab's G-8 disclosure), and
-              it lives on this wrapper span because the disabled trigger
-              itself carries `pointer-events-none` and can never receive the
-              hover. The span is inert when the tab is enabled.
+              A greyed tab explains itself on hover, via a native `title`
+              (the same quiet mechanism as AlliancesTab's disclosure). It
+              lives on this wrapper span because the disabled trigger itself
+              carries `pointer-events-none` and can never receive the hover.
+              The span is inert when the tab is enabled.
             */}
             <span
               className="inline-flex"
@@ -440,12 +406,7 @@ function EventPage() {
             <TabsTrigger value="elims" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
               Playoffs
             </TabsTrigger>
-            {/*
-              D-04 accepted "a dead tab with no hint" on OPR/EPA; user request
-              2026-09-05 supersedes that acceptance — same wrapper-span
-              `title` treatment as Alliances above, and for the same
-              pointer-events-none reason.
-            */}
+            {/* Same wrapper-span `title` treatment as Alliances above, and for the same pointer-events-none reason. */}
             <span
               className="inline-flex"
               title={isSimulationDisabled ? "Simulation is only available on SPR. Switch the algorithm selector to SPR." : undefined}
