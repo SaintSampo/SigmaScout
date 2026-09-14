@@ -5,8 +5,10 @@
  *
  * THE TWO ARMS, PRECISELY.
  *
- *   `baked` — today's shipped path: 20 synthetic qualification schedules
- *   drawn from the licensed cheesy-arena template grid, every synthetic match
+ *   `baked` — the shipped path: synthetic qualification schedules whose
+ *   pairing structures come from the rules-based generator
+ *   (`packages/harness/generatedSchedules.ts`; records written before
+ *   2026-09-13 used the licensed grid), every synthetic match
  *   priced through the real RP path by `makeRankingPointFiller` (imported from
  *   `packages/harness/publish.ts`, the publisher's OWN closure, not a
  *   re-creation of it), and a rank distribution baked over all 20 by
@@ -71,7 +73,7 @@ import { seasonBoundaryFor } from "../packages/harness/seasonBoundary.js";
 import { SigmaScoutLayer } from "../packages/harness/sigmaScoutLayer.js";
 import { usesSigmaScore } from "../packages/harness/sigmaScore.js";
 import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
-import { matchesPerTeamFor } from "../packages/harness/scheduleTemplates.js";
+import { matchesPerTeamFor } from "../packages/harness/generatedSchedules.js";
 import {
   buildPreScheduleArtifact,
   buildFieldAveragedPreScheduleArtifact,
@@ -85,35 +87,6 @@ import {
   fieldStatistics,
 } from "../packages/core/rankingPoints/fieldAveraged.js";
 import { pmfMean } from "../packages/core/rankingPoints/analyticPmf.js";
-// ---------------------------------------------------------------------------
-// A MODULE CYCLE — deliberate, and safe only under a condition worth naming.
-// ---------------------------------------------------------------------------
-//
-// `measureGeneratedSchedules.ts` ALREADY imports this module (the criterion
-// constants, `replaySeason`, `quantilesOf`, `measureSeedNoiseFloor`,
-// `evaluateRungOneCriterion`). Importing back closes an ES module cycle.
-//
-// A cycle resolves by handing the PARTIALLY-INITIALISED namespace to whichever
-// side evaluates second. That is harmless here, and harmless ONLY because
-// NEITHER module reads an imported binding during top-level evaluation: every
-// top-level `const` on both sides is a literal or a pure arrow, and every
-// cross-module read happens inside a function called long after both modules
-// have finished initialising.
-//
-// So: if a later edit adds top-level work that touches an imported binding —
-// a derived constant, a frozen table built from the other module's array, a
-// `satisfies` over an imported type's runtime value — this cycle stops
-// resolving and one side silently sees `undefined`. The cycle-load assertions
-// in `scripts/measureFieldAveragedRanks.test.ts` exist to catch exactly that,
-// in a second, instead of ten minutes into a run.
-import {
-  DRAWS_PER_SCHEDULE,
-  REPLICATE_SUFFIX,
-  measureEdgeNoiseFloor,
-  measureResamplingFloor,
-  type EdgeNoiseFloor,
-  type ResamplingFloor,
-} from "./measureGeneratedSchedules.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 
@@ -161,8 +134,7 @@ export const DEFAULT_DRAWS = 1000;
  * committed n=20 record was produced at.
  *
  * It MIRRORS the shipped `PRESIM_SCHEDULE_COUNT` (`packages/harness/publish.ts`)
- * — READ from it conceptually, NEVER written back to it, exactly the read-only
- * framing `SHIPPED_SCHEDULE_COUNT` carries in `measureGeneratedSchedules.ts`.
+ * — READ from it conceptually, NEVER written back to it.
  * Nothing in this script may change what the publisher ships; a measurement
  * that edits the thing it is measuring is not a measurement.
  *
@@ -260,6 +232,184 @@ export const CLAUSE_2_RATE = 0.9;
 export const CLAUSE_3_MEAN_SHIFT = 0.25;
 /** The criterion's own sample requirement: at least six real finished events. */
 export const MINIMUM_EVENT_COUNT = 6;
+
+// ---------------------------------------------------------------------------
+// The binding noise floors (moved from the retired rung-2 script, 260913-pnp)
+// ---------------------------------------------------------------------------
+
+/**
+ * The draws per schedule both binding floors below are measured at, held
+ * FIXED at the shipped value (`PRESIM_DRAWS_PER_SCHEDULE`, publish.ts).
+ * Varying it at the same time as the schedule count would conflate "more
+ * schedules" with "more draws", which is the single most likely way a floor
+ * measurement produces a wrong answer. Moved here from the retired rung-2
+ * script in quick task 260913-pnp.
+ */
+export const DRAWS_PER_SCHEDULE = 50;
+
+/**
+ * THE RESAMPLING FLOOR — and why the seed-only floor above is not enough.
+ *
+ * `measureSeedNoiseFloor` re-simulates the SAME K priced schedules at two draw
+ * seeds. Both sides therefore see the IDENTICAL set of team-to-slot shuffles,
+ * so it isolates Monte-Carlo draw noise and nothing else. That is a real
+ * quantity, and it is NOT the quantity a two-arm comparison is up against: a
+ * candidate arm draws its OWN K shuffles, so the disagreement it must survive
+ * includes "which K shuffles did each side happen to draw", not just "which
+ * draws did each side happen to take".
+ *
+ * The rung-2 record `docs/models/random-vs-generated-schedules.md` makes
+ * exactly this criticism of plan 09-09's control. So the binding floor is
+ * measured rather than argued about: the baked construction against ITSELF,
+ * with two fully independent shuffle-and-draw streams at the same schedule
+ * count.
+ *
+ * The two streams are obtained by salting `algorithmVersion`, which in
+ * `buildPreScheduleArtifact` feeds the shuffle and baked seed hashes and
+ * NOTHING else — pricing comes from the caller's bound `predict`, which is the
+ * same closure for both sides. So the two replicates share every input except
+ * the random streams, which is precisely what "two independent draws of one
+ * construction" has to mean.
+ *
+ * Reported for clauses 1 and 2 both, and as with every floor on this project it
+ * is a DIAGNOSTIC: it may explain a verdict, never overrule one.
+ */
+export interface ResamplingFloor {
+  readonly withinTightRate: number;
+  readonly meanAbsMedianDiff: number;
+  readonly maxAbsMedianDiff: number;
+  readonly p10WithinRate: number;
+  readonly p90WithinRate: number;
+  /**
+   * Every team's `|median_A - median_B|`, retained so the POOLED 95th
+   * percentile can be computed across the whole sample rather than averaged
+   * out of per-event percentiles. Clause 1 asks for 95% of teams within 0.5,
+   * so the pooled 95th percentile IS the quantity the clause is about, and it
+   * is what makes the required-count extrapolation a calculation rather than
+   * an eyeball.
+   */
+  readonly absMedianDiffs: readonly number[];
+}
+
+/**
+ * Sums `count` of an artifact's priced schedules into one rank histogram per
+ * team, re-simulated with a draw stream derived from each schedule's own seed.
+ * The SAME derivation is used for every arm, so no arm gets a luckier stream by
+ * construction.
+ */
+export function aggregateOverPrefix(artifact: PreScheduleArtifact, count: number, drawSalt: number): number[][] {
+  const roster = artifact.roster;
+  const baselines: SimTeamBaseline[] = roster.map((teamKey) => ({ teamKey, earnedRpSum: 0, matchesPlayed: 0 }));
+  const totals = roster.map(() => new Array<number>(roster.length).fill(0));
+  for (const schedule of artifact.schedules.slice(0, count)) {
+    const inputs: SimMatchInput[] = schedule.matches.map((m) => ({
+      redTeamKeys: m.r.map((i) => roster[i]!),
+      blueTeamKeys: m.b.map((i) => roster[i]!),
+      redRpPmf: m.rp,
+      blueRpPmf: m.bp,
+    }));
+    const result = simulateRanks(inputs, baselines, DRAWS_PER_SCHEDULE, mulberry32(schedule.seed ^ drawSalt));
+    for (let t = 0; t < roster.length; t++) {
+      const h = result.rankHistograms.get(roster[t]!)!;
+      for (let rank = 0; rank < roster.length; rank++) totals[t]![rank]! += h[rank]!;
+    }
+  }
+  return totals;
+}
+
+export const RESAMPLE_DRAW_SALT = 0x2718_2818;
+
+export function measureResamplingFloor(
+  a: PreScheduleArtifact,
+  b: PreScheduleArtifact,
+  count: number
+): ResamplingFloor {
+  const draws = count * DRAWS_PER_SCHEDULE;
+  const totalsA = aggregateOverPrefix(a, count, RESAMPLE_DRAW_SALT);
+  const totalsB = aggregateOverPrefix(b, count, RESAMPLE_DRAW_SALT);
+  const n = a.roster.length;
+  const med: number[] = [];
+  const p10: number[] = [];
+  const p90: number[] = [];
+  for (let t = 0; t < n; t++) {
+    med.push(Math.abs(continuousQuantile(totalsA[t]!, 0.5, draws) - continuousQuantile(totalsB[t]!, 0.5, draws)));
+    p10.push(Math.abs(continuousQuantile(totalsA[t]!, 0.1, draws) - continuousQuantile(totalsB[t]!, 0.1, draws)));
+    p90.push(Math.abs(continuousQuantile(totalsA[t]!, 0.9, draws) - continuousQuantile(totalsB[t]!, 0.9, draws)));
+  }
+  return {
+    withinTightRate: med.filter((d) => d <= CLAUSE_1_MEDIAN_TIGHT).length / n,
+    meanAbsMedianDiff: med.reduce((x, y) => x + y, 0) / n,
+    maxAbsMedianDiff: Math.max(...med),
+    p10WithinRate: p10.filter((d) => d <= CLAUSE_2_EDGE_TOLERANCE).length / n,
+    p90WithinRate: p90.filter((d) => d <= CLAUSE_2_EDGE_TOLERANCE).length / n,
+    absMedianDiffs: med,
+  };
+}
+
+/**
+ * The salt that turns one baked build into an independent replicate of the
+ * SAME construction. Appended to `algorithmVersion`, which
+ * `buildPreScheduleArtifact` uses only for seed hashing.
+ */
+export const REPLICATE_SUFFIX = "+resample-replicate";
+
+/**
+ * THE SAME CONTROL, EXTENDED TO CLAUSE 2 — and it is an EXTENSION, not an
+ * alteration. `measureSeedNoiseFloor` (09-09) measures how far a team's MEDIAN
+ * rank moves between two seeds of the identical arm, which is clause 1's
+ * ceiling. Clause 2 is scored on the p10 and p90 BAND EDGES, which are
+ * estimated from the tails of the same finite draw count and therefore carry
+ * their own, different noise. Without this, a clause-2 failure could not be
+ * attributed between "the structures differ" and "the edges are not resolved at
+ * this draw count" — the exact ambiguity the seed-noise floor removes for
+ * clause 1.
+ *
+ * Identical construction to `measureSeedNoiseFloor`, deliberately: the baked
+ * arm's own priced schedules, two seeds, NEITHER of them the published one, and
+ * the SAME imported `continuousQuantile`. Nothing here is part of the criterion
+ * and nothing here may overrule it.
+ */
+export interface EdgeNoiseFloor {
+  readonly p10WithinRate: number;
+  readonly p90WithinRate: number;
+  readonly meanAbsP10Diff: number;
+  readonly meanAbsP90Diff: number;
+}
+
+export function measureEdgeNoiseFloor(artifact: PreScheduleArtifact, draws: number): EdgeNoiseFloor {
+  const roster = artifact.roster;
+  const baselines: SimTeamBaseline[] = roster.map((teamKey) => ({ teamKey, earnedRpSum: 0, matchesPlayed: 0 }));
+  const drawsPerSchedule = Math.max(1, Math.round(draws / artifact.schedules.length));
+  const totalsA = roster.map(() => new Array<number>(roster.length).fill(0));
+  const totalsB = roster.map(() => new Array<number>(roster.length).fill(0));
+  for (const schedule of artifact.schedules) {
+    const inputs: SimMatchInput[] = schedule.matches.map((m) => ({
+      redTeamKeys: m.r.map((i) => roster[i]!),
+      blueTeamKeys: m.b.map((i) => roster[i]!),
+      redRpPmf: m.rp,
+      blueRpPmf: m.bp,
+    }));
+    const a = simulateRanks(inputs, baselines, drawsPerSchedule, mulberry32(schedule.seed ^ 0x5a5a5a5a));
+    const b = simulateRanks(inputs, baselines, drawsPerSchedule, mulberry32(schedule.seed ^ 0x3c3c3c3c));
+    for (let t = 0; t < roster.length; t++) {
+      const ha = a.rankHistograms.get(roster[t]!)!;
+      const hb = b.rankHistograms.get(roster[t]!)!;
+      for (let rank = 0; rank < roster.length; rank++) {
+        totalsA[t]![rank]! += ha[rank]!;
+        totalsB[t]![rank]! += hb[rank]!;
+      }
+    }
+  }
+  const p10 = roster.map((_, t) => Math.abs(continuousQuantile(totalsA[t]!, 0.1, draws) - continuousQuantile(totalsB[t]!, 0.1, draws)));
+  const p90 = roster.map((_, t) => Math.abs(continuousQuantile(totalsA[t]!, 0.9, draws) - continuousQuantile(totalsB[t]!, 0.9, draws)));
+  return {
+    p10WithinRate: p10.filter((d) => d <= CLAUSE_2_EDGE_TOLERANCE).length / p10.length,
+    p90WithinRate: p90.filter((d) => d <= CLAUSE_2_EDGE_TOLERANCE).length / p90.length,
+    meanAbsP10Diff: p10.reduce((a, b) => a + b, 0) / p10.length,
+    meanAbsP90Diff: p90.reduce((a, b) => a + b, 0) / p90.length,
+  };
+}
+
 
 export interface Clause1Outcome {
   readonly pass: boolean;
@@ -895,7 +1045,7 @@ export function measureEvent(
   const noise = measureSeedNoiseFloor(bakedArtifact, bakedDraws);
 
   // `measureResamplingFloor` derives its OWN draw count as
-  // `count * DRAWS_PER_SCHEDULE` from the imported constant. If this run's
+  // `count * DRAWS_PER_SCHEDULE` from this module's constant. If this run's
   // draws-per-schedule is anything else, the floor would be read at a
   // different draw count than the candidate and the two numbers printed side
   // by side below would not be comparable — a silent, invisible mismatch of
@@ -903,7 +1053,7 @@ export function measureEvent(
   // before. It throws. It does not clamp and it does not proceed.
   if (drawsPerSchedule !== DRAWS_PER_SCHEDULE) {
     throw new Error(
-      `measureFieldAveragedRanks: this run resolves to ${drawsPerSchedule} draws per schedule, but measureResamplingFloor derives its own draw count from the imported DRAWS_PER_SCHEDULE = ${DRAWS_PER_SCHEDULE}. The binding floor would be measured at a different draw count than the candidate. Re-run with --draws equal to --schedules * ${DRAWS_PER_SCHEDULE} (for ${scheduleCount} schedules that is ${scheduleCount * DRAWS_PER_SCHEDULE}).`
+      `measureFieldAveragedRanks: this run resolves to ${drawsPerSchedule} draws per schedule, but measureResamplingFloor derives its own draw count from DRAWS_PER_SCHEDULE = ${DRAWS_PER_SCHEDULE}. The binding floor would be measured at a different draw count than the candidate. Re-run with --draws equal to --schedules * ${DRAWS_PER_SCHEDULE} (for ${scheduleCount} schedules that is ${scheduleCount * DRAWS_PER_SCHEDULE}).`
     );
   }
   const resampling = measureResamplingFloor(bakedArtifact, replicateArtifact, scheduleCount);

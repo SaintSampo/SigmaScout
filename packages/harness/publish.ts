@@ -80,7 +80,7 @@ import {
   type Corpus,
 } from "../corpus/db.js";
 import { buildPreScheduleArtifact } from "./preSchedule.js";
-import { defaultMatchesPerTeam, matchesPerTeamFor, ScheduleTemplateUnavailableError } from "./scheduleTemplates.js";
+import { defaultMatchesPerTeam, matchesPerTeamFor, MIN_SCHEDULE_TEAMS, MAX_SCHEDULE_TEAMS } from "./generatedSchedules.js";
 import { buildSeasonStream, WalkForwardSimulator, OUTCOME_KEYS, type PredictionRecord } from "./replay.js";
 import { corpusColdStartIndex } from "./corpusColdStart.js";
 import {
@@ -2050,10 +2050,9 @@ interface PreScheduleSidecarArgs {
  * sidecar prices from current (season-final) state and regenerates every
  * full publish (C-07). No R2 read, no freeze flag.
  *
- * Error split (C-11): `ScheduleTemplateUnavailableError` (a team count the
- * grid cannot serve) skips that one event with a logged reason;
- * `ScheduleTemplateMissingError` propagates and fails the whole run — a
- * missing cache file is an operator problem the run must surface loudly.
+ * A roster outside the generator's `MIN_SCHEDULE_TEAMS..MAX_SCHEDULE_TEAMS`
+ * range is skipped with a logged reason by an explicit size check before
+ * building, so any error the builder throws fails the whole run.
  *
  * A `null` from `buildPreScheduleArtifact` means this algorithm does not
  * model ranking points (the ordinary opr/epa answer) — skipped silently, so
@@ -2062,8 +2061,8 @@ interface PreScheduleSidecarArgs {
  * 260912-2ur: the returned `body` is the PUBLISHED projection of `artifact`,
  * not `artifact` itself. `buildPreScheduleArtifact` above still returns the
  * priced `schedules` block in full — `scripts/measureFieldAveragedRanks.ts`
- * and `scripts/measureGeneratedSchedules.ts` need that block intact as their
- * rung-1/rung-2 acceptance harness — but this function is the ONE place that
+ * needs that block intact as its rung-1 acceptance harness — but this
+ * function is the ONE place that
  * block gets serialized to bytes, and `PublishedPreScheduleArtifactSchema.
  * parse()` drops it before `JSON.stringify` ever sees it, carrying
  * `scheduleCount` forward from that block's length instead. Parsing here
@@ -2082,8 +2081,10 @@ function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: s
     console.log(`${label}: event_type ${args.eventType} is not RP-eligible (PD-06)`);
     return undefined;
   }
-  if (args.roster.length < 6) {
-    console.log(`${label}: roster has ${args.roster.length} team(s), below the 6-team minimum`);
+  if (args.roster.length < MIN_SCHEDULE_TEAMS || args.roster.length > MAX_SCHEDULE_TEAMS) {
+    console.log(
+      `${label}: roster has ${args.roster.length} team(s), outside the generator's ${MIN_SCHEDULE_TEAMS}..${MAX_SCHEDULE_TEAMS}-team range`
+    );
     return undefined;
   }
 
@@ -2135,38 +2136,29 @@ function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: s
   const matchesPerTeam =
     args.qualMatchCount > 0 ? matchesPerTeamFor(args.roster.length, args.qualMatchCount) : defaultMatchesPerTeam(args.eventType);
 
-  let artifact;
-  try {
-    artifact = buildPreScheduleArtifact({
-      eventKey: args.eventKey,
-      season: args.season,
-      eventType: args.eventType,
-      week: args.week,
-      algorithmId: args.algorithm.id,
-      algorithmVersion: args.algorithm.version,
-      roster: args.roster,
-      matchesPerTeam,
-      pricedFrom,
-      scheduleCount: PRESIM_SCHEDULE_COUNT,
-      drawsPerSchedule: PRESIM_DRAWS_PER_SCHEDULE,
-      generation: args.generation,
-      computedAt: args.computedAt,
-      // The C-04 seam: bound HERE to the chosen walk-forward/current state,
-      // so every published pmf is produced by the SAME `algorithm.predict()`
-      // joint-covariance RP path real matches use — this module owns no
-      // pricing math and no independence approximation can exist in it.
-      predict: (match) => {
-        const prediction = args.algorithm.predict(pricingState, match);
-        return args.fillRankingPoints === undefined ? prediction : args.fillRankingPoints(match, prediction);
-      },
-    });
-  } catch (err) {
-    if (err instanceof ScheduleTemplateUnavailableError) {
-      console.log(`${label}: ${err.message}`);
-      return undefined;
-    }
-    throw err; // ScheduleTemplateMissingError (C-11) and anything unexpected fail the run
-  }
+  const artifact = buildPreScheduleArtifact({
+    eventKey: args.eventKey,
+    season: args.season,
+    eventType: args.eventType,
+    week: args.week,
+    algorithmId: args.algorithm.id,
+    algorithmVersion: args.algorithm.version,
+    roster: args.roster,
+    matchesPerTeam,
+    pricedFrom,
+    scheduleCount: PRESIM_SCHEDULE_COUNT,
+    drawsPerSchedule: PRESIM_DRAWS_PER_SCHEDULE,
+    generation: args.generation,
+    computedAt: args.computedAt,
+    // The C-04 seam: bound HERE to the chosen walk-forward/current state,
+    // so every published pmf is produced by the SAME `algorithm.predict()`
+    // joint-covariance RP path real matches use — this module owns no
+    // pricing math and no independence approximation can exist in it.
+    predict: (match) => {
+      const prediction = args.algorithm.predict(pricingState, match);
+      return args.fillRankingPoints === undefined ? prediction : args.fillRankingPoints(match, prediction);
+    },
+  });
   if (artifact === null) return undefined; // RP-less algorithm — silent by design
 
   const key = preScheduleKey({ eventKey: args.eventKey, algorithmId: args.algorithm.id, version: args.algorithm.version });

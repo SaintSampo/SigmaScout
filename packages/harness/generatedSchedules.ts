@@ -1,37 +1,31 @@
 /**
- * A RULES-BASED random qualification-schedule generator, and the balance
- * measurements used to compare what it produces against the licensed
- * cheesy-arena template grid (rung 2).
+ * A RULES-BASED random qualification-schedule generator, the shared
+ * matches-per-team helpers, and the balance measurements used to check what it
+ * produces.
  *
  * ---------------------------------------------------------------------------
- * WHAT THIS IS FOR, AND WHAT IT IS NOT
+ * WHAT THIS IS FOR
  * ---------------------------------------------------------------------------
  *
  * The pre-schedule sidecar needs a PAIRING STRUCTURE — which slot plays with
  * and against which, in which match — onto which `buildPreScheduleArtifact`
- * shuffles the real roster. Today that structure comes from
- * `loadScheduleTemplate`, i.e. from Team 254's licensed pre-computed grid in
- * the gitignored `data/schedule-templates/`. This module answers whether a few
- * simple balance rules can produce a structure good enough to stand in for it.
- *
- * It is an EXPERIMENT'S input, not a shipped path: nothing in `publish.ts`
- * calls it, `scheduleTemplates.ts` is untouched, and the licensed grid remains
- * the only structure any published artifact has ever been built from.
+ * shuffles the real roster. This module is the ONLY shipped source of that
+ * structure (quick task 260913-pnp): `preSchedule.ts` generates one structure
+ * per schedule through `generateSchedule`, and `publish.ts` reads its
+ * matches-per-team helpers and servable roster range from here. It reads no
+ * files. `docs/models/rung2-generated-schedules.md` is its measurement record.
  *
  * ---------------------------------------------------------------------------
  * THE RULES, STATED BEFORE THEY ARE MEASURED
  * ---------------------------------------------------------------------------
  *
  * 1. EXACT APPEARANCE COUNT. A schedule for `numTeams` at `matchesPerTeam` has
- *    `ceil(numTeams * matchesPerTeam / 6)` matches — six slots each, the same
- *    geometry `scheduleTemplates.ts` records for the licensed grid. Every team
+ *    `ceil(numTeams * matchesPerTeam / 6)` matches — six slots each. Every team
  *    gets exactly `matchesPerTeam` RANKING-CREDITED appearances. The leftover
  *    `rows*6 - numTeams*matchesPerTeam` slots are SURROGATE appearances, given
- *    to that many DISTINCT teams, one flagged appearance each — the licensed
- *    grid's own convention, read off it structurally (40 teams at 11 → 4
- *    surrogate slots on 4 distinct teams; 76 at 10 → 2 on 2; every team's
- *    non-surrogate count exactly `matchesPerTeam` in both) rather than
- *    re-invented.
+ *    to that many DISTINCT teams, one flagged appearance each (40 teams at
+ *    11 → 4 surrogate slots on 4 distinct teams; 76 at 10 → 2 on 2; every
+ *    team's non-surrogate count exactly `matchesPerTeam` in both).
  *
  * 2. NO TEAM TWICE IN A MATCH. Enforced by construction — a team placed in a
  *    match is removed from that match's candidate pool.
@@ -62,11 +56,49 @@
  * callback the caller supplies, so the same seed always yields the same
  * schedule.
  */
-import type { ScheduleTemplateMatch } from "./scheduleTemplates.js";
 
-/** Six slots per match — the same constant `scheduleTemplates.ts`'s geometry note is written against. */
+/** Six slots per match: two alliances of three. */
 const SLOTS_PER_MATCH = 6;
 const ALLIANCE_SIZE = 3;
+
+/**
+ * One generated match: `red`/`blue` are three ZERO-BASED slot indices into a
+ * (shuffled) team list, and `redSurrogate`/`blueSurrogate` flag, positionally,
+ * which of those three slots is a surrogate appearance (plays the match, earns
+ * no ranking credit).
+ */
+export interface ScheduleMatch {
+  readonly red: readonly number[];
+  readonly blue: readonly number[];
+  readonly redSurrogate: readonly boolean[];
+  readonly blueSurrogate: readonly boolean[];
+}
+
+/** The smallest roster `generateSchedule` serves: one full six-slot match. */
+export const MIN_SCHEDULE_TEAMS = SLOTS_PER_MATCH;
+
+/** The largest roster `generateSchedule` serves: `pairKey`'s index capacity. A larger roster would make two different pairs share a key silently. */
+export const MAX_SCHEDULE_TEAMS = 1024;
+
+/**
+ * The matches-per-team a real schedule's shape implies —
+ * `trunc(qualMatchCount * 6 / numTeams)`, TRUNCATED, clamped into the closed
+ * interval 1..14. The clamp range is kept so published `matchesPerTeam` values
+ * do not move.
+ */
+export function matchesPerTeamFor(numTeams: number, qualMatchCount: number): number {
+  const truncated = Math.trunc((qualMatchCount * 6) / numTeams);
+  return Math.min(14, Math.max(1, truncated));
+}
+
+/**
+ * The matches-per-team to assume when the real schedule is unknown —
+ * 10 for TBA event type 3 (Championship Division), 12 otherwise. This is
+ * the Statbotics convention, named here as the source rather than invented.
+ */
+export function defaultMatchesPerTeam(eventType: number): number {
+  return eventType === 3 ? 10 : 12;
+}
 
 /** Candidate schedules built per call before the best is returned. Small on purpose: the marginal gain past a handful is far below the seed noise the experiment measures. */
 export const DEFAULT_RESTARTS = 4;
@@ -82,7 +114,7 @@ const GREEDY_RECENCY_WEIGHT = 2;
 const GREEDY_URGENCY_WEIGHT = 12;
 const GREEDY_JITTER = 0.35;
 
-/** `ceil(numTeams * matchesPerTeam / 6)` — the licensed grid's own row count for the same cell. */
+/** `ceil(numTeams * matchesPerTeam / 6)` — the fewest six-slot matches that give every team its appearances. */
 export function scheduleMatchCount(numTeams: number, matchesPerTeam: number): number {
   return Math.ceil((numTeams * matchesPerTeam) / SLOTS_PER_MATCH);
 }
@@ -105,7 +137,7 @@ function pairKey(a: number, b: number): number {
 }
 
 interface Candidate {
-  readonly matches: ScheduleTemplateMatch[];
+  readonly matches: ScheduleMatch[];
   readonly objective: number;
 }
 
@@ -139,7 +171,7 @@ function buildCandidate(numTeams: number, matchesPerTeam: number, rng: () => num
   // Rule 4: the natural spacing between a team's appearances.
   const targetGap = rows / matchesPerTeam;
 
-  const matches: ScheduleTemplateMatch[] = [];
+  const matches: ScheduleMatch[] = [];
   for (let i = 0; i < rows; i++) {
     const matchesLeft = rows - i;
     const chosen: number[] = [];
@@ -213,12 +245,11 @@ function buildCandidate(numTeams: number, matchesPerTeam: number, rng: () => num
     }
   }
 
-  // Rule 1's surrogate flags. The licensed grid places its surrogate
-  // appearances just after two complete rounds; the flag lands on each
-  // surrogate team's appearance nearest that position. WHERE the flag sits has
-  // no effect on the sidecar (a surrogate is excluded from ranking credit
-  // wherever it appears, and the rank simulation has no notion of match order)
-  // — it is matched so the two structures differ in as few ways as possible.
+  // Rule 1's surrogate flags. The flag lands on each surrogate team's
+  // appearance nearest the row just after two complete rounds
+  // (`floor(2 * numTeams / 6)`). WHERE the flag sits has no effect on the
+  // sidecar: a surrogate is excluded from ranking credit wherever it appears,
+  // and the rank simulation has no notion of match order.
   const surrogateTargetRow = Math.floor((2 * numTeams) / SLOTS_PER_MATCH);
   for (const t of surrogateTeams) {
     const mine = appearances[t]!;
@@ -263,24 +294,31 @@ function bestSplit(six: readonly number[], partnerCount: ReadonlyMap<number, num
 }
 
 /** The module header's objective, computed on a finished schedule. */
-export function objectiveOf(matches: readonly ScheduleTemplateMatch[], numTeams: number): number {
+export function objectiveOf(matches: readonly ScheduleMatch[], numTeams: number): number {
   const b = scheduleBalance(matches, numTeams, 0);
   return PARTNER_WEIGHT * b.excessPartnerPairs + OPPONENT_WEIGHT * b.excessOpponentPairs + BACK_TO_BACK_WEIGHT * b.backToBackCount;
 }
 
 /**
- * Generates a schedule for `numTeams` at `matchesPerTeam`, in the SAME shape
- * `loadScheduleTemplate` returns: zero-based slot indices with positional
- * surrogate flags, consumed identically by `buildPreScheduleArtifact`.
+ * Generates a schedule for `numTeams` at `matchesPerTeam`: zero-based slot
+ * indices with positional surrogate flags, the shape
+ * `buildPreScheduleArtifact` consumes.
+ *
+ * Throws `GeneratedScheduleError` for a roster outside
+ * `MIN_SCHEDULE_TEAMS..MAX_SCHEDULE_TEAMS` or fewer than one match per team,
+ * before any construction work.
  */
 export function generateSchedule(
   numTeams: number,
   matchesPerTeam: number,
   rng: () => number,
   restarts: number = DEFAULT_RESTARTS
-): ScheduleTemplateMatch[] {
-  if (numTeams < SLOTS_PER_MATCH) {
+): ScheduleMatch[] {
+  if (numTeams < MIN_SCHEDULE_TEAMS) {
     throw new GeneratedScheduleError(`${numTeams} teams cannot fill a ${SLOTS_PER_MATCH}-slot match`);
+  }
+  if (numTeams > MAX_SCHEDULE_TEAMS) {
+    throw new GeneratedScheduleError(`${numTeams} teams exceeds the ${MAX_SCHEDULE_TEAMS}-team maximum the pair index can hold`);
   }
   if (matchesPerTeam < 1) throw new GeneratedScheduleError(`matchesPerTeam must be at least 1, got ${matchesPerTeam}`);
   let best: Candidate | undefined;
@@ -317,7 +355,7 @@ export interface ScheduleBalance {
 }
 
 /** Measures a pairing structure's balance. Pure; `matchesPerTeam` is used only to report the credited-appearance range, so `0` is a legitimate "don't care". */
-export function scheduleBalance(matches: readonly ScheduleTemplateMatch[], numTeams: number, matchesPerTeam: number): ScheduleBalance {
+export function scheduleBalance(matches: readonly ScheduleMatch[], numTeams: number, matchesPerTeam: number): ScheduleBalance {
   void matchesPerTeam;
   const partnerCount = new Map<number, number>();
   const opponentCount = new Map<number, number>();
