@@ -11,11 +11,7 @@ import {
   bonusStatesFromFlags,
 } from "./bonusRp.js";
 
-/**
- * Walks up from the working directory to a repo-relative file. Used rather
- * than `import.meta.url` because this file runs under the web project's jsdom
- * environment, where `import.meta.url` is not a file: URL.
- */
+/** Walks up from the working directory to a repo-relative file; under jsdom `import.meta.url` is not a file: URL. */
 function findUpward(relative: string): string | undefined {
   let dir = process.cwd();
   for (let i = 0; i < 6; i++) {
@@ -28,9 +24,8 @@ function findUpward(relative: string): string | undefined {
 
 /**
  * `bonusRp.ts` copies each season's BONUS_NAMES rather than importing the
- * rule modules (which would drag the whole Sigma1 RP implementation into the
- * client bundle). This pins the copy: a season added, removed or renamed in
- * core fails here instead of silently rendering the wrong letters.
+ * rule modules into the client bundle. This pins the copy: a season added,
+ * removed or renamed in core fails here instead of rendering wrong letters.
  */
 describe("bonusRp table matches the core RP rule modules", () => {
   it("covers exactly the seasons core registers", () => {
@@ -57,11 +52,9 @@ describe("bonusRp table matches the core RP rule modules", () => {
 });
 
 /**
- * F10 (quick task 260914-01x, sketch 012 variant C): a predicted dot fills
- * from the bottom to its probability. There is no threshold any more. The
- * height is `round(p * innerPx)` clamped to `[1, innerPx - 1]`, so a
- * prediction never draws as empty or full, matching `predictionPercent`'s
- * 1-99% display policy (CD-06).
+ * A predicted dot fills from the bottom to its probability, no threshold:
+ * `round(p * innerPx)` clamped to `[1, innerPx - 1]`, so a prediction never
+ * draws empty or full, matching `predictionPercent`'s 1-99% policy.
  */
 describe("bonusDotFillPx", () => {
   it.each([
@@ -166,12 +159,9 @@ describe("bonusDotLabel", () => {
 
 describe("F10's upstream measurement record stays pinned to the threshold it describes", () => {
   it("the committed attribution record's dotThreshold equals the literal 0.5", () => {
-    // 2026-09-14, quick task 260914-01x (CD-08): F10 retired the web app's
-    // PREDICTED_BONUS_THRESHOLD. Predicted dots now fill to their odds with no
-    // threshold at all. The attribution record is a frozen measurement of the
-    // dot as it was drawn before that change, a solid dot at 50% or more, so
-    // its dotThreshold stays 0.5 and is pinned here as a literal. It no longer
-    // mirrors any live constant.
+    // The attribution record is a frozen measurement of the earlier solid dot
+    // (drawn at 50% or more), so its dotThreshold is pinned as a literal 0.5;
+    // it mirrors no live constant.
     const RECORD_RELATIVE = "data/baselines/rp-attribution-2026-09.json";
     const recordPath = findUpward(RECORD_RELATIVE);
     expect(recordPath, `could not locate ${RECORD_RELATIVE} above ${process.cwd()}`).toBeDefined();
