@@ -503,9 +503,33 @@ function maintainedStateBlock(params: MergeEventArtifactParams, upcomingCount: n
   }
 }
 
-/** Read-modify-write merge: replaces newly-folded matches (removing them from `upcoming`), rewrites the remaining `upcoming` rows schedule-only, refreshes touched teams' standings rows, keeps the SPR `state` block current, and preserves everything else from `existing` unchanged. Bootstraps a schema-valid (but degraded — no history this Worker cannot see) artifact when `existing` is `undefined`. */
-function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
+/**
+ * Read-modify-write merge: replaces newly-folded matches (removing them from
+ * `upcoming`), rewrites the remaining `upcoming` rows schedule-only, refreshes
+ * touched teams' standings rows, keeps the SPR `state` block current, and
+ * SPREADS everything else from `existing` through unchanged. Bootstraps a
+ * schema-valid (but degraded — no history this Worker cannot see) artifact
+ * when `existing` is `undefined`.
+ *
+ * SPREAD-THEN-OVERRIDE, never an allow-list. `existing` came through
+ * `LiveEventArtifactSchema.parse`, which strips unknown keys, so the spread
+ * carries exactly the schema-known keys and a key the publisher adds later
+ * survives a tick automatically. An allow-list is how the identity bug
+ * happened: `name`/`startDate`/`location`/`week`/`alliances` were added to
+ * the schema after this merge was written and were silently dropped on every
+ * tick. The keys the tick owns are listed explicitly below, each keeping its
+ * original position. An owned key the tick may OMIT must be destructured out
+ * of `existing` first, or a stale value would survive the spread; today that
+ * is only `state` (dropped for non-SPR artifacts and for events with no
+ * upcoming match), which the destructuring also re-appends last, where the
+ * schema wants the large block. Trade-off: a future key that should be
+ * tick-owned is carried stale until someone lists it here — the project's
+ * documented carry-forward policy, as for the Sigma entry and the teams-row
+ * tier/record.
+ */
+export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
   const { existing, eventKey, season, algorithmId, algorithmVersion, eventType, newlyFolded, newPredictions, stillUpcoming, touchedTeams, touchedMetrics, newBands, stamp } = params;
+  const { state: _existingState, ...carriedFromExisting } = existing ?? {};
 
   const newMatchKeys = new Set(newlyFolded.map((m) => m.matchKey));
   const preservedMatches = (existing?.matches ?? []).filter((m) => !newMatchKeys.has(m.matchKey));
@@ -527,22 +551,37 @@ function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
 
   const existingTeams = existing?.teams ?? [];
   const touchedSet = new Set(touchedTeams);
+  // Touched rows are replaced IN PLACE, so a tick never reorders the
+  // standings. `rank`, `record` and `rp` are TBA's own official standings
+  // (this Worker never fetches `/event/{key}/rankings` and never recomputes
+  // them): they are preserved as last published and are stale until the next
+  // republish, exactly as the Sigma entry and the teams-row `record` are.
+  // Stale-but-true TBA values beat a standings table whose columns vanish
+  // mid-event.
   const teams = [
-    ...existingTeams.filter((t) => !touchedSet.has(t.teamKey)),
-    ...touchedTeams.map((teamKey) => {
-      const prior = existingTeams.find((t) => t.teamKey === teamKey);
-      return {
+    ...existingTeams.map((row) =>
+      touchedSet.has(row.teamKey)
+        ? {
+            ...row,
+            // Carries the prior row's published Sigma entry forward; a live
+            // tick computes no season-final Sigma of its own.
+            metrics: touchedEventTeamMetrics(row.metrics, touchedMetrics[row.teamKey] ?? {}),
+          }
+        : row
+    ),
+    // A touched team with no published row yet is appended, in the bootstrap shape.
+    ...touchedTeams
+      .filter((teamKey) => !existingTeams.some((t) => t.teamKey === teamKey))
+      .map((teamKey) => ({
         teamKey,
-        teamNumber: prior?.teamNumber ?? fallbackTeamNumber(teamKey),
-        nickname: prior?.nickname ?? "",
-        // Carries the prior row's published Sigma entry forward; a live tick
-        // computes no season-final Sigma of its own.
-        metrics: touchedEventTeamMetrics(prior?.metrics, touchedMetrics[teamKey] ?? {}),
-      };
-    }),
+        teamNumber: fallbackTeamNumber(teamKey),
+        nickname: "",
+        metrics: touchedEventTeamMetrics(undefined, touchedMetrics[teamKey] ?? {}),
+      })),
   ];
 
   return {
+    ...carriedFromExisting,
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: stamp.generation,
     computedAt: stamp.computedAt,
@@ -691,9 +730,20 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
     teamNumber: existing?.teamNumber ?? fallbackTeamNumber(teamKey),
     nickname: existing?.nickname ?? "",
     season,
-    // Carries the prior Sigma entry forward, keeping the team page's Total
-    // tile pill visible during a live event.
-    seasonStats: { record, metrics: touchedEventTeamMetrics(existing?.seasonStats.metrics, metrics) },
+    // Spread for the same reason the top level spreads: a key this tick does
+    // not own (today `metricsBasis`, tomorrow whatever the publisher adds)
+    // must survive. `metrics` carries the prior Sigma entry forward, keeping
+    // the team page's Total tile pill visible during a live event. The tick
+    // owns `metrics`, so it owns the label describing them: blindly carrying
+    // a published "last-official-match" through an offseason tick would
+    // mislabel the value. The missing percentiles and the unscoped offseason
+    // write stay open in `live-merges-drop-percentiles`.
+    seasonStats: {
+      ...existing?.seasonStats,
+      record,
+      metrics: touchedEventTeamMetrics(existing?.seasonStats.metrics, metrics),
+      metricsBasis: matches.every((m) => isOfficialEventType(m.eventType)) ? ("last-official-match" as const) : ("season-final" as const),
+    },
     events,
     metricHistory: [...(existing?.metricHistory ?? []), ...newMetricHistoryRows],
   };
