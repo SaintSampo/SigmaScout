@@ -226,7 +226,68 @@ the fresh/reused split, parse `isolateRequest=N` from each tail event's logs. Ar
 `rpSkip=` (see `docs/worker-operations.md`, "Pre-event probe"). **The probe is LEFT DEPLOYED** at
 `28051f5c`.
 
-## DIRECTION CHOSEN — horizon repricing (Jacob, 2026-09-13) — REJECTED by Jacob 2026-09-14
+## DIRECTION CHOSEN — browser pricing of upcoming matches (Jacob, 2026-09-15)
+
+Upcoming SPR matches are priced in the browser from published state. Neither the Worker nor the
+offline publisher prices them. Every upcoming row stays current, and the tick loses its dominant
+resolved cost (upcoming-loop RP, 7.2 ± 2.1 ms on reused isolates; see COMPONENT PROFILE).
+
+**Decisions (Jacob, 2026-09-15):**
+- **Unseen teams follow the offline rule.** If any roster team has no Sigma belief, the match shows
+  no band and no RP odds. The Worker's price-from-prior behavior goes away with its upcoming loop.
+- **Team pages price upcoming matches too.** When a team has upcoming matches at an event, the team
+  page fetches that event's file and prices from its `state` block. This also fixes stale and
+  duplicated unplayed rows on team artifacts: `mergeTeamSeasonArtifact` only appends.
+- **Polling is in scope.** Event pages with upcoming matches refetch about every 60 s; finished
+  events never poll. This closes DATA-04 gap F.3.
+- **Container: a series of quick tasks**, not a phase.
+
+**Design:**
+- **State location.** Embed a `state` block in the event artifact whenever it has upcoming matches:
+  the spr league row plus each roster team's row, carrying `sigmascoutSigma`, `sigmascoutRp`, the
+  Sigma population and the RP mean shift. Phase data is not needed. Drop the block when the last
+  match folds. A separate file was rejected: a live event file changes every tick anyway, and the
+  Worker already reads and writes it, so embedding adds zero subrequests while a separate file
+  adds 2 per event per tick.
+- **Measured size.** +9–12 KB on the wire for a 42-team regional, +16–21 KB for a 75-team division
+  (about +65%). Finished events carry nothing.
+- **Worker.** Keeps predict-before-update, played-row RP and the fold, then replaces touched teams'
+  entries in the block from the rows it just wrote. The upcoming loop is deleted, and with it the
+  partial-roster mispricing (`scheduled.ts:1106` → `spr.ts:468`).
+- **Browser.** A pricing module runs the shared code: `spr.predict`, the Sigma band
+  (`sigmaMatchBandVariance`), `RpMomentsAccumulator.momentsFor` → `RpMeanShiftAccumulator.apply`
+  (`rosterIsFullyWarm`) → `analyticRpPmf`, then `rounding.ts`. It loads as a lazy chunk, only on
+  pages with upcoming matches.
+- **Spec reading (REBUILD_SPEC.md:20-22).** Ratings stay precomputed; the browser only evaluates the
+  forecast for the remaining schedule. This is not the season recomputation the spec forbids.
+
+**Quick-task sequence (each step leaves the live site working):**
+1. **Pricer and parity test, no behavior change.**
+   - Split `stateSnapshot.ts`'s `node:fs` seed-SQL emitter out of the browser path.
+   - Load RP rule modules per season, not all ten.
+   - Build the pricing module from a `state` block.
+   - Add a parity test: the pricer on published state equals `SigmaScoutLayer.enrichUpcoming` on
+     every upcoming field (`pRedWin`, scores, own variance, band, RP pmfs, bonus pmfs and marginals,
+     `matchOutcomePmf`), including the unseen-team rule.
+   - Precedent: today's only upcoming parity test covers RP pmfs alone
+     (`scheduled.rp.test.ts:965`).
+2. **Publish the `state` block.**
+   - Make it optional in `EventArtifactSchema`.
+   - The publisher writes it; the Worker maintains it and deletes its upcoming loop.
+   - The Worker's upcoming rows become schedule-only, keeping `sortTime` (fixes the live row-shape
+     gap). Offline rows keep their priced fields for now.
+   - One republish and one Worker deploy. No D1 re-seed, since the row shape is unchanged.
+   - Nothing is live behind the pre-season gate, so no visitor sees the Worker's unpriced rows.
+3. **Web switch.**
+   - Event, match and simulation pages price from `state`, falling back to published fields.
+   - Team pages fetch the event file for upcoming matches and de-duplicate played/unplayed rows.
+   - Add polling (`refetchInterval` while `upcoming` is non-empty).
+4. **Measure and clean up.**
+   - Re-mirror the probe to the new tick and re-measure cold `cpuTime`.
+   - Strip priced fields from offline upcoming rows at the next republish that happens anyway.
+   - The pre-season gate also needs the remaining DATA-04 row-parity items before it can lift.
+
+## Horizon repricing (proposed 2026-09-13) — REJECTED by Jacob 2026-09-14
 
 > Jacob, 2026-09-14: "I don't like horizon repricing." He wants every upcoming row on the site kept
 > correct and current. Alternatives under consideration are pricing upcoming matches in the browser
