@@ -588,7 +588,8 @@ corpus, not that anything is broken.
    The block and D1 must describe the same state.
 3. Step 3 of the browser-pricing direction must have shipped. Until the web reads event artifacts
    with `LiveEventArtifactSchema`, an artifact the Worker wrote with upcoming matches does not parse
-   on the event page, because its upcoming rows are schedule-only (260915-isq DD-1).
+   on the event page, because its upcoming rows are schedule-only (260915-isq DD-1). The web switch
+   is quick task 260915-m4j: code-complete at its commit, and live once that web deploy lands.
 
 **Why the pairing matters.** Each tick splices the D1 rows it just wrote into the published block:
 touched teams' rows and the league row come from D1, untouched teams' rows stay the publish's copy.
