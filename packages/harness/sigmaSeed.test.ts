@@ -181,10 +181,22 @@ describe("the D1 seed carries the Sigma Score beliefs (shape 11)", () => {
 
 describe("publish.ts's seed block chains every level-2 passenger (structural)", () => {
   it("the one emitSeedSql call site is fed rows carrying Sigma, the Sigma population, and RP", () => {
+    // Retargeted in 260915-isq: the passenger chain lives in `seedStateRows`, which feeds both the
+    // emitSeedSql call site and every SPR event artifact's `state` block (through one memoized getter),
+    // so the passengers are asserted on the helper and the two consumers on its getter.
     const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8");
-    const block = /const state = finalSeasonStates\.get\(algorithm\.id\);[\s\S]*?emitSeedSql\(/.exec(source);
-    expect(block, "expected to find publish.ts's seed-emission block").not.toBeNull();
-    const body = block![0];
+    const helper = /function seedStateRows\([\s\S]*?\n}\n/.exec(source);
+    expect(helper, "expected to find publish.ts's seedStateRows helper").not.toBeNull();
+    const body = helper![0];
+    expect(body).toContain("serializeState(");
+
+    const seedLoop = /const stateRows = finalSeasonStateRows\.get\(algorithm\.id\);[\s\S]*?emitSeedSql\(rows, /.exec(source);
+    expect(seedLoop, "the emitSeedSql call site is no longer fed the helper's memoized rows").not.toBeNull();
+    expect(seedLoop![0]).toContain("const rows = stateRows();");
+    expect(source, "the event blocks no longer read the same getter").toContain("stateRows: eventStateRowsForAlgo,");
+    expect(source).toContain("const eventStateRowsForAlgo = algorithm === spr ? stateRowsForAlgo : undefined;");
+    expect(source).toContain("memoizedSeedStateRows(algorithm, state, layerForAlgo, stamp)");
+    expect(source).toMatch(/function memoizedSeedStateRows\([\s\S]*?seedStateRows\(algorithm, state, layer, stamp\)/);
 
     // Each of these is a separate, silent divergence between the live Worker
     // and the artifacts it serves if it goes missing. `withSigmaPopulation` is
@@ -193,7 +205,7 @@ describe("publish.ts's seed block chains every level-2 passenger (structural)", 
     // `withRpMeanShift` joined 2026-09-14 (shape 16, quick task 260914-01x):
     // another LEAGUE-row passenger, so exactly as easy to forget.
     for (const passenger of ["withSigmaBeliefs(", "withSigmaPopulation(", "withRpBeliefs(", "withRpMeanShift("]) {
-      expect(body, `publish.ts's seed block no longer chains ${passenger}`).toContain(passenger);
+      expect(body, `publish.ts's seedStateRows no longer chains ${passenger}`).toContain(passenger);
     }
   });
 });

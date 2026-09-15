@@ -69,10 +69,10 @@ export const SIMULATION_EMPTY_STATE_BODY =
  * `redRpPmf`/`blueRpPmf` (see `hasSimulatableRankInputs` below for the
  * mechanism). Two causes are stated, both hedged, neither asserted for any
  * one event: not every rating publishes the distributions, and offseason
- * events never carry them — `EventArtifactSchema` carries no `eventType`
- * field, so this component genuinely cannot confirm offseason is the
- * reason for any INDIVIDUAL event, only that it is the usual one across
- * the corpus. The no-explanation rule forbids naming an algorithm or the
+ * events never carry them — this component does not read `eventType`,
+ * and artifacts published before 260915-isq do not carry it, so it
+ * genuinely cannot confirm offseason is the reason for any INDIVIDUAL
+ * event, only that it is the usual one across the corpus. The no-explanation rule forbids naming an algorithm or the
  * dropdown here — guarded by a dedicated prohibition test in
  * `SimulationTab.test.tsx`.
  */

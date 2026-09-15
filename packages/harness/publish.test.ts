@@ -61,6 +61,7 @@ import {
 import {
   artifactKey,
   decodeTeamsRowMetrics,
+  EventStateBlockSchema,
   preScheduleKey,
   publishedTierForPercentile,
   PublishedPreScheduleArtifactSchema,
@@ -90,6 +91,27 @@ vi.mock("./publishBudget.js", async (importOriginal) => {
   return { ...real, PAGE_BUDGET_MAX_BYTES: { ...real.PAGE_BUDGET_MAX_BYTES } };
 });
 import { PAGE_BUDGET_MAX_BYTES, PublishBudgetExceededError } from "./publishBudget.js";
+// Captures the D1 seed rows instead of writing a file. Only the `skipState: false` state-block describe
+// reaches it; every other test here skips state.
+const capturedSeedRows = vi.hoisted(() => new Map<string, readonly unknown[]>());
+vi.mock("./seedSql.js", () => ({
+  emitSeedSql: vi.fn((rows: readonly unknown[], options: { algorithmId: string }) => {
+    capturedSeedRows.set(options.algorithmId, rows);
+  }),
+}));
+import { corpusColdStartIndex } from "./corpusColdStart.js";
+import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
+import { buildEventStateBlock, priceUpcomingFromState } from "./eventStatePricing.js";
+import {
+  readRpBeliefs,
+  readSigmaBeliefs,
+  serializeState,
+  withRpBeliefs,
+  withRpMeanShift,
+  withSigmaBeliefs,
+  withSigmaPopulation,
+  type StateRow,
+} from "./stateSnapshot.js";
 
 function fixtureMatch(overrides: Partial<MatchResult> = {}): MatchResult {
   return {
@@ -4946,4 +4968,194 @@ describe("RP calibration wire-budget cost", () => {
       console.log(`RP calibration wire-budget: largest post-attach compare artifact is ${largest} bytes (compare-${largestYear}.json), ceiling ${compareBudgetMaxBytes}`);
     });
   }
+});
+
+/**
+ * 260915-isq: the SPR event artifact's `state` block is built from exactly the rows the D1 seed
+ * carries, and every event artifact carries `eventType`. `emitSeedSql` is mocked (hoisted at the top of
+ * this file) to capture its rows; every other test here uses `skipState: true` and never reaches it.
+ */
+describe("publishSeasons — the SPR state block comes from the seed rows (260915-isq)", () => {
+  let dir: string;
+  let db: Corpus;
+  const SEASON_2024 = 2024;
+  const TEAMS = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-state-block-corpus-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+    capturedSeedRows.clear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** "2024done" is fully played; "2024live" has eight played matches and two unplayed ones. */
+  function seedCorpus(): void {
+    upsertEvent(db, seasonEvent({ eventKey: "2024done", year: SEASON_2024, name: "Done Event" }));
+    upsertEvent(db, seasonEvent({ eventKey: "2024live", year: SEASON_2024, name: "Live Event", startDate: "2024-03-08" }));
+    const rosters: [string[], string[]][] = [
+      [["frc1", "frc2", "frc3"], ["frc4", "frc5", "frc6"]],
+      [["frc1", "frc4", "frc5"], ["frc2", "frc3", "frc6"]],
+      [["frc2", "frc4", "frc6"], ["frc1", "frc3", "frc5"]],
+      [["frc3", "frc5", "frc6"], ["frc1", "frc2", "frc4"]],
+    ];
+    rosters.forEach(([red, blue], i) => {
+      upsertMatch(
+        db,
+        seasonMatch({
+          matchKey: `2024done_qm${i + 1}`,
+          eventKey: "2024done",
+          matchNumber: i + 1,
+          sortTime: 1_000 + i * 100,
+          redTeams: red,
+          blueTeams: blue,
+          redScore: 90 + i * 7,
+          blueScore: 70 + i * 11,
+          winner: 90 + i * 7 > 70 + i * 11 ? "red" : "blue",
+          hasScoreBreakdown: true,
+          scoreBreakdownRaw: JSON.stringify(rawBreakdown2024()),
+        })
+      );
+    });
+    for (let i = 0; i < 10; i++) {
+      const [red, blue] = rosters[i % rosters.length]!;
+      const played = i < 8;
+      upsertMatch(
+        db,
+        seasonMatch({
+          matchKey: `2024live_qm${i + 1}`,
+          eventKey: "2024live",
+          matchNumber: i + 1,
+          sortTime: 5_000 + i * 100,
+          redTeams: i % 2 === 0 ? red : blue,
+          blueTeams: i % 2 === 0 ? blue : red,
+          redScore: played ? 80 + ((i * 13) % 40) : null,
+          blueScore: played ? 75 + ((i * 17) % 40) : null,
+          winner: played ? (80 + ((i * 13) % 40) > 75 + ((i * 17) % 40) ? "red" : "blue") : null,
+          hasScoreBreakdown: played,
+          scoreBreakdownRaw: played ? JSON.stringify(rawBreakdown2024()) : null,
+        })
+      );
+    }
+  }
+
+  async function publish(): Promise<void> {
+    seedCorpus();
+    await publishSeasons(db, { seasons: [SEASON_2024], algorithms: [opr, spr], bucket: "test-bucket", dryRun: false, skipState: false });
+  }
+
+  it("the spr block deep-equals buildEventStateBlock over the captured seed rows and the event's match rosters, stateJson for stateJson", async () => {
+    await publish();
+    const seedRows = capturedSeedRows.get(spr.id) as readonly StateRow[] | undefined;
+    expect(seedRows, "emitSeedSql was never called for spr").toBeDefined();
+
+    const artifact = findEventArtifact("2024live", spr.id);
+    expect(artifact.upcoming.map((r) => r.matchKey)).toEqual(["2024live_qm9", "2024live_qm10"]);
+    expect(artifact.eventType).toBe(0);
+    expect(artifact.state, "an spr event with upcoming matches carries no state block").toBeDefined();
+    expect(artifact.state).toEqual(buildEventStateBlock(seedRows!, TEAMS));
+
+    const seedByScope = new Map(seedRows!.map((r) => [`${r.scopeKind}:${r.scopeKey}`, r]));
+    expect(artifact.state!.rows.length).toBe(TEAMS.length + 1);
+    for (const row of artifact.state!.rows) {
+      expect(row.stateJson, `${row.scopeKind}:${row.scopeKey}`).toBe(seedByScope.get(`${row.scopeKind}:${row.scopeKey}`)!.stateJson);
+    }
+  });
+
+  it("opr carries eventType and no block; a fully played spr event carries eventType and no block; offline upcoming rows keep every priced field", async () => {
+    await publish();
+    const oprLive = findEventArtifact("2024live", opr.id);
+    expect(oprLive.eventType).toBe(0);
+    expect(oprLive.upcoming.length).toBe(2);
+    expect("state" in oprLive).toBe(false);
+
+    const sprDone = findEventArtifact("2024done", spr.id);
+    expect(sprDone.eventType).toBe(0);
+    expect(sprDone.upcoming).toEqual([]);
+    expect("state" in sprDone).toBe(false);
+
+    const sprLive = findEventArtifact("2024live", spr.id);
+    for (const row of sprLive.upcoming) {
+      expect(typeof row.pRedWin).toBe("number");
+      expect(typeof row.predictedRedScore).toBe("number");
+      expect(typeof row.predictedBlueScore).toBe("number");
+      expect(row.predictedWinner).toMatch(/^(red|blue)$/);
+    }
+  });
+
+  it("end to end: the pricer on the JSON round-tripped published block reproduces the artifact's own upcoming rows", async () => {
+    await publish();
+    const artifact = findEventArtifact("2024live", spr.id);
+    // Non-vacuity: the rows being reproduced carry a band.
+    expect(artifact.upcoming.some((r) => r.redMatchBandVariance !== undefined || r.blueMatchBandVariance !== undefined)).toBe(true);
+
+    const wire = EventStateBlockSchema.parse(JSON.parse(JSON.stringify(artifact.state)));
+    const priced = priceUpcomingFromState({
+      state: wire,
+      eventKey: artifact.eventKey,
+      season: SEASON_2024,
+      eventType: artifact.eventType!,
+      ruleModule: RP_RULE_MODULES[SEASON_2024],
+      upcoming: artifact.upcoming,
+    });
+    expect(priced.event).toEqual(artifact.upcoming);
+    expect(JSON.parse(JSON.stringify(priced.event))).toStrictEqual(JSON.parse(JSON.stringify(artifact.upcoming)));
+  });
+
+  it("buildEventArtifact calls stateRows only for spr with a non-empty upcoming, and emits eventType whenever it is given", () => {
+    const stateRows = vi.fn((): readonly StateRow[] => {
+      throw new Error("stateRows must not be called here");
+    });
+    const oprArtifact = buildEventArtifact(eventArtifactParams({ algorithmId: "opr", eventType: 3, stateRows }));
+    expect(oprArtifact.eventType).toBe(3);
+    expect("state" in oprArtifact).toBe(false);
+    const finished = buildEventArtifact(eventArtifactParams({ upcoming: [], eventType: 0, stateRows }));
+    expect(finished.eventType).toBe(0);
+    expect("state" in finished).toBe(false);
+    expect(stateRows).not.toHaveBeenCalled();
+    // No eventType given: no key, never a default.
+    expect("eventType" in buildEventArtifact(eventArtifactParams())).toBe(false);
+  });
+
+  it("the captured seed rows deep-equal an independently built chain over the replayed final state", async () => {
+    await publish();
+    const seedRows = capturedSeedRows.get(spr.id) as readonly StateRow[];
+
+    const stream = buildSeasonStream(db, SEASON_2024, { includeOffseason: false });
+    const teams = Array.from(new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams])));
+    const talentAfterMatch = new Map<string, Map<string, number>>();
+    const records = new WalkForwardSimulator(stream, corpusColdStartIndex(db)).runAll([spr], teams, undefined, (match, _algorithmId, state) => {
+      const roster = [...match.redTeams, ...match.blueTeams];
+      const metrics = spr.teamMetrics(state as never, roster);
+      const talent = new Map<string, number>();
+      for (const teamKey of roster) {
+        const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+        if (total !== undefined) talent.set(teamKey, total);
+      }
+      talentAfterMatch.set(match.matchKey, talent);
+    });
+    const layer = new SigmaScoutLayer(RP_RULE_MODULES[SEASON_2024], spr.id);
+    for (const r of records) layer.foldPlayed(r.match, r.prediction, talentAfterMatch.get(r.match.matchKey));
+
+    const stamp = { generation: seedRows[0]!.generation, computedAt: seedRows[0]!.computedAt };
+    let expected = withRpBeliefs(
+      withSigmaBeliefs(serializeState(spr.id, spr.version, records.finalStates.get(spr.id) as never, stamp), layer.sigmaBeliefs()),
+      layer.rpVariableBeliefs()
+    );
+    const population = layer.sigmaPopulation();
+    expect(population).toBeDefined();
+    expected = withSigmaPopulation(expected, population!);
+    const shift = layer.rpMeanShiftState();
+    expect(shift).toBeDefined();
+    expected = withRpMeanShift(expected, shift!);
+
+    expect(seedRows).toEqual(expected);
+    // Non-vacuity: the passengers are really in the seed.
+    expect(readRpBeliefs(seedRows).size).toBe(TEAMS.length);
+    expect(readSigmaBeliefs(seedRows).size).toBe(TEAMS.length);
+  });
 });

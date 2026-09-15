@@ -524,11 +524,14 @@ budget for a whole event weekend describes. The precedent is 2026-08-28: every t
 `exceededCpu` for days, and nothing on the site said so. A visitor reads confidently stale numbers
 all weekend with no signal. See ["How the CPU budget is actually enforced"](#how-the-cpu-budget-is-actually-enforced--corrected-2026-08-29).
 
-**One measurement is still owed and is cheap.** `stateProbe.ts` takes `folded`/`upcoming` counts but
-has no RP on/off flag. The expensive upcoming-repricing loop **predates Phase 9** (`dabe9acd`) —
-Phase 9 added `analyticRpPmf` into an already-costly loop — so Phase 9's own share of the overrun is
-currently an *inference*. Run an RP-ablated probe before choosing a fix direction, so the fix is
-aimed at the real dominant term rather than the assumed one.
+**The upcoming-repricing loop is gone (260915-isq).** The tick no longer predicts, bands or prices
+RP for still-upcoming matches: it writes them schedule-only and keeps the SPR event artifact's
+`state` block current, and the browser prices the schedule from that block (step 3 of the
+browser-pricing direction in the todo above). That removes the dominant term the measurement above
+was taken with. **The gate stays in force** until step 4 re-measures the tick without the loop (and
+re-mirrors the probe, which still prices it — see "Pre-event probe") and the remaining DATA-04
+row-parity items land. The measurement above is the dated evidence the gate was set on; it no longer
+describes the current tick.
 
 ---
 
@@ -571,6 +574,35 @@ curl -s https://data.sigmascout.org/v1/manifest/live-windows.json | \
 
 A count of `0` is normal out of season — it means no event has future scheduled matches in the
 corpus, not that anything is broken.
+
+### Publish with state blocks before the window opens (260915-isq)
+
+**Operational contract.** Before an event's live window opens:
+
+1. The event must be published by code that writes the SPR `state` block (quick task 260915-isq or
+   later). Every SPR event artifact with at least one upcoming match carries one.
+2. D1 must be seeded from the **same** publish run (`reports/publish/seed-spr.sql` from that run).
+   The block and D1 must describe the same state.
+3. Step 3 of the browser-pricing direction must have shipped. Until the web reads event artifacts
+   with `LiveEventArtifactSchema`, an artifact the Worker wrote with upcoming matches does not parse
+   on the event page, because its upcoming rows are schedule-only (260915-isq DD-1).
+
+**Why the pairing matters.** Each tick splices the D1 rows it just wrote into the published block:
+touched teams' rows and the league row come from D1, untouched teams' rows stay the publish's copy.
+The block is only exact if the publish and D1 started from the same state. The Worker **never
+bootstraps a block** from D1; an artifact without one stays without one until the next republish.
+Once an event's last match is folded, the block is dropped.
+
+**Reading the tick-log warnings:**
+
+- `event-state-block-missing` (`eventKey`, `algorithmId`, `upcoming`): the SPR artifact the tick
+  read carries no block. Either it was published before 260915-isq, or the event had no upcoming
+  matches when it was published. The tick wrote the artifact without a block, so upcoming matches
+  cannot be priced in the browser. Republish and re-seed D1 from that run before the next tick.
+- `event-state-block-invalid` (`eventKey`, `algorithmId`, `upcoming`, `error`): the block's
+  algorithm version or snapshot shape does not match the deployed Worker's rows (for example a
+  publish from before an SPR version bump). The tick dropped the block. Republish and re-seed as a
+  matched pair.
 
 ---
 
@@ -618,15 +650,17 @@ curl -s "https://sigmascout-state-probe.<subdomain>.workers.dev/?folded=2&upcomi
 | `teams` | discovered (up to `teamCount`) | Comma-separated override of the roster to fold |
 | `teamCount` | `21` | Peak realistic tick roster size — clamped under `MAX_SCOPE_KEYS_PER_READ` |
 | `folded` | `2` | Synthetic *played* matches priced (predict, band, RP fields, update, fold) |
-| `upcoming` | `60` | Synthetic *still-upcoming* matches priced (predict, band, RP fields — read only) |
+| `upcoming` | `60` | Synthetic *still-upcoming* matches priced (predict, band, RP fields — read only). The live tick no longer does this since 260915-isq; `upcoming=0` is the arm closest to the current tick until step 4 re-mirrors the probe |
 | `rp` | on | Whole-path ablation arm. `0`/`off`/`false`/`no` turns every RP component off (`rpBeliefTeamsResumed`, `rpGatesOpened`, `rpPmfsProduced`, etc. all read 0/false); any other unrecognized value runs ON and warns, so a typo is never silently measured as the ablated arm |
 | `rpSkip` | empty | Comma-separated list of RP components to skip independently, layered under `rp` (ignored when `rp=0`, since every component is already off). Case-insensitive; the param name itself is not. Six names: `resume` (the belief/mean-shift resume — skipping it forces every other component off too), `foldedPmf` (RP fields in the played-match loop), `upcomingPmf` (RP fields in the upcoming loop), `formula` (`analyticRpPmf` and its decomposition — the gates/`momentsFor`/mean-shift `apply` still run), `observe` (`observeMatch` + `foldObservedRp`), `beliefs` (the `withRpBeliefs`/`withRpMeanShift` write-back passengers). An unknown name skips **nothing** and warns; read `params.rpArm.id` and `params.rpArm.ran` in the response before trusting a `cpuTime` — they echo exactly what ran |
 | `algorithms` | every published id | Comma-separated algorithm ids to read and deserialize. `algorithms=spr` matches the live tick, which loads only the live tier; use it for CPU measurement. Unknown ids are ignored and warned, and `spr` is always kept because the fold needs it. Echoed as `params.algorithms` |
 
-`upcoming` defaults to 60, not a small number, because **the upcoming loop is where the CPU goes** —
-`processEvent` prices every still-upcoming match at the event, and early in a qual schedule that is
-60+ matches. Pricing only the folded matches under-states a real tick's cost by more than an order of
-magnitude.
+`upcoming` defaults to 60 because, when the probe was written, **the upcoming loop was where the CPU
+went**: `processEvent` priced every still-upcoming match at the event, and early in a qual schedule
+that is 60+ matches. **Since 260915-isq the live tick prices no upcoming match** (the browser prices
+them from the event's `state` block). The deployed probe still mirrors the tick as it was before that
+change, so its default arm over-states the current tick. Use `upcoming=0` for the arm closest to the
+current tick until step 4 re-mirrors the probe and re-measures.
 
 **Read `cpuTime`**, in a second terminal, and run the probe **several consecutive times** — never
 conclude from one invocation:
@@ -760,6 +794,8 @@ above. An observation your model says is impossible is the most valuable one you
 | A `live-tier-defaulted` warn line in the tail | `LIVE_ALGORITHM_IDS` did not reach the deployed Worker (e.g. a `--var` deploy that did not carry tracked vars through) | Redeploy from tracked config with `pnpm worker:deploy` and confirm the deploy output lists both `TBA_BASE_URL` and `LIVE_ALGORITHM_IDS` |
 | `outcome: "exceededCpu"` with an empty `logs` array on **every** tick | The tick is *consistently* over the 10 ms CPU budget. It is reaching the handler and dying before its final log line — it is **not** dying in module init (that is a separate 1-second budget) | `eventsConsidered` on any tick that does survive. If non-zero, fetch `https://data.sigmascout.org/v1/manifest/live-windows.json` and see what the Worker thinks is live — **read the manifest, never the calendar**. Read "How the CPU budget is actually enforced" above before drawing any conclusion from a single high `cpuTime` |
 | About to run an event; unsure the deployed bundle can read the rows in D1 | Untested since the last seed — a green idle tick does not exercise it | Run the pre-event probe (above) before the event starts, not during it |
+| An `event-state-block-missing` warn line in the tail | The SPR event artifact was published before 260915-isq, or had no upcoming matches at publish time; the Worker never bootstraps a block | Republish and re-seed D1 from the same run before the next tick (see "Publish with state blocks before the window opens") |
+| An `event-state-block-invalid` warn line in the tail | The published block's algorithm version or snapshot shape does not match the deployed Worker's rows; the tick dropped it | Read the `error` field, then republish and re-seed as a matched pair |
 
 ---
 

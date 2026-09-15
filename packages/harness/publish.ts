@@ -38,7 +38,7 @@ import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
 import { seasonBoundaryFor } from "./seasonBoundary.js";
 import type { OprState } from "../core/algorithms/opr.js";
 import type { EpaState } from "../core/algorithms/epa.js";
-import type { SprState } from "../core/algorithms/spr.js";
+import { spr, type SprState } from "../core/algorithms/spr.js";
 import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
 import { isOfficialEventType } from "../core/algorithms/eventTypes.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
@@ -87,11 +87,9 @@ import {
   publishesRankingPoints,
   SIGMA_METRIC_KEY,
   usesSigmaScore,
-  type SigmaBelief,
-  type SigmaPopulation,
 } from "./sigmaScore.js";
 import type { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
-import { RpMeanShiftAccumulator, rosterIsFullyWarm, type RpMeanShiftState } from "../core/rankingPoints/meanShift.js";
+import { RpMeanShiftAccumulator, rosterIsFullyWarm } from "../core/rankingPoints/meanShift.js";
 import { analyticRpPmf } from "../core/rankingPoints/analyticPmf.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 // The level-2 layer (Sigma Score, the band and ranking points), driven only by `publishSeasons`.
@@ -114,9 +112,10 @@ import {
   withRpMeanShift,
   withSigmaBeliefs,
   withSigmaPopulation,
+  type StateRow,
   type StateStamp,
 } from "./stateSnapshot.js";
-import type { RpTeamBeliefs } from "../core/rankingPoints/empiricalMoments.js";
+import { buildEventStateBlock } from "./eventStatePricing.js";
 import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
 import { splitManifestVersion } from "./manifestSchemas.js";
 import type { MetricHistoryRow } from "./metricHistorySchema.js";
@@ -395,6 +394,15 @@ export interface BuildEventArtifactParams {
    * rows; an unplayed match has no video.
    */
   readonly videoByMatchKey?: ReadonlyMap<string, string>;
+  /** TBA's `event_type` (the corpus `events.event_type`). Emitted as `eventType` when provided, for every algorithm. */
+  readonly eventType?: number;
+  /**
+   * The season-final D1 seed rows for this algorithm (`seedStateRows`, through its memoized getter).
+   * Called only for an SPR artifact with a non-empty `upcoming`, whose `state` block is
+   * `buildEventStateBlock` over these rows and every team key on the event's played and upcoming
+   * matches. Never called otherwise, so an event that needs no block costs no serialization.
+   */
+  readonly stateRows?: () => readonly StateRow[];
 }
 
 /**
@@ -561,6 +569,17 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
   // this publisher holds no season rules of its own.
   const rpOutcomeRp = findRpOutcomeRp(params.predictions, params.upcoming ?? []);
 
+  // The SPR state block a browser prices `upcoming` from: built from exactly the rows the D1 seed
+  // carries, so a live Worker splicing its own writes into it keeps it equal to D1. Only an SPR
+  // artifact with an upcoming match carries one; nothing else calls `stateRows`.
+  const state =
+    params.algorithmId === spr.id && upcoming.length > 0 && params.stateRows !== undefined
+      ? buildEventStateBlock(params.stateRows(), [
+          ...params.predictions.flatMap(({ match }) => [...match.redTeams, ...match.blueTeams]),
+          ...(params.upcoming ?? []).flatMap(({ match }) => [...match.redTeams, ...match.blueTeams]),
+        ])
+      : undefined;
+
   const candidate = {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: params.generation,
@@ -570,14 +589,55 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     eventKey: params.eventKey,
     season: params.season,
     ...identityFields,
+    ...(params.eventType !== undefined ? { eventType: params.eventType } : {}),
     matches,
     upcoming,
     teams,
     ...(alliances !== undefined ? { alliances } : {}),
     ...(rpOutcomeRp !== undefined ? { rpOutcomeRp } : {}),
+    ...(state !== undefined ? { state } : {}),
   };
 
   return EventArtifactSchema.parse(candidate);
+}
+
+/**
+ * The D1 seed rows for one algorithm's season-final state: `serializeState`, then every level-2
+ * passenger, in this order. The ONE passenger chain: the D1 seed (`emitSeedSql`) and every SPR event
+ * artifact's `state` block (`buildEventStateBlock`) are both built from its output, so a live Worker
+ * splicing its writes into a published block keeps the block equal to D1.
+ *
+ * Passengers chain onto rows after the algorithm serializer, which never knows they exist. Each one
+ * missing is a silent live/offline divergence, with no error on either side:
+ * - Sigma beliefs (team rows): without them the Worker prices bands from the flat prior.
+ * - RP beliefs (team rows): without them the Worker cold-starts every RP belief.
+ * - Sigma population (LEAGUE row): without it resumed beliefs fall back to the flat talent prior.
+ * - RP mean shift (LEAGUE row): without it the Worker prices live matches unshifted.
+ * LEAGUE-row passengers are the easy ones to forget.
+ *
+ * A non-Sigma algorithm gets an empty Sigma belief map and no population, so its seed carries no
+ * Sigma key; an algorithm that publishes no ranking points gets whatever its layer holds (empty) and
+ * no mean shift.
+ */
+function seedStateRows(algorithm: AlgorithmModule<unknown>, state: unknown, layer: SigmaScoutLayer, stamp: StateStamp): StateRow[] {
+  let rows = withRpBeliefs(
+    withSigmaBeliefs(
+      serializeState(algorithm.id, algorithm.version, state as EpaState | OprState | SprState, stamp),
+      layer.usesSigma ? layer.sigmaBeliefs() : new Map()
+    ),
+    layer.rpVariableBeliefs()
+  );
+  const sigmaPopulation = layer.usesSigma ? layer.sigmaPopulation() : undefined;
+  if (sigmaPopulation !== undefined) rows = withSigmaPopulation(rows, sigmaPopulation);
+  const rpMeanShift = layer.rpMeanShiftState();
+  if (rpMeanShift !== undefined) rows = withRpMeanShift(rows, rpMeanShift);
+  return rows;
+}
+
+/** `seedStateRows` computed at most once, on first call: a season serializes once however many event blocks need it. */
+function memoizedSeedStateRows(algorithm: AlgorithmModule<unknown>, state: unknown, layer: SigmaScoutLayer, stamp: StateStamp): () => readonly StateRow[] {
+  let rows: StateRow[] | undefined;
+  return () => (rows ??= seedStateRows(algorithm, state, layer, stamp));
 }
 
 /**
@@ -1671,17 +1731,14 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
   }
 
   let liveStatesAcrossSeasons = new Map<string, unknown>();
-  let finalSeasonStates = new Map<string, unknown>();
-  /** Per-team RP beliefs that ride the same seed, keyed by algorithm id. */
-  let finalSeasonRp = new Map<string, ReadonlyMap<string, RpTeamBeliefs>>();
-  /** The RP mean shift that rides the seed's LEAGUE row. Sparse: absent for an algorithm that publishes no ranking points. */
-  let finalSeasonRpMeanShift = new Map<string, RpMeanShiftState>();
   /**
-   * Per-team Sigma Score beliefs and their league-wide population, riding the same seed. Sparse: absent
-   * for an algorithm with no Sigma Score, whose seed must carry no Sigma key at all.
+   * The final season's seed-row getters (`memoizedSeedStateRows`), keyed by algorithm id; absent for
+   * an algorithm with no final state. The D1 seed calls the same getter the season's event blocks
+   * called, so both come from one serialization and one passenger chain.
    */
-  let finalSeasonSigma = new Map<string, ReadonlyMap<string, SigmaBelief>>();
-  let finalSeasonSigmaPopulation = new Map<string, SigmaPopulation>();
+  let finalSeasonStateRows = new Map<string, () => readonly StateRow[]>();
+  /** Run-wide `state` block totals for the summary. */
+  const stateBlockTotals = { count: 0, totalBytes: 0, maxBytes: 0, maxKey: "" };
 
   for (const [seasonIdx, season] of seasonsSorted.entries()) {
     const stream = buildSeasonStream(db, season, { includeOffseason });
@@ -1960,6 +2017,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
           });
     timings.add(`season ${season} fold`, performance.now() - foldStart);
 
+    const seasonStateRows = new Map<string, () => readonly StateRow[]>();
     for (const algorithm of options.algorithms) {
       const blockStart = performance.now();
       let sidecarMs = 0;
@@ -1990,6 +2048,14 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       // Season-final Sigma Scores (empty for non-Sigma algorithms), one accessor so the presim win-odds
       // variance and the metric entry below agree.
       const sigmaByTeamForAlgo = layerForAlgo.sigmaScoreByTeam();
+      // The season-final seed rows, serialized at most once: every SPR event block this season reads
+      // them, and the D1 seed reuses this getter when this is the final season.
+      const stateRowsForAlgo = state !== undefined ? memoizedSeedStateRows(algorithm, state, layerForAlgo, stamp) : undefined;
+      if (stateRowsForAlgo !== undefined) seasonStateRows.set(algorithm.id, stateRowsForAlgo);
+      // Event blocks only from the bundled SPR module itself: the browser prices a block with that
+      // module, so a stand-in that merely shares its id (a test double) must never publish one.
+      const eventStateRowsForAlgo = algorithm === spr ? stateRowsForAlgo : undefined;
+      const seasonStateBlocks = { count: 0, totalBytes: 0, maxBytes: 0, maxKey: "" };
       // The published Sigma Score metric, computed once and consumed by both the Teams row and the
       // team-season artifact, so they cannot disagree. The rating axis is season-final `metricsByTeam`,
       // matching the season-final Sigma Scores so both sides of the residual cover the same window.
@@ -2130,9 +2196,22 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
           alliances: alliancesForSeason.get(e.event_key) ?? [],
           rankings: eventRankingsForSeason.get(e.event_key),
           videoByMatchKey,
+          eventType: e.event_type,
+          stateRows: eventStateRowsForAlgo,
         });
         const key = artifactKey({ page: "event", eventKey: e.event_key, algorithmId: algorithm.id, version });
         const eventBody = JSON.stringify(eventArtifact);
+        if (eventArtifact.state !== undefined) {
+          const stateBytes = Buffer.byteLength(JSON.stringify(eventArtifact.state), "utf8");
+          for (const totals of [seasonStateBlocks, stateBlockTotals]) {
+            totals.count += 1;
+            totals.totalBytes += stateBytes;
+            if (stateBytes > totals.maxBytes) {
+              totals.maxBytes = stateBytes;
+              totals.maxKey = key;
+            }
+          }
+        }
         // The pre-schedule sidecar, only for in-scope seasons and RP-publishing algorithms (any other
         // algorithm's probe would return null after pricing a match for nothing). Other skips are decided
         // inside `buildPreScheduleSidecarForEvent`. It rides one queued task with the event artifact,
@@ -2235,6 +2314,13 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
         await publishTimed(() => uploader.publish("team", key, JSON.stringify(teamSeasonArtifact)));
       }
 
+      if (seasonStateBlocks.count > 0) {
+        console.log(
+          `publish: season ${season} ${algorithm.id}: ${seasonStateBlocks.count} event artifacts carry a state block ` +
+            `(${seasonStateBlocks.totalBytes} B, max ${seasonStateBlocks.maxBytes} B ${seasonStateBlocks.maxKey})`
+        );
+      }
+
       const blockLabel = `${season}/${algorithm.id}`;
       timings.add(`${blockLabel} build`, performance.now() - blockStart - sidecarMs - uploadWaitMs);
       timings.add(`${blockLabel} sidecars`, sidecarMs);
@@ -2264,29 +2350,10 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     // `finalStates` is the D1 seed the live Worker resumes, which continues the offseason-inclusive
     // season, so a rewound seed would make live and offline disagree.
     liveStatesAcrossSeasons = new Map(records.carryStates);
-    finalSeasonStates = new Map(records.finalStates);
-    // RP beliefs from the same offseason-inclusive population, for the same reason. Empty for an
-    // algorithm that publishes no ranking points.
-    finalSeasonRp = new Map(
-      options.algorithms.map((algorithm) => [algorithm.id, layers.get(algorithm.id)!.rpVariableBeliefs()])
-    );
-    // The mean shift, from the same layers at the same instant; collected sparsely.
-    finalSeasonRpMeanShift = new Map();
-    for (const algorithm of options.algorithms) {
-      const shift = layers.get(algorithm.id)!.rpMeanShiftState();
-      if (shift !== undefined) finalSeasonRpMeanShift.set(algorithm.id, shift);
-    }
-    // Sigma Score beliefs and population, same population and reason. Sparse: a non-Sigma algorithm
-    // contributes no entry, so its seed gets no Sigma key.
-    finalSeasonSigma = new Map();
-    finalSeasonSigmaPopulation = new Map();
-    for (const algorithm of options.algorithms) {
-      const layer = layers.get(algorithm.id)!;
-      if (!layer.usesSigma) continue;
-      finalSeasonSigma.set(algorithm.id, layer.sigmaBeliefs());
-      const population = layer.sigmaPopulation();
-      if (population !== undefined) finalSeasonSigmaPopulation.set(algorithm.id, population);
-    }
+    // The seed rows come from `records.finalStates` and these layers' passengers (RP beliefs, the mean
+    // shift, Sigma beliefs and population), all from the same offseason-inclusive population, for the
+    // same reason.
+    finalSeasonStateRows = seasonStateRows;
   }
 
   // Every queued put settles before the manifests point readers at this run's objects; a put that
@@ -2313,26 +2380,11 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
 
     // Only the final season's states are seeded into D1; earlier seasons only fed the carry thread.
     for (const algorithm of options.algorithms) {
-      const state = finalSeasonStates.get(algorithm.id);
-      if (state === undefined) continue;
-      // Level-2 passengers chain onto rows after the algorithm serializer, which never knows they exist.
-      // Each one missing is a silent live/offline divergence, with no error on either side:
-      // - RP beliefs (team rows): without them the Worker cold-starts every RP belief.
-      // - Sigma beliefs (team rows): without them the Worker prices bands from the flat prior.
-      // - Sigma population (LEAGUE row): without it resumed beliefs fall back to the flat talent prior.
-      // - RP mean shift (LEAGUE row): without it the Worker prices live matches unshifted.
-      // LEAGUE-row passengers are the easy ones to forget.
-      let rows = withRpBeliefs(
-        withSigmaBeliefs(
-          serializeState(algorithm.id, algorithm.version, state as EpaState | OprState | SprState, stamp),
-          finalSeasonSigma.get(algorithm.id) ?? new Map()
-        ),
-        finalSeasonRp.get(algorithm.id) ?? new Map()
-      );
-      const sigmaPopulation = finalSeasonSigmaPopulation.get(algorithm.id);
-      if (sigmaPopulation !== undefined) rows = withSigmaPopulation(rows, sigmaPopulation);
-      const rpMeanShift = finalSeasonRpMeanShift.get(algorithm.id);
-      if (rpMeanShift !== undefined) rows = withRpMeanShift(rows, rpMeanShift);
+      const stateRows = finalSeasonStateRows.get(algorithm.id);
+      if (stateRows === undefined) continue;
+      // The same memoized rows the final season's event blocks were built from (`seedStateRows`, the
+      // one passenger chain), so a block and the seed can never disagree.
+      const rows = stateRows();
       const outPath = join(SEED_OUT_DIR, `seed-${algorithm.id}.sql`);
       emitSeedSql(rows, { algorithmId: algorithm.id, out: outPath });
       seedFiles.push(outPath);
@@ -2345,6 +2397,11 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
 
   console.log(`\npublish: summary (generation=${generation})`);
   console.log(`  objects=${objectCount} totalBytes=${totalBytes}${dryRun ? " (dry-run — nothing uploaded)" : ""}`);
+  if (stateBlockTotals.count > 0) {
+    console.log(
+      `  state blocks: count=${stateBlockTotals.count} totalBytes=${stateBlockTotals.totalBytes} maxBytes=${stateBlockTotals.maxBytes} key=${stateBlockTotals.maxKey}`
+    );
+  }
   for (const [kind, stats] of Object.entries(pages)) {
     console.log(
       `  ${kind}: count=${stats!.count} median=${stats!.medianBytes}B p95=${stats!.p95Bytes}B max=${stats!.maxBytes}B key=${stats!.largestKey}`

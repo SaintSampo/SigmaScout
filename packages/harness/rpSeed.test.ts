@@ -185,11 +185,21 @@ describe("the D1 seed carries the RP mean shift (shape 16)", () => {
   });
 
   it("publish.ts collects the final season's shift and chains withRpMeanShift into the seed block (structural)", () => {
+    // Retargeted in 260915-isq: the chain moved out of the seed loop into `seedStateRows`, the one
+    // helper both the D1 seed and every SPR event `state` block are built from. The shift is still read
+    // off the season's layer at the same instant, and still rides the LEAGUE row.
     const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8");
-    expect(source).toContain("layers.get(algorithm.id)!.rpMeanShiftState()");
-    const block = /const state = finalSeasonStates\.get\(algorithm\.id\);[\s\S]*?emitSeedSql\(/.exec(source);
-    expect(block, "expected to find publish.ts's seed-emission block").not.toBeNull();
-    expect(block![0]).toContain("withRpMeanShift(rows, rpMeanShift)");
+    const helper = /function seedStateRows\([\s\S]*?\n}\n/.exec(source);
+    expect(helper, "expected to find publish.ts's seedStateRows helper").not.toBeNull();
+    expect(helper![0]).toContain("layer.rpMeanShiftState()");
+    expect(helper![0]).toContain("withRpMeanShift(rows, rpMeanShift)");
+    // The seed loop feeds emitSeedSql the helper's rows, through the final season's memoized getter.
+    const seedLoop = /const stateRows = finalSeasonStateRows\.get\(algorithm\.id\);[\s\S]*?emitSeedSql\(/.exec(source);
+    expect(seedLoop, "expected to find publish.ts's seed-emission block").not.toBeNull();
+    expect(seedLoop![0]).toContain("const rows = stateRows();");
+    expect(source).toMatch(/emitSeedSql\(rows, /);
+    expect(source).toContain("memoizedSeedStateRows(algorithm, state, layerForAlgo, stamp)");
+    expect(source).toContain("finalSeasonStateRows = seasonStateRows;");
   });
 });
 
