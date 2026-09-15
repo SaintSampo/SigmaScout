@@ -108,9 +108,21 @@ export function normalizeEvent(event: TbaEvent): CorpusEvent {
   };
 }
 
-function matchSortTime(match: TbaMatch, eventStartDate: string): number {
+/**
+ * The time TBA itself reports for a match, in epoch MILLISECONDS: `actual_time`, else
+ * `predicted_time`, else the scheduled `time`, else `null` when TBA reports none. The ONE
+ * place that chain lives — `matchSortTime` below adds the corpus's deterministic
+ * composite fallback on top of it, and the live Worker publishes this value (or nothing)
+ * rather than approximating a time of its own (260915-isq, 260915-p0a).
+ */
+export function tbaReportedMatchTimeMs(match: Pick<TbaMatch, "actual_time" | "predicted_time" | "time">): number | null {
   const t = match.actual_time ?? match.predicted_time ?? match.time;
-  if (t != null) return t * 1000;
+  return t != null ? t * 1000 : null;
+}
+
+function matchSortTime(match: TbaMatch, eventStartDate: string): number {
+  const reported = tbaReportedMatchTimeMs(match);
+  if (reported !== null) return reported;
   const playOrder = COMP_LEVEL_PLAY_ORDER[match.comp_level];
   return Date.parse(eventStartDate) + playOrder * 1_000_000 + match.match_number * 1_000;
 }

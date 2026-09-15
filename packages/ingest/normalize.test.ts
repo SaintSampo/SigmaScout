@@ -7,7 +7,7 @@
  * to contain one.
  */
 import { describe, expect, it } from "vitest";
-import { detectReplay, normalizeEvent, normalizeMatch, type ExistingMatchScoreFields } from "./normalize.js";
+import { detectReplay, normalizeEvent, normalizeMatch, tbaReportedMatchTimeMs, type ExistingMatchScoreFields } from "./normalize.js";
 import type { TbaEvent, TbaMatch } from "./schemas.js";
 
 const EVENT_START = "2024-03-01";
@@ -440,5 +440,34 @@ describe("normalizeMatch — videoKey", () => {
     const result = normalizeMatch(match, EVENT_START);
 
     expect(result.videoKey).toBe("abc123XYZ90");
+  });
+});
+
+/**
+ * `tbaReportedMatchTimeMs` is the ONE place the actual/predicted/scheduled
+ * chain lives: `matchSortTime` reads it, and so does the live Worker, which
+ * publishes this value or no `sortTime` at all rather than approximating one
+ * (260915-p0a).
+ */
+describe("tbaReportedMatchTimeMs", () => {
+  it("prefers actual_time, in milliseconds", () => {
+    expect(tbaReportedMatchTimeMs({ actual_time: 1_700_000_000, predicted_time: 5, time: 7 })).toBe(1_700_000_000_000);
+  });
+
+  it("falls back to predicted_time when actual_time is null", () => {
+    expect(tbaReportedMatchTimeMs({ actual_time: null, predicted_time: 1_700_000_060, time: 7 })).toBe(1_700_000_060_000);
+  });
+
+  it("falls back to the scheduled time when both are null", () => {
+    expect(tbaReportedMatchTimeMs({ actual_time: null, predicted_time: null, time: 1_700_000_120 })).toBe(1_700_000_120_000);
+  });
+
+  it("returns null when TBA reports no time at all, never a synthesized one", () => {
+    expect(tbaReportedMatchTimeMs({ actual_time: null, predicted_time: null, time: null })).toBeNull();
+  });
+
+  it("normalizeMatch still composes its deterministic fallback when the chain is null", () => {
+    const result = normalizeMatch(tbaMatch({ actual_time: null, predicted_time: null, time: null }), EVENT_START);
+    expect(result.sortTime).toBe(Date.parse(EVENT_START) + 0 * 1_000_000 + 1 * 1_000);
   });
 });

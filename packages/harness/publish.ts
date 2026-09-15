@@ -42,7 +42,7 @@ import { spr, type SprState } from "../core/algorithms/spr.js";
 import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
 import { isOfficialEventType } from "../core/algorithms/eventTypes.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
-import { isBonusRpCompLevel, isRpEligibleEventType } from "../core/rankingPoints/constants.js";
+import { isRpEligibleEventType } from "../core/rankingPoints/constants.js";
 import {
   openCorpusReadOnly,
   selectCorpusSeasons,
@@ -97,8 +97,20 @@ import { analyticRpPmf } from "../core/rankingPoints/analyticPmf.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 // The level-2 layer (Sigma Score, the band and ranking points), driven only by `publishSeasons`.
 import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
-import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "./rounding.js";
-import { eventMatchBonusRpFields, eventUpcomingRow, matchBandFields, teamSeasonMatchRow } from "./publishedRows.js";
+import { roundMetric, roundTo, ROUNDING_RULE } from "./rounding.js";
+import {
+  actualBonusFlagsForMatch,
+  eventPlayedRow,
+  eventUpcomingRow,
+  teamSeasonMatchRow,
+  teamSeasonPlayedRow,
+  toIntegerRpOrNull,
+  type ActualBonusFlags,
+} from "./publishedRows.js";
+// Moved to the browser-safe `publishedRows.ts` (260915-p0a) so the live Worker shares them; re-exported
+// so every existing importer (`scripts/measureRpCalibration.ts`, `publish.test.ts`) keeps working.
+export { toIntegerRpOrNull } from "./publishedRows.js";
+export type { ActualBonusFlags } from "./publishedRows.js";
 import {
   HISTORY_PERCENTILE_METRIC_KEYS,
   sortedPoolsByMetric,
@@ -164,16 +176,6 @@ export const BASE_PUBLISH_ALGORITHMS: Record<string, AlgorithmModule<any>> = PUB
 // ---------------------------------------------------------------------------
 // Small local helpers shared by every assembly function below
 // ---------------------------------------------------------------------------
-
-/**
- * Guards `TeamSeasonMatchSchema.actualRedRp`/`actualBlueRp`'s `.int()`: SQLite does not enforce
- * integer RP columns, and a stray non-integer (2024orbb/2025orbb's non-FRC `rp` field) would throw
- * inside `.parse()` and abort the whole publish. Degrades to `null` ("not derivable") instead of
- * rounding a fabricated RP. Exported so `scripts/measureRpCalibration.ts` shares this exact policy.
- */
-export function toIntegerRpOrNull(value: number | null): number | null {
-  return value !== null && Number.isInteger(value) ? value : null;
-}
 
 /**
  * Rounds a metrics record's `value`/`spread` at `ROUNDING_RULE.metric`. `percentile` passes through
@@ -485,50 +487,15 @@ export function makeRankingPointFiller(
 }
 
 export function buildEventArtifact(params: BuildEventArtifactParams): EventArtifact {
-  const matches = params.predictions.map(({ match, prediction, matchBand, coldStart }) => ({
-    matchKey: match.matchKey,
-    compLevel: match.compLevel,
-    setNumber: match.setNumber,
-    matchNumber: match.matchNumber,
-    sortTime: params.sortTimeByMatchKey?.get(match.matchKey),
-    redTeams: [...match.redTeams],
-    blueTeams: [...match.blueTeams],
-    predictedWinner: prediction.winner,
-    pRedWin: roundProbability(prediction.pRedWin),
-    predictedRedScore: roundMetric(prediction.redScore),
-    predictedBlueScore: roundMetric(prediction.blueScore),
-    // Each alliance's own predicted-score variance, the same quantity as
-    // `TeamSeasonMatchSchema.redScoreVarianceOwn`; `undefined` for OPR/EPA. Read off `predict()`'s
-    // output, never recomputed, so it cannot silently stop reflecting the model.
-    redScoreVarianceOwn:
-      prediction.redScoreVarianceOwn !== undefined ? roundTo(prediction.redScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
-    blueScoreVarianceOwn:
-      prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
-    // Match Band: roster size times the sum of the roster's squared Sigma Scores, walk-forward. Sigma
-    // algorithms only; never the win-odds variance the ranking-point pmf reads.
-    ...matchBandFields(matchBand),
-    // Total-RP pmfs, read off `prediction` and deliberately not gated on competition level, matching
-    // the upcoming and team-season builders; absent where the model produced none.
-    redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
-    blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
-    // The RP decomposition, ungated for the same reason.
-    matchOutcomePmf: prediction.matchOutcomePmf ? roundPmf(prediction.matchOutcomePmf) : undefined,
-    redBonusRpPmf: prediction.redBonusRpPmf ? roundPmf(prediction.redBonusRpPmf) : undefined,
-    blueBonusRpPmf: prediction.blueBonusRpPmf ? roundPmf(prediction.blueBonusRpPmf) : undefined,
-    ...eventMatchBonusRpFields(match.compLevel, prediction, params.actualBonusFlagsByMatchKey?.get(match.matchKey)),
-    actualWinner: match.winner,
-    actualRedScore: match.redScore,
-    actualBlueScore: match.blueScore,
-    // The key never appears as `false`.
-    ...(coldStart === true ? { coldStart: true as const } : {}),
-    // Always present on played rows (direct assignment), and `null` never becomes `0`: a `0` is a
-    // positive claim about standing that a fallback then sums.
-    actualRedRp: toIntegerRpOrNull(match.redRpEarned),
-    actualBlueRp: toIntegerRpOrNull(match.blueRpEarned),
-    ...(params.videoByMatchKey?.get(match.matchKey) !== undefined
-      ? { video: params.videoByMatchKey.get(match.matchKey) }
-      : {}),
-  }));
+  // The row body lives in the browser-safe `publishedRows.ts` (260915-p0a), so the live Worker builds
+  // a played row through this exact code; this call only supplies the three per-match lookups.
+  const matches = params.predictions.map((record) =>
+    eventPlayedRow(record, {
+      sortTime: params.sortTimeByMatchKey?.get(record.match.matchKey),
+      video: params.videoByMatchKey?.get(record.match.matchKey),
+      actualBonusFlags: params.actualBonusFlagsByMatchKey?.get(record.match.matchKey),
+    })
+  );
 
   const upcoming = (params.upcoming ?? []).map((record) =>
     eventUpcomingRow(record, params.sortTimeByMatchKey?.get(record.match.matchKey))
@@ -738,12 +705,6 @@ export function buildTeamsArtifact(params: BuildTeamsArtifactParams): TeamsArtif
 // buildTeamSeasonArtifact — v1/team/{teamKey}/{year}/{algorithmId}@{version}.json
 // ---------------------------------------------------------------------------
 
-/** One match's actual per-bonus outcome, positionally aligned to the season's `RpRuleModule.bonusNames`. */
-export interface ActualBonusFlags {
-  readonly red: readonly boolean[];
-  readonly blue: readonly boolean[];
-}
-
 /**
  * The actual per-bonus outcome for every match in `stream`, computed once per season (it describes the
  * match, not a prediction). A season with no RP rule module returns an empty map.
@@ -760,24 +721,9 @@ export function actualBonusFlagsForSeason(stream: readonly MatchResult[], season
   if (ruleModule === undefined) return result;
 
   for (const match of stream) {
-    // Checked before the null-producing checks, so a playoff match is absent rather than `null`.
-    if (!isBonusRpCompLevel(match.compLevel)) continue;
-    if (!isRpEligibleEventType(match.eventType) || !match.hasScoreBreakdown || match.scoreBreakdownRaw === null) {
-      result.set(match.matchKey, null);
-      continue;
-    }
-    try {
-      const rawJson: unknown = JSON.parse(match.scoreBreakdownRaw);
-      const redParsed = ruleModule.parse(rawJson, "red", match.eventType);
-      const blueParsed = ruleModule.parse(rawJson, "blue", match.eventType);
-      result.set(match.matchKey, {
-        red: ruleModule.bonusNames.map((name) => redParsed.bonusFlags[name] ?? false),
-        blue: ruleModule.bonusNames.map((name) => blueParsed.bonusFlags[name] ?? false),
-      });
-    } catch {
-      // One unparseable breakdown degrades to null rather than aborting the publish.
-      result.set(match.matchKey, null);
-    }
+    // `undefined` (a non-qualification match) sets no entry at all; `null` and the arrays do.
+    const flags = actualBonusFlagsForMatch(match, ruleModule);
+    if (flags !== undefined) result.set(match.matchKey, flags);
   }
   return result;
 }
@@ -839,35 +785,25 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
     ...(e.totalTeams !== undefined ? { totalTeams: e.totalTeams } : {}),
     matches: e.matches.map((record) => {
       const { match } = record;
-      const row = teamSeasonMatchRow(record, {
+      const stamps = {
         season: params.season,
         algorithmId: params.algorithmId,
         algorithmVersion: params.algorithmVersion,
         sortTime: params.sortTimeByMatchKey?.get(match.matchKey),
         video: params.videoByMatchKey?.get(match.matchKey),
-      });
+      };
       // An `UpcomingMatch` never carries `winner` at all, so its presence is the discriminant.
+      // The played branch's body lives in `publishedRows.ts` (260915-p0a), shared with the live
+      // Worker. `record` is not narrowed by `"winner" in match`, and `UpcomingPredictionRecord` never
+      // declares `coldStart`, hence the `in` check on the way in.
       if ("winner" in match) {
-        // Missing entry: keys absent. Present `null`: explicit null. Arrays are copied, never aliased,
-        // and gated on comp level against a caller map with a playoff entry.
-        const flags = params.actualBonusFlagsByMatchKey?.get(match.matchKey);
-        return {
-          ...row,
-          actualWinner: match.winner,
-          actualRedScore: match.redScore,
-          actualBlueScore: match.blueScore,
-          // `record` is not narrowed by `"winner" in match`, and `UpcomingPredictionRecord` never declares
-          // `coldStart`, hence the `in` check.
-          ...("coldStart" in record && record.coldStart === true ? { coldStart: true as const } : {}),
-          // Never coerced null -> 0.
-          actualRedRp: toIntegerRpOrNull(match.redRpEarned),
-          actualBlueRp: toIntegerRpOrNull(match.blueRpEarned),
-          ...(isBonusRpCompLevel(match.compLevel) && flags !== undefined
-            ? { actualRedBonusRp: flags === null ? null : [...flags.red], actualBlueBonusRp: flags === null ? null : [...flags.blue] }
-            : {}),
-        };
+        return teamSeasonPlayedRow(
+          { ...record, match, ...("coldStart" in record && record.coldStart === true ? { coldStart: true as const } : {}) },
+          stamps,
+          params.actualBonusFlagsByMatchKey?.get(match.matchKey)
+        );
       }
-      return row;
+      return teamSeasonMatchRow(record, stamps);
     }),
   }));
 
