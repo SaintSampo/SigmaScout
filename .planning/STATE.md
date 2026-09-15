@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 09
 status: completed
 stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
-last_updated: "2026-09-14T23:11:12.095Z"
-last_activity: 2026-09-14
+last_updated: "2026-09-15T08:10:14.361Z"
+last_activity: 2026-09-15
 last_activity_desc: "Completed quick task 260913-rh5: republished spr@4.0.0 and the Swing teardown (generation 2dcc057f), D1 seeded, Worker fcc7ca73; R2 deletions left to Jacob"
 progress:
   total_phases: 12
@@ -589,6 +589,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 185 | License SigmaScout under MIT (LICENSE file plus package.json license field) | 2026-09-14 | 55d21e5f | — |
 | 186 | Add Statbotics MIT notice (THIRD_PARTY_NOTICES.md, reference doc header, epa.ts header) | 2026-09-14 | 81ebaae1 | — |
 | 187 | Profiled the Worker tick's RP cost per component on the redeployed probe. Pacing dominates cpuTime, warm 5 ms p50 against cron-like 15-23 ms p50. On reused isolates RP adds 9.5 ms, the upcoming loop 7.2 and the analyticRpPmf formula 6.0 (about 175 us per call, first-call work not arithmetic). Fresh isolates run about 18 ms with RP off. Added an algorithms= probe param because live opr and epa D1 rows are still shape 15. Horizon repricing recorded as rejected | 2026-09-14 | d2530744 | [260914-nhc-profile-the-worker-tick-rp-overhead-per-](./quick/260914-nhc-profile-the-worker-tick-rp-overhead-per-/) |
+| 188 | Browser pricing step 1 of 4. Built eventStatePricing.ts, a browser-safe pricer that turns an event state block (verbatim D1 StateRows) into upcoming SPR event and team rows, and proved it reproduces the offline publisher exactly on 29 event and 29 team rows after a JSON and zod round trip, including the offline unseen-team rule, playoffs, RP-ineligible events and the mean shift. Extracted the publisher's upcoming row builders into publishedRows.ts, added a per-season RP rule loader, and moved the Node-only seed emitter out of stateSnapshot.ts behind an import-graph guard. No output change. Full suite 5,304 passed, all typechecks clean. Known gaps carried forward: demo-key beliefs, per-alliance band, eventType missing from the event artifact | 2026-09-15 | c6ad7703 | [260915-4p9-browser-pricer-for-upcoming-spr-matches-](./quick/260915-4p9-browser-pricer-for-upcoming-spr-matches-/) |
 
 ### Roadmap Evolution
 
