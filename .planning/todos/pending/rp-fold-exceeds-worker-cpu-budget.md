@@ -282,6 +282,7 @@ resolved cost (upcoming-loop RP, 7.2 ± 2.1 ms on reused isolates; see COMPONENT
    - Event, match and simulation pages price from `state`, falling back to published fields.
    - Team pages fetch the event file for upcoming matches and de-duplicate played/unplayed rows.
    - Add polling (`refetchInterval` while `upcoming` is non-empty).
+   **Status (2026-09-15): steps 1 (260915-4p9) and 2 (260915-isq) are code-complete. Step 2 republish and Worker deploy are deferred to step 3 (Jacob), and blocks attach only to events with a current schedule (`eventScheduleIsCurrent`, 7 days). Also required before the gate lifts: `live-merge-drops-event-identity-fields`.**
 4. **Measure and clean up.**
    - Re-mirror the probe to the new tick and re-measure cold `cpuTime`.
    - Strip priced fields from offline upcoming rows at the next republish that happens anyway.
