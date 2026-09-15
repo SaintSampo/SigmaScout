@@ -24,6 +24,8 @@ import {
   StateRowSchema,
   type StateRow,
 } from "../../../packages/harness/stateSnapshot.js";
+import { buildEventStateBlock } from "../../../packages/harness/eventStatePricing.js";
+import { LiveEventArtifactSchema, TeamSeasonArtifactSchema } from "../../../packages/harness/pageArtifacts.js";
 import { SigmaScoreAccumulator } from "../../../packages/harness/sigmaScore.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
 import { RP_MEAN_SHIFT_WARMUP_OBSERVATIONS } from "../../../packages/core/rankingPoints/meanShift.js";
@@ -157,6 +159,29 @@ describe("stateProbe — Group 1: the no-write property, STATIC", () => {
       expect(strippedSource).not.toContain(banned);
     });
   }
+
+  // The probe gained an outbound request with `phaseB` (it reads a published
+  // artifact over public HTTPS). These four pin it to a shape that cannot
+  // mutate the origin, in source, independently of the stubbed-fetch
+  // behavioral assertions in Group 9.
+  describe("the outbound artifact read is GET-only, one call site", () => {
+    it("contains exactly one outbound-fetch call site", () => {
+      expect([...strippedSource.matchAll(/globalThis\.fetch\(/g)]).toHaveLength(1);
+    });
+
+    it("passes exactly `{ method: \"GET\" }` at that call site — no request body, no other init key", () => {
+      const call = strippedSource.match(/globalThis\.fetch\(([^;]*?)\);/);
+      expect(call?.[1]).toBe('url.toString(), { method: "GET" }');
+    });
+
+    it.each(['"POST"', '"PUT"', '"PATCH"', '"DELETE"', '"HEAD"', '"OPTIONS"'])("never contains the HTTP verb literal %s", (verb) => {
+      expect(strippedSource).not.toContain(verb);
+    });
+
+    it("never contains a request `body:` key anywhere in real code", () => {
+      expect(strippedSource.match(/\bbody\s*:/g)).toBeNull();
+    });
+  });
 
   describe("wrangler.probe.toml", () => {
     const rawToml = readFileSync(WRANGLER_PROBE_TOML, "utf8");
@@ -452,12 +477,14 @@ describe("stateProbe — Group 3: the RP path really runs, and really writes not
       algorithms: { id: string; ok: boolean; snapshotShapeVersionObserved: unknown }[];
       fold: {
         matchesFolded: number;
-        upcomingPriced: number;
+        upcomingScheduled: number;
         bandsProduced: number;
         rpPmfsProduced: number;
         rpObservedFolds: number;
+        rpBonusSidesCaptured: number;
         changedRowsDiscarded: number;
       };
+      phaseB: { ran: boolean };
       warnings: string[];
     };
 
@@ -468,9 +495,13 @@ describe("stateProbe — Group 3: the RP path really runs, and really writes not
     expect(sprEntry?.snapshotShapeVersionObserved).toBe(STATE_SNAPSHOT_SHAPE_VERSION);
 
     expect(body.fold.matchesFolded).toBe(2);
-    expect(body.fold.upcomingPriced).toBe(5);
-    // Equality, not `> 0`, which would pass with six of seven pmfs suppressed.
-    expect(body.fold.rpPmfsProduced).toBe(7);
+    // The still-upcoming schedule is BUILT, never priced (260915-isq).
+    expect(body.fold.upcomingScheduled).toBe(5);
+    // Folded-only now, and by equality: one pmf per folded match, never 7.
+    expect(body.fold.rpPmfsProduced).toBe(2);
+    expect(body.fold.rpBonusSidesCaptured).toBe(2);
+    // phaseB is off by default, so this regression case measures Phase A alone.
+    expect(body.phaseB.ran).toBe(false);
     expect(body.fold.bandsProduced).toBeGreaterThan(0);
     expect(body.fold.rpObservedFolds).toBeGreaterThan(0);
     expect(body.fold.changedRowsDiscarded).toBeGreaterThan(0);
@@ -568,10 +599,11 @@ interface ArmBody {
   params: { folded: number; upcoming: number; rp: boolean };
   fold: {
     matchesFolded: number;
-    upcomingPriced: number;
+    upcomingScheduled: number;
     bandsProduced: number;
     rpPmfsProduced: number;
     rpObservedFolds: number;
+    rpBonusSidesCaptured: number;
     changedRowsDiscarded: number;
     error?: { name: string; message: string };
   };
@@ -617,26 +649,29 @@ describe("stateProbe — Group 5: the rp ablation arm", () => {
     expect(on.body.params.rp).toBe(true);
     expect(off.body.params.rp).toBe(false);
 
-    // ON arm: every match gets a pmf, pinned by equality as in Group 3.
-    expect(on.body.fold.rpPmfsProduced).toBe(ARM_FOLDED + ARM_UPCOMING);
+    // ON arm: every FOLDED match gets a pmf, pinned by equality as in Group 3.
+    // Never `ARM_FOLDED + ARM_UPCOMING` — the tick prices no upcoming match.
+    expect(on.body.fold.rpPmfsProduced).toBe(ARM_FOLDED);
     expect(on.body.fold.rpObservedFolds).toBeGreaterThan(0);
+    expect(on.body.fold.rpBonusSidesCaptured).toBe(ARM_FOLDED);
 
     // OFF arm: 0 by construction, pinned by equality.
     expect(off.body.fold.rpPmfsProduced).toBe(0);
     expect(off.body.fold.rpObservedFolds).toBe(0);
+    expect(off.body.fold.rpBonusSidesCaptured).toBe(0);
 
     // Non-vacuity: the arms differ, so both producing 0 would fail.
     expect(on.body.fold.rpPmfsProduced).not.toBe(off.body.fold.rpPmfsProduced);
 
-    // Both loops still run in both arms.
+    // The played loop and the schedule build still run in both arms.
     expect(off.body.fold.matchesFolded).toBe(on.body.fold.matchesFolded);
-    expect(off.body.fold.upcomingPriced).toBe(on.body.fold.upcomingPriced);
+    expect(off.body.fold.upcomingScheduled).toBe(on.body.fold.upcomingScheduled);
     expect(off.body.fold.matchesFolded).toBe(ARM_FOLDED);
-    expect(off.body.fold.upcomingPriced).toBe(ARM_UPCOMING);
+    expect(off.body.fold.upcomingScheduled).toBe(ARM_UPCOMING);
 
-    // Bands are identical across arms: two alliances per match, every roster banded.
+    // Bands are identical across arms: two alliances per FOLDED match.
     expect(off.body.fold.bandsProduced).toBe(on.body.fold.bandsProduced);
-    expect(on.body.fold.bandsProduced).toBe(2 * (ARM_FOLDED + ARM_UPCOMING));
+    expect(on.body.fold.bandsProduced).toBe(2 * ARM_FOLDED);
 
     // Serialize-and-discard still happens in the off arm; only the
     // `withRpBeliefs` passenger is missing from the candidate rows.
@@ -665,7 +700,7 @@ describe("stateProbe — Group 5: the rp ablation arm", () => {
     const typo = await runArm(`${ARM_QUERY}&rp=fasle`);
 
     expect(typo.body.params.rp).toBe(true);
-    expect(typo.body.fold.rpPmfsProduced).toBe(ARM_FOLDED + ARM_UPCOMING);
+    expect(typo.body.fold.rpPmfsProduced).toBe(ARM_FOLDED);
     expect(typo.body.warnings).toHaveLength(1);
     expect(typo.body.warnings[0]).toContain('rp="fasle"');
     expect(typo.body.warnings[0]).toContain("ENABLED");
@@ -731,9 +766,10 @@ describe("stateProbe — Group 6: the mean shift mirrors scheduled.ts (shape 16)
     const arm = await runShiftArm(`${ARM_QUERY}&rp=1`, SEEDED_SHIFT);
     expect(arm.status).toBe(200);
     expect(arm.body.fold.error).toBeUndefined();
-    expect(arm.body.fold.rpPmfsProduced).toBe(ARM_FOLDED + ARM_UPCOMING);
-    // Two alliances per match, every roster fully warm, both variables past warmup.
-    expect(arm.body.fold.rpMeanShiftedAlliances).toBe(2 * (ARM_FOLDED + ARM_UPCOMING));
+    expect(arm.body.fold.rpPmfsProduced).toBe(ARM_FOLDED);
+    // Two alliances per FOLDED match, every roster fully warm, both variables
+    // past warmup. The upcoming loop is gone, so nothing else is shifted.
+    expect(arm.body.fold.rpMeanShiftedAlliances).toBe(2 * ARM_FOLDED);
     // Played matches only: two sides, one residual per variable per side.
     expect(arm.body.fold.rpMeanShiftObservations).toBe(ARM_FOLDED * 2 * variableCount);
     expect(arm.writes).toBe(0);
@@ -772,16 +808,23 @@ describe("stateProbe — Group 6: the mean shift mirrors scheduled.ts (shape 16)
 });
 
 
-// Group 7: the Phase A mirror guard.
+// Group 7: the Phase A mirror guard, BIDIRECTIONAL.
 //
-// Groups 1-6 pin RP/mean-shift SEMANTICS. This group pins SHAPE: every call
-// the live tick's Phase A makes (minus a four-name tick-only skeleton
-// allowlist) must appear, by name, somewhere in the probe's source. A future
-// refactor that adds a call to `processEvent`'s Phase A without adding it
-// here fails this group, rather than silently drifting.
+// Groups 1-6 pin RP/mean-shift SEMANTICS. This group pins SHAPE.
+//
+// The old version only failed when the TICK gained a call the probe lacked.
+// It could not fail when the PROBE kept a call the tick had DROPPED — which
+// is precisely the drift this task repaired: the deployed probe went on
+// pricing 60 upcoming matches for a whole release after `processEvent` stopped
+// pricing any. So both sides are now pinned by EQUALITY to a sorted literal
+// snapshot, and a deletion on either side fails here.
 
 const PHASE_A_START_MARKER = "for (const [algorithmId, algorithm] of algorithmModules) {";
 const PHASE_A_END_MARKER = "perAlgorithm.set(algorithmId";
+
+/** The probe's fold region runs from its `runSprFold` declaration to the `runSprPhaseB` declaration immediately after it — a hard source boundary, commented at both ends in `stateProbe.ts`. */
+const PROBE_FOLD_START_MARKER = "function runSprFold(";
+const PROBE_FOLD_END_MARKER = "async function runSprPhaseB(";
 
 /** Slices `source` from the Phase A start marker up to (not including) the end marker. Throws, naming whichever marker is absent, rather than silently returning an empty or wrong-bounded region. */
 function extractPhaseARegion(source: string): string {
@@ -796,8 +839,45 @@ function extractPhaseARegion(source: string): string {
   return source.slice(startIdx, endIdx);
 }
 
+/** Slices the PROBE's fold region between its two function declarations. Throws, naming whichever marker is absent, rather than silently returning an empty or wrong-bounded region. */
+function extractProbeFoldRegion(source: string): string {
+  const startIdx = source.indexOf(PROBE_FOLD_START_MARKER);
+  if (startIdx === -1) {
+    throw new Error(`extractProbeFoldRegion: missing start marker ${JSON.stringify(PROBE_FOLD_START_MARKER)} — stateProbe.ts's fold was renamed or restructured`);
+  }
+  const endIdx = source.indexOf(PROBE_FOLD_END_MARKER, startIdx);
+  if (endIdx === -1) {
+    throw new Error(`extractProbeFoldRegion: missing end marker ${JSON.stringify(PROBE_FOLD_END_MARKER)} — stateProbe.ts's Phase B function was renamed or moved above the fold`);
+  }
+  return source.slice(startIdx, endIdx);
+}
+
 const CALL_NAME_RE = /([A-Za-z_$][\w$]*)\s*\(/g;
 const JS_KEYWORDS = new Set(["if", "for", "while", "switch", "catch", "return", "typeof", "function"]);
+
+/** Builtins and array/Map methods that carry no mirror signal — dropped from the probe-side snapshot so it pins DOMAIN calls, not `push`/`filter`/`String`. */
+const JS_BUILTIN_AND_METHOD_NAMES = new Set([
+  "Set",
+  "String",
+  "Map",
+  "Object",
+  "Number",
+  "Array",
+  "JSON",
+  "filter",
+  "flatMap",
+  "push",
+  "reduce",
+  "sort",
+  "values",
+  "map",
+  "slice",
+  "includes",
+  "find",
+  "every",
+  "some",
+  "join",
+]);
 
 /** Every identifier immediately followed by `(`, minus JS keywords — a call-name set, not a full parse. */
 function extractCallNames(source: string): Set<string> {
@@ -808,6 +888,10 @@ function extractCallNames(source: string): Set<string> {
     names.add(name);
   }
   return names;
+}
+
+function sortedNames(names: Iterable<string>): string[] {
+  return [...names].sort();
 }
 
 describe("stateProbe — Group 7: Phase A mirror guard (call-name equivalence with scheduled.ts)", () => {
@@ -845,6 +929,158 @@ describe("stateProbe — Group 7: Phase A mirror guard (call-name equivalence wi
     }
     expect(missing, `probe.ts is missing these Phase A calls: ${missing.join(", ")}`).toEqual([]);
   });
+
+  // Test D is what makes a TICK-SIDE DELETION fail. Test C is satisfied by a
+  // probe that is a strict superset of the tick — which is exactly what the
+  // drifted probe was, and why it went unnoticed.
+  const TICK_PHASE_A_CALL_NAMES = [
+    "Set",
+    "add",
+    "analyticRpPmf",
+    "apply",
+    "bandVarianceFor",
+    "beliefsByTeam",
+    "consume",
+    "displayBandFor",
+    "fold",
+    "foldMatch",
+    "foldObservedRp",
+    "fromBeliefs",
+    "fromState",
+    "has",
+    "isRpEligibleEventType",
+    "keys",
+    "loadOrInitState",
+    "momentsFor",
+    "observeMatch",
+    "observeTalent",
+    "parse",
+    "population",
+    "predict",
+    "publishesRankingPoints",
+    "readRpBeliefs",
+    "readRpMeanShift",
+    "readSigmaBeliefs",
+    "readSigmaPopulation",
+    "rosterIsFullyWarm",
+    "rpFieldsFor",
+    "selectChangedRows",
+    "selectionsFor",
+    "serializeState",
+    "set",
+    "sigmaFor",
+    "sigmaMatchBandVariance",
+    "teamMetrics",
+    "toLeakProofUpcoming",
+    "toState",
+    "update",
+    "usesSigmaScore",
+    "winOddsVarianceFor",
+    "withRpBeliefs",
+    "withRpMeanShift",
+    "withSigmaBeliefs",
+    "withSigmaPopulation",
+    "writeScopedState",
+  ];
+
+  it("test D: the TICK's Phase A call-name set is pinned by equality — a call added to OR removed from processEvent fails here", () => {
+    expect(
+      sortedNames(callNames),
+      "scheduled.ts's Phase A call set changed. Re-mirror stateProbe.ts's runSprFold against processEvent FIRST, then update TICK_PHASE_A_CALL_NAMES — never the other way round."
+    ).toEqual(TICK_PHASE_A_CALL_NAMES);
+  });
+
+  const probeFoldRegion = extractProbeFoldRegion(strippedProbe);
+  const probeFoldCallNames = sortedNames([...extractCallNames(probeFoldRegion)].filter((name) => !JS_BUILTIN_AND_METHOD_NAMES.has(name)));
+
+  const PROBE_FOLD_CALL_NAMES = [
+    "add",
+    "analyticRpPmf",
+    "apply",
+    "bandVarianceFor",
+    "beliefsByTeam",
+    "buildPlayedMatch",
+    "buildScheduledMatch",
+    "displayBandFor",
+    "fold",
+    "foldMatch",
+    "foldObservedRp",
+    "fromBeliefs",
+    "fromState",
+    "has",
+    "isDemoTeamKey",
+    "isRpEligibleEventType",
+    "keys",
+    "momentsFor",
+    "observeMatch",
+    "observeTalent",
+    "parse",
+    "population",
+    "predict",
+    "publishesRankingPoints",
+    "readRpBeliefs",
+    "readRpMeanShift",
+    "readSigmaBeliefs",
+    "readSigmaPopulation",
+    "rosterAt",
+    "rosterIsFullyWarm",
+    "rpFieldsFor",
+    "runSprFold",
+    "selectChangedRows",
+    "serializeState",
+    "set",
+    "shiftObservationTotal",
+    "sigmaFor",
+    "sigmaMatchBandVariance",
+    "teamMetrics",
+    "toLeakProofUpcoming",
+    "toState",
+    "update",
+    "usesSigmaScore",
+    "winOddsVarianceFor",
+    "withRpBeliefs",
+    "withRpMeanShift",
+    "withSigmaBeliefs",
+    "withSigmaPopulation",
+  ];
+
+  it("test E (positive control): the probe's fold region slices non-trivially and really contains the RP path", () => {
+    expect(probeFoldRegion.length).toBeGreaterThan(0);
+    expect(probeFoldCallNames.length).toBeGreaterThanOrEqual(25);
+    expect(probeFoldCallNames).toContain("analyticRpPmf");
+    expect(probeFoldCallNames).toContain("serializeState");
+    expect(() => extractProbeFoldRegion("no markers in this source at all")).toThrow(/missing start marker/);
+    expect(() => extractProbeFoldRegion(PROBE_FOLD_START_MARKER)).toThrow(/missing end marker/);
+  });
+
+  it("test F: the PROBE's fold-region call-name set is pinned by equality — re-adding a dropped loop fails here", () => {
+    expect(
+      probeFoldCallNames,
+      "stateProbe.ts's runSprFold call set changed. If the tick changed too, re-mirror first; if only the probe changed, that is the drift this guard exists to catch."
+    ).toEqual(PROBE_FOLD_CALL_NAMES);
+  });
+
+  // The probe's own fixtures and helpers, which `processEvent` has no analogue
+  // for: it folds TBA's real matches instead of synthesizing any.
+  const PROBE_ONLY_ALLOWLIST = new Set([
+    "runSprFold", // the region's own declaration, caught by the slice's start marker.
+    "buildPlayedMatch", // synthetic played fixture; the tick normalizes TBA's own matches.
+    "buildScheduledMatch", // synthetic still-upcoming fixture, for the same reason.
+    "rosterAt", // cycles the discovered roster into 3v3 alliances.
+    "isDemoTeamKey", // the tick calls it too, but BEFORE its Phase A loop, so it is outside the sliced region.
+    "shiftObservationTotal", // the probe's own mean-shift counter; it reports what the tick merely does.
+  ]);
+
+  it("test G: every domain call in the probe's fold region is one the tick's Phase A also makes", () => {
+    const extra = probeFoldCallNames.filter((name) => !callNames.has(name) && !PROBE_ONLY_ALLOWLIST.has(name));
+    // KNOWN LIMITATION: a re-added upcoming loop built entirely from calls the
+    // tick also makes (predict, displayBandFor, rpFieldsFor) would pass this
+    // test — the call NAMES would all still be legitimate. That is why the
+    // behavioral pins carry the weight: Group 5 and Group 8 fix
+    // `rpPmfsProduced` and `bandsProduced` at their folded-only values by
+    // equality, and a second loop moves both immediately.
+    expect(extra, `stateProbe.ts's fold calls these, which processEvent's Phase A does not: ${extra.join(", ")}`).toEqual([]);
+  });
 });
 
 // Group 8: per-component RP ablation arms (`rpSkip`), layered on top of `rp`.
@@ -854,10 +1090,11 @@ describe("stateProbe — Group 7: Phase A mirror guard (call-name equivalence wi
 
 interface Group8Fold {
   matchesFolded: number;
-  upcomingPriced: number;
+  upcomingScheduled: number;
   bandsProduced: number;
   rpPmfsProduced: number;
   rpObservedFolds: number;
+  rpBonusSidesCaptured: number;
   rpMeanShiftObservations: number;
   rpMeanShiftedAlliances: number;
   rpBeliefTeamsResumed: number;
@@ -868,10 +1105,10 @@ interface Group8Fold {
   error?: { name: string; message: string };
 }
 
+/** Five components. `upcomingPmf` is RETIRED — it is not a key here, and an arm naming it gets a NOT APPLICABLE warning instead of a silent no-op. */
 interface Group8Ran {
   resume: boolean;
   foldedPmf: boolean;
-  upcomingPmf: boolean;
   formula: boolean;
   observe: boolean;
   beliefs: boolean;
@@ -895,7 +1132,8 @@ async function runGroup8Arm(query: string, shift: typeof SEEDED_SHIFT | undefine
 describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () => {
   const variableCount = RP_RULE_MODULES[2026]!.thresholdVariables.length;
   const shiftObsWhenObserved = 2 * ARM_FOLDED * variableCount;
-  const ALL_BANDS = 2 * (ARM_FOLDED + ARM_UPCOMING);
+  /** Two alliances per FOLDED match. The upcoming loop is gone, so upcoming matches contribute no band. */
+  const ALL_BANDS = 2 * ARM_FOLDED;
 
   interface ArmCase {
     readonly label: string;
@@ -907,13 +1145,14 @@ describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () =
     readonly pmfs: number;
     readonly shifted: number;
     readonly obsFolds: number;
+    readonly bonusSides: number;
     readonly shiftObs: number;
     readonly attached: number;
     readonly shiftAtt: boolean;
   }
 
-  const RAN_ALL: Group8Ran = { resume: true, foldedPmf: true, upcomingPmf: true, formula: true, observe: true, beliefs: true };
-  const RAN_NONE: Group8Ran = { resume: false, foldedPmf: false, upcomingPmf: false, formula: false, observe: false, beliefs: false };
+  const RAN_ALL: Group8Ran = { resume: true, foldedPmf: true, formula: true, observe: true, beliefs: true };
+  const RAN_NONE: Group8Ran = { resume: false, foldedPmf: false, formula: false, observe: false, beliefs: false };
 
   const CASES: readonly ArmCase[] = [
     {
@@ -922,10 +1161,11 @@ describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () =
       expectedId: "all",
       ran: RAN_ALL,
       resumed: 21,
-      gates: 7,
-      pmfs: 7,
-      shifted: 14,
-      obsFolds: 4,
+      gates: ARM_FOLDED,
+      pmfs: ARM_FOLDED,
+      shifted: 2 * ARM_FOLDED,
+      obsFolds: 2 * ARM_FOLDED,
+      bonusSides: ARM_FOLDED,
       shiftObs: shiftObsWhenObserved,
       attached: 21,
       shiftAtt: true,
@@ -940,20 +1180,24 @@ describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () =
       pmfs: 0,
       shifted: 0,
       obsFolds: 0,
+      bonusSides: 0,
       shiftObs: 0,
       attached: 0,
       shiftAtt: false,
     },
     {
+      // The retired name is gone from this query: an arm id must describe what
+      // actually ran, and `upcomingPmf` no longer names anything that does.
       label: "resumeOnly",
-      query: `${ARM_QUERY}&rpSkip=foldedPmf,upcomingPmf,observe,beliefs`,
-      expectedId: "skip:foldedPmf,upcomingPmf,observe,beliefs",
-      ran: { resume: true, foldedPmf: false, upcomingPmf: false, formula: false, observe: false, beliefs: false },
+      query: `${ARM_QUERY}&rpSkip=foldedPmf,observe,beliefs`,
+      expectedId: "skip:foldedPmf,observe,beliefs",
+      ran: { resume: true, foldedPmf: false, formula: false, observe: false, beliefs: false },
       resumed: 21,
       gates: 0,
       pmfs: 0,
       shifted: 0,
       obsFolds: 0,
+      bonusSides: 0,
       shiftObs: 0,
       attached: 0,
       shiftAtt: false,
@@ -962,40 +1206,13 @@ describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () =
       label: "skipFoldedPmf",
       query: `${ARM_QUERY}&rpSkip=foldedPmf`,
       expectedId: "skip:foldedPmf",
-      ran: { resume: true, foldedPmf: false, upcomingPmf: true, formula: true, observe: true, beliefs: true },
-      resumed: 21,
-      gates: 5,
-      pmfs: 5,
-      shifted: 10,
-      obsFolds: 4,
-      shiftObs: shiftObsWhenObserved,
-      attached: 21,
-      shiftAtt: true,
-    },
-    {
-      label: "skipUpcomingPmf",
-      query: `${ARM_QUERY}&rpSkip=upcomingPmf`,
-      expectedId: "skip:upcomingPmf",
-      ran: { resume: true, foldedPmf: true, upcomingPmf: false, formula: true, observe: true, beliefs: true },
-      resumed: 21,
-      gates: 2,
-      pmfs: 2,
-      shifted: 4,
-      obsFolds: 4,
-      shiftObs: shiftObsWhenObserved,
-      attached: 21,
-      shiftAtt: true,
-    },
-    {
-      label: "skipBothPmf",
-      query: `${ARM_QUERY}&rpSkip=foldedPmf,upcomingPmf`,
-      expectedId: "skip:foldedPmf,upcomingPmf",
-      ran: { resume: true, foldedPmf: false, upcomingPmf: false, formula: false, observe: true, beliefs: true },
+      ran: { resume: true, foldedPmf: false, formula: false, observe: true, beliefs: true },
       resumed: 21,
       gates: 0,
       pmfs: 0,
       shifted: 0,
-      obsFolds: 4,
+      obsFolds: 2 * ARM_FOLDED,
+      bonusSides: ARM_FOLDED,
       shiftObs: shiftObsWhenObserved,
       attached: 21,
       shiftAtt: true,
@@ -1004,12 +1221,13 @@ describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () =
       label: "skipFormula",
       query: `${ARM_QUERY}&rpSkip=formula`,
       expectedId: "skip:formula",
-      ran: { resume: true, foldedPmf: true, upcomingPmf: true, formula: false, observe: true, beliefs: true },
+      ran: { resume: true, foldedPmf: true, formula: false, observe: true, beliefs: true },
       resumed: 21,
-      gates: 7,
+      gates: ARM_FOLDED,
       pmfs: 0,
-      shifted: 14,
-      obsFolds: 4,
+      shifted: 2 * ARM_FOLDED,
+      obsFolds: 2 * ARM_FOLDED,
+      bonusSides: ARM_FOLDED,
       shiftObs: shiftObsWhenObserved,
       attached: 21,
       shiftAtt: true,
@@ -1018,12 +1236,15 @@ describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () =
       label: "skipObserve",
       query: `${ARM_QUERY}&rpSkip=observe`,
       expectedId: "skip:observe",
-      ran: { resume: true, foldedPmf: true, upcomingPmf: true, formula: true, observe: false, beliefs: true },
+      ran: { resume: true, foldedPmf: true, formula: true, observe: false, beliefs: true },
       resumed: 21,
-      gates: 7,
-      pmfs: 7,
-      shifted: 14,
+      gates: ARM_FOLDED,
+      pmfs: ARM_FOLDED,
+      shifted: 2 * ARM_FOLDED,
       obsFolds: 0,
+      // The capture lives inside `foldObservedRp`, exactly as in the tick, so
+      // ablating `observe` ablates it too.
+      bonusSides: 0,
       shiftObs: 0,
       attached: 21,
       shiftAtt: true,
@@ -1032,12 +1253,13 @@ describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () =
       label: "skipBeliefs",
       query: `${ARM_QUERY}&rpSkip=beliefs`,
       expectedId: "skip:beliefs",
-      ran: { resume: true, foldedPmf: true, upcomingPmf: true, formula: true, observe: true, beliefs: false },
+      ran: { resume: true, foldedPmf: true, formula: true, observe: true, beliefs: false },
       resumed: 21,
-      gates: 7,
-      pmfs: 7,
-      shifted: 14,
-      obsFolds: 4,
+      gates: ARM_FOLDED,
+      pmfs: ARM_FOLDED,
+      shifted: 2 * ARM_FOLDED,
+      obsFolds: 2 * ARM_FOLDED,
+      bonusSides: ARM_FOLDED,
       shiftObs: shiftObsWhenObserved,
       attached: 0,
       shiftAtt: false,
@@ -1057,8 +1279,8 @@ describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () =
       expect(body.params.rp).toBe(c.ran.resume);
 
       expect(body.fold.matchesFolded).toBe(ARM_FOLDED);
-      expect(body.fold.upcomingPriced).toBe(ARM_UPCOMING);
-      expect(body.fold.bandsProduced).toBe(14);
+      expect(body.fold.upcomingScheduled).toBe(ARM_UPCOMING);
+      expect(body.fold.bandsProduced).toBe(4);
       expect(body.fold.bandsProduced).toBe(ALL_BANDS);
 
       expect(body.fold.rpBeliefTeamsResumed).toBe(c.resumed);
@@ -1066,6 +1288,7 @@ describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () =
       expect(body.fold.rpPmfsProduced).toBe(c.pmfs);
       expect(body.fold.rpMeanShiftedAlliances).toBe(c.shifted);
       expect(body.fold.rpObservedFolds).toBe(c.obsFolds);
+      expect(body.fold.rpBonusSidesCaptured).toBe(c.bonusSides);
       expect(body.fold.rpMeanShiftObservations).toBe(c.shiftObs);
       expect(body.fold.rpBeliefTeamsAttached).toBe(c.attached);
       expect(body.fold.rpMeanShiftAttached).toBe(c.shiftAtt);
@@ -1089,7 +1312,7 @@ describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () =
   it("changedRowsDiscarded: beliefs-on arms match the all arm; beliefs-off arms match the rp=0 arm", async () => {
     const all = await runGroup8Arm(`${ARM_QUERY}&rp=1`, SEEDED_SHIFT);
     const none = await runGroup8Arm(`${ARM_QUERY}&rp=0`, SEEDED_SHIFT);
-    const beliefsOn = new Set(["skipFoldedPmf", "skipUpcomingPmf", "skipBothPmf", "skipFormula", "skipObserve"]);
+    const beliefsOn = new Set(["skipFoldedPmf", "skipFormula", "skipObserve"]);
     const beliefsOff = new Set(["resumeOnly", "skipBeliefs"]);
     for (const c of CASES) {
       if (c.label === "all" || c.label === "none") continue;
@@ -1118,8 +1341,8 @@ describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () =
     expect(viaRpSkip.body.warnings[0]!.toLowerCase()).toContain("forced off");
   });
 
-  it('rpSkip=upcomingPmf,obsrve (unknown token): id "all", counters match the all arm, one warning naming the typo with no ABLATED ARM substring', async () => {
-    const typo = await runGroup8Arm(`${ARM_QUERY}&rpSkip=upcomingPmf,obsrve`, SEEDED_SHIFT);
+  it('rpSkip=obsrve (unknown token): id "all", counters match the all arm, one warning naming the typo with no ABLATED ARM substring', async () => {
+    const typo = await runGroup8Arm(`${ARM_QUERY}&rpSkip=obsrve`, SEEDED_SHIFT);
     const all = await runGroup8Arm(`${ARM_QUERY}&rp=1`, SEEDED_SHIFT);
 
     expect(typo.body.params.rpArm.id).toBe("all");
@@ -1130,11 +1353,61 @@ describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () =
     expect(typo.body.warnings[0]).toContain("obsrve");
     expect(typo.body.warnings[0]).toContain("NO component was skipped");
     expect(typo.body.warnings[0]).not.toContain("ABLATED ARM");
+    // The retired name is not one of the five it offers as valid.
+    expect(typo.body.warnings[0]).not.toContain("upcomingPmf");
+  });
+
+  // The RETIRED component. The point of these three is that `upcomingPmf` is
+  // RECOGNIZED: it neither takes the unknown-token path (which would silently
+  // discard the other, valid names beside it) nor vanishes into a no-op that
+  // reports a "skip" nothing performed.
+  it('rpSkip=upcomingPmf: id stays "all", every counter equals the all arm\'s, and exactly one warning says NOT APPLICABLE with the reason', async () => {
+    const retired = await runGroup8Arm(`${ARM_QUERY}&rpSkip=upcomingPmf`, SEEDED_SHIFT);
+    const all = await runGroup8Arm(`${ARM_QUERY}&rp=1`, SEEDED_SHIFT);
+
+    expect(retired.status).toBe(200);
+    expect(retired.body.params.rpArm.id).toBe("all");
+    expect(retired.body.params.rpArm.ran).toEqual(RAN_ALL);
+    expect(retired.body.fold).toEqual(all.body.fold);
+
+    expect(retired.body.warnings).toHaveLength(1);
+    expect(retired.body.warnings[0]).toContain('"upcomingPmf"');
+    expect(retired.body.warnings[0]).toContain("NOT APPLICABLE");
+    expect(retired.body.warnings[0]).toContain("260915-isq");
+    // Not an unknown token, and not an ablation.
+    expect(retired.body.warnings[0]).not.toContain("NO component was skipped");
+    expect(retired.body.warnings[0]).not.toContain("ABLATED ARM");
+    expect(retired.writes).toBe(0);
+  });
+
+  it("rpSkip=foldedPmf,upcomingPmf: the live name still applies, and the retired name warns separately", async () => {
+    const mixed = await runGroup8Arm(`${ARM_QUERY}&rpSkip=foldedPmf,upcomingPmf`, SEEDED_SHIFT);
+    const foldedOnly = await runGroup8Arm(`${ARM_QUERY}&rpSkip=foldedPmf`, SEEDED_SHIFT);
+
+    // The retired name changes neither the id nor a single counter.
+    expect(mixed.body.params.rpArm.id).toBe("skip:foldedPmf");
+    expect(mixed.body.fold).toEqual(foldedOnly.body.fold);
+
+    expect(mixed.body.warnings).toHaveLength(2);
+    expect(mixed.body.warnings[0]).toContain("PARTIALLY ABLATED ARM");
+    // The warning echoes the raw query, so it necessarily repeats the retired
+    // name; what must NOT list it is the "skipped …" clause, which claims work
+    // that was actually skipped.
+    expect(mixed.body.warnings[0]).toContain("skipped foldedPmf;");
+    expect(mixed.body.warnings[1]).toContain("NOT APPLICABLE");
+    expect(mixed.body.warnings[1]).toContain('"upcomingPmf"');
+  });
+
+  it("a retired name is matched case-insensitively too, and never reaches the arm id", async () => {
+    const upper = await runGroup8Arm(`${ARM_QUERY}&rpSkip=UPCOMINGPMF`, SEEDED_SHIFT);
+    expect(upper.body.params.rpArm.id).toBe("all");
+    expect(upper.body.warnings).toHaveLength(1);
+    expect(upper.body.warnings[0]).toContain("NOT APPLICABLE");
   });
 
   it("rpSkip is matched case-insensitively; an empty rpSkip= is byte-identical to the all arm", async () => {
-    const upper = await runGroup8Arm(`${ARM_QUERY}&rpSkip=UPCOMINGPMF`, SEEDED_SHIFT);
-    expect(upper.body.params.rpArm.id).toBe("skip:upcomingPmf");
+    const upper = await runGroup8Arm(`${ARM_QUERY}&rpSkip=FOLDEDPMF`, SEEDED_SHIFT);
+    expect(upper.body.params.rpArm.id).toBe("skip:foldedPmf");
 
     const emptyDb = new FakeD1Database();
     seedAllAlgorithms(emptyDb);
@@ -1166,7 +1439,325 @@ describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () =
     expect(a).toEqual(b);
     expect(a.id).toBe("skip:foldedPmf");
     expect(a.ran.foldedPmf).toBe(false);
-    expect(a.ran.upcomingPmf).toBe(true);
+    // `formula` is forced off with the pmf loop it gated — nothing calls it now.
+    expect(a.ran.formula).toBe(false);
+    expect(a.ran.observe).toBe(true);
+  });
+});
+
+// Group 9: the Phase B emulation arm (`phaseB`).
+//
+// Phase A's cost has been measured three times. Phase B's never has — and the
+// browser-pricing work made it BIGGER, by putting a `state` block of tens of
+// KB into every live event artifact that is now parsed and spliced every tick.
+// This group pins that the emulation really runs the tick's own merge (not a
+// copy), that it is OFF by default, and that the new outbound request cannot
+// mutate anything.
+
+interface PhaseBBody {
+  ok: boolean;
+  params: { phaseB: boolean; phaseBTeams: number; phaseBEvent: string; artifactOrigin: string | null };
+  fold: { error?: { name: string; message: string } };
+  phaseB: {
+    ran: boolean;
+    eventArtifactBytes: number;
+    teamArtifactBytes: number;
+    eventStateBlockPresent: boolean;
+    stateBlockSynthesized: boolean;
+    playedRowFactsBuilt: number;
+    mergedEventBytes: number;
+    mergedEventStateBlockPresent: boolean;
+    mergedEventStateRows: number;
+    mergedEventUpcomingRows: number;
+    mergedEventPlayedRows: number;
+    teamParsesRun: number;
+    teamMergesRun: number;
+    mergedTeamBytes: number;
+    error?: { name: string; message: string };
+  };
+  warnings: string[];
+}
+
+/** The spr rows a seeded FakeD1Database holds, rebuilt here so the fixtures can carry a REAL state block rather than a hand-written one. */
+function seededSprRows(db: FakeD1Database): StateRow[] {
+  return [...db.algorithmState.values()]
+    .filter((row) => row.algorithm_id === "spr")
+    .map((row) =>
+      StateRowSchema.parse({
+        algorithmId: row.algorithm_id,
+        algorithmVersion: row.algorithm_version,
+        scopeKind: row.scope_kind,
+        scopeKey: row.scope_key,
+        stateJson: row.state_json,
+        generation: row.generation,
+        computedAt: row.computed_at,
+      })
+    );
+}
+
+const PUBLISHED_STAMP = { schemaVersion: 1, generation: "published", computedAt: "2026-03-01T00:00:00.000Z" };
+
+/** A real-shaped published event artifact. `withState` decides whether it carries the block a live event's artifact carries and an out-of-season one does not. */
+function publishedEventArtifact(db: FakeD1Database, withState: boolean): unknown {
+  return {
+    ...PUBLISHED_STAMP,
+    algorithmId: "spr",
+    algorithmVersion: spr.version,
+    eventKey: SEED_EVENT_KEY,
+    season: 2026,
+    eventType: 0,
+    matches: [],
+    upcoming: [],
+    teams: SEED_ROSTER.map((teamKey) => ({ teamKey, teamNumber: Number(teamKey.slice(3)), nickname: "", metrics: {} })),
+    ...(withState ? { state: buildEventStateBlock(seededSprRows(db), SEED_ROSTER) } : {}),
+  };
+}
+
+/** A real-shaped published team-season artifact. */
+function publishedTeamArtifact(): unknown {
+  return {
+    ...PUBLISHED_STAMP,
+    algorithmId: "spr",
+    algorithmVersion: spr.version,
+    teamKey: SEED_ROSTER[0],
+    teamNumber: 1,
+    nickname: "Probe",
+    season: 2026,
+    seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {}, metricsBasis: "last-official-match" },
+    events: [],
+    metricHistory: [],
+  };
+}
+
+interface RecordedRequest {
+  readonly url: string;
+  readonly method: string | undefined;
+  readonly hasBody: boolean;
+}
+
+/** Replaces `globalThis.fetch` with a recorder. Returns the live array of requests the probe issued, so the GET-only guarantee is checked BEHAVIORALLY, not only in source. */
+function installFetchRecorder(handler: (url: string) => { status: number; body: string }): RecordedRequest[] {
+  const recorded: RecordedRequest[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation((async (input: unknown, init?: { method?: string; body?: unknown }) => {
+    const url = typeof input === "string" ? input : String((input as { url?: string }).url);
+    recorded.push({ url, method: init?.method, hasBody: init?.body !== undefined });
+    const { status, body } = handler(url);
+    return new Response(body, { status });
+  }) as unknown as typeof globalThis.fetch);
+  return recorded;
+}
+
+describe("stateProbe — Group 9: the phaseB emulation arm", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** `rosterAt` cycles 6 at a time, so 2 folded matches touch teams 1-12. That is the default `phaseBTeams`. */
+  const EXPECTED_TOUCHED_TEAMS = 12;
+  /** `buildEventStateBlock` over the seeded rows: one league row plus 21 team rows. */
+  const EXPECTED_STATE_ROWS = 1 + SEED_ROSTER.length;
+
+  async function runPhaseBArm(query: string, options: { withState: boolean; eventStatus?: number; eventBody?: string }) {
+    const db = new FakeD1Database();
+    seedAllAlgorithms(db);
+    seedMeanShift(db, SEEDED_SHIFT);
+    const eventText = options.eventBody ?? JSON.stringify(publishedEventArtifact(db, options.withState));
+    const teamText = JSON.stringify(publishedTeamArtifact());
+    const recorded = installFetchRecorder((url) =>
+      url.includes("/v1/event/")
+        ? { status: options.eventStatus ?? 200, body: eventText }
+        : { status: 200, body: teamText }
+    );
+    const response = await stateProbe.fetch(new Request(`https://probe/?${query}`), { DB: db as unknown as D1Database });
+    const text = await response.text();
+    return { body: JSON.parse(text) as PhaseBBody, text, status: response.status, writes: db.writeStatementCount, recorded, eventText, teamText };
+  }
+
+  it("positive control: the fixtures really are schema-valid published artifacts, with and without a state block", () => {
+    const db = new FakeD1Database();
+    seedAllAlgorithms(db);
+    const withState = LiveEventArtifactSchema.parse(publishedEventArtifact(db, true));
+    expect(withState.state?.rows).toHaveLength(EXPECTED_STATE_ROWS);
+    const withoutState = LiveEventArtifactSchema.parse(publishedEventArtifact(db, false));
+    expect(withoutState.state).toBeUndefined();
+    expect(TeamSeasonArtifactSchema.parse(publishedTeamArtifact()).teamKey).toBe(SEED_ROSTER[0]);
+  });
+
+  it("is OFF by default: an absent phaseB= is byte-identical to phaseB=0, ran is false, every counter is 0, and NO request is issued", async () => {
+    const absent = await runPhaseBArm(ARM_QUERY, { withState: true });
+    const explicitOff = await runPhaseBArm(`${ARM_QUERY}&phaseB=0`, { withState: true });
+
+    expect(absent.text).toBe(explicitOff.text);
+    expect(absent.status).toBe(200);
+    expect(absent.body.params.phaseB).toBe(false);
+    expect(absent.body.phaseB).toEqual({
+      ran: false,
+      eventArtifactBytes: 0,
+      teamArtifactBytes: 0,
+      eventStateBlockPresent: false,
+      stateBlockSynthesized: false,
+      playedRowFactsBuilt: 0,
+      mergedEventBytes: 0,
+      mergedEventStateBlockPresent: false,
+      mergedEventStateRows: 0,
+      mergedEventUpcomingRows: 0,
+      mergedEventPlayedRows: 0,
+      teamParsesRun: 0,
+      teamMergesRun: 0,
+      mergedTeamBytes: 0,
+    });
+    expect(absent.recorded).toEqual([]);
+    expect(absent.body.warnings).toEqual([]);
+    expect(absent.writes).toBe(0);
+  });
+
+  it("phaseB=1 against a PUBLISHED state block: fetches once each, parses, merges, splices and stringifies — every structural counter pinned by equality", async () => {
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1`, { withState: true });
+
+    expect(arm.status).toBe(200);
+    expect(arm.body.ok).toBe(true);
+    expect(arm.body.phaseB.error).toBeUndefined();
+
+    expect(arm.body.params.phaseB).toBe(true);
+    expect(arm.body.params.phaseBTeams).toBe(EXPECTED_TOUCHED_TEAMS);
+    expect(arm.body.params.phaseBEvent).toBe(SEED_EVENT_KEY);
+    expect(arm.body.params.artifactOrigin).toBe("https://data.sigmascout.org");
+
+    expect(arm.body.phaseB.ran).toBe(true);
+    expect(arm.body.phaseB.eventArtifactBytes).toBe(arm.eventText.length);
+    expect(arm.body.phaseB.teamArtifactBytes).toBe(arm.teamText.length);
+    expect(arm.body.phaseB.eventStateBlockPresent).toBe(true);
+    expect(arm.body.phaseB.stateBlockSynthesized).toBe(false);
+    expect(arm.body.phaseB.playedRowFactsBuilt).toBe(ARM_FOLDED);
+    // The observable proof the splice ran: the merged object still carries a
+    // block, and it holds every row the published one did.
+    expect(arm.body.phaseB.mergedEventStateBlockPresent).toBe(true);
+    expect(arm.body.phaseB.mergedEventStateRows).toBe(EXPECTED_STATE_ROWS);
+    expect(arm.body.phaseB.mergedEventUpcomingRows).toBe(ARM_UPCOMING);
+    expect(arm.body.phaseB.mergedEventPlayedRows).toBe(ARM_FOLDED);
+    expect(arm.body.phaseB.teamParsesRun).toBe(EXPECTED_TOUCHED_TEAMS);
+    expect(arm.body.phaseB.teamMergesRun).toBe(EXPECTED_TOUCHED_TEAMS);
+
+    // The two byte totals are pinned by a strict floor plus determinism (the
+    // next test), not by a literal: a literal would turn this into a
+    // change-detector on `spr.version` and every published-row field.
+    expect(arm.body.phaseB.mergedEventBytes).toBeGreaterThan(arm.body.phaseB.eventArtifactBytes);
+    expect(arm.body.phaseB.mergedTeamBytes).toBeGreaterThan(arm.body.phaseB.teamArtifactBytes);
+
+    expect(arm.body.warnings).toEqual([]);
+    expect(arm.writes).toBe(0);
+  });
+
+  it("the phaseB numbers are deterministic: two identical runs are byte-identical", async () => {
+    const a = await runPhaseBArm(`${ARM_QUERY}&phaseB=1`, { withState: true });
+    const b = await runPhaseBArm(`${ARM_QUERY}&phaseB=1`, { withState: true });
+    expect(a.text).toBe(b.text);
+  });
+
+  it("phaseB=1 against an artifact with NO block: synthesizes one, still splices, and warns that the number is a floor", async () => {
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1`, { withState: false });
+
+    expect(arm.status).toBe(200);
+    expect(arm.body.phaseB.eventStateBlockPresent).toBe(false);
+    expect(arm.body.phaseB.stateBlockSynthesized).toBe(true);
+    expect(arm.body.phaseB.mergedEventStateBlockPresent).toBe(true);
+    expect(arm.body.phaseB.mergedEventStateRows).toBe(EXPECTED_STATE_ROWS);
+
+    expect(arm.body.warnings).toHaveLength(1);
+    expect(arm.body.warnings[0]).toContain("synthesized");
+    expect(arm.body.warnings[0]).toContain("FLOOR");
+    expect(arm.writes).toBe(0);
+  });
+
+  it("phaseBTeams overrides the default merge count, and phaseBEvent picks a different published key", async () => {
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1&phaseBTeams=3&phaseBEvent=2026other`, { withState: true });
+
+    expect(arm.body.params.phaseBTeams).toBe(3);
+    expect(arm.body.params.phaseBEvent).toBe("2026other");
+    expect(arm.body.phaseB.teamMergesRun).toBe(3);
+    expect(arm.body.phaseB.teamParsesRun).toBe(3);
+    // The event artifact key follows phaseBEvent; the merge's own eventKey
+    // stays the resolved probe event, as the tick's does.
+    expect(arm.recorded.some((r) => r.url.includes("/v1/event/2026other/"))).toBe(true);
+  });
+
+  it("every outbound request is a GET over https, with no request body", async () => {
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1`, { withState: true });
+
+    expect(arm.recorded.length).toBeGreaterThan(0);
+    for (const request of arm.recorded) {
+      expect(request.method, request.url).toBe("GET");
+      expect(request.hasBody, request.url).toBe(false);
+      expect(new URL(request.url).protocol, request.url).toBe("https:");
+    }
+    // Exactly two reads: one event artifact, one team artifact re-parsed N times.
+    expect(arm.recorded).toHaveLength(2);
+  });
+
+  it("a non-200 artifact fetch is a 500 with phaseB.error set and every counter 0 — never a phaseB arm that measured nothing", async () => {
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1`, { withState: true, eventStatus: 404 });
+
+    expect(arm.status).toBe(500);
+    expect(arm.body.ok).toBe(false);
+    expect(arm.body.phaseB.error?.name).toBe("ArtifactFetchFailed");
+    expect(arm.body.phaseB.ran).toBe(false);
+    expect(arm.body.phaseB.mergedEventBytes).toBe(0);
+    expect(arm.body.phaseB.teamMergesRun).toBe(0);
+    expect(arm.body.phaseB.mergedEventStateRows).toBe(0);
+    expect(arm.writes).toBe(0);
+  });
+
+  it("a body that does not schema-parse is a 500 with phaseB.error set and every counter 0", async () => {
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1`, { withState: true, eventBody: '{"schemaVersion":1,"nope":true}' });
+
+    expect(arm.status).toBe(500);
+    expect(arm.body.phaseB.error?.name).toBe("EventArtifactParseFailed");
+    expect(arm.body.phaseB.ran).toBe(false);
+    expect(arm.body.phaseB.mergedEventBytes).toBe(0);
+    expect(arm.writes).toBe(0);
+  });
+
+  it("an unrecognized phaseB= value runs ON and says so, rather than silently picking the cheaper arm", async () => {
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=yse`, { withState: true });
+
+    expect(arm.body.params.phaseB).toBe(true);
+    expect(arm.body.phaseB.ran).toBe(true);
+    expect(arm.body.warnings).toHaveLength(1);
+    expect(arm.body.warnings[0]).toContain('phaseB="yse"');
+    expect(arm.body.warnings[0]).toContain("ENABLED");
+  });
+
+  it("a non-https artifactOrigin is REJECTED, never silently replaced by the default — nothing is fetched", async () => {
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1&artifactOrigin=http://data.sigmascout.org`, { withState: true });
+
+    expect(arm.status).toBe(500);
+    expect(arm.body.params.artifactOrigin).toBeNull();
+    expect(arm.body.phaseB.error?.name).toBe("ArtifactOriginRejected");
+    expect(arm.body.phaseB.ran).toBe(false);
+    expect(arm.recorded).toEqual([]);
+    expect(arm.body.warnings.some((w) => w.includes("REJECTED"))).toBe(true);
+    expect(arm.writes).toBe(0);
+  });
+
+  it("an https artifactOrigin override is accepted and is the origin actually requested", async () => {
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1&artifactOrigin=https://staging.example.org`, { withState: true });
+
+    expect(arm.body.params.artifactOrigin).toBe("https://staging.example.org");
+    expect(arm.body.phaseB.ran).toBe(true);
+    for (const request of arm.recorded) expect(request.url.startsWith("https://staging.example.org/v1/")).toBe(true);
+  });
+
+  it("phaseB does not disturb the RP arms: the fold block is identical with phaseB on and off", async () => {
+    const off = await runPhaseBArm(`${ARM_QUERY}&rp=1`, { withState: true });
+    const on = await runPhaseBArm(`${ARM_QUERY}&rp=1&phaseB=1`, { withState: true });
+    expect(on.body.fold).toEqual(off.body.fold);
+
+    const rpOffNoPhaseB = await runPhaseBArm(`${ARM_QUERY}&rp=0`, { withState: true });
+    const rpOffPhaseB = await runPhaseBArm(`${ARM_QUERY}&rp=0&phaseB=1`, { withState: true });
+    expect(rpOffPhaseB.body.fold).toEqual(rpOffNoPhaseB.body.fold);
+    // Both phaseB arms really ran, so the equality above is not vacuous.
+    expect(on.body.phaseB.ran).toBe(true);
+    expect(rpOffPhaseB.body.phaseB.ran).toBe(true);
   });
 });
 
