@@ -1420,16 +1420,16 @@ describe("scheduled.rp — the state block survives the live Worker", () => {
 });
 
 describe("scheduled.rp — state block warning paths and eventType", () => {
-  function warnLines(warn: ReturnType<typeof vi.spyOn>, msg: string): Record<string, unknown>[] {
+  function warnLines(warn: { readonly mock: { readonly calls: readonly (readonly unknown[])[] } }, msg: string): Record<string, unknown>[] {
     return warn.mock.calls
-      .map((call) => {
+      .map((call: readonly unknown[]) => {
         try {
           return JSON.parse(String(call[0])) as Record<string, unknown>;
         } catch {
           return undefined;
         }
       })
-      .filter((line): line is Record<string, unknown> => line !== undefined && line.msg === msg);
+      .filter((line: Record<string, unknown> | undefined): line is Record<string, unknown> => line !== undefined && line.msg === msg);
   }
 
   function expectScheduleOnly(upcoming: readonly Record<string, unknown>[]): void {
