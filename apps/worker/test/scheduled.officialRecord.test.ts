@@ -72,6 +72,7 @@ function mergeOne(match: MatchResult): TeamSeasonArtifact {
     metrics: METRICS,
     matchIndexByKey: new Map([[match.matchKey, 0]]),
     bands: new Map(),
+    playedRowFacts: new Map(),
     sigmaAfterTick: undefined,
     stamp: { generation: "test-generation", computedAt: "2026-09-08T00:00:00.000Z" },
   }) as TeamSeasonArtifact;
@@ -135,6 +136,7 @@ describe("mergeTeamSeasonArtifact — official-only seasonStats.record", () => {
       metrics: METRICS,
       matchIndexByKey: new Map([["2026ex_qm1", 1]]),
       bands: new Map(),
+      playedRowFacts: new Map(),
       sigmaAfterTick: undefined,
       stamp: { generation: "test-generation", computedAt: "2026-09-08T00:00:00.000Z" },
     }) as TeamSeasonArtifact;
@@ -193,6 +195,7 @@ describe("mergeTeamSeasonArtifact — preserves offline-published fields", () =>
       metrics: METRICS,
       matchIndexByKey: new Map([[match.matchKey, 0]]),
       bands: new Map(),
+      playedRowFacts: new Map(),
       sigmaAfterTick: undefined,
       stamp: { generation: "live-generation", computedAt: "2026-09-08T00:00:00.000Z" },
     }) as TeamSeasonArtifact;
@@ -258,6 +261,7 @@ describe("mergeTeamSeasonArtifact — Sigma on appended history rows", () => {
       metrics: { total: { value: 42 } },
       matchIndexByKey: new Map([[match.matchKey, 0]]),
       bands: new Map(),
+      playedRowFacts: new Map(),
       stamp: { generation: "test-generation", computedAt: "2026-09-08T00:00:00.000Z" },
       sigmaAfterTick: 27.834,
     }) as TeamSeasonArtifact;
@@ -281,6 +285,7 @@ describe("mergeTeamSeasonArtifact — Sigma on appended history rows", () => {
       metrics: { total: { value: 42 } },
       matchIndexByKey: new Map([[match.matchKey, 0]]),
       bands: new Map(),
+      playedRowFacts: new Map(),
       stamp: { generation: "test-generation", computedAt: "2026-09-08T00:00:00.000Z" },
       sigmaAfterTick: undefined,
     }) as TeamSeasonArtifact;
@@ -322,6 +327,7 @@ describe("mergeTeamSeasonArtifact — Sigma on appended history rows", () => {
       metrics: { total: { value: 42 } },
       matchIndexByKey: new Map([[match.matchKey, 1]]),
       bands: new Map(),
+      playedRowFacts: new Map(),
       stamp: { generation: "live-generation", computedAt: "2026-09-08T00:00:00.000Z" },
       sigmaAfterTick: 27.83,
     }) as TeamSeasonArtifact;
@@ -398,6 +404,7 @@ describe("mergeTeamSeasonArtifact — replaces a match's unplayed row in place",
         metrics: METRICS,
         matchIndexByKey: new Map([[match.matchKey, match.matchNumber - 1]]),
         bands: new Map(),
+        playedRowFacts: new Map(),
         sigmaAfterTick: undefined,
         stamp: { generation: "live-generation", computedAt: "2026-09-08T00:00:00.000Z" },
       })

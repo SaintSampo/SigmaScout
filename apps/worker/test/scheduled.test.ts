@@ -270,6 +270,8 @@ interface TbaMatchFixture {
   blueScore?: number | null;
   actualTimeSec?: number;
   predictedTimeSec?: number;
+  /** Emitted only when defined, so every existing fixture's payload stays byte-identical. */
+  videos?: readonly { type: string; key: string }[];
 }
 
 function tbaMatch(f: TbaMatchFixture): unknown {
@@ -288,6 +290,7 @@ function tbaMatch(f: TbaMatchFixture): unknown {
       red: { team_keys: f.redTeams, surrogate_team_keys: [], dq_team_keys: [], score: f.redScore ?? null },
       blue: { team_keys: f.blueTeams, surrogate_team_keys: [], dq_team_keys: [], score: f.blueScore ?? null },
     },
+    ...(f.videos !== undefined ? { videos: f.videos } : {}),
     score_breakdown: null,
   };
 }
@@ -1270,5 +1273,74 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
     expect(d1.eventCursors.get("2026off")?.last_folded_match_key).toBe("2026off_qm1");
     expect(d1.algorithmState.get("opr::team::frc1")).toBeDefined();
     expect(d1.algorithmState.get("opr::event::2026off")).toBeDefined();
+  });
+});
+
+/**
+ * The tick's own poll already carries everything a played row needs beyond the
+ * prediction: TBA's reported time, the youtube video key and the score
+ * breakdown the actual bonus flags come from. This drives the whole `runTick`
+ * path (not the merge in isolation) so the wiring from `processEvent` through
+ * `runPhaseBAndReport` to both merges is what is under test — a `playedRowFacts`
+ * map that never gets filled fails here while every merge unit test still passes.
+ */
+describe("runTick — played rows carry the tick's own per-match facts", () => {
+  it("writes video, TBA's reported sortTime and null actual RP / bonus flags on both the event row and the team row", async () => {
+    const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const kv = makeKv([window]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const actualTimeSec = Math.floor(NOW_MS / 1000) - 60;
+    const videoKey = "dQw4w9WgXcQ";
+
+    const record: TbaEventRecord = {
+      etag: "etag-1",
+      eventType: 0,
+      season: SEASON,
+      matches: [
+        // `tbaMatch` gives every fixture a null `score_breakdown`, so the actual
+        // bonus flags must publish an explicit null ("not derivable"), never absence.
+        tbaMatch({
+          key: "2026casj_qm1",
+          eventKey: "2026casj",
+          matchNumber: 1,
+          redTeams: RED_TEAMS,
+          blueTeams: BLUE_TEAMS,
+          redScore: 120,
+          blueScore: 95,
+          actualTimeSec,
+          videos: [{ type: "youtube", key: videoKey }],
+        }),
+        tbaMatch({ key: "2026casj_qm2", eventKey: "2026casj", matchNumber: 2, redTeams: ["frc7", "frc8", "frc9"], blueTeams: ["frc10", "frc11", "frc12"], predictedTimeSec: Math.floor(NOW_MS / 1000) + 3600 }),
+      ],
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", record]])));
+
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    expect(result.eventsAdvanced).toBe(1);
+
+    const eventPutKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "opr", version: opr.version });
+    const eventPut = r2.puts.filter((p) => p.key === eventPutKey).at(-1);
+    expect(eventPut).toBeDefined();
+    const eventRow = (JSON.parse(eventPut!.body) as { matches: Record<string, unknown>[] }).matches.find((m) => m.matchKey === "2026casj_qm1");
+    expect(eventRow).toBeDefined();
+    expect(eventRow!.video).toBe(videoKey);
+    expect(eventRow!.sortTime).toBe(actualTimeSec * 1000);
+    expect(eventRow!.actualRedRp).toBeNull();
+    expect(eventRow!.actualBlueRp).toBeNull();
+    expect(eventRow!.actualRedBonusRp).toBeNull();
+    expect(eventRow!.actualBlueBonusRp).toBeNull();
+
+    const teamPutKey = artifactKey({ page: "team", teamKey: "frc1", year: SEASON, algorithmId: "opr", version: opr.version });
+    const teamPut = r2.puts.filter((p) => p.key === teamPutKey).at(-1);
+    expect(teamPut).toBeDefined();
+    const teamRow = (JSON.parse(teamPut!.body) as { events: { matches: Record<string, unknown>[] }[] }).events[0]!.matches.find((m) => m.matchKey === "2026casj_qm1");
+    expect(teamRow).toBeDefined();
+    expect(teamRow!.video).toBe(videoKey);
+    expect(teamRow!.sortTime).toBe(actualTimeSec * 1000);
+    expect(teamRow!.actualRedRp).toBeNull();
+    expect(teamRow!.actualBlueRp).toBeNull();
+    expect(teamRow!.actualRedBonusRp).toBeNull();
+    expect(teamRow!.actualBlueBonusRp).toBeNull();
   });
 });

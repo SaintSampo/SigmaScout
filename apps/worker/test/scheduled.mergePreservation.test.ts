@@ -189,6 +189,9 @@ function mergeEventRaw(options: EventTickOptions): Record<string, unknown> {
     touchedMetrics: FRESH_METRICS,
     newBands: new Map(),
     writtenRows: [],
+    // Task 3: the merges take this tick's per-match facts; these preservation
+    // fixtures fold no facts, which is a valid (empty) value.
+    playedRowFacts: new Map(),
     stamp: LIVE_STAMP,
   });
   return merged as Record<string, unknown>;
@@ -332,6 +335,7 @@ function mergeTeam(existing: TeamSeasonArtifact | undefined, match: MatchResult)
     metrics: { total: { value: 50.25 } },
     matchIndexByKey: new Map([[match.matchKey, 2]]),
     bands: new Map(),
+    playedRowFacts: new Map(),
     stamp: LIVE_STAMP,
     sigmaAfterTick: 23.4,
   });

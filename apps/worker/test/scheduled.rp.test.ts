@@ -466,6 +466,10 @@ interface PublishedMatchRow {
   readonly matchOutcomePmf?: readonly number[];
   readonly redBonusRpPmf?: readonly number[];
   readonly blueBonusRpPmf?: readonly number[];
+  readonly sortTime?: number;
+  readonly actualRedRp?: number | null;
+  readonly actualRedBonusRp?: readonly boolean[] | null;
+  readonly actualBlueBonusRp?: readonly boolean[] | null;
 }
 
 afterEach(() => {
@@ -622,6 +626,52 @@ describe("scheduled.rp — ranking points on live rows", () => {
         decomposed.some((row) => row.matchOutcomePmf![1]! > 0),
         "no live row carried a nonzero tie probability — WIN+TIE ships (data/baselines/rp-outcome-arms-2026-09.json), so every varianceD > 0 row should"
       ).toBe(true);
+    },
+    60_000
+  );
+
+  /**
+   * The actual per-bonus flags a live row publishes come from the breakdown
+   * Phase A's RP fold ALREADY parsed (`observedBonusSides`), passed through to
+   * Phase B rather than parsed a second time against the tick's CPU budget.
+   * They describe the MATCH, not the model, so OPR's and EPA's rows — whose
+   * own folds parse nothing — must carry the same arrays (260915-p0a).
+   */
+  it(
+    "live played rows carry the actual per-bonus flags the offline rule module derives, on every algorithm's artifact",
+    async () => {
+      const { r2 } = await driveFixture();
+      // The oracle is the season's rule module itself, read here rather than
+      // through `actualBonusFlagsForMatch`, so this test is independent of the
+      // helper the Worker uses on either of its two paths.
+      const expected = new Map(
+        LIVE_FIXTURES.map((f) => {
+          const raw = breakdownOf(f);
+          const sideFlags = (side: "red" | "blue") => {
+            const parsed = RULES_2026.parse(raw, side, EVENT_TYPE);
+            return RULES_2026.bonusNames.map((name) => parsed.bonusFlags[name] ?? false);
+          };
+          return [matchKeyOf(f), { red: sideFlags("red"), blue: sideFlags("blue") }];
+        })
+      );
+      // Non-vacuity: a fixture whose bonuses were all false would pass a broken pass-through.
+      expect(
+        [...expected.values()].some((flags) => [...flags.red, ...flags.blue].some((v) => v)),
+        "no live fixture achieved a bonus, so the flag comparison below would be vacuous"
+      ).toBe(true);
+
+      for (const algorithmId of ["spr", "opr", "epa"]) {
+        for (const row of await publishedLiveRows(r2, algorithmId)) {
+          const flags = expected.get(row.matchKey)!;
+          expect(row.actualRedBonusRp, `${algorithmId} ${row.matchKey} actualRedBonusRp`).toEqual(flags.red);
+          expect(row.actualBlueBonusRp, `${algorithmId} ${row.matchKey} actualBlueBonusRp`).toEqual(flags.blue);
+          // TBA's own reported time, straight off the same poll.
+          const fixture = LIVE_FIXTURES.find((f) => matchKeyOf(f) === row.matchKey)!;
+          expect(row.sortTime, `${algorithmId} ${row.matchKey} sortTime`).toBe((Math.floor(NOW_MS / 1000) + fixture.matchNumber * 60) * 1000);
+          // These fixtures' breakdowns carry no `rp` field, so "not derivable" is the honest value.
+          expect(row.actualRedRp, `${algorithmId} ${row.matchKey} actualRedRp`).toBeNull();
+        }
+      }
     },
     60_000
   );

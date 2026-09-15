@@ -50,6 +50,21 @@
  * rejects) is written without one, with a structured warn line. The block is
  * dropped once the event has no upcoming match left.
  *
+ * PLAYED ROWS go through the offline publisher's own shared builders
+ * (`publishedRows.ts`'s `eventPlayedRow`/`teamSeasonPlayedRow`), so a live row
+ * and the republished row for the same match agree by construction rather
+ * than by intention. TBA's reported time, the youtube video key and the
+ * actual per-bonus flags all come from the tick's own poll: the flags reuse
+ * the breakdown Phase A's RP fold already parsed (`observedBonusSides`), so
+ * the common path pays no second parse, and only a live tier with no
+ * RP-publishing algorithm parses in Phase B. With no TBA-reported time the
+ * row keeps the value already published for that match, or carries no
+ * `sortTime` key — never the window-start approximation (260915-isq). A
+ * failed event-detail fetch leaves the event RP-ineligible, so the flags
+ * publish `null` ("not derivable"), which heals at the next republish.
+ * `coldStart` is corpus-global (`corpusColdStartIndex`) and is therefore
+ * NEVER published live; it is the one tested exception to row parity.
+ *
  * DEMO TEAMS: the algorithms already exclude demo teams in
  * `update()`/`predict()`. `realTouchedTeams` strips demo keys before Phase A
  * scope keys and Phase B team artifacts, so a demo key gets no D1 row and no
@@ -62,9 +77,9 @@ import { epa } from "../../../packages/core/algorithms/epa.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
 import { isOfficialEventType } from "../../../packages/core/algorithms/eventTypes.js";
 import type { AlgorithmModule, MatchResult, Prediction, TeamMetric } from "../../../packages/core/algorithms/types.js";
-import { tbaMatchListSchema } from "../../../packages/ingest/schemas.js";
+import { tbaMatchListSchema, type TbaMatch } from "../../../packages/ingest/schemas.js";
 import { tbaEventSchema } from "../../../packages/ingest/schemas.js";
-import { normalizeMatch, type CorpusMatch } from "../../../packages/ingest/normalize.js";
+import { normalizeMatch, tbaReportedMatchTimeMs, type CorpusMatch } from "../../../packages/ingest/normalize.js";
 import { fetchEventDetail } from "../../../packages/ingest/tbaClient.js";
 import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
 import { isBonusRpCompLevel, isRpEligibleEventType } from "../../../packages/core/rankingPoints/constants.js";
@@ -86,6 +101,13 @@ import {
   type StateRow,
 } from "../../../packages/harness/stateSnapshot.js";
 import { EventStateBlockError, spliceEventStateBlock } from "../../../packages/harness/eventStatePricing.js";
+import {
+  actualBonusFlagsForMatch,
+  eventPlayedRow,
+  teamSeasonPlayedRow,
+  type ActualBonusFlags,
+  type ParsedBonusSides,
+} from "../../../packages/harness/publishedRows.js";
 import {
   publishesRankingPoints,
   SIGMA_METRIC_KEY,
@@ -341,19 +363,6 @@ interface Stamp {
 }
 
 /**
- * Predicted per-bonus marginals for one live row, gated as `publish.ts`'s
- * `eventMatchBonusRpFields` does. Actual per-bonus flags need the season's
- * RP rule module to parse the breakdown, which this Worker does not do; the
- * offline republish fills them, and until then the client draws `unknown`.
- */
-function liveBonusRpFields(compLevel: MatchResult["compLevel"], prediction: Prediction) {
-  return {
-    ...(isBonusRpCompLevel(compLevel) && prediction.redBonusRp ? { redBonusRp: prediction.redBonusRp.map((p) => roundProbability(p)) } : {}),
-    ...(isBonusRpCompLevel(compLevel) && prediction.blueBonusRp ? { blueBonusRp: prediction.blueBonusRp.map((p) => roundProbability(p)) } : {}),
-  };
-}
-
-/**
  * One played match's published Match Band: each side's display variance,
  * `sigmaMatchBandVariance(roster size, Σ Sigma Score²)`, walk-forward. Sigma
  * algorithms only; OPR/EPA rows carry no band keys. Never the win-odds
@@ -362,15 +371,6 @@ function liveBonusRpFields(compLevel: MatchResult["compLevel"], prediction: Pred
 interface MatchBand {
   readonly red?: number;
   readonly blue?: number;
-}
-
-/** Emits the band fields exactly as `publish.ts` does, so a live row and an offline row for the same match are byte-identical. */
-function matchBandFields(band: MatchBand | undefined) {
-  if (band === undefined) return {};
-  return {
-    ...(band.red !== undefined ? { redMatchBandVariance: roundTo(band.red, ROUNDING_RULE.variance) } : {}),
-    ...(band.blue !== undefined ? { blueMatchBandVariance: roundTo(band.blue, ROUNDING_RULE.variance) } : {}),
-  };
 }
 
 /** What Phase A hands Phase B for one algorithm. */
@@ -388,35 +388,60 @@ interface PerAlgorithmFold {
    * omitted) when `usesSigmaScore` is false.
    */
   readonly touchedSigma: ReadonlyMap<string, number>;
+  /**
+   * The per-side `bonusFlags` this algorithm's Phase A RP fold ALREADY parsed
+   * out of each newly-folded match's breakdown, by match key; a side whose
+   * parse threw is `undefined`. A pure pass-through of a value the fold
+   * computed anyway, so Phase B publishes the actual bonus flags without a
+   * second breakdown parse against the tick's CPU budget. Empty for an
+   * algorithm that publishes no ranking points (it never parses), in which
+   * case Phase B falls back to parsing.
+   */
+  readonly observedBonusSides: ReadonlyMap<string, ParsedBonusSides>;
 }
 
-function buildEventMatchRow(match: MatchResult, prediction: Prediction, band: MatchBand | undefined) {
-  return {
-    matchKey: match.matchKey,
-    compLevel: match.compLevel,
-    setNumber: match.setNumber,
-    matchNumber: match.matchNumber,
-    redTeams: [...match.redTeams],
-    blueTeams: [...match.blueTeams],
-    predictedWinner: prediction.winner,
-    pRedWin: roundProbability(prediction.pRedWin),
-    predictedRedScore: roundMetric(prediction.redScore),
-    predictedBlueScore: roundMetric(prediction.blueScore),
-    // Played rows carry the pmf pair too: the simulation rewinds into played
-    // matches, and most events have no unplayed qualification match.
-    redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
-    blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
-    // The RP decomposition, never gated on competition level, exactly as
-    // `publish.ts`'s row builders emit it, so live and offline rows agree.
-    matchOutcomePmf: prediction.matchOutcomePmf ? roundPmf(prediction.matchOutcomePmf) : undefined,
-    redBonusRpPmf: prediction.redBonusRpPmf ? roundPmf(prediction.redBonusRpPmf) : undefined,
-    blueBonusRpPmf: prediction.blueBonusRpPmf ? roundPmf(prediction.blueBonusRpPmf) : undefined,
-    ...liveBonusRpFields(match.compLevel, prediction),
-    ...matchBandFields(band),
-    actualWinner: match.winner,
-    actualRedScore: match.redScore,
-    actualBlueScore: match.blueScore,
-  };
+/**
+ * The per-match facts a played row needs beyond the prediction, all of them
+ * already in this tick's own poll and all algorithm-independent, so Phase B
+ * computes them ONCE per tick rather than once per algorithm.
+ */
+export interface PlayedRowFacts {
+  /** TBA's own reported time in ms, or `undefined` when TBA reports none — never `normalizeMatch`'s composite approximation. */
+  readonly reportedSortTime: number | undefined;
+  readonly video: string | undefined;
+  /** `undefined` = no such property (a playoff match, or a season with no rule module); `null` = could not be derived. */
+  readonly actualBonusFlags: ActualBonusFlags | null | undefined;
+}
+
+/**
+ * `PlayedRowFacts` per newly-folded match key. Pure; exported for the parity
+ * test. The rule-module lookup INDEXES `RP_RULE_MODULES`, never the throwing
+ * `rpRuleModuleForSeason`, for the same reason the fold's own lookup does: an
+ * unregistered season must cost the tick nothing.
+ */
+export function playedRowFactsFor(
+  season: number,
+  rawMatches: readonly TbaMatch[],
+  folded: readonly CorpusMatch[],
+  results: readonly MatchResult[],
+  observedBonusSides: ReadonlyMap<string, ParsedBonusSides> = new Map()
+): Map<string, PlayedRowFacts> {
+  const rawByKey = new Map(rawMatches.map((m) => [m.key, m]));
+  const foldedByKey = new Map(folded.map((m) => [m.matchKey, m]));
+  const ruleModule = RP_RULE_MODULES[season];
+
+  const facts = new Map<string, PlayedRowFacts>();
+  for (const result of results) {
+    const raw = rawByKey.get(result.matchKey);
+    const reported = raw === undefined ? null : tbaReportedMatchTimeMs(raw);
+    const videoKey = foldedByKey.get(result.matchKey)?.videoKey;
+    facts.set(result.matchKey, {
+      reportedSortTime: reported === null ? undefined : reported,
+      video: videoKey !== null && videoKey !== undefined && videoKey.length > 0 ? videoKey : undefined,
+      actualBonusFlags: actualBonusFlagsForMatch(result, ruleModule, observedBonusSides.get(result.matchKey)),
+    });
+  }
+  return facts;
 }
 
 /**
@@ -471,6 +496,8 @@ interface MergeEventArtifactParams {
   readonly newBands: ReadonlyMap<string, MatchBand>;
   /** The rows Phase A wrote to D1 for this algorithm this tick. */
   readonly writtenRows: readonly StateRow[];
+  /** This tick's per-match facts for the newly-folded matches. Required (an empty map is a valid value) so no caller omits it, as `sigmaAfterTick` is. */
+  readonly playedRowFacts: ReadonlyMap<string, PlayedRowFacts>;
   readonly stamp: Stamp;
 }
 
@@ -528,18 +555,42 @@ function maintainedStateBlock(params: MergeEventArtifactParams, upcomingCount: n
  * tier/record.
  */
 export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
-  const { existing, eventKey, season, algorithmId, algorithmVersion, eventType, newlyFolded, newPredictions, stillUpcoming, touchedTeams, touchedMetrics, newBands, stamp } = params;
+  const { existing, eventKey, season, algorithmId, algorithmVersion, eventType, newlyFolded, newPredictions, stillUpcoming, touchedTeams, touchedMetrics, newBands, playedRowFacts, stamp } = params;
   const { state: _existingState, ...carriedFromExisting } = existing ?? {};
+
+  // Read before the preserved-match filter below: a newly-played match's own
+  // published row is where its prior `sortTime` lives when TBA reports none.
+  // A still-upcoming row keeps reading the upcoming map alone, as before.
+  const existingUpcomingSortTimes = new Map<string, number>();
+  for (const row of existing?.upcoming ?? []) {
+    if (row.sortTime !== undefined) existingUpcomingSortTimes.set(row.matchKey, row.sortTime);
+  }
+  const existingPlayedSortTimes = new Map<string, number>();
+  for (const row of existing?.matches ?? []) {
+    if (row.sortTime !== undefined) existingPlayedSortTimes.set(row.matchKey, row.sortTime);
+  }
 
   const newMatchKeys = new Set(newlyFolded.map((m) => m.matchKey));
   const preservedMatches = (existing?.matches ?? []).filter((m) => !newMatchKeys.has(m.matchKey));
-  const matches = [...preservedMatches, ...newlyFolded.map((m) => buildEventMatchRow(m, newPredictions.get(m.matchKey)!, newBands.get(m.matchKey)))];
+  const matches = [
+    ...preservedMatches,
+    ...newlyFolded.map((m) => {
+      const facts = playedRowFacts.get(m.matchKey);
+      return eventPlayedRow(
+        { match: m, prediction: newPredictions.get(m.matchKey)!, matchBand: newBands.get(m.matchKey) },
+        {
+          // TBA's reported time, else the value already published for this
+          // match (its played row or its upcoming row), else no key at all —
+          // never the tick's window-start approximation (260915-isq).
+          sortTime: facts?.reportedSortTime ?? existingPlayedSortTimes.get(m.matchKey) ?? existingUpcomingSortTimes.get(m.matchKey),
+          video: facts?.video,
+          actualBonusFlags: facts?.actualBonusFlags,
+        }
+      );
+    }),
+  ];
 
-  const existingSortTimes = new Map<string, number>();
-  for (const row of existing?.upcoming ?? []) {
-    if (row.sortTime !== undefined) existingSortTimes.set(row.matchKey, row.sortTime);
-  }
-  const upcoming = stillUpcoming.map((m) => buildEventScheduledRow(m, existingSortTimes.get(m.matchKey)));
+  const upcoming = stillUpcoming.map((m) => buildEventScheduledRow(m, existingUpcomingSortTimes.get(m.matchKey)));
 
   // The season's win/tie RP constants, derived as `publish.ts` derives them
   // so live and offline artifacts agree; else the existing artifact's value,
@@ -598,30 +649,6 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
   };
 }
 
-function buildTeamSeasonMatchRow(match: MatchResult, prediction: Prediction, season: number, algorithmId: string, algorithmVersion: string, band: MatchBand | undefined) {
-  return {
-    matchKey: match.matchKey,
-    season,
-    eventKey: match.eventKey,
-    compLevel: match.compLevel,
-    algorithmId,
-    algorithmVersion,
-    predictedWinner: prediction.winner,
-    pRedWin: roundProbability(prediction.pRedWin),
-    predictedRedScore: roundMetric(prediction.redScore),
-    predictedBlueScore: roundMetric(prediction.blueScore),
-    variance: prediction.variance !== undefined ? roundTo(prediction.variance, ROUNDING_RULE.variance) : undefined,
-    redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
-    blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
-    ...matchBandFields(band),
-    actualWinner: match.winner,
-    actualRedScore: match.redScore,
-    actualBlueScore: match.blueScore,
-    redTeams: [...match.redTeams],
-    blueTeams: [...match.blueTeams],
-  };
-}
-
 /** `existing` with each new row replacing the row of the same `matchKey` in place, or appended when there is none. */
 function replaceOrAppendRows<Row extends { readonly matchKey: string }>(existing: readonly Row[], newRows: readonly Row[]): Row[] {
   const rows = [...existing];
@@ -662,6 +689,8 @@ interface MergeTeamSeasonArtifactParams {
   readonly matchIndexByKey: ReadonlyMap<string, number>;
   /** Match Band per newly-folded match key. */
   readonly bands: ReadonlyMap<string, MatchBand>;
+  /** This tick's per-match facts for the newly-folded matches. Required (an empty map is a valid value) so no caller omits it, as `sigmaAfterTick` is. */
+  readonly playedRowFacts: ReadonlyMap<string, PlayedRowFacts>;
   readonly stamp: Stamp;
   /**
    * This team's Sigma Score at end of tick, used only on this tick's new
@@ -687,14 +716,34 @@ interface MergeTeamSeasonArtifactParams {
  * direction prices team pages from the event file instead (260915-isq DD-3).
  */
 export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): unknown {
-  const { existing, teamKey, season, algorithmId, algorithmVersion, eventKey, matches, predictions, metrics, matchIndexByKey, bands, stamp, sigmaAfterTick } = params;
+  const { existing, teamKey, season, algorithmId, algorithmVersion, eventKey, matches, predictions, metrics, matchIndexByKey, bands, playedRowFacts, stamp, sigmaAfterTick } = params;
 
   let record = existing?.seasonStats.record ?? { wins: 0, losses: 0, ties: 0 };
   for (const match of matches) record = incrementRecord(record, teamKey, match);
 
-  const newRows = matches.map((m) => buildTeamSeasonMatchRow(m, predictions.get(m.matchKey)!, season, algorithmId, algorithmVersion, bands.get(m.matchKey)));
   const existingEvents = existing?.events ?? [];
   const eventIndex = existingEvents.findIndex((e) => e.eventKey === eventKey);
+  // The published rows for this event, read before the replace below: they
+  // carry the `sortTime` a match keeps when TBA reports no time for it.
+  const existingRowSortTimes = new Map<string, number>();
+  for (const row of eventIndex === -1 ? [] : existingEvents[eventIndex]!.matches) {
+    if (row.sortTime !== undefined) existingRowSortTimes.set(row.matchKey, row.sortTime);
+  }
+
+  const newRows = matches.map((m) => {
+    const facts = playedRowFacts.get(m.matchKey);
+    return teamSeasonPlayedRow(
+      { match: m, prediction: predictions.get(m.matchKey)!, matchBand: bands.get(m.matchKey) },
+      {
+        season,
+        algorithmId,
+        algorithmVersion,
+        sortTime: facts?.reportedSortTime ?? existingRowSortTimes.get(m.matchKey),
+        video: facts?.video,
+      },
+      facts?.actualBonusFlags
+    );
+  });
   const events =
     eventIndex === -1
       ? [...existingEvents, { eventKey, eventName: eventKey, startDate: stamp.computedAt.slice(0, 10), matches: newRows }]
@@ -1032,20 +1081,35 @@ async function processEvent(
           };
         };
 
+        /**
+         * The per-side `bonusFlags` `foldObservedRp` below already parsed, by
+         * match key — a pure pass-through to Phase B's `playedRowFactsFor`, so
+         * publishing the actual bonus flags costs no second breakdown parse
+         * against the tick's CPU budget. Nothing about the fold changes.
+         */
+        const observedBonusSides = new Map<string, ParsedBonusSides>();
+
         /** Folds one played match's OBSERVED threshold variables — the exact mirror of `SigmaScoutLayer.#foldObservedThresholds`, including its degrade-to-a-counted-skip try/catch. */
         const foldObservedRp = (result: MatchResult): void => {
           if (rp === undefined || rpRuleModule === undefined) return;
           if (!isRpEligibleEventType(result.eventType)) return;
           if (!result.hasScoreBreakdown || result.scoreBreakdownRaw === null) return;
+          let redBonusFlags: Readonly<Record<string, boolean>> | undefined;
+          let blueBonusFlags: Readonly<Record<string, boolean>> | undefined;
           for (const side of ["red", "blue"] as const) {
             try {
               const parsed = rpRuleModule.parse(JSON.parse(result.scoreBreakdownRaw), side, result.eventType);
+              // Captured BEFORE the fold, so a throwing fold cannot lose flags
+              // the offline publisher would still have published.
+              if (side === "red") redBonusFlags = parsed.bonusFlags;
+              else blueBonusFlags = parsed.bonusFlags;
               rp.fold(side === "red" ? result.redTeams : result.blueTeams, parsed.thresholdVariables);
             } catch {
               // A breakdown this season's module cannot parse contributes
               // nothing rather than failing the tick.
             }
           }
+          observedBonusSides.set(result.matchKey, { red: redBonusFlags, blue: blueBonusFlags });
           for (const teamKey of [...result.redTeams, ...result.blueTeams]) rpKnownTeams.add(teamKey);
         };
 
@@ -1104,10 +1168,10 @@ async function processEvent(
         budget.consume(1);
         await writeScopedState(env.DB, changedRows); // may throw -- caught below, reverts the claim and aborts the WHOLE event (zero artifact puts)
 
-        perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, writtenRows: changedRows });
+        perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, writtenRows: changedRows, observedBonusSides });
       }
 
-      return await runPhaseBAndReport(env, budget, window, eventKey, eventType, fetchedEventType, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, matchIndexByKey, perAlgorithm, touchedTeamsByAlgorithm, stamp, stillUpcoming.length === 0);
+      return await runPhaseBAndReport(env, budget, window, eventKey, eventType, fetchedEventType, rawMatches, newlyFolded, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, matchIndexByKey, perAlgorithm, touchedTeamsByAlgorithm, stamp, stillUpcoming.length === 0);
     } catch (phaseAError) {
       // Revert the claim: state did not advance, so a later tick must be free
       // to fold these matches again.
@@ -1143,6 +1207,8 @@ async function runPhaseBAndReport(
   eventKey: string,
   eventType: number,
   fetchedEventType: number | undefined,
+  rawMatches: readonly TbaMatch[],
+  newlyFolded: readonly CorpusMatch[],
   newlyFoldedResults: readonly MatchResult[],
   stillUpcoming: readonly CorpusMatch[],
   touchedTeams: readonly string[],
@@ -1154,6 +1220,18 @@ async function runPhaseBAndReport(
   eventComplete: boolean
 ): Promise<EventOutcome> {
   try {
+    // Algorithm-independent, so computed ONCE for the whole tick. The bonus
+    // flags reuse whatever breakdown Phase A already parsed (any algorithm's
+    // capture will do — they describe the match, not the model); only a tier
+    // with no RP-publishing algorithm falls back to parsing here.
+    const observedBonusSides = new Map<string, ParsedBonusSides>();
+    for (const info of perAlgorithm.values()) {
+      for (const [matchKey, sides] of info.observedBonusSides) {
+        if (!observedBonusSides.has(matchKey)) observedBonusSides.set(matchKey, sides);
+      }
+    }
+    const playedRowFacts = playedRowFactsFor(window.season, rawMatches, newlyFolded, newlyFoldedResults, observedBonusSides);
+
     for (const [algorithmId, info] of perAlgorithm) {
       const eventParams = { page: "event" as const, eventKey, algorithmId, version: info.algorithm.version };
       const existingEvent = await readExistingEvent(env, budget, eventParams);
@@ -1171,6 +1249,7 @@ async function runPhaseBAndReport(
         writtenRows: info.writtenRows,
         touchedTeams,
         touchedMetrics: info.touchedMetrics,
+        playedRowFacts,
         stamp,
       });
       await writeArtifactObject(env, budget, "event", eventParams, mergedEvent);
@@ -1197,6 +1276,7 @@ async function runPhaseBAndReport(
           metrics: info.touchedMetrics[teamKey] ?? {},
           matchIndexByKey,
           bands: info.newBands,
+          playedRowFacts,
           stamp,
           sigmaAfterTick: info.touchedSigma.get(teamKey),
         });
