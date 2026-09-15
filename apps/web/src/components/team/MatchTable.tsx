@@ -3,10 +3,11 @@ import { BonusRpDots } from "./BonusRpDots.js";
 import { Link } from "@tanstack/react-router";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, PLOT_W, scaleToPlot, type AxisDomain, type TeamSeasonMatch } from "./matchAxis.js";
+import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, PLOT_W, scaleToPlot, teamRowPrediction, type AxisDomain, type TeamSeasonMatch } from "./matchAxis.js";
 import { bonusRpForSeason, bonusStatesFromFlags } from "../../lib/bonusRp.js";
 import { snapToDevicePixelPhase, useDevicePixelPhaseStep } from "../../lib/devicePixelGrid.js";
 import { predictionPercent } from "../../lib/predictionPercent.js";
+import { sortTimeToEpochMs } from "../../lib/liveEvent.js";
 // Imported directly from core rather than copied into apps/web —
 // `rp/constants.ts` has zero runtime imports of its own, so importing it does
 // not drag any server-only implementation into the browser bundle. Guarded as
@@ -68,11 +69,9 @@ export function matchLabel(match: Pick<TeamSeasonMatch, "compLevel" | "setNumber
  * render the identical string for the identical instant.
  */
 export function formatScheduledTime(sortTime: number): string {
-  // The published `sortTime` is epoch seconds for most events but epoch
-  // milliseconds for some. Detect the unit here: any seconds value this side
-  // of year ~5138 is < 1e11, and any real ms timestamp is > 1e12, so 1e11
-  // splits them unambiguously.
-  const epochMs = sortTime > 1e11 ? sortTime : sortTime * 1000;
+  // The published `sortTime` is epoch seconds for some events and epoch
+  // milliseconds for others; `sortTimeToEpochMs` owns the unit rule.
+  const epochMs = sortTimeToEpochMs(sortTime);
   const date = new Date(epochMs);
   const weekday = new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(date);
   const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: true, timeZoneName: "short" }).format(date);
@@ -290,8 +289,11 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
   // whole chain alongside `played`.
   const teamOnRoster = teamIsRed || teamIsBlue;
 
-  const confidence = match.predictedWinner === "red" ? match.pRedWin : 1 - match.pRedWin;
-  const winnerCorrect = played && match.predictedWinner === match.actualWinner;
+  // Undefined only for an upcoming row the browser could not price (260915-m4j):
+  // "No prediction", an empty Predicted RP cell and an empty plot cell.
+  const prediction = teamRowPrediction(match);
+  const confidence = prediction === undefined ? undefined : prediction.predictedWinner === "red" ? prediction.pRedWin : 1 - prediction.pRedWin;
+  const winnerCorrect = played && prediction !== undefined && prediction.predictedWinner === match.actualWinner;
 
   const redLoses = played && match.actualWinner === "blue";
   const blueLoses = played && match.actualWinner === "red";
@@ -377,16 +379,22 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
           ))}
       </td>
       <td data-testid={`confidence-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        <span className="flex items-center gap-[var(--spacing-xs)]">
-          <AllianceChip side={match.predictedWinner} />
-          <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
-        </span>
+        {prediction === undefined || confidence === undefined ? (
+          <NoPrediction matchKey={match.matchKey} />
+        ) : (
+          <span className="flex items-center gap-[var(--spacing-xs)]">
+            <AllianceChip side={prediction.predictedWinner} />
+            <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
+          </span>
+        )}
       </td>
       <td data-testid={`predicted-score-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        <div className="flex flex-col gap-[2px]">
-          <PredictedScoreLine matchKey={match.matchKey} side="red" score={match.predictedRedScore} variance={match.redMatchBandVariance} season={season} bonusRp={match.redBonusRp} compLevel={match.compLevel} />
-          <PredictedScoreLine matchKey={match.matchKey} side="blue" score={match.predictedBlueScore} variance={match.blueMatchBandVariance} season={season} bonusRp={match.blueBonusRp} compLevel={match.compLevel} />
-        </div>
+        {prediction !== undefined && (
+          <div className="flex flex-col gap-[2px]">
+            <PredictedScoreLine matchKey={match.matchKey} side="red" score={prediction.predictedRedScore} variance={match.redMatchBandVariance} season={season} bonusRp={match.redBonusRp} compLevel={match.compLevel} />
+            <PredictedScoreLine matchKey={match.matchKey} side="blue" score={prediction.predictedBlueScore} variance={match.blueMatchBandVariance} season={season} bonusRp={match.blueBonusRp} compLevel={match.compLevel} />
+          </div>
+        )}
       </td>
       <td data-testid={`actual-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         {played ? (
@@ -401,29 +409,34 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
         )}
       </td>
       <td className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] pl-[var(--spacing-lg)] align-top">
+        {/* The sized container stays for an unpriced row so the row keeps its height; it holds no mark. */}
         <div className="relative" style={{ width: PLOT_W, height: MATCH_GEOMETRY.PLOT_H }}>
-          <AllianceRow
-            matchKey={match.matchKey}
-            side="red"
-            predicted={match.predictedRedScore}
-            sd={matchBandSd(match.redMatchBandVariance)}
-            actual={match.actualRedScore}
-            yBand={MATCH_GEOMETRY.Y_RED}
-            domain={domain}
-            colorVar="var(--alliance-red)"
-            softVar="var(--alliance-red-soft)"
-          />
-          <AllianceRow
-            matchKey={match.matchKey}
-            side="blue"
-            predicted={match.predictedBlueScore}
-            sd={matchBandSd(match.blueMatchBandVariance)}
-            actual={match.actualBlueScore}
-            yBand={MATCH_GEOMETRY.Y_BLUE}
-            domain={domain}
-            colorVar="var(--alliance-blue)"
-            softVar="var(--alliance-blue-soft)"
-          />
+          {prediction !== undefined && (
+            <>
+              <AllianceRow
+                matchKey={match.matchKey}
+                side="red"
+                predicted={prediction.predictedRedScore}
+                sd={matchBandSd(match.redMatchBandVariance)}
+                actual={match.actualRedScore}
+                yBand={MATCH_GEOMETRY.Y_RED}
+                domain={domain}
+                colorVar="var(--alliance-red)"
+                softVar="var(--alliance-red-soft)"
+              />
+              <AllianceRow
+                matchKey={match.matchKey}
+                side="blue"
+                predicted={prediction.predictedBlueScore}
+                sd={matchBandSd(match.blueMatchBandVariance)}
+                actual={match.actualBlueScore}
+                yBand={MATCH_GEOMETRY.Y_BLUE}
+                domain={domain}
+                colorVar="var(--alliance-blue)"
+                softVar="var(--alliance-blue-soft)"
+              />
+            </>
+          )}
         </div>
       </td>
       <td data-testid={`call-${match.matchKey}`} className="text-role-body px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top text-[var(--color-text-primary)]">

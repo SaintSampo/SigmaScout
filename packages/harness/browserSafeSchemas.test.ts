@@ -30,7 +30,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const ENTRY_POINTS = [resolve(HERE, "pageArtifacts.ts"), resolve(HERE, "publishedAlgorithms.ts")];
+// `eventSchedule.ts` (260915-m4j): the publisher's schedule-currency rule, reused by the web for polling and team-page fetches.
+const ENTRY_POINTS = [resolve(HERE, "pageArtifacts.ts"), resolve(HERE, "publishedAlgorithms.ts"), resolve(HERE, "eventSchedule.ts")];
 const BREAKDOWN_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "breakdown", "index.ts");
 const RP_CONSTANTS_ENTRY_POINT = resolve(HERE, "..", "core", "rankingPoints", "constants.ts");
 const RANK_SIMULATION_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "simulation", "rankSimulation.ts");
@@ -117,6 +118,15 @@ describe("browser-safe schema import graph", () => {
     expect(visited.has(resolve(HERE, "pageArtifacts.ts"))).toBe(true);
     expect(visited.has(resolve(HERE, "publishedAlgorithms.ts"))).toBe(true);
     expect(visited.has(resolve(HERE, "metricHistorySchema.ts"))).toBe(true);
+    expect(visited.has(resolve(HERE, "eventSchedule.ts"))).toBe(true);
+  });
+
+  it("eventSchedule.ts imports nothing, and publish.ts re-exports the very same function and constant (one rule, not a copy)", async () => {
+    expect(extractImportSpecifiers(resolve(HERE, "eventSchedule.ts"))).toEqual([]);
+    const schedule = await import("./eventSchedule.js");
+    const publish = await import("./publish.js");
+    expect(publish.eventScheduleIsCurrent).toBe(schedule.eventScheduleIsCurrent);
+    expect(publish.STATE_BLOCK_STALE_AFTER_MS).toBe(schedule.STATE_BLOCK_STALE_AFTER_MS);
   });
 
   it("metricHistorySchema.ts specifically carries zero Node-only imports — a future Node import there is caught by this named assertion, not a broken production build", () => {

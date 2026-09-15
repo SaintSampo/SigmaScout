@@ -32,6 +32,8 @@ import { artifactUrl } from "../artifactOrigin.js";
 import { seasonFromEventKey } from "../eventKey.js";
 import { markArtifactParsed } from "../perfMarks.js";
 import { resolveEventArtifact, type EventPageArtifact } from "../eventPricing.js";
+import { EVENT_POLL_INTERVAL_MS, shouldPollEventArtifact } from "../liveEvent.js";
+import type { Query } from "@tanstack/react-query";
 import { ArtifactFetchError, ArtifactValidationError } from "./errors.js";
 
 export interface FetchEventArtifactParams {
@@ -62,9 +64,22 @@ export async function fetchEventArtifact({ eventKey, algorithmId, version }: Fet
   return await resolveEventArtifact(parsed);
 }
 
+/**
+ * One query key per event artifact, shared by the event page, the match page
+ * and every team page, so all of them read one fetch and one pricing.
+ *
+ * LD-3 polling: while the artifact still has upcoming matches and its
+ * schedule is current (the publisher's 7-day rule), the query refetches every
+ * `EVENT_POLL_INTERVAL_MS`. Finished and stale events never poll.
+ * `refetchIntervalInBackground` is deliberately left unset (false): TanStack
+ * fires an interval refetch only while the window is focused, so a hidden tab
+ * stops polling and resumes when it is shown again.
+ */
 export function eventQueryOptions(params: FetchEventArtifactParams) {
   return {
     queryKey: ["event", params.eventKey, params.algorithmId, params.version] as const,
     queryFn: () => fetchEventArtifact(params),
+    refetchInterval: (query: Query<EventPageArtifact, Error, EventPageArtifact, readonly ["event", string, string, string]>): number | false =>
+      shouldPollEventArtifact(query.state.data, Date.now()) ? EVENT_POLL_INTERVAL_MS : false,
   };
 }

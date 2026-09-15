@@ -9,8 +9,30 @@ import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArt
  * lesson.
  */
 
-export type TeamSeasonEvent = TeamSeasonArtifact["events"][number];
-export type TeamSeasonMatch = TeamSeasonEvent["matches"][number];
+type PublishedTeamSeasonEvent = TeamSeasonArtifact["events"][number];
+type PublishedTeamSeasonMatch = PublishedTeamSeasonEvent["matches"][number];
+type PredictionKey = "predictedWinner" | "pRedWin" | "predictedRedScore" | "predictedBlueScore";
+
+/**
+ * The team page's DISPLAY match row: the published row with its four
+ * prediction fields optional. Every published row carries all four; only an
+ * upcoming match the browser could not price (a schedule-only row from the
+ * live event artifact, overlaid by `teamUpcomingOverlay.ts`, 260915-m4j)
+ * carries none. Read them through `teamRowPrediction`.
+ */
+export type TeamSeasonMatch = Omit<PublishedTeamSeasonMatch, PredictionKey> & Partial<Pick<PublishedTeamSeasonMatch, PredictionKey>>;
+/** The team page's display event: the published event with display match rows. */
+export type TeamSeasonEvent = Omit<PublishedTeamSeasonEvent, "matches"> & { matches: TeamSeasonMatch[] };
+
+/** The four prediction fields of a team row when all four are present, else `undefined`. Presence, never truthiness: a probability or a score can be 0. */
+export function teamRowPrediction(
+  match: Pick<TeamSeasonMatch, PredictionKey>
+): { predictedWinner: "red" | "blue"; pRedWin: number; predictedRedScore: number; predictedBlueScore: number } | undefined {
+  if (match.predictedWinner === undefined || match.pRedWin === undefined || match.predictedRedScore === undefined || match.predictedBlueScore === undefined) {
+    return undefined;
+  }
+  return { predictedWinner: match.predictedWinner, pRedWin: match.pRedWin, predictedRedScore: match.predictedRedScore, predictedBlueScore: match.predictedBlueScore };
+}
 
 /**
  * Locked pixel values, NOT derived from the 4px spacing scale — carried from
@@ -143,15 +165,19 @@ export function computeAxisDomain(events: readonly TeamSeasonEvent[]): AxisDomai
 
   for (const event of events) {
     for (const match of event.matches) {
-      consider(match.predictedRedScore);
-      consider(match.predictedBlueScore);
+      // An unpriced row contributes no predicted score and no band.
+      const prediction = teamRowPrediction(match);
+      if (prediction !== undefined) {
+        consider(prediction.predictedRedScore);
+        consider(prediction.predictedBlueScore);
 
-      const redSd = match.redMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, match.redMatchBandVariance)) : 0;
-      const blueSd = match.blueMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, match.blueMatchBandVariance)) : 0;
-      consider(match.predictedRedScore - redSd);
-      consider(match.predictedRedScore + redSd);
-      consider(match.predictedBlueScore - blueSd);
-      consider(match.predictedBlueScore + blueSd);
+        const redSd = match.redMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, match.redMatchBandVariance)) : 0;
+        const blueSd = match.blueMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, match.blueMatchBandVariance)) : 0;
+        consider(prediction.predictedRedScore - redSd);
+        consider(prediction.predictedRedScore + redSd);
+        consider(prediction.predictedBlueScore - blueSd);
+        consider(prediction.predictedBlueScore + blueSd);
+      }
 
       if (match.actualRedScore !== undefined) consider(match.actualRedScore);
       if (match.actualBlueScore !== undefined) consider(match.actualBlueScore);

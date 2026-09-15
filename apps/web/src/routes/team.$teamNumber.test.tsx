@@ -18,6 +18,26 @@ import { RootSearchSchema } from "../lib/searchParams.js";
 import { PAGE_ARTIFACT_SCHEMA_VERSION } from "../../../../packages/harness/pageArtifacts.js";
 import { Route as TeamRouteImport } from "./team.$teamNumber.js";
 
+/**
+ * The lazy pricer chunk, stubbed for the live-overlay describe below only
+ * (every other test's artifacts carry no state block, so pricing never
+ * runs). It stands in for `priceUpcomingFromState`, whose exact parity is
+ * proven in `eventPricing.parity.test.ts`; here it proves the wiring: fetch,
+ * resolve, overlay, render.
+ */
+vi.mock("../lib/eventPricing.lazy.js", () => ({
+  priceArtifactUpcoming: async (artifact: { upcoming: Array<Record<string, unknown>>; season: number; eventKey: string; algorithmId: string; algorithmVersion: string }) => {
+    const upcoming = artifact.upcoming.map((row): Record<string, unknown> => ({ ...row, predictedWinner: "red", pRedWin: 0.91, predictedRedScore: 77, predictedBlueScore: 33, redMatchBandVariance: 49 }));
+    const upcomingTeamRows = Object.fromEntries(
+      upcoming.map((row) => [
+        String(row.matchKey),
+        { ...row, season: artifact.season, eventKey: artifact.eventKey, algorithmId: artifact.algorithmId, algorithmVersion: artifact.algorithmVersion },
+      ]),
+    );
+    return { upcoming, upcomingTeamRows };
+  },
+}));
+
 function manifestResponse() {
   return new Response(
     JSON.stringify({
@@ -179,5 +199,116 @@ describe("/team/$teamNumber route — states", () => {
 
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Simbotics"));
     expect(screen.getByText("35-28-0")).toBeDefined();
+  });
+});
+
+describe("/team/$teamNumber route — live event overlay (260915-m4j)", () => {
+  const originalFetch = global.fetch;
+  const NOW = Date.parse("2024-03-09T18:00:00.000Z");
+  const EVENT_URL = "https://data.sigmascout.org/v1/event/2024casf/spr@2.0.0+tuned-2026-08.json";
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    cleanup();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  const roster = { redTeams: ["frc1114", "frc2", "frc3"], blueTeams: ["frc4", "frc5", "frc6"] };
+
+  function teamArtifactWithEvent(sortTime: number, startDate: string) {
+    const stale = {
+      matchKey: "2024casf_qm9",
+      season: 2024,
+      eventKey: "2024casf",
+      compLevel: "qm",
+      algorithmId: "spr",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      predictedWinner: "red",
+      pRedWin: 0.55,
+      predictedRedScore: 50,
+      predictedBlueScore: 45,
+      setNumber: 1,
+      matchNumber: 9,
+      sortTime,
+      ...roster,
+    };
+    return new Response(
+      JSON.stringify({
+        schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+        generation: "gen-1",
+        computedAt: "2024-03-08T00:00:00.000Z",
+        algorithmId: "spr",
+        algorithmVersion: "2.0.0+tuned-2026-08",
+        teamKey: "frc1114",
+        teamNumber: 1114,
+        nickname: "Simbotics",
+        season: 2024,
+        seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 48.33, spread: 2.32 } } },
+        events: [{ eventKey: "2024casf", eventName: "San Francisco Regional", startDate, matches: [stale] }],
+        metricHistory: [],
+      }),
+      { status: 200 },
+    );
+  }
+
+  function eventArtifactResponse() {
+    return new Response(
+      JSON.stringify({
+        schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+        generation: "tick-1",
+        computedAt: "2024-03-09T17:59:00.000Z",
+        algorithmId: "spr",
+        algorithmVersion: "2.0.0+tuned-2026-08",
+        eventKey: "2024casf",
+        season: 2024,
+        matches: [],
+        eventType: 0,
+        // The Worker's shape: schedule-only upcoming rows priced in the browser from the block.
+        upcoming: [{ matchKey: "2024casf_qm9", compLevel: "qm", setNumber: 1, matchNumber: 9, sortTime: NOW + 600_000, ...roster }],
+        teams: [],
+        state: {
+          algorithmId: "spr",
+          algorithmVersion: "2.0.0+tuned-2026-08",
+          snapshotShapeVersion: 1,
+          rows: [{ algorithmId: "spr", algorithmVersion: "2.0.0+tuned-2026-08", scopeKind: "league", scopeKey: "league", stateJson: "{}", generation: "tick-1", computedAt: "2024-03-09T17:59:00.000Z" }],
+        },
+      }),
+      { status: 200 },
+    );
+  }
+
+  it("a team with an unplayed match within 7 days fetches that event's artifact at its real URL and renders its prices", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      if (url.includes("/v1/event/")) return Promise.resolve(eventArtifactResponse());
+      return Promise.resolve(teamArtifactWithEvent(NOW + 600_000, "2024-03-07"));
+    });
+    global.fetch = fetchMock;
+    renderTeamRoute("/team/1114?year=2024&algorithm=spr");
+
+    await waitFor(() => expect(screen.getByTestId("confidence-2024casf_qm9").textContent).toContain("91%"));
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain(EVENT_URL);
+    expect(screen.getAllByTestId("match-row-2024casf_qm9")).toHaveLength(1);
+    expect(screen.getByTestId("predicted-score-2024casf_qm9-red").textContent).toContain("77");
+  });
+
+  it("a team whose events are all long finished fetches no event artifact", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-09-15T12:00:00.000Z"));
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      if (url.includes("/v1/event/")) return Promise.resolve(eventArtifactResponse());
+      return Promise.resolve(teamArtifactWithEvent(NOW + 600_000, "2024-03-07"));
+    });
+    global.fetch = fetchMock;
+    renderTeamRoute("/team/1114?year=2024&algorithm=spr");
+
+    await waitFor(() => expect(screen.getByTestId("confidence-2024casf_qm9").textContent).toContain("55%"));
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/v1/event/"))).toBe(false);
   });
 });

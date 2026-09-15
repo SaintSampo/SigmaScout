@@ -3,6 +3,7 @@ import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArt
 import { markFirstRowsRendered, measureParseToPaint } from "../../lib/perfMarks.js";
 import { computeAxisDomain } from "./matchAxis.js";
 import { EventSection } from "./EventSection.js";
+import { useTeamUpcomingOverlay } from "./useTeamUpcomingOverlay.js";
 
 /**
  * The second composition seam `OverviewTab.tsx` freezes — a section's match
@@ -25,11 +26,15 @@ export interface EventSectionListProps {
  * every section — never recomputed per event or per row.
  */
 export function EventSectionList({ artifact, algorithmId, season }: EventSectionListProps) {
-  const events = [...artifact.events]
+  // A live event's matches come from its event artifact (priced upcoming rows,
+  // fresh results); every other event is the published rows, same reference.
+  const overlaid = useTeamUpcomingOverlay(artifact, algorithmId);
+  const events = [...overlaid]
     .filter((event) => event.matches.length > 0)
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
 
-  const domain = computeAxisDomain(artifact.events);
+  // Over the overlaid rows, so a browser-priced upcoming band sits inside the shared axis.
+  const domain = computeAxisDomain(overlaid);
 
   // Reuses `teams.tsx`'s own `artifact-parsed` -> `first-rows-rendered`
   // parse-to-paint pair (`perfMarks.ts`) rather than inventing a second mark

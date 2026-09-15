@@ -926,3 +926,37 @@ describe("Match-column label links to /match/{matchKey}", () => {
     expect(rosterLink?.getAttribute("href")).toContain("/team/118");
   });
 });
+
+describe("Unpriced and one-sided team rows (260915-m4j)", () => {
+  function unpriced(matchKey: string): TeamSeasonMatch {
+    return { matchKey, season: 2026, eventKey: "2026test", compLevel: "qm", algorithmId: "spr", algorithmVersion: "4.0.0+test", setNumber: 1, matchNumber: 4, sortTime: 1_757_937_600_000, redTeams: ["frc118", "frc254", "frc971"], blueTeams: ["frc604", "frc1678", "frc2056"] };
+  }
+
+  it("an unpriced row shows No prediction, no predicted score, no tick, band or dot, no result chip, and never NaN", () => {
+    const { container } = renderWithRouter(
+      <MatchTable matches={[makeMatch({ matchKey: "priced" }), unpriced("unpriced")]} domain={DOMAIN} teamKey="frc118" season={2026} algorithm="spr" />,
+    );
+    expect(screen.getByTestId("confidence-unpriced").textContent).toBe("No prediction");
+    expect(screen.getByTestId("no-prediction-unpriced")).toBeDefined();
+    expect(screen.queryByTestId("predicted-score-unpriced-red")).toBeNull();
+    expect(screen.getByTestId("predicted-score-unpriced").textContent).toBe("");
+    for (const side of ["red", "blue"]) {
+      for (const mark of ["tick", "band", "dot"]) expect(screen.queryByTestId(`alliance-mark-unpriced-${side}-${mark}`)).toBeNull();
+    }
+    expect(screen.getByTestId("result-unpriced").textContent).toBe("");
+    expect(screen.getByTestId("actual-unpriced").textContent).not.toBe("");
+    expect(screen.getByTestId("confidence-priced").textContent).toMatch(/\d+%/);
+    expect(container.textContent).not.toContain("NaN");
+  });
+
+  it("a one-sided band row draws a band on the red alliance only and no plus-minus on blue", () => {
+    const { container } = renderWithRouter(
+      <MatchTable matches={[makeMatch({ matchKey: "onesided", blueMatchBandVariance: undefined })]} domain={DOMAIN} teamKey="frc118" season={2024} algorithm="spr" />,
+    );
+    expect(screen.getByTestId("alliance-mark-onesided-red-band")).toBeDefined();
+    expect(screen.queryByTestId("alliance-mark-onesided-blue-band")).toBeNull();
+    expect(screen.getByTestId("alliance-mark-onesided-blue-tick")).toBeDefined();
+    expect(within(screen.getByTestId("predicted-score-onesided")).getByTestId("predicted-score-onesided-blue").textContent).not.toContain("±");
+    expect(container.textContent).not.toContain("NaN");
+  });
+});
