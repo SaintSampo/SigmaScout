@@ -53,8 +53,15 @@ import {
   STATE_SNAPSHOT_SHAPE_VERSION,
   type StateRow,
 } from "./stateSnapshot.js";
-import { EventUpcomingMatchSchema, type EventStateBlock, type EventStateBlockRow, type EventUpcomingMatch } from "./pageArtifacts.js";
-import { eventUpcomingRow } from "./publishedRows.js";
+import {
+  EventUpcomingMatchSchema,
+  TeamSeasonMatchSchema,
+  type EventStateBlock,
+  type EventStateBlockRow,
+  type EventUpcomingMatch,
+  type TeamSeasonMatch,
+} from "./pageArtifacts.js";
+import { eventUpcomingRow, teamSeasonMatchRow } from "./publishedRows.js";
 
 /** Thrown when a state block breaks an invariant, at build or at read time. A consumer falls back to the published fields. */
 export class EventStateBlockError extends Error {
@@ -179,6 +186,8 @@ export interface PriceUpcomingInput {
 export interface PriceUpcomingResult {
   /** `EventArtifact.upcoming` rows, in input order. */
   readonly event: EventUpcomingMatch[];
+  /** `TeamSeasonArtifact` match rows, in input order; `team[i]` and `event[i]` are built from the same record. */
+  readonly team: TeamSeasonMatch[];
 }
 
 /** Re-checks the block invariants a structural schema parse cannot. */
@@ -230,6 +239,7 @@ export function priceUpcomingFromState(input: PriceUpcomingInput): PriceUpcoming
   const shift = rankingPoints ? RpMeanShiftAccumulator.fromState(ruleModule, readRpMeanShift(rows)) : undefined;
 
   const event: EventUpcomingMatch[] = [];
+  const team: TeamSeasonMatch[] = [];
   for (const scheduled of input.upcoming) {
     // No pricing path reads `week` or the surrogates; the parity test's offline arm uses the real values.
     const match: UpcomingMatch = {
@@ -307,6 +317,18 @@ export function priceUpcomingFromState(input: PriceUpcomingInput): PriceUpcoming
       ...(matchBand !== undefined ? { matchBand } : {}),
     };
     event.push(EventUpcomingMatchSchema.parse(eventUpcomingRow(record, scheduled.sortTime)));
+    // The corpus has no video for an unplayed match, so none is passed.
+    team.push(
+      TeamSeasonMatchSchema.parse(
+        teamSeasonMatchRow(record, {
+          season,
+          algorithmId: block.algorithmId,
+          algorithmVersion: block.algorithmVersion,
+          sortTime: scheduled.sortTime,
+          video: undefined,
+        })
+      )
+    );
   }
-  return { event };
+  return { event, team };
 }
