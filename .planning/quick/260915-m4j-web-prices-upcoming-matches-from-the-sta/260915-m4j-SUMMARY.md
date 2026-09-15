@@ -130,6 +130,27 @@ The screenshots were reviewed. Both servers were stopped by PID, and nothing was
   27 rows).
 - OPR and EPA are unaffected: the Worker never writes their event artifacts.
 
-## Ship (S1-S4)
+## Ship (S1-S4, orchestrator, 2026-09-15)
 
-Recorded in the orchestrator's follow-up commit once run.
+- **S4, web:** Jacob approved pushing all 38 commits, including 14 from other sessions. The push was
+  `469c6ccd..05408056`. Verified by content: the live `index-DX6IHpUm.js` imports
+  `eventPricing.lazy-DGSySZf_.js` (the same hash as the local build). That chunk contains the pricer
+  marker, and the index does not.
+- **S1, republish:** `pnpm publish:seasons` produced generation `03a5cc42`: 108,976 objects,
+  3,908,895,118 B (+107,181 B, which is `eventType` alone). No state block anywhere, as the 7-day
+  rule predicts.
+  - The manifest and live-windows both read the new generation, and windows are empty.
+  - `2026mndu` carries eventType 0. `2016flrc` carries eventType 99, no state, and keeps its 24
+    never-played rows.
+  - `docs/publish-budget.md` was rewritten and committed.
+- **S2, D1 seed (SPR):** the first `--file` run ended in the permissions dump; the re-run imported
+  it (25,136 rows written).
+  - Read-back: spr has 6,284 rows at `03a5cc42`.
+  - opr (3,976) and epa (6,284) were left at `2dcc057f`, shape 15, because they are not in the live
+    tier.
+- **S3, Worker:** deployed `6ea54a8f` from a clean tree at `05408056`, with bindings MANIFEST, DB,
+  ARTIFACTS and `LIVE_ALGORITHM_IDS=spr` on schedule `* * * * *`. Two tailed ticks were `ok`, with
+  cpuTime 0 and 1 and eventsConsidered 0.
+- **Live e2e (Playwright against sigmascout.org):** the deployed projects (desktop, iphone-17,
+  pixel-10, phone-390) passed **170/170**. The `local-*` projects (109 tests) need a local dev server
+  and were not run.
