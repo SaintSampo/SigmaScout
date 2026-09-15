@@ -38,6 +38,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const STATE_PROBE_SRC = resolve(__dirname, "../src/stateProbe.ts");
+const ARTIFACT_MERGE_SRC = resolve(__dirname, "../src/artifactMerge.ts");
 const WRANGLER_PROBE_TOML = resolve(__dirname, "../wrangler.probe.toml");
 
 // Strips block comments too: `stateProbe.ts`'s header names the forbidden
@@ -95,6 +96,29 @@ describe("stateProbe — Group 1: the no-write property, STATIC", () => {
 
   it("never reaches src/artifactWriter.ts, transitively", () => {
     expect(importGraph.has(resolve(__dirname, "../src/artifactWriter.ts"))).toBe(false);
+  });
+
+  // `artifactMerge.ts` exists so the probe can price Phase B by calling the
+  // tick's OWN merge functions. That is only safe while the merge module
+  // itself reaches no write helper — otherwise the extraction would have
+  // smuggled `writeArtifactObject` into the probe's graph through the back
+  // door, and the two assertions above would still pass.
+  describe("src/artifactMerge.ts — the shared Phase B merge path", () => {
+    const mergeGraph = collectLocalImportGraph(ARTIFACT_MERGE_SRC);
+
+    it("exists (a missing entry file would make every graph assertion below vacuous)", () => {
+      expect(existsSync(ARTIFACT_MERGE_SRC)).toBe(true);
+      // Non-vacuity: a file the walker could not read yields a 1-element graph.
+      expect(mergeGraph.size).toBeGreaterThan(1);
+    });
+
+    it("never reaches src/scheduled.ts, transitively — the tick imports the merge, never the reverse", () => {
+      expect(mergeGraph.has(resolve(__dirname, "../src/scheduled.ts"))).toBe(false);
+    });
+
+    it("never reaches src/artifactWriter.ts, transitively", () => {
+      expect(mergeGraph.has(resolve(__dirname, "../src/artifactWriter.ts"))).toBe(false);
+    });
   });
 
   it("positive control: stripComments actually strips comments and leaves real code alone", () => {
