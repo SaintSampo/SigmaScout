@@ -97,6 +97,7 @@ import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 // The level-2 layer (Sigma Score, the band and ranking points), driven only by `publishSeasons`.
 import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "./rounding.js";
+import { eventMatchBonusRpFields, eventUpcomingRow, matchBandFields, teamSeasonMatchRow } from "./publishedRows.js";
 import {
   HISTORY_PERCENTILE_METRIC_KEYS,
   sortedPoolsByMetric,
@@ -422,26 +423,6 @@ function eventTeamRankingFields(
 }
 
 /**
- * The per-bonus RP fields for one event match row, with the same gates `buildTeamSeasonArtifact`
- * applies: predicted marginals only for a bonus-eligible level and a prediction carrying them; actual
- * flags only for a bonus-eligible level with a map entry, `null` staying `null` (never all-false).
- * An upcoming row passes `flags === undefined` and gets the predicted pair only.
- */
-function eventMatchBonusRpFields(
-  compLevel: MatchResult["compLevel"],
-  prediction: { readonly redBonusRp?: readonly number[]; readonly blueBonusRp?: readonly number[] },
-  flags: ActualBonusFlags | null | undefined
-): Partial<{ redBonusRp: number[]; blueBonusRp: number[]; actualRedBonusRp: boolean[] | null; actualBlueBonusRp: boolean[] | null }> {
-  return {
-    ...(isBonusRpCompLevel(compLevel) && prediction.redBonusRp ? { redBonusRp: prediction.redBonusRp.map((p) => roundProbability(p)) } : {}),
-    ...(isBonusRpCompLevel(compLevel) && prediction.blueBonusRp ? { blueBonusRp: prediction.blueBonusRp.map((p) => roundProbability(p)) } : {}),
-    ...(isBonusRpCompLevel(compLevel) && flags !== undefined
-      ? { actualRedBonusRp: flags === null ? null : [...flags.red], actualBlueBonusRp: flags === null ? null : [...flags.blue] }
-      : {}),
-  };
-}
-
-/**
  * Builds the `fillRankingPoints` wrapper a pre-schedule sidecar needs, or `undefined` when there is
  * nothing to add (no rule module, or an algorithm that publishes no ranking points). Wrapping here
  * keeps `preSchedule.ts` free of pricing math. Synthetic matches have no history, so moments come from
@@ -492,20 +473,6 @@ export function makeRankingPointFiller(
   };
 }
 
-/**
- * One row's published display band as a spreadable object, rounded once here; a side with no band
- * has no key. Played, upcoming and team-season rows all go through this, so they cannot disagree.
- */
-function matchBandFields(matchBand: { red?: number; blue?: number } | undefined): {
-  redMatchBandVariance?: number;
-  blueMatchBandVariance?: number;
-} {
-  return {
-    ...(matchBand?.red !== undefined ? { redMatchBandVariance: roundTo(matchBand.red, ROUNDING_RULE.variance) } : {}),
-    ...(matchBand?.blue !== undefined ? { blueMatchBandVariance: roundTo(matchBand.blue, ROUNDING_RULE.variance) } : {}),
-  };
-}
-
 export function buildEventArtifact(params: BuildEventArtifactParams): EventArtifact {
   const matches = params.predictions.map(({ match, prediction, matchBand, coldStart }) => ({
     matchKey: match.matchKey,
@@ -552,31 +519,9 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
       : {}),
   }));
 
-  const upcoming = (params.upcoming ?? []).map(({ match, prediction, matchBand }) => ({
-    matchKey: match.matchKey,
-    compLevel: match.compLevel,
-    setNumber: match.setNumber,
-    matchNumber: match.matchNumber,
-    sortTime: params.sortTimeByMatchKey?.get(match.matchKey),
-    redTeams: [...match.redTeams],
-    blueTeams: [...match.blueTeams],
-    predictedWinner: prediction.winner,
-    pRedWin: roundProbability(prediction.pRedWin),
-    predictedRedScore: roundMetric(prediction.redScore),
-    predictedBlueScore: roundMetric(prediction.blueScore),
-    redScoreVarianceOwn:
-      prediction.redScoreVarianceOwn !== undefined ? roundTo(prediction.redScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
-    blueScoreVarianceOwn:
-      prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
-    ...matchBandFields(matchBand),
-    redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
-    blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
-    matchOutcomePmf: prediction.matchOutcomePmf ? roundPmf(prediction.matchOutcomePmf) : undefined,
-    redBonusRpPmf: prediction.redBonusRpPmf ? roundPmf(prediction.redBonusRpPmf) : undefined,
-    blueBonusRpPmf: prediction.blueBonusRpPmf ? roundPmf(prediction.blueBonusRpPmf) : undefined,
-    // No actual outcome yet, so predicted marginals only.
-    ...eventMatchBonusRpFields(match.compLevel, prediction, undefined),
-  }));
+  const upcoming = (params.upcoming ?? []).map((record) =>
+    eventUpcomingRow(record, params.sortTimeByMatchKey?.get(record.match.matchKey))
+  );
 
   const teams = (params.teams ?? []).map((t) => ({
     teamKey: t.teamKey,
@@ -823,49 +768,14 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
     ...(e.rank !== undefined ? { rank: e.rank } : {}),
     ...(e.totalTeams !== undefined ? { totalTeams: e.totalTeams } : {}),
     matches: e.matches.map((record) => {
-      const { match, prediction } = record;
-      const sortTime = params.sortTimeByMatchKey?.get(match.matchKey);
-      const row = {
-        matchKey: match.matchKey,
+      const { match } = record;
+      const row = teamSeasonMatchRow(record, {
         season: params.season,
-        eventKey: match.eventKey,
-        compLevel: match.compLevel,
         algorithmId: params.algorithmId,
         algorithmVersion: params.algorithmVersion,
-        predictedWinner: prediction.winner,
-        pRedWin: roundProbability(prediction.pRedWin),
-        predictedRedScore: roundMetric(prediction.redScore),
-        predictedBlueScore: roundMetric(prediction.blueScore),
-        variance: prediction.variance !== undefined ? roundTo(prediction.variance, ROUNDING_RULE.variance) : undefined,
-        // Each alliance's own predicted-score variance; undefined for OPR/EPA.
-        redScoreVarianceOwn:
-          prediction.redScoreVarianceOwn !== undefined ? roundTo(prediction.redScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
-        blueScoreVarianceOwn:
-          prediction.blueScoreVarianceOwn !== undefined ? roundTo(prediction.blueScoreVarianceOwn, ROUNDING_RULE.variance) : undefined,
-        // The same `record.matchBand` the event artifact reads, so both rows match by construction.
-        ...matchBandFields(record.matchBand),
-        redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
-        blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
-        // The Match column's label, published rather than re-derived client-side from the matchKey.
-        setNumber: match.setNumber,
-        matchNumber: match.matchNumber,
-        sortTime,
-        redTeams: [...match.redTeams],
-        blueTeams: [...match.blueTeams],
-        // Predicted per-bonus marginals are independent probabilities, so they round per value, never
-        // through `roundPmf`. Gated on the comp level so a playoff row carries neither key even if a
-        // caller-supplied `Prediction` has them.
-        ...(isBonusRpCompLevel(match.compLevel) && prediction.redBonusRp
-          ? { redBonusRp: prediction.redBonusRp.map((p) => roundProbability(p)) }
-          : {}),
-        ...(isBonusRpCompLevel(match.compLevel) && prediction.blueBonusRp
-          ? { blueBonusRp: prediction.blueBonusRp.map((p) => roundProbability(p)) }
-          : {}),
-        // Unconditional lookup; the corpus has no `video_key` for unplayed matches.
-        ...(params.videoByMatchKey?.get(match.matchKey) !== undefined
-          ? { video: params.videoByMatchKey.get(match.matchKey) }
-          : {}),
-      };
+        sortTime: params.sortTimeByMatchKey?.get(match.matchKey),
+        video: params.videoByMatchKey?.get(match.matchKey),
+      });
       // An `UpcomingMatch` never carries `winner` at all, so its presence is the discriminant.
       if ("winner" in match) {
         // Missing entry: keys absent. Present `null`: explicit null. Arrays are copied, never aliased,

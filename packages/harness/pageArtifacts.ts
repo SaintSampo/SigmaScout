@@ -595,7 +595,7 @@ const EventMatchSchema = z
  * genuinely not-yet-played match, and is the exact and leak-free input
  * for the live case.
  */
-const EventUpcomingMatchSchema = z
+export const EventUpcomingMatchSchema = z
   .object({
     matchKey: z.string().min(1),
     compLevel: z.enum(["qm", "ef", "qf", "sf", "f"]),
@@ -687,6 +687,9 @@ const EventUpcomingMatchSchema = z
     }
   );
 
+/** One published not-yet-played event match row. */
+export type EventUpcomingMatch = z.infer<typeof EventUpcomingMatchSchema>;
+
 /** A team competing at an event, carrying its current metrics — the event page's standings-style table. */
 const EventTeamSchema = z.object({
   teamKey: z.string().min(1),
@@ -747,7 +750,7 @@ const EventTeamSchema = z.object({
  * rounding happens once, at `packages/harness/publish.ts`'s publish
  * boundary.
  */
-const TeamSeasonMatchSchema = z
+export const TeamSeasonMatchSchema = z
   .object({
     matchKey: z.string().min(1),
     season: z.number().int(),
@@ -954,6 +957,9 @@ const TeamSeasonMatchSchema = z
       path: ["actualRedBonusRp"],
     }
   );
+
+/** One published team-season match row (played or upcoming). */
+export type TeamSeasonMatch = z.infer<typeof TeamSeasonMatchSchema>;
 
 // ---------------------------------------------------------------------------
 // TeamsArtifactSchema — v1/teams/{year}/{algorithmId}@{version}.json
@@ -1474,6 +1480,61 @@ export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
 });
 
 export type EventArtifact = z.infer<typeof EventArtifactSchema>;
+
+// ---------------------------------------------------------------------------
+// EventStateBlockSchema — the SPR state a browser prices upcoming matches from
+// ---------------------------------------------------------------------------
+
+/**
+ * One row of an event's `state` block: exactly a D1 `algorithm_state` record,
+ * the same seven fields in the same order as `stateSnapshot.ts`'s
+ * `StateRowSchema`, redeclared here because this browser-facing module must
+ * never import `stateSnapshot.ts` (`browserSafeSchemas.test.ts` follows its
+ * type-only imports into `packages/core/algorithms/`). `scopeKind` is limited
+ * to `league` and `team`: an SPR block never carries OPR's event rows.
+ *
+ * WHY ROWS STAY VERBATIM, with `stateJson` kept a string:
+ *   1. A row is a D1 record, so the live Worker can splice the rows it just
+ *      wrote with zero parse/re-stringify on the tick whose CPU cost is the
+ *      whole reason browser pricing exists.
+ *   2. The pricer (`eventStatePricing.ts`) hands `rows` straight to
+ *      `deserializeState` and the passenger readers, so no reader is
+ *      duplicated.
+ *   3. Per-row `generation`/`computedAt` survive: rows a tick touched carry
+ *      its stamp, untouched rows the seed's.
+ * The cost is escaped quotes and repeated stamp strings, mostly absorbed by
+ * transfer compression. JSON round-trips doubles exactly, so either encoding
+ * would preserve pricing parity.
+ */
+export const EventStateBlockRowSchema = z.object({
+  algorithmId: z.string().min(1),
+  algorithmVersion: z.string().min(1),
+  scopeKind: z.enum(["league", "team"]),
+  scopeKey: z.string().min(1),
+  stateJson: z.string(),
+  generation: z.string().min(1),
+  computedAt: z.string().min(1),
+});
+
+/**
+ * An event's SPR `state` block: the league row plus each roster team's row,
+ * carrying the Sigma and RP passengers the pricer reads.
+ *
+ * STRUCTURAL ONLY, no refine: a malformed block must never fail the whole
+ * event-artifact parse. `buildEventStateBlock` enforces the invariants (one
+ * league row, one algorithm id/version, current shape version) at write time
+ * and `priceUpcomingFromState` re-checks them at read time, throwing
+ * `EventStateBlockError` so a consumer falls back to the published fields.
+ */
+export const EventStateBlockSchema = z.object({
+  algorithmId: z.string().min(1),
+  algorithmVersion: z.string().min(1),
+  snapshotShapeVersion: z.number().int(),
+  rows: z.array(EventStateBlockRowSchema),
+});
+
+export type EventStateBlockRow = z.infer<typeof EventStateBlockRowSchema>;
+export type EventStateBlock = z.infer<typeof EventStateBlockSchema>;
 
 // ---------------------------------------------------------------------------
 // CompareArtifactSchema — v1/compare/{year}.json
