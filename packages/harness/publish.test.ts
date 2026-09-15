@@ -52,6 +52,8 @@ import {
   withHistoryPercentiles,
   withHistorySigma,
   withPublishedTiers,
+  eventScheduleIsCurrent,
+  STATE_BLOCK_STALE_AFTER_MS,
   type ActualBonusFlags,
   type BuildEventArtifactParams,
   type EventTeamRankingInput,
@@ -4979,6 +4981,9 @@ describe("publishSeasons — the SPR state block comes from the seed rows (26091
   let dir: string;
   let db: Corpus;
   const SEASON_2024 = 2024;
+  // The fixture's sortTimes are small epoch-ms values, so the run clock sits just after them: the
+  // unplayed matches are current and the block is attached (see `eventScheduleIsCurrent`).
+  const FIXTURE_SCHEDULE_CLOCK = new Date(6_000).toISOString();
   const TEAMS = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
 
   beforeEach(() => {
@@ -5045,7 +5050,7 @@ describe("publishSeasons — the SPR state block comes from the seed rows (26091
 
   async function publish(): Promise<void> {
     seedCorpus();
-    await publishSeasons(db, { seasons: [SEASON_2024], algorithms: [opr, spr], bucket: "test-bucket", dryRun: false, skipState: false });
+    await publishSeasons(db, { seasons: [SEASON_2024], algorithms: [opr, spr], bucket: "test-bucket", dryRun: false, skipState: false, computedAt: FIXTURE_SCHEDULE_CLOCK });
   }
 
   it("the spr block deep-equals buildEventStateBlock over the captured seed rows and the event's match rosters, stateJson for stateJson", async () => {
@@ -5119,6 +5124,56 @@ describe("publishSeasons — the SPR state block comes from the seed rows (26091
     expect(stateRows).not.toHaveBeenCalled();
     // No eventType given: no key, never a default.
     expect("eventType" in buildEventArtifact(eventArtifactParams())).toBe(false);
+  });
+
+  it("buildEventArtifact attaches no block to a long-finished event whose unplayed matches were never played, and reaches for one when the schedule is current", () => {
+    const upcomingKey = fixtureUpcoming().matchKey;
+    const computedAt = "2026-09-15T00:00:00.000Z";
+    const stale = vi.fn((): readonly StateRow[] => {
+      throw new Error("stateRows must not be called for a stale event");
+    });
+    const staleArtifact = buildEventArtifact(
+      eventArtifactParams({
+        computedAt,
+        eventType: 0,
+        sortTimeByMatchKey: new Map([[upcomingKey, Date.parse(computedAt) - STATE_BLOCK_STALE_AFTER_MS - 1]]),
+        stateRows: stale,
+      })
+    );
+    expect("state" in staleArtifact).toBe(false);
+    expect(staleArtifact.upcoming).toHaveLength(1);
+    expect(stale).not.toHaveBeenCalled();
+
+    const current = vi.fn((): readonly StateRow[] => {
+      throw new Error("REACHED");
+    });
+    expect(() =>
+      buildEventArtifact(
+        eventArtifactParams({
+          computedAt,
+          sortTimeByMatchKey: new Map([[upcomingKey, Date.parse(computedAt) - STATE_BLOCK_STALE_AFTER_MS]]),
+          stateRows: current,
+        })
+      )
+    ).toThrow("REACHED");
+  });
+
+  it("eventScheduleIsCurrent: latest scheduled time, then startDate, then current when neither can show staleness", () => {
+    const computedAt = "2026-09-15T00:00:00.000Z";
+    const now = Date.parse(computedAt);
+    const edge = now - STATE_BLOCK_STALE_AFTER_MS;
+    expect(eventScheduleIsCurrent({ scheduledTimes: [edge], startDate: undefined, computedAt })).toBe(true);
+    expect(eventScheduleIsCurrent({ scheduledTimes: [edge - 1], startDate: undefined, computedAt })).toBe(false);
+    // The latest time decides, not the first.
+    expect(eventScheduleIsCurrent({ scheduledTimes: [edge - 10_000, now + 3_600_000], startDate: "2016-03-10", computedAt })).toBe(true);
+    // 2016flrc's shape: never-played matches from 2016.
+    expect(eventScheduleIsCurrent({ scheduledTimes: [Date.parse("2016-03-12T15:00:00Z")], startDate: "2016-03-10", computedAt })).toBe(false);
+    // No scheduled time: startDate stands in.
+    expect(eventScheduleIsCurrent({ scheduledTimes: [], startDate: "2026-09-20", computedAt })).toBe(true);
+    expect(eventScheduleIsCurrent({ scheduledTimes: [], startDate: "2026-08-01", computedAt })).toBe(false);
+    // Nothing to show staleness with: current.
+    expect(eventScheduleIsCurrent({ scheduledTimes: [], startDate: undefined, computedAt })).toBe(true);
+    expect(eventScheduleIsCurrent({ scheduledTimes: [1], startDate: undefined, computedAt: undefined })).toBe(true);
   });
 
   it("the captured seed rows deep-equal an independently built chain over the replayed final state", async () => {

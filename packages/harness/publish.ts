@@ -331,6 +331,35 @@ export interface EventTeamRankingInput {
  * Mirrors `EventMetaRow` field for field so call sites pass corpus rows straight through. The location
  * string is composed once, inside `buildEventArtifact`, so the event page and Events list always agree.
  */
+/** How long after its latest scheduled match an event's unplayed matches stop counting as upcoming for the state block. */
+export const STATE_BLOCK_STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Whether an event with unplayed matches is still current enough to carry a `state` block. The
+ * corpus holds 146 long-finished events whose scheduled matches were never played (2016flrc has 24
+ * of 28); a block on those would price matches that will never happen (Jacob, 2026-09-15: no block
+ * once the event is over). Current means the latest scheduled `sortTime` (played or unplayed) is no
+ * older than `STATE_BLOCK_STALE_AFTER_MS` before `computedAt`. With no scheduled time, the event's
+ * `startDate` stands in; with neither, or no `computedAt`, staleness cannot be shown and the event
+ * counts as current.
+ */
+export function eventScheduleIsCurrent(input: {
+  readonly scheduledTimes: readonly number[];
+  readonly startDate: string | undefined;
+  readonly computedAt: string | undefined;
+}): boolean {
+  const now = input.computedAt !== undefined ? Date.parse(input.computedAt) : Number.NaN;
+  if (!Number.isFinite(now)) return true;
+  const latest =
+    input.scheduledTimes.length > 0
+      ? Math.max(...input.scheduledTimes)
+      : input.startDate !== undefined
+        ? Date.parse(input.startDate)
+        : Number.NaN;
+  if (!Number.isFinite(latest)) return true;
+  return latest >= now - STATE_BLOCK_STALE_AFTER_MS;
+}
+
 export interface EventArtifactIdentityInput {
   readonly name: string | null;
   readonly startDate: string;
@@ -573,7 +602,14 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
   // carries, so a live Worker splicing its own writes into it keeps it equal to D1. Only an SPR
   // artifact with an upcoming match carries one; nothing else calls `stateRows`.
   const state =
-    params.algorithmId === spr.id && upcoming.length > 0 && params.stateRows !== undefined
+    params.algorithmId === spr.id &&
+    upcoming.length > 0 &&
+    params.stateRows !== undefined &&
+    eventScheduleIsCurrent({
+      scheduledTimes: [...upcoming, ...matches].flatMap((row) => (row.sortTime !== undefined ? [row.sortTime] : [])),
+      startDate: params.eventMeta?.startDate,
+      computedAt: params.computedAt,
+    })
       ? buildEventStateBlock(params.stateRows(), [
           ...params.predictions.flatMap(({ match }) => [...match.redTeams, ...match.blueTeams]),
           ...(params.upcoming ?? []).flatMap(({ match }) => [...match.redTeams, ...match.blueTeams]),

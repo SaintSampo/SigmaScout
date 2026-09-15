@@ -580,7 +580,10 @@ corpus, not that anything is broken.
 **Operational contract.** Before an event's live window opens:
 
 1. The event must be published by code that writes the SPR `state` block (quick task 260915-isq or
-   later). Every SPR event artifact with at least one upcoming match carries one.
+   later). An SPR event artifact carries one when it has at least one upcoming match **and** its
+   schedule is current: its latest scheduled match is no more than 7 days before the publish
+   (`eventScheduleIsCurrent`). Long-finished events whose leftover matches were never played get no
+   block. A publish before the event's schedule has passed always qualifies.
 2. D1 must be seeded from the **same** publish run (`reports/publish/seed-spr.sql` from that run).
    The block and D1 must describe the same state.
 3. Step 3 of the browser-pricing direction must have shipped. Until the web reads event artifacts
@@ -596,8 +599,8 @@ Once an event's last match is folded, the block is dropped.
 **Reading the tick-log warnings:**
 
 - `event-state-block-missing` (`eventKey`, `algorithmId`, `upcoming`): the SPR artifact the tick
-  read carries no block. Either it was published before 260915-isq, or the event had no upcoming
-  matches when it was published. The tick wrote the artifact without a block, so upcoming matches
+  read carries no block. It was published before 260915-isq, the event had no upcoming matches when
+  it was published, or its schedule was more than 7 days stale at publish time. The tick wrote the artifact without a block, so upcoming matches
   cannot be priced in the browser. Republish and re-seed D1 from that run before the next tick.
 - `event-state-block-invalid` (`eventKey`, `algorithmId`, `upcoming`, `error`): the block's
   algorithm version or snapshot shape does not match the deployed Worker's rows (for example a
