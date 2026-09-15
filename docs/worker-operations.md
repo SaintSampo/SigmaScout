@@ -528,10 +528,14 @@ all weekend with no signal. See ["How the CPU budget is actually enforced"](#how
 RP for still-upcoming matches: it writes them schedule-only and keeps the SPR event artifact's
 `state` block current, and the browser prices the schedule from that block (step 3 of the
 browser-pricing direction in the todo above). That removes the dominant term the measurement above
-was taken with. **The gate stays in force** until step 4 re-measures the tick without the loop (and
-re-mirrors the probe, which still prices it — see "Pre-event probe") and the remaining DATA-04
-row-parity items land. The measurement above is the dated evidence the gate was set on; it no longer
-describes the current tick.
+was taken with. **The gate stays in force** until step 4 re-measures the tick without the loop and
+the remaining DATA-04 row-parity items land. The measurement above is the dated evidence the gate was
+set on; it no longer describes the current tick.
+
+**The probe was re-mirrored on 2026-09-15 (quick task 260915-qgf)** and no longer prices upcoming
+matches either, so the arm names and the `upcoming=` meaning below changed with it — see "Pre-event
+probe". The re-measurement itself is still outstanding; nothing here is settled by the re-mirror
+alone.
 
 ---
 
@@ -623,9 +627,11 @@ the ranking-point path. A `cpuTime` of 1 ms on an idle tick is not headroom — 
 before drawing any conclusion from a single tick's `cpuTime`, idle or otherwise.
 
 The pre-event probe (`apps/worker/src/stateProbe.ts`, a separate deployment configured by
-`wrangler.probe.toml`) answers the two questions an idle tick cannot: does the **deployed** bundle
-read the rows now in live D1, and what does Phase A (state read → fold → serialize) cost in real
-Workers CPU time once the ranking-point path actually runs.
+`wrangler.probe.toml`) answers the three questions an idle tick cannot: does the **deployed** bundle
+read the rows now in live D1; what does Phase A (state read → fold → serialize) cost in real Workers
+CPU time once the ranking-point path actually runs; and — under `phaseB=1`, added 2026-09-15 — what
+does Phase B's artifact merge cost, the term the browser-pricing work made *bigger* by putting a
+`state` block of tens of KB into every live event artifact.
 
 **The ordering rule.** The probe is evidence about the deployed Worker **only if both were built from
 the same commit**. Deploy the Worker, deploy the probe from the same commit, then run the probe. A
@@ -654,17 +660,24 @@ curl -s "https://sigmascout-state-probe.<subdomain>.workers.dev/?folded=2&upcomi
 | `teams` | discovered (up to `teamCount`) | Comma-separated override of the roster to fold |
 | `teamCount` | `21` | Peak realistic tick roster size — clamped under `MAX_SCOPE_KEYS_PER_READ` |
 | `folded` | `2` | Synthetic *played* matches priced (predict, band, RP fields, update, fold) |
-| `upcoming` | `60` | Synthetic *still-upcoming* matches priced (predict, band, RP fields — read only). The live tick no longer does this since 260915-isq; `upcoming=0` is the arm closest to the current tick until step 4 re-mirrors the probe |
+| `upcoming` | `60` | Synthetic *still-upcoming* matches **built, never priced** — the tick's own behaviour since 260915-isq. Reported as `fold.upcomingScheduled`. It costs Phase A nothing; it sizes Phase B's schedule-only row rebuild and decides whether the `state` block survives the merge (a block is dropped once no upcoming match is left) |
 | `rp` | on | Whole-path ablation arm. `0`/`off`/`false`/`no` turns every RP component off (`rpBeliefTeamsResumed`, `rpGatesOpened`, `rpPmfsProduced`, etc. all read 0/false); any other unrecognized value runs ON and warns, so a typo is never silently measured as the ablated arm |
-| `rpSkip` | empty | Comma-separated list of RP components to skip independently, layered under `rp` (ignored when `rp=0`, since every component is already off). Case-insensitive; the param name itself is not. Six names: `resume` (the belief/mean-shift resume — skipping it forces every other component off too), `foldedPmf` (RP fields in the played-match loop), `upcomingPmf` (RP fields in the upcoming loop), `formula` (`analyticRpPmf` and its decomposition — the gates/`momentsFor`/mean-shift `apply` still run), `observe` (`observeMatch` + `foldObservedRp`), `beliefs` (the `withRpBeliefs`/`withRpMeanShift` write-back passengers). An unknown name skips **nothing** and warns; read `params.rpArm.id` and `params.rpArm.ran` in the response before trusting a `cpuTime` — they echo exactly what ran |
+| `rpSkip` | empty | Comma-separated list of RP components to skip independently, layered under `rp` (ignored when `rp=0`, since every component is already off). Case-insensitive; the param name itself is not. **Five live names:** `resume` (the belief/mean-shift resume — skipping it forces every other component off too), `foldedPmf` (RP fields in the played-match loop, the only pmf loop left — skipping it forces `formula` off with it), `formula` (`analyticRpPmf` and its decomposition — the gates/`momentsFor`/mean-shift `apply` still run), `observe` (`observeMatch` + `foldObservedRp`, which also carries the Phase A bonus-flag capture), `beliefs` (the `withRpBeliefs`/`withRpMeanShift` write-back passengers). An unknown name skips **nothing** and warns; read `params.rpArm.id` and `params.rpArm.ran` in the response before trusting a `cpuTime` — they echo exactly what ran |
+| `rpSkip=upcomingPmf` | — | **RETIRED, and recognized as such.** It named the RP fields in the upcoming loop, which 260915-isq deleted from `processEvent`. It is not treated as a typo: it changes no counter, never appears in `params.rpArm.id`, and emits exactly one warning saying NOT APPLICABLE with that reason. Every other name in the same list still applies normally |
 | `algorithms` | every published id | Comma-separated algorithm ids to read and deserialize. `algorithms=spr` matches the live tick, which loads only the live tier; use it for CPU measurement. Unknown ids are ignored and warned, and `spr` is always kept because the fold needs it. Echoed as `params.algorithms` |
+| `phaseB` | **off** | Runs the Phase B emulation on top of Phase A: fetch a published event artifact, schema-parse it, `playedRowFactsFor`, `mergeEventArtifact` (which splices the `state` block), `JSON.stringify`, then N team parses and merges — all through `apps/worker/src/artifactMerge.ts`, the same module the tick calls, never a copy. Off by default, and an absent `phaseB=` is byte-identical to `phaseB=0`, so every RP arm above is unchanged by its existence. An unrecognized value runs ON and warns |
+| `phaseBTeams` | the real touched-team count | How many per-team artifact merges to emulate. Clamped to the same ceiling as the roster. Echoed as `params.phaseBTeams` |
+| `phaseBEvent` | the resolved `event` | Which published event artifact to fetch. Out of season, point it at an event that actually has a published SPR artifact |
+| `artifactOrigin` | `https://data.sigmascout.org` | Where the two artifact reads go. An override is **rejected** unless it parses as an `https:` origin — the probe never silently falls back to the default, and `params.artifactOrigin` reads `null` when it rejected one |
 
 `upcoming` defaults to 60 because, when the probe was written, **the upcoming loop was where the CPU
 went**: `processEvent` priced every still-upcoming match at the event, and early in a qual schedule
 that is 60+ matches. **Since 260915-isq the live tick prices no upcoming match** (the browser prices
-them from the event's `state` block). The deployed probe still mirrors the tick as it was before that
-change, so its default arm over-states the current tick. Use `upcoming=0` for the arm closest to the
-current tick until step 4 re-mirrors the probe and re-measures.
+them from the event's `state` block), and since 260915-qgf neither does the probe. The same
+`upcoming=60` now buys a 60-row schedule for Phase B to rebuild rather than 60 Phase A prices — so
+the default query string is unchanged on purpose, and measures a different tick. `fold.bandsProduced`
+and `fold.rpPmfsProduced` are folded-only now; a number from the old probe that counted 62 pmfs is
+not comparable to one from this probe that counts 2.
 
 **Read `cpuTime`**, in a second terminal, and run the probe **several consecutive times** — never
 conclude from one invocation:
@@ -682,26 +695,44 @@ enforced" above). Budget for the *sustained* cost of the common path, never for 
 
 | Condition | What it means |
 |---|---|
-| `rpPmfsProduced: 0` | Every RP pmf was suppressed — the partial-roster gate tripped, the event type is RP-ineligible, or the season has no registered rule module. The reported `cpuTime` never touched `analyticRpPmf`. |
-| `bandsProduced: 0` | No Sigma band was produced for any roster, so the RP path's own band-presence gate never opened. |
+| `rpPmfsProduced: 0` | Every RP pmf was suppressed — the partial-roster gate tripped, the event type is RP-ineligible, or the season has no registered rule module. The reported `cpuTime` never touched `analyticRpPmf`. Expect it to equal `matchesFolded` on a healthy run, not `matchesFolded + upcomingScheduled`: nothing prices an upcoming match any more. |
+| `bandsProduced: 0` | No Sigma band was produced for any roster, so the RP path's own band-presence gate never opened. Expect `2 × matchesFolded` on a healthy run. |
+| `phaseB.ran: false` with `phaseB.error` set | The emulation aborted before its first merge (fetch failed, a body did not schema-parse, or an `artifactOrigin` override was rejected). The response is a 500 and every phaseB counter reads 0, so an arm that measured nothing can never be recorded as one that measured Phase B. |
 | Any `algorithms[].ok: false` | That algorithm never deserialized (see its `error`), so nothing downstream of it was priced. |
 | A non-empty `warnings` array | The probe itself is naming a reason its own run under-states a real tick — read each line. |
 
 In every one of these cases, the reported `cpuTime` is an **under-estimate** of a real tick's cost and
 must not be read as headroom.
 
-**What it does not measure.** Phase A only — state read, fold, serialize, discard. Never Phase B
-(artifact merge, R2 reads/writes), TBA polling, the KV manifest read, or the global rebuild. A
-Phase-A number read as a whole-tick number is an under-estimate.
+**What it does not measure.** Phase A — state read, fold, serialize, discard — plus, under
+`phaseB=1`, an emulation of Phase B's merge/splice/stringify. Never the TBA poll, the KV manifest
+read, the global rebuild, a second concurrent event, or any R2 write (the real Phase B's two R2
+round-trips per artifact are I/O the probe replaces with one public HTTPS read). Any number from
+here read as a whole-tick number is still an under-estimate.
 
-**What it cannot write, and what it merely does not write.** The write guarantee is two layers, and
-they are not equally strong:
+**Reading a phaseB number.** Two parts of it are a FLOOR, not a faithful price, and the response
+says which:
+
+- `stateBlockSynthesized: true` means the published artifact carried no `state` block and the probe
+  built one from the rows it read. Out of season every artifact is in that state, because a block
+  attaches only to an event whose schedule is current within 7 days. A synthesized block is sized by
+  `teamCount` (21 by default), where a regional carries ~42 team rows — so the merge and the
+  stringify below it are under-priced.
+- `teamParsesRun` counts parses of **one** team's fetched bytes, repeated N times. That prices N
+  parses of a realistically-sized artifact, but a real tick parses N *different* teams' artifacts.
+  Do not read it as N distinct teams.
+- The splice's admitted set is the probe's synthetic touched teams, so fewer team rows are replaced
+  than at a real event.
+
+**What it cannot write, and what it merely does not write.** The write guarantee is layered, and the
+layers are not equally strong:
 
 | Surface | What stops a write | Strength |
 |---|---|---|
 | R2 (`ARTIFACTS`) | Binding absent from `wrangler.probe.toml` — `env.ARTIFACTS` does not exist | Structural — no code change can write an artifact |
 | KV (`MANIFEST`) | Binding absent — `env.MANIFEST` does not exist | Structural |
-| D1 (`DB`) | The probe never calls a write helper, and no write helper is in its import graph | **Test-enforced only** (`apps/worker/test/stateProbe.test.ts`) |
+| D1 (`DB`) | The probe never calls a write helper, and no write helper is in its import graph — including through `artifactMerge.ts`, which exists so Phase B can be priced without importing `scheduled.ts` | **Test-enforced only** (`apps/worker/test/stateProbe.test.ts`) |
+| The public artifact origin (outbound HTTPS, `phaseB` only) | No binding is involved at all. One `fetch` call site, `method: "GET"`, no request body, protocol asserted `https:`; a non-`https:` `artifactOrigin` override is rejected rather than defaulted | **Test-enforced only** — a source scan pins the single call site and its exact init, and a stubbed-fetch test asserts every recorded request was a GET over https with no body |
 
 Workers has no read-only D1 binding, so `DB` above is bound read-write like any other D1 binding.
 Anyone editing `apps/worker/src/stateProbe.ts` is editing something whose D1 safety is a test away,
