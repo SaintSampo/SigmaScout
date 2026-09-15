@@ -20,7 +20,26 @@ import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTick } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
-import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
+import {
+  artifactKey,
+  EventStateBlockSchema,
+  EventUpcomingMatchSchema,
+  LiveEventArtifactSchema,
+  PAGE_ARTIFACT_SCHEMA_VERSION,
+  type EventStateBlock,
+  type EventStateBlockRow,
+  type EventUpcomingMatch,
+} from "../../../packages/harness/pageArtifacts.js";
+import { buildEventStateBlock, priceUpcomingFromState } from "../../../packages/harness/eventStatePricing.js";
+import { eventUpcomingRow } from "../../../packages/harness/publishedRows.js";
+import {
+  serializeState,
+  withRpBeliefs,
+  withRpMeanShift,
+  withSigmaBeliefs,
+  withSigmaPopulation,
+  type StateRow,
+} from "../../../packages/harness/stateSnapshot.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
@@ -630,28 +649,6 @@ describe("scheduled.rp — ranking points on live rows", () => {
     60_000
   );
 
-  it(
-    "an UPCOMING match naming a team this tick never touched emits NO pmf rather than one built from a partial roster",
-    async () => {
-      const { r2 } = await driveFixture();
-      const key = artifactKey({ page: "event", eventKey: LIVE_EVENT_KEY, algorithmId: "spr", version: spr.version });
-      const artifact = JSON.parse(await (await r2.get(key))!.text()) as {
-        upcoming: { matchKey: string; redTeams: string[]; blueTeams: string[]; redRpPmf?: number[] }[];
-      };
-      // `momentsFor` sums silently over whatever beliefs it finds, so a
-      // partially-resumed roster would yield a NARROWER, more confident pmf
-      // than the truth with nothing reporting a problem. Every upcoming row
-      // whose roster is not fully resumed must therefore carry nothing.
-      for (const row of artifact.upcoming) {
-        const roster = [...row.redTeams, ...row.blueTeams];
-        if (roster.some((t) => !ALL_TEAMS.includes(t))) {
-          expect(row.redRpPmf, `upcoming ${row.matchKey} emitted a pmf despite an unresumed roster member`).toBeUndefined();
-        }
-      }
-    },
-    60_000
-  );
-
   it("a season with NO registered RP rules yields no accumulator rather than throwing — the Worker must INDEX the registry, never call rpRuleModuleForSeason", async () => {
     // 2021 has no RP rule module; the Worker indexes `RP_RULE_MODULES`
     // directly (never the throwing `rpRuleModuleForSeason`) and degrades to no RP.
@@ -993,17 +990,30 @@ describe("scheduled.rp — the mean shift survives the live Worker (shape 16)", 
   );
 
   it(
-    "spr: live played AND upcoming RP rows EQUAL the offline SigmaScoutLayer's, which carry the mean shift",
+    "spr: live PLAYED RP rows EQUAL the offline SigmaScoutLayer's, which carry the mean shift; upcoming rows carry no pmf",
     async () => {
       const { r2 } = await driveMeanShiftFixture();
       const offline = msOffline();
       const online = await msPublishedRows(r2);
-      expect(online.filter((r) => r.red !== undefined).length, "the live arm produced no pmf at all").toBe(MS_LIVE_PLAYED + MS_LIVE_UPCOMING);
+      const onlinePlayed = online.slice(0, MS_LIVE_PLAYED);
+      expect(onlinePlayed.filter((r) => r.red !== undefined).length, "the live arm produced no played pmf at all").toBe(MS_LIVE_PLAYED);
       expect(
-        msDigest(online),
-        "the live Worker's RP rows diverged from the offline layer's — it priced the live event without the mean shift the publisher applies (check the league-row resume and write-back)"
-      ).toBe(msDigest(offline.shifted));
-      expect(msDigest(online)).not.toBe(msDigest(offline.unshifted));
+        msDigest(onlinePlayed),
+        "the live Worker's played RP rows diverged from the offline layer's — it priced the live event without the mean shift the publisher applies (check the league-row resume and write-back)"
+      ).toBe(msDigest(offline.shifted.slice(0, MS_LIVE_PLAYED)));
+      expect(msDigest(onlinePlayed)).not.toBe(msDigest(offline.unshifted.slice(0, MS_LIVE_PLAYED)));
+
+      // Since 260915-isq the tick prices no upcoming match. Upcoming parity
+      // (browser pricer on the Worker-maintained block vs the offline rows)
+      // lives in "scheduled.rp — the state block survives the live Worker".
+      const onlineUpcoming = online.slice(MS_LIVE_PLAYED);
+      expect(onlineUpcoming).toHaveLength(MS_LIVE_UPCOMING);
+      for (const row of onlineUpcoming) {
+        expect(row.red, `upcoming ${row.matchKey} carries a red pmf`).toBeUndefined();
+        expect(row.blue, `upcoming ${row.matchKey} carries a blue pmf`).toBeUndefined();
+        expect(row.redBonus, `upcoming ${row.matchKey} carries a red bonus pmf`).toBeUndefined();
+        expect(row.blueBonus, `upcoming ${row.matchKey} carries a blue bonus pmf`).toBeUndefined();
+      }
     },
     120_000
   );
@@ -1026,6 +1036,384 @@ describe("scheduled.rp — the mean shift survives the live Worker (shape 16)", 
         layer.foldPlayed(result, prediction);
       }
       expect(json.sigmascoutRpMeanShift).toEqual(layer.rpMeanShiftState());
+    },
+    120_000
+  );
+});
+
+// ---------------------------------------------------------------------------
+// The SPR state block survives the live Worker (260915-isq).
+//
+// A publish is emulated at k = 4 played live matches: D1 holds the offline
+// seed rows (the publisher's passenger chain, in its order) and R2 holds an
+// spr event artifact whose `state` block is `buildEventStateBlock` over those
+// rows. The Worker then folds the rest of the live event over three ticks.
+// After each tick the browser pricer runs on the block the Worker wrote (JSON
+// and zod round-tripped) and must reproduce, exactly, the upcoming rows an
+// offline replay of the same played set publishes. No tolerance anywhere.
+//
+// The schedule is built so the block mixes rows from every source: after
+// tick 1 match 6 pairs touched frc1 with untouched frc7-frc11; after tick 2
+// match 8 carries frc5/frc6 (written by tick 1), frc4/frc8/frc11 (tick 2) and
+// frc12 (the publish).
+// ---------------------------------------------------------------------------
+
+const SB_PRIOR_EVENT_KEY = "2026sbprior";
+const SB_LIVE_EVENT_KEY = "2026sblive";
+const SB_TEAMS: readonly string[] = Array.from({ length: 12 }, (_, i) => `frc${i + 1}`);
+const SB_PRIOR_MATCHES = 132;
+const SB_PUBLISHED_PLAYED = 4;
+const SB_SEED_STAMP = { generation: "seed-gen", computedAt: "2026-08-21T00:00:00.000Z" };
+const SB_ARTIFACT_KEY = artifactKey({ page: "event", eventKey: SB_LIVE_EVENT_KEY, algorithmId: "spr", version: spr.version });
+const SB_SCHEDULE_KEYS = ["matchKey", "compLevel", "setNumber", "matchNumber", "sortTime", "redTeams", "blueTeams"];
+
+/** Match `k` of the prior event: an affine permutation of the twelve teams (multipliers coprime with 12), so partners and opponents vary. */
+function sbPriorRoster(k: number): { red: string[]; blue: string[] } {
+  const multiplier = [1, 5, 7, 11][k % 4]!;
+  const order = SB_TEAMS.map((team, i) => ({ team, slot: (i * multiplier + k) % 12 })).sort((a, b) => a.slot - b.slot);
+  return { red: order.slice(0, 3).map((o) => o.team), blue: order.slice(3, 6).map((o) => o.team) };
+}
+
+/** Trending threshold inputs, as `msFixture`: a nonzero mean shift by construction. */
+function sbFixture(eventKey: string, matchNumber: number, k: number, red: readonly string[], blue: readonly string[]): MatchFixture {
+  const base = msFixture(eventKey, matchNumber, k);
+  return { ...base, redTeams: red, blueTeams: blue };
+}
+
+const SB_PRIOR_FIXTURES: readonly MatchFixture[] = Array.from({ length: SB_PRIOR_MATCHES }, (_, i) => {
+  const { red, blue } = sbPriorRoster(i);
+  return sbFixture(SB_PRIOR_EVENT_KEY, i + 1, i, red, blue);
+});
+
+const SB_LIVE_ROSTERS: readonly [readonly string[], readonly string[]][] = [
+  [["frc1", "frc4", "frc7"], ["frc2", "frc5", "frc8"]],
+  [["frc3", "frc6", "frc9"], ["frc10", "frc11", "frc12"]],
+  [["frc1", "frc6", "frc11"], ["frc2", "frc9", "frc12"]],
+  [["frc3", "frc4", "frc10"], ["frc5", "frc7", "frc8"]],
+  // Tick 1 folds match 5: touched = frc1-frc6.
+  [["frc1", "frc2", "frc3"], ["frc4", "frc5", "frc6"]],
+  // Tick 2 folds matches 6 and 7: touched = frc1-frc4, frc7-frc11.
+  [["frc1", "frc7", "frc8"], ["frc9", "frc10", "frc11"]],
+  [["frc2", "frc4", "frc7"], ["frc3", "frc9", "frc10"]],
+  // Tick 3 folds match 8, the last one.
+  [["frc5", "frc6", "frc12"], ["frc8", "frc11", "frc4"]],
+];
+
+const SB_LIVE_FIXTURES: readonly MatchFixture[] = SB_LIVE_ROSTERS.map(([red, blue], i) =>
+  sbFixture(SB_LIVE_EVENT_KEY, i + 1, SB_PRIOR_MATCHES + i, red, blue)
+);
+
+/** The published sort time of a live match: deliberately NOT the TBA `time` the Worker normalizes, so a Worker that re-derived it would fail. */
+function sbSortTimeOf(f: MatchFixture): number {
+  return 1_780_000_000 + f.matchNumber * 420;
+}
+
+interface SbOffline {
+  /** The publisher's D1 seed rows at this point: `serializeState`, then the passengers in `publish.ts`'s order. */
+  readonly rows: StateRow[];
+  /** The offline upcoming event rows for the remaining live matches. */
+  readonly upcoming: EventUpcomingMatch[];
+  readonly meanShift: ReturnType<SigmaScoutLayer["rpMeanShiftState"]>;
+}
+
+/** The offline arm after the prior event and live matches 1..k, driven as `msOffline` drives the real `SigmaScoutLayer`. */
+function sbOfflineAt(k: number): SbOffline {
+  const layer = new SigmaScoutLayer(RULES_2026, "spr");
+  let state = spr.initState([...SB_TEAMS]);
+  for (const f of [...SB_PRIOR_FIXTURES, ...SB_LIVE_FIXTURES.slice(0, k)]) {
+    const result = toMatchResult(f);
+    const prediction = spr.predict(state, toLeakProofUpcoming(result));
+    state = spr.update(state, result);
+    const roster = [...result.redTeams, ...result.blueTeams];
+    const metrics = spr.teamMetrics(state, roster);
+    const talent = new Map<string, number>();
+    for (const teamKey of roster) {
+      const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+      if (total !== undefined) talent.set(teamKey, total);
+    }
+    layer.foldPlayed(result, prediction, talent);
+  }
+
+  let rows = withRpBeliefs(withSigmaBeliefs(serializeState("spr", spr.version, state, SB_SEED_STAMP), layer.sigmaBeliefs()), layer.rpVariableBeliefs());
+  const sigmaPopulation = layer.sigmaPopulation();
+  if (sigmaPopulation !== undefined) rows = withSigmaPopulation(rows, sigmaPopulation);
+  const rpMeanShift = layer.rpMeanShiftState();
+  if (rpMeanShift !== undefined) rows = withRpMeanShift(rows, rpMeanShift);
+
+  const upcoming = SB_LIVE_FIXTURES.slice(k).map((f) => {
+    const view = toUpcomingMatchView(f);
+    return EventUpcomingMatchSchema.parse(eventUpcomingRow(layer.enrichUpcoming(view, spr.predict(state, view)), sbSortTimeOf(f)));
+  });
+  return { rows, upcoming, meanShift: rpMeanShift };
+}
+
+function sbJson<T>(value: T): unknown {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function sbBlockRowOf(row: FakeAlgorithmStateRow): EventStateBlockRow {
+  return {
+    algorithmId: row.algorithm_id,
+    algorithmVersion: row.algorithm_version,
+    scopeKind: row.scope_kind as "league" | "team",
+    scopeKey: row.scope_key,
+    stateJson: row.state_json,
+    generation: row.generation,
+    computedAt: row.computed_at,
+  };
+}
+
+/** Counts every D1 read, so a test can prove the Worker never reads D1 to bootstrap a block. */
+class CountingFakeD1Database extends FakeD1Database {
+  selectCalls = 0;
+  override executeSelect(sql: string, args: readonly unknown[]): unknown[] {
+    this.selectCalls += 1;
+    return super.executeSelect(sql, args);
+  }
+}
+
+interface SbHarnessOptions {
+  /** The `state` the published artifact carries: the real block (default), none, or a replacement. */
+  readonly publishedState?: "block" | "none" | ((block: EventStateBlock) => EventStateBlock);
+  /** The published artifact's `eventType`; `undefined` omits the key. */
+  readonly publishedEventType?: number | undefined;
+  /** The event-detail route's HTTP status (default 200). */
+  readonly detailStatus?: number;
+}
+
+interface SbHarness {
+  readonly d1: CountingFakeD1Database;
+  readonly r2: FakeR2Bucket;
+  readonly publishedBlock: EventStateBlock;
+  readonly publishedUpcoming: EventUpcomingMatch[];
+  /** Reveals live matches 1..`played` and runs one tick. */
+  tickTo(played: number): Promise<void>;
+  /** The artifact the Worker last wrote, as parsed JSON. */
+  readArtifact(): Promise<Record<string, unknown> & { upcoming: Record<string, unknown>[] }>;
+}
+
+async function sbHarness(options: SbHarnessOptions = {}): Promise<SbHarness> {
+  const published = sbOfflineAt(SB_PUBLISHED_PLAYED);
+  const publishedBlock = buildEventStateBlock(published.rows, SB_TEAMS);
+
+  const d1 = new CountingFakeD1Database();
+  for (const row of published.rows) {
+    d1.algorithmState.set(`${row.algorithmId}::${row.scopeKind}::${row.scopeKey}`, {
+      algorithm_id: row.algorithmId,
+      algorithm_version: row.algorithmVersion,
+      scope_kind: row.scopeKind,
+      scope_key: row.scopeKey,
+      state_json: row.stateJson,
+      generation: row.generation,
+      computed_at: row.computedAt,
+    });
+  }
+  d1.eventCursors.set(SB_LIVE_EVENT_KEY, {
+    event_key: SB_LIVE_EVENT_KEY,
+    tba_etag: null,
+    last_folded_match_key: matchKeyOf(SB_LIVE_FIXTURES[SB_PUBLISHED_PLAYED - 1]!),
+    last_polled_at: null,
+    last_advanced_at: null,
+  });
+
+  const publishedStateOption = options.publishedState ?? "block";
+  const state =
+    publishedStateOption === "block" ? publishedBlock : publishedStateOption === "none" ? undefined : publishedStateOption(publishedBlock);
+  const eventType = "publishedEventType" in options ? options.publishedEventType : EVENT_TYPE;
+  const artifact = LiveEventArtifactSchema.parse({
+    schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+    generation: SB_SEED_STAMP.generation,
+    computedAt: SB_SEED_STAMP.computedAt,
+    algorithmId: "spr",
+    algorithmVersion: spr.version,
+    eventKey: SB_LIVE_EVENT_KEY,
+    season: SEASON,
+    ...(eventType !== undefined ? { eventType } : {}),
+    matches: [],
+    upcoming: published.upcoming,
+    teams: [],
+    ...(state !== undefined ? { state } : {}),
+  });
+  const r2 = new FakeR2Bucket();
+  await r2.put(SB_ARTIFACT_KEY, JSON.stringify(artifact));
+
+  const windows = [{ eventKey: SB_LIVE_EVENT_KEY, season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000, inferred: false }];
+  const kv = new FakeKvNamespace(
+    new Map([
+      [LIVE_WINDOWS_MANIFEST_KEY, JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", windows })],
+      [ALGORITHMS_MANIFEST_KEY, algorithmsManifestJson()],
+    ])
+  );
+
+  let revealed = SB_PUBLISHED_PLAYED;
+  const detailStatus = options.detailStatus ?? 200;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: unknown) => {
+      const u = String(url);
+      const matchesRoute = /\/event\/([^/]+)\/matches$/.exec(u);
+      if (matchesRoute) {
+        const body = [...SB_LIVE_FIXTURES.slice(0, revealed).map(toTbaMatch), ...SB_LIVE_FIXTURES.slice(revealed).map(toUpcomingTbaMatch)];
+        return {
+          status: 200,
+          ok: true,
+          headers: { get: (name: string) => (name === "etag" ? `etag-${matchesRoute[1]!}-${revealed}` : null) },
+          json: async () => body,
+        };
+      }
+      const detailRoute = /\/event\/([^/]+)$/.exec(u);
+      if (detailRoute) {
+        if (detailStatus !== 200) {
+          return { status: detailStatus, ok: false, headers: { get: () => null }, json: async () => ({}) };
+        }
+        return {
+          status: 200,
+          ok: true,
+          headers: { get: () => null },
+          json: async () => ({ key: detailRoute[1]!, name: "Test Event", year: SEASON, event_type: EVENT_TYPE, start_date: "2026-08-01" }),
+        };
+      }
+      throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
+    })
+  );
+  const env = { ...makeEnv(kv, d1 as unknown as FakeD1Database, r2), LIVE_ALGORITHM_IDS: "spr" } as Env;
+
+  let tickIndex = 0;
+  return {
+    d1,
+    r2,
+    publishedBlock,
+    publishedUpcoming: published.upcoming,
+    async tickTo(played: number) {
+      revealed = played;
+      const result = await runTick(env, {
+        nowMs: NOW_MS + tickIndex++ * 60_000,
+        globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER,
+        subrequestCap: 1000,
+        subrequestReserve: 0,
+      });
+      expect(result.eventsFailed).toBe(0);
+      expect(result.eventsAdvanced).toBe(1);
+    },
+    async readArtifact() {
+      const object = await r2.get(SB_ARTIFACT_KEY);
+      expect(object, `no event artifact at ${SB_ARTIFACT_KEY}`).not.toBeNull();
+      return JSON.parse(await object!.text());
+    },
+  };
+}
+
+/** Prices the artifact's upcoming rows from its own wire-form block, exactly as a browser would. */
+function sbPriceArtifact(artifact: Record<string, unknown> & { upcoming: Record<string, unknown>[] }): EventUpcomingMatch[] {
+  const wire = EventStateBlockSchema.parse(JSON.parse(JSON.stringify(artifact.state)));
+  return priceUpcomingFromState({
+    state: wire,
+    eventKey: SB_LIVE_EVENT_KEY,
+    season: SEASON,
+    eventType: artifact.eventType as number,
+    ruleModule: RP_RULE_MODULES[SEASON],
+    upcoming: artifact.upcoming as never,
+  }).event;
+}
+
+function sbExpectExact(actual: readonly EventUpcomingMatch[], expected: readonly EventUpcomingMatch[]): void {
+  expect(actual.length).toBe(expected.length);
+  expect(actual).toEqual(expected);
+  expect(sbJson(actual)).toStrictEqual(sbJson(expected));
+}
+
+describe("scheduled.rp — the state block survives the live Worker", () => {
+  it("non-vacuity: the fixture is warm, mixes touched and untouched teams, and the offline rows carry bands and RP", () => {
+    const published = sbOfflineAt(SB_PUBLISHED_PLAYED);
+    expect(published.meanShift, "no mean-shift state offline").toBeDefined();
+    for (const [name, v] of Object.entries(published.meanShift!.variables)) {
+      expect(v.count, `${name}: warm observations`).toBeGreaterThanOrEqual(RP_MEAN_SHIFT_WARMUP_OBSERVATIONS);
+      expect(v.sum, `${name}: a zero shift`).not.toBe(0);
+    }
+    expect(published.upcoming).toHaveLength(SB_LIVE_FIXTURES.length - SB_PUBLISHED_PLAYED);
+    for (const row of published.upcoming) {
+      expect(row.redMatchBandVariance, `${row.matchKey}: red band`).toBeDefined();
+      expect(row.blueMatchBandVariance, `${row.matchKey}: blue band`).toBeDefined();
+      expect(row.redRpPmf, `${row.matchKey}: red RP pmf`).toBeDefined();
+      expect(row.blueRpPmf, `${row.matchKey}: blue RP pmf`).toBeDefined();
+      expect(row.sortTime).toBeDefined();
+    }
+    // Every team has a row in the block, so no team prices as fresh.
+    const block = buildEventStateBlock(published.rows, SB_TEAMS);
+    expect(block.rows.filter((r) => r.scopeKind === "team").map((r) => r.scopeKey).sort()).toEqual([...SB_TEAMS].sort());
+  });
+
+  it(
+    "three ticks: the pricer on the Worker's block reproduces the offline upcoming rows exactly, and the block is dropped on the last match",
+    async () => {
+      const harness = await sbHarness();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        // Pre-tick sanity: the emulated publish already prices to the offline rows.
+        const before = await harness.readArtifact();
+        sbExpectExact(sbPriceArtifact(before), sbOfflineAt(SB_PUBLISHED_PLAYED).upcoming);
+
+        // Tick 1: match 5 (six touched teams).
+        await harness.tickTo(5);
+        const afterTick1 = await harness.readArtifact();
+        expect(afterTick1.eventType).toBe(EVENT_TYPE);
+        sbExpectExact(sbPriceArtifact(afterTick1), sbOfflineAt(5).upcoming);
+
+        const block1 = EventStateBlockSchema.parse(afterTick1.state);
+        const touched1 = new Set(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+        const publishedByKey = new Map(harness.publishedBlock.rows.map((r) => [`${r.scopeKind}:${r.scopeKey}`, r]));
+        expect(block1.rows[0]!.scopeKind).toBe("league");
+        const teamKeys = block1.rows.slice(1).map((r) => r.scopeKey);
+        expect(block1.rows.slice(1).every((r) => r.scopeKind === "team")).toBe(true);
+        expect(teamKeys).toEqual([...teamKeys].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)));
+        expect(new Set(teamKeys)).toEqual(new Set(SB_TEAMS));
+        for (const row of block1.rows) {
+          if (row.scopeKind === "team" && !touched1.has(row.scopeKey)) {
+            // Untouched: the publish's copy, stamps included.
+            expect(row, `untouched ${row.scopeKey}`).toEqual(publishedByKey.get(`team:${row.scopeKey}`));
+          } else {
+            // Touched teams and the league row: exactly what the tick wrote to D1.
+            const d1Row = harness.d1.algorithmState.get(`spr::${row.scopeKind}::${row.scopeKey}`);
+            expect(d1Row, `no D1 row for ${row.scopeKind}:${row.scopeKey}`).toBeDefined();
+            expect(row, `${row.scopeKind}:${row.scopeKey}`).toEqual(sbBlockRowOf(d1Row!));
+            expect(row.generation, `${row.scopeKind}:${row.scopeKey} was not rewritten by the tick`).not.toBe(SB_SEED_STAMP.generation);
+          }
+        }
+
+        // Schedule-only upcoming rows, with the published sort time preserved.
+        const publishedSortTimes = new Map(harness.publishedUpcoming.map((r) => [r.matchKey, r.sortTime]));
+        expect(afterTick1.upcoming).toHaveLength(3);
+        for (const row of afterTick1.upcoming) {
+          for (const key of Object.keys(row)) expect(SB_SCHEDULE_KEYS, `${String(row.matchKey)} carries "${key}"`).toContain(key);
+          expect(row.sortTime).toBe(publishedSortTimes.get(row.matchKey as string));
+        }
+        // Match 6 pairs touched frc1 with untouched frc7-frc11.
+        const match6 = afterTick1.upcoming.find((r) => r.matchKey === matchKeyOf(SB_LIVE_FIXTURES[5]!))!;
+        expect([...(match6.redTeams as string[]), ...(match6.blueTeams as string[])].filter((t) => touched1.has(t))).toEqual(["frc1"]);
+
+        // Tick 2: matches 6 and 7 in one tick.
+        await harness.tickTo(7);
+        const afterTick2 = await harness.readArtifact();
+        sbExpectExact(sbPriceArtifact(afterTick2), sbOfflineAt(7).upcoming);
+        const block2 = EventStateBlockSchema.parse(afterTick2.state);
+        expect(block2.rows.find((r) => r.scopeKey === "frc12"), "frc12 keeps the publish's row").toEqual(publishedByKey.get("team:frc12"));
+        expect(block2.rows.find((r) => r.scopeKey === "frc5"), "frc5 keeps tick 1's row").toEqual(block1.rows.find((r) => r.scopeKey === "frc5"));
+        for (const row of afterTick2.upcoming) {
+          for (const key of Object.keys(row)) expect(SB_SCHEDULE_KEYS).toContain(key);
+          expect(row.sortTime).toBe(publishedSortTimes.get(row.matchKey as string));
+        }
+
+        // Tick 3: the last match. No upcoming match left, so no block.
+        await harness.tickTo(8);
+        const afterTick3 = await harness.readArtifact();
+        expect(afterTick3.upcoming).toEqual([]);
+        expect("state" in afterTick3, "the block outlived the event's last upcoming match").toBe(false);
+        expect(afterTick3.eventType).toBe(EVENT_TYPE);
+
+        expect(warn, "a block-carrying artifact must not warn").not.toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+      }
     },
     120_000
   );

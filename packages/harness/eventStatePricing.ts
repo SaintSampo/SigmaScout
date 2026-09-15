@@ -161,6 +161,69 @@ export function buildEventStateBlock(rows: readonly StateRow[], teamKeys: Iterab
   };
 }
 
+/**
+ * The live Worker's block maintenance: `block` with the rows a tick just
+ * wrote to D1 spliced in, so the block stays equal to what D1 holds for the
+ * event's teams without the Worker ever reading D1 for it.
+ *
+ * - A written league row replaces the league row.
+ * - A written team row replaces the block's row with the same `scopeKey`, or
+ *   is inserted when its key is in `stateBlockScopeKeys(touchedTeamKeys)`.
+ *   Every other written team row is ignored.
+ * - Written event rows are ignored.
+ * - Rows the tick did not write keep the block's copy.
+ *
+ * Returns a new block: league first, then team rows by ascending key (the
+ * `buildEventStateBlock` order). Rows are copied field for field; `stateJson`
+ * is never parsed or re-stringified, so the shape check is a comparison on
+ * the block's own field.
+ *
+ * Throws `EventStateBlockError` when the block is not SPR's, declares another
+ * snapshot shape, does not hold exactly one league row, or a written league or
+ * team row carries another algorithm id or version than the block.
+ */
+export function spliceEventStateBlock(
+  block: EventStateBlock,
+  writtenRows: readonly StateRow[],
+  touchedTeamKeys: Iterable<string>
+): EventStateBlock {
+  if (block.algorithmId !== spr.id) throw new EventStateBlockError(`algorithm "${block.algorithmId}" is not "${spr.id}"`);
+  if (block.snapshotShapeVersion !== STATE_SNAPSHOT_SHAPE_VERSION) {
+    throw new EventStateBlockError(`snapshotShapeVersion ${block.snapshotShapeVersion} is not ${STATE_SNAPSHOT_SHAPE_VERSION}`);
+  }
+  const leagueRows = block.rows.filter((row) => row.scopeKind === "league");
+  if (leagueRows.length !== 1) throw new EventStateBlockError(`expected exactly one league row, found ${leagueRows.length}`);
+
+  let league: EventStateBlockRow = leagueRows[0]!;
+  const teamRowsByKey = new Map<string, EventStateBlockRow>();
+  for (const row of block.rows) {
+    if (row.scopeKind === "team") teamRowsByKey.set(row.scopeKey, row);
+  }
+  const admitted = new Set(stateBlockScopeKeys(touchedTeamKeys));
+
+  for (const row of writtenRows) {
+    if (row.scopeKind === "event") continue;
+    if (row.algorithmId !== block.algorithmId || row.algorithmVersion !== block.algorithmVersion) {
+      throw new EventStateBlockError(
+        `written row ${row.scopeKind}:${row.scopeKey} is ${row.algorithmId}@${row.algorithmVersion}, block is ${block.algorithmId}@${block.algorithmVersion}`
+      );
+    }
+    if (row.scopeKind === "league") {
+      league = copyRow(row, "league");
+    } else if (teamRowsByKey.has(row.scopeKey) || admitted.has(row.scopeKey)) {
+      teamRowsByKey.set(row.scopeKey, copyRow(row, "team"));
+    }
+  }
+
+  const teamRows = [...teamRowsByKey.values()].sort((a, b) => (a.scopeKey < b.scopeKey ? -1 : a.scopeKey > b.scopeKey ? 1 : 0));
+  return {
+    algorithmId: block.algorithmId,
+    algorithmVersion: block.algorithmVersion,
+    snapshotShapeVersion: block.snapshotShapeVersion,
+    rows: [copyRow(league, "league"), ...teamRows.map((row) => copyRow(row, "team"))],
+  };
+}
+
 /** One not-yet-played match, schedule fields only: nothing a pricer could leak an outcome through. */
 export interface ScheduledMatchInput {
   readonly matchKey: string;

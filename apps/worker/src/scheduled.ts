@@ -39,6 +39,17 @@
  * per-team artifacts. The `-1` "detail fetch failed" event type counts as
  * official, so a failed fetch keeps the leaderboard updating.
  *
+ * UPCOMING MATCHES ARE NOT PRICED HERE (260915-isq). The tick writes each
+ * still-upcoming match as a schedule-only row (keys, rosters, and the
+ * published `sortTime` when the existing row had one). The browser prices
+ * those rows from the SPR event artifact's `state` block, which the publisher
+ * builds from the same rows it seeds D1 with. Each tick splices the D1 rows
+ * Phase A just wrote into that block (`spliceEventStateBlock`), so the block
+ * tracks D1 for the event's teams without a D1 read. The Worker never
+ * bootstraps a block: an artifact without one (or with one the splice
+ * rejects) is written without one, with a structured warn line. The block is
+ * dropped once the event has no upcoming match left.
+ *
  * DEMO TEAMS: the algorithms already exclude demo teams in
  * `update()`/`predict()`. `realTouchedTeams` strips demo keys before Phase A
  * scope keys and Phase B team artifacts, so a demo key gets no D1 row and no
@@ -50,7 +61,7 @@ import { spr } from "../../../packages/core/algorithms/spr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
 import { isOfficialEventType } from "../../../packages/core/algorithms/eventTypes.js";
-import type { AlgorithmModule, MatchResult, Prediction, TeamMetric, UpcomingMatch } from "../../../packages/core/algorithms/types.js";
+import type { AlgorithmModule, MatchResult, Prediction, TeamMetric } from "../../../packages/core/algorithms/types.js";
 import { tbaMatchListSchema } from "../../../packages/ingest/schemas.js";
 import { tbaEventSchema } from "../../../packages/ingest/schemas.js";
 import { normalizeMatch, type CorpusMatch } from "../../../packages/ingest/normalize.js";
@@ -72,7 +83,9 @@ import {
   withRpMeanShift,
   withSigmaBeliefs,
   withSigmaPopulation,
+  type StateRow,
 } from "../../../packages/harness/stateSnapshot.js";
+import { EventStateBlockError, spliceEventStateBlock } from "../../../packages/harness/eventStatePricing.js";
 import {
   publishesRankingPoints,
   SIGMA_METRIC_KEY,
@@ -85,11 +98,11 @@ import {
   artifactKey,
   deriveMetricKeyOrder,
   encodeTeamsRowMetrics,
-  EventArtifactSchema,
+  LiveEventArtifactSchema,
   PAGE_ARTIFACT_SCHEMA_VERSION,
   TeamsArtifactSchema,
   TeamSeasonArtifactSchema,
-  type EventArtifact,
+  type LiveEventArtifact,
   type TeamSeasonArtifact,
   type TeamsArtifact,
 } from "../../../packages/harness/pageArtifacts.js";
@@ -297,23 +310,6 @@ function toMatchResult(match: CorpusMatch, eventType: number, week: number | nul
   };
 }
 
-function toUpcomingMatch(match: CorpusMatch, eventType: number, week: number | null): UpcomingMatch {
-  return {
-    matchKey: match.matchKey,
-    eventKey: match.eventKey,
-    compLevel: match.compLevel,
-    setNumber: match.setNumber,
-    matchNumber: match.matchNumber,
-    redTeams: match.redTeams,
-    blueTeams: match.blueTeams,
-    redSurrogates: match.redSurrogates,
-    blueSurrogates: match.blueSurrogates,
-    eventType,
-    /** See `toMatchResult`'s `week` comment — same contract, same null policy. */
-    week,
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Rounding — small, deliberate duplication of publish.ts's own helpers:
 // publish.ts is Node/corpus-heavy and must never be imported by the Worker.
@@ -358,7 +354,7 @@ function liveBonusRpFields(compLevel: MatchResult["compLevel"], prediction: Pred
 }
 
 /**
- * One match's published Match Band: each side's display variance,
+ * One played match's published Match Band: each side's display variance,
  * `sigmaMatchBandVariance(roster size, Σ Sigma Score²)`, walk-forward. Sigma
  * algorithms only; OPR/EPA rows carry no band keys. Never the win-odds
  * variance `rpFieldsFor` reads, which stays inside the tick.
@@ -381,12 +377,11 @@ function matchBandFields(band: MatchBand | undefined) {
 interface PerAlgorithmFold {
   readonly algorithm: AlgorithmModule<any>;
   readonly newPredictions: Map<string, Prediction>;
-  readonly upcomingPredictions: Map<string, Prediction>;
   readonly touchedMetrics: Record<string, Record<string, TeamMetric>>;
   /** Match Band per newly-folded match key. */
   readonly newBands: ReadonlyMap<string, MatchBand>;
-  /** Match Band per still-upcoming match key. */
-  readonly upcomingBands: ReadonlyMap<string, MatchBand>;
+  /** The changed rows Phase A passed to `writeScopedState`; Phase B splices them into the SPR event artifact's `state` block. */
+  readonly writtenRows: readonly StateRow[];
   /**
    * Sigma Score per real touched team, read at end of tick, the same instant
    * as `touchedMetrics`, so Total and Sigma always pair. Empty (never
@@ -424,41 +419,34 @@ function buildEventMatchRow(match: MatchResult, prediction: Prediction, band: Ma
   };
 }
 
-function buildEventUpcomingRow(match: UpcomingMatch, prediction: Prediction, band: MatchBand | undefined) {
+/**
+ * One still-upcoming match as the tick writes it: schedule fields only. The
+ * browser prices it from the artifact's `state` block. `sortTime` is the
+ * published value from the existing artifact's row for this match, never
+ * the TBA-normalized approximation; absent when that row had none.
+ */
+function buildEventScheduledRow(match: CorpusMatch, existingSortTime: number | undefined) {
   return {
     matchKey: match.matchKey,
     compLevel: match.compLevel,
     setNumber: match.setNumber,
     matchNumber: match.matchNumber,
+    ...(existingSortTime !== undefined ? { sortTime: existingSortTime } : {}),
     redTeams: [...match.redTeams],
     blueTeams: [...match.blueTeams],
-    predictedWinner: prediction.winner,
-    pRedWin: roundProbability(prediction.pRedWin),
-    predictedRedScore: roundMetric(prediction.redScore),
-    predictedBlueScore: roundMetric(prediction.blueScore),
-    redRpPmf: prediction.redRpPmf ? roundPmf(prediction.redRpPmf) : undefined,
-    blueRpPmf: prediction.blueRpPmf ? roundPmf(prediction.blueRpPmf) : undefined,
-    // Same as `publish.ts`'s row builders, so live and offline rows agree.
-    matchOutcomePmf: prediction.matchOutcomePmf ? roundPmf(prediction.matchOutcomePmf) : undefined,
-    redBonusRpPmf: prediction.redBonusRpPmf ? roundPmf(prediction.redBonusRpPmf) : undefined,
-    blueBonusRpPmf: prediction.blueBonusRpPmf ? roundPmf(prediction.blueBonusRpPmf) : undefined,
-    ...liveBonusRpFields(match.compLevel, prediction),
-    ...matchBandFields(band),
   };
 }
 
 /**
- * `{ win, tie }` from the first prediction (played, then upcoming) carrying
- * both outcome-RP vectors. Reimplements `publish.ts`'s private
+ * `{ win, tie }` from the first played prediction carrying both outcome-RP
+ * vectors. Reimplements the played half of `publish.ts`'s private
  * `findRpOutcomeRp`, because importing `publish.ts` would pull
- * `better-sqlite3` into the Worker. `sigmaScoutLayer.ts` composes the
- * vector as `[winRp, tieRp, 0]`.
+ * `better-sqlite3` into the Worker; the tick prices no upcoming match, so the
+ * caller falls back to the existing artifact's value. `sigmaScoutLayer.ts`
+ * composes the vector as `[winRp, tieRp, 0]`.
  */
-function findRpOutcomeRp(
-  played: readonly Prediction[],
-  upcoming: readonly Prediction[]
-): { win: number; tie: number } | undefined {
-  for (const prediction of [...played, ...upcoming]) {
+function findRpOutcomeRp(played: readonly Prediction[]): { win: number; tie: number } | undefined {
+  for (const prediction of played) {
     const { redOutcomeRp, blueOutcomeRp } = prediction;
     if (redOutcomeRp !== undefined && blueOutcomeRp !== undefined) {
       return { win: redOutcomeRp[0]!, tie: redOutcomeRp[1]! };
@@ -468,37 +456,74 @@ function findRpOutcomeRp(
 }
 
 interface MergeEventArtifactParams {
-  readonly existing: EventArtifact | undefined;
+  readonly existing: LiveEventArtifact | undefined;
   readonly eventKey: string;
   readonly season: number;
   readonly algorithmId: string;
   readonly algorithmVersion: string;
+  /** TBA's `event_type` when this tick's event-detail fetch returned 200 and parsed; `undefined` otherwise, never the `-1` sentinel. */
+  readonly eventType: number | undefined;
   readonly newlyFolded: readonly MatchResult[];
   readonly newPredictions: ReadonlyMap<string, Prediction>;
-  readonly stillUpcoming: readonly UpcomingMatch[];
-  readonly upcomingPredictions: ReadonlyMap<string, Prediction>;
+  readonly stillUpcoming: readonly CorpusMatch[];
   readonly touchedTeams: readonly string[];
   readonly touchedMetrics: Readonly<Record<string, Record<string, TeamMetric>>>;
   readonly newBands: ReadonlyMap<string, MatchBand>;
-  readonly upcomingBands: ReadonlyMap<string, MatchBand>;
+  /** The rows Phase A wrote to D1 for this algorithm this tick. */
+  readonly writtenRows: readonly StateRow[];
   readonly stamp: Stamp;
 }
 
-/** Read-modify-write merge: replaces newly-folded matches (removing them from `upcoming`), refreshes touched teams' standings rows, and preserves everything else from `existing` unchanged. Bootstraps a schema-valid (but degraded — no history this Worker cannot see) artifact when `existing` is `undefined`. */
+/**
+ * The SPR `state` block the merged artifact carries, or `undefined` for none.
+ *
+ * - Not SPR, or no upcoming match left: none, silently.
+ * - The existing artifact has a block: the splice of this tick's written rows
+ *   into it. A splice that throws `EventStateBlockError` drops the block and
+ *   logs `event-state-block-invalid`.
+ * - No existing block: none, and logs `event-state-block-missing`. The Worker
+ *   never reads D1 to bootstrap one; republish and re-seed instead.
+ *
+ * Log lines carry the event key, algorithm id, counts and the error message
+ * (ids and versions only), never an artifact body or a TBA value.
+ */
+function maintainedStateBlock(params: MergeEventArtifactParams, upcomingCount: number): LiveEventArtifact["state"] {
+  const { existing, eventKey, algorithmId, writtenRows, touchedTeams } = params;
+  if (algorithmId !== spr.id || upcomingCount === 0) return undefined;
+  if (existing?.state === undefined) {
+    console.warn(JSON.stringify({ msg: "event-state-block-missing", eventKey, algorithmId, upcoming: upcomingCount }));
+    return undefined;
+  }
+  try {
+    return spliceEventStateBlock(existing.state, writtenRows, touchedTeams);
+  } catch (error) {
+    if (!(error instanceof EventStateBlockError)) throw error;
+    console.warn(JSON.stringify({ msg: "event-state-block-invalid", eventKey, algorithmId, upcoming: upcomingCount, error: error.message }));
+    return undefined;
+  }
+}
+
+/** Read-modify-write merge: replaces newly-folded matches (removing them from `upcoming`), rewrites the remaining `upcoming` rows schedule-only, refreshes touched teams' standings rows, keeps the SPR `state` block current, and preserves everything else from `existing` unchanged. Bootstraps a schema-valid (but degraded — no history this Worker cannot see) artifact when `existing` is `undefined`. */
 function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
-  const { existing, eventKey, season, algorithmId, algorithmVersion, newlyFolded, newPredictions, stillUpcoming, upcomingPredictions, touchedTeams, touchedMetrics, newBands, upcomingBands, stamp } = params;
+  const { existing, eventKey, season, algorithmId, algorithmVersion, eventType, newlyFolded, newPredictions, stillUpcoming, touchedTeams, touchedMetrics, newBands, stamp } = params;
 
   const newMatchKeys = new Set(newlyFolded.map((m) => m.matchKey));
   const preservedMatches = (existing?.matches ?? []).filter((m) => !newMatchKeys.has(m.matchKey));
   const matches = [...preservedMatches, ...newlyFolded.map((m) => buildEventMatchRow(m, newPredictions.get(m.matchKey)!, newBands.get(m.matchKey)))];
 
-  const upcoming = stillUpcoming.map((m) => buildEventUpcomingRow(m, upcomingPredictions.get(m.matchKey)!, upcomingBands.get(m.matchKey)));
+  const existingSortTimes = new Map<string, number>();
+  for (const row of existing?.upcoming ?? []) {
+    if (row.sortTime !== undefined) existingSortTimes.set(row.matchKey, row.sortTime);
+  }
+  const upcoming = stillUpcoming.map((m) => buildEventScheduledRow(m, existingSortTimes.get(m.matchKey)));
 
   // The season's win/tie RP constants, derived as `publish.ts` derives them
   // so live and offline artifacts agree; else the existing artifact's value,
   // else absent.
-  const rpOutcomeRp =
-    findRpOutcomeRp([...newPredictions.values()], [...upcomingPredictions.values()]) ?? existing?.rpOutcomeRp;
+  const rpOutcomeRp = findRpOutcomeRp([...newPredictions.values()]) ?? existing?.rpOutcomeRp;
+
+  const resolvedEventType = eventType ?? existing?.eventType;
+  const state = maintainedStateBlock(params, upcoming.length);
 
   const existingTeams = existing?.teams ?? [];
   const touchedSet = new Set(touchedTeams);
@@ -525,10 +550,12 @@ function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
     algorithmVersion,
     eventKey,
     season,
+    ...(resolvedEventType !== undefined ? { eventType: resolvedEventType } : {}),
     matches,
     upcoming,
     teams,
     ...(rpOutcomeRp !== undefined ? { rpOutcomeRp } : {}),
+    ...(state !== undefined ? { state } : {}),
   };
 }
 
@@ -654,11 +681,13 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
   };
 }
 
-async function readExistingEvent(env: Env, budget: SubrequestBudget, params: { page: "event"; eventKey: string; algorithmId: string; version: string }): Promise<EventArtifact | undefined> {
+async function readExistingEvent(env: Env, budget: SubrequestBudget, params: { page: "event"; eventKey: string; algorithmId: string; version: string }): Promise<LiveEventArtifact | undefined> {
   const text = await readArtifactObject(env, budget, artifactKey(params));
   if (text === undefined) return undefined;
   try {
-    return EventArtifactSchema.parse(JSON.parse(text));
+    // The live schema, so an artifact a previous tick wrote with schedule-only
+    // upcoming rows survives this tick's read.
+    return LiveEventArtifactSchema.parse(JSON.parse(text));
   } catch {
     return undefined; // corrupt/legacy artifact -- degrade to a fresh bootstrap rather than fail the event
   }
@@ -810,6 +839,9 @@ async function processEvent(
       // degrades (RP ineligible, week unplaced) rather than failing the event.
       budget.consume(1);
       let eventType = -1;
+      // The published `eventType`: defined only when the fetch returned 200
+      // and parsed, so the `-1` sentinel never reaches an artifact.
+      let fetchedEventType: number | undefined;
       // `null`, not a sentinel: `week` is nullable in TBA's contract.
       let week: number | null = null;
       try {
@@ -817,6 +849,7 @@ async function processEvent(
         if (detail.status === 200) {
           const parsed = tbaEventSchema.parse(detail.body);
           eventType = parsed.event_type;
+          fetchedEventType = parsed.event_type;
           week = parsed.week ?? null;
         }
       } catch {
@@ -824,7 +857,6 @@ async function processEvent(
       }
 
       const newlyFoldedResults = newlyFolded.map((m) => toMatchResult(m, eventType, week));
-      const stillUpcomingViews = stillUpcoming.map((m) => toUpcomingMatch(m, eventType, week));
 
       // Phase A: every algorithm reads, folds and writes state; all must
       // succeed before any artifact write.
@@ -844,9 +876,9 @@ async function processEvent(
         const sigma = usesSigmaScore(algorithmId)
           ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(rows), readSigmaPopulation(rows))
           : undefined;
-        // One alliance's win-odds variance, one accessor so the played and
-        // upcoming loops agree. `rpFieldsFor` reads it; `displayBandFor`
-        // derives the published band from it.
+        // One alliance's win-odds variance, one accessor for every played
+        // row. `rpFieldsFor` reads it; `displayBandFor` derives the published
+        // band from it.
         const winOddsVarianceFor = (roster: readonly string[]): number | undefined =>
           sigma === undefined ? undefined : sigma.bandVarianceFor(roster);
         // The published Match Band, through the same helper the offline
@@ -879,8 +911,9 @@ async function processEvent(
         // the partial-roster gate below.
         const rpKnownTeams = new Set(rpBeliefs.keys());
 
-        // One accessor for this tick's RP so both loops and the persisted rows
-        // agree. Mirrors `SigmaScoutLayer.#rpFieldsFor`; change them together.
+        // One accessor for this tick's played-row RP. Mirrors
+        // `SigmaScoutLayer.#rpFieldsFor`; change them together. Upcoming
+        // matches are priced in the browser from the event's `state` block.
         const rpFieldsFor = (
           view: { redTeams: readonly string[]; blueTeams: readonly string[]; eventType: number; matchKey: string; compLevel: MatchResult["compLevel"] },
           prediction: Prediction,
@@ -891,8 +924,9 @@ async function processEvent(
           if (!isRpEligibleEventType(view.eventType)) return {};
           if (redBandVariance === undefined || blueBandVariance === undefined) return {};
           // Partial-roster gate: the Worker loads state only for teams touched
-          // this tick, so an upcoming match can name an unloaded team, and
-          // `momentsFor` would silently sum a narrower, overconfident pmf.
+          // this tick, and `momentsFor` would silently sum a narrower,
+          // overconfident pmf over an unloaded team. Every played roster team
+          // is touched, so it guards played rows as defence in depth.
           // Stricter than the offline path: an absent pmf, never a wrong one.
           for (const teamKey of [...view.redTeams, ...view.blueTeams]) {
             if (!rpKnownTeams.has(teamKey)) return {};
@@ -980,20 +1014,6 @@ async function processEvent(
           }
         }
 
-        const upcomingPredictions = new Map<string, Prediction>();
-        const upcomingBands = new Map<string, { red?: number; blue?: number }>();
-        for (const match of stillUpcomingViews) {
-          const prediction = algorithm.predict(state, match);
-          // Read only: an unplayed match has nothing to fold.
-          const redWinOddsVariance = winOddsVarianceFor(match.redTeams);
-          const blueWinOddsVariance = winOddsVarianceFor(match.blueTeams);
-          upcomingBands.set(match.matchKey, displayBandFor(match, redWinOddsVariance, blueWinOddsVariance));
-          upcomingPredictions.set(match.matchKey, {
-            ...prediction,
-            ...rpFieldsFor(match, prediction, redWinOddsVariance, blueWinOddsVariance),
-          });
-        }
-
         const touchedMetrics = algorithm.teamMetrics(state, touchedTeams);
         // Same instant as `touchedMetrics`, read-only, zero subrequests; scoped
         // to `realTouchedTeams` like its only consumer, the team artifact loop.
@@ -1016,10 +1036,10 @@ async function processEvent(
         budget.consume(1);
         await writeScopedState(env.DB, changedRows); // may throw -- caught below, reverts the claim and aborts the WHOLE event (zero artifact puts)
 
-        perAlgorithm.set(algorithmId, { algorithm, newPredictions, upcomingPredictions, touchedMetrics, newBands, upcomingBands, touchedSigma });
+        perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, writtenRows: changedRows });
       }
 
-      return await runPhaseBAndReport(env, budget, window, eventKey, eventType, newlyFoldedResults, stillUpcomingViews, touchedTeams, realTouchedTeams, matchIndexByKey, perAlgorithm, touchedTeamsByAlgorithm, stamp, stillUpcoming.length === 0);
+      return await runPhaseBAndReport(env, budget, window, eventKey, eventType, fetchedEventType, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, matchIndexByKey, perAlgorithm, touchedTeamsByAlgorithm, stamp, stillUpcoming.length === 0);
     } catch (phaseAError) {
       // Revert the claim: state did not advance, so a later tick must be free
       // to fold these matches again.
@@ -1046,15 +1066,17 @@ async function processEvent(
  * gates only the `touchedTeamsByAlgorithm` feed into `teams/{year}`. Event
  * and team artifact writes stay unconditional: an offseason event is fully
  * visible on its pages and only stops moving the season leaderboard. `-1`
- * counts as official. */
+ * counts as official. `fetchedEventType` is the value the event artifact
+ * publishes, `undefined` when the detail fetch failed. */
 async function runPhaseBAndReport(
   env: Env,
   budget: SubrequestBudget,
   window: LiveWindowEntry,
   eventKey: string,
   eventType: number,
+  fetchedEventType: number | undefined,
   newlyFoldedResults: readonly MatchResult[],
-  stillUpcomingViews: readonly UpcomingMatch[],
+  stillUpcoming: readonly CorpusMatch[],
   touchedTeams: readonly string[],
   realTouchedTeams: readonly string[],
   matchIndexByKey: ReadonlyMap<string, number>,
@@ -1073,12 +1095,12 @@ async function runPhaseBAndReport(
         season: window.season,
         algorithmId,
         algorithmVersion: info.algorithm.version,
+        eventType: fetchedEventType,
         newlyFolded: newlyFoldedResults,
         newPredictions: info.newPredictions,
-        stillUpcoming: stillUpcomingViews,
-        upcomingPredictions: info.upcomingPredictions,
+        stillUpcoming,
         newBands: info.newBands,
-        upcomingBands: info.upcomingBands,
+        writtenRows: info.writtenRows,
         touchedTeams,
         touchedMetrics: info.touchedMetrics,
         stamp,

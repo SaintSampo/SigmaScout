@@ -54,8 +54,11 @@ import { MetricHistoryRowSchema } from "./metricHistorySchema.js";
  * client consumer must know about. Independent of any internal scoring
  * artifact's own schema version — see file header. Removing a field that no
  * schema requires and no `apps/web` reader consumes is safe without a
- * bump: no schema here is `.strict()`, so an unlisted key is simply
- * ignored on both a pre- and post-removal artifact.
+ * bump: no schema a browser reads today is `.strict()`, so an unlisted key
+ * is simply ignored on both a pre- and post-removal artifact. The one
+ * deliberate exception is `EventScheduledMatchSchema`, strict so a union
+ * never strips a malformed priced row down to schedule-only; only the live
+ * Worker reads it (via `LiveEventArtifactSchema`) until step 3.
  */
 export const PAGE_ARTIFACT_SCHEMA_VERSION = 1;
 
@@ -1357,6 +1360,61 @@ export const EventsArtifactSchema = AlgorithmScopedPreambleSchema.extend({
 export type EventsArtifact = z.infer<typeof EventsArtifactSchema>;
 
 // ---------------------------------------------------------------------------
+// EventStateBlockSchema — the SPR state a browser prices upcoming matches from
+// ---------------------------------------------------------------------------
+
+/**
+ * One row of an event's `state` block: exactly a D1 `algorithm_state` record,
+ * the same seven fields in the same order as `stateSnapshot.ts`'s
+ * `StateRowSchema`, redeclared here because this browser-facing module must
+ * never import `stateSnapshot.ts` (`browserSafeSchemas.test.ts` follows its
+ * type-only imports into `packages/core/algorithms/`). `scopeKind` is limited
+ * to `league` and `team`: an SPR block never carries OPR's event rows.
+ *
+ * WHY ROWS STAY VERBATIM, with `stateJson` kept a string:
+ *   1. A row is a D1 record, so the live Worker can splice the rows it just
+ *      wrote with zero parse/re-stringify on the tick whose CPU cost is the
+ *      whole reason browser pricing exists.
+ *   2. The pricer (`eventStatePricing.ts`) hands `rows` straight to
+ *      `deserializeState` and the passenger readers, so no reader is
+ *      duplicated.
+ *   3. Per-row `generation`/`computedAt` survive: rows a tick touched carry
+ *      its stamp, untouched rows the seed's.
+ * The cost is escaped quotes and repeated stamp strings, mostly absorbed by
+ * transfer compression. JSON round-trips doubles exactly, so either encoding
+ * would preserve pricing parity.
+ */
+export const EventStateBlockRowSchema = z.object({
+  algorithmId: z.string().min(1),
+  algorithmVersion: z.string().min(1),
+  scopeKind: z.enum(["league", "team"]),
+  scopeKey: z.string().min(1),
+  stateJson: z.string(),
+  generation: z.string().min(1),
+  computedAt: z.string().min(1),
+});
+
+/**
+ * An event's SPR `state` block: the league row plus each roster team's row,
+ * carrying the Sigma and RP passengers the pricer reads.
+ *
+ * STRUCTURAL ONLY, no refine: a malformed block must never fail the whole
+ * event-artifact parse. `buildEventStateBlock` enforces the invariants (one
+ * league row, one algorithm id/version, current shape version) at write time
+ * and `priceUpcomingFromState` re-checks them at read time, throwing
+ * `EventStateBlockError` so a consumer falls back to the published fields.
+ */
+export const EventStateBlockSchema = z.object({
+  algorithmId: z.string().min(1),
+  algorithmVersion: z.string().min(1),
+  snapshotShapeVersion: z.number().int(),
+  rows: z.array(EventStateBlockRowSchema),
+});
+
+export type EventStateBlockRow = z.infer<typeof EventStateBlockRowSchema>;
+export type EventStateBlock = z.infer<typeof EventStateBlockSchema>;
+
+// ---------------------------------------------------------------------------
 // EventArtifactSchema — v1/event/{eventKey}/{algorithmId}@{version}.json
 // ---------------------------------------------------------------------------
 
@@ -1460,6 +1518,15 @@ export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
   startDate: z.string().min(1).optional(),
   location: z.string().min(1).nullable().optional(),
   week: z.number().int().nullable().optional(),
+  /**
+   * TBA's `event_type` for this event, a fact about the event like
+   * `name`/`week`, so every algorithm's artifact carries it. A browser pricing
+   * upcoming matches from `state` needs it for the RP eligibility gate.
+   * Optional: artifacts published before 260915-isq do not carry it, and a
+   * live tick whose event-detail fetch failed keeps the existing value or
+   * omits the key, never the Worker's `-1` degrade sentinel.
+   */
+  eventType: z.number().int().optional(),
   matches: z.array(EventMatchSchema),
   upcoming: z.array(EventUpcomingMatchSchema),
   teams: z.array(EventTeamSchema),
@@ -1477,64 +1544,61 @@ export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
    * same live-artifact reason as `matchOutcomePmf`.
    */
   rpOutcomeRp: z.object({ win: z.number(), tie: z.number() }).optional(),
+  /**
+   * The SPR state block (`EventStateBlockSchema`) a browser prices `upcoming`
+   * from. SPR artifacts with a non-empty `upcoming` only; absent otherwise.
+   * Placed LAST so the large block serializes at the end of the body.
+   *
+   * `.catch(undefined)`: a malformed block parses to an absent one instead of
+   * failing the whole artifact, as the block schema's own doc comment
+   * requires. The key stays optional in the inferred type, and an absent key
+   * stays absent.
+   */
+  state: EventStateBlockSchema.optional().catch(undefined),
 });
 
 export type EventArtifact = z.infer<typeof EventArtifactSchema>;
 
-// ---------------------------------------------------------------------------
-// EventStateBlockSchema — the SPR state a browser prices upcoming matches from
-// ---------------------------------------------------------------------------
-
 /**
- * One row of an event's `state` block: exactly a D1 `algorithm_state` record,
- * the same seven fields in the same order as `stateSnapshot.ts`'s
- * `StateRowSchema`, redeclared here because this browser-facing module must
- * never import `stateSnapshot.ts` (`browserSafeSchemas.test.ts` follows its
- * type-only imports into `packages/core/algorithms/`). `scopeKind` is limited
- * to `league` and `team`: an SPR block never carries OPR's event rows.
+ * One not-yet-played match as the live Worker writes it since 260915-isq:
+ * schedule fields only, no prediction. The browser prices it from the
+ * artifact's `state` block.
  *
- * WHY ROWS STAY VERBATIM, with `stateJson` kept a string:
- *   1. A row is a D1 record, so the live Worker can splice the rows it just
- *      wrote with zero parse/re-stringify on the tick whose CPU cost is the
- *      whole reason browser pricing exists.
- *   2. The pricer (`eventStatePricing.ts`) hands `rows` straight to
- *      `deserializeState` and the passenger readers, so no reader is
- *      duplicated.
- *   3. Per-row `generation`/`computedAt` survive: rows a tick touched carry
- *      its stamp, untouched rows the seed's.
- * The cost is escaped quotes and repeated stamp strings, mostly absorbed by
- * transfer compression. JSON round-trips doubles exactly, so either encoding
- * would preserve pricing parity.
+ * STRICT, the one deliberate `.strict()` schema in this file: inside
+ * `LiveEventArtifactSchema`'s union it must never absorb a priced row that
+ * failed `EventUpcomingMatchSchema` (for example a pmf that does not sum to
+ * 1) by stripping the priced keys. Rejecting unknown keys makes that row
+ * fail the parse instead. No browser reads this schema yet (step 3 switches
+ * the web to it).
  */
-export const EventStateBlockRowSchema = z.object({
-  algorithmId: z.string().min(1),
-  algorithmVersion: z.string().min(1),
-  scopeKind: z.enum(["league", "team"]),
-  scopeKey: z.string().min(1),
-  stateJson: z.string(),
-  generation: z.string().min(1),
-  computedAt: z.string().min(1),
+export const EventScheduledMatchSchema = z.strictObject({
+  matchKey: z.string().min(1),
+  compLevel: z.enum(["qm", "ef", "qf", "sf", "f"]),
+  setNumber: z.number().int(),
+  matchNumber: z.number().int(),
+  sortTime: z.number().int().optional(),
+  redTeams: z.array(z.string()),
+  blueTeams: z.array(z.string()),
 });
 
+export type EventScheduledMatch = z.infer<typeof EventScheduledMatchSchema>;
+
 /**
- * An event's SPR `state` block: the league row plus each roster team's row,
- * carrying the Sigma and RP passengers the pricer reads.
+ * The event artifact as the live Worker reads and writes it: `upcoming` rows
+ * are either fully priced (`EventUpcomingMatchSchema`, unchanged, refines
+ * included) or schedule-only (`EventScheduledMatchSchema`).
  *
- * STRUCTURAL ONLY, no refine: a malformed block must never fail the whole
- * event-artifact parse. `buildEventStateBlock` enforces the invariants (one
- * league row, one algorithm id/version, current shape version) at write time
- * and `priceUpcomingFromState` re-checks them at read time, throwing
- * `EventStateBlockError` so a consumer falls back to the published fields.
+ * The web and the publisher stay on `EventArtifactSchema` until step 3
+ * (260915-isq DD-1): the web's match table types the priced fields as
+ * required, so a Worker-written artifact with upcoming matches does not
+ * parse on the web until step 3 lands, which must happen before any live
+ * window opens.
  */
-export const EventStateBlockSchema = z.object({
-  algorithmId: z.string().min(1),
-  algorithmVersion: z.string().min(1),
-  snapshotShapeVersion: z.number().int(),
-  rows: z.array(EventStateBlockRowSchema),
+export const LiveEventArtifactSchema = EventArtifactSchema.extend({
+  upcoming: z.array(z.union([EventUpcomingMatchSchema, EventScheduledMatchSchema])),
 });
 
-export type EventStateBlockRow = z.infer<typeof EventStateBlockRowSchema>;
-export type EventStateBlock = z.infer<typeof EventStateBlockSchema>;
+export type LiveEventArtifact = z.infer<typeof LiveEventArtifactSchema>;
 
 // ---------------------------------------------------------------------------
 // CompareArtifactSchema — v1/compare/{year}.json
