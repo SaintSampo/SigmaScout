@@ -20,6 +20,11 @@ untiered until the next offline publish.
     it also drops `metricsBasis`. The team page's header tiles (when no official snapshot is
     derivable), and the World rank card (tiered from `seasonStats.metrics.total.percentile` since
     260912-tnk) render untiered for a touched team.
+    - 2026-09-15 (260915-p0a): `metricsBasis` is no longer dropped — the merge spreads
+      `existing.seasonStats` and writes the basis from the folded matches' officialness
+      (`"last-official-match"` when every match this tick is official, `"season-final"` otherwise).
+      The missing percentiles and the unscoped offseason write below are UNCHANGED, and this todo
+      stays open for them.
   - appends `newMetricHistoryRows` with no percentiles, so new event cards and the match-page robot
     grid render untiered for the new rows. The header's own last-official-snapshot tiles read these
     rows too.
