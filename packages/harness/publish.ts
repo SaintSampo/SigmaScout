@@ -107,8 +107,8 @@ import {
   type TeamMetricsWithPercentile,
 } from "./percentiles.js";
 import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS, PUBLISHED_ALGORITHM_MODULES } from "./manifests.js";
+import { emitSeedSql } from "./seedSql.js";
 import {
-  emitSeedSql,
   serializeState,
   withRpBeliefs,
   withRpMeanShift,

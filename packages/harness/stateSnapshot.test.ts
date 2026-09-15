@@ -22,12 +22,10 @@ import {
   LeagueRowShapeVersionError,
   MAX_LEAGUE_ROW_BYTES,
   MissingLeagueRowError,
-  SeedRowTooLargeError,
   STATE_SNAPSHOT_SHAPE_VERSION,
   StateRowSchema,
   UnknownStateAlgorithmError,
   deserializeState,
-  emitSeedSql,
   readSigmaBeliefs,
   readSigmaPopulation,
   serializeState,
@@ -40,6 +38,7 @@ import {
   readRpMeanShift,
   withRpMeanShift,
 } from "./stateSnapshot.js";
+import { SeedRowTooLargeError, emitSeedSql } from "./seedSql.js";
 import { emptyEpaWeekOneState } from "../core/algorithms/epaWeekOne.js";
 
 const STAMP: StateStamp = { generation: "test-gen-1", computedAt: "2026-08-22T00:00:00.000Z" };
@@ -795,7 +794,7 @@ describe("emitSeedSql", () => {
     const writeFileSyncSpy = vi.fn(actualFs.writeFileSync);
     vi.doMock("node:fs", () => ({ ...actualFs, writeFileSync: writeFileSyncSpy }));
     try {
-      const fresh = await import("./stateSnapshot.js");
+      const fresh = await import("./seedSql.js");
       fresh.emitSeedSql(makeRows(2), { algorithmId: "epa", out: outPath });
       expect(writeFileSyncSpy).toHaveBeenCalledTimes(1);
       expect(actualFs.readFileSync(outPath, "utf8")).toContain("DELETE FROM algorithm_state");
