@@ -11,17 +11,15 @@ name = "sigmascout-worker"
 main = "src/scheduled.ts"
 
 compatibility_date = "2026-08-22"
-# [Rule 2 fix, plan 04-05 Task 2] `stateStore.ts` imports `deserializeState`
-# from `packages/harness/stateSnapshot.ts` (the SAME deserializer the
-# offline pipeline's own losslessness tests already prove correct — this
-# Worker must never grow a second one). That file also exports
-# `emitSeedSql`, an offline-only helper that imports `node:fs`/`node:path`
-# at module top level; since ESM imports are file-scoped, that import line
-# is pulled into the Worker's bundle graph even though the Worker never
-# CALLS `emitSeedSql`. Verified empirically (not assumed) via a real
-# `wrangler dev --local` request that this resolves and executes cleanly —
-# but relying on an implicit default is fragile against a future
-# compatibility_date change, so it is made explicit here.
+# [Rule 2 fix, plan 04-05 Task 2] Added when `stateStore.ts`'s import of
+# `deserializeState` from `packages/harness/stateSnapshot.ts` also pulled in
+# that file's Node-only seed emitter (`emitSeedSql`, which imports
+# `node:fs`/`node:path` at module top level; ESM imports are file-scoped, so
+# the Worker bundle graph carried them even though it never calls it).
+# Quick task 260915-4p9 moved that emitter to `packages/harness/seedSql.ts`,
+# and `stateSnapshot.ts` no longer imports Node, so that reason no longer
+# applies. The flag stays because removing it has not been verified with a
+# real bundle and tick.
 compatibility_flags = ["nodejs_compat"]
 
 # D-20 (plan 04-07): the real TBA base URL by default, tracked here so the

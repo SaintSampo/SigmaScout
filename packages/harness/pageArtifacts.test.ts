@@ -22,7 +22,9 @@ import {
   encodeTeamMetricEntry,
   encodeTeamsRowMetrics,
   EventArtifactSchema,
+  EventScheduledMatchSchema,
   EventsArtifactSchema,
+  LiveEventArtifactSchema,
   MissingVersionSeparatorError,
   PAGE_ARTIFACT_SCHEMA_VERSION,
   preScheduleKey,
@@ -1887,5 +1889,80 @@ describe("retired and unknown keys are stripped on parse", () => {
     const parsed = TeamsArtifactSchema.parse(stale) as unknown as { teams: Record<string, unknown>[] };
     expect(parsed.teams[0]!.teamKey).toBe("frc254");
     expect("legacyPerTeamField" in parsed.teams[0]!).toBe(false);
+  });
+});
+
+describe("EventArtifactSchema.state/eventType and LiveEventArtifactSchema (260915-isq)", () => {
+  const STATE = {
+    algorithmId: "spr",
+    algorithmVersion: "4.0.0+test",
+    snapshotShapeVersion: 16,
+    rows: [
+      {
+        algorithmId: "spr",
+        algorithmVersion: "4.0.0+test",
+        scopeKind: "league",
+        scopeKey: "league",
+        stateJson: '{"snapshotShapeVersion":16}',
+        generation: "gen-1",
+        computedAt: "2026-08-22T00:00:00.000Z",
+      },
+    ],
+  };
+  const SCHEDULED_ROW = {
+    matchKey: "2026casj_qm3",
+    compLevel: "qm",
+    setNumber: 1,
+    matchNumber: 3,
+    sortTime: 1710507200,
+    redTeams: ["frc254", "frc118", "frc1114"],
+    blueTeams: ["frc971", "frc2910", "frc330"],
+  };
+
+  it("an artifact carrying state and eventType parses and keeps both", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ top: { eventType: 0, state: STATE } }));
+    expect(parsed.eventType).toBe(0);
+    expect(parsed.state).toEqual(STATE);
+  });
+
+  it("a schema without the two keys (the deployed web) still parses the artifact, stripping both", () => {
+    const deployedWeb = EventArtifactSchema.omit({ state: true, eventType: true });
+    const parsed = deployedWeb.parse(eventFixtureWith({ top: { eventType: 0, state: STATE } })) as Record<string, unknown>;
+    expect("state" in parsed).toBe(false);
+    expect("eventType" in parsed).toBe(false);
+    expect(parsed.eventKey).toBe("2026casj");
+  });
+
+  it("a structurally malformed state parses to an absent state with the rest of the artifact intact", () => {
+    for (const malformed of [{ ...STATE, rows: "not rows" }, { ...STATE, snapshotShapeVersion: "16" }, "a string", 42]) {
+      const parsed = EventArtifactSchema.parse(eventFixtureWith({ top: { eventType: 1, state: malformed } }));
+      expect(parsed.state).toBeUndefined();
+      expect(parsed.eventType).toBe(1);
+      expect(parsed.upcoming).toHaveLength(1);
+      expect(parsed.matches).toHaveLength(1);
+    }
+    // An absent key stays absent.
+    expect("state" in EventArtifactSchema.parse(validEventFixture())).toBe(false);
+  });
+
+  it("LiveEventArtifactSchema keeps a priced row whole and a schedule-only row with exactly its keys", () => {
+    const priced = { ...validEventFixture().upcoming[0]!, redRpPmf: [0.25, 0.75], blueRpPmf: [0.5, 0.5] };
+    const parsed = LiveEventArtifactSchema.parse(eventFixtureWith({ upcomingRows: [priced, SCHEDULED_ROW] }));
+    expect(parsed.upcoming[0]).toEqual(priced);
+    expect(parsed.upcoming[1]).toEqual(SCHEDULED_ROW);
+    expect(Object.keys(parsed.upcoming[1]!).sort()).toEqual(Object.keys(SCHEDULED_ROW).sort());
+    const { sortTime: _sortTime, ...withoutSortTime } = SCHEDULED_ROW;
+    expect(LiveEventArtifactSchema.parse(eventFixtureWith({ upcomingRows: [withoutSortTime] })).upcoming[0]).toEqual(withoutSortTime);
+  });
+
+  it("LiveEventArtifactSchema rejects a priced row whose pmf does not sum to 1, rather than stripping it to schedule-only", () => {
+    const broken = { ...validEventFixture().upcoming[0]!, redRpPmf: [0.2, 0.2] };
+    expect(LiveEventArtifactSchema.safeParse(eventFixtureWith({ upcomingRows: [broken] })).success).toBe(false);
+    // The schedule-only variant is strict, which is what makes the union fail here.
+    expect(EventScheduledMatchSchema.safeParse({ ...SCHEDULED_ROW, pRedWin: 0.5 }).success).toBe(false);
+  });
+
+  it("EventArtifactSchema still rejects a schedule-only upcoming row until step 3 switches the web (DD-1)", () => {
+    expect(EventArtifactSchema.safeParse(eventFixtureWith({ upcomingRows: [SCHEDULED_ROW] })).success).toBe(false);
   });
 });

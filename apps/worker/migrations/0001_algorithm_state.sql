@@ -5,7 +5,7 @@
 --
 -- algorithm_state (D-12/D-13/D-09):
 --   D-12: the offline pipeline is the AUTHORITY. A scheduled re-baseline
---   overwrites this table's rows in place (see packages/harness/stateSnapshot.ts's
+--   overwrites this table's rows in place (see packages/harness/seedSql.ts's
 --   emitSeedSql, which leads every seed with a DELETE ... WHERE algorithm_id
 --   = '<id>' guard) — the Worker only LOADS and ADVANCES; incremental drift
 --   is corrected on the next re-baseline rather than compounding across a

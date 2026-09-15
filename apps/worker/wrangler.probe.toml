@@ -26,11 +26,11 @@
 name = "sigmascout-state-probe"
 main = "src/stateProbe.ts"
 compatibility_date = "2026-08-22"
-# Required, not optional — see `wrangler.toml`'s own comment on this flag for
-# the full reasoning (this probe reaches `packages/harness/stateSnapshot.ts`,
-# which imports `node:fs`/`node:path` at module top level for the
-# offline-only `emitSeedSql`; ESM imports are file-scoped, so that import
-# line is pulled into this bundle's graph too).
+# See `wrangler.toml`'s own comment on this flag. It was added because
+# `packages/harness/stateSnapshot.ts` carried the Node-only seed emitter;
+# quick task 260915-4p9 moved that emitter to `packages/harness/seedSql.ts`,
+# so that reason no longer applies. The flag stays because removing it has
+# not been verified with a real bundle and tick.
 compatibility_flags = ["nodejs_compat"]
 
 [observability]

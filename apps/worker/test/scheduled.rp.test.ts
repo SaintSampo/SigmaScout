@@ -1418,3 +1418,108 @@ describe("scheduled.rp — the state block survives the live Worker", () => {
     120_000
   );
 });
+
+describe("scheduled.rp — state block warning paths and eventType", () => {
+  function warnLines(warn: ReturnType<typeof vi.spyOn>, msg: string): Record<string, unknown>[] {
+    return warn.mock.calls
+      .map((call) => {
+        try {
+          return JSON.parse(String(call[0])) as Record<string, unknown>;
+        } catch {
+          return undefined;
+        }
+      })
+      .filter((line): line is Record<string, unknown> => line !== undefined && line.msg === msg);
+  }
+
+  function expectScheduleOnly(upcoming: readonly Record<string, unknown>[]): void {
+    expect(upcoming.length).toBeGreaterThan(0);
+    for (const row of upcoming) {
+      for (const key of Object.keys(row)) expect(SB_SCHEDULE_KEYS, `${String(row.matchKey)} carries "${key}"`).toContain(key);
+    }
+  }
+
+  it(
+    "an artifact published WITHOUT a block is written without one, schedule-only, with one missing-block warn line and no D1 bootstrap read",
+    async () => {
+      const withBlock = await sbHarness();
+      const quiet = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await withBlock.tickTo(5);
+      quiet.mockRestore();
+      vi.unstubAllGlobals();
+
+      const harness = await sbHarness({ publishedState: "none" });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        await harness.tickTo(5);
+        const artifact = await harness.readArtifact();
+        expect("state" in artifact).toBe(false);
+        expectScheduleOnly(artifact.upcoming);
+
+        const lines = warnLines(warn, "event-state-block-missing");
+        expect(lines).toEqual([{ msg: "event-state-block-missing", eventKey: SB_LIVE_EVENT_KEY, algorithmId: "spr", upcoming: 3 }]);
+        expect(warnLines(warn, "event-state-block-invalid")).toEqual([]);
+        // Counts and keys only: no artifact body or state row rides on the line.
+        for (const call of warn.mock.calls) {
+          expect(String(call[0])).not.toContain("stateJson");
+          expect(String(call[0])).not.toContain("redTeams");
+        }
+
+        expect(harness.d1.selectCalls, "the no-block tick read D1 more than the block-carrying tick (a bootstrap read)").toBe(withBlock.d1.selectCalls);
+      } finally {
+        warn.mockRestore();
+      }
+    },
+    120_000
+  );
+
+  it(
+    "a published block the splice rejects (another algorithm version) is dropped, with one invalid-block warn line",
+    async () => {
+      const stale = (block: EventStateBlock): EventStateBlock => ({
+        ...block,
+        algorithmVersion: "0.0.0+stale",
+        rows: block.rows.map((row) => ({ ...row, algorithmVersion: "0.0.0+stale" })),
+      });
+      const harness = await sbHarness({ publishedState: stale });
+      expect((await harness.readArtifact()).state, "the fixture did not publish the stale block").toBeDefined();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        await harness.tickTo(5);
+        const artifact = await harness.readArtifact();
+        expect("state" in artifact).toBe(false);
+        expectScheduleOnly(artifact.upcoming);
+        const lines = warnLines(warn, "event-state-block-invalid");
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toMatchObject({ msg: "event-state-block-invalid", eventKey: SB_LIVE_EVENT_KEY, algorithmId: "spr", upcoming: 3 });
+        expect(String(lines[0]!.error)).toMatch(/0\.0\.0\+stale/);
+        expect(warnLines(warn, "event-state-block-missing")).toEqual([]);
+      } finally {
+        warn.mockRestore();
+      }
+    },
+    120_000
+  );
+
+  it(
+    "a failed event-detail fetch keeps the existing artifact's eventType, and never writes the -1 sentinel when there is none",
+    async () => {
+      const quiet = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const kept = await sbHarness({ detailStatus: 500, publishedEventType: 2 });
+        await kept.tickTo(5);
+        expect((await kept.readArtifact()).eventType).toBe(2);
+        vi.unstubAllGlobals();
+
+        const absent = await sbHarness({ detailStatus: 500, publishedEventType: undefined });
+        expect("eventType" in (await absent.readArtifact())).toBe(false);
+        await absent.tickTo(5);
+        const artifact = await absent.readArtifact();
+        expect("eventType" in artifact, `eventType was written as ${JSON.stringify(artifact.eventType)}`).toBe(false);
+      } finally {
+        quiet.mockRestore();
+      }
+    },
+    120_000
+  );
+});

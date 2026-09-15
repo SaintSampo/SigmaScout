@@ -583,6 +583,17 @@ function buildTeamSeasonMatchRow(match: MatchResult, prediction: Prediction, sea
   };
 }
 
+/** `existing` with each new row replacing the row of the same `matchKey` in place, or appended when there is none. */
+function replaceOrAppendRows<Row extends { readonly matchKey: string }>(existing: readonly Row[], newRows: readonly Row[]): Row[] {
+  const rows = [...existing];
+  for (const row of newRows) {
+    const index = rows.findIndex((r) => r.matchKey === row.matchKey);
+    if (index === -1) rows.push(row);
+    else rows[index] = row;
+  }
+  return rows;
+}
+
 /**
  * Official play only: an offseason or Week-0 match leaves the record
  * unchanged, matching `publish.ts`. Tested per match, so the `-1` "detail
@@ -623,11 +634,18 @@ interface MergeTeamSeasonArtifactParams {
 }
 
 /**
- * Read-modify-write merge for one team's season artifact: appends this tick's
+ * Read-modify-write merge for one team's season artifact: writes this tick's
  * newly-folded matches at `eventKey` (creating the event's entry if this is
  * the team's first match there), refreshes `seasonStats`, and appends
  * metric-history rows. Exported for `test/scheduled.officialRecord.test.ts`:
  * an offseason match's rows ARE appended while the record is NOT incremented.
+ *
+ * A newly played match REPLACES that match's existing row (the publisher's
+ * unplayed row) in place, so the event keeps the offline chronological order
+ * with no duplicate; a match with no prior row is appended. Other unplayed
+ * rows keep their published priced fields: rewriting them would mean reading
+ * every roster team's artifact each tick, and step 3 of the browser-pricing
+ * direction prices team pages from the event file instead (260915-isq DD-3).
  */
 export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): unknown {
   const { existing, teamKey, season, algorithmId, algorithmVersion, eventKey, matches, predictions, metrics, matchIndexByKey, bands, stamp, sigmaAfterTick } = params;
@@ -641,7 +659,7 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
   const events =
     eventIndex === -1
       ? [...existingEvents, { eventKey, eventName: eventKey, startDate: stamp.computedAt.slice(0, 10), matches: newRows }]
-      : existingEvents.map((e, i) => (i === eventIndex ? { ...e, matches: [...e.matches, ...newRows] } : e));
+      : existingEvents.map((e, i) => (i === eventIndex ? { ...e, matches: replaceOrAppendRows(e.matches, newRows) } : e));
 
   // `sigmaAfterTick`, when defined, is the last metrics key on each new row;
   // existing rows are untouched.

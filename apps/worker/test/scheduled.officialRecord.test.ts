@@ -335,3 +335,97 @@ describe("mergeTeamSeasonArtifact — Sigma on appended history rows", () => {
     expect(merged.metricHistory[2]?.metrics).toEqual({ total: { value: 42 }, sigma: { value: 27.83 } });
   });
 });
+
+/**
+ * A newly played match REPLACES the publisher's unplayed row for that match
+ * in place (260915-isq DD-3), so a live tick never leaves a team's event with
+ * a duplicate row, and the played row keeps the offline chronological
+ * position. Every other row, unplayed ones included, is left as published.
+ */
+describe("mergeTeamSeasonArtifact — replaces a match's unplayed row in place", () => {
+  function unplayedRow(matchNumber: number, pRedWin: number) {
+    return {
+      matchKey: `2026casj_qm${matchNumber}`,
+      season: SEASON,
+      eventKey: "2026casj",
+      compLevel: "qm" as const,
+      algorithmId: "spr",
+      algorithmVersion: "4.0.0+test",
+      predictedWinner: "red" as const,
+      pRedWin,
+      predictedRedScore: 90,
+      predictedBlueScore: 80,
+      redRpPmf: [0.25, 0.25, 0.5],
+      blueRpPmf: [0.5, 0.25, 0.25],
+      setNumber: 1,
+      matchNumber,
+      sortTime: 1_780_000_000 + matchNumber * 420,
+      redTeams: [TEAM, "frc2", "frc3"],
+      blueTeams: ["frc4", "frc5", "frc6"],
+    };
+  }
+
+  function existingWithSchedule(): TeamSeasonArtifact {
+    const played = mergeOne(makeMatch());
+    return TeamSeasonArtifactSchema.parse({
+      ...played,
+      algorithmId: "spr",
+      algorithmVersion: "4.0.0+test",
+      events: [
+        {
+          ...played.events[0]!,
+          matches: [
+            { ...played.events[0]!.matches[0]!, algorithmId: "spr", algorithmVersion: "4.0.0+test" },
+            unplayedRow(2, 0.61),
+            unplayedRow(3, 0.37),
+          ],
+        },
+      ],
+    });
+  }
+
+  function mergePlayed(existing: TeamSeasonArtifact, match: MatchResult): TeamSeasonArtifact {
+    return TeamSeasonArtifactSchema.parse(
+      mergeTeamSeasonArtifact({
+        existing,
+        teamKey: TEAM,
+        season: SEASON,
+        algorithmId: "spr",
+        algorithmVersion: "4.0.0+test",
+        eventKey: match.eventKey,
+        matches: [match],
+        predictions: new Map([[match.matchKey, makePrediction()]]),
+        metrics: METRICS,
+        matchIndexByKey: new Map([[match.matchKey, match.matchNumber - 1]]),
+        bands: new Map(),
+        sigmaAfterTick: undefined,
+        stamp: { generation: "live-generation", computedAt: "2026-09-08T00:00:00.000Z" },
+      })
+    );
+  }
+
+  it("leaves exactly one row for the played match, at the unplayed row's index, carrying the result", () => {
+    const existing = existingWithSchedule();
+    const qm2 = makeMatch({ matchKey: "2026casj_qm2", matchNumber: 2, winner: "blue", redScore: 70, blueScore: 88 });
+    const merged = mergePlayed(existing, qm2);
+    const rows = merged.events.find((e) => e.eventKey === "2026casj")!.matches;
+
+    expect(rows.map((r) => r.matchKey)).toEqual(["2026casj_qm1", "2026casj_qm2", "2026casj_qm3"]);
+    expect(rows.filter((r) => r.matchKey === "2026casj_qm2")).toHaveLength(1);
+    expect(rows[1]!.actualWinner).toBe("blue");
+    expect(rows[1]!.actualRedScore).toBe(70);
+    // The other unplayed row is untouched, priced fields and all.
+    expect(JSON.stringify(rows[2])).toBe(JSON.stringify(existing.events[0]!.matches[2]));
+    expect(JSON.stringify(rows[0])).toBe(JSON.stringify(existing.events[0]!.matches[0]));
+  });
+
+  it("still appends a played match that has no prior row at the event, at the end", () => {
+    const existing = existingWithSchedule();
+    const qm5 = makeMatch({ matchKey: "2026casj_qm5", matchNumber: 5 });
+    const merged = mergePlayed(existing, qm5);
+    const rows = merged.events.find((e) => e.eventKey === "2026casj")!.matches;
+    expect(rows.map((r) => r.matchKey)).toEqual(["2026casj_qm1", "2026casj_qm2", "2026casj_qm3", "2026casj_qm5"]);
+    expect(rows[3]!.actualWinner).toBe("red");
+    expect(JSON.stringify(rows.slice(0, 3))).toBe(JSON.stringify(existing.events[0]!.matches));
+  });
+});
