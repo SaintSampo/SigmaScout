@@ -57,8 +57,8 @@ import { MetricHistoryRowSchema } from "./metricHistorySchema.js";
  * bump: no schema a browser reads today is `.strict()`, so an unlisted key
  * is simply ignored on both a pre- and post-removal artifact. The one
  * deliberate exception is `EventScheduledMatchSchema`, strict so a union
- * never strips a malformed priced row down to schedule-only; only the live
- * Worker reads it (via `LiveEventArtifactSchema`) until step 3.
+ * never strips a malformed priced row down to schedule-only. The live Worker
+ * and, since 260915-m4j, the web read it via `LiveEventArtifactSchema`.
  */
 export const PAGE_ARTIFACT_SCHEMA_VERSION = 1;
 
@@ -1568,8 +1568,8 @@ export type EventArtifact = z.infer<typeof EventArtifactSchema>;
  * `LiveEventArtifactSchema`'s union it must never absorb a priced row that
  * failed `EventUpcomingMatchSchema` (for example a pmf that does not sum to
  * 1) by stripping the priced keys. Rejecting unknown keys makes that row
- * fail the parse instead. No browser reads this schema yet (step 3 switches
- * the web to it).
+ * fail the parse instead. The web parses with `LiveEventArtifactSchema`
+ * since 260915-m4j, so a browser reads this schema too.
  */
 export const EventScheduledMatchSchema = z.strictObject({
   matchKey: z.string().min(1),
@@ -1588,11 +1588,11 @@ export type EventScheduledMatch = z.infer<typeof EventScheduledMatchSchema>;
  * are either fully priced (`EventUpcomingMatchSchema`, unchanged, refines
  * included) or schedule-only (`EventScheduledMatchSchema`).
  *
- * The web and the publisher stay on `EventArtifactSchema` until step 3
- * (260915-isq DD-1): the web's match table types the priced fields as
- * required, so a Worker-written artifact with upcoming matches does not
- * parse on the web until step 3 lands, which must happen before any live
- * window opens.
+ * The web parses with `LiveEventArtifactSchema` since 260915-m4j, which
+ * closes 260915-isq DD-1: a Worker-written artifact with schedule-only
+ * upcoming rows parses in the browser, which prices those rows from the
+ * `state` block (`apps/web/src/lib/eventPricing.ts`) or renders them as
+ * "No prediction". The publisher stays on `EventArtifactSchema`.
  */
 export const LiveEventArtifactSchema = EventArtifactSchema.extend({
   upcoming: z.array(z.union([EventUpcomingMatchSchema, EventScheduledMatchSchema])),

@@ -1,5 +1,5 @@
 import { padAxisDomain, type AxisDomain } from "../team/matchAxis.js";
-import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { isPricedUpcomingRow, type EventPageArtifact } from "../../lib/eventPricing.js";
 
 /**
  * Pure module, no React import — the event-scoped sibling of
@@ -10,8 +10,9 @@ import type { EventArtifact } from "../../../../../packages/harness/pageArtifact
  * comp-level predicates, and the per-tab axis domain.
  */
 
-export type EventMatch = EventArtifact["matches"][number];
-export type EventUpcomingMatch = EventArtifact["upcoming"][number];
+export type EventMatch = EventPageArtifact["matches"][number];
+/** A priced upcoming row or, since the live Worker stopped pricing (260915-isq), a schedule-only one the browser could not price. */
+export type EventUpcomingMatch = EventPageArtifact["upcoming"][number];
 export type EventCompLevel = EventMatch["compLevel"];
 
 /**
@@ -33,10 +34,16 @@ export interface EventMatchRow {
   matchNumber: number;
   redTeams: readonly string[];
   blueTeams: readonly string[];
-  predictedWinner: "red" | "blue";
-  pRedWin: number;
-  predictedRedScore: number;
-  predictedBlueScore: number;
+  /**
+   * The four prediction fields. Always present on a played row and on a
+   * priced upcoming row; all four absent on a schedule-only upcoming row the
+   * browser could not price (260915-m4j). Read them through `rowPrediction`,
+   * which yields all four or none, never a partial set.
+   */
+  predictedWinner?: "red" | "blue";
+  pRedWin?: number;
+  predictedRedScore?: number;
+  predictedBlueScore?: number;
   /**
    * The published Match Band variance: the number of robots on the alliance
    * times the sum of their squared Sigma Scores. Sigma algorithms (SPR) only;
@@ -162,24 +169,39 @@ export function compareEventMatchRows(a: EventMatchRow, b: EventMatchRow): numbe
 function toRow(match: EventMatch, played: true): EventMatchRow;
 function toRow(match: EventUpcomingMatch, played: false): EventMatchRow;
 function toRow(match: EventMatch | EventUpcomingMatch, played: boolean): EventMatchRow {
+  // A schedule-only row carries no prediction: its keys stay ABSENT (never
+  // undefined-valued), and no number is fabricated for it.
+  if (!played && !isPricedUpcomingRow(match as EventUpcomingMatch)) {
+    return {
+      matchKey: match.matchKey,
+      compLevel: match.compLevel,
+      setNumber: match.setNumber,
+      matchNumber: match.matchNumber,
+      redTeams: match.redTeams,
+      blueTeams: match.blueTeams,
+      sortTime: match.sortTime,
+      played,
+    };
+  }
+  const priced = match as EventMatch | Extract<EventUpcomingMatch, { pRedWin: number }>;
   const row: EventMatchRow = {
-    matchKey: match.matchKey,
-    compLevel: match.compLevel,
-    setNumber: match.setNumber,
-    matchNumber: match.matchNumber,
-    redTeams: match.redTeams,
-    blueTeams: match.blueTeams,
-    predictedWinner: match.predictedWinner,
-    pRedWin: match.pRedWin,
-    predictedRedScore: match.predictedRedScore,
-    predictedBlueScore: match.predictedBlueScore,
-    redMatchBandVariance: match.redMatchBandVariance,
-    blueMatchBandVariance: match.blueMatchBandVariance,
-    sortTime: match.sortTime,
+    matchKey: priced.matchKey,
+    compLevel: priced.compLevel,
+    setNumber: priced.setNumber,
+    matchNumber: priced.matchNumber,
+    redTeams: priced.redTeams,
+    blueTeams: priced.blueTeams,
+    predictedWinner: priced.predictedWinner,
+    pRedWin: priced.pRedWin,
+    predictedRedScore: priced.predictedRedScore,
+    predictedBlueScore: priced.predictedBlueScore,
+    redMatchBandVariance: priced.redMatchBandVariance,
+    blueMatchBandVariance: priced.blueMatchBandVariance,
+    sortTime: priced.sortTime,
     // Both source schemas publish the predicted per-bonus marginals; copied
     // verbatim, never defaulted (absent stays absent).
-    redBonusRp: match.redBonusRp,
-    blueBonusRp: match.blueBonusRp,
+    redBonusRp: priced.redBonusRp,
+    blueBonusRp: priced.blueBonusRp,
     played,
   };
   if (played) {
@@ -241,6 +263,26 @@ export function mergeEventMatches(
   return [...byMatchKey.values()].sort(compareEventMatchRows);
 }
 
+/** The four prediction fields of a row, present together. */
+export interface RowPrediction {
+  predictedWinner: "red" | "blue";
+  pRedWin: number;
+  predictedRedScore: number;
+  predictedBlueScore: number;
+}
+
+/**
+ * A row's prediction when all four fields are present, else `undefined` (a
+ * schedule-only row the browser could not price). Presence is checked with
+ * `!== undefined`, never truthiness: a win probability or a score can be 0.
+ */
+export function rowPrediction(row: Pick<EventMatchRow, "predictedWinner" | "pRedWin" | "predictedRedScore" | "predictedBlueScore">): RowPrediction | undefined {
+  if (row.predictedWinner === undefined || row.pRedWin === undefined || row.predictedRedScore === undefined || row.predictedBlueScore === undefined) {
+    return undefined;
+  }
+  return { predictedWinner: row.predictedWinner, pRedWin: row.pRedWin, predictedRedScore: row.predictedRedScore, predictedBlueScore: row.predictedBlueScore };
+}
+
 /**
  * The per-tab score domain: walks the rows once, considering each row's two
  * predicted scores; each alliance's band extents where that alliance's
@@ -265,15 +307,20 @@ export function computeEventAxisDomain(rows: readonly EventMatchRow[]): AxisDoma
   };
 
   for (const row of rows) {
-    consider(row.predictedRedScore);
-    consider(row.predictedBlueScore);
+    // An unpriced row contributes no predicted score and no band: there is
+    // nothing to place on the axis, and no fabricated position is drawn.
+    const prediction = rowPrediction(row);
+    if (prediction !== undefined) {
+      consider(prediction.predictedRedScore);
+      consider(prediction.predictedBlueScore);
 
-    const redSd = row.redMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, row.redMatchBandVariance)) : 0;
-    const blueSd = row.blueMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, row.blueMatchBandVariance)) : 0;
-    consider(row.predictedRedScore - redSd);
-    consider(row.predictedRedScore + redSd);
-    consider(row.predictedBlueScore - blueSd);
-    consider(row.predictedBlueScore + blueSd);
+      const redSd = row.redMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, row.redMatchBandVariance)) : 0;
+      const blueSd = row.blueMatchBandVariance !== undefined ? Math.sqrt(Math.max(0, row.blueMatchBandVariance)) : 0;
+      consider(prediction.predictedRedScore - redSd);
+      consider(prediction.predictedRedScore + redSd);
+      consider(prediction.predictedBlueScore - blueSd);
+      consider(prediction.predictedBlueScore + blueSd);
+    }
 
     if (row.actualRedScore !== undefined) consider(row.actualRedScore);
     if (row.actualBlueScore !== undefined) consider(row.actualBlueScore);

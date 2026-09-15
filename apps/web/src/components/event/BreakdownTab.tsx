@@ -60,11 +60,11 @@ import { metricDisplayLabel } from "@/lib/metricLabels";
 import { teamNumberFromKey } from "@/lib/teamKey";
 import { tierForPercentile } from "@/lib/tiers";
 import { componentsInGroup } from "../../../../../packages/core/algorithms/breakdown/index.js";
-import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventPageArtifact } from "../../lib/eventPricing.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 
-type EventTeam = EventArtifact["teams"][number];
+type EventTeam = EventPageArtifact["teams"][number];
 type EventTeamMetrics = EventTeam["metrics"];
 
 /**
@@ -137,7 +137,7 @@ export function sortBreakdownRows(rows: readonly BreakdownRow[], sort: Breakdown
  * for the nickname, never to an empty cell that would lose the row's
  * identity.
  */
-export function buildBreakdownRows(artifact: EventArtifact, algorithmId: string): BreakdownRow[] {
+export function buildBreakdownRows(artifact: EventPageArtifact, algorithmId: string): BreakdownRow[] {
   void algorithmId; // reserved for signature symmetry with the column builder
   const unranked: BreakdownRow[] = artifact.teams.map((team) => {
     const teamNumber = team.teamNumber ?? teamNumberFromKey(team.teamKey);
@@ -345,7 +345,7 @@ function buildBreakdownColumns(algorithmId: string, season: number, isNarrow: bo
 }
 
 export interface BreakdownTabProps {
-  artifact: EventArtifact;
+  artifact: EventPageArtifact;
   algorithmId: string;
   season: number;
 }

@@ -7,6 +7,7 @@ import {
   isElimCompLevel,
   isQualCompLevel,
   mergeEventMatches,
+  rowPrediction,
   type EventCompLevel,
   type EventMatch,
   type EventMatchRow,
@@ -380,5 +381,38 @@ describe("Domain content", () => {
     const played = [makePlayed({ matchKey: "p1", predictedRedScore: 100, predictedBlueScore: 100, actualRedScore: 500, actualBlueScore: 90 })];
     const domain = computeEventAxisDomain(mergeEventMatches(played, [], isQualCompLevel));
     expect(domain.max).toBeGreaterThan(500);
+  });
+});
+
+describe("Schedule-only upcoming rows (260915-m4j)", () => {
+  const scheduleOnly = { matchKey: "u9", compLevel: "qm", setNumber: 1, matchNumber: 9, sortTime: 1_650_000_000, redTeams: ["frc118"], blueTeams: ["frc254"] } as EventUpcomingMatch;
+
+  it("normalizes to a row with the prediction keys ABSENT, not undefined-valued, and rowPrediction undefined", () => {
+    const [row] = mergeEventMatches([], [scheduleOnly], isQualCompLevel);
+    for (const key of ["predictedWinner", "pRedWin", "predictedRedScore", "predictedBlueScore", "redMatchBandVariance", "blueMatchBandVariance", "redBonusRp", "blueBonusRp"]) {
+      expect(row, key).not.toHaveProperty(key);
+    }
+    expect(row!.sortTime).toBe(1_650_000_000);
+    expect(row!.played).toBe(false);
+    expect(rowPrediction(row!)).toBeUndefined();
+  });
+
+  it("a priced row with a zero win probability is still priced (presence, never truthiness)", () => {
+    const [row] = mergeEventMatches([], [makeUpcoming({ matchKey: "u0", pRedWin: 0, predictedWinner: "blue", predictedRedScore: 0 })], isQualCompLevel);
+    expect(rowPrediction(row!)).toEqual({ predictedWinner: "blue", pRedWin: 0, predictedRedScore: 0, predictedBlueScore: 230 });
+  });
+
+  it("computeEventAxisDomain over rows including schedule-only rows returns a finite min and max from the priced rows only", () => {
+    const merged = mergeEventMatches([makePlayed({ matchKey: "p1" })], [scheduleOnly, makeUpcoming({ matchKey: "u2", predictedRedScore: 300 })], isQualCompLevel);
+    const domain = computeEventAxisDomain(merged);
+    expect(Number.isFinite(domain.min)).toBe(true);
+    expect(Number.isFinite(domain.max)).toBe(true);
+    expect(domain).toEqual(computeEventAxisDomain(merged.filter((row) => rowPrediction(row) !== undefined)));
+  });
+
+  it("an event whose only rows are schedule-only still gets a finite domain", () => {
+    const domain = computeEventAxisDomain(mergeEventMatches([], [scheduleOnly], isQualCompLevel));
+    expect(Number.isFinite(domain.min)).toBe(true);
+    expect(Number.isFinite(domain.max)).toBe(true);
   });
 });

@@ -181,6 +181,22 @@ export function AxisHeader({ domain }: { domain: AxisDomain }) {
 }
 
 /**
+ * The deliberate empty treatment for an upcoming match nobody could price
+ * (260915-m4j): a schedule-only row written by the live Worker whose event
+ * artifact carried no usable state block. A blank cell reads as missing
+ * data, so the Confidence cell says so in muted words instead; the
+ * Predicted RP and plot cells stay empty, and no mark is ever drawn at a
+ * fabricated position. Token classes only.
+ */
+export function NoPrediction({ matchKey }: { matchKey: string }) {
+  return (
+    <span data-testid={`no-prediction-${matchKey}`} className="text-role-body whitespace-nowrap text-[var(--color-text-muted)]">
+      No prediction
+    </span>
+  );
+}
+
+/**
  * The Confidence column's predicted-winner chip — exactly two possible
  * values, reusing the same `--alliance-*` tokens the plotted band/tick/dot
  * marks already use (`.alliance-chip--{side}`, theme.css).

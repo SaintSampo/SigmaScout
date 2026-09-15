@@ -1,4 +1,4 @@
-import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
+import { isPricedUpcomingRow, type EventPageArtifact } from "./eventPricing.js";
 import type {
   SimMatchInput,
   SimMatchOutcomeInput,
@@ -61,7 +61,7 @@ export interface SimulationInputs {
  * `StartMatchPicker.tsx` renders from, so the picker's displayed order and
  * this module's sliced order never disagree.
  */
-export function buildQualRows(artifact: EventArtifact): EventMatchRow[] {
+export function buildQualRows(artifact: EventPageArtifact): EventMatchRow[] {
   return mergeEventMatches(artifact.matches, artifact.upcoming, isQualCompLevel);
 }
 
@@ -102,7 +102,7 @@ export function defaultStartMatchKey(rows: readonly EventMatchRow[]): string | n
   return rows[0]?.matchKey ?? null;
 }
 
-type RawQualRow = EventArtifact["matches"][number] | EventArtifact["upcoming"][number];
+type RawQualRow = EventPageArtifact["matches"][number] | EventPageArtifact["upcoming"][number];
 
 /**
  * A `matchKey` -> raw-row index over the qualification rows, applying the
@@ -111,7 +111,7 @@ type RawQualRow = EventArtifact["matches"][number] | EventArtifact["upcoming"][n
  * actual-RP pair — this module needs both and the shared row type does not
  * carry them.
  */
-function buildRawQualRowIndex(artifact: EventArtifact): Map<string, RawQualRow> {
+function buildRawQualRowIndex(artifact: EventPageArtifact): Map<string, RawQualRow> {
   const raw = new Map<string, RawQualRow>();
   for (const match of artifact.upcoming) {
     if (!isQualCompLevel(match.compLevel)) continue;
@@ -134,7 +134,7 @@ function buildRawQualRowIndex(artifact: EventArtifact): Map<string, RawQualRow> 
  * `accumulateAlliance` treats as an appearance with unknowable RP credit
  * (known-incomplete).
  */
-function isPlayedRawRow(row: RawQualRow): row is EventArtifact["matches"][number] {
+function isPlayedRawRow(row: RawQualRow): row is EventPageArtifact["matches"][number] {
   return "actualWinner" in row;
 }
 
@@ -160,7 +160,7 @@ function isPlayedRawRow(row: RawQualRow): row is EventArtifact["matches"][number
  * reproduces none of that adjustment. Never describe the two as
  * interchangeable.
  */
-export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: string): SimulationInputs | null {
+export function buildSimulationInputs(artifact: EventPageArtifact, startMatchKey: string): SimulationInputs | null {
   const rows = buildQualRows(artifact);
   const startIndex = findStartIndex(rows, startMatchKey);
   if (startIndex === -1) return null;
@@ -175,7 +175,12 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
   const excludedMatchKeys: string[] = [];
   for (let i = startIndex; i < rows.length; i++) {
     const row = rows[i]!;
-    const raw = rawIndex.get(row.matchKey);
+    const indexed = rawIndex.get(row.matchKey);
+    // The pmf pair and decomposition are read only from a played or priced
+    // row. A schedule-only upcoming row (the live Worker's shape, unpriced
+    // when its block was unusable) has none, so it falls into
+    // `excludedMatchKeys` exactly like any other row without a pmf pair.
+    const raw = indexed !== undefined && (isPlayedRawRow(indexed) || isPricedUpcomingRow(indexed)) ? indexed : undefined;
     const redPmf = raw?.redRpPmf;
     const bluePmf = raw?.blueRpPmf;
     if (redPmf !== undefined && redPmf.length > 0 && bluePmf !== undefined && bluePmf.length > 0) {

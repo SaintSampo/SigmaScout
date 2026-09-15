@@ -19,7 +19,7 @@ import { preMatchMetrics } from "../lib/preMatchMetrics.js";
 import { MatchRobotGrid, type MatchRobotRecord } from "../components/match/MatchRobotGrid.js";
 import type { AxisDomain } from "../components/team/matchAxis.js";
 import type { EventMatchRow } from "../components/event/eventMatchAxis.js";
-import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
+import type { EventPageArtifact } from "../lib/eventPricing.js";
 import type { PublishedAlgorithmId } from "../../../../packages/harness/publishedAlgorithms.js";
 
 /**
@@ -156,7 +156,7 @@ function MatchPageBody({
   algorithm,
   byTeamKey,
 }: {
-  data: EventArtifact;
+  data: EventPageArtifact;
   row: EventMatchRow;
   domain: AxisDomain;
   season: number;

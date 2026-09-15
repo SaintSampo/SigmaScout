@@ -3,7 +3,7 @@ import { EmptyState } from "@/components/StateViews";
 import { EventMatchTable, EventMatchTableSkeleton } from "./EventMatchTable.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { computeEventAxisDomain, isQualCompLevel, mergeEventMatches } from "./eventMatchAxis.js";
-import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventPageArtifact } from "../../lib/eventPricing.js";
 
 /**
  * The Quals tab: this event's qualification matches (`compLevel === "qm"`
@@ -18,7 +18,7 @@ import type { EventArtifact } from "../../../../../packages/harness/pageArtifact
  * scroll region — neither contains the other.
  */
 export interface QualsTabProps {
-  artifact: EventArtifact;
+  artifact: EventPageArtifact;
   algorithmId: string;
   season: number;
 }

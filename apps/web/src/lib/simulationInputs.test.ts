@@ -9,6 +9,7 @@ import {
 } from "./simulationInputs.js";
 import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
 import type { EventMatchRow } from "../components/event/eventMatchAxis.js";
+import type { EventPageArtifact } from "./eventPricing.js";
 
 /**
  * `simulationInputs.ts`'s own coverage (08-11-PLAN.md Task 1) — every D-12
@@ -468,5 +469,28 @@ describe("purity", () => {
     const before = structuredClone(a);
     buildSimulationInputs(a, "2024test_qm2");
     expect(a).toEqual(before);
+  });
+});
+
+describe("schedule-only upcoming rows (260915-m4j)", () => {
+  it("a schedule-only upcoming qm row is excluded and disclosed, while a priced one is simulated", () => {
+    const scheduleOnly = { matchKey: "2024test_qm3", compLevel: "qm" as const, setNumber: 1, matchNumber: 3, redTeams: ["frcR"], blueTeams: ["frcB"] };
+    const a = {
+      ...artifact({ matches: [playedRow("2024test_qm1", 1)], teams: [team("frcR"), team("frcB")] }),
+      upcoming: [upcomingRow("2024test_qm2", 2), scheduleOnly],
+    } as EventPageArtifact;
+    const result = buildSimulationInputs(a, "2024test_qm2")!;
+    expect(result.excludedMatchKeys).toEqual(["2024test_qm3"]);
+    expect(result.remainingMatches).toHaveLength(1);
+    expect(result.remainingMatches[0]!.redRpPmf).toEqual([0.2, 0.3, 0.5]);
+  });
+
+  it("a schedule-only row carrying stray pmf-looking keys is still never read (only played or priced rows feed the simulation)", () => {
+    // Not a shape any schema admits; it pins that the read is gated on the row being priced, not on key presence.
+    const unpricedWithPmf = { matchKey: "2024test_qm2", compLevel: "qm" as const, setNumber: 1, matchNumber: 2, redTeams: ["frcR"], blueTeams: ["frcB"], redRpPmf: [1], blueRpPmf: [1] };
+    const a = { ...artifact({ teams: [team("frcR"), team("frcB")] }), upcoming: [unpricedWithPmf] } as unknown as EventPageArtifact;
+    const result = buildSimulationInputs(a, "2024test_qm2")!;
+    expect(result.excludedMatchKeys).toEqual(["2024test_qm2"]);
+    expect(result.remainingMatches).toEqual([]);
   });
 });

@@ -29,12 +29,12 @@ import { TOTAL_KEY } from "@/lib/metricKeys";
 import { teamNumberFromKey } from "@/lib/teamKey";
 import { tierForPercentile } from "@/lib/tiers";
 import { buildTeamValuePercentilePoints, estimateCombinedTier, type AllianceApproxTier } from "@/lib/allianceTierApproximation";
-import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventPageArtifact } from "../../lib/eventPricing.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { allianceSigmaBandVariance, sigmaMatchBandVariance, SIGMA_METRIC_KEY, usesSigmaScore } from "../../../../../packages/harness/sigmaScore.js";
 
-type EventTeam = EventArtifact["teams"][number];
-type EventAlliance = NonNullable<EventArtifact["alliances"]>[number];
+type EventTeam = EventPageArtifact["teams"][number];
+type EventAlliance = NonNullable<EventPageArtifact["alliances"]>[number];
 
 /**
  * Only the first three picks enter the combined arithmetic. A
@@ -221,7 +221,7 @@ function combinedSigmaBand(picks: readonly AlliancePick[]): number | undefined {
   return variance === undefined ? undefined : Math.sqrt(variance);
 }
 
-export function buildAllianceRows(artifact: EventArtifact, algorithmId: string): AllianceRow[] {
+export function buildAllianceRows(artifact: EventPageArtifact, algorithmId: string): AllianceRow[] {
   void algorithmId; // reserved for signature symmetry with the column builder
   const alliances = artifact.alliances ?? [];
   const ordered = [...alliances].sort(byAllianceNumberThenFirstPick);
@@ -249,7 +249,7 @@ export function buildAllianceRows(artifact: EventArtifact, algorithmId: string):
  * page cannot tell "alliance selection has not happened yet" from "this
  * event has no recorded alliances".
  */
-export function hasAllianceData(artifact: EventArtifact): boolean {
+export function hasAllianceData(artifact: EventPageArtifact): boolean {
   return artifact.alliances !== undefined && artifact.alliances.length > 0;
 }
 
@@ -567,7 +567,7 @@ function buildAllianceColumns(algorithmId: string, season: number, showBackupCol
 }
 
 export interface AlliancesTabProps {
-  artifact: EventArtifact;
+  artifact: EventPageArtifact;
   algorithmId: string;
   season: number;
 }

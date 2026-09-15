@@ -86,6 +86,38 @@ describe("fetchEventArtifact", () => {
     ).rejects.toBeInstanceOf(ArtifactValidationError);
   });
 
+  it("a Worker-shaped artifact (schedule-only upcoming rows, no state block) now fetches and parses (260915-m4j, DD-1 closed)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const artifact = {
+      ...makeValidArtifact(),
+      computedAt: "2026-09-15T00:00:00.000Z",
+      generation: "tick-1757894400000",
+      upcoming: [
+        { matchKey: "2024casf_qm9", compLevel: "qm", setNumber: 1, matchNumber: 9, sortTime: 1757894400, redTeams: ["frc254", "frc1", "frc2"], blueTeams: ["frc3", "frc4", "frc5"] },
+        { matchKey: "2024casf_qm10", compLevel: "qm", setNumber: 1, matchNumber: 10, redTeams: ["frc254", "frc1", "frc2"], blueTeams: ["frc3", "frc4", "frc5"] },
+      ],
+    };
+    global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
+
+    const result = await fetchEventArtifact({ eventKey: "2024casf", algorithmId: "spr", version: "2.0.0+tuned-2026-08" });
+
+    expect(result.upcoming).toEqual(artifact.upcoming);
+    expect(result.upcoming[0]).not.toHaveProperty("pRedWin");
+    expect(result).not.toHaveProperty("state");
+    // The unpriced fallback is logged once, never thrown as a validation error.
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(warn.mock.calls[0]![0]))).toMatchObject({ event: "event-upcoming-pricing-failed", error: "no-state-block" });
+  });
+
+  it("an upcoming row that is neither fully priced nor strictly schedule-only still fails validation", async () => {
+    const artifact = {
+      ...makeValidArtifact(),
+      upcoming: [{ matchKey: "2024casf_qm9", compLevel: "qm", setNumber: 1, matchNumber: 9, redTeams: [], blueTeams: [], pRedWin: 0.5 }],
+    };
+    global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
+    await expect(fetchEventArtifact({ eventKey: "2024casf", algorithmId: "spr", version: "2.0.0+tuned-2026-08" })).rejects.toBeInstanceOf(ArtifactValidationError);
+  });
+
   it("requests the exact key-built URL, proving artifactKey()'s event branch and the origin module are wired together", async () => {
     const artifact = makeValidArtifact();
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));

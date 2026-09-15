@@ -17,11 +17,21 @@
  * path segments below the repo root. No `@sigmascout/*` workspace alias
  * exists anywhere in this repo, so this is a plain relative path with the
  * explicit `.js` extension.
+ *
+ * Since 260915-m4j the body parses with `LiveEventArtifactSchema`, whose
+ * upcoming rows may be schedule-only (the live Worker's shape), and is then
+ * handed to `resolveEventArtifact`, which prices those rows in the browser
+ * from the artifact's `state` block where one is usable and strips the block.
+ * Pricing runs here, inside the queryFn, so it happens once per fetch per
+ * cache entry and every observer of the query key (event page, match page,
+ * team pages) shares the priced result. A pricing failure never fails the
+ * fetch: the artifact comes back unpriced.
  */
-import { artifactKey, EventArtifactSchema, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { artifactKey, LiveEventArtifactSchema, type LiveEventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { artifactUrl } from "../artifactOrigin.js";
 import { seasonFromEventKey } from "../eventKey.js";
 import { markArtifactParsed } from "../perfMarks.js";
+import { resolveEventArtifact, type EventPageArtifact } from "../eventPricing.js";
 import { ArtifactFetchError, ArtifactValidationError } from "./errors.js";
 
 export interface FetchEventArtifactParams {
@@ -30,23 +40,26 @@ export interface FetchEventArtifactParams {
   version: string;
 }
 
-export async function fetchEventArtifact({ eventKey, algorithmId, version }: FetchEventArtifactParams): Promise<EventArtifact> {
+export async function fetchEventArtifact({ eventKey, algorithmId, version }: FetchEventArtifactParams): Promise<EventPageArtifact> {
   const key = artifactKey({ page: "event", eventKey, algorithmId, version });
   const res = await fetch(artifactUrl(key));
   if (!res.ok) {
     throw new ArtifactFetchError("event", seasonFromEventKey(eventKey), res.status);
   }
   const body: unknown = await res.json();
+  let parsed: LiveEventArtifact;
   try {
-    const parsed = EventArtifactSchema.parse(body);
+    parsed = LiveEventArtifactSchema.parse(body);
     // 07-VALIDATION.md's parse-to-paint split, same convention as
     // `team.ts`'s own `markArtifactParsed()` call — marked immediately after
     // the schema parse resolves, before returning.
     markArtifactParsed();
-    return parsed;
   } catch (err) {
     throw new ArtifactValidationError("event", seasonFromEventKey(eventKey), err);
   }
+  // Outside the try: `resolveEventArtifact` never throws, and a pricing
+  // problem must never be reported as a validation error.
+  return await resolveEventArtifact(parsed);
 }
 
 export function eventQueryOptions(params: FetchEventArtifactParams) {

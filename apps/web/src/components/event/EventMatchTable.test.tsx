@@ -449,3 +449,53 @@ describe("Match-column label links to /match/{matchKey}", () => {
     expect(rosterLink?.getAttribute("href")).toContain("/team/118");
   });
 });
+
+describe("Unpriced and one-sided rows (260915-m4j)", () => {
+  /** A schedule-only upcoming row the browser could not price: no prediction keys at all. */
+  function unpricedRow(matchKey: string): EventMatchRow {
+    return { matchKey, compLevel: "qm", setNumber: 1, matchNumber: 7, redTeams: ["frc118", "frc254", "frc971"], blueTeams: ["frc604", "frc1678", "frc2056"], sortTime: 1_650_000_000, played: false };
+  }
+
+  it("a priced row shows a percent and both predicted scores", () => {
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "priced" })]} domain={DOMAIN} season={2024} algorithm="spr" />);
+    expect(screen.getByTestId("confidence-priced").textContent).toMatch(/\d+%/);
+    expect(screen.getByTestId("predicted-score-priced-red").textContent).toContain("250");
+    expect(screen.getByTestId("predicted-score-priced-blue").textContent).toContain("220");
+    expect(screen.queryByTestId("no-prediction-priced")).toBeNull();
+  });
+
+  it("a schedule-only row shows No prediction, no predicted score, no tick, band or dot, keeps the unplayed dash and the scheduled time, and never NaN", () => {
+    const { container } = renderWithRouter(
+      <EventMatchTable rows={[makeRow({ matchKey: "priced" }), unpricedRow("unpriced")]} domain={DOMAIN} season={2024} algorithm="spr" />,
+    );
+    const noPrediction = screen.getByTestId("no-prediction-unpriced");
+    expect(noPrediction.textContent).toBe("No prediction");
+    expect(noPrediction.className).toContain("text-[var(--color-text-muted)]");
+    expect(screen.getByTestId("confidence-unpriced").textContent).toBe("No prediction");
+    expect(screen.queryByTestId("predicted-score-unpriced-red")).toBeNull();
+    expect(screen.queryByTestId("predicted-score-unpriced-blue")).toBeNull();
+    expect(screen.getByTestId("predicted-score-unpriced").textContent).toBe("");
+    for (const side of ["red", "blue"]) {
+      for (const mark of ["tick", "band", "dot"]) expect(screen.queryByTestId(`alliance-mark-unpriced-${side}-${mark}`)).toBeNull();
+    }
+    expect(within(screen.getByTestId("call-unpriced")).getByText("—")).toBeDefined();
+    expect(screen.getByTestId("actual-unpriced").textContent).not.toBe("");
+    // The priced neighbour still draws its marks, and the axis header still frames both rows.
+    expect(screen.getByTestId("alliance-mark-priced-red-tick")).toBeDefined();
+    expect(screen.getAllByTestId("axis-ticks")).toHaveLength(1);
+    expect(container.textContent).not.toContain("NaN");
+  });
+
+  it("a one-sided band row draws the red band only, both ticks, and no plus-minus in the blue score", () => {
+    const { container } = renderWithRouter(
+      <EventMatchTable rows={[makeRow({ matchKey: "onesided", redMatchBandVariance: 100, blueMatchBandVariance: undefined })]} domain={DOMAIN} season={2024} algorithm="spr" />,
+    );
+    expect(screen.getByTestId("alliance-mark-onesided-red-band")).toBeDefined();
+    expect(screen.queryByTestId("alliance-mark-onesided-blue-band")).toBeNull();
+    expect(screen.getByTestId("alliance-mark-onesided-red-tick")).toBeDefined();
+    expect(screen.getByTestId("alliance-mark-onesided-blue-tick")).toBeDefined();
+    expect(screen.getByTestId("predicted-score-onesided-red").textContent).toContain("±");
+    expect(screen.getByTestId("predicted-score-onesided-blue").textContent).not.toContain("±");
+    expect(container.textContent).not.toContain("NaN");
+  });
+});
