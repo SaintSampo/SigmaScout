@@ -1862,9 +1862,15 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
   const url = new URL(request.url);
   const params = parseParams(url);
 
-  // Discovery always runs, even with overrides, so `discovery` reports what D1 holds.
-  const discoveredTeamKeys = await discoverRoster(env.DB, params.teamCount);
-  const discoveredEventKey = await discoverEventKey(env.DB);
+  // Discovery is SKIPPED when both overrides are supplied. Each discovery query is an
+  // `ORDER BY scope_key` scan over `algorithm_state` — about 2,100 rows read apiece, against a
+  // 5,000,000 rows/day free-tier cap. A measurement campaign on 2026-09-15 spent 5.5M rows in one
+  // UTC day on discovery alone and exhausted the account's D1 reads, which fails every subsequent
+  // read INCLUDING a live tick's. With both overrides given, discovery's answer is reported but
+  // never used, so it is pure cost: ~2 rows read per request instead of ~4,200.
+  const discoverySkipped = params.teamsOverride !== undefined && params.eventOverride !== undefined;
+  const discoveredTeamKeys = discoverySkipped ? [] : await discoverRoster(env.DB, params.teamCount);
+  const discoveredEventKey = discoverySkipped ? undefined : await discoverEventKey(env.DB);
 
   const eventKey = params.eventOverride ?? discoveredEventKey ?? `${params.season}probe`;
   const teamKeys = (params.teamsOverride ?? discoveredTeamKeys).slice(0, params.teamCount);
@@ -1995,7 +2001,7 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
     discovery: {
       teamKeysFound: discoveredTeamKeys.length,
       eventKeyFound: discoveredEventKey,
-      queries: 2,
+      queries: discoverySkipped ? 0 : 2,
     },
     algorithms,
     fold,

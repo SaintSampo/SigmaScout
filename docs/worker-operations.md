@@ -641,6 +641,18 @@ the ranking-point path. A `cpuTime` of 1 ms on an idle tick is not headroom — 
 ["How the CPU budget is actually enforced"](#how-the-cpu-budget-is-actually-enforced--corrected-2026-08-29)
 before drawing any conclusion from a single tick's `cpuTime`, idle or otherwise.
 
+**D1 ROW-READ CAP — pin `teams=` AND `event=` on every measurement run (learned 2026-09-16).** The
+free tier allows **5,000,000 rows read per day**, reset at 00:00 UTC, and it is an account-wide hard
+stop: once exhausted, every D1 read fails with `D1_ERROR: ... exceeded D1's free tier daily row read
+limit`, **including a live tick's**. The probe's two discovery queries are `ORDER BY scope_key` scans
+of `algorithm_state` — about 2,100 rows read apiece — so a campaign of a few hundred requests spends
+millions. The 2026-09-15 breakdown campaign (~740 requests) hit the cap and blocked its own
+re-measurement for the rest of the UTC day. The probe now **skips discovery entirely when both
+`teams=` and `event=` are supplied** (`discovery.queries` reports 0), which takes a request from
+~4,200 rows read to ~22. Supply both, always; dropping either turns discovery back on. Check the
+day's spend with `npx wrangler d1 info sigmascout-state` (`rows_read_24h`) before and after a
+campaign, and never run one during an event weekend.
+
 The pre-event probe (`apps/worker/src/stateProbe.ts`, a separate deployment configured by
 `wrangler.probe.toml`) answers the three questions an idle tick cannot: does the **deployed** bundle
 read the rows now in live D1; what does Phase A (state read → fold → serialize) cost in real Workers

@@ -51,7 +51,17 @@ const WARM_ROSTER = [
  * prices NO Phase A work: the tick has not priced an upcoming match since
  * 260915-isq.
  */
-export const COMMON_QUERY = `season=2026&teamCount=21&folded=2&upcoming=60&algorithms=spr&teams=${WARM_ROSTER}`;
+/**
+ * `event=` is pinned alongside `teams=` so the probe SKIPS discovery (orchestrator, 2026-09-16).
+ * Each discovery query is an `ORDER BY scope_key` scan — about 2,100 rows read apiece against a
+ * 5,000,000 rows/day free-tier cap — and the 2026-09-15 campaign (~740 requests) spent 5.5M rows on
+ * discovery alone, exhausting the account's D1 reads for the UTC day. Every read then fails,
+ * INCLUDING a live tick's. `2026alhu` is what discovery resolved to anyway, so the measured work is
+ * unchanged. Keep both overrides together: dropping either one turns discovery back on.
+ */
+const PINNED_EVENT = "2026alhu";
+
+export const COMMON_QUERY = `season=2026&teamCount=21&folded=2&upcoming=60&algorithms=spr&teams=${WARM_ROSTER}&event=${PINNED_EVENT}`;
 
 /**
  * The thirteen arms, in a fixed order.

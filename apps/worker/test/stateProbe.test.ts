@@ -277,8 +277,11 @@ class FakeD1Database {
   /** Any `batch()` call, plus any `run()` whose SQL is not a SELECT — the write-count half of the no-write property. */
   writeStatementCount = 0;
   algorithmState = new Map<string, FakeAlgorithmStateRow>();
+  /** Every SQL string prepared, so a test can assert which queries a request really issued. */
+  preparedSql: string[] = [];
 
   prepare(sql: string): FakePreparedStatement {
+    this.preparedSql.push(sql);
     return new FakePreparedStatement(sql, this);
   }
 
@@ -511,6 +514,46 @@ describe("stateProbe — Group 3: the RP path really runs, and really writes not
 
     // The behavioral half of Group 1: no write was actually issued.
     expect(db.writeStatementCount).toBe(0);
+  });
+});
+
+describe("stateProbe — Group 4b: discovery is skipped when both overrides are supplied (D1 row-read cost)", () => {
+  // Each discovery query is an `ORDER BY scope_key` scan (~2,100 rows read against a 5,000,000
+  // rows/day free-tier cap). A 2026-09-15 measurement campaign exhausted the account's D1 reads on
+  // discovery alone, which fails every subsequent read including a live tick's.
+  const isDiscoverySql = (sql: string): boolean =>
+    sql.includes("FROM algorithm_state") && (sql.includes("scope_kind = 'team'") || sql.includes("scope_kind = 'event'")) && sql.includes("ORDER BY scope_key");
+
+  const run = async (query: string) => {
+    const db = new FakeD1Database();
+    seedAllAlgorithms(db);
+    const response = await stateProbe.fetch(new Request(`https://probe/?${query}`), { DB: db as unknown as D1Database });
+    const body = (await response.json()) as { discovery: { queries: number; teamKeysFound: number; eventKeyFound?: string }; params: { teams: string[]; event: string }; fold: { matchesFolded: number } };
+    return { body, discoverySql: db.preparedSql.filter(isDiscoverySql), writes: db.writeStatementCount };
+  };
+
+  it("issues no discovery query when teams= and event= are both given, and still folds the requested roster", async () => {
+    const teams = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
+    const skipped = await run(`folded=1&upcoming=1&season=2026&teams=${teams.join(",")}&event=2026probeevent`);
+    expect(skipped.discoverySql).toEqual([]);
+    expect(skipped.body.discovery.queries).toBe(0);
+    expect(skipped.body.discovery.teamKeysFound).toBe(0);
+    expect(skipped.body.params.teams).toEqual(teams);
+    expect(skipped.body.params.event).toBe("2026probeevent");
+    expect(skipped.body.fold.matchesFolded).toBe(1);
+    expect(skipped.writes).toBe(0);
+  });
+
+  it("still discovers when either override is missing — both queries, reported as 2", async () => {
+    const teams = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
+    const noEvent = await run(`folded=1&upcoming=1&season=2026&teams=${teams.join(",")}`);
+    expect(noEvent.discoverySql).toHaveLength(2);
+    expect(noEvent.body.discovery.queries).toBe(2);
+
+    const noTeams = await run("folded=1&upcoming=1&season=2026&event=2026probeevent");
+    expect(noTeams.discoverySql).toHaveLength(2);
+    expect(noTeams.body.discovery.queries).toBe(2);
+    expect(noTeams.body.discovery.teamKeysFound).toBeGreaterThan(0);
   });
 });
 
