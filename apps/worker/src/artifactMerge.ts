@@ -236,10 +236,16 @@ function maintainedStateBlock(params: MergeEventArtifactParams, upcomingCount: n
  * schema-valid (but degraded — no history this Worker cannot see) artifact
  * when `existing` is `undefined`.
  *
- * SPREAD-THEN-OVERRIDE, never an allow-list. `existing` came through
- * `LiveEventArtifactSchema.parse`, which strips unknown keys, so the spread
- * carries exactly the schema-known keys and a key the publisher adds later
- * survives a tick automatically. An allow-list is how the identity bug
+ * SPREAD-THEN-OVERRIDE, never an allow-list, so a key the publisher adds
+ * later survives a tick automatically. Since 260915-t7o the live tick's
+ * `existing` comes from `artifactShapeCheck.ts`'s structural guard, NOT from
+ * `LiveEventArtifactSchema.parse`, so it may still carry keys the schema does
+ * not know — the spread carries them into this function's output, and
+ * `writeArtifactObject`'s own `schema.parse` strips them again before the put.
+ * The published bytes are therefore unchanged either way, which
+ * `test/artifactShapeCheck.test.ts` pins by comparing
+ * `JSON.stringify(schema.parse(merged))` across both read paths. An
+ * allow-list is how the identity bug
  * happened: `name`/`startDate`/`location`/`week`/`alliances` were added to
  * the schema after this merge was written and were silently dropped on every
  * tick. The keys the tick owns are listed explicitly below, each keeping its
@@ -464,8 +470,12 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
 
   // The leading spread is load-bearing: without it a live tick would drop
   // publisher-owned fields (`ranks`, `robotImageUrl`, `activeYears`) until the
-  // next offline publish. `existing` was schema-parsed, so it carries no
-  // unknown keys. Tick-owned fields must stay listed explicitly below.
+  // next offline publish. Since 260915-t7o `existing` reaches the live tick
+  // through `artifactShapeCheck.ts`'s structural guard rather than
+  // `TeamSeasonArtifactSchema.parse`, so it MAY carry unknown keys; they ride
+  // this spread and are stripped again by `writeArtifactObject`'s own
+  // `schema.parse`, leaving the published bytes identical. Tick-owned fields
+  // must stay listed explicitly below.
   return {
     ...existing,
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,

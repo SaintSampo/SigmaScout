@@ -106,19 +106,19 @@ export const SCHEDULED_SHAPE_ARMS = ARMS.filter((arm) => arm.expectedPhaseBUpcom
  */
 export const DIFFERENCES = [
   { label: "phaseB", minuend: "allPhaseB", subtrahend: "all", meaning: "ALL of Phase B on top of a full RP Phase A — the continuity anchor against qgf's +64.0 ms" },
-  { label: "eventHalf", minuend: "allPhaseB", subtrahend: "pbSkipEventParse", meaning: "the whole event half: JSON.parse + zod + merge/splice + stringify of the ~106 KB event artifact" },
-  { label: "eventValidate", minuend: "allPhaseB", subtrahend: "pbSkipEventValidate", meaning: "LiveEventArtifactSchema.parse alone, PUBLISHED row shape" },
+  { label: "eventHalf", minuend: "allPhaseB", subtrahend: "pbSkipEventParse", meaning: "the whole event half: JSON.parse + the read guard + merge/splice + stringify of the ~106 KB event artifact (the guard was LiveEventArtifactSchema.parse before fix F2 landed)" },
+  { label: "eventValidate", minuend: "allPhaseB", subtrahend: "pbSkipEventValidate", meaning: "the event read guard alone, PUBLISHED row shape. SINCE FIX F2 THIS IS checkLiveEventArtifactShape, an O(1) structural check; before F2 it was LiveEventArtifactSchema.parse. A before/after of this label across the F2 commit measures F2 ITSELF, not the same work twice" },
   { label: "eventMergeAndStringify", minuend: "allPhaseB", subtrahend: "pbSkipEventMerge", meaning: "mergeEventArtifact (state-block splice included) plus the stringify it forces off with it" },
   { label: "eventStringify", minuend: "allPhaseB", subtrahend: "pbSkipEventStringify", meaning: "JSON.stringify of the merged event artifact alone" },
-  { label: "teamHalf", minuend: "allPhaseB", subtrahend: "pbTeams0", meaning: "all twelve team artifacts: JSON.parse + zod + merge + stringify each" },
-  { label: "teamValidate", minuend: "allPhaseB", subtrahend: "pbSkipTeamValidate", meaning: "TeamSeasonArtifactSchema.parse x12" },
+  { label: "teamHalf", minuend: "allPhaseB", subtrahend: "pbTeams0", meaning: "all twelve team artifacts: JSON.parse + the read guard + merge + stringify each (the guard was TeamSeasonArtifactSchema.parse before fix F2 landed)" },
+  { label: "teamValidate", minuend: "allPhaseB", subtrahend: "pbSkipTeamValidate", meaning: "the team read guard x12. SINCE FIX F2 THIS IS checkTeamSeasonArtifactShape, an O(1) structural check; before F2 it was TeamSeasonArtifactSchema.parse. Same caveat as eventValidate: a before/after of this label is a measurement OF F2" },
   { label: "teamMergeAndStringify", minuend: "allPhaseB", subtrahend: "pbSkipTeamMerge", meaning: "mergeTeamSeasonArtifact x12 plus the stringifies it forces off with it" },
   { label: "teamStringify", minuend: "allPhaseB", subtrahend: "pbSkipTeamStringify", meaning: "JSON.stringify of the merged team artifacts alone, x12" },
   {
     label: "eventValidateScheduledShape",
     minuend: "pbSchedAll",
     subtrahend: "pbSchedSkipEventValidate",
-    meaning: "LiveEventArtifactSchema.parse alone, SCHEDULE-ONLY row shape — the shape the live Worker reads back from its own writes on every tick after the first",
+    meaning: "the event read guard alone, SCHEDULE-ONLY row shape — the shape the live Worker reads back from its own writes on every tick after the first. Since fix F2 the guard does not look at upcoming rows at all, so this term is EXPECTED to collapse toward zero and to stop differing from eventValidate",
   },
   {
     label: "eventHalfScheduledShape",
@@ -174,7 +174,7 @@ export const DERIVED_DIFFERENCES = [
     expression: "eventValidateScheduledShape - eventValidate",
     coefficients: { pbSchedAll: 1, pbSchedSkipEventValidate: -1, allPhaseB: -1, pbSkipEventValidate: 1 },
     meaning:
-      "what the union's ORDER costs: a schedule-only row fails EventUpcomingMatchSchema's 8-refine, ~24-field option before EventScheduledMatchSchema accepts it. A difference OF differences, so the reshape's own cost cancels twice (DERIVED)",
+      "what the union's ORDER costs: a schedule-only row fails EventUpcomingMatchSchema's 8-refine, ~24-field option before EventScheduledMatchSchema accepts it. A difference OF differences, so the reshape's own cost cancels twice (DERIVED). MEASURED 2026-09-15 AT -0.3 +/- 2.6 ms, UNRESOLVED against a >= 3 ms bar, so F1 was NOT built — see the todo. SINCE FIX F2 the tick's read path runs no union parse at all, so this term now prices only what the WRITE side and the browser still pay; a zero here is expected and is not evidence about either of those",
   },
 ];
 

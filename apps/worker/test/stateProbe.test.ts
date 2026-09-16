@@ -13,6 +13,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import stateProbe, { probeSelectionsFor, resolveRpArm } from "../src/stateProbe.js";
+import { checkTeamSeasonArtifactShape } from "../src/artifactShapeCheck.js";
 import { selectionsFor } from "../src/scheduled.js";
 import {
   serializeState,
@@ -1557,12 +1558,12 @@ describe("stateProbe — Group 9: the phaseB emulation arm", () => {
   /** `buildEventStateBlock` over the seeded rows: one league row plus 21 team rows. */
   const EXPECTED_STATE_ROWS = 1 + SEED_ROSTER.length;
 
-  async function runPhaseBArm(query: string, options: { withState: boolean; eventStatus?: number; eventBody?: string }) {
+  async function runPhaseBArm(query: string, options: { withState: boolean; eventStatus?: number; eventBody?: string; teamBody?: string }) {
     const db = new FakeD1Database();
     seedAllAlgorithms(db);
     seedMeanShift(db, SEEDED_SHIFT);
     const eventText = options.eventBody ?? JSON.stringify(publishedEventArtifact(db, options.withState));
-    const teamText = JSON.stringify(publishedTeamArtifact());
+    const teamText = options.teamBody ?? JSON.stringify(publishedTeamArtifact());
     const recorded = installFetchRecorder((url) =>
       url.includes("/v1/event/")
         ? { status: options.eventStatus ?? 200, body: eventText }
@@ -1712,14 +1713,85 @@ describe("stateProbe — Group 9: the phaseB emulation arm", () => {
     expect(arm.writes).toBe(0);
   });
 
-  it("a body that does not schema-parse is a 500 with phaseB.error set and every counter 0", async () => {
-    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1`, { withState: true, eventBody: '{"schemaVersion":1,"nope":true}' });
+  /**
+   * TWO DISTINCT FAILURES, and they must stay distinguishable. Since
+   * 260915-t7o's fix F2 the probe's `eventValidate` component calls the tick's
+   * own `checkLiveEventArtifactShape` rather than `LiveEventArtifactSchema.parse`
+   * (see `runSprPhaseB`'s header), so a body that is valid JSON of the wrong
+   * SHAPE now fails at the guard, not at the parse. Both still 500 with every
+   * counter 0 — the property that matters is that the driver's warm-up gate
+   * never records an arm that measured nothing — but a single assertion on one
+   * error name would have let the shape rejection quietly become a parse
+   * failure, or vice versa.
+   */
+  it("a body that is not valid JSON is a 500 named EventArtifactParseFailed, with every counter 0", async () => {
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1`, { withState: true, eventBody: '{"schemaVersion":1,' });
 
     expect(arm.status).toBe(500);
     expect(arm.body.phaseB.error?.name).toBe("EventArtifactParseFailed");
     expect(arm.body.phaseB.ran).toBe(false);
     expect(arm.body.phaseB.mergedEventBytes).toBe(0);
     expect(arm.writes).toBe(0);
+  });
+
+  it("a body the tick's own read guard rejects is a 500 named EventArtifactShapeRejected, with every counter 0", async () => {
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1`, { withState: true, eventBody: '{"schemaVersion":1,"nope":true}' });
+
+    expect(arm.status).toBe(500);
+    expect(arm.body.phaseB.error?.name).toBe("EventArtifactShapeRejected");
+    expect(arm.body.phaseB.ran).toBe(false);
+    expect(arm.body.phaseB.mergedEventBytes).toBe(0);
+    expect(arm.writes).toBe(0);
+  });
+
+  /**
+   * THE PROBE'S READ PATH MUST BE THE TICK'S READ PATH. Both bodies below are
+   * valid JSON that `checkTeamSeasonArtifactShape` ACCEPTS and
+   * `TeamSeasonArtifactSchema` REJECTS — the exact gap between the two. If the
+   * probe ever drifts back to a zod parse here it would throw where the live
+   * tick merges happily, and every `teamValidate` number it produced would
+   * price a read path production does not run. That drift is invisible to
+   * every other assertion in this file, which is why these two exist.
+   */
+  const GUARD_ACCEPTS_ZOD_REJECTS_TEAM = JSON.stringify({ ...(publishedTeamArtifact() as Record<string, unknown>), teamNumber: "seventeen" });
+
+  it("a team artifact the tick's guard ACCEPTS but zod would reject still prices Phase B — the probe follows the tick, not the schema", async () => {
+    // Non-vacuity: the fixture really does straddle the guard/schema gap.
+    const parsedBody = JSON.parse(GUARD_ACCEPTS_ZOD_REJECTS_TEAM) as unknown;
+    expect(checkTeamSeasonArtifactShape(parsedBody)).toBeDefined();
+    expect(() => TeamSeasonArtifactSchema.parse(parsedBody)).toThrow();
+
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1`, { withState: true, teamBody: GUARD_ACCEPTS_ZOD_REJECTS_TEAM });
+
+    expect(arm.status).toBe(200);
+    expect(arm.body.phaseB.error).toBeUndefined();
+    expect(arm.body.phaseB.ran).toBe(true);
+    expect(arm.body.phaseB.teamMergesRun).toBe(EXPECTED_TOUCHED_TEAMS);
+    expect(arm.writes).toBe(0);
+  });
+
+  it("a team artifact the tick's guard REJECTS is a 500 named TeamArtifactShapeRejected, with every counter 0", async () => {
+    const body = JSON.stringify({ ...(publishedTeamArtifact() as Record<string, unknown>), metricHistory: 0 });
+    expect(checkTeamSeasonArtifactShape(JSON.parse(body))).toBeUndefined();
+
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1`, { withState: true, teamBody: body });
+
+    expect(arm.status).toBe(500);
+    expect(arm.body.phaseB.error?.name).toBe("TeamArtifactShapeRejected");
+    expect(arm.body.phaseB.ran).toBe(false);
+    expect(arm.body.phaseB.teamMergesRun).toBe(0);
+    expect(arm.writes).toBe(0);
+  });
+
+  it("phaseBSkip=teamValidate SKIPS the guard: the same zod-rejected body prices Phase B either way, so the arm's difference is the guard alone", async () => {
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1&phaseBSkip=teamValidate`, { withState: true, teamBody: GUARD_ACCEPTS_ZOD_REJECTS_TEAM });
+
+    // Group 10 pins the `params.phaseBArm.ran` echo itself; what matters HERE
+    // is that the skipped arm still reaches the merge on the same body, so the
+    // `teamValidate` difference isolates the guard and nothing else.
+    expect(arm.status).toBe(200);
+    expect(arm.body.phaseB.error).toBeUndefined();
+    expect(arm.body.phaseB.teamMergesRun).toBe(EXPECTED_TOUCHED_TEAMS);
   });
 
   it("an unrecognized phaseB= value runs ON and says so, rather than silently picking the cheaper arm", async () => {

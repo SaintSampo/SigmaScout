@@ -703,12 +703,20 @@ tick operation it gates and what skipping it forces off:
 | Component | Gates | Forces off |
 |---|---|---|
 | `eventParse` | `JSON.parse` of the (possibly reshaped) event artifact text | **ROOT of the event half** — `eventValidate`, `eventMerge` and `eventStringify` all go with it |
-| `eventValidate` | `LiveEventArtifactSchema.parse`. When skipped, the raw `JSON.parse` output is **cast** and fed straight to the merge — exactly the trade a narrowed read path would make permanent | — |
+| `eventValidate` | The event read guard. **Since fix F2 (2026-09-15) that is `checkLiveEventArtifactShape`, an O(1) structural check — it was `LiveEventArtifactSchema.parse` before.** When skipped, the raw `JSON.parse` output is **cast** and fed straight to the merge | — |
 | `eventMerge` | `mergeEventArtifact`, the `state`-block splice included | `eventStringify` |
 | `eventStringify` | `JSON.stringify` of the merged event artifact | — |
-| `teamValidate` | `TeamSeasonArtifactSchema.parse`, per team. The loop's own `JSON.parse` runs either way, so `teamParsesRun` still equals `phaseBTeams` here | — |
+| `teamValidate` | The team read guard, per team. **Since fix F2 that is `checkTeamSeasonArtifactShape` — it was `TeamSeasonArtifactSchema.parse` before.** The loop's own `JSON.parse` runs either way, so `teamParsesRun` still equals `phaseBTeams` here | — |
 | `teamMerge` | `mergeTeamSeasonArtifact`, per team | `teamStringify` |
 | `teamStringify` | `JSON.stringify` of each merged team artifact | — |
+
+**THESE TWO ARMS CHANGED MEANING ON 2026-09-15, and a before/after must say so.** Fix F2 replaced
+the tick's two read-side `zod` parses with `artifactShapeCheck.ts`'s structural guards, and the probe
+follows the tick rather than a superseded copy of it — so `eventValidate` and `teamValidate` still
+gate *the read-path validation step*, but that step is now the guard. Comparing either arm across the
+F2 commit measures **F2 itself** (zod parse vs guard), not the same work twice. Within a single
+deployed probe version both arms remain apples-to-apples as always. `measure/arms.mjs` repeats this
+at each affected difference.
 
 **The team half's root is `phaseBTeams=0`, not a component name.** Do not go looking for a
 `teamParse` token — there is none, deliberately: the loop's `JSON.parse` is what the loop *is*, so

@@ -82,13 +82,12 @@ import {
   type StateStamp,
 } from "../../../packages/harness/stateSnapshot.js";
 import { buildEventStateBlock } from "../../../packages/harness/eventStatePricing.js";
-import {
-  artifactKey,
-  LiveEventArtifactSchema,
-  TeamSeasonArtifactSchema,
-  type LiveEventArtifact,
-  type TeamSeasonArtifact,
-} from "../../../packages/harness/pageArtifacts.js";
+import { artifactKey, type LiveEventArtifact, type TeamSeasonArtifact } from "../../../packages/harness/pageArtifacts.js";
+// The tick's OWN read guards, imported for the same reason `artifactMerge.ts`
+// is: the probe prices the path production runs, never a copy or a superseded
+// version of it. That module imports only types and one constant, so it adds
+// no write helper to the probe's import graph (Group 1 walks it).
+import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "./artifactShapeCheck.js";
 import type { ParsedBonusSides } from "../../../packages/harness/publishedRows.js";
 import { SigmaScoreAccumulator, usesSigmaScore, publishesRankingPoints, sigmaMatchBandVariance } from "../../../packages/harness/sigmaScore.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
@@ -1518,10 +1517,22 @@ function runSprFold(
  * The Phase B emulation, in the tick's own order and through the tick's OWN
  * functions (`artifactMerge.ts`, imported by both), never a copy:
  *
- *   fetch the published event artifact -> `LiveEventArtifactSchema.parse` ->
+ *   fetch the published event artifact -> `checkLiveEventArtifactShape` ->
  *   `playedRowFactsFor` -> `mergeEventArtifact` (which splices the `state`
- *   block) -> `JSON.stringify` -> N x (`TeamSeasonArtifactSchema.parse` ->
+ *   block) -> `JSON.stringify` -> N x (`checkTeamSeasonArtifactShape` ->
  *   `mergeTeamSeasonArtifact` -> `JSON.stringify`) -> discard everything.
+ *
+ * THOSE TWO GUARD CALLS WERE `LiveEventArtifactSchema.parse` AND
+ * `TeamSeasonArtifactSchema.parse` UNTIL 260915-t7o's fix F2 replaced the
+ * tick's read-side zod parses with `artifactShapeCheck.ts`'s O(1) structural
+ * guards. The probe follows the tick, always — a probe that kept calling zod
+ * here would price a read path production no longer runs, which is the one
+ * thing this file exists not to do. CONSEQUENCE FOR THE MEASUREMENT: the
+ * `eventValidate` and `teamValidate` arms still gate the read-path validation
+ * step, but that step is now the guard, not the schema parse. A before/after
+ * comparison of those two arms across the F2 commit is therefore a measurement
+ * OF F2 ITSELF (zod parse vs structural guard), not two measurements of the
+ * same work — `measure/arms.mjs` says so at each affected difference.
  *
  * TWO PLACES THIS IS A FLOOR, NOT A FAITHFUL PRICE, both reported:
  *   1. Out of season no published event carries a `state` block (blocks attach
@@ -1540,13 +1551,15 @@ function runSprFold(
  *     1. `eventParse`: `JSON.parse` of the (possibly reshaped) event text.
  *        ROOT of the event half: without it there is no object to validate,
  *        merge or stringify, so all three are forced off
- *     2. `eventValidate`: `LiveEventArtifactSchema.parse`. When skipped, the
- *        raw `JSON.parse` output is CAST and fed straight to the merge — which
- *        is exactly the trade the read-path fix would make permanent
+ *     2. `eventValidate`: `checkLiveEventArtifactShape` (was
+ *        `LiveEventArtifactSchema.parse` before 260915-t7o fix F2 — see above).
+ *        When skipped, the raw `JSON.parse` output is CAST and fed straight to
+ *        the merge, which is the trade the read-path fix already made permanent
  *     3. `eventMerge`: `mergeEventArtifact`, the state-block splice included.
  *        Forces `eventStringify` off
  *     4. `eventStringify`: `JSON.stringify(mergedEvent)`
- *     5. `teamValidate`: `TeamSeasonArtifactSchema.parse`, per team. The loop's
+ *     5. `teamValidate`: `checkTeamSeasonArtifactShape` (was
+ *        `TeamSeasonArtifactSchema.parse` before fix F2), per team. The loop's
  *        own `JSON.parse` runs either way
  *     6. `teamMerge`: `mergeTeamSeasonArtifact`. Forces `teamStringify` off
  *     7. `teamStringify`: `JSON.stringify(mergedTeam)`
@@ -1628,13 +1641,27 @@ async function runSprPhaseB(params: {
 
   let parsedEvent: LiveEventArtifact | undefined;
   if (ran.eventParse) {
+    let rawEvent: unknown;
     try {
-      const rawEvent: unknown = JSON.parse(measuredEventText);
-      // Component `eventValidate`: when off the raw parse output is CAST, which
-      // is precisely the read-path trade being priced — never a second parse.
-      parsedEvent = ran.eventValidate ? LiveEventArtifactSchema.parse(rawEvent) : (rawEvent as LiveEventArtifact);
+      rawEvent = JSON.parse(measuredEventText);
     } catch (err) {
       throw new ProbePhaseBError("EventArtifactParseFailed", err instanceof Error ? err.message : String(err));
+    }
+    // Component `eventValidate`: SINCE 260915-t7o's fix F2 this gates
+    // `checkLiveEventArtifactShape`, the tick's OWN read guard, because the
+    // tick no longer zod-parses here — see this function's header. When off,
+    // the raw parse output is CAST, exactly as before.
+    if (ran.eventValidate) {
+      const guarded = checkLiveEventArtifactShape(rawEvent);
+      if (guarded === undefined) {
+        throw new ProbePhaseBError(
+          "EventArtifactShapeRejected",
+          "checkLiveEventArtifactShape rejected the fetched event artifact — the tick would bootstrap over it, so this arm would price a merge the live tick never runs"
+        );
+      }
+      parsedEvent = guarded;
+    } else {
+      parsedEvent = rawEvent as LiveEventArtifact;
     }
   }
 
@@ -1704,13 +1731,29 @@ async function runSprPhaseB(params: {
     // The SAME fetched bytes, re-parsed: see this function's header for why
     // that is a realistic parse cost but not N distinct teams. The parse lives
     // HERE, inside the loop, so `phaseBTeams=0` really does report zero.
-    let existingTeam: TeamSeasonArtifact;
+    let rawTeam: unknown;
     try {
-      const rawTeam: unknown = JSON.parse(teamText);
-      // Component `teamValidate`: when off the raw parse output is CAST.
-      existingTeam = ran.teamValidate ? TeamSeasonArtifactSchema.parse(rawTeam) : (rawTeam as TeamSeasonArtifact);
+      rawTeam = JSON.parse(teamText);
     } catch (err) {
       throw new ProbePhaseBError("TeamArtifactParseFailed", err instanceof Error ? err.message : String(err));
+    }
+    // Component `teamValidate`: SINCE 260915-t7o's fix F2 this gates
+    // `checkTeamSeasonArtifactShape`, the tick's OWN read guard, because the
+    // tick no longer zod-parses here — see this function's header for what that
+    // means for a cross-version comparison of this arm. When off, the raw parse
+    // output is CAST, exactly as before.
+    let existingTeam: TeamSeasonArtifact;
+    if (ran.teamValidate) {
+      const guarded = checkTeamSeasonArtifactShape(rawTeam);
+      if (guarded === undefined) {
+        throw new ProbePhaseBError(
+          "TeamArtifactShapeRejected",
+          "checkTeamSeasonArtifactShape rejected the fetched team artifact — the tick would bootstrap over it, so this arm would price a merge the live tick never runs"
+        );
+      }
+      existingTeam = guarded;
+    } else {
+      existingTeam = rawTeam as TeamSeasonArtifact;
     }
     teamParsesRun++;
     if (!ran.teamMerge) continue;

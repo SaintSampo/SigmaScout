@@ -113,10 +113,8 @@ import {
   artifactKey,
   deriveMetricKeyOrder,
   encodeTeamsRowMetrics,
-  LiveEventArtifactSchema,
   PAGE_ARTIFACT_SCHEMA_VERSION,
   TeamsArtifactSchema,
-  TeamSeasonArtifactSchema,
   type LiveEventArtifact,
   type TeamSeasonArtifact,
   type TeamsArtifact,
@@ -138,7 +136,8 @@ import {
   type PlayedRowFacts,
   type Stamp,
 } from "./artifactMerge.js";
-import { readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
+import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "./artifactShapeCheck.js";
+import { ArtifactSecretLeakError, readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
 import { hasAlreadyFolded, readEventCursor, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { rotate, sortEventKeys, SubrequestBudget } from "./subrequestBudget.js";
 import { createTbaContext, pollEventMatches, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
@@ -382,15 +381,28 @@ interface PerAlgorithmFold {
   readonly observedBonusSides: ReadonlyMap<string, ParsedBonusSides>;
 }
 
+/**
+ * THE READ PATH IS STRUCTURAL, NOT SCHEMA-VALIDATING, since 260915-t7o's fix
+ * F2. `artifactShapeCheck.ts` holds the whole argument for that trade; the two
+ * facts that matter at this call site are (a) the object was already schema-
+ * validated by whichever writer put it in R2, so a read-side parse was a
+ * SECOND validation of the same bytes, and (b) `writeArtifactObject`'s own
+ * `schema.parse` is retained, so nothing malformed can still reach R2.
+ *
+ * The "corrupt artifact -> `undefined` -> bootstrap merge" contract is
+ * unchanged: both guards return `undefined` for an object their merge cannot
+ * survive, and `JSON.parse` failures are caught here exactly as before. What a
+ * guard can no longer catch — a bad ROW inside a well-shaped artifact — now
+ * surfaces at the write instead, which is what
+ * `writeArtifactWithBootstrapRetry` below exists to handle.
+ */
 async function readExistingEvent(env: Env, budget: SubrequestBudget, params: { page: "event"; eventKey: string; algorithmId: string; version: string }): Promise<LiveEventArtifact | undefined> {
   const text = await readArtifactObject(env, budget, artifactKey(params));
   if (text === undefined) return undefined;
   try {
-    // The live schema, so an artifact a previous tick wrote with schedule-only
-    // upcoming rows survives this tick's read.
-    return LiveEventArtifactSchema.parse(JSON.parse(text));
+    return checkLiveEventArtifactShape(JSON.parse(text));
   } catch {
-    return undefined; // corrupt/legacy artifact -- degrade to a fresh bootstrap rather than fail the event
+    return undefined; // unparseable JSON -- degrade to a fresh bootstrap rather than fail the event
   }
 }
 
@@ -398,10 +410,73 @@ async function readExistingTeam(env: Env, budget: SubrequestBudget, params: { pa
   const text = await readArtifactObject(env, budget, artifactKey(params));
   if (text === undefined) return undefined;
   try {
-    return TeamSeasonArtifactSchema.parse(JSON.parse(text));
+    return checkTeamSeasonArtifactShape(JSON.parse(text));
   } catch {
     return undefined;
   }
+}
+
+/** A `console.warn`ed error message is bounded here: a zod issue list over a large artifact is long, and a log line is not a debugger. Ids and counts carry the diagnosis; the message only points at it. */
+const WRITE_RETRY_ERROR_MESSAGE_MAX = 300;
+
+/**
+ * `writeArtifactObject`, plus the degrade-to-bootstrap behaviour the read-side
+ * schema parse used to provide (260915-t7o fix F2).
+ *
+ * WHY THIS IS NOT OPTIONAL. `TeamSeasonArtifactSchema` has no `.catch`
+ * anywhere in it. Before F2, a corrupt published team artifact failed the READ
+ * parse, `readExistingTeam` returned `undefined`, and the tick published a
+ * fresh bootstrap — self-healing on the next tick. After F2 a corruption the
+ * structural guard does not see (a bad row inside a well-shaped artifact)
+ * survives the read, rides the merge, and throws in `writeArtifactObject`,
+ * where `runPhaseBAndReport`'s blanket catch swallows it. That team would then
+ * stop publishing PERMANENTLY, every tick, with the same object read back each
+ * time. Re-running the merge with no existing artifact restores the old
+ * outcome at the new detection point.
+ *
+ * TWO FAILURES ARE DELIBERATELY NOT RETRIED:
+ *   - one where the budget was consumed, i.e. the R2 `put` itself failed. A
+ *     retry there would consume a SECOND subrequest for one artifact and break
+ *     the per-tick accounting `scheduled.rp.test.ts` pins at 64. Validation
+ *     runs before `budget.tryConsume`, so an unconsumed budget is an exact
+ *     witness that the failure was pre-put.
+ *   - `ArtifactSecretLeakError`. A bootstrap merge is not the remedy for a
+ *     leaked secret, and re-serializing is not worth the chance of writing it.
+ *
+ * The log line carries the artifact key, the algorithm id and a truncated
+ * error message only — never an artifact body, a TBA value or an env value,
+ * matching `event-state-block-invalid`'s existing rule.
+ */
+async function writeArtifactWithBootstrapRetry(
+  env: Env,
+  budget: SubrequestBudget,
+  page: "event" | "team",
+  params: { page: "event"; eventKey: string; algorithmId: string; version: string } | { page: "team"; teamKey: string; year: number; algorithmId: string; version: string },
+  merged: unknown,
+  algorithmId: string,
+  rebuildAsBootstrap: () => unknown
+): Promise<void> {
+  const usedBefore = budget.used;
+  try {
+    await writeArtifactObject(env, budget, page, params, merged);
+    return;
+  } catch (error) {
+    if (budget.used !== usedBefore) throw error; // the put itself failed -- a retry would double-consume
+    if (error instanceof ArtifactSecretLeakError) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      JSON.stringify({
+        msg: "artifact-write-schema-retry",
+        page,
+        key: artifactKey(params),
+        algorithmId,
+        error: message.slice(0, WRITE_RETRY_ERROR_MESSAGE_MAX),
+      })
+    );
+  }
+  // Outside the catch: a throw HERE is a genuine failure of the bootstrap
+  // itself and belongs to the caller's blanket catch, not to a third attempt.
+  await writeArtifactObject(env, budget, page, params, rebuildAsBootstrap());
 }
 
 // ---------------------------------------------------------------------------
@@ -819,7 +894,10 @@ async function runPhaseBAndReport(
     for (const [algorithmId, info] of perAlgorithm) {
       const eventParams = { page: "event" as const, eventKey, algorithmId, version: info.algorithm.version };
       const existingEvent = await readExistingEvent(env, budget, eventParams);
-      const mergedEvent = mergeEventArtifact({
+      // Held as one object so the bootstrap retry below re-runs THIS merge with
+      // `existing: undefined` and nothing else changed -- a second parameter
+      // list would be a second thing to keep in sync.
+      const eventMergeParams = {
         existing: existingEvent,
         eventKey,
         season: window.season,
@@ -835,8 +913,11 @@ async function runPhaseBAndReport(
         touchedMetrics: info.touchedMetrics,
         playedRowFacts,
         stamp,
-      });
-      await writeArtifactObject(env, budget, "event", eventParams, mergedEvent);
+      };
+      const mergedEvent = mergeEventArtifact(eventMergeParams);
+      await writeArtifactWithBootstrapRetry(env, budget, "event", eventParams, mergedEvent, algorithmId, () =>
+        mergeEventArtifact({ ...eventMergeParams, existing: undefined })
+      );
 
       // Only the `teams/{year}` feed is gated on officialness; the team
       // artifact write below stays unconditional.
@@ -848,7 +929,7 @@ async function runPhaseBAndReport(
         const teamParams = { page: "team" as const, teamKey, year: window.season, algorithmId, version: info.algorithm.version };
         const existingTeam = await readExistingTeam(env, budget, teamParams);
         const teamMatches = newlyFoldedResults.filter((m) => m.redTeams.includes(teamKey) || m.blueTeams.includes(teamKey));
-        const mergedTeam = mergeTeamSeasonArtifact({
+        const teamMergeParams = {
           existing: existingTeam,
           teamKey,
           season: window.season,
@@ -863,8 +944,11 @@ async function runPhaseBAndReport(
           playedRowFacts,
           stamp,
           sigmaAfterTick: info.touchedSigma.get(teamKey),
-        });
-        await writeArtifactObject(env, budget, "team", teamParams, mergedTeam);
+        };
+        const mergedTeam = mergeTeamSeasonArtifact(teamMergeParams);
+        await writeArtifactWithBootstrapRetry(env, budget, "team", teamParams, mergedTeam, algorithmId, () =>
+          mergeTeamSeasonArtifact({ ...teamMergeParams, existing: undefined })
+        );
 
         if (isOfficial) {
           const prior = seasonMap.get(teamKey);

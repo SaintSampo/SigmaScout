@@ -7,8 +7,15 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTick, touchedTeamsRowMetrics, touchedEventTeamMetrics } from "../src/scheduled.js";
+import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "../src/artifactShapeCheck.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
-import { artifactKey, decodeTeamsRowMetrics } from "../../../packages/harness/pageArtifacts.js";
+import {
+  artifactKey,
+  decodeTeamsRowMetrics,
+  LiveEventArtifactSchema,
+  PAGE_ARTIFACT_SCHEMA_VERSION,
+  TeamSeasonArtifactSchema,
+} from "../../../packages/harness/pageArtifacts.js";
 // `runTick` builds every artifact key from the LIVE algorithm module's
 // `version` (see scheduled.ts's `info.algorithm.version`), never from the
 // algorithms manifest below, so deriving these expectations from the module
@@ -196,14 +203,18 @@ class FakeR2Object {
 }
 
 class FakeR2Bucket {
+  /** ATTEMPTS, not successes — a rejected put still counts here, which is what makes "the retry consumed no second subrequest" assertable. */
   putCallCount = 0;
   puts: { key: string; body: string }[] = [];
+  /** Set to make every `put` reject, modelling an R2/network failure AFTER `budget.tryConsume` has already been paid. */
+  rejectPutsWith: Error | null = null;
   private readonly store = new Map<string, string>();
 
   constructor(private readonly sharedLog: SharedLogEntry[] = []) {}
 
   async put(key: string, body: string): Promise<void> {
     this.putCallCount++;
+    if (this.rejectPutsWith !== null) throw this.rejectPutsWith;
     this.puts.push({ key, body });
     this.store.set(key, body);
     this.sharedLog.push({ type: "r2-put", key });
@@ -212,6 +223,11 @@ class FakeR2Bucket {
   async get(key: string): Promise<FakeR2Object | null> {
     const value = this.store.get(key);
     return value === undefined ? null : new FakeR2Object(value);
+  }
+
+  /** Pre-load an object as if a previous tick or an offline publish had written it — deliberately NOT counted in `putCallCount`/`puts`, which exist to count what THIS tick wrote. */
+  seed(key: string, body: string): void {
+    this.store.set(key, body);
   }
 }
 
@@ -371,6 +387,13 @@ const DISABLE_GLOBAL_REBUILD = { globalRebuildIntervalMs: Number.MAX_SAFE_INTEGE
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  // Unconditional, because a per-test `mockRestore()` placed after an
+  // assertion never runs when that assertion throws — leaving `console.warn`
+  // spied, and the NEXT test's `vi.spyOn` reusing the same spy with the
+  // previous test's calls still on it. That turns one real failure into a
+  // second, fictional one, which is exactly what it did the first time these
+  // retry tests were mutation-checked.
+  vi.restoreAllMocks();
 });
 
 // ---------------------------------------------------------------------------
@@ -1342,5 +1365,196 @@ describe("runTick — played rows carry the tick's own per-match facts", () => {
     expect(teamRow!.actualBlueRp).toBeNull();
     expect(teamRow!.actualRedBonusRp).toBeNull();
     expect(teamRow!.actualBlueBonusRp).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The bootstrap retry that recovers what the read-side schema parse used to do
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY THESE TESTS EXIST. Since 260915-t7o's fix F2 the tick reads artifacts
+ * through `artifactShapeCheck.ts`'s O(1) structural guard instead of a full
+ * `zod` parse. The guard checks only what the merges dereference, so a
+ * corruption INSIDE a well-shaped artifact — a `teamNumber` that is a string, a
+ * `name` that is a number — now survives the read, rides the merge, and fails
+ * `writeArtifactObject`'s schema parse instead.
+ *
+ * That failure lands inside `runPhaseBAndReport`'s blanket `catch {}`.
+ * `TeamSeasonArtifactSchema` has no `.catch` anywhere in it, so without a retry
+ * that team would read the SAME corrupt object back and fail identically on
+ * every subsequent tick — it would stop publishing permanently. Before F2 the
+ * read-side parse rejected the object and the tick bootstrapped over it, which
+ * self-heals on the very next tick. `writeArtifactWithBootstrapRetry` moves
+ * that same degradation to the new detection point.
+ *
+ * Each fixture below is chosen to PASS the guard and FAIL the write schema, and
+ * each test asserts both halves of that rather than assuming them — if a future
+ * guard change starts rejecting one at read time, the non-vacuity assertion
+ * fails and says so, instead of the test quietly passing for the wrong reason.
+ */
+const SEED_STAMP = { generation: "seed-gen", computedAt: "2026-08-01T00:00:00.000Z" };
+
+/** Guard-passing (object, current schemaVersion, `seasonStats.record` an object, `events`/`metricHistory` arrays) but `teamNumber` is a string, which `TeamSeasonArtifactSchema`'s `z.number().int()` rejects at write. */
+function guardPassingCorruptTeamArtifact(teamKey: string): string {
+  return JSON.stringify({
+    schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+    generation: SEED_STAMP.generation,
+    computedAt: SEED_STAMP.computedAt,
+    algorithmId: "opr",
+    algorithmVersion: opr.version,
+    teamKey,
+    teamNumber: "seventeen",
+    nickname: "Corrupted",
+    season: SEASON,
+    seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: {} },
+    events: [],
+    metricHistory: [],
+  });
+}
+
+/** Guard-passing (`matches`/`upcoming`/`teams` all arrays, current schemaVersion) but `name` is a number, which `z.string().min(1).optional()` rejects at write. */
+function guardPassingCorruptEventArtifact(eventKey: string): string {
+  return JSON.stringify({
+    schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+    generation: SEED_STAMP.generation,
+    computedAt: SEED_STAMP.computedAt,
+    algorithmId: "opr",
+    algorithmVersion: opr.version,
+    eventKey,
+    season: SEASON,
+    name: 42,
+    matches: [],
+    upcoming: [],
+    teams: [],
+  });
+}
+
+function stubOneLiveEvent(): void {
+  vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]])));
+}
+
+const LIVE_WINDOW: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 7_200_000 };
+
+const TEAM_PUT_KEY = artifactKey({ page: "team", teamKey: "frc1", year: SEASON, algorithmId: "opr", version: opr.version });
+const EVENT_PUT_KEY = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "opr", version: opr.version });
+
+describe("runTick — a corrupt published artifact retries as a bootstrap instead of blocking forever", () => {
+  it("team: the seeded artifact passes the read guard, fails the write schema, and is republished valid in ONE put", async () => {
+    const seeded = JSON.parse(guardPassingCorruptTeamArtifact("frc1")) as unknown;
+    expect(checkTeamSeasonArtifactShape(seeded)).toBeDefined();
+    expect(() => TeamSeasonArtifactSchema.parse(seeded)).toThrow();
+
+    stubOneLiveEvent();
+    const clean = new FakeR2Bucket();
+    await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), clean), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+
+    const r2 = new FakeR2Bucket();
+    r2.seed(TEAM_PUT_KEY, guardPassingCorruptTeamArtifact("frc1"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+
+    expect(result.eventsAdvanced).toBe(1);
+    expect(result.eventsFailed).toBe(0);
+    expect(result.eventsDeferred).toBe(0);
+
+    // Exactly one put for the corrupt team, and the tick's TOTAL put count is
+    // unchanged from the clean run — the retry consumes no extra subrequest,
+    // because `writeArtifactObject` validates BEFORE `budget.tryConsume`.
+    const teamPuts = r2.puts.filter((p) => p.key === TEAM_PUT_KEY);
+    expect(teamPuts).toHaveLength(1);
+    expect(r2.putCallCount).toBe(clean.putCallCount);
+
+    // What landed is a schema-valid BOOTSTRAP: this tick's own match, and the
+    // corrupt `teamNumber`/`nickname` replaced by the merge's own fallbacks.
+    const published = TeamSeasonArtifactSchema.parse(JSON.parse(teamPuts[0]!.body));
+    expect(published.teamNumber).toBe(1);
+    expect(published.nickname).toBe("");
+    expect(published.events.flatMap((e) => e.matches).map((m) => m.matchKey)).toEqual(["2026casj_qm1"]);
+
+    // One structured log line, carrying ids and a bounded message — never a body.
+    const retryLogs = warn.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("artifact-write-schema-retry"));
+    warn.mockRestore();
+    expect(retryLogs).toHaveLength(1);
+    const logged = JSON.parse(retryLogs[0]!) as Record<string, unknown>;
+    expect(logged.page).toBe("team");
+    expect(logged.key).toBe(TEAM_PUT_KEY);
+    expect(logged.algorithmId).toBe("opr");
+    expect(typeof logged.error).toBe("string");
+    expect(String(logged.error).length).toBeLessThanOrEqual(300);
+    expect(logged).not.toHaveProperty("artifact");
+  });
+
+  it("team: a second tick against the SAME corrupt object still publishes — the failure is not sticky", async () => {
+    stubOneLiveEvent();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // A fresh D1 and a freshly re-seeded R2 each pass, so the second tick
+    // genuinely folds the match and reads the corrupt object BACK, rather than
+    // short-circuiting on an already-folded cursor.
+    for (const nowMs of [NOW_MS, NOW_MS + 60_000]) {
+      const r2 = new FakeR2Bucket();
+      r2.seed(TEAM_PUT_KEY, guardPassingCorruptTeamArtifact("frc1"));
+      await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs, ...DISABLE_GLOBAL_REBUILD });
+      const put = r2.puts.filter((p) => p.key === TEAM_PUT_KEY).at(-1);
+      expect(put, `tick at ${nowMs}`).toBeDefined();
+      expect(() => TeamSeasonArtifactSchema.parse(JSON.parse(put!.body))).not.toThrow();
+    }
+    warn.mockRestore();
+  });
+
+  it("event: a guard-passing, write-failing event artifact is republished as a valid bootstrap", async () => {
+    const seeded = JSON.parse(guardPassingCorruptEventArtifact("2026casj")) as unknown;
+    expect(checkLiveEventArtifactShape(seeded)).toBeDefined();
+    expect(() => LiveEventArtifactSchema.parse(seeded)).toThrow();
+
+    stubOneLiveEvent();
+    const clean = new FakeR2Bucket();
+    await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), clean), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+
+    const r2 = new FakeR2Bucket();
+    r2.seed(EVENT_PUT_KEY, guardPassingCorruptEventArtifact("2026casj"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+
+    expect(result.eventsAdvanced).toBe(1);
+    const eventPuts = r2.puts.filter((p) => p.key === EVENT_PUT_KEY);
+    expect(eventPuts).toHaveLength(1);
+    expect(r2.putCallCount).toBe(clean.putCallCount);
+
+    const published = LiveEventArtifactSchema.parse(JSON.parse(eventPuts[0]!.body));
+    expect(published).not.toHaveProperty("name"); // the corrupt numeric `name` is gone, not carried
+    expect(published.matches.map((m) => m.matchKey)).toEqual(["2026casj_qm1"]);
+
+    const retryLogs = warn.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("artifact-write-schema-retry"));
+    warn.mockRestore();
+    expect(retryLogs).toHaveLength(1);
+    expect((JSON.parse(retryLogs[0]!) as Record<string, unknown>).page).toBe("event");
+  });
+
+  it("a FAILING PUT is not retried — the retry is for validation failures only, or it would double-consume a subrequest", async () => {
+    stubOneLiveEvent();
+    const r2 = new FakeR2Bucket();
+    r2.rejectPutsWith = new Error("simulated R2 put failure");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const retryLogs = warn.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("artifact-write-schema-retry"));
+    warn.mockRestore();
+
+    // ONE attempt. `writeArtifactObject` consumes the budget BEFORE the put, so
+    // a post-consume failure retried would spend a second subrequest on one
+    // artifact and break the per-tick accounting `scheduled.rp.test.ts` pins at
+    // 64. The consumed-budget check in `writeArtifactWithBootstrapRetry` is the
+    // exact witness that distinguishes this case from a validation failure.
+    expect(r2.putCallCount).toBe(1);
+    expect(retryLogs).toHaveLength(0);
+  });
+
+  it("a healthy tick logs no retry at all — the retry is a failure path, not a steady-state cost", async () => {
+    stubOneLiveEvent();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), new FakeR2Bucket()), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const retryLogs = warn.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("artifact-write-schema-retry"));
+    warn.mockRestore();
+    expect(retryLogs).toHaveLength(0);
   });
 });
