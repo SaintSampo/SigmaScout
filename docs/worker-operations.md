@@ -681,7 +681,9 @@ curl -s "https://sigmascout-state-probe.<subdomain>.workers.dev/?folded=2&upcomi
 | `rpSkip=upcomingPmf` | — | **RETIRED, and recognized as such.** It named the RP fields in the upcoming loop, which 260915-isq deleted from `processEvent`. It is not treated as a typo: it changes no counter, never appears in `params.rpArm.id`, and emits exactly one warning saying NOT APPLICABLE with that reason. Every other name in the same list still applies normally |
 | `algorithms` | every published id | Comma-separated algorithm ids to read and deserialize. `algorithms=spr` matches the live tick, which loads only the live tier; use it for CPU measurement. Unknown ids are ignored and warned, and `spr` is always kept because the fold needs it. Echoed as `params.algorithms` |
 | `phaseB` | **off** | Runs the Phase B emulation on top of Phase A: fetch a published event artifact, schema-parse it, `playedRowFactsFor`, `mergeEventArtifact` (which splices the `state` block), `JSON.stringify`, then N team parses and merges — all through `apps/worker/src/artifactMerge.ts`, the same module the tick calls, never a copy. Off by default, and an absent `phaseB=` is byte-identical to `phaseB=0`, so every RP arm above is unchanged by its existence. An unrecognized value runs ON and warns |
-| `phaseBTeams` | the real touched-team count | How many per-team artifact merges to emulate. Clamped to the same ceiling as the roster. Echoed as `params.phaseBTeams` |
+| `phaseBSkip` | empty | Comma-separated list of Phase B components to skip independently, layered under `phaseB` (ignored when `phaseB` is off, since the emulation never runs). Case-insensitive; the param name itself is not. **Seven live names**, listed with their dependency rules in the table below. An unknown name skips **nothing** and warns; read `params.phaseBArm.id` and `params.phaseBArm.ran` in the response before trusting a `cpuTime` — they echo exactly what ran. There is no `teamParse` name: see `phaseBTeams` |
+| `phaseBUpcoming` | `published` | Which shape the fetched artifact's `upcoming` rows are put in **before** anything measured. `published` uses the artifact as fetched. `scheduled` rewrites every row down to the seven keys `EventScheduledMatchSchema` accepts — the shape the live Worker itself writes since 260915-isq, and therefore reads back on every tick after the first. An unrecognized value runs `published` and warns. **A `scheduled` arm's ABSOLUTE `cpuTime` is not comparable to a `published` arm's** (the reshape costs CPU and the payload shrinks); only a difference between two `scheduled` arms is, and every `scheduled` response carries a warning saying so |
+| `phaseBTeams` | the real touched-team count | How many per-team artifact merges to emulate. Clamped to the same ceiling as the roster. Echoed as `params.phaseBTeams`. **This is the team half's ablation ROOT**: `phaseBTeams=0` is how the team half is removed, and since 260915-t7o it really reports `teamParsesRun: 0` (the parse used to sit before the loop, so the zero case reported one parse it had not been asked for) |
 | `phaseBEvent` | the resolved `event` | Which published event artifact to fetch. Out of season, point it at an event that actually has a published SPR artifact |
 | `artifactOrigin` | `https://data.sigmascout.org` | Where the two artifact reads go. An override is **rejected** unless it parses as an `https:` origin — the probe never silently falls back to the default, and `params.artifactOrigin` reads `null` when it rejected one |
 
@@ -693,6 +695,41 @@ them from the event's `state` block), and since 260915-qgf neither does the prob
 the default query string is unchanged on purpose, and measures a different tick. `fold.bandsProduced`
 and `fold.rpPmfsProduced` are folded-only now; a number from the old probe that counted 62 pmfs is
 not comparable to one from this probe that counts 2.
+
+**The seven `phaseBSkip` components** (added 2026-09-15 by quick task 260915-t7o, to split Phase B's
+measured +64.0 ± 9.3 ms into terms a fix can actually target). Canonical order; each row names the
+tick operation it gates and what skipping it forces off:
+
+| Component | Gates | Forces off |
+|---|---|---|
+| `eventParse` | `JSON.parse` of the (possibly reshaped) event artifact text | **ROOT of the event half** — `eventValidate`, `eventMerge` and `eventStringify` all go with it |
+| `eventValidate` | `LiveEventArtifactSchema.parse`. When skipped, the raw `JSON.parse` output is **cast** and fed straight to the merge — exactly the trade a narrowed read path would make permanent | — |
+| `eventMerge` | `mergeEventArtifact`, the `state`-block splice included | `eventStringify` |
+| `eventStringify` | `JSON.stringify` of the merged event artifact | — |
+| `teamValidate` | `TeamSeasonArtifactSchema.parse`, per team. The loop's own `JSON.parse` runs either way, so `teamParsesRun` still equals `phaseBTeams` here | — |
+| `teamMerge` | `mergeTeamSeasonArtifact`, per team | `teamStringify` |
+| `teamStringify` | `JSON.stringify` of each merged team artifact | — |
+
+**The team half's root is `phaseBTeams=0`, not a component name.** Do not go looking for a
+`teamParse` token — there is none, deliberately: the loop's `JSON.parse` is what the loop *is*, so
+the only way to remove it is to run zero iterations.
+
+**`playedRowFactsFor` runs in every Phase B arm**, regardless of every skip above, so it cancels in
+every difference. It is Phase A's own output being shaped, not a read-path cost, and it is not
+gateable.
+
+**One asymmetry, deliberate and reported: the state-block synthesis.** When `eventParse` runs, a
+block is synthesized only if the published artifact carried none — unchanged behaviour. When
+`eventParse` is *skipped* there is no parsed object to ask, so the synthesis runs unconditionally.
+Out of season, where no published artifact carries a block and the full arm synthesizes too, the
+term cancels exactly in the `eventHalf` difference. In season, where the full arm would synthesize
+nothing, the skipped arm still pays one and `eventHalf` is **under-stated** by that term.
+`phaseB.stateBlockSynthesized` reports which case ran.
+
+**Both new params default to the pre-260915-t7o behaviour** — no `phaseBSkip` runs every component,
+and `phaseBUpcoming` defaults to `published` — so every arm measured before they existed stays
+comparable, and the `phaseB` difference remains a direct continuity anchor against the 2026-09-15
++64.0 ms.
 
 **Read `cpuTime`**, in a second terminal, and run the probe **several consecutive times** — never
 conclude from one invocation:
@@ -738,6 +775,13 @@ says which:
   Do not read it as N distinct teams.
 - The splice's admitted set is the probe's synthetic touched teams, so fewer team rows are replaced
   than at a real event.
+- `params.phaseBUpcoming: "scheduled"` means the artifact's upcoming rows were **rewritten** before
+  the measured region. That arm's absolute `cpuTime` is not comparable to a `published` arm's at all
+  — only to another `scheduled` arm's. `eventUpcomingReshapedRows` and `reshapedEventTextBytes`
+  report what the rewrite did.
+- `params.phaseBArm.id` other than `"all"` means components were **ablated**: that `cpuTime` is not
+  a measurement of Phase B as deployed, only one half of a difference. `params.phaseBArm.ran` lists
+  which of the seven actually ran, including the ones a skipped root forced off.
 
 **What it cannot write, and what it merely does not write.** The write guarantee is layered, and the
 layers are not equally strong:

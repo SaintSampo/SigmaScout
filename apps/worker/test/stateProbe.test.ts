@@ -1594,6 +1594,11 @@ describe("stateProbe — Group 9: the phaseB emulation arm", () => {
       ran: false,
       eventArtifactBytes: 0,
       teamArtifactBytes: 0,
+      // Added by 260915-t7o alongside `phaseBUpcoming`. This assertion is
+      // deliberately EXHAUSTIVE — a new PhaseBResult field must appear here or
+      // it fails, which is what caught these two.
+      eventUpcomingReshapedRows: 0,
+      reshapedEventTextBytes: 0,
       eventStateBlockPresent: false,
       stateBlockSynthesized: false,
       playedRowFactsBuilt: 0,
@@ -1758,6 +1763,498 @@ describe("stateProbe — Group 9: the phaseB emulation arm", () => {
     // Both phaseB arms really ran, so the equality above is not vacuous.
     expect(on.body.phaseB.ran).toBe(true);
     expect(rpOffPhaseB.body.phaseB.ran).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Group 10: the Phase B SUB-ARMS (`phaseBSkip`, `phaseBUpcoming`), added by
+// quick task 260915-t7o.
+//
+// Group 9 proved Phase B runs. It measured it as ONE lump: +64.0 ms covering
+// JSON.parse, zod validation, the merge/splice and stringify, across one event
+// artifact and twelve team artifacts. This group pins the ablation that splits
+// that lump — every component's `ran` flag and every counter by EQUALITY, never
+// an inequality, because an inequality passes vacuously when a skip silently
+// stops doing anything.
+//
+// Two invariants carry the weight and are asserted repeatedly:
+//   1. DEFAULTS ARE THE OLD BEHAVIOUR. No `phaseBSkip` and no `phaseBUpcoming`
+//      runs every component against the published shape, so every arm measured
+//      before these params existed stays comparable.
+//   2. A SKIPPED ROOT NAMES ITS FORCED DEPENDENTS. An arm that quietly turned
+//      off more than it was asked to is an arm whose cpuTime gets attributed to
+//      the wrong component.
+// ---------------------------------------------------------------------------
+
+interface PhaseBArmRanBody {
+  eventParse: boolean;
+  eventValidate: boolean;
+  eventMerge: boolean;
+  eventStringify: boolean;
+  teamValidate: boolean;
+  teamMerge: boolean;
+  teamStringify: boolean;
+}
+
+interface PhaseBArmBody {
+  ok: boolean;
+  params: {
+    phaseB: boolean;
+    phaseBArm: { id: string; ran: PhaseBArmRanBody };
+    phaseBUpcoming: string;
+    phaseBTeams: number;
+  };
+  phaseB: {
+    ran: boolean;
+    eventArtifactBytes: number;
+    teamArtifactBytes: number;
+    eventUpcomingReshapedRows: number;
+    reshapedEventTextBytes: number;
+    eventStateBlockPresent: boolean;
+    stateBlockSynthesized: boolean;
+    playedRowFactsBuilt: number;
+    mergedEventBytes: number;
+    mergedEventStateBlockPresent: boolean;
+    mergedEventStateRows: number;
+    mergedEventUpcomingRows: number;
+    mergedEventPlayedRows: number;
+    teamParsesRun: number;
+    teamMergesRun: number;
+    mergedTeamBytes: number;
+    error?: { name: string; message: string };
+  };
+  warnings: string[];
+}
+
+/** Every component ON — the default, and the thing each skip is measured against. */
+const PHASE_B_ALL_RAN: PhaseBArmRanBody = {
+  eventParse: true,
+  eventValidate: true,
+  eventMerge: true,
+  eventStringify: true,
+  teamValidate: true,
+  teamMerge: true,
+  teamStringify: true,
+};
+
+/**
+ * A FULLY PRICED upcoming row — every key `EventUpcomingMatchSchema` requires
+ * plus the optional priced ones. Group 9's fixture publishes `upcoming: []`,
+ * which cannot exercise `phaseBUpcoming=scheduled` at all: with no rows there
+ * is nothing to reshape and the arm would pass vacuously.
+ */
+function pricedUpcomingRow(matchNumber: number): Record<string, unknown> {
+  return {
+    matchKey: `${SEED_EVENT_KEY}_qm${matchNumber}`,
+    compLevel: "qm",
+    setNumber: 1,
+    matchNumber,
+    sortTime: 1_770_000_000 + matchNumber,
+    redTeams: SEED_ROSTER.slice(0, 3),
+    blueTeams: SEED_ROSTER.slice(3, 6),
+    predictedWinner: "red",
+    pRedWin: 0.62,
+    predictedRedScore: 121.5,
+    predictedBlueScore: 98.25,
+    redScoreVarianceOwn: 210.5,
+    blueScoreVarianceOwn: 198.25,
+    redMatchBandVariance: 44.5,
+    blueMatchBandVariance: 41.25,
+    redRpPmf: [0.25, 0.35, 0.4],
+    blueRpPmf: [0.4, 0.35, 0.25],
+    matchOutcomePmf: [0.62, 0.03, 0.35],
+    redBonusRp: [0.5, 0.25],
+    blueBonusRp: [0.45, 0.2],
+  };
+}
+
+const PRICED_UPCOMING_ROWS = 4;
+
+/** Group 9's published artifact, carrying a real `state` block AND priced upcoming rows. */
+function publishedEventWithPricedUpcoming(db: FakeD1Database, rows: number): unknown {
+  const base = publishedEventArtifact(db, true) as Record<string, unknown>;
+  return { ...base, upcoming: Array.from({ length: rows }, (_, i) => pricedUpcomingRow(i + 1)) };
+}
+
+describe("stateProbe — Group 10: the Phase B sub-arms (phaseBSkip, phaseBUpcoming)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** `rosterAt` cycles 6 at a time, so 2 folded matches touch teams 1-12. That is the default `phaseBTeams`. */
+  const EXPECTED_TEAMS = 12;
+  /** `buildEventStateBlock` over the seeded rows: one league row plus 21 team rows. */
+  const EXPECTED_STATE_ROWS = 1 + SEED_ROSTER.length;
+
+  async function runSubArm(query: string, options: { upcomingRows?: number } = {}) {
+    const db = new FakeD1Database();
+    seedAllAlgorithms(db);
+    seedMeanShift(db, SEEDED_SHIFT);
+    const eventText = JSON.stringify(publishedEventWithPricedUpcoming(db, options.upcomingRows ?? PRICED_UPCOMING_ROWS));
+    const teamText = JSON.stringify(publishedTeamArtifact());
+    const recorded = installFetchRecorder((url) => (url.includes("/v1/event/") ? { status: 200, body: eventText } : { status: 200, body: teamText }));
+    const response = await stateProbe.fetch(new Request(`https://probe/?${query}`), { DB: db as unknown as D1Database });
+    const text = await response.text();
+    return { body: JSON.parse(text) as PhaseBArmBody, text, status: response.status, writes: db.writeStatementCount, recorded, eventText, teamText };
+  }
+
+  const BASE = `${ARM_QUERY}&phaseB=1`;
+
+  it("positive control: the priced-upcoming fixture really parses, and its rows are PRICED — so a reshape has something to remove", () => {
+    const db = new FakeD1Database();
+    seedAllAlgorithms(db);
+    const parsed = LiveEventArtifactSchema.parse(publishedEventWithPricedUpcoming(db, PRICED_UPCOMING_ROWS));
+    expect(parsed.upcoming).toHaveLength(PRICED_UPCOMING_ROWS);
+    // If this key were absent the row would already be schedule-only and the
+    // `scheduled` arm would measure nothing.
+    expect((parsed.upcoming[0] as { predictedWinner?: string }).predictedWinner).toBe("red");
+    expect(parsed.state?.rows).toHaveLength(EXPECTED_STATE_ROWS);
+  });
+
+  it("DEFAULT: no phaseBSkip and no phaseBUpcoming runs every component, echoes id \"all\", and is byte-identical to an empty phaseBSkip", async () => {
+    const bare = await runSubArm(BASE);
+    const emptySkip = await runSubArm(`${BASE}&phaseBSkip=`);
+
+    expect(bare.text).toBe(emptySkip.text);
+    expect(bare.status).toBe(200);
+    expect(bare.body.ok).toBe(true);
+    expect(bare.body.params.phaseBArm.id).toBe("all");
+    expect(bare.body.params.phaseBArm.ran).toEqual(PHASE_B_ALL_RAN);
+    expect(bare.body.params.phaseBUpcoming).toBe("published");
+    expect(bare.body.params.phaseBTeams).toBe(EXPECTED_TEAMS);
+
+    // The published shape is NOT reshaped, and says so with a zero rather than
+    // an absent key.
+    expect(bare.body.phaseB.eventUpcomingReshapedRows).toBe(0);
+    expect(bare.body.phaseB.reshapedEventTextBytes).toBe(0);
+    expect(bare.body.phaseB.eventArtifactBytes).toBe(bare.eventText.length);
+
+    expect(bare.body.phaseB.eventStateBlockPresent).toBe(true);
+    expect(bare.body.phaseB.stateBlockSynthesized).toBe(false);
+    expect(bare.body.phaseB.mergedEventStateRows).toBe(EXPECTED_STATE_ROWS);
+    expect(bare.body.phaseB.mergedEventUpcomingRows).toBe(ARM_UPCOMING);
+    expect(bare.body.phaseB.mergedEventPlayedRows).toBe(ARM_FOLDED);
+    expect(bare.body.phaseB.playedRowFactsBuilt).toBe(ARM_FOLDED);
+    expect(bare.body.phaseB.teamParsesRun).toBe(EXPECTED_TEAMS);
+    expect(bare.body.phaseB.teamMergesRun).toBe(EXPECTED_TEAMS);
+    expect(bare.body.phaseB.mergedEventBytes).toBeGreaterThan(0);
+    expect(bare.body.phaseB.mergedTeamBytes).toBeGreaterThan(0);
+
+    // No sub-arm warning at all: the default arm is not an ablated arm.
+    expect(bare.body.warnings).toEqual([]);
+    expect(bare.writes).toBe(0);
+  });
+
+  it("phaseBSkip=eventValidate: the merge runs on the RAW JSON.parse output — every merged counter is byte-for-byte the all arm's", async () => {
+    const all = await runSubArm(BASE);
+    const arm = await runSubArm(`${BASE}&phaseBSkip=eventValidate`);
+
+    expect(arm.status).toBe(200);
+    expect(arm.body.params.phaseBArm.id).toBe("skip:eventValidate");
+    expect(arm.body.params.phaseBArm.ran).toEqual({ ...PHASE_B_ALL_RAN, eventValidate: false });
+
+    // The whole point: skipping validation must not change the OUTPUT, only
+    // its cost. Pinned by equality on every merged counter.
+    expect(arm.body.phaseB.mergedEventBytes).toBe(all.body.phaseB.mergedEventBytes);
+    expect(arm.body.phaseB.mergedEventStateRows).toBe(all.body.phaseB.mergedEventStateRows);
+    expect(arm.body.phaseB.mergedEventUpcomingRows).toBe(all.body.phaseB.mergedEventUpcomingRows);
+    expect(arm.body.phaseB.mergedEventPlayedRows).toBe(all.body.phaseB.mergedEventPlayedRows);
+    expect(arm.body.phaseB.mergedTeamBytes).toBe(all.body.phaseB.mergedTeamBytes);
+    expect(arm.body.phaseB.teamParsesRun).toBe(EXPECTED_TEAMS);
+    expect(arm.body.phaseB.playedRowFactsBuilt).toBe(all.body.phaseB.playedRowFactsBuilt);
+
+    expect(arm.body.warnings).toHaveLength(1);
+    expect(arm.body.warnings[0]).toContain("PARTIALLY ABLATED PHASE B ARM");
+    expect(arm.body.warnings[0]).toContain("skipped eventValidate");
+    // Nothing was forced off, so the warning must not claim anything was.
+    expect(arm.body.warnings[0]).not.toContain("FORCED OFF");
+    expect(arm.writes).toBe(0);
+  });
+
+  it("phaseBSkip=eventMerge FORCES eventStringify off, reports BOTH in one warning, and zeroes every merged-event counter", async () => {
+    const all = await runSubArm(BASE);
+    const arm = await runSubArm(`${BASE}&phaseBSkip=eventMerge`);
+
+    expect(arm.status).toBe(200);
+    expect(arm.body.params.phaseBArm.id).toBe("skip:eventMerge");
+    expect(arm.body.params.phaseBArm.ran).toEqual({ ...PHASE_B_ALL_RAN, eventMerge: false, eventStringify: false });
+
+    expect(arm.body.phaseB.mergedEventBytes).toBe(0);
+    expect(arm.body.phaseB.mergedEventStateBlockPresent).toBe(false);
+    expect(arm.body.phaseB.mergedEventStateRows).toBe(0);
+    expect(arm.body.phaseB.mergedEventUpcomingRows).toBe(0);
+    expect(arm.body.phaseB.mergedEventPlayedRows).toBe(0);
+
+    // The team half is untouched — it is a separate root.
+    expect(arm.body.phaseB.teamParsesRun).toBe(EXPECTED_TEAMS);
+    expect(arm.body.phaseB.teamMergesRun).toBe(EXPECTED_TEAMS);
+    expect(arm.body.phaseB.mergedTeamBytes).toBe(all.body.phaseB.mergedTeamBytes);
+    // And so is the parse, which still ran.
+    expect(arm.body.phaseB.eventStateBlockPresent).toBe(true);
+    expect(arm.body.phaseB.playedRowFactsBuilt).toBe(all.body.phaseB.playedRowFactsBuilt);
+
+    expect(arm.body.warnings).toHaveLength(1);
+    expect(arm.body.warnings[0]).toContain("skipped eventMerge");
+    expect(arm.body.warnings[0]).toContain("FORCED OFF as dependents of a skipped root: eventStringify");
+    expect(arm.writes).toBe(0);
+  });
+
+  it("phaseBSkip=eventStringify: only the serialization disappears; the merge still ran and its row counters are the all arm's", async () => {
+    const all = await runSubArm(BASE);
+    const arm = await runSubArm(`${BASE}&phaseBSkip=eventStringify`);
+
+    expect(arm.body.params.phaseBArm.id).toBe("skip:eventStringify");
+    expect(arm.body.params.phaseBArm.ran).toEqual({ ...PHASE_B_ALL_RAN, eventStringify: false });
+    expect(arm.body.phaseB.mergedEventBytes).toBe(0);
+    // The merge itself ran, which is what separates this arm from eventMerge.
+    expect(arm.body.phaseB.mergedEventStateBlockPresent).toBe(true);
+    expect(arm.body.phaseB.mergedEventStateRows).toBe(all.body.phaseB.mergedEventStateRows);
+    expect(arm.body.phaseB.mergedEventUpcomingRows).toBe(all.body.phaseB.mergedEventUpcomingRows);
+    expect(arm.body.phaseB.mergedEventPlayedRows).toBe(all.body.phaseB.mergedEventPlayedRows);
+    expect(arm.body.phaseB.mergedTeamBytes).toBe(all.body.phaseB.mergedTeamBytes);
+  });
+
+  it("phaseBSkip=eventParse is the event half's ROOT: it forces validate/merge/stringify off, zeroes every event-half counter, and leaves the team half and playedRowFacts alone", async () => {
+    const all = await runSubArm(BASE);
+    const arm = await runSubArm(`${BASE}&phaseBSkip=eventParse`);
+
+    expect(arm.status).toBe(200);
+    expect(arm.body.ok).toBe(true);
+    expect(arm.body.params.phaseBArm.id).toBe("skip:eventParse");
+    expect(arm.body.params.phaseBArm.ran).toEqual({
+      ...PHASE_B_ALL_RAN,
+      eventParse: false,
+      eventValidate: false,
+      eventMerge: false,
+      eventStringify: false,
+    });
+
+    // Every event-half WORK counter, pinned by equality as a set.
+    expect({
+      eventStateBlockPresent: arm.body.phaseB.eventStateBlockPresent,
+      mergedEventBytes: arm.body.phaseB.mergedEventBytes,
+      mergedEventStateBlockPresent: arm.body.phaseB.mergedEventStateBlockPresent,
+      mergedEventStateRows: arm.body.phaseB.mergedEventStateRows,
+      mergedEventUpcomingRows: arm.body.phaseB.mergedEventUpcomingRows,
+      mergedEventPlayedRows: arm.body.phaseB.mergedEventPlayedRows,
+    }).toEqual({
+      eventStateBlockPresent: false,
+      mergedEventBytes: 0,
+      mergedEventStateBlockPresent: false,
+      mergedEventStateRows: 0,
+      mergedEventUpcomingRows: 0,
+      mergedEventPlayedRows: 0,
+    });
+
+    // playedRowFactsFor runs in EVERY arm, so it cancels in every difference.
+    expect(arm.body.phaseB.playedRowFactsBuilt).toBe(all.body.phaseB.playedRowFactsBuilt);
+    expect(arm.body.phaseB.playedRowFactsBuilt).toBe(ARM_FOLDED);
+    // The team half is a separate root and is untouched.
+    expect(arm.body.phaseB.teamParsesRun).toBe(EXPECTED_TEAMS);
+    expect(arm.body.phaseB.teamMergesRun).toBe(EXPECTED_TEAMS);
+    expect(arm.body.phaseB.mergedTeamBytes).toBe(all.body.phaseB.mergedTeamBytes);
+    // The fetch still happened; only the parse of its bytes did not.
+    expect(arm.body.phaseB.eventArtifactBytes).toBe(all.body.phaseB.eventArtifactBytes);
+
+    // THE DOCUMENTED ASYMMETRY: with no parsed object to ask, the probe cannot
+    // know the published artifact carried a block, so it synthesizes one
+    // anyway. Out of season — where no artifact carries a block and the full
+    // arm synthesizes too — the term cancels; here, with a block present, the
+    // skipped arm pays one the full arm did not.
+    expect(all.body.phaseB.stateBlockSynthesized).toBe(false);
+    expect(arm.body.phaseB.stateBlockSynthesized).toBe(true);
+    expect(arm.body.warnings.filter((w) => w.includes("synthesized"))).toHaveLength(1);
+    expect(arm.writes).toBe(0);
+  });
+
+  it("naming a dependent alongside its skipped root changes nothing further: the id and the ran set are identical to naming the root alone", async () => {
+    const rootOnly = await runSubArm(`${BASE}&phaseBSkip=eventParse`);
+    const rootAndDependents = await runSubArm(`${BASE}&phaseBSkip=eventParse,eventValidate,eventMerge,eventStringify`);
+
+    expect(rootAndDependents.body.params.phaseBArm.id).toBe("skip:eventParse");
+    expect(rootAndDependents.body.params.phaseBArm.ran).toEqual(rootOnly.body.params.phaseBArm.ran);
+    expect(rootAndDependents.body.phaseB).toEqual(rootOnly.body.phaseB);
+  });
+
+  it("phaseBTeams=0 is the TEAM half's root: zero team parses and zero team merges — where it used to report one parse", async () => {
+    const zero = await runSubArm(`${BASE}&phaseBTeams=0`);
+    const full = await runSubArm(`${BASE}&phaseBTeams=12`);
+
+    expect(zero.body.params.phaseBTeams).toBe(0);
+    expect(zero.body.phaseB.teamParsesRun).toBe(0);
+    expect(zero.body.phaseB.teamMergesRun).toBe(0);
+    expect(zero.body.phaseB.mergedTeamBytes).toBe(0);
+    // The event half is untouched by the team root.
+    expect(zero.body.phaseB.mergedEventBytes).toBe(full.body.phaseB.mergedEventBytes);
+
+    // And the 12-team total is UNCHANGED by moving the parse into the loop.
+    expect(full.body.phaseB.teamParsesRun).toBe(EXPECTED_TEAMS);
+    expect(full.body.phaseB.teamMergesRun).toBe(EXPECTED_TEAMS);
+  });
+
+  it("phaseBSkip=teamValidate: the loop's JSON.parse still runs every iteration, and the merged team bytes are the all arm's", async () => {
+    const all = await runSubArm(BASE);
+    const arm = await runSubArm(`${BASE}&phaseBSkip=teamValidate`);
+
+    expect(arm.body.params.phaseBArm.id).toBe("skip:teamValidate");
+    expect(arm.body.params.phaseBArm.ran).toEqual({ ...PHASE_B_ALL_RAN, teamValidate: false });
+    expect(arm.body.phaseB.teamParsesRun).toBe(EXPECTED_TEAMS);
+    expect(arm.body.phaseB.teamMergesRun).toBe(EXPECTED_TEAMS);
+    expect(arm.body.phaseB.mergedTeamBytes).toBe(all.body.phaseB.mergedTeamBytes);
+    expect(arm.body.phaseB.mergedEventBytes).toBe(all.body.phaseB.mergedEventBytes);
+  });
+
+  it("phaseBSkip=teamMerge FORCES teamStringify off and names it; the parses still run", async () => {
+    const all = await runSubArm(BASE);
+    const arm = await runSubArm(`${BASE}&phaseBSkip=teamMerge`);
+
+    expect(arm.body.params.phaseBArm.id).toBe("skip:teamMerge");
+    expect(arm.body.params.phaseBArm.ran).toEqual({ ...PHASE_B_ALL_RAN, teamMerge: false, teamStringify: false });
+    expect(arm.body.phaseB.teamParsesRun).toBe(EXPECTED_TEAMS);
+    expect(arm.body.phaseB.teamMergesRun).toBe(0);
+    expect(arm.body.phaseB.mergedTeamBytes).toBe(0);
+    expect(arm.body.phaseB.mergedEventBytes).toBe(all.body.phaseB.mergedEventBytes);
+    expect(arm.body.warnings).toHaveLength(1);
+    expect(arm.body.warnings[0]).toContain("FORCED OFF as dependents of a skipped root: teamStringify");
+  });
+
+  it("phaseBSkip=teamStringify: the merges still run, only their serialization disappears", async () => {
+    const all = await runSubArm(BASE);
+    const arm = await runSubArm(`${BASE}&phaseBSkip=teamStringify`);
+
+    expect(arm.body.params.phaseBArm.id).toBe("skip:teamStringify");
+    expect(arm.body.params.phaseBArm.ran).toEqual({ ...PHASE_B_ALL_RAN, teamStringify: false });
+    expect(arm.body.phaseB.teamParsesRun).toBe(EXPECTED_TEAMS);
+    expect(arm.body.phaseB.teamMergesRun).toBe(EXPECTED_TEAMS);
+    expect(arm.body.phaseB.mergedTeamBytes).toBe(0);
+    expect(arm.body.phaseB.mergedEventBytes).toBe(all.body.phaseB.mergedEventBytes);
+  });
+
+  it("an unrecognized phaseBSkip token skips NOTHING, says so, and names the valid components — it never silently discards the other names in the list", async () => {
+    const all = await runSubArm(BASE);
+    const arm = await runSubArm(`${BASE}&phaseBSkip=nonsense,eventMerge`);
+
+    expect(arm.body.params.phaseBArm.id).toBe("all");
+    expect(arm.body.params.phaseBArm.ran).toEqual(PHASE_B_ALL_RAN);
+    // Every counter is the full arm's: the valid `eventMerge` in the same list
+    // was NOT applied either, which is the rule, not an accident.
+    expect(arm.body.phaseB).toEqual(all.body.phaseB);
+
+    expect(arm.body.warnings).toHaveLength(1);
+    expect(arm.body.warnings[0]).toContain('"nonsense"');
+    expect(arm.body.warnings[0]).toContain("NO component was skipped");
+    expect(arm.body.warnings[0]).toContain("eventParse, eventValidate, eventMerge, eventStringify, teamValidate, teamMerge, teamStringify");
+    // The team half's root is not a component name, and the warning says so.
+    expect(arm.body.warnings[0]).toContain("phaseBTeams=0");
+  });
+
+  it("phaseBUpcoming=scheduled reshapes the priced rows to the seven schedule-only keys, reports the count and the reshaped size, and warns that its ABSOLUTE cpuTime is not comparable", async () => {
+    const published = await runSubArm(BASE);
+    const scheduled = await runSubArm(`${BASE}&phaseBUpcoming=scheduled`);
+
+    expect(scheduled.status).toBe(200);
+    expect(scheduled.body.ok).toBe(true);
+    expect(scheduled.body.params.phaseBUpcoming).toBe("scheduled");
+    expect(scheduled.body.phaseB.eventUpcomingReshapedRows).toBe(PRICED_UPCOMING_ROWS);
+
+    // The reshaped text is genuinely SMALLER — proof the priced keys were
+    // dropped rather than the rows merely copied.
+    expect(scheduled.body.phaseB.reshapedEventTextBytes).toBeGreaterThan(0);
+    expect(scheduled.body.phaseB.reshapedEventTextBytes).toBeLessThan(scheduled.body.phaseB.eventArtifactBytes);
+    // `eventArtifactBytes` stays the FETCHED size in both arms.
+    expect(scheduled.body.phaseB.eventArtifactBytes).toBe(published.body.phaseB.eventArtifactBytes);
+
+    // The merge replaces `upcoming` wholesale from Phase A's schedule, so the
+    // reshape changes the parse COST and nothing about the output.
+    expect(scheduled.body.phaseB.mergedEventBytes).toBe(published.body.phaseB.mergedEventBytes);
+    expect(scheduled.body.phaseB.mergedEventUpcomingRows).toBe(published.body.phaseB.mergedEventUpcomingRows);
+    expect(scheduled.body.phaseB.mergedTeamBytes).toBe(published.body.phaseB.mergedTeamBytes);
+
+    expect(scheduled.body.warnings).toHaveLength(1);
+    expect(scheduled.body.warnings[0]).toContain("phaseBUpcoming=scheduled");
+    expect(scheduled.body.warnings[0]).toContain("NOT comparable");
+    expect(scheduled.writes).toBe(0);
+  });
+
+  it("the reshape runs in EVERY arm, including the one that skips the parse — that is what makes it cancel in the difference", async () => {
+    const schedAll = await runSubArm(`${BASE}&phaseBUpcoming=scheduled`);
+    const schedSkipParse = await runSubArm(`${BASE}&phaseBUpcoming=scheduled&phaseBSkip=eventParse`);
+
+    expect(schedSkipParse.body.params.phaseBArm.ran.eventParse).toBe(false);
+    // Identical reshape work in both arms of the pair, pinned by equality.
+    expect(schedSkipParse.body.phaseB.eventUpcomingReshapedRows).toBe(schedAll.body.phaseB.eventUpcomingReshapedRows);
+    expect(schedSkipParse.body.phaseB.reshapedEventTextBytes).toBe(schedAll.body.phaseB.reshapedEventTextBytes);
+    expect(schedSkipParse.body.phaseB.eventUpcomingReshapedRows).toBe(PRICED_UPCOMING_ROWS);
+    // And the parse really did not run.
+    expect(schedSkipParse.body.phaseB.mergedEventBytes).toBe(0);
+
+    const schedSkipValidate = await runSubArm(`${BASE}&phaseBUpcoming=scheduled&phaseBSkip=eventValidate`);
+    expect(schedSkipValidate.body.phaseB.eventUpcomingReshapedRows).toBe(PRICED_UPCOMING_ROWS);
+    expect(schedSkipValidate.body.phaseB.mergedEventBytes).toBe(schedAll.body.phaseB.mergedEventBytes);
+  });
+
+  it("an unrecognized phaseBUpcoming value runs the PUBLISHED shape and warns, rather than silently measuring the other shape", async () => {
+    const published = await runSubArm(BASE);
+    const arm = await runSubArm(`${BASE}&phaseBUpcoming=schedled`);
+
+    expect(arm.body.params.phaseBUpcoming).toBe("published");
+    expect(arm.body.phaseB.eventUpcomingReshapedRows).toBe(0);
+    expect(arm.body.phaseB.reshapedEventTextBytes).toBe(0);
+    expect(arm.body.phaseB.mergedEventBytes).toBe(published.body.phaseB.mergedEventBytes);
+    expect(arm.body.warnings).toHaveLength(1);
+    expect(arm.body.warnings[0]).toContain('phaseBUpcoming="schedled"');
+    expect(arm.body.warnings[0]).toContain("published | scheduled");
+  });
+
+  it("with phaseB OFF both new params are inert and say so — the emulation never ran, so there was nothing to ablate or reshape", async () => {
+    const arm = await runSubArm(`${ARM_QUERY}&phaseBSkip=eventParse&phaseBUpcoming=scheduled`);
+
+    expect(arm.body.params.phaseB).toBe(false);
+    expect(arm.body.params.phaseBArm.id).toBe("all");
+    expect(arm.body.params.phaseBArm.ran).toEqual(PHASE_B_ALL_RAN);
+    expect(arm.body.phaseB.ran).toBe(false);
+    expect(arm.body.phaseB.eventUpcomingReshapedRows).toBe(0);
+    expect(arm.recorded).toEqual([]);
+
+    expect(arm.body.warnings).toHaveLength(2);
+    expect(arm.body.warnings[0]).toContain("phaseBSkip=");
+    expect(arm.body.warnings[0]).toContain("ignored because phaseB is off");
+    expect(arm.body.warnings[1]).toContain("phaseBUpcoming=");
+    expect(arm.body.warnings[1]).toContain("ignored because phaseB is off");
+  });
+
+  it("every sub-arm is deterministic and still writes nothing: two identical runs are byte-identical", async () => {
+    for (const query of [
+      `${BASE}&phaseBSkip=eventParse`,
+      `${BASE}&phaseBSkip=teamMerge`,
+      `${BASE}&phaseBUpcoming=scheduled`,
+      `${BASE}&phaseBUpcoming=scheduled&phaseBSkip=eventValidate`,
+    ]) {
+      const a = await runSubArm(query);
+      const b = await runSubArm(query);
+      expect(a.text, query).toBe(b.text);
+      expect(a.writes, query).toBe(0);
+      expect(a.status, query).toBe(200);
+    }
+  });
+
+  it("the sub-arms never disturb Phase A: the fold block is identical across every one of them", async () => {
+    const baseline = await runSubArm(BASE);
+    const baselineFold = (JSON.parse(baseline.text) as { fold: unknown }).fold;
+    for (const query of [
+      `${BASE}&phaseBSkip=eventParse`,
+      `${BASE}&phaseBSkip=eventValidate`,
+      `${BASE}&phaseBSkip=eventMerge`,
+      `${BASE}&phaseBSkip=eventStringify`,
+      `${BASE}&phaseBTeams=0`,
+      `${BASE}&phaseBSkip=teamValidate`,
+      `${BASE}&phaseBSkip=teamMerge`,
+      `${BASE}&phaseBSkip=teamStringify`,
+      `${BASE}&phaseBUpcoming=scheduled`,
+    ]) {
+      const arm = await runSubArm(query);
+      expect((JSON.parse(arm.text) as { fold: unknown }).fold, query).toEqual(baselineFold);
+    }
   });
 });
 

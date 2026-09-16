@@ -38,6 +38,12 @@
  * `resolveRpArm`), so a single component's cost can be attributed rather than
  * the whole RP path at once. `?phaseB=1` adds the Phase B emulation on top;
  * it is OFF by default, so every RP arm is unchanged by its existence.
+ * `?phaseBSkip=` splits THAT arm into seven independently switchable Phase B
+ * components (see `resolvePhaseBArm`), and `?phaseBTeams=0` is the team half's
+ * own ablation root; `?phaseBUpcoming=scheduled` reshapes the fetched
+ * artifact's upcoming rows into the shape the live tick actually reads back.
+ * Both default to the pre-existing behaviour, so every arm measured before
+ * they existed stays comparable.
  * Runbook: `docs/worker-operations.md`, "Pre-event probe".
  *
  * SCOPE: Phase A (state read, fold, serialize, discard) plus, under
@@ -360,6 +366,255 @@ export function resolveRpArm(rpRaw: string | null, rpSkipRaw: string | null): Rp
   };
 }
 
+// ---------------------------------------------------------------------------
+// `phaseBSkip`: seven independently switchable Phase B components, layered on
+// top of `phaseB`, following the SAME conventions `rpSkip` uses above
+// (canonical order, dependency roots that force their dependents off, an
+// unrecognized token that skips NOTHING and says so, a retired-name registry).
+// See `runSprPhaseB`'s doc comment for exactly which tick operation each name
+// gates.
+//
+// THE TEAM HALF'S ROOT IS `phaseBTeams=0`, NOT A COMPONENT NAME. There is no
+// `teamParse` token and there never was: the team loop's `JSON.parse` is what
+// the loop exists to run, so the only way to remove it is to run zero
+// iterations. Do not go looking for a `teamParse` — `phaseBTeams=0` is it.
+// ---------------------------------------------------------------------------
+
+/** Canonical order. `eventParse` is the event half's dependency root; `eventMerge` and `teamMerge` are each a root for their own stringify. */
+const PHASE_B_ARM_COMPONENT_NAMES = [
+  "eventParse",
+  "eventValidate",
+  "eventMerge",
+  "eventStringify",
+  "teamValidate",
+  "teamMerge",
+  "teamStringify",
+] as const;
+type PhaseBArmComponentName = (typeof PHASE_B_ARM_COMPONENT_NAMES)[number];
+
+/**
+ * Phase B component names that USED to gate real work and no longer do.
+ * EMPTY TODAY, and present on purpose: `rpSkip` learned the hard way that a
+ * retired name falling through to the "unrecognized" path silently discards
+ * every OTHER valid name in the same list. When a Phase B component is
+ * retired, it goes here with its reason — it does not just disappear.
+ */
+const PHASE_B_ARM_RETIRED_COMPONENT_NAMES = [] as const;
+type PhaseBArmRetiredComponentName = (typeof PHASE_B_ARM_RETIRED_COMPONENT_NAMES)[number];
+
+/** Why each retired name reports NOT APPLICABLE, quoted verbatim into the warning. Empty while the registry is. */
+const PHASE_B_ARM_RETIRED_REASONS: Record<PhaseBArmRetiredComponentName, string> = {};
+
+interface PhaseBArmRan {
+  readonly eventParse: boolean;
+  readonly eventValidate: boolean;
+  readonly eventMerge: boolean;
+  readonly eventStringify: boolean;
+  readonly teamValidate: boolean;
+  readonly teamMerge: boolean;
+  readonly teamStringify: boolean;
+}
+
+interface PhaseBArmResolution {
+  readonly id: string;
+  readonly ran: PhaseBArmRan;
+  readonly warnings: readonly string[];
+}
+
+const PHASE_B_ARM_ALL: PhaseBArmRan = {
+  eventParse: true,
+  eventValidate: true,
+  eventMerge: true,
+  eventStringify: true,
+  teamValidate: true,
+  teamMerge: true,
+  teamStringify: true,
+};
+
+/** Splits on commas, trims, drops empties, matches case-insensitively against the seven live names and the (currently empty) retired set. A name in neither set is REPORTED, never guessed at. */
+function parsePhaseBSkipTokens(raw: string | null): {
+  skipped: Set<PhaseBArmComponentName>;
+  retired: PhaseBArmRetiredComponentName[];
+  unknown: string[];
+} {
+  if (raw === null || raw.trim() === "") return { skipped: new Set(), retired: [], unknown: [] };
+  const byLower = new Map<string, PhaseBArmComponentName>(PHASE_B_ARM_COMPONENT_NAMES.map((name) => [name.toLowerCase(), name]));
+  const retiredByLower = new Map<string, PhaseBArmRetiredComponentName>(
+    (PHASE_B_ARM_RETIRED_COMPONENT_NAMES as readonly PhaseBArmRetiredComponentName[]).map((name) => [String(name).toLowerCase(), name])
+  );
+  const skipped = new Set<PhaseBArmComponentName>();
+  const retired: PhaseBArmRetiredComponentName[] = [];
+  const unknown: string[] = [];
+  for (const token of raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0)) {
+    const canonical = byLower.get(token.toLowerCase());
+    if (canonical !== undefined) {
+      skipped.add(canonical);
+      continue;
+    }
+    const retiredName = retiredByLower.get(token.toLowerCase());
+    if (retiredName !== undefined) {
+      if (!retired.includes(retiredName)) retired.push(retiredName);
+      continue;
+    }
+    unknown.push(token);
+  }
+  return { skipped, retired, unknown };
+}
+
+/** One warning per retired name: recognized, changed nothing, and here is why. */
+function retiredPhaseBComponentWarnings(phaseBSkipRawTrimmed: string, retired: readonly PhaseBArmRetiredComponentName[]): string[] {
+  return retired.map(
+    (name) =>
+      `phaseBSkip="${phaseBSkipRawTrimmed}" names "${String(name)}", which is NOT APPLICABLE at this tick shape: ${PHASE_B_ARM_RETIRED_REASONS[name]}. It was recognized and changed nothing; every other name in the list applied normally`
+  );
+}
+
+/**
+ * `ran` from a validated skip set, with the three dependency rules:
+ *   - `eventParse` is the event half's ROOT: without a parsed object there is
+ *     nothing to validate, merge or stringify, so all three are forced off.
+ *   - `eventMerge` forces `eventStringify` off: there is no merged object to
+ *     serialize.
+ *   - `teamMerge` forces `teamStringify` off, for the same reason.
+ * `teamValidate` has no dependents — the team loop's own `JSON.parse` runs
+ * either way (the team half's root is `phaseBTeams=0`).
+ */
+function derivePhaseBArmRan(skipped: ReadonlySet<PhaseBArmComponentName>): PhaseBArmRan {
+  const eventParse = !skipped.has("eventParse");
+  const eventMerge = eventParse && !skipped.has("eventMerge");
+  const teamMerge = !skipped.has("teamMerge");
+  return {
+    eventParse,
+    eventValidate: eventParse && !skipped.has("eventValidate"),
+    eventMerge,
+    eventStringify: eventMerge && !skipped.has("eventStringify"),
+    teamValidate: !skipped.has("teamValidate"),
+    teamMerge,
+    teamStringify: teamMerge && !skipped.has("teamStringify"),
+  };
+}
+
+/** The names an id lists: canonical order, minus any a skipped ROOT already made moot (naming them changes nothing further, so an id must not pretend they did). */
+function displayedPhaseBSkippedNames(skipped: ReadonlySet<PhaseBArmComponentName>): PhaseBArmComponentName[] {
+  const parseSkipped = skipped.has("eventParse");
+  const eventMergeSkipped = parseSkipped || skipped.has("eventMerge");
+  const teamMergeSkipped = skipped.has("teamMerge");
+  return PHASE_B_ARM_COMPONENT_NAMES.filter((name) => {
+    if (!skipped.has(name)) return false;
+    if (parseSkipped && (name === "eventValidate" || name === "eventMerge" || name === "eventStringify")) return false;
+    if (eventMergeSkipped && name === "eventStringify") return false;
+    if (teamMergeSkipped && name === "teamStringify") return false;
+    return true;
+  });
+}
+
+/** The arm id: "all", or "skip:a,b,c" in canonical order. There is no "none": `phaseBSkip` cannot turn the team half off — only `phaseBTeams=0` can. */
+function buildPhaseBArmId(skipped: ReadonlySet<PhaseBArmComponentName>): string {
+  const displayed = displayedPhaseBSkippedNames(skipped);
+  return displayed.length === 0 ? "all" : `skip:${displayed.join(",")}`;
+}
+
+/**
+ * Pure resolver for `phaseBSkip`, layered under `phaseB` exactly as
+ * `resolveRpArm` layers `rpSkip` under `rp`. `phaseB` off always wins: the
+ * emulation does not run at all, so nothing was ablated and the id stays
+ * "all"; a supplied `phaseBSkip` gets a warning saying it had no effect.
+ *
+ * A dependent forced off by a skipped ROOT is NAMED in the warning, never left
+ * silently off — that is the whole difference between an arm a reader can
+ * attribute a `cpuTime` to and one they cannot.
+ */
+export function resolvePhaseBArm(phaseBEnabled: boolean, phaseBSkipRaw: string | null): PhaseBArmResolution {
+  const phaseBSkipRawTrimmed = phaseBSkipRaw?.trim() ?? "";
+  const supplied = phaseBSkipRawTrimmed !== "";
+
+  if (!phaseBEnabled) {
+    return {
+      id: "all",
+      ran: PHASE_B_ARM_ALL,
+      warnings: supplied
+        ? [`phaseBSkip="${phaseBSkipRawTrimmed}" was ignored because phaseB is off — the Phase B emulation did not run at all, so there was nothing to ablate`]
+        : [],
+    };
+  }
+
+  const { skipped, retired, unknown } = parsePhaseBSkipTokens(phaseBSkipRaw);
+  const retiredWarnings = retiredPhaseBComponentWarnings(phaseBSkipRawTrimmed, retired);
+
+  if (unknown.length > 0) {
+    return {
+      id: "all",
+      ran: PHASE_B_ARM_ALL,
+      warnings: [
+        `phaseBSkip="${phaseBSkipRawTrimmed}" names unrecognized component(s) ${unknown.map((t) => `"${t}"`).join(", ")} — valid names are ${PHASE_B_ARM_COMPONENT_NAMES.join(", ")} (the team half's root is phaseBTeams=0, not a component name) — NO component was skipped`,
+        ...retiredWarnings,
+      ],
+    };
+  }
+
+  const ran = derivePhaseBArmRan(skipped);
+  const id = buildPhaseBArmId(skipped);
+
+  if (id === "all") return { id, ran, warnings: retiredWarnings };
+
+  const skippedNames = displayedPhaseBSkippedNames(skipped);
+  const forcedOff = PHASE_B_ARM_COMPONENT_NAMES.filter((name) => !ran[name] && !skipped.has(name));
+  const ranNames = PHASE_B_ARM_COMPONENT_NAMES.filter((name) => ran[name]);
+  return {
+    id,
+    ran,
+    warnings: [
+      `phaseBSkip="${phaseBSkipRawTrimmed}" — PARTIALLY ABLATED PHASE B ARM "${id}": skipped ${skippedNames.join(",")}${
+        forcedOff.length > 0 ? `; FORCED OFF as dependents of a skipped root: ${forcedOff.join(",")}` : ""
+      }; ran ${ranNames.length > 0 ? ranNames.join(",") : "(nothing)"}. Compare this cpuTime against an otherwise-identical phaseB=1 run`,
+      ...retiredWarnings,
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// `phaseBUpcoming`: which SHAPE the fetched event artifact's `upcoming` rows
+// are in before the measured region sees them.
+// ---------------------------------------------------------------------------
+
+/** The seven keys `EventScheduledMatchSchema` accepts, in `buildEventScheduledRow`'s own order. `sortTime` is omitted when the source row carries none, exactly as the tick omits it. */
+const PHASE_B_SCHEDULED_ROW_KEYS = ["matchKey", "compLevel", "setNumber", "matchNumber", "sortTime", "redTeams", "blueTeams"] as const;
+
+type PhaseBUpcomingShape = "published" | "scheduled";
+const PHASE_B_UPCOMING_SHAPES = ["published", "scheduled"] as const;
+
+/**
+ * `phaseBUpcoming`. DEFAULTS to `published` — the shape the public artifact
+ * actually carries today — so every arm measured before this param existed
+ * stays comparable. An unrecognized value runs the PUBLISHED shape and warns,
+ * rather than silently measuring the other shape.
+ */
+function parsePhaseBUpcomingParam(raw: string | null): { shape: PhaseBUpcomingShape; unrecognized: string | undefined } {
+  if (raw === null || raw.trim() === "") return { shape: "published", unrecognized: undefined };
+  const v = raw.trim().toLowerCase();
+  if (v === "published") return { shape: "published", unrecognized: undefined };
+  if (v === "scheduled") return { shape: "scheduled", unrecognized: undefined };
+  return { shape: "published", unrecognized: raw.trim() };
+}
+
+/**
+ * One `upcoming` row mapped down to the schedule-only shape the Worker itself
+ * writes (`buildEventScheduledRow` in `artifactMerge.ts`). Every priced key is
+ * DROPPED, which is the point: under `LiveEventArtifactSchema.upcoming`'s union
+ * a schedule-only row fails `EventUpcomingMatchSchema` on four missing required
+ * keys before `EventScheduledMatchSchema` accepts it, and that failure is what
+ * the live tick pays on every upcoming row on every tick after the first.
+ */
+function toScheduleOnlyUpcomingRow(row: unknown): unknown {
+  if (row === null || typeof row !== "object" || Array.isArray(row)) return row;
+  const source = row as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of PHASE_B_SCHEDULED_ROW_KEYS) {
+    if (source[key] !== undefined) out[key] = source[key];
+  }
+  return out;
+}
+
 function parseTeamsParam(raw: string | null): readonly string[] | undefined {
   if (raw === null || raw.trim() === "") return undefined;
   const keys = raw
@@ -419,7 +674,20 @@ interface ProbeParams {
   readonly algorithms: { readonly ids: readonly string[]; readonly warnings: readonly string[] };
   readonly phaseBEnabled: boolean;
   readonly phaseBUnrecognized: string | undefined;
-  /** `undefined` = not supplied; the default (the real touched-team count) is only knowable after the fold. */
+  /** The resolved Phase B ablation arm: `phaseB` layered under `phaseBSkip`'s seven components (see `resolvePhaseBArm`). */
+  readonly phaseBArm: PhaseBArmResolution;
+  /** Which shape the fetched event artifact's `upcoming` rows are put in before the measured region (see `parsePhaseBUpcomingParam`). */
+  readonly phaseBUpcoming: PhaseBUpcomingShape;
+  /** A `phaseBUpcoming=` value that was neither `published` nor `scheduled`, surfaced as a warning. */
+  readonly phaseBUpcomingUnrecognized: string | undefined;
+  /** Whether `phaseBUpcoming=` was supplied at all, so a request that supplies it with `phaseB` off can be told it had no effect. */
+  readonly phaseBUpcomingRawSupplied: boolean;
+  /**
+   * `undefined` = not supplied; the default (the real touched-team count) is
+   * only knowable after the fold. THIS IS THE TEAM HALF'S ABLATION ROOT:
+   * `phaseBTeams=0` is how the team half is removed, because `phaseBSkip` has
+   * no `teamParse` token (the loop's `JSON.parse` is what the loop is).
+   */
   readonly phaseBTeamsRaw: number | undefined;
   readonly phaseBEventOverride: string | undefined;
   /** `undefined` when an `artifactOrigin=` override was REJECTED — never silently replaced by the default. */
@@ -444,6 +712,8 @@ function parseParams(url: URL): ProbeParams {
   const rpArm = resolveRpArm(rpRaw, search.get("rpSkip"));
   const algorithms = parseAlgorithmsParam(search.get("algorithms"));
   const phaseB = parsePhaseBParam(search.get("phaseB"));
+  const phaseBArm = resolvePhaseBArm(phaseB.enabled, search.get("phaseBSkip"));
+  const phaseBUpcoming = parsePhaseBUpcomingParam(search.get("phaseBUpcoming"));
   const phaseBTeamsRaw = parseOptionalIntParam(search.get("phaseBTeams"));
   const phaseBEventOverride = search.get("phaseBEvent")?.trim() || undefined;
   const origin = parseArtifactOriginParam(search.get("artifactOrigin"));
@@ -461,6 +731,10 @@ function parseParams(url: URL): ProbeParams {
     algorithms,
     phaseBEnabled: phaseB.enabled,
     phaseBUnrecognized: phaseB.unrecognized,
+    phaseBArm,
+    phaseBUpcoming: phaseBUpcoming.shape,
+    phaseBUpcomingUnrecognized: phaseBUpcoming.unrecognized,
+    phaseBUpcomingRawSupplied: (search.get("phaseBUpcoming")?.trim() ?? "") !== "",
     phaseBTeamsRaw,
     phaseBEventOverride,
     artifactOrigin: origin.origin,
@@ -710,6 +984,15 @@ interface PhaseBResult {
   /** Bytes of the fetched event artifact. Fetch is I/O, so these bytes cost `cpuTime` nothing; the parse that follows does. */
   readonly eventArtifactBytes: number;
   readonly teamArtifactBytes: number;
+  /**
+   * `upcoming` rows rewritten to the schedule-only shape by
+   * `phaseBUpcoming=scheduled`. 0 under the default `published` shape. The
+   * reshape runs BEFORE the ablated region and in EVERY arm, including the one
+   * that skips `eventParse`, so it cancels in that arm's difference.
+   */
+  readonly eventUpcomingReshapedRows: number;
+  /** Bytes of the reshaped event text actually fed to the measured region; 0 under the default `published` shape, where the fetched text is used as-is. */
+  readonly reshapedEventTextBytes: number;
   /** Whether the PUBLISHED event artifact already carried a `state` block. Out of season it will not: blocks attach only to events with a schedule current within 7 days. */
   readonly eventStateBlockPresent: boolean;
   /** Whether the probe had to synthesize a block before merging. A synthesized block is sized by `teamCount`, so the merge below is a FLOOR for a 42-team regional, never a ceiling. */
@@ -723,10 +1006,15 @@ interface PhaseBResult {
   readonly mergedEventUpcomingRows: number;
   readonly mergedEventPlayedRows: number;
   /**
-   * Schema parses of a team artifact. The probe parses ONE team's fetched
-   * bytes N times: that prices N parses of a realistically-sized artifact, but
-   * a real tick parses N DIFFERENT teams' artifacts of similar size. Do not
-   * read this as N distinct teams.
+   * `JSON.parse` calls on the team artifact text — one per loop iteration, so
+   * this equals `phaseBTeams` in EVERY arm, including `phaseBSkip=teamValidate`
+   * (the schema validation sits on top of the parse and is reported separately
+   * by `params.phaseBArm.ran.teamValidate`). `phaseBTeams=0` is the team half's
+   * ablation root, and this reads 0 there.
+   *
+   * The probe parses ONE team's fetched bytes N times: that prices N parses of
+   * a realistically-sized artifact, but a real tick parses N DIFFERENT teams'
+   * artifacts of similar size. Do not read this as N distinct teams.
    */
   readonly teamParsesRun: number;
   readonly teamMergesRun: number;
@@ -739,6 +1027,8 @@ const PHASE_B_ZEROS = {
   ran: false,
   eventArtifactBytes: 0,
   teamArtifactBytes: 0,
+  eventUpcomingReshapedRows: 0,
+  reshapedEventTextBytes: 0,
   eventStateBlockPresent: false,
   stateBlockSynthesized: false,
   playedRowFactsBuilt: 0,
@@ -772,6 +1062,10 @@ interface ProbeResponseBody {
     readonly algorithms: readonly string[];
     /** Whether the Phase B emulation ran. Two arms can share an `rpArm.id` and differ only here. */
     readonly phaseB: boolean;
+    /** The resolved Phase B component arm: `id` ("all" | "skip:a,b,c") plus which of the seven components actually ran. Read this before trusting a `cpuTime` — a typo in `phaseBSkip` skips nothing. */
+    readonly phaseBArm: { readonly id: string; readonly ran: PhaseBArmRan };
+    /** Which shape the fetched event artifact's `upcoming` rows were in. A `scheduled` arm's ABSOLUTE cpuTime is not comparable to a `published` arm's — only its within-shape difference is. */
+    readonly phaseBUpcoming: PhaseBUpcomingShape;
     readonly phaseBTeams: number;
     readonly phaseBEvent: string;
     /** `null` when an `artifactOrigin=` override was rejected — the default is never silently substituted. */
@@ -1240,6 +1534,50 @@ function runSprFold(
  * Any failure throws, leaving every counter at 0 and the response 500, so the
  * driver's warm-up gate aborts rather than recording an arm that measured
  * nothing.
+ *
+ * `ran` — the resolved `phaseBSkip` component set (see `resolvePhaseBArm`) —
+ * gates seven of those operations independently:
+ *     1. `eventParse`: `JSON.parse` of the (possibly reshaped) event text.
+ *        ROOT of the event half: without it there is no object to validate,
+ *        merge or stringify, so all three are forced off
+ *     2. `eventValidate`: `LiveEventArtifactSchema.parse`. When skipped, the
+ *        raw `JSON.parse` output is CAST and fed straight to the merge — which
+ *        is exactly the trade the read-path fix would make permanent
+ *     3. `eventMerge`: `mergeEventArtifact`, the state-block splice included.
+ *        Forces `eventStringify` off
+ *     4. `eventStringify`: `JSON.stringify(mergedEvent)`
+ *     5. `teamValidate`: `TeamSeasonArtifactSchema.parse`, per team. The loop's
+ *        own `JSON.parse` runs either way
+ *     6. `teamMerge`: `mergeTeamSeasonArtifact`. Forces `teamStringify` off
+ *     7. `teamStringify`: `JSON.stringify(mergedTeam)`
+ *
+ * THE TEAM HALF'S ROOT IS `phaseBTeams=0`, not a component name — see
+ * `PHASE_B_ARM_COMPONENT_NAMES`' own comment. To make that root honest the
+ * team `JSON.parse` lives INSIDE the loop (it used to run once before it, so
+ * `phaseBTeams=0` still reported one parse); at `phaseBTeams=12` the total is
+ * unchanged, because 1 + 11 and 0 + 12 are the same twelve parses.
+ *
+ * `playedRowFactsFor` RUNS IN EVERY ARM, regardless of every skip above, so it
+ * cancels in every difference. It is not gateable and is not meant to be: it
+ * is Phase A's own output being shaped, not a read-path cost.
+ *
+ * `phaseBUpcoming=scheduled` REBUILDS the fetched event text's `upcoming` rows
+ * into the schedule-only shape the Worker itself writes — and therefore reads
+ * back on every tick after the first — BEFORE any of the seven components. It
+ * runs in every arm, including the `eventParse`-skipped one, so the reshape's
+ * own cost cancels in that arm's difference. Its absolute `cpuTime` is NOT
+ * comparable to a `published` arm's; only a within-shape difference is, and the
+ * response says so.
+ *
+ * ONE ASYMMETRY, DELIBERATE AND REPORTED: the state-block synthesis. When
+ * `eventParse` runs, a block is synthesized only if the published artifact
+ * carried none — today's behaviour, untouched. When `eventParse` is SKIPPED
+ * there is no parsed object to ask, so the synthesis runs unconditionally, so
+ * that out of season (where no published artifact carries a block, and both
+ * arms therefore synthesize) the term cancels exactly in `eventHalf`. In season,
+ * where the full arm would synthesize nothing, the skipped arm still pays one
+ * and `eventHalf` is UNDER-stated by that term. `stateBlockSynthesized` reports
+ * which case ran.
  */
 async function runSprPhaseB(params: {
   readonly origin: string;
@@ -1251,8 +1589,10 @@ async function runSprPhaseB(params: {
   readonly sprRows: readonly StateRow[];
   readonly phaseA: PhaseAOutput;
   readonly phaseBTeams: number;
+  readonly ran: PhaseBArmRan;
+  readonly upcomingShape: PhaseBUpcomingShape;
 }): Promise<{ result: PhaseBResult; warnings: string[] }> {
-  const { origin, phaseBEventKey, eventKey, season, eventType, teamKeys, sprRows, phaseA, phaseBTeams } = params;
+  const { origin, phaseBEventKey, eventKey, season, eventType, teamKeys, sprRows, phaseA, phaseBTeams, ran, upcomingShape } = params;
   const warnings: string[] = [];
 
   const firstTeamKey = teamKeys[0];
@@ -1263,24 +1603,57 @@ async function runSprPhaseB(params: {
   const eventText = await fetchArtifactText(origin, artifactKey({ page: "event", eventKey: phaseBEventKey, algorithmId: "spr", version: spr.version }));
   const teamText = await fetchArtifactText(origin, artifactKey({ page: "team", teamKey: firstTeamKey, year: season, algorithmId: "spr", version: spr.version }));
 
-  let parsedEvent: LiveEventArtifact;
-  try {
-    parsedEvent = LiveEventArtifactSchema.parse(JSON.parse(eventText));
-  } catch (err) {
-    throw new ProbePhaseBError("EventArtifactParseFailed", err instanceof Error ? err.message : String(err));
+  // The reshape: before every gated component, in every arm, so its own cost
+  // cancels in whichever difference the caller takes.
+  let measuredEventText = eventText;
+  let eventUpcomingReshapedRows = 0;
+  let reshapedEventTextBytes = 0;
+  if (upcomingShape === "scheduled") {
+    try {
+      const raw = JSON.parse(eventText) as Record<string, unknown>;
+      const rows = Array.isArray(raw.upcoming) ? raw.upcoming : [];
+      const reshaped = rows.map(toScheduleOnlyUpcomingRow);
+      eventUpcomingReshapedRows = reshaped.length;
+      // Spread-then-override keeps `upcoming` in its original key position, so
+      // the reshaped text differs from the fetched one in row CONTENT only.
+      measuredEventText = JSON.stringify({ ...raw, upcoming: reshaped });
+      reshapedEventTextBytes = measuredEventText.length;
+    } catch (err) {
+      throw new ProbePhaseBError("EventUpcomingReshapeFailed", err instanceof Error ? err.message : String(err));
+    }
+    warnings.push(
+      `phaseBUpcoming=scheduled — the fetched event artifact's ${eventUpcomingReshapedRows} upcoming row(s) were rewritten to the seven schedule-only keys the Worker itself writes, so the parse below prices the shape the LIVE tick reads back rather than the published one. This arm's ABSOLUTE cpuTime is NOT comparable to a published-shape arm's — the reshape itself costs CPU and the payload size changes. Only a difference between two scheduled-shape arms is`
+    );
   }
 
-  const eventStateBlockPresent = parsedEvent.state !== undefined;
-  let existingEvent: LiveEventArtifact = parsedEvent;
+  let parsedEvent: LiveEventArtifact | undefined;
+  if (ran.eventParse) {
+    try {
+      const rawEvent: unknown = JSON.parse(measuredEventText);
+      // Component `eventValidate`: when off the raw parse output is CAST, which
+      // is precisely the read-path trade being priced — never a second parse.
+      parsedEvent = ran.eventValidate ? LiveEventArtifactSchema.parse(rawEvent) : (rawEvent as LiveEventArtifact);
+    } catch (err) {
+      throw new ProbePhaseBError("EventArtifactParseFailed", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  const eventStateBlockPresent = parsedEvent?.state !== undefined;
+  let existingEvent: LiveEventArtifact | undefined = parsedEvent;
   let stateBlockSynthesized = false;
   if (!eventStateBlockPresent) {
     // Measuring the merge without a block would under-price the one term the
     // browser-pricing work actually GREW, so a block is synthesized instead.
+    // With `eventParse` skipped there is nothing to attach it to, but it is
+    // still BUILT (see this function's header: that is what makes the
+    // eventHalf difference cancel out of season).
+    let synthesized: LiveEventArtifact["state"];
     try {
-      existingEvent = { ...parsedEvent, state: buildEventStateBlock(sprRows, teamKeys) };
+      synthesized = buildEventStateBlock(sprRows, teamKeys);
     } catch (err) {
       throw new ProbePhaseBError("StateBlockSynthesisFailed", err instanceof Error ? err.message : String(err));
     }
+    if (parsedEvent !== undefined) existingEvent = { ...parsedEvent, state: synthesized };
     stateBlockSynthesized = true;
     warnings.push(
       `phaseB synthesized the event's state block: the published artifact for "${phaseBEventKey}" carried none (out of season no event does — blocks attach only to events with a schedule current within 7 days). A synthesized block is sized by teamCount (${teamKeys.length} rows), so the merge cost below is a FLOOR for a ~42-team regional, never a ceiling`
@@ -1297,42 +1670,50 @@ async function runSprPhaseB(params: {
     phaseA.observedBonusSides
   );
 
-  const mergedEvent = mergeEventArtifact({
-    existing: existingEvent,
-    eventKey,
-    season,
-    algorithmId: "spr",
-    algorithmVersion: spr.version,
-    eventType,
-    newlyFolded: phaseA.foldedMatches,
-    newPredictions: phaseA.newPredictions,
-    stillUpcoming: phaseA.scheduledMatches,
-    touchedTeams: phaseA.touchedTeams,
-    touchedMetrics: phaseA.touchedMetrics,
-    newBands: phaseA.newBands,
-    writtenRows: phaseA.changedRows,
-    playedRowFacts,
-    stamp: PROBE_MERGE_STAMP,
-  }) as { state?: { rows?: readonly unknown[] }; upcoming?: readonly unknown[]; matches?: readonly unknown[] };
-
-  const mergedEventBytes = JSON.stringify(mergedEvent).length;
-
-  let parsedTeam: TeamSeasonArtifact;
-  try {
-    parsedTeam = TeamSeasonArtifactSchema.parse(JSON.parse(teamText));
-  } catch (err) {
-    throw new ProbePhaseBError("TeamArtifactParseFailed", err instanceof Error ? err.message : String(err));
+  // Component `eventMerge`. Skipping it leaves every merged-event counter at 0
+  // and forces `eventStringify` off — there is nothing to serialize.
+  let mergedEvent: { state?: { rows?: readonly unknown[] }; upcoming?: readonly unknown[]; matches?: readonly unknown[] } | undefined;
+  if (ran.eventMerge) {
+    mergedEvent = mergeEventArtifact({
+      existing: existingEvent,
+      eventKey,
+      season,
+      algorithmId: "spr",
+      algorithmVersion: spr.version,
+      eventType,
+      newlyFolded: phaseA.foldedMatches,
+      newPredictions: phaseA.newPredictions,
+      stillUpcoming: phaseA.scheduledMatches,
+      touchedTeams: phaseA.touchedTeams,
+      touchedMetrics: phaseA.touchedMetrics,
+      newBands: phaseA.newBands,
+      writtenRows: phaseA.changedRows,
+      playedRowFacts,
+      stamp: PROBE_MERGE_STAMP,
+    }) as { state?: { rows?: readonly unknown[] }; upcoming?: readonly unknown[]; matches?: readonly unknown[] };
   }
 
-  let teamParsesRun = 1;
+  // Component `eventStringify`.
+  const mergedEventBytes = ran.eventStringify && mergedEvent !== undefined ? JSON.stringify(mergedEvent).length : 0;
+
+  let teamParsesRun = 0;
   let teamMergesRun = 0;
   let mergedTeamBytes = 0;
   for (let i = 0; i < phaseBTeams; i++) {
     const teamKey = teamKeys[i % teamKeys.length]!;
     // The SAME fetched bytes, re-parsed: see this function's header for why
-    // that is a realistic parse cost but not N distinct teams.
-    const existingTeam = i === 0 ? parsedTeam : TeamSeasonArtifactSchema.parse(JSON.parse(teamText));
-    if (i > 0) teamParsesRun++;
+    // that is a realistic parse cost but not N distinct teams. The parse lives
+    // HERE, inside the loop, so `phaseBTeams=0` really does report zero.
+    let existingTeam: TeamSeasonArtifact;
+    try {
+      const rawTeam: unknown = JSON.parse(teamText);
+      // Component `teamValidate`: when off the raw parse output is CAST.
+      existingTeam = ran.teamValidate ? TeamSeasonArtifactSchema.parse(rawTeam) : (rawTeam as TeamSeasonArtifact);
+    } catch (err) {
+      throw new ProbePhaseBError("TeamArtifactParseFailed", err instanceof Error ? err.message : String(err));
+    }
+    teamParsesRun++;
+    if (!ran.teamMerge) continue;
     const teamMatches = phaseA.foldedMatches.filter((m) => m.redTeams.includes(teamKey) || m.blueTeams.includes(teamKey));
     const mergedTeam = mergeTeamSeasonArtifact({
       existing: existingTeam,
@@ -1350,8 +1731,9 @@ async function runSprPhaseB(params: {
       stamp: PROBE_MERGE_STAMP,
       sigmaAfterTick: phaseA.touchedSigma.get(teamKey),
     });
-    mergedTeamBytes += JSON.stringify(mergedTeam).length;
     teamMergesRun++;
+    // Component `teamStringify`.
+    if (ran.teamStringify) mergedTeamBytes += JSON.stringify(mergedTeam).length;
   }
 
   return {
@@ -1359,14 +1741,16 @@ async function runSprPhaseB(params: {
       ran: true,
       eventArtifactBytes: eventText.length,
       teamArtifactBytes: teamText.length,
+      eventUpcomingReshapedRows,
+      reshapedEventTextBytes,
       eventStateBlockPresent,
       stateBlockSynthesized,
       playedRowFactsBuilt: playedRowFacts.size,
       mergedEventBytes,
-      mergedEventStateBlockPresent: mergedEvent.state !== undefined,
-      mergedEventStateRows: mergedEvent.state?.rows?.length ?? 0,
-      mergedEventUpcomingRows: mergedEvent.upcoming?.length ?? 0,
-      mergedEventPlayedRows: mergedEvent.matches?.length ?? 0,
+      mergedEventStateBlockPresent: mergedEvent?.state !== undefined,
+      mergedEventStateRows: mergedEvent?.state?.rows?.length ?? 0,
+      mergedEventUpcomingRows: mergedEvent?.upcoming?.length ?? 0,
+      mergedEventPlayedRows: mergedEvent?.matches?.length ?? 0,
       teamParsesRun,
       teamMergesRun,
       mergedTeamBytes,
@@ -1488,6 +1872,8 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
           sprRows,
           phaseA: folded.phaseA,
           phaseBTeams,
+          ran: params.phaseBArm.ran,
+          upcomingShape: params.phaseBUpcoming,
         });
         phaseB = outcome.result;
         phaseBWarnings.push(...outcome.warnings);
@@ -1523,6 +1909,17 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
     ...(params.phaseBUnrecognized !== undefined
       ? [`phaseB="${params.phaseBUnrecognized}" is not a recognized value (on: 1/on/true/yes; off: 0/off/false/no) — the Phase B emulation ran ENABLED; re-run with phaseB=0 if the cheaper arm was intended`]
       : []),
+    // phaseBSkip's own warnings (unknown token, a partially ablated arm with
+    // its forced dependents named, or the phaseB-is-off notice).
+    ...params.phaseBArm.warnings,
+    ...(params.phaseBUpcomingUnrecognized !== undefined
+      ? [
+          `phaseBUpcoming="${params.phaseBUpcomingUnrecognized}" is not a recognized value (${PHASE_B_UPCOMING_SHAPES.join(" | ")}) — the PUBLISHED shape ran, unreshaped; re-run with phaseBUpcoming=scheduled if the live row shape was intended`,
+        ]
+      : []),
+    ...(!params.phaseBEnabled && params.phaseBUpcomingRawSupplied
+      ? [`phaseBUpcoming= was ignored because phaseB is off — no artifact was fetched, so there were no upcoming rows to reshape`]
+      : []),
     ...(params.artifactOriginRejected !== undefined
       ? [`artifactOrigin="${params.artifactOriginRejected}" was REJECTED — an override must parse as an https: origin, and the probe never silently falls back to ${DEFAULT_ARTIFACT_ORIGIN}`]
       : []),
@@ -1546,6 +1943,8 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
       rpArm: { id: params.rpArm.id, ran: params.rpArm.ran },
       algorithms: params.algorithms.ids,
       phaseB: params.phaseBEnabled,
+      phaseBArm: { id: params.phaseBArm.id, ran: params.phaseBArm.ran },
+      phaseBUpcoming: params.phaseBUpcoming,
       phaseBTeams,
       phaseBEvent: phaseBEventKey,
       artifactOrigin: params.artifactOrigin ?? null,
