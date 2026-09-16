@@ -226,6 +226,85 @@ the fresh/reused split, parse `isolateRequest=N` from each tail event's logs. Ar
 `rpSkip=` (see `docs/worker-operations.md`, "Pre-event probe"). **The probe is LEFT DEPLOYED** at
 `28051f5c`.
 
+## RE-MEASURED AFTER BROWSER PRICING — Phase A is fixed, Phase B is the new blocker (2026-09-15, quick task 260915-qgf)
+
+**Headline: browser pricing did what it was chosen to do — Phase A's RP cost is no longer
+resolvable — and the first-ever Phase B measurement shows the artifact merge costs ~64 ms, so the
+tick is further over budget than when this todo opened.**
+
+### Provenance
+
+- Probe `51127dd1` re-mirrored to the tick at `7385bad6`; live Worker `43ed9472` from `61f79e0a`.
+  The probe's Phase B calls the tick's own `artifactMerge.ts`, not a copy.
+- 9 arms, 30 s spacing, 13 measured rounds each (126 requests), interleaved round-robin, zero non-ok
+  outcomes, all invariants PASS.
+- **The roster is pinned, not discovered** (`measure/arms.mjs` `WARM_ROSTER`): discovery picks up
+  keys with no RP or Sigma beliefs and the demo pseudo-team, which suppressed every pmf
+  (`rpPmfsProduced: 0`) and 404'd the Phase B team fetch. With the pinned roster: resumed 21,
+  bandsProduced 4, rpPmfsProduced 2.
+
+### Phase A: before and after, reused-isolate stratum
+
+| Arm | 2026-09-14 mean | 2026-09-15 mean |
+|---|---|---|
+| all RP on | 16.2 ms (p50 14) | **9.6 ms (p50 8), 17% over 10 ms** |
+| RP off (`none`) | 6.7 ms (p50 6) | 6.8 ms (p50 6) |
+| RP total (`all − none`) | **9.5 ± 2.1 ms, resolved** | **2.8 ± 1.8 ms, UNRESOLVED** |
+| upcoming-loop RP | 7.2 ± 2.1 ms, resolved | **retired — the loop no longer exists** |
+| formula | 6.0 ± 2.5 ms, resolved | 2.1 ± 1.8 ms, unresolved |
+
+Every RP component is now below resolution at n≈12. Counters confirm the shape change:
+`rpPmfsProduced` 34 → 2 and `bandsProduced` 124 → 4, both folded-only. Absolute counters are NOT
+comparable across the two dates; the arm differences and the method are.
+
+### Phase B: measured for the first time, and it dominates
+
+| Difference | Reused mean | Resolved? |
+|---|---|---|
+| **phaseB** (`allPhaseB − all`) | **+64.0 ± 9.3 ms** | resolved |
+| **phaseBNoRp** (`nonePhaseB − none`) | **+52.3 ± 7.5 ms** | resolved |
+
+Absolute: `allPhaseB` reused mean **73.6 ms**, p50 63, **100% of requests over 10 ms**. With RP fully
+off it is still 59.0 ms.
+
+What that arm actually did, per request: fetched a real 106,024 B event artifact and a 32,386 B team
+artifact; `JSON.parse` + `LiveEventArtifactSchema.parse`; synthesized and spliced a 22-row state
+block; merged 97 played rows, 60 upcoming rows and 2 newly folded matches; stringified 145,958 B;
+then parsed, merged and stringified 12 team artifacts (403,240 B total).
+
+**The cost is parse/validate/stringify of whole artifacts, not the fold.** R2's round trips are I/O
+and never entered `cpuTime`; only the JSON and zod work did. A real tick does the same work on 12
+*different* team artifacts, so this is a floor, not a worst case.
+
+### What this settles
+
+1. **Browser pricing was the right fix for the term it targeted.** Phase A's dominant cost is gone,
+   and RP is no longer separable from noise.
+2. **Phase A alone would now fit**, on the reused stratum: 9.6 ms mean, p50 8, 17% over — a spiky
+   tick, not a consistently-over-budget one, which is the distinction the budget's enforcement rule
+   turns on.
+3. **The whole tick does not fit, by a wide margin.** ~70 ms on every request is the 2026-08-28
+   condition, worse than the 13 ms that opened this todo. It was never visible before because every
+   measurement to date was Phase A only.
+4. **Fresh isolates remain their own term** (n too low here for a number; 2026-09-14 measured ~18 ms
+   with RP off). Nothing inside the tick fixes that.
+
+### Directions worth pricing for Phase B (none chosen)
+
+- **Stop re-validating what we wrote.** `LiveEventArtifactSchema.parse` on a 106 KB artifact runs
+  every tick against an object this Worker itself wrote a minute earlier. A cheap shape check on the
+  read path, with full validation kept at publish time, is the obvious first probe.
+- **Stop rewriting whole team-season artifacts.** 12 teams × (parse 32 KB + stringify 33 KB) every
+  tick, to append one match row each. A per-event or append-shaped artifact would cut it.
+- **Split Phase B across invocations**, as the tick-splitting direction below describes — but note
+  it is now Phase B, not Phase A, that needs the valve.
+- Re-measure with `phaseB=1` after any change; the arm exists.
+
+### The pre-season gate stays closed
+
+Not a decision this measurement can make on its own, and not the orchestrator's to make: presented
+to Jacob 2026-09-15 with these numbers.
+
 ## DIRECTION CHOSEN — browser pricing of upcoming matches (Jacob, 2026-09-15)
 
 Upcoming SPR matches are priced in the browser from published state. Neither the Worker nor the

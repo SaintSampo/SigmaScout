@@ -532,10 +532,25 @@ was taken with. **The gate stays in force** until step 4 re-measures the tick wi
 the remaining DATA-04 row-parity items land. The measurement above is the dated evidence the gate was
 set on; it no longer describes the current tick.
 
-**The probe was re-mirrored on 2026-09-15 (quick task 260915-qgf)** and no longer prices upcoming
-matches either, so the arm names and the `upcoming=` meaning below changed with it — see "Pre-event
-probe". The re-measurement itself is still outstanding; nothing here is settled by the re-mirror
-alone.
+**RE-MEASURED 2026-09-15 (quick task 260915-qgf), and the gate STAYS CLOSED — Jacob, 2026-09-15.**
+The probe was re-mirrored to the tick at `7385bad6` and gained a Phase B arm. 9 arms, 30 s spacing,
+13 rounds each, reused-isolate stratum:
+
+- **Phase A is fixed.** All RP on now costs 9.6 ms mean (p50 8), 17% of requests over 10 ms, against
+  16.2 ms on 2026-09-14. The RP path as a whole is 2.8 ± 1.8 ms and **no longer resolvable**; every
+  component is below resolution. Phase A on its own would fit.
+- **Phase B is the new blocker, measured for the first time: +64.0 ± 9.3 ms.** With RP fully off it
+  is still +52.3 ms. The `allPhaseB` arm's absolute mean is 73.6 ms with **100%** of requests over
+  10 ms. The cost is `JSON.parse` + zod validation + `JSON.stringify` of whole artifacts (a 106 KB
+  event artifact and 12 team artifacts per tick), not the fold. R2's round trips are I/O and never
+  entered `cpuTime`.
+- A real tick at ~70 ms against a 10 ms budget on every request is the 2026-08-28 condition, and
+  worse than the 13 ms this gate was set on. It was invisible until now because every prior
+  measurement was Phase A only.
+
+Full numbers, provenance and the directions worth pricing are in the todo's "RE-MEASURED AFTER
+BROWSER PRICING" section. The gate lifts only when Phase B's cost comes down and a re-measurement
+(the `phaseB=1` arm exists for exactly this) shows a tick that fits.
 
 ---
 

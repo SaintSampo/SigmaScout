@@ -24,7 +24,20 @@
  * keeps the event's `state` block alive (a block is dropped once no upcoming
  * match is left). Same query string, different tick.
  */
-export const COMMON_QUERY = "season=2026&teamCount=21&folded=2&upcoming=60&algorithms=spr";
+/**
+ * The 21 roster keys are pinned rather than discovered (orchestrator, 2026-09-15). Discovery orders
+ * `algorithm_state` by scope_key and picks up keys with no RP or Sigma beliefs (and the demo
+ * pseudo-team), which suppressed every RP pmf — `rpPmfsProduced: 0`, so the RP arms would have
+ * measured nothing — and 404'd phaseB's team-artifact fetch. These 21 all carry both passengers and
+ * have published team artifacts. With them: resumed 21, bandsProduced 4, rpPmfsProduced 2.
+ */
+const WARM_ROSTER = [
+  "frc1", "frc100", "frc10000", "frc10002", "frc10004", "frc10011", "frc10014",
+  "frc10015", "frc10016", "frc10017", "frc10019", "frc1002", "frc10021", "frc10029",
+  "frc10032", "frc10034", "frc10043", "frc10045", "frc10050", "frc10059", "frc10063",
+].join(",");
+
+export const COMMON_QUERY = `season=2026&teamCount=21&folded=2&upcoming=60&algorithms=spr&teams=${WARM_ROSTER}`;
 
 /**
  * The nine arms, in a fixed order — the same round-robin shape that produced
