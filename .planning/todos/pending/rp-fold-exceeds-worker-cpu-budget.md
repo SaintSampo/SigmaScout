@@ -305,6 +305,201 @@ and never entered `cpuTime`; only the JSON and zod work did. A real tick does th
 Not a decision this measurement can make on its own, and not the orchestrator's to make: presented
 to Jacob 2026-09-15 with these numbers.
 
+## PHASE B SPLIT — where the 64 ms goes (2026-09-15, quick task 260915-t7o)
+
+The +64.0 ± 9.3 ms lump the qgf re-measure left is now split into components. Two fixes were named
+above without numbers behind them; both were gated on thresholds registered **before** the
+measurement, and one of them came back below its bar and was **not built**. That is a result, not a
+gap.
+
+### Provenance
+
+`apps/worker/src/stateProbe.ts` as of commit `0890ac61`, which added a `phaseBSkip` arm gating seven
+Phase B components independently (`eventParse`, `eventValidate`, `eventMerge`, `eventStringify`,
+`teamValidate`, `teamMerge`, `teamStringify`) plus a `phaseBUpcoming=scheduled` arm that reshapes the
+fetched artifact's `upcoming` rows to the schedule-only shape the Worker itself writes. Rig:
+`.planning/quick/260915-t7o-cut-the-worker-artifact-merge-cpu-cost/measure/`, 13 arms with the pinned
+`WARM_ROSTER` (discovery picks belief-less teams and the demo pseudo-team, which suppresses every pmf
+and 404s the Phase B team fetch — the roster is pinned for that reason).
+
+**Two passes were run, and only one of them resolved anything.**
+
+| Pass | Spacing | Rounds | Verdict |
+|---|---|---|---|
+| Cold | 30 s | 12 | **Too noisy to resolve anything.** Several *skip* arms came out MORE expensive than the full arm, and both threshold quantities carried ±14 ms. Nothing was read off it. |
+| Warm | 200 ms | 40 | The pass that resolved F1 and F2. Understates ABSOLUTE cost (see the floors below), but the component ORDERING is consistent with the cold pass — the team half dominates in both. |
+
+Every number below is from the warm pass, `ok` samples only.
+
+### The measured split
+
+Whole Phase B ≈ **23 ms** on this pass, against the 64.0 ms the 30 s-spaced qgf run measured. The two
+are not the same quantity: see the floors.
+
+| Component | Mean | Share of Phase B |
+|---|---|---|
+| **Team half** (12 artifacts) | **~18.5 ms** | **~80%** |
+| — team validation (`TeamSeasonArtifactSchema.parse` ×12) | **~14.6 ms** | **~63%** — the single largest component of the whole of Phase B |
+| — team merge (`mergeTeamSeasonArtifact` ×12) | ~6.6 ms | |
+| — team stringify (×12) | ~5.2 ms | |
+| **Event half** (1 × ~106 KB artifact) | **~7.2 ms** | ~31% |
+| — event validation (`LiveEventArtifactSchema.parse`) | ~5.1 ms | |
+| — event merge (incl. the `state`-block splice) | ~3.5 ms | |
+| — event stringify | ~3.7 ms | |
+
+**The two threshold quantities, with SEs:**
+
+| Quantity | Measured | Resolved? | Pre-registered bar | Verdict |
+|---|---|---|---|---|
+| `eventValidateScheduledShape + teamValidate` (F2) | **19.5 ± 2.6 ms** | **yes** (mean > 2×SE) | ≥ 8 ms **and** resolved | **BUILD** |
+| `unionOrderPenalty` (F1) | **−0.3 ± 2.6 ms** | **no** | ≥ 3 ms **and** resolved | **DO NOT BUILD** |
+
+Those two are the only quantities an SE was computed for. **The per-component means in the table above
+carry no SE** and must not be quoted as if they did.
+
+### The components do not sum to their halves — read the residuals as a warning, not as numbers
+
+The event components sum to ~12.3 ms against a ~7.2 ms measured event half; the team components sum to
+~26.4 ms against a ~18.5 ms measured team half. Both over-account. The rig's derived residuals
+(`eventJsonParse`, `teamJsonParse`) are defined as *half minus the named components*, so both come out
+**negative**, which is not a cost and cannot be reported as one.
+
+That is the honest reading: **the ablation arms are not cleanly additive on this pass**, so the derived
+residuals are discarded rather than published. The measured pairwise differences stand; the arithmetic
+built on top of them does not. The most likely causes are the two floors below — the `exceededCpu`
+truncation in particular removes exactly the expensive tail of the *full* arm while removing less of
+each cheaper skip arm, which biases every `full − skip` difference upward and the halves downward.
+
+### `unionOrderPenalty` and what it says about the live vs published row shape
+
+The hypothesis was specific and checkable: `LiveEventArtifactSchema.upcoming` is
+`z.union([EventUpcomingMatchSchema, EventScheduledMatchSchema])`, the two options are mutually
+exclusive, and the Worker reads back its OWN schedule-only writes on every tick after the first — so
+every live upcoming row was failing an 8-refine, ~24-field schema before the strict one accepted it.
+`phaseBUpcoming=scheduled` exists to price exactly that, and it priced it at **−0.3 ± 2.6 ms**.
+
+Read plainly: **the union's order costs nothing measurable.** Whatever a failed first option costs
+inside zod, it is below what this instrument can see, which is precisely why the ≥ 3 ms bar was set
+where it was — below it the fix could never be *shown* to have worked. F1 is recorded here as a
+measured negative and is not to be re-proposed without a better instrument.
+
+### What was built, and what was not
+
+- **F1 — reorder the `upcoming` union: NOT BUILT.** Below its pre-registered bar and unresolved.
+  No line of `pageArtifacts.ts` changed.
+- **F2 — narrow the read path: BUILT** (commit `eb0f6b0d`). `readExistingEvent`/`readExistingTeam` now
+  call `apps/worker/src/artifactShapeCheck.ts`'s O(1) structural guards instead of
+  `LiveEventArtifactSchema.parse`/`TeamSeasonArtifactSchema.parse`.
+- **F3 — reshape the team artifacts: NOT BUILT by this plan, by design**, whatever the number: it
+  changes the published shape and the web's read path, and (b)/(d) below would change the per-tick
+  subrequest count the suite pins at 64. The written assessment is in this section instead.
+
+**What F2 gives up, and where it is recovered.** The guard asserts only what the merges dereference:
+object-ness, the `PagePreambleSchema` `schemaVersion` rule, and the arrays and nested objects the
+merges index into without an optional chain. It does **not** walk `matches`/`upcoming`/`teams` rows —
+that O(1) property is the whole point. So a bad ROW inside an otherwise well-shaped artifact now
+survives the read where a zod parse would have rejected it.
+
+That is recovered in three places, none of them optional:
+
+1. **`writeArtifactObject`'s `schema.parse` is untouched** and still runs before every put and before
+   `budget.tryConsume`. Every object in R2 was schema-validated by whichever writer wrote it — which is
+   also why the read-side parse was a *second* validation of already-validated bytes, costing the tick
+   ~19.5 ms for it. Nothing malformed can reach a browser, and a validation failure still costs zero
+   subrequests.
+2. **`writeArtifactWithBootstrapRetry`** (`scheduled.ts`) restores the degrade-to-bootstrap behaviour
+   the read parse used to provide. This is the one protection that genuinely needed recovering:
+   `TeamSeasonArtifactSchema` has no `.catch` anywhere in it, so a corrupt published team artifact
+   would otherwise fail the write, be swallowed by `runPhaseBAndReport`'s blanket catch, and stop that
+   team publishing **permanently** — the same object read back and failing identically every tick. The
+   retry re-runs the merge with `existing: undefined` and publishes that. It is deliberately NOT taken
+   when the budget was already consumed (the put itself failed — retrying would spend a second
+   subrequest on one artifact and break the 64) or on `ArtifactSecretLeakError`.
+3. **A malformed `state` block drops the BLOCK, not the artifact**, mirroring
+   `EventArtifactSchema.state`'s own `.catch(undefined)`. Rejecting instead would have quietly upgraded
+   a one-key problem into a full history loss on every tick — a behaviour the read-side parse never
+   had.
+
+Published bytes are unchanged for every valid input. The guard lets unknown top-level keys through
+where zod stripped them, so the two merge outputs can differ by exactly such a key; what
+`writeArtifactObject` serializes cannot, because it stringifies the output of the same
+`schema.parse`. `apps/worker/test/artifactShapeCheck.test.ts` pins
+`JSON.stringify(Schema.parse(merged))` equal across both read paths, key order included.
+
+### The probe follows the tick, so two arms changed meaning
+
+`eventValidate` and `teamValidate` still gate the read-path validation step, but since F2 that step is
+the structural guard, not the schema parse — the probe calls the tick's own code, never a superseded
+copy of it. **A before/after of those two arms across `eb0f6b0d` is therefore a measurement of F2
+itself, not two measurements of the same work.** `measure/arms.mjs` and the `docs/worker-operations.md`
+runbook both say so at each affected difference. Within a single deployed probe version both arms
+remain apples-to-apples, as always. `eventValidateScheduledShape` is now expected to collapse toward
+zero and to stop differing from `eventValidate`: the guard does not look at upcoming rows at all.
+
+### TEAM-ARTIFACT ASSESSMENT — the four options on the table
+
+**The argument that motivated this assessment has been partly spent by F2, and that has to be said
+first.** The case for reshaping the team artifacts was the measured share: the team half is ~18.5 ms of
+a ~23 ms Phase B, about 80%. But **~14.6 ms of that 18.5 ms was the team zod validation, and F2 just
+removed it.** The remaining team work is the merge (~6.6 ms) and the stringify (~5.2 ms) — still the
+largest remaining block, but no longer an 80% share of anything, and the non-additivity above means the
+post-F2 team half cannot be computed by subtraction. **It has to be re-measured (M3).**
+
+| Option | What it removes | What it costs | Verdict |
+|---|---|---|---|
+| **(a) Append-shaped or per-event team artifacts** | The whole-season parse *and* stringify — the only option that removes both | Changes the **published shape** and the web's read path for team pages and the team-page metric-history plot; needs a republish of every team artifact and a version bump | **Recommended — but not started until M3** |
+| **(b) Defer team-artifact rewrites to a slower cadence** | Some fraction of the team half, proportionally | A tick only runs when a match folds — roughly every 7 minutes — so deferring by **less than that defers nothing**, and deferring by more means a team page shows a played match its own event page already shows. Changes the per-tick subrequest count `scheduled.rp.test.ts` pins at 64 | Rejected: buys freshness-for-CPU at a bad rate |
+| **(c) Narrow what the tick rewrites** | — | A touched team **by definition just played**, so there is no unchanged team to skip. F2 was the only narrowing available without a shape change | **Exhausted.** Nothing left here |
+| **(d) Split Phase B across invocations** | Nothing — it redistributes cost, it does not reduce it | The valve this todo already names, and orthogonal to the merge cost. Changes the per-tick subrequest count pinned at 64 | Keep as the fallback valve, not as the fix |
+
+**Recommendation: (a), conditional on M3, and scoped as its own quick-task sequence — do not start it
+here.** The reasoning has two halves and both matter:
+
+- (c) is exhausted and (b)/(d) are not drop-ins — both change the per-tick subrequest count, which is
+  why neither can be slipped in behind a pinned 64. So if the team half still dominates after F2, (a)
+  is the only option that actually removes work.
+- But the number that justified (a) was ~80%, and ~63 of those ~80 points were the parse F2 deleted. It
+  would be dishonest to start a published-shape change on a share that no longer exists. **M3 decides
+  whether (a) is still worth its cost.**
+
+**What (a) costs the visitor:** not freshness. Per-event or append-shaped team artifacts are still
+written on the same tick, so a team page is exactly as current as it is today. The cost is **request
+count and payload shape** — a season view of a team that competed at four events fetches four smaller
+files instead of one large one, and the metric-history plot needs either its own file or a season-level
+rollup, since it is a whole-season series by construction. That is a real web change, not a Worker-only
+one, and it is the reason (a) is its own quick-task sequence rather than a follow-up commit here.
+
+By contrast **(b) is the option that costs freshness directly**, and (d) costs freshness on whichever
+half of Phase B loses the coin flip in a given invocation.
+
+### What this does NOT say
+
+Every floor the qgf measurement documented still applies, unchanged, plus two of this pass's own:
+
+1. **The `state` block is synthesized.** Out of season no published event carries one (blocks attach
+   only to events with a schedule current within 7 days), so the probe builds one from the rows it
+   read. It is sized by `teamCount`, so it under-prices a 42-team regional.
+2. **The N team merges parse ONE team's fetched bytes N times.** That is N parses of a realistic
+   artifact, not N different teams'.
+3. **One event.** A regional weekend runs several concurrently, and the CPU budget has no deferral
+   valve the way the subrequest budget does.
+4. **Phase A + Phase B only** — no TBA poll, no KV manifest read, no global rebuild.
+5. **200 ms spacing is far warmer than a real tick's cadence.** A real tick runs at most once a minute.
+   The absolute numbers here are a floor; the 30 s-spaced qgf run's 64.0 ms is closer to the real
+   shape, and this pass's ~23 ms whole-Phase-B is not a refutation of it.
+6. **28 of 40 requests per Phase B arm returned `exceededCpu`.** The platform terminated the isolate
+   for sustained over-budget work, observed directly. The analyzer excludes non-`ok` samples, so every
+   mean above is **biased toward the cheaper tail** — and unevenly across arms, which is the most
+   likely source of the non-additivity documented above.
+
+### The probe is LEFT DEPLOYED
+
+Deliberately. It is what prices F3 next, and it is what M3 re-measures with. **It must be redeployed at
+commit `eb0f6b0d` (or later) before M3**, because F2 changed the code the `eventValidate`/`teamValidate`
+arms gate — measuring the new tick with the old probe would price a read path production no longer
+runs. Record the redeployed version here when M3 runs. Delete the probe with
+`wrangler delete --config apps/worker/wrangler.probe.toml` when this todo closes, not before.
+
 ## DIRECTION CHOSEN — browser pricing of upcoming matches (Jacob, 2026-09-15)
 
 Upcoming SPR matches are priced in the browser from published state. Neither the Worker nor the
