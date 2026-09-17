@@ -141,6 +141,7 @@ describe("Header and body column order (260917-jaf)", () => {
     const skeletonPredictionHeader = skeletonHeaders[2];
     expect(skeletonPredictionHeader?.textContent?.trim()).toBe("Prediction");
     expect(skeletonPredictionHeader?.classList.contains("match-table-rule")).toBe(true);
+    expect(skeletonPredictionHeader?.classList.contains("text-role-label")).toBe(true);
   });
 
   it("the Prediction header and every predicted-score cell carry the shared rule class", () => {
@@ -149,6 +150,10 @@ describe("Header and body column order (260917-jaf)", () => {
     const predictionHeader = headers[2];
     expect(predictionHeader?.textContent?.trim()).toBe("Prediction");
     expect(predictionHeader?.classList.contains("match-table-rule")).toBe(true);
+    // tailwind-merge drops `text-role-label` when it shares a `cn()` call with
+    // the arbitrary muted text colour; the rule class must never cost the
+    // header its type role.
+    expect(predictionHeader?.classList.contains("text-role-label")).toBe(true);
     const predictedCell = screen.getByTestId("predicted-score-m1");
     expect(predictedCell.classList.contains("match-table-rule")).toBe(true);
   });

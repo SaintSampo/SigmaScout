@@ -900,6 +900,10 @@ describe("Header and body column order (260917-jaf)", () => {
     const headers = screen.getAllByRole("columnheader");
     const predictionHeader = headers[3];
     expect(predictionHeader?.classList.contains("match-table-rule")).toBe(true);
+    // tailwind-merge drops `text-role-label` when it shares a `cn()` call with
+    // the arbitrary muted text colour, and the header then renders at body
+    // size in primary ink. The rule class must never cost the header its type role.
+    expect(predictionHeader?.classList.contains("text-role-label")).toBe(true);
     for (const header of headers) {
       if (header !== predictionHeader) {
         expect(header.classList.contains("match-table-rule")).toBe(false);

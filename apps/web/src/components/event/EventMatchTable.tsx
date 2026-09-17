@@ -220,7 +220,7 @@ export function EventMatchTable({ rows, domain, season, algorithm }: EventMatchT
             <span className="text-role-label text-[var(--color-text-muted)]">Match</span>
           </th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Actual</th>
-          <th className={cn("text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]", "match-table-rule")}>Prediction</th>
+          <th className="match-table-rule text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Prediction</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Confidence</th>
           <th className="p-[var(--spacing-sm)] pl-[var(--spacing-lg)] text-left">
             <AxisHeader domain={domain} />
@@ -249,7 +249,7 @@ export function EventMatchTableSkeleton({ rowCount }: { rowCount: number }) {
       <thead>
         <tr>
           {EVENT_MATCH_TABLE_HEADERS.map((label, index) => (
-            <th key={index} className={cn("text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]", label === "Prediction" && "match-table-rule")}>
+            <th key={index} className={`${label === "Prediction" ? "match-table-rule " : ""}text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]`}>
               {label}
             </th>
           ))}
