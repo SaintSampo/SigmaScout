@@ -2,7 +2,7 @@
  * Content coverage for `awardsContent.ts` (quick task 260912-tm8).
  *
  * Same two jobs, in the same deliberately different styles, as
- * `sigmaContent.test.ts`.
+ * `sprContent.test.ts`.
  *
  * STRUCTURE is pinned BY EQUALITY against a hand typed literal array, never by
  * iterating the exported constant. This repo has a recorded iteration list

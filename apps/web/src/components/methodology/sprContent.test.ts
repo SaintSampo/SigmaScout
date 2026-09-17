@@ -1,17 +1,17 @@
 /**
- * Content coverage for `sprContent.ts` (quick task 260910-vof).
+ * Content coverage for `sprContent.ts` (rewritten 2026-09-17 with sketch 018,
+ * the "What is SPR?" page).
  *
- * STRUCTURE is pinned BY EQUALITY against hand-typed literal arrays, never by
+ * STRUCTURE is pinned BY EQUALITY against a hand-typed literal array, never by
  * iterating the exported constant — this repo's recorded iteration list trap:
  * a test that only iterates a list silently absorbs an added or removed
- * entry. `sigmaContent.test.ts` established the same pin for its own six
- * sections.
+ * entry.
  *
- * FACTS and LIABILITIES are asserted at RUNTIME over the exported string
- * VALUES, never grepped from this file's source text — this module's own
- * header comment (and this file's) legitimately discuss the internal
- * algorithm id `spr` and the retired 78.05% figure in prose,
- * so a whole-file grep would false-positive on them.
+ * VOICE, FACTS and LIABILITIES are asserted at RUNTIME over the exported
+ * string VALUES, never grepped from this file's source text — this module's
+ * own header comment (and this file's) legitimately discuss the retired
+ * 78.05% figure and use dashes in prose, so a whole-file grep would
+ * false-positive on them.
  *
  * The DERIVATION gate recomputes SPR's rank weights independently, from
  * `SPR_PARAMS` directly, rather than importing `sprContent.ts`'s own derived
@@ -23,17 +23,19 @@ import { SPR_PARAMS } from "../../../../../packages/core/algorithms/spr.js";
 import { SPR_PAGE_TITLE, SPR_LEAD, SPR_SECTION_IDS, SPR_SECTIONS } from "./sprContent.js";
 
 /**
- * The six section ids, hand-typed. Changing `SPR_SECTIONS` without changing
+ * The four section ids, hand-typed. Changing `SPR_SECTIONS` without changing
  * this array is the failure this file exists to catch.
  */
 const EXPECTED_SECTION_IDS = [
   "what-the-number-is",
-  "not-a-solo-score",
-  "why-three-do-not-add-up",
-  "the-displayed-interval",
-  "spr-and-sigma-score-are-different",
-  "what-it-does-not-do",
+  "the-strongest-robot-counts-most",
+  "the-plus-or-minus",
+  "the-bars-on-a-match-row",
 ];
+
+const HYPHEN_MINUS = "-";
+const EN_DASH = "–";
+const EM_DASH = "—";
 
 /** The retired 78.05% figure this page must never transcribe. */
 const RETIRED_78_05_FIGURE = "78.05";
@@ -67,7 +69,7 @@ function joinedProse(): string {
 }
 
 describe("SPR_SECTIONS structure", () => {
-  it("exports exactly the six locked section ids, in order, by equality", () => {
+  it("exports exactly the four locked section ids, in order, by equality", () => {
     expect(SPR_SECTIONS.map((section) => section.id)).toEqual(EXPECTED_SECTION_IDS);
   });
 
@@ -79,8 +81,30 @@ describe("SPR_SECTIONS structure", () => {
     for (const section of SPR_SECTIONS) {
       expect(section.heading.trim().length, `section "${section.id}" has a blank heading`).toBeGreaterThan(0);
       expect(section.paragraphs.length, `section "${section.id}" has no paragraphs`).toBeGreaterThan(0);
-      for (const [index, paragraph] of section.paragraphs.entries()) {
-        expect(paragraph.trim().length, `section "${section.id}" paragraph ${index} is blank`).toBeGreaterThan(0);
+      for (const paragraph of section.paragraphs) {
+        expect(paragraph.trim().length, `section "${section.id}" has a blank paragraph`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("titles the page as the question it answers", () => {
+    expect(SPR_PAGE_TITLE).toBe("What is SPR?");
+  });
+});
+
+describe("voice gate over every exported string value", () => {
+  it("carries no hyphen minus, en dash or em dash anywhere", () => {
+    for (const { where, text } of collectStrings()) {
+      expect(text, `${where} contains a hyphen minus`).not.toContain(HYPHEN_MINUS);
+      expect(text, `${where} contains an en dash`).not.toContain(EN_DASH);
+      expect(text, `${where} contains an em dash`).not.toContain(EM_DASH);
+    }
+  });
+
+  it("starts every paragraph with a capital letter", () => {
+    for (const section of SPR_SECTIONS) {
+      for (const paragraph of section.paragraphs) {
+        expect(paragraph.charAt(0), `section "${section.id}" opens lowercase`).toBe(paragraph.charAt(0).toUpperCase());
       }
     }
   });
@@ -88,12 +112,15 @@ describe("SPR_SECTIONS structure", () => {
 
 describe("fact gate over the joined prose", () => {
   const requiredPhrases = [
+    "Sigma Power Rating",
     "points per match",
-    "foul-adjusted",
-    "three copies",
-    "do not sum",
+    "foul points removed",
+    "do not add up",
     "OPR",
-    "no ranking-point model",
+    "called Sigma",
+    "two matches out of three",
+    "7 in 10",
+    "win probability is worked out separately",
   ];
 
   it.each(requiredPhrases)("states the phrase %j somewhere", (phrase) => {

@@ -6,7 +6,7 @@
  * sentences per finding, and the numbers in small tables. The calibration,
  * qualifying and limits sections of the first write up were cut.
  *
- * Same discipline as `sigmaContent.ts` and `epaComparisonContent.ts`: this
+ * Same discipline as `sprContent.ts` and `epaComparisonContent.ts`: this
  * module is the single source of every string the page renders, table cells
  * included, so `awardsContent.test.ts` can pin the structure by equality and
  * check every string for voice violations without a second hand typed copy.

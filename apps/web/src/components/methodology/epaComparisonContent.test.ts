@@ -6,7 +6,7 @@
  * STRUCTURE is pinned BY EQUALITY against a hand-typed literal array, never
  * by iterating the exported constant — this repo's recorded iteration list
  * trap: a test that only iterates a list silently absorbs an added or removed
- * entry. `sigmaContent.test.ts` and `sprContent.test.ts` established the same
+ * entry. `sprContent.test.ts` established the same
  * pin.
  *
  * VOICE, FACT and LIABILITY gates are asserted at RUNTIME over the exported

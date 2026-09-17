@@ -26,20 +26,19 @@ const EXPECTED_CARD_ORDER = [
   "/methodology/spr",
   "/methodology/epa-vs-statbotics",
   "/methodology/compare",
-  "/methodology/sigma",
   "/methodology/awards",
   "/methodology/acknowledgments",
 ];
 
 describe("METHODOLOGY_CARDS", () => {
-  it("lists the six hub cards in their exact display order, by equality", () => {
+  it("lists the five hub cards in their exact display order, by equality", () => {
     expect(METHODOLOGY_CARDS.map((card) => card.to)).toEqual(EXPECTED_CARD_ORDER);
   });
 
-  it("keeps the SPR card first, the Sigma Score card fourth, the awards card fifth, and Acknowledgments last", () => {
+  it("keeps the SPR card first, the awards card fourth, and Acknowledgments last; the Sigma card is gone", () => {
     expect(METHODOLOGY_CARDS[0]?.to).toBe("/methodology/spr");
-    expect(METHODOLOGY_CARDS[3]?.to).toBe("/methodology/sigma");
-    expect(METHODOLOGY_CARDS[4]?.to).toBe("/methodology/awards");
+    expect(METHODOLOGY_CARDS[3]?.to).toBe("/methodology/awards");
+    expect(METHODOLOGY_CARDS.some((card) => (card.to as string) === "/methodology/sigma")).toBe(false);
     expect(METHODOLOGY_CARDS.at(-1)?.to).toBe("/methodology/acknowledgments");
   });
 
@@ -56,16 +55,11 @@ describe("METHODOLOGY_CARDS", () => {
     expect(new Set(testIds).size).toBe(testIds.length);
   });
 
-  it("carries no regular expression metacharacter in any title, because methodology.index.test.tsx builds a RegExp from it", () => {
-    for (const card of METHODOLOGY_CARDS) {
-      expect(card.title, `card "${card.to}" title would break a RegExp`).not.toMatch(/[.*+?^${}()|[\]\\]/);
-    }
-  });
-
-  it("keeps the Sigma Score card's own copy free of all three dash characters", () => {
-    const sigmaCard = METHODOLOGY_CARDS.find((card) => card.to === "/methodology/sigma");
-    expect(sigmaCard, "the sigma card is gone from the hub").toBeDefined();
-    for (const text of [sigmaCard?.title ?? "", sigmaCard?.blurb ?? ""]) {
+  it("keeps the SPR card's own copy free of all three dash characters", () => {
+    const sprCard = METHODOLOGY_CARDS.find((card) => card.to === "/methodology/spr");
+    expect(sprCard, "the SPR card is gone from the hub").toBeDefined();
+    expect(sprCard?.title).toBe("What is SPR?");
+    for (const text of [sprCard?.title ?? "", sprCard?.blurb ?? ""]) {
       expect(text).not.toContain(HYPHEN_MINUS);
       expect(text).not.toContain(EN_DASH);
       expect(text).not.toContain(EM_DASH);

@@ -19,7 +19,6 @@ export interface MethodologyCardDescriptor {
     | "/methodology/spr"
     | "/methodology/epa-vs-statbotics"
     | "/methodology/compare"
-    | "/methodology/sigma"
     | "/methodology/awards"
     | "/methodology/acknowledgments";
   readonly title: string;
@@ -38,14 +37,14 @@ export interface MethodologyCardDescriptor {
  * title while every existing test stayed green. `methodologyCardData.test.ts`
  * pins the order by equality for exactly that reason.
  *
- * A card's `title` must contain no regular expression metacharacter:
- * `methodology.index.test.tsx` builds a `RegExp` straight from it.
+ * A card's `title` may carry punctuation ("What is SPR?"):
+ * `methodology.index.test.tsx` escapes it before building a `RegExp`.
  */
 export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
   {
     to: "/methodology/spr",
-    title: "What SPR measures",
-    blurb: "SPR is the rating SigmaScout uses to rank teams. See what the number is and what it isn't.",
+    title: "What is SPR?",
+    blurb: "The rating SigmaScout uses to rank teams, the ± next to it, and the bars on a match row.",
     testId: "methodology-card-spr",
   },
   {
@@ -59,12 +58,6 @@ export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
     title: "Algorithm accuracy",
     blurb: "How SPR's predictions score against OPR and EPA, season by season.",
     testId: "methodology-card-compare",
-  },
-  {
-    to: "/methodology/sigma",
-    title: "Sigma Score and the match band",
-    blurb: "What a team's Sigma number means, and how to read the coloured bars on a match row.",
-    testId: "methodology-card-sigma",
   },
   {
     to: "/methodology/awards",

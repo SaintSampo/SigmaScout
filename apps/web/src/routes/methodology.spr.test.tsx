@@ -1,11 +1,8 @@
 /**
- * Route-level coverage for `/methodology/spr` (quick task 260910-vof).
- * Builds a small, self-contained route tree the same way
- * `methodology.sigma.test.tsx` does — the REAL exported `Route` object from
- * `methodology.spr.tsx` is under test.
- *
- * This page carries no dash ban (see `sprContent.ts`'s own header), so unlike
- * `methodology.sigma.test.tsx` this file has no rendered-DOM dash gate.
+ * Route-level coverage for `/methodology/spr`, the "What is SPR?" page
+ * (rewritten 2026-09-17, sketch 018). Builds a small, self-contained route
+ * tree — the REAL exported `Route` object from `methodology.spr.tsx` is
+ * under test.
  */
 import { describe, expect, it } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -58,15 +55,16 @@ describe("/methodology/spr", () => {
     expect(bodyText, "rendered text renders the retired display label").not.toContain("BPR");
   });
 
-  it("links to /methodology/compare for the measured accuracy numbers", async () => {
+  it("renders no hyphen minus, en dash or em dash anywhere in the page text", async () => {
     await renderMethodologySpr();
-    const links = screen.getAllByRole("link").filter((link) => link.getAttribute("href")?.includes("/methodology/compare") ?? false);
-    expect(links.length, "no link to /methodology/compare is rendered").toBeGreaterThan(0);
+    const bodyText = document.body.textContent ?? "";
+    expect(bodyText).not.toContain("-");
+    expect(bodyText).not.toContain("–");
+    expect(bodyText).not.toContain("—");
   });
 
-  it("links to /methodology/sigma to disambiguate SPR from Sigma Score", async () => {
+  it("carries no link out: the old Sigma page and its link are gone", async () => {
     await renderMethodologySpr();
-    const links = screen.getAllByRole("link").filter((link) => link.getAttribute("href")?.includes("/methodology/sigma") ?? false);
-    expect(links.length, "no link to /methodology/sigma is rendered").toBeGreaterThan(0);
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
   });
 });

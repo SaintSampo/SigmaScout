@@ -1,58 +1,44 @@
 /**
- * Content-as-data for `/methodology/spr` (quick task 260910-vof). Same
- * discipline as `sigmaContent.ts`: this module is the single source of every
- * prose string the page renders, so `sprContent.test.ts` can pin the section
- * set by equality and check every string for voice and fact violations
- * without a second hand-typed copy anywhere.
+ * Content-as-data for `/methodology/spr`, the "What is SPR?" page.
  *
- * Audience: FRC students and mentors. Plain language first, precise second.
+ * Rewritten 2026-09-17 from sketch 018. This one page replaces both the old
+ * "What SPR measures" page and the deleted "Sigma Score and the match band"
+ * page (`/methodology/sigma` now redirects here). The copy is Jacob's own
+ * trim of variant A: a lead and four short sections.
  *
- * UNLIKE `sigmaContent.ts`, this module carries NO dash ban. The person who
- * commissioned the Sigma Score page asked for no hyphens there; nobody asked
- * for that here, and this page needs hyphenated compounds to stay accurate
- * (`foul-adjusted`, `least-squares`). Do not add a dash gate to
- * `sprContent.test.ts` on the strength of the sibling file's pattern.
+ * Voice rules, binding on every exported string: NO dash characters at all
+ * (hyphen minus, en dash, em dash), flat and factual, short declarative
+ * sentences. The voice gate runs at RUNTIME over the exported string VALUES
+ * in `sprContent.test.ts`, never as a grep over this file's source.
  *
- * NOTE ON THIS COMMENT AND THIS FILE'S OTHER COMMENTS: the gates in
- * `sprContent.test.ts` run at RUNTIME over the exported string VALUES, never
- * as a grep over this file's source text. That is what lets this comment (and
- * others below) discuss the internal algorithm id `spr` and the retired
- * 78.05% figure in prose, while the page itself, which reads
- * only the exported values, states neither.
+ * DERIVED, NEVER TYPED: the three rank weights are computed from
+ * `SPR_PARAMS` (`w2`, `w3`), renormalized to sum to three exactly as
+ * `packages/core/algorithms/spr.ts` does, so a retune cannot leave a stale
+ * number on the page. The "7 in 10" figure is the alliance band's measured
+ * walk forward coverage across 2024 to 2026 (71.6% of 131,961 alliance
+ * results); restate it if that measurement is rerun.
  *
- * Every claim below is verified against `packages/core/algorithms/spr.ts` at
- * HEAD (the module header, `displaySdFactor`, `SPR_PARAMS`, the rank
- * weighting doc comment above `viewOfMap`, `foldRatings`'s credit allocation,
- * and `teamMetrics`), never transcribed from memory or from a prior version
- * of this file.
+ * Never render the internal algorithm id or the retired display label, and
+ * never transcribe the retired 78.05% figure.
  */
 import { SPR_PARAMS } from "../../../../../packages/core/algorithms/spr.js";
 
-/**
- * The three rank weights `viewOfMap` renormalizes to, recomputed here rather
- * than typed in, so this page's prose sentence cannot drift from the shipped
- * model the way a hand-typed number could. `SigmaPage.tsx`'s own header
- * documents the same never-retype-a-shipping-constant discipline for its
- * figures; this is that discipline applied to prose instead of a drawing.
- */
 const RANK_WEIGHT_BASE = [1, SPR_PARAMS.w2, SPR_PARAMS.w3];
 const RANK_WEIGHT_SUM = RANK_WEIGHT_BASE.reduce((sum, weight) => sum + weight, 0);
 const RANK_WEIGHT_NORM = RANK_WEIGHT_SUM > 0 ? 3 / RANK_WEIGHT_SUM : 1;
 const RANK_WEIGHTS = RANK_WEIGHT_BASE.map((weight) => weight * RANK_WEIGHT_NORM) as [number, number, number];
 const [RANK_WEIGHT_1, RANK_WEIGHT_2, RANK_WEIGHT_3] = RANK_WEIGHTS;
 
-export const SPR_PAGE_TITLE = "What SPR measures";
+export const SPR_PAGE_TITLE = "What is SPR?";
 
 export const SPR_LEAD =
-  "SPR, short for Sigma Power Rating, is the rating SigmaScout uses to rank teams. This page explains what the number is, why it is never a solo score, and where it stops.";
+  "SPR (Sigma Power Rating) is the rating SigmaScout uses to rank teams and predict matches. It estimates how many points a team adds to its alliance's score in a match.";
 
 export const SPR_SECTION_IDS = [
   "what-the-number-is",
-  "not-a-solo-score",
-  "why-three-do-not-add-up",
-  "the-displayed-interval",
-  "spr-and-sigma-score-are-different",
-  "what-it-does-not-do",
+  "the-strongest-robot-counts-most",
+  "the-plus-or-minus",
+  "the-bars-on-a-match-row",
 ] as const;
 export type SprSectionId = (typeof SPR_SECTION_IDS)[number];
 
@@ -67,48 +53,28 @@ export const SPR_SECTIONS: readonly SprSection[] = [
     id: "what-the-number-is",
     heading: "What the number is",
     paragraphs: [
-      "SPR states one number: how many points per match a team is expected to contribute to its alliance's score. The score itself is foul-adjusted first, so SPR describes what the robot actually did on the field rather than what the scoreboard read.",
-      "A team's SPR is exactly one third of what an alliance built from three copies of that robot would be predicted to score. That is not a loose comparison. SPR's rank weights are renormalized to sum to three by construction, so three identical ratings always add up to exactly three times the rating, which is what makes the one third framing precise.",
+      "SPR is points per match. FRC records only alliance scores, never what one robot scored, so SPR is worked out from alliance results with foul points removed.",
     ],
   },
   {
-    id: "not-a-solo-score",
-    heading: "Not a solo score",
+    id: "the-strongest-robot-counts-most",
+    heading: "The strongest robot counts most",
     paragraphs: [
-      "SPR is never a solo measurement. FRC records only alliance totals, never what one robot scored on its own, so every match's surprise, the gap between the predicted alliance score and the actual one, has to be split across the three robots that produced it. The split is not even: each team absorbs a share proportional to its own remaining uncertainty and its expected rank weight, so a team the model is still unsure about moves more, and a team the model expects to contribute less absorbs less.",
-      `A team's contribution also depends on who it plays with. Within an alliance the three robots are ranked by rating, and the largest weight is matched to the largest rating: the strongest robot on an alliance counts ${RANK_WEIGHT_1.toFixed(2)} times, the middle robot counts ${RANK_WEIGHT_2.toFixed(2)} times, and the weakest counts ${RANK_WEIGHT_3.toFixed(2)} times. That makes SPR a spread amplifier rather than a suppressor: an alliance built from one star robot and two weak partners is predicted to outscore three mediocre robots carrying the same total rating.`,
-      "SPR is also foul-adjusted a second way. Foul points, and the scorekeeper's own manual adjustment correction, are both subtracted from the target before SPR is fit to it, so the number describes robot output rather than scoreboard output.",
+      `Three SPRs do not add up to the alliance's predicted score the way three OPRs do. Within an alliance the strongest robot counts ${RANK_WEIGHT_1.toFixed(2)} times, the middle robot ${RANK_WEIGHT_2.toFixed(2)} times and the last robot ${RANK_WEIGHT_3.toFixed(2)} times.`,
     ],
   },
   {
-    id: "why-three-do-not-add-up",
-    heading: "Why three SPRs do not add up",
+    id: "the-plus-or-minus",
+    heading: "The ± next to it",
     paragraphs: [
-      "SPR is not an additive decomposition. Add the SPRs of an alliance's three teams together and the result is not the alliance's predicted score. Three teammates' SPRs simply do not sum.",
-      "That is a deliberate difference from OPR. OPR's least-squares definition is built so that an alliance's three OPRs do sum to its predicted score, and a reader coming from OPR will naturally expect SPR to behave the same way. It does not, because of the ranking and foul-adjustment mechanics described above.",
+      "The second number is called Sigma. It is how much a team's contribution moves from match to match. A team shown as 60.00 ± 8.00 lands within 8 points of its usual level in about two matches out of three.",
     ],
   },
   {
-    id: "the-displayed-interval",
-    heading: "The displayed interval",
+    id: "the-bars-on-a-match-row",
+    heading: "The bars on a match row",
     paragraphs: [
-      "Every SPR ships with a plus or minus range next to it. That range is calibrated separately from the internal variance the filter tracks while it is fitting the rating, because the two are not the same number. The filter's own variance runs wider than what is actually realized, so the raw filter number is never what is shown.",
-      "The displayed range is fit separately, against how often the filter's own misses actually landed inside one standard deviation, so the interval next to a team's SPR reads honestly on the page even though the filter's internal math runs wider than that.",
-    ],
-  },
-  {
-    id: "spr-and-sigma-score-are-different",
-    heading: "SPR and Sigma Score are different numbers",
-    paragraphs: [
-      "SPR and Sigma Score share their first word, and they answer different questions. SPR is the rating: how many points per match a team is expected to contribute. Sigma Score is a separate number about how much that contribution moves from match to match, and it is published for teams rated under SPR only.",
-    ],
-  },
-  {
-    id: "what-it-does-not-do",
-    heading: "What it does not do",
-    paragraphs: [
-      "SPR carries no ranking-point model of its own. SigmaScout builds ranking-point odds on top of SPR's score predictions from each robot's past results and its Sigma Score, and those odds are what the rank simulation draws from. OPR and EPA carry no ranking-point odds.",
-      "For how well SPR actually predicts match winners, the measured numbers live on the algorithm accuracy page rather than here.",
+      "Each alliance's three Sigmas combine into one band around its predicted score. Across 2024 to 2026 the band held ~7 in 10 results. Heavy overlap between red and blue means a close match. The win probability is worked out separately.",
     ],
   },
 ];

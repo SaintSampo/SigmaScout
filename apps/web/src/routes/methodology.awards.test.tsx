@@ -1,7 +1,7 @@
 /**
  * Route level coverage for `/methodology/awards` (quick task 260912-tm8).
  * Builds a small, self contained route tree the same way
- * `methodology.sigma.test.tsx` does, so the REAL exported `Route` object from
+ * `methodology.spr.test.tsx` does, so the REAL exported `Route` object from
  * `methodology.awards.tsx` is under test.
  *
  * The rendered DOM dash gate is kept even though this page has no figures, so

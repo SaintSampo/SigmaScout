@@ -65,6 +65,7 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 | 015 | awards-page-rewrite | How short can the Predicting awards page get on the goal / model / results outline, and do the numbers belong in prose or tables? | **B2 — tables, plus the SPR alone finding** | copy, methodology, awards, de-ai, tables |
 | 016 | epa-vs-statbotics-rewrite | How should the Our EPA vs Statbotics EPA page be cut down: trimmed cards, one comparison table, or results first with a plain list? | **B — one comparison table**, results section first | copy, methodology, epa, statbotics, de-ai, tables |
 | 017 | algorithm-accuracy-rewrite | How should the Algorithm accuracy page be cut down: new words only, tables all the way down, or one screen with details on demand? | **A — same layout, new words**, coverage section dropped | copy, methodology, compare, accuracy, calibration, coverage, de-ai |
+| 018 | what-is-spr | What should one short What is SPR? page look like, replacing both What SPR measures and Sigma Score and the match band? | **A — five short sections**, cut to four by Jacob | copy, methodology, spr, sigma, match-band, de-ai |
 
 ## Findings so far
 

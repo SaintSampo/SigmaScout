@@ -40,12 +40,11 @@ function preserveSearch(prev: Record<string, unknown>): never {
  * three rather than jumping straight to five-across.
  */
 export function MethodologyCards() {
-  const [sprCard, epaVsStatboticsCard, compareCard, sigmaCard, awardsCard, acknowledgmentsCard] = METHODOLOGY_CARDS;
+  const [sprCard, epaVsStatboticsCard, compareCard, awardsCard, acknowledgmentsCard] = METHODOLOGY_CARDS;
   if (
     sprCard === undefined ||
     epaVsStatboticsCard === undefined ||
     compareCard === undefined ||
-    sigmaCard === undefined ||
     awardsCard === undefined ||
     acknowledgmentsCard === undefined
   ) {
@@ -80,15 +79,6 @@ export function MethodologyCards() {
       >
         <span className="text-role-heading text-[var(--color-text-primary)]">{compareCard.title}</span>
         <span className="text-role-body text-[var(--color-text-muted)]">{compareCard.blurb}</span>
-      </Link>
-      <Link
-        to={sigmaCard.to}
-        search={preserveSearch}
-        data-testid={sigmaCard.testId}
-        className="event-card flex flex-col gap-[var(--spacing-xs)] p-[var(--spacing-md)] shadow-sm transition-shadow hover:shadow-md hover:border-[var(--color-text-muted)]"
-      >
-        <span className="text-role-heading text-[var(--color-text-primary)]">{sigmaCard.title}</span>
-        <span className="text-role-body text-[var(--color-text-muted)]">{sigmaCard.blurb}</span>
       </Link>
       <Link
         to={awardsCard.to}

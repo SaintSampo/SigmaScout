@@ -24,6 +24,11 @@ async function renderMethodologyIndex() {
   await waitFor(() => expect(router.state.status).toBe("idle"));
 }
 
+/** Card titles may carry punctuation ("What is SPR?"), so they are escaped before becoming a pattern. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 describe("/methodology hub index", () => {
   it("renders the Methodology heading", async () => {
     await renderMethodologyIndex();
@@ -35,7 +40,7 @@ describe("/methodology hub index", () => {
   for (const card of METHODOLOGY_CARDS) {
     it(`renders a "${card.title}" card linking to ${card.to}`, async () => {
       await renderMethodologyIndex();
-      const link = screen.getByRole("link", { name: new RegExp(card.title) });
+      const link = screen.getByRole("link", { name: new RegExp(escapeRegExp(card.title)) });
       const href = link.getAttribute("href") ?? "";
       // Compare the pathname only — `preserveSearch` carries the router's
       // default-filled search params (year/algorithm) through, so the

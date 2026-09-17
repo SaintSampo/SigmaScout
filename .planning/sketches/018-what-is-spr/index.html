@@ -1,0 +1,489 @@
+<title>What Is SPR Sketch</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root {
+    --bg: #f8fafc;
+    --surface: #ffffff;
+    --ink: #0f172a;
+    --ink-muted: #475569;
+    --line: #e2e8f0;
+    --accent: #2e7d32;
+    --ribbon-bg: #14532d;
+    --ribbon-ink: #ffffff;
+    --ribbon-ink-muted: rgba(255, 255, 255, 0.72);
+    --ribbon-accent: #81c784;
+    --chip-bg: #ecf4ed;
+    --warn: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c1410;
+      --surface: #131d17;
+      --ink: #e6ede8;
+      --ink-muted: #9db0a3;
+      --line: #25352b;
+      --accent: #81c784;
+      --ribbon-bg: #14532d;
+      --chip-bg: #1b2b21;
+      --warn: #fbbf24;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c1410;
+    --surface: #131d17;
+    --ink: #e6ede8;
+    --ink-muted: #9db0a3;
+    --line: #25352b;
+    --accent: #81c784;
+    --ribbon-bg: #14532d;
+    --chip-bg: #1b2b21;
+    --warn: #fbbf24;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .wrap {
+    max-width: 880px;
+    margin-inline: auto;
+    padding-inline: 16px;
+    padding-block: 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .eyebrow {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  h1 {
+    margin: 4px 0 0;
+    font-size: 24px;
+    line-height: 1.25;
+    font-weight: 700;
+    text-wrap: balance;
+  }
+  .brief { margin: 0; max-width: 68ch; color: var(--ink-muted); }
+
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 10px;
+  }
+  .tab {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-muted);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .tab[aria-selected="true"] {
+    color: var(--ribbon-ink);
+    background: var(--ribbon-bg);
+    border-color: var(--ribbon-bg);
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    align-items: center;
+  }
+  .chip {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    background: var(--chip-bg);
+    color: var(--ink);
+    border-radius: 4px;
+    padding: 3px 8px;
+  }
+  .chip.bad { color: var(--warn); }
+  .pitch { margin: 0; max-width: 68ch; }
+  .pitch strong { font-weight: 600; }
+
+  /* The mock of the real page */
+  .mock {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .ribbon {
+    background: var(--ribbon-bg);
+    color: var(--ribbon-ink);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 18px;
+    padding: 10px 20px;
+    font-size: 13px;
+  }
+  .ribbon .brand { font-weight: 700; font-size: 15px; }
+  .ribbon .brand span { color: var(--ribbon-accent); }
+  .ribbon .nav { color: var(--ribbon-ink-muted); }
+  .ribbon .nav.on { color: var(--ribbon-ink); border-bottom: 2px solid var(--ribbon-accent); }
+  .page {
+    padding: 24px 20px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+  .page .crumb { font-size: 12px; color: var(--ink-muted); }
+  .page h2.title { margin: 2px 0 0; font-size: 22px; font-weight: 700; }
+  .page p { margin: 0; max-width: 72ch; }
+  .page section { display: flex; flex-direction: column; gap: 6px; }
+  .page h3 { margin: 0; font-size: 17px; font-weight: 600; }
+  .page h3 a, .page a.inline {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .page a.inline { font-weight: 600; }
+
+  .tradeoffs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 8px 28px;
+  }
+  .tradeoffs h4 {
+    margin: 0 0 4px;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    font-weight: 600;
+  }
+  .tradeoffs ul { margin: 0; padding-left: 18px; }
+  .tradeoffs li { margin-bottom: 4px; }
+
+  :root { --red: #dc2626; --blue: #2563eb; --sigma-ink: #0369a1; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --red: #f87171; --blue: #60a5fa; --sigma-ink: #7dd3fc; } }
+  :root[data-theme="dark"] { --red: #f87171; --blue: #60a5fa; --sigma-ink: #7dd3fc; }
+  .page h4 { margin: 0; font-size: 15px; font-weight: 600; }
+  .page .muted { color: var(--ink-muted); font-size: 13px; }
+  .tablewrap { overflow-x: auto; max-width: 100%; }
+  .page table { border-collapse: collapse; font-size: 14px; margin-top: 4px; }
+  .page th, .page td { text-align: left; padding: 6px 16px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .page thead th { font-weight: 600; color: var(--ink-muted); font-size: 12px; }
+  .page th.rowhead { font-weight: 600; min-width: 96px; }
+  .bignum { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .bignum .pm, .bignum .sigma { color: var(--sigma-ink); }
+  .matchfig { margin: 4px 0 0; max-width: 520px; }
+  .axis { display: flex; flex-direction: column; gap: 8px; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .lane { position: relative; height: 18px; }
+  .band { position: absolute; top: 2px; height: 14px; border-radius: 7px; opacity: 0.22; }
+  .band.red, .tick.red { background: var(--red); }
+  .band.blue, .tick.blue { background: var(--blue); }
+  .tick { position: absolute; top: 0; width: 3px; height: 18px; border-radius: 1px; }
+  .dot { position: absolute; top: 3px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--surface); border: 3px solid; }
+  .dot.red { border-color: var(--red); }
+  .dot.blue { border-color: var(--blue); }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">SigmaScout sketch 018 · two pages become one</div>
+    <h1>What is SPR?</h1>
+  </header>
+  <p class="brief">"What SPR measures" and "Sigma Score and the match band" run to about 3,100 words and six figures between them. Each version below replaces both with one page. All three keep the same handful of facts: what the number is, why three of them do not add up, what the ± means, how to read the bars on a match row, and what it cannot tell you. Example numbers are made up and marked as examples.</p>
+
+  <div class="tabs" role="tablist" aria-label="Copy variants" id="tabs"></div>
+
+  <div class="meta" id="meta"></div>
+  <p class="pitch" id="pitch"></p>
+
+  <div class="mock">
+    <div class="ribbon" aria-hidden="true">
+      <span class="brand"><span>Σ</span> SigmaScout</span>
+      <span class="nav">Teams</span>
+      <span class="nav">Events</span>
+      <span class="nav">Districts</span>
+      <span class="nav on">Methodology</span>
+    </div>
+    <div class="page" id="page"></div>
+  </div>
+
+  <div class="tradeoffs" id="tradeoffs"></div>
+</div>
+
+<script>
+  var BASELINE_WORDS = 3078;
+  var LEAD = "SPR (Sigma Power Rating) is the rating SigmaScout uses to rank teams and predict matches. It estimates how many points a team adds to its alliance's score in a match.";
+  var ACCURACY_LINK = "See how accurate SPR is";
+
+  var VARIANTS = [
+    {
+      id: "shipped",
+      tab: "★ Shipped · A, trimmed by Jacob",
+      pitch: "<strong>What went live in the code: variant A as you cut it.</strong> You dropped the \"never zero\" paragraph, the \"What it cannot do\" section and the accuracy link, and tightened the first two sections. I capitalised \"Three SPRs\" and changed nothing else.",
+      blocks: [
+        { type: "p", text: LEAD },
+        { type: "h", text: "What the number is" },
+        { type: "p", text: "SPR is points per match. FRC records only alliance scores, never what one robot scored, so SPR is worked out from alliance results with foul points removed." },
+        { type: "h", text: "The strongest robot counts most" },
+        { type: "p", text: "Three SPRs do not add up to the alliance's predicted score the way three OPRs do. Within an alliance the strongest robot counts 1.36 times, the middle robot 0.95 times and the last robot 0.68 times." },
+        { type: "h", text: "The ± next to it" },
+        { type: "p", text: "The second number is called Sigma. It is how much a team's contribution moves from match to match. A team shown as 60.00 ± 8.00 lands within 8 points of its usual level in about two matches out of three." },
+        { type: "h", text: "The bars on a match row" },
+        { type: "p", text: "Each alliance's three Sigmas combine into one band around its predicted score. Across 2024 to 2026 the band held ~7 in 10 results. Heavy overlap between red and blue means a close match. The win probability is worked out separately." }
+      ],
+      keeps: [
+        "Four sections and a lead, about 170 words",
+        "The rank weights are still computed from the live SPR settings, not typed"
+      ],
+      drops: [
+        "What it cannot do, the never zero note, and the link to the accuracy page",
+        "Everything on the old Sigma page: six figures, how Sigma is computed, how it was tested"
+      ]
+    },
+    {
+      id: "a",
+      tab: "A · Five short sections",
+      pitch: "<strong>Plain prose in the flat tone you picked for Acknowledgments.</strong> Five headed paragraphs, no figures, no tables. It reads top to bottom in under a minute. The only layout it needs is the one the awards page had before its tables.",
+      blocks: [
+        { type: "p", text: LEAD },
+        { type: "h", text: "What the number is" },
+        { type: "p", text: "SPR is points per match. FRC records only alliance scores, never what one robot scored, so SPR is worked out from alliance results across the season. Foul points are removed first, so the number reflects what the robot did." },
+        { type: "h", text: "The strongest robot counts most" },
+        { type: "p", text: "Within an alliance the strongest robot counts 1.36 times, the middle robot 0.95 times and the weakest 0.68 times. Because of that, three SPRs do not add up to the alliance's predicted score the way three OPRs do." },
+        { type: "h", text: "The ± next to it" },
+        { type: "p", text: "The second number is called Sigma. It is how much a team's contribution moves from match to match. A team shown as 60.00 ± 8.00 lands within 8 points of its usual level in about two matches out of three. It is not how sure the site is about the rating." },
+        { type: "p", text: "A new team starts from what similar robots do, so Sigma is never zero and never blank." },
+        { type: "h", text: "The bars on a match row" },
+        { type: "p", text: "Each alliance's three Sigmas combine into one band around its predicted score. Across 2024 to 2026 the band held about 7 in 10 results. Heavy overlap between red and blue means a close match. The win probability is worked out separately." },
+        { type: "h", text: "What it cannot do" },
+        { type: "p", text: "Within one match all three robots share the same miss, so SPR cannot tell which robot broke. It does not know why a robot changed. Sigma and the match band are shown under SPR only, not under OPR or EPA." },
+        { type: "link", text: ACCURACY_LINK }
+      ],
+      keeps: [
+        "Every fact a scout needs, in about 230 words",
+        "No new components: headings and paragraphs only",
+        "The rank weights (1.36, 0.95, 0.68), still read from the live SPR settings"
+      ],
+      drops: [
+        "All six Sigma figures",
+        "How Sigma is computed (the level, the two clocks, the even split)",
+        "The whole \"How it was tested\" section and every number in it except 7 in 10"
+      ]
+    },
+    {
+      id: "b",
+      tab: "B · Read a real row",
+      pitch: "<strong>Starts from what a visitor is actually looking at: a number like 62.41 ± 8.10 and two coloured bars.</strong> Three small tables and one drawn match row do the explaining. This is the tables approach that won on the awards and EPA pages, and it is the only version that keeps a picture.",
+      blocks: [
+        { type: "p", text: LEAD },
+        { type: "h", text: "Reading a team's number" },
+        { type: "bignum", total: "62.41", sigma: "8.10", caption: "An example team" },
+        { type: "table", head: null, rows: [
+          ["62.41", "SPR. Points per match this team adds to its alliance, with foul points removed"],
+          ["± 8.10", "Sigma. How much that contribution moves from match to match. About two matches in three land inside it"]
+        ]},
+        { type: "p", text: "Sigma is not how sure the site is about the rating. Two teams can share a rating and have very different Sigma. A new team starts from what similar robots do, so Sigma is never zero." },
+        { type: "h", text: "How SPR differs from OPR and EPA" },
+        { type: "table", head: ["", "OPR", "EPA", "SPR"], rows: [
+          ["Built from alliance scores", "Yes", "Yes", "Yes"],
+          ["Three ratings add up to the alliance's predicted score", "Yes", "Yes", "No. The strongest robot counts 1.36 times, the middle 0.95, the weakest 0.68"],
+          ["Shows a ± for each team", "No", "No", "Yes"],
+          ["Draws a band on match rows", "No", "No", "Yes"],
+          ["Ranking point odds", "No", "No", "Yes"]
+        ]},
+        { type: "h", text: "Reading a match row" },
+        { type: "matchrow" },
+        { type: "table", head: null, rows: [
+          ["Soft bar", "The alliance's band. Across 2024 to 2026 it held about 7 in 10 results"],
+          ["Solid tick", "The predicted score"],
+          ["Ringed dot", "What the alliance actually scored"]
+        ]},
+        { type: "p", text: "Heavy overlap means a close match. The win probability is worked out separately." },
+        { type: "h", text: "What it cannot do" },
+        { type: "p", text: "FRC records no score for a single robot. Within one match all three robots share the same miss, so SPR cannot tell which robot broke, or why." },
+        { type: "link", text: ACCURACY_LINK }
+      ],
+      keeps: [
+        "One figure, drawn with the real match row marks",
+        "A side by side with OPR and EPA, which answers the first question an FRC reader has",
+        "The same table block already built for the awards page"
+      ],
+      drops: [
+        "The other five Sigma figures and the SigmaPage figure code (about 800 lines)",
+        "How Sigma is computed and how it was tested",
+        "A little more build work than A: a big number block and one static match row"
+      ]
+    },
+    {
+      id: "c",
+      tab: "C · Questions and answers",
+      pitch: "<strong>Every heading is a question a student would actually ask, and every answer is two sentences or fewer.</strong> People land on this page with one question. This lets them find it and leave. Most conversational of the three, without turning into first person.",
+      blocks: [
+        { type: "p", text: LEAD },
+        { type: "h", text: "Where does the number come from?" },
+        { type: "p", text: "From alliance scores, with foul points removed. FRC never records what one robot scored, so SPR works it out from how each team's alliances did across the season." },
+        { type: "h", text: "Why do three SPRs not add up to the predicted score?" },
+        { type: "p", text: "Because the strongest robot on an alliance counts most: 1.36 times, against 0.95 for the middle robot and 0.68 for the weakest. OPR adds up. SPR does not." },
+        { type: "h", text: "What is the ± after it?" },
+        { type: "p", text: "That is Sigma, how much a team's contribution moves from match to match. A team at 60.00 ± 8.00 lands within 8 points of its usual level in about two matches out of three." },
+        { type: "h", text: "Does a big Sigma mean the rating is unreliable?" },
+        { type: "p", text: "No. It means the robot is inconsistent, not that the site is unsure. A top seed usually wants a low Sigma partner. A low seed hunting an upset may want a high one." },
+        { type: "h", text: "What are the coloured bars on a match?" },
+        { type: "p", text: "Each bar is one alliance's likely score range, built from its three Sigmas. The tick is the prediction and the ringed dot is the real score. Across 2024 to 2026 the bar held about 7 in 10 results." },
+        { type: "h", text: "Why is there no ± under OPR or EPA?" },
+        { type: "p", text: "Sigma was tested under all three ratings. It did better than the old number under OPR and SPR and worse under EPA, so it is shown under SPR only." },
+        { type: "h", text: "What can it not tell me?" },
+        { type: "p", text: "Which robot on an alliance broke, or why. All three robots share the same miss in any one match." },
+        { type: "link", text: ACCURACY_LINK }
+      ],
+      keeps: [
+        "The scouting advice (low Sigma for a first pick, high Sigma for an upset), the most useful lines on the old page",
+        "Easy to extend later: a new question is one heading and two sentences",
+        "No new components"
+      ],
+      drops: [
+        "All six Sigma figures",
+        "Question headings are long, and seven of them make a tall page on a phone",
+        "How Sigma is computed and how it was tested"
+      ]
+    }
+  ];
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function copyText(v) {
+    var parts = ["What is SPR?"];
+    v.blocks.forEach(function (b) {
+      if (b.type === "p" || b.type === "h" || b.type === "link") parts.push(b.text);
+      if (b.type === "bignum") parts.push(b.total, "±", b.sigma, b.caption);
+      if (b.type === "matchrow") parts.push("An example match");
+      if (b.type === "table") {
+        if (b.head) parts = parts.concat(b.head);
+        b.rows.forEach(function (r) { parts = parts.concat(r); });
+      }
+    });
+    return parts.join(" ");
+  }
+  function wordCount(v) { return copyText(v).split(/\s+/).filter(Boolean).length; }
+  function dashCount(v) {
+    var m = copyText(v).match(/[-‐-—−]/g);
+    return m ? m.length : 0;
+  }
+
+  function matchRow() {
+    var fig = el("figure", "matchfig");
+    var axis = el("div", "axis");
+    [["red", 18, 46, 41, 52], ["blue", 40, 40, 60, 57]].forEach(function (a) {
+      var lane = el("div", "lane");
+      var band = el("span", "band " + a[0]); band.style.left = a[1] + "%"; band.style.width = a[2] + "%";
+      var tick = el("span", "tick " + a[0]); tick.style.left = a[3] + "%";
+      var dot = el("span", "dot " + a[0]); dot.style.left = a[4] + "%";
+      lane.appendChild(band); lane.appendChild(tick); lane.appendChild(dot);
+      axis.appendChild(lane);
+    });
+    fig.appendChild(axis);
+    fig.appendChild(el("figcaption", "muted", "An example match"));
+    return fig;
+  }
+
+  var tabsEl = document.getElementById("tabs");
+  var current = "shipped";
+
+  function render() {
+    var v = VARIANTS.filter(function (x) { return x.id === current; })[0];
+    Array.prototype.forEach.call(tabsEl.children, function (b) {
+      b.setAttribute("aria-selected", b.dataset.id === current ? "true" : "false");
+    });
+    var meta = document.getElementById("meta");
+    meta.textContent = "";
+    var words = wordCount(v);
+    meta.appendChild(el("span", "chip", words + " words"));
+    meta.appendChild(el("span", "chip", Math.round((1 - words / BASELINE_WORDS) * 100) + "% shorter than the two pages it replaces"));
+    var dashes = dashCount(v);
+    meta.appendChild(el("span", dashes ? "chip bad" : "chip", dashes + " hyphens or dashes"));
+    document.getElementById("pitch").innerHTML = v.pitch;
+
+    var page = document.getElementById("page");
+    page.textContent = "";
+    var head = el("div");
+    head.appendChild(el("div", "crumb", "Methodology / What is SPR?"));
+    head.appendChild(el("h2", "title", "What is SPR?"));
+    page.appendChild(head);
+
+    var sec = el("section"); page.appendChild(sec);
+    v.blocks.forEach(function (b) {
+      if (b.type === "h") { sec = el("section"); page.appendChild(sec); sec.appendChild(el("h3", null, b.text)); }
+      else if (b.type === "p") sec.appendChild(el("p", null, b.text));
+      else if (b.type === "link") { sec = el("section"); page.appendChild(sec); var a = el("a", "inline", b.text); a.href = "#"; a.addEventListener("click", function (e) { e.preventDefault(); }); sec.appendChild(a); }
+      else if (b.type === "bignum") {
+        var big = el("div", "bignum");
+        big.appendChild(el("span", "total", b.total));
+        big.appendChild(el("span", "pm", " ± "));
+        big.appendChild(el("span", "sigma", b.sigma));
+        sec.appendChild(big);
+        sec.appendChild(el("div", "muted", b.caption));
+      }
+      else if (b.type === "matchrow") sec.appendChild(matchRow());
+      else if (b.type === "table") {
+        var wrap = el("div", "tablewrap"), t = el("table", "prose");
+        if (b.head) {
+          var thead = el("thead"), hr = el("tr");
+          b.head.forEach(function (h) { hr.appendChild(el("th", null, h)); });
+          thead.appendChild(hr); t.appendChild(thead);
+        }
+        var tb = el("tbody");
+        b.rows.forEach(function (r) {
+          var tr = el("tr");
+          r.forEach(function (c, i) { tr.appendChild(el(i === 0 ? "th" : "td", i === 0 ? "rowhead" : null, c)); });
+          tb.appendChild(tr);
+        });
+        t.appendChild(tb); wrap.appendChild(t); sec.appendChild(wrap);
+      }
+    });
+
+    var tr = document.getElementById("tradeoffs");
+    tr.textContent = "";
+    [["Keeps", v.keeps], ["Gives up", v.drops]].forEach(function (pair) {
+      var box = el("div");
+      box.appendChild(el("h4", null, pair[0]));
+      var ul = el("ul");
+      pair[1].forEach(function (x) { ul.appendChild(el("li", null, x)); });
+      box.appendChild(ul);
+      tr.appendChild(box);
+    });
+  }
+
+  VARIANTS.forEach(function (v) {
+    var b = el("button", "tab", v.tab);
+    b.type = "button"; b.id = "tab-" + v.id; b.dataset.id = v.id; b.setAttribute("role", "tab");
+    b.addEventListener("click", function () {
+      current = v.id;
+      try { localStorage.setItem("what-is-spr-tab-r2", current); } catch (e) {}
+      render();
+    });
+    tabsEl.appendChild(b);
+  });
+  try {
+    var saved = localStorage.getItem("what-is-spr-tab-r2");
+    if (saved && VARIANTS.some(function (x) { return x.id === saved; })) current = saved;
+  } catch (e) {}
+  render();
+</script>

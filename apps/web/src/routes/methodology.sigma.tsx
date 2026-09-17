@@ -1,33 +1,18 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { SigmaPage } from "../components/methodology/SigmaPage.js";
-import { SIGMA_PAGE_TITLE } from "../components/methodology/sigmaContent.js";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 /**
- * The `/methodology/sigma` route. Explains the Sigma number beside a team and
- * the coloured bars on every match row, for a reader who has watched one FRC
- * event. Fetches nothing: every claim it makes is a static fact about how this
- * site computes a number, not a number read from a published artifact.
- *
- * Replaces the earlier methodology route for the retired per-robot
- * consistency accumulator, which explained the estimator this one took over
- * from on 2026-09-10. The old route is GONE rather than redirected: the
- * page it served was six days old, so there is no meaningful body of inbound
- * links to preserve, and a redirect that lands a reader on a page about a
- * different number would be its own small lie.
- *
- * No layout registration needed. The TanStack router plugin generates the
- * route tree from this file's NAME, and `methodology.tsx` already nests its
- * children.
+ * `/methodology/sigma` used to be the "Sigma Score and the match band" page.
+ * That page was folded into "What is SPR?" on 2026-09-17 (sketch 018), so
+ * this route exists only to keep old links and bookmarks working: it
+ * redirects to `/methodology/spr`, carrying the current search params.
  */
-export const Route = createFileRoute("/methodology/sigma")({
-  component: MethodologySigmaPage,
-});
-
-function MethodologySigmaPage() {
-  return (
-    <div className="mx-auto w-full max-w-[1200px] p-[var(--spacing-lg)]">
-      <h1 className="text-role-heading mb-[var(--spacing-md)]">{SIGMA_PAGE_TITLE}</h1>
-      <SigmaPage />
-    </div>
-  );
+/** Cross-route search carry, the same documented escape hatch `Ribbon.tsx`'s `preserveSearch` uses. */
+function preserveSearch(prev: Record<string, unknown>): never {
+  return prev as never;
 }
+
+export const Route = createFileRoute("/methodology/sigma")({
+  beforeLoad: () => {
+    throw redirect({ to: "/methodology/spr", search: preserveSearch, replace: true });
+  },
+});
