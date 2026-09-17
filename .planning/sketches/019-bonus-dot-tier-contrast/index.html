@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SigmaScout — bonus dot tier contrast</title>
+<link rel="stylesheet" href="../themes/default.css" />
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; padding-top:150px; font-family:var(--font-sans); background:var(--color-bg); color:var(--color-text); -webkit-font-smoothing:antialiased; }
+  #nav { position:fixed; top:0; left:0; right:0; z-index:9998; background:#fff; border-bottom:1px solid var(--color-border); padding:8px 12px; font-size:13px; }
+  #nav .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  #nav .row + .row { margin-top:6px; }
+  #nav .lbl { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--color-text-muted); margin-right:4px; }
+  .tab { border:1px solid var(--color-border); background:#fff; color:var(--color-text); padding:5px 11px; border-radius:var(--radius); cursor:pointer; font:inherit; }
+  .tab.active { background:var(--color-text); color:#fff; border-color:var(--color-text); }
+  .act.active { background:#14532d; border-color:#14532d; }
+  .spacer { flex:1; }
+  #frame { margin:0 auto; transition:max-width .15s; }
+  .page { max-width:1100px; margin:0 auto; padding:16px 16px 40px; }
+  .caption { background:#fff; border:1px solid var(--color-border); border-radius:8px; padding:12px 14px; color:var(--color-text-muted); font-size:13px; line-height:1.6; margin:0 0 16px; }
+  .caption b { color:var(--color-text); }
+  .key { display:flex; gap:14px; flex-wrap:wrap; align-items:center; font-size:12px; margin:0 0 12px; color:var(--color-text-muted); }
+  .key span.item { display:inline-flex; gap:6px; align-items:center; }
+  .slice { margin-bottom:26px; }
+  .slice h2 { font-size:15px; font-weight:600; margin:0 0 2px; }
+  .slice p.sub { margin:0 0 8px; font-size:12px; color:var(--color-text-muted); }
+  .tablewrap { overflow-x:auto; background:#fff; border:1px solid var(--color-border); border-radius:8px; }
+  table { width:100%; border-collapse:separate; border-spacing:0; font-size:14px; }
+  th { text-align:left; font-size:12px; font-weight:600; color:var(--color-text-muted); padding:8px 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; }
+  td { padding:7px 10px; border-bottom:1px solid var(--color-border); white-space:nowrap; }
+  tr:last-child td { border-bottom:0; }
+  td.m { font-variant-numeric:tabular-nums; color:var(--color-text-muted); }
+  .sep { border-left:1px solid var(--color-border); }
+  #zoomwrap { transform-origin:top left; }
+
+  /* The match row from the screenshot: predicted dots + score ± band, then actual dots + score. */
+  .shot { display:grid; grid-template-columns:auto auto; gap:4px 28px; width:max-content; background:#fff; border:1px solid var(--color-border); border-radius:8px; padding:10px 14px; font-size:15px; font-variant-numeric:tabular-nums; }
+  .shot .cell { display:inline-flex; align-items:center; gap:6px; }
+  .shot .pm { font-size:12px; color:var(--color-text-muted); }
+  .shot .lose { color:#94a3b8; }
+  .shot .hd { font-size:11px; font-weight:600; color:var(--color-text-muted); }
+
+  /* Shipped tokens (apps/web/src/styles/theme.css) */
+  :root {
+    --alliance-red:#DC2626; --alliance-blue:#2563EB;
+    --alliance-red-soft:rgba(220,38,38,.30); --alliance-blue-soft:rgba(37,99,235,.30);
+    --alliance-red-fill:color-mix(in srgb, #DC2626 60%, transparent); --alliance-blue-fill:color-mix(in srgb, #2563EB 60%, transparent);
+    --alliance-red-faint:color-mix(in srgb, #DC2626 25%, transparent); --alliance-blue-faint:color-mix(in srgb, #2563EB 25%, transparent);
+    --alliance-red-dot-ink:#450a0a; --alliance-blue-dot-ink:#172554;
+  }
+  .dots { display:inline-flex; gap:2px; align-items:center; vertical-align:middle; }
+
+  /* Shipped dot anatomy: 14px, 1px border, 9px/600 letter. */
+  .dot { position:relative; display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:999px;
+         border:1px solid; font-size:9px; font-weight:600; line-height:1; overflow:hidden; background:#fff; flex:none; }
+  .dot > b { position:relative; font-weight:inherit; }
+  .red  { --ink:var(--alliance-red);  --soft:var(--alliance-red-soft);  --fill:var(--alliance-red-fill);  --faint:var(--alliance-red-faint);  --dark:var(--alliance-red-dot-ink); }
+  .blue { --ink:var(--alliance-blue); --soft:var(--alliance-blue-soft); --fill:var(--alliance-blue-fill); --faint:var(--alliance-blue-faint); --dark:var(--alliance-blue-dot-ink); }
+  .dot { border-color:var(--ink); color:var(--ink); }
+
+  /* Actual dots: today's look, and the full ink alternative. */
+  .dot.earned { background:var(--soft); }
+  .dot.earned.full { background:var(--ink); color:#fff; }
+
+  /* 0 · Shipped today (260917-06d): 60% fill vs 25% tint, both with the dark letter. */
+  .v0.likely { background:var(--fill); color:var(--dark); }
+  .v0.tossup { background:var(--faint); color:var(--dark); }
+
+  /* A · Full ink. Likely = 100% alliance colour with a WHITE letter; toss-up keeps the 25% tint and a coloured letter. */
+  .vA.likely { background:var(--ink); color:#fff; }
+  .vA.tossup { background:var(--faint); }
+
+  /* B · Half fill. Likely = full ink; toss-up = the bottom half filled. Shape, not shade. */
+  .vB.likely { background:var(--ink); color:#fff; }
+  .vB.tossup { background:linear-gradient(to top, var(--fill) 0 50%, #fff 50% 100%); color:var(--dark); }
+
+  /* C · Hatched. Likely = full ink; toss-up = diagonal stripes. Texture, not shade. */
+  .vC.likely { background:var(--ink); color:#fff; }
+  .vC.tossup { background:repeating-linear-gradient(135deg, var(--soft) 0 2px, #fff 2px 4px); color:var(--dark); }
+
+  /* D · No tint at all. Likely = full ink; toss-up = alliance outline; unlikely = grey outline. */
+  .vD.likely { background:var(--ink); color:#fff; }
+  .vD.unlikely { border-color:#cbd5e1; color:#94a3b8; }
+
+  /* E · Size step. Likely = full ink; toss-up = tint; unlikely shrinks to a letterless pip. */
+  .vE.likely { background:var(--ink); color:#fff; }
+  .vE.tossup { background:var(--faint); }
+  .vE.unlikely { width:6px; height:6px; margin:0 4px; border-color:color-mix(in srgb, var(--ink) 55%, #fff); }
+  .vE.unlikely > b { display:none; }
+
+  /* F · Jacob's mix (2026-09-17). Shipped grounds, hatched toss-up, a pip for an actual "not earned", and one
+     black letter on every dot, predicted or actual. The border keeps the alliance colour. */
+  .vF, .dot.fa { color:#0f172a; }
+  .vF.likely { background:var(--fill); }
+  /* Hatch strength is a control (second nav row): stripes at 60%, 45%, or 30% alliance colour. */
+  .red  { --h60:var(--alliance-red-fill);  --h45:color-mix(in srgb, #DC2626 45%, transparent); --h30:var(--alliance-red-soft); }
+  .blue { --h60:var(--alliance-blue-fill); --h45:color-mix(in srgb, #2563EB 45%, transparent); --h30:var(--alliance-blue-soft); }
+  body[data-hatch="60"] .vF.tossup { --hatch:var(--h60); }
+  body[data-hatch="45"] .vF.tossup { --hatch:var(--h45); }
+  body[data-hatch="30"] .vF.tossup { --hatch:var(--h30); }
+  .vF.tossup { background:repeating-linear-gradient(135deg, var(--hatch) 0 2px, #fff 2px 4px); }
+  .dot.fa.earned { background:var(--soft); }
+  .dot.fa.missed { width:6px; height:6px; margin:0 4px; }
+  .dot.fa.missed > b { display:none; }
+
+  /* Unknown stays as shipped, shown in the key so no option collides with it. */
+  .dot.unknown { border-style:dashed; border-color:#cbd5e1; color:#cbd5e1; background:transparent; }
+</style>
+</head>
+<body>
+<div id="nav">
+  <div class="row">
+    <span class="lbl">Design</span>
+    <button class="tab vt" data-v="0">Shipped today</button>
+    <button class="tab vt" data-v="A">A · Full ink</button>
+    <button class="tab vt" data-v="B">B · Half fill</button>
+    <button class="tab vt" data-v="C">C · Hatched</button>
+    <button class="tab vt" data-v="D">D · No tint</button>
+    <button class="tab vt" data-v="E">E · Size step</button>
+    <button class="tab vt" data-v="F">★ F · Jacob's mix</button>
+    <button class="tab vt" data-v="ALL">All</button>
+    <span class="spacer"></span>
+    <button class="tab zm active" data-z="1">1x</button>
+    <button class="tab zm" data-z="2">2x</button>
+    <button class="tab vp active" data-w="100%">Desktop</button>
+    <button class="tab vp" data-w="390px">Phone 390</button>
+  </div>
+  <div class="row">
+    <span class="lbl">Actual earned dot</span>
+    <button class="tab act" data-a="soft">30% tint (today)</button>
+    <button class="tab act" data-a="full">Full ink (matches a likely dot)</button>
+    <span class="lbl" style="margin-left:14px">F hatch</span>
+    <button class="tab ht" data-h="60">60%</button>
+    <button class="tab ht" data-h="45">45%</button>
+    <button class="tab ht" data-h="30">★ 30% (lighter)</button>
+  </div>
+</div>
+<div id="frame"><div class="page"><div id="zoomwrap">
+  <div class="caption" id="caption"></div>
+  <div class="key" id="key"></div>
+  <div id="shot"></div>
+  <div id="slices"></div>
+</div></div></div>
+
+<script src="data.js"></script>
+<script>
+const state = { v: "F", a: "soft", h: "30" };
+const pctText = (p) => Math.round(p * 100) + "%";
+const tierOf = (p) => (p < 1 / 3 ? "unlikely" : p > 2 / 3 ? "likely" : "tossup");
+
+const DESIGNS = {
+  0: { name: "Shipped today", caption: "<b>Shipped today (260917-06d).</b> Likely is a 60% fill, toss-up a 25% tint, and both carry the same dark letter. The two grounds differ by only 1.8:1, and the actual earned dot (30% tint) lands between them." },
+  A: { name: "A · Full ink", caption: "<b>A · Full ink.</b> Likely becomes 100% alliance colour with a white letter. Toss-up keeps the 25% tint with a coloured letter. The letter flips from white to colour, so the read does not depend on judging a shade. Smallest code change: two CSS rules." },
+  B: { name: "B · Half fill", caption: "<b>B · Half fill.</b> Likely is full ink. Toss-up fills only the bottom half. The difference is a shape, which survives a dim screen, glare, and colour blindness. The letter crosses the fill line." },
+  C: { name: "C · Hatched", caption: "<b>C · Hatched.</b> Likely is full ink. Toss-up is diagonal stripes. Texture reads as “unsure” in most chart conventions. At 14px the stripes are only 2px wide and can shimmer behind the letter." },
+  D: { name: "D · No tint", caption: "<b>D · No tint.</b> Nothing is ever faint. Likely is full ink, toss-up is an alliance coloured outline, unlikely is a grey outline. Cost: a predicted toss-up now looks like an actual “not earned” dot, and unlikely sits close to the dashed “no data” dot." },
+  E: { name: "E · Size step", caption: "<b>E · Size step.</b> Likely is full ink, toss-up is the tint, and unlikely shrinks to a small pip with no letter. The row gets quieter: only bonuses in play draw a full dot. The pip keeps its slot, so position still says which bonus it is." },
+  F: { name: "F · Jacob's mix", caption: "<b>F · Jacob's mix.</b> Toss-up is hatched (from C). An actual “not earned” shrinks to the small pip (from E). Everything else is as shipped: likely is the 60% fill, unlikely is an empty outline, earned is the 30% tint. Every letter is black, predicted or actual. F draws its own actual dots, so the Actual toggle above does not apply to it." },
+};
+const ORDER = ["A", "B", "C", "D", "E", "F"];
+
+function predDot(v, letter, p, side, label = letter) {
+  return `<span class="dot ${side} v${v} ${tierOf(p)}" title="${label}: predicted ${pctText(p)} likely"><b>${letter}</b></span>`;
+}
+function actualDot(letter, earned, side, label = letter, v = state.v) {
+  if (v === "F") return `<span class="dot ${side} fa ${earned ? "earned" : "missed"}" title="${label}: ${earned ? "earned" : "not earned"}"><b>${letter}</b></span>`;
+  return `<span class="dot ${side} ${earned ? "earned" : ""} ${earned && state.a === "full" ? "full" : ""}" title="${label}: ${earned ? "earned" : "not earned"}"><b>${letter}</b></span>`;
+}
+const dots = (html) => `<span class="dots">${html}</span>`;
+
+/* The alliance pair from Jacob's screenshot, 2026 letters. Odds chosen to show all three tiers. */
+const SHOT = {
+  letters: [["E", "Energized"], ["S", "Supercharged"], ["T", "Traversal"]],
+  red: { p: [0.81, 0.52, 0.44], a: [true, true, false], pred: 395, pm: 117, score: 435, won: true },
+  blue: { p: [0.74, 0.39, 0.12], a: [true, false, false], pred: 106, pm: 96, score: 188, won: false },
+};
+function shotBlock(v) {
+  const row = (side) => {
+    const s = SHOT[side];
+    const pred = dots(SHOT.letters.map(([l, n], i) => predDot(v, l, s.p[i], side, n)).join(""));
+    const act = dots(SHOT.letters.map(([l, n], i) => actualDot(l, s.a[i], side, n, v)).join(""));
+    return `<span class="cell">${pred} ${s.pred} <span class="pm">± ${s.pm}</span></span><span class="cell">${act} <span class="${s.won ? "" : "lose"}">${s.score}</span></span>`;
+  };
+  return `<div class="shot"><span class="hd">Predicted</span><span class="hd">Actual</span>${row("red")}${row("blue")}</div>`;
+}
+
+function keyFor(v) {
+  return `Predicted: <span class="item">${predDot(v, "E", 0.8, "red")}${predDot(v, "E", 0.8, "blue")} likely, over ⅔</span>
+    <span class="item">${predDot(v, "E", 0.5, "red")}${predDot(v, "E", 0.5, "blue")} toss-up</span>
+    <span class="item">${predDot(v, "E", 0.1, "red")}${predDot(v, "E", 0.1, "blue")} unlikely, under ⅓</span>
+    <span class="item"><span class="dot unknown"><b>E</b></span> no data</span>
+    <span class="item">Actual: ${actualDot("E", true, "red", "E", v)} earned ${actualDot("E", false, "red", "E", v)} not earned</span>`;
+}
+
+function allianceCells(v, ev, cells, side) {
+  const pred = cells.map((c, i) => predDot(v, ev.bonuses[i].letter, c.f, side, ev.bonuses[i].label)).join("");
+  const act = cells.map((c, i) => actualDot(ev.bonuses[i].letter, c.a, side, ev.bonuses[i].label, v)).join("");
+  return `<td class="sep">${dots(pred)}</td><td>${dots(act)}</td>`;
+}
+
+function boardTable(ev) {
+  const all = ["0", ...ORDER];
+  const row = (m, side) => `<tr><td class="m">Q${m.n} ${side}</td><td class="m">${m[side].map((c) => pctText(c.f)).join(" · ")}</td>
+    <td class="sep">${dots(m[side].map((c, i) => actualDot(ev.bonuses[i].letter, c.a, side, ev.bonuses[i].label, "0")).join(""))}</td>
+    ${all.map((v) => `<td class="sep">${dots(m[side].map((c, i) => predDot(v, ev.bonuses[i].letter, c.f, side, ev.bonuses[i].label)).join(""))}</td>`).join("")}<td>${dots(m[side].map((c, i) => actualDot(ev.bonuses[i].letter, c.a, side, ev.bonuses[i].label, "F")).join(""))}</td></tr>`;
+  return `<div class="tablewrap"><table>
+    <tr><th>Alliance</th><th>Odds</th><th class="sep">Actual</th><th class="sep">Today</th>${ORDER.map((v) => `<th class="sep">${DESIGNS[v].name}</th>`).join("")}<th>F actual</th></tr>
+    ${ev.matches.slice(0, 8).map((m) => row(m, "red") + row(m, "blue")).join("")}</table></div>`;
+}
+
+function render() {
+  document.querySelectorAll(".vt").forEach((b) => b.classList.toggle("active", b.dataset.v === state.v));
+  document.querySelectorAll(".act").forEach((b) => b.classList.toggle("active", b.dataset.a === state.a));
+  document.querySelectorAll(".ht").forEach((b) => b.classList.toggle("active", b.dataset.h === state.h));
+  document.body.dataset.hatch = state.h;
+  const cap = document.getElementById("caption"), key = document.getElementById("key"), shot = document.getElementById("shot"), slices = document.getElementById("slices");
+  if (state.v === "ALL") {
+    cap.innerHTML = "<b>All five, plus F (Jacob's mix)</b> beside what shipped today, on the alliance pair from the screenshot and then on real walk-forward odds. The question for each column: can you tell likely from toss-up without reading the Odds column? Flip <b>Actual earned dot</b> to see whether “solid” should mean the same thing on both sides of the row.";
+    key.innerHTML = "";
+    shot.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:22px">${["0", ...ORDER].map((v) => `<div><div style="font-size:12px;font-weight:600;margin-bottom:4px">${DESIGNS[v].name}</div>${shotBlock(v)}</div>`).join("")}</div>`;
+    slices.innerHTML = DATA.events.map((ev) => `<div class="slice"><h2>${ev.key}</h2><p class="sub">${ev.bonuses.map((b) => `${b.letter} = ${b.label}`).join(", ")}. Real walk-forward odds.</p>${boardTable(ev)}</div>`).join("");
+    return;
+  }
+  const v = state.v;
+  cap.innerHTML = DESIGNS[v].caption;
+  key.innerHTML = keyFor(v);
+  shot.innerHTML = `<div style="margin-bottom:22px">${shotBlock(v)}</div>`;
+  slices.innerHTML = DATA.events.map((ev) => `
+    <div class="slice">
+      <h2>${ev.key} · qualification matches</h2>
+      <p class="sub">${ev.bonuses.map((b) => `${b.letter} = ${b.label}`).join(", ")}. Twelve matches spread across the event, real walk-forward odds.</p>
+      <div class="tablewrap"><table>
+        <tr><th>Match</th><th class="sep">Red predicted</th><th>Red actual</th><th class="sep">Blue predicted</th><th>Blue actual</th></tr>
+        ${ev.matches.map((m) => `<tr><td class="m">Q${m.n}</td>${allianceCells(v, ev, m.red, "red")}${allianceCells(v, ev, m.blue, "blue")}</tr>`).join("")}
+      </table></div>
+    </div>`).join("");
+}
+
+document.querySelectorAll(".vt").forEach((b) => b.onclick = () => { state.v = b.dataset.v; render(); });
+document.querySelectorAll(".ht").forEach((b) => b.onclick = () => { state.h = b.dataset.h; render(); });
+document.querySelectorAll(".act").forEach((b) => b.onclick = () => { state.a = b.dataset.a; render(); });
+document.querySelectorAll(".vp").forEach((b) => b.onclick = () => {
+  document.querySelectorAll(".vp").forEach((x) => x.classList.toggle("active", x === b));
+  document.getElementById("frame").style.maxWidth = b.dataset.w;
+});
+document.querySelectorAll(".zm").forEach((b) => b.onclick = () => {
+  document.querySelectorAll(".zm").forEach((x) => x.classList.toggle("active", x === b));
+  const z = Number(b.dataset.z), w = document.getElementById("zoomwrap");
+  w.style.transform = z === 1 ? "" : `scale(${z})`;
+  w.style.width = z === 1 ? "" : `${100 / z}%`;
+});
+render();
+</script>
+</body>
+</html>

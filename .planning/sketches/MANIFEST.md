@@ -66,6 +66,7 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 | 016 | epa-vs-statbotics-rewrite | How should the Our EPA vs Statbotics EPA page be cut down: trimmed cards, one comparison table, or results first with a plain list? | **B — one comparison table**, results section first | copy, methodology, epa, statbotics, de-ai, tables |
 | 017 | algorithm-accuracy-rewrite | How should the Algorithm accuracy page be cut down: new words only, tables all the way down, or one screen with details on demand? | **A — same layout, new words**, coverage section dropped | copy, methodology, compare, accuracy, calibration, coverage, de-ai |
 | 018 | what-is-spr | What should one short What is SPR? page look like, replacing both What SPR measures and Sigma Score and the match band? | **A — five short sections**, cut to four by Jacob | copy, methodology, spr, sigma, match-band, de-ai |
+| 019 | bonus-dot-tier-contrast | The three tier predicted bonus dot shipped with a 60% fill vs a 25% tint and the two are too hard to tell apart at 14px. What should separate likely from toss-up? | **F — Jacob's mix**: hatched toss-up (30% stripes), pip for actual not earned, black letters, rest as shipped. Supersedes 012 C. Sketch only, not yet built | match-table, bonus-rp, uncertainty, prediction, accessibility |
 
 ## Findings so far
 
