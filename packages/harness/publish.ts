@@ -367,6 +367,13 @@ export interface BuildEventArtifactParams {
   readonly upcoming?: readonly UpcomingPredictionRecord[];
   /** The event's standings-style team list. Defaults to `[]`. */
   readonly teams?: readonly EventTeamStandingInput[];
+  /**
+   * Playoff alliance members who never took the field at this event, so have no `teams` row. Absent or
+   * `[]` emits no `allianceTeams` key. Shares `EventTeamStandingInput` with `teams` above so the two
+   * arrays can never carry two shapes for one kind of row; the caller is responsible for keeping this
+   * list disjoint from `teams` by team key.
+   */
+  readonly allianceTeams?: readonly EventTeamStandingInput[];
   /** A short opaque string identifying the publish run that produced this object. */
   readonly generation: string;
   /** ISO timestamp. Defaults to `new Date().toISOString()`; overridable for deterministic tests. */
@@ -501,13 +508,20 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     eventUpcomingRow(record, params.sortTimeByMatchKey?.get(record.match.matchKey))
   );
 
-  const teams = (params.teams ?? []).map((t) => ({
+  // Single row shape for BOTH `teams` and `allianceTeams`, so the two arrays can never drift apart.
+  // `eventTeamRankingFields` stays in this shared mapper — an alliance-only row carrying TBA's own
+  // rank/record/rp when one genuinely exists is honest, and a second mapper that omitted them would
+  // be a shape that can drift from this one.
+  const eventTeamRow = (t: EventTeamStandingInput) => ({
     teamKey: t.teamKey,
     teamNumber: t.teamNumber,
     nickname: t.nickname,
     ...eventTeamRankingFields(params.rankings?.get(t.teamKey)),
     metrics: roundTeamMetricRecord(t.metrics),
-  }));
+  });
+
+  const teams = (params.teams ?? []).map(eventTeamRow);
+  const allianceTeams = (params.allianceTeams ?? []).map(eventTeamRow);
 
   // An omitted `params.eventMeta` emits none of these keys rather than inventing an identity.
   const identityFields = params.eventMeta
@@ -571,6 +585,7 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     upcoming,
     teams,
     ...(alliances !== undefined ? { alliances } : {}),
+    ...(allianceTeams.length > 0 ? { allianceTeams } : {}),
     ...(rpOutcomeRp !== undefined ? { rpOutcomeRp } : {}),
     ...(state !== undefined ? { state } : {}),
   };
@@ -1717,6 +1732,10 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     const teamsThisSeason = Array.from(
       new Set([...stream.flatMap((m) => [...m.redTeams, ...m.blueTeams]), ...scheduled.flatMap((m) => [...m.redTeams, ...m.blueTeams])])
     ).filter((teamKey) => !isDemoTeamKey(teamKey));
+    // Built once per season, reused by every algorithm's per-event `allianceTeams` computation below:
+    // "the walk-forward saw this team, and it is not a demo key" — the same gate `teamsThisSeason`
+    // itself already encodes.
+    const teamsThisSeasonSet = new Set(teamsThisSeason);
     const eventMeta = selectEventMeta(db, season);
     const offseasonEventKeys = new Set(eventMeta.filter((e) => e.is_offseason === 1).map((e) => e.event_key));
     // Scopes the Teams-list snapshot to official play via the shared `isOfficialEventType`, which the
@@ -2147,10 +2166,36 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
         // The registered roster is used only when the match-derived one is empty, so never-played teams
         // are not added to standings. Sorted for determinism; match-derived rosters keep chronological order.
         const eventTeamKeys = matchDerivedTeamKeys.length > 0 ? matchDerivedTeamKeys : [...registeredTeamKeys!].sort();
+        // The corpus was consulted, so a missing entry means `[]` ("zero rows"); hoisted so both the
+        // builder's `alliances` argument and the `allianceTeams` computation below read one value.
+        const eventAlliances = alliancesForSeason.get(e.event_key) ?? [];
         // As-of-event values, ranked against the season ranking pool.
         const asOfEventMetrics = metricsAsOfEvent(algorithm, stateByEventForAlgo, e.event_key, eventTeamKeys, metricsByTeam);
         // The same `sigmaMetricForAlgo` object as the Teams row and team-season artifact.
         const teamsStanding = buildEventTeamsStanding(asOfEventMetrics, eventTeamKeys, teamInfo, rankingPools, sigmaMetricForAlgo);
+        // Playoff alliance members who never took the field at this event: every distinct key across
+        // this event's alliance picks, minus the teams `teamsStanding` above already covers (never a
+        // second row for one team key), kept only when the season's walk-forward actually saw the
+        // team — that one filter is both "the model has something to say about this team" and the
+        // demo-key exclusion, since `teamsThisSeasonSet` already drops demo keys. Sorted for
+        // determinism, matching the registered-roster fallback above.
+        //
+        // A SECOND, narrower `metricsAsOfEvent`/`buildEventTeamsStanding` pass rather than widening the
+        // pair above: `algorithm.teamMetrics` takes the key set as an argument, and a wider set is not
+        // provably value-identical for the original keys, which is the byte-identity guarantee `teams`
+        // depends on. An empty list makes no second call and adds no key to the artifact — most events.
+        const eventTeamKeySet = new Set(eventTeamKeys);
+        const allianceOnlyKeys = Array.from(new Set(eventAlliances.flatMap((alliance) => alliance.picks)))
+          .filter((teamKey) => !eventTeamKeySet.has(teamKey) && teamsThisSeasonSet.has(teamKey))
+          .sort();
+        let allianceTeams: EventTeamStandingInput[] = [];
+        if (allianceOnlyKeys.length > 0) {
+          const allianceMetrics = metricsAsOfEvent(algorithm, stateByEventForAlgo, e.event_key, allianceOnlyKeys, metricsByTeam);
+          // A team with no state entry (the season's walk-forward never saw it) publishes nothing here,
+          // never an invented empty-metrics row.
+          const survivingAllianceKeys = allianceOnlyKeys.filter((teamKey) => Object.keys(allianceMetrics[teamKey] ?? {}).length > 0);
+          allianceTeams = buildEventTeamsStanding(allianceMetrics, survivingAllianceKeys, teamInfo, rankingPools, sigmaMetricForAlgo);
+        }
         const eventArtifact = buildEventArtifact({
           eventKey: e.event_key,
           season,
@@ -2159,14 +2204,14 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
           predictions,
           upcoming,
           teams: teamsStanding,
+          allianceTeams,
           generation,
           computedAt,
           sortTimeByMatchKey,
           actualBonusFlagsByMatchKey,
           // Raw corpus columns; the location string is composed inside the builder.
           eventMeta: { name: e.name, startDate: e.start_date, country: e.country, stateProv: e.state_prov, week: e.week },
-          // The corpus was consulted, so a missing entry publishes `[]` ("zero rows").
-          alliances: alliancesForSeason.get(e.event_key) ?? [],
+          alliances: eventAlliances,
           rankings: eventRankingsForSeason.get(e.event_key),
           videoByMatchKey,
           eventType: e.event_type,

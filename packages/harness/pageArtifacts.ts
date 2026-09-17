@@ -1532,6 +1532,32 @@ export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
   teams: z.array(EventTeamSchema),
   alliances: z.array(EventAllianceSchema).optional(),
   /**
+   * A playoff alliance member who never took the field at this event, so has
+   * no `teams` row — reuses `EventTeamSchema` unchanged, the same row shape
+   * `teams` uses, so the two arrays never carry two shapes for one kind of
+   * fact. It exists BECAUSE such a team must not enter `teams`: `teams` is
+   * this event's standings pool, and a never-played team stays unranked at
+   * the event — standings, Insights, Breakdown and the rank simulation all
+   * read `teams` and are unaffected by this field's presence or absence.
+   *
+   * The Alliances tab is this field's only consumer, reading it as a
+   * fallback only after a lookup against `teams` misses. A pick the
+   * season's walk-forward never saw (no state, no metrics) gets no row here
+   * rather than an invented value, so absence stays honest. Omitted
+   * entirely, rather than published empty, when this event has nothing to
+   * add.
+   *
+   * A live tick carries this key forward unchanged through
+   * `artifactMerge.ts`'s spread-then-override, so it is stale-but-true
+   * between republishes exactly as the Sigma entry and the `teams` row
+   * record already are. `PAGE_ARTIFACT_SCHEMA_VERSION` is deliberately NOT
+   * bumped — additive and optional, matching this file's own precedent for
+   * the identical class of change (see this schema's own header comment).
+   * Motivated by `2026cmptx` (Einstein), where a quarter of the field never
+   * played a Championship match.
+   */
+  allianceTeams: z.array(EventTeamSchema).optional(),
+  /**
    * This season's own win/tie ranking-point constants
    * (`RpRuleModule.winRp`/`.tieRp` — 2/1 in 2016-2024, 3/1 in 2025-2026),
    * published ONCE PER ARTIFACT rather than once per row — one fact about a

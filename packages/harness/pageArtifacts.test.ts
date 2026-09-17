@@ -1310,6 +1310,41 @@ describe("EventAllianceSchema / EventArtifactSchema identity fields", () => {
   });
 });
 
+describe("EventArtifactSchema.allianceTeams — playoff picks who never took the field at this event", () => {
+  it("Test 1 — a body with no allianceTeams key parses and reads back undefined, exactly the pre-existing shape", () => {
+    const parsed = EventArtifactSchema.parse(validEventFixture());
+    expect(parsed.allianceTeams).toBeUndefined();
+    expect(PAGE_ARTIFACT_SCHEMA_VERSION).toBe(1);
+  });
+
+  it("Test 2 — allianceTeams: [] parses and reads back as an empty array, distinct from the absent case above", () => {
+    const parsed = EventArtifactSchema.parse(eventFixtureWith({ top: { allianceTeams: [] } }));
+    expect(parsed.allianceTeams).toEqual([]);
+  });
+
+  it("Test 3 — a real row round-trips whole, in the exact shape a teams row has", () => {
+    const parsed = EventArtifactSchema.parse(
+      eventFixtureWith({
+        top: {
+          allianceTeams: [
+            { teamKey: "frc3006", teamNumber: 3006, nickname: "The Wolf Pack", rank: 5, record: { wins: 2, losses: 1, ties: 0 }, rp: 2.5, metrics: { total: { value: 30.4, spread: 2.2 } } },
+          ],
+        },
+      })
+    );
+    expect(parsed.allianceTeams).toHaveLength(1);
+    expect(parsed.allianceTeams![0]).toEqual({
+      teamKey: "frc3006",
+      teamNumber: 3006,
+      nickname: "The Wolf Pack",
+      rank: 5,
+      record: { wins: 2, losses: 1, ties: 0 },
+      rp: 2.5,
+      metrics: { total: { value: 30.4, spread: 2.2 } },
+    });
+  });
+});
+
 describe("TeamSeasonMatchSchema — predicted/actual per-bonus RP fields", () => {
   function fixtureWithMatchRow(row: Record<string, unknown>) {
     const fixture = validTeamSeasonFixture() as unknown as Record<string, unknown>;

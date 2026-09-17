@@ -1122,6 +1122,55 @@ describe("buildEventArtifact — event identity and playoff alliances, end-to-en
   });
 });
 
+/**
+ * `allianceTeams`: playoff alliance members who never took the field at the event. Builder-level;
+ * the end-to-end `publishSeasons` proof (including the byte-identity guard) is below.
+ */
+describe("buildEventArtifact — allianceTeams (unplayed alliance members)", () => {
+  const unplayedRow = {
+    teamKey: "frc3006",
+    teamNumber: 3006,
+    nickname: "The Wolf Pack",
+    metrics: { total: { value: 30.4, spread: 2.2 } },
+  };
+
+  it("Test A: teams/matches/upcoming are byte-identical whether or not allianceTeams is supplied", () => {
+    const withAllianceTeams = buildEventArtifact(eventArtifactParams({ allianceTeams: [unplayedRow] }));
+    const without = buildEventArtifact(eventArtifactParams());
+    expect(JSON.stringify(withAllianceTeams.teams)).toBe(JSON.stringify(without.teams));
+    expect(JSON.stringify(withAllianceTeams.matches)).toBe(JSON.stringify(without.matches));
+    expect(JSON.stringify(withAllianceTeams.upcoming)).toBe(JSON.stringify(without.upcoming));
+  });
+
+  it("Test B: an absent allianceTeams argument emits no key", () => {
+    const artifact = buildEventArtifact(eventArtifactParams());
+    expect(artifact).not.toHaveProperty("allianceTeams");
+  });
+
+  it("Test C: an empty allianceTeams array emits no key", () => {
+    const artifact = buildEventArtifact(eventArtifactParams({ allianceTeams: [] }));
+    expect(artifact).not.toHaveProperty("allianceTeams");
+  });
+
+  it("Test D: a present allianceTeams row has the same shape a teams row has, including rank/record/rp", () => {
+    const artifact = buildEventArtifact(
+      eventArtifactParams({
+        allianceTeams: [unplayedRow],
+        rankings: new Map([["frc3006", seasonRankingRow({ rank: 5, recordWins: 2, recordLosses: 1, recordTies: 0, rankingScore: 2.5 })]]),
+      })
+    );
+    expect(artifact.allianceTeams).toHaveLength(1);
+    const row = artifact.allianceTeams![0]!;
+    expect(row.teamKey).toBe("frc3006");
+    expect(row.teamNumber).toBe(3006);
+    expect(row.nickname).toBe("The Wolf Pack");
+    expect(row.rank).toBe(5);
+    expect(row.record).toEqual({ wins: 2, losses: 1, ties: 0 });
+    expect(row.rp).toBe(2.5);
+    expect(row.metrics.total).toEqual({ value: 30.4, spread: 2.2 });
+  });
+});
+
 /** Official rank, TBA's record and ranking points on each team row, from `event_rankings`. */
 describe("buildEventArtifact — rank/record/rp on team rows", () => {
   it("Test 1: a team with no rankings entry publishes none of rank/record/rp", () => {
@@ -4739,6 +4788,128 @@ describe("publishSeasons — OPR publishes no band or ranking-point odds", () =>
     const calls = vi.mocked(putObject).mock.calls.map(([, key, body]) => ({ key: key as string, body: String(body) }));
     const played = calls.filter((c) => c.key.startsWith("v1/event/")).flatMap((c) => (JSON.parse(c.body) as EventArtifact).matches);
     expect(played.some((m) => m.redRpPmf !== undefined)).toBe(true);
+  });
+});
+
+/**
+ * `allianceTeams` end to end through `publishSeasons`: a playoff pick who never took the field at
+ * the event it was picked for. `2026lat`'s alliance 1 picks `frc1`, who plays only the earlier
+ * event; alliance 2 picks `frc9001`, who appears on no match anywhere this season.
+ */
+describe("publishSeasons — allianceTeams (unplayed alliance members), end-to-end", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-alliance-teams-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /**
+   * An early event every fixture team plays, a late event only some of them play, and — when
+   * `withLateAlliances` is true — two late-event alliances: one picks a team that played only the
+   * early event (`frc1`), the other picks a team the season never saw at all (`frc9001`).
+   */
+  function seedFixture(corpus: Corpus, withLateAlliances: boolean): void {
+    upsertEvent(corpus, seasonEvent({ eventKey: "2026ear", name: "Early Event" }));
+    upsertMatch(
+      corpus,
+      seasonMatch({
+        matchKey: "2026ear_qm1",
+        eventKey: "2026ear",
+        matchNumber: 1,
+        sortTime: 1_000,
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redScore: 150,
+        blueScore: 90,
+        winner: "red",
+      })
+    );
+
+    upsertEvent(corpus, seasonEvent({ eventKey: "2026lat", name: "Late Event" }));
+    upsertMatch(
+      corpus,
+      seasonMatch({
+        matchKey: "2026lat_qm1",
+        eventKey: "2026lat",
+        matchNumber: 1,
+        sortTime: 10_000,
+        redTeams: ["frc2", "frc3", "frc4"],
+        blueTeams: ["frc5", "frc6", "frc7"],
+        redScore: 120,
+        blueScore: 100,
+        winner: "red",
+      })
+    );
+
+    if (withLateAlliances) {
+      upsertEventAlliance(corpus, {
+        eventKey: "2026lat",
+        allianceNumber: 1,
+        name: null,
+        // frc1 played only the early event; a real pick here, but never took the field at 2026lat.
+        picks: ["frc2", "frc3", "frc1"],
+        declines: [],
+        statusRaw: null,
+        fetchedAt: "2026-01-01T00:00:00.000Z",
+      });
+      upsertEventAlliance(corpus, {
+        eventKey: "2026lat",
+        allianceNumber: 2,
+        name: null,
+        // frc9001 is picked but appears on no match anywhere this season.
+        picks: ["frc5", "frc6", "frc9001"],
+        declines: [],
+        statusRaw: null,
+        fetchedAt: "2026-01-01T00:00:00.000Z",
+      });
+    }
+  }
+
+  it("Test E: a pick who played only the earlier event reaches allianceTeams at the later event with a total, absent from teams; a pick the season never saw yields no row", async () => {
+    seedFixture(db, true);
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const lateArtifact = findEventArtifact("2026lat", "opr");
+    expect(lateArtifact.teams.find((t) => t.teamKey === "frc1"), "frc1 must carry no teams row at 2026lat").toBeUndefined();
+    const allianceRow = lateArtifact.allianceTeams?.find((t) => t.teamKey === "frc1");
+    expect(allianceRow, "frc1 must reach allianceTeams").toBeDefined();
+    expect(allianceRow?.metrics.total?.value).toBeDefined();
+    expect(
+      lateArtifact.allianceTeams?.find((t) => t.teamKey === "frc9001"),
+      "a pick the season's walk-forward never saw publishes no allianceTeams row"
+    ).toBeUndefined();
+  });
+
+  it("Test F: teams/matches/upcoming are byte-identical published from a corpus with and without the later event's alliance rows", async () => {
+    seedFixture(db, true);
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+    const withAlliances = findEventArtifact("2026lat", "opr");
+    expect(withAlliances.allianceTeams?.length, "fixture-vacuity guard: this run must actually produce allianceTeams").toBeGreaterThan(0);
+
+    const controlDir = mkdtempSync(join(tmpdir(), "sigmascout-publish-alliance-teams-control-"));
+    const controlDb = openCorpus(join(controlDir, "corpus.sqlite"));
+    try {
+      seedFixture(controlDb, false);
+      vi.mocked(putObject).mockClear();
+      await publishSeasons(controlDb, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+      const withoutAlliances = findEventArtifact("2026lat", "opr");
+
+      expect(withoutAlliances).not.toHaveProperty("allianceTeams");
+      expect(JSON.stringify(withAlliances.teams)).toBe(JSON.stringify(withoutAlliances.teams));
+      expect(JSON.stringify(withAlliances.matches)).toBe(JSON.stringify(withoutAlliances.matches));
+      expect(JSON.stringify(withAlliances.upcoming)).toBe(JSON.stringify(withoutAlliances.upcoming));
+    } finally {
+      controlDb.close();
+      rmSync(controlDir, { recursive: true, force: true });
+    }
   });
 });
 
