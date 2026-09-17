@@ -60,30 +60,19 @@
   --alliance-red-ground-own: color-mix(in srgb, var(--alliance-red) 20%, transparent);
   --alliance-blue-ground-own: color-mix(in srgb, var(--alliance-blue) 20%, transparent);
 
-  /* Predicted bonus dot, three tiers (sketch 012 variant B, 260917-06d):
-   * `unlikely` (p < 1/3) draws the border only, `tossup` (1/3 <= p <= 2/3) a
-   * faint 25% tint, `likely` (p > 2/3) the existing 60% fill — deliberately
-   * stronger than an actual `earned` dot's 30% soft tint. A continuous fill
-   * was dropped because 40% and 60% read alike at 14px; three unmistakable
-   * looks fix that, and the exact odds stay in the tooltip/aria-label.
+  /* Predicted bonus dot, three tiers (sketch 019 variant F, revised
+   * 2026-09-17): `unlikely` (p < 1/3) draws the border only, `tossup`
+   * (1/3 <= p <= 2/3) a 135deg hatch of the alliance's 30% soft tint against
+   * the surface, `likely` (p > 2/3) the SAME 30% soft ground an actual
+   * `earned` dot of that side draws — no separate "predicted likely" colour
+   * exists, and the earlier 60%/25% fill tokens are gone. Every non-unknown
+   * dot's letter is `--color-text-primary`, not an alliance-tinted ink;
+   * `unknown` keeps its own muted dashed colours.
    *
-   * The letter's ink clears 4.5:1 against every non-transparent ground:
-   * red dot-ink 16.14:1 on white, 10.84:1 on the 25% tint, 5.94:1 on the 60%
-   * fill; blue dot-ink 14.69:1 on white, 10.27:1 on the 25% tint, 5.77:1 on
-   * the 60% fill (the 60% figures are the pre-existing calibration anchor,
-   * reproduced before the 25% figures were trusted).
-   *
-   * Background separation between adjacent tiers, so a reader never confuses
-   * one for another: white vs the 25% tint is 1.49:1 (red) / 1.43:1 (blue),
-   * clearing the 1.30:1 floor; the 25% tint vs the 60% fill is 1.83:1 (red) /
-   * 1.78:1 (blue), clearing the 1.75:1 floor. Composited hexes at 25%:
-   * red #F6C9C9, blue #C9D8FA. */
-  --alliance-red-fill: color-mix(in srgb, var(--alliance-red) 60%, transparent);
-  --alliance-blue-fill: color-mix(in srgb, var(--alliance-blue) 60%, transparent);
-  --alliance-red-fill-faint: color-mix(in srgb, var(--alliance-red) 25%, transparent);
-  --alliance-blue-fill-faint: color-mix(in srgb, var(--alliance-blue) 25%, transparent);
-  --alliance-red-dot-ink: #450a0a;
-  --alliance-blue-dot-ink: #172554;
+   * Contrast of --color-text-primary against each ground, composited on
+   * white: ~11.0:1 on the red 30% ground (composited #F4BEBE), ~11.5:1 on
+   * the blue 30% ground (composited #BED0F9), and ~17.9:1 on the bare
+   * surface between the hatch stripes — all clear 4.5:1 by a wide margin. */
 
   /*
    * Rarity-tier tokens for `MetricValue.tsx`'s boxed metric cells. Common
@@ -683,11 +672,14 @@ body {
 }
 
 /*
- * Per-bonus RP dots (`BonusRpDots.tsx`). `earned` is solid, `missed` hollow,
- * `unknown` DASHED (because a hollow dot would assert "will not earn this
- * bonus" without data to support it), and `predicted` draws one of three
- * tiers — hollow, faintly tinted, or solid — carrying the odds categorically
- * rather than as a continuous fill (see `lib/bonusRp.ts`'s `bonusDotTier`).
+ * Per-bonus RP dots (`BonusRpDots.tsx`). An actual `earned` dot and a
+ * predicted `likely` dot draw the SAME 30% alliance ground — no separate
+ * "predicted likely" look exists. A predicted `tossup` draws a 135deg hatch
+ * of that same 30% tint against the surface; a predicted `unlikely` draws an
+ * alliance-coloured outline only. An actual `missed` shrinks to a small
+ * letterless pip. `unknown` stays full size, DASHED and muted for either
+ * kind, because a hollow dot would assert "will not earn this bonus"
+ * without data to support it (see `lib/bonusRp.ts`'s `bonusDotTier`).
  */
 .bonus-dot {
   display: inline-flex;
@@ -705,33 +697,49 @@ body {
   background-color: transparent;
 }
 
+/* One dark letter on every non-unknown dot — earned, missed, and all three
+   predicted tiers, both sides — rather than an alliance-tinted ink; see the
+   `@theme` block above for the measured contrast on each ground. */
+.bonus-dot--earned,
+.bonus-dot--missed,
+.bonus-dot--predicted {
+  color: var(--color-text-primary);
+}
+
 .bonus-dot--earned.bonus-dot--red {
   border-color: var(--alliance-red);
   background-color: var(--alliance-red-soft);
-  color: var(--alliance-red);
 }
 .bonus-dot--earned.bonus-dot--blue {
   border-color: var(--alliance-blue);
   background-color: var(--alliance-blue-soft);
-  color: var(--alliance-blue);
 }
 
-/* Hollow: a real, published "did not earn". Outline only, alliance-tinted. */
+/* Actual "not earned": a small letterless pip, not a hollow full-size dot.
+   `font-size: 0` hides the letter visually while keeping it in the DOM, so
+   the `title`/`aria-label` and the text content both still name the bonus.
+   Margins keep the drawn mark plus its gutter spanning the full 14px slot,
+   so the row never reflows. Never matches `.bonus-dot--unknown` (still full
+   size, dashed, with its letter) or any predicted dot. */
+.bonus-dot--missed {
+  width: 6px;
+  height: 6px;
+  margin: 0 4px;
+  font-size: 0;
+}
 .bonus-dot--missed.bonus-dot--red {
   border-color: var(--alliance-red);
-  color: var(--alliance-red);
 }
 .bonus-dot--missed.bonus-dot--blue {
   border-color: var(--alliance-blue);
-  color: var(--alliance-blue);
 }
 
 /* Predicted: one of three categorical tiers rather than a continuous fill
-   (see the `@theme` block above for the measured contrast/separation
-   figures). `unlikely` deliberately shares its look with an actual `missed`
-   dot — alliance-coloured outline, no fill — because both mean "this
-   alliance is not on track for the bonus" and a reader should not need to
-   learn two different empty looks for the same idea. */
+   (see the `@theme` block above for the measured contrast figures).
+   `unlikely` deliberately shares its outline-only look with an actual
+   `missed` dot's border colour — alliance-coloured, no fill — because both
+   mean "this alliance is not on track for the bonus" and a reader should
+   not need to learn two different empty looks for the same idea. */
 .bonus-dot--predicted.bonus-dot--red {
   border-color: var(--alliance-red);
 }
@@ -740,27 +748,23 @@ body {
 }
 .bonus-dot--predicted.bonus-dot--tier-unlikely.bonus-dot--red {
   background-color: transparent;
-  color: var(--alliance-red);
 }
 .bonus-dot--predicted.bonus-dot--tier-unlikely.bonus-dot--blue {
   background-color: transparent;
-  color: var(--alliance-blue);
 }
 .bonus-dot--predicted.bonus-dot--tier-tossup.bonus-dot--red {
-  background-color: var(--alliance-red-fill-faint);
-  color: var(--alliance-red-dot-ink);
+  background-color: transparent;
+  background-image: repeating-linear-gradient(135deg, var(--alliance-red-soft) 0 2px, var(--color-bg-surface) 2px 4px);
 }
 .bonus-dot--predicted.bonus-dot--tier-tossup.bonus-dot--blue {
-  background-color: var(--alliance-blue-fill-faint);
-  color: var(--alliance-blue-dot-ink);
+  background-color: transparent;
+  background-image: repeating-linear-gradient(135deg, var(--alliance-blue-soft) 0 2px, var(--color-bg-surface) 2px 4px);
 }
 .bonus-dot--predicted.bonus-dot--tier-likely.bonus-dot--red {
-  background-color: var(--alliance-red-fill);
-  color: var(--alliance-red-dot-ink);
+  background-color: var(--alliance-red-soft);
 }
 .bonus-dot--predicted.bonus-dot--tier-likely.bonus-dot--blue {
-  background-color: var(--alliance-blue-fill);
-  color: var(--alliance-blue-dot-ink);
+  background-color: var(--alliance-blue-soft);
 }
 
 /* Unknown: dashed and desaturated so it reads as "not answered", not "no". */

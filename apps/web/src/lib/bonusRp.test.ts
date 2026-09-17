@@ -99,6 +99,52 @@ describe("bonusDotTier", () => {
       }
     }
   });
+
+  /** Reads the theme stylesheet, comments stripped, as CSS text (no CSSOM in jsdom). */
+  function readThemeCss(): string {
+    const themePath = findUpward("apps/web/src/styles/theme.css") ?? findUpward("src/styles/theme.css");
+    expect(themePath, "could not locate theme.css").toBeDefined();
+    return readFileSync(themePath!, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  }
+
+  /**
+   * Extracts a selector's `{ ... }` declaration block. Requires the selector be immediately
+   * followed by whitespace-then-brace, not by another `.class` — otherwise the bare
+   * `.bonus-dot--missed` search below would match inside the compound
+   * `.bonus-dot--missed.bonus-dot--red` rule instead of its own standalone rule.
+   */
+  function declarationBlock(css: string, selector: string): string {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`${escaped}(?!\\.[\\w-])\\s*\\{`);
+    const match = pattern.exec(css);
+    expect(match, `expected theme.css to contain a standalone rule for ${selector}`).toBeTruthy();
+    const openBrace = match!.index + match![0].length - 1;
+    const closeBrace = css.indexOf("}", openBrace);
+    return css.slice(openBrace + 1, closeBrace);
+  }
+
+  it("theme.css carries a rule for the actual-missed pip, 6px with 4px side margins", () => {
+    const css = readThemeCss();
+    const block = declarationBlock(css, ".bonus-dot--missed");
+    expect(block).toMatch(/width:\s*6px/);
+    expect(block).toMatch(/height:\s*6px/);
+    expect(block).toMatch(/margin:\s*0 4px/);
+  });
+
+  it.each(["red", "blue"] as const)("the %s toss-up rule hatches that side's soft tint against the surface", (side) => {
+    const css = readThemeCss();
+    const selector = `.bonus-dot--predicted.bonus-dot--tier-tossup.bonus-dot--${side}`;
+    const block = declarationBlock(css, selector);
+    expect(block).toContain("repeating-linear-gradient");
+    expect(block).toContain(`--alliance-${side}-soft`);
+  });
+
+  it.each(["red", "blue"] as const)("the %s likely rule shares the same ground an actual earned dot of that side uses", (side) => {
+    const css = readThemeCss();
+    const selector = `.bonus-dot--predicted.bonus-dot--tier-likely.bonus-dot--${side}`;
+    const block = declarationBlock(css, selector);
+    expect(block).toContain(`--alliance-${side}-soft`);
+  });
 });
 
 describe("bonusStatesFromFlags", () => {
