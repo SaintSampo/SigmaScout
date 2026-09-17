@@ -33,8 +33,7 @@ export const BRIER_HEADER_LABEL = "Brier Score (lower is better)";
 const ACCURACY_TABLE_ROW_COUNT = 5;
 /**
  * Year + one two-metric group (winner accuracy, Brier) per published
- * algorithm. Derived rather than hardcoded, matching
- * `DataCoverageTable`'s `COVERAGE_LEAF_COLUMN_COUNT`: the skeleton must keep
+ * algorithm. Derived rather than hardcoded: the skeleton must keep
  * the same width as the real table when an algorithm is added, and a literal
  * here silently desyncs the loading state from the loaded one.
  */

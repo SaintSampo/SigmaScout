@@ -64,6 +64,7 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 | 014 | acknowledgments-voice | What voice should the Acknowledgments page use so it is shorter and reads like a human wrote it? (copy sketch; 013 skipped, it was the deleted Champ Locks header) | **A — Statbotics tone**, trimmed by Jacob | copy, methodology, acknowledgments, voice, de-ai |
 | 015 | awards-page-rewrite | How short can the Predicting awards page get on the goal / model / results outline, and do the numbers belong in prose or tables? | **B2 — tables, plus the SPR alone finding** | copy, methodology, awards, de-ai, tables |
 | 016 | epa-vs-statbotics-rewrite | How should the Our EPA vs Statbotics EPA page be cut down: trimmed cards, one comparison table, or results first with a plain list? | **B — one comparison table**, results section first | copy, methodology, epa, statbotics, de-ai, tables |
+| 017 | algorithm-accuracy-rewrite | How should the Algorithm accuracy page be cut down: new words only, tables all the way down, or one screen with details on demand? | **A — same layout, new words**, coverage section dropped | copy, methodology, compare, accuracy, calibration, coverage, de-ai |
 
 ## Findings so far
 

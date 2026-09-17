@@ -11,9 +11,8 @@
  * would differ from the component file `MethodologyCards.tsx` by case
  * only, which collapses both to one on-disk entity under Windows module
  * resolution. Every other data/component pair in this codebase
- * (`calibrationCards.ts`/`CalibrationSection.tsx`, `coverageRows.ts`/
- * `DataCoverageTable.tsx`) already differs by more than case for exactly
- * this reason.
+ * (`calibrationCards.ts`/`CalibrationSection.tsx`) already differs by more
+ * than case for exactly this reason.
  */
 export interface MethodologyCardDescriptor {
   readonly to:

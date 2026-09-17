@@ -8,8 +8,8 @@ import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { AccuracyTable, AccuracyTableSkeleton } from "../components/compare/AccuracyTable.js";
 import { CompLevelSwitcher, DEFAULT_COMP_LEVEL_VIEW } from "../components/compare/CompLevelSwitcher.js";
 import { MethodologyNote } from "../components/compare/MethodologyNote.js";
+import { COMPARE_LEAD, COMPARE_LEAD_TESTID, COMPARE_PAGE_TITLE } from "../components/compare/compareCopy.js";
 import { CalibrationSection } from "../components/compare/CalibrationSection.js";
-import { DataCoverageSection, DataCoverageSectionSkeleton } from "../components/compare/DataCoverageTable.js";
 import type { CompareArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -37,12 +37,8 @@ export const Route = createFileRoute("/methodology/compare")({
  * constant, never a bare number at the call site, matching
  * `AccuracyTable.tsx`'s own precedent.
  */
-// 3, not 2 — `MethodologyNote` renders the near-tie caption AND the
-// always-visible cold-start explanation (2 fixed lines) plus the derived
-// Brier-list sentence (1 conditional line) once figures are complete, so the
-// skeleton's up-to-3-line footprint must match to avoid a layout jump when
-// the real note mounts.
-const METHODOLOGY_NOTE_SKELETON_LINE_COUNT = 3;
+// One line: `MethodologyNote` is a single static sentence.
+const METHODOLOGY_NOTE_SKELETON_LINE_COUNT = 1;
 const CALIBRATION_SECTION_SKELETON_TEXT_LINE_COUNT = 3;
 
 function MethodologyNoteSkeleton() {
@@ -78,15 +74,13 @@ function ComparePendingSections() {
       <AccuracyTableSkeleton />
       <MethodologyNoteSkeleton />
       <CalibrationSectionSkeleton />
-      <DataCoverageSectionSkeleton />
     </>
   );
 }
 
 function ComparePage() {
   // The ONE compLevelView state: drives AccuracyTable below and the
-  // calibration section — but deliberately NOT MethodologyNote, whose
-  // figures are pinned to the combined view. `CompLevelSwitcher` is fully
+  // calibration section. MethodologyNote is static copy and reads neither. `CompLevelSwitcher` is fully
   // controlled and declares no selection state of its own, so this is the
   // single source of truth.
   const [compLevelView, setCompLevelView] = useState<CompareCompLevelView>(DEFAULT_COMP_LEVEL_VIEW);
@@ -124,7 +118,10 @@ function ComparePage() {
       {/* The page title renders from first paint regardless of query state
           — the same "gate content, never the element's own existence" rule
           the event page's tab strip already follows. */}
-      <h1 className="text-role-heading mb-[var(--spacing-md)]">Compare</h1>
+      <h1 className="text-role-heading mb-[var(--spacing-md)]">{COMPARE_PAGE_TITLE}</h1>
+      <p data-testid={COMPARE_LEAD_TESTID} className="mb-[var(--spacing-md)] max-w-[72ch] text-role-body text-[var(--color-text-primary)]">
+        {COMPARE_LEAD}
+      </p>
 
       {/* The switcher renders from first paint alongside the title, gated
           on nothing — it filters already-fetched data and issues no
@@ -151,19 +148,13 @@ function ComparePage() {
           {/* A DOM SIBLING of AccuracyTable's scroll region, never a
               descendant — mounting the note inside the table would put the
               words it discloses (tune/holdout) inside the component whose
-              own test asserts they never appear. Pinned to the combined
-              view, never the switcher's own state — re-slicing would make
-              the note's own best-season clause false against the committed
-              data. */}
+              own test asserts they never appear. Static copy: it reads no
+              artifact and ignores the switcher. */}
           <div className="mt-[var(--spacing-md)]">
-            <MethodologyNote artifactsByYear={artifactsByYear} />
+            <MethodologyNote />
           </div>
           {/* Fed the SAME compLevelView state the accuracy table receives above. */}
           <CalibrationSection artifactsByYear={artifactsByYear} compLevelView={compLevelView} />
-          {/* The LAST section on the page, a DOM sibling of
-              CalibrationSection — the same one compLevelView state, its
-              third consumer. No new state declared anywhere in this file. */}
-          <DataCoverageSection artifactsByYear={artifactsByYear} compLevelView={compLevelView} />
         </>
       )}
     </div>

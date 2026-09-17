@@ -1631,10 +1631,10 @@ const CompareExclusionCountsSchema = z.object({
    * LIVE, R2-served artifact shape, and a required key would fail to
    * parse an already-published slice missing this key and blank the
    * Compare page in production before any republish happens. Absence
-   * genuinely means "this artifact predates the field" and MUST render as
-   * absent (`coverageRows.ts`'s `SharedCount`'s `absent` variant), never
-   * coerced to zero — pinned by
-   * `apps/web/src/routes/methodology.compare.test.tsx`.
+   * genuinely means "this artifact predates the field" and any reader MUST
+   * treat it as absent, never coerce it to zero. (The Compare page's data
+   * coverage table, the one web reader of this field, was removed
+   * 2026-09-17; the field is still published.)
    */
   coldStart: z.number().int().nonnegative().optional(),
 });

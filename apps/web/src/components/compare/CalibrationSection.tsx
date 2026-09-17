@@ -44,7 +44,7 @@ export const CALIBRATION_SPARSE_TAG = "small sample";
  * confident than reality, above zero = too cautious.)
  */
 export const CALIBRATION_EXPLAINER =
-  "These cards show how well each algorithm's confidence matches reality. Predictions are grouped by how confident the model was (for example, '70% sure Red wins'), then checked against how often Red actually won in that group. A bar below the zero line means the algorithm was more confident than it should have been; a bar above means it was too cautious.";
+  "When an algorithm gives red a 70% chance, red should win about 70% of the time. These cards check that for each confidence range. A bar below the line means too confident. A bar above means too cautious.";
 
 export interface CalibrationSectionProps {
   readonly artifactsByYear: ReadonlyMap<number, CompareArtifact>;

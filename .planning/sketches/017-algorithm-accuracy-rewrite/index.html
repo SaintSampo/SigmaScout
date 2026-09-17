@@ -1,0 +1,601 @@
+<title>Accuracy Page Rewrite</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root {
+    --bg: #f8fafc;
+    --surface: #ffffff;
+    --ink: #0f172a;
+    --ink-muted: #475569;
+    --line: #e2e8f0;
+    --accent: #2e7d32;
+    --ribbon-bg: #14532d;
+    --ribbon-ink: #ffffff;
+    --ribbon-ink-muted: rgba(255, 255, 255, 0.72);
+    --ribbon-accent: #81c784;
+    --chip-bg: #ecf4ed;
+    --warn: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c1410;
+      --surface: #131d17;
+      --ink: #e6ede8;
+      --ink-muted: #9db0a3;
+      --line: #25352b;
+      --accent: #81c784;
+      --ribbon-bg: #14532d;
+      --chip-bg: #1b2b21;
+      --warn: #fbbf24;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c1410;
+    --surface: #131d17;
+    --ink: #e6ede8;
+    --ink-muted: #9db0a3;
+    --line: #25352b;
+    --accent: #81c784;
+    --ribbon-bg: #14532d;
+    --chip-bg: #1b2b21;
+    --warn: #fbbf24;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .wrap {
+    max-width: 880px;
+    margin-inline: auto;
+    padding-inline: 16px;
+    padding-block: 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .eyebrow {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  h1 {
+    margin: 4px 0 0;
+    font-size: 24px;
+    line-height: 1.25;
+    font-weight: 700;
+    text-wrap: balance;
+  }
+  .brief { margin: 0; max-width: 68ch; color: var(--ink-muted); }
+
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 10px;
+  }
+  .tab {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-muted);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .tab[aria-selected="true"] {
+    color: var(--ribbon-ink);
+    background: var(--ribbon-bg);
+    border-color: var(--ribbon-bg);
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    align-items: center;
+  }
+  .chip {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    background: var(--chip-bg);
+    color: var(--ink);
+    border-radius: 4px;
+    padding: 3px 8px;
+  }
+  .chip.bad { color: var(--warn); }
+  .pitch { margin: 0; max-width: 68ch; }
+  .pitch strong { font-weight: 600; }
+
+  /* The mock of the real page */
+  .mock {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .ribbon {
+    background: var(--ribbon-bg);
+    color: var(--ribbon-ink);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 18px;
+    padding: 10px 20px;
+    font-size: 13px;
+  }
+  .ribbon .brand { font-weight: 700; font-size: 15px; }
+  .ribbon .brand span { color: var(--ribbon-accent); }
+  .ribbon .nav { color: var(--ribbon-ink-muted); }
+  .ribbon .nav.on { color: var(--ribbon-ink); border-bottom: 2px solid var(--ribbon-accent); }
+  .page {
+    padding: 24px 20px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+  .page .crumb { font-size: 12px; color: var(--ink-muted); }
+  .page h2.title { margin: 2px 0 0; font-size: 22px; font-weight: 700; }
+  .page p { margin: 0; max-width: 72ch; }
+  .page section { display: flex; flex-direction: column; gap: 6px; }
+  .page h3 { margin: 0; font-size: 17px; font-weight: 600; }
+  .page h3 a, .page a.inline {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .page a.inline { font-weight: 600; }
+
+  .tradeoffs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 8px 28px;
+  }
+  .tradeoffs h4 {
+    margin: 0 0 4px;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    font-weight: 600;
+  }
+  .tradeoffs ul { margin: 0; padding-left: 18px; }
+  .tradeoffs li { margin-bottom: 4px; }
+
+  :root { --pill-bg: #dcefdd; --pill-ink: #14532d; --neg: #b45309; --pos: #0369a1; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --pill-bg: #1f4a2c; --pill-ink: #d7f0d9; --neg: #fbbf24; --pos: #7dd3fc; } }
+  :root[data-theme="dark"] { --pill-bg: #1f4a2c; --pill-ink: #d7f0d9; --neg: #fbbf24; --pos: #7dd3fc; }
+  .page h4 { margin: 0; font-size: 15px; font-weight: 600; }
+  .page ul.plain { margin: 0; padding-left: 22px; max-width: 72ch; display: flex; flex-direction: column; gap: 4px; }
+  .page .muted { color: var(--ink-muted); font-size: 14px; }
+  .page .inner { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; }
+  .page details summary { cursor: pointer; font-weight: 600; color: var(--accent); }
+  .page details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .switch { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; align-self: flex-start; }
+  .switch .seg { padding: 5px 12px; font-size: 13px; color: var(--ink-muted); }
+  .switch .seg.on { background: var(--chip-bg); color: var(--ink); font-weight: 600; }
+  .tablewrap { overflow-x: auto; max-width: 100%; }
+  .page table { border-collapse: collapse; font-size: 14px; margin-top: 4px; }
+  .page th, .page td { text-align: left; padding: 6px 14px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .page thead th { font-weight: 600; color: var(--ink-muted); font-size: 12px; vertical-align: bottom; }
+  .page th.center { text-align: center; }
+  .page td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .page .grp { border-left: 1px solid var(--line); padding-left: 14px; }
+  .page th.rowhead { font-weight: 600; white-space: nowrap; }
+  .page table.prose td { min-width: 150px; }
+  .pill { background: var(--pill-bg); color: var(--pill-ink); font-weight: 600; border-radius: 999px; padding: 1px 8px; }
+  .calgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+  .label { font-size: 12px; font-weight: 600; color: var(--ink-muted); }
+  .bars { display: flex; align-items: center; gap: 3px; height: 56px; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); }
+  .bar { width: 12px; border-radius: 2px; }
+  .bar.pos { background: var(--pos); align-self: flex-start; margin-top: 2px; }
+  .bar.neg { background: var(--neg); align-self: flex-end; margin-bottom: 2px; }
+  .calrows { display: flex; flex-direction: column; font-size: 12px; color: var(--ink-muted); }
+  .calrow { display: flex; gap: 8px; border-top: 1px solid var(--line); padding: 2px 0; font-variant-numeric: tabular-nums; }
+  .calrow .rng { width: 74px; flex-shrink: 0; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">SigmaScout sketch 017 · copy and structure</div>
+    <h1>Algorithm accuracy page, shorter</h1>
+  </header>
+  <p class="brief">This page is mostly live tables, so there is less prose to cut than on the last three. What it lacks is a plain opening, and what it has too much of is fine print. All numbers below are the live combined view, read today. One finding up front: the page spends a paragraph explaining first match exclusions, and that rule has removed zero matches in every season and every view.</p>
+
+  <div class="tabs" role="tablist" aria-label="Copy variants" id="tabs"></div>
+
+  <div class="meta" id="meta"></div>
+  <p class="pitch" id="pitch"></p>
+
+  <div class="mock">
+    <div class="ribbon" aria-hidden="true">
+      <span class="brand"><span>Σ</span> SigmaScout</span>
+      <span class="nav">Teams</span>
+      <span class="nav">Events</span>
+      <span class="nav">Districts</span>
+      <span class="nav on">Methodology</span>
+    </div>
+    <div class="page" id="page"></div>
+  </div>
+
+  <div class="tradeoffs" id="tradeoffs"></div>
+</div>
+
+<script>
+  var DATA = {"years":{"2022":{"algos":{"epa":{"acc":0.779718583212033,"brier":0.15503963165489631,"n":14603,"nocall":0},"opr":{"acc":0.6930754834684966,"brier":0.18094074807490626,"n":14603,"nocall":1012},"spr":{"acc":0.7896305538226935,"brier":0.1423805600258564,"n":14603,"nocall":0}},"cov":{"cand":18012,"scored":14603,"ties":176,"excl":{"offseason":3335,"surrogateAffected":74,"missingResult":0,"quarantined":0,"coldStart":0}}},"2023":{"algos":{"epa":{"acc":0.763627353815659,"brier":0.16122775085930074,"n":16290,"nocall":0},"opr":{"acc":0.6634663032705649,"brier":0.19624190925728152,"n":16290,"nocall":1141},"spr":{"acc":0.7641228939544104,"brier":0.1567811675548381,"n":16290,"nocall":0}},"cov":{"cand":20194,"scored":16290,"ties":146,"excl":{"offseason":3841,"surrogateAffected":63,"missingResult":0,"quarantined":0,"coldStart":0}}},"2024":{"algos":{"epa":{"acc":0.757754712479122,"brier":0.16673917953874973,"n":16958,"nocall":0},"opr":{"acc":0.6553328561202577,"brier":0.20144760197480235,"n":16958,"nocall":1218},"spr":{"acc":0.76795514197089,"brier":0.15704336036379385,"n":16958,"nocall":0}},"cov":{"cand":22099,"scored":16958,"ties":194,"excl":{"offseason":5070,"surrogateAffected":71,"missingResult":0,"quarantined":0,"coldStart":0}}},"2025":{"algos":{"epa":{"acc":0.7802396563418494,"brier":0.15644983256178235,"n":17815,"nocall":0},"opr":{"acc":0.6769161202803528,"brier":0.18894931226825123,"n":17815,"nocall":1289},"spr":{"acc":0.7849310422789961,"brier":0.14537084751274426,"n":17815,"nocall":0}},"cov":{"cand":23809,"scored":17815,"ties":123,"excl":{"offseason":5932,"surrogateAffected":62,"missingResult":0,"quarantined":0,"coldStart":0}}},"2026":{"algos":{"epa":{"acc":0.79619505794883,"brier":0.15062920931493148,"n":18337,"nocall":1},"opr":{"acc":0.699376776732998,"brier":0.1791203871373397,"n":18337,"nocall":1307},"spr":{"acc":0.8002952110212115,"brier":0.13723260899693476,"n":18337,"nocall":1}},"cov":{"cand":20536,"scored":18337,"ties":45,"excl":{"offseason":2133,"surrogateAffected":66,"missingResult":0,"quarantined":0,"coldStart":0}}}},"cal":{"epa":[[0,0.1,0.05103844211937362,0.031037827352085354,1031],[0.1,0.2,0.15013723678270588,0.07220822837951302,1191],[0.2,0.3,0.2528940821302711,0.1262011531069827,1561],[0.3,0.4,0.35247911311209806,0.2295004712535344,2122],[0.4,0.5,0.4510948350710425,0.3898133116883117,2464],[0.5,0.6,0.548787472481846,0.594463801780875,2583],[0.6,0.7,0.6484783227023719,0.7710560068405301,2339],[0.7,0.8,0.7476621477784533,0.8660220994475138,1810],[0.8,0.9,0.850573960463508,0.920111042566317,1621],[0.9,1,0.9511942567416363,0.9801857585139319,1615]],"opr":[[0,0.1,0.046554027537021855,0.13800424628450106,1413],[0.1,0.2,0.15024300795577517,0.14840182648401826,1314],[0.2,0.3,0.2520337837524338,0.2114047287899861,1438],[0.3,0.4,0.3501533425879975,0.3086196503918023,1659],[0.4,0.5,0.4489012055212033,0.42034943473792397,1946],[0.5,0.6,0.5297126743715037,0.5393206854345165,3268],[0.6,0.7,0.6497768771644984,0.7023872679045093,1885],[0.7,0.8,0.7484663343635792,0.8012752391073327,1882],[0.8,0.9,0.8499930401559659,0.8636894337419732,1713],[0.9,1,0.9532429279264532,0.9046179219351292,1819]],"spr":[[0,0.1,0.03518298097444534,0.03877630553390491,2566],[0.1,0.2,0.1492133342317819,0.13964912280701755,1425],[0.2,0.3,0.251386171461079,0.23270440251572327,1431],[0.3,0.4,0.3509333447223561,0.30178940123881626,1453],[0.4,0.5,0.45151099966949704,0.44029850746268656,1541],[0.5,0.6,0.5505122045061943,0.5307486631016043,1496],[0.6,0.7,0.6507660315655004,0.6746487867177522,1566],[0.7,0.8,0.7503330441082713,0.7836201402166986,1569],[0.8,0.9,0.8504874610845286,0.8707520891364903,1795],[0.9,1,0.9684901112821986,0.9590844062947067,3495]]}};
+  var ALGOS = ["opr", "epa", "spr"];
+  var LABEL = { opr: "OPR", epa: "EPA", spr: "SPR" };
+  var YEARS = ["2022", "2023", "2024", "2025", "2026"];
+
+  var LEAD = "How often OPR, EPA and SPR picked the match winner in each season, and how good their win odds were. Every prediction was made before the match was played.";
+  var CAL_INTRO = "When an algorithm gives red a 70% chance, red should win about 70% of the time. This checks that for each confidence range.";
+
+  var VARIANTS = [
+    {
+      id: "now",
+      tab: "Now (live)",
+      pitch: "<strong>The page as it is today.</strong> It opens on a table with no introduction, under the title \"Compare\". Three grey paragraphs follow the table, a long explainer sits over the calibration cards, and the data coverage section carries the longest sentence on the site. Three of its eight columns are zero in every season.",
+      title: "Compare",
+      blocks: [
+        { type: "switcher" },
+        { type: "acc" },
+        { type: "note", text: "Where two algorithms' scores are this close, the published data can't tell us which is really better. The threshold below is a judgement call, not a statistical test." },
+        { type: "note", text: "When every robot in a match is playing its first-ever match, there's nothing to predict from. All three algorithms call it an even matchup, and the match is left out of the accuracy and Brier figures above rather than counted as a wrong guess." },
+        { type: "note", text: "Brier by season: 2022 0.1424, 2023 0.1568, 2024 0.1570, 2025 0.1454, 2026 0.1372. 2026 is SPR's single best season of the five." },
+        { type: "h", text: "Calibration" },
+        { type: "note", text: "These cards show how well each algorithm's confidence matches reality. Predictions are grouped by how confident the model was (for example, '70% sure Red wins'), then checked against how often Red actually won in that group. A bar below the zero line means the algorithm was more confident than it should have been; a bar above means it was too cautious." },
+        { type: "calcards", dash: "–" },
+        { type: "h", text: "Data coverage per year" },
+        { type: "note", text: "Offseason matches feed each algorithm's predictions but are excluded from the accuracy scores above; the numbers reflect only official-season matches with a recorded winner." },
+        { type: "note", text: "Scored matches plus the four excluded columns account for every candidate match. Ties and no-calls are counted inside the scored matches, not excluded from them: a tie has no winner to have predicted, and a no-call is a prediction of exactly fifty percent either way, so both are still scored for Brier even though neither counts toward winner accuracy. A single match can be both a tie and a no-call, so the Ties and No-calls columns do not add together." },
+        { type: "cov", full: true, labels: { cand: "Candidate matches", scored: "Scored matches", group: "Excluded from scoring", offseason: "Offseason", surrogate: "Surrogate-affected", missing: "Missing result", quarantined: "Quarantined", cold: "No prior data", ties: "Ties", nocall: "No-calls by algorithm" } }
+      ],
+      keeps: [], drops: []
+    },
+    {
+      id: "a",
+      tab: "★ A · Same layout, new words",
+      pitch: "<strong>Nothing moves. Every sentence is replaced.</strong> The page gets a real title and a two sentence opening, the three grey notes become one, and the two long explainers shrink to a couple of sentences each. Column labels lose their hyphens. No component changes beyond strings.",
+      title: "Algorithm accuracy",
+      blocks: [
+        { type: "p", text: LEAD },
+        { type: "switcher" },
+        { type: "acc" },
+        { type: "note", text: "A highlighted number is clearly ahead of the next best. When two are too close to call, nothing is highlighted." },
+        { type: "h", text: "Calibration" },
+        { type: "note", text: CAL_INTRO + " A bar below the line means too confident. A bar above means too cautious." },
+        { type: "calcards", dash: "–" }
+      ],
+      keeps: [
+        "Every table, card and control exactly where it is",
+        "Shipped without the coverage section, at your call, and with the calibration cards untouched",
+        "Lowest risk: strings only, though several of them are pinned in tests as a \"copywriting contract\""
+      ],
+      drops: [
+        "The first match paragraph (it describes a rule that excluded zero matches)",
+        "The \"Brier by season\" sentence, which repeats the table above it",
+        "\"Judgement call, not a statistical test\""
+      ]
+    },
+    {
+      id: "b",
+      tab: "B · Tables all the way down",
+      pitch: "<strong>The move that won the last two pages.</strong> A small \"how to read it\" table replaces the notes. The three calibration cards become one table, so the algorithms sit side by side in each confidence range. The coverage table drops the three columns that are zero in every season. Needs real component work on calibration and coverage.",
+      title: "Algorithm accuracy",
+      blocks: [
+        { type: "p", text: LEAD },
+        { type: "switcher" },
+        { type: "acc" },
+        { type: "key", rows: [
+          ["Winner accuracy", "Share of matches where the favored alliance won", "Higher is better"],
+          ["Brier score", "How far the win odds were from what happened", "Lower is better"],
+          ["Highlighted", "Clearly ahead of the next best. Nothing is highlighted when it is too close to call", ""]
+        ]},
+        { type: "h", text: "Calibration" },
+        { type: "note", text: "When an algorithm gives red a 70 to 80% chance, red should win 70 to 80% of the time. Each cell is how often red actually won, for 2026." },
+        { type: "caltable" },
+        { type: "h", text: "Which matches are scored" },
+        { type: "note", text: "Only official season matches with a recorded winner are scored. Offseason matches still feed the ratings. No match in any season was dropped for a missing result, a data problem, or a lack of prior data." },
+        { type: "cov", full: false, labels: { cand: "All matches", scored: "Scored", group: "Not scored", offseason: "Offseason", surrogate: "Surrogate matches", ties: "Ties", nocall: "Even odds predictions" } }
+      ],
+      keeps: [
+        "Every number the page shows today, in fewer boxes",
+        "Side by side calibration, which the cards make you do in your head",
+        "Matches the awards and EPA pages"
+      ],
+      drops: [
+        "The calibration mini charts and the one line headline sentence per algorithm",
+        "Three always zero coverage columns (they should come back on their own if one ever goes above zero)",
+        "The most work: CalibrationSection and DataCoverageTable both change, with their tests"
+      ]
+    },
+    {
+      id: "c",
+      tab: "C · One screen, details on demand",
+      pitch: "<strong>The accuracy table is the page. Everything else folds away.</strong> Calibration shrinks to one plain sentence per algorithm, with the full table behind a \"show all\" control. The coverage section collapses the same way. A student sees the answer and can stop. A mentor who wants the fine print can open it.",
+      title: "Algorithm accuracy",
+      blocks: [
+        { type: "p", text: LEAD },
+        { type: "switcher" },
+        { type: "acc" },
+        { type: "note", text: "A highlighted number is clearly ahead of the next best. Lower Brier is better." },
+        { type: "h", text: "Calibration" },
+        { type: "note", text: "Do the win odds mean what they say? For 2026:" },
+        { type: "calsentences" },
+        { type: "details", summary: "Show every confidence range", blocks: [ { type: "caltable" } ] },
+        { type: "details", summary: "Which matches are scored", blocks: [
+          { type: "note", text: "Only official season matches with a recorded winner are scored. Offseason matches still feed the ratings." },
+          { type: "cov", full: false, labels: { cand: "All matches", scored: "Scored", group: "Not scored", offseason: "Offseason", surrogate: "Surrogate matches", ties: "Ties", nocall: "Even odds predictions" } }
+        ]}
+      ],
+      keeps: [
+        "The headline sentence per algorithm, which is the most human line on the current page",
+        "All the detail, one click away",
+        "Shortest first screen of the three"
+      ],
+      drops: [
+        "Folded content is easy to miss, and \"published honesty\" is the point of this page",
+        "The calibration mini charts",
+        "Needs a disclosure component plus the same table work as B"
+      ]
+    }
+  ];
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function fmt4(x) { return x.toFixed(4); }
+  function pct(x, d) { return (x * 100).toFixed(d == null ? 0 : d) + "%"; }
+  function num(x) { return x.toLocaleString("en-US"); }
+
+  /* Same rules as lib/compareTie.ts: accuracy leader needs a gap of at least the
+     combined naive standard error; Brier leader needs a different displayed value. */
+  function leaders(year) {
+    var a = DATA.years[year].algos;
+    var byAcc = ALGOS.slice().sort(function (x, y) { return a[y].acc - a[x].acc; });
+    var l = a[byAcc[0]], r = a[byAcc[1]];
+    var se = Math.sqrt(l.acc * (1 - l.acc) / l.n + r.acc * (1 - r.acc) / r.n);
+    var accLeader = (l.acc - r.acc) >= se ? byAcc[0] : null;
+    var byBrier = ALGOS.slice().sort(function (x, y) { return a[x].brier - a[y].brier; });
+    var brierLeader = fmt4(a[byBrier[0]].brier) !== fmt4(a[byBrier[1]].brier) ? byBrier[0] : null;
+    return { acc: accLeader, brier: brierLeader };
+  }
+
+  var copy = [];
+  function say(t) { copy.push(t); return t; }
+
+  function table(cls) { var w = el("div", "tablewrap"); var t = el("table", cls); w.appendChild(t); return { wrap: w, t: t }; }
+
+  function accTable() {
+    var x = table("data");
+    var thead = el("thead"), r1 = el("tr"), r2 = el("tr");
+    var s = el("th", null, say("Season")); s.rowSpan = 2; r1.appendChild(s);
+    ALGOS.forEach(function (id) { var th = el("th", "grp center", LABEL[id]); th.colSpan = 2; r1.appendChild(th); });
+    ALGOS.forEach(function () { r2.appendChild(el("th", "grp", "Winner Accuracy")); r2.appendChild(el("th", null, "Brier Score (lower is better)")); });
+    say("Winner Accuracy Brier Score (lower is better)");
+    thead.appendChild(r1); thead.appendChild(r2); x.t.appendChild(thead);
+    var tb = el("tbody");
+    YEARS.forEach(function (y) {
+      var tr = el("tr"); tr.appendChild(el("td", "num", y));
+      var L = leaders(y);
+      ALGOS.forEach(function (id) {
+        var a = DATA.years[y].algos[id];
+        var c1 = el("td", "num grp"); var c2 = el("td", "num");
+        c1.appendChild(el("span", L.acc === id ? "pill" : null, fmt4(a.acc)));
+        c2.appendChild(el("span", L.brier === id ? "pill" : null, fmt4(a.brier)));
+        tr.appendChild(c1); tr.appendChild(c2);
+      });
+      tb.appendChild(tr);
+    });
+    x.t.appendChild(tb);
+    return x.wrap;
+  }
+
+  function validBins(id) { return DATA.cal[id].filter(function (b) { return b[4] >= 30 && b[2] != null; }); }
+  function headline(id) {
+    return validBins(id).slice().sort(function (p, q) { return Math.abs(p[2] - 0.7) - Math.abs(q[2] - 0.7); })[0];
+  }
+  function headlineSentence(id, short) {
+    var h = headline(id);
+    return short
+      ? "When " + LABEL[id] + " gave red about " + pct(h[2]) + ", red won " + pct(h[3]) + " of the time (" + num(h[4]) + " matches)."
+      : "When " + LABEL[id] + " put red’s win chance at about " + pct(h[2]) + ", red actually won " + pct(h[3]) + " of the time, across " + num(h[4]) + " matches.";
+  }
+  function rangeLabel(b, dash) { return Math.round(b[0] * 100) + dash + Math.round(b[1] * 100) + "%"; }
+
+  function calCards(dash) {
+    var grid = el("div", "calgrid");
+    ALGOS.forEach(function (id) {
+      var card = el("div", "card");
+      card.appendChild(el("div", "label", LABEL[id]));
+      card.appendChild(el("div", null, say(headlineSentence(id, false))));
+      var bars = el("div", "bars");
+      validBins(id).forEach(function (b) {
+        var d = b[3] - b[2];
+        var bar = el("span", d < 0 ? "bar neg" : "bar pos");
+        bar.style.height = Math.min(26, Math.abs(d) * 400) + "px";
+        bars.appendChild(bar);
+      });
+      card.appendChild(bars);
+      var rows = el("div", "calrows");
+      DATA.cal[id].forEach(function (b) {
+        var r = el("div", "calrow");
+        r.appendChild(el("span", "rng", say(rangeLabel(b, dash))));
+        r.appendChild(el("span", null, "predicted " + pct(b[2], 1) + ", actual " + pct(b[3], 1)));
+        rows.appendChild(r);
+      });
+      card.appendChild(rows);
+      grid.appendChild(card);
+    });
+    return grid;
+  }
+
+  function calTable() {
+    var x = table("data");
+    var thead = el("thead"), hr = el("tr");
+    [say("Red's predicted chance")].concat(ALGOS.map(function (id) { return LABEL[id]; })).forEach(function (h, i) { hr.appendChild(el("th", i ? "grp" : null, h)); });
+    thead.appendChild(hr); x.t.appendChild(thead);
+    var tb = el("tbody");
+    DATA.cal.spr.forEach(function (b, i) {
+      var tr = el("tr");
+      tr.appendChild(el("td", "num", say(rangeLabel(b, " to "))));
+      ALGOS.forEach(function (id) { tr.appendChild(el("td", "num grp", pct(DATA.cal[id][i][3], 1))); });
+      tb.appendChild(tr);
+    });
+    x.t.appendChild(tb);
+    return x.wrap;
+  }
+
+  function calSentences() {
+    var ul = el("ul", "plain");
+    ALGOS.forEach(function (id) { ul.appendChild(el("li", null, say(headlineSentence(id, true)))); });
+    return ul;
+  }
+
+  function covTable(full, L) {
+    var x = table("data");
+    var exCols = full
+      ? [["offseason", L.offseason], ["surrogateAffected", L.surrogate], ["missingResult", L.missing], ["quarantined", L.quarantined], ["coldStart", L.cold]]
+      : [["offseason", L.offseason], ["surrogateAffected", L.surrogate]];
+    var thead = el("thead"), r1 = el("tr"), r2 = el("tr");
+    [say("Year"), say(L.cand), say(L.scored)].forEach(function (h) { var th = el("th", null, h); th.rowSpan = 2; r1.appendChild(th); });
+    var g = el("th", "grp center", say(L.group)); g.colSpan = exCols.length; r1.appendChild(g);
+    var t = el("th", "grp", say(L.ties)); t.rowSpan = 2; r1.appendChild(t);
+    var n = el("th", "grp center", say(L.nocall)); n.colSpan = 3; r1.appendChild(n);
+    exCols.forEach(function (c, i) { r2.appendChild(el("th", i ? null : "grp", say(c[1]))); });
+    ALGOS.forEach(function (id, i) { r2.appendChild(el("th", i ? null : "grp", LABEL[id])); });
+    thead.appendChild(r1); thead.appendChild(r2); x.t.appendChild(thead);
+    var tb = el("tbody");
+    YEARS.forEach(function (y) {
+      var c = DATA.years[y].cov, tr = el("tr");
+      tr.appendChild(el("td", "num", y));
+      tr.appendChild(el("td", "num", num(c.cand)));
+      tr.appendChild(el("td", "num", num(c.scored)));
+      exCols.forEach(function (col, i) { tr.appendChild(el("td", i ? "num" : "num grp", num(c.excl[col[0]]))); });
+      tr.appendChild(el("td", "num grp", num(c.ties)));
+      ALGOS.forEach(function (id, i) { tr.appendChild(el("td", i ? "num" : "num grp", num(DATA.years[y].algos[id].nocall))); });
+      tb.appendChild(tr);
+    });
+    x.t.appendChild(tb);
+    return x.wrap;
+  }
+
+  function keyTable(rows) {
+    var x = table("prose");
+    var tb = el("tbody");
+    rows.forEach(function (r) {
+      var tr = el("tr");
+      r.forEach(function (c, i) { tr.appendChild(el(i === 0 ? "th" : "td", i === 0 ? "rowhead" : null, say(c))); });
+      tb.appendChild(tr);
+    });
+    x.t.appendChild(tb);
+    return x.wrap;
+  }
+
+  function switcher() {
+    var g = el("div", "switch");
+    ["Combined", "Qualification", "Elimination"].forEach(function (s, i) { g.appendChild(el("span", i ? "seg" : "seg on", say(s))); });
+    return g;
+  }
+
+  function renderBlocks(blocks, page) {
+    var sec = el("section"); page.appendChild(sec);
+    blocks.forEach(function (b) {
+      if (b.type === "h") { sec = el("section"); page.appendChild(sec); sec.appendChild(el("h3", null, say(b.text))); }
+      else if (b.type === "p") sec.appendChild(el("p", null, say(b.text)));
+      else if (b.type === "note") sec.appendChild(el("p", "muted", say(b.text)));
+      else if (b.type === "switcher") sec.appendChild(switcher());
+      else if (b.type === "acc") sec.appendChild(accTable());
+      else if (b.type === "key") sec.appendChild(keyTable(b.rows));
+      else if (b.type === "calcards") sec.appendChild(calCards(b.dash));
+      else if (b.type === "caltable") sec.appendChild(calTable());
+      else if (b.type === "calsentences") sec.appendChild(calSentences());
+      else if (b.type === "cov") sec.appendChild(covTable(b.full, b.labels));
+      else if (b.type === "details") {
+        var d = el("details"); d.appendChild(el("summary", null, say(b.summary)));
+        var inner = el("div", "inner"); d.appendChild(inner);
+        renderBlocks(b.blocks, inner);
+        sec = el("section"); page.appendChild(sec); sec.appendChild(d);
+      }
+    });
+  }
+
+  var tabsEl = document.getElementById("tabs");
+  var current = "a";
+  var baseline = null;
+
+  function measure(v) {
+    copy = [];
+    var scratch = el("div");
+    renderBlocks(v.blocks, scratch);
+    var text = [v.title].concat(copy).join(" ");
+    return { words: text.split(/\s+/).filter(Boolean).length, dashes: (text.match(/[-‐-—−]/g) || []).length };
+  }
+
+  function render() {
+    var v = VARIANTS.filter(function (x) { return x.id === current; })[0];
+    Array.prototype.forEach.call(tabsEl.children, function (b) {
+      b.setAttribute("aria-selected", b.dataset.id === current ? "true" : "false");
+    });
+    if (baseline == null) baseline = measure(VARIANTS[0]).words;
+    var m = measure(v);
+    var meta = document.getElementById("meta");
+    meta.textContent = "";
+    meta.appendChild(el("span", "chip", m.words + " words of copy and labels"));
+    if (v.id !== "now") meta.appendChild(el("span", "chip", Math.round((1 - m.words / baseline) * 100) + "% shorter than now"));
+    meta.appendChild(el("span", m.dashes ? "chip bad" : "chip", m.dashes + " hyphens or dashes"));
+    document.getElementById("pitch").innerHTML = v.pitch;
+
+    var page = document.getElementById("page");
+    page.textContent = "";
+    var head = el("div");
+    head.appendChild(el("div", "crumb", "Methodology / " + v.title));
+    head.appendChild(el("h2", "title", v.title));
+    page.appendChild(head);
+    renderBlocks(v.blocks, page);
+
+    var tr = document.getElementById("tradeoffs");
+    tr.textContent = "";
+    [["Keeps", v.keeps], ["Gives up", v.drops]].forEach(function (pair) {
+      if (!pair[1].length) return;
+      var box = el("div");
+      box.appendChild(el("h4", null, pair[0]));
+      var ul = el("ul");
+      pair[1].forEach(function (x) { ul.appendChild(el("li", null, x)); });
+      box.appendChild(ul);
+      tr.appendChild(box);
+    });
+  }
+
+  VARIANTS.forEach(function (v) {
+    var b = el("button", "tab", v.tab);
+    b.type = "button"; b.id = "tab-" + v.id; b.dataset.id = v.id; b.setAttribute("role", "tab");
+    b.addEventListener("click", function () {
+      current = v.id;
+      try { localStorage.setItem("accuracy-rewrite-tab", current); } catch (e) {}
+      render();
+    });
+    tabsEl.appendChild(b);
+  });
+  try {
+    var saved = localStorage.getItem("accuracy-rewrite-tab");
+    if (saved && VARIANTS.some(function (x) { return x.id === saved; })) current = saved;
+  } catch (e) {}
+  render();
+</script>
