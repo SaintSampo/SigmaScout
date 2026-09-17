@@ -6,9 +6,78 @@
  */
 import { describe, expect, it } from "vitest";
 import { TOTAL_METRIC_KEY, type TeamMetrics } from "../core/algorithms/types.js";
-import { sigmaMetricByTeam } from "./sigmaMetric.js";
+import { sigmaMetricByTeam, sigmaWindowIndices, SIGMA_WINDOW_MIN_HALF_WIDTH } from "./sigmaMetric.js";
 import { publishedTierForPercentile } from "./pageArtifacts.js";
+import { percentileRanks } from "./percentiles.js";
 import { SIGMA_METRIC_KEY } from "./sigmaScore.js";
+
+/**
+ * A small named LCG, deterministic across runs (never `Math.random`), used
+ * only to build synthetic test pools below.
+ */
+function seededLcg(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
+function toMetrics(ratingByTeam: ReadonlyMap<string, number>): TeamMetrics {
+  const metrics: TeamMetrics = {};
+  for (const [teamKey, rating] of ratingByTeam) metrics[teamKey] = { [TOTAL_METRIC_KEY]: { value: rating } };
+  return metrics;
+}
+
+function median(values: readonly number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+/**
+ * THE SUPERSEDED SCHEME, kept ONLY as a labelled contrast for the two tests
+ * below -- never live code, never imported by `sigmaMetric.ts`. Reproduces
+ * the pre-260917-jzh behaviour exactly: each team's residual is its figure
+ * minus the MEDIAN figure of a clamped rating-rank window centred on it (the
+ * same clamp `expectedSigmaByTeam` used before this task removed it), and
+ * every residual is then ranked with ONE GLOBAL `percentileRanks` call. That
+ * global rank over a LOCALLY centred residual is exactly the defect: the
+ * residual's LEVEL is normalized per window, but its SPREAD is not, so a
+ * region of the rating axis with a wider residual spread supplies a
+ * disproportionate share of the global tails.
+ */
+function oldSchemeGoodnessPercentiles(sortedByRatingSigma: readonly number[], windowSize: number): number[] {
+  const n = sortedByRatingSigma.length;
+  const halfWindow = Math.floor(windowSize / 2);
+  const residuals = sortedByRatingSigma.map((sigma, i) => {
+    let start = i - halfWindow;
+    let end = start + windowSize;
+    if (start < 0) {
+      end -= start;
+      start = 0;
+    }
+    if (end > n) {
+      start -= end - n;
+      end = n;
+    }
+    start = Math.max(0, start);
+    return sigma - median(sortedByRatingSigma.slice(start, end));
+  });
+  const raw = percentileRanks(residuals);
+  return raw.map((p) => 100 - p); // sigma is declared lower-is-better
+}
+
+function tierShare(tiers: readonly ("rare" | "epic" | "legendary" | "common")[]) {
+  const counts = { common: 0, rare: 0, epic: 0, legendary: 0 };
+  for (const tier of tiers) counts[tier]++;
+  const n = tiers.length;
+  return { common: (counts.common / n) * 100, rare: (counts.rare / n) * 100, epic: (counts.epic / n) * 100, legendary: (counts.legendary / n) * 100 };
+}
+
+function tierOf(percentile: number | undefined): "rare" | "epic" | "legendary" | "common" {
+  return publishedTierForPercentile(percentile) ?? "common";
+}
 
 /** Builds a smooth linear figure-vs-rating pool with tiny deterministic jitter so the fit is not trivially exact. */
 function buildLinearPool(n: number, slope: number, intercept: number, jitterAmplitude = 0.2) {
@@ -209,5 +278,135 @@ describe("sigmaMetricByTeam -- THE HEADLINE TEST", () => {
     expect(publishedTierForPercentile(perturbed[neighbourKey]!.percentile)).toBe(
       publishedTierForPercentile(baseline[neighbourKey]!.percentile)
     );
+  });
+});
+
+describe("sigmaMetricByTeam -- per-decile uniformity on a heteroscedastic pool", () => {
+  it("holds Common and Legendary shares inside their bands at every decile, unlike the old scheme", () => {
+    const n = 2000;
+    const rand = seededLcg(42);
+    const ratingMax = n - 1;
+    const valueByTeam = new Map<string, number>();
+    const ratingByTeam = new Map<string, number>();
+    const teamKeys: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const teamKey = `frc${i}`;
+      teamKeys.push(teamKey);
+      const rating = i;
+      // Noise SPREAD grows with rating (0.4x at rating 0 up to 1.0x at
+      // ratingMax) -- the real data's shape, and the exact property the old
+      // difference-residual scheme fails on.
+      const noise = (rand() * 2 - 1) * (0.4 + 0.6 * (rating / ratingMax));
+      ratingByTeam.set(teamKey, rating);
+      valueByTeam.set(teamKey, 5 + 0.01 * rating + noise);
+    }
+
+    const officialMetricsByTeam = toMetrics(ratingByTeam);
+    const result = sigmaMetricByTeam({ valueByTeam, officialMetricsByTeam, seasonFinalMetricsByTeam: {}, teamKeys, metricKey: SIGMA_METRIC_KEY });
+    const newTiers = teamKeys.map((teamKey) => tierOf(result[teamKey]?.percentile));
+
+    const windowSize = Math.min(n, Math.max(25, Math.round(n / 20)));
+    const sortedSigma = teamKeys.map((teamKey) => valueByTeam.get(teamKey)!);
+    const oldPercentiles = oldSchemeGoodnessPercentiles(sortedSigma, windowSize);
+    const oldTiers = oldPercentiles.map((p) => tierOf(p));
+
+    const bucketSize = n / 10;
+    const newShares: ReturnType<typeof tierShare>[] = [];
+    const oldShares: ReturnType<typeof tierShare>[] = [];
+    for (let b = 0; b < 10; b++) {
+      const lo = b * bucketSize;
+      const hi = (b + 1) * bucketSize;
+      newShares.push(tierShare(newTiers.slice(lo, hi)));
+      oldShares.push(tierShare(oldTiers.slice(lo, hi)));
+    }
+
+    // Measured on this exact seeded pool: new-scheme Common ran 47.0 to 51.5
+    // percent and Legendary ran 3.5 to 6.0 percent across all ten deciles --
+    // comfortably inside band, so the band below is not cutting it close.
+    for (const share of newShares) {
+      expect(share.common).toBeGreaterThanOrEqual(44);
+      expect(share.common).toBeLessThanOrEqual(56);
+      expect(share.legendary).toBeGreaterThanOrEqual(2);
+      expect(share.legendary).toBeLessThanOrEqual(9);
+    }
+
+    // The defect, stated as a number: old-scheme Legendary share measured
+    // 3.0 percent in the bottom decile against 16.5 percent in the top --
+    // 5.5x, comfortably past the 3x floor asserted below.
+    const oldBottomLegendary = oldShares[0]!.legendary;
+    const oldTopLegendary = oldShares[9]!.legendary;
+    expect(oldTopLegendary).toBeGreaterThanOrEqual(3 * oldBottomLegendary);
+  });
+});
+
+describe("sigmaMetricByTeam -- steep monotone trend at the top", () => {
+  it("no longer forces most of the top block to Common, unlike the old clamped window", () => {
+    const n = 2000;
+    const rand = seededLcg(7);
+    const valueByTeam = new Map<string, number>();
+    const ratingByTeam = new Map<string, number>();
+    const teamKeys: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const teamKey = `frc${i}`;
+      teamKeys.push(teamKey);
+      const rating = i;
+      // Small deterministic noise, tiny next to the trend: ranks are not
+      // degenerately tied, but the whole range still rises monotonically.
+      const noise = (rand() * 2 - 1) * 0.01;
+      ratingByTeam.set(teamKey, rating);
+      valueByTeam.set(teamKey, 1 + 0.5 * rating + noise);
+    }
+
+    const windowSize = Math.min(n, Math.max(25, Math.round(n / 20)));
+    const halfWindow = Math.floor(windowSize / 2);
+    const topBlockStart = n - halfWindow;
+
+    const officialMetricsByTeam = toMetrics(ratingByTeam);
+    const result = sigmaMetricByTeam({ valueByTeam, officialMetricsByTeam, seasonFinalMetricsByTeam: {}, teamKeys, metricKey: SIGMA_METRIC_KEY });
+
+    const sortedSigma = teamKeys.map((teamKey) => valueByTeam.get(teamKey)!);
+    const oldPercentiles = oldSchemeGoodnessPercentiles(sortedSigma, windowSize);
+
+    let oldCommonCount = 0;
+    let newCommonCount = 0;
+    let newLegendaryCount = 0;
+    for (let i = topBlockStart; i < n; i++) {
+      if (tierOf(oldPercentiles[i]) === "common") oldCommonCount++;
+      const newTier = tierOf(result[teamKeys[i]!]?.percentile);
+      if (newTier === "common") newCommonCount++;
+      if (newTier === "legendary") newLegendaryCount++;
+    }
+    const blockSize = n - topBlockStart;
+
+    // Measured on this exact seeded pool (block size 50): old scheme reads
+    // 100.0 percent Common (the clamped-window bug); new scheme reads 46.0
+    // percent Common with 3 teams reaching Legendary.
+    expect((100 * oldCommonCount) / blockSize).toBeGreaterThanOrEqual(90);
+    expect((100 * newCommonCount) / blockSize).toBeLessThanOrEqual(60);
+    expect(newLegendaryCount).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("sigmaWindowIndices", () => {
+  it("SIGMA_WINDOW_MIN_HALF_WIDTH is exactly 5", () => {
+    expect(SIGMA_WINDOW_MIN_HALF_WIDTH).toBe(5);
+  });
+
+  it("an interior index returns a window symmetric about i", () => {
+    const { start, end } = sigmaWindowIndices(2000, 500, 50);
+    expect(start).toBe(450);
+    expect(end).toBe(551);
+  });
+
+  it("i = n - 1 returns a window of exactly min(n, 11) ending at n", () => {
+    const { start, end } = sigmaWindowIndices(2000, 1999, 50);
+    expect(start).toBe(1989);
+    expect(end).toBe(2000);
+  });
+
+  it("i = 0 returns a window of exactly min(n, 11) starting at 0", () => {
+    const { start, end } = sigmaWindowIndices(2000, 0, 50);
+    expect(start).toBe(0);
+    expect(end).toBe(11);
   });
 });
