@@ -561,6 +561,18 @@ body {
   background-color: var(--color-bg-page);
 }
 
+/*
+ * The boundary between a match row's observed half (Match, Result, Actual)
+ * and its forecast half (Prediction, Confidence, the plot, Call). Applied to
+ * both the header `th` and every body `td` of the Prediction column
+ * (`MatchTable.tsx`, `EventMatchTable.tsx`), so under the tables'
+ * `borderSpacing: 0` the rule reads as one continuous line from the header
+ * down through the last row rather than a series of separate segments.
+ */
+.match-table-rule {
+  border-left: 1px solid var(--color-border);
+}
+
 /* Alliance chip (`MatchTable.tsx`'s Confidence column), on the same `--alliance-*` tokens as the plotted marks. */
 .alliance-chip {
   display: inline-block;

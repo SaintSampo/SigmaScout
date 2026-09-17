@@ -184,7 +184,7 @@ export function AxisHeader({ domain }: { domain: AxisDomain }) {
  * (260915-m4j): a schedule-only row written by the live Worker whose event
  * artifact carried no usable state block. A blank cell reads as missing
  * data, so the Confidence cell says so in muted words instead; the
- * Predicted RP and plot cells stay empty, and no mark is ever drawn at a
+ * Prediction and plot cells stay empty, and no mark is ever drawn at a
  * fabricated position. Token classes only.
  */
 export function NoPrediction({ matchKey }: { matchKey: string }) {
@@ -290,7 +290,7 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
   const teamOnRoster = teamIsRed || teamIsBlue;
 
   // Undefined only for an upcoming row the browser could not price (260915-m4j):
-  // "No prediction", an empty Predicted RP cell and an empty plot cell.
+  // "No prediction", an empty Prediction cell and an empty plot cell.
   const prediction = teamRowPrediction(match);
   const confidence = prediction === undefined ? undefined : prediction.predictedWinner === "red" ? prediction.pRedWin : 1 - prediction.pRedWin;
   const winnerCorrect = played && prediction !== undefined && prediction.predictedWinner === match.actualWinner;
@@ -378,24 +378,6 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
             <span className="result-chip result-chip--loss">Loss</span>
           ))}
       </td>
-      <td data-testid={`confidence-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        {prediction === undefined || confidence === undefined ? (
-          <NoPrediction matchKey={match.matchKey} />
-        ) : (
-          <span className="flex items-center gap-[var(--spacing-xs)]">
-            <AllianceChip side={prediction.predictedWinner} />
-            <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
-          </span>
-        )}
-      </td>
-      <td data-testid={`predicted-score-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        {prediction !== undefined && (
-          <div className="flex flex-col gap-[2px]">
-            <PredictedScoreLine matchKey={match.matchKey} side="red" score={prediction.predictedRedScore} variance={match.redMatchBandVariance} season={season} bonusRp={match.redBonusRp} compLevel={match.compLevel} />
-            <PredictedScoreLine matchKey={match.matchKey} side="blue" score={prediction.predictedBlueScore} variance={match.blueMatchBandVariance} season={season} bonusRp={match.blueBonusRp} compLevel={match.compLevel} />
-          </div>
-        )}
-      </td>
       <td data-testid={`actual-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         {played ? (
           <div className="flex flex-col gap-[2px]">
@@ -405,6 +387,24 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
         ) : (
           <span className="text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
             {match.sortTime !== undefined ? formatScheduledTime(match.sortTime) : ""}
+          </span>
+        )}
+      </td>
+      <td data-testid={`predicted-score-${match.matchKey}`} className={cn("px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", "match-table-rule")}>
+        {prediction !== undefined && (
+          <div className="flex flex-col gap-[2px]">
+            <PredictedScoreLine matchKey={match.matchKey} side="red" score={prediction.predictedRedScore} variance={match.redMatchBandVariance} season={season} bonusRp={match.redBonusRp} compLevel={match.compLevel} />
+            <PredictedScoreLine matchKey={match.matchKey} side="blue" score={prediction.predictedBlueScore} variance={match.blueMatchBandVariance} season={season} bonusRp={match.blueBonusRp} compLevel={match.compLevel} />
+          </div>
+        )}
+      </td>
+      <td data-testid={`confidence-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
+        {prediction === undefined || confidence === undefined ? (
+          <NoPrediction matchKey={match.matchKey} />
+        ) : (
+          <span className="flex items-center gap-[var(--spacing-xs)]">
+            <AllianceChip side={prediction.predictedWinner} />
+            <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
           </span>
         )}
       </td>
@@ -516,9 +516,9 @@ export function MatchTable({ matches, domain, teamKey, season, algorithm }: Matc
           <th className="w-[64px] p-[var(--spacing-sm)] text-left">
             <span className="text-role-label text-[var(--color-text-muted)]">Result</span>
           </th>
+          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Actual</th>
+          <th className={cn("text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]", "match-table-rule")}>Prediction</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Confidence</th>
-          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Predicted RP</th>
-          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Actual RP</th>
           <th className="p-[var(--spacing-sm)] pl-[var(--spacing-lg)] text-left">
             <AxisHeader domain={domain} />
           </th>

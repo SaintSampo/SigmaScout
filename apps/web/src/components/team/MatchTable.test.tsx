@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { renderWithRouter } from "@/test/routerHarness";
-import { MatchTable, matchLabel } from "./MatchTable.js";
+import { AxisHeader, MatchTable, matchLabel } from "./MatchTable.js";
 import type { TeamSeasonMatch } from "./matchAxis.js";
 
 const DOMAIN = { min: 100, max: 400 };
@@ -882,6 +882,40 @@ describe("MatchTable", () => {
       expect(allStates).not.toContain("earned");
       expect(allStates).not.toContain("missed");
     });
+  });
+});
+
+describe("Header and body column order (260917-jaf)", () => {
+  it("the column headers read Match, Result, Actual, Prediction, Confidence, axis, Call in that order", () => {
+    const { container: axisContainer } = render(<AxisHeader domain={DOMAIN} />);
+    const axisText = axisContainer.textContent ?? "";
+
+    renderWithRouter(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={DOMAIN} teamKey="frc118" season={2024} algorithm="spr" />);
+    const headers = screen.getAllByRole("columnheader").map((header) => header.textContent?.trim());
+    expect(headers).toEqual(["Match", "Result", "Actual", "Prediction", "Confidence", axisText, "Call"]);
+  });
+
+  it("the Prediction header and every predicted-score cell carry the shared rule class, header and body alike", () => {
+    renderWithRouter(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={DOMAIN} teamKey="frc118" season={2024} algorithm="spr" />);
+    const headers = screen.getAllByRole("columnheader");
+    const predictionHeader = headers[3];
+    expect(predictionHeader?.classList.contains("match-table-rule")).toBe(true);
+    for (const header of headers) {
+      if (header !== predictionHeader) {
+        expect(header.classList.contains("match-table-rule")).toBe(false);
+      }
+    }
+    const predictedCell = screen.getByTestId("predicted-score-m1");
+    expect(predictedCell.classList.contains("match-table-rule")).toBe(true);
+  });
+
+  it("a body row's cells, read in DOM order by data-testid, come back as result, actual, predicted-score, confidence", () => {
+    renderWithRouter(<MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={DOMAIN} teamKey="frc118" season={2024} algorithm="spr" />);
+    const row = screen.getByTestId("match-row-m1");
+    const testIds = Array.from(row.querySelectorAll("[data-testid]"))
+      .map((el) => el.getAttribute("data-testid") ?? "")
+      .filter((id) => /^(result|actual|predicted-score|confidence)-m1$/.test(id));
+    expect(testIds).toEqual(["result-m1", "actual-m1", "predicted-score-m1", "confidence-m1"]);
   });
 });
 
