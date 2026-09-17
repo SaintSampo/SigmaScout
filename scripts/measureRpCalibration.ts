@@ -832,9 +832,11 @@ export function buildRpCalibrationRecord(
 export const RP_ATTRIBUTION_PATH = "data/baselines/rp-attribution-2026-09.json";
 
 /**
- * The dot threshold the frozen attribution record was scored against. Bonus
- * dots now fill to their probability with no threshold, so this describes the
- * record only; `apps/web/src/lib/bonusRp.test.ts` pins the literal 0.5.
+ * The dot threshold the frozen attribution record was scored against. The
+ * live display rule is now three categorical tiers with no single threshold —
+ * unlikely under one third, toss-up from one third to two thirds inclusive,
+ * likely above two thirds — so this describes the record only;
+ * `apps/web/src/lib/bonusRp.test.ts` pins the literal 0.5.
  */
 export const RP_DOT_THRESHOLD_DEFAULT = 0.5;
 

@@ -579,3 +579,6 @@ the push, and a check by content on the live site. Until then this model is ship
 
 The same quick task shipped F10: predicted bonus dots now fill to their odds (`a25ac39f`). See
 `.planning/sketches/012-predicted-bonus-dots/README.md`.
+
+As of 2026-09-17 the predicted dots render as three tiers — unlikely, toss-up, likely — cut at one
+third and two thirds (quick task 260917-06d), superseding the display described above.
