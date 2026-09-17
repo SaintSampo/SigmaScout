@@ -11,10 +11,16 @@
  *
  * Drops every nickname (team numbers only); pick-column indices map
  * directly to TBA's own `picks` array (index 1 is the FIRST additional
- * pick, not "Pick 2"); each pick carries its own tiered total metric; the
- * Combined Total carries a client-side approximate tier (the 3x heuristic,
- * `@/lib/allianceTierApproximation`); the published playoff Record column
- * renders alongside it.
+ * pick, not "Pick 2"); each pick carries its own tiered total metric,
+ * resolved against `artifact.teams` first and `artifact.allianceTeams`
+ * (a playoff pick who never took the field at this event, so has no
+ * `teams` row) only on a miss; the Combined Total carries a client-side
+ * approximate tier (the 3x heuristic, `@/lib/allianceTierApproximation`);
+ * the published playoff Record column renders alongside it. The fourth
+ * position (`pickBackup`) is a real fourth alliance member at a
+ * Championship division or Championship finals/Einstein event and a
+ * called-in reserve robot everywhere else — see
+ * `isChampionshipEventType`'s own doc comment.
  */
 import { columnSizingFeature, createColumnHelper, tableFeatures, useTable } from "@tanstack/react-table";
 import { useMemo } from "react";
@@ -69,8 +75,10 @@ interface AlliancePickSigma {
 
 /**
  * One alliance pick, as rendered — identity fields never invented, `total`
- * left `undefined` when the artifact does not resolve one. There is no
- * name field on this interface at all (team numbers only).
+ * left `undefined` when neither `artifact.teams` nor its `allianceTeams`
+ * fallback resolves one (see `pickFromTeamKey`'s own doc comment for the
+ * resolution order). There is no name field on this interface at all (team
+ * numbers only).
  */
 export interface AlliancePick {
   teamKey: string;
@@ -175,20 +183,24 @@ function byAllianceNumberThenFirstPick(a: EventAlliance, b: EventAlliance): numb
 }
 
 /**
- * Looks a pick's team key up in the artifact's `teams` array. A key with no
- * row keeps its number (from the key's own digits) — there is no name to
- * lose on a missing row; the identity carried is the team number alone,
- * never invented.
+ * Looks a pick's team key up in the artifact's `teams` array first, falling
+ * back to `allianceTeams` only on a miss — a `teams` row always wins, since
+ * it is this event's actual standings entry and `allianceTeams` exists only
+ * for a playoff pick who never took the field here (see
+ * `EventArtifactSchema.allianceTeams`'s own doc comment for the full
+ * contract). A key resolved by neither array keeps its number (from the
+ * key's own digits) — there is no name to lose on a missing row; the
+ * identity carried is the team number alone, never invented.
  */
-function pickFromTeamKey(teamKey: string, teams: readonly EventTeam[]): AlliancePick {
-  const teamRow = teams.find((candidate) => candidate.teamKey === teamKey);
+function pickFromTeamKey(teamKey: string, teams: readonly EventTeam[], allianceTeams: readonly EventTeam[]): AlliancePick {
+  const teamRow = teams.find((candidate) => candidate.teamKey === teamKey) ?? allianceTeams.find((candidate) => candidate.teamKey === teamKey);
   const teamNumber = teamRow?.teamNumber ?? teamNumberFromKey(teamKey);
   return {
     teamKey,
     teamNumber,
     total: teamRow?.metrics[TOTAL_KEY],
-    // Read straight off the same team row's own published `sigma` metrics
-    // entry — the event artifact's own standings — never a second lookup.
+    // Read straight off whichever row resolved — the event artifact's own
+    // standings, or its allianceTeams fallback — never a second lookup.
     sigma: teamRow?.metrics[SIGMA_METRIC_KEY],
   };
 }
@@ -197,8 +209,8 @@ function pickFromTeamKey(teamKey: string, teams: readonly EventTeam[]): Alliance
  * `buildAllianceRows(artifact, algorithmId)`: maps each published alliance to
  * an `AllianceRow`, ordered by ascending `allianceNumber` (never array
  * index). `picks` is read positionally — there is no field for the leader
- * position or the reserve robot, so a parallel field on `AllianceRow` would
- * be a copy that can drift. Also computes the combined total's approximate
+ * position or the fourth/backup position, so a parallel field on
+ * `AllianceRow` would be a copy that can drift. Also computes the combined total's approximate
  * tier (against the FULL event roster, not just this alliance's three
  * picks — `estimateCombinedTier`'s own contract) and carries the
  * alliance's published playoff record straight through.
@@ -225,10 +237,15 @@ export function buildAllianceRows(artifact: EventPageArtifact, algorithmId: stri
   void algorithmId; // reserved for signature symmetry with the column builder
   const alliances = artifact.alliances ?? [];
   const ordered = [...alliances].sort(byAllianceNumberThenFirstPick);
+  // Interpolated against THIS event's standings roster only, matching
+  // `ALLIANCE_APPROX_TIER_DISCLOSURE`'s own claim — widening this pool with
+  // `allianceTeams` would make that sentence false, since a never-played
+  // pick was never ranked at this event.
   const tierPoints = buildTeamValuePercentilePoints(artifact.teams);
+  const allianceTeams = artifact.allianceTeams ?? [];
 
   return ordered.map((alliance) => {
-    const picks = alliance.picks.map((teamKey) => pickFromTeamKey(teamKey, artifact.teams));
+    const picks = alliance.picks.map((teamKey) => pickFromTeamKey(teamKey, artifact.teams, allianceTeams));
     const combined = combineAlliancePicks([picks[0]?.total, picks[1]?.total, picks[2]?.total]);
     return {
       allianceNumber: alliance.allianceNumber,
@@ -291,15 +308,32 @@ export function formatAllianceRecord(record: { wins: number; losses: number; tie
 }
 
 /**
+ * TBA event types whose playoff alliances carry four REAL members rather
+ * than three-plus-a-called-in-backup: Championship division (3) and
+ * Championship finals/Einstein (4). `undefined` (an artifact published
+ * before 260915-isq, or a live tick whose event-detail fetch failed) returns
+ * `false` — the safe reading of absence is "not a Championship", so a
+ * pre-republish artifact keeps rendering the "(backup)" suffix it always
+ * has. Matches the client's own existing inline `3 || 4` idiom
+ * (`EventsList.tsx`/`filterModel.ts`) rather than reaching into the harness
+ * for `teamRanks.ts`'s module-private constants.
+ */
+function isChampionshipEventType(eventType: number | undefined): boolean {
+  return eventType === 3 || eventType === 4;
+}
+
+/**
  * The column labels. `picks[1]`/`picks[2]` map to TBA's own `picks` array,
- * where index 1 is the FIRST additional pick — not "Pick 2". "Backup" is
- * labelled "Pick 3" (the backup robot is FRC's third overall pick) — the
- * column id `pickBackup` is unchanged (external e2e tests key off it), only
- * its header label. Index 5 (Combined Total) varies by algorithm —
- * "Combined Total ± Sigma" under a Sigma-enabled algorithm, "Combined
- * Total" otherwise — so this is a FUNCTION of `algorithmId`, read by both
- * the live table and the skeleton, rather than a static tuple either could
- * drift from.
+ * where index 1 is the FIRST additional pick — not "Pick 2". The fourth
+ * position is labelled "Pick 3" everywhere (the column id `pickBackup` is
+ * unchanged too — external e2e tests key off it) — it holds a genuine
+ * fourth alliance member at a Championship division or Championship
+ * finals/Einstein event (`isChampionshipEventType`) and a called-in reserve
+ * robot everywhere else; only `BackupCell`'s "(backup)" suffix depends on
+ * which. Index 5 (Combined Total) varies by algorithm — "Combined Total ±
+ * Sigma" under a Sigma-enabled algorithm, "Combined Total" otherwise — so
+ * this is a FUNCTION of `algorithmId`, read by both the live table and the
+ * skeleton, rather than a static tuple either could drift from.
  */
 function alliancesColumnHeaders(algorithmId: string): readonly [string, string, string, string, string, string, string] {
   return [
@@ -350,18 +384,33 @@ function combinedColumnWidth(algorithmId: string): number {
 }
 
 /**
- * The backup ("Pick 3"/`pickBackup`) column's width gates on
- * `usesSigmaScore` — `BackupCell` renders the same split pill `PickCell`
- * does. `BACKUP_COLUMN_WIDTH_SIGMA_PX` (274): `teamNumber` (51.88px) + 8px
- * gap + pill (130.31px) + 8px gap + "(backup)" label (52.11px) + padding +
- * buffer, measured for the ONE-backup-per-row case (more than one backup
- * wraps). `BACKUP_COLUMN_WIDTH_PX` (240) is the other algorithms' width,
- * which never carries a Sigma pill.
+ * The backup/fourth-member ("Pick 3"/`pickBackup`) column's width, gated on
+ * `usesSigmaScore` AND on whether the "(backup)" label renders at all
+ * (`isChampionshipEventType`). LABELLED (every non-Championship event):
+ * `BackupCell` renders the same split pill `PickCell` does, plus the label —
+ * `BACKUP_COLUMN_WIDTH_SIGMA_PX` (274) is `teamNumber` (51.88px) + 8px gap +
+ * pill (130.31px) + 8px gap + "(backup)" label (52.11px) + padding + buffer,
+ * measured for the ONE-backup-per-row case (more than one backup wraps);
+ * `BACKUP_COLUMN_WIDTH_PX` (240) is the same arithmetic minus the Sigma
+ * pill's extra width, for the other algorithms. UNLABELLED (a Championship
+ * division or Championship finals/Einstein event): the cell's content is
+ * exactly a `PickCell`'s content (no label span at all), and the "Pick 3"
+ * header is the identical 11px uppercase string the pick columns already
+ * carry, so the width is exactly `pickColumnWidth`, never a fourth
+ * constant — dropping BOTH the label's 52.11px and its preceding 8px gap
+ * from either labelled width lands on the corresponding pick width exactly
+ * (274 - 60 = 214 = `PICK_COLUMN_WIDTH_SIGMA_PX`; 240 - 60 = 180, 30 over
+ * `PICK_COLUMN_WIDTH_SPREADLESS_PX` because the spreadless labelled width
+ * was never tightened to the same font-hinting buffer as the Sigma one —
+ * reusing `pickColumnWidth` directly, rather than this arithmetic, is what
+ * keeps the unlabelled cell's width from drifting off its sibling pick
+ * columns).
  */
 export const BACKUP_COLUMN_WIDTH_SIGMA_PX = 274;
 export const BACKUP_COLUMN_WIDTH_PX = 240;
 
-function backupColumnWidth(algorithmId: string): number {
+function backupColumnWidth(algorithmId: string, labelled: boolean): number {
+  if (!labelled) return pickColumnWidth(algorithmId);
   return usesSigmaScore(algorithmId) ? BACKUP_COLUMN_WIDTH_SIGMA_PX : BACKUP_COLUMN_WIDTH_PX;
 }
 
@@ -411,8 +460,15 @@ function PickCell({ pick, season, algorithm }: { pick: AlliancePick | undefined;
  * erase a real team from the only published account of this event's
  * alliance selection. Renders the same `TotalSigmaValue` pill as
  * `PickCell`, same degrade rule.
+ *
+ * `labelled` (D-01): the "(backup)" span renders only when `true` — a
+ * Championship division or Championship finals/Einstein alliance's fourth
+ * pick is a real fourth member, not a reserve robot, and must not be
+ * mislabelled as one. `AlliancesTab` derives this from `artifact.eventType`
+ * through `isChampionshipEventType` and threads it down through
+ * `buildAllianceColumns`.
  */
-function BackupCell({ picks, season, algorithm }: { picks: AlliancePick[]; season: number; algorithm: PublishedAlgorithmId }) {
+function BackupCell({ picks, season, algorithm, labelled }: { picks: AlliancePick[]; season: number; algorithm: PublishedAlgorithmId; labelled: boolean }) {
   if (picks.length === 0) {
     return <span className="numeric-cell"></span>;
   }
@@ -433,7 +489,7 @@ function BackupCell({ picks, season, algorithm }: { picks: AlliancePick[]; seaso
             totalTier={tierForPercentile(pick.total?.percentile)}
             sigma={pick.sigma !== undefined ? { value: pick.sigma.value, tier: tierForPercentile(pick.sigma.percentile) } : undefined}
           />
-          <span className="text-role-label text-[var(--color-text-muted)]">{"(backup)"}</span>
+          {labelled && <span className="text-role-label text-[var(--color-text-muted)]">{"(backup)"}</span>}
         </Link>
       ))}
     </span>
@@ -496,7 +552,7 @@ function hasAnyBackupPick(rows: readonly AllianceRow[]): boolean {
   return rows.some((row) => row.picks.slice(ALLIANCE_COMBINED_PICK_COUNT).length > 0);
 }
 
-function buildAllianceColumns(algorithmId: string, season: number, showBackupColumn: boolean) {
+function buildAllianceColumns(algorithmId: string, season: number, showBackupColumn: boolean, backupLabelled: boolean) {
   // `algorithmId` reaching this function was already validated upstream
   // through `RootSearchSchema.algorithm` — the same loose-cast escape hatch
   // every sibling tab already uses for a value the type system widened to
@@ -541,10 +597,10 @@ function buildAllianceColumns(algorithmId: string, season: number, showBackupCol
           columnHelper.accessor((row) => row.picks.slice(ALLIANCE_COMBINED_PICK_COUNT), {
             id: "pickBackup",
             header: headers[4],
-            // `backupColumnWidth` gates on `usesSigmaScore` — see that
-            // function's own doc comment.
-            size: backupColumnWidth(algorithmId),
-            cell: (info) => <BackupCell picks={info.getValue()} season={season} algorithm={algorithm} />,
+            // `backupColumnWidth` gates on `usesSigmaScore` and `backupLabelled`
+            // — see that function's own doc comment.
+            size: backupColumnWidth(algorithmId, backupLabelled),
+            cell: (info) => <BackupCell picks={info.getValue()} season={season} algorithm={algorithm} labelled={backupLabelled} />,
           }),
         ]
       : []),
@@ -625,7 +681,14 @@ export function AlliancesTabSkeleton({ algorithmId, season }: { algorithmId: str
 export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProps) {
   const rows = useMemo(() => buildAllianceRows(artifact, algorithmId), [artifact, algorithmId]);
   const showBackupColumn = useMemo(() => hasAnyBackupPick(rows), [rows]);
-  const columns = useMemo(() => buildAllianceColumns(algorithmId, season, showBackupColumn), [algorithmId, season, showBackupColumn]);
+  // D-01: an absent eventType (a pre-260915-isq artifact, or a live tick whose
+  // event-detail fetch failed) reads as "not a Championship" — see
+  // `isChampionshipEventType`'s own doc comment.
+  const backupLabelled = !isChampionshipEventType(artifact.eventType);
+  const columns = useMemo(
+    () => buildAllianceColumns(algorithmId, season, showBackupColumn, backupLabelled),
+    [algorithmId, season, showBackupColumn, backupLabelled]
+  );
 
   const table = useTable({ features, columns, data: rows });
 

@@ -387,6 +387,74 @@ describe("AlliancesTab — seven-column anatomy", () => {
 });
 
 // ---------------------------------------------------------------------------
+// D-01: the "(backup)" suffix is wrong at a Championship division (event_type
+// 3) or Championship finals/Einstein (event_type 4) alliance, whose fourth
+// pick is a real fourth member, not a reserve robot. Every other event type,
+// and an artifact with no eventType at all, keeps the suffix unchanged.
+// ---------------------------------------------------------------------------
+
+describe("AlliancesTab — backup suffix gated on Championship event types (D-01)", () => {
+  it("eventType 3 (Championship division): a fourth pick renders with NO (backup) suffix", async () => {
+    const artifact = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4"] })], { eventType: 3 });
+    renderAlliances(artifact);
+    const backupCell = await screen.findByTestId("alliances-cell-pickBackup");
+    expect(backupCell.textContent).toContain("4");
+    expect(backupCell.textContent).not.toContain("(backup)");
+  });
+
+  it("eventType 4 (Championship finals/Einstein): a fourth pick renders with NO (backup) suffix", async () => {
+    const artifact = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4"] })], { eventType: 4 });
+    renderAlliances(artifact);
+    const backupCell = await screen.findByTestId("alliances-cell-pickBackup");
+    expect(backupCell.textContent).toContain("4");
+    expect(backupCell.textContent).not.toContain("(backup)");
+  });
+
+  it.each([0, 1, 2])("eventType %s: the (backup) suffix still renders", async (eventType) => {
+    const artifact = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4"] })], { eventType });
+    renderAlliances(artifact);
+    const backupCell = await screen.findByTestId("alliances-cell-pickBackup");
+    expect(backupCell.textContent).toContain("(backup)");
+  });
+
+  it("an artifact carrying no eventType at all still renders the (backup) suffix — the safe reading of absence is 'not a championship'", async () => {
+    renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4"] })]));
+    const backupCell = await screen.findByTestId("alliances-cell-pickBackup");
+    expect(backupCell.textContent).toContain("(backup)");
+  });
+
+  it("the pickBackup column id and every header label are unchanged at a Championship event", async () => {
+    const artifact = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4"] })], { eventType: 3 });
+    renderAlliances(artifact);
+    await screen.findByTestId("alliances-cell-pickBackup");
+    expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
+      "Alliance #",
+      "Captain",
+      "Pick 1",
+      "Pick 2",
+      "Pick 3",
+      "Combined Total ± Sigma",
+      "Record",
+    ]);
+  });
+
+  it("the table's total width is 1256px off-championship (982 no-backup width + 274 labelled backup) and 1196px at a Championship event (982 + 214, the unlabelled cell matching a plain pick column)", async () => {
+    const offChampionship = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4"] })]);
+    renderAlliances(offChampionship);
+    let scrollRegion = await screen.findByTestId("alliances-table-scroll");
+    expect(scrollRegion.querySelector("table")?.style.width).toBe("1256px");
+    expect((await screen.findByTestId("alliances-header-pickBackup")).style.width).toBe("274px");
+    cleanup();
+
+    const championship = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4"] })], { eventType: 3 });
+    renderAlliances(championship);
+    scrollRegion = await screen.findByTestId("alliances-table-scroll");
+    expect(scrollRegion.querySelector("table")?.style.width).toBe("1196px");
+    expect((await screen.findByTestId("alliances-header-pickBackup")).style.width).toBe("214px");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Task 2 — the all-or-nothing rule from both measured causes, the
 // incomplete-combination notice, and the identity/adjacency guarantees.
 // ---------------------------------------------------------------------------
@@ -763,6 +831,60 @@ describe("AlliancesTab — Combined Total's neutral Sigma band", () => {
     const rows = buildAllianceRows(makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc9"] })]), "spr");
     expect(rows[0]?.combined).toBeUndefined();
     expect(rows[0]?.combinedSigma).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D-02: a playoff pick who never took the field at this event has no `teams`
+// row. `artifact.allianceTeams` (additive, optional) is the fallback source
+// for that pick's pill — read only after a `teams` lookup misses, so a real
+// standings row always wins, and never a source `buildTeamValuePercentilePoints`
+// or the combined arithmetic (D-03) treats any differently from a `teams` row.
+// ---------------------------------------------------------------------------
+
+describe("AlliancesTab — the allianceTeams fallback for a pick with no teams row (D-02)", () => {
+  it("a pick with no teams row but an allianceTeams row renders that row's total pill and its Sigma half, and the alliance becomes combinable with no incomplete notice", async () => {
+    const teams = [FOUR_TEAMS[0]!, FOUR_TEAMS[1]!]; // frc1, frc2 only — frc3 has no teams row
+    const allianceTeams = [teamWithSigma({ teamKey: "frc3", teamNumber: 3, nickname: "Gamma", total: 10, sigma: 4 })];
+    const artifact = makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc3"] })], { allianceTeams });
+    renderAlliances(artifact);
+    const pick2Cell = await screen.findByTestId("alliances-cell-pick2");
+    expect(pick2Cell.textContent).toContain("10.00");
+    const pill = within(pick2Cell).getByTestId("total-sigma-pill");
+    expect(pill.textContent).toContain("±4.00");
+    expect((await screen.findByTestId("alliances-cell-combined")).textContent).not.toBe("");
+    expect(screen.queryByTestId("alliances-incomplete-notice")).toBeNull();
+  });
+
+  it("a teams row wins over an allianceTeams row for the same team key", async () => {
+    const allianceTeams = [team({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 999 } } })];
+    const artifact = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })], { allianceTeams });
+    renderAlliances(artifact);
+    const pick2Cell = await screen.findByTestId("alliances-cell-pick2");
+    expect(pick2Cell.textContent).toContain("10.00"); // FOUR_TEAMS' own frc3 row, not the allianceTeams override
+    expect(pick2Cell.textContent).not.toContain("999");
+  });
+
+  it("with allianceTeams absent the tab behaves exactly as it does today: bare number, no combined value, notice shown", async () => {
+    const teams = [FOUR_TEAMS[0]!, FOUR_TEAMS[1]!];
+    const artifact = makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]);
+    renderAlliances(artifact);
+    expect((await screen.findByTestId("alliances-cell-pick2")).textContent).toBe("3");
+    expect((await screen.findByTestId("alliances-cell-combined")).textContent).toBe("");
+    expect(await screen.findByTestId("alliances-incomplete-notice")).toBeDefined();
+  });
+
+  it("the Combined Total still sums exactly three picks, and a fourth pick resolved only through allianceTeams never enters the sum or the band", async () => {
+    const teams = [FOUR_TEAMS[0]!, FOUR_TEAMS[1]!, FOUR_TEAMS[2]!]; // frc1/frc2/frc3, each value 10
+    const allianceTeams = [teamWithSigma({ teamKey: "frc4", teamNumber: 4, nickname: "Delta", total: 999, sigma: 999 })];
+    const artifact = makeArtifact(teams, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4"] })], { allianceTeams });
+    renderAlliances(artifact);
+    const combinedCell = await screen.findByTestId("alliances-cell-combined");
+    expect(combinedCell.textContent).toContain("30.00");
+    expect(combinedCell.textContent).not.toContain("999");
+    const backupCell = await screen.findByTestId("alliances-cell-pickBackup");
+    expect(backupCell.textContent).toContain("4");
+    expect(within(backupCell).getByTestId("total-sigma-pill").textContent).toContain("999.00");
   });
 });
 
