@@ -306,7 +306,21 @@ describe("live played rows equal the offline publisher's rows", () => {
     }
   });
 
-  it("team-season: every played row has the offline key list minus coldStart, and the same values", () => {
+  /**
+   * THIS HALF NOW DESCRIBES WHAT THE *PUBLISHER* WRITES, not what a live tick
+   * writes (260917-jr4, D-07). The live tick makes no team-artifact write at
+   * all; `mergeTeamSeasonArtifact` survives only as `stateProbe.ts`'s
+   * `allPhaseB` baseline arm. What this test still pins is the DEFINITION the
+   * browser's derivation is measured against — the exact row a published team
+   * artifact carries for a played match.
+   *
+   * The BROWSER side of the same claim lives in
+   * `apps/web/src/lib/liveTeamSeason.test.ts`: a derived team-page row equals
+   * this row field for field, minus an exception list expressed as data. Two
+   * halves of one parity claim, deliberately kept in the two packages that own
+   * their respective sides.
+   */
+  it("team-season (the PUBLISHER's row, the definition the browser derivation is measured against): every played row has the offline key list minus coldStart, and the same values", () => {
     const offline = offlineTeamSeason(fold, lookups).events[0]!.matches;
     const live = liveTeamSeason(fold).events[0]!.matches;
     expect(live.map((m) => m.matchKey)).toEqual(offline.map((m) => m.matchKey));

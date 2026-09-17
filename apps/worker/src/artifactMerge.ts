@@ -406,6 +406,27 @@ export interface MergeTeamSeasonArtifactParams {
 }
 
 /**
+ * NO LONGER ON THE LIVE PATH since quick task 260917-jr4 (D-07). A live tick
+ * makes ZERO team-artifact reads and ZERO team-artifact writes: Phase B's team
+ * half was replaced by one small ephemeral sidecar per algorithm-event
+ * (`packages/harness/liveMetricSidecar.ts`), and the browser derives the rest
+ * from files the robot page already fetches
+ * (`apps/web/src/lib/liveTeamSeason.ts`).
+ *
+ * IT SURVIVES FOR EXACTLY ONE REASON: `apps/worker/src/stateProbe.ts` runs the
+ * `allPhaseB` baseline arm — today's tick with the team half intact — and that
+ * arm is what every sidecar measurement is compared against. Deleting this
+ * function would delete the baseline. Its deletion is filed in
+ * `.planning/todos/pending/rp-fold-exceeds-worker-cpu-budget.md` alongside the
+ * probe's own scheduled deletion; neither goes before the other.
+ *
+ * SECOND CONSEQUENCE, RECORDED RATHER THAN LEFT IMPLICIT: `matchIndexByKey` is
+ * now supplied only by the probe. The live tick built it from ONE EVENT's own
+ * ordered match keys, so the `matchIndex` it wrote into a field documented as
+ * a season-wide index was in fact event-local — and nothing in production web
+ * reads that field (`buildMetricSeries` uses array position, by its own doc
+ * comment). The browser derivation assigns array position for the same reason.
+ *
  * Read-modify-write merge for one team's season artifact: writes this tick's
  * newly-folded matches at `eventKey` (creating the event's entry if this is
  * the team's first match there), refreshes `seasonStats`, and appends

@@ -16,6 +16,7 @@ import {
   PAGE_ARTIFACT_SCHEMA_VERSION,
   TeamSeasonArtifactSchema,
 } from "../../../packages/harness/pageArtifacts.js";
+import { liveMetricSidecarKey, LiveMetricSidecarSchema } from "../../../packages/harness/liveMetricSidecar.js";
 // `runTick` builds every artifact key from the LIVE algorithm module's
 // `version` (see scheduled.ts's `info.algorithm.version`), never from the
 // algorithms manifest below, so deriving these expectations from the module
@@ -418,7 +419,7 @@ describe("runTick — nothing live", () => {
 });
 
 describe("runTick — one live event, one new match", () => {
-  it("writes state before any artifact put, one event put and one team put per touched team", async () => {
+  it("writes state before any artifact put, ONE event put and ONE sidecar put, and zero team puts", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([window]);
     const sharedLog: SharedLogEntry[] = [];
@@ -433,14 +434,19 @@ describe("runTick — one live event, one new match", () => {
     expect(result.eventsFailed).toBe(0);
     expect(result.eventsDeferred).toBe(0);
     expect(d1.batchCallCount).toBe(1); // one algorithm (opr) -> one batched state write
-    expect(r2.putCallCount).toBe(1 + ALL_TEAMS.length); // one event artifact + one per touched team
+    // Since 260917-jr4 this is TWO: one event artifact plus one live metric
+    // sidecar. It was `1 + ALL_TEAMS.length` -- a whole team-season artifact
+    // rewritten per touched team -- and removing those puts is the change.
+    expect(r2.putCallCount).toBe(2);
 
     const eventPutKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === eventPutKey)).toBe(true);
     for (const teamKey of ALL_TEAMS) {
       const teamPutKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: opr.version });
-      expect(r2.puts.some((p) => p.key === teamPutKey)).toBe(true);
+      expect(r2.puts.some((p) => p.key === teamPutKey), teamKey + ": a live tick must write no team artifact").toBe(false);
     }
+    const sidecarPutKey = liveMetricSidecarKey({ eventKey: "2026casj", algorithmId: "opr", version: opr.version });
+    expect(r2.puts.map((p) => p.key).filter((key) => key.startsWith("v1/live/"))).toEqual([sidecarPutKey]);
 
     // OPR's lastEventByTeam bookkeeping lives in its OWN team-scoped rows,
     // and the ONE batched state write for this event includes them alongside
@@ -577,13 +583,16 @@ describe("runTick — no-starvation under a restrictive budget", () => {
     ]);
     vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents));
 
-    // usableCap = 27 - 2 = 25: enough for the tick's own fixed cost (2
-    // manifest reads + 1 tick-meta read = 3) plus ONE fully-processed event
-    // (2 sunk [cursor + poll] + 18 estimated [claim + event-detail + phase A
-    // (read+write) + phase B (event put + 6 team puts, each preceded by a
-    // read)] = 20; 3+20=23 <= 25) but not two (3+40=43 > 25) -- the second
-    // event in each tick defers cheaply.
-    const budgetDeps = { subrequestCap: 27, subrequestReserve: 2, ...DISABLE_GLOBAL_REBUILD };
+    // RE-SIZED FOR 260917-jr4, keeping the SHAPE of the old fixture rather
+    // than its numbers: one event must fit and the second must defer cheaply.
+    // usableCap = 17 - 2 = 15: the tick's own fixed cost (2 manifest reads +
+    // 1 tick-meta read = 3) plus ONE fully-processed event (2 sunk [cursor +
+    // poll] + 8 estimated [`estimateEventSubrequestCost(1)` = claim +
+    // event-detail + Phase A read/write + Phase B event read/write + Phase B
+    // sidecar read/write] = 10; 3+10=13 <= 15) but not two (3+20=23 > 15).
+    // The old fixture was cap 27 / usable 25 against a 20-per-event estimate,
+    // 18 of which was the Phase B team-artifact loop.
+    const budgetDeps = { subrequestCap: 17, subrequestReserve: 2, ...DISABLE_GLOBAL_REBUILD };
 
     const tick1 = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...budgetDeps });
     expect(tick1.eventsAdvanced).toBe(1);
@@ -668,12 +677,18 @@ describe("runTick — off-season demo team exclusion", () => {
     const demoTeamPutKey = artifactKey({ page: "team", teamKey: "frc9985", year: SEASON, algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === demoTeamPutKey)).toBe(false);
 
-    // The real teammate AND the real opposing alliance's teams DO get published
-    // — this is an exclusion of the demo key, not an accidental drop of the
-    // whole match's real teammates.
+    // The real teammate AND the real opposing alliance's teams DO reach the
+    // live metric sidecar: an exclusion of the demo key, not an accidental
+    // drop of the whole match's real teammates. Asserted against the
+    // sidecar's rows since 260917-jr4, because no team artifact is written
+    // for anyone; the property under test is unchanged.
+    const demoSidecarPut = r2.puts.filter((p) => p.key === liveMetricSidecarKey({ eventKey: "2026demo", algorithmId: "opr", version: opr.version })).at(-1);
+    expect(demoSidecarPut).toBeDefined();
+    const demoSidecar = LiveMetricSidecarSchema.parse(JSON.parse(demoSidecarPut!.body));
+    const teamsInSidecar = new Set(demoSidecar.rows.flatMap((row) => row.t));
+    expect(teamsInSidecar.has("frc9985")).toBe(false);
     for (const teamKey of ["frc1", "frc2", ...BLUE_TEAMS]) {
-      const teamPutKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: opr.version });
-      expect(r2.puts.some((p) => p.key === teamPutKey)).toBe(true);
+      expect(teamsInSidecar.has(teamKey), teamKey).toBe(true);
     }
 
     // No D1 state row is ever created under the raw demo key.
@@ -791,12 +806,13 @@ describe("runTick — global rebuild", () => {
     const r2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]])));
 
-    // usableCap = 26 - 2 = 24: fits the tick's own fixed cost (3) plus the
-    // one event's full processing (20 = 23 total), leaving exactly 1 unit —
+    // RE-SIZED FOR 260917-jr4, same shape as before: usableCap = 16 - 2 = 14
+    // fits the tick's own fixed cost (3) plus the one event's full processing
+    // (2 sunk + 8 estimated = 10, so 13 total), leaving exactly 1 unit:
     // enough for the rebuild's own read but not its write, so
     // writeArtifactObject reports deferred and the rebuild reports it did
-    // not run.
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, subrequestCap: 26, subrequestReserve: 2, globalRebuildIntervalMs: 0 });
+    // not run. It was cap 26 / usable 24 against a 20-per-event event cost.
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, subrequestCap: 16, subrequestReserve: 2, globalRebuildIntervalMs: 0 });
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.globalRebuildRan).toBe(false);
@@ -1162,7 +1178,7 @@ describe("live ticks keep the published Sigma entry", () => {
 });
 
 describe("runTick — official-play scope on the global rebuild feed", () => {
-  it("event_type 99 (offseason): event + team artifacts are written, but no teams/{year} object is written at all", async () => {
+  it("event_type 99 (offseason): the event artifact and the sidecar are written, but no teams/{year} object is written at all", async () => {
     const window: WindowFixture = { eventKey: "2026off", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([window]);
     const d1 = new FakeD1Database();
@@ -1181,16 +1197,17 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
 
     const eventPutKey = artifactKey({ page: "event", eventKey: "2026off", algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === eventPutKey)).toBe(true);
-    for (const teamKey of ALL_TEAMS) {
-      const teamPutKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: opr.version });
-      expect(r2.puts.some((p) => p.key === teamPutKey)).toBe(true);
-    }
+    // The sidecar write is UNCONDITIONAL on event type, exactly as the team
+    // artifact write it replaced was; only the `teams/{year}` feed below is
+    // gated on officialness.
+    expect(r2.puts.some((p) => p.key === liveMetricSidecarKey({ eventKey: "2026off", algorithmId: "opr", version: opr.version }))).toBe(true);
+    expect(r2.puts.some((p) => p.key.startsWith("v1/team/"))).toBe(false);
 
     const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === teamsPutKey)).toBe(false);
   });
 
-  it("event_type 100 (preseason Week 0): same as offseason -- event + team artifacts written, no teams/{year} write", async () => {
+  it("event_type 100 (preseason Week 0): same as offseason -- event artifact + sidecar written, no teams/{year} write", async () => {
     const window: WindowFixture = { eventKey: "2026prez", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([window]);
     const d1 = new FakeD1Database();
@@ -1208,10 +1225,11 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
 
     const eventPutKey = artifactKey({ page: "event", eventKey: "2026prez", algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === eventPutKey)).toBe(true);
-    for (const teamKey of ALL_TEAMS) {
-      const teamPutKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: opr.version });
-      expect(r2.puts.some((p) => p.key === teamPutKey)).toBe(true);
-    }
+    // The sidecar write is UNCONDITIONAL on event type, exactly as the team
+    // artifact write it replaced was; only the `teams/{year}` feed below is
+    // gated on officialness.
+    expect(r2.puts.some((p) => p.key === liveMetricSidecarKey({ eventKey: "2026prez", algorithmId: "opr", version: opr.version }))).toBe(true);
+    expect(r2.puts.some((p) => p.key.startsWith("v1/team/"))).toBe(false);
 
     const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === teamsPutKey)).toBe(false);
@@ -1354,17 +1372,20 @@ describe("runTick — played rows carry the tick's own per-match facts", () => {
     expect(eventRow!.actualRedBonusRp).toBeNull();
     expect(eventRow!.actualBlueBonusRp).toBeNull();
 
+    // THE TEAM-ROW HALF OF THIS CLAIM MOVED (260917-jr4, D-07). The tick
+    // writes no team artifact at all, so there is no team row here to read.
+    // The same fields now reach the robot page through the BROWSER, which
+    // builds a team-shaped row from this very event row
+    // (`overlayTeamEventMatches` / `teamRowFromEventRow`), and
+    // `apps/web/src/lib/liveTeamSeason.test.ts` asserts that derived row
+    // equals the publisher's own row field for field, minus a stated
+    // exception list. Deleting the assertion without naming its new home
+    // would leave the impression the claim was dropped.
     const teamPutKey = artifactKey({ page: "team", teamKey: "frc1", year: SEASON, algorithmId: "opr", version: opr.version });
-    const teamPut = r2.puts.filter((p) => p.key === teamPutKey).at(-1);
-    expect(teamPut).toBeDefined();
-    const teamRow = (JSON.parse(teamPut!.body) as { events: { matches: Record<string, unknown>[] }[] }).events[0]!.matches.find((m) => m.matchKey === "2026casj_qm1");
-    expect(teamRow).toBeDefined();
-    expect(teamRow!.video).toBe(videoKey);
-    expect(teamRow!.sortTime).toBe(actualTimeSec * 1000);
-    expect(teamRow!.actualRedRp).toBeNull();
-    expect(teamRow!.actualBlueRp).toBeNull();
-    expect(teamRow!.actualRedBonusRp).toBeNull();
-    expect(teamRow!.actualBlueBonusRp).toBeNull();
+    expect(r2.puts.some((p) => p.key === teamPutKey)).toBe(false);
+    // Non-vacuity for the redirect above: the event row this test just
+    // asserted really is the row the browser derives from.
+    expect(eventRow!.redTeams).toContain("frc1");
   });
 });
 
@@ -1438,68 +1459,73 @@ const LIVE_WINDOW: WindowFixture = { eventKey: "2026casj", season: SEASON, start
 
 const TEAM_PUT_KEY = artifactKey({ page: "team", teamKey: "frc1", year: SEASON, algorithmId: "opr", version: opr.version });
 const EVENT_PUT_KEY = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "opr", version: opr.version });
+const SIDECAR_PUT_KEY = liveMetricSidecarKey({ eventKey: "2026casj", algorithmId: "opr", version: opr.version });
 
 describe("runTick — a corrupt published artifact retries as a bootstrap instead of blocking forever", () => {
-  it("team: the seeded artifact passes the read guard, fails the write schema, and is republished valid in ONE put", async () => {
+  /**
+   * THE TEAM HALF BECAME AN ACCEPTED LOSS, ASSERTED RATHER THAN DELETED
+   * (260917-jr4, unsound part 3). The tick no longer reads or writes a team
+   * artifact at all, so it also no longer bootstraps over a corrupt one: a
+   * corrupt team-season artifact now stays corrupt until the next offline
+   * republish. That is a real, small regression Jacob accepted with the shape
+   * — it is worth far less than the 7.6 ms of per-tick CPU the team loop cost
+   * — and it is pinned here so a future reader sees a decision rather than a
+   * missing test.
+   *
+   * The self-healing PROPERTY itself is not lost: it moved to the sidecar,
+   * which is the object the live path now owns, and is asserted in the two
+   * tests below it.
+   */
+  it("team: a corrupt team artifact is now left EXACTLY as it was — the tick makes no team read and no team write", async () => {
     const seeded = JSON.parse(guardPassingCorruptTeamArtifact("frc1")) as unknown;
+    // Non-vacuity, unchanged from before: this fixture really does pass the
+    // read guard and really does fail the write schema.
     expect(checkTeamSeasonArtifactShape(seeded)).toBeDefined();
     expect(() => TeamSeasonArtifactSchema.parse(seeded)).toThrow();
 
     stubOneLiveEvent();
-    const clean = new FakeR2Bucket();
-    await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), clean), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
-
     const r2 = new FakeR2Bucket();
-    r2.seed(TEAM_PUT_KEY, guardPassingCorruptTeamArtifact("frc1"));
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const seededBody = guardPassingCorruptTeamArtifact("frc1");
+    r2.seed(TEAM_PUT_KEY, seededBody);
     const result = await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
     expect(result.eventsDeferred).toBe(0);
 
-    // Exactly one put for the corrupt team, and the tick's TOTAL put count is
-    // unchanged from the clean run — the retry consumes no extra subrequest,
-    // because `writeArtifactObject` validates BEFORE `budget.tryConsume`.
-    const teamPuts = r2.puts.filter((p) => p.key === TEAM_PUT_KEY);
-    expect(teamPuts).toHaveLength(1);
-    expect(r2.putCallCount).toBe(clean.putCallCount);
-
-    // What landed is a schema-valid BOOTSTRAP: this tick's own match, and the
-    // corrupt `teamNumber`/`nickname` replaced by the merge's own fallbacks.
-    const published = TeamSeasonArtifactSchema.parse(JSON.parse(teamPuts[0]!.body));
-    expect(published.teamNumber).toBe(1);
-    expect(published.nickname).toBe("");
-    expect(published.events.flatMap((e) => e.matches).map((m) => m.matchKey)).toEqual(["2026casj_qm1"]);
-
-    // One structured log line, carrying ids and a bounded message — never a body.
-    const retryLogs = warn.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("artifact-write-schema-retry"));
-    warn.mockRestore();
-    expect(retryLogs).toHaveLength(1);
-    const logged = JSON.parse(retryLogs[0]!) as Record<string, unknown>;
-    expect(logged.page).toBe("team");
-    expect(logged.key).toBe(TEAM_PUT_KEY);
-    expect(logged.algorithmId).toBe("opr");
-    expect(typeof logged.error).toBe("string");
-    expect(String(logged.error).length).toBeLessThanOrEqual(300);
-    expect(logged).not.toHaveProperty("artifact");
+    expect(r2.puts.filter((p) => p.key === TEAM_PUT_KEY)).toHaveLength(0);
+    // Byte-identical: not merged, not rewritten, not repaired.
+    expect(await (await r2.get(TEAM_PUT_KEY))!.text()).toBe(seededBody);
   });
 
-  it("team: a second tick against the SAME corrupt object still publishes — the failure is not sticky", async () => {
+  it("sidecar: a corrupt sidecar is rejected at read and republished as a fresh, schema-valid bootstrap in ONE put", async () => {
     stubOneLiveEvent();
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    // A fresh D1 and a freshly re-seeded R2 each pass, so the second tick
-    // genuinely folds the match and reads the corrupt object BACK, rather than
-    // short-circuiting on an already-folded cursor.
-    for (const nowMs of [NOW_MS, NOW_MS + 60_000]) {
-      const r2 = new FakeR2Bucket();
-      r2.seed(TEAM_PUT_KEY, guardPassingCorruptTeamArtifact("frc1"));
-      await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs, ...DISABLE_GLOBAL_REBUILD });
-      const put = r2.puts.filter((p) => p.key === TEAM_PUT_KEY).at(-1);
-      expect(put, `tick at ${nowMs}`).toBeDefined();
-      expect(() => TeamSeasonArtifactSchema.parse(JSON.parse(put!.body))).not.toThrow();
-    }
-    warn.mockRestore();
+    const r2 = new FakeR2Bucket();
+    // Well-formed JSON, wrong shape — the exact case the read parse must turn
+    // into `undefined` (a bootstrap) rather than a throw that loses the tick.
+    r2.seed(SIDECAR_PUT_KEY, JSON.stringify({ sidecarVersion: 1, ephemeral: true, rows: "not an array" }));
+    const result = await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+
+    expect(result.eventsAdvanced).toBe(1);
+    expect(result.eventsFailed).toBe(0);
+
+    const sidecarPuts = r2.puts.filter((p) => p.key === SIDECAR_PUT_KEY);
+    expect(sidecarPuts).toHaveLength(1);
+    const published = LiveMetricSidecarSchema.parse(JSON.parse(sidecarPuts[0]!.body));
+    expect(published.rows.map((row) => row.m)).toEqual(["2026casj_qm1"]);
+  });
+
+  it("sidecar: unparseable bytes also bootstrap rather than failing the event", async () => {
+    stubOneLiveEvent();
+    const r2 = new FakeR2Bucket();
+    r2.seed(SIDECAR_PUT_KEY, "{not json at all");
+    const result = await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+
+    expect(result.eventsAdvanced).toBe(1);
+    expect(result.eventsFailed).toBe(0);
+    const sidecarPuts = r2.puts.filter((p) => p.key === SIDECAR_PUT_KEY);
+    expect(sidecarPuts).toHaveLength(1);
+    expect(() => LiveMetricSidecarSchema.parse(JSON.parse(sidecarPuts[0]!.body))).not.toThrow();
   });
 
   it("event: a guard-passing, write-failing event artifact is republished as a valid bootstrap", async () => {

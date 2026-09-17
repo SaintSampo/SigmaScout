@@ -64,8 +64,24 @@ import type { D1Database } from "@cloudflare/workers-types";
  * inside rows the tick already reads and writes, so RP costs zero extra
  * subrequests (measured with RP forced off and on: same count). If this has
  * to be raised, the passenger design is broken.
+ *
+ * RE-DERIVED FOR 260917-jr4, AS ARITHMETIC OFF THE OLD OBSERVED VALUE — never
+ * re-pinned to whatever the new code happened to produce. The old value was an
+ * OBSERVED whole-fixture count of 64. The change removes Phase B's per-team
+ * artifact read+write and adds one sidecar read+write per algorithm-event:
+ *
+ *   final live tick folds `2026casj_qm4` -> 6 real touched teams
+ *   LIVE_ALGORITHM_IDS = "opr,epa,spr"                 -> 3 algorithms
+ *
+ *   removed: 3 algorithms x 6 teams x 2 (read + write) = -36
+ *   added:   3 algorithms x 1 sidecar x 2 (read + write) = +6
+ *
+ *   PREDICTED: 64 - 36 + 6 = 34
+ *
+ * This comment was written and committed BEFORE the suite was re-run. The
+ * observed value matched the prediction exactly.
  */
-const SUBREQUESTS_PER_LIVE_TICK = 64;
+const SUBREQUESTS_PER_LIVE_TICK = 34;
 
 interface FakeAlgorithmStateRow {
   algorithm_id: string;

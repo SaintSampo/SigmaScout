@@ -1,16 +1,30 @@
 /**
- * Guards against a live-folding-defers-forever defect: `processEvent`'s
- * `estimatedCost` for ONE ordinary 3v3 match (6 touched teams) is 50 with
- * all three published algorithms live, against ~41 subrequests actually
- * available per tick — that estimate never clears, so the event defers
- * every tick, forever. This file asserts, against the REAL exported formula
- * (`estimateEventSubrequestCost`) and the REAL exported constants
- * (`TICK_FIXED_SUBREQUEST_COST`, `EVENT_PREFLIGHT_SUBREQUEST_COST`) — never a
- * re-typed copy of the arithmetic — that the tracked `LIVE_ALGORITHM_IDS`
- * value in `wrangler.toml` fits the measured per-tick budget, that a live
- * tier of all three does not, that only the live tier actually folds, and
- * that the three decided misconfiguration behaviors (default+warn / throw /
- * throw) are exactly what's implemented.
+ * Guards against a live-folding-defers-forever defect. This file asserts,
+ * against the REAL exported formula (`estimateEventSubrequestCost`) and the
+ * REAL exported constants (`TICK_FIXED_SUBREQUEST_COST`,
+ * `EVENT_PREFLIGHT_SUBREQUEST_COST`) — never a re-typed copy of the arithmetic
+ * — that the tracked `LIVE_ALGORITHM_IDS` value in `wrangler.toml` fits the
+ * measured per-tick budget, that only the live tier actually folds, and that
+ * the three decided misconfiguration behaviors (default+warn / throw / throw)
+ * are exactly what's implemented.
+ *
+ * THE SUBREQUEST COUNTERFACTUAL FOR THE spr-ONLY TIER IS GONE, and this header
+ * records that rather than quietly dropping a test (quick task 260917-jr4,
+ * D-02). It used to read: the estimate for ONE ordinary 3v3 match (6 touched
+ * teams) was 50 with all three published algorithms live, against ~41 usable —
+ * so a three-algorithm tier deferred every tick, forever. Phase B's per-team
+ * artifact loop is what made that 50, and it no longer exists: the formula is
+ * now `2 + 6A`, flat in the touched-team count, so `A=3` is 20 and FITS.
+ *
+ * WHAT STILL CONSTRAINS THE LIVE TIER IS CPU, NOT SUBREQUESTS. A tick's Phase
+ * A fold plus Phase B merge is measured at ~17.5 ms on a reused isolate and
+ * ~40.8 ms on a fresh one, against a 10 ms budget
+ * (`.planning/todos/pending/rp-fold-exceeds-worker-cpu-budget.md`); three
+ * algorithms would multiply the Phase A half of that. The counterfactual test
+ * below was therefore REPLACED, not deleted, by one asserting the property
+ * that IS still load-bearing: the estimate is flat in the touched-team count.
+ * If a per-team term ever comes back, that test fails and the deferral defect
+ * this file exists for is caught again.
  */
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -29,6 +43,7 @@ import {
 } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
+import { liveMetricSidecarKey } from "../../../packages/harness/liveMetricSidecar.js";
 import { AlgorithmsManifestSchema } from "../../../packages/harness/manifestSchemas.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
@@ -402,26 +417,47 @@ describe("liveAlgorithmTier — tracked config's live tier fits the measured bud
 
     const ids = parseLiveAlgorithmIds(rawValue!);
     const usable = new SubrequestBudget().usableCap - TICK_FIXED_SUBREQUEST_COST - EVENT_PREFLIGHT_SUBREQUEST_COST;
-    const estimated = estimateEventSubrequestCost(ids.length, 6);
+    const estimated = estimateEventSubrequestCost(ids.length);
 
     expect(
       estimated,
-      `LIVE_ALGORITHM_IDS="${ids.join(",")}" estimates ${estimated} subrequests for one ordinary 3v3 match ` +
-        `(6 touched teams), which exceeds the ~${usable} actually available per tick (SUBREQUEST_CAP 50, ` +
+      `LIVE_ALGORITHM_IDS="${ids.join(",")}" estimates ${estimated} subrequests for one event's tick work, ` +
+        `which exceeds the ~${usable} actually available per tick (SUBREQUEST_CAP 50, ` +
         `SUBREQUEST_RESERVE 4, minus ${TICK_FIXED_SUBREQUEST_COST} tick-fixed + ${EVENT_PREFLIGHT_SUBREQUEST_COST} ` +
         "event-preflight costs). See docs/publish-budget.md's \"Worker runtime budget\" " +
-        "section for the measured arithmetic this regression guard protects — with all three algorithms live, " +
-        "the event defers every tick, forever."
+        "section for the measured arithmetic this regression guard protects — an event whose estimate never " +
+        "clears defers every tick, forever."
     ).toBeLessThanOrEqual(usable);
   });
 
-  it("the counterfactual: three live algorithms exceed the same usable budget for one ordinary match (pins WHY vpr-only was chosen)", () => {
+  /**
+   * THE REPLACEMENT for the retired three-algorithm counterfactual (see this
+   * file's header). The estimate is flat in the touched-team count because
+   * Phase B writes ONE sidecar per algorithm-event instead of one artifact per
+   * touched team. That flatness is the whole reason a 42-team regional and a
+   * 6-team match now cost a tick the same, and it is what a reintroduced
+   * per-team term would break — so it is asserted as a property over a real
+   * spread of team counts, never as a re-typed constant.
+   */
+  it("the estimate is FLAT in the touched-team count — no per-team artifact term survives", () => {
+    // The formula takes no team count at all; this pins the consequence at the
+    // call sites that used to pass one. A 3-team match and a 42-team regional
+    // cost a tick the same.
+    expect(estimateEventSubrequestCost(1)).toBe(8);
+    expect(estimateEventSubrequestCost(3)).toBe(20);
+    // `2 + 6A` across the whole plausible range, derived rather than listed.
+    for (let algorithmCount = 0; algorithmCount <= 5; algorithmCount++) {
+      expect(estimateEventSubrequestCost(algorithmCount), `A=${algorithmCount}`).toBe(2 + 6 * algorithmCount);
+    }
+  });
+
+  it("the tracked spr-only tier now affords SEVERAL events per tick, not about one", () => {
     const usable = new SubrequestBudget().usableCap - TICK_FIXED_SUBREQUEST_COST - EVENT_PREFLIGHT_SUBREQUEST_COST;
-    // If this assertion ever fails because Phase B's per-team cost shape
-    // genuinely improved, that is the signal to re-evaluate LIVE_ALGORITHM_IDS
-    // against a fresh measurement on a deployed Worker — not to delete this
-    // test.
-    expect(estimateEventSubrequestCost(3, 6)).toBeGreaterThan(usable);
+    // Before 260917-jr4 an spr-only tick at 12 touched teams estimated 30
+    // against ~41 usable — one event per tick and no room for a second. This
+    // is the rotation-starvation property `subrequestBudget.ts`'s own header
+    // is about, so it is asserted rather than assumed.
+    expect(Math.floor(usable / estimateEventSubrequestCost(1))).toBeGreaterThanOrEqual(4);
   });
 });
 
@@ -476,10 +512,21 @@ describe("liveAlgorithmTier — only the live tier folds", () => {
 
     const premierEventKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "spr", version: PREMIER_TEST_VERSION });
     expect(r2.puts.some((p) => p.key === premierEventKey)).toBe(true);
+
+    // Since 260917-jr4 the tick writes NO team artifact at all — the assertion
+    // here used to be that every one of ALL_TEAMS got one. The sidecar is what
+    // replaced them, and it is asserted by the same `artifactKey`-versus-
+    // `liveMetricSidecarKey` spelling rule: the key is imported, never retyped.
     for (const teamKey of ALL_TEAMS) {
       const premierTeamKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "spr", version: PREMIER_TEST_VERSION });
-      expect(r2.puts.some((p) => p.key === premierTeamKey)).toBe(true);
+      expect(r2.puts.some((p) => p.key === premierTeamKey), `${teamKey} team artifact must NOT be written by a live tick`).toBe(false);
     }
+    expect(r2.puts.some((p) => p.key.startsWith("v1/team/"))).toBe(false);
+
+    const sidecarKey = liveMetricSidecarKey({ eventKey: "2026casj", algorithmId: "spr", version: PREMIER_TEST_VERSION });
+    expect(r2.puts.some((p) => p.key === sidecarKey)).toBe(true);
+    // Exactly one sidecar, for the live tier only.
+    expect(r2.puts.filter((p) => p.key.startsWith("v1/live/")).map((p) => p.key)).toEqual([sidecarKey]);
   });
 });
 
