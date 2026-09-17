@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Badge } from "@/components/ui/badge";
 import { MetricValue } from "@/components/MetricValue";
+import { TotalSigmaValue, totalColumnHeader } from "@/components/TotalSigmaValue";
 import { metricKeysFor, TOTAL_KEY } from "../../lib/metricKeys.js";
 import { METRIC_GROUPS } from "../../lib/metricGroups.js";
 import { tierForPercentile } from "../../lib/tiers.js";
@@ -8,6 +9,7 @@ import { MatchTable } from "./MatchTable.js";
 import type { AxisDomain, TeamSeasonEvent } from "./matchAxis.js";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
+import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 
 /**
  * One event: heading, date, Upcoming badge, the team's end-of-event metric
@@ -51,8 +53,35 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
   const snapshot = endOfEventMetrics(metricHistory, event.eventKey);
   const metricKeys = metricKeysFor(algorithmId, season);
 
+  /**
+   * This event's end-of-event Sigma Score, read from THE SAME history row
+   * `endOfEventMetrics` resolved the Total from — so the tile's two halves
+   * share one as-of instant. The season-final Sigma is never substituted
+   * here; this component is not given `seasonStats` at all, which is the
+   * same structural guarantee the tier comment below relies on.
+   *
+   * Gated on the row CARRYING the entry, never on `algorithmId`
+   * (`sigmaScore.ts`'s own rule). Absent — every OPR/EPA row, and any
+   * pre-republish SPR one — leaves the tile byte-identical to the plain
+   * `MetricValue` it was before, its "Total" label included.
+   *
+   * A per-match sigma entry carries no `percentile` by design
+   * (`metricHistorySchema.ts`), so the Sigma half renders UNTIERED. No tier
+   * is invented for it, and it does not take the Alliances tab's `neutral`
+   * treatment, which marks a three-team band rather than one team's own
+   * untiered Sigma.
+   */
+  const snapshotSigma = snapshot?.metrics[SIGMA_METRIC_KEY];
+
   /** The per-event metric line's tiles. */
-  const totalTile = snapshot === undefined ? undefined : { key: TOTAL_KEY, label: "Total", metric: snapshot.metrics[TOTAL_KEY] };
+  const totalTile =
+    snapshot === undefined
+      ? undefined
+      : {
+          key: TOTAL_KEY,
+          label: snapshotSigma === undefined ? "Total" : totalColumnHeader(algorithmId),
+          metric: snapshot.metrics[TOTAL_KEY],
+        };
   const groupTiles =
     snapshot === undefined || metricKeys.length <= 1
       ? []
@@ -110,7 +139,13 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
           {totalTile?.metric !== undefined && (
             <span className="flex items-baseline gap-[var(--spacing-xs)]">
               <span className="text-role-label text-[var(--color-text-muted)]">{totalTile.label}</span>
-              <MetricValue metric={totalTile.metric} tier={tierForPercentile(totalTile.metric.percentile)} />
+              {/* `sigma` carries NO tier and NO `neutral` — see `snapshotSigma`'s
+                  own comment above for why the right half stays untiered. */}
+              <TotalSigmaValue
+                total={totalTile.metric}
+                totalTier={tierForPercentile(totalTile.metric.percentile)}
+                sigma={snapshotSigma === undefined ? undefined : { value: snapshotSigma.value }}
+              />
             </span>
           )}
           {groupTiles.some((tile) => tile.metric !== undefined) && (

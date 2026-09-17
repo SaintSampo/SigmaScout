@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { renderWithRouter } from "@/test/routerHarness";
 import { EventSection, endOfEventMetrics } from "./EventSection.js";
+import { MetricValue } from "@/components/MetricValue";
+import { totalColumnHeader } from "@/components/TotalSigmaValue";
+import { tierForPercentile } from "../../lib/tiers.js";
 import type { TeamSeasonEvent, TeamSeasonMatch } from "./matchAxis.js";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
+import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 
 const DOMAIN = { min: 0, max: 500 };
 
@@ -365,5 +369,97 @@ describe("EventSection", () => {
     const first = screen.getByTestId("match-table-scroll-2024casj");
     const second = screen.getByTestId("match-table-scroll-2024txkat");
     expect(first).not.toBe(second);
+  });
+
+  /**
+   * Quick task 260917-2f4: "for SPR, Sigma should be stored and displayed
+   * anywhere Total is". The end-of-event Total tile reads its Sigma from the
+   * SAME `metricHistory` row `endOfEventMetrics` resolved the Total from, so
+   * both halves share one as-of instant — never the season-final Sigma on
+   * `seasonStats`, which this component is not even given.
+   *
+   * Gated on DATA PRESENCE, never on algorithm id.
+   */
+  describe("Total ± Sigma pill", () => {
+    function renderSnapshot(metrics: MetricHistoryRow["metrics"]) {
+      return renderWithRouter(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="spr"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics })]}
+        />,
+      );
+    }
+
+    /** The Total tile — the snapshot's first line (`Auto`/`Teleop`/`Endgame` share the second). */
+    function totalLine(): HTMLElement {
+      return screen.getByTestId("event-snapshot-2024casj").children[0] as HTMLElement;
+    }
+
+    it("an end-of-event row carrying a sigma entry renders the tile as ONE joined pill with both halves", () => {
+      renderSnapshot({ total: { value: 61.4, percentile: 97 }, [SIGMA_METRIC_KEY]: { value: 7.25 } });
+      const pill = totalLine().querySelector('[data-testid="total-sigma-pill"]');
+      expect(pill).not.toBeNull();
+      expect(pill!.querySelector(".metric-pill__total")!.textContent).toBe("61.40");
+      expect(pill!.querySelector(".metric-pill__sigma")!.textContent).toBe("±7.25");
+    });
+
+    it("the Sigma half is the row's own sigma, never the Total's spread (spread must never reach the screen)", () => {
+      renderSnapshot({ total: { value: 61.4, spread: 3.1 }, [SIGMA_METRIC_KEY]: { value: 7.25 } });
+      const line = totalLine();
+      expect(line.textContent).toContain("±7.25");
+      expect(line.textContent).not.toContain("3.10");
+    });
+
+    it("a sigma entry with no percentile renders its half UNTIERED — no tier class, and not the neutral treatment either", () => {
+      renderSnapshot({ total: { value: 61.4, percentile: 97 }, [SIGMA_METRIC_KEY]: { value: 7.25 } });
+      const sigmaHalf = totalLine().querySelector(".metric-pill__sigma")!;
+      expect(sigmaHalf.className).not.toMatch(/metric-tier--/);
+      expect(sigmaHalf.className).not.toContain("metric-pill__sigma--neutral");
+    });
+
+    it("the Total half keeps this history row's OWN percentile tier", () => {
+      renderSnapshot({ total: { value: 61.4, percentile: 97 }, [SIGMA_METRIC_KEY]: { value: 7.25 } });
+      expect(totalLine().querySelector(".metric-pill__total")!.className).toContain("metric-tier--legendary");
+    });
+
+    it("the tile's label names Sigma only when the row carries one", () => {
+      const withSigma = renderSnapshot({ total: { value: 61.4 }, [SIGMA_METRIC_KEY]: { value: 7.25 } });
+      expect(totalLine().firstElementChild!.textContent).toBe(totalColumnHeader("spr"));
+      expect(totalColumnHeader("spr")).toBe("Total ± Sigma");
+      withSigma.unmount();
+
+      renderSnapshot({ total: { value: 61.4 } });
+      expect(totalLine().firstElementChild!.textContent).toBe("Total");
+    });
+
+    it("a row with NO sigma entry renders the Total value byte-identically to plain MetricValue", () => {
+      const reference = render(<MetricValue metric={{ value: 61.4 }} tier={tierForPercentile(97)} />);
+      const referenceHtml = reference.container.innerHTML;
+      reference.unmount();
+
+      renderSnapshot({ total: { value: 61.4, percentile: 97 } });
+      const line = totalLine();
+      expect(line.querySelector('[data-testid="total-sigma-pill"]')).toBeNull();
+      expect(line.lastElementChild!.outerHTML).toBe(referenceHtml);
+    });
+
+    it("the Auto/Teleop/Endgame tiles are unchanged by a present sigma — no pill, no ±, and no Sigma tile of their own", () => {
+      renderSnapshot({
+        total: { value: 61.4 },
+        phaseAuto: { value: 12 },
+        phaseTeleop: { value: 30 },
+        phaseEndgame: { value: 19.4 },
+        [SIGMA_METRIC_KEY]: { value: 7.25 },
+      });
+      const phaseLine = screen.getByTestId("event-snapshot-2024casj").children[1] as HTMLElement;
+      expect(Array.from(phaseLine.children).map((pair) => pair.firstElementChild?.textContent)).toEqual(["Auto", "Teleop", "Endgame"]);
+      expect(phaseLine.querySelector('[data-testid="total-sigma-pill"]')).toBeNull();
+      expect(phaseLine.textContent).not.toContain("±");
+      expect(phaseLine.textContent).not.toContain("7.25");
+    });
   });
 });

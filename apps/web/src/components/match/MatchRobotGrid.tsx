@@ -1,6 +1,7 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MetricValue } from "@/components/MetricValue";
+import { TotalSigmaValue, totalColumnHeader } from "@/components/TotalSigmaValue";
 import { cn } from "@/lib/utils";
 import { Link } from "@tanstack/react-router";
 import { METRIC_GROUPS } from "../../lib/metricGroups.js";
@@ -11,6 +12,7 @@ import { teamNumberFromKey } from "../../lib/teamKey.js";
 import type { PreMatchBasis, PreMatchMetrics } from "../../lib/preMatchMetrics.js";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
+import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 
 /**
  * The match page's six-robot grid. A PURE function of its props — no
@@ -76,7 +78,43 @@ const METRIC_CELLS: readonly MetricCellSpec[] = [
   { key: TOTAL_KEY, label: metricDisplayLabel(TOTAL_KEY) },
 ];
 
-function RobotMetricCells({ preMatch, isPending }: { preMatch: PreMatchMetrics | undefined; isPending: boolean }) {
+/**
+ * The four per-robot metric cells. The Total cell renders the shared joined
+ * split pill (`TotalSigmaValue`): the team's Total in its own tier colour, a
+ * `±`, and its Sigma Score. Auto, Teleop and Endgame are untouched plain
+ * `MetricValue` cells — Sigma is a property of the whole robot, not of a
+ * phase.
+ *
+ * Both halves come from `preMatch.metrics`, ONE `metricHistory` row, so the
+ * Total and the Sigma share a single as-of instant. The season-final Sigma on
+ * `seasonStats` is never substituted here, for exactly the reason
+ * `preMatchMetrics.ts`'s header gives for never substituting a season-final
+ * Total: a different as-of instant printed under a pre-match label reads as a
+ * pre-match number and is not one.
+ *
+ * The pill and the Sigma-naming label are gated on the row actually CARRYING
+ * a `SIGMA_METRIC_KEY` entry, never on `algorithm` — `sigmaScore.ts`'s own
+ * rule. With no entry (every OPR/EPA row, and any pre-republish SPR one) the
+ * cell is byte-identical to the plain `MetricValue` it was before, label
+ * included. `algorithm` only supplies the WORDING of the Sigma label, so the
+ * six cards of one grid can never disagree about what the pill is called.
+ *
+ * A per-match sigma entry carries no `percentile` by design
+ * (`metricHistorySchema.ts`) — a per-match ranking pool has no meaning — so
+ * the Sigma half renders UNTIERED. No tier is invented for it, and it is not
+ * given the Alliances tab's `neutral` band treatment either: that marks a
+ * three-team band with no percentile of its own, which is a different thing
+ * from one team's own untiered Sigma.
+ */
+function RobotMetricCells({
+  preMatch,
+  isPending,
+  algorithm,
+}: {
+  preMatch: PreMatchMetrics | undefined;
+  isPending: boolean;
+  algorithm: PublishedAlgorithmId;
+}) {
   if (isPending) {
     return (
       <div className="flex flex-wrap gap-x-[var(--spacing-lg)] gap-y-[var(--spacing-xs)]">
@@ -94,11 +132,25 @@ function RobotMetricCells({ preMatch, isPending }: { preMatch: PreMatchMetrics |
     <div className="flex flex-wrap gap-x-[var(--spacing-lg)] gap-y-[var(--spacing-xs)]">
       {METRIC_CELLS.map((cell) => {
         const entry = preMatch?.metrics[cell.key];
+        const isTotal = cell.key === TOTAL_KEY;
+        const sigmaEntry = isTotal ? preMatch?.metrics[SIGMA_METRIC_KEY] : undefined;
         return (
           <div key={cell.key} className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
-            <span className="text-role-label text-[var(--color-text-muted)]">{cell.label}</span>
-            {/* `metric` and `tier` ONLY. MetricValue renders no plus-minus of any kind. */}
-            <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />
+            <span className="text-role-label text-[var(--color-text-muted)]">
+              {sigmaEntry === undefined ? cell.label : totalColumnHeader(algorithm)}
+            </span>
+            {isTotal ? (
+              /* `sigma` carries NO tier and NO `neutral` — see this
+                 component's header for why the right half stays untiered. */
+              <TotalSigmaValue
+                total={entry}
+                totalTier={tierForPercentile(entry?.percentile)}
+                sigma={sigmaEntry === undefined ? undefined : { value: sigmaEntry.value }}
+              />
+            ) : (
+              /* `metric` and `tier` ONLY. MetricValue renders no plus-minus of any kind. */
+              <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />
+            )}
           </div>
         );
       })}
@@ -159,7 +211,7 @@ function RobotCard({
       {showPerCardBasisNote && record.preMatch !== undefined && (
         <span className="text-role-label text-[var(--color-text-muted)]">{PER_CARD_BASIS_NOTE[record.preMatch.basis]}</span>
       )}
-      <RobotMetricCells preMatch={record.preMatch} isPending={record.isPending} />
+      <RobotMetricCells preMatch={record.preMatch} isPending={record.isPending} algorithm={algorithm} />
     </div>
   );
 }

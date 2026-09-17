@@ -4,9 +4,13 @@
  * client, only the shared router harness for the team-number `Link`.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { renderWithRouter } from "../../test/routerHarness.js";
 import { MatchRobotGrid, type MatchRobotRecord } from "./MatchRobotGrid.js";
+import { MetricValue } from "@/components/MetricValue";
+import { totalColumnHeader } from "@/components/TotalSigmaValue";
+import { tierForPercentile } from "../../lib/tiers.js";
+import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
@@ -194,5 +198,116 @@ describe("MatchRobotGrid", () => {
     expect(screen.queryByTestId("match-robot-grid-as-of")).toBeNull();
     expect(screen.getByTestId("robot-card-frc254").textContent).toContain("As of its most recent played match");
     expect(screen.getByTestId("robot-card-frc118").textContent).toContain("As of immediately before this match");
+  });
+
+  /**
+   * Quick task 260917-2f4: "for SPR, Sigma should be stored and displayed
+   * anywhere Total is". The per-robot Total cell reads its Sigma from the SAME
+   * `metricHistory` row the Total itself came from (`preMatch.metrics`), so
+   * both halves of the pill share one as-of instant — never the season-final
+   * Sigma from `seasonStats`, which is a different instant.
+   *
+   * Gated on DATA PRESENCE, never on algorithm id (`sigmaScore.ts`'s own
+   * rule): the pill and the Sigma-naming label appear exactly when the row
+   * carries a `SIGMA_METRIC_KEY` entry.
+   */
+  describe("Total ± Sigma pill", () => {
+    /** The four metric cells of a card, in `METRIC_CELLS` order — Auto, Teleop, Endgame, Total. */
+    function metricCells(card: HTMLElement): HTMLElement[] {
+      const container = card.lastElementChild as HTMLElement;
+      return Array.from(container.children).filter((child): child is HTMLElement => child.tagName === "DIV");
+    }
+
+    function totalCell(card: HTMLElement): HTMLElement {
+      const cells = metricCells(card);
+      return cells[cells.length - 1]!;
+    }
+
+    /** `resolvedRecord` with a `sigma` metrics entry injected (or, for `undefined`, deliberately without one). */
+    function recordWithSigma(sigma: number | undefined): MatchRobotRecord {
+      const base = resolvedRecord("before-this-match");
+      const preMatch = base.preMatch!;
+      return {
+        ...base,
+        preMatch: {
+          ...preMatch,
+          metrics: {
+            ...preMatch.metrics,
+            ...(sigma === undefined ? {} : { [SIGMA_METRIC_KEY]: { value: sigma } }),
+          },
+        },
+      };
+    }
+
+    function renderWithSigma(sigma: number | undefined) {
+      const byTeamKey = allResolved("before-this-match");
+      byTeamKey.frc254 = recordWithSigma(sigma);
+      return renderWithRouter(
+        <MatchRobotGrid redTeams={RED_TEAMS} blueTeams={BLUE_TEAMS} byTeamKey={byTeamKey} season={SEASON} algorithm={ALGORITHM} />,
+      );
+    }
+
+    it("a pre-match row carrying a sigma entry renders the Total cell as ONE joined pill with both halves", () => {
+      renderWithSigma(4.25);
+      const cell = totalCell(screen.getByTestId("robot-card-frc254"));
+      const pill = cell.querySelector('[data-testid="total-sigma-pill"]');
+      expect(pill).not.toBeNull();
+      expect(pill!.querySelector(".metric-pill__total")!.textContent).toBe("42.50");
+      expect(pill!.querySelector(".metric-pill__sigma")!.textContent).toBe("±4.25");
+    });
+
+    it("the Sigma half is the row's own sigma, never the Total's spread (spread must never reach the screen)", () => {
+      // The fixture's total carries `spread: 3.1`; the pill's ± is 4.25.
+      renderWithSigma(4.25);
+      const card = screen.getByTestId("robot-card-frc254");
+      expect(card.textContent).toContain("±4.25");
+      expect(card.textContent).not.toContain("3.10");
+    });
+
+    it("a sigma entry with no percentile renders its half UNTIERED — no tier class, and not the neutral treatment either", () => {
+      renderWithSigma(4.25);
+      const sigmaHalf = totalCell(screen.getByTestId("robot-card-frc254")).querySelector(".metric-pill__sigma")!;
+      expect(sigmaHalf.className).not.toMatch(/metric-tier--/);
+      expect(sigmaHalf.className).not.toContain("metric-pill__sigma--neutral");
+    });
+
+    it("the Total half keeps its own percentile's tier", () => {
+      renderWithSigma(4.25);
+      // total's percentile (82) lands in the Epic band.
+      const totalHalf = totalCell(screen.getByTestId("robot-card-frc254")).querySelector(".metric-pill__total")!;
+      expect(totalHalf.className).toContain("metric-tier--epic");
+    });
+
+    it("the Total cell's label names Sigma only when the row carries one", () => {
+      const withSigma = renderWithSigma(4.25);
+      expect(totalCell(screen.getByTestId("robot-card-frc254")).firstElementChild!.textContent).toBe(totalColumnHeader(ALGORITHM));
+      expect(totalColumnHeader(ALGORITHM)).toBe("Total ± Sigma");
+      withSigma.unmount();
+
+      renderWithSigma(undefined);
+      expect(totalCell(screen.getByTestId("robot-card-frc254")).firstElementChild!.textContent).toBe("Total");
+    });
+
+    it("a row with NO sigma entry renders the Total value byte-identically to plain MetricValue", () => {
+      const reference = render(<MetricValue metric={{ value: 42.5, spread: 3.1 }} tier={tierForPercentile(82)} />);
+      const referenceHtml = reference.container.innerHTML;
+      reference.unmount();
+
+      renderWithSigma(undefined);
+      const cell = totalCell(screen.getByTestId("robot-card-frc254"));
+      expect(cell.querySelector('[data-testid="total-sigma-pill"]')).toBeNull();
+      expect(cell.lastElementChild!.outerHTML).toBe(referenceHtml);
+    });
+
+    it("the Auto/Teleop/Endgame cells are unchanged by a present sigma — no pill, no ±, plain MetricValue", () => {
+      renderWithSigma(4.25);
+      const cells = metricCells(screen.getByTestId("robot-card-frc254"));
+      const phaseCells = cells.slice(0, cells.length - 1);
+      expect(phaseCells.map((cell) => cell.firstElementChild!.textContent)).toEqual(["Auto", "Teleop", "Endgame"]);
+      for (const cell of phaseCells) {
+        expect(cell.querySelector('[data-testid="total-sigma-pill"]')).toBeNull();
+        expect(cell.textContent).not.toContain("±");
+      }
+    });
   });
 });
