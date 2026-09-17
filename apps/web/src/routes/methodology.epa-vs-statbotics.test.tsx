@@ -16,14 +16,14 @@ import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } fr
 import { RootSearchSchema } from "../lib/searchParams.js";
 import { PAGE_ARTIFACT_SCHEMA_VERSION } from "../../../../packages/harness/pageArtifacts.js";
 import {
-  EPA_COMPARISON_DIFFERENCE_CARDS_TESTID,
+  EPA_COMPARISON_DIFFERENCE_TABLE_TESTID,
   EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID,
   EPA_COMPARISON_PROVENANCE_TESTID,
-  EPA_COMPARISON_SAME_LIST_TESTID,
+  EPA_COMPARISON_SAME_PARAGRAPH_TESTID,
   EPA_COMPARISON_STATBOTICS_PULLED_TESTID,
-  epaDifferenceCardTestId,
+  epaDifferenceRowTestId,
 } from "../components/methodology/EpaComparisonPage.js";
-import { EPA_DIFFERENCE_CARD_IDS, EPA_SAME_ITEMS } from "../components/methodology/epaComparisonContent.js";
+import { EPA_DIFFERENCE_ROW_IDS, EPA_DIFFERENCE_ROWS, EPA_SAME_PARAGRAPH } from "../components/methodology/epaComparisonContent.js";
 import { Route as EpaComparisonRouteImport } from "./methodology.epa-vs-statbotics.js";
 
 const SEASONS = [2022, 2023, 2024, 2025, 2026];
@@ -47,9 +47,8 @@ function fixtureArtifact() {
       pearson: 0.99,
       meanAbsoluteDifference: 1.8,
     })),
-    // Statbotics leads in exactly THREE of the five seasons (2022, 2023,
-    // 2024) — 2025 and 2026 SigmaScout leads or ties. The summary sentence
-    // must render "3 of 5", derived from these rows, never a hardcoded number.
+    // A mixed fixture: Statbotics leads three seasons, SigmaScout two. The page
+    // states no verdict sentence about that (removed 2026-09-16), only the table.
     headToHead: [
       { season: 2022, ourWinnerAccuracy: 0.70, ourBrierScore: 0.20, scoredCount: 500, statboticsWinnerAccuracy: 0.78, statboticsBrierScore: 0.15, statboticsCapturedAt: "2026-09-04", statboticsFetched: true },
       { season: 2023, ourWinnerAccuracy: 0.71, ourBrierScore: 0.19, scoredCount: 500, statboticsWinnerAccuracy: 0.77, statboticsBrierScore: 0.16, statboticsCapturedAt: "2026-09-04", statboticsFetched: true },
@@ -92,31 +91,31 @@ describe("/methodology/epa-vs-statbotics route", () => {
     await waitFor(() => expect(screen.getByText("Our EPA vs Statbotics' EPA")).toBeDefined());
   });
 
-  it("renders the shared list and the difference cards while pending, with a skeleton and no head-to-head table", async () => {
+  it("renders the shared paragraph and the difference table while pending, with a skeleton and no head-to-head table", async () => {
     global.fetch = (() => new Promise<Response>(() => {})) as typeof fetch;
     renderEpaComparisonRoute();
-    await waitFor(() => expect(screen.getByTestId(EPA_COMPARISON_SAME_LIST_TESTID)).toBeDefined());
-    expect(screen.getByTestId(EPA_COMPARISON_DIFFERENCE_CARDS_TESTID)).toBeDefined();
+    await waitFor(() => expect(screen.getByTestId(EPA_COMPARISON_SAME_PARAGRAPH_TESTID)).toBeDefined());
+    expect(screen.getByTestId(EPA_COMPARISON_DIFFERENCE_TABLE_TESTID)).toBeDefined();
     await waitFor(() => expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0));
     expect(screen.queryByTestId(EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID)).toBeNull();
   });
 
-  it("renders the shared list and difference cards, plus an error state with a retry affordance, when the fetch rejects", async () => {
+  it("renders the shared paragraph and difference table, plus an error state with a retry affordance, when the fetch rejects", async () => {
     global.fetch = (() => Promise.resolve(new Response("boom", { status: 500 }))) as unknown as typeof fetch;
     renderEpaComparisonRoute();
     await waitFor(() => expect(screen.getByText("Couldn't load EPA comparison data.")).toBeDefined());
     expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
-    expect(screen.getByTestId(EPA_COMPARISON_SAME_LIST_TESTID)).toBeDefined();
-    expect(screen.getByTestId(EPA_COMPARISON_DIFFERENCE_CARDS_TESTID)).toBeDefined();
+    expect(screen.getByTestId(EPA_COMPARISON_SAME_PARAGRAPH_TESTID)).toBeDefined();
+    expect(screen.getByTestId(EPA_COMPARISON_DIFFERENCE_TABLE_TESTID)).toBeDefined();
   });
 
-  it("renders the shared list and difference cards, plus the empty state (not the error state), on a 404", async () => {
+  it("renders the shared paragraph and difference table, plus the empty state (not the error state), on a 404", async () => {
     global.fetch = (() => Promise.resolve(new Response("not found", { status: 404 }))) as unknown as typeof fetch;
     renderEpaComparisonRoute();
     await waitFor(() => expect(screen.getByText("No published comparison data yet")).toBeDefined());
     expect(screen.queryByRole("button", { name: /retry/i })).toBeNull();
-    expect(screen.getByTestId(EPA_COMPARISON_SAME_LIST_TESTID)).toBeDefined();
-    expect(screen.getByTestId(EPA_COMPARISON_DIFFERENCE_CARDS_TESTID)).toBeDefined();
+    expect(screen.getByTestId(EPA_COMPARISON_SAME_PARAGRAPH_TESTID)).toBeDefined();
+    expect(screen.getByTestId(EPA_COMPARISON_DIFFERENCE_TABLE_TESTID)).toBeDefined();
   });
 
   describe("populated", () => {
@@ -156,36 +155,46 @@ describe("/methodology/epa-vs-statbotics route", () => {
       expect(provenance.textContent).toContain(FIXTURE_EPA_VERSION);
     });
 
-    it("renders the rendered article testids inside the cards container, in DOM order, matching the content module's card ids", async () => {
+    it("renders the difference rows inside the table, in DOM order, matching the content module's row ids", async () => {
       mockFetch();
       renderEpaComparisonRoute();
       await screen.findByTestId(EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID);
-      const container = screen.getByTestId(EPA_COMPARISON_DIFFERENCE_CARDS_TESTID);
-      const articles = within(container).getAllByRole("article");
-      const renderedTestIds = articles.map((article) => article.getAttribute("data-testid"));
-      const expectedTestIds = EPA_DIFFERENCE_CARD_IDS.map((id) => epaDifferenceCardTestId(id));
+      const container = screen.getByTestId(EPA_COMPARISON_DIFFERENCE_TABLE_TESTID);
+      const bodyRows = within(container).getAllByRole("row").slice(1); // skip the header row
+      const renderedTestIds = bodyRows.map((row) => row.getAttribute("data-testid"));
+      const expectedTestIds = EPA_DIFFERENCE_ROW_IDS.map((id) => epaDifferenceRowTestId(id));
       expect(renderedTestIds).toEqual(expectedTestIds);
     });
 
-    it("renders the shared list items' text equal to the content module's items, in order", async () => {
+    it("renders every difference cell, and the Statbotics and SigmaScout column headers", async () => {
       mockFetch();
       renderEpaComparisonRoute();
       await screen.findByTestId(EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID);
-      const list = screen.getByTestId(EPA_COMPARISON_SAME_LIST_TESTID);
-      const items = within(list).getAllByRole("listitem");
-      expect(items.map((item) => item.textContent)).toEqual(EPA_SAME_ITEMS.map((item) => item.text));
+      const container = screen.getByTestId(EPA_COMPARISON_DIFFERENCE_TABLE_TESTID);
+      expect(within(container).getByRole("columnheader", { name: "Statbotics" })).toBeDefined();
+      expect(within(container).getByRole("columnheader", { name: "SigmaScout" })).toBeDefined();
+      for (const row of EPA_DIFFERENCE_ROWS) {
+        const rendered = within(container).getByTestId(epaDifferenceRowTestId(row.id));
+        expect(within(rendered).getByRole("rowheader", { name: row.topic })).toBeDefined();
+        for (const cell of [row.statbotics, row.sigmascout, row.note]) {
+          expect(rendered.textContent, `row "${row.id}" is missing a cell`).toContain(cell);
+        }
+      }
     });
 
-    it("each rendered card contains the exact texts Statbotics and SigmaScout", async () => {
+    it("renders the shared paragraph's text equal to the content module's", async () => {
       mockFetch();
       renderEpaComparisonRoute();
       await screen.findByTestId(EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID);
-      const container = screen.getByTestId(EPA_COMPARISON_DIFFERENCE_CARDS_TESTID);
-      const articles = within(container).getAllByRole("article");
-      for (const article of articles) {
-        expect(within(article).getByText("Statbotics")).toBeDefined();
-        expect(within(article).getByText("SigmaScout")).toBeDefined();
-      }
+      expect(screen.getByTestId(EPA_COMPARISON_SAME_PARAGRAPH_TESTID).textContent).toBe(EPA_SAME_PARAGRAPH);
+    });
+
+    it("puts the results section first: How much it matters, Same on both sites, Where they differ", async () => {
+      mockFetch();
+      renderEpaComparisonRoute();
+      await screen.findByTestId(EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID);
+      const headings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
+      expect(headings).toEqual(["How much it matters", "Same on both sites", "Where they differ"]);
     });
 
     it("renders no agreement table and no agreement/slope/pearson text anywhere on the page", async () => {
@@ -199,11 +208,12 @@ describe("/methodology/epa-vs-statbotics route", () => {
       expect(bodyText).not.toMatch(/pearson/i);
     });
 
-    it("the whole rendered page carries no em dash and no en dash", async () => {
+    it("the whole rendered page carries no hyphen minus, no em dash and no en dash", async () => {
       mockFetch();
       renderEpaComparisonRoute();
       await screen.findByTestId(EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID);
       const bodyText = document.body.textContent ?? "";
+      expect(bodyText).not.toContain("-");
       expect(bodyText).not.toContain("—");
       expect(bodyText).not.toContain("–");
     });

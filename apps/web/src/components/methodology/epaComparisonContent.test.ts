@@ -1,12 +1,13 @@
 /**
- * Content coverage for `epaComparisonContent.ts` (quick task 260912-tib, a
- * from-scratch rewrite).
+ * Content coverage for `epaComparisonContent.ts` (rewritten 2026-09-17 with
+ * sketch 016: the difference cards became one table, the shared list one
+ * paragraph).
  *
- * STRUCTURE is pinned BY EQUALITY against hand-typed literal arrays and a
- * hand-typed note-label object, never by iterating the exported constant —
- * this repo's recorded iteration list trap: a test that only iterates a list
- * silently absorbs an added or removed entry. `sigmaContent.test.ts` and
- * `sprContent.test.ts` established the same pin.
+ * STRUCTURE is pinned BY EQUALITY against a hand-typed literal array, never
+ * by iterating the exported constant — this repo's recorded iteration list
+ * trap: a test that only iterates a list silently absorbs an added or removed
+ * entry. `sigmaContent.test.ts` and `sprContent.test.ts` established the same
+ * pin.
  *
  * VOICE, FACT and LIABILITY gates are asserted at RUNTIME over the exported
  * string VALUES via `collectStrings()`, never grepped from this file's own
@@ -15,53 +16,34 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  EPA_CARD_SIGMASCOUT_LABEL,
-  EPA_CARD_STATBOTICS_LABEL,
   EPA_COMPARISON_LEAD,
   EPA_COMPARISON_PAGE_TITLE,
-  EPA_DIFFERENCE_CARD_IDS,
-  EPA_DIFFERENCE_CARDS,
+  EPA_DIFFERENCE_NOTE_LABEL,
+  EPA_DIFFERENCE_ROW_IDS,
+  EPA_DIFFERENCE_ROWS,
   EPA_DIFFERENCE_SECTION_HEADING,
+  EPA_DIFFERENCE_SIGMASCOUT_LABEL,
+  EPA_DIFFERENCE_STATBOTICS_LABEL,
   EPA_HEAD_TO_HEAD_INTRO,
   EPA_HEAD_TO_HEAD_SECTION_HEADING,
-  EPA_SAME_ITEM_IDS,
-  EPA_SAME_ITEMS,
+  EPA_SAME_PARAGRAPH,
   EPA_SAME_SECTION_HEADING,
   sigmascoutMeasuredSentence,
   statboticsPulledSentence,
-  type EpaNoteLabel,
 } from "./epaComparisonContent.js";
 
+const HYPHEN_MINUS = "-";
 const EM_DASH = "—";
 const EN_DASH = "–";
 
-/** The full six-item shared-list id set, in copy-deck order. */
-const EXPECTED_SAME_ITEM_IDS = [
-  "rating-update",
-  "elimination-matches",
-  "win-probability-curve",
-  "fouls-in-predictions",
-  "new-season-carryover",
-  "no-uncertainty-range",
-];
-
-/** The full five-card difference-card id set, in copy-deck order. */
-const EXPECTED_DIFFERENCE_CARD_IDS = [
+/** The full five-row difference id set, in display order. */
+const EXPECTED_DIFFERENCE_ROW_IDS = [
   "week-one-numbers",
   "score-pieces",
   "new-season-start",
   "score-data-cleanup",
   "season-adjustments",
 ];
-
-/** The full note-label mapping for every card in the copy deck. */
-const EXPECTED_NOTE_LABELS: Record<string, EpaNoteLabel[]> = {
-  "week-one-numbers": ["Why", "What it changes"],
-  "score-pieces": ["Why"],
-  "new-season-start": ["Why"],
-  "score-data-cleanup": ["What it changes"],
-  "season-adjustments": ["Why"],
-};
 
 /** The only decimal numbers (digit-dot-digit) copy on this page is allowed to state. */
 const ALLOWED_DECIMALS = ["73.5", "74.0", "75.2"];
@@ -80,19 +62,16 @@ function collectStrings(): StringRecord[] {
     { where: "EPA_DIFFERENCE_SECTION_HEADING", text: EPA_DIFFERENCE_SECTION_HEADING },
     { where: "EPA_HEAD_TO_HEAD_SECTION_HEADING", text: EPA_HEAD_TO_HEAD_SECTION_HEADING },
     { where: "EPA_HEAD_TO_HEAD_INTRO", text: EPA_HEAD_TO_HEAD_INTRO },
-    { where: "EPA_CARD_STATBOTICS_LABEL", text: EPA_CARD_STATBOTICS_LABEL },
-    { where: "EPA_CARD_SIGMASCOUT_LABEL", text: EPA_CARD_SIGMASCOUT_LABEL },
+    { where: "EPA_SAME_PARAGRAPH", text: EPA_SAME_PARAGRAPH },
+    { where: "EPA_DIFFERENCE_STATBOTICS_LABEL", text: EPA_DIFFERENCE_STATBOTICS_LABEL },
+    { where: "EPA_DIFFERENCE_SIGMASCOUT_LABEL", text: EPA_DIFFERENCE_SIGMASCOUT_LABEL },
+    { where: "EPA_DIFFERENCE_NOTE_LABEL", text: EPA_DIFFERENCE_NOTE_LABEL },
   ];
-  for (const item of EPA_SAME_ITEMS) {
-    records.push({ where: `same item "${item.id}"`, text: item.text });
-  }
-  for (const card of EPA_DIFFERENCE_CARDS) {
-    records.push({ where: `card "${card.id}" title`, text: card.title });
-    records.push({ where: `card "${card.id}" statbotics line`, text: card.statbotics });
-    records.push({ where: `card "${card.id}" sigmascout line`, text: card.sigmascout });
-    for (const note of card.notes) {
-      records.push({ where: `card "${card.id}" note "${note.label}"`, text: note.text });
-    }
+  for (const row of EPA_DIFFERENCE_ROWS) {
+    records.push({ where: `row "${row.id}" topic`, text: row.topic });
+    records.push({ where: `row "${row.id}" statbotics cell`, text: row.statbotics });
+    records.push({ where: `row "${row.id}" sigmascout cell`, text: row.sigmascout });
+    records.push({ where: `row "${row.id}" note`, text: row.note });
   }
   for (const dates of [["2026-09-04"], ["2026-09-07", "2026-09-04"]]) {
     records.push({ where: `statboticsPulledSentence(${dates.join(", ")})`, text: statboticsPulledSentence(dates) });
@@ -106,61 +85,36 @@ function joinedProse(): string {
     .join(" ");
 }
 
-describe("EPA_SAME_ITEMS structure", () => {
-  it("exports exactly the locked shared-item ids, in order, by equality", () => {
-    expect(EPA_SAME_ITEMS.map((item) => item.id)).toEqual(EXPECTED_SAME_ITEM_IDS);
+describe("EPA_DIFFERENCE_ROWS structure", () => {
+  it("exports exactly the locked difference-row ids, in order, by equality", () => {
+    expect(EPA_DIFFERENCE_ROWS.map((row) => row.id)).toEqual(EXPECTED_DIFFERENCE_ROW_IDS);
   });
 
-  it("EPA_SAME_ITEM_IDS matches that same hand-typed array", () => {
-    expect([...EPA_SAME_ITEM_IDS]).toEqual(EXPECTED_SAME_ITEM_IDS);
+  it("EPA_DIFFERENCE_ROW_IDS matches that same hand-typed array", () => {
+    expect([...EPA_DIFFERENCE_ROW_IDS]).toEqual(EXPECTED_DIFFERENCE_ROW_IDS);
   });
 
-  it("every shared item carries non-empty text", () => {
-    for (const item of EPA_SAME_ITEMS) {
-      expect(item.text.length).toBeGreaterThan(0);
-    }
-  });
-});
-
-describe("EPA_DIFFERENCE_CARDS structure", () => {
-  it("exports exactly the locked difference-card ids, in order, by equality", () => {
-    expect(EPA_DIFFERENCE_CARDS.map((card) => card.id)).toEqual(EXPECTED_DIFFERENCE_CARD_IDS);
-  });
-
-  it("EPA_DIFFERENCE_CARD_IDS matches that same hand-typed array", () => {
-    expect([...EPA_DIFFERENCE_CARD_IDS]).toEqual(EXPECTED_DIFFERENCE_CARD_IDS);
-  });
-
-  it("every card's note labels equal the hand-typed expected mapping, by equality", () => {
-    for (const card of EPA_DIFFERENCE_CARDS) {
-      const expected = EXPECTED_NOTE_LABELS[card.id];
-      expect(expected, `no expected note labels recorded for card "${card.id}"`).toBeDefined();
-      expect(card.notes.map((note) => note.label)).toEqual(expected);
+  it("every row carries a non-empty topic, statbotics cell, sigmascout cell and note", () => {
+    for (const row of EPA_DIFFERENCE_ROWS) {
+      expect(row.topic.trim().length, `row "${row.id}" topic`).toBeGreaterThan(0);
+      expect(row.statbotics.trim().length, `row "${row.id}" statbotics`).toBeGreaterThan(0);
+      expect(row.sigmascout.trim().length, `row "${row.id}" sigmascout`).toBeGreaterThan(0);
+      expect(row.note.trim().length, `row "${row.id}" note`).toBeGreaterThan(0);
     }
   });
 
-  it("every card carries non-empty title, statbotics and sigmascout text", () => {
-    for (const card of EPA_DIFFERENCE_CARDS) {
-      expect(card.title.length).toBeGreaterThan(0);
-      expect(card.statbotics.length).toBeGreaterThan(0);
-      expect(card.sigmascout.length).toBeGreaterThan(0);
-      for (const note of card.notes) {
-        expect(note.text.length).toBeGreaterThan(0);
-      }
-    }
+  it("names the two sites in the column headers", () => {
+    expect(EPA_DIFFERENCE_STATBOTICS_LABEL).toBe("Statbotics");
+    expect(EPA_DIFFERENCE_SIGMASCOUT_LABEL).toBe("SigmaScout");
   });
 });
 
 describe("voice gate over every exported string", () => {
-  it("carries no em dash anywhere", () => {
+  it("carries no hyphen minus, en dash or em dash anywhere", () => {
     for (const { where, text } of collectStrings()) {
-      expect(text, `${where} contains an em dash`).not.toContain(EM_DASH);
-    }
-  });
-
-  it("carries no en dash anywhere", () => {
-    for (const { where, text } of collectStrings()) {
+      expect(text, `${where} contains a hyphen minus`).not.toContain(HYPHEN_MINUS);
       expect(text, `${where} contains an en dash`).not.toContain(EN_DASH);
+      expect(text, `${where} contains an em dash`).not.toContain(EM_DASH);
     }
   });
 
@@ -198,6 +152,11 @@ describe("liability gate over every exported string", () => {
     expect(lowerJoined).not.toContain("mean absolute difference");
   });
 
+  it("makes no claim about which site's EPA is more accurate; the table carries that", () => {
+    const lowerJoined = joinedProse().toLowerCase();
+    expect(lowerJoined).not.toMatch(/higher winner accuracy|more accurate|better than|outperform|beats /);
+  });
+
   it("every digit-dot-digit number across all strings is one of the allowed 2024 score-piece figures", () => {
     for (const { where, text } of collectStrings()) {
       const matches = text.match(/\d+\.\d+/g) ?? [];
@@ -208,51 +167,49 @@ describe("liability gate over every exported string", () => {
   });
 });
 
-describe("fact gate over the shared list", () => {
+describe("fact gate over the shared paragraph", () => {
   const requiredPhrases = ["one third", "logistic", "70 percent", "30 percent", "40 percent"];
 
-  it.each(requiredPhrases)("the shared list states the phrase %j somewhere", (phrase) => {
-    const joined = EPA_SAME_ITEMS.map((item) => item.text).join(" ");
-    expect(joined, `the shared list never states "${phrase}"`).toContain(phrase);
+  it.each(requiredPhrases)("the shared paragraph states the phrase %j", (phrase) => {
+    expect(EPA_SAME_PARAGRAPH, `the shared paragraph never states "${phrase}"`).toContain(phrase);
   });
 });
 
-describe("fact gate per difference card", () => {
-  function cardProse(id: string): string {
-    const card = EPA_DIFFERENCE_CARDS.find((candidate) => candidate.id === id);
-    expect(card, `no card found with id "${id}"`).toBeDefined();
-    return [card?.title ?? "", card?.statbotics ?? "", card?.sigmascout ?? "", ...(card?.notes.map((note) => note.text) ?? [])].join(" ");
+describe("fact gate per difference row", () => {
+  function rowProse(id: string): string {
+    const row = EPA_DIFFERENCE_ROWS.find((candidate) => candidate.id === id);
+    expect(row, `no row found with id "${id}"`).toBeDefined();
+    return [row?.topic ?? "", row?.statbotics ?? "", row?.sigmascout ?? "", row?.note ?? ""].join(" ");
   }
 
   it("week-one-numbers contains 'week 1' and 'never changes a winner pick'", () => {
-    const prose = cardProse("week-one-numbers");
+    const prose = rowProse("week-one-numbers");
     expect(prose, "week-one-numbers is missing 'week 1'").toContain("week 1");
     expect(prose, "week-one-numbers is missing 'never changes a winner pick'").toContain("never changes a winner pick");
   });
 
   it("score-pieces contains 75.2, 74.0 and 73.5", () => {
-    const prose = cardProse("score-pieces");
+    const prose = rowProse("score-pieces");
     expect(prose, "score-pieces is missing 75.2").toContain("75.2");
     expect(prose, "score-pieces is missing 74.0").toContain("74.0");
     expect(prose, "score-pieces is missing 73.5").toContain("73.5");
   });
 
   it("new-season-start contains 250", () => {
-    const prose = cardProse("new-season-start");
+    const prose = rowProse("new-season-start");
     expect(prose, "new-season-start is missing 250").toContain("250");
   });
 
   it("score-data-cleanup contains 'have not been adopted' and never implies a deliberate reason", () => {
-    const prose = cardProse("score-data-cleanup");
+    const prose = rowProse("score-data-cleanup");
     expect(prose, "score-data-cleanup is missing 'have not been adopted'").toContain("have not been adopted");
     expect(prose, "score-data-cleanup implies a deliberate reason").not.toMatch(/\b(deliberate|on purpose|chose|choice)\b/i);
   });
 
   it("season-adjustments contains 'deliberate'", () => {
-    const prose = cardProse("season-adjustments");
+    const prose = rowProse("season-adjustments");
     expect(prose, "season-adjustments is missing 'deliberate'").toMatch(/\bdeliberate\b/);
   });
-
 });
 
 describe("sigmascoutMeasuredSentence", () => {
@@ -263,7 +220,7 @@ describe("sigmascoutMeasuredSentence", () => {
   });
 
   it("carries no ISO hyphen or dash from the timestamp onto the page", () => {
-    expect(sigmascoutMeasuredSentence("10.0.0+baseline", "2026-09-12")).not.toMatch(/[-\u2013\u2014]/);
+    expect(sigmascoutMeasuredSentence("10.0.0+baseline", "2026-09-12")).not.toMatch(/[-–—]/);
   });
 });
 

@@ -1,18 +1,22 @@
 /**
  * Content-as-data for `/methodology/epa-vs-statbotics`. This module is the
  * single source of every prose string the page renders: the title, the
- * lead, the three section headings, the "Same on both sites" list, the
- * "Where they differ" comparison cards, and the "How much it matters"
- * head-to-head intro and the two provenance lines under its table. `epaComparisonContent.test.ts`
- * pins the exact id sets by equality and runs voice, fact and liability
- * gates over every exported string, so a silently added, dropped or
- * reworded entry fails loudly.
+ * lead, the three section headings, the "How much it matters" intro and the
+ * two provenance lines under its table, the "Same on both sites" paragraph,
+ * and every cell of the "Where they differ" comparison table.
+ * `epaComparisonContent.test.ts` pins the row id set by equality and runs
+ * voice, fact and liability gates over every exported string, so a silently
+ * added, dropped or reworded entry fails loudly.
+ *
+ * Rewritten 2026-09-17 from sketch 016 (variant B, results section first,
+ * Jacob's pick): the difference cards became one table and the shared list
+ * became one paragraph.
  *
  * Audience: the FRC community (students, mentors, scouts) the rest of the
- * site is written for. Voice rules, binding on every string here: no em dash
- * or en dash, short declarative sentences, no hedging openers, no sentence
- * that restates the previous one, neutral between the two sites, and a term
- * is explained the first time it appears, in the same sentence.
+ * site is written for. Voice rules, binding on every string here: NO dash
+ * characters at all (hyphen minus, en dash, em dash; compounds go open, as
+ * in "carried over"), flat and factual, short declarative sentences, no
+ * hedging openers, neutral between the two sites.
  *
  * Facts come from `docs/models/epa-statbotics-gap.md`, `docs/models/
  * epa-divergences.md`, and `packages/core/algorithms/{epa,carryover,
@@ -30,153 +34,86 @@ export const EPA_COMPARISON_PAGE_TITLE = "Our EPA vs Statbotics' EPA";
 export const EPA_COMPARISON_LEAD =
   "Statbotics publishes EPA (Expected Points Added), a rating of how many points an FRC team adds to its alliance's score. SigmaScout reimplements EPA for the purpose of comparison. Most of the calculations are the same on both sites, but there are minor differences. This page lists where the two differ and how much the differences change match predictions.";
 
+/** Section headings, in the page's display order: results first. */
+export const EPA_HEAD_TO_HEAD_SECTION_HEADING = "How much it matters";
 export const EPA_SAME_SECTION_HEADING = "Same on both sites";
 export const EPA_DIFFERENCE_SECTION_HEADING = "Where they differ";
-export const EPA_HEAD_TO_HEAD_SECTION_HEADING = "How much it matters";
 
 export const EPA_HEAD_TO_HEAD_INTRO =
-  "This table shows how often each site's EPA picked the winner of a match, and each one's Brier score. A Brier score measures how close predicted win probabilities came to what actually happened. Lower is better, and 0 would mean a perfect prediction every time.";
+  "How often each site's EPA picked the match winner, and its Brier score. Lower Brier is better.";
 
-export const EPA_CARD_STATBOTICS_LABEL = "Statbotics";
-export const EPA_CARD_SIGMASCOUT_LABEL = "SigmaScout";
+export const EPA_SAME_PARAGRAPH =
+  "Both sites update ratings with the same formula, count elimination matches one third as much as qualification matches, use the same logistic win probability curve, and add fouls back the same way. A new season starts from the same blend: 70 percent of last season, 30 percent of the season before, pulled 40 percent of the way back toward average. Neither site shows a ± range on EPA.";
 
-/** The two note labels a difference card's notes are allowed to carry. */
-export type EpaNoteLabel = "Why" | "What it changes";
-
-export interface EpaCardNote {
-  readonly label: EpaNoteLabel;
-  readonly text: string;
-}
+/** Column headers of the difference table. The first column (the topic) has no header. */
+export const EPA_DIFFERENCE_STATBOTICS_LABEL = "Statbotics";
+export const EPA_DIFFERENCE_SIGMASCOUT_LABEL = "SigmaScout";
+export const EPA_DIFFERENCE_NOTE_LABEL = "Note";
 
 /**
- * The pinned shared-list id set, in the page's own display order.
- * `epaComparisonContent.test.ts` asserts this exact array by equality, not
- * by iteration, so a silently added or removed item fails loudly.
- */
-export const EPA_SAME_ITEM_IDS = [
-  "rating-update",
-  "elimination-matches",
-  "win-probability-curve",
-  "fouls-in-predictions",
-  "new-season-carryover",
-  "no-uncertainty-range",
-] as const;
-export type EpaSameItemId = (typeof EPA_SAME_ITEM_IDS)[number];
-
-export interface EpaSameItem {
-  readonly id: EpaSameItemId;
-  readonly text: string;
-}
-
-export const EPA_SAME_ITEMS: readonly EpaSameItem[] = [
-  {
-    id: "rating-update",
-    text: "After every match, each team's rating moves part of the way toward what that match showed. Both sites use the same formula, and on both the learning rate (how far one match can move a rating) starts high and settles as a team plays more matches.",
-  },
-  {
-    id: "elimination-matches",
-    text: "Elimination matches count one third as much as qualification matches, and they do not add to a team's match count.",
-  },
-  {
-    id: "win-probability-curve",
-    text: "Win probability comes from the same logistic curve, an S-shaped curve that turns the predicted score gap without foul points into a chance of winning.",
-  },
-  {
-    id: "fouls-in-predictions",
-    text: "Fouls are added back into predicted scores the same way: both alliances' scores are multiplied by one shared number, so fouls never change which alliance is favored.",
-  },
-  {
-    id: "new-season-carryover",
-    text: "A team's first rating in a new season uses the same formula: 70 percent of last season's rating plus 30 percent of the season before, pulled 40 percent of the way back toward a starting value slightly below average.",
-  },
-  {
-    id: "no-uncertainty-range",
-    text: "EPA is a single number on both sites, with no ± range showing how uncertain it is.",
-  },
-];
-
-/**
- * The pinned difference-card id set, in the page's own display order.
+ * The pinned difference-row id set, in the page's own display order.
  * Pinned by equality in `epaComparisonContent.test.ts`, and matched against
- * the rendered article testids in DOM order by
+ * the rendered row testids in DOM order by
  * `methodology.epa-vs-statbotics.test.tsx`.
  */
-export const EPA_DIFFERENCE_CARD_IDS = [
+export const EPA_DIFFERENCE_ROW_IDS = [
   "week-one-numbers",
   "score-pieces",
   "new-season-start",
   "score-data-cleanup",
   "season-adjustments",
 ] as const;
-export type EpaDifferenceCardId = (typeof EPA_DIFFERENCE_CARD_IDS)[number];
+export type EpaDifferenceRowId = (typeof EPA_DIFFERENCE_ROW_IDS)[number];
 
-export interface EpaDifferenceCard {
-  readonly id: EpaDifferenceCardId;
-  readonly title: string;
+export interface EpaDifferenceRow {
+  readonly id: EpaDifferenceRowId;
+  readonly topic: string;
   readonly statbotics: string;
   readonly sigmascout: string;
-  readonly notes: readonly EpaCardNote[];
+  readonly note: string;
 }
 
 /**
  * Fouls stay folded into `week-one-numbers` rather than getting their own
- * card: prediction-time foul handling is now identical on both sites (see
- * `EPA_SAME_ITEMS`'s `fouls-in-predictions` entry above), and the only
- * remaining difference is the week-1 rate, which this card already covers.
+ * row: prediction-time foul handling is identical on both sites (see
+ * `EPA_SAME_PARAGRAPH`), and the only remaining difference is the week 1
+ * rate, which this row already covers.
  */
-export const EPA_DIFFERENCE_CARDS: readonly EpaDifferenceCard[] = [
+export const EPA_DIFFERENCE_ROWS: readonly EpaDifferenceRow[] = [
   {
     id: "week-one-numbers",
-    title: "Season numbers from week 1",
-    statbotics:
-      "Takes the score spread (how widely alliance scores vary) and the foul rate (how many extra points fouls add on average) from all of week 1, once week 1 is over. Uses both for every match, week 1 included.",
-    sigmascout:
-      "Uses the same week 1 numbers from week 2 on. During week 1, uses running estimates built from the matches already played.",
-    notes: [
-      { label: "Why", text: "A week 1 prediction cannot use week 1 matches that have not happened yet." },
-      {
-        label: "What it changes",
-        text: "How confident week 1 predictions are, and how large their predicted scores are. This difference never changes a winner pick, because dividing the score gap by a different positive number, or scaling both scores by the same amount, cannot flip which alliance is ahead.",
-      },
-    ],
+    topic: "Week 1 numbers",
+    statbotics: "Score spread and foul rate come from all of week 1 and apply to every match, week 1 included",
+    sigmascout: "Same numbers from week 2 on. Running estimates during week 1",
+    note: "Changes week 1 confidence. It never changes a winner pick",
   },
   {
     id: "score-pieces",
-    title: "How a score is split into pieces",
-    statbotics:
-      "Rates a list of about 18 numbers per team. The list overlaps itself: a total sits next to the pieces it is made of. In most seasons the predicted score reads only one entry, the total without fouls. In 2018 and 2023 it reads seven pieces through caps and curves, and 2018 also reads three of the other alliance's pieces.",
-    sigmascout:
-      "Rates pieces that do not overlap and adds all of them up. The 2026 split is finer: four separate hub shifts, where Statbotics uses two pairs.",
-    notes: [
-      {
-        label: "Why",
-        text: "Measured on 2024: three pieces (one per match phase) picked 75.2 percent of winners, a single total picked 74.0 percent, and eleven pieces picked 73.5 percent. These three figures come from one measurement and compare only with each other, not with the table below.",
-      },
-    ],
+    topic: "Score pieces",
+    statbotics: "About 18 overlapping numbers. Most seasons predict from one total",
+    sigmascout: "Pieces that do not overlap, added up",
+    note: "On 2024, three pieces picked 75.2 percent of winners, one total 74.0 percent, eleven pieces 73.5 percent",
   },
   {
     id: "new-season-start",
-    title: "Starting ratings in a new season",
-    statbotics:
-      "Splits a team's starting rating across scoring pieces by what each piece was worth in week 1. Converts a carried-over rating (the one brought forward from last season) into the new game's point scale using week 1 numbers it already has. Makes one exception in 2026: Israeli district teams are not pulled back toward average, because they did not compete before the Championship.",
-    sigmascout:
-      "Splits a starting rating evenly across pieces. Converts a carried-over rating only once 250 alliance scores from the new season are in, so a team that plays before then keeps its rating unconverted. Makes no exception for any group of teams.",
-    notes: [{ label: "Why", text: "Nobody knows a new game's scoring scale before it has been played." }],
+    topic: "New season start",
+    statbotics: "Splits a rating by week 1 piece values. Converts to the new point scale right away",
+    sigmascout: "Splits evenly. Converts after 250 alliance scores",
+    note: "Nobody knows a new game's scale before it is played",
   },
   {
     id: "score-data-cleanup",
-    title: "Cleaning up FIRST's score data",
-    statbotics:
-      "Corrects the score breakdowns (the detailed per-match scoring records) it gets from The Blue Alliance before rating. Fixes sensor miscounts in 2022, counts game pieces from the field grids in 2019 and 2023, removes bonus points in 2016 and 2017, reworks 2025's algae points, and patches a few individual matches by hand.",
-    sigmascout: "Uses the official point values as reported. These corrections have not been adopted yet.",
-    notes: [{ label: "What it changes", text: "The two sites rate exactly the same score data only in 2024." }],
+    topic: "Score data cleanup",
+    statbotics: "Corrects FIRST's score data in 2016, 2017, 2019, 2022, 2023 and 2025",
+    sigmascout: "Official values as reported. These corrections have not been adopted yet",
+    note: "Identical score data only in 2024",
   },
   {
     id: "season-adjustments",
-    title: "Season-specific adjustments",
-    statbotics: "Adjusts predictions in some seasons: 2018 for the switch and scale, plus 2023 and 2025.",
-    sigmascout: "Applies no season-specific adjustments.",
-    notes: [{ label: "Why", text: "A deliberate choice that keeps the calculation identical in every season." }],
+    topic: "Season adjustments",
+    statbotics: "Adjusts predictions in 2018, 2023 and 2025",
+    sigmascout: "None",
+    note: "A deliberate choice that keeps every season identical",
   },
 ];
 

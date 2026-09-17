@@ -63,6 +63,7 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 | 012 | predicted-bonus-dots | Once F4 makes bonus odds honest, how should a predicted bonus dot render when many alliances are true toss-ups? | **C — fill to the odds** | match-table, bonus-rp, uncertainty, prediction |
 | 014 | acknowledgments-voice | What voice should the Acknowledgments page use so it is shorter and reads like a human wrote it? (copy sketch; 013 skipped, it was the deleted Champ Locks header) | **A — Statbotics tone**, trimmed by Jacob | copy, methodology, acknowledgments, voice, de-ai |
 | 015 | awards-page-rewrite | How short can the Predicting awards page get on the goal / model / results outline, and do the numbers belong in prose or tables? | **B2 — tables, plus the SPR alone finding** | copy, methodology, awards, de-ai, tables |
+| 016 | epa-vs-statbotics-rewrite | How should the Our EPA vs Statbotics EPA page be cut down: trimmed cards, one comparison table, or results first with a plain list? | **B — one comparison table**, results section first | copy, methodology, epa, statbotics, de-ai, tables |
 
 ## Findings so far
 

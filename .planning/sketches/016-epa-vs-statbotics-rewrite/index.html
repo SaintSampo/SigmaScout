@@ -1,0 +1,584 @@
+<title>EPA Page Rewrite</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root {
+    --bg: #f8fafc;
+    --surface: #ffffff;
+    --ink: #0f172a;
+    --ink-muted: #475569;
+    --line: #e2e8f0;
+    --accent: #2e7d32;
+    --ribbon-bg: #14532d;
+    --ribbon-ink: #ffffff;
+    --ribbon-ink-muted: rgba(255, 255, 255, 0.72);
+    --ribbon-accent: #81c784;
+    --chip-bg: #ecf4ed;
+    --warn: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c1410;
+      --surface: #131d17;
+      --ink: #e6ede8;
+      --ink-muted: #9db0a3;
+      --line: #25352b;
+      --accent: #81c784;
+      --ribbon-bg: #14532d;
+      --chip-bg: #1b2b21;
+      --warn: #fbbf24;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c1410;
+    --surface: #131d17;
+    --ink: #e6ede8;
+    --ink-muted: #9db0a3;
+    --line: #25352b;
+    --accent: #81c784;
+    --ribbon-bg: #14532d;
+    --chip-bg: #1b2b21;
+    --warn: #fbbf24;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .wrap {
+    max-width: 880px;
+    margin-inline: auto;
+    padding-inline: 16px;
+    padding-block: 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .eyebrow {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  h1 {
+    margin: 4px 0 0;
+    font-size: 24px;
+    line-height: 1.25;
+    font-weight: 700;
+    text-wrap: balance;
+  }
+  .brief { margin: 0; max-width: 68ch; color: var(--ink-muted); }
+
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 10px;
+  }
+  .tab {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-muted);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .tab[aria-selected="true"] {
+    color: var(--ribbon-ink);
+    background: var(--ribbon-bg);
+    border-color: var(--ribbon-bg);
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    align-items: center;
+  }
+  .chip {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    background: var(--chip-bg);
+    color: var(--ink);
+    border-radius: 4px;
+    padding: 3px 8px;
+  }
+  .chip.bad { color: var(--warn); }
+  .pitch { margin: 0; max-width: 68ch; }
+  .pitch strong { font-weight: 600; }
+
+  /* The mock of the real page */
+  .mock {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .ribbon {
+    background: var(--ribbon-bg);
+    color: var(--ribbon-ink);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 18px;
+    padding: 10px 20px;
+    font-size: 13px;
+  }
+  .ribbon .brand { font-weight: 700; font-size: 15px; }
+  .ribbon .brand span { color: var(--ribbon-accent); }
+  .ribbon .nav { color: var(--ribbon-ink-muted); }
+  .ribbon .nav.on { color: var(--ribbon-ink); border-bottom: 2px solid var(--ribbon-accent); }
+  .page {
+    padding: 24px 20px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+  .page .crumb { font-size: 12px; color: var(--ink-muted); }
+  .page h2.title { margin: 2px 0 0; font-size: 22px; font-weight: 700; }
+  .page p { margin: 0; max-width: 72ch; }
+  .page section { display: flex; flex-direction: column; gap: 6px; }
+  .page h3 { margin: 0; font-size: 17px; font-weight: 600; }
+  .page h3 a, .page a.inline {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .page a.inline { font-weight: 600; }
+
+  .tradeoffs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 8px 28px;
+  }
+  .tradeoffs h4 {
+    margin: 0 0 4px;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    font-weight: 600;
+  }
+  .tradeoffs ul { margin: 0; padding-left: 18px; }
+  .tradeoffs li { margin-bottom: 4px; }
+
+  .page h4 { margin: 0; font-size: 15px; font-weight: 600; }
+  .page ul.plain { margin: 0; padding-left: 22px; max-width: 72ch; display: flex; flex-direction: column; gap: 6px; }
+  .page .muted { color: var(--ink-muted); font-size: 14px; }
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 6px;
+  }
+  .card .sides { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px 20px; }
+  .card .note { border-top: 1px solid var(--line); padding-top: 8px; }
+  .label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-muted);
+    margin-bottom: 2px;
+  }
+  .tablewrap { overflow-x: auto; max-width: 100%; }
+  .page table { border-collapse: collapse; font-size: 14px; margin-top: 4px; }
+  .page th, .page td {
+    text-align: left;
+    padding: 6px 16px 6px 0;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  .page thead th { font-weight: 600; color: var(--ink-muted); font-size: 12px; }
+  .page th.rowhead { font-weight: 600; white-space: nowrap; }
+  .page table.prose td { min-width: 170px; }
+  .page table.h2h td.num { font-variant-numeric: tabular-nums; }
+  .page table.h2h .grp { border-left: 1px solid var(--line); padding-left: 16px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">SigmaScout sketch 016 · copy and structure</div>
+    <h1>Our EPA vs Statbotics' EPA, shorter</h1>
+  </header>
+  <p class="brief">Your four edits are already committed: the new first paragraph, the Ranking points and Offseason events cards removed, the "higher winner accuracy" sentence deleted, and the new "SigmaScout EPA measured with" line. The "Now" tab shows the page as it stands after those edits. The three versions rewrite everything else. The results table uses the live numbers.</p>
+
+  <div class="tabs" role="tablist" aria-label="Copy variants" id="tabs"></div>
+
+  <div class="meta" id="meta"></div>
+  <p class="pitch" id="pitch"></p>
+
+  <div class="mock">
+    <div class="ribbon" aria-hidden="true">
+      <span class="brand"><span>Σ</span> SigmaScout</span>
+      <span class="nav">Teams</span>
+      <span class="nav">Events</span>
+      <span class="nav">Districts</span>
+      <span class="nav on">Methodology</span>
+    </div>
+    <div class="page" id="page"></div>
+  </div>
+
+  <div class="tradeoffs" id="tradeoffs"></div>
+</div>
+
+<script>
+  var LEAD = "Statbotics publishes EPA (Expected Points Added), a rating of how many points an FRC team adds to its alliance's score. SigmaScout reimplements EPA for the purpose of comparison. Most of the calculations are the same on both sites, but there are minor differences. This page lists where the two differ and how much the differences change match predictions.";
+
+  var H2H = {
+    rows: [
+      ["2022", "0.7797", "0.1550", "0.7815", "0.1502"],
+      ["2023", "0.7636", "0.1612", "0.7647", "0.1608"],
+      ["2024", "0.7578", "0.1667", "0.7627", "0.1620"],
+      ["2025", "0.7802", "0.1565", "0.7839", "0.1537"],
+      ["2026", "0.7962", "0.1506", "0.7978", "0.1483"]
+    ],
+    pulled: "Statbotics numbers were last pulled from the Statbotics API on September 4, 2026.",
+    measured: "SigmaScout EPA measured with EPA 10.0.0+baseline on September 12, 2026."
+  };
+
+  var VARIANTS = [
+    {
+      id: "now",
+      tab: "Now (after your edits)",
+      pitch: "<strong>The page as committed a few minutes ago.</strong> Your lead is in, two cards are out, the summary sentence is gone. Everything below the lead is still the old copy, hyphens included, which is why the dash chip is not zero.",
+      blocks: [
+        { type: "p", text: LEAD },
+        { type: "h", text: "Same on both sites" },
+        { type: "ul", items: [
+          "After every match, each team's rating moves part of the way toward what that match showed. Both sites use the same formula, and on both the learning rate (how far one match can move a rating) starts high and settles as a team plays more matches.",
+          "Elimination matches count one third as much as qualification matches, and they do not add to a team's match count.",
+          "Win probability comes from the same logistic curve, an S-shaped curve that turns the predicted score gap without foul points into a chance of winning.",
+          "Fouls are added back into predicted scores the same way: both alliances' scores are multiplied by one shared number, so fouls never change which alliance is favored.",
+          "A team's first rating in a new season uses the same formula: 70 percent of last season's rating plus 30 percent of the season before, pulled 40 percent of the way back toward a starting value slightly below average.",
+          "EPA is a single number on both sites, with no ± range showing how uncertain it is."
+        ]},
+        { type: "h", text: "Where they differ" },
+        { type: "cards", cards: [
+          { title: "Season numbers from week 1",
+            sb: "Takes the score spread (how widely alliance scores vary) and the foul rate (how many extra points fouls add on average) from all of week 1, once week 1 is over. Uses both for every match, week 1 included.",
+            ss: "Uses the same week 1 numbers from week 2 on. During week 1, uses running estimates built from the matches already played.",
+            notes: [
+              ["Why", "A week 1 prediction cannot use week 1 matches that have not happened yet."],
+              ["What it changes", "How confident week 1 predictions are, and how large their predicted scores are. This difference never changes a winner pick, because dividing the score gap by a different positive number, or scaling both scores by the same amount, cannot flip which alliance is ahead."]
+            ]},
+          { title: "How a score is split into pieces",
+            sb: "Rates a list of about 18 numbers per team. The list overlaps itself: a total sits next to the pieces it is made of. In most seasons the predicted score reads only one entry, the total without fouls. In 2018 and 2023 it reads seven pieces through caps and curves, and 2018 also reads three of the other alliance's pieces.",
+            ss: "Rates pieces that do not overlap and adds all of them up. The 2026 split is finer: four separate hub shifts, where Statbotics uses two pairs.",
+            notes: [["Why", "Measured on 2024: three pieces (one per match phase) picked 75.2 percent of winners, a single total picked 74.0 percent, and eleven pieces picked 73.5 percent. These three figures come from one measurement and compare only with each other, not with the table below."]]},
+          { title: "Starting ratings in a new season",
+            sb: "Splits a team's starting rating across scoring pieces by what each piece was worth in week 1. Converts a carried-over rating (the one brought forward from last season) into the new game's point scale using week 1 numbers it already has. Makes one exception in 2026: Israeli district teams are not pulled back toward average, because they did not compete before the Championship.",
+            ss: "Splits a starting rating evenly across pieces. Converts a carried-over rating only once 250 alliance scores from the new season are in, so a team that plays before then keeps its rating unconverted. Makes no exception for any group of teams.",
+            notes: [["Why", "Nobody knows a new game's scoring scale before it has been played."]]},
+          { title: "Cleaning up FIRST's score data",
+            sb: "Corrects the score breakdowns (the detailed per-match scoring records) it gets from The Blue Alliance before rating. Fixes sensor miscounts in 2022, counts game pieces from the field grids in 2019 and 2023, removes bonus points in 2016 and 2017, reworks 2025's algae points, and patches a few individual matches by hand.",
+            ss: "Uses the official point values as reported. These corrections have not been adopted yet.",
+            notes: [["What it changes", "The two sites rate exactly the same score data only in 2024."]]},
+          { title: "Season-specific adjustments",
+            sb: "Adjusts predictions in some seasons: 2018 for the switch and scale, plus 2023 and 2025.",
+            ss: "Applies no season-specific adjustments.",
+            notes: [["Why", "A deliberate choice that keeps the calculation identical in every season."]]}
+        ]},
+        { type: "h", text: "How much it matters" },
+        { type: "p", text: "This table shows how often each site's EPA picked the winner of a match, and each one's Brier score. A Brier score measures how close predicted win probabilities came to what actually happened. Lower is better, and 0 would mean a perfect prediction every time." },
+        { type: "h2h" }
+      ],
+      keeps: [],
+      drops: []
+    },
+    {
+      id: "a",
+      tab: "A · Same page, trimmed",
+      pitch: "<strong>Same three sections and the same cards, every sentence cut to the bone.</strong> One sentence per side of a card, one short note at most. Lowest risk: the page component does not change and every fact the tests pin is still here.",
+      blocks: [
+        { type: "p", text: LEAD },
+        { type: "h", text: "Same on both sites" },
+        { type: "ul", items: [
+          "Ratings move toward each match result by the same formula. The learning rate starts high and settles as a team plays more.",
+          "Elimination matches count one third as much as qualification matches.",
+          "Win probability comes from the same logistic curve on the predicted score gap.",
+          "Fouls are added back the same way and never change which alliance is favored.",
+          "A new season starts from 70 percent of last season's rating plus 30 percent of the season before, pulled 40 percent of the way back toward a value slightly below average.",
+          "EPA is a single number on both sites, with no ± range."
+        ]},
+        { type: "h", text: "Where they differ" },
+        { type: "cards", cards: [
+          { title: "Season numbers from week 1",
+            sb: "Sets the score spread and foul rate from all of week 1, then uses them for every match, week 1 included.",
+            ss: "Uses the same numbers from week 2 on. During week 1 it uses running estimates from matches already played.",
+            notes: [["What it changes", "How confident week 1 predictions are. It never changes a winner pick."]]},
+          { title: "How a score is split into pieces",
+            sb: "Rates about 18 overlapping numbers per team. In most seasons the predicted score reads only one of them, the total without fouls.",
+            ss: "Rates pieces that do not overlap and adds them up.",
+            notes: [["Why", "On 2024, three pieces picked 75.2 percent of winners, a single total 74.0 percent, and eleven pieces 73.5 percent. These figures compare only with each other."]]},
+          { title: "Starting ratings in a new season",
+            sb: "Splits a starting rating across pieces by their week 1 value and converts it to the new game's point scale right away. In 2026, Israeli district teams are not pulled back toward average.",
+            ss: "Splits a starting rating evenly. Converts it only after 250 alliance scores are in. Makes no exceptions.",
+            notes: []},
+          { title: "Cleaning up FIRST's score data",
+            sb: "Corrects score breakdowns before rating: sensor miscounts in 2022, grid counts in 2019 and 2023, bonus points in 2016 and 2017, algae points in 2025, and a few matches by hand.",
+            ss: "Uses the official point values as reported. These corrections have not been adopted yet.",
+            notes: [["What it changes", "The two sites rate identical score data only in 2024."]]},
+          { title: "Season adjustments",
+            sb: "Adjusts predictions in 2018, 2023 and 2025.",
+            ss: "Applies none. A deliberate choice that keeps the calculation identical every season.",
+            notes: []}
+        ]},
+        { type: "h", text: "How much it matters" },
+        { type: "p", text: "How often each site's EPA picked the match winner, and its Brier score. Brier measures how close the win probabilities came to what happened. Lower is better." },
+        { type: "h2h" }
+      ],
+      keeps: [
+        "Every fact the content test pins, so the test barely changes",
+        "The card layout you already have",
+        "The Israeli district exception and the full list of score data fixes"
+      ],
+      drops: [
+        "The \"why a winner pick cannot flip\" explanation",
+        "The 2018 and 2023 caps and curves detail, and the 2026 hub shift detail",
+        "Still the longest of the three"
+      ]
+    },
+    {
+      id: "b",
+      tab: "★ B · One comparison table, results first",
+      pitch: "<strong>The five cards become one table, and the shared list becomes one paragraph.</strong> Same move that worked on the awards page. A reader can scan Statbotics against SigmaScout down two columns. Needs a component change: the cards block is replaced by a table.",
+      blocks: [
+        { type: "p", text: LEAD },
+        { type: "h", text: "How much it matters" },
+        { type: "p", text: "How often each site's EPA picked the match winner, and its Brier score. Lower Brier is better." },
+        { type: "h2h" },
+        { type: "h", text: "Same on both sites" },
+        { type: "p", text: "Both sites update ratings with the same formula, count elimination matches one third as much as qualification matches, use the same logistic win probability curve, and add fouls back the same way. A new season starts from the same blend: 70 percent of last season, 30 percent of the season before, pulled 40 percent of the way back toward average. Neither site shows a ± range on EPA." },
+        { type: "h", text: "Where they differ" },
+        { type: "table",
+          head: ["", "Statbotics", "SigmaScout", "Note"],
+          rows: [
+            ["Week 1 numbers", "Score spread and foul rate come from all of week 1 and apply to every match, week 1 included", "Same numbers from week 2 on. Running estimates during week 1", "Changes week 1 confidence. Never changes a winner pick"],
+            ["Score pieces", "About 18 overlapping numbers. Most seasons predict from one total", "Pieces that do not overlap, added up", "On 2024, three pieces picked 75.2 percent of winners, one total 74.0 percent, eleven pieces 73.5 percent"],
+            ["New season start", "Splits a rating by week 1 piece values. Converts to the new point scale right away", "Splits evenly. Converts after 250 alliance scores", "Nobody knows a new game's scale before it is played"],
+            ["Score data cleanup", "Corrects FIRST's score data in 2016, 2017, 2019, 2022, 2023 and 2025", "Official values as reported. These corrections have not been adopted yet", "Identical score data only in 2024"],
+            ["Season adjustments", "Adjusts predictions in 2018, 2023 and 2025", "None", "A deliberate choice that keeps every season identical"]
+          ]}
+      ],
+      keeps: [
+        "All five differences and every pinned fact",
+        "Side by side reading, which is what a comparison page is for",
+        "Matches the table style now on the awards page"
+      ],
+      drops: [
+        "Needs the cards block in EpaComparisonPage.tsx swapped for a table, and the card tests rewritten",
+        "A four column table of sentences gets cramped on a phone (it scrolls sideways)",
+        "The Israeli district exception and what each score data fix was"
+      ]
+    },
+    {
+      id: "c",
+      tab: "C · Results first, plain list",
+      pitch: "<strong>Flips the order: the numbers come first, then the differences as five plain bullets, then one sentence on what is shared.</strong> No cards, no table of prose. Reads like a person explaining it. Your lead ends with \"how much the differences change match predictions\", so this version answers that before anything else.",
+      blocks: [
+        { type: "p", text: LEAD },
+        { type: "h", text: "How much it matters" },
+        { type: "p", text: "How often each site's EPA picked the match winner, and its Brier score. Lower Brier is better." },
+        { type: "h2h" },
+        { type: "h", text: "Where they differ" },
+        { type: "ul", items: [
+          "Week 1. Statbotics sets its score spread and foul rate from all of week 1 and applies them to week 1 matches too. SigmaScout cannot use matches that have not happened, so during week 1 it uses running estimates. This never changes a winner pick.",
+          "Score pieces. Statbotics rates about 18 overlapping numbers and usually predicts from one total. SigmaScout rates pieces that do not overlap and adds them up. On 2024, three pieces picked 75.2 percent of winners, one total 74.0 percent, and eleven pieces 73.5 percent.",
+          "New seasons. Statbotics converts a carried over rating to the new game's point scale right away, using week 1 numbers. SigmaScout waits until 250 alliance scores are in.",
+          "Score data. Statbotics corrects FIRST's score data in several seasons, such as sensor miscounts in 2022. SigmaScout uses the official values. These corrections have not been adopted yet, so the two sites rate identical data only in 2024.",
+          "Season adjustments. Statbotics adjusts predictions in 2018, 2023 and 2025. SigmaScout applies none, a deliberate choice."
+        ]},
+        { type: "h", text: "Same on both sites" },
+        { type: "p", text: "Everything else: the rating update formula, elimination matches counting one third as much, the logistic win probability curve, how fouls are added back, and the carryover into a new season (70 percent of last season, 30 percent of the season before, pulled 40 percent of the way back toward average)." }
+      ],
+      keeps: [
+        "All five differences and every pinned fact",
+        "The answer up top, where a skimmer will see it",
+        "Simplest markup of the three: paragraphs, one list, one table"
+      ],
+      drops: [
+        "The Statbotics and SigmaScout labels that make each side easy to find",
+        "Section order changes, so the route test's order checks need updating",
+        "The Israeli district exception, the list of score data fixes, the no ± range point"
+      ]
+    }
+  ];
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function copyText(v) {
+    var parts = [];
+    v.blocks.forEach(function (b) {
+      if (b.type === "p" || b.type === "h") parts.push(b.text);
+      if (b.type === "ul") parts = parts.concat(b.items);
+      if (b.type === "cards") b.cards.forEach(function (c) {
+        parts.push(c.title, "Statbotics", c.sb, "SigmaScout", c.ss);
+        c.notes.forEach(function (n) { parts.push(n[0], n[1]); });
+      });
+      if (b.type === "table") {
+        parts = parts.concat(b.head);
+        b.rows.forEach(function (r) { parts = parts.concat(r); });
+      }
+    });
+    return parts.join(" ");
+  }
+  function wordCount(v) { return copyText(v).split(/\s+/).filter(Boolean).length; }
+  function dashCount(v) {
+    var m = copyText(v).match(/[-‐‑‒–—−]/g);
+    return m ? m.length : 0;
+  }
+
+  function h2hBlock() {
+    var frag = document.createDocumentFragment();
+    var wrap = el("div", "tablewrap");
+    var t = el("table", "h2h");
+    var thead = el("thead");
+    var r1 = el("tr");
+    var season = el("th", null, "Season"); season.rowSpan = 2; r1.appendChild(season);
+    var ours = el("th", "grp", "SigmaScout EPA"); ours.colSpan = 2; r1.appendChild(ours);
+    var theirs = el("th", "grp", "Statbotics EPA"); theirs.colSpan = 2; r1.appendChild(theirs);
+    var r2 = el("tr");
+    ["Winner accuracy", "Brier score", "Winner accuracy", "Brier score"].forEach(function (h, i) {
+      r2.appendChild(el("th", i % 2 === 0 ? "grp" : null, h));
+    });
+    thead.appendChild(r1); thead.appendChild(r2); t.appendChild(thead);
+    var tb = el("tbody");
+    H2H.rows.forEach(function (row) {
+      var tr = el("tr");
+      row.forEach(function (c, i) { tr.appendChild(el("td", (i === 1 || i === 3) ? "num grp" : "num", c)); });
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb); wrap.appendChild(t); frag.appendChild(wrap);
+    frag.appendChild(el("p", "muted", H2H.pulled));
+    frag.appendChild(el("p", "muted", H2H.measured));
+    return frag;
+  }
+
+  var tabsEl = document.getElementById("tabs");
+  var current = "b";
+  var baseline = wordCount(VARIANTS[0]);
+
+  function render() {
+    var v = VARIANTS.filter(function (x) { return x.id === current; })[0];
+    Array.prototype.forEach.call(tabsEl.children, function (b) {
+      b.setAttribute("aria-selected", b.dataset.id === current ? "true" : "false");
+    });
+
+    var meta = document.getElementById("meta");
+    meta.textContent = "";
+    var words = wordCount(v);
+    meta.appendChild(el("span", "chip", words + " words of copy"));
+    if (v.id !== "now") meta.appendChild(el("span", "chip", Math.round((1 - words / baseline) * 100) + "% shorter than now"));
+    var dashes = dashCount(v);
+    meta.appendChild(el("span", dashes ? "chip bad" : "chip", dashes + " hyphens or dashes"));
+
+    document.getElementById("pitch").innerHTML = v.pitch;
+
+    var page = document.getElementById("page");
+    page.textContent = "";
+    var head = el("div");
+    head.appendChild(el("div", "crumb", "Methodology / Our EPA vs Statbotics' EPA"));
+    head.appendChild(el("h2", "title", "Our EPA vs Statbotics' EPA"));
+    page.appendChild(head);
+
+    var sec = el("section");
+    page.appendChild(sec);
+    v.blocks.forEach(function (b) {
+      if (b.type === "h") {
+        sec = el("section");
+        page.appendChild(sec);
+        sec.appendChild(el("h3", null, b.text));
+      } else if (b.type === "p") {
+        sec.appendChild(el("p", null, b.text));
+      } else if (b.type === "ul") {
+        var ul = el("ul", "plain");
+        b.items.forEach(function (i) { ul.appendChild(el("li", null, i)); });
+        sec.appendChild(ul);
+      } else if (b.type === "cards") {
+        b.cards.forEach(function (c) {
+          var card = el("article", "card");
+          card.appendChild(el("h4", null, c.title));
+          var grid = el("div", "sides");
+          [["Statbotics", c.sb], ["SigmaScout", c.ss]].forEach(function (s) {
+            var d = el("div");
+            d.appendChild(el("div", "label", s[0]));
+            d.appendChild(el("div", null, s[1]));
+            grid.appendChild(d);
+          });
+          card.appendChild(grid);
+          c.notes.forEach(function (n) {
+            var d = el("div", "note");
+            d.appendChild(el("div", "label", n[0]));
+            d.appendChild(el("div", null, n[1]));
+            card.appendChild(d);
+          });
+          sec.appendChild(card);
+        });
+      } else if (b.type === "table") {
+        var wrap = el("div", "tablewrap");
+        var t = el("table", "prose");
+        var thead = el("thead"), hr = el("tr");
+        b.head.forEach(function (h) { hr.appendChild(el("th", null, h)); });
+        thead.appendChild(hr); t.appendChild(thead);
+        var tb = el("tbody");
+        b.rows.forEach(function (r) {
+          var tr = el("tr");
+          r.forEach(function (c, i) { tr.appendChild(el(i === 0 ? "th" : "td", i === 0 ? "rowhead" : null, c)); });
+          tb.appendChild(tr);
+        });
+        t.appendChild(tb); wrap.appendChild(t); sec.appendChild(wrap);
+      } else if (b.type === "h2h") {
+        sec.appendChild(h2hBlock());
+      }
+    });
+
+    var tr = document.getElementById("tradeoffs");
+    tr.textContent = "";
+    [["Keeps", v.keeps], ["Gives up", v.drops]].forEach(function (pair) {
+      if (!pair[1].length) return;
+      var box = el("div");
+      box.appendChild(el("h4", null, pair[0]));
+      var ul = el("ul");
+      pair[1].forEach(function (x) { ul.appendChild(el("li", null, x)); });
+      box.appendChild(ul);
+      tr.appendChild(box);
+    });
+  }
+
+  VARIANTS.forEach(function (v) {
+    var b = el("button", "tab", v.tab);
+    b.type = "button";
+    b.id = "tab-" + v.id;
+    b.dataset.id = v.id;
+    b.setAttribute("role", "tab");
+    b.addEventListener("click", function () {
+      current = v.id;
+      try { localStorage.setItem("epa-rewrite-tab-r2", current); } catch (e) {}
+      render();
+    });
+    tabsEl.appendChild(b);
+  });
+  try {
+    var saved = localStorage.getItem("epa-rewrite-tab-r2");
+    if (saved && VARIANTS.some(function (x) { return x.id === saved; })) current = saved;
+  } catch (e) {}
+  render();
+</script>
