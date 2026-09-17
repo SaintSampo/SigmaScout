@@ -243,8 +243,21 @@ export const SPR_PARAMS: SprParams = {
  * passes. Per season it is mixed and tiny (2023 accuracy -0.043pp; 2019, 2025
  * and 2026 Brier up by at most 0.00003). Like the two changes above, this is a
  * correctness argument, not a performance claim.
+ *
+ * Bumped 4.0.0 -> 5.0.0+baseline (quick task 260917-jzh): the published Sigma
+ * rarity tier is now the within-window detrended mid-rank of Sigma on the
+ * last-official-match Total axis, replacing the difference against a
+ * rating-neighbour median (`packages/harness/sigmaMetric.ts`'s file header
+ * carries the scheme). MAJOR because every SPR teams and team-season
+ * artifact's Sigma tier moves, and D-13's rule holds again: one artifact key
+ * may not stand for two structurally different outputs. Measured reason:
+ * published Legendary ran 1.9 percent in the bottom decile against 11.4
+ * percent in decile 7, and the top decile published 76.5 percent Common
+ * against a 50 percent target. `predict()`, `pRedWin`, `variance` and the
+ * match band are all untouched -- this is a published-display correction,
+ * not an accuracy claim.
  */
-export const SPR_VERSION = "4.0.0+baseline";
+export const SPR_VERSION = "5.0.0+baseline";
 
 /**
  * The two-timescale state, described by what the FROZEN PARAMETERS actually do

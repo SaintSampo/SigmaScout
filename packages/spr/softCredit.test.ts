@@ -99,8 +99,10 @@ describe("softCredit", () => {
     expect(SPR_PARAMS.softCredit).toBe(true);
     // predict()'s observable output changed (adjust drop + softCredit), so
     // D-13 required a MAJOR bump past 2.0.0. 4.0.0 is the later demo-team
-    // exclusion, which leaves softCredit enabled.
-    expect(SPR_VERSION).toBe("4.0.0+baseline");
+    // exclusion, which leaves softCredit enabled. 5.0.0 (quick task
+    // 260917-jzh) is a published-display change to the Sigma rarity tier
+    // only -- predict() and softCredit are both untouched by it.
+    expect(SPR_VERSION).toBe("5.0.0+baseline");
   });
 
   it("shipped research params enable it too, so the two modules match", async () => {
