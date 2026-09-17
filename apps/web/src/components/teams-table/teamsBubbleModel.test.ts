@@ -138,6 +138,81 @@ describe("teamsBubbleModel", () => {
   });
 });
 
+describe("buildBubbleModel colorBy", () => {
+  it("in sigma mode, sigmaTier rare/epic/legendary pass straight through as the tone", () => {
+    const rows: TeamRow[] = [
+      makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 } }, sigmaScore: 1, sigmaTier: "rare" }),
+      makeRow({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20 } }, sigmaScore: 2, sigmaTier: "epic" }),
+      makeRow({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 30 } }, sigmaScore: 3, sigmaTier: "legendary" }),
+    ];
+    const model = buildBubbleModel(rows, "sigma");
+    expect(model.points.map((point) => point.tone)).toEqual(["rare", "epic", "legendary"]);
+  });
+
+  it("in sigma mode, sigmaTier 'common' yields tone 'neutral', and the emitted tone is never the string 'common'", () => {
+    const rows: TeamRow[] = [
+      makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10 } }, sigmaScore: 1, sigmaTier: "common" }),
+    ];
+    const model = buildBubbleModel(rows, "sigma");
+    expect(model.points[0]?.tone).toBe("neutral");
+    expect(model.points[0]?.tone).not.toBe("common");
+  });
+
+  it("in sigma mode, sigmaTier undefined yields tone 'neutral' EVEN WHEN the row's Total metric carries a published tier", () => {
+    const rows: TeamRow[] = [
+      makeRow({
+        teamKey: "frc1",
+        teamNumber: 1,
+        metrics: { [TOTAL_KEY]: { value: 10, tier: "legendary" } },
+        sigmaScore: 1,
+        sigmaTier: undefined,
+      }),
+    ];
+    const model = buildBubbleModel(rows, "sigma");
+    expect(model.points[0]?.tone).toBe("neutral");
+  });
+
+  it("calling with no second argument produces tones byte-identical to calling with 'total', on rows whose Total and Sigma tiers disagree", () => {
+    const rows: TeamRow[] = [
+      makeRow({
+        teamKey: "frc1",
+        teamNumber: 1,
+        metrics: { [TOTAL_KEY]: { value: 10, tier: "legendary" } },
+        sigmaScore: 1,
+        sigmaTier: "rare",
+      }),
+      makeRow({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20 } }, sigmaScore: 2, sigmaTier: "epic" }),
+    ];
+    const withDefault = buildBubbleModel(rows);
+    const withExplicitTotal = buildBubbleModel(rows, "total");
+    expect(withDefault.points.map((point) => point.tone)).toEqual(withExplicitTotal.points.map((point) => point.tone));
+    expect(withDefault.points.map((point) => point.tone)).toEqual(["legendary", "neutral"]);
+  });
+
+  it("every non-tone field of the returned model is identical between total and sigma modes for the same rows", () => {
+    const rows: TeamRow[] = [
+      makeRow({
+        teamKey: "frc1",
+        teamNumber: 1,
+        metrics: { [TOTAL_KEY]: { value: 10, tier: "legendary" } },
+        sigmaScore: 1,
+        sigmaTier: "rare",
+      }),
+      makeRow({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20 } }, sigmaScore: 2, sigmaTier: "epic" }),
+    ];
+    const total = buildBubbleModel(rows, "total");
+    const sigma = buildBubbleModel(rows, "sigma");
+    expect(sigma.points.map((point) => ({ ...point, tone: undefined }))).toEqual(
+      total.points.map((point) => ({ ...point, tone: undefined })),
+    );
+    expect(sigma.omittedNoSigma).toBe(total.omittedNoSigma);
+    expect(sigma.omittedNoTotal).toBe(total.omittedNoTotal);
+    expect(sigma.hasAnySigma).toBe(total.hasAnySigma);
+    expect(sigma.x).toEqual(total.x);
+    expect(sigma.y).toEqual(total.y);
+  });
+});
+
 /** A small helper point-maker for the hit-test/tooltip-anchor tests below. */
 function makePoint(overrides: Partial<BubblePoint> & Pick<BubblePoint, "teamNumber">): BubblePoint {
   return {
