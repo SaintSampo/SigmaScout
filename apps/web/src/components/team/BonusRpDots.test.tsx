@@ -1,37 +1,30 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { BonusRpDots } from "./BonusRpDots.js";
-import { BONUS_DOT_INNER_PX, bonusDotFillPx } from "../../lib/bonusRp.js";
+import { bonusDotTier } from "../../lib/bonusRp.js";
 import { predictionPercent } from "../../lib/predictionPercent.js";
 
 /**
- * A predicted dot fills from the bottom to its probability, with no
- * threshold; an absent probability stays the dashed `unknown` dot, and
- * actual dots keep their earned/missed/unknown states.
+ * A predicted dot renders one of three tiers (`bonusDotTier`); an absent
+ * probability stays the dashed `unknown` dot, and actual dots keep their
+ * earned/missed/unknown states.
  */
 
 function dots(groupTestId: string): HTMLElement[] {
   return Array.from(screen.getByTestId(groupTestId).querySelectorAll<HTMLElement>("[data-testid^='bonus-dot-']"));
 }
 
-function fillOf(dot: HTMLElement): HTMLElement | null {
-  return dot.querySelector<HTMLElement>(".bonus-dot__fill");
-}
-
 describe("BonusRpDots, predicted kind", () => {
-  it.each([0, 0.05, 0.15, 0.5, 0.72, 0.9, 1])("a probability of %s renders a predicted dot filled to bonusDotFillPx in whole pixels", (probability) => {
+  it.each([0.1, 0.5, 0.9])("a probability of %s renders a predicted dot with its bonusDotTier as a single span with no element children", (probability) => {
     render(<BonusRpDots season={2024} side="red" kind="predicted" matchKey="m1" probabilities={[probability, 0.3]} applicable />);
     const [dot] = dots("bonus-rp-predicted-m1-red");
-    const expectedPx = bonusDotFillPx(probability, BONUS_DOT_INNER_PX);
+    const expectedTier = bonusDotTier(probability);
 
     expect(dot!.getAttribute("data-state")).toBe("predicted");
-    expect(dot!.getAttribute("data-fill-px")).toBe(String(expectedPx));
+    expect(dot!.getAttribute("data-tier")).toBe(expectedTier);
     expect(dot!.className).toContain("bonus-dot--predicted");
-
-    const fill = fillOf(dot!);
-    expect(fill, "expected a fill child").not.toBeNull();
-    expect(fill!.getAttribute("aria-hidden")).toBe("true");
-    expect(fill!.style.height).toBe(`${expectedPx}px`);
+    expect(dot!.className).toContain(`bonus-dot--tier-${expectedTier}`);
+    expect(dot!.children).toHaveLength(0);
   });
 
   it("keeps the exact whole percentage in both title and aria-label", () => {
@@ -49,44 +42,43 @@ describe("BonusRpDots, predicted kind", () => {
     expect(dots("bonus-rp-predicted-m1-red").map((d) => d.textContent)).toEqual(["A", "C", "B"]);
   });
 
-  it("renders unknown with no fill for an undefined probabilities array", () => {
+  it("renders unknown with no tier for an undefined probabilities array", () => {
     render(<BonusRpDots season={2024} side="red" kind="predicted" matchKey="m1" applicable />);
     for (const dot of dots("bonus-rp-predicted-m1-red")) {
       expect(dot.getAttribute("data-state")).toBe("unknown");
-      expect(dot.hasAttribute("data-fill-px")).toBe(false);
-      expect(fillOf(dot)).toBeNull();
+      expect(dot.hasAttribute("data-tier")).toBe(false);
       expect(dot.getAttribute("title")).toContain("no data published");
       expect(dot.className).toContain("bonus-dot--unknown");
     }
   });
 
-  it("renders the missing trailing positions of a shorter array as unknown with no fill", () => {
+  it("renders the missing trailing positions of a shorter array as unknown with no tier", () => {
     render(<BonusRpDots season={2025} side="blue" kind="predicted" matchKey="m1" probabilities={[0.8]} applicable />);
     const states = dots("bonus-rp-predicted-m1-blue").map((d) => d.getAttribute("data-state"));
     expect(states).toEqual(["predicted", "unknown", "unknown"]);
-    expect(dots("bonus-rp-predicted-m1-blue").slice(1).every((d) => fillOf(d) === null)).toBe(true);
+    expect(dots("bonus-rp-predicted-m1-blue").slice(1).every((d) => !d.hasAttribute("data-tier"))).toBe(true);
   });
 
-  it("renders a non-finite probability as unknown with no fill", () => {
+  it("renders a non-finite probability as unknown with no tier", () => {
     render(<BonusRpDots season={2024} side="red" kind="predicted" matchKey="m1" probabilities={[Number.NaN, 0.5]} applicable />);
     const [first, second] = dots("bonus-rp-predicted-m1-red");
     expect(first!.getAttribute("data-state")).toBe("unknown");
-    expect(fillOf(first!)).toBeNull();
+    expect(first!.hasAttribute("data-tier")).toBe(false);
     expect(second!.getAttribute("data-state")).toBe("predicted");
   });
 
-  it("renders every dot unknown with no fill and the not-awarded label when applicable is false", () => {
+  it("renders every dot unknown with no tier and the not-awarded label when applicable is false", () => {
     render(<BonusRpDots season={2024} side="red" kind="predicted" matchKey="m1" probabilities={[0.9, 0.9]} applicable={false} />);
     for (const dot of dots("bonus-rp-predicted-m1-red")) {
       expect(dot.getAttribute("data-state")).toBe("unknown");
-      expect(fillOf(dot)).toBeNull();
+      expect(dot.hasAttribute("data-tier")).toBe(false);
       expect(dot.getAttribute("aria-label")).toMatch(/not awarded outside qualification matches$/);
     }
   });
 });
 
-describe("BonusRpDots, actual kind (unchanged by the fill-to-odds dots)", () => {
-  it("renders earned and missed states with their labels and classes, and no fill", () => {
+describe("BonusRpDots, actual kind (unchanged by the three-tier predicted dots)", () => {
+  it("renders earned and missed states with their labels and classes, and no tier", () => {
     render(<BonusRpDots season={2024} side="red" kind="actual" matchKey="m1" states={["earned", "missed"]} applicable />);
     const [earned, missed] = dots("bonus-rp-actual-m1-red");
 
@@ -100,8 +92,7 @@ describe("BonusRpDots, actual kind (unchanged by the fill-to-odds dots)", () => 
     expect(missed!.className).toBe("bonus-dot bonus-dot--red bonus-dot--missed");
 
     for (const dot of [earned!, missed!]) {
-      expect(fillOf(dot)).toBeNull();
-      expect(dot.hasAttribute("data-fill-px")).toBe(false);
+      expect(dot.hasAttribute("data-tier")).toBe(false);
     }
   });
 

@@ -5,8 +5,10 @@ import { RP_RULE_MODULES } from "../../../../packages/core/rankingPoints/rules.j
 import {
   BONUS_RP_BY_SEASON,
   bonusDotLabel,
-  BONUS_DOT_INNER_PX,
-  bonusDotFillPx,
+  BONUS_DOT_TOSSUP_MIN,
+  BONUS_DOT_TOSSUP_MAX,
+  bonusDotTier,
+  type BonusDotTier,
   bonusRpForSeason,
   bonusStatesFromFlags,
 } from "./bonusRp.js";
@@ -52,49 +54,50 @@ describe("bonusRp table matches the core RP rule modules", () => {
 });
 
 /**
- * A predicted dot fills from the bottom to its probability, no threshold:
- * `round(p * innerPx)` clamped to `[1, innerPx - 1]`, so a prediction never
- * draws empty or full, matching `predictionPercent`'s 1-99% policy.
+ * A predicted dot renders one of three categorical tiers rather than a
+ * continuous fill: `unlikely` under one third, `tossup` from one third to
+ * two thirds inclusive, `likely` above two thirds (D-01).
  */
-describe("bonusDotFillPx", () => {
+describe("bonusDotTier", () => {
   it.each([
-    [0, 1],
-    [0.02, 1],
-    [0.5, 6],
-    [0.72, 9],
-    [0.99, 11],
-    [1, 11],
-  ])("fills %s to %s px of a 12px interior", (probability, px) => {
-    expect(bonusDotFillPx(probability, 12)).toBe(px);
+    [0, "unlikely"],
+    [0.2, "unlikely"],
+    [BONUS_DOT_TOSSUP_MIN - 1e-9, "unlikely"],
+    [BONUS_DOT_TOSSUP_MIN, "tossup"],
+    [0.5, "tossup"],
+    [BONUS_DOT_TOSSUP_MAX, "tossup"],
+    [BONUS_DOT_TOSSUP_MAX + 1e-9, "likely"],
+    [0.9, "likely"],
+    [1, "likely"],
+  ] as const)("maps %s to %s", (probability, tier) => {
+    expect(bonusDotTier(probability)).toBe(tier);
   });
 
-  it("returns undefined (unknown) for an absent or non-finite probability", () => {
-    expect(bonusDotFillPx(undefined, 12)).toBeUndefined();
-    expect(bonusDotFillPx(Number.NaN, 12)).toBeUndefined();
-    expect(bonusDotFillPx(Number.POSITIVE_INFINITY, 12)).toBeUndefined();
+  it("returns undefined for an absent or non-finite probability", () => {
+    expect(bonusDotTier(undefined)).toBeUndefined();
+    expect(bonusDotTier(Number.NaN)).toBeUndefined();
+    expect(bonusDotTier(Number.POSITIVE_INFINITY)).toBeUndefined();
   });
 
-  it("always returns a whole number of pixels", () => {
-    for (let i = 0; i <= 100; i++) {
-      const px = bonusDotFillPx(i / 100, BONUS_DOT_INNER_PX);
-      expect(Number.isInteger(px)).toBe(true);
-    }
+  it("pins the cutoff literals so a silently retuned boundary fails here", () => {
+    expect(BONUS_DOT_TOSSUP_MIN).toBe(1 / 3);
+    expect(BONUS_DOT_TOSSUP_MAX).toBe(2 / 3);
   });
 
-  it("BONUS_DOT_INNER_PX equals .bonus-dot's width minus twice its border in theme.css", () => {
+  it("theme.css carries a rule for every tier x side combination BonusRpDots can emit", () => {
     // jsdom applies no CSS, so the shipped CSS TEXT is the source of truth.
-    // If the dot's size or border changes, this fails instead of the fill
-    // silently overshooting or falling short of the dot's interior.
+    // A renamed class here fails loudly instead of rendering an invisible dot.
     const themePath = findUpward("apps/web/src/styles/theme.css") ?? findUpward("src/styles/theme.css");
     expect(themePath, "could not locate theme.css").toBeDefined();
     const css = readFileSync(themePath!, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-    const body = /(?:^|\})\s*\.bonus-dot\s*\{([^{}]*)\}/.exec(css)?.[1];
-    expect(body, "expected a bare .bonus-dot rule").toBeDefined();
-    const width = Number(/(?:^|;)\s*width:\s*(\d+)px/.exec(body!)?.[1]);
-    const border = Number(/(?:^|;)\s*border:\s*(\d+)px/.exec(body!)?.[1]);
-    expect(width).toBeGreaterThan(0);
-    expect(border).toBeGreaterThan(0);
-    expect(BONUS_DOT_INNER_PX).toBe(width - 2 * border);
+
+    const tiers: readonly BonusDotTier[] = ["unlikely", "tossup", "likely"];
+    for (const tier of tiers) {
+      for (const side of ["red", "blue"] as const) {
+        const selector = `.bonus-dot--predicted.bonus-dot--tier-${tier}.bonus-dot--${side}`;
+        expect(css.includes(selector), `expected theme.css to contain a rule for ${selector}`).toBe(true);
+      }
+    }
   });
 });
 

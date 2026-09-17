@@ -84,27 +84,35 @@ export function bonusRpForSeason(season: number): readonly BonusRp[] {
 export type BonusRpState = "earned" | "missed" | "unknown";
 
 /**
- * A drawn dot's state. A predicted dot with a probability is `predicted` and
- * fills from the bottom to its odds; without one it is `unknown`, like an
+ * A drawn dot's state. A predicted dot with a defined tier is `predicted`;
+ * without one (an absent or non-finite probability) it is `unknown`, like an
  * actual dot with no flag.
  */
 export type BonusDotState = BonusRpState | "predicted";
 
-/** Interior height in CSS pixels: `.bonus-dot`'s 14px width minus its 1px border on each side in `styles/theme.css`, pinned by `bonusRp.test.ts`. */
-export const BONUS_DOT_INNER_PX = 12;
+/** Inclusive lower bound of the toss-up band (one third): below this a predicted dot is `unlikely`. */
+export const BONUS_DOT_TOSSUP_MIN = 1 / 3;
+/** Inclusive upper bound of the toss-up band (two thirds): above this a predicted dot is `likely`. */
+export const BONUS_DOT_TOSSUP_MAX = 2 / 3;
+
+/** A predicted bonus dot's categorical read: empty, faintly tinted, or solid. */
+export type BonusDotTier = "unlikely" | "tossup" | "likely";
 
 /**
- * Whole pixels of a predicted dot's interior to fill. No threshold: the fill
- * carries the odds, clamped to `[1, innerPx - 1]` so a prediction never draws
- * empty or full (matching `predictionPercent`'s 1-99% policy). Whole pixels
- * keep neighbouring dots from blurring differently.
+ * Maps a predicted probability to one of three categorical tiers rather than
+ * a continuous fill: a partial fill reads alike at 40% and 60% at 14px, while
+ * a tier gives an unmistakable look at a glance. The toss-up band is
+ * inclusive at both ends (D-01).
  *
  * `undefined` for an absent or non-finite probability, so the dot renders
- * `unknown` rather than an empty fill that would read as "almost certainly not".
+ * `unknown` rather than asserting the lowest tier for data that does not
+ * support any claim at all.
  */
-export function bonusDotFillPx(probability: number | undefined, innerPx: number): number | undefined {
+export function bonusDotTier(probability: number | undefined): BonusDotTier | undefined {
   if (probability === undefined || !Number.isFinite(probability)) return undefined;
-  return Math.min(innerPx - 1, Math.max(1, Math.round(probability * innerPx)));
+  if (probability < BONUS_DOT_TOSSUP_MIN) return "unlikely";
+  if (probability > BONUS_DOT_TOSSUP_MAX) return "likely";
+  return "tossup";
 }
 
 /**
@@ -122,7 +130,7 @@ export function bonusStatesFromFlags(flags: readonly boolean[] | null | undefine
   });
 }
 
-/** The single source of a dot's `title` and `aria-label`, so the two never drift; a predicted label carries the exact percentage the whole-pixel fill only approximates. */
+/** The single source of a dot's `title` and `aria-label`, so the two never drift; a predicted label carries the exact percentage the categorical tier only approximates (D-02). */
 export function bonusDotLabel(label: string, state: BonusDotState, kind: "predicted" | "actual", probability?: number): string {
   if (state === "unknown") {
     return `${label}: no data published`;

@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { BONUS_DOT_INNER_PX, bonusDotFillPx, bonusDotLabel, bonusRpForSeason, type BonusDotState, type BonusRpState } from "@/lib/bonusRp";
+import { bonusDotLabel, bonusDotTier, bonusRpForSeason, type BonusDotState, type BonusRpState } from "@/lib/bonusRp";
 
 export interface BonusRpDotsProps {
   season: number;
@@ -8,9 +8,9 @@ export interface BonusRpDotsProps {
   states?: readonly BonusRpState[];
   /**
    * Predicted dots only: one probability per bonus, positionally aligned to
-   * the season's bonus list. A finite probability fills its dot from the
-   * bottom to the odds; an absent or non-finite entry, or a shorter array,
-   * leaves that dot `unknown`.
+   * the season's bonus list. A finite probability draws one of three tiers
+   * (`bonusDotTier`, cut at one third and two thirds); an absent or
+   * non-finite entry, or a shorter array, leaves that dot `unknown`.
    */
   probabilities?: readonly number[];
   /** "predicted" or "actual": selects which prop drives the dots, the testid, and the accessible label. */
@@ -30,10 +30,12 @@ export interface BonusRpDotsProps {
 /**
  * One dot per bonus ranking point that season, above one alliance's score,
  * each carrying the bonus's initial. An actual dot is solid when earned and
- * hollow when not; a predicted dot fills to its probability
- * (`bonusDotFillPx`). `unknown` draws dashed and muted for either kind (see
- * `BonusRpState`), and every dot is `unknown` when `applicable` is `false`
- * because bonus RP is qualification-only.
+ * hollow when not; a predicted dot draws one of three categorical tiers
+ * (`bonusDotTier`) — empty under one third, faintly tinted between one third
+ * and two thirds, solid above two thirds — rather than a continuous fill, so
+ * the read stays unmistakable at 14px. `unknown` draws dashed and muted for
+ * either kind (see `BonusRpState`), and every dot is `unknown` when
+ * `applicable` is `false` because bonus RP is qualification-only.
  */
 export function BonusRpDots({ season, side, states, probabilities, kind, matchKey, applicable }: BonusRpDotsProps) {
   const bonuses = bonusRpForSeason(season);
@@ -43,37 +45,21 @@ export function BonusRpDots({ season, side, states, probabilities, kind, matchKe
     <span data-testid={`bonus-rp-${kind}-${matchKey}-${side}`} className="flex items-center gap-[2px]" role="group" aria-label={`${kind === "predicted" ? "Predicted" : "Actual"} bonus ranking points, ${side} alliance`}>
       {bonuses.map((bonus, index) => {
         const probability = kind === "predicted" ? probabilities?.[index] : undefined;
-        const fillPx = applicable && kind === "predicted" ? bonusDotFillPx(probability, BONUS_DOT_INNER_PX) : undefined;
-        const state: BonusDotState = !applicable ? "unknown" : kind === "predicted" ? (fillPx === undefined ? "unknown" : "predicted") : (states?.[index] ?? "unknown");
+        const tier = applicable && kind === "predicted" ? bonusDotTier(probability) : undefined;
+        const state: BonusDotState = !applicable ? "unknown" : kind === "predicted" ? (tier === undefined ? "unknown" : "predicted") : (states?.[index] ?? "unknown");
         const label = applicable
-          ? bonusDotLabel(bonus.label, state, kind, fillPx === undefined ? undefined : probability)
+          ? bonusDotLabel(bonus.label, state, kind, tier === undefined ? undefined : probability)
           : `${bonus.label}: not awarded outside qualification matches`;
-
-        if (state === "predicted" && fillPx !== undefined) {
-          return (
-            <span
-              key={bonus.key}
-              data-testid={`bonus-dot-${bonus.key}`}
-              data-state={state}
-              data-fill-px={fillPx}
-              title={label}
-              aria-label={label}
-              className={cn("bonus-dot", `bonus-dot--${side}`, "bonus-dot--predicted")}
-            >
-              <span aria-hidden="true" className="bonus-dot__fill" style={{ height: `${fillPx}px` }} />
-              <span className="bonus-dot__letter">{bonus.letter}</span>
-            </span>
-          );
-        }
 
         return (
           <span
             key={bonus.key}
             data-testid={`bonus-dot-${bonus.key}`}
             data-state={state}
+            data-tier={tier}
             title={label}
             aria-label={label}
-            className={cn("bonus-dot", `bonus-dot--${side}`, `bonus-dot--${state}`)}
+            className={cn("bonus-dot", `bonus-dot--${side}`, state === "predicted" ? ["bonus-dot--predicted", `bonus-dot--tier-${tier}`] : `bonus-dot--${state}`)}
           >
             {bonus.letter}
           </span>
