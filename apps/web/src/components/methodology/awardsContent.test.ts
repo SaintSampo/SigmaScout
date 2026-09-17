@@ -19,23 +19,28 @@
  * test failing is the correct outcome: update the prose and this list together.
  */
 import { describe, expect, it } from "vitest";
-import { AWARDS_LEAD, AWARDS_PAGE_TITLE, AWARDS_SECTION_IDS, AWARDS_SECTIONS } from "./awardsContent.js";
+import {
+  AWARDS_LEAD,
+  AWARDS_PAGE_TITLE,
+  AWARDS_SECTION_IDS,
+  AWARDS_SECTIONS,
+  AWARDS_SUBSECTION_IDS,
+  type AwardsTable,
+} from "./awardsContent.js";
 
 const HYPHEN_MINUS = "-";
 const EN_DASH = "–";
 const EM_DASH = "—";
 
-/** The nine section ids, hand typed. Changing `AWARDS_SECTIONS` without this is the failure caught here. */
-const EXPECTED_SECTION_IDS = [
-  "what-we-measured",
-  "how-it-was-tested",
+/** The three section ids, hand typed. Changing `AWARDS_SECTIONS` without this is the failure caught here. */
+const EXPECTED_SECTION_IDS = ["the-goal", "the-model", "our-results"];
+
+/** The four result subsection ids under `our-results`, hand typed for the same reason. */
+const EXPECTED_SUBSECTION_IDS = [
   "past-winners-win-again",
-  "the-simple-rule-won",
+  "spr-only-helped-on-autonomous",
   "team-age",
-  "a-short-list",
-  "the-percentages-are-too-confident",
-  "what-it-means-for-qualifying",
-  "what-it-cannot-do",
+  "one-winner-or-a-short-list",
 ];
 
 /**
@@ -44,72 +49,47 @@ const EXPECTED_SECTION_IDS = [
  * `pnpm measure:award-qualification-impact`.
  */
 const REQUIRED_FIGURES = [
-  // Corpus and scoring scope. 30,516 is instances BUILT (2016 included);
-  // 28,033 is the scored sum over 2017 to 2026. They are not the same number.
+  // Corpus and the random guess yardstick.
   "41,869",
-  "30,516",
-  "28,033",
-  // Concentration and repeat rate.
-  "29,064",
-  "48.7%",
-  "6,390",
-  "2,074",
-  "1,799",
-  "1,104",
+  "about 3%",
+  // Repeat rate.
   "61.4%",
-  "348 of 1,616",
-  "21.5%",
-  // Simple rule against the model, top pick.
-  "24.5% of 1,538",
+  // Simple rule (B1) against the fitted model, top pick.
+  "24.5%",
   "22.1%",
-  "12.1% of 1,454",
+  "12.1%",
   "9.6%",
-  "28.2% of 557",
+  "28.2%",
   "22.8%",
-  "14.3% of 1,492",
-  "18.9% of 1,171",
+  "14.3%",
+  "18.9%",
+  // SPR alone (B2) against the simple rule, top pick.
   "17.7%",
-  "6.8%",
+  "13.1%",
+  "9.7%",
+  "11.8%",
+  "8.9%",
+  "10.7%",
+  "8.7%",
+  "9.3%",
   // Team age.
-  "3.85%",
-  "294 wins in 7,628",
-  "0.65%",
-  "85 wins in 13,121",
   "21.6%",
   "19 of the 24",
-  "46.1% of 1,114",
-  "42.9%",
   // Ranked list.
   "51.1%",
   "84.9%",
   "9.1%",
   "28.5%",
-  "32.3%",
-  "52.2%",
-  // Calibration.
-  "29.9%",
-  "21.2%",
-  "1,470",
-  "17.0%",
-  "9.5%",
-  // Qualification.
-  "8.4%",
-  "125 of 7,125",
-  "1.8%",
-  "3,556",
-  "16.39",
-  "5,689",
-  "1.33",
-  "259",
-  "519",
-  "9.3%",
-  "2,798",
-  "49 of the 78",
-  "62.8%",
-  "24 of 52",
-  "46.2%",
-  "13 of 61",
 ];
+
+function tableStrings(where: string, table: AwardsTable | undefined): { where: string; text: string }[] {
+  if (table === undefined) return [];
+  const out: { where: string; text: string }[] = [];
+  if (table.caption !== undefined) out.push({ where: `${where}.table.caption`, text: table.caption });
+  table.head.forEach((text, i) => out.push({ where: `${where}.table.head[${i}]`, text }));
+  table.rows.forEach((row, r) => row.forEach((text, c) => out.push({ where: `${where}.table.rows[${r}][${c}]`, text })));
+  return out;
+}
 
 function allStrings(): { where: string; text: string }[] {
   const out: { where: string; text: string }[] = [
@@ -119,12 +99,18 @@ function allStrings(): { where: string; text: string }[] {
   for (const section of AWARDS_SECTIONS) {
     out.push({ where: `${section.id}.heading`, text: section.heading });
     section.paragraphs.forEach((text, i) => out.push({ where: `${section.id}.paragraphs[${i}]`, text }));
+    out.push(...tableStrings(section.id, section.table));
+    for (const subsection of section.subsections ?? []) {
+      out.push({ where: `${subsection.id}.heading`, text: subsection.heading });
+      subsection.paragraphs.forEach((text, i) => out.push({ where: `${subsection.id}.paragraphs[${i}]`, text }));
+      out.push(...tableStrings(subsection.id, subsection.table));
+    }
   }
   return out;
 }
 
 describe("awardsContent structure", () => {
-  it("exports the nine section ids in order, by equality", () => {
+  it("exports the three section ids in order, by equality", () => {
     expect([...AWARDS_SECTION_IDS]).toEqual(EXPECTED_SECTION_IDS);
   });
 
@@ -132,12 +118,38 @@ describe("awardsContent structure", () => {
     expect(AWARDS_SECTIONS.map((section) => section.id)).toEqual(EXPECTED_SECTION_IDS);
   });
 
-  it("gives every section a non blank heading and at least one non blank paragraph", () => {
+  it("exports and renders the four result subsections in order, by equality, all under our-results", () => {
+    expect([...AWARDS_SUBSECTION_IDS]).toEqual(EXPECTED_SUBSECTION_IDS);
+    const results = AWARDS_SECTIONS.find((section) => section.id === "our-results");
+    expect(results?.subsections?.map((subsection) => subsection.id)).toEqual(EXPECTED_SUBSECTION_IDS);
+    const others = AWARDS_SECTIONS.filter((section) => section.id !== "our-results");
+    expect(others.every((section) => section.subsections === undefined)).toBe(true);
+  });
+
+  it("gives every section a non blank heading and some body: a paragraph, or subsections that each carry one", () => {
     for (const section of AWARDS_SECTIONS) {
       expect(section.heading.trim().length, `${section.id} has a blank heading`).toBeGreaterThan(0);
-      expect(section.paragraphs.length, `${section.id} has no paragraphs`).toBeGreaterThan(0);
-      for (const paragraph of section.paragraphs) {
-        expect(paragraph.trim().length, `${section.id} has a blank paragraph`).toBeGreaterThan(0);
+      const subsections = section.subsections ?? [];
+      expect(section.paragraphs.length + subsections.length, `${section.id} has no body`).toBeGreaterThan(0);
+      for (const block of [section, ...subsections]) {
+        expect(block.heading.trim().length, `${block.id} has a blank heading`).toBeGreaterThan(0);
+        for (const paragraph of block.paragraphs) {
+          expect(paragraph.trim().length, `${block.id} has a blank paragraph`).toBeGreaterThan(0);
+        }
+      }
+      for (const subsection of subsections) {
+        expect(subsection.paragraphs.length, `${subsection.id} has no paragraphs`).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("keeps every table rectangular: each row as wide as the head, no blank cell", () => {
+    const tables = AWARDS_SECTIONS.flatMap((section) => [section.table, ...(section.subsections ?? []).map((s) => s.table)]);
+    for (const table of tables) {
+      if (table === undefined) continue;
+      for (const row of table.rows) {
+        expect(row.length, `row "${row[0]}" width`).toBe(table.head.length);
+        for (const cell of row) expect(cell.trim().length).toBeGreaterThan(0);
       }
     }
   });
@@ -171,11 +183,6 @@ describe("awardsContent figures", () => {
     for (const figure of REQUIRED_FIGURES) {
       expect(pageText, `the page no longer states ${figure}`).toContain(figure);
     }
-  });
-
-  it("describes the rookie rule as what it measures, the lowest team number, not as decoration", () => {
-    const teamAge = AWARDS_SECTIONS.find((section) => section.id === "team-age");
-    expect(teamAge?.paragraphs.join(" ")).toContain("lowest team number");
   });
 
   it("says the site shows no award predictions, so the page cannot read as a feature announcement", () => {

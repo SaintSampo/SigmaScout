@@ -62,6 +62,7 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 | 011 | total-sigma-joined-box | SPR Total and Sigma as two joined tier boxes with a ± between: what should the join look like? | **A — split pill** | metric-cell, tiers, uncertainty, teams-table, team-page, event-page, alliances |
 | 012 | predicted-bonus-dots | Once F4 makes bonus odds honest, how should a predicted bonus dot render when many alliances are true toss-ups? | **C — fill to the odds** | match-table, bonus-rp, uncertainty, prediction |
 | 014 | acknowledgments-voice | What voice should the Acknowledgments page use so it is shorter and reads like a human wrote it? (copy sketch; 013 skipped, it was the deleted Champ Locks header) | **A — Statbotics tone**, trimmed by Jacob | copy, methodology, acknowledgments, voice, de-ai |
+| 015 | awards-page-rewrite | How short can the Predicting awards page get on the goal / model / results outline, and do the numbers belong in prose or tables? | **B2 — tables, plus the SPR alone finding** | copy, methodology, awards, de-ai, tables |
 
 ## Findings so far
 

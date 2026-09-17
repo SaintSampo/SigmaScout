@@ -4,7 +4,7 @@ import { AWARDS_PAGE_TITLE } from "../components/methodology/awardsContent.js";
 
 /**
  * The `/methodology/awards` route (quick task 260912-tm8). Writes up whether
- * FRC awards can be predicted, and what that means for qualifying.
+ * FRC awards can be predicted.
  *
  * Fetches nothing: every number it states was measured once by
  * `pnpm measure:award-predictability` and

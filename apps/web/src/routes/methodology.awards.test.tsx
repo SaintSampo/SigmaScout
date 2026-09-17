@@ -63,6 +63,33 @@ describe("/methodology/awards", () => {
     }
   });
 
+  it("renders a level 3 heading, an anchor id and every paragraph for every result subsection", async () => {
+    await renderMethodologyAwards();
+    const bodyText = document.body.textContent ?? "";
+    const subsections = AWARDS_SECTIONS.flatMap((section) => section.subsections ?? []);
+    expect(subsections.length).toBeGreaterThan(0);
+    for (const subsection of subsections) {
+      expect(screen.getByRole("heading", { level: 3, name: subsection.heading })).toBeDefined();
+      expect(document.getElementById(subsection.id), `no element with id ${subsection.id}`).not.toBeNull();
+      for (const paragraph of subsection.paragraphs) {
+        expect(bodyText, `${subsection.id} paragraph missing from the page`).toContain(paragraph);
+      }
+    }
+  });
+
+  it("renders every table: its caption, its column headers and every cell", async () => {
+    await renderMethodologyAwards();
+    const tables = AWARDS_SECTIONS.flatMap((section) => [section.table, ...(section.subsections ?? []).map((s) => s.table)]).filter(
+      (table) => table !== undefined,
+    );
+    expect(screen.getAllByRole("table").length).toBe(tables.length);
+    const bodyText = document.body.textContent ?? "";
+    for (const table of tables) {
+      if (table.caption !== undefined) expect(bodyText).toContain(table.caption);
+      for (const cell of [...table.head, ...table.rows.flat()]) expect(bodyText, `cell "${cell}" missing`).toContain(cell);
+    }
+  });
+
   it("renders no hyphen minus, en dash or em dash anywhere in the page text", async () => {
     await renderMethodologyAwards();
     const bodyText = document.body.textContent ?? "";

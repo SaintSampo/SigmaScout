@@ -70,7 +70,7 @@ export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
   {
     to: "/methodology/awards",
     title: "Predicting awards",
-    blurb: "Can awards be predicted before an event? What worked, what did not, and what it means for qualifying.",
+    blurb: "Can awards be predicted before an event? What worked and what did not.",
     testId: "methodology-card-awards",
   },
   {
