@@ -16,6 +16,9 @@ import { formatScheduledTime, matchLabel } from "../components/team/MatchTable.j
 import { MatchVideoCell } from "../components/MatchVideoCell.js";
 import { parseMatchVideoKey } from "../lib/matchVideo.js";
 import { preMatchMetrics } from "../lib/preMatchMetrics.js";
+import { liveSidecarQueryOptions } from "../lib/api/liveSidecar.js";
+import { extendMetricHistory } from "../lib/liveTeamSeason.js";
+import type { LiveMetricSidecar } from "../../../../packages/harness/liveMetricSidecar.js";
 import { MatchRobotGrid, type MatchRobotRecord } from "../components/match/MatchRobotGrid.js";
 import type { AxisDomain } from "../components/team/matchAxis.js";
 import type { EventMatchRow } from "../components/event/eventMatchAxis.js";
@@ -100,6 +103,26 @@ function MatchPage() {
     })),
   });
 
+  // THE LIVE METRIC SIDECAR for THIS event, one fetch (260917-jr4, D-05).
+  //
+  // WITHOUT IT THIS PAGE SILENTLY REGRESSES. `preMatchMetrics` reads the row
+  // PRECEDING this match in a team's `metricHistory`; for any match folded
+  // since the last republish, the published artifact contains neither this
+  // match's row nor the rows after it, so every pre-match cell on the page
+  // would render as absence. The live Worker used to close that gap by
+  // rewriting the team artifact each tick; it no longer writes one at all.
+  //
+  // A 404 is the ordinary case (`liveSidecar.ts` returns `null` for it), so
+  // this is a no-op on every finished event's match page.
+  const sidecarQuery = useQuery({
+    ...liveSidecarQueryOptions({ eventKey, algorithmId: algorithm, version: version ?? "" }),
+    enabled: isValidKey && version !== undefined,
+  });
+  const sidecars = useMemo(
+    () => new Map<string, LiveMetricSidecar | null>(sidecarQuery.data == null ? [] : [[eventKey, sidecarQuery.data]]),
+    [eventKey, sidecarQuery.data]
+  );
+
   // Built here, not inside `MatchRobotGrid` (which stays a pure function of
   // its props per Task 2's own contract). A team artifact that 404s or fails
   // degrades to `{ isPending: false }` with no artifact — the card shows the
@@ -112,7 +135,12 @@ function MatchPage() {
     const teamArtifact = result.data;
     byTeamKey[teamKey] = {
       artifact: teamArtifact,
-      preMatch: teamArtifact !== undefined && row !== undefined ? preMatchMetrics(teamArtifact.metricHistory, matchKey, { played: row.played }) : undefined,
+      // `preMatchMetrics` is UNCHANGED and unforked — it is simply fed the
+      // extended history rather than the published one.
+      preMatch:
+        teamArtifact !== undefined && row !== undefined
+          ? preMatchMetrics(extendMetricHistory({ artifact: teamArtifact, sidecars }), matchKey, { played: row.played })
+          : undefined,
       isPending: result.isPending,
     };
   });

@@ -1,4 +1,6 @@
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
+import type { TeamSeasonEvent } from "./matchAxis.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SeasonHeader } from "./SeasonHeader.js";
 import { EventSectionList } from "./EventSectionList.js";
@@ -26,9 +28,18 @@ export interface OverviewTabProps {
   metricsOverride?: TeamSeasonArtifact["metricHistory"][number]["metrics"];
   /** The snapshot row's `matchKey`, threaded through unchanged — see `SeasonHeaderProps.snapshotMatchKey`. */
   snapshotMatchKey?: string;
+  /**
+   * The LIVE view, resolved once by the route (`useLiveTeamSeason`) and
+   * threaded down rather than re-resolved here (260917-jr4). Each falls back
+   * to the published value, so a caller that has no live view renders
+   * exactly what it rendered before this prop existed.
+   */
+  events?: readonly TeamSeasonEvent[];
+  metricHistory?: readonly MetricHistoryRow[];
+  seasonStats?: TeamSeasonArtifact["seasonStats"];
 }
 
-export function OverviewTab({ artifact, algorithmId, season, teamNumber, metricsOverride, snapshotMatchKey }: OverviewTabProps) {
+export function OverviewTab({ artifact, algorithmId, season, teamNumber, metricsOverride, snapshotMatchKey, events, metricHistory, seasonStats }: OverviewTabProps) {
   return (
     <div className="flex min-w-0 flex-col gap-[var(--spacing-xl)]">
       <div className="data-card p-[var(--spacing-md)]">
@@ -39,9 +50,9 @@ export function OverviewTab({ artifact, algorithmId, season, teamNumber, metrics
           `SeasonHeader`/`RankCards` own the graceful-absence contract
           (undefined/empty both render nothing).
         */}
-        <SeasonHeader artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} metricsOverride={metricsOverride} snapshotMatchKey={snapshotMatchKey} ranks={artifact.ranks} />
+        <SeasonHeader artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} seasonStats={seasonStats} metricsOverride={metricsOverride} snapshotMatchKey={snapshotMatchKey} ranks={artifact.ranks} />
       </div>
-      <EventSectionList artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} />
+      <EventSectionList artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} events={events} metricHistory={metricHistory} />
       {/*
         The tier key is a legend, not a headline: it explains the colour
         banding used by the metric grid above and by every match row, so it

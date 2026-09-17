@@ -296,19 +296,60 @@ describe("/team/$teamNumber route — live event overlay (260915-m4j)", () => {
     expect(screen.getByTestId("predicted-score-2024casf_qm9-red").textContent).toContain("77");
   });
 
-  it("a team whose events are all long finished fetches no event artifact", async () => {
+  /**
+   * THE OVERLAY CLIFF, INVERTED ON PURPOSE (quick task 260917-jr4, D-05
+   * unsound part 1). This test used to assert the OPPOSITE: a long-finished
+   * event fetched no event artifact, and the page rendered the team
+   * artifact's own published 55% row.
+   *
+   * That was correct only while the live Worker rewrote team artifacts every
+   * tick — the published row would already carry the result. The Worker now
+   * writes none, so gating the fetch on `eventScheduleIsCurrent` would leave a
+   * FINISHED event rendering as unplayed from the moment its 7-day window
+   * closed until the next offline republish. `teamEventNeedsLivePricing` no
+   * longer consults the schedule at all; it asks only whether an unplayed
+   * published row exists.
+   *
+   * What it costs is asserted rather than assumed: exactly one extra
+   * CDN-cached event fetch, and `shouldPollEventArtifact` still refuses to
+   * POLL a dead event (`liveEvent.test.ts` pins that half).
+   */
+  it("a team whose events are all long finished STILL fetches the event artifact, so a finished event never renders as unplayed", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(Date.parse("2026-09-15T12:00:00.000Z"));
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      // The ordinary state for a finished event: no sidecar exists.
+      if (url.includes("/v1/live/")) return Promise.resolve(new Response("", { status: 404 }));
       if (url.includes("/v1/event/")) return Promise.resolve(eventArtifactResponse());
       return Promise.resolve(teamArtifactWithEvent(NOW + 600_000, "2024-03-07"));
     });
     global.fetch = fetchMock;
     renderTeamRoute("/team/1114?year=2024&algorithm=spr");
 
-    await waitFor(() => expect(screen.getByTestId("confidence-2024casf_qm9").textContent).toContain("55%"));
-    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/v1/event/"))).toBe(false);
+    // 91% is the EVENT artifact's price; 55% is the team artifact's published
+    // one. Asserting the former is what proves the overlay ran at all.
+    await waitFor(() => expect(screen.getByTestId("confidence-2024casf_qm9").textContent).toContain("91%"));
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain(EVENT_URL);
+  });
+
+  it("requests the live metric sidecar for a live event, and tolerates its 404 as the ordinary state", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      if (url.includes("/v1/live/")) return Promise.resolve(new Response("", { status: 404 }));
+      if (url.includes("/v1/event/")) return Promise.resolve(eventArtifactResponse());
+      return Promise.resolve(teamArtifactWithEvent(NOW + 600_000, "2024-03-07"));
+    });
+    global.fetch = fetchMock;
+    renderTeamRoute("/team/1114?year=2024&algorithm=spr");
+
+    await waitFor(() => expect(screen.getByTestId("confidence-2024casf_qm9").textContent).toContain("91%"));
+    // The key is IMPORTED by the fetcher, never re-spelled — this asserts the
+    // prefix reached the network, which is what a re-spelling would break.
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/v1/live/2024casf/"))).toBe(true);
   });
 });

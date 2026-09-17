@@ -3,7 +3,8 @@ import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArt
 import { markFirstRowsRendered, measureParseToPaint } from "../../lib/perfMarks.js";
 import { computeAxisDomain } from "./matchAxis.js";
 import { EventSection } from "./EventSection.js";
-import { useTeamUpcomingOverlay } from "./useTeamUpcomingOverlay.js";
+import type { TeamSeasonEvent } from "./matchAxis.js";
+import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
 
 /**
  * The second composition seam `OverviewTab.tsx` freezes — a section's match
@@ -14,6 +15,17 @@ export interface EventSectionListProps {
   algorithmId: string;
   season: number;
   teamNumber: number;
+  /**
+   * The LIVE view, threaded from the route (260917-jr4). This component used
+   * to call the overlay hook ITSELF; it no longer does, because the metric
+   * history and the overlaid events must come from ONE resolution of the
+   * live-event set — two independent resolutions could disagree about which
+   * events are live and paint a chart whose last points belong to matches
+   * the table beside it still calls upcoming. Both fall back to the
+   * published arrays.
+   */
+  events?: readonly TeamSeasonEvent[];
+  metricHistory?: readonly MetricHistoryRow[];
 }
 
 /**
@@ -25,10 +37,11 @@ export interface EventSectionListProps {
  * computed ONCE here, across the whole team-season, and passed down to
  * every section — never recomputed per event or per row.
  */
-export function EventSectionList({ artifact, algorithmId, season }: EventSectionListProps) {
+export function EventSectionList({ artifact, algorithmId, season, events: overlaidEvents, metricHistory }: EventSectionListProps) {
   // A live event's matches come from its event artifact (priced upcoming rows,
   // fresh results); every other event is the published rows, same reference.
-  const overlaid = useTeamUpcomingOverlay(artifact, algorithmId);
+  const overlaid = overlaidEvents ?? artifact.events;
+  const rows = metricHistory ?? artifact.metricHistory;
   const events = [...overlaid]
     .filter((event) => event.matches.length > 0)
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
@@ -60,7 +73,7 @@ export function EventSectionList({ artifact, algorithmId, season }: EventSection
           teamKey={artifact.teamKey}
           algorithmId={algorithmId}
           season={season}
-          metricHistory={artifact.metricHistory}
+          metricHistory={rows}
         />
       ))}
     </div>

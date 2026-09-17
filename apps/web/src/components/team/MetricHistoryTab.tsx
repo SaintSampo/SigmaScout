@@ -16,10 +16,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { MetricHistoryChartProps } from "./MetricHistoryChart.js";
+import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
 import { drawsSigmaBand, METRIC_HISTORY_LEGEND_HEIGHT_PX } from "./metricHistorySeries.js";
 
 export interface MetricHistoryTabProps {
   artifact: TeamSeasonArtifact;
+  /**
+   * The EXTENDED history from `useLiveTeamSeason` (260917-jr4), falling back
+   * to the published array. Without it, a live event's matches are missing
+   * from the right-hand end of the chart entirely until the next republish —
+   * the Worker no longer writes them into the artifact.
+   */
+  metricHistory?: readonly MetricHistoryRow[];
   algorithmId: string;
   season: number;
   loadChart?: () => Promise<{ default: ComponentType<MetricHistoryChartProps> }>;
@@ -113,19 +121,20 @@ class ChartErrorBoundary extends Component<ChartErrorBoundaryProps, ChartErrorBo
  * `useMemo` keyed on `importKey` recreates the wrapper only on retry, never
  * on an unrelated re-render.
  */
-export function MetricHistoryTab({ artifact, algorithmId, season, loadChart = defaultLoadChart }: MetricHistoryTabProps) {
+export function MetricHistoryTab({ artifact, metricHistory, algorithmId, season, loadChart = defaultLoadChart }: MetricHistoryTabProps) {
+  const rows = metricHistory ?? artifact.metricHistory;
   const [importKey, setImportKey] = useState(0);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- importKey intentionally forces recreation on retry
   const ChartComponent = useMemo(() => lazy(loadChart), [importKey, loadChart]);
   // Imported from `metricHistorySeries.ts` only — this Tab must never
   // import `MetricHistoryChart.tsx` statically, since that would pull
   // Recharts into the eager bundle.
-  const drawsBand = drawsSigmaBand(artifact.metricHistory, algorithmId);
+  const drawsBand = drawsSigmaBand(rows, algorithmId);
 
   return (
     <ChartErrorBoundary key={importKey} onRetry={() => setImportKey((key) => key + 1)}>
       <Suspense fallback={<ChartSkeleton drawsBand={drawsBand} />}>
-        <ChartComponent rows={artifact.metricHistory} algorithmId={algorithmId} season={season} eventNameByKey={eventNameByKeyFrom(artifact)} />
+        <ChartComponent rows={rows} algorithmId={algorithmId} season={season} eventNameByKey={eventNameByKeyFrom(artifact)} />
       </Suspense>
     </ChartErrorBoundary>
   );

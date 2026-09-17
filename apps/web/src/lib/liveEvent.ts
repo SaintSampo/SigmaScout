@@ -58,19 +58,30 @@ export function shouldPollEventArtifact(
 }
 
 /**
- * LD-2: a team page fetches an event's artifact only when the team still has
- * an unplayed match there and the event's schedule is current. A
- * long-finished event whose leftover matches were never played is never
- * fetched.
+ * LD-2: a team page fetches an event's artifact when the team still has an
+ * unplayed PUBLISHED row there.
+ *
+ * THE SCHEDULE-CURRENCY CONJUNCT WAS DELIBERATELY REMOVED (quick task
+ * 260917-jr4, D-05 unsound part 1), and this comment exists so it is not
+ * "restored" as an obvious optimisation. It used to also require
+ * `eventScheduleIsCurrent` (7 days past the last scheduled match). That was
+ * harmless while the live Worker wrote results into the team artifact: once
+ * the window closed, the team page fell back to a team artifact that already
+ * carried the results. The Worker no longer writes team artifacts at all, so
+ * under that rule a FINISHED event's matches would render as UNPLAYED on the
+ * robot page from the moment the window closed until the next offline
+ * republish — a correctness cliff, not a stale number.
+ *
+ * WHAT THE REMOVAL COSTS, stated so the trade is visible: an abandoned event
+ * whose matches were never played (and never will be) keeps one extra
+ * CDN-cached fetch per robot page, forever. That is bounded, cheap, served
+ * from the edge, and strictly better than rendering a finished event as
+ * unplayed.
+ *
+ * `shouldPollEventArtifact`'s currency test is deliberately UNTOUCHED. That
+ * one governs POLLING, not fetching, and polling a dead event every 60
+ * seconds is exactly the thing the currency test exists to stop.
  */
-export function teamEventNeedsLivePricing(
-  event: { readonly startDate?: string; readonly matches: readonly (ScheduledRow & { readonly actualWinner?: unknown })[] },
-  nowMs: number
-): boolean {
-  if (!event.matches.some((match) => match.actualWinner === undefined)) return false;
-  return eventScheduleIsCurrent({
-    scheduledTimes: scheduledTimesMs(event.matches),
-    startDate: event.startDate,
-    computedAt: new Date(nowMs).toISOString(),
-  });
+export function teamEventNeedsLivePricing(event: { readonly startDate?: string; readonly matches: readonly (ScheduledRow & { readonly actualWinner?: unknown })[] }): boolean {
+  return event.matches.some((match) => match.actualWinner === undefined);
 }

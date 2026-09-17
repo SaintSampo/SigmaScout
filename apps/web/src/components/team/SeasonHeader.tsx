@@ -15,6 +15,13 @@ export interface SeasonHeaderProps {
   algorithmId: PublishedAlgorithmId;
   season: number;
   teamNumber: number;
+  /**
+   * The LIVE `seasonStats` from `useLiveTeamSeason` (260917-jr4): the
+   * published object with `record` and `metricsBasis` brought forward past
+   * the last publish. Falls back to `artifact.seasonStats`, so a caller
+   * without a live view renders exactly what it rendered before.
+   */
+  seasonStats?: TeamSeasonArtifact["seasonStats"];
   /** The last-official-match snapshot metrics (lib/officialSnapshot.ts), when the route could derive one — season-final values render otherwise. */
   metricsOverride?: TeamSeasonArtifact["metricHistory"][number]["metrics"];
   /** The `matchKey` of the row `metricsOverride` came from. Not currently consumed here; kept as the as-of instant alongside `metricsOverride`. */
@@ -65,15 +72,16 @@ function metricLabel(key: string): string {
  * preseason results are excluded from these two, and from them alone), and
  * the tier-boxed metric grid.
  */
-export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metricsOverride, snapshotMatchKey, ranks }: SeasonHeaderProps) {
+export function SeasonHeader({ artifact, algorithmId, season, teamNumber, seasonStats, metricsOverride, snapshotMatchKey, ranks }: SeasonHeaderProps) {
   const nickname = artifact.nickname === "" ? `Team ${teamNumber}` : artifact.nickname;
-  const { record } = artifact.seasonStats;
+  const resolvedSeasonStats = seasonStats ?? artifact.seasonStats;
+  const { record } = resolvedSeasonStats;
   // Tiles read the last-official-match snapshot when the route could derive
   // one; season-final otherwise. Each snapshot metric carries its own
   // published percentile, ranked against the one season ranking pool (every
   // team's last official match) that the Teams list and seasonStats use, so
   // a tile and the Teams list cannot disagree about a tier.
-  const resolvedMetrics = metricsOverride ?? artifact.seasonStats.metrics;
+  const resolvedMetrics = metricsOverride ?? resolvedSeasonStats.metrics;
   // Widened with any derivable group entries this algorithm/season supports,
   // before the tiles read it — a no-op once the pipeline already publishes an
   // algorithm's own group metrics; still needed for a stale cached artifact
@@ -109,7 +117,7 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // pre-republish SPR one) means the Total tile degrades to a plain single
   // box — `TotalSigmaValue` is byte-identical to `MetricValue` whenever
   // `sigma` is `undefined`.
-  const seasonSigmaMetric = artifact.seasonStats.metrics[SIGMA_METRIC_KEY];
+  const seasonSigmaMetric = resolvedSeasonStats.metrics[SIGMA_METRIC_KEY];
   const seasonSigmaScore = seasonSigmaMetric?.value;
   const seasonSigmaTier = tierForPercentile(seasonSigmaMetric?.percentile);
   const groupTiles = publishesComponents

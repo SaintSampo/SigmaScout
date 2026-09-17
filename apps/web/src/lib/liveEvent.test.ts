@@ -62,20 +62,39 @@ describe("teamEventNeedsLivePricing", () => {
   const unplayed = (sortTime?: number) => ({ ...(sortTime !== undefined ? { sortTime } : {}) });
   const played = (sortTime?: number) => ({ actualWinner: "red" as const, ...(sortTime !== undefined ? { sortTime } : {}) });
 
-  it("true with an unplayed row and a current schedule", () => {
-    expect(teamEventNeedsLivePricing({ startDate: "2026-09-13", matches: [played(NOW - DAY), unplayed(NOW + 3_600_000)] }, NOW)).toBe(true);
+  it("true with an unplayed row", () => {
+    expect(teamEventNeedsLivePricing({ startDate: "2026-09-13", matches: [played(NOW - DAY), unplayed(NOW + 3_600_000)] })).toBe(true);
   });
 
   it("false when every row is played", () => {
-    expect(teamEventNeedsLivePricing({ startDate: "2026-09-13", matches: [played(NOW - DAY), played(NOW - 3_600_000)] }, NOW)).toBe(false);
+    expect(teamEventNeedsLivePricing({ startDate: "2026-09-13", matches: [played(NOW - DAY), played(NOW - 3_600_000)] })).toBe(false);
   });
 
-  it("false for a long-finished event with never-played leftover matches", () => {
-    expect(teamEventNeedsLivePricing({ startDate: "2016-03-10", matches: [played(Date.parse("2016-03-12T15:00:00Z")), unplayed(Date.parse("2016-03-12T16:00:00Z"))] }, NOW)).toBe(false);
+  /**
+   * THE INVERTED CASE, and the point of inverting it (quick task 260917-jr4).
+   * This used to assert `false`: a long-finished event whose leftover matches
+   * were never played was not fetched, because the schedule-currency conjunct
+   * had expired. That was safe only while the live Worker rewrote the team
+   * artifact. It no longer writes one at all, so under the old rule a FINISHED
+   * event's matches would render as UNPLAYED from the moment the 7-day window
+   * closed until the next offline republish.
+   *
+   * The cost of the inversion is one extra CDN-cached fetch per robot page for
+   * a genuinely abandoned event, forever. `shouldPollEventArtifact` (asserted
+   * above, deliberately unchanged) still refuses to POLL such an event every
+   * 60 seconds, which is the expensive half.
+   */
+  it("TRUE for a long-finished event with never-played leftover matches — the currency conjunct was removed on purpose", () => {
+    expect(teamEventNeedsLivePricing({ startDate: "2016-03-10", matches: [played(Date.parse("2016-03-12T15:00:00Z")), unplayed(Date.parse("2016-03-12T16:00:00Z"))] })).toBe(true);
   });
 
-  it("falls back to startDate when no row carries a time", () => {
-    expect(teamEventNeedsLivePricing({ startDate: "2026-09-16", matches: [unplayed()] }, NOW)).toBe(true);
-    expect(teamEventNeedsLivePricing({ startDate: "2025-03-01", matches: [unplayed()] }, NOW)).toBe(false);
+  it("does not consult startDate or the clock at all — only whether an unplayed published row exists", () => {
+    expect(teamEventNeedsLivePricing({ startDate: "2026-09-16", matches: [unplayed()] })).toBe(true);
+    expect(teamEventNeedsLivePricing({ startDate: "2025-03-01", matches: [unplayed()] })).toBe(true);
+    expect(teamEventNeedsLivePricing({ startDate: "2025-03-01", matches: [played()] })).toBe(false);
+    // Non-vacuity for "the clock is not consulted": `shouldPollEventArtifact`
+    // on the SAME shape still is, so this is a targeted removal rather than a
+    // repo-wide loss of the currency test.
+    expect(shouldPollEventArtifact({ matches: [played()], upcoming: [unplayed()], startDate: "2025-03-01" }, NOW)).toBe(false);
   });
 });
