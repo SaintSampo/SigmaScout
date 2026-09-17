@@ -7,8 +7,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { TOTAL_KEY } from "@/lib/metricKeys";
+import { metricDisplayLabel } from "@/lib/metricLabels";
 import type { TeamRow } from "./rowModel.js";
-import { BUBBLE_CHART, BUBBLE_TONE_DRAW_ORDER } from "./teamsBubbleModel.js";
+import { BUBBLE_CHART, BUBBLE_TONE_DRAW_ORDER, SIGMA_AXIS_LABEL } from "./teamsBubbleModel.js";
 import { TeamsBubbleChart } from "./TeamsBubbleChart.js";
 
 function makeRow(overrides: Partial<TeamRow> & Pick<TeamRow, "teamKey" | "teamNumber">): TeamRow {
@@ -105,7 +106,9 @@ describe("TeamsBubbleChart", () => {
 
   it("the Y axis title text is exactly 'Sigma Score'", () => {
     render(<TeamsBubbleChart rows={MIXED_ROWS} />);
-    expect(screen.getByText("Sigma Score")).toBeDefined();
+    // Scoped to the svg: the Colour by control's Sigma segment carries the
+    // same label, so an unscoped getByText would throw a multi-match error.
+    expect(within(screen.getByRole("img")).getByText("Sigma Score")).toBeDefined();
   });
 
   it("the accessible name names Sigma Score as the vertical axis", () => {
@@ -117,7 +120,9 @@ describe("TeamsBubbleChart", () => {
     render(<TeamsBubbleChart rows={MIXED_ROWS} />);
     // `metricDisplayLabel(TOTAL_KEY)` resolves to "Total" — the same label
     // `columns.tsx`'s Total column header renders, imported not re-typed.
-    expect(screen.getByText("Total")).toBeDefined();
+    // Scoped to the svg: the Colour by control's Total segment carries the
+    // same label, so an unscoped getByText would throw a multi-match error.
+    expect(within(screen.getByRole("img")).getByText("Total")).toBeDefined();
   });
 
   it("the rendered text of the whole component contains no plus-minus glyph and no occurrence of the algorithm's own confidence field name", () => {
@@ -141,6 +146,118 @@ describe("TeamsBubbleChart", () => {
     const labels = Array.from(keyRow.children).map((child) => child.textContent);
     expect(labels).toEqual(["Common / unranked", "Rare", "Epic", "Legendary"]);
     expect(within(keyRow).getByText("Common / unranked")).toBeDefined();
+  });
+
+  it("the key row still lists exactly the same four entries in draw order under the Sigma colour mode", () => {
+    render(<TeamsBubbleChart rows={MIXED_ROWS} colorBy="sigma" />);
+    const keyRow = screen.getByTestId("bubble-chart-key");
+    const labels = Array.from(keyRow.children).map((child) => child.textContent);
+    expect(labels).toEqual(["Common / unranked", "Rare", "Epic", "Legendary"]);
+  });
+});
+
+/**
+ * Coverage for the "Colour by" segmented control (quick task 260917-mwi).
+ * `TINT_ROWS` deliberately disagrees between the Total tier and the Sigma
+ * tier on every row, so a test that asserts the wrong axis's tiers fails
+ * loudly rather than passing by coincidence.
+ */
+const TINT_ROWS: TeamRow[] = [
+  makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10, tier: "legendary" } }, sigmaScore: 1, sigmaTier: "rare" }),
+  makeRow({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20 } }, sigmaScore: 2, sigmaTier: "epic" }),
+  makeRow({ teamKey: "frc3", teamNumber: 3, metrics: { [TOTAL_KEY]: { value: 30, tier: "epic" } }, sigmaScore: 3, sigmaTier: "common" }),
+  makeRow({ teamKey: "frc4", teamNumber: 4, metrics: { [TOTAL_KEY]: { value: 40, tier: "rare" } }, sigmaScore: 4, sigmaTier: undefined }),
+];
+
+describe("TeamsBubbleChart Colour by control", () => {
+  afterEach(() => cleanup());
+
+  it("with colorBy='sigma', renders data-tone groups matching the SIGMA tiers, not the Total tiers", () => {
+    const { container } = render(<TeamsBubbleChart rows={TINT_ROWS} colorBy="sigma" />);
+    // Sigma tiers: frc1 rare, frc2 epic, frc3 common->neutral, frc4 undefined->neutral.
+    expect(countDots(container, "rare")).toBe(1);
+    expect(countDots(container, "epic")).toBe(1);
+    expect(countDots(container, "neutral")).toBe(2);
+    expect(countDots(container, "legendary")).toBe(0);
+  });
+
+  it("with colorBy omitted, renders the Total-tier groups — the component's default matches the model's default", () => {
+    const { container } = render(<TeamsBubbleChart rows={TINT_ROWS} />);
+    // Total tiers: frc1 legendary, frc2 undefined->neutral, frc3 epic, frc4 rare.
+    expect(countDots(container, "legendary")).toBe(1);
+    expect(countDots(container, "neutral")).toBe(1);
+    expect(countDots(container, "epic")).toBe(1);
+    expect(countDots(container, "rare")).toBe(1);
+  });
+
+  it("clicking the Sigma segment calls onColorByChange exactly once with 'sigma'; clicking the Total segment calls it exactly once with 'total'", () => {
+    const onColorByChange = vi.fn();
+    render(<TeamsBubbleChart rows={TINT_ROWS} colorBy="total" onColorByChange={onColorByChange} />);
+    fireEvent.click(screen.getByTestId("bubble-chart-color-by-sigma"));
+    expect(onColorByChange).toHaveBeenCalledOnce();
+    expect(onColorByChange).toHaveBeenCalledWith("sigma");
+
+    onColorByChange.mockClear();
+    cleanup();
+    render(<TeamsBubbleChart rows={TINT_ROWS} colorBy="sigma" onColorByChange={onColorByChange} />);
+    fireEvent.click(screen.getByTestId("bubble-chart-color-by-total"));
+    expect(onColorByChange).toHaveBeenCalledOnce();
+    expect(onColorByChange).toHaveBeenCalledWith("total");
+  });
+
+  it("the active segment carries aria-pressed=true and the inactive one aria-pressed=false, tracking colorBy", () => {
+    const { rerender } = render(<TeamsBubbleChart rows={TINT_ROWS} colorBy="total" />);
+    expect(screen.getByTestId("bubble-chart-color-by-total").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("bubble-chart-color-by-sigma").getAttribute("aria-pressed")).toBe("false");
+
+    rerender(<TeamsBubbleChart rows={TINT_ROWS} colorBy="sigma" />);
+    expect(screen.getByTestId("bubble-chart-color-by-total").getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByTestId("bubble-chart-color-by-sigma").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("the control's two segments are <button> elements inside a role=group whose accessible name is 'Colour by'", () => {
+    render(<TeamsBubbleChart rows={TINT_ROWS} />);
+    const group = screen.getByRole("group", { name: "Colour by" });
+    expect(within(group).getAllByRole("button")).toHaveLength(2);
+  });
+
+  it("the segment labels are exactly metricDisplayLabel(TOTAL_KEY) and SIGMA_AXIS_LABEL", () => {
+    render(<TeamsBubbleChart rows={TINT_ROWS} />);
+    const group = screen.getByRole("group", { name: "Colour by" });
+    expect(within(group).getByText(metricDisplayLabel(TOTAL_KEY))).toBeDefined();
+    expect(within(group).getByText(SIGMA_AXIS_LABEL)).toBeDefined();
+  });
+
+  it("in the no-Sigma state (no row carries a sigmaScore) the control does not render at all", () => {
+    const noSigmaRows: TeamRow[] = [
+      makeRow({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 10, tier: "legendary" } } }),
+      makeRow({ teamKey: "frc2", teamNumber: 2, metrics: { [TOTAL_KEY]: { value: 20 } } }),
+    ];
+    render(<TeamsBubbleChart rows={noSigmaRows} />);
+    expect(screen.getByTestId("bubble-chart-no-sigma")).toBeDefined();
+    expect(screen.queryByTestId("bubble-chart-color-by")).toBeNull();
+  });
+
+  it("the node-count invariant holds with the control present: 400 rows with a hover active still yield at most four [data-tone] paths and at most one <circle>", () => {
+    const rows: TeamRow[] = Array.from({ length: 400 }, (_, i) =>
+      makeRow({
+        teamKey: `frc${i + 1}`,
+        teamNumber: i + 1,
+        metrics: { [TOTAL_KEY]: { value: i, tier: i % 4 === 0 ? "legendary" : i % 3 === 0 ? "epic" : i % 2 === 0 ? "rare" : undefined } },
+        sigmaScore: i,
+      }),
+    );
+    const { container } = render(<TeamsBubbleChart rows={rows} />);
+    expect(screen.getByTestId("bubble-chart-color-by")).toBeDefined();
+    const svg = container.querySelector("svg")!;
+    stubRect(svg);
+    const { x, y } = firstDotCoords(container, "legendary");
+    fireEvent.pointerMove(svg, { clientX: x, clientY: y });
+
+    const paths = container.querySelectorAll("[data-tone]");
+    const circles = container.querySelectorAll("circle");
+    expect(paths.length).toBeLessThanOrEqual(4);
+    expect(circles.length).toBeLessThanOrEqual(1);
   });
 });
 
