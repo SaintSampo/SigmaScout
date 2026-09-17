@@ -102,7 +102,7 @@ export type BonusDotTier = "unlikely" | "tossup" | "likely";
  * Maps a predicted probability to one of three categorical tiers rather than
  * a continuous fill: a partial fill reads alike at 40% and 60% at 14px, while
  * a tier gives an unmistakable look at a glance. The toss-up band is
- * inclusive at both ends (D-01).
+ * inclusive at both ends.
  *
  * `undefined` for an absent or non-finite probability, so the dot renders
  * `unknown` rather than asserting the lowest tier for data that does not
@@ -130,7 +130,7 @@ export function bonusStatesFromFlags(flags: readonly boolean[] | null | undefine
   });
 }
 
-/** The single source of a dot's `title` and `aria-label`, so the two never drift; a predicted label carries the exact percentage the categorical tier only approximates (D-02). */
+/** The single source of a dot's `title` and `aria-label`, so the two never drift; a predicted label carries the exact percentage the categorical tier only approximates. */
 export function bonusDotLabel(label: string, state: BonusDotState, kind: "predicted" | "actual", probability?: number): string {
   if (state === "unknown") {
     return `${label}: no data published`;

@@ -56,7 +56,7 @@ describe("bonusRp table matches the core RP rule modules", () => {
 /**
  * A predicted dot renders one of three categorical tiers rather than a
  * continuous fill: `unlikely` under one third, `tossup` from one third to
- * two thirds inclusive, `likely` above two thirds (D-01).
+ * two thirds inclusive, `likely` above two thirds.
  */
 describe("bonusDotTier", () => {
   it.each([

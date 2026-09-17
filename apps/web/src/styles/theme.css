@@ -65,7 +65,7 @@
    * faint 25% tint, `likely` (p > 2/3) the existing 60% fill — deliberately
    * stronger than an actual `earned` dot's 30% soft tint. A continuous fill
    * was dropped because 40% and 60% read alike at 14px; three unmistakable
-   * looks fix that, and the exact odds stay in the tooltip/aria-label (D-02).
+   * looks fix that, and the exact odds stay in the tooltip/aria-label.
    *
    * The letter's ink clears 4.5:1 against every non-transparent ground:
    * red dot-ink 16.14:1 on white, 10.84:1 on the 25% tint, 5.94:1 on the 60%
