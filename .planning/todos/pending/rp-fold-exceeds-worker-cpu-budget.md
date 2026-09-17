@@ -226,6 +226,166 @@ the fresh/reused split, parse `isolateRequest=N` from each tail event's logs. Ar
 `rpSkip=` (see `docs/worker-operations.md`, "Pre-event probe"). **The probe is LEFT DEPLOYED** at
 `28051f5c`.
 
+## FROZEN-METRICS EVENT ROW — the audit and the bar, pre-registered BEFORE any number (2026-09-17, quick task 260917-1zs)
+
+**This section contains no measurement.** It is a field audit and a bar, written and committed BEFORE
+the pricing instrument existed or ran, so the verdict below cannot be judged against a bar chosen
+after seeing its own numbers. Every figure quoted here is an already-published fact cited from
+elsewhere, never a result of this task.
+
+The shape under consideration for option (a): the **event** artifact starts carrying, per match, the
+six teams' frozen metrics as of that match, and the team-season artifact shrinks to a small per-robot
+**index**. The robot page then loads the index, then that robot's own event files.
+
+This is NOT the per-event TEAM artifact that priced out on Class-A PUTs (see TICK SPLITTING below). It
+creates no new objects at all — the event files already exist and are already rewritten on the same
+tick — and it removes twelve whole-season team merges and stringifies from that tick, which is the
+7.6 ± 1.8 ms of a 17.5 ms tick that RE-MEASURED AFTER F2 isolated.
+
+### The field audit
+
+Read, not guessed, from: `apps/web/src/routes/team.$teamNumber.tsx`; `apps/web/src/components/team/`
+(OverviewTab, SeasonHeader, RankCards, TierKeyRow, EventSectionList, EventSection, MatchTable,
+BonusRpDots, matchAxis, metricHistorySeries, MetricHistoryTab, MetricHistoryChart, teamUpcomingOverlay,
+useTeamUpcomingOverlay, TeamStates); `apps/web/src/routes/match.$matchKey.tsx` with
+`apps/web/src/lib/preMatchMetrics.ts` and `apps/web/src/components/match/MatchRobotGrid.tsx`;
+`apps/web/src/components/ribbon/YearSelect.tsx`; and `apps/web/src/lib/officialSnapshot.ts`.
+
+Dispositions: **EVENT-FILE-TODAY** (the event artifact already carries it), **EVENT-FILE-NEW** (the
+event file must start carrying it), **INDEX** (the per-robot index carries it), **NOT CARRIED**
+(neither file would carry it — reported in prose below, never as a footnote).
+
+| Field on the team-season artifact | Read by | Disposition |
+|---|---|---|
+| `teamKey` | EventSectionList, useTeamUpcomingOverlay, route | INDEX |
+| `teamNumber` | route, SeasonHeader nickname fallback | INDEX |
+| `nickname` | SeasonHeader, MatchRobotGrid, route title | INDEX (also EVENT-FILE-TODAY via `teams[].nickname`) |
+| `season` | EventSectionList, teamUpcomingOverlay | INDEX (also EVENT-FILE-TODAY via the artifact preamble) |
+| `seasonStats.record` | SeasonHeader record + win-rate | INDEX |
+| `seasonStats.metrics` | SeasonHeader tiles, route `headerMetrics` fallback, RankCards `worldPercentile` | INDEX |
+| `seasonStats.metricsBasis` | nothing in `apps/web` | INDEX (see finding 4) |
+| `robotImageUrl` | SeasonHeader avatar, MatchRobotGrid | INDEX |
+| `activeYears` | YearSelect's constrained year dropdown | INDEX |
+| `ranks[]` (scope/value/rank/total) | OverviewTab → RankCards | INDEX |
+| `events[].eventKey` | every per-event surface | INDEX |
+| `events[].eventName` | EventSection heading, MetricHistoryChart band labels | INDEX |
+| `events[].startDate` | EventSection date line, `teamEventNeedsLivePricing` | INDEX |
+| `events[].rank`, `events[].totalTeams` | EventSection standing line | INDEX (the event file carries `teams[].rank` but never `totalTeams`) |
+| `events[].matches[].matchKey` | MatchTable, overlay keying, chart tooltip | EVENT-FILE-TODAY |
+| `events[].matches[].compLevel`, `.setNumber`, `.matchNumber`, `.sortTime` | MatchTable label + ordering | EVENT-FILE-TODAY |
+| `events[].matches[].redTeams`, `.blueTeams` | MatchTable roster column, `involves()` filter | EVENT-FILE-TODAY |
+| `events[].matches[].predictedWinner`, `.pRedWin`, `.predictedRedScore`, `.predictedBlueScore` | matchAxis `teamRowPrediction`, MatchTable | EVENT-FILE-TODAY |
+| `events[].matches[].redMatchBandVariance`, `.blueMatchBandVariance` | MatchTable band geometry | EVENT-FILE-TODAY |
+| `events[].matches[].redBonusRp`, `.blueBonusRp` | BonusRpDots | EVENT-FILE-TODAY |
+| `events[].matches[].actualWinner`, `.actualRedScore`, `.actualBlueScore` | MatchTable result, `isUpcoming` | EVENT-FILE-TODAY |
+| `events[].matches[].actualRedBonusRp`, `.actualBlueBonusRp` | BonusRpDots filled state | EVENT-FILE-TODAY |
+| `events[].matches[].coldStart` | MatchTable cold-start marker | EVENT-FILE-TODAY |
+| `events[].matches[].video` | MatchTable video link | EVENT-FILE-TODAY |
+| `events[].matches[].season`, `.eventKey`, `.algorithmId`, `.algorithmVersion` | type-level only; never rendered | EVENT-FILE-TODAY (from the artifact preamble, exactly as shipped `teamRowFromEventRow` already derives them) |
+| `events[].matches[].variance` | nothing; never written by `publish.ts` either | **NOT CARRIED** (finding 1) |
+| the team's UPCOMING rows at an event | MatchTable, teamUpcomingOverlay | EVENT-FILE-TODAY (`upcoming[]`) |
+| `metricHistory[].metrics[key].value` | MetricHistoryChart, EventSection `endOfEventMetrics` tiles, `preMatchMetrics`, `officialSnapshotRow` | **EVENT-FILE-NEW** |
+| `metricHistory[].metrics[key].percentile` | `tierForPercentile` on the EventSection tiles and MatchRobotGrid cells | **EVENT-FILE-NEW** |
+| `metricHistory[].metrics.sigma` (`{ value }` only — no `spread`, no `percentile`, per `metricHistorySchema.ts`) | EventSection `TotalSigmaValue`, MetricHistoryChart's Total ± Sigma band, MatchRobotGrid's joined Total ± Sigma pill | **EVENT-FILE-NEW** |
+| `metricHistory[].metrics[key].spread` | nothing; `MetricValue` refuses to render it and `MetricHistoryChart` bands from `sigma` | **EVENT-FILE-NEW** (carried, unread — finding 3) |
+| `metricHistory[].matchKey` | `officialSnapshotRow`, `preMatchMetrics.asOfMatchKey`, chart tooltip | EVENT-FILE-NEW (it IS the row's own match key, so free) |
+| `metricHistory[].eventKey` | `endOfEventMetrics`, `officialSnapshot` filter, `detectEventBands` | EVENT-FILE-TODAY (the artifact's own `eventKey`) |
+| `metricHistory[].season`, `.algorithmId`, `.teamKey` | type-level only | EVENT-FILE-TODAY (preamble + the row's own team key) |
+| `metricHistory[].matchIndex` | nothing in production web (`buildMetricSeries` deliberately uses array position instead) | **NOT CARRIED** (finding 2) |
+| the pre-match value of a team's FIRST match at an event | `preMatchMetrics` on the match page | **EVENT-FILE-NEW** — only via the per-team entry snapshot (finding 5) |
+
+**Finding 1 — `TeamSeasonMatchSchema.variance` is NOT CARRIED, and that is free.** No event row schema
+has the field, so a rebuilt team row cannot produce it. It is also never written by `publish.ts` and
+never read by `apps/web`: it is a dead optional field, and the shipped `SHARED_ROW_KEYS` list in
+`teamUpcomingOverlay.ts` already omits it while claiming to copy "every field `TeamSeasonMatchSchema`
+shares with the event row schemas". Losing it loses nothing that exists.
+
+**Finding 2 — `MetricHistoryRow.matchIndex` is NOT CARRIED, and that is a real if small loss.** It is
+this team's position in the season-WIDE chronological match stream. Nothing in production web reads it
+— `buildMetricSeries`'s doc comment says plotting it directly would leave gaps and uses array position
+instead — but it is a published quantity that the proposed shape cannot reconstruct exactly: an event
+file knows nothing about the season stream's total order. What the proposed shape CAN reconstruct is
+the team's own chronological ORDER, by sorting its event files by the index's `startDate` and each
+event's rows by `sortTime`. That ordering is what `metricHistory`'s array position means and what
+`preMatchMetrics`, `endOfEventMetrics` and `officialSnapshotRow` all actually depend on. The absolute
+stream index is not recoverable and would have to be dropped from the published contract.
+
+**Finding 3 — `spread` on a history row is carried today and read by nothing.** Every web reader of a
+history row takes `value`, `percentile` or the `sigma` entry; `MetricValue`'s own doc comment records
+that spread must never reach the screen, and `MetricHistoryChart` bands from `sigma` precisely so it
+cannot regress onto `spread`. It is priced below as part of the faithful shape, and reported
+separately, because dropping it is an independent decision this task must not make silently.
+
+**Finding 4 — `seasonStats.metricsBasis` is read by nothing in `apps/web`.** Not a loss (the index can
+carry it at negligible cost), but worth recording: a published field with no reader.
+
+**Finding 5 — the cross-event pre-match value is the one place the shape can silently lose
+information.** `preMatchMetrics(history, matchKey, { played: true })` returns the row PRECEDING the
+match's own row in the team's whole-season array. For a team's first match at an event, that preceding
+row belongs to the PREVIOUS event. The robot page loads all its own event files and so can still find
+it; the MATCH page loads exactly one event file and cannot. The per-team entry snapshot in `teams[]`
+closes this — but it must be ABSENT for a team with no prior play at all, because `preMatchMetrics`
+today returns `undefined` for a played row at index 0, and an entry snapshot present there would start
+printing a pre-match figure where the site currently prints an honest absence.
+
+**One fact that de-risks the whole audit:** `apps/web/src/components/team/teamUpcomingOverlay.ts` is
+already a shipped, tested implementation of "rebuild a team-page match row from an event artifact row".
+Its `SHARED_ROW_KEYS` list plus its preamble-derived identity fields cover every per-match field in the
+table above. The per-match rebuild is not speculative; it runs in production today for live events.
+
+### The row shape and the encoding variants
+
+**Which metric fields travel.** Exactly the record `MetricHistoryRowSchema.metrics` carries, per metric
+key the algorithm publishes: `value`, optional `spread`, optional `percentile` — plus, for SPR, the
+`sigma` entry, which carries `{ value }` only (confirmed against `metricHistorySchema.ts`: no
+`percentile`, because a per-match ranking pool has no meaning, and no `spread`). Sigma is part of the
+frozen row, not an extra: Jacob's 2026-09-17 instruction is that for SPR, Sigma is stored and displayed
+anywhere Total is, and the shipped Total ± Sigma pill on both MatchRobotGrid and the team page's event
+tiles reads a history row's `sigma` entry. `percentile` is present only for the keys in
+`percentiles.ts`'s `HISTORY_PERCENTILE_METRIC_KEYS` (the three component-group keys plus `total`).
+
+**Rounding.** `publish.ts`'s existing `roundTeamMetricRecord` rule, reused verbatim, applied through
+`roundMetricHistoryRow` at `buildTeamSeasonArtifact`'s boundary as it is today: `value` and `spread` at
+`ROUNDING_RULE.metric`, `percentile` passed through already-rounded from `percentiles.ts`. No second
+rounding rule is invented.
+
+**As-of instant.** The AFTER-match value per played row, so `metricHistorySeries`, `officialSnapshot`
+and `endOfEventMetrics` semantics are unchanged, PLUS one per-team entry snapshot in `teams[]` (that
+team's metrics as of arrival at the event) so the pre-match value of its first match at the event is
+recoverable inside the one file — subject to finding 5's absence rule.
+
+**The four encoding variants to price** (the field list alone does not fix the byte cost):
+
+- **(A)** metrics embedded per played row, keyed by team key.
+- **(B)** a per-team timeline in `teams[]`, one entry per match that team played, team key and metric
+  keys stated once.
+- **(C)** a positional encoding with a `metricKeys` header — the pattern `TeamsArtifactWireSchema` /
+  `PositionalMetricEntrySchema` already uses and which already measured a large saving on the teams
+  artifact.
+- **(D)** any of the above with `percentile` carried only on a team's LAST row at the event rather than
+  on every row.
+
+### The bar for the frozen row, pre-registered BEFORE the run
+
+All four must hold for a GO. A pass that holds for one encoding variant and not others is reported as
+GO-with-that-variant, naming it.
+
+1. **Ceiling headroom** — the largest proposed event artifact in either priced season is at or under
+   280,000 bytes (80 percent of the 350,000 event ceiling), and the priced seasons' p95 proposed event
+   artifact is at or under 175,000 bytes.
+2. **Robot page wire** — at the calibrated brotli quality, a 2-event robot is at or under 45 KB, a
+   5-event robot at or under 110 KB, and the worst-case robot in the priced seasons at or under
+   220 KB, counting the index plus every event file it must load. Recorded beside the bar: today's
+   measured wire figures are 4.9 KB and 9.8 KB, so this bar tolerates roughly an 11x regression and is
+   chosen against a page-load target, not against parity.
+3. **Storage** — added event bytes across the full 7,509-object population are at least 1.5 GB below
+   the about 2.9 GB freed by shrinking team files to an index, so the bucket strictly shrinks.
+4. **Recoverability** — every field in the audit table is recoverable from the index plus the robot's
+   own event files, with nothing NOT CARRIED.
+
+Condition 4 already has two known NOT CARRIED rows (findings 1 and 2) before a byte is measured. That
+is stated here, before the run, rather than discovered afterwards.
+
 ## TICK SPLITTING — what the platform actually allows (researched 2026-09-17, official docs)
 
 Jacob chose to investigate tick splitting (2026-09-17) after per-event team artifacts priced out:
