@@ -1722,3 +1722,282 @@ the instruments never need and must never be given `--env-file`), `dryRun: true`
 non-UUID generation marker that could not be mistaken for a real one. `measureReplayParity.test.ts`
 scans the instruments' own source for each of these rather than trusting that they were remembered.
 
+
+## REPLAY PARITY — the numbers (2026-09-17, quick task 260917-mwu)
+
+**Half A: IT DID NOT WORK.** A browser-safe fold starting from the pre-event state block and
+replaying only that event's own matches does NOT reproduce the published rows, on any of the three
+events, and the differences are architectural rather than fixable by shipping one more passenger.
+
+**Half B: INCONCLUSIVE, and the margin is shrinking.** Three real engines produce different
+unrounded intermediates; the publisher's rounding absorbed every one of them on both events
+measured, but the margin fell from 3,580x the largest engine difference on a 99-match event to
+**84x on a 141-match event**. The absorption is a property of these events, not a guarantee.
+
+Neither verdict is read against anything but the bar committed in the section above, at
+`762c9237`, before the instrument existed (`d2ccd084`, `ac06ba98`).
+
+### Provenance
+
+`npx tsx scripts/measureReplayParity.ts --events 2026arc,2026nyro,2026auwarp` and
+`npx tsx scripts/measureEngineDeterminism.ts --events 2026nyro` / `--events 2026arc`, against
+`data/corpus.sqlite` opened read-only, seasons `[2025, 2026]` with 2025 as warm-up, `spr@5.0.0`,
+`dryRun: true`, `skipState: true`, generation `REPLAY-PARITY-DRY-RUN-260917-mwu-NOT-A-GENERATION`.
+Nothing was uploaded, deployed, signed, or read from the environment.
+
+### The validity gate — and what it caught
+
+| Event | played | roster | arm C | arm M | gate |
+|---|---|---|---|---|---|
+| `2026arc` | 141 | 75 | EXACT | EXACT | PASSED |
+| `2026nyro` | 99 | 55 | EXACT | EXACT | PASSED |
+| `2026auwarp` | 65 | 27 | EXACT | EXACT | PASSED |
+
+**The gate earned its place on the first three-event run**, where `2026auwarp` failed it: arm C and
+arm M both missed the published match band on all 65 rows and 37 metric-history values. The cause
+was in the harness, not the finding — `teamsThisSeason` had been built from the played stream alone,
+omitting `publish.ts`'s demo-key filter (`frc9970`-`frc9999`) and its scheduled-match teams, and
+`spr.initState` seeds `state.teams` from exactly that list. The pass was DISCARDED rather than
+interpreted, the list was corrected to the publisher's own expression, and the gate now passes on all
+three. Had the gate not been there, `2026auwarp`'s numbers would have been read as a finding about
+demo events.
+
+That arm M passes at all is worth stating separately: the instrument's `MirrorFold` reproduces
+`SigmaScoutLayer` exactly, cold-started over a whole season, on all three events. So nothing below
+can be blamed on — or excused by — the re-implementation that arm R needs.
+
+### Half A, field by field
+
+Every difference carries an attribution from the pre-registered taxonomy. Counts are event-artifact
+played rows; the team-season rows and the metric-history rows fail the same fields with the same
+magnitudes, and are listed in the machine-readable report rather than repeated here.
+
+**`2026arc` — 18/48 tested fields exactly equal. First divergence: `qm2`, the SECOND match.**
+
+| field | rows differing | max diff (rounded) | attribution |
+|---|---|---|---|
+| `pRedWin` | 137/141 | 0.0379 | INTERLEAVE |
+| `predictedRedScore` | 140/141 | 124.22 points | INTERLEAVE |
+| `predictedBlueScore` | 140/141 | 109.96 points | INTERLEAVE |
+| `redScoreVarianceOwn` | 140/141 | 9024.09 | INTERLEAVE |
+| `redMatchBandVariance` | 140/141 | 16449.3 | INTERLEAVE |
+| `redRpPmf` | 124/141 | 0.01858 | INTERLEAVE |
+| `matchOutcomePmf` | 124/141 | 0.03101 | INTERLEAVE |
+| `redBonusRp` | 123/141 | 0.0093 | INTERLEAVE |
+| `predictedWinner` | 1/141 | — (the pick itself flips) | INTERLEAVE |
+
+**`2026nyro` — 18/48 tested fields exactly equal. First divergence: `qm9`.**
+
+| field | rows differing | max diff (rounded) | attribution |
+|---|---|---|---|
+| `pRedWin` | 89/99 | 0.1628 | INTERLEAVE |
+| `predictedRedScore` | 91/99 | 49.41 points | INTERLEAVE |
+| `predictedBlueScore` | 91/99 | 53.25 points | INTERLEAVE |
+| `redMatchBandVariance` | 91/99 | 1596.42 | INTERLEAVE |
+| `redRpPmf` | 75/99 | 0.09272 | INTERLEAVE |
+| `matchOutcomePmf` | 75/99 | 0.16249 | INTERLEAVE |
+| `predictedWinner` | 5/99 | — | INTERLEAVE |
+
+**`2026auwarp` — 18/37 tested fields exactly equal. First divergence: `qm1` for the band, `qm36` for
+everything else.**
+
+| field | rows differing | max diff (rounded) | attribution |
+|---|---|---|---|
+| `redMatchBandVariance` | **65/65, from match 1** | 3362.48 | **WIRE** |
+| `blueMatchBandVariance` | **65/65, from match 1** | 3116.51 | **WIRE** |
+| `pRedWin` | 28/65 | 0.2308 | INTERLEAVE |
+| `predictedRedScore` | 30/65 | 43.89 points | INTERLEAVE |
+| `predictedWinner` | 3/65 | — | INTERLEAVE |
+
+**16 of `2026auwarp`'s 53 fields are VACUOUS, not passing.** `event_type` 99 has no
+`EVENT_TYPE_TIERS` entry, so the event is RP-ineligible and the published rows carry no
+`redRpPmf`, `blueRpPmf`, `matchOutcomePmf`, `redBonusRpPmf`, `blueBonusRpPmf`, `redBonusRp` or
+`blueBonusRp` at all. Both sides omit those keys, so they compare equal — and that equality says
+nothing whatever about RP. The instrument reports them as NOT TESTED rather than green.
+`coldStart` is vacuous on all three events for the same reason: with 2025 replayed as warm-up, no
+2026 match is a corpus-global cold start, so zero rows carry the key.
+
+### INTERLEAVE is measured here, not inferred
+
+The instrument records, per match, the state arm R predicted from against the state the PUBLISHER
+predicted from. That turns the attribution into a measurement:
+
+| | `2026arc` | `2026nyro` | `2026auwarp` |
+|---|---|---|---|
+| `scale` error at the event's FIRST match | 0.0000% | 0.0000% | 0.0000% |
+| `scale` error at its LAST match | -19.11% | +26.26% | +3.15% |
+| worst `scale` error | 19.21% | 51.51% | 3.36% |
+| `logTau` error at the last match | +3.6e-2 | -1.0e-1 | +1.0e-2 |
+| other events' matches MISSED by the last match | **972** | **1,419** | **43** |
+| first match at which `scale` drifts | `qm2` | `qm9` | `qm36` |
+
+The block hands the replay a perfect state: at match 1 the error is exactly zero, on every event.
+It is the **972 to 1,419 matches from OTHER events**, played between this event's first and last
+and therefore invisible to a browser holding one event's files, that move `scale` and `logTau`. And
+the per-team filter state is NOT spared — max |diff| 0.12 (arc), 0.54 (nyro) — because `spr.update`
+normalizes each observation by `scale`, so a wrong league scalar corrupts every per-team filter it
+touches. The trajectory shows the compounding directly: `2026nyro`'s `pRedWin` error is exactly
+0 for eight matches, then 1.2e-4, then 3.0e-4, and ends at 0.16.
+
+This is the structural fact the pre-registration named in advance, now with a size attached. It is
+not fixable by shipping another passenger, because the missing information is *a thousand other
+matches*.
+
+### The WIRE loss is real, and it is a defect in the shipped passenger chain
+
+`2026auwarp`'s match band is wrong at match 1, before interleaving can have moved anything. Arm R'
+does not repair it, which under the original attribution rule would have read as INTERLEAVE — the
+rule was corrected so that first-match divergence outranks arm R', because arm R' still builds its
+state through the same passenger chain and can only see the serialization step.
+
+Measured cause: **13 Sigma beliefs and 6 RP beliefs are silently dropped** by `seedStateRows` on
+that event. `withSigmaBeliefs`/`withRpBeliefs` inject a belief into an EXISTING level-1 team row and
+return the row unchanged when there is none. Demo robots have no SPR team row — `publish.ts` filters
+`frc9970`-`frc9999` out of `teamsThisSeason`, and `remapDemoTeams` folds them into
+`DEMO_PSEUDO_TEAM_KEY` — yet `SigmaScoreAccumulator` keeps a belief under each RAW demo key, because
+a partly-demo alliance still folds. Those beliefs have nothing to ride on and vanish with no error
+on either side.
+
+**This is not only a relay problem.** The same chain builds the D1 seed and every shipped event
+`state` block, so the live Worker resumes an offseason event's demo robots from the flat prior while
+the offline publisher used real beliefs. The published band for an offseason demo event and the live
+band for the same match are therefore not equal by construction, contrary to what the chain's own
+doc comment claims. Filed as a follow-up below; it is out of scope for this measurement task.
+
+### Half B — three engines, and a fourth arm that makes them readable
+
+Bundle: 705-722 KB IIFE from `browserFoldEntry.ts`, all 9 source-module markers asserted present
+before any engine launched. Engines that RAN, on `about:blank`, no network:
+
+| arm | engine | version |
+|---|---|---|
+| `node-source` | V8 (Node, TS source) | v24.15.0 |
+| `node-bundle` | V8 (Node, same bundle) | v24.15.0 |
+| `chromium` | V8 | 151.0.7922.34 |
+| `webkit` | JavaScriptCore | 26.5 |
+| `firefox` | SpiderMonkey | 153.0 |
+
+**No engine was NOT RUN.** All three distinct engines launched and evaluated the bundle.
+
+**The harness control passed:** `node-source` and `node-bundle` are bit-identical across all 14,479
+(`2026nyro`) and 20,872 (`2026arc`) floats, on both arms. esbuild's bundling moves no number, so
+every difference below is the engines.
+
+Pairwise, on the `resumed` arm (the relay's own shape), for `2026nyro` / `2026arc`:
+
+| pair | unrounded | rounded | floats differing | max ulp | max abs |
+|---|---|---|---|---|---|
+| node ↔ firefox | **IDENTICAL** | IDENTICAL | 0 / 0 | 0 | 0 |
+| node ↔ chromium | DIFFER | IDENTICAL | 458 / 530 | 190 / 512 | 1.8e-12 / 1.4e-14 |
+| node ↔ webkit | DIFFER | IDENTICAL | 437 / 513 | 150 / 512 | 1.8e-12 / 1.4e-14 |
+| chromium ↔ webkit | DIFFER | IDENTICAL | 23 / 28 | 190 / 4 | 8.9e-16 / 2.2e-16 |
+| chromium ↔ firefox | DIFFER | IDENTICAL | 458 / 530 | 190 / 512 | 1.8e-12 / 1.4e-14 |
+| webkit ↔ firefox | DIFFER | IDENTICAL | 437 / 513 | 150 / 512 | 1.8e-12 / 1.4e-14 |
+
+The `coldLayer` arm — the SHIPPED `SigmaScoutLayer` itself, cold-started over the same matches —
+behaves the same way, so this is a property of the real classes and not of the mirror.
+
+Three things worth naming:
+
+1. **Node 24's V8 and Firefox's SpiderMonkey agree bit for bit**, while Chrome 151's V8 does not
+   agree with Node's. Two builds of the SAME engine family disagree. "Which engine" is the wrong
+   question; "which build" is the right one, and the site does not control it.
+2. **Max ulp distance grows with event length** — 190 over 99 matches, 512 over 141. That is the
+   compounding the fold's structure predicts: a one-ulp difference in `Math.exp(logTau)` feeds
+   `pRed`, feeds `grad`, feeds the next match's `logTau`.
+3. **Every rounded digest is identical, on every pair, on both events and both arms.** No published
+   number moved.
+
+### How much room rounding actually had — and why that is the worrying number
+
+Largest engine difference anywhere, against the closest any published value came to flipping its
+last published digit:
+
+| rule | `2026nyro` margin | `2026arc` margin |
+|---|---|---|
+| probability (4 dp) | 3.12e4x | 9.60e2x |
+| score (2 dp) | 1.89e7x | 4.52e4x |
+| variance (4 dp) | 6.52e3x | 1.44e4x |
+| **pmf (5 dp)** | **3.58e3x** | **8.43e1x** |
+| metric (2 dp) | 4.69e4x | 4.39e4x |
+
+The tightest margin fell from 3,580x to **84x** between a 99-match event and a 141-match one. Both
+the engine divergence and the number of published values grow with event length, and the margin is
+the ratio of a fixed rounding grid to a growing error. **84x on the largest event in the corpus is
+not a guarantee**; it is a measurement on two events, and the trend across those two events points
+the wrong way.
+
+### Verdicts against the committed bar
+
+- **Half A: IT DID NOT WORK.** Criterion 1 of "IT DID NOT WORK" is met on all three events —
+  differences survive rounding and are attributed to INTERLEAVE. Criterion 3 is also met: the
+  exception list grew by one entry that was not foreseen (the dropped-passenger WIRE loss).
+- **Half B: INCONCLUSIVE.** Exactly the pre-registered inconclusive case: the unrounded digests
+  differ, the rounded ones agree. **This is not reported as a pass**, per the section above, because
+  the absorption is a property of these two events rather than a guarantee — and the margin shrank
+  by a factor of 42 between them.
+
+### RECOMMENDATION — the relay is NOT viable in the form this experiment tested
+
+Not because the browser cannot fold. It can: the fold is the right code, the state block hands it a
+provably perfect starting point, and three real engines run it without any published number moving.
+It fails for a reason that has nothing to do with the browser at all.
+
+**SPR's league-scoped quantities make a one-event replay structurally wrong.** `scale` is a ~100-match
+trailing EWMA over the globally interleaved stream, and `logTau` is an online link temperature
+stepped once per match, league-wide. Between `2026arc`'s first and last match, 972 matches from seven
+sister divisions stepped both. A browser holding one event's files cannot see them, so `scale` ends
+19% wrong, `logTau` 0.036 wrong, and — because `update` normalizes by `scale` — every per-team filter
+it touches is wrong too. The resulting errors are not marginal: **124 points on a predicted score,
+0.16 on a win probability, and 5 of 99 predicted winners flipped**. Nothing about rounding, or
+engines, or a cleverer wire format touches any of that.
+
+**What a correct browser fold would have to be, given the interleave structure.** Three shapes
+survive the measurement, in increasing order of honesty about what they cost:
+
+1. **Ship the league scalars as a per-match passenger.** The event artifact would carry, per played
+   match, the `(scale, scaleCount, logTau, phaseScale, phaseScaleCount)` the publisher held at that
+   instant, and the browser would fold using those rather than deriving them. This is exact by
+   construction, because it stops the browser deriving the one thing it cannot see. Cost: five extra
+   numbers per played row. It also means the browser is no longer *replaying* — it is re-evaluating a
+   trajectory the server already computed, which is a much weaker claim and should be described that
+   way rather than as a relay.
+2. **Make the league scalars event-scoped in the model.** This would make a one-event fold correct
+   by construction and needs no passenger at all — but it changes SPR's published numbers, so it is a
+   model change requiring a new version, a walk-forward re-evaluation and Rule A, not an
+   architectural change. It should be argued on accuracy, never on making a relay convenient.
+3. **Fold only the matches since the last publish, not the whole event.** If the browser is handed a
+   state block as of the most recent tick rather than as of the event's start, the drift is bounded by
+   the handful of league steps that occurred in the last minute or two rather than by a thousand. This
+   is the only one of the three that is purely architectural, and the measurement says nothing about
+   it — the drift at match 1 is zero, at match 2 is already 6.4e-4 on `2026arc`, and nobody has
+   measured where between "one match" and "a whole event" the error crosses the rounding grid. **That
+   is the next measurement, and it is a small one.**
+
+**What this evidence does NOT say.** It does not say browser folding is slow — CPU cost was not
+measured. It does not say the subrequest or artifact-write arithmetic works out; those are the
+questions the rest of this todo is about and this task did not touch them. It does not say the
+engines agree — they demonstrably do not; it says the publisher's rounding grid was 84x to 1.9e7x
+coarser than their disagreement on two events. It says nothing about a third event, a different
+season, or a future engine build, and the one trend it does show across two events is the margin
+narrowing. And it does not say the RP path is engine-safe on an RP-INELIGIBLE event: `2026auwarp`
+publishes no RP fields at all, so RP was tested on two events, not three.
+
+**Do not build the relay on this evidence.** The cheap next step is direction 3's bounded-drift
+measurement; the honest fallback is direction 1, renamed.
+
+### Follow-ups this measurement creates
+
+- **The passenger chain drops level-2 beliefs for any team with no level-1 row.** Measured: 13 Sigma
+  and 6 RP beliefs on `2026auwarp`. This affects the SHIPPED D1 seed and every shipped event `state`
+  block, not just this experiment — a live tick resumes an offseason demo robot from the flat prior
+  where the offline publisher had a real belief, so `seedStateRows`'s "equal by construction" claim
+  does not hold for offseason demo events. Small, self-contained, and worth its own quick task.
+- **`SigmaScoutLayer` has no resume-from-state constructor**, and its three accumulators are private.
+  Any future work that folds played matches outside `publish.ts` needs one; this task worked around it
+  with a gated mirror (`scripts/replayParityMirror.ts`) rather than changing shipped code.
+- **A relay would need three passengers the published rows do not carry today**: the score breakdown
+  (`spr.update` subtracts fouls and `adjustPoints` from it, and the RP threshold fold parses it), the
+  DQ lists (the Sigma fold skips a fully-DQ'd zero-scored alliance), and the corpus-global cold-start
+  flag. The first is the large one — a raw breakdown per played match is not a small payload.
+
