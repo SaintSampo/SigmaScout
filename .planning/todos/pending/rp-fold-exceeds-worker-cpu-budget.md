@@ -386,6 +386,310 @@ GO-with-that-variant, naming it.
 Condition 4 already has two known NOT CARRIED rows (findings 1 and 2) before a byte is measured. That
 is stated here, before the run, rather than discovered afterwards.
 
+## FROZEN-METRICS EVENT ROW — the numbers (2026-09-17, quick task 260917-1zs)
+
+**Verdict up front: NO-GO.** The cheapest encoding that carries everything published today misses
+three of the four pre-registered conditions. Details, condition by condition, at the end of this
+section.
+
+### Provenance
+
+Instrument: `scripts/priceFrozenEventRow.ts`, committed at `1624505c`. It runs the real
+`publishSeasons` against `data/corpus.sqlite` with `dryRun: true`, `skipState: true`,
+`includeOffseason: true`, `preScheduleFromSeason: 9999`, `algorithms: resolvePublishAlgorithms("spr")`,
+`generation: "PRICING-DRY-RUN-260917-1zs-NOT-A-GENERATION"`, `computedAt: "2026-09-17T00:00:00.000Z"`,
+and reads every artifact body through the new inert `artifactSink` on `PublishSeasonsOptions`. No
+network, no `.env`, no environment read, no R2 client — asserted by a static scan in
+`scripts/priceFrozenEventRow.test.ts`.
+
+- **Arm A** — seasons `[2016]`, pricing 2016. 182 event bodies, 3,185 team bodies, 10 s.
+  Reproduces production's cold start for `2016micmp` exactly, 2016 being the first published season.
+- **Arm B** — seasons `[2025, 2026]`, pricing 2026 only, 2025 present as warm-up. 260 event bodies,
+  3,722 team bodies, 39 s.
+- Reports: `reports/frozen-row-pricing/arm-a.json`, `arm-b.json`, `summary.json` (gitignored).
+
+**Instrument calibration, against the published `228,971 B` for
+`v1/event/2016micmp/spr@4.0.0+baseline.json`:** the instrument measures `228,978 B`. The difference is
+exactly `7` bytes and it is fully explained — a published generation is a 36-character UUID and this
+run's marker string is 43 characters, carried once per artifact. **Residual after that overhead: 0 B.**
+The instrument reproduces the published figure exactly.
+
+**Brotli calibration.** Two qualities were not enough to pick one, so four were measured against the
+two known wire figures (`frc254` 10.9 KB, `frc2481` 9.8 KB, both 2026 team artifacts). Arm B measured
+`frc254` at q4 14.9 / q5 13.7 / q6 13.6 / **q11 10.7 KB**, and `frc2481` at q4 13.3 / q5 12.3 / q6 12.2
+/ **q11 9.6 KB**. **Quality 11 lands within 2% of both; q5 is 26% high.** Every brotli figure below is
+q11. The residual (~0.2 KB high on both known figures) is consistent with the known figures including
+HTTP framing that a raw `brotliCompressSync` does not.
+
+**One inconsistency in the pre-registered bar itself, recorded rather than silently resolved.**
+Condition 2 records "today's measured wire figures are 4.9 KB and 9.8 KB" for the 2-event and 5-event
+robots. The measured 2026 figures are 5.0 KB (`frc10428`, 2 events) and 10.7 KB (`frc254`, 5 events);
+arm A's 2016 robots measure 3.9 KB and 5.6 KB. The 4.9 KB does not correspond to either arm's 2-event
+robot at q11. **The verdict is judged against the bar's LIMITS (45 / 110 / 220 KB), which are
+unambiguous; the parenthetical today-figures are treated as context, and this section reports its own
+measured today-figures beside every proposed one.**
+
+**The variants priced.** The four the audit named, crossed with sigma-on/off so sigma's cost is visible
+rather than buried, plus three narrower sets measured so a NO-GO could NAME what would pass instead of
+guessing: `N0-no-spread` (drop the unread `spread`), `N1b-total+sigma-no-spread` (only `total` and
+`sigma`, no spread), `N2-end-of-event` (one row per team per event instead of a per-match series).
+
+**The field list priced, stated explicitly.** Every key
+`MetricHistoryRowSchema.metrics` carries for SPR, at the publisher's own rounding. Arm A's real record
+is `{"total":{"value","spread","percentile"},"sigma":{"value"}}` — **2016 SPR publishes no phase
+components at all**, which is why arm A's per-row rate is less than half arm B's. Arm B's real record
+is `{"total","phaseAuto","phaseTeleop","phaseEndgame"}` each with `value`+`spread`+`percentile`, plus
+`"sigma":{"value"}`. **`sigma` is in the priced set, confirmed against `metricHistorySchema.ts` to
+carry `{ value }` only — no `spread`, no `percentile`.**
+
+Nothing in this section changes a claim elsewhere in this todo. It does not re-measure the 7.6 ms team
+half; it takes it from RE-MEASURED AFTER F2 unchanged.
+
+### Per event
+
+Raw bytes / brotli-q11 bytes. `today` is the published shape; every other row is that same artifact
+with the frozen metrics attached.
+
+**Arm A (2016) — the five named events resolved to four distinct keys, `2016micmp` being both the max
+and the largest roster.**
+
+| Event | played | teams | today | A | B | C | D-C | D-C/no-sigma |
+|---|---:|---:|---|---|---|---|---|---|
+| `2016micmp` (max, largest roster) | 241 | 102 | 228,978 / 32,064 | 374,553 / 47,902 | 416,475 / 47,470 | 300,880 / 45,586 | **294,382 / 43,937** | 283,428 / 40,943 |
+| `2016necmp` (p95) | 142 | 63 | 137,268 / 19,657 | 223,209 / 29,319 | 247,831 / 28,865 | 179,612 / 27,808 | **175,775 / 26,853** | 169,290 / 24,924 |
+| `2016njtab` (median) | 91 | 38 | 86,051 / 12,543 | 138,714 / 18,845 | 154,225 / 18,548 | 111,644 / 17,996 | **109,282 / 17,020** | 105,380 / 15,911 |
+| `2016flpp` (smallest with play) | 16 | 33 | 15,502 / 2,502 | 26,567 / 3,940 | 29,447 / 3,876 | 21,294 / 3,873 | **21,001 / 3,728** | 20,169 / 3,474 |
+
+**Arm B (2026).**
+
+| Event | played | teams | today | A | B | C | D-C | D-C/no-sigma |
+|---|---:|---:|---|---|---|---|---|---|
+| `2026mrcmp` (max) | 147 | 66 | 164,463 / 24,830 | 429,494 / 55,170 | 454,914 / 54,114 | 260,112 / 50,745 | **244,510 / 45,686** | 237,027 / 43,385 |
+| `2026pncmp` (p95) | 115 | 50 | 127,670 / 19,461 | 334,801 / 42,975 | 354,389 / 42,266 | 202,291 / 39,515 | **190,007 / 35,737** | 184,185 / 33,958 |
+| `2026nyn2` (median) | 80 | 39 | 87,462 / 13,439 | 227,606 / 29,824 | 240,782 / 29,220 | 137,227 / 27,428 | **129,013 / 24,510** | 125,043 / 23,252 |
+| `2026arc` (largest roster) | 141 | 75 | 163,516 / 24,688 | 422,678 / 53,849 | 445,248 / 52,842 | 256,377 / 49,695 | **241,583 / 45,606** | 234,311 / 43,404 |
+| `2026txcmp` (smallest with play) | 2 | 6 | 3,879 / 1,004 | 8,943 / 1,471 | 9,345 / 1,469 | 5,883 / 1,622 | **5,773 / 1,600** | 5,622 / 1,562 |
+
+**The winning encoding is C, and D-C is the cheapest form of it that loses nothing published.**
+Positional encoding with a per-artifact `metricKeys` header beats the per-row object form by a wide
+margin in raw bytes — on `2026mrcmp`, 260,112 B against A's 429,494 B, a 39% saving — and the saving
+survives brotli (50,745 vs 55,170). **Variant B is the worst of the three everywhere**: laying the
+timeline out per team replaces a ~9-byte team key per record with a ~15-byte match key per record.
+Carrying `percentile` only on a team's last row at the event (the D form) is worth a further 3-6% raw
+in 2016 and 6-9% in 2026, and loses nothing the site renders, because only the end-of-event tile reads
+a history row's percentile.
+
+**Sigma's own contribution, reported separately.** Comparing D-C with D-C/no-sigma:
+
+| Measure | with sigma | without | sigma's cost |
+|---|---|---|---|
+| added bytes per played row, 2016 | 261 ± 22 | 217 ± 19 | **44 B/row** (~7 B per team-match) |
+| added bytes per played row, 2026 | 515 ± 65 | 466 ± 61 | **49 B/row** (~8 B per team-match) |
+| `2016micmp` raw | 294,382 | 283,428 | 10,954 B |
+| `2026mrcmp` raw | 244,510 | 237,027 | 7,483 B |
+| 5-event 2026 robot's whole wire, brotli | 138,900 | 132,172 | **6,728 B (6.6 KB, 4.8%)** |
+| extrapolated bucket-wide added | 0.225 GB | 0.199 GB | **~26 MB** |
+
+**Sigma is not why the bar fails.** Removing it entirely still leaves D-C/no-sigma over condition 1's
+ceiling (283,428 B against 280,000) and nearly 20 KB over condition 2's 5-event limit. It costs about
+8 bytes per team per match, which is what a `{"sigma":[N]}` positional slot costs and no more.
+
+### Population and ceiling
+
+Raw bytes throughout — `assertWithinPageBudget` measures `Buffer.byteLength`, and R2 stores what is
+uploaded, so compression is irrelevant to both the ceiling and the storage figure.
+
+| Variant | new max event file | vs 350,000 ceiling | new p95 | added/played-row (2016 / 2026) |
+|---|---:|---|---:|---|
+| A | 429,494 | **OVER the ceiling** | 334,834 | 591 ± 30 / 1,727 ± 165 |
+| B | 454,914 | **OVER the ceiling** | 355,054 | 759 ± 32 / 1,893 ± 178 |
+| C | 300,880 | 86% of it | 202,956 | 287 ± 21 / 617 ± 67 |
+| **D-C** | **294,382** | **84% of it** | **190,786** | 261 ± 22 / 515 ± 65 |
+| D-C/no-sigma | 283,428 | 81% | 184,930 | 217 ± 19 / 466 ± 61 |
+| N0-no-spread | 286,608 | 82% | 176,877 | 232 ± 22 / 400 ± 64 |
+| N1b-total+sigma-no-spread | 286,608 | 82% | 171,188 | 232 ± 22 / 236 ± 32 |
+| N2-end-of-event | 240,397 | 69% | 145,500 | 51 ± 30 / 92 ± 72 |
+
+**Variants A and B would break the publisher outright** — `BoundedUploader.#record` throws
+`PublishBudgetExceededError` above 350,000, in dry-run runs too, so neither is a live option at all,
+independent of any bar.
+
+**The binding event in every variant is `2016micmp`**, and it binds for a structural reason: it is
+already the largest published event object at 228,971 B (65% of the ceiling before anything is added),
+with 241 played matches and a 102-team roster. A cost that is per-match-per-team lands hardest exactly
+where the headroom is smallest. Note that `N0-no-spread` and `N1b-total+sigma-no-spread` have the SAME
+2016 figure — in 2016 the two narrowings are the same narrowing, because SPR's 2016 record already
+carries only `total` and `sigma`.
+
+**Storage extrapolation, with its inputs shown.** Inputs: played match rows in the corpus, counted
+directly — 80,791 for 2016-2020 and 104,650 for 2022-2026, 185,441 total; the per-played-row rate from
+each arm; `algorithmCount` 3; `teamObjects` 101,397; `freedPerTeamObject` 27,743 B, being the published
+`team` median of 28,811 B minus the mean measured index of 1,068 B.
+
+| Variant | added (split estimate) | range (all-rows-at-2016-rate — at-2026-rate) | freed by the index | net |
+|---|---|---|---|---|
+| C | 0.263 GB | 0.159 - 0.343 GB | 2.813 GB | **-2.550 GB** |
+| **D-C** | **0.225 GB** | 0.145 - 0.287 GB | 2.813 GB | **-2.588 GB** |
+| N1b | 0.130 GB | 0.129 - 0.131 GB | 2.813 GB | -2.683 GB |
+| N2 | 0.041 GB | 0.028 - 0.051 GB | 2.813 GB | -2.772 GB |
+
+The measured index is tiny and stable: **mean 941 B in 2016 (n=3,185) and 1,196 B in 2026 (n=3,722),
+max 2,138 B**, against team artifacts averaging 30,990 B and 42,384 B. Shrinking the team artifact to
+an index removes roughly 97% of it. **The bucket shrinks by about 2.6 GB under every variant** — this
+is the one condition the shape passes comfortably, and it passes it by more than an order of magnitude.
+
+### The robot page end to end
+
+Read model: the index first, then that robot's event files **in parallel** (Jacob's chosen "index +
+event files, with prefetch", 2026-09-17). Brotli q11. `today` is one team artifact.
+
+| Arm | Robot | events | today | index | its event files TODAY | D-C total | N2 total | requests | serial hops |
+|---|---|---:|---|---|---|---|---|---:|---:|
+| A | `frc343` | 2 | 3,983 | 868 / **417** | 27,860 | **38,403** | 30,103 | 3 | 2 |
+| A | `frc1289` | 5 | 5,596 | 1,239 / **503** | 35,337 | **50,041** | 39,039 | 6 | 2 |
+| A | `frc1058` | 11 | 14,453 | 1,861 / **635** | 109,344 | **156,751** | 120,683 | 12 | 2 |
+| B | `frc10428` | 2 | 5,110 | 1,004 / **464** | 24,013 | **43,790** | 26,928 | 3 | 2 |
+| B | `frc254` | 5 | 10,985 | 1,539 / **583** | 74,945 | **138,900** | 89,387 | 6 | 2 |
+| B | `frc1768` | 10 | 19,200 | 2,111 / **700** | 118,903 | **231,907** | 144,477 | 11 | 2 |
+
+**The serial-hop cost, called out separately from the byte cost.** The robot page pays **two** serial
+round trips where it pays one today: the index has to arrive before its `events[]` names the event
+files to fetch. The event files themselves then fetch in parallel, so the hop count is 2 regardless of
+whether the robot played 2 events or 11. At a typical CDN round trip this is roughly +40-60 ms of
+latency before the first event byte moves, on top of the byte cost. The `events/{year}` artifact the
+team page already fetches for `officialSnapshot` needs only the year, so it can go out in parallel with
+the index and adds no hop — it does add one request, making the full count `N + 2` against today's 2.
+
+**Can a direct link skip the index?** **No.** The route knows only `teamNumber` and `year`. Nothing
+already fetched names a given robot's events: `EventsListRowSchema` in the `events/{year}` artifact
+carries `teamCount` but no team keys, and the `teams/{year}` artifact carries one row per team with no
+event list. The index hop is unavoidable on a cold direct link — which is exactly the shared-URL case.
+
+**What prefetch buys.** It removes the second hop only for in-app navigation, by fetching the index on
+link hover or on render of a list that links to the robot. For a cold direct link it buys nothing, and
+a shared team URL is the case that matters most. Prefetch is a mitigation for the hop, not for the
+bytes: the byte totals above are unchanged by it.
+
+### What gets worse
+
+**The robot page's cold load, badly, and mostly not for the reason the design is about.** A 5-event
+2026 robot goes from **10.7 KB brotli in one request** to **135.6 KB in six requests across two serial
+hops** — a 12.7x regression. The worst-case 2026 robot goes from 18.8 KB to 226.5 KB in eleven requests.
+
+**And the frozen metrics are not the main cause.** `frc254`'s five 2026 event files already cost
+**74,945 B brotli today**, before a single frozen metric is added. Even a *free* frozen row would leave
+that robot at about 73 KB — still 6.8x today's 10.7 KB. **The structural cost is that the robot page
+starts downloading every other team's matches at each of its events**, so a robot that attended a
+75-team championship division pays for all 75 teams to read its own six matches. No encoding fixes
+that, because it is not an encoding problem. Any variant that clears condition 2 does so by shrinking
+the addition, never by shrinking the floor.
+
+**The many-event robot is the worst case and it is not rare.** Ten and eleven events is a normal season
+for an active team (offseasons count), and the cost is strictly linear in event count while today's
+single team artifact is sublinear in it.
+
+**Consumers that REGRESS:**
+- The **Metric History tab** regresses hardest. It plots a whole-season series, so it needs *every*
+  event file — there is no lazy path where opening the Overview tab avoids the cost.
+- **`officialSnapshot.ts`** regresses the same way: the last-official-match snapshot is a scan over the
+  whole season's rows, so it needs every event file (it already fetches `events/{year}` for the
+  officialness flags, which is unchanged).
+- **`EventSection`'s `endOfEventMetrics`** is the one per-event reader, and it is fine — but it cannot
+  be used to justify lazy loading, because the two readers above force the whole set anyway.
+
+**Consumers that IMPROVE:**
+- The **match page improves a lot.** It fetches six team-season artifacts today, one per robot, purely
+  for `preMatchMetrics`. Under this shape all six robots' frozen rows are in the one event artifact it
+  already fetches: **six requests and roughly 65 KB brotli become zero additional bytes and zero
+  additional requests.**
+- **`YearSelect`** improves. It fetches the whole team artifact for `activeYears` alone; under this
+  shape it fetches a ~0.5 KB index instead of a 4-19 KB artifact.
+- **`useTeamUpcomingOverlay`** is neutral-to-better: it already fetches the live event's artifact, and
+  under the new shape that fetch stops being additive.
+
+**And the trade is lopsided in a way worth naming:** the match page's win (six fetches removed) is
+bought by making the team page fetch the same class of file N times. The event artifact becomes the
+one artifact everything reads, and it gets 1.5-1.8x bigger to do it.
+
+### What this does NOT say
+
+1. **It says nothing about the Worker.** This is a byte price. It does not measure the CPU or
+   subrequest cost of the new write path — which is the entire reason the shape was proposed. The
+   7.6 ms saving is carried over from RE-MEASURED AFTER F2 unchanged, and it is the cost of the twelve
+   team writes the shape removes; it is NOT net. Writing six teams' frozen rows into an event artifact
+   on every tick has its own merge and stringify cost, and the event artifact grows 1.5-1.8x, so the
+   event half of Phase B (1.9 ms today, of which 1.3 ms is merge + stringify) grows with it. **A shape
+   that removes 7.6 ms and adds an unmeasured amount back to a 1.9 ms half is not yet known to be a
+   win on the number this todo exists for.**
+2. **Two fields are NOT CARRIED**, both from the audit above: `TeamSeasonMatchSchema.variance` (dead —
+   never written, never read) and `MetricHistoryRow.matchIndex` (a real published quantity, read by
+   nothing in production web, and not reconstructible from an event file). Condition 4 fails on the
+   second of these before any byte is counted.
+3. **Only SPR was priced.** The storage extrapolation applies SPR's per-row rate to all three published
+   algorithms. OPR and EPA rows carry fewer keys and no `sigma`, so the added-bytes figure is an
+   over-estimate — in the direction that flatters the shape's storage case, which is the one condition
+   it passes.
+4. **A two-season measurement multiplied by a ten-season population.** The two arms' rates differ by
+   2x (2016 has two metric keys, 2026 has five), which is why the extrapolation is reported as a split
+   estimate with both single-rate bounds beside it. A season whose key set differs again would move it.
+5. **Arm B is not byte-identical to production's 2026 pass.** `preScheduleFromSeason: 9999` suppresses
+   pre-schedule sidecars. Sidecars are separate objects and do not change event-artifact bytes, but the
+   run is not a reproduction of the live publish in every respect.
+6. **Brotli q11 is a calibrated proxy**, not an observation of Cloudflare's own encoder. It reproduced
+   two known wire figures within 2%; it is not a measurement of what Cloudflare actually serves.
+7. **No browser-side cost was measured.** Variant C is a positional encoding: the client must decode it,
+   and a robot page would decode N event files' worth. That parse/decode cost is unmeasured, and it is
+   not obviously small on a phone for an 11-event robot.
+8. **The index is priced as a build, not as a write.** Its ~1 KB body is measured; the tick cost of
+   producing and writing it twelve times per fold is not.
+
+### Verdict
+
+**NO-GO**, for **D-C** — the positional encoding with a per-artifact `metricKeys` header, `percentile`
+on each team's last row at the event only, carrying every key the published record carries including
+`sigma`. D-C is named because it is the cheapest encoding that loses nothing the site publishes today;
+every other bar variant is worse on at least one condition and A and B are over the hard 350,000-byte
+ceiling outright.
+
+| # | Condition | Threshold | Measured (D-C, worst across arms) | |
+|---|---|---|---|---|
+| 1a | largest proposed event artifact | ≤ 280,000 B | **294,382 B** (`2016micmp`) | **NOT MET** (+5.1%) |
+| 1b | p95 proposed event artifact | ≤ 175,000 B | **190,786 B** (2026) | **NOT MET** (+9.0%) |
+| 2a | 2-event robot wire | ≤ 45 KB | **42.8 KB** (`frc10428`, 2026) | MET |
+| 2b | 5-event robot wire | ≤ 110 KB | **135.6 KB** (`frc254`, 2026) | **NOT MET** (+23%) |
+| 2c | worst-case robot wire | ≤ 220 KB | **226.5 KB** (`frc1768`, 2026) | **NOT MET** (+3%) |
+| 3 | added bytes below the freed ~2.9 GB | ≥ 1.5 GB below | **2.588 GB below** (added 0.225 GB, freed 2.813 GB) | MET |
+| 4 | every audited field recoverable | nothing NOT CARRIED | **2 NOT CARRIED** (`variance`, `matchIndex`) | **NOT MET** |
+
+**Four of seven legs fail, across three of the four conditions. NO-GO.**
+
+No variant changes that. The best full-fidelity form, D-C/no-sigma — which is not a real option, since
+Jacob's 2026-09-17 instruction is that Sigma is stored and displayed anywhere Total is — still fails
+1a (283,428 B), 1b (184,930 B) and 2b (129.1 KB). Dropping the never-read `spread` as well
+(`N0-no-spread`) still fails 1a (286,608 B), 1b (176,877 B) and 2b (115.5 KB).
+
+**The narrower frozen sets that WOULD pass, named with measured numbers rather than widened bars:**
+
+- **`N2-end-of-event` clears conditions 1, 2 and 3 outright** — max 240,397 B (69% of the ceiling), p95
+  145,500 B, robots at 29.4 / 87.3 / 141.1 KB, added 0.041 GB against 2.813 GB freed. It carries ONE
+  frozen row per team per event (the end-of-event snapshot) plus the entry snapshot, instead of a
+  per-match series. **But it fails condition 4 far harder than D-C does**: it deletes the input to the
+  Metric History chart and to `preMatchMetrics` entirely, so the team page's per-match series and the
+  match page's pre-match tiles both stop existing. It buys the bar by deleting two features.
+- **`N1b-total+sigma-no-spread`** — positional, `total` and `sigma` only, no `spread`, percentile on the
+  last row only — **clears conditions 2 and 3 and condition 1's p95** (171,188 B), and misses condition
+  1's max by **6,608 bytes on exactly one event out of 442 priced** (286,608 B against 280,000). Robots
+  at 35.3 / 93.4 / 151.7 KB. It costs the three phase-component keys: the per-event Auto/Teleop/Endgame
+  tiles on the team page and the per-component pre-match cells on the match page.
+
+**The finding that matters most for whatever comes next** is in "What gets worse", not in the bar: the
+robot page's regression is dominated by the *existing* content of the event files, not by the frozen
+metrics. `frc254`'s five 2026 event files already cost 74,945 B brotli today. A frozen row costing
+nothing at all would still put that robot at ~73 KB against today's 10.7 KB. **Any future version of
+this shape has to answer that first** — a per-robot slice of an event, rather than the whole event
+file, is the only direction that touches it, and that is the per-event team artifact which already
+priced out on Class-A PUTs (see TICK SPLITTING below). That is the corner this direction is in.
+
 ## TICK SPLITTING — what the platform actually allows (researched 2026-09-17, official docs)
 
 Jacob chose to investigate tick splitting (2026-09-17) after per-event team artifacts priced out:
