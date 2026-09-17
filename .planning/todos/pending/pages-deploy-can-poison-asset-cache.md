@@ -48,6 +48,20 @@ suite went back to 170/170.
   deploy purges the edge**. The serving-pages page says both "the asset remains cached until your
   next deployment" and "if you notice stale assets after a new deployment … Purge Everything".
 
+## Further evidence: the variant split is real, and visible on a HEALTHY site
+
+The first run of `pnpm check:deployed-assets` against the restored site (2026-09-17) PASSED, and in
+passing it showed the same URL answered from two different cached objects:
+
+```
+/assets/schemas-AVUJaT2V.js  [plain: cf-cache-status=HIT, Age=11654] [origin: cf-cache-status=HIT, Age=37547]
+```
+
+Same ETag, same content-type, so benign here — but two ages means two objects, keyed on something
+the `Origin`-bearing request changes. That is the condition the outage needed: when one of those two
+objects is filled during a deploy swap, only half the world sees it, and the half that does is every
+browser. It is also why a check that requests each asset only once cannot see this class of failure.
+
 ## Why the obvious fixes are rejected
 
 | Option | Verdict |
