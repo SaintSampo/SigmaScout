@@ -6,12 +6,16 @@
  * `BubblePoint` carries no radius field; `BUBBLE_CHART.dotRadius` is the one
  * constant every rendered dot shares.
  *
- * Colour is the rarity tier of the Total metric: `tone` comes from
- * `row.metrics[TOTAL_KEY].tier`, with a `"neutral"` fallback for a Total
- * metric that carries no tier — never coerced to `"common"`. This module
- * never imports `tiers.ts`'s `tierForPercentile`: the teams artifact
- * publishes `tier` directly on the metric entry, and there is no percentile
- * on this row to derive one from.
+ * Colour is the rarity tier of whichever axis `colorBy` selects. Under
+ * `"total"` (the default) `tone` comes from `row.metrics[TOTAL_KEY].tier`;
+ * under `"sigma"` it comes from `row.sigmaTier`, which the pipeline
+ * publishes and this module never derives. Either way a row with no tier
+ * for the selected axis falls back to `"neutral"` — never coerced to
+ * `"common"`, because `BubbleTone` has no Common member: the key row's
+ * single "Common / unranked" entry already covers both the ranked-Common
+ * and the unranked case honestly. This module never imports `tiers.ts`'s
+ * `tierForPercentile`: the teams artifact publishes `tier` directly on the
+ * metric entry, and there is no percentile on this row to derive one from.
  *
  * Same filtered set, no re-filter: `rows` arrive already filtered (by the
  * route's own filter model) and are neither re-filtered nor reordered here.
@@ -29,6 +33,9 @@ import type { TeamRow } from "./rowModel.js";
 import { TOTAL_KEY } from "../../lib/metricKeys.js";
 
 export type BubbleTone = "neutral" | "rare" | "epic" | "legendary";
+
+/** Which published rarity tier tints the point cloud — Total (the default) or Sigma Score. */
+export type BubbleColorBy = "total" | "sigma";
 
 /**
  * Draw order for the tone paths — neutral first, legendary last — and the
@@ -209,12 +216,25 @@ export function projectY(value: number, axis: BubbleAxis, plot: PlotRect): numbe
 }
 
 /**
+ * Maps a published `sigmaTier` to a `BubbleTone`, collapsing both `"common"`
+ * and `undefined` to `"neutral"` in one expression — `BubbleTone` has no
+ * Common member, so a ranked-Common team and an unranked one both land on
+ * the same tone. Typed on `TeamRow["sigmaTier"]` rather than an imported
+ * `Tier`, per this module's header comment: it never imports `tiers.ts`.
+ */
+function toneForSigmaTier(sigmaTier: TeamRow["sigmaTier"]): BubbleTone {
+  return sigmaTier === "rare" || sigmaTier === "epic" || sigmaTier === "legendary" ? sigmaTier : "neutral";
+}
+
+/**
  * Single pass over `rows` in the order given — no sort, no filter beyond the
  * two omission cases. Axes are built from the surviving points only; with
  * zero points, both axes fall back to `niceAxis(0, 1, ...)` so the caller
- * never has to special-case an undefined axis.
+ * never has to special-case an undefined axis. `colorBy` selects only which
+ * field feeds `tone`; the geometry (`x`, `y`, both axes) and the omission
+ * counters read the same fields in the same order regardless of mode.
  */
-export function buildBubbleModel(rows: readonly TeamRow[]): BubbleModel {
+export function buildBubbleModel(rows: readonly TeamRow[], colorBy: BubbleColorBy = "total"): BubbleModel {
   const points: BubblePoint[] = [];
   let omittedNoSigma = 0;
   let hasAnySigma = false;
@@ -237,7 +257,7 @@ export function buildBubbleModel(rows: readonly TeamRow[]): BubbleModel {
       nickname: row.nickname,
       x: total.value,
       y: row.sigmaScore,
-      tone: total.tier ?? "neutral",
+      tone: colorBy === "sigma" ? toneForSigmaTier(row.sigmaTier) : total.tier ?? "neutral",
     });
   }
 
