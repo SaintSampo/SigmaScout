@@ -6,8 +6,10 @@
  * structurally rather than hand-typing a second copy.
  *
  * Audience: the same FRC community (students, mentors, scouts) the rest of
- * the site is written for. Gracious, specific, plain language, short
- * sentences — say WHAT each project contributed, not that it is "great".
+ * the site is written for. Voice is Jacob's pick from sketch 014: third
+ * person, flat and factual, one sentence per fact, in the manner of
+ * Statbotics' own blurbs. The rendered copy carries NO hyphen or dash
+ * characters ("district points", not "district-points").
  *
  * Every claim below must stay traceable to a real, checkable fact about
  * this repo or the credited project — do not add a claim that cannot be
@@ -26,8 +28,7 @@ export interface AcknowledgmentEntry {
   readonly paragraphs: readonly string[];
 }
 
-export const ACKNOWLEDGMENTS_LEAD =
-  "SigmaScout is built on work other people did first: the data, the ratings it measures itself against, and the ideas behind several of its pages. This page says who, and what each one contributed.";
+export const ACKNOWLEDGMENTS_LEAD = "SigmaScout builds on the work of several FRC community projects.";
 
 export const ACKNOWLEDGMENTS_ENTRIES: readonly AcknowledgmentEntry[] = [
   {
@@ -35,9 +36,7 @@ export const ACKNOWLEDGMENTS_ENTRIES: readonly AcknowledgmentEntry[] = [
     name: "The Blue Alliance",
     href: "https://www.thebluealliance.com/",
     paragraphs: [
-      "Every match, event, team, ranking, alliance, award and district-points record on SigmaScout comes from The Blue Alliance's public API. SigmaScout collects no competition data of its own.",
-      "TBA is free and volunteer-run, so SigmaScout is deliberately a light caller: outbound requests are throttled, and repeat fetches use conditional requests so an unchanged payload costs a small \"nothing changed\" reply instead of a full download. That pattern came from TBA's own guidance on querying their API efficiently.",
-      "Team and event pages on SigmaScout link back to that team's or event's page on TBA.",
+      "All match, event, team, ranking, award and district points data comes from The Blue Alliance API.",
     ],
   },
   {
@@ -45,10 +44,8 @@ export const ACKNOWLEDGMENTS_ENTRIES: readonly AcknowledgmentEntry[] = [
     name: "Statbotics",
     href: "https://www.statbotics.io/",
     paragraphs: [
-      "Statbotics established the way an FRC stats site presents teams, events and predictions, and SigmaScout follows that shape.",
-      "EPA, Statbotics' rating, is one of the algorithms a visitor can select on SigmaScout; the picker names it \"EPA Statbotics\" followed by the version currently being served.",
-      "SigmaScout's EPA is a from-scratch reimplementation over TBA data, not Statbotics' own code. It was done that way so EPA can be replayed walk-forward at any point in a season. Any place the two disagree is SigmaScout's reimplementation drifting, not a fault of Statbotics'; those differences are measured and written down.",
-      "Statbotics' own published season accuracy is carried as a clearly-labelled reference figure inside SigmaScout's accuracy reporting, so SigmaScout's numbers are always shown next to the number they are trying to beat.",
+      "Statbotics set the standard for FRC match prediction. SigmaScout is heavily influenced by it.",
+      "EPA is available in the algorithm picker. The SigmaScout version is an independent reimplementation on TBA data, so any difference from Statbotics is an error on this side. Statbotics' published accuracy is shown as a reference in the accuracy comparison.",
     ],
   },
   {
@@ -56,8 +53,7 @@ export const ACKNOWLEDGMENTS_ENTRIES: readonly AcknowledgmentEntry[] = [
     name: "FRC Locks",
     href: "https://frclocks.com/",
     paragraphs: [
-      "The idea behind SigmaScout's Districts page (showing whether a team's district championship spot is already mathematically locked, or already out of reach) came from FRC Locks.",
-      "The concept is all that was taken. Every number on SigmaScout's Districts page is computed from TBA's published district point data and the official FIRST district point model. Nothing was fetched, scraped, or copied from FRC Locks.",
+      "The Districts page borrows the lock concept from FRC Locks. All numbers are computed independently. Calculations are based on TBA district points and the FIRST district points model.",
     ],
   },
   {
@@ -65,8 +61,7 @@ export const ACKNOWLEDGMENTS_ENTRIES: readonly AcknowledgmentEntry[] = [
     name: "FIRST",
     href: "https://www.firstinspires.org/",
     paragraphs: [
-      "FIRST runs the FIRST Robotics Competition, and publishes the game manuals that define the ranking-point rules and the district point model SigmaScout implements.",
-      "SigmaScout is an independent community project and is not affiliated with or endorsed by FIRST.",
+      "FIRST runs the FIRST Robotics Competition and publishes the game manuals that define the ranking point and district point rules used here. SigmaScout is not affiliated with or endorsed by FIRST.",
     ],
   },
 ] as const;
@@ -84,9 +79,7 @@ export const ACKNOWLEDGMENTS_PACKAGES: readonly { readonly package: string; read
   { package: "zod", label: "Zod" },
 ] as const;
 
-export const ACKNOWLEDGMENTS_BUILT_WITH_TITLE = "Built with open source";
+export const ACKNOWLEDGMENTS_BUILT_WITH_TITLE = "Built with";
 
-export const ACKNOWLEDGMENTS_BUILT_WITH_PARAGRAPHS: readonly string[] = [
-  "SigmaScout itself is built on open-source software, including the projects below.",
-  "SigmaScout is hosted on Cloudflare.",
-];
+/** Rendered on the same line as the package list, after it. */
+export const ACKNOWLEDGMENTS_BUILT_WITH_HOSTING = "Hosted on Cloudflare.";

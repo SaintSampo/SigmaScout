@@ -61,6 +61,7 @@ put both sides side by side; sketch 002 turns it into a concrete choice.
 | 010 | alliance-membership-emphasis | On a team page match table, how should the team's own alliance — and its own number within it — be marked, without bold? | **C — ground tint, 10px gap** | team-page, match-table, alliance, emphasis, accessibility |
 | 011 | total-sigma-joined-box | SPR Total and Sigma as two joined tier boxes with a ± between: what should the join look like? | **A — split pill** | metric-cell, tiers, uncertainty, teams-table, team-page, event-page, alliances |
 | 012 | predicted-bonus-dots | Once F4 makes bonus odds honest, how should a predicted bonus dot render when many alliances are true toss-ups? | **C — fill to the odds** | match-table, bonus-rp, uncertainty, prediction |
+| 014 | acknowledgments-voice | What voice should the Acknowledgments page use so it is shorter and reads like a human wrote it? (copy sketch; 013 skipped, it was the deleted Champ Locks header) | **A — Statbotics tone**, trimmed by Jacob | copy, methodology, acknowledgments, voice, de-ai |
 
 ## Findings so far
 

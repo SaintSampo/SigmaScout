@@ -1,0 +1,457 @@
+<title>Acknowledgments Voice Sketch</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root {
+    --bg: #f8fafc;
+    --surface: #ffffff;
+    --ink: #0f172a;
+    --ink-muted: #475569;
+    --line: #e2e8f0;
+    --accent: #2e7d32;
+    --ribbon-bg: #14532d;
+    --ribbon-ink: #ffffff;
+    --ribbon-ink-muted: rgba(255, 255, 255, 0.72);
+    --ribbon-accent: #81c784;
+    --chip-bg: #ecf4ed;
+    --warn: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c1410;
+      --surface: #131d17;
+      --ink: #e6ede8;
+      --ink-muted: #9db0a3;
+      --line: #25352b;
+      --accent: #81c784;
+      --ribbon-bg: #14532d;
+      --chip-bg: #1b2b21;
+      --warn: #fbbf24;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c1410;
+    --surface: #131d17;
+    --ink: #e6ede8;
+    --ink-muted: #9db0a3;
+    --line: #25352b;
+    --accent: #81c784;
+    --ribbon-bg: #14532d;
+    --chip-bg: #1b2b21;
+    --warn: #fbbf24;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .wrap {
+    max-width: 880px;
+    margin-inline: auto;
+    padding-inline: 16px;
+    padding-block: 28px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .eyebrow {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  h1 {
+    margin: 4px 0 0;
+    font-size: 24px;
+    line-height: 1.25;
+    font-weight: 700;
+    text-wrap: balance;
+  }
+  .brief { margin: 0; max-width: 68ch; color: var(--ink-muted); }
+
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 10px;
+  }
+  .tab {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-muted);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .tab[aria-selected="true"] {
+    color: var(--ribbon-ink);
+    background: var(--ribbon-bg);
+    border-color: var(--ribbon-bg);
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    align-items: center;
+  }
+  .chip {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    background: var(--chip-bg);
+    color: var(--ink);
+    border-radius: 4px;
+    padding: 3px 8px;
+  }
+  .chip.bad { color: var(--warn); }
+  .pitch { margin: 0; max-width: 68ch; }
+  .pitch strong { font-weight: 600; }
+
+  /* The mock of the real page */
+  .mock {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .ribbon {
+    background: var(--ribbon-bg);
+    color: var(--ribbon-ink);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 18px;
+    padding: 10px 20px;
+    font-size: 13px;
+  }
+  .ribbon .brand { font-weight: 700; font-size: 15px; }
+  .ribbon .brand span { color: var(--ribbon-accent); }
+  .ribbon .nav { color: var(--ribbon-ink-muted); }
+  .ribbon .nav.on { color: var(--ribbon-ink); border-bottom: 2px solid var(--ribbon-accent); }
+  .page {
+    padding: 24px 20px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+  .page .crumb { font-size: 12px; color: var(--ink-muted); }
+  .page h2.title { margin: 2px 0 0; font-size: 22px; font-weight: 700; }
+  .page p { margin: 0; max-width: 72ch; }
+  .page section { display: flex; flex-direction: column; gap: 6px; }
+  .page h3 { margin: 0; font-size: 17px; font-weight: 600; }
+  .page h3 a, .page a.inline {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .page a.inline { font-weight: 600; }
+
+  .tradeoffs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 8px 28px;
+  }
+  .tradeoffs h4 {
+    margin: 0 0 4px;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    font-weight: 600;
+  }
+  .tradeoffs ul { margin: 0; padding-left: 18px; }
+  .tradeoffs li { margin-bottom: 4px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">SigmaScout sketch 014 · copy, not layout</div>
+    <h1>Three voices for the Acknowledgments page</h1>
+  </header>
+  <p class="brief">Same facts, same four credits, same layout as the live page. Only the words change. Every variant is checked in the browser for hyphen and dash characters, and the word count is measured against what ships today.</p>
+
+  <div class="tabs" role="tablist" aria-label="Copy variants" id="tabs"></div>
+
+  <div class="meta" id="meta"></div>
+  <p class="pitch" id="pitch"></p>
+
+  <div class="mock">
+    <div class="ribbon" aria-hidden="true">
+      <span class="brand"><span>Σ</span> SigmaScout</span>
+      <span class="nav">Teams</span>
+      <span class="nav">Events</span>
+      <span class="nav">Districts</span>
+      <span class="nav on">Methodology</span>
+    </div>
+    <div class="page" id="page"></div>
+  </div>
+
+  <div class="tradeoffs" id="tradeoffs"></div>
+</div>
+
+<script>
+  var PACKAGES = "React, Vite, Tailwind CSS, TanStack Router, TanStack Query, Recharts, Zod";
+  var LINKS = {
+    tba: "https://www.thebluealliance.com/",
+    sb: "https://www.statbotics.io/",
+    locks: "https://frclocks.com/",
+    first: "https://www.firstinspires.org/"
+  };
+
+  var VARIANTS = [
+    {
+      id: "current",
+      tab: "Current (live)",
+      pitch: "<strong>What ships today.</strong> Careful and complete, but it explains itself a lot: conditional requests, why the rewrite exists, what was and was not scraped. Reads like a compliance note.",
+      lead: "SigmaScout is built on work other people did first: the data, the ratings it measures itself against, and the ideas behind several of its pages. This page says who, and what each one contributed.",
+      entries: [
+        { name: "The Blue Alliance", href: LINKS.tba, paragraphs: [
+          "Every match, event, team, ranking, alliance, award and district-points record on SigmaScout comes from The Blue Alliance's public API. SigmaScout collects no competition data of its own.",
+          "TBA is free and volunteer-run, so SigmaScout is deliberately a light caller: outbound requests are throttled, and repeat fetches use conditional requests so an unchanged payload costs a small \"nothing changed\" reply instead of a full download. That pattern came from TBA's own guidance on querying their API efficiently.",
+          "Team and event pages on SigmaScout link back to that team's or event's page on TBA."
+        ]},
+        { name: "Statbotics", href: LINKS.sb, accuracyLink: true, paragraphs: [
+          "Statbotics established the way an FRC stats site presents teams, events and predictions, and SigmaScout follows that shape.",
+          "EPA, Statbotics' rating, is one of the algorithms a visitor can select on SigmaScout; the picker names it \"EPA Statbotics\" followed by the version currently being served.",
+          "SigmaScout's EPA is a from-scratch reimplementation over TBA data, not Statbotics' own code. It was done that way so EPA can be replayed walk-forward at any point in a season. Any place the two disagree is SigmaScout's reimplementation drifting, not a fault of Statbotics'; those differences are measured and written down.",
+          "Statbotics' own published season accuracy is carried as a clearly-labelled reference figure inside SigmaScout's accuracy reporting, so SigmaScout's numbers are always shown next to the number they are trying to beat."
+        ]},
+        { name: "FRC Locks", href: LINKS.locks, paragraphs: [
+          "The idea behind SigmaScout's Districts page (showing whether a team's district championship spot is already mathematically locked, or already out of reach) came from FRC Locks.",
+          "The concept is all that was taken. Every number on SigmaScout's Districts page is computed from TBA's published district point data and the official FIRST district point model. Nothing was fetched, scraped, or copied from FRC Locks."
+        ]},
+        { name: "FIRST", href: LINKS.first, paragraphs: [
+          "FIRST runs the FIRST Robotics Competition, and publishes the game manuals that define the ranking-point rules and the district point model SigmaScout implements.",
+          "SigmaScout is an independent community project and is not affiliated with or endorsed by FIRST."
+        ]}
+      ],
+      builtTitle: "Built with open source",
+      built: [
+        "SigmaScout itself is built on open-source software, including the projects below.",
+        "SigmaScout is hosted on Cloudflare.",
+        PACKAGES + "."
+      ],
+      keeps: [],
+      drops: []
+    },
+    {
+      id: "a",
+      tab: "★ A · Statbotics tone",
+      pitch: "<strong>Third person, flat, factual.</strong> Written the way Statbotics writes its own About blurbs: say what the thing is, thank who is owed, stop. No personality, no explaining. Note: statbotics.io refused my fetch, so this tone is from recall of their blurbs, not a side by side read.",
+      lead: "SigmaScout builds on the work of several FRC community projects. Thanks to each of them.",
+      entries: [
+        { name: "The Blue Alliance", href: LINKS.tba, paragraphs: [
+          "All match, event, team, ranking, award and district points data comes from The Blue Alliance API. SigmaScout collects no data of its own.",
+          "Requests to TBA are throttled, and unchanged data is not downloaded twice. Team and event pages link back to TBA."
+        ]},
+        { name: "Statbotics", href: LINKS.sb, accuracyLink: true, paragraphs: [
+          "Statbotics set the standard for how an FRC stats site presents teams, events and predictions. SigmaScout follows that layout.",
+          "EPA is available in the algorithm picker. The SigmaScout version is an independent reimplementation on TBA data, so any difference from Statbotics is an error on this side. Statbotics' published accuracy is shown as a reference in the accuracy comparison."
+        ]},
+        { name: "FRC Locks", href: LINKS.locks, paragraphs: [
+          "The Districts page borrows the lock concept from FRC Locks. All numbers are computed independently from TBA district points and the FIRST district points model."
+        ]},
+        { name: "FIRST", href: LINKS.first, paragraphs: [
+          "FIRST runs the FIRST Robotics Competition and publishes the game manuals that define the ranking point and district point rules used here. SigmaScout is not affiliated with or endorsed by FIRST."
+        ]}
+      ],
+      builtTitle: "Built with",
+      built: [ PACKAGES + ". Hosted on Cloudflare." ],
+      keeps: [
+        "Every fact from the live page, one sentence each",
+        "Same section structure, so the route test and content file shape survive as they are",
+        "Safest with the credited projects: nothing reads as a joke or a boast"
+      ],
+      drops: [
+        "Why the EPA rewrite exists (walk forward replay)",
+        "The detail about TBA's own API guidance",
+        "Any sense that a person wrote it"
+      ]
+    },
+    {
+      id: "b",
+      tab: "B · Jacob's voice",
+      pitch: "<strong>First person, blunt, a little self deprecating.</strong> Modeled on how you actually write to me: short sentences, plain words, says the quiet part (\"that is my bug, not theirs\"). This is the only variant that says \"I\", which is its own decision: it tells visitors one person runs the site.",
+      lead: "I did not build SigmaScout from nothing. Here is who I owe.",
+      entries: [
+        { name: "The Blue Alliance", href: LINKS.tba, paragraphs: [
+          "Every bit of match data on this site comes from The Blue Alliance. I collect nothing myself.",
+          "TBA is free and run by volunteers, so I try to be a polite guest. Requests are throttled, and if nothing changed I do not download it again. Every team and event page here links back to TBA. Go use it."
+        ]},
+        { name: "Statbotics", href: LINKS.sb, accuracyLink: true, paragraphs: [
+          "Statbotics is the reason this site looks the way it does. They figured out how an FRC stats site should work and I followed their lead.",
+          "You can pick EPA on SigmaScout, but it is my own rewrite running on TBA data, not their code. I needed to replay it match by match through a season. If my EPA and theirs disagree, that is my bug, not theirs.",
+          "I also show Statbotics' published accuracy right next to mine, because that is the number I am chasing."
+        ]},
+        { name: "FRC Locks", href: LINKS.locks, paragraphs: [
+          "Showing whether a district championship spot is locked was their idea first. I took the idea and nothing else. All the math here is mine, run on TBA district points and the FIRST points rules."
+        ]},
+        { name: "FIRST", href: LINKS.first, paragraphs: [
+          "FIRST runs the whole show and writes the game manuals I pull the ranking point and district point rules from.",
+          "SigmaScout is just a community project. FIRST does not endorse it and I am not affiliated with them."
+        ]}
+      ],
+      builtTitle: "Built on a pile of open source",
+      built: [ PACKAGES + ". Hosted on Cloudflare." ],
+      keeps: [
+        "Every fact from the live page, including why the EPA rewrite exists",
+        "The honesty beats (my bug not theirs, the number I am chasing) land harder in first person",
+        "Same section structure as today"
+      ],
+      drops: [
+        "The institutional distance: \"I\" makes the site a one person project in public",
+        "\"Go use it\" and \"runs the whole show\" are the riskiest lines if you want it a notch more formal"
+      ]
+    },
+    {
+      id: "c",
+      tab: "C · Thank you notes",
+      pitch: "<strong>Written to the people being thanked, not about them.</strong> Each credit is a short note addressed to \"you\". Shortest of the three by a wide margin, and the only one that reads like gratitude instead of a disclosure.",
+      lead: "SigmaScout stands on other people's work. These are thank you notes.",
+      entries: [
+        { name: "The Blue Alliance", href: LINKS.tba, paragraphs: [
+          "Thank you for all of the data. Every match, team and event on this site comes from your API, and every team and event page links back to you. We keep our requests light."
+        ]},
+        { name: "Statbotics", href: LINKS.sb, accuracyLink: true, paragraphs: [
+          "Thank you for showing what an FRC stats site should look like, and for EPA. The EPA here is our own rewrite, so where it differs from yours, the mistake is ours. Your published accuracy sits beside our numbers on the comparison page."
+        ]},
+        { name: "FRC Locks", href: LINKS.locks, paragraphs: [
+          "Thank you for the idea of showing when a district championship spot is locked. The idea is yours. The numbers are computed here, from TBA district points and the FIRST points model."
+        ]},
+        { name: "FIRST", href: LINKS.first, paragraphs: [
+          "Thank you for the competition, and for the game manuals our ranking point and district point rules come from. SigmaScout is an independent community project, not affiliated with or endorsed by FIRST."
+        ]}
+      ],
+      builtTitle: "Open source",
+      built: [ "Thank you to the people behind " + PACKAGES + ", and to Cloudflare for the hosting." ],
+      keeps: [
+        "All four credits, the EPA ownership line, the FIRST disclaimer",
+        "Same section structure as today",
+        "A format no other FRC stats site uses"
+      ],
+      drops: [
+        "How the light calling works (throttling, skipping unchanged data)",
+        "Why the EPA rewrite exists",
+        "Some readers may find direct address a touch precious"
+      ]
+    }
+  ];
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  function copyText(v) {
+    var parts = [v.lead, v.builtTitle].concat(v.built);
+    v.entries.forEach(function (e) { parts = parts.concat(e.paragraphs); });
+    return parts.join(" ");
+  }
+  function wordCount(v) {
+    return copyText(v).split(/\s+/).filter(Boolean).length;
+  }
+  function dashCount(v) {
+    var m = copyText(v).match(/[-‐‑‒–—−]/g);
+    return m ? m.length : 0;
+  }
+
+  var baseline = wordCount(VARIANTS[0]);
+  var tabsEl = document.getElementById("tabs");
+  var current = "a";
+
+  function render() {
+    var v = VARIANTS.filter(function (x) { return x.id === current; })[0];
+
+    Array.prototype.forEach.call(tabsEl.children, function (b) {
+      b.setAttribute("aria-selected", b.dataset.id === current ? "true" : "false");
+    });
+
+    var meta = document.getElementById("meta");
+    meta.textContent = "";
+    var words = wordCount(v);
+    meta.appendChild(el("span", "chip", words + " words"));
+    if (v.id !== "current") {
+      var pct = Math.round((1 - words / baseline) * 100);
+      meta.appendChild(el("span", "chip", pct + "% shorter than live"));
+    }
+    var dashes = dashCount(v);
+    meta.appendChild(el("span", dashes ? "chip bad" : "chip", dashes + " hyphens or dashes"));
+
+    document.getElementById("pitch").innerHTML = v.pitch;
+
+    var page = document.getElementById("page");
+    page.textContent = "";
+    var head = el("div");
+    head.appendChild(el("div", "crumb", "Methodology / Acknowledgments"));
+    head.appendChild(el("h2", "title", "Acknowledgments"));
+    page.appendChild(head);
+    page.appendChild(el("p", null, v.lead));
+
+    v.entries.forEach(function (e) {
+      var s = el("section");
+      var h = el("h3");
+      var a = el("a", null, e.name);
+      a.href = e.href; a.target = "_blank"; a.rel = "noopener noreferrer";
+      h.appendChild(a);
+      s.appendChild(h);
+      e.paragraphs.forEach(function (p) { s.appendChild(el("p", null, p)); });
+      if (e.accuracyLink) {
+        var l = el("a", "inline", "See the algorithm accuracy comparison");
+        l.href = "#"; l.addEventListener("click", function (ev) { ev.preventDefault(); });
+        s.appendChild(l);
+      }
+      page.appendChild(s);
+    });
+
+    var b = el("section");
+    b.appendChild(el("h3", null, v.builtTitle));
+    v.built.forEach(function (p) { b.appendChild(el("p", null, p)); });
+    page.appendChild(b);
+
+    var t = document.getElementById("tradeoffs");
+    t.textContent = "";
+    [["Keeps", v.keeps], ["Gives up", v.drops]].forEach(function (pair) {
+      if (!pair[1].length) return;
+      var box = el("div");
+      box.appendChild(el("h4", null, pair[0]));
+      var ul = el("ul");
+      pair[1].forEach(function (x) { ul.appendChild(el("li", null, x)); });
+      box.appendChild(ul);
+      t.appendChild(box);
+    });
+  }
+
+  VARIANTS.forEach(function (v) {
+    var b = el("button", "tab", v.tab);
+    b.type = "button";
+    b.id = "tab-" + v.id;
+    b.dataset.id = v.id;
+    b.setAttribute("role", "tab");
+    b.addEventListener("click", function () {
+      current = v.id;
+      try { localStorage.setItem("ack-voice-tab", current); } catch (e) {}
+      render();
+    });
+    tabsEl.appendChild(b);
+  });
+
+  try {
+    var saved = localStorage.getItem("ack-voice-tab");
+    if (saved && VARIANTS.some(function (x) { return x.id === saved; })) current = saved;
+  } catch (e) {}
+  render();
+</script>

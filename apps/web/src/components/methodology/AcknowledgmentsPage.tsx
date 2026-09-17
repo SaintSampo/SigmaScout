@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import {
   ACKNOWLEDGMENTS_ACCURACY_LINK_ENTRY_ID,
-  ACKNOWLEDGMENTS_BUILT_WITH_PARAGRAPHS,
+  ACKNOWLEDGMENTS_BUILT_WITH_HOSTING,
   ACKNOWLEDGMENTS_BUILT_WITH_TITLE,
   ACKNOWLEDGMENTS_ENTRIES,
   ACKNOWLEDGMENTS_LEAD,
@@ -66,13 +66,8 @@ export function AcknowledgmentsPage() {
       ))}
       <section className="flex flex-col gap-[var(--spacing-xs)]">
         <h2 className="text-role-heading text-[var(--color-text-primary)]">{ACKNOWLEDGMENTS_BUILT_WITH_TITLE}</h2>
-        {ACKNOWLEDGMENTS_BUILT_WITH_PARAGRAPHS.map((paragraph, index) => (
-          <p key={index} className="max-w-[72ch] text-role-body text-[var(--color-text-primary)]">
-            {paragraph}
-          </p>
-        ))}
         <p className="max-w-[72ch] text-role-body text-[var(--color-text-primary)]">
-          {ACKNOWLEDGMENTS_PACKAGES.map((entry) => entry.label).join(", ")}.
+          {ACKNOWLEDGMENTS_PACKAGES.map((entry) => entry.label).join(", ")}. {ACKNOWLEDGMENTS_BUILT_WITH_HOSTING}
         </p>
       </section>
     </div>
