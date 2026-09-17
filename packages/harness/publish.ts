@@ -1089,6 +1089,19 @@ export { computeSizeStats, type PageKindSizeStats, type PublishedObjectRecord };
 const UPLOAD_HEADERS = { contentType: "application/json", cacheControl: "public, max-age=60" } as const;
 
 /**
+ * An OPTIONAL, read-only observer of every page-kind artifact body this run
+ * records — the one way an offline instrument (`scripts/priceFrozenEventRow.ts`)
+ * can see real artifact bodies without a network fetch of published objects.
+ *
+ * Inert by construction: there is no CLI flag for it, `publishSeasons` defaults
+ * it to `undefined`, and an undefined sink is never called, so every existing
+ * path is byte-identical. It is handed the body AFTER the budget ceiling has
+ * been asserted, so it can never observe an object the gate rejected. It must
+ * not mutate anything; it is passed a string, and its return value is ignored.
+ */
+export type ArtifactSink = (pageKind: PageKind, key: string, body: string) => void;
+
+/**
  * The publisher's uploader (`application/json`, `max-age=60`). Records every object's page kind, key and
  * size even under `--dry-run`, which exists to re-measure budgets without spending Class-A operations.
  *
@@ -1110,7 +1123,8 @@ class BoundedUploader {
   constructor(
     private readonly bucket: string,
     concurrency: number,
-    private readonly dryRun: boolean
+    private readonly dryRun: boolean,
+    private readonly artifactSink?: ArtifactSink
   ) {
     this.#queue = new UploadQueue({ concurrency });
   }
@@ -1123,6 +1137,10 @@ class BoundedUploader {
     const bytes = Buffer.byteLength(body, "utf8");
     assertWithinPageBudget(pageKind, key, bytes, PAGE_BUDGET_MAX_BYTES);
     this.records.push({ pageKind, key, bytes });
+    // Last statement, after the ceiling assertion and the record, so a sink
+    // never observes a body the budget gate rejected and never changes what
+    // this method does. Absent by default: no call, no behavior change.
+    this.artifactSink?.(pageKind, key, body);
   }
 
   /** Asserts the ceiling, records, and (real runs only) resolves once the put is accepted by the queue. */
@@ -1434,6 +1452,8 @@ export interface PublishSeasonsOptions {
   readonly computedAt?: string;
   /** The RP calibration measurement for the compare artifact; `undefined` attaches nothing. The CLI loads `RP_CALIBRATION_MEASUREMENT_PATH` by default. */
   readonly rpCalibration?: RpCalibrationMeasurement;
+  /** An optional read-only observer of every recorded artifact body — see `ArtifactSink`. No CLI flag; `undefined` means no call and no behavior change. */
+  readonly artifactSink?: ArtifactSink;
 }
 
 export interface PublishSummary {
@@ -1632,7 +1652,7 @@ function sortTeamSeasonMatches(
  * `buildSeasonStream`/`WalkForwardSimulator` are the leak-proof replay primitives, reused unchanged.
  */
 export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions): Promise<PublishSummary> {
-  const uploader = new BoundedUploader(options.bucket, options.concurrency ?? DEFAULT_CONCURRENCY, options.dryRun ?? false);
+  const uploader = new BoundedUploader(options.bucket, options.concurrency ?? DEFAULT_CONCURRENCY, options.dryRun ?? false, options.artifactSink);
   try {
     return await publishSeasonsWith(db, options, uploader);
   } catch (err) {
