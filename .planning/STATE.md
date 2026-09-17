@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 09
 status: completed
 stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
-last_updated: "2026-09-17T03:48:32.130Z"
+last_updated: "2026-09-17T03:57:36.782Z"
 last_activity: 2026-09-17
 last_activity_desc: "Completed quick task 260913-rh5: republished spr@4.0.0 and the Swing teardown (generation 2dcc057f), D1 seeded, Worker fcc7ca73; R2 deletions left to Jacob"
 progress:
@@ -597,6 +597,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 193 | Split Phase B's 64 ms into components and shipped the one fix that cleared its pre-registered bar. Team artifact zod validation was the largest single component at about 14.6 ms of a 23 ms warm Phase B, so the tick's two read-side schema parses became O(1) structural guards, with write-side validation left as the validation of record and a bootstrap retry recovering the one protection that mattered. The union-reorder hypothesis measured -0.3 plus or minus 2.6 ms and was recorded as a negative, not built. Also caught the platform terminating the isolate directly, 28 of 40 warm requests returning exceededCpu. The campaign exhausted D1's 5M rows-per-day free tier at 5,538,199 rows, which fails every read including a live tick's, so the probe now skips its two discovery scans when the roster and event are pinned, 22 rows per request instead of 4,200. Worker 89fbe44f and probe 7ed31f95 deployed; the before and after re-measurement is owed once the cap resets | 2026-09-16 | e4f2e38e | [260915-t7o-cut-the-worker-artifact-merge-cpu-cost](./quick/260915-t7o-cut-the-worker-artifact-merge-cpu-cost/) |
 | 194 | Sketch 014: Acknowledgments page copy rewritten in the Statbotics tone Jacob picked and trimmed, no hyphen characters | 2026-09-17 | d9a8f024 | — |
 | 195 | Sketch 015: Predicting awards page rebuilt on the goal, model, results outline with tables and the SPR alone finding | 2026-09-17 | 01b49ee7 | — |
+| 196 | Ribbon algorithm dropdown reads short manifest-derived labels (OPR 4.0, EPA 10.0, SPR 4.0), EPA Statbotics name dropped | 2026-09-17 | 30556304 | — |
 
 ### Roadmap Evolution
 
