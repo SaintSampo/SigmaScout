@@ -29,13 +29,16 @@ export interface BonusRpDotsProps {
 
 /**
  * One dot per bonus ranking point that season, above one alliance's score,
- * each carrying the bonus's initial. An actual dot is solid when earned and
- * hollow when not; a predicted dot draws one of three categorical tiers
- * (`bonusDotTier`) — empty under one third, faintly tinted between one third
- * and two thirds, solid above two thirds — rather than a continuous fill, so
- * the read stays unmistakable at 14px. `unknown` draws dashed and muted for
- * either kind (see `BonusRpState`), and every dot is `unknown` when
- * `applicable` is `false` because bonus RP is qualification-only.
+ * each carrying the bonus's initial. An actual dot draws the alliance's 30%
+ * ground when earned and shrinks to a small letterless pip when not earned.
+ * A predicted dot draws one of three categorical tiers (`bonusDotTier`) —
+ * an alliance-coloured outline under one third, a diagonal hatch of the 30%
+ * tint between one third and two thirds, the SAME 30% ground an earned dot
+ * draws above two thirds — rather than a continuous fill, so the read stays
+ * unmistakable at 14px. Every non-unknown dot's letter is one dark ink,
+ * never an alliance-tinted one. `unknown` draws dashed and muted for either
+ * kind (see `BonusRpState`), and every dot is `unknown` when `applicable` is
+ * `false` because bonus RP is qualification-only.
  */
 export function BonusRpDots({ season, side, states, probabilities, kind, matchKey, applicable }: BonusRpDotsProps) {
   const bonuses = bonusRpForSeason(season);

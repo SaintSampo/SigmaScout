@@ -95,14 +95,16 @@ export const BONUS_DOT_TOSSUP_MIN = 1 / 3;
 /** Inclusive upper bound of the toss-up band (two thirds): above this a predicted dot is `likely`. */
 export const BONUS_DOT_TOSSUP_MAX = 2 / 3;
 
-/** A predicted bonus dot's categorical read: empty, faintly tinted, or solid. */
+/** A predicted bonus dot's categorical read: outline only, hatched, or the same ground an actual earned dot draws. */
 export type BonusDotTier = "unlikely" | "tossup" | "likely";
 
 /**
  * Maps a predicted probability to one of three categorical tiers rather than
  * a continuous fill: a partial fill reads alike at 40% and 60% at 14px, while
- * a tier gives an unmistakable look at a glance. The toss-up band is
- * inclusive at both ends.
+ * a tier gives an unmistakable look at a glance. `unlikely` draws an outline
+ * only, `tossup` a diagonal hatch, and `likely` the same 30% alliance ground
+ * an actual earned dot draws — see `theme.css`'s `.bonus-dot` rules for the
+ * drawn look. The toss-up band is inclusive at both ends.
  *
  * `undefined` for an absent or non-finite probability, so the dot renders
  * `unknown` rather than asserting the lowest tier for data that does not
