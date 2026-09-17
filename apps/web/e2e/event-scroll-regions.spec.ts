@@ -98,7 +98,7 @@ test.describe("E5 — Quals tab at phone width, highest-risk item on this tab", 
       console.log(`[event-scroll-regions] quals density screenshot: ${shot}`);
 
       const matchHeader = region.getByRole("columnheader", { name: "Match", exact: true });
-      const actualHeader = region.getByRole("columnheader", { name: "Actual RP", exact: true });
+      const actualHeader = region.getByRole("columnheader", { name: "Actual", exact: true });
       const matchBefore = await matchHeader.boundingBox();
       const actualBefore = await actualHeader.boundingBox();
       if (matchBefore === null || actualBefore === null) throw new Error("header cell missing a bounding box");
