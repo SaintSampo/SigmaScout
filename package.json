@@ -29,6 +29,7 @@
     "publish:districts": "tsx --env-file=.env scripts/publishDistricts.ts --years 2016-2020,2022-2026",
     "publish:epa-comparison": "tsx --env-file=.env scripts/publishEpaComparison.ts",
     "verify:subset": "tsx scripts/verifySubsetPublish.ts",
+    "check:deployed-assets": "tsx scripts/checkDeployedAssets.ts",
     "manifest:algorithms": "tsx --env-file=.env scripts/publishAlgorithmsManifest.ts",
     "worker:deploy": "pnpm --filter worker run deploy",
     "replay:rig": "tsx --env-file=.env scripts/replayRig.ts",

@@ -969,6 +969,68 @@ build against a local artifact fixture (`VITE_ARTIFACT_ORIGIN` override, see
 
 ---
 
+## After a web deploy: check the assets are actually servable (quick task 260917-hul)
+
+**This section is about the `apps/web` Pages deploy, not the Worker.** It lives in this file because
+the section directly above it already owns the site's hosting — the Pages project, the custom
+domains, the CORS policy — and an operator hunting a deploy remedy is already reading here. A
+separate one-section web doc would be a doc nobody finds at the moment they need it.
+
+**The failure it catches.** On 2026-09-17 sigmascout.org served a blank page to every real visitor
+while `curl` reported a healthy site. The edge held `index.html` (`content-type: text/html`, status
+200) under `/assets/index-<hash>.js` and `/assets/index-<hash>.css`, but **only for requests carrying
+an `Origin` header**. Browsers always send `Origin` for those files, because Vite emits
+`<script type="module" crossorigin>` — so every browser got HTML where a module was expected and
+rendered nothing, while every plain `curl` of the same URL seconds later returned the correct file.
+`public/_headers` marks `/assets/*` `immutable`, so the bad object stuck. Full reproduction, and why
+the routing-level fixes (`_redirects` 404, a top-level `404.html`, Pages Functions middleware) were
+all rejected, in `.planning/todos/pending/pages-deploy-can-poison-asset-cache.md`.
+
+**Where it fits.** Run it as the LAST step of any push that deploys the web app, before the live
+Playwright suite — it takes seconds and it names the remedy, where a mass e2e failure only tells you
+something is wrong. (The e2e suite does detect this: 170/170 → 67 → 160 failures on the day. Treat a
+mass e2e failure immediately after a deploy as a live outage until proven otherwise, never as
+flakiness.) Give Pages a moment to finish the deploy first; a fresh deploy that has not propagated
+is a different failure from a poisoned cache.
+
+```bash
+pnpm check:deployed-assets                          # defaults to https://sigmascout.org
+pnpm check:deployed-assets -- --base https://sigmascout-web.pages.dev
+pnpm check:deployed-assets -- --json                # machine-readable, same verdict
+```
+
+It fetches the deployed HTML, extracts every same-origin `/assets/` URL it references, and requests
+each one **twice** — once bare, once shaped like a browser (`Origin`, plus `Sec-Fetch-Dest` /
+`Sec-Fetch-Mode` / `Sec-Fetch-Site` for that asset's kind). It fails when either variant is served
+`text/html`, when the two disagree on content-type, or when they carry different strong `ETag`s, and
+it prints `cf-cache-status` and `Age` for both — two different `Age` values on one URL is what proved
+there were two distinct cached objects behind it. Exit 0 on PASS, 1 on FAIL.
+
+**It reads nothing but public URLs: GET only, no auth, no `.env`.** Keep it that way — it is meant to
+be runnable by anyone, anywhere, including from a machine that has no credentials at all.
+
+The one-line manual form, if you want to check a single asset by hand:
+
+```bash
+curl -sI <asset-url> -H "Origin: https://sigmascout.org" | grep -i content-type
+```
+
+`text/html` on a `.js` or `.css` URL means poisoned.
+
+**If it reports HTML under an asset URL, or the two variants disagreeing: Cloudflare dashboard →
+Caching → Configuration → Purge Everything.** A single-file purge may not be enough — Cloudflare's
+own docs say a dashboard single-file purge does not invalidate objects cached with header variants,
+and they name `Origin` among those headers. After purging, re-run the check (both variants should
+come back `MISS` with correct types) and then re-run the live Playwright suite. The script prints
+that remedy only for those cache-shaped failures; a plain 404 or an unreachable host is a different
+problem and a purge will not touch it.
+
+`scripts/checkDeployedAssets.ts` takes its `fetch` as an argument, so `checkDeployedAssets.test.ts`
+drives every verdict — poisoned, healthy, 404, content-type disagreement, a document referencing no
+assets at all — offline, with no network.
+
+---
+
 ## Replay rig (plan 04-07)
 
 `scripts/replayRig.ts` drives a real historical event through the deployed `sigmascout-worker`'s
