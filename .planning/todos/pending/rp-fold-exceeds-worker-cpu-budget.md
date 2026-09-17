@@ -278,6 +278,102 @@ invocations count toward the free 100,000 requests/day.
 teams-only chunk that reads played rows from the event artifact instead of re-folding. If a chunk
 measures ~8 ms it fits; if it measures 15 ms, splitting buys nothing.
 
+## SPLIT-TICK CHUNK — the instrument is built and the bar is set; the numbers are NOT in yet (2026-09-17, quick task 260917-0p3)
+
+**Status: instrument only.** This section records what was BUILT and what the verdict will be decided
+against. It contains no chunk measurement, because none has been taken. Do not read anything below as
+evidence about what a split costs.
+
+### What was built
+
+- **`chunk=teams`**, a new probe arm in `apps/worker/src/stateProbe.ts`. It emulates the consumer half
+  of a split tick as its OWN invocation: GET the published event artifact, rebuild a `MatchResult` and
+  a `Prediction` from each of its first `folded` played rows, `playedRowFactsFor`, then N team parses
+  and `mergeTeamSeasonArtifact` calls — through `artifactMerge.ts`, the module the tick itself calls,
+  never a copy.
+- **It touches D1 zero times, proven behaviourally.** It is routed before discovery and before the
+  read/deserialize loop and is never handed the binding; `stateProbe.test.ts` Group 11 asserts the
+  fake database's recorded SQL list is EMPTY by equality, including when the overrides it needs are
+  missing (it fails with `ChunkOverridesRequired` rather than falling back to discovery, which is
+  itself two `ORDER BY scope_key` scans).
+- **`chunk=event` is recognized and INERT** — no second code path. The cron-side chunk is already
+  measured by `phaseB=1&phaseBTeams=0` (the rig's `pbTeams0`), and the warning says so, naming the two
+  differences from a real cron chunk: that arm also issues one team-artifact GET the real chunk would
+  not (fetch is I/O, billed as subrequests rather than CPU), and it does not pay the queue `send()`.
+- **`chunk` is OFF by default**, so every arm measured on 2026-09-15 and 2026-09-17 keeps its meaning
+  and its pinned counters; an unrecognized value skips nothing and warns.
+- **A five-arm rig** at `.planning/quick/260917-0p3-measure-a-split-tick-chunk-before-buildi/measure/`,
+  carrying the pinned 21-team roster and `2026alhu` byte-for-byte from 260915-t7o. The fifth arm,
+  `chunkTeams0`, forces the team loop to zero to isolate the chunk's FIXED overhead.
+
+### The bar, pre-registered BEFORE the run
+
+> **Splitting the tick is worth building only if the teams chunk lands comfortably under 10 ms on the
+> reused-isolate stratum: p50 at or under 8 ms AND mean at or under 9 ms.**
+
+If it does not, splitting moves the cost without fixing it and the recommendation is to STOP. A chunk
+in the 10-13 ms band is a FAILURE of this bar, not a near miss to be argued around after the fact —
+which is the whole reason it is written down here, in the rig as data (`PRE_REGISTERED_BAR` in
+`arms.mjs`), and evaluated mechanically by the analyzer, all three before any number exists.
+
+The one legitimate follow-up on a miss is the specific one `chunkTeams0` exists to expose: if the
+chunk's fixed overhead dominates and the team merges themselves are cheap, the next question is a
+message payload carrying the played rows rather than an event-artifact read — and that is a NEW
+measurement, not a reinterpretation of this one.
+
+### What the chunk reconstructs, and what it cannot — established by construction, not by the run
+
+Checked field by field against `EventMatchSchema` and against what `mergeTeamSeasonArtifact` and
+`playedRowFactsFor` actually read. Thirteen fields have to be defaulted; the merge path reads **three**
+of them:
+
+| Field | Does the merge read it? | What a real consumer would need |
+|---|---|---|
+| `match.hasScoreBreakdown`, `match.scoreBreakdownRaw` | yes — `actualBonusFlagsForMatch`'s gate | **nothing extra.** The published row carries the ANSWER (`actualRedBonusRp`/`actualBlueBonusRp`, ordered by the season's `bonusNames`), and the chunk inverts those arrays back into the per-side record. The two fields are then gate sentinels the parse never touches. **D1 is not an alternative — it holds no breakdown either.** |
+| `prediction.variance` | yes — `teamSeasonMatchRow` publishes it | a message payload carrying this tick's own prediction, or a republish adding the field to the event played row. It is published on the TEAM-season row but **not** on the event played row, so a chunk reading the event artifact loses it. D1 holds no predictions. |
+| `playedRowFacts.reportedSortTime` | yes — the row's `sortTime` | a message payload carrying the tick's own TBA poll. `playedRowFactsFor` sources this only from a TBA-shaped raw match, so the published `sortTime` (the same quantity) cannot reach it; the merge falls back to the row's already-published value, which is the tick's own documented degradation. |
+| the other ten (`redSurrogates`, `blueSurrogates`, `redDqs`, `blueDqs`, `week`, `redComponents`, `blueComponents`, `redOutcomeRp`, `blueOutcomeRp`, and the prediction's own absent keys) | no | nothing |
+
+**NET: no D1 read answers any of them.** A small pointer message plus the published artifact is enough,
+which sits far under the Queues 64 KB-per-operation billing unit. A real consumer's subrequests are one
+event GET plus one per team — 13 for a twelve-team chunk, under 50 even on the strictest reading of the
+per-invocation cap. The probe itself issues only 2 (it re-parses ONE team's bytes N times), so its team
+half is a **floor**, exactly as it is under `phaseB=1`.
+
+Two fidelity notes, both reported by the arm itself rather than left implicit: the rebuilt predictions
+are re-rounded from already-rounded published numbers, and the published rosters are replaced by the
+probe's own `rosterAt` cycle so the chunk merges the same twelve pinned teams `allPhaseB` merges.
+
+### What was deliberately LEFT OUT: the subrequest-cap test
+
+The "50 per invocation vs 1,000 to internal services" ambiguity noted above is **not** tested here, on
+purpose.
+
+1. **The probe's safety rests on R2 and KV bindings being structurally absent from
+   `wrangler.probe.toml`.** Adding an R2 binding to issue 50+ binding reads would destroy exactly that
+   guarantee — the one thing that makes this Worker safe to point at live infrastructure.
+2. **The probe's existing outbound reads are public https fetches**, which count against the documented
+   50-per-invocation *fetch* limit — a different quantity from the undefined "internal services" 1,000.
+   Issuing 50+ of them would answer a question nobody asked.
+
+If that ambiguity is worth settling it wants its own throwaway Worker with a read-only-by-usage R2
+binding, deployed and deleted — never this one. It does not bind the design being measured here anyway:
+the chunk's 13 subrequests are under 50 on either reading.
+
+### Results
+
+_Not yet run._ The orchestrator fills this in after the cold pass: per-arm absolute mean/p50/p90 and
+percent over 10 ms on the reused stratum for all five arms; whether the 17.5 / 9.9 / 7.6 ms anchors
+reproduced (if they did not, the run is not comparable and the chunk number must not be published); the
+chunk's own team half and its fixed overhead; the split penalty; the fresh-versus-reused share; and the
+verdict against the bar above, in those words.
+
+What this measurement will NOT settle, whatever it says: a Queues consumer's own per-invocation
+overhead and its free-plan CPU allowance are undocumented; a consumer would be a SEPARATE Worker with
+its own isolate population invoked less often, so its fresh-isolate rate would likely be worse than this
+probe's; the chunk arm carries the whole probe bundle, which a purpose-built consumer would not; and the
+probe parses one team's bytes N times, so the team half stays a floor.
+
 ## RE-MEASURED AFTER F2 — Phase B is 5.4x cheaper, and team artifacts are what is left (2026-09-17, quick task 260915-t7o)
 
 **Headline: dropping the duplicate read-side validation took Phase B from +64.0 ms to +11.8 ms and
