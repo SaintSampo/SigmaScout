@@ -1,6 +1,11 @@
 /**
  * The Teams page's bubble-chart view — a hand-rolled SVG scatter of the
- * currently filtered teams, X = Total, Y = Sigma Score.
+ * currently filtered teams, X = Total, Y = Sigma Score, and point COLOUR is
+ * a selectable rarity tier: Total by default, Sigma Score when the
+ * "Colour by" control's `colorBy` prop says so. The route owns the actual
+ * selection (it lives in the `tint` search param), which is why this
+ * component's own `colorBy` state is fully controlled — see the
+ * `onSelectTeam` doc below for the same navigation split applied to clicks.
  *
  * Sigma Score is published for SPR only. When no row carries one (every OPR
  * and EPA row set) the component renders a plain no-Sigma state instead of an
@@ -58,6 +63,7 @@ import { metricDisplayLabel } from "@/lib/metricLabels";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { MetricValue } from "@/components/MetricValue";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
+import { Button } from "@/components/ui/button";
 import type { TeamRow } from "./rowModel.js";
 import {
   BUBBLE_CHART,
@@ -71,6 +77,7 @@ import {
   tonePathData,
   tooltipAnchorFor,
   SIGMA_AXIS_LABEL,
+  type BubbleColorBy,
   type BubblePoint,
   type BubbleTone,
 } from "./teamsBubbleModel.js";
@@ -84,7 +91,19 @@ export interface TeamsBubbleChartProps {
    * `RouterProvider`.
    */
   onSelectTeam?: (point: BubblePoint) => void;
+  /** Which published rarity tier tints the point cloud. Defaults to `"total"`, matching `buildBubbleModel`'s own default. */
+  colorBy?: BubbleColorBy;
+  /**
+   * Fired when the "Colour by" control's active segment changes. Optional,
+   * mirroring `onSelectTeam` — a bare render (as in most of this file's
+   * existing tests) shows the control with Total pressed and clicking it is
+   * inert, exactly like `onSelectTeam`'s existing bare-render behaviour.
+   */
+  onColorByChange?: (next: BubbleColorBy) => void;
 }
+
+/** The visible label and accessible name for the "Colour by" control's labelling span. */
+const COLOR_BY_LABEL = "Colour by";
 
 /** Key-row labels, in `BUBBLE_TONE_DRAW_ORDER`. The first is deliberately not "Common": the wire cannot distinguish an unranked Total from a Common one, and the key must not claim it can. */
 const TONE_KEY_LABEL: Readonly<Record<BubbleTone, string>> = {
@@ -99,7 +118,7 @@ function omissionNote(count: number, reason: string): string {
   return `${count} ${subject} not plotted: ${reason}`;
 }
 
-export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) {
+export function TeamsBubbleChart({ rows, onSelectTeam, colorBy = "total", onColorByChange }: TeamsBubbleChartProps) {
   // Sizing: copies `MetricHistoryChart.tsx`'s measure-with-a-sane-fallback
   // pattern verbatim — a `useLayoutEffect` reads the container's real width
   // where one exists (a real browser) and falls back to
@@ -131,7 +150,7 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rectRef is a ref, stable across renders.
   }, []);
 
-  const model = useMemo(() => buildBubbleModel(rows), [rows]);
+  const model = useMemo(() => buildBubbleModel(rows, colorBy), [rows, colorBy]);
   const plot = useMemo(() => plotRectFor(width), [width]);
 
   // At large team counts the `d` strings are the only real work this
@@ -213,6 +232,12 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
 
   const totalLabel = metricDisplayLabel(TOTAL_KEY);
 
+  /** The control's two segments, in display order. Labels are imported constants — never re-typed literals, per D-03. */
+  const colorByOptions: readonly { value: BubbleColorBy; label: string }[] = [
+    { value: "total", label: totalLabel },
+    { value: "sigma", label: SIGMA_AXIS_LABEL },
+  ];
+
   // The no-Sigma state. Placed after every hook above so the hook order
   // never changes between renders. The label for SPR is the one the ribbon's
   // algorithm menu shows, read through `algorithmDisplayLabel` rather than
@@ -254,27 +279,71 @@ export function TeamsBubbleChart({ rows, onSelectTeam }: TeamsBubbleChartProps) 
 
   return (
     <div data-testid="teams-bubble-chart" className="flex flex-col gap-[var(--spacing-md)]">
-      {/* The key row, ordinary HTML above the svg, not inside it. */}
-      <div
-        data-testid="bubble-chart-key"
-        className="flex flex-wrap items-center gap-[var(--spacing-sm)] text-role-label text-[var(--color-text-muted)]"
-      >
-        {BUBBLE_TONE_DRAW_ORDER.map((tone) => (
-          <span key={tone} className="flex items-center gap-[var(--spacing-xs)]">
-            <span aria-hidden="true" className={cn("bubble-tone", `bubble-tone--${tone}`, "inline-block h-3 w-3 rounded-full")} />
-            {TONE_KEY_LABEL[tone]}
-          </span>
-        ))}
+      {/*
+        The key row and the "Colour by" control share one flex row, the
+        control at its right end. They stay two SIBLINGS, never one nested
+        inside the other: `bubble-chart-key`'s four-children assertion in
+        `TeamsBubbleChart.test.tsx` pins its children by equality, and a
+        fifth child (the control) would break that pin.
+      */}
+      <div className="flex flex-wrap items-center justify-between gap-[var(--spacing-sm)]">
+        {/* The key row, ordinary HTML above the svg, not inside it. */}
+        <div
+          data-testid="bubble-chart-key"
+          className="flex flex-wrap items-center gap-[var(--spacing-sm)] text-role-label text-[var(--color-text-muted)]"
+        >
+          {BUBBLE_TONE_DRAW_ORDER.map((tone) => (
+            <span key={tone} className="flex items-center gap-[var(--spacing-xs)]">
+              <span aria-hidden="true" className={cn("bubble-tone", `bubble-tone--${tone}`, "inline-block h-3 w-3 rounded-full")} />
+              {TONE_KEY_LABEL[tone]}
+            </span>
+          ))}
+        </div>
+
+        {/*
+          The "Colour by" control. `aria-labelledby` rather than
+          `aria-label` so the visible "Colour by" span IS the accessible
+          name — a screen reader is not told the label twice. A static id is
+          safe because this chart renders once per page.
+        */}
+        <div className="flex items-center gap-[var(--spacing-xs)] text-role-label text-[var(--color-text-muted)]">
+          <span id="bubble-chart-color-by-label">{COLOR_BY_LABEL}</span>
+          <div
+            role="group"
+            aria-labelledby="bubble-chart-color-by-label"
+            data-testid="bubble-chart-color-by"
+            className="inline-flex gap-[var(--spacing-xs)]"
+          >
+            {colorByOptions.map((option) => {
+              const isActive = option.value === colorBy;
+              return (
+                <Button
+                  key={option.value}
+                  type="button"
+                  variant={isActive ? "default" : "ghost"}
+                  size="sm"
+                  aria-pressed={isActive}
+                  data-testid={`bubble-chart-color-by-${option.value}`}
+                  onClick={() => onColorByChange?.(option.value)}
+                >
+                  {option.label}
+                </Button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/*
         This sentence names the pointer affordance honestly rather than
         claiming keyboard operability the chart does not have. Real DOM text,
-        so it reaches a screen reader too. It must contain neither "Total" nor
-        "Sigma Score": the axis titles and tooltip labels carrying those
-        strings are asserted by single-match `getByText` calls in
-        `TeamsBubbleChart.test.tsx`, and a second match would make those
-        throw.
+        so it reaches a screen reader too. The svg's axis titles and the
+        "Colour by" control's segment labels now both carry "Total" and
+        "Sigma Score" on screen, so `TeamsBubbleChart.test.tsx` asserts those
+        two exact strings SCOPED to `within(screen.getByRole("img"))` rather
+        than with an unscoped single-match `getByText` — a second on-screen
+        occurrence of either word is fine, as long as the axis title inside
+        the chart still carries it.
       */}
       <p className="text-role-label text-[var(--color-text-muted)]">
         Hover a point for its team; click to open that team's page.
