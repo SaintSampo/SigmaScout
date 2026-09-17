@@ -226,6 +226,64 @@ the fresh/reused split, parse `isolateRequest=N` from each tail event's logs. Ar
 `rpSkip=` (see `docs/worker-operations.md`, "Pre-event probe"). **The probe is LEFT DEPLOYED** at
 `28051f5c`.
 
+## RE-MEASURED AFTER F2 — Phase B is 5.4x cheaper, and team artifacts are what is left (2026-09-17, quick task 260915-t7o)
+
+**Headline: dropping the duplicate read-side validation took Phase B from +64.0 ms to +11.8 ms and
+stopped the platform terminating the isolate. A realistic tick is now ~17.5 ms mean on reused
+isolates, still consistently over the 10 ms budget, and 64% of what remains is the twelve
+team-season artifacts.**
+
+Probe `7ed31f95` from `35983549`, live Worker `89fbe44f`. Same pinned roster and event as the
+2026-09-15 runs, so the measured work is comparable; `teamValidate`/`eventValidate` changed meaning
+across F2 (they now gate the structural guard), which is the point of that pair.
+
+### Cold pass (30 s spacing, 4 arms, 20 measured rounds each, reused-isolate stratum)
+
+| Arm | mean | p50 | % over 10 ms |
+|---|---|---|---|
+| `all` — Phase A only | **5.7 ms** | 5 | **0%** |
+| `allPhaseB` — the realistic full tick | **17.5 ms** | 16 | **100%** |
+| `pbTeams0` — same tick, no team artifacts | **9.9 ms** | 9 | 31% |
+| `pbSkipTeamValidate` | 16.5 ms | 15 | 100% |
+
+| Difference | Now | 2026-09-15 |
+|---|---|---|
+| **phaseB** | **11.8 ± 1.8 ms** | 64.0 ± 9.3 ms |
+| **teamHalf** | **7.6 ± 1.8 ms (64% of Phase B)** | ~80% of Phase B |
+| teamValidate | 1.0 ± 2.1 ms, unresolved | the largest component of all |
+
+Fresh isolates still cost what they always did: `allPhaseB` averages 40.8 ms there (n=10). Nothing
+inside the tick addresses that.
+
+### Warm pass (200 ms spacing, 13 arms, 40 rounds) — the component detail
+
+| Component | Now | Before F2 |
+|---|---|---|
+| whole Phase B | **6.8 ± 0.4 ms** | ~23 ms |
+| team half (×12) | **4.4 ± 0.4 ms** | ~18.5 ms |
+| — team read guard ×12 | 0.4 ± 0.4, unresolved | ~14.6 ms (was a full zod parse) |
+| — team merge + stringify ×12 | 2.6 ± 0.5 | |
+| — team stringify alone ×12 | 2.0 ± 0.4 | |
+| event half | **1.9 ± 0.4 ms** | ~7.2 ms |
+| — event read guard | 0.7 ± 0.4, unresolved | ~5.1 ms (was a full zod parse) |
+| — event merge + stringify | 1.3 ± 0.4 | |
+
+**`exceededCpu` responses went from 28 of 40 per Phase B arm to ZERO.** The platform was terminating
+the isolate on the warm pass before F2; it no longer does at that pacing.
+
+### What this settles
+
+1. **F2 did what the measurement said it would.** Validation is no longer a resolvable component on
+   either side.
+2. **The tick still does not fit.** 17.5 ms mean, p50 16, on 100% of reused-isolate requests, against
+   a 10 ms budget whose enforcement turns on *consistency*. Better than ~74 ms, not yet safe.
+3. **Team-season artifacts are the whole remaining lever inside Phase B**: 7.6 of 11.8 ms, and with
+   them off the tick measures 9.9 ms mean / p50 9 — roughly fitting. It is now merge + stringify of
+   whole-season artifacts, not validation, so option (a) (per-event or append-shaped team artifacts)
+   is the only structural reduction left. The earlier caveat is resolved: the team half still
+   dominates after F2.
+4. **Fresh isolates (~41 ms) remain untouched and untouchable from inside the tick.**
+
 ## RE-MEASURED AFTER BROWSER PRICING — Phase A is fixed, Phase B is the new blocker (2026-09-15, quick task 260915-qgf)
 
 **Headline: browser pricing did what it was chosen to do — Phase A's RP cost is no longer

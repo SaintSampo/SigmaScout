@@ -6,7 +6,7 @@ commits: [0890ac61, eb0f6b0d, 2c1423b5, 35983549]
 worker_version: 89fbe44f
 probe_version: 7ed31f95
 serves_todo: rp-fold-exceeds-worker-cpu-budget
-remeasurement: BLOCKED until 00:00 UTC (D1 daily row-read cap)
+remeasurement: DONE 2026-09-17 (phaseB 64.0 -> 11.8 ms)
 ---
 
 # 260915-t7o: Cut the Worker artifact-merge CPU cost
@@ -126,8 +126,30 @@ subtraction, so the re-measurement decides.
 - Live Worker `89fbe44f` (F2 in production).
 - Probe `7ed31f95` (breakdown arms + discovery skip), D1 binding only.
 
-## Owed: the re-measurement (M3)
+## Re-measurement (M3, done 2026-09-17)
 
-After 00:00 UTC, re-run the warm pass (`--rounds 40 --warmup 2 --delay-ms 200`) and a cold pass, and
-record before/after for `phaseB` and the team half in the todo. Then the team-artifact recommendation
-is decided, and the gate decision goes to Jacob.
+The D1 cap cleared at 00:00 UTC. Both passes ran on probe `7ed31f95`, same pinned roster and event.
+
+**Cold pass** (30 s spacing, 4 arms, 20 rounds, reused-isolate stratum):
+
+| Arm | mean | p50 | % over 10 ms |
+|---|---|---|---|
+| Phase A only | 5.7 ms | 5 | 0% |
+| full tick | **17.5 ms** | 16 | **100%** |
+| tick without team artifacts | 9.9 ms | 9 | 31% |
+
+- **phaseB: 11.8 ± 1.8 ms**, down from 64.0 ± 9.3 — 5.4x cheaper.
+- **teamHalf: 7.6 ± 1.8 ms, 64% of Phase B** — the whole remaining lever.
+- teamValidate: 1.0 ± 2.1, unresolved (it was the largest component of all before F2).
+- Fresh isolates: 40.8 ms mean, untouched and untouchable from inside the tick.
+
+**Warm pass** (200 ms, 13 arms, 40 rounds): Phase B 6.8 ± 0.4 ms (was ~23); team half 4.4 (was
+~18.5), of which merge + stringify is 2.6 and the read guard 0.4; event half 1.9 (was ~7.2).
+**`exceededCpu` went from 28 of 40 per Phase B arm to zero.**
+
+**The team-artifact caveat is resolved:** the team half still dominates after F2, so option (a)
+(per-event or append-shaped team artifacts) is the only structural reduction left inside Phase B.
+It is now merge + stringify of whole-season artifacts, not validation.
+
+**The tick still does not fit** — 17.5 ms mean on 100% of reused-isolate requests against a 10 ms
+budget enforced on consistency. The gate decision goes to Jacob.
