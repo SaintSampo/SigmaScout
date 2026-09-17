@@ -226,6 +226,58 @@ the fresh/reused split, parse `isolateRequest=N` from each tail event's logs. Ar
 `rpSkip=` (see `docs/worker-operations.md`, "Pre-event probe"). **The probe is LEFT DEPLOYED** at
 `28051f5c`.
 
+## TICK SPLITTING — what the platform actually allows (researched 2026-09-17, official docs)
+
+Jacob chose to investigate tick splitting (2026-09-17) after per-event team artifacts priced out:
+that shape needs ~370k Class-A PUTs per republish (2.7 republishes/month against the 1M free tier,
+from 9.2) **and** a tick of 158 subrequests against ~46 usable, so it cannot run at all.
+
+**Ruled out — service bindings share the caller's CPU budget.** Cloudflare's pricing page, on a
+Worker A → Worker B service-binding call: billed as "one request … [and] the total amount of CPU
+time used across both Worker A and Worker B", and both "run on the same thread of the same
+Cloudflare server" (`/workers/platform/pricing/`, `/workers/runtime-apis/bindings/service-bindings/`).
+The call also counts against the caller's subrequest limit. Do not build fan-out on service bindings.
+
+**Viable on the free plan:**
+
+| Mechanism | Free-plan budget | Limits that bind |
+|---|---|---|
+| **Queues** consumer | separate invocation; free-plan CPU value not published, structurally the 10 ms limit | 10,000 operations/day, an operation counted **per 64 KB written, read or deleted** — so messages must be small pointers, never payloads; 24 h non-configurable retention (`/queues/platform/{limits,pricing}/`) |
+| **Workflows** | **10 ms of compute per step, published for Workers Free** — the only mechanism with a documented per-unit free figure | 1,024 steps, 100 concurrent instances, 100,000 executions/day (`/workflows/reference/limits/`) |
+| More **Cron Triggers** | each trigger is its own invocation with its own 10 ms | 5 per account; 1-minute granularity with no sub-minute offset syntax |
+| Durable Object alarms | separate invocation; free-plan CPU value not published | free tier since 2025-04-07, SQLite-backed only; 100k requests/day, 100k rows written/day, and each `setAlarm()` bills as a row written |
+
+**Two findings that change how the existing numbers should be read:**
+
+1. **The budget's flexibility is credit-based, and a sustained mean earns no credit.** The metrics page
+   is the only official description of the mechanism: higher quantiles can exceed the limit without
+   errors "because of a mechanism in the Workers runtime that allows **rollover CPU time for requests
+   below the CPU limit**" (`/workers/observability/metrics-and-analytics/`). Credit is *earned* by
+   invocations under 10 ms. Idle ticks (~1 ms × 1,440/day) bank it; an event weekend at a 17.5 ms mean
+   spends it and earns none. This is consistent with the 2026-08-29 production observation (`ok` at
+   `cpuTime:38`, then killed pinned at `10` sixty seconds later) and argues the current design is
+   genuinely over budget rather than borderline.
+2. **Split across invocations of the SAME Worker, never across more Workers.** Isolate reuse is
+   undocumented by design, but more Workers means more isolate populations each invoked less often,
+   so each is more likely to be cold — and a fresh isolate measured 40.8 ms against 17.5 ms reused.
+
+**An ambiguity worth money, still untested.** The limits page carries two subrequest rows — 50 per
+invocation, and 1,000 "to internal services" — and never defines "internal services", with no
+footnote. If R2/D1/KV count against 1,000, the tick's whole subrequest-deferral machinery (and the
+D1-batching rationale) is unnecessary. Testable in minutes: issue more than 50 R2 reads in one probe
+invocation and see whether it throws.
+
+**Not confirmable from official docs** (treat as unknown, not as fact): the free-plan CPU number for a
+Queue consumer or a DO request; whether `ctx.waitUntil` CPU counts toward the invocation limit
+(framing implies yes); whether a queue `send()` counts as a subrequest (definition implies yes);
+whether module-init CPU counts toward the 10 ms handler budget; whether cron and queue-consumer
+invocations count toward the free 100,000 requests/day.
+
+**Next, per Jacob (2026-09-17): measure a chunk before building anything.** The team-artifact half is
+7.6 ms of work, but a split invocation pays its own start-up, and the arm that proves it is a
+teams-only chunk that reads played rows from the event artifact instead of re-folding. If a chunk
+measures ~8 ms it fits; if it measures 15 ms, splitting buys nothing.
+
 ## RE-MEASURED AFTER F2 — Phase B is 5.4x cheaper, and team artifacts are what is left (2026-09-17, quick task 260915-t7o)
 
 **Headline: dropping the duplicate read-side validation took Phase B from +64.0 ms to +11.8 ms and
