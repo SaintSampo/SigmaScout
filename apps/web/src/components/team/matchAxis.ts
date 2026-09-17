@@ -35,27 +35,53 @@ export function teamRowPrediction(
 }
 
 /**
+ * The three-slot row grid every match row's cells share (260917-jaf): a
+ * label slot, then one 22px line per alliance. This is the SINGLE SOURCE
+ * both `MATCH_GEOMETRY` below (derives `PLOT_H`/`Y_RED`/`Y_BLUE` from it) and
+ * `theme.css`'s `.match-row-grid` CSS class read — the table element carries
+ * these two numbers as inline custom properties (`--match-label-h`,
+ * `--match-line-h`) so CSS never restates 16 or 22 as a second, driftable
+ * copy. Values are locked, not derived from the 4px spacing scale: `LINE_H`
+ * (22) is the roster pill's own height (21px) plus 1px of breathing room,
+ * and `LABEL_H` (16) is the Match label line's own rendered height (12px
+ * text at 1.3 line-height ≈ 15.6px) rounded up.
+ */
+export const MATCH_ROW_GRID = {
+  LABEL_H: 16,
+  LINE_H: 22,
+} as const;
+
+/**
  * Locked pixel values, NOT derived from the 4px spacing scale — carried from
  * the sketch-findings skill's uncertainty-display and chart-craft notes.
  *
- * `Y_RED`/`Y_BLUE` are the two alliances' band-top offsets within one match
- * row, set so each alliance's band sits on the SAME BASELINE as that
- * alliance's team-number line in the Match column (red band centre 27, blue
- * band centre 49, measured from the plot's top) — a reader can then track
- * straight across from "4587 118 4328" to the red band.
+ * `PLOT_H`, `Y_RED` and `Y_BLUE` are DERIVED from `MATCH_ROW_GRID` and
+ * `BAND_H` (260917-jaf) rather than hand-tuned: `Y_RED`/`Y_BLUE` are the two
+ * alliances' band-top offsets within one match row, set so each alliance's
+ * band sits on the SAME BASELINE as that alliance's team-number line in the
+ * Match column (red band centre 27, blue band centre 49, measured from the
+ * plot's top) — a reader can then track straight across from
+ * "4587 118 4328" to the red band. The values these derivations produce are
+ * unchanged from before the derivation (60, 23, 45) — this is a coupling
+ * fix, not a geometry change.
  *
  * This baseline-alignment pairing relies on the per-match-row zebra tint for
  * grouping (rather than tight alliance-centre proximity alone). If a future
  * change removes the zebra tint, this trade collapses and the geometry has
  * to be re-argued — do not treat these as free values.
  */
+const PLOT_H: number = MATCH_ROW_GRID.LABEL_H + MATCH_ROW_GRID.LINE_H * 2;
+const BAND_H = 8;
+const Y_RED: number = MATCH_ROW_GRID.LABEL_H + (MATCH_ROW_GRID.LINE_H - BAND_H) / 2;
+const Y_BLUE: number = MATCH_ROW_GRID.LABEL_H + MATCH_ROW_GRID.LINE_H + (MATCH_ROW_GRID.LINE_H - BAND_H) / 2;
+
 export const MATCH_GEOMETRY = {
-  BAND_H: 8,
+  BAND_H,
   DOT_H: 12,
   TICK_H: 14,
-  PLOT_H: 60,
-  Y_RED: 23,
-  Y_BLUE: 45,
+  PLOT_H,
+  Y_RED,
+  Y_BLUE,
 } as const;
 
 export interface AllianceMarkPositions {

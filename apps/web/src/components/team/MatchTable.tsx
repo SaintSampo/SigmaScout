@@ -3,7 +3,7 @@ import { BonusRpDots } from "./BonusRpDots.js";
 import { Link } from "@tanstack/react-router";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, PLOT_W, scaleToPlot, teamRowPrediction, type AxisDomain, type TeamSeasonMatch } from "./matchAxis.js";
+import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, MATCH_ROW_GRID, PLOT_W, scaleToPlot, teamRowPrediction, type AxisDomain, type TeamSeasonMatch } from "./matchAxis.js";
 import { bonusRpForSeason, bonusStatesFromFlags } from "../../lib/bonusRp.js";
 import { snapToDevicePixelPhase, useDevicePixelPhaseStep } from "../../lib/devicePixelGrid.js";
 import { predictionPercent } from "../../lib/predictionPercent.js";
@@ -301,7 +301,7 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
   return (
     <tr data-testid={`match-row-${match.matchKey}`} className={cn(tinted ? "match-row-tint" : "match-row-untinted")}>
       <td className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        <div className="flex min-w-0 flex-col gap-[1px]">
+        <div className={cn("match-row-grid", "min-w-0")}>
           {/* The Match-column label links to that match's own page, carrying
               the reader's current algorithm and season — the same
               `text-role-label text-[var(--color-text-primary)]` treatment
@@ -311,7 +311,7 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
             to="/match/$matchKey"
             params={{ matchKey: match.matchKey }}
             search={{ year: season, algorithm }}
-            className="text-role-label text-[var(--color-text-primary)] hover:underline"
+            className={cn("text-role-label text-[var(--color-text-primary)] hover:underline", "match-row-grid__label")}
           >
             {matchLabel(match)}
           </Link>
@@ -321,7 +321,7 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
               `--color-text-primary` here, ground carries the signal. The 10px
               gap between roster numbers is `.match-alliance-nums`'s `gap`,
               not a text-node space. */}
-          <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
+          <span className={cn("numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]", "match-row-grid__red")}>
             <span className={cn("match-alliance-nums", teamIsRed && "match-alliance-nums--mine match-alliance-nums--red")}>
               {match.redTeams.map((key) => (
                 /* Every roster number links to that team's page, the
@@ -339,7 +339,7 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
               ))}
             </span>
           </span>
-          <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
+          <span className={cn("numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]", "match-row-grid__blue")}>
             <span className={cn("match-alliance-nums", teamIsBlue && "match-alliance-nums--mine match-alliance-nums--blue")}>
               {match.blueTeams.map((key) => (
                 /* Every roster number links to that team's page, the
@@ -368,45 +368,63 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
           `teamOnRoster` gate below is required to avoid rendering a
           confident "Loss" for a match the team never played. */}
       <td data-testid={`result-${match.matchKey}`} className="w-[64px] px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        {played &&
-          teamOnRoster &&
-          (match.actualWinner === "tie" ? (
-            <span className="result-chip result-chip--tie">Tie</span>
-          ) : (match.actualWinner === "red" && teamIsRed) || (match.actualWinner === "blue" && teamIsBlue) ? (
-            <span className="result-chip result-chip--win">Win</span>
-          ) : (
-            <span className="result-chip result-chip--loss">Loss</span>
-          ))}
+        <div className="match-row-grid">
+          {played && teamOnRoster && (
+            <span className="match-row-grid__both">
+              {match.actualWinner === "tie" ? (
+                <span className="result-chip result-chip--tie">Tie</span>
+              ) : (match.actualWinner === "red" && teamIsRed) || (match.actualWinner === "blue" && teamIsBlue) ? (
+                <span className="result-chip result-chip--win">Win</span>
+              ) : (
+                <span className="result-chip result-chip--loss">Loss</span>
+              )}
+            </span>
+          )}
+        </div>
       </td>
       <td data-testid={`actual-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        {played ? (
-          <div className="flex flex-col gap-[2px]">
-            <ActualScoreLine matchKey={match.matchKey} side="red" score={match.actualRedScore!} isLoser={redLoses} season={season} actualBonusRp={match.actualRedBonusRp} compLevel={match.compLevel} />
-            <ActualScoreLine matchKey={match.matchKey} side="blue" score={match.actualBlueScore!} isLoser={blueLoses} season={season} actualBonusRp={match.actualBlueBonusRp} compLevel={match.compLevel} />
-          </div>
-        ) : (
-          <span className="text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
-            {match.sortTime !== undefined ? formatScheduledTime(match.sortTime) : ""}
-          </span>
-        )}
+        <div className="match-row-grid">
+          {played ? (
+            <>
+              <span className="match-row-grid__red">
+                <ActualScoreLine matchKey={match.matchKey} side="red" score={match.actualRedScore!} isLoser={redLoses} season={season} actualBonusRp={match.actualRedBonusRp} compLevel={match.compLevel} />
+              </span>
+              <span className="match-row-grid__blue">
+                <ActualScoreLine matchKey={match.matchKey} side="blue" score={match.actualBlueScore!} isLoser={blueLoses} season={season} actualBonusRp={match.actualBlueBonusRp} compLevel={match.compLevel} />
+              </span>
+            </>
+          ) : (
+            <span className="match-row-grid__both text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
+              {match.sortTime !== undefined ? formatScheduledTime(match.sortTime) : ""}
+            </span>
+          )}
+        </div>
       </td>
       <td data-testid={`predicted-score-${match.matchKey}`} className={cn("px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", "match-table-rule")}>
         {prediction !== undefined && (
-          <div className="flex flex-col gap-[2px]">
-            <PredictedScoreLine matchKey={match.matchKey} side="red" score={prediction.predictedRedScore} variance={match.redMatchBandVariance} season={season} bonusRp={match.redBonusRp} compLevel={match.compLevel} />
-            <PredictedScoreLine matchKey={match.matchKey} side="blue" score={prediction.predictedBlueScore} variance={match.blueMatchBandVariance} season={season} bonusRp={match.blueBonusRp} compLevel={match.compLevel} />
+          <div className="match-row-grid">
+            <span className="match-row-grid__red">
+              <PredictedScoreLine matchKey={match.matchKey} side="red" score={prediction.predictedRedScore} variance={match.redMatchBandVariance} season={season} bonusRp={match.redBonusRp} compLevel={match.compLevel} />
+            </span>
+            <span className="match-row-grid__blue">
+              <PredictedScoreLine matchKey={match.matchKey} side="blue" score={prediction.predictedBlueScore} variance={match.blueMatchBandVariance} season={season} bonusRp={match.blueBonusRp} compLevel={match.compLevel} />
+            </span>
           </div>
         )}
       </td>
       <td data-testid={`confidence-${match.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        {prediction === undefined || confidence === undefined ? (
-          <NoPrediction matchKey={match.matchKey} />
-        ) : (
-          <span className="flex items-center gap-[var(--spacing-xs)]">
-            <AllianceChip side={prediction.predictedWinner} />
-            <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
+        <div className="match-row-grid">
+          <span className="match-row-grid__both">
+            {prediction === undefined || confidence === undefined ? (
+              <NoPrediction matchKey={match.matchKey} />
+            ) : (
+              <span className="flex items-center gap-[var(--spacing-xs)]">
+                <AllianceChip side={prediction.predictedWinner} />
+                <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
+              </span>
+            )}
           </span>
-        )}
+        </div>
       </td>
       <td className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] pl-[var(--spacing-lg)] align-top">
         {/* The sized container stays for an unpriced row so the row keeps its height; it holds no mark. */}
@@ -440,7 +458,11 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
         </div>
       </td>
       <td data-testid={`call-${match.matchKey}`} className="text-role-body px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top text-[var(--color-text-primary)]">
-        <CallBadge played={played} coldStart={match.coldStart === true} winnerCorrect={winnerCorrect} />
+        <div className="match-row-grid">
+          <span className="match-row-grid__both">
+            <CallBadge played={played} coldStart={match.coldStart === true} winnerCorrect={winnerCorrect} />
+          </span>
+        </div>
       </td>
     </tr>
   );
@@ -504,9 +526,20 @@ export function CallBadge({ played, coldStart, winnerCorrect }: { played: boolea
   );
 }
 
+/**
+ * The `.match-row-grid` slot heights, set once on the `<table>` element as
+ * inline custom properties so CSS reads `MATCH_ROW_GRID` rather than
+ * restating 16/22. Exported so `EventMatchTable.tsx` spreads the identical
+ * object onto its own `<table>` rather than rebuilding it.
+ */
+export const MATCH_ROW_GRID_STYLE = {
+  "--match-label-h": `${MATCH_ROW_GRID.LABEL_H}px`,
+  "--match-line-h": `${MATCH_ROW_GRID.LINE_H}px`,
+} as const;
+
 export function MatchTable({ matches, domain, teamKey, season, algorithm }: MatchTableProps) {
   return (
-    <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
+    <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, ...MATCH_ROW_GRID_STYLE }}>
       <thead>
         <tr>
           <th className="p-[var(--spacing-sm)] text-left">

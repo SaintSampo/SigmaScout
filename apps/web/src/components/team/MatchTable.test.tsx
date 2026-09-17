@@ -919,6 +919,40 @@ describe("Header and body column order (260917-jaf)", () => {
   });
 });
 
+describe("Shared row grid (260917-jaf)", () => {
+  it("the table element carries the two CSS custom properties, built from MATCH_ROW_GRID", () => {
+    const { container } = renderWithRouter(
+      <MatchTable matches={[makeMatch({ matchKey: "m1" })]} domain={DOMAIN} teamKey="frc118" season={2024} algorithm="spr" />,
+    );
+    const table = container.querySelector("table");
+    expect(table?.style.getPropertyValue("--match-label-h")).toBe("16px");
+    expect(table?.style.getPropertyValue("--match-line-h")).toBe("22px");
+  });
+
+  it("a played, priced row's Match, predicted-score and actual cells each hold one .match-row-grid wrapper with red/blue slot classes", () => {
+    renderWithRouter(
+      <MatchTable
+        matches={[makeMatch({ matchKey: "m1", actualWinner: "red", actualRedScore: 260, actualBlueScore: 200 })]}
+        domain={DOMAIN}
+        teamKey="frc118"
+        season={2024}
+        algorithm="spr"
+      />,
+    );
+    const row = screen.getByTestId("match-row-m1");
+    const matchCell = row.querySelector("td")!;
+    const predictedCell = screen.getByTestId("predicted-score-m1");
+    const actualCell = screen.getByTestId("actual-m1");
+
+    for (const cell of [matchCell, predictedCell, actualCell]) {
+      const grid = cell.querySelector(":scope > .match-row-grid");
+      expect(grid, `expected ${cell.getAttribute("data-testid") ?? "the Match cell"} to hold a direct .match-row-grid child`).not.toBeNull();
+      expect(grid!.querySelector(":scope > .match-row-grid__red")).not.toBeNull();
+      expect(grid!.querySelector(":scope > .match-row-grid__blue")).not.toBeNull();
+    }
+  });
+});
+
 describe("Match-column label links to /match/{matchKey}", () => {
   it("a played row's Match label is a link whose href contains the match key, carrying the year and algorithm", () => {
     renderWithRouter(

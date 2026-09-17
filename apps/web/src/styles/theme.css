@@ -573,6 +573,43 @@ body {
   border-left: 1px solid var(--color-border);
 }
 
+/*
+ * The shared three-slot row grid (260917-jaf): a label slot, then one row
+ * per alliance, so the Match cell's roster lines, the Prediction cell's
+ * score lines, the Actual cell's score lines and the plot's band/tick/dot
+ * marks (`matchAxis.ts`'s `MATCH_GEOMETRY`, derived from the same
+ * `MATCH_ROW_GRID`) all sit on the same two horizontal centres. The two row
+ * heights come from the table element's own inline custom properties
+ * (`--match-label-h`, `--match-line-h`, set once from `MATCH_ROW_GRID` in
+ * TypeScript) rather than being restated here, so CSS can never drift from
+ * the number the plot math uses.
+ *
+ * No child of a slot may be taller than `--match-line-h` (22px) — the roster
+ * pill is 21px, `.bonus-dot` is 14px — or `align-items: center` alone cannot
+ * keep every cell's slot N starting at the same y as every other cell's.
+ */
+.match-row-grid {
+  display: grid;
+  grid-template-rows: var(--match-label-h) var(--match-line-h) var(--match-line-h);
+  align-items: center;
+}
+.match-row-grid__label {
+  grid-row: 1;
+}
+.match-row-grid__red {
+  grid-row: 2;
+}
+.match-row-grid__blue {
+  grid-row: 3;
+}
+/* Per-match content that belongs to neither alliance (Result/Confidence/Call
+   chips, the unplayed Actual cell's scheduled-time span) centres on the two
+   alliance rows as one block, ignoring the label row. */
+.match-row-grid__both {
+  grid-row: 2 / span 2;
+  align-self: center;
+}
+
 /* Alliance chip (`MatchTable.tsx`'s Confidence column), on the same `--alliance-*` tokens as the plotted marks. */
 .alliance-chip {
   display: inline-block;
@@ -618,8 +655,11 @@ body {
 .match-alliance-nums--mine {
   /*
    * HORIZONTAL padding only: `MATCH_GEOMETRY.Y_RED`/`Y_BLUE` centre each
-   * alliance band on its roster line, so any vertical padding, margin or
-   * line-height here pushes the blue line off its band.
+   * alliance band on its roster line, and (260917-jaf) `.match-row-grid`
+   * below is the shared grid that keeps the roster line, the predicted
+   * line, the actual line and the band on that same centre — any vertical
+   * padding, margin or line-height here pushes the blue line off its slot
+   * and out of that alignment.
    *
    * `margin-left: -5px` keeps the marked line's first digit aligned with the
    * unmarked line. The pill radius is not `var(--radius)` so it never reads

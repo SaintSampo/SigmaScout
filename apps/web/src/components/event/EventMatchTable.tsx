@@ -9,6 +9,7 @@ import {
   AxisHeader,
   CallBadge,
   formatScheduledTime,
+  MATCH_ROW_GRID_STYLE,
   matchBandSd,
   matchLabel,
   NoPrediction,
@@ -59,7 +60,7 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
   return (
     <tr data-testid={`match-row-${row.matchKey}`} className={cn(tinted ? "match-row-tint" : "match-row-untinted")}>
       <td className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        <div className="flex min-w-0 flex-col gap-[1px]">
+        <div className={cn("match-row-grid", "min-w-0")}>
           {/* The Match-column label is a link to that match's own page,
               carrying the reader's current algorithm and season — the SAME
               `text-role-label text-[var(--color-text-primary)]` treatment
@@ -72,11 +73,11 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
             to="/match/$matchKey"
             params={{ matchKey: row.matchKey }}
             search={{ year: season, algorithm }}
-            className="text-role-label text-[var(--color-text-primary)] hover:underline"
+            className={cn("text-role-label text-[var(--color-text-primary)] hover:underline", "match-row-grid__label")}
           >
             {matchLabel(row)}
           </Link>
-          <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
+          <span className={cn("numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]", "match-row-grid__red")}>
             {/* `.match-alliance-nums--even` (theme.css) fixes the line's
                 width and distributes the leftover space, so red and blue
                 occupy the same box no matter how many digits each roster
@@ -98,7 +99,7 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
               ))}
             </span>
           </span>
-          <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
+          <span className={cn("numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]", "match-row-grid__blue")}>
             {/* `.match-alliance-nums--even` (theme.css) fixes the line's
                 width and distributes the leftover space, so red and blue
                 occupy the same box no matter how many digits each roster
@@ -123,34 +124,48 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
         </div>
       </td>
       <td data-testid={`actual-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        {row.played ? (
-          <div className="flex flex-col gap-[2px]">
-            <ActualScoreLine matchKey={row.matchKey} side="red" score={row.actualRedScore!} isLoser={redLoses} season={season} actualBonusRp={row.actualRedBonusRp} compLevel={row.compLevel} />
-            <ActualScoreLine matchKey={row.matchKey} side="blue" score={row.actualBlueScore!} isLoser={blueLoses} season={season} actualBonusRp={row.actualBlueBonusRp} compLevel={row.compLevel} />
-          </div>
-        ) : (
-          <span className="text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
-            {row.sortTime !== undefined ? formatScheduledTime(row.sortTime) : ""}
-          </span>
-        )}
+        <div className="match-row-grid">
+          {row.played ? (
+            <>
+              <span className="match-row-grid__red">
+                <ActualScoreLine matchKey={row.matchKey} side="red" score={row.actualRedScore!} isLoser={redLoses} season={season} actualBonusRp={row.actualRedBonusRp} compLevel={row.compLevel} />
+              </span>
+              <span className="match-row-grid__blue">
+                <ActualScoreLine matchKey={row.matchKey} side="blue" score={row.actualBlueScore!} isLoser={blueLoses} season={season} actualBonusRp={row.actualBlueBonusRp} compLevel={row.compLevel} />
+              </span>
+            </>
+          ) : (
+            <span className="match-row-grid__both text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
+              {row.sortTime !== undefined ? formatScheduledTime(row.sortTime) : ""}
+            </span>
+          )}
+        </div>
       </td>
       <td data-testid={`predicted-score-${row.matchKey}`} className={cn("px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", "match-table-rule")}>
         {prediction !== undefined && (
-          <div className="flex flex-col gap-[2px]">
-            <PredictedScoreLine matchKey={row.matchKey} side="red" score={prediction.predictedRedScore} variance={row.redMatchBandVariance} season={season} bonusRp={row.redBonusRp} compLevel={row.compLevel} />
-            <PredictedScoreLine matchKey={row.matchKey} side="blue" score={prediction.predictedBlueScore} variance={row.blueMatchBandVariance} season={season} bonusRp={row.blueBonusRp} compLevel={row.compLevel} />
+          <div className="match-row-grid">
+            <span className="match-row-grid__red">
+              <PredictedScoreLine matchKey={row.matchKey} side="red" score={prediction.predictedRedScore} variance={row.redMatchBandVariance} season={season} bonusRp={row.redBonusRp} compLevel={row.compLevel} />
+            </span>
+            <span className="match-row-grid__blue">
+              <PredictedScoreLine matchKey={row.matchKey} side="blue" score={prediction.predictedBlueScore} variance={row.blueMatchBandVariance} season={season} bonusRp={row.blueBonusRp} compLevel={row.compLevel} />
+            </span>
           </div>
         )}
       </td>
       <td data-testid={`confidence-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        {prediction === undefined || confidence === undefined ? (
-          <NoPrediction matchKey={row.matchKey} />
-        ) : (
-          <span className="flex items-center gap-[var(--spacing-xs)]">
-            <AllianceChip side={prediction.predictedWinner} />
-            <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
+        <div className="match-row-grid">
+          <span className="match-row-grid__both">
+            {prediction === undefined || confidence === undefined ? (
+              <NoPrediction matchKey={row.matchKey} />
+            ) : (
+              <span className="flex items-center gap-[var(--spacing-xs)]">
+                <AllianceChip side={prediction.predictedWinner} />
+                <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
+              </span>
+            )}
           </span>
-        )}
+        </div>
       </td>
       <td className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] pl-[var(--spacing-lg)] align-top">
         {/* The sized container is kept for an unpriced row so the row keeps its height under the shared axis header; it holds no mark. */}
@@ -184,7 +199,11 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
         </div>
       </td>
       <td data-testid={`call-${row.matchKey}`} className="text-role-body px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top text-[var(--color-text-primary)]">
-        <CallBadge played={row.played} coldStart={row.coldStart === true} winnerCorrect={winnerCorrect} />
+        <div className="match-row-grid">
+          <span className="match-row-grid__both">
+            <CallBadge played={row.played} coldStart={row.coldStart === true} winnerCorrect={winnerCorrect} />
+          </span>
+        </div>
       </td>
     </tr>
   );
@@ -193,7 +212,7 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
 /** One event's match table: the shared axis header drawn exactly once, then one row per merged row, in the order the caller supplies (this component never re-sorts). */
 export function EventMatchTable({ rows, domain, season, algorithm }: EventMatchTableProps) {
   return (
-    <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
+    <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, ...MATCH_ROW_GRID_STYLE }}>
       <thead>
         <tr>
           {/* No column in this table is frozen during horizontal scroll; Match scrolls with the rest of the row. */}

@@ -4,6 +4,7 @@ import {
   axisTicks,
   computeAxisDomain,
   MATCH_GEOMETRY,
+  MATCH_ROW_GRID,
   scaleToPlot,
   type TeamSeasonEvent,
   type TeamSeasonMatch,
@@ -52,6 +53,30 @@ describe("MATCH_GEOMETRY / allianceMarkPositions", () => {
     const red = allianceMarkPositions(MATCH_GEOMETRY.Y_RED);
     const blue = allianceMarkPositions(MATCH_GEOMETRY.Y_BLUE);
     expect(blue.centre - red.centre).toBe(MATCH_GEOMETRY.Y_BLUE - MATCH_GEOMETRY.Y_RED);
+  });
+});
+
+describe("MATCH_ROW_GRID (260917-jaf)", () => {
+  it("exports the three-slot grid's two locked pixel heights", () => {
+    expect(MATCH_ROW_GRID).toEqual({ LABEL_H: 16, LINE_H: 22 });
+  });
+
+  it("MATCH_GEOMETRY's PLOT_H, Y_RED and Y_BLUE are derived from MATCH_ROW_GRID and BAND_H, and still equal 60, 23, 45", () => {
+    expect(MATCH_GEOMETRY.PLOT_H).toBe(MATCH_ROW_GRID.LABEL_H + MATCH_ROW_GRID.LINE_H * 2);
+    expect(MATCH_GEOMETRY.Y_RED).toBe(MATCH_ROW_GRID.LABEL_H + (MATCH_ROW_GRID.LINE_H - MATCH_GEOMETRY.BAND_H) / 2);
+    expect(MATCH_GEOMETRY.Y_BLUE).toBe(MATCH_ROW_GRID.LABEL_H + MATCH_ROW_GRID.LINE_H + (MATCH_ROW_GRID.LINE_H - MATCH_GEOMETRY.BAND_H) / 2);
+
+    // No plot mark moves: these are the exact pre-derivation values.
+    expect(MATCH_GEOMETRY.PLOT_H).toBe(60);
+    expect(MATCH_GEOMETRY.Y_RED).toBe(23);
+    expect(MATCH_GEOMETRY.Y_BLUE).toBe(45);
+  });
+
+  it("allianceMarkPositions(Y_RED)'s centre lands at the red slot's own vertical centre, and Y_BLUE's at the blue slot's", () => {
+    const red = allianceMarkPositions(MATCH_GEOMETRY.Y_RED);
+    const blue = allianceMarkPositions(MATCH_GEOMETRY.Y_BLUE);
+    expect(red.centre).toBe(MATCH_ROW_GRID.LABEL_H + MATCH_ROW_GRID.LINE_H / 2);
+    expect(blue.centre).toBe(MATCH_ROW_GRID.LABEL_H + MATCH_ROW_GRID.LINE_H * 1.5);
   });
 });
 
