@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 09
 status: completed
 stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
-last_updated: "2026-09-17T03:57:36.782Z"
+last_updated: "2026-09-17T04:05:10.778Z"
 last_activity: 2026-09-17
 last_activity_desc: "Completed quick task 260913-rh5: republished spr@4.0.0 and the Swing teardown (generation 2dcc057f), D1 seeded, Worker fcc7ca73; R2 deletions left to Jacob"
 progress:
@@ -598,6 +598,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 194 | Sketch 014: Acknowledgments page copy rewritten in the Statbotics tone Jacob picked and trimmed, no hyphen characters | 2026-09-17 | d9a8f024 | — |
 | 195 | Sketch 015: Predicting awards page rebuilt on the goal, model, results outline with tables and the SPR alone finding | 2026-09-17 | 01b49ee7 | — |
 | 196 | Ribbon algorithm dropdown reads short manifest-derived labels (OPR 4.0, EPA 10.0, SPR 4.0), EPA Statbotics name dropped | 2026-09-17 | 30556304 | — |
+| 197 | Sketch 016: EPA vs Statbotics page rewritten with Jacob's lead, two cards removed, one comparison table, results section first | 2026-09-17 | e26392ab | — |
 
 ### Roadmap Evolution
 
