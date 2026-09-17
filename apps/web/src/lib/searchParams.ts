@@ -120,6 +120,23 @@ export const TeamsSearchSchema = RootSearchSchema.extend({
    * two declared view states before any component reads it.
    */
   chart: z.literal("bubble").optional().catch(undefined),
+  /**
+   * Which published rarity tier tints the Teams bubble chart's already-drawn
+   * point cloud — absent (or anything unrecognized) means the Total rarity
+   * tier, today's behaviour, so a URL with no `tint` is byte-identical to
+   * one written before this field existed. `"sigma"` means the Sigma Score
+   * rarity tier.
+   *
+   * `applyYearChange` touches only the literal key `sort` and spreads every
+   * other field on `current` through untouched, so this field survives a
+   * year change with no change to that function, exactly like `chart`.
+   *
+   * `z.literal("sigma").optional().catch(undefined)`: the field is
+   * structurally incapable of holding a value other than `"sigma"` or
+   * absent, so a hand-edited `?tint=` can only ever resolve to one of the
+   * two declared colour states before any component reads it.
+   */
+  tint: z.literal("sigma").optional().catch(undefined),
 });
 
 export type TeamsSearch = z.infer<typeof TeamsSearchSchema>;

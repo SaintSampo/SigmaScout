@@ -14,7 +14,7 @@ import { TeamsFilters } from "../components/teams-table/TeamsFilters.js";
 import { applyTeamFilters, type TeamFilters as TeamFiltersModel } from "../components/teams-table/teamFilterModel.js";
 import { TeamsBubbleChart } from "../components/teams-table/TeamsBubbleChart.js";
 import { TierKeyRow } from "../components/team/TierKeyRow.js";
-import type { BubblePoint } from "../components/teams-table/teamsBubbleModel.js";
+import type { BubbleColorBy, BubblePoint } from "../components/teams-table/teamsBubbleModel.js";
 
 export const Route = createFileRoute("/teams")({
   validateSearch: TeamsSearchSchema,
@@ -22,12 +22,16 @@ export const Route = createFileRoute("/teams")({
 });
 
 function TeamsPage() {
-  const { year, algorithm, sort, sortDir, cols, country, state, district, chart } = Route.useSearch();
+  const { year, algorithm, sort, sortDir, cols, country, state, district, chart, tint } = Route.useSearch();
   const navigate = Route.useNavigate();
 
   // The bubble-chart toggle's state lives entirely in `chart` — no local
   // view state to hold or fall out of sync.
   const isChart = chart === "bubble";
+
+  // The "Colour by" control's state lives entirely in `tint` — same
+  // discipline as `isChart` above.
+  const colorBy: BubbleColorBy = tint === "sigma" ? "sigma" : "total";
 
   // The three region filter dimensions, read from the URL exactly like
   // every other search-param-backed piece of state on this route.
@@ -133,6 +137,15 @@ function TeamsPage() {
   function handleChartToggle() {
     navigate({
       search: (prev) => ({ ...prev, chart: prev.chart === "bubble" ? undefined : "bubble" }),
+    });
+  }
+
+  // Mirrors `handleChartToggle`'s updater form exactly. Writing `undefined`
+  // rather than `"total"` is what keeps the default colour state out of the
+  // URL, same discipline as `chart`'s own toggle above.
+  function handleColorByChange(next: BubbleColorBy) {
+    navigate({
+      search: (prev) => ({ ...prev, tint: next === "sigma" ? "sigma" : undefined }),
     });
   }
 
@@ -257,7 +270,7 @@ function TeamsPage() {
           // widest child — the svg has no intrinsic width to give it, so
           // without a declared width here the column collapses to zero.
           <div className="w-[1100px] max-w-full">
-            <TeamsBubbleChart rows={rows} onSelectTeam={handleSelectTeam} />
+            <TeamsBubbleChart rows={rows} onSelectTeam={handleSelectTeam} colorBy={colorBy} onColorByChange={handleColorByChange} />
           </div>
         ) : (
           <TeamsTable
