@@ -289,7 +289,7 @@ describe("Bonus-RP dots", () => {
   // Quick 260905-jj8 (todo `event-per-bonus-rp-publish`): the event schemas
   // now publish the per-bonus arrays, and the dots must map them through the
   // same published-data-to-dot-state functions the team page uses.
-  it("a qm row WITH published per-bonus fields renders real dot states: predicted filled to the odds, actual via the flags", () => {
+  it("a qm row WITH published per-bonus fields renders real dot states: predicted dots render their tier, actual via the flags", () => {
     renderWithRouter(
       <EventMatchTable
         rows={[
@@ -311,15 +311,15 @@ describe("Bonus-RP dots", () => {
         algorithm="spr"
       />,
     );
-    // F10 (quick task 260914-01x) retired the 0.5 threshold: 0.5 and 0.49 no
-    // longer split into earned/missed. Both are "predicted" and fill to 6px of
-    // the 12px interior (0.49 * 12 = 5.88 rounds to 6).
+    // The two sides are told apart by tier, not by state: both are always
+    // "predicted". 0.5 and 0.49 both land in the toss-up band (one third to
+    // two thirds inclusive), so they still do not split.
     expect(collectDotStates("bonus-rp-predicted-m1-red")).toEqual(["predicted", "predicted"]);
     expect(collectDotStates("bonus-rp-predicted-m1-blue")).toEqual(["predicted", "predicted"]);
-    const fillPx = (groupTestId: string) =>
-      Array.from(screen.getByTestId(groupTestId).querySelectorAll("[data-testid^='bonus-dot-']")).map((dot) => dot.getAttribute("data-fill-px"));
-    expect(fillPx("bonus-rp-predicted-m1-red")).toEqual(["10", "2"]);
-    expect(fillPx("bonus-rp-predicted-m1-blue")).toEqual(["6", "6"]);
+    const tierOf = (groupTestId: string) =>
+      Array.from(screen.getByTestId(groupTestId).querySelectorAll("[data-testid^='bonus-dot-']")).map((dot) => dot.getAttribute("data-tier"));
+    expect(tierOf("bonus-rp-predicted-m1-red")).toEqual(["likely", "unlikely"]);
+    expect(tierOf("bonus-rp-predicted-m1-blue")).toEqual(["tossup", "tossup"]);
     expect(collectDotStates("bonus-rp-actual-m1-red")).toEqual(["earned", "missed"]);
     expect(collectDotStates("bonus-rp-actual-m1-blue")).toEqual(["missed", "earned"]);
   });

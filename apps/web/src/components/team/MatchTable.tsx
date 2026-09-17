@@ -234,7 +234,7 @@ export function PredictedScoreLine({
   const sd = variance === undefined ? undefined : Math.sqrt(Math.max(0, variance));
   return (
     <span className="flex items-center gap-[var(--spacing-xs)]">
-      {/* Probabilities only: each predicted dot fills to its own odds (F10). */}
+      {/* Probabilities only: each dot draws its own bonusDotTier. */}
       <BonusRpDots season={season} side={side} kind="predicted" matchKey={matchKey} probabilities={bonusRp} applicable={isBonusRpCompLevel(compLevel)} />
       <span data-testid={`predicted-score-${matchKey}-${side}`} className="numeric-cell whitespace-nowrap text-[var(--color-text-primary)]">
         {Math.round(score)}
