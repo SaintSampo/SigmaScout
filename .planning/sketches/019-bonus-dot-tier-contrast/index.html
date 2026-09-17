@@ -92,7 +92,8 @@
   /* F · Jacob's mix (2026-09-17). Shipped grounds, hatched toss-up, a pip for an actual "not earned", and one
      black letter on every dot, predicted or actual. The border keeps the alliance colour. */
   .vF, .dot.fa { color:#0f172a; }
-  .vF.likely { background:var(--fill); }
+  /* Revised 2026-09-17: the 60% fill read too dark. Likely is now the SAME dot as an actual earned (30% tint). */
+  .vF.likely { background:var(--soft); }
   /* Hatch strength is a control (second nav row): stripes at 60%, 45%, or 30% alliance colour. */
   .red  { --h60:var(--alliance-red-fill);  --h45:color-mix(in srgb, #DC2626 45%, transparent); --h30:var(--alliance-red-soft); }
   .blue { --h60:var(--alliance-blue-fill); --h45:color-mix(in srgb, #2563EB 45%, transparent); --h30:var(--alliance-blue-soft); }
@@ -156,7 +157,7 @@ const DESIGNS = {
   C: { name: "C · Hatched", caption: "<b>C · Hatched.</b> Likely is full ink. Toss-up is diagonal stripes. Texture reads as “unsure” in most chart conventions. At 14px the stripes are only 2px wide and can shimmer behind the letter." },
   D: { name: "D · No tint", caption: "<b>D · No tint.</b> Nothing is ever faint. Likely is full ink, toss-up is an alliance coloured outline, unlikely is a grey outline. Cost: a predicted toss-up now looks like an actual “not earned” dot, and unlikely sits close to the dashed “no data” dot." },
   E: { name: "E · Size step", caption: "<b>E · Size step.</b> Likely is full ink, toss-up is the tint, and unlikely shrinks to a small pip with no letter. The row gets quieter: only bonuses in play draw a full dot. The pip keeps its slot, so position still says which bonus it is." },
-  F: { name: "F · Jacob's mix", caption: "<b>F · Jacob's mix.</b> Toss-up is hatched (from C). An actual “not earned” shrinks to the small pip (from E). Everything else is as shipped: likely is the 60% fill, unlikely is an empty outline, earned is the 30% tint. Every letter is black, predicted or actual. F draws its own actual dots, so the Actual toggle above does not apply to it." },
+  F: { name: "F · Jacob's mix", caption: "<b>F · Jacob's mix.</b> Toss-up is hatched (from C). An actual “not earned” shrinks to the small pip (from E). Likely is now the exact dot an actual earned RP draws (30% tint), because the shipped 60% fill read too dark. Unlikely stays an empty outline. Every letter is black, predicted or actual. F draws its own actual dots, so the Actual toggle above does not apply to it." },
 };
 const ORDER = ["A", "B", "C", "D", "E", "F"];
 

@@ -57,6 +57,15 @@ Every variant makes likely full alliance ink with a white letter (white on `#DC2
 
 ## Decision
 
+**Revised later on 2026-09-17:** Jacob found the shipped 60% likely dot too dark and called the actual
+earned dot "perfect", so **predicted likely now draws exactly as an actual earned dot (30% tint, black
+letter)**. Where the text below says likely stays the 60% fill, this supersedes it; the
+`--alliance-*-fill` tokens become unused as well. The 30% hatch was re-confirmed by Jacob on his own
+screen after the change. For the record, the orchestrator's 1x captures
+(`preview-F-likely-as-earned-hatch30-1x.png` vs `...hatch45-1x.png`) showed the 30% hatch sitting close
+to the 30% solid and recommended 45%; Jacob chose 30% anyway. If the tiers prove hard to separate once
+live, the hatch strength is the first knob to turn.
+
 **F with the 30% hatch.** Sketch only for now: Jacob asked to hold implementation for a separate request.
 The full ink "likely" that A to E shared was NOT taken; likely stays the shipped 60% fill. The actual
 earned dot stays the 30% tint (Jacob declined full ink).
