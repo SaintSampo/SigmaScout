@@ -3,7 +3,7 @@
  * single source of every prose string the page renders: the title, the
  * lead, the three section headings, the "Same on both sites" list, the
  * "Where they differ" comparison cards, and the "How much it matters"
- * head-to-head intro and summary sentence. `epaComparisonContent.test.ts`
+ * head-to-head intro and the two provenance lines under its table. `epaComparisonContent.test.ts`
  * pins the exact id sets by equality and runs voice, fact and liability
  * gates over every exported string, so a silently added, dropped or
  * reworded entry fails loudly.
@@ -28,7 +28,7 @@
 export const EPA_COMPARISON_PAGE_TITLE = "Our EPA vs Statbotics' EPA";
 
 export const EPA_COMPARISON_LEAD =
-  "SigmaScout and Statbotics both publish EPA (Expected Points Added), a rating of how many points an FRC team adds to its alliance's score. Most of the calculation is the same on both sites. This page lists what is shared, where the two differ, and how much the differences change match predictions.";
+  "Statbotics publishes EPA (Expected Points Added), a rating of how many points an FRC team adds to its alliance's score. SigmaScout reimplements EPA for the purpose of comparison. Most of the calculations are the same on both sites, but there are minor differences. This page lists where the two differ and how much the differences change match predictions.";
 
 export const EPA_SAME_SECTION_HEADING = "Same on both sites";
 export const EPA_DIFFERENCE_SECTION_HEADING = "Where they differ";
@@ -107,8 +107,6 @@ export const EPA_DIFFERENCE_CARD_IDS = [
   "new-season-start",
   "score-data-cleanup",
   "season-adjustments",
-  "ranking-points",
-  "offseason-events",
 ] as const;
 export type EpaDifferenceCardId = (typeof EPA_DIFFERENCE_CARD_IDS)[number];
 
@@ -180,44 +178,7 @@ export const EPA_DIFFERENCE_CARDS: readonly EpaDifferenceCard[] = [
     sigmascout: "Applies no season-specific adjustments.",
     notes: [{ label: "Why", text: "A deliberate choice that keeps the calculation identical in every season." }],
   },
-  {
-    id: "ranking-points",
-    title: "Ranking points",
-    statbotics:
-      "Also predicts ranking points, the points that order teams in the qualification standings. In 2016 and 2017 elimination matches, mixes those predictions into the predicted score.",
-    sigmascout: "Predicts scores and winners only, never ranking points.",
-    notes: [{ label: "Why", text: "A deliberate choice by SigmaScout's developer." }],
-  },
-  {
-    id: "offseason-events",
-    title: "Offseason events",
-    statbotics: "Ignores offseason events entirely.",
-    sigmascout:
-      "Includes offseason matches, and they can move a rating. The rating on the Teams list and team pages, and a team's starting point for next season, both come from its last official match.",
-    notes: [{ label: "What it changes", text: "Nothing for predictions of official matches." }],
-  },
 ];
-
-/**
- * The head-to-head summary sentence, its season count ALWAYS derived from
- * the artifact's own head-to-head rows (never a hardcoded number) — the
- * page must not go stale against its own table. `statboticsAheadCount` is
- * the count of seasons where Statbotics' own accuracy exceeds SigmaScout's;
- * `totalSeasons` is the number of seasons carrying a real comparison
- * (`ourWinnerAccuracy` and `statboticsWinnerAccuracy` both present).
- */
-export function headToHeadSummarySentence(statboticsAheadCount: number, totalSeasons: number): string {
-  if (totalSeasons === 0) {
-    return "No seasons have a published head-to-head comparison yet.";
-  }
-  if (statboticsAheadCount === 0) {
-    return `SigmaScout matched or beat Statbotics on winner accuracy in every one of the ${totalSeasons} measured seasons.`;
-  }
-  if (statboticsAheadCount === totalSeasons) {
-    return `Statbotics had the higher winner accuracy in all ${totalSeasons} measured seasons.`;
-  }
-  return `Statbotics had the higher winner accuracy in ${statboticsAheadCount} of ${totalSeasons} measured seasons.`;
-}
 
 /** Long-form UTC date, so an ISO calendar date never shifts a day across the viewer's timezone. */
 const PULLED_DATE = new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
@@ -244,4 +205,14 @@ export function statboticsPulledSentence(capturedDates: readonly string[]): stri
   }
   const newest = formatPulledDate(days[days.length - 1] as string);
   return `Statbotics numbers were last pulled from the Statbotics API between ${oldest} and ${newest}.`;
+}
+
+/**
+ * The provenance line under the head-to-head table: which SigmaScout EPA
+ * version produced the SigmaScout column, and when. Built from the artifact's
+ * own `epaVersion` and `measuredAt`, never typed, and the date goes through the
+ * same long form as the Statbotics line so no ISO hyphen reaches the page.
+ */
+export function sigmascoutMeasuredSentence(epaVersion: string, measuredAt: string): string {
+  return `SigmaScout EPA measured with EPA ${epaVersion} on ${formatPulledDate(measuredAt)}.`;
 }

@@ -27,7 +27,7 @@ import {
   EPA_SAME_ITEM_IDS,
   EPA_SAME_ITEMS,
   EPA_SAME_SECTION_HEADING,
-  headToHeadSummarySentence,
+  sigmascoutMeasuredSentence,
   statboticsPulledSentence,
   type EpaNoteLabel,
 } from "./epaComparisonContent.js";
@@ -45,15 +45,13 @@ const EXPECTED_SAME_ITEM_IDS = [
   "no-uncertainty-range",
 ];
 
-/** The full seven-card difference-card id set, in copy-deck order. */
+/** The full five-card difference-card id set, in copy-deck order. */
 const EXPECTED_DIFFERENCE_CARD_IDS = [
   "week-one-numbers",
   "score-pieces",
   "new-season-start",
   "score-data-cleanup",
   "season-adjustments",
-  "ranking-points",
-  "offseason-events",
 ];
 
 /** The full note-label mapping for every card in the copy deck. */
@@ -63,8 +61,6 @@ const EXPECTED_NOTE_LABELS: Record<string, EpaNoteLabel[]> = {
   "new-season-start": ["Why"],
   "score-data-cleanup": ["What it changes"],
   "season-adjustments": ["Why"],
-  "ranking-points": ["Why"],
-  "offseason-events": ["What it changes"],
 };
 
 /** The only decimal numbers (digit-dot-digit) copy on this page is allowed to state. */
@@ -97,17 +93,6 @@ function collectStrings(): StringRecord[] {
     for (const note of card.notes) {
       records.push({ where: `card "${card.id}" note "${note.label}"`, text: note.text });
     }
-  }
-  for (const [aheadCount, total] of [
-    [0, 0],
-    [0, 5],
-    [3, 5],
-    [5, 5],
-  ] as const) {
-    records.push({
-      where: `headToHeadSummarySentence(${aheadCount}, ${total})`,
-      text: headToHeadSummarySentence(aheadCount, total),
-    });
   }
   for (const dates of [["2026-09-04"], ["2026-09-07", "2026-09-04"]]) {
     records.push({ where: `statboticsPulledSentence(${dates.join(", ")})`, text: statboticsPulledSentence(dates) });
@@ -268,29 +253,17 @@ describe("fact gate per difference card", () => {
     expect(prose, "season-adjustments is missing 'deliberate'").toMatch(/\bdeliberate\b/);
   });
 
-  it("ranking-points contains 'deliberate'", () => {
-    const prose = cardProse("ranking-points");
-    expect(prose, "ranking-points is missing 'deliberate'").toMatch(/\bdeliberate\b/);
-  });
-
-  it("offseason-events contains 'last official match'", () => {
-    const prose = cardProse("offseason-events");
-    expect(prose, "offseason-events is missing 'last official match'").toContain("last official match");
-  });
 });
 
-describe("headToHeadSummarySentence", () => {
-  it("derives its season count from the arguments, never a hardcoded number", () => {
-    expect(headToHeadSummarySentence(3, 5)).toContain("3 of 5");
-    expect(headToHeadSummarySentence(2, 4)).toContain("2 of 4");
+describe("sigmascoutMeasuredSentence", () => {
+  it("names the version and the long form date, both from its arguments", () => {
+    expect(sigmascoutMeasuredSentence("10.0.0+baseline", "2026-09-12T18:04:00.000Z")).toBe(
+      "SigmaScout EPA measured with EPA 10.0.0+baseline on September 12, 2026."
+    );
   });
 
-  it("names every season when Statbotics leads all of them", () => {
-    expect(headToHeadSummarySentence(5, 5)).toContain("all 5");
-  });
-
-  it("credits SigmaScout when Statbotics leads none", () => {
-    expect(headToHeadSummarySentence(0, 5)).toMatch(/matched or beat/);
+  it("carries no ISO hyphen or dash from the timestamp onto the page", () => {
+    expect(sigmascoutMeasuredSentence("10.0.0+baseline", "2026-09-12")).not.toMatch(/[-\u2013\u2014]/);
   });
 });
 

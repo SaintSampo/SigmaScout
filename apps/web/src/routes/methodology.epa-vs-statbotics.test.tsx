@@ -17,7 +17,6 @@ import { RootSearchSchema } from "../lib/searchParams.js";
 import { PAGE_ARTIFACT_SCHEMA_VERSION } from "../../../../packages/harness/pageArtifacts.js";
 import {
   EPA_COMPARISON_DIFFERENCE_CARDS_TESTID,
-  EPA_COMPARISON_HEAD_TO_HEAD_SUMMARY_TESTID,
   EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID,
   EPA_COMPARISON_PROVENANCE_TESTID,
   EPA_COMPARISON_SAME_LIST_TESTID,
@@ -131,14 +130,6 @@ describe("/methodology/epa-vs-statbotics route", () => {
       const table = await screen.findByTestId(EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID);
       const rows = within(table).getAllByRole("row").slice(2); // skip two header rows
       expect(rows).toHaveLength(SEASONS.length);
-    });
-
-    it("the head-to-head summary sentence's season count is derived from the fixture (3 of 5), never a hardcoded number", async () => {
-      mockFetch();
-      renderEpaComparisonRoute();
-      await screen.findByTestId(EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID);
-      const summary = screen.getByTestId(EPA_COMPARISON_HEAD_TO_HEAD_SUMMARY_TESTID);
-      expect(summary.textContent).toContain("3 of 5");
     });
 
     it("renders no (dated) marker, even for a season whose Statbotics figures were not live-fetched", async () => {

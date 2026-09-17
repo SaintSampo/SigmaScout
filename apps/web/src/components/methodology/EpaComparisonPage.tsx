@@ -11,7 +11,7 @@ import {
   EPA_HEAD_TO_HEAD_SECTION_HEADING,
   EPA_SAME_ITEMS,
   EPA_SAME_SECTION_HEADING,
-  headToHeadSummarySentence,
+  sigmascoutMeasuredSentence,
   statboticsPulledSentence,
   type EpaDifferenceCardId,
 } from "./epaComparisonContent.js";
@@ -39,7 +39,6 @@ import type { EpaComparisonArtifact } from "../../../../../packages/harness/page
 const SAME_LIST_TESTID = "epa-comparison-same-list";
 const DIFFERENCE_CARDS_TESTID = "epa-comparison-difference-cards";
 const HEAD_TO_HEAD_TABLE_TESTID = "epa-comparison-head-to-head-table";
-const HEAD_TO_HEAD_SUMMARY_TESTID = "epa-comparison-head-to-head-summary";
 const PROVENANCE_TESTID = "epa-comparison-provenance";
 const STATBOTICS_PULLED_TESTID = "epa-comparison-statbotics-pulled";
 
@@ -124,10 +123,6 @@ export interface EpaHeadToHeadResultsProps {
 
 export function EpaHeadToHeadResults({ artifact }: EpaHeadToHeadResultsProps) {
   const headToHeadRows = artifact.headToHead.slice().sort((a, b) => a.season - b.season);
-  const comparableRows = headToHeadRows.filter((row) => row.ourWinnerAccuracy !== null);
-  const statboticsAheadCount = comparableRows.filter(
-    (row) => row.statboticsWinnerAccuracy > (row.ourWinnerAccuracy as number),
-  ).length;
   const pulledSentence = statboticsPulledSentence(headToHeadRows.map((row) => row.statboticsCapturedAt));
 
   return (
@@ -171,11 +166,8 @@ export function EpaHeadToHeadResults({ artifact }: EpaHeadToHeadResultsProps) {
           {pulledSentence}
         </p>
       )}
-      <p data-testid={HEAD_TO_HEAD_SUMMARY_TESTID} className="max-w-[72ch] text-role-body text-[var(--color-text-primary)]">
-        {headToHeadSummarySentence(statboticsAheadCount, comparableRows.length)}
-      </p>
       <div data-testid={PROVENANCE_TESTID} className="text-role-body text-[var(--color-text-muted)]">
-        Measured under EPA {artifact.epaVersion} on {artifact.measuredAt.slice(0, 10)}.
+        {sigmascoutMeasuredSentence(artifact.epaVersion, artifact.measuredAt)}
       </div>
     </>
   );
@@ -199,7 +191,6 @@ export {
   SAME_LIST_TESTID as EPA_COMPARISON_SAME_LIST_TESTID,
   DIFFERENCE_CARDS_TESTID as EPA_COMPARISON_DIFFERENCE_CARDS_TESTID,
   HEAD_TO_HEAD_TABLE_TESTID as EPA_COMPARISON_HEAD_TO_HEAD_TABLE_TESTID,
-  HEAD_TO_HEAD_SUMMARY_TESTID as EPA_COMPARISON_HEAD_TO_HEAD_SUMMARY_TESTID,
   PROVENANCE_TESTID as EPA_COMPARISON_PROVENANCE_TESTID,
   STATBOTICS_PULLED_TESTID as EPA_COMPARISON_STATBOTICS_PULLED_TESTID,
 };
