@@ -64,7 +64,7 @@ describe("useAlgorithmOptions", () => {
   it("an id in the manifest but not in PUBLISHED_ALGORITHM_IDS is ignored rather than rendered", async () => {
     global.fetch = vi.fn().mockResolvedValue(manifestResponse());
     const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
-    await waitFor(() => expect(result.current.find((o) => o.id === "spr")?.label).toContain("2.0.0+tuned-2026-08"));
+    await waitFor(() => expect(result.current.find((o) => o.id === "spr")?.label).toBe("SPR 2.0"));
     expect(result.current.map((o) => o.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
     expect(result.current.some((o) => (o as { id: string }).id === "not-a-published-id")).toBe(false);
   });
@@ -72,7 +72,7 @@ describe("useAlgorithmOptions", () => {
   it("a known id absent from the manifest still renders from the constant, without a version suffix", async () => {
     global.fetch = vi.fn().mockResolvedValue(manifestResponse());
     const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
-    await waitFor(() => expect(result.current.find((o) => o.id === "opr")?.label).toBe("OPR 2.0.0+baseline"));
+    await waitFor(() => expect(result.current.find((o) => o.id === "opr")?.label).toBe("OPR 2.0"));
     // "epa" is absent from the fixture manifest above.
     expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA");
   });
@@ -95,7 +95,7 @@ describe("useAlgorithmOptions", () => {
       )
     );
     const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
-    await waitFor(() => expect(result.current.every((o) => o.label.includes("+"))).toBe(true));
+    await waitFor(() => expect(result.current.every((o) => /^[A-Z]+ \d+\.\d+$/.test(o.label))).toBe(true));
     expect(result.current.map((o) => o.id)).toEqual([...PUBLISHED_ALGORITHM_IDS]);
   });
 
@@ -111,7 +111,7 @@ describe("useAlgorithmOptions", () => {
 
   // The EPA ribbon option's version-gated full
   // name.
-  describe("EPA's version-gated full name", () => {
+  describe("the manifest-derived short version", () => {
     function manifestWithEpaVersion(epaVersion: string | undefined) {
       const algorithms = [
         { id: "opr", version: "2.0.0+baseline", codeVersion: "2.0.0", paramSetName: "baseline" },
@@ -126,10 +126,10 @@ describe("useAlgorithmOptions", () => {
       );
     }
 
-    it("epa at 5.0.x reads exactly 'EPA Statbotics 5.0' — no version suffix appended", async () => {
+    it("epa at 5.0.x reads exactly 'EPA 5.0' — no version suffix appended", async () => {
       global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion("5.0.0+baseline"));
       const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
-      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA Statbotics 5.0"));
+      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA 5.0"));
     });
 
     // Quick task 260908-615. The trailing number is OUR epa version, not a
@@ -140,50 +140,50 @@ describe("useAlgorithmOptions", () => {
     // the first 260908-615 attempt held it at "5.0" while serving 6.0.0 —
     // which is 5px's own T-5px-04 spoofing threat (the UI naming a version R2
     // is not serving) walking back in.
-    it("epa at 6.0.x reads 'EPA Statbotics 6.0' — the number tracks the served version, it is not frozen at 5.0", async () => {
+    it("epa at 6.0.x reads 'EPA 6.0' — the number tracks the served version, it is not frozen at 5.0", async () => {
       global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion("6.0.0+baseline"));
       const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
-      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA Statbotics 6.0"));
+      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA 6.0"));
     });
 
-    it("epa at a far-future 12.3.x reads 'EPA Statbotics 12.3' — major.minor, dropping the patch and the param-set suffix", async () => {
+    it("epa at a far-future 12.3.x reads 'EPA 12.3' — major.minor, dropping the patch and the param-set suffix", async () => {
       global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion("12.3.4+baseline"));
       const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
-      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA Statbotics 12.3"));
+      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA 12.3"));
     });
 
-    it("a non-zero minor is carried through: 6.1.0 reads 'EPA Statbotics 6.1', never rounded down to 6.0", async () => {
+    it("a non-zero minor is carried through: 6.1.0 reads 'EPA 6.1', never rounded down to 6.0", async () => {
       global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion("6.1.0+baseline"));
       const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
-      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA Statbotics 6.1"));
+      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA 6.1"));
     });
 
-    it("epa at a pre-5.0 version (e.g. 2.0.0+baseline) reads the ordinary base-label-plus-version form, unchanged", async () => {
+    it("epa at a pre-5.0 version (e.g. 2.0.0+baseline) reads the same short form, there is no version floor", async () => {
       global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion("2.0.0+baseline"));
       const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
-      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA 2.0.0+baseline"));
+      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA 2.0"));
     });
 
     it("no manifest entry for epa (pending/failed/absent) reads the plain base label, unchanged", async () => {
       global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion(undefined));
       const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
-      await waitFor(() => expect(result.current.find((o) => o.id === "opr")?.label).toBe("OPR 2.0.0+baseline"));
+      await waitFor(() => expect(result.current.find((o) => o.id === "opr")?.label).toBe("OPR 2.0"));
       expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA");
     });
 
-    it("opr and vpr options are unaffected by the epa gate in every case above", async () => {
+    it("opr and spr options read the same short form as epa", async () => {
       global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion("5.0.0+baseline"));
       const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
-      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA Statbotics 5.0"));
-      expect(result.current.find((o) => o.id === "opr")?.label).toBe("OPR 2.0.0+baseline");
-      expect(result.current.find((o) => o.id === "spr")?.label).toBe("SPR 2.0.0+tuned-2026-08");
+      await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA 5.0"));
+      expect(result.current.find((o) => o.id === "opr")?.label).toBe("OPR 2.0");
+      expect(result.current.find((o) => o.id === "spr")?.label).toBe("SPR 2.0");
     });
 
-    it("algorithmDisplayLabel('epa') still returns the short 'EPA' regardless of the ribbon's version-gated full name", () => {
+    it("algorithmDisplayLabel('epa') still returns the short 'EPA' with no version", () => {
       expect(algorithmDisplayLabel("epa")).toBe("EPA");
     });
 
-    it("an unparseable manifest version falls through to the honest suffixed label rather than being assumed new enough", async () => {
+    it("an unparseable manifest version is shown whole rather than guessed at", async () => {
       global.fetch = vi.fn().mockResolvedValue(manifestWithEpaVersion("not-a-version"));
       const { result } = renderHook(() => useAlgorithmOptions(), { wrapper });
       await waitFor(() => expect(result.current.find((o) => o.id === "epa")?.label).toBe("EPA not-a-version"));
