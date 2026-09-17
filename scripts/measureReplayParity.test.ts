@@ -36,6 +36,7 @@ import {
   compareAll,
   decimalsForField,
   deepStrictEqual,
+  droppedPassengers,
   EVENT_ROW_FIELDS,
   fieldsEqual,
   maxAbsDiff,
@@ -66,13 +67,18 @@ function codeOf(source: string): string {
 const IMPORT_RE = /(?:^|\n)[ \t]*(?:import|export)\b[^;]*?\bfrom\s*["']([^"']+)["']/g;
 
 /**
- * Every instrument file this task adds. Task 3's two files are appended to this
- * list when they land, so the scan never silently skips a file it should cover —
- * `existsSync` is deliberately NOT used to make an absent file pass.
+ * Every instrument file this task adds, Task 3's included. The list is literal
+ * rather than a directory scan, and `existsSync` is deliberately NOT used to
+ * make an absent file pass: a file that vanished should fail this scan loudly.
  */
-const INSTRUMENT_FILES = ["measureReplayParity.ts", "replayParityMirror.ts"];
-/** The files that must bundle for a browser page: no Node built-in, no corpus, no publisher. */
-const BROWSER_SAFE_FILES = ["replayParityMirror.ts"];
+const INSTRUMENT_FILES = [
+  "measureReplayParity.ts",
+  "replayParityMirror.ts",
+  "measureEngineDeterminism.ts",
+  "browserFoldEntry.ts",
+];
+/** The files that must bundle for a browser page: no Node built-in, no corpus, no publisher, no replay driver. */
+const BROWSER_SAFE_FILES = ["replayParityMirror.ts", "browserFoldEntry.ts"];
 
 describe("the instruments cannot reach the network, a bucket, or a secret", () => {
   for (const file of INSTRUMENT_FILES) {
@@ -121,7 +127,11 @@ describe("the instruments cannot reach the network, a bucket, or a secret", () =
   it("the browser-side modules import nothing Node-bound, so the bundle is real rather than stubbed", () => {
     for (const file of BROWSER_SAFE_FILES) {
       const specifiers = [...readFileSync(resolve(HERE, file), "utf8").matchAll(IMPORT_RE)].map((m) => m[1]!);
-      expect(specifiers.filter((s) => /node:|packages\/corpus|better-sqlite3|harness\/publish|harness\/replay/.test(s))).toEqual([]);
+      // `harness/publish.js` is the Node-bound CLI; `harness/publishedRows.js` is
+      // the browser-safe row builder its own header declares browser-safe, and
+      // the bundle needs it. The `\.js` anchor keeps the first out without
+      // excluding the second.
+      expect(specifiers.filter((s) => /node:|packages\/corpus|better-sqlite3|harness\/publish\.js|harness\/replay\.js/.test(s))).toEqual([]);
     }
   });
 });
@@ -187,20 +197,85 @@ describe("magnitude and rounding reporting", () => {
 describe("the attribution taxonomy is closed and pre-registered", () => {
   it("calls a passthrough or stamp difference a BUG, never a model finding", () => {
     for (const field of ["actualRedScore", "actualWinner", "actualRedRp", "coldStart", "season", "algorithmVersion"]) {
-      expect(attributeField(field, true)).toBe("BUG");
-      expect(attributeField(field, false)).toBe("BUG");
+      for (const primeFails of [true, false]) {
+        for (const atFirstRow of [true, false]) {
+          expect(attributeField(field, primeFails, atFirstRow)).toBe("BUG");
+        }
+      }
     }
   });
 
-  it("calls a difference WIRE only when arm R' repairs it, and INTERLEAVE when it does not", () => {
-    expect(attributeField("pRedWin", false)).toBe("WIRE");
-    expect(attributeField("pRedWin", true)).toBe("INTERLEAVE");
+  it("calls a difference WIRE when arm R' repairs it, and INTERLEAVE when it does not", () => {
+    expect(attributeField("pRedWin", false, false)).toBe("WIRE");
+    expect(attributeField("pRedWin", true, false)).toBe("INTERLEAVE");
   });
 
-  it("covers every compared event-row field with some attribution", () => {
+  it("calls a difference present at the FIRST match WIRE, even when arm R' also fails it", () => {
+    // At match 1 no other event's match has been replayed, so interleaving has
+    // had no opportunity to move anything: being wrong there means the block did
+    // not carry what the field needed. This outranks arm R', which still builds
+    // its state through the same passenger chain and so cannot see a passenger
+    // the chain DROPPED. `2026auwarp`'s match band is the measured instance.
+    expect(attributeField("redMatchBandVariance", true, true)).toBe("WIRE");
+    expect(attributeField("redMatchBandVariance", false, true)).toBe("WIRE");
+    expect(attributeField("redMatchBandVariance", true, false)).toBe("INTERLEAVE");
+  });
+
+  it("covers every compared event-row field with some attribution, under every input combination", () => {
     for (const field of EVENT_ROW_FIELDS) {
-      expect(["WIRE", "INTERLEAVE", "POPULATION", "ENGINE", "BUG"]).toContain(attributeField(field, true));
+      for (const primeFails of [true, false]) {
+        for (const atFirstRow of [true, false]) {
+          expect(["WIRE", "INTERLEAVE", "POPULATION", "ENGINE", "BUG"]).toContain(attributeField(field, primeFails, atFirstRow));
+        }
+      }
     }
+  });
+});
+
+describe("the passenger chain's silent drop is measured, not assumed", () => {
+  it("reports a roster team whose belief has no team row to ride on", () => {
+    const row = {
+      algorithmId: "spr",
+      algorithmVersion: "5.0.0",
+      scopeKind: "team" as const,
+      scopeKey: "frc254",
+      stateJson: "{}",
+      generation: "g",
+      computedAt: "c",
+    };
+    const passengers = {
+      sigmaBeliefs: new Map([
+        ["frc254", { meanWeight: 1, mean: 0, varWeight: 1, sumSquares: 1, talent: 1 }],
+        ["frc9971", { meanWeight: 1, mean: 0, varWeight: 1, sumSquares: 1, talent: 1 }],
+      ]),
+      sigmaPopulation: undefined,
+      rpBeliefs: new Map([["frc9971", {}]]),
+      rpMeanShift: undefined,
+    };
+    const result = droppedPassengers([row], passengers, new Set(["frc254", "frc9971"]));
+    // `frc254` has a team row, so its belief rides. `frc9971` has none, so both
+    // its Sigma and RP beliefs are discarded with no error on either side.
+    expect(result.sigmaDropped).toEqual(["frc9971"]);
+    expect(result.rpDropped).toEqual(["frc9971"]);
+  });
+
+  it("reports nothing when every roster team has a row", () => {
+    const row = {
+      algorithmId: "spr",
+      algorithmVersion: "5.0.0",
+      scopeKind: "team" as const,
+      scopeKey: "frc254",
+      stateJson: "{}",
+      generation: "g",
+      computedAt: "c",
+    };
+    const passengers = {
+      sigmaBeliefs: new Map([["frc254", { meanWeight: 1, mean: 0, varWeight: 1, sumSquares: 1, talent: 1 }]]),
+      sigmaPopulation: undefined,
+      rpBeliefs: new Map(),
+      rpMeanShift: undefined,
+    };
+    expect(droppedPassengers([row], passengers, new Set(["frc254"]))).toEqual({ sigmaDropped: [], rpDropped: [] });
   });
 });
 

@@ -59,7 +59,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 
-import { openCorpusReadOnly, selectMatchesChronological, type Corpus } from "../packages/corpus/db.js";
+import { openCorpusReadOnly, selectMatchesChronological, selectScheduledMatches, type Corpus } from "../packages/corpus/db.js";
 import { publishSeasons, resolvePublishAlgorithms } from "../packages/harness/publish.js";
 import {
   actualBonusFlagsForSeason,
@@ -87,6 +87,7 @@ import type { RpMeanShiftState } from "../packages/core/rankingPoints/meanShift.
 import { toLeakProofUpcoming } from "../packages/core/algorithms/leakProof.js";
 import { applyColdStartTie } from "../packages/core/scoring/coldStart.js";
 import { spr, type SprState } from "../packages/core/algorithms/spr.js";
+import { isDemoTeamKey } from "../packages/core/algorithms/demoTeams.js";
 import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
 import { TOTAL_METRIC_KEY } from "../packages/core/algorithms/types.js";
 import type { MatchResult, Prediction } from "../packages/core/algorithms/types.js";
@@ -170,17 +171,29 @@ export const TEAM_ROW_FIELDS = [
 export const HISTORY_VALUE_FIELDS = ["value", "spread"] as const;
 
 /**
- * The pre-registered attribution for each field that can differ, decided before
- * any number existed. `BUG` is the default precisely so that an unforeseen
- * difference is loud rather than absorbed into a plausible-sounding bucket.
+ * The pre-registered attribution for each field that can differ. `BUG` is the
+ * default for the passthroughs precisely so that an unforeseen difference there
+ * is loud rather than absorbed into a plausible-sounding bucket.
+ *
+ * `differsAtFirstRow` is the DECISIVE signal, and it outranks arm R'. At the
+ * event's FIRST match no other event's match has yet been replayed, so
+ * interleaving has had no opportunity to move anything: a field that is already
+ * wrong there is wrong because the block did not carry what it needed, which is
+ * WIRE by definition. Arm R' alone cannot see this, because it still builds its
+ * state through the same `seedStateRows` passenger chain and only skips
+ * `buildEventStateBlock` and the JSON round-trip — so a passenger DROPPED by the
+ * chain (`withSigmaBeliefs` silently discards a belief for any team with no
+ * level-1 state row) fails arm R' too and would be mislabelled INTERLEAVE.
+ * Measured on `2026auwarp`, where the match band is wrong from match 1.
  */
-export function attributeField(field: string, armRPrimeAlsoFails: boolean): Attribution {
+export function attributeField(field: string, armRPrimeAlsoFails: boolean, differsAtFirstRow: boolean): Attribution {
   // A passthrough of a corpus column cannot drift for a model reason.
   if (field.startsWith("actual")) return "BUG";
   if (field === "coldStart") return "BUG";
   if (field === "season" || field === "eventKey" || field === "algorithmId" || field === "algorithmVersion") return "BUG";
-  // A field arm R' also fails is NOT a serialization loss — that is precisely
-  // what arm R' is for.
+  // Wrong before any other event's match could have moved anything.
+  if (differsAtFirstRow) return "WIRE";
+  // A field arm R' also fails is not a SERIALIZATION loss specifically.
   if (!armRPrimeAlsoFails) return "WIRE";
   return "INTERLEAVE";
 }
@@ -518,8 +531,10 @@ export function armHarness(db: Corpus, targetEvents: readonly string[]): Harness
 
   // --- season 2025, warm-up only: we need its carry state, nothing else. ---
   const warmupStream = buildSeasonStream(db, PARITY_SEASONS[0], { includeOffseason: true });
-  const warmupTeams = [...new Set(warmupStream.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
-  const warmupRecords = new WalkForwardSimulator(warmupStream, coldStartKeys).runAll([spr], warmupTeams);
+  const warmupRecords = new WalkForwardSimulator(warmupStream, coldStartKeys).runAll(
+    [spr],
+    teamsForSeason(db, PARITY_SEASONS[0], warmupStream)
+  );
   const boundary = seasonBoundaryFor([...PARITY_SEASONS], 1);
   const carried = new Map<string, unknown>();
   const priorState = warmupRecords.carryStates.get(spr.id);
@@ -527,7 +542,7 @@ export function armHarness(db: Corpus, targetEvents: readonly string[]): Harness
 
   // --- season 2026, the priced season. ---
   const stream = buildSeasonStream(db, PRICED_SEASON, { includeOffseason: true });
-  const teamsThisSeason = [...new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
+  const teamsThisSeason = teamsForSeason(db, PRICED_SEASON, stream);
   const lookups = readRowLookups(db, stream);
 
   const metricsAfterMatch = new Map<string, Record<string, Record<string, { value: number; spread?: number }>>>();
@@ -630,6 +645,28 @@ export function armHarness(db: Corpus, targetEvents: readonly string[]): Harness
   return { armC, armM, preEventState, preEventPassengers, eventStream, stateBeforeMatch, coldStartKeys, lookups };
 }
 
+/**
+ * `publish.ts`'s own `teamsThisSeason`, reproduced expression for expression:
+ * every team on a PLAYED match, then every team on a SCHEDULED one, de-duplicated
+ * in that order, with the `frc9970`-`frc9999` demo keys filtered out.
+ *
+ * This is not cosmetic. `spr.initState(teams)` seeds `state.teams` with a fresh
+ * entry PER TEAM, so a team list that differs from the publisher's produces a
+ * different initial state. Getting this wrong is invisible on an event with no
+ * demo robots and no scheduled-only teams, and wrong on one that has them — which
+ * is exactly how `2026auwarp` failed the validity gate on the first three-event
+ * run, and exactly what a validity gate is for.
+ */
+export function teamsForSeason(db: Corpus, season: number, stream: readonly MatchResult[]): string[] {
+  const scheduled = selectScheduledMatches(db, { year: season, excludeOffseason: false });
+  return Array.from(
+    new Set([
+      ...stream.flatMap((m) => [...m.redTeams, ...m.blueTeams]),
+      ...scheduled.flatMap((m) => [...m.redTeams, ...m.blueTeams]),
+    ])
+  ).filter((teamKey) => !isDemoTeamKey(teamKey));
+}
+
 /** `sortTime`, `video` and the actual per-bonus flags for the priced season, read once, read-only. */
 export function readRowLookups(db: Corpus, stream: readonly MatchResult[]): RowLookups {
   const sortTimeByMatchKey = new Map<string, number>();
@@ -659,6 +696,33 @@ export function readRowLookups(db: Corpus, stream: readonly MatchResult[]): RowL
 // ---------------------------------------------------------------------------
 // Arm R — the replay under test
 // ---------------------------------------------------------------------------
+
+/**
+ * How many of an event's roster teams hold a level-2 belief that the passenger
+ * chain CANNOT carry, because SPR has no level-1 team row for them.
+ *
+ * `withSigmaBeliefs`/`withRpBeliefs` inject into EXISTING team rows only and
+ * silently return the row unchanged when there is none, so such a belief is
+ * dropped with no error on either side. Demo robots are exactly that case:
+ * `publish.ts` excludes the `frc9970`-`frc9999` keys from `teamsThisSeason`, so
+ * `spr.initState` never seeds them and `remapDemoTeams` folds them into
+ * `DEMO_PSEUDO_TEAM_KEY` — but the Sigma accumulator keeps a belief under each
+ * RAW key. Measured rather than asserted, so the claim has a number behind it.
+ */
+export function droppedPassengers(rows: readonly StateRow[], passengers: PassengerSnapshot, rosterKeys: ReadonlySet<string>): {
+  sigmaDropped: string[];
+  rpDropped: string[];
+} {
+  const teamRowKeys = new Set(rows.filter((row) => row.scopeKind === "team").map((row) => row.scopeKey));
+  const sigmaDropped: string[] = [];
+  const rpDropped: string[] = [];
+  for (const teamKey of rosterKeys) {
+    if (teamRowKeys.has(teamKey)) continue;
+    if (passengers.sigmaBeliefs.has(teamKey)) sigmaDropped.push(teamKey);
+    if (passengers.rpBeliefs.has(teamKey)) rpDropped.push(teamKey);
+  }
+  return { sigmaDropped: sigmaDropped.sort(), rpDropped: rpDropped.sort() };
+}
 
 /** The `seedStateRows` chain, reproduced from a captured snapshot rather than from a live layer. */
 export function passengerRows(state: SprState, passengers: PassengerSnapshot): StateRow[] {
@@ -831,6 +895,12 @@ export interface FieldResult {
   readonly presentRows: number;
   /** `presentRows === 0`: the field was not tested here, whatever `identical` says. */
   readonly vacuous: boolean;
+  /**
+   * Whether the CHRONOLOGICALLY FIRST compared row already differs. At match 1
+   * no other event's match has been replayed yet, so this separates "the block
+   * did not carry it" from "it drifted" without a further arm.
+   */
+  readonly differsAtFirstRow: boolean;
   readonly differingRows: number;
   readonly firstDivergingKey?: string;
   /** Largest absolute difference on the ROUNDED published values. */
@@ -890,6 +960,8 @@ function compareSurface(
     let differingRows = 0;
     let comparedRows = 0;
     let presentRows = 0;
+    let differsAtFirstRow = false;
+    let seenFirstComparableRow = false;
     let firstDivergingKey: string | undefined;
     let maxRoundedDiff: number | undefined;
     let maxUnroundedDiff: number | undefined;
@@ -914,7 +986,12 @@ function compareSurface(
           if (maxUnroundedDiff === undefined || unrounded > maxUnroundedDiff) maxUnroundedDiff = unrounded;
         }
       }
-      if (armRow === undefined || !fieldsEqual(truthRow, armRow, field)) {
+      const rowDiffers = armRow === undefined || !fieldsEqual(truthRow, armRow, field);
+      if (!seenFirstComparableRow && Object.prototype.hasOwnProperty.call(truthRow, field)) {
+        seenFirstComparableRow = true;
+        differsAtFirstRow = rowDiffers;
+      }
+      if (rowDiffers) {
         differingRows++;
         firstDivergingKey ??= key;
         const d = armRow === undefined ? undefined : maxAbsDiff(truthRow[field], armRow[field]);
@@ -944,6 +1021,7 @@ function compareSurface(
       comparedRows,
       presentRows,
       vacuous: presentRows === 0,
+      differsAtFirstRow,
       differingRows,
       ...(firstDivergingKey !== undefined ? { firstDivergingKey } : {}),
       ...(maxRoundedDiff !== undefined ? { maxRoundedDiff } : {}),
@@ -981,6 +1059,8 @@ export interface EventComparison {
   readonly armRPrime: FieldResult[];
   /** The league-drift diagnostic: what arm R got right about the state, and what it could not. */
   readonly leagueDrift: LeagueDrift[];
+  /** Roster teams whose level-2 beliefs the passenger chain could not carry, because SPR has no team row for them. */
+  readonly droppedPassengers?: { sigmaDropped: string[]; rpDropped: string[] };
   readonly leagueDriftSummary?: {
     readonly matches: number;
     readonly perTeamStateExact: boolean;
@@ -1083,10 +1163,16 @@ async function main(argv: readonly string[]): Promise<void> {
       let armR: FieldResult[] = [];
       let armRPrime: FieldResult[] = [];
       let leagueDrift: LeagueDrift[] = [];
+      let dropped: { sigmaDropped: string[]; rpDropped: string[] } | undefined;
       if (state !== undefined && passengers !== undefined) {
         const r = armReplay(state, passengers, matches, harness.coldStartKeys, harness.lookups, { throughWire: true });
         armR = compareAll(truth, r.rows, c, harness.lookups.sortTimeByMatchKey);
         leagueDrift = compareLeague(r.leagueTrace, harness.stateBeforeMatch, matches);
+        dropped = droppedPassengers(
+          passengerRows(state, passengers),
+          passengers,
+          new Set(matches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))
+        );
         if (armR.some((x) => !x.identical)) {
           const rp = armReplay(state, passengers, matches, harness.coldStartKeys, harness.lookups, { throughWire: false });
           armRPrime = compareAll(truth, rp.rows, c, harness.lookups.sortTimeByMatchKey);
@@ -1096,7 +1182,10 @@ async function main(argv: readonly string[]): Promise<void> {
         armR = armR.map((x) =>
           x.identical
             ? x
-            : { ...x, attribution: attributeField(x.field, armRPrime.length === 0 || primeFailing.has(`${x.surface}.${x.field}`)) }
+            : {
+                ...x,
+                attribution: attributeField(x.field, armRPrime.length === 0 || primeFailing.has(`${x.surface}.${x.field}`), x.differsAtFirstRow),
+              }
         );
       }
 
@@ -1115,6 +1204,7 @@ async function main(argv: readonly string[]): Promise<void> {
         armR,
         armRPrime,
         leagueDrift,
+        ...(dropped !== undefined ? { droppedPassengers: dropped } : {}),
         ...(leagueDrift.length > 0 ? { leagueDriftSummary: summariseDrift(leagueDrift) } : {}),
       });
       printEvent(comparisons[comparisons.length - 1]!);
@@ -1224,6 +1314,14 @@ function printEvent(c: EventComparison): void {
         `    ${f.surface}.${f.field}: maxUnrounded=${fmt(f.maxUnroundedDiff)}, closest to flipping by ${fmt(f.minRoundingHeadroom)} of the last published place`
       );
     }
+  }
+  const dp = c.droppedPassengers;
+  if (dp !== undefined && (dp.sigmaDropped.length > 0 || dp.rpDropped.length > 0)) {
+    console.log(
+      `  PASSENGERS DROPPED BY THE CHAIN (a belief exists offline but has no SPR team row to ride on): ` +
+        `${dp.sigmaDropped.length} Sigma, ${dp.rpDropped.length} RP` +
+        (dp.sigmaDropped.length > 0 ? ` — e.g. ${dp.sigmaDropped.slice(0, 4).join(", ")}` : "")
+    );
   }
   const d = c.leagueDriftSummary;
   if (d !== undefined) {
