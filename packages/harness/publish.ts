@@ -1343,7 +1343,9 @@ export function withPublishedTiers(metrics: Record<string, { value: number; spre
  *
  * Sigma-enabled algorithms pass the same `sigmaMetricByTeam` object the Teams row and team-season
  * artifact use; others pass `{}`. It merges after `withEventPercentiles`, as the last key, so the pool
- * never re-ranks Sigma. A team with no entry gets no key.
+ * never re-ranks Sigma. A team with no entry gets no key. `sigmaByTeam`'s own rating axis is the
+ * last-official-match Total (see `sigmaMetric.ts`'s file header), not this function's `metricsByTeam`
+ * (as-of-event) or `rankingPools` (event roster) -- do not assume the three share a basis.
  */
 function buildEventTeamsStanding(
   metricsByTeam: TeamMetrics,
@@ -1989,8 +1991,9 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       let sidecarMs = 0;
       const state = records.finalStates.get(algorithm.id);
       const version = algorithm.version;
-      // Season-final metrics. Not a ranking pool: the rating axis for `sigmaMetricByTeam`, the
-      // `metricsAsOfEvent` fallback, and an offseason-only team's `seasonStats` values.
+      // Season-final metrics. Not a ranking pool: `sigmaMetricByTeam`'s FALLBACK rating axis (its
+      // primary axis is `officialMetricsByTeam`, below), the `metricsAsOfEvent` fallback, and an
+      // offseason-only team's `seasonStats` values.
       const metricsByTeam = state !== undefined ? algorithm.teamMetrics(state, teamsThisSeason) : {};
       const metricHistoryForAlgo = metricHistoryByAlgoTeam.get(algorithm.id)!;
       // The season ranking pool, built once: every team's metrics as of its last official match. Every
@@ -2023,13 +2026,16 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       const eventStateRowsForAlgo = algorithm === spr ? stateRowsForAlgo : undefined;
       const seasonStateBlocks = { count: 0, totalBytes: 0, maxBytes: 0, maxKey: "" };
       // The published Sigma Score metric, computed once and consumed by both the Teams row and the
-      // team-season artifact, so they cannot disagree. The rating axis is season-final `metricsByTeam`,
-      // matching the season-final Sigma Scores so both sides of the residual cover the same window.
-      // OPR and EPA publish no Sigma Score.
+      // team-season artifact, so they cannot disagree. The rating axis is the last-official-match
+      // Total (`officialMetricsByTeam`), falling back to season-final `metricsByTeam` only for a team
+      // with no official match -- the Total the Teams page actually prints beside the tier. The
+      // published Sigma VALUE itself stays season-final (`sigmaByTeamForAlgo`), a pairing asymmetry
+      // documented in `sigmaMetric.ts`'s file header. OPR and EPA publish no Sigma Score.
       const sigmaMetricForAlgo = usesSigmaScore(algorithm.id)
         ? sigmaMetricByTeam({
             valueByTeam: sigmaByTeamForAlgo,
-            metricsByTeam,
+            officialMetricsByTeam: officialMetricsByTeam,
+            seasonFinalMetricsByTeam: metricsByTeam,
             teamKeys: teamsThisSeason,
             metricKey: SIGMA_METRIC_KEY,
           })
@@ -2073,8 +2079,9 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
           // teams artifact against +10% for tier with Common omitted, for an identical render.
           //
           // The sigma entry merges before `withPublishedTiers` strips `percentile`; merging after would
-          // leave a percentile that `encodeTeamMetricEntry` throws on. It is season-final, unlike the
-          // official-scoped values beside it.
+          // leave a percentile that `encodeTeamMetricEntry` throws on. The VALUE is season-final, unlike
+          // the official-scoped values beside it; the RANK it is tiered against is official-first (see
+          // `sigmaMetricByTeam`'s call above) -- value and axis are no longer the same basis.
           metrics: withPublishedTiers({
             ...(officialMetricsByTeamWithPercentiles[teamKey] ?? {}),
             ...(sigmaMetricForAlgo[teamKey] !== undefined ? { [SIGMA_METRIC_KEY]: sigmaMetricForAlgo[teamKey] } : {}),

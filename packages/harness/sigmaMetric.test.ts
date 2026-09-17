@@ -1,11 +1,13 @@
 /**
- * Coverage for the rating-local expected-consistency curve and the published
- * consistency metric it feeds (today SPR's `sigma` entry). See `sigmaMetric.ts`'s
- * file header for the median-window rationale.
+ * Coverage for the within-window detrended rank and the published
+ * consistency metric it feeds (today SPR's `sigma` entry). See
+ * `sigmaMetric.ts`'s file header for the scheme, the axis pairing and the
+ * edge rule.
  */
 import { describe, expect, it } from "vitest";
 import { TOTAL_METRIC_KEY, type TeamMetrics } from "../core/algorithms/types.js";
-import { sigmaMetricByTeam, expectedSigmaByTeam } from "./sigmaMetric.js";
+import { sigmaMetricByTeam } from "./sigmaMetric.js";
+import { publishedTierForPercentile } from "./pageArtifacts.js";
 import { SIGMA_METRIC_KEY } from "./sigmaScore.js";
 
 /** Builds a smooth linear figure-vs-rating pool with tiny deterministic jitter so the fit is not trivially exact. */
@@ -32,45 +34,6 @@ function toMetricsByTeam(ratingByTeam: ReadonlyMap<string, number>): TeamMetrics
   return metrics;
 }
 
-describe("expectedSigmaByTeam", () => {
-  it("returns, for each team in a linear figure-vs-rating pool, an expected value close to that team's own figure", () => {
-    const { valueByTeam, ratingByTeam, teamKeys } = buildLinearPool(200, 0.1, 2);
-    const expected = expectedSigmaByTeam(valueByTeam, ratingByTeam, teamKeys);
-
-    let maxAbsResidual = 0;
-    let valueMin = Infinity;
-    let valueMax = -Infinity;
-    for (const teamKey of teamKeys) {
-      const actual = valueByTeam.get(teamKey)!;
-      const exp = expected.get(teamKey)!;
-      maxAbsResidual = Math.max(maxAbsResidual, Math.abs(actual - exp));
-      valueMin = Math.min(valueMin, actual);
-      valueMax = Math.max(valueMax, actual);
-    }
-    const valueRange = valueMax - valueMin;
-    // Guards "strong robots are automatically inconsistent": residuals stay
-    // small relative to the pool's whole figure range.
-    expect(maxAbsResidual).toBeLessThan(valueRange * 0.1);
-  });
-
-  it("a single extreme outlier team (figure 10x its neighbours) does not drag the curve -- neighbours' expected values shift by less than a stated tolerance", () => {
-    const { valueByTeam, ratingByTeam, teamKeys } = buildLinearPool(200, 0.05, 1);
-    const trendAt = (rating: number) => 1 + 0.05 * rating;
-
-    const outlierKey = "frc100";
-    const outlierValue = trendAt(ratingByTeam.get(outlierKey)!) * 10;
-    const perturbedValueByTeam = new Map(valueByTeam);
-    perturbedValueByTeam.set(outlierKey, outlierValue);
-
-    const expected = expectedSigmaByTeam(perturbedValueByTeam, ratingByTeam, teamKeys);
-
-    const neighbourKey = "frc99";
-    const neighbourExpected = expected.get(neighbourKey)!;
-    const neighbourTrend = trendAt(ratingByTeam.get(neighbourKey)!);
-    expect(Math.abs(neighbourExpected - neighbourTrend)).toBeLessThan(1.0);
-  });
-});
-
 describe("sigmaMetricByTeam -- THE HEADLINE TEST", () => {
   it("a high-rated team with a high raw figure that is below its expected figure out-tiers a low-rated team with a low raw figure that is above its expected figure", () => {
     const n = 60;
@@ -92,10 +55,11 @@ describe("sigmaMetricByTeam -- THE HEADLINE TEST", () => {
 
     expect(adjustedValueByTeam.get(highRatedKey)!).toBeGreaterThan(adjustedValueByTeam.get(lowRatedKey)!);
 
-    const metricsByTeam = toMetricsByTeam(ratingByTeam);
+    const officialMetricsByTeam = toMetricsByTeam(ratingByTeam);
     const result = sigmaMetricByTeam({
       valueByTeam: adjustedValueByTeam,
-      metricsByTeam,
+      officialMetricsByTeam,
+      seasonFinalMetricsByTeam: {},
       teamKeys,
       metricKey: SIGMA_METRIC_KEY,
     });
@@ -111,10 +75,11 @@ describe("sigmaMetricByTeam -- THE HEADLINE TEST", () => {
     const prunedValueByTeam = new Map(valueByTeam);
     prunedValueByTeam.delete(noValueKey);
 
-    const metricsByTeam = toMetricsByTeam(ratingByTeam);
+    const officialMetricsByTeam = toMetricsByTeam(ratingByTeam);
     const result = sigmaMetricByTeam({
       valueByTeam: prunedValueByTeam,
-      metricsByTeam,
+      officialMetricsByTeam,
+      seasonFinalMetricsByTeam: {},
       teamKeys,
       metricKey: SIGMA_METRIC_KEY,
     });
@@ -122,26 +87,69 @@ describe("sigmaMetricByTeam -- THE HEADLINE TEST", () => {
     expect(noValueKey in result).toBe(false);
   });
 
-  it("a team with a figure but no total metric value cannot be placed on the curve and gets no entry", () => {
+  it("a team with a figure but no total metric value in either axis cannot be placed on the curve and gets no entry", () => {
     const { valueByTeam, ratingByTeam, teamKeys } = buildLinearPool(30, 0.1, 2);
     const noTotalKey = "frc12";
-    const metricsByTeam = toMetricsByTeam(ratingByTeam);
-    delete metricsByTeam[noTotalKey];
+    const officialMetricsByTeam = toMetricsByTeam(ratingByTeam);
+    delete officialMetricsByTeam[noTotalKey];
 
-    const result = sigmaMetricByTeam({ valueByTeam, metricsByTeam, teamKeys, metricKey: SIGMA_METRIC_KEY });
+    const result = sigmaMetricByTeam({
+      valueByTeam,
+      officialMetricsByTeam,
+      seasonFinalMetricsByTeam: {},
+      teamKeys,
+      metricKey: SIGMA_METRIC_KEY,
+    });
 
     expect(noTotalKey in result).toBe(false);
+  });
+
+  it("a team absent from the official record but present in the season-final record still receives an entry, ranked on its season-final Total", () => {
+    const { valueByTeam, ratingByTeam, teamKeys } = buildLinearPool(30, 0.1, 2);
+    const fallbackKey = "frc12";
+    const officialMetricsByTeam = toMetricsByTeam(ratingByTeam);
+    delete officialMetricsByTeam[fallbackKey];
+    const seasonFinalMetricsByTeam = toMetricsByTeam(ratingByTeam);
+
+    const result = sigmaMetricByTeam({
+      valueByTeam,
+      officialMetricsByTeam,
+      seasonFinalMetricsByTeam,
+      teamKeys,
+      metricKey: SIGMA_METRIC_KEY,
+    });
+
+    expect(result[fallbackKey]).toBeDefined();
+    expect(result[fallbackKey]!.value).toBe(valueByTeam.get(fallbackKey));
+  });
+
+  it("a team absent from both the official and season-final record gets no entry", () => {
+    const { valueByTeam, ratingByTeam, teamKeys } = buildLinearPool(30, 0.1, 2);
+    const missingKey = "frc12";
+    const officialMetricsByTeam = toMetricsByTeam(ratingByTeam);
+    delete officialMetricsByTeam[missingKey];
+
+    const result = sigmaMetricByTeam({
+      valueByTeam,
+      officialMetricsByTeam,
+      seasonFinalMetricsByTeam: {},
+      teamKeys,
+      metricKey: SIGMA_METRIC_KEY,
+    });
+
+    expect(missingKey in result).toBe(false);
   });
 
   it("the pool is exactly the teamKeys argument -- a team with both values but excluded from teamKeys is absent from the result", () => {
     const { valueByTeam, ratingByTeam, teamKeys } = buildLinearPool(30, 0.1, 2);
     const excludedKey = "frc7";
     const scopedTeamKeys = teamKeys.filter((k) => k !== excludedKey);
-    const metricsByTeam = toMetricsByTeam(ratingByTeam);
+    const officialMetricsByTeam = toMetricsByTeam(ratingByTeam);
 
     const result = sigmaMetricByTeam({
       valueByTeam,
-      metricsByTeam,
+      officialMetricsByTeam,
+      seasonFinalMetricsByTeam: {},
       teamKeys: scopedTeamKeys,
       metricKey: SIGMA_METRIC_KEY,
     });
@@ -151,12 +159,55 @@ describe("sigmaMetricByTeam -- THE HEADLINE TEST", () => {
 
   it("returned entries carry exactly {value, percentile} and no other keys", () => {
     const { valueByTeam, ratingByTeam, teamKeys } = buildLinearPool(30, 0.1, 2);
-    const metricsByTeam = toMetricsByTeam(ratingByTeam);
-    const result = sigmaMetricByTeam({ valueByTeam, metricsByTeam, teamKeys, metricKey: SIGMA_METRIC_KEY });
+    const officialMetricsByTeam = toMetricsByTeam(ratingByTeam);
+    const result = sigmaMetricByTeam({
+      valueByTeam,
+      officialMetricsByTeam,
+      seasonFinalMetricsByTeam: {},
+      teamKeys,
+      metricKey: SIGMA_METRIC_KEY,
+    });
 
     const entry = result["frc15"]!;
     expect(entry).toBeDefined();
     expect(Object.keys(entry).sort()).toEqual(["percentile", "value"]);
     expect(entry.value).toBe(valueByTeam.get("frc15"));
+  });
+
+  it("a single extreme outlier team (figure 10x its neighbours' trend) does not drag a neighbour's percentile or flip its tier", () => {
+    const { valueByTeam, ratingByTeam, teamKeys } = buildLinearPool(200, 0.05, 1);
+    const trendAt = (rating: number) => 1 + 0.05 * rating;
+
+    const officialMetricsByTeam = toMetricsByTeam(ratingByTeam);
+    const baseline = sigmaMetricByTeam({
+      valueByTeam,
+      officialMetricsByTeam,
+      seasonFinalMetricsByTeam: {},
+      teamKeys,
+      metricKey: SIGMA_METRIC_KEY,
+    });
+
+    const outlierKey = "frc100";
+    const outlierValue = trendAt(ratingByTeam.get(outlierKey)!) * 10;
+    const perturbedValueByTeam = new Map(valueByTeam);
+    perturbedValueByTeam.set(outlierKey, outlierValue);
+
+    const perturbed = sigmaMetricByTeam({
+      valueByTeam: perturbedValueByTeam,
+      officialMetricsByTeam,
+      seasonFinalMetricsByTeam: {},
+      teamKeys,
+      metricKey: SIGMA_METRIC_KEY,
+    });
+
+    const neighbourKey = "frc99";
+    const shift = Math.abs(perturbed[neighbourKey]!.percentile - baseline[neighbourKey]!.percentile);
+    // Measured on this exact deterministic pool: exactly 0 percentile points
+    // (frc99 sits immediately beside the outlier and its residual keeps its
+    // relative rank order inside the window). Pinned with headroom at 2.
+    expect(shift).toBeLessThan(2);
+    expect(publishedTierForPercentile(perturbed[neighbourKey]!.percentile)).toBe(
+      publishedTierForPercentile(baseline[neighbourKey]!.percentile)
+    );
   });
 });
