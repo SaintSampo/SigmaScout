@@ -324,3 +324,93 @@ describe("/teams route bubble-chart toggle", () => {
     expect(router.state.location.pathname).toBe("/teams");
   });
 });
+
+describe("/teams route bubble-chart colour toggle", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("clicking the Sigma segment writes tint=sigma into the location search while year, algorithm, sort, sortDir, country and chart each keep their prior value", async () => {
+    global.fetch = stubFetch();
+    const { router } = renderTeamsRoute("/teams?algorithm=spr&chart=bubble&country=USA&sort=total&sortDir=asc");
+
+    await waitFor(() => expect(screen.getByTestId("bubble-chart-color-by")).toBeDefined());
+    fireEvent.click(screen.getByTestId("bubble-chart-color-by-sigma"));
+
+    await waitFor(() => expect((router.state.location.search as Record<string, unknown>).tint).toBe("sigma"));
+    const search = router.state.location.search as Record<string, unknown>;
+    expect(search.year).toBe(2026);
+    expect(search.algorithm).toBe("spr");
+    expect(search.sort).toBe("total");
+    expect(search.sortDir).toBe("asc");
+    expect(search.country).toBe("USA");
+    expect(search.chart).toBe("bubble");
+  });
+
+  it("clicking the Total segment clears tint back to undefined while that same field set is preserved", async () => {
+    global.fetch = stubFetch();
+    const { router } = renderTeamsRoute("/teams?algorithm=spr&chart=bubble&country=USA&sort=total&sortDir=asc&tint=sigma");
+
+    await waitFor(() => expect(screen.getByTestId("bubble-chart-color-by")).toBeDefined());
+    fireEvent.click(screen.getByTestId("bubble-chart-color-by-total"));
+
+    await waitFor(() => expect((router.state.location.search as Record<string, unknown>).tint).toBeUndefined());
+    const search = router.state.location.search as Record<string, unknown>;
+    expect(search.year).toBe(2026);
+    expect(search.algorithm).toBe("spr");
+    expect(search.sort).toBe("total");
+    expect(search.sortDir).toBe("asc");
+    expect(search.country).toBe("USA");
+    expect(search.chart).toBe("bubble");
+  });
+
+  it("arriving at /teams?algorithm=spr&chart=bubble&tint=sigma colours by Sigma with no click", async () => {
+    global.fetch = stubFetch();
+    const { container } = renderTeamsRoute("/teams?algorithm=spr&chart=bubble&tint=sigma");
+
+    await waitFor(() => expect(screen.getByTestId("teams-bubble-chart")).toBeDefined());
+    // Against the route fixture, every plotted row's sigma entry carries no
+    // tier, so all three plotted rows (frc1, frc2, frc4 -- frc3 has no sigma
+    // entry) are Common: exactly one [data-tone] path, "neutral", holding
+    // three dots, and no rare or epic path at all.
+    const chart = screen.getByTestId("teams-bubble-chart");
+    await waitFor(() => expect(countDots(container)).toBe(3));
+    const tonePaths = chart.querySelectorAll("[data-tone]");
+    expect(tonePaths).toHaveLength(1);
+    expect(tonePaths[0]!.getAttribute("data-tone")).toBe("neutral");
+  });
+
+  it("the same URL with tint absent yields the Total-tier grouping instead", async () => {
+    global.fetch = stubFetch();
+    const { container } = renderTeamsRoute("/teams?algorithm=spr&chart=bubble");
+
+    await waitFor(() => expect(screen.getByTestId("teams-bubble-chart")).toBeDefined());
+    const chart = screen.getByTestId("teams-bubble-chart");
+    await waitFor(() => expect(countDots(container)).toBe(3));
+    const tones = Array.from(chart.querySelectorAll("[data-tone]"))
+      .map((el) => el.getAttribute("data-tone"))
+      .sort();
+    expect(tones).toEqual(["epic", "neutral", "rare"]);
+  });
+
+  it("applyYearChange preserves tint across a year change", () => {
+    const current: TeamsSearch = {
+      year: 2026,
+      algorithm: "spr",
+      sort: undefined,
+      sortDir: "desc",
+      cols: undefined,
+      country: undefined,
+      state: undefined,
+      district: undefined,
+      chart: "bubble",
+      tint: "sigma",
+    };
+    const next = applyYearChange(current, 2025);
+    expect(next.tint).toBe("sigma");
+  });
+});

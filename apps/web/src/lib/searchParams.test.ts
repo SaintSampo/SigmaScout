@@ -99,6 +99,17 @@ describe("EventSearchSchema", () => {
   });
 });
 
+describe("TeamsSearchSchema's tint field", () => {
+  it("parses tint: 'sigma' through unchanged", () => {
+    expect(TeamsSearchSchema.parse({ tint: "sigma" }).tint).toBe("sigma");
+  });
+
+  it("resolves an unrecognised tint to undefined, and an absent tint to undefined", () => {
+    expect(TeamsSearchSchema.parse({ tint: "rainbow" }).tint).toBeUndefined();
+    expect(TeamsSearchSchema.parse({}).tint).toBeUndefined();
+  });
+});
+
 describe("MatchSearchSchema", () => {
   it("carries no tab field — the match page has no tabs", () => {
     const parsed = MatchSearchSchema.parse({});
