@@ -1495,3 +1495,230 @@ Measure before choosing: the probe takes `folded` and `upcoming` counts, so any 
 priced against the same instrument before a line of tick code changes.
 
 Related: [[worker-state-shape-unexercised-since-seed]], [[live-match-updates-swing-and-lossy-merge]].
+
+## REPLAY PARITY — the bar, pre-registered BEFORE any number (2026-09-17, quick task 260917-mwu)
+
+**This section contains no number produced by this change.** Every figure quoted below is either a
+corpus count read before the instrument existed, a constant already in the source, or a threshold
+chosen here. The instrument had not been run when this section was committed; `git log` orders the
+commits, and that ordering is the evidence.
+
+The question this answers is the gating one for the relay direction — the one
+`DIRECTION CHOSEN — browser pricing of upcoming matches` above deliberately did not reach. Browser
+pricing of UPCOMING matches ships today, and `eventStatePricing.parity.test.ts` proves it reproduces
+the publisher. A relay would need something strictly harder: the browser would have to FOLD played
+matches — `predict`, then `update`, then the level-2 fold — starting from a pre-event state block and
+seeing only that one event's matches. Folding is harder than pricing for a reason that is structural,
+not incidental: `logTau` and `scale` are RUNNING accumulators stepped once per folded match, so any
+difference at match 1 feeds match 2. A clean pricing result does not transfer, which is why this
+measurement exists.
+
+### Half A — can a one-event replay from a state block reproduce the published rows?
+
+Five arms. Three of them exist only to make the fourth interpretable.
+
+| Arm | What it is | Its job |
+|---|---|---|
+| P | the REAL `publishSeasons` over the local corpus, `dryRun: true`, `skipState: true`, `includeOffseason: true`, `preScheduleFromSeason: 9999`, `algorithms: resolvePublishAlgorithms("spr")`, seasons `[2025, 2026]`, a fixed non-UUID generation and a fixed `computedAt`, every body read through `publish.ts`'s inert `artifactSink` | published truth; every difference below is taken against this |
+| C | an in-process reproduction of `publishSeasons`'s two-pass structure — `buildSeasonStream` + `WalkForwardSimulator.runAll` with an `onMatchComplete` capturing post-update `teamMetrics` and the Sigma talent map, then a second chronological pass of the REAL `SigmaScoutLayer.foldPlayed` — with rows built through the same `publishedRows.ts` builders | THE VALIDITY GATE. Is this harness an honest stand-in for the publisher? |
+| M | arm C with the real `SigmaScoutLayer` replaced by the instrument's own mirror of `foldPlayed`, still cold-started over the WHOLE season stream | the mirror's own gate. `SigmaScoutLayer` has no resume-from-state constructor, so arm R cannot use it; arm M proves the mirror that replaces it is faithful, so an arm-R difference can never be blamed on, or excused by, the re-implementation |
+| R | THE ARM UNDER TEST. At the instant before the target event's first match, the pre-event state block; then only that event's own matches, in `sortTime` order, folded through the browser-safe path | the answer |
+| R' | arm R with the pre-event state handed over as the in-process object instead of through `buildEventStateBlock` and the wire. Run ONLY for fields arm R fails | isolates serialization-and-roster-filter from everything else |
+
+Arm R's construction, in the publisher's own order: `serializeState`, then `withSigmaBeliefs`,
+`withRpBeliefs`, `withSigmaPopulation`, `withRpMeanShift` — the `seedStateRows` chain — then
+`buildEventStateBlock(rows, rosterKeys)` over every team key on the event's played and upcoming
+matches, then through the wire exactly as `eventStatePricing.parity.test.ts` sends it:
+`JSON.stringify`, `JSON.parse`, `EventStateBlockSchema.parse`. Only that wire copy is replayed. Per
+match: `spr.predict` for the row, then the level-2 fold, then `spr.update`, then `spr.teamMetrics` —
+predict before update, no exceptions.
+
+`sigmaBeliefs()` and `rpVariableBeliefs()` hand back references into the live accumulator, so a
+mid-stream capture that does not deep-copy them would silently carry end-of-season values into a
+pre-event block and look far better than it is. They are deep-copied at the capture instant.
+
+### THE VALIDITY GATE — checked BEFORE any arm-R number is read
+
+Both must hold, per event:
+
+1. **Arm C reproduces arm P's published rows exactly**, for every field in the compared set.
+2. **Arm M reproduces arm P's published rows exactly**, for every field in the compared set.
+
+If either fails, **the pass for that event is DISCARDED, not interpreted.** A harness that cannot
+reproduce the publisher from a full-season cold start says nothing about what a one-event replay can
+do, and a mirror that is not exact would let a re-implementation bug masquerade as an architectural
+finding — or the reverse.
+
+### The compared field set
+
+All at the shipped rounding rule (`ROUNDING_RULE`: probability 4, metric/score 2, variance 4, pmf 5),
+compared on the JSON wire form so that **an absent key and an explicit `null` are different published
+claims**. No tolerance, anywhere, for any field.
+
+- **Event artifact played rows:** `predictedWinner`, `pRedWin`, `predictedRedScore`,
+  `predictedBlueScore`, `redScoreVarianceOwn`, `blueScoreVarianceOwn`, `redMatchBandVariance`,
+  `blueMatchBandVariance`, `redRpPmf`, `blueRpPmf`, `matchOutcomePmf`, `redBonusRpPmf`,
+  `blueBonusRpPmf`, `redBonusRp`, `blueBonusRp`, `actualRedBonusRp`, `actualBlueBonusRp`,
+  `coldStart`, and the corpus-passthrough `actualWinner`, `actualRedScore`, `actualBlueScore`,
+  `actualRedRp`, `actualBlueRp` — kept in the set precisely because they should be trivially equal, so
+  a difference there is a plumbing bug worth catching.
+- **Team-season artifact match rows** for every team on the event's roster, restricted to that event's
+  matches: the same fields plus `variance` and the identity stamps.
+- **Metric-history rows** for those teams at that event: `metrics[key].value`, `metrics[key].spread`,
+  and `metrics.sigma.value`.
+
+### Named exceptions, stated before a byte is measured
+
+1. **`metrics[key].percentile`** — `withHistoryPercentiles` ranks against `rankingPools`, every team's
+   metrics as of its last official match across the whole season. One event's files do not contain
+   that pool. POPULATION by construction; excluded from the exact-equality set.
+2. **The published Sigma tier** — `sigmaMetric.ts`'s within-window detrended mid-rank, same reason.
+   POPULATION by construction; excluded.
+3. **The cold-start stamp's INPUT** — `WalkForwardSimulator` reads a corpus-GLOBAL cold-start index
+   (`corpusColdStartIndex`) to decide whether all six robots are making their first ever appearance,
+   and forces `pRedWin` to exactly 0.5 when they are. One event's files cannot derive that, but the
+   published event row ALREADY carries the answer as `coldStart: true`. Arm R is therefore given the
+   target event's cold-start match-key set as an explicit INPUT, and the relay would have to ship that
+   same boolean. `coldStart` stays in the compared set — supplying the input does not make the output
+   equal, and a mismatch would mean the input was not threaded correctly.
+
+If the exception list grows past these three plus one or two well-understood entries, **say so — that
+is itself the finding**, and it means the one-event replay needs more season-wide context than a
+browser can be handed.
+
+### The attribution taxonomy — every differing field gets exactly one
+
+- **WIRE** — the state block round-trip does not carry it: a passenger is missing or lossy. Arm R'
+  distinguishes this; a field arm R' also fails is NOT a serialization loss.
+- **INTERLEAVE** — a league-scoped quantity moved on OTHER events' matches between this event's first
+  and last. `spr.ts`'s own header says `scale` is a ~100-match trailing EWMA over the globally
+  interleaved match stream; `logTau`, `scaleCount`, `phaseScale`, the Sigma population and the RP mean
+  shift are league-scoped in the same way. A browser that sees one event cannot see those steps.
+- **POPULATION** — needs a season-wide ranking pool that one event does not contain.
+- **ENGINE** — a transcendental difference. Half B's question, not Half A's.
+- **BUG** — none of the above: a real defect this experiment found.
+
+The per-match TRAJECTORY of the first diverging field is reported alongside the attribution, because
+it tells INTERLEAVE from WIRE without a separate arm: a WIRE loss is present at match 1 and roughly
+constant; an INTERLEAVE drift starts at or near zero and grows.
+
+### The events, and why each
+
+- **`2026arc`** (Archimedes Division, event_type 3, 141 played). Maximum INTERLEAVE stress in the
+  corpus: seven sister divisions run concurrently at 139-140 played each, so roughly a thousand other
+  matches step the league-scoped quantities between this event's first and last. Largest roster too,
+  so the block carries the most team rows.
+- **`2026nyro`** (Finger Lakes Regional, event_type 0, 99 played, week 1). Deliberately the earliest:
+  at week 1 `scale`, `scaleCount` and `logTau` are least converged and moving fastest, and cold-start
+  rows are most likely, so any WIRE loss in the league row shows up here at its largest.
+- **`2026auwarp`** (West Australian Robotics Playoffs, event_type 99, offseason, 65 played). The
+  demo/offseason quirk event: 64 of its 65 played matches carry at least one Off-Season Demo Team
+  slot and 29 have a fully-demo alliance, which `spr.update` skips outright. It exercises
+  `isFullyDemoAlliance`, `remapDemoTeams` and `DEMO_PSEUDO_TEAM_KEY`'s membership in
+  `stateBlockScopeKeys`. **`event_type` 99 has no `EVENT_TYPE_TIERS` entry, so it is RP-INELIGIBLE and
+  no RP field is produced at all** — the RP half of the comparison is VACUOUS there, and three green
+  RP columns on that event must not be read as RP having been tested.
+
+### IT WORKED — both required
+
+1. **Every field in the compared set is exactly equal**, on all three events, for arm R, at the
+   shipped rounding rule.
+2. The validity gate passed on all three events.
+
+### IT DID NOT WORK — any one
+
+1. Any field in the compared set differs after rounding on any event and the difference is attributed
+   to **INTERLEAVE** or **POPULATION** — those are architectural, not fixable by shipping one more
+   passenger; or
+2. the validity gate fails on any event (the pass for that event is discarded and cannot be reported
+   as a result either way); or
+3. the exception list has to grow past the three named above plus one or two well-understood entries.
+
+### INCONCLUSIVE
+
+Anything between those two sets — in particular, differences attributed **only** to WIRE, which are a
+missing-passenger bug rather than an architectural verdict, and differences that exist unrounded but
+are fully absorbed by `ROUNDING_RULE`. **A rounding-absorbed difference is NOT a pass**, because the
+absorption is a property of this corpus and these three events, not a guarantee; it is reported as
+inconclusive, together with how close the nearest surviving value came to a rounding boundary.
+Do not report an inconclusive pass as a win.
+
+### STATED IN ADVANCE, so a good number cannot be over-read
+
+A clean Half A does **not** by itself make the relay viable. It would say only that the FOLD is
+reproducible from a block; it would say nothing about the subrequest arithmetic, the artifact-write
+cost, or the browser CPU cost of folding a full event on a phone. Those are separate questions this
+experiment does not touch.
+
+Equally: a failing Half A does not by itself kill the relay. If the only failures are INTERLEAVE and
+the drift is small relative to the rounding rule, the architectural answer may be to ship the
+league-scoped quantities as a small per-event passenger rather than to abandon the direction. That
+possibility is named here, before the number, so that naming it afterwards cannot look like
+rationalisation — and the magnitude is what decides it, which is why every difference is reported
+with its size and its survival-under-rounding, not merely as pass/fail.
+
+### Half B — is the fold bit-identical across JavaScript engines?
+
+`spr.ts` and the RP marginals path both call `Math.exp`, `Math.log` and `Math.log1p`. IEEE-754
+specifies `Math.sqrt` to be correctly rounded, so it is bit-identical everywhere; it does NOT specify
+the transcendentals to the last bit, and engines are known to differ. If V8, JavaScriptCore and
+SpiderMonkey disagree, two visitors on different browsers see different ratings — which is a
+correctness problem for a relay in a way it is not for a single server.
+
+The harness must provably run the REAL modules: an esbuild IIFE bundle of the real `spr.ts`,
+`sigmaScoutLayer.ts`, `stateSnapshot.ts`, `sigmaScore.ts`, `publishedRows.ts` and the real 2026 rule
+module, evaluated in each engine via `page.addScriptTag` on `about:blank`. **The bundle is asserted to
+contain a distinctive marker string from each source module before any engine runs**, so a silently
+empty or tree-shaken bundle fails loudly instead of measuring nothing and reporting agreement.
+
+Digests are taken over the FULL UNROUNDED intermediate values as IEEE-754 bit patterns
+(`DataView.getBigUint64` over a `Float64Array` view), never a decimal rendering — a decimal rendering
+would hide exactly the last-bit difference this half exists to find. The rounded published-shape rows
+are digested separately.
+
+Node's own V8 is included as a fourth arm. Node-V8 against Chromium-V8 is a free control: if those
+two disagree, the harness is wrong, not the engines.
+
+**Engines: the list is filled in by the run, the bar is fixed here.** Whatever engines are present
+are run; **an engine that is absent or fails to launch is reported as NOT RUN with the reason and the
+exact command that would add it.** A two-engine agreement reported as three would be the worst
+possible outcome of this half, and is pre-emptively forbidden here rather than guarded against later.
+
+- **IT WORKED:** every engine pair agrees on BOTH the unrounded and the rounded digest, and at least
+  three distinct engines ran.
+- **IT DID NOT WORK:** any pair disagrees on the ROUNDED digest — the published number itself is
+  engine-dependent.
+- **INCONCLUSIVE:** the unrounded digests differ but the rounded ones agree (rounding absorbed it on
+  this event — report the largest divergence, its ulp distance, the first diverging match, and how
+  close the nearest surviving value came to a rounding boundary), or fewer than three engines ran.
+
+### The known-red baseline, recorded so a later "one failed" cannot be misread
+
+Captured from the repo root with `npx vitest run` BEFORE any file in this task was created:
+
+```
+Test Files  2 failed | 249 passed (251)
+     Tests  2 failed | 5618 passed | 1 skipped (5621)
+```
+
+Both failures are other sessions' work and are **not touched by this task**:
+
+1. `packages/harness/level1Digest.test.ts` — "re-runs on the recorded 2022 slice and reproduces the
+   committed digest bitwise, for every published algorithm". Another session bumped SPR to 5.0.0
+   without regenerating `data/baselines/level1-digest-2026-09.json`.
+2. `apps/web/src/lib/searchParams.test.ts` — "TeamsSearchSchema's tint field > parses tint: 'sigma'
+   through unchanged". A deliberate RED commit from the concurrent quick task 260917-mwi
+   (`652086cd test(quick-260917-mwi): add failing tests for the Colour by control`), whose
+   implementation had not landed when this baseline was taken.
+
+Anything beyond these two at the end of this task is this task's doing.
+
+### Safety, by construction rather than by care
+
+Copied from `scripts/priceFrozenEventRow.ts`, which established the pattern: no import of
+`packages/harness/r2Client.ts`, no S3 or signing SDK, no `fetch`, **no environment variable read** (so
+the instruments never need and must never be given `--env-file`), `dryRun: true`, `skipState: true`,
+`--write-budget` never passed, the corpus opened through `openCorpusReadOnly` only, and a fixed
+non-UUID generation marker that could not be mistaken for a real one. `measureReplayParity.test.ts`
+scans the instruments' own source for each of these rather than trusting that they were remembered.
+
