@@ -27,7 +27,7 @@ import {
 } from "../../../packages/harness/stateSnapshot.js";
 import { buildEventStateBlock } from "../../../packages/harness/eventStatePricing.js";
 import { LiveEventArtifactSchema, TeamSeasonArtifactSchema } from "../../../packages/harness/pageArtifacts.js";
-import { SigmaScoreAccumulator } from "../../../packages/harness/sigmaScore.js";
+import { SigmaScoreAccumulator, SIGMA_METRIC_KEY } from "../../../packages/harness/sigmaScore.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
 import { RP_MEAN_SHIFT_WARMUP_OBSERVATIONS } from "../../../packages/core/rankingPoints/meanShift.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
@@ -2373,3 +2373,461 @@ describe("stateProbe — Group 10: the Phase B sub-arms (phaseBSkip, phaseBUpcom
   });
 });
 
+
+// ---------------------------------------------------------------------------
+// Group 11: the `chunk=` arm (quick task 260917-0p3) — a D1-free teams-only
+// consumer emulation, priced as its OWN invocation.
+//
+// Groups 9 and 10 price Phase B as an INCREMENT inside an already-warm
+// invocation: the team half measured 7.6 ± 1.8 ms on top of a tick that had
+// already read D1, deserialized and folded. A split tick's second chunk is a
+// SEPARATE invocation that pays its own start-up, so 7.6 ms is a lower bound on
+// what it would cost, never an answer. `chunk=teams` is the arm that answers
+// it: it reconstructs the merge inputs from the PUBLISHED event artifact's own
+// played rows and runs the tick's own `mergeTeamSeasonArtifact` N times, with
+// no D1 read, no deserialize and no fold anywhere in the request.
+//
+// THE PROPERTY THIS GROUP EXISTS FOR is the zero-D1 one, and it is asserted
+// BEHAVIOURALLY: the fake database records every SQL string it is handed, and
+// a `chunk=teams` request must leave that list EMPTY — by equality, never by a
+// length comparison, and including the case where the overrides it needs are
+// missing (falling back to discovery there would be two D1 scans, which is the
+// exact failure the arm exists not to have).
+//
+// Groups 1 through 10 are left completely unedited. Their continuing to pass
+// unmodified IS the default-off regression proof.
+// ---------------------------------------------------------------------------
+
+/** The response fields Group 11 reads. Deliberately narrow — everything asserted below is named here, so a renamed counter fails to typecheck rather than reading as `undefined`. */
+interface ChunkBody {
+  ok: boolean;
+  params: {
+    event: string;
+    teams: string[];
+    chunk: string;
+    rp: boolean;
+    rpArm: { id: string };
+    algorithms: string[];
+    phaseB: boolean;
+    phaseBArm: { id: string };
+    phaseBTeams: number;
+    phaseBEvent: string;
+  };
+  discovery: { teamKeysFound: number; eventKeyFound?: string; queries: number };
+  algorithms: unknown[];
+  fold: Record<string, unknown> & { error?: { name: string; message: string } };
+  phaseB: { ran: boolean };
+  chunk: {
+    ran: boolean;
+    artifactsFetched: number;
+    eventArtifactBytes: number;
+    teamArtifactBytes: number;
+    publishedPlayedRowsRead: number;
+    matchesReconstructed: number;
+    predictionsReconstructed: number;
+    predictionsWithRpPmf: number;
+    predictionsWithBand: number;
+    rostersSubstituted: number;
+    bonusFlagRoute: string;
+    bonusFlagArraysInverted: number;
+    matchesWithActualBonusFlags: number;
+    playedRowFactsBuilt: number;
+    teamsWithPublishedMetrics: number;
+    teamsWithPublishedSigma: number;
+    teamParsesRun: number;
+    teamMergesRun: number;
+    mergedTeamRows: number;
+    mergedTeamBytes: number;
+    unreconstructedFields: string[];
+    error?: { name: string; message: string };
+  };
+  warnings: string[];
+}
+
+/** Every `chunk` counter at rest — what a `chunk`-free response must carry, asserted EXHAUSTIVELY so a new field has to appear here or the default-off test fails. */
+const CHUNK_ZEROS_BODY = {
+  ran: false,
+  artifactsFetched: 0,
+  eventArtifactBytes: 0,
+  teamArtifactBytes: 0,
+  publishedPlayedRowsRead: 0,
+  matchesReconstructed: 0,
+  predictionsReconstructed: 0,
+  predictionsWithRpPmf: 0,
+  predictionsWithBand: 0,
+  rostersSubstituted: 0,
+  bonusFlagRoute: "none",
+  bonusFlagArraysInverted: 0,
+  matchesWithActualBonusFlags: 0,
+  playedRowFactsBuilt: 0,
+  teamsWithPublishedMetrics: 0,
+  teamsWithPublishedSigma: 0,
+  teamParsesRun: 0,
+  teamMergesRun: 0,
+  mergedTeamRows: 0,
+  mergedTeamBytes: 0,
+  unreconstructedFields: [],
+};
+
+/**
+ * The 2026 rule module's own bonus count, read rather than hardcoded: the
+ * chunk inverts the published `actualRedBonusRp`/`actualBlueBonusRp` arrays
+ * through `bonusNames`, and a fixture whose arrays are a different length than
+ * the season's would exercise the REJECT path while looking like the accept
+ * one.
+ */
+const FIXTURE_BONUS_COUNT = RP_RULE_MODULES[2026]!.bonusNames.length;
+
+/**
+ * A real-shaped PLAYED row on a published event artifact — every field
+ * `EventMatchSchema` carries for a played qualification match. This row is the
+ * ONLY source `chunk=teams` may reconstruct a `MatchResult` and a `Prediction`
+ * from, so anything absent here is the finding the arm exists to report.
+ */
+function publishedPlayedRow(matchNumber: number): Record<string, unknown> {
+  return {
+    matchKey: `${SEED_EVENT_KEY}_qm${matchNumber}`,
+    compLevel: "qm",
+    setNumber: 1,
+    matchNumber,
+    // Milliseconds, as `tbaReportedMatchTimeMs` produces and the corpus stores.
+    sortTime: 1_770_000_000_000 + matchNumber,
+    redTeams: SEED_ROSTER.slice(0, 3),
+    blueTeams: SEED_ROSTER.slice(3, 6),
+    predictedWinner: "red",
+    pRedWin: 0.62,
+    predictedRedScore: 121.5,
+    predictedBlueScore: 98.25,
+    redScoreVarianceOwn: 210.5,
+    blueScoreVarianceOwn: 198.25,
+    redMatchBandVariance: 44.5,
+    blueMatchBandVariance: 41.25,
+    redRpPmf: [0.25, 0.35, 0.4],
+    blueRpPmf: [0.4, 0.35, 0.25],
+    matchOutcomePmf: [0.62, 0.03, 0.35],
+    redBonusRpPmf: [0.5, 0.3, 0.2],
+    blueBonusRpPmf: [0.55, 0.3, 0.15],
+    redBonusRp: Array.from({ length: FIXTURE_BONUS_COUNT }, (_, i) => 0.5 - i * 0.05),
+    blueBonusRp: Array.from({ length: FIXTURE_BONUS_COUNT }, (_, i) => 0.45 - i * 0.05),
+    actualWinner: "red",
+    actualRedScore: 120,
+    actualBlueScore: 95,
+    actualRedRp: 4,
+    actualBlueRp: 1,
+    actualRedBonusRp: Array.from({ length: FIXTURE_BONUS_COUNT }, (_, i) => i % 2 === 0),
+    actualBlueBonusRp: Array.from({ length: FIXTURE_BONUS_COUNT }, (_, i) => i % 2 === 1),
+    video: `probeVid${matchNumber}`,
+  };
+}
+
+/** Group 9's published artifact with TWO real-shaped played rows and teams rows that actually carry metrics (Group 9's carry `{}`, which would make the metrics counters read 0 while looking healthy). */
+function publishedEventWithPlayedRows(db: FakeD1Database, playedRows: number): unknown {
+  const base = publishedEventArtifact(db, true) as Record<string, unknown>;
+  return {
+    ...base,
+    matches: Array.from({ length: playedRows }, (_, i) => publishedPlayedRow(i + 1)),
+    teams: SEED_ROSTER.map((teamKey, i) => ({
+      teamKey,
+      teamNumber: Number(teamKey.slice(3)),
+      nickname: "",
+      metrics: { [TOTAL_METRIC_KEY]: { value: 40 + i, spread: 5.5 }, [SIGMA_METRIC_KEY]: { value: 1.25 + i / 100 } },
+    })),
+  };
+}
+
+describe("stateProbe — Group 11: the chunk= arm (a D1-free teams-only consumer)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const CHUNK_FOLDED = 2;
+  /** `rosterAt` cycles 6 at a time, so 2 reconstructed matches touch teams 1-12 — the same twelve `allPhaseB` merges, which is what makes the two cpuTimes comparable. */
+  const CHUNK_EXPECTED_TEAMS = 12;
+  /** Both overrides supplied, always: without them the arm refuses to run rather than falling back to discovery. */
+  const CHUNK_QUERY = `folded=${CHUNK_FOLDED}&upcoming=5&season=2026&teams=${SEED_ROSTER.join(",")}&event=${SEED_EVENT_KEY}`;
+
+  async function runChunk(
+    query: string,
+    options: { playedRows?: number; eventStatus?: number; eventText?: string; teamText?: string } = {}
+  ) {
+    const db = new FakeD1Database();
+    // Seeded on purpose: a D1 read WOULD succeed if one happened, so the empty
+    // prepared-SQL list below is a real negative rather than a vacuous one.
+    seedAllAlgorithms(db);
+    seedMeanShift(db, SEEDED_SHIFT);
+    const eventText = options.eventText ?? JSON.stringify(publishedEventWithPlayedRows(db, options.playedRows ?? CHUNK_FOLDED));
+    const teamText = options.teamText ?? JSON.stringify(publishedTeamArtifact());
+    // Cleared AFTER seeding: `seedAllAlgorithms` does not prepare anything, but
+    // clearing here means the assertion below can only ever see SQL the REQUEST
+    // issued.
+    db.preparedSql = [];
+    const recorded = installFetchRecorder((url) =>
+      url.includes("/v1/event/") ? { status: options.eventStatus ?? 200, body: eventText } : { status: 200, body: teamText }
+    );
+    const response = await stateProbe.fetch(new Request(`https://probe/?${query}`), { DB: db as unknown as D1Database });
+    const text = await response.text();
+    return {
+      body: JSON.parse(text) as ChunkBody,
+      text,
+      status: response.status,
+      writes: db.writeStatementCount,
+      preparedSql: db.preparedSql,
+      recorded,
+      eventText,
+      teamText,
+    };
+  }
+
+  it("positive control: the fixture really is a schema-valid published artifact with played rows the chunk can read", () => {
+    const db = new FakeD1Database();
+    seedAllAlgorithms(db);
+    const parsed = LiveEventArtifactSchema.parse(publishedEventWithPlayedRows(db, CHUNK_FOLDED));
+    expect(parsed.matches).toHaveLength(CHUNK_FOLDED);
+    // The three groups the chunk reconstructs, present on the fixture rows —
+    // a fixture missing any of them would let the counters below pass at 0.
+    expect(parsed.matches[0]!.redRpPmf).toBeDefined();
+    expect(parsed.matches[0]!.redMatchBandVariance).toBeDefined();
+    expect(parsed.matches[0]!.actualRedBonusRp).toHaveLength(FIXTURE_BONUS_COUNT);
+    expect(parsed.teams[0]!.metrics[SIGMA_METRIC_KEY]).toBeDefined();
+    expect(FIXTURE_BONUS_COUNT).toBeGreaterThan(0);
+  });
+
+  it("chunk=teams prepares ZERO D1 statements — the whole point of the arm, asserted by equality on the recorded SQL list", async () => {
+    const arm = await runChunk(`${CHUNK_QUERY}&chunk=teams`);
+
+    expect(arm.status).toBe(200);
+    expect(arm.body.ok).toBe(true);
+    expect(arm.body.chunk.error).toBeUndefined();
+    // By EQUALITY, never a length comparison: an empty list is the property.
+    expect(arm.preparedSql).toEqual([]);
+    expect(arm.writes).toBe(0);
+    // Discovery is not merely skipped-and-reported — it never ran at all.
+    expect(arm.body.discovery).toEqual({ teamKeysFound: 0, eventKeyFound: undefined, queries: 0 });
+    expect(arm.body.algorithms).toEqual([]);
+  });
+
+  it("chunk=teams with teams= MISSING fails loudly and STILL prepares zero D1 statements — it never falls back to discovery, which is two D1 scans", async () => {
+    const arm = await runChunk(`folded=${CHUNK_FOLDED}&season=2026&event=${SEED_EVENT_KEY}&chunk=teams`);
+
+    expect(arm.status).toBe(500);
+    expect(arm.body.ok).toBe(false);
+    expect(arm.body.chunk.ran).toBe(false);
+    expect(arm.body.chunk.error?.name).toBe("ChunkOverridesRequired");
+    expect(arm.body.chunk.error?.message).toContain("teams=");
+    expect(arm.preparedSql).toEqual([]);
+    expect(arm.writes).toBe(0);
+    expect(arm.recorded).toEqual([]);
+  });
+
+  it("chunk=teams with event= MISSING fails the same way, and still prepares zero D1 statements", async () => {
+    const arm = await runChunk(`folded=${CHUNK_FOLDED}&season=2026&teams=${SEED_ROSTER.join(",")}&chunk=teams`);
+
+    expect(arm.status).toBe(500);
+    expect(arm.body.chunk.error?.name).toBe("ChunkOverridesRequired");
+    expect(arm.body.chunk.error?.message).toContain("event=");
+    expect(arm.preparedSql).toEqual([]);
+    expect(arm.recorded).toEqual([]);
+  });
+
+  it("chunk=teams counters are pinned by EQUALITY, including the RP-pmf and band groups a thinner published row would zero", async () => {
+    const arm = await runChunk(`${CHUNK_QUERY}&chunk=teams`);
+
+    expect(arm.body.chunk.ran).toBe(true);
+    expect(arm.body.chunk.artifactsFetched).toBe(2);
+    expect(arm.body.chunk.eventArtifactBytes).toBe(arm.eventText.length);
+    expect(arm.body.chunk.teamArtifactBytes).toBe(arm.teamText.length);
+    expect(arm.body.chunk.publishedPlayedRowsRead).toBe(CHUNK_FOLDED);
+    expect(arm.body.chunk.matchesReconstructed).toBe(CHUNK_FOLDED);
+    expect(arm.body.chunk.predictionsReconstructed).toBe(CHUNK_FOLDED);
+    // A ZERO on either of these two means the arm is pricing a thinner row than
+    // `allPhaseB` merges, and the comparison would be invalid. This is where
+    // that gets caught, not at the smoke test an hour into a campaign.
+    expect(arm.body.chunk.predictionsWithRpPmf).toBe(CHUNK_FOLDED);
+    expect(arm.body.chunk.predictionsWithBand).toBe(CHUNK_FOLDED);
+    expect(arm.body.chunk.rostersSubstituted).toBe(CHUNK_FOLDED);
+    expect(arm.body.chunk.bonusFlagRoute).toBe("invert-published-actual-bonus-arrays");
+    expect(arm.body.chunk.bonusFlagArraysInverted).toBe(CHUNK_FOLDED);
+    expect(arm.body.chunk.matchesWithActualBonusFlags).toBe(CHUNK_FOLDED);
+    expect(arm.body.chunk.playedRowFactsBuilt).toBe(CHUNK_FOLDED);
+    expect(arm.body.chunk.teamsWithPublishedMetrics).toBe(CHUNK_EXPECTED_TEAMS);
+    expect(arm.body.chunk.teamsWithPublishedSigma).toBe(CHUNK_EXPECTED_TEAMS);
+    expect(arm.body.chunk.teamParsesRun).toBe(CHUNK_EXPECTED_TEAMS);
+    expect(arm.body.chunk.teamMergesRun).toBe(CHUNK_EXPECTED_TEAMS);
+    // One new metric-history row per team: each of the twelve appears in
+    // exactly one of the two reconstructed matches.
+    expect(arm.body.chunk.mergedTeamRows).toBe(CHUNK_EXPECTED_TEAMS);
+    expect(arm.body.chunk.mergedTeamBytes).toBeGreaterThan(arm.body.chunk.teamArtifactBytes);
+    // The loop count defaults to the teams the reconstructed rows touch, not to
+    // a Phase A touched-team count, which does not exist in this arm.
+    expect(arm.body.params.phaseBTeams).toBe(CHUNK_EXPECTED_TEAMS);
+    expect(arm.body.params.phaseBEvent).toBe(SEED_EVENT_KEY);
+  });
+
+  it("the list of fields the chunk could NOT take off the published row is pinned by equality, and exactly one warning enumerates them", async () => {
+    const arm = await runChunk(`${CHUNK_QUERY}&chunk=teams`);
+
+    expect(arm.body.chunk.unreconstructedFields).toEqual([
+      "match.redSurrogates",
+      "match.blueSurrogates",
+      "match.redDqs",
+      "match.blueDqs",
+      "match.week",
+      "match.hasScoreBreakdown",
+      "match.scoreBreakdownRaw",
+      "prediction.variance",
+      "prediction.redComponents",
+      "prediction.blueComponents",
+      "prediction.redOutcomeRp",
+      "prediction.blueOutcomeRp",
+      "playedRowFacts.reportedSortTime",
+    ]);
+
+    const enumerating = arm.body.warnings.filter((w) => w.includes("could NOT be taken off the published played row"));
+    expect(enumerating).toHaveLength(1);
+    // The three the merge path actually READS, each with the honest answer for
+    // what a real consumer would need instead.
+    expect(enumerating[0]).toContain("match.hasScoreBreakdown");
+    expect(enumerating[0]).toContain("prediction.variance");
+    expect(enumerating[0]).toContain("playedRowFacts.reportedSortTime");
+    expect(enumerating[0]).toContain("message payload");
+    expect(enumerating[0]).toContain("no D1 read answers any of them");
+  });
+
+  it("chunk=teams reports every fold counter at rest with NO fold error, and says so in exactly one warning", async () => {
+    const arm = await runChunk(`${CHUNK_QUERY}&chunk=teams`);
+
+    expect(arm.body.params.chunk).toBe("teams");
+    expect(arm.body.fold.error).toBeUndefined();
+    expect(arm.body.fold).toEqual({
+      algorithmId: "spr",
+      matchesFolded: 0,
+      upcomingScheduled: 0,
+      bandsProduced: 0,
+      rpPmfsProduced: 0,
+      rpObservedFolds: 0,
+      rpBonusSidesCaptured: 0,
+      rpMeanShiftObservations: 0,
+      rpMeanShiftedAlliances: 0,
+      rpBeliefTeamsResumed: 0,
+      rpGatesOpened: 0,
+      rpBeliefTeamsAttached: 0,
+      rpMeanShiftAttached: false,
+      changedRowsDiscarded: 0,
+    });
+    expect(arm.body.phaseB.ran).toBe(false);
+
+    const noWork = arm.body.warnings.filter((w) => w.includes("no D1 read, no deserialize and no fold ran"));
+    expect(noWork).toHaveLength(1);
+    expect(noWork[0]).toContain("rp/rpArm/phaseB/phaseBArm");
+    expect(noWork[0]).toContain("parsed but NOT used");
+  });
+
+  it("a successful chunk=teams carries exactly four warnings, all of them its own", async () => {
+    const arm = await runChunk(`${CHUNK_QUERY}&chunk=teams`);
+
+    expect(arm.body.warnings).toHaveLength(4);
+    for (const warning of arm.body.warnings) expect(warning.startsWith("chunk=")).toBe(true);
+    expect(arm.body.warnings.filter((w) => w.includes("substituted the rosters"))).toHaveLength(1);
+    expect(arm.body.warnings.filter((w) => w.includes("invert-published-actual-bonus-arrays"))).toHaveLength(1);
+  });
+
+  it("an UNRECOGNIZED chunk= value skips NOTHING — the normal path runs with identical fold counters — and warns exactly once", async () => {
+    const baseline = await runChunk(`${CHUNK_QUERY}&phaseB=1`);
+    const typo = await runChunk(`${CHUNK_QUERY}&phaseB=1&chunk=team`);
+
+    expect(typo.status).toBe(200);
+    expect(typo.body.params.chunk).toBe("off");
+    expect(typo.body.fold).toEqual(baseline.body.fold);
+    expect(typo.body.chunk).toEqual(CHUNK_ZEROS_BODY);
+
+    const extra = typo.body.warnings.filter((w) => !baseline.body.warnings.includes(w));
+    expect(extra).toHaveLength(1);
+    expect(extra[0]).toContain('chunk="team"');
+    expect(extra[0]).toContain("teams, event");
+    expect(extra[0]).toContain("NOTHING was skipped");
+  });
+
+  it("chunk=event is RECOGNIZED and INERT: the normal path runs unchanged, no counter moves, and one warning names the arm that already measures it", async () => {
+    const baseline = await runChunk(`${CHUNK_QUERY}&phaseB=1`);
+    const armEvent = await runChunk(`${CHUNK_QUERY}&phaseB=1&chunk=event`);
+
+    expect(armEvent.status).toBe(200);
+    expect(armEvent.body.params.chunk).toBe("event");
+    expect(armEvent.body.chunk).toEqual(CHUNK_ZEROS_BODY);
+
+    // Everything except the chunk echo and the one warning is byte-identical.
+    const strip = (body: ChunkBody) => {
+      const clone = JSON.parse(JSON.stringify(body)) as Record<string, unknown> & { params: Record<string, unknown> };
+      delete clone.warnings;
+      delete clone.params.chunk;
+      return JSON.stringify(clone);
+    };
+    expect(strip(armEvent.body)).toBe(strip(baseline.body));
+
+    const extra = armEvent.body.warnings.filter((w) => !baseline.body.warnings.includes(w));
+    expect(extra).toHaveLength(1);
+    expect(extra[0]).toContain("RECOGNIZED and INERT");
+    expect(extra[0]).toContain("phaseB=1&phaseBTeams=0");
+    expect(extra[0]).toContain("pbTeams0");
+    // The two differences from a real cron chunk, both named.
+    expect(extra[0]).toContain("team-artifact GET");
+    expect(extra[0]).toContain("send");
+  });
+
+  it("with chunk ABSENT an existing phaseB=1 arm is untouched: params.chunk reads off, the chunk block is all zeros, and its fold/phaseB/warnings are unchanged", async () => {
+    const withChunkParam = await runChunk(`${CHUNK_QUERY}&phaseB=1&chunk=`);
+    const absent = await runChunk(`${CHUNK_QUERY}&phaseB=1`);
+
+    expect(absent.text).toBe(withChunkParam.text);
+    expect(absent.body.params.chunk).toBe("off");
+    expect(absent.body.chunk).toEqual(CHUNK_ZEROS_BODY);
+    expect(absent.body.phaseB.ran).toBe(true);
+    expect(absent.body.warnings).toEqual(withChunkParam.body.warnings);
+  });
+
+  it("every request the chunk path issues is a GET with no request body", async () => {
+    const arm = await runChunk(`${CHUNK_QUERY}&chunk=teams`);
+
+    expect(arm.recorded).toHaveLength(2);
+    for (const request of arm.recorded) {
+      expect(request.method).toBe("GET");
+      expect(request.hasBody).toBe(false);
+    }
+    expect(arm.recorded.filter((r) => r.url.includes("/v1/event/"))).toHaveLength(1);
+    expect(arm.recorded.filter((r) => r.url.includes("/v1/team/"))).toHaveLength(1);
+  });
+
+  it("phaseBTeams=0 is the chunk's loop root too: zero parses, zero merges, and the reconstruction still ran (the fixed-overhead arm)", async () => {
+    const arm = await runChunk(`${CHUNK_QUERY}&chunk=teams&phaseBTeams=0`);
+
+    expect(arm.status).toBe(200);
+    expect(arm.body.params.phaseBTeams).toBe(0);
+    expect(arm.body.chunk.teamParsesRun).toBe(0);
+    expect(arm.body.chunk.teamMergesRun).toBe(0);
+    expect(arm.body.chunk.mergedTeamRows).toBe(0);
+    expect(arm.body.chunk.mergedTeamBytes).toBe(0);
+    // The overhead the arm exists to isolate is still paid in full.
+    expect(arm.body.chunk.matchesReconstructed).toBe(CHUNK_FOLDED);
+    expect(arm.body.chunk.artifactsFetched).toBe(2);
+    expect(arm.preparedSql).toEqual([]);
+  });
+
+  it("a published artifact with NO played rows fails loudly rather than reporting a chunk that reconstructed nothing", async () => {
+    const arm = await runChunk(`${CHUNK_QUERY}&chunk=teams`, { playedRows: 0 });
+
+    expect(arm.status).toBe(500);
+    expect(arm.body.chunk.ran).toBe(false);
+    expect(arm.body.chunk.error?.name).toBe("ChunkNoPublishedPlayedRows");
+    expect(arm.preparedSql).toEqual([]);
+  });
+
+  it("the chunk numbers are deterministic and still write nothing: two identical runs are byte-identical", async () => {
+    for (const query of [`${CHUNK_QUERY}&chunk=teams`, `${CHUNK_QUERY}&chunk=teams&phaseBTeams=0`]) {
+      const a = await runChunk(query);
+      const b = await runChunk(query);
+      expect(a.text, query).toBe(b.text);
+      expect(a.writes, query).toBe(0);
+      expect(a.preparedSql, query).toEqual([]);
+    }
+  });
+});

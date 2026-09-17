@@ -44,12 +44,24 @@
  * artifact's upcoming rows into the shape the live tick actually reads back.
  * Both default to the pre-existing behaviour, so every arm measured before
  * they existed stays comparable.
+ *
+ * `?chunk=teams` (added 2026-09-17) is a DIFFERENT KIND of arm from every one
+ * above: not an ablation of this tick, but an emulation of what ONE HALF of a
+ * SPLIT tick would cost as its own invocation. Phase B's team half is 7.6 ms
+ * as an INCREMENT inside an already-warm invocation; a separate invocation
+ * pays its own start-up, so that figure is a lower bound, not an answer. The
+ * teams chunk reconstructs its merge inputs from the PUBLISHED event
+ * artifact's own played rows and touches D1 ZERO times — the property
+ * `stateProbe.test.ts` Group 11 asserts behaviourally. `chunk` is OFF by
+ * default, and `chunk=event` is recognized but inert (see `resolveChunkArm`).
  * Runbook: `docs/worker-operations.md`, "Pre-event probe".
  *
  * SCOPE: Phase A (state read, fold, serialize, discard) plus, under
- * `phaseB=1`, an emulation of Phase B's merge/splice/stringify. Never the TBA
- * poll, the KV manifest read, the global rebuild, a second concurrent event or
- * any R2 write. Runbook: `docs/worker-operations.md`, "Pre-event probe".
+ * `phaseB=1`, an emulation of Phase B's merge/splice/stringify, plus, under
+ * `chunk=teams`, a D1-free teams-only consumer emulation that replaces both.
+ * Never the TBA poll, the KV manifest read, the global rebuild, a second
+ * concurrent event or any R2 write.
+ * Runbook: `docs/worker-operations.md`, "Pre-event probe".
  */
 import {
   readScopedState,
@@ -89,7 +101,7 @@ import { artifactKey, type LiveEventArtifact, type TeamSeasonArtifact } from "..
 // no write helper to the probe's import graph (Group 1 walks it).
 import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "./artifactShapeCheck.js";
 import type { ParsedBonusSides } from "../../../packages/harness/publishedRows.js";
-import { SigmaScoreAccumulator, usesSigmaScore, publishesRankingPoints, sigmaMatchBandVariance } from "../../../packages/harness/sigmaScore.js";
+import { SigmaScoreAccumulator, usesSigmaScore, publishesRankingPoints, sigmaMatchBandVariance, SIGMA_METRIC_KEY } from "../../../packages/harness/sigmaScore.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
 import { RpMeanShiftAccumulator, rosterIsFullyWarm } from "../../../packages/core/rankingPoints/meanShift.js";
 import { analyticRpPmf } from "../../../packages/core/rankingPoints/analyticPmf.js";
@@ -614,6 +626,66 @@ function toScheduleOnlyUpcomingRow(row: unknown): unknown {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// `chunk`: which HALF of a SPLIT tick to emulate as its own invocation.
+//
+// EVERY OTHER ARM IN THIS FILE ABLATES THIS TICK. This one does not: it prices
+// a tick that does not exist yet. `runPhaseBAndReport` writes the event
+// artifact and then loops the touched teams doing read guard ->
+// `mergeTeamSeasonArtifact` -> write, so a split puts the boundary exactly
+// there — chunk one ends after the event write, chunk two is that loop. The
+// consumer chunk reads the event artifact chunk one just wrote, which already
+// carries this tick's newly played rows, and that is what makes a D1-FREE
+// second chunk plausible at all.
+//
+// `teams` is the arm with a second code path. `event` deliberately is NOT:
+// `phaseB=1&phaseBTeams=0` already runs Phase A plus the event half with zero
+// team merges, which is the cron-side shape, so `chunk=event` is recognized,
+// changes nothing, and says which arm to run instead.
+//
+// OFF BY DEFAULT, so every arm measured on 2026-09-15 and 2026-09-17 keeps its
+// meaning and its pinned counters.
+// ---------------------------------------------------------------------------
+
+const CHUNK_ARM_IDS = ["off", "teams", "event"] as const;
+type ChunkArmId = (typeof CHUNK_ARM_IDS)[number];
+/** The values an operator may type. `off` is reached by ABSENCE, never by name, so it is not listed to a reader who mistyped. */
+const CHUNK_REQUESTABLE_IDS = ["teams", "event"] as const;
+
+/** Why `chunk=event` reports itself inert, quoted verbatim into its warning — the same treatment a RETIRED `rpSkip` name gets, for the same reason: a recognized name that changes nothing must SAY so rather than be mistaken for a typo. */
+const CHUNK_EVENT_INERT_REASON =
+  "the cron-side chunk is ALREADY measured by the existing no-team-artifacts arm — run phaseB=1&phaseBTeams=0 for it, the arm the measurement rig calls pbTeams0, which runs the full Phase A fold plus the event half of Phase B with zero team merges. Two differences from a real cron chunk, both immaterial to cpuTime: that arm also issues one team-artifact GET the real chunk would not, and fetch is I/O, billed as subrequests rather than CPU; and it does not pay the queue send a real chunk would";
+
+interface ChunkArmResolution {
+  readonly id: ChunkArmId;
+  readonly warnings: readonly string[];
+}
+
+/**
+ * Pure resolver for `chunk`, following the conventions `rp`, `phaseB` and
+ * `phaseBUpcoming` already use: absent or empty is OFF; an UNRECOGNIZED value
+ * changes NOTHING and warns (never silently measured as one of the real arms);
+ * a recognized-but-inert value carries its own reason string.
+ */
+export function resolveChunkArm(raw: string | null): ChunkArmResolution {
+  const trimmed = raw?.trim() ?? "";
+  if (trimmed === "") return { id: "off", warnings: [] };
+  const v = trimmed.toLowerCase();
+  if (v === "teams") return { id: "teams", warnings: [] };
+  if (v === "event") {
+    return {
+      id: "event",
+      warnings: [`chunk=event is RECOGNIZED and INERT: it adds no second code path and moved no counter. ${CHUNK_EVENT_INERT_REASON}`],
+    };
+  }
+  return {
+    id: "off",
+    warnings: [
+      `chunk="${trimmed}" is not a recognized value (valid values are ${CHUNK_REQUESTABLE_IDS.join(", ")}; absent is off) — NOTHING was skipped and the normal path ran unchanged; re-run with chunk=teams if the teams-only consumer emulation was intended`,
+    ],
+  };
+}
+
 function parseTeamsParam(raw: string | null): readonly string[] | undefined {
   if (raw === null || raw.trim() === "") return undefined;
   const keys = raw
@@ -689,6 +761,8 @@ interface ProbeParams {
    */
   readonly phaseBTeamsRaw: number | undefined;
   readonly phaseBEventOverride: string | undefined;
+  /** The resolved split-tick chunk arm (see `resolveChunkArm`). `off` unless a `chunk=` value asked otherwise; only `teams` has a second code path. */
+  readonly chunkArm: ChunkArmResolution;
   /** `undefined` when an `artifactOrigin=` override was REJECTED — never silently replaced by the default. */
   readonly artifactOrigin: string | undefined;
   readonly artifactOriginRejected: string | undefined;
@@ -715,6 +789,7 @@ function parseParams(url: URL): ProbeParams {
   const phaseBUpcoming = parsePhaseBUpcomingParam(search.get("phaseBUpcoming"));
   const phaseBTeamsRaw = parseOptionalIntParam(search.get("phaseBTeams"));
   const phaseBEventOverride = search.get("phaseBEvent")?.trim() || undefined;
+  const chunkArm = resolveChunkArm(search.get("chunk"));
   const origin = parseArtifactOriginParam(search.get("artifactOrigin"));
   return {
     season,
@@ -736,6 +811,7 @@ function parseParams(url: URL): ProbeParams {
     phaseBUpcomingRawSupplied: (search.get("phaseBUpcoming")?.trim() ?? "") !== "",
     phaseBTeamsRaw,
     phaseBEventOverride,
+    chunkArm,
     artifactOrigin: origin.origin,
     artifactOriginRejected: origin.rejected,
   };
@@ -786,6 +862,14 @@ export function probeSelectionsFor(algorithmId: string, eventKey: string, touche
 
 /** A phaseB step that failed, carried to the response as `phaseB.error` with every counter left at 0. */
 class ProbePhaseBError extends Error {
+  constructor(name: string, message: string) {
+    super(message);
+    this.name = name;
+  }
+}
+
+/** A `chunk=teams` step that failed, carried to the response as `chunk.error` with every counter left at 0 and the response a 500 — so the driver's warm-up gate aborts rather than recording an arm that measured nothing. */
+class ProbeChunkError extends Error {
   constructor(name: string, message: string) {
     super(message);
     this.name = name;
@@ -1041,6 +1125,80 @@ const PHASE_B_ZEROS = {
   mergedTeamBytes: 0,
 } as const;
 
+/**
+ * What a `chunk=teams` invocation did — the whole response for that arm, since
+ * it runs no discovery, no read, no deserialize and no fold.
+ *
+ * THERE IS DELIBERATELY NO D1-CALL COUNTER HERE. The arm makes no D1 call, so a
+ * hardcoded `0` would be decoration that could not fail; the real evidence is
+ * `stateProbe.test.ts` Group 11's assertion that the fake database's recorded
+ * SQL list is EMPTY by equality.
+ */
+interface ChunkResult {
+  /** False whenever `chunk` was not `teams`, and false on any failure before the first merge. Every counter below is 0 when this is false. */
+  readonly ran: boolean;
+  /** One event GET plus one team GET. A real consumer would issue one event GET plus one GET PER TEAM — 13 for a twelve-team chunk; see this arm's own re-parse caveat. */
+  readonly artifactsFetched: number;
+  readonly eventArtifactBytes: number;
+  readonly teamArtifactBytes: number;
+  /** `matches[]` rows the published event artifact carried — what the chunk READ, not what it rebuilt. */
+  readonly publishedPlayedRowsRead: number;
+  /** Rows actually rebuilt into a `MatchResult`: `min(folded, publishedPlayedRowsRead)`. */
+  readonly matchesReconstructed: number;
+  readonly predictionsReconstructed: number;
+  /** Reconstructed predictions carrying BOTH RP pmfs. A zero here means the published rows are thinner than what `allPhaseB` merges and the comparison is invalid. */
+  readonly predictionsWithRpPmf: number;
+  /** Reconstructed predictions carrying at least one published Match Band variance. Same "a zero invalidates the comparison" reading as above. */
+  readonly predictionsWithBand: number;
+  /** Rebuilt matches whose PUBLISHED rosters were replaced by the probe's own `rosterAt` cycle, so this arm merges the same twelve pinned teams `allPhaseB` merges. A real consumer would keep the published rosters. */
+  readonly rostersSubstituted: number;
+  /** Which route the score-breakdown gap was answered by — see `runTeamsChunk`'s header. `none` when the arm did not run. */
+  readonly bonusFlagRoute: string;
+  /** Rows whose published actual-bonus boolean arrays were inverted back through the season rule module's `bonusNames`. */
+  readonly bonusFlagArraysInverted: number;
+  /** Matches whose `PlayedRowFacts.actualBonusFlags` came back a real record rather than `null`/absent — what the inversion actually bought. */
+  readonly matchesWithActualBonusFlags: number;
+  readonly playedRowFactsBuilt: number;
+  /** Merged teams that had a non-empty `metrics` record on the event artifact's own `teams[]` row (per F-7). */
+  readonly teamsWithPublishedMetrics: number;
+  /** Merged teams whose event-artifact `teams[]` row carried a published Sigma entry, which is where `sigmaAfterTick` comes from without D1. */
+  readonly teamsWithPublishedSigma: number;
+  /** `JSON.parse` calls on the team artifact text — one per loop iteration, so it equals `phaseBTeams`. `phaseBTeams=0` is this loop's root here exactly as it is for Phase B, and reads 0. */
+  readonly teamParsesRun: number;
+  readonly teamMergesRun: number;
+  /** New `metricHistory` rows the merges produced, summed — the observable proof each merge wrote this tick's rows rather than returning its input. */
+  readonly mergedTeamRows: number;
+  /** Summed `JSON.stringify(mergedTeam).length` over every team merge. */
+  readonly mergedTeamBytes: number;
+  /** Every field the chunk had to DEFAULT rather than read off the published played row, as data rather than as an unstated assumption. See this arm's enumerating warning for which of them the merge path actually reads. */
+  readonly unreconstructedFields: readonly string[];
+  readonly error?: { readonly name: string; readonly message: string };
+}
+
+const CHUNK_ZEROS = {
+  ran: false,
+  artifactsFetched: 0,
+  eventArtifactBytes: 0,
+  teamArtifactBytes: 0,
+  publishedPlayedRowsRead: 0,
+  matchesReconstructed: 0,
+  predictionsReconstructed: 0,
+  predictionsWithRpPmf: 0,
+  predictionsWithBand: 0,
+  rostersSubstituted: 0,
+  bonusFlagRoute: "none",
+  bonusFlagArraysInverted: 0,
+  matchesWithActualBonusFlags: 0,
+  playedRowFactsBuilt: 0,
+  teamsWithPublishedMetrics: 0,
+  teamsWithPublishedSigma: 0,
+  teamParsesRun: 0,
+  teamMergesRun: 0,
+  mergedTeamRows: 0,
+  mergedTeamBytes: 0,
+  unreconstructedFields: [] as readonly string[],
+} as const;
+
 interface ProbeResponseBody {
   readonly ok: boolean;
   readonly shapeVersionExpected: number;
@@ -1067,6 +1225,15 @@ interface ProbeResponseBody {
     readonly phaseBUpcoming: PhaseBUpcomingShape;
     readonly phaseBTeams: number;
     readonly phaseBEvent: string;
+    /**
+     * Which SPLIT-TICK chunk this invocation emulated: `off` (every arm that
+     * existed before 2026-09-17), `teams`, or the recognized-inert `event`.
+     * READ THIS BEFORE ATTRIBUTING A cpuTime: a `teams` request runs a
+     * completely different path from every other arm, and the `rp`/`rpArm`/
+     * `phaseB`/`phaseBArm` echoes beside it then describe params that were
+     * PARSED but never used.
+     */
+    readonly chunk: ChunkArmId;
     /** `null` when an `artifactOrigin=` override was rejected — the default is never silently substituted. */
     readonly artifactOrigin: string | null;
   };
@@ -1078,6 +1245,7 @@ interface ProbeResponseBody {
   readonly algorithms: readonly AlgorithmProbeResult[];
   readonly fold: FoldResult;
   readonly phaseB: PhaseBResult;
+  readonly chunk: ChunkResult;
   readonly warnings: readonly string[];
 }
 
@@ -1802,6 +1970,475 @@ async function runSprPhaseB(params: {
   };
 }
 
+// ===========================================================================
+// THE SPLIT-TICK TEAMS CHUNK (`chunk=teams`, 2026-09-17).
+//
+// Below `runSprPhaseB` on purpose: Group 7 slices the region between the
+// `function runSprFold(` and `async function runSprPhaseB(` declarations and
+// pins its call names by equality in BOTH directions, so anything placed
+// between them would break that snapshot. This is Phase-B-adjacent work and
+// belongs here, after it.
+// ===========================================================================
+
+/**
+ * Every field the chunk has to DEFAULT rather than read off the published
+ * played row, reported as data so the message-payload-versus-D1 question is
+ * answered by the instrument rather than by a planner's assumption.
+ *
+ * Fixed order, pinned by `stateProbe.test.ts` Group 11. Membership was checked
+ * field by field against `EventMatchSchema` (`packages/harness/pageArtifacts.ts`)
+ * and against what `mergeTeamSeasonArtifact` and `playedRowFactsFor` actually
+ * read (`apps/worker/src/artifactMerge.ts`).
+ */
+const CHUNK_UNRECONSTRUCTED_FIELDS: readonly string[] = [
+  "match.redSurrogates",
+  "match.blueSurrogates",
+  "match.redDqs",
+  "match.blueDqs",
+  "match.week",
+  "match.hasScoreBreakdown",
+  "match.scoreBreakdownRaw",
+  "prediction.variance",
+  "prediction.redComponents",
+  "prediction.blueComponents",
+  "prediction.redOutcomeRp",
+  "prediction.blueOutcomeRp",
+  "playedRowFacts.reportedSortTime",
+];
+
+/** The route taken for the score breakdown, echoed as `chunk.bonusFlagRoute` so the decision is visible in every response rather than buried in this file. */
+const CHUNK_BONUS_FLAG_ROUTE = "invert-published-actual-bonus-arrays";
+
+/**
+ * A non-null placeholder for the `MatchResult.scoreBreakdownRaw` that the
+ * published row does not carry. It is NEVER PARSED: `actualBonusFlagsForMatch`
+ * short-circuits to the caller-supplied `parsedSides` before it would touch
+ * this string. It exists only because that function's three-way gate reads
+ * `hasScoreBreakdown` and `scoreBreakdownRaw !== null` BEFORE it looks at
+ * `parsedSides`, so a consumer holding already-derived flags still has to
+ * satisfy the gate. That requirement IS the finding — it is reported, not
+ * hidden, and it is not a reason to reach for D1 (D1 holds no breakdown
+ * either).
+ */
+const CHUNK_BREAKDOWN_PLACEHOLDER = "{}";
+
+/**
+ * THE TEAMS CHUNK: what the consumer half of a split tick would cost as its
+ * own invocation.
+ *
+ * It emulates a queue consumer that was handed a pointer (event key, match
+ * keys, team keys) and nothing else:
+ *
+ *   GET the published event artifact -> `JSON.parse` ->
+ *   `checkLiveEventArtifactShape` -> rebuild a `MatchResult` and a
+ *   `Prediction` per played row -> `playedRowFactsFor` -> N x (`JSON.parse` a
+ *   team artifact -> `checkTeamSeasonArtifactShape` ->
+ *   `mergeTeamSeasonArtifact` -> `JSON.stringify`) -> discard everything.
+ *
+ * NO D1 READ, NO DESERIALIZE, NO FOLD. `runProbe` routes this arm BEFORE
+ * discovery and BEFORE the read/deserialize loop, so not one statement is ever
+ * prepared; Group 11 asserts the fake database's recorded SQL list is empty.
+ *
+ * THE MERGE IS THE TICK'S OWN. `mergeTeamSeasonArtifact` and
+ * `playedRowFactsFor` are imported from `artifactMerge.ts`, the module the
+ * tick itself calls. A copy would price a fiction.
+ *
+ * FOUR PLACES THIS IS A FLOOR OR A SUBSTITUTION, ALL REPORTED:
+ *   1. The rebuilt predictions are re-rounded from ALREADY-ROUNDED published
+ *      numbers. The merge's own rounding then runs over them a second time.
+ *      That costs the same CPU; it is a fidelity note, not a blocker.
+ *   2. The published rosters are REPLACED by the probe's own `rosterAt` cycle,
+ *      so this arm merges the same twelve pinned teams `allPhaseB` merges and
+ *      the two cpuTimes are comparable. A real consumer would keep them.
+ *   3. As in `runSprPhaseB`, ONE team's fetched bytes are re-parsed N times.
+ *      That prices N parses of a realistic artifact; a real consumer parses N
+ *      different teams'. The team half stays a floor.
+ *   4. The score breakdown: see `CHUNK_BREAKDOWN_PLACEHOLDER`.
+ *
+ * THE SCORE-BREAKDOWN ROUTE, chosen and reported. `playedRowFactsFor` derives
+ * `actualBonusFlags` through `actualBonusFlagsForMatch`, which needs either a
+ * breakdown to parse or a pre-parsed `ParsedBonusSides`. The published row
+ * carries NEITHER — it carries the ANSWER, `actualRedBonusRp`/
+ * `actualBlueBonusRp`, as boolean arrays ordered by the season rule module's
+ * `bonusNames`. This chunk INVERTS those arrays back into the per-side record
+ * `ParsedBonusSides` holds, which is the route that keeps the published bonus
+ * columns on the merged rows. `chunk.bonusFlagArraysInverted` and
+ * `chunk.matchesWithActualBonusFlags` report what it bought.
+ */
+async function runTeamsChunk(params: {
+  readonly origin: string;
+  readonly eventArtifactKey: string;
+  readonly fallbackSeason: number;
+  readonly fallbackEventType: number;
+  readonly teamKeys: readonly string[];
+  readonly folded: number;
+  readonly chunkTeamsRaw: number | undefined;
+}): Promise<{ result: ChunkResult; chunkTeams: number; warnings: string[] }> {
+  const { origin, eventArtifactKey, fallbackSeason, fallbackEventType, teamKeys, folded, chunkTeamsRaw } = params;
+  const warnings: string[] = [];
+
+  const firstTeamKey = teamKeys[0];
+  if (firstTeamKey === undefined) {
+    throw new ProbeChunkError("ChunkEmptyRoster", "chunk=teams needs at least one team key to build a team-artifact key");
+  }
+
+  const eventText = await fetchArtifactText(origin, eventArtifactKey);
+
+  let rawEvent: unknown;
+  try {
+    rawEvent = JSON.parse(eventText);
+  } catch (err) {
+    throw new ProbeChunkError("ChunkEventArtifactParseFailed", err instanceof Error ? err.message : String(err));
+  }
+  const guarded = checkLiveEventArtifactShape(rawEvent);
+  if (guarded === undefined) {
+    throw new ProbeChunkError(
+      "ChunkEventArtifactShapeRejected",
+      "checkLiveEventArtifactShape rejected the fetched event artifact — the tick would bootstrap over it, so this chunk would price a merge the live tick never runs"
+    );
+  }
+
+  const publishedPlayedRows = guarded.matches;
+  if (publishedPlayedRows.length === 0) {
+    throw new ProbeChunkError(
+      "ChunkNoPublishedPlayedRows",
+      "the published event artifact carries no played rows, so a teams-only consumer has nothing to reconstruct — point chunk=teams at an event whose artifact has played matches rather than recording a chunk that merged nothing"
+    );
+  }
+
+  // The artifact's own top-level facts, per F-3 and F-7: `eventType` is
+  // optional on the schema (artifacts published before 260915-isq carry none),
+  // so both fall back to the request's params rather than to a sentinel.
+  const artifactSeason = typeof guarded.season === "number" ? guarded.season : fallbackSeason;
+  const artifactEventType = typeof guarded.eventType === "number" ? guarded.eventType : fallbackEventType;
+  const artifactEventKey = typeof guarded.eventKey === "string" && guarded.eventKey.length > 0 ? guarded.eventKey : eventArtifactKey;
+  const ruleModule = RP_RULE_MODULES[artifactSeason];
+
+  const rebuiltMatches: MatchResult[] = [];
+  const rebuiltPredictions = new Map<string, Prediction>();
+  const rebuiltBands = new Map<string, MatchBand>();
+  const observedBonusSides = new Map<string, ParsedBonusSides>();
+  const foldedFacts: { matchKey: string; videoKey: string | null }[] = [];
+  let predictionsWithRpPmf = 0;
+  let predictionsWithBand = 0;
+  let rostersSubstituted = 0;
+  let bonusFlagArraysInverted = 0;
+
+  const rowsToRebuild = Math.min(folded, publishedPlayedRows.length);
+  for (let i = 0; i < rowsToRebuild; i++) {
+    const row = publishedPlayedRows[i]!;
+
+    // The bonus inversion, per this function's header. Both sides must be
+    // present, non-null and the season's own length; anything else leaves the
+    // flags out entirely, which is the same `null` a real consumer would get.
+    let parsedSides: ParsedBonusSides | undefined;
+    const redActual = row.actualRedBonusRp;
+    const blueActual = row.actualBlueBonusRp;
+    if (
+      ruleModule !== undefined &&
+      Array.isArray(redActual) &&
+      Array.isArray(blueActual) &&
+      redActual.length === ruleModule.bonusNames.length &&
+      blueActual.length === ruleModule.bonusNames.length
+    ) {
+      const red: Record<string, boolean> = {};
+      const blue: Record<string, boolean> = {};
+      ruleModule.bonusNames.forEach((bonusName, index) => {
+        red[bonusName] = redActual[index] === true;
+        blue[bonusName] = blueActual[index] === true;
+      });
+      parsedSides = { red, blue };
+      bonusFlagArraysInverted++;
+    }
+
+    // The roster substitution (floor note 2), counted and warned below.
+    const roster = rosterAt(teamKeys, i);
+    rostersSubstituted++;
+
+    const match: MatchResult = {
+      matchKey: row.matchKey,
+      eventKey: artifactEventKey,
+      compLevel: row.compLevel,
+      setNumber: row.setNumber,
+      matchNumber: row.matchNumber,
+      redTeams: roster.red,
+      blueTeams: roster.blue,
+      // DEFAULTED, not read: the published row carries no surrogate or DQ
+      // list. `mergeTeamSeasonArtifact` reads neither, so this costs the
+      // measurement nothing — it is in the reported list because a reader
+      // must not have to take that on trust.
+      redSurrogates: [],
+      blueSurrogates: [],
+      redDqs: [],
+      blueDqs: [],
+      eventType: artifactEventType,
+      week: null,
+      winner: row.actualWinner,
+      redScore: row.actualRedScore,
+      blueScore: row.actualBlueScore,
+      redRpEarned: row.actualRedRp ?? null,
+      blueRpEarned: row.actualBlueRp ?? null,
+      hasScoreBreakdown: parsedSides !== undefined,
+      scoreBreakdownRaw: parsedSides !== undefined ? CHUNK_BREAKDOWN_PLACEHOLDER : null,
+    };
+
+    const prediction: Prediction = {
+      winner: row.predictedWinner,
+      pRedWin: row.pRedWin,
+      redScore: row.predictedRedScore,
+      blueScore: row.predictedBlueScore,
+      ...(row.redScoreVarianceOwn !== undefined ? { redScoreVarianceOwn: row.redScoreVarianceOwn } : {}),
+      ...(row.blueScoreVarianceOwn !== undefined ? { blueScoreVarianceOwn: row.blueScoreVarianceOwn } : {}),
+      ...(row.redRpPmf !== undefined ? { redRpPmf: row.redRpPmf } : {}),
+      ...(row.blueRpPmf !== undefined ? { blueRpPmf: row.blueRpPmf } : {}),
+      ...(row.redBonusRp !== undefined ? { redBonusRp: row.redBonusRp } : {}),
+      ...(row.blueBonusRp !== undefined ? { blueBonusRp: row.blueBonusRp } : {}),
+    };
+    // Counted off the REBUILT objects, never off the source row: a counter
+    // that reads the row would keep reporting a healthy number while the
+    // reconstruction beside it silently dropped the field.
+    if (prediction.redRpPmf !== undefined && prediction.blueRpPmf !== undefined) predictionsWithRpPmf++;
+
+    const band: MatchBand = {
+      ...(row.redMatchBandVariance !== undefined ? { red: row.redMatchBandVariance } : {}),
+      ...(row.blueMatchBandVariance !== undefined ? { blue: row.blueMatchBandVariance } : {}),
+    };
+    if (band.red !== undefined || band.blue !== undefined) predictionsWithBand++;
+
+    rebuiltMatches.push(match);
+    rebuiltPredictions.set(match.matchKey, prediction);
+    rebuiltBands.set(match.matchKey, band);
+    if (parsedSides !== undefined) observedBonusSides.set(match.matchKey, parsedSides);
+    foldedFacts.push({ matchKey: match.matchKey, videoKey: row.video ?? null });
+  }
+
+  // The tick's OWN function. `rawMatches` is empty exactly as it is in
+  // `runSprPhaseB`: `reportedSortTime` is derived only from a TBA-shaped raw
+  // match, which no published artifact carries, so it comes back `undefined`
+  // and the merge falls back to the row's already-published `sortTime` — the
+  // tick's own documented degradation for a match TBA reports no time for.
+  const playedRowFacts = playedRowFactsFor(artifactSeason, [], foldedFacts, rebuiltMatches, observedBonusSides);
+  let matchesWithActualBonusFlags = 0;
+  for (const facts of playedRowFacts.values()) {
+    if (facts.actualBonusFlags !== null && facts.actualBonusFlags !== undefined) matchesWithActualBonusFlags++;
+  }
+
+  // Per F-7: each team's metrics and Sigma come off the event artifact's own
+  // `teams[]` rows, which `mergeEventArtifact` wrote there. Rounded, and a
+  // live tick's own rows carry no `percentile` — both losses, neither of them
+  // read by the team merge.
+  const publishedMetrics = new Map<string, Record<string, TeamMetric>>();
+  const publishedSigma = new Map<string, number>();
+  for (const teamRow of guarded.teams) {
+    const metrics: Record<string, TeamMetric> = {};
+    for (const [metricKey, metric] of Object.entries(teamRow.metrics)) {
+      // The Sigma entry travels separately as `sigmaAfterTick`, exactly as it
+      // does in the tick — carrying it inside `metrics` too would double it.
+      if (metricKey === SIGMA_METRIC_KEY) continue;
+      metrics[metricKey] = { value: metric.value, ...(metric.spread !== undefined ? { spread: metric.spread } : {}) };
+    }
+    publishedMetrics.set(teamRow.teamKey, metrics);
+    const sigma = teamRow.metrics[SIGMA_METRIC_KEY]?.value;
+    if (sigma !== undefined) publishedSigma.set(teamRow.teamKey, sigma);
+  }
+
+  const touchedTeams = [...new Set(rebuiltMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))].sort();
+  const matchIndexByKey = new Map<string, number>();
+  for (const m of rebuiltMatches) matchIndexByKey.set(m.matchKey, matchIndexByKey.size);
+
+  // The default is the teams the RECONSTRUCTED rows touch — there is no Phase A
+  // touched-team count in this arm. `phaseBTeams=0` is this loop's root too.
+  const chunkTeams = Math.min(MAX_TEAM_COUNT, Math.max(0, chunkTeamsRaw ?? touchedTeams.length));
+
+  const teamText = await fetchArtifactText(origin, artifactKey({ page: "team", teamKey: firstTeamKey, year: artifactSeason, algorithmId: "spr", version: spr.version }));
+
+  let teamParsesRun = 0;
+  let teamMergesRun = 0;
+  let mergedTeamRows = 0;
+  let mergedTeamBytes = 0;
+  let teamsWithPublishedMetrics = 0;
+  let teamsWithPublishedSigma = 0;
+  for (let i = 0; i < chunkTeams; i++) {
+    const teamKey = touchedTeams.length > 0 ? touchedTeams[i % touchedTeams.length]! : teamKeys[i % teamKeys.length]!;
+    let rawTeam: unknown;
+    try {
+      rawTeam = JSON.parse(teamText);
+    } catch (err) {
+      throw new ProbeChunkError("ChunkTeamArtifactParseFailed", err instanceof Error ? err.message : String(err));
+    }
+    const existingTeam = checkTeamSeasonArtifactShape(rawTeam);
+    if (existingTeam === undefined) {
+      throw new ProbeChunkError(
+        "ChunkTeamArtifactShapeRejected",
+        "checkTeamSeasonArtifactShape rejected the fetched team artifact — the tick would bootstrap over it, so this chunk would price a merge the live tick never runs"
+      );
+    }
+    teamParsesRun++;
+
+    const teamMetrics = publishedMetrics.get(teamKey);
+    if (teamMetrics !== undefined && Object.keys(teamMetrics).length > 0) teamsWithPublishedMetrics++;
+    const sigmaAfterTick = publishedSigma.get(teamKey);
+    if (sigmaAfterTick !== undefined) teamsWithPublishedSigma++;
+
+    const teamMatches = rebuiltMatches.filter((m) => m.redTeams.includes(teamKey) || m.blueTeams.includes(teamKey));
+    const priorHistoryRows = existingTeam.metricHistory.length;
+    const mergedTeam = mergeTeamSeasonArtifact({
+      existing: existingTeam,
+      teamKey,
+      season: artifactSeason,
+      algorithmId: "spr",
+      algorithmVersion: spr.version,
+      eventKey: artifactEventKey,
+      matches: teamMatches,
+      predictions: rebuiltPredictions,
+      metrics: teamMetrics ?? {},
+      matchIndexByKey,
+      bands: rebuiltBands,
+      playedRowFacts,
+      stamp: PROBE_MERGE_STAMP,
+      sigmaAfterTick,
+    }) as { metricHistory?: readonly unknown[] };
+    teamMergesRun++;
+    mergedTeamRows += (mergedTeam.metricHistory?.length ?? 0) - priorHistoryRows;
+    mergedTeamBytes += JSON.stringify(mergedTeam).length;
+  }
+
+  warnings.push(
+    `chunk=teams — TEAMS-ONLY CONSUMER EMULATION: no D1 read, no deserialize and no fold ran anywhere in this request, so every fold counter reads 0 by construction and is NOT a measurement of the fold. The rp/rpArm/phaseB/phaseBArm echoes beside this are params the probe parsed but NOT used by this arm. Its ABSOLUTE cpuTime is the figure to read, not a difference — unusual for this probe — and absolutes are comparable only within the reused-isolate stratum`
+  );
+  warnings.push(
+    `chunk=teams substituted the rosters of ${rostersSubstituted} reconstructed match(es) with the probe's own rosterAt cycle over the teams= override, so this arm merges the same ${touchedTeams.length} pinned teams the allPhaseB arm merges and the two cpuTimes are comparable. A real consumer would keep the published rosters. It also re-parses ONE team's fetched bytes ${teamParsesRun} time(s) rather than ${teamParsesRun} different teams', so the team half here is a FLOOR, exactly as it is under phaseB=1`
+  );
+  warnings.push(
+    `chunk=teams answered the score-breakdown gap by route "${CHUNK_BONUS_FLAG_ROUTE}": the published actualRedBonusRp/actualBlueBonusRp boolean arrays were inverted back through the season rule module's bonusNames into the per-side record ParsedBonusSides holds, for ${bonusFlagArraysInverted} of ${rowsToRebuild} reconstructed match(es), and ${matchesWithActualBonusFlags} match(es) ended up with real actualBonusFlags. The two match fields that gate it are set to satisfy actualBonusFlagsForMatch, whose hasScoreBreakdown/scoreBreakdownRaw check runs BEFORE it looks at parsedSides; the placeholder string is never parsed. D1 is NOT an alternative route here — it holds no score breakdown either`
+  );
+  warnings.push(
+    `chunk=teams — ${CHUNK_UNRECONSTRUCTED_FIELDS.length} field(s) could NOT be taken off the published played row and were DEFAULTED: ${CHUNK_UNRECONSTRUCTED_FIELDS.join(", ")}. Of those the merge path actually READS three. match.hasScoreBreakdown and match.scoreBreakdownRaw: gate fields only, satisfied by the inversion route above, so nothing extra is needed. prediction.variance: published on the TEAM-season row but NOT on the event played row, so the merged team row loses it — a message payload carrying this tick's own prediction would supply it, or a republish would add the field to the event row. playedRowFacts.reportedSortTime: playedRowFactsFor derives it only from a TBA-shaped raw match, so the published sortTime cannot reach it; the merge falls back to the row's already-published sortTime, and a message payload carrying the tick's own TBA poll would supply the rest. The other ten are never read by mergeTeamSeasonArtifact at all. NET: no D1 read answers any of them — a small pointer message plus the published artifact is enough`
+  );
+
+  return {
+    result: {
+      ran: true,
+      artifactsFetched: 2,
+      eventArtifactBytes: eventText.length,
+      teamArtifactBytes: teamText.length,
+      publishedPlayedRowsRead: publishedPlayedRows.length,
+      matchesReconstructed: rebuiltMatches.length,
+      predictionsReconstructed: rebuiltPredictions.size,
+      predictionsWithRpPmf,
+      predictionsWithBand,
+      rostersSubstituted,
+      bonusFlagRoute: CHUNK_BONUS_FLAG_ROUTE,
+      bonusFlagArraysInverted,
+      matchesWithActualBonusFlags,
+      playedRowFactsBuilt: playedRowFacts.size,
+      teamsWithPublishedMetrics,
+      teamsWithPublishedSigma,
+      teamParsesRun,
+      teamMergesRun,
+      mergedTeamRows,
+      mergedTeamBytes,
+      unreconstructedFields: CHUNK_UNRECONSTRUCTED_FIELDS,
+    },
+    chunkTeams,
+    warnings,
+  };
+}
+
+/**
+ * The whole response for a `chunk=teams` request. It NEVER takes a `ProbeEnv`:
+ * that is how "prepares zero D1 statements" is enforced structurally here
+ * rather than by care, and why `runProbe` routes to it before discovery and
+ * before the read/deserialize loop.
+ */
+async function buildTeamsChunkResponse(params: ProbeParams): Promise<{ responseBody: ProbeResponseBody; ok: boolean }> {
+  const teamKeys = (params.teamsOverride ?? []).slice(0, params.teamCount);
+  const eventKey = params.eventOverride ?? "";
+  const chunkEventKey = params.phaseBEventOverride ?? eventKey;
+
+  let chunk: ChunkResult = { ...CHUNK_ZEROS };
+  let chunkTeams = Math.max(0, params.phaseBTeamsRaw ?? 0);
+  const warnings: string[] = [];
+
+  if (params.teamsOverride === undefined || params.eventOverride === undefined) {
+    // NEVER a fallback to discovery: that is two `ORDER BY scope_key` scans of
+    // `algorithm_state`, about 2,100 rows read apiece, and the zero-D1
+    // property is the whole reason this arm exists.
+    chunk = {
+      ...CHUNK_ZEROS,
+      error: {
+        name: "ChunkOverridesRequired",
+        message:
+          "chunk=teams requires BOTH a teams= roster override and an event= override, and it will NOT fall back to discovery — discovery is two D1 scans, and this arm exists to touch D1 zero times. Re-run with both supplied",
+      },
+    };
+  } else if (params.artifactOrigin === undefined) {
+    chunk = {
+      ...CHUNK_ZEROS,
+      error: {
+        name: "ArtifactOriginRejected",
+        message: `artifactOrigin="${params.artifactOriginRejected}" was rejected (it must parse as an https: origin) — the probe did NOT fall back to ${DEFAULT_ARTIFACT_ORIGIN}, so nothing was fetched and chunk=teams measured nothing`,
+      },
+    };
+  } else {
+    try {
+      const outcome = await runTeamsChunk({
+        origin: params.artifactOrigin,
+        eventArtifactKey: artifactKey({ page: "event", eventKey: chunkEventKey, algorithmId: "spr", version: spr.version }),
+        fallbackSeason: params.season,
+        fallbackEventType: params.eventType,
+        teamKeys,
+        folded: params.folded,
+        chunkTeamsRaw: params.phaseBTeamsRaw,
+      });
+      chunk = outcome.result;
+      chunkTeams = outcome.chunkTeams;
+      warnings.push(...outcome.warnings);
+    } catch (err) {
+      chunk = {
+        ...CHUNK_ZEROS,
+        error: { name: err instanceof Error ? err.name : "UnknownError", message: err instanceof Error ? err.message : String(err) },
+      };
+    }
+  }
+
+  const ok = chunk.error === undefined;
+
+  return {
+    responseBody: {
+      ok,
+      shapeVersionExpected: STATE_SNAPSHOT_SHAPE_VERSION,
+      params: {
+        season: params.season,
+        eventType: params.eventType,
+        event: eventKey,
+        teams: teamKeys,
+        teamCount: params.teamCount,
+        folded: params.folded,
+        upcoming: params.upcoming,
+        rp: params.rpArm.ran.resume,
+        rpArm: { id: params.rpArm.id, ran: params.rpArm.ran },
+        // Empty on purpose: nothing was read and nothing was deserialized.
+        algorithms: [],
+        phaseB: params.phaseBEnabled,
+        phaseBArm: { id: params.phaseBArm.id, ran: params.phaseBArm.ran },
+        phaseBUpcoming: params.phaseBUpcoming,
+        phaseBTeams: chunkTeams,
+        phaseBEvent: chunkEventKey,
+        chunk: "teams",
+        artifactOrigin: params.artifactOrigin ?? null,
+      },
+      discovery: { teamKeysFound: 0, eventKeyFound: undefined, queries: 0 },
+      algorithms: [],
+      fold: { ...FOLD_ZEROS },
+      phaseB: { ...PHASE_B_ZEROS },
+      chunk,
+      warnings,
+    },
+    ok,
+  };
+}
+
 function buildWarnings(params: {
   season: number;
   folded: number;
@@ -1861,6 +2498,14 @@ function buildWarnings(params: {
 async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody: ProbeResponseBody; ok: boolean }> {
   const url = new URL(request.url);
   const params = parseParams(url);
+
+  // THE TEAMS CHUNK IS ROUTED HERE, before discovery and before the
+  // read/deserialize loop — the only placement that makes "prepares zero D1
+  // statements" true rather than merely intended. `env` is not passed on, so
+  // no edit inside that path can reach the binding at all.
+  if (params.chunkArm.id === "teams") {
+    return await buildTeamsChunkResponse(params);
+  }
 
   // Discovery is SKIPPED when both overrides are supplied. Each discovery query is an
   // `ORDER BY scope_key` scan over `algorithm_state` — about 2,100 rows read apiece, against a
@@ -1973,6 +2618,10 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
       ? [`artifactOrigin="${params.artifactOriginRejected}" was REJECTED — an override must parse as an https: origin, and the probe never silently falls back to ${DEFAULT_ARTIFACT_ORIGIN}`]
       : []),
     ...phaseBWarnings,
+    // `chunk`'s own warnings: an unrecognized value that skipped nothing, or
+    // the recognized-inert `event`. The `teams` arm never reaches here — it
+    // returned above, before discovery.
+    ...params.chunkArm.warnings,
   ];
 
   const ok = algorithms.every((a) => a.ok) && fold.error === undefined && phaseB.error === undefined;
@@ -1996,6 +2645,7 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
       phaseBUpcoming: params.phaseBUpcoming,
       phaseBTeams,
       phaseBEvent: phaseBEventKey,
+      chunk: params.chunkArm.id,
       artifactOrigin: params.artifactOrigin ?? null,
     },
     discovery: {
@@ -2006,6 +2656,10 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
     algorithms,
     fold,
     phaseB,
+    // Never runs outside the `chunk=teams` route above, so it is always at
+    // rest here — and it is reported anyway, so a reader never has to know
+    // which arm omits which block.
+    chunk: { ...CHUNK_ZEROS },
     warnings,
   };
 
