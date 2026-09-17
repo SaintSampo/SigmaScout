@@ -41,14 +41,14 @@ export interface EventMatchTableProps {
   algorithm: PublishedAlgorithmId;
 }
 
-/** Match, Confidence, Predicted RP, Actual RP, Match Band plot, Call — the same six columns `MatchTable` uses, so a reader moving between the team page and an event page sees one table. Shared by the header and the skeleton so the two can never disagree about the column count. (A seventh Video column was unwired; `MatchVideoCell` and its parser remain in the tree, unrendered.) */
+/** Match, Actual, Prediction, Confidence, Match Band plot, Call — the same six columns `MatchTable` uses, so a reader moving between the team page and an event page sees one table. Shared by the header and the skeleton so the two can never disagree about the column count. (A seventh Video column was unwired; `MatchVideoCell` and its parser remain in the tree, unrendered.) */
 export const EVENT_MATCH_TABLE_COLUMN_COUNT = 6;
 
-const EVENT_MATCH_TABLE_HEADERS = ["Match", "Confidence", "Predicted RP", "Actual RP", "", "Call"] as const;
+const EVENT_MATCH_TABLE_HEADERS = ["Match", "Actual", "Prediction", "Confidence", "", "Call"] as const;
 
 function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: EventMatchRow; domain: AxisDomain; tinted: boolean; season: number; algorithm: PublishedAlgorithmId }) {
   // Undefined only for a schedule-only upcoming row the browser could not
-  // price: that row renders "No prediction", an empty Predicted RP cell and an
+  // price: that row renders "No prediction", an empty Prediction cell and an
   // empty plot cell. Every priced row renders exactly as before.
   const prediction = rowPrediction(row);
   const confidence = prediction === undefined ? undefined : prediction.predictedWinner === "red" ? prediction.pRedWin : 1 - prediction.pRedWin;
@@ -122,24 +122,6 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
           </span>
         </div>
       </td>
-      <td data-testid={`confidence-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        {prediction === undefined || confidence === undefined ? (
-          <NoPrediction matchKey={row.matchKey} />
-        ) : (
-          <span className="flex items-center gap-[var(--spacing-xs)]">
-            <AllianceChip side={prediction.predictedWinner} />
-            <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
-          </span>
-        )}
-      </td>
-      <td data-testid={`predicted-score-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
-        {prediction !== undefined && (
-          <div className="flex flex-col gap-[2px]">
-            <PredictedScoreLine matchKey={row.matchKey} side="red" score={prediction.predictedRedScore} variance={row.redMatchBandVariance} season={season} bonusRp={row.redBonusRp} compLevel={row.compLevel} />
-            <PredictedScoreLine matchKey={row.matchKey} side="blue" score={prediction.predictedBlueScore} variance={row.blueMatchBandVariance} season={season} bonusRp={row.blueBonusRp} compLevel={row.compLevel} />
-          </div>
-        )}
-      </td>
       <td data-testid={`actual-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
         {row.played ? (
           <div className="flex flex-col gap-[2px]">
@@ -149,6 +131,24 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
         ) : (
           <span className="text-role-body whitespace-nowrap text-[var(--color-text-primary)]">
             {row.sortTime !== undefined ? formatScheduledTime(row.sortTime) : ""}
+          </span>
+        )}
+      </td>
+      <td data-testid={`predicted-score-${row.matchKey}`} className={cn("px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top", "match-table-rule")}>
+        {prediction !== undefined && (
+          <div className="flex flex-col gap-[2px]">
+            <PredictedScoreLine matchKey={row.matchKey} side="red" score={prediction.predictedRedScore} variance={row.redMatchBandVariance} season={season} bonusRp={row.redBonusRp} compLevel={row.compLevel} />
+            <PredictedScoreLine matchKey={row.matchKey} side="blue" score={prediction.predictedBlueScore} variance={row.blueMatchBandVariance} season={season} bonusRp={row.blueBonusRp} compLevel={row.compLevel} />
+          </div>
+        )}
+      </td>
+      <td data-testid={`confidence-${row.matchKey}`} className="px-[var(--spacing-sm)] py-[var(--spacing-xs)] align-top">
+        {prediction === undefined || confidence === undefined ? (
+          <NoPrediction matchKey={row.matchKey} />
+        ) : (
+          <span className="flex items-center gap-[var(--spacing-xs)]">
+            <AllianceChip side={prediction.predictedWinner} />
+            <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
           </span>
         )}
       </td>
@@ -200,9 +200,9 @@ export function EventMatchTable({ rows, domain, season, algorithm }: EventMatchT
           <th className="p-[var(--spacing-sm)] text-left">
             <span className="text-role-label text-[var(--color-text-muted)]">Match</span>
           </th>
+          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Actual</th>
+          <th className={cn("text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]", "match-table-rule")}>Prediction</th>
           <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Confidence</th>
-          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Predicted RP</th>
-          <th className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">Actual RP</th>
           <th className="p-[var(--spacing-sm)] pl-[var(--spacing-lg)] text-left">
             <AxisHeader domain={domain} />
           </th>
@@ -230,7 +230,7 @@ export function EventMatchTableSkeleton({ rowCount }: { rowCount: number }) {
       <thead>
         <tr>
           {EVENT_MATCH_TABLE_HEADERS.map((label, index) => (
-            <th key={index} className="text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]">
+            <th key={index} className={cn("text-role-label p-[var(--spacing-sm)] text-left text-[var(--color-text-muted)]", label === "Prediction" && "match-table-rule")}>
               {label}
             </th>
           ))}

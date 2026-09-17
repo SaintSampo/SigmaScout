@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { renderWithRouter } from "@/test/routerHarness";
 import { EventMatchTable, EventMatchTableSkeleton, EVENT_MATCH_TABLE_COLUMN_COUNT, type EventMatchTableProps } from "./EventMatchTable.js";
+import { AxisHeader } from "../team/MatchTable.js";
 import type { EventMatchRow } from "./eventMatchAxis.js";
 
 const DOMAIN = { min: 100, max: 400 };
@@ -105,6 +106,60 @@ describe("Structure and the dropped highlight rule", () => {
     for (const cell of cells) {
       expect((cell as HTMLElement).style.position).not.toBe("sticky");
     }
+  });
+});
+
+describe("Header and body column order (260917-jaf)", () => {
+  it("the live header reads Match, Actual, Prediction, Confidence, axis, Call — no Result header", () => {
+    const { container: axisContainer } = render(<AxisHeader domain={DOMAIN} />);
+    const axisText = axisContainer.textContent ?? "";
+
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" })]} domain={DOMAIN} season={2024} algorithm="spr" />);
+    const headers = screen.getAllByRole("columnheader").map((header) => header.textContent?.trim());
+    expect(headers).toEqual(["Match", "Actual", "Prediction", "Confidence", axisText, "Call"]);
+    expect(headers).toHaveLength(EVENT_MATCH_TABLE_COLUMN_COUNT);
+    expect(headers).not.toContain("Result");
+  });
+
+  it("the skeleton's header labels match the live table's labels position for position, and the skeleton's Prediction header carries the rule class", () => {
+    const { container: liveContainer } = renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" })]} domain={DOMAIN} season={2024} algorithm="spr" />);
+    const liveHeaders = within(liveContainer)
+      .getAllByRole("columnheader")
+      .map((header) => header.textContent?.trim());
+
+    const { container: skeletonContainer } = renderWithRouter(<EventMatchTableSkeleton rowCount={2} />);
+    const skeletonHeaders = within(skeletonContainer).getAllByRole("columnheader");
+    const skeletonLabels = skeletonHeaders.map((header) => header.textContent?.trim());
+    // The axis slot's label is "" in EVENT_MATCH_TABLE_HEADERS (the skeleton
+    // never renders AxisHeader), so only the non-empty positions are compared
+    // position-for-position against the live table's labels.
+    skeletonLabels.forEach((label, index) => {
+      if (label !== "") {
+        expect(label).toBe(liveHeaders[index]);
+      }
+    });
+    const skeletonPredictionHeader = skeletonHeaders[2];
+    expect(skeletonPredictionHeader?.textContent?.trim()).toBe("Prediction");
+    expect(skeletonPredictionHeader?.classList.contains("match-table-rule")).toBe(true);
+  });
+
+  it("the Prediction header and every predicted-score cell carry the shared rule class", () => {
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" })]} domain={DOMAIN} season={2024} algorithm="spr" />);
+    const headers = screen.getAllByRole("columnheader");
+    const predictionHeader = headers[2];
+    expect(predictionHeader?.textContent?.trim()).toBe("Prediction");
+    expect(predictionHeader?.classList.contains("match-table-rule")).toBe(true);
+    const predictedCell = screen.getByTestId("predicted-score-m1");
+    expect(predictedCell.classList.contains("match-table-rule")).toBe(true);
+  });
+
+  it("a body row's cells in DOM order are actual, predicted-score, confidence after the Match cell", () => {
+    renderWithRouter(<EventMatchTable rows={[makeRow({ matchKey: "m1" })]} domain={DOMAIN} season={2024} algorithm="spr" />);
+    const row = screen.getByTestId("match-row-m1");
+    const testIds = Array.from(row.querySelectorAll("[data-testid]"))
+      .map((el) => el.getAttribute("data-testid") ?? "")
+      .filter((id) => /^(actual|predicted-score|confidence)-m1$/.test(id));
+    expect(testIds).toEqual(["actual-m1", "predicted-score-m1", "confidence-m1"]);
   });
 });
 
