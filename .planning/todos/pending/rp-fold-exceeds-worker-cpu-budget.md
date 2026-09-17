@@ -226,6 +226,183 @@ the fresh/reused split, parse `isolateRequest=N` from each tail event's logs. Ar
 `rpSkip=` (see `docs/worker-operations.md`, "Pre-event probe"). **The probe is LEFT DEPLOYED** at
 `28051f5c`.
 
+## LIVE METRIC SIDECAR — the instrument is built and the bar is PRE-REGISTERED; no number exists yet (2026-09-17, quick task 260917-jr4)
+
+**This section contains no number produced by this change.** It was written and committed before the
+probe was deployed and before any arm was run. Everything below is either a threshold chosen in
+advance, or an anchor measured by an earlier pass (the 2026-09-17 `RE-MEASURED AFTER F2` run) that
+this pass must reproduce in order to be comparable at all.
+
+### What shipped
+
+The live tick no longer reads or writes team-season artifacts. Phase B's team half is replaced by ONE
+small ephemeral object per event per algorithm, `v1/live/{eventKey}/{algorithmId}@{version}.json`,
+carrying only each newly-folded match's per-team post-match metrics — the one thing the browser
+cannot derive from files the robot page already fetches. Everything else (match rows, the season
+record, the metric-history chart, the end-of-event tiles, the header snapshot, the match page's
+pre-match cells) is derived client-side from the event artifact plus that sidecar.
+
+The frozen-metrics event-row alternative priced NO-GO on 2026-09-17 (294 KB against a 280 KB bar,
+quick task 260917-1zs). This is the shape Jacob chose instead.
+
+### The new subrequest arithmetic
+
+`estimateEventSubrequestCost` was `2 + 4A + 2AT` — the `2AT` term being Phase B's read+write of one
+whole team-season artifact per touched team per algorithm. It is now **`2 + 6A`**, flat in the
+touched-team count: claim, event detail, Phase A read+write, Phase B event read+write, Phase B
+sidecar read+write.
+
+| | `A=1` (tracked spr-only tier) | `A=3` (all published) |
+|---|---|---|
+| before, at `T=6` | 30 (at `T=12`) | 50 |
+| after | **8** | **20** |
+
+Against the ~41 subrequests usable per tick, events affordable per tick goes from about 1 to about 5.
+
+**A consequence that had to be handled rather than enjoyed: the subrequest counterfactual for the
+spr-only live tier is GONE.** `A=3` was 50 against ~41 and did not fit; it is now 20 and does. The
+live tier's remaining justification is the CPU budget, not subrequests, and
+`apps/worker/test/liveAlgorithmTier.test.ts` now says so where it used to cite the subrequest
+argument. Its counterfactual test was REPLACED, not deleted, by one asserting the property that is
+still load-bearing: the estimate is flat in the touched-team count, so a reintroduced per-team term
+fails loudly.
+
+`scheduled.rp.test.ts`'s pinned whole-fixture per-tick count was re-derived as arithmetic off the old
+OBSERVED 64 — minus 2 per team artifact removed (3 algorithms x 6 teams), plus 2 per algorithm-event
+sidecar (3) — predicting **34**. The prediction was written into the file as a comment before the
+suite was re-run. Observed: 34.
+
+### A finding, recorded because it was surprising
+
+**The live tick's `matchIndex` has always been EVENT-LOCAL.** `scheduled.ts` built `matchIndexByKey`
+from one event's own ordered match keys and wrote the result into
+`MetricHistoryRowSchema.matchIndex`, a field documented as "this team's position in the season's
+chronological match stream". Nothing in production web reads that field —
+`metricHistorySeries.ts`'s `buildMetricSeries` plots array position by its own doc comment, and
+`preMatchMetrics` / `endOfEventMetrics` / `officialSnapshotRow` all walk the array. The browser
+derivation therefore assigns array position, which is honest rather than a compromise. The Worker no
+longer computes a `matchIndexByKey` at all.
+
+### The prediction, written before the measurement
+
+From the `RE-MEASURED AFTER F2` warm pass: team merge+stringify x12 costs 2.6 ms over roughly 400 KB
+parsed plus 400 KB stringified (~6.5 us/KB); event merge+stringify costs 1.3 ms over ~146 KB
+(~9 us/KB). A 48-80 KB sidecar therefore costs roughly **0.4-0.7 ms warm**, and scaling by the team
+half's own cold/warm ratio (7.6 cold vs 4.4 warm, ~1.7x) gives roughly **0.7-1.2 ms cold**, plus its
+shape guard.
+
+**So the prediction is that the new tick lands at about 11 ms mean on the reused-isolate stratum** —
+`pbTeams0`'s 9.9 ms plus about 1 ms — against today's `allPhaseB` 17.5 ms. That is a ~6.5 ms
+reduction and **still over the 10 ms budget**.
+
+### The measurement
+
+Three arms, interleaved round-robin, 30 s spacing, at least 20 measured rounds each, warm-up
+excluded, reused-isolate stratum, at the pinned `WARM_ROSTER` and the same event and load
+(`folded=2&upcoming=60&teamCount=21&algorithms=spr`) the 2026-09-17 pass used:
+
+| Rig name | Probe query | What it is |
+|---|---|---|
+| `allPhaseB` | `phaseB=1` | today's tick, the team half intact — the baseline every difference is taken against |
+| `pbTeams0` | `phaseB=1&phaseBTeams=0` | no team artifacts, no sidecar — the floor |
+| `pbSidecar` | `phaseB=1&phaseBTeams=0&sidecar=147` | no team artifacts, sidecar at a realistic END-OF-EVENT size |
+
+`sidecar=147` is a full 2026 regional's qualification schedule. **It is not a default and must not be
+lowered**: the sidecar is read-modify-appended, so its cost scales with the rows already
+accumulated, and an empty sidecar would price the first tick of an event. The probe reports
+`sidecarRowsSeeded` and `sidecarBytes` as counters precisely so a run at a different size is visibly
+not comparable rather than quietly averaged in.
+
+### VALIDITY GATE — checked BEFORE reading any result
+
+All four must hold on this same pass. If any fails, the pass is not comparable to the anchors and the
+numbers are **discarded, not interpreted**:
+
+1. `allPhaseB`'s mean is within **17.5 ± 3.0 ms**.
+2. `pbTeams0`'s mean is within **9.9 ± 3.0 ms**.
+3. Fold counters and `bandsProduced` are identical across all three arms.
+4. Zero non-ok outcomes.
+
+### IT WORKED — all three required
+
+1. **`pbSidecar` − `pbTeams0` is at most 2.5 ms.** The sidecar is a cheap replacement for the team
+   half, not a relocation of it.
+2. **`pbSidecar` mean is at most 12.0 ms and its p50 at most 11.**
+3. **`allPhaseB` − `pbSidecar` is at least 4.0 ms AND larger than the two arms' combined standard
+   errors.**
+
+### IT DID NOT WORK — any one
+
+1. `pbSidecar` − `pbTeams0` is 4.0 ms or more (the cost moved rather than shrank); or
+2. `pbSidecar` mean is 14.0 ms or more; or
+3. `allPhaseB` − `pbSidecar` is not resolved above the combined standard errors.
+
+### INCONCLUSIVE
+
+Anything between those two sets. **Report it as inconclusive and name the `n` that would resolve it.**
+Do not report an inconclusive pass as a win.
+
+### STATED IN ADVANCE, so a good number cannot be over-read
+
+**A clean pass does NOT close this todo.** The prediction is about 11 ms mean, still over the 10 ms
+budget, and fresh isolates stay at about 40.8 ms — nothing in this change touches them, and a good
+Phase B number must not be read as "the tick fits now". What a pass buys is that **Phase B stops
+being the blocker**, which moves the question to the fresh-isolate cost and to Phase A.
+
+### Follow-ups this change creates
+
+- **`v1/live/` orphan cleanup.** The Worker never deletes a sidecar. Each is inert the moment its
+  event is republished (every row it carries is then a duplicate the browser drops by match key), and
+  the bound is tens of KB per live event, so this is a sweep to schedule rather than a leak to fix
+  urgently. A list-driven sweep of the whole prefix is enough; the prefix was chosen to make that
+  possible.
+- **`mergeTeamSeasonArtifact`'s deletion, alongside the probe's own.** It is off the live path and
+  survives only as `stateProbe.ts`'s `allPhaseB` baseline arm — the arm every number above is
+  compared against. Deleting it before the probe would delete the baseline. Neither goes first.
+
+### Accepted regressions, named rather than discovered later
+
+1. **A corrupt team-season artifact stops self-healing during an event.** The tick used to bootstrap
+   over one it could not read; it no longer reads one at all, so a corrupt artifact stays corrupt
+   until the next offline republish. Small, and pinned by a test that asserts the object is left
+   byte-identical.
+2. **The robot page's live correctness now depends on a second fetch succeeding.** A failed event
+   artifact fetch shows the pre-event published state with no results. The event page already has
+   this property and the overlay already degrades to published rows.
+3. **A failed sidecar write is permanent for those matches.** The cursor has already advanced. What
+   the page shows is a gap in the metric-history chart for those matches and nothing else wrong —
+   `endOfEventMetrics` and `officialSnapshotRow` both take the LAST matching row — and it self-heals
+   at the next republish. Logged under `live-sidecar-write-failed`.
+4. **A tick that folds two matches writes both rows with the same end-of-tick metrics.** Carried
+   forward unchanged from `mergeTeamSeasonArtifact`, which has always done this. Fixing it would
+   change published numbers and needs its own version bump.
+5. **The overlay cliff was NOT accepted — it was fixed.** `teamEventNeedsLivePricing` dropped its
+   schedule-currency conjunct, because under this shape a finished event would otherwise render as
+   unplayed once its window closed. Cost: one extra CDN-cached fetch per robot page for an abandoned
+   event. `shouldPollEventArtifact`'s currency test is untouched.
+
+### Commands to run the measurement
+
+The executor had no network and ran none of this.
+
+```
+# 1. Deploy the probe from a clean tree at the verified SHA.
+npx wrangler deploy --config apps/worker/wrangler.probe.toml
+
+# 2. Tail it in a second terminal (cpuTime is read off here, never from the body).
+npx wrangler tail sigmascout-state-probe --format json
+
+# 3. Run the three arms, interleaved, 30 s spacing, >= 20 measured rounds each.
+#    Substitute the probe's own origin for {PROBE}.
+#    allPhaseB:  https://{PROBE}/?folded=2&upcoming=60&teamCount=21&algorithms=spr&phaseB=1
+#    pbTeams0:   https://{PROBE}/?folded=2&upcoming=60&teamCount=21&algorithms=spr&phaseB=1&phaseBTeams=0
+#    pbSidecar:  https://{PROBE}/?folded=2&upcoming=60&teamCount=21&algorithms=spr&phaseB=1&phaseBTeams=0&sidecar=147
+```
+
+Before reading any difference: confirm every response is `ok`, that `params.sidecar` reads `147` on
+the third arm and `0` on the other two, and that `phaseB.sidecarRowsSeeded` reads `147` — a typo in
+the query string runs the arm OFF and says so in `warnings`, which is easy to miss in a log.
+
 ## FROZEN-METRICS EVENT ROW — the audit and the bar, pre-registered BEFORE any number (2026-09-17, quick task 260917-1zs)
 
 **This section contains no measurement.** It is a field audit and a bar, written and committed BEFORE

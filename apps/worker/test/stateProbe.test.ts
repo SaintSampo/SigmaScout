@@ -1500,7 +1500,7 @@ describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () =
 
 interface PhaseBBody {
   ok: boolean;
-  params: { phaseB: boolean; phaseBTeams: number; phaseBEvent: string; artifactOrigin: string | null };
+  params: { phaseB: boolean; phaseBTeams: number; phaseBEvent: string; sidecar: number; artifactOrigin: string | null };
   fold: { error?: { name: string; message: string } };
   phaseB: {
     ran: boolean;
@@ -1517,6 +1517,10 @@ interface PhaseBBody {
     teamParsesRun: number;
     teamMergesRun: number;
     mergedTeamBytes: number;
+    sidecarRowsSeeded: number;
+    sidecarRowsMerged: number;
+    sidecarBytes: number;
+    sidecarOverCeiling: boolean;
     error?: { name: string; message: string };
   };
   warnings: string[];
@@ -1654,6 +1658,13 @@ describe("stateProbe — Group 9: the phaseB emulation arm", () => {
       teamParsesRun: 0,
       teamMergesRun: 0,
       mergedTeamBytes: 0,
+      // Added by 260917-jr4 alongside the `sidecar=N` arm — and this
+      // exhaustive assertion is what made adding them here mandatory rather
+      // than optional, exactly as its comment above promised.
+      sidecarRowsSeeded: 0,
+      sidecarRowsMerged: 0,
+      sidecarBytes: 0,
+      sidecarOverCeiling: false,
     });
     expect(absent.recorded).toEqual([]);
     expect(absent.body.warnings).toEqual([]);
@@ -2829,5 +2840,119 @@ describe("stateProbe — Group 11: the chunk= arm (a D1-free teams-only consumer
       expect(a.writes, query).toBe(0);
       expect(a.preparedSql, query).toEqual([]);
     }
+  });
+});
+
+describe("stateProbe — Group 12: the sidecar= arm (the live metric sidecar's per-tick cost)", () => {
+  /**
+   * `sidecar=N` prices the ONE thing quick task 260917-jr4 ADDS to a tick,
+   * against the twelve team merges it removes. It layers under `phaseB`
+   * exactly as `rpSkip` layers under `rp`.
+   *
+   * `N` IS THE ALREADY-ACCUMULATED ROW COUNT, and the arm has no default for
+   * it on purpose: the sidecar is read-modify-appended every tick, so its cost
+   * scales with its current size, and an empty sidecar would price the FIRST
+   * tick of an event and flatter the result. These tests pin that the arm
+   * reports the size it ran at, so a rig that changes it cannot quietly
+   * average two incomparable runs.
+   */
+  const SIDECAR_QUERY = `${ARM_QUERY}&phaseB=1&artifactOrigin=https://probe.example.invalid`;
+
+  async function runSidecar(query: string) {
+    const db = new FakeD1Database();
+    seedAllAlgorithms(db);
+    seedMeanShift(db, SEEDED_SHIFT);
+    const eventText = JSON.stringify(publishedEventArtifact(db, true));
+    const teamText = JSON.stringify(publishedTeamArtifact());
+    const recorded = installFetchRecorder((url) => ({ status: 200, body: url.includes("/v1/event/") ? eventText : teamText }));
+    const response = await stateProbe.fetch(new Request(`https://probe/?${query}`), { DB: db as unknown as D1Database });
+    const text = await response.text();
+    return { body: JSON.parse(text) as PhaseBBody & { warnings: string[] }, status: response.status, writes: db.writeStatementCount, recorded };
+  }
+
+  it("is OFF by default: an absent sidecar= leaves every sidecar counter at 0 and adds no warning", async () => {
+    const arm = await runSidecar(SIDECAR_QUERY);
+    expect(arm.status).toBe(200);
+    expect(arm.body.params.sidecar).toBe(0);
+    expect(arm.body.phaseB.ran).toBe(true); // non-vacuity: Phase B itself really ran
+    expect(arm.body.phaseB.sidecarRowsSeeded).toBe(0);
+    expect(arm.body.phaseB.sidecarRowsMerged).toBe(0);
+    expect(arm.body.phaseB.sidecarBytes).toBe(0);
+    expect(arm.body.warnings.filter((w) => w.startsWith("sidecar"))).toEqual([]);
+  });
+
+  it("runs at the requested size, reports it, and appends this tick's folded matches to it", async () => {
+    const arm = await runSidecar(`${SIDECAR_QUERY}&sidecar=147`);
+    expect(arm.status).toBe(200);
+    expect(arm.body.params.sidecar).toBe(147);
+    expect(arm.body.phaseB.sidecarRowsSeeded).toBe(147);
+    // Seeded plus this tick's folded matches — the observable proof the merge
+    // appended rather than returning its input.
+    expect(arm.body.phaseB.sidecarRowsMerged).toBe(147 + ARM_FOLDED);
+    // A realistic 147-match event lands in the tens of KB, per the shape's own
+    // sizing note. Bounds, not a pin: the exact byte count depends on the
+    // probe's roster and metric key set.
+    expect(arm.body.phaseB.sidecarBytes).toBeGreaterThan(10_000);
+    expect(arm.body.phaseB.sidecarBytes).toBeLessThan(200_000);
+    expect(arm.body.phaseB.sidecarOverCeiling).toBe(false);
+  });
+
+  it("scales with N — the reason an empty sidecar must never be the default", async () => {
+    const small = await runSidecar(`${SIDECAR_QUERY}&sidecar=10`);
+    const large = await runSidecar(`${SIDECAR_QUERY}&sidecar=147`);
+    expect(large.body.phaseB.sidecarBytes).toBeGreaterThan(small.body.phaseB.sidecarBytes * 5);
+  });
+
+  it("is BYTE-DETERMINISTIC at a given N, so a difference between two runs is signal rather than noise", async () => {
+    const a = await runSidecar(`${SIDECAR_QUERY}&sidecar=40`);
+    const b = await runSidecar(`${SIDECAR_QUERY}&sidecar=40`);
+    expect(a.body.phaseB.sidecarBytes).toBe(b.body.phaseB.sidecarBytes);
+  });
+
+  it("an UNRECOGNIZED value runs the arm OFF and says so, rather than being silently measured as another arm", async () => {
+    for (const value of ["yes", "-3", "12.5", "everything"]) {
+      const arm = await runSidecar(`${SIDECAR_QUERY}&sidecar=${value}`);
+      expect(arm.body.params.sidecar, value).toBe(0);
+      expect(arm.body.phaseB.sidecarRowsSeeded, value).toBe(0);
+      expect(arm.body.warnings.some((w) => w.includes("is not a recognized value") && w.includes("sidecar")), value).toBe(true);
+    }
+  });
+
+  it("with phaseB OFF it does not run, and says the request had no effect", async () => {
+    const arm = await runSidecar(`${ARM_QUERY}&sidecar=147`);
+    expect(arm.body.params.sidecar).toBe(0);
+    expect(arm.body.phaseB.ran).toBe(false);
+    expect(arm.body.warnings.some((w) => w.includes('sidecar="147"') && w.includes("phaseB is off"))).toBe(true);
+  });
+
+  it("clamps an absurd N and says it clamped, so a typo prices a bound rather than a multi-second stringify", async () => {
+    const arm = await runSidecar(`${SIDECAR_QUERY}&sidecar=100000`);
+    expect(arm.body.params.sidecar).toBe(400);
+    expect(arm.body.phaseB.sidecarRowsSeeded).toBe(400);
+    expect(arm.body.warnings.some((w) => w.includes("was clamped to 400"))).toBe(true);
+  });
+
+  it("STILL WRITES NOTHING: no D1 write statement, and every outbound request is a GET of a published artifact", async () => {
+    const arm = await runSidecar(`${SIDECAR_QUERY}&sidecar=147`);
+    expect(arm.writes).toBe(0);
+    expect(arm.recorded.every((entry) => entry.method === "GET")).toBe(true);
+    expect(arm.recorded.every((entry) => entry.url.startsWith("https://probe.example.invalid/"))).toBe(true);
+  });
+
+  describe("the new import surface keeps Group 1's no-write property", () => {
+    const importGraph = collectLocalImportGraph(STATE_PROBE_SRC);
+    const sidecarModule = resolve(__dirname, "../../../packages/harness/liveMetricSidecar.ts");
+
+    it("the probe really does reach the SHIPPED sidecar module — it calls the tick's own merge, never a copy", () => {
+      expect(importGraph.has(sidecarModule)).toBe(true);
+    });
+
+    it("that module reaches neither src/scheduled.ts nor src/artifactWriter.ts, so the new import smuggled in no write helper", () => {
+      const sidecarGraph = collectLocalImportGraph(sidecarModule);
+      // Non-vacuity: a file the walker could not read yields a 1-element graph.
+      expect(sidecarGraph.size).toBeGreaterThan(1);
+      expect(sidecarGraph.has(resolve(__dirname, "../src/scheduled.ts"))).toBe(false);
+      expect(sidecarGraph.has(resolve(__dirname, "../src/artifactWriter.ts"))).toBe(false);
+    });
   });
 });
