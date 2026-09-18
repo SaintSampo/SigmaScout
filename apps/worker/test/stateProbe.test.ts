@@ -12,7 +12,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import stateProbe, { probeSelectionsFor, resolveRpArm } from "../src/stateProbe.js";
+import stateProbe, { buildSeededLiveBlockText, probeSelectionsFor, resolveRpArm } from "../src/stateProbe.js";
 import { checkTeamSeasonArtifactShape } from "../src/artifactShapeCheck.js";
 import { selectionsFor } from "../src/scheduled.js";
 import {
@@ -26,7 +26,7 @@ import {
   type StateRow,
 } from "../../../packages/harness/stateSnapshot.js";
 import { buildEventStateBlock } from "../../../packages/harness/eventStatePricing.js";
-import { LiveEventArtifactSchema, TeamSeasonArtifactSchema } from "../../../packages/harness/pageArtifacts.js";
+import { EventLiveBlockSchema, LiveEventArtifactSchema, TeamSeasonArtifactSchema } from "../../../packages/harness/pageArtifacts.js";
 import { SigmaScoreAccumulator, SIGMA_METRIC_KEY } from "../../../packages/harness/sigmaScore.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
 import { RP_MEAN_SHIFT_WARMUP_OBSERVATIONS } from "../../../packages/core/rankingPoints/meanShift.js";
@@ -3003,6 +3003,92 @@ describe("stateProbe — Group 12: the liveRows= arm (the event artifact's live 
     expect(arm.writes).toBe(0);
     expect(arm.recorded.every((entry) => entry.method === "GET")).toBe(true);
     expect(arm.recorded.every((entry) => entry.url.startsWith("https://probe.example.invalid/"))).toBe(true);
+  });
+
+  it("the RETIRED sidecar= parameter warns LOUDLY and changes nothing — a copy-pasted old command cannot be mistaken for a run of this arm", async () => {
+    const arm = await runLiveRows(`${LIVE_ROWS_QUERY}&sidecar=147`);
+    expect(arm.status).toBe(200);
+    // It ran nothing: no seed, no append, no counters.
+    expect(arm.body.params.liveRows).toBe(0);
+    expect(arm.body.phaseB.liveRowsSeeded).toBe(0);
+    expect(arm.body.phaseB.liveBlockBytes).toBe(0);
+    // And it SAID so, naming both the deletion and the replacement. Silently
+    // ignoring an unknown search param is the default, and it is exactly what
+    // would make this mistake invisible.
+    const warning = arm.body.warnings.find((w) => w.startsWith("sidecar= is a RETIRED parameter"));
+    expect(warning, "the retired parameter was accepted in silence").toBeDefined();
+    expect(warning).toContain("liveRows=N");
+    expect(warning).toContain("liveRows=N:carry");
+  });
+
+  it("the retired parameter alongside a REAL liveRows= still warns, and does not suppress the real arm", async () => {
+    const arm = await runLiveRows(`${LIVE_ROWS_QUERY}&sidecar=147&liveRows=40`);
+    expect(arm.body.params.liveRows).toBe(40);
+    expect(arm.body.phaseB.liveRowsSeeded).toBe(40);
+    expect(arm.body.warnings.some((w) => w.startsWith("sidecar= is a RETIRED parameter"))).toBe(true);
+  });
+
+  describe("the synthesized block text is VALID under the shipped schema", () => {
+    /**
+     * PROVEN HERE, NEVER BY A RUNTIME PARSE IN THE ARM. The arm builds the
+     * block by string concatenation precisely so it does not pay for a
+     * serialization the real tick never performs; a `parse` inside it to check
+     * its own output would put that cost straight back, on the very number the
+     * arm exists to produce. So the check lives in a test, at a small N, where
+     * it costs the measurement nothing.
+     */
+    const PHASE_A_STUB = {
+      realTouchedTeams: ["frc1", "frc2"],
+      touchedMetrics: { frc1: { total: { value: 40 } }, frc2: { total: { value: 41 } } },
+      touchedSigma: new Map([["frc1", 4.2]]),
+    };
+
+    it("parses under the real shipped EventLiveBlockSchema", () => {
+      const text = buildSeededLiveBlockText({ eventKey: "2026casj", teamKeys: ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"], phaseA: PHASE_A_STUB, rows: 3 });
+      // `{...}` wrapping: the arm splices this fragment into an object body, so
+      // the fragment itself is `"live":{...}` and not a document.
+      const parsed = JSON.parse(`{${text}}`) as { live: unknown };
+      const block = EventLiveBlockSchema.parse(parsed.live);
+      expect(block.rows).toHaveLength(3);
+      expect(block.rows[0]!.m).toBe("2026casj_qm1");
+      // Every row's value arrays are index-aligned to the header — the one
+      // invariant `liveRowsForTeam` depends on and the schema does not check.
+      for (const row of block.rows) {
+        expect(row.v).toHaveLength(row.t.length);
+        for (const values of row.v) expect(values).toHaveLength(block.metricKeys.length);
+      }
+      // The header is the tick's own sorted union, sigma included as an
+      // ORDINARY member — no special case anywhere in the encoding.
+      expect(block.metricKeys).toEqual(["sigma", "total"]);
+    });
+
+    it("also parses as part of a WHOLE event artifact, spliced exactly as the arm splices it", () => {
+      const body = JSON.stringify({
+        schemaVersion: 1,
+        generation: "gen-probe",
+        computedAt: "2026-03-07T18:00:00.000Z",
+        algorithmId: "spr",
+        algorithmVersion: spr.version,
+        eventKey: "2026casj",
+        season: 2026,
+        matches: [],
+        upcoming: [],
+        teams: [],
+      });
+      const text = buildSeededLiveBlockText({ eventKey: "2026casj", teamKeys: ["frc1", "frc2"], phaseA: PHASE_A_STUB, rows: 2 });
+      // The arm's own splice, character for character.
+      const seeded = `${body.slice(0, -1)},${text}}`;
+      const parsed = LiveEventArtifactSchema.parse(JSON.parse(seeded));
+      expect(parsed.live?.rows).toHaveLength(2);
+      // Non-vacuity: `.catch(undefined)` would silently swallow an invalid
+      // block, so an assertion that it is DEFINED is the real check here.
+      expect(parsed.live).toBeDefined();
+    });
+
+    it("produces zero rows at N=0 without producing a malformed block", () => {
+      const text = buildSeededLiveBlockText({ eventKey: "2026casj", teamKeys: ["frc1"], phaseA: PHASE_A_STUB, rows: 0 });
+      expect(EventLiveBlockSchema.parse((JSON.parse(`{${text}}`) as { live: unknown }).live).rows).toEqual([]);
+    });
   });
 
   describe("the new import surface keeps Group 1's no-write property", () => {

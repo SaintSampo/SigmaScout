@@ -226,6 +226,225 @@ the fresh/reused split, parse `isolateRequest=N` from each tail event's logs. Ar
 `rpSkip=` (see `docs/worker-operations.md`, "Pre-event probe"). **The probe is LEFT DEPLOYED** at
 `28051f5c`.
 
+## LIVE ROWS INSIDE THE EVENT ARTIFACT — the instrument is built and the bar is PRE-REGISTERED; no number exists yet (2026-09-18, quick task 260918-16t)
+
+**This section contains no number produced by this change.** It was written and committed before the
+probe was deployed and before any arm was run. Everything below is either a threshold chosen in
+advance, or an anchor measured by an earlier pass (the 2026-09-18 sidecar run directly above) that
+this pass must reproduce in order to be comparable at all.
+
+### What shipped
+
+The ephemeral metric sidecar — its object, its `v1/live/…` key, its schema, its writer, its reader,
+and its **2 subrequests per algorithm-event** — is deleted outright. The per-match, per-team
+post-match metric rows now ride an ephemeral `live` block **inside the event artifact the tick
+already reads and writes exactly once per tick**, in the same compact positional encoding
+(`metricKeys` header stated once; per row `m`, `t`, `v`), with every value rounded through
+`roundMetric` so no published number changes.
+
+The block drops eight of the sidecar's wrapper fields as redundant — `sidecarVersion`, `ephemeral`,
+`eventKey`, `season`, `algorithmId`, `algorithmVersion`, `computedAt`, `complete` — because the event
+artifact states all of them at top level. Nothing ever read `complete`. The block is exactly
+`{ metricKeys, rows }`.
+
+**How it is marked ephemeral is STRUCTURAL, not a convention.** `LiveEventArtifactSchema` declares
+`live`; `EventArtifactSchema` does not. The offline publisher writes through `EventArtifactSchema`,
+and zod strips unknown keys, so **the next republish of an event drops the block on the floor with no
+publisher change and no delete call anywhere**. That single asymmetry answers both "how is it marked
+ephemeral" and "what happens at the next republish", and it is pinned by a test in
+`packages/harness/pageArtifacts.test.ts` whose assertion message says exactly that.
+
+The robot page and the match page each make **one** artifact fetch per live event now, not two.
+
+### The new subrequest arithmetic
+
+`estimateEventSubrequestCost` was `2 + 4A + 2AT` before 260917-jr4 (the `2AT` term: Phase B reading
+and rewriting one whole team-season artifact per touched team per algorithm), then `2 + 6A` (the
+`2A` term: the sidecar's own read and write). It is now **`2 + 4A`** — claim, event detail, Phase A
+read+write, Phase B event read+write — still flat in the touched-team count.
+
+| | `A=1` (tracked spr-only tier) | `A=3` (all published) |
+|---|---|---|
+| before 260917-jr4 (per-team team writes) | 30 (at `T=12`) | 50 |
+| after 260917-jr4 (the sidecar) | 8 | 20 |
+| **after this change** | **6** | **14** |
+
+**The plan's own summary table said 12 in the `A=3` cell. That cell is wrong and the formula is
+right:** 20 minus the sidecar's `2A` = 6 is 14, and `2 + 4 × 3` is 14. The executor pinned the
+formula and recorded the discrepancy rather than splitting the difference; the correction is written
+at the assertion in `apps/worker/test/liveAlgorithmTier.test.ts` so a reader of that number meets it.
+
+**The whole-fixture per-tick count: PREDICTED 28, OBSERVED 28.** The prediction was derived as
+arithmetic off the current observed value (34, minus 3 algorithm-events × 2 sidecar calls = 28) and
+**committed before the suite was re-run** (commit `7d5b6d6`). It matched exactly.
+
+### The size guard
+
+| Quantity | Bytes | Source |
+|---|---|---|
+| `event` page ceiling | 350,000 | `PAGE_BUDGET_MAX_BYTES.event` |
+| largest published event body | 228,971 | `v1/event/2016micmp/spr@4.0.0+baseline.json` (a 241-match 2016 DCMP) |
+| p95 published event body | 105,559 | same budget block |
+| live row | ~330 | measured 260917-jr4 (~45 KB at 147 rows) |
+| a 140-match championship division's live rows | ~46,200 | 140 × 330 |
+| a 241-match 2016-shaped event's live rows | ~79,530 | 241 × 330 |
+
+Worst realistic composition — the largest published body carrying its own event's full weekend of
+live rows, never republished: **228,971 + 79,530 = 308,501 B, 88% of the ceiling, 41,499 B spare.**
+The 140-match championship division against the same largest body is 275,171 B (79%). **The worst
+realistic case FITS.**
+
+**One term is NOT in that arithmetic and is named rather than guessed at: a LIVE event also carries
+an `EventStateBlock` that a finished published event does not**, sized by roster rather than by match
+count. The 41,499 B of spare headroom is what absorbs it, and the guard is what catches the case
+where it does not.
+
+So the guard is a backstop for a defect or a genuinely unforeseen shape, not an expected behaviour:
+when the event body **read from R2 this tick** already exceeds `EVENT_LIVE_BLOCK_TRIM_THRESHOLD_BYTES`
+(300,000), the merge retains only the most recent `EVENT_LIVE_BLOCK_TRIM_RETAIN_ROWS` (40) live rows
+and logs `event-live-block-trimmed`. That input is free — the tick already holds the fetched text and
+its `.length` — so the guard costs no second stringify. Never a throw (a throw loses the tick's rows
+permanently; the cursor has already advanced) and never a truncation of anything but live rows.
+
+**What the chart loses when the trim fires**, stated now rather than discovered later: the EARLIEST
+live rows at that event vanish, leaving a gap between the last published row and the retained ones.
+`buildMetricSeries` plots array position, so the x-axis compresses across that gap. `preMatchMetrics`
+for a match inside the gap falls back to the row preceding it — now the last published row, stale but
+true, not wrong. `endOfEventMetrics` and `officialSnapshotRow` take the LAST matching row and are
+unaffected. It self-heals at the next republish.
+
+### The prediction, written before the measurement
+
+The live block adds ~45 KB at 147 rows to a body already being parsed and stringified. The event half
+measured 1.9 ms for a ~121 KB body cold, so ~15.7 µs/KB, so ~45 KB costs roughly **0.7 ms**, against
+the sidecar's 9.5 ms.
+
+**So the prediction is that `pbLiveRows` lands NEAR `pbTeams0` (12.2 ms mean) rather than near
+`pbSidecar` (21.7).**
+
+**What weakens that prediction, stated honestly.** The 0.7 ms figure prices BYTES ONLY. The sidecar's
+own 9.5 ms was never explained, and at least one candidate explanation is not about bytes at all: its
+merge DEEP-COPIED every carried row on every tick (`row.v.map(values => [...values])`), roughly 4,400
+small array allocations per tick at 147 rows. If that allocation churn — rather than the second parse
+and stringify — is what the 9.5 ms actually was, then a bytes-only extrapolation from the event half
+under-predicts, because the new merge would pay the same per-row cost.
+
+Two things address that directly rather than leaving it to hope:
+
+1. **The new merge carries rows BY REFERENCE, not by deep copy.** Rows are constructed once and never
+   mutated afterwards by the merge, by the body they are embedded in, or by `liveRowsForTeam`, which
+   only reads. The only copy is of the ARRAY (`[...existing.rows]`), one allocation, so the caller's
+   fetched object is not mutated in place. This is pinned by identity (`toBe`) in
+   `packages/harness/liveEventRows.test.ts`.
+2. **There is a separating arm.** `liveRows=147:carry` seeds the same 147 rows and appends NOTHING,
+   by handing the merge an empty `realTouchedTeams` — which makes `maintainedLiveBlock` carry the
+   existing block forward by reference and never call `mergeEventLiveBlock` at all. So `:carry`
+   prices ONLY the bytes (a bigger parse, the same O(1) shape guard, a bigger stringify), and
+   `liveRows=147` minus `liveRows=147:carry` is **the work done per carried row**. Without that split
+   a single number cannot tell "45 KB is expensive" from "147 rows are expensive" — which is exactly
+   the ambiguity that left the sidecar's 9.5 ms unexplained. Running the fourth arm is optional for
+   the verdict and mandatory for the explanation.
+
+### The measurement
+
+Four arms, interleaved round-robin, 30 s spacing, at least 20 measured rounds each, warm-up excluded,
+reused-isolate stratum, at the same pinned roster, event and load
+(`folded=2&upcoming=60&teamCount=21&algorithms=spr`) every prior pass used:
+
+| Arm | Query suffix |
+|---|---|
+| `allPhaseB` | `&phaseB=1` |
+| `pbTeams0` | `&phaseB=1&phaseBTeams=0` |
+| `pbLiveRows` | `&phaseB=1&phaseBTeams=0&liveRows=147` |
+| `pbLiveCarry` (explanatory, not a verdict arm) | `&phaseB=1&phaseBTeams=0&liveRows=147:carry` |
+
+**147 is a full 2026 regional's qualification schedule. It is NOT a default — the arm has none — and
+it must not be lowered.** A run at a different seeded row count is not comparable to this one and
+must not be averaged with it.
+
+### VALIDITY GATE, checked BEFORE reading any result
+
+All four must hold or the pass is discarded rather than interpreted:
+
+1. `allPhaseB`'s mean within **17.5 ± 3.0 ms**;
+2. `pbTeams0`'s mean within **9.9 ± 3.0 ms**;
+3. fold counters, `bandsProduced` and `liveRowsSeeded` identical across all arms that ran them;
+4. zero non-ok outcomes.
+
+### IT WORKED — all three required
+
+- `pbLiveRows` − `pbTeams0` is **at most 3.0 ms**; AND
+- `pbLiveRows`'s mean is **at most 14.0 ms** with p50 **at most 14**; AND
+- `allPhaseB` − `pbLiveRows` is **at least 4.0 ms** and larger than the two arms' combined standard
+  errors.
+
+### IT DID NOT WORK — any one
+
+- `pbLiveRows` − `pbTeams0` is **6.0 ms or more** (the cost moved again rather than shrank); or
+- `pbLiveRows`'s mean is **17.0 ms or more**; or
+- `allPhaseB` − `pbLiveRows` is not resolved above the combined standard errors.
+
+### INCONCLUSIVE
+
+Anything between those two sets. Report it as inconclusive and name the `n` that would resolve it.
+**Do not report an inconclusive pass as a win.**
+
+### STATED IN ADVANCE so a good number cannot be over-read
+
+**A clean pass does NOT close this todo.** The prediction is about 12.9 ms mean, still over the 10 ms
+budget, and fresh isolates stay at 35–45 ms untouched by anything in this change. What a pass buys is
+that **Phase B stops being the blocker** — not that the tick fits.
+
+### Follow-ups this change creates
+
+- **Orphaned `v1/live/…` objects.** The deleted sidecar already wrote real objects into R2. They need
+  a one-off list-driven sweep of that prefix — which is possible precisely because the prefix was
+  chosen to make it possible. Nothing reads them; they are dead bytes against the free-tier storage
+  quota, not a correctness problem. (Per `project_r2_orphan_generations`: list-driven, never sampled.)
+- **`mergeTeamSeasonArtifact`'s deletion is still blocked on the probe's own.** It survives solely as
+  the `allPhaseB` baseline arm — the arm every Phase B number is measured against — so neither goes
+  first.
+
+### Accepted regressions
+
+- **Every visitor to a LIVE event's page downloads the live rows** inside the event artifact whether
+  that page needs them or not (the event page does not; the robot and match pages do). Tens of KB
+  raw, and positional numeric arrays compress well under Cloudflare's automatic compression. This is
+  the direct cost of the thing that makes the tick cheap, and it is accepted.
+- **Inherited from the sidecar, unchanged:** a corrupt team-season artifact no longer self-heals
+  during an event; the robot page's live correctness depends on the event-artifact fetch succeeding,
+  and degrades to published rows when it does not; a failed event write is permanent for those
+  matches because the cursor has already advanced, showing as a chart gap that self-heals at the next
+  republish; and a tick folding two matches writes both rows with the same end-of-tick metrics record
+  (fixing that would change published numbers and needs its own version bump).
+
+### Commands to run the measurement
+
+The executor had no network and ran none of this.
+
+```
+# 1. Deploy the probe from a clean tree at the verified SHA.
+npx wrangler deploy --config apps/worker/wrangler.probe.toml
+
+# 2. Tail it in a second terminal (cpuTime is read off here, never from the body).
+npx wrangler tail sigmascout-state-probe --format json
+
+# 3. Run the arms, interleaved, 30 s spacing, >= 20 measured rounds each.
+#    Substitute the probe's own origin for {PROBE}.
+#    allPhaseB:    https://{PROBE}/?folded=2&upcoming=60&teamCount=21&algorithms=spr&phaseB=1
+#    pbTeams0:     https://{PROBE}/?folded=2&upcoming=60&teamCount=21&algorithms=spr&phaseB=1&phaseBTeams=0
+#    pbLiveRows:   https://{PROBE}/?folded=2&upcoming=60&teamCount=21&algorithms=spr&phaseB=1&phaseBTeams=0&liveRows=147
+#    pbLiveCarry:  https://{PROBE}/?folded=2&upcoming=60&teamCount=21&algorithms=spr&phaseB=1&phaseBTeams=0&liveRows=147:carry
+```
+
+Before reading any difference: confirm every response is `ok`; that `params.liveRows` reads `147` on
+the third and fourth arms and `0` on the first two; that `params.liveRowsAppend` is `true` on
+`pbLiveRows` and `false` on `pbLiveCarry`; and that `phaseB.liveRowsSeeded` reads `147` on both. A
+typo in the query string runs the arm OFF and says so in `warnings`, which is easy to miss in a log.
+**A `sidecar=` parameter is RETIRED and now emits a loud warning naming its replacement** — a
+copy-pasted command from the run above would otherwise execute a perfectly ordinary `phaseB=1` arm
+and be read as a measurement of this shape.
+
 ## LIVE METRIC SIDECAR — the numbers: IT DID NOT WORK (2026-09-18, measured against the bar below)
 
 **Verdict: IT DID NOT WORK. The sidecar costs 9.5 ± 1.7 ms — more than the twelve team-artifact

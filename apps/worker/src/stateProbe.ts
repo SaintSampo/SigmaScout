@@ -876,6 +876,8 @@ interface ProbeParams {
   readonly phaseBTeamsRaw: number | undefined;
   /** The resolved live-block arm (see `resolveLiveRowsArm`). Off unless a `liveRows=N[:carry]` value asked otherwise. */
   readonly liveRowsArm: LiveRowsArmResolution;
+  /** Whether the RETIRED `sidecar=` parameter was supplied at all. Warned about loudly; changes nothing else. */
+  readonly retiredSidecarSupplied: boolean;
   readonly phaseBEventOverride: string | undefined;
   /** The algorithm version used in the artifact keys Phase B fetches (see `parsePhaseBVersionParam`). */
   readonly phaseBVersion: string | undefined;
@@ -909,6 +911,13 @@ function parseParams(url: URL): ProbeParams {
   const phaseBUpcoming = parsePhaseBUpcomingParam(search.get("phaseBUpcoming"));
   const phaseBTeamsRaw = parseOptionalIntParam(search.get("phaseBTeams"));
   const liveRowsArm = resolveLiveRowsArm(phaseB.enabled, search.get("liveRows"));
+  // THE RETIRED `sidecar=` PARAMETER. Present only to be REFUSED loudly: the
+  // arm it addressed measured an object that no longer exists, and a
+  // copy-pasted command from the 260917-jr4 measurement would otherwise run a
+  // perfectly ordinary `phaseB=1` arm and be read as a run of THIS shape.
+  // Silently ignoring an unknown search param is the default and is exactly
+  // what makes that mistake invisible.
+  const retiredSidecarSupplied = search.get("sidecar") !== null;
   const phaseBEventOverride = search.get("phaseBEvent")?.trim() || undefined;
   const chunkArm = resolveChunkArm(search.get("chunk"));
   const origin = parseArtifactOriginParam(search.get("artifactOrigin"));
@@ -933,6 +942,7 @@ function parseParams(url: URL): ProbeParams {
     phaseBUpcomingRawSupplied: (search.get("phaseBUpcoming")?.trim() ?? "") !== "",
     phaseBTeamsRaw,
     liveRowsArm,
+    retiredSidecarSupplied,
     phaseBEventOverride,
     phaseBVersion: phaseBVersion.version,
     phaseBVersionRejected: phaseBVersion.rejected,
@@ -2191,12 +2201,14 @@ async function runSprPhaseB(params: {
  *
  * The text's VALIDITY under the real shipped `EventLiveBlockSchema` is proven
  * in `stateProbe.test.ts`, never by a runtime parse here, which would be one
- * more cost billed to the arm.
+ * more cost billed to the arm. EXPORTED for exactly that test and for nothing
+ * else — no caller outside this module may splice a block into a body.
  */
-function buildSeededLiveBlockText(params: {
+export function buildSeededLiveBlockText(params: {
   readonly eventKey: string;
   readonly teamKeys: readonly string[];
-  readonly phaseA: PhaseAOutput;
+  /** NARROWED to the three fields this builder actually reads, following `artifactMerge.ts`'s own convention — so the validity test can supply them without synthesizing a whole `PhaseAOutput`. */
+  readonly phaseA: Pick<PhaseAOutput, "realTouchedTeams" | "touchedMetrics" | "touchedSigma">;
   readonly rows: number;
 }): string {
   const { eventKey, teamKeys, phaseA, rows } = params;
@@ -2902,6 +2914,11 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
     // `liveRows`'s own warnings: the phaseB-is-off notice, an unrecognized
     // value that ran nothing, or a clamped row count.
     ...params.liveRowsArm.warnings,
+    ...(params.retiredSidecarSupplied
+      ? [
+          `sidecar= is a RETIRED parameter and was IGNORED — quick task 260918-16t deleted the ephemeral sidecar object it measured, so there is no such arm and this run priced NOTHING extra. Its replacement is liveRows=N (seed N accumulated rows into the event body and append this tick's own) or liveRows=N:carry (seed without appending, the bytes-only separating arm). Do NOT read this run's cpuTime as a live-block measurement`,
+        ]
+      : []),
     ...phaseBWarnings,
     // `chunk`'s own warnings: an unrecognized value that skipped nothing, or
     // the recognized-inert `event`. The `teams` arm never reaches here — it
