@@ -1500,7 +1500,7 @@ describe("stateProbe — Group 8: per-component RP ablation arms (rpSkip)", () =
 
 interface PhaseBBody {
   ok: boolean;
-  params: { phaseB: boolean; phaseBTeams: number; phaseBEvent: string; sidecar: number; artifactOrigin: string | null };
+  params: { phaseB: boolean; phaseBTeams: number; phaseBEvent: string; phaseBVersion: string | null; sidecar: number; artifactOrigin: string | null };
   fold: { error?: { name: string; message: string } };
   phaseB: {
     ran: boolean;
@@ -1620,6 +1620,45 @@ describe("stateProbe — Group 9: the phaseB emulation arm", () => {
     const text = await response.text();
     return { body: JSON.parse(text) as PhaseBBody, text, status: response.status, writes: db.writeStatementCount, recorded, eventText, teamText };
   }
+
+  // `phaseBVersion=` exists because the code's version and the PUBLISHED version
+  // drift apart in the ordinary course of work: a model bump lands in `spr.ts`
+  // immediately, but R2 still holds the previous generation until someone
+  // republishes. On 2026-09-17 a probe built from HEAD asked for
+  // `spr@5.0.0+baseline` against a bucket published at `4.0.0+baseline` and every
+  // Phase B arm returned ArtifactFetchFailed.
+  it("phaseBVersion= points the Phase B artifact keys at the PUBLISHED version, and says so in a warning", async () => {
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1&phaseBVersion=4.0.0%2Bbaseline`, { withState: true });
+
+    expect(arm.status).toBe(200);
+    expect(arm.body.params.phaseBVersion).toBe("4.0.0+baseline");
+    for (const r of arm.recorded) expect(r.url).toContain("spr@4.0.0+baseline.json");
+    expect(arm.recorded.some((r) => r.url.includes(`spr@${spr.version}.json`))).toBe(false);
+    expect(arm.body.phaseB.ran).toBe(true);
+
+    const override = arm.body.warnings.filter((w) => w.startsWith('phaseBVersion="4.0.0+baseline" OVERRIDES'));
+    expect(override).toHaveLength(1);
+    expect(override[0]).toContain(spr.version);
+  });
+
+  it("an absent phaseBVersion= uses the deployed spr.version and warns about nothing", async () => {
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1`, { withState: true });
+
+    expect(arm.body.params.phaseBVersion).toBe(spr.version);
+    for (const r of arm.recorded) expect(r.url).toContain(`spr@${spr.version}.json`);
+    expect(arm.body.warnings.filter((w) => w.includes("phaseBVersion"))).toEqual([]);
+  });
+
+  it("a malformed phaseBVersion= is REFUSED, never defaulted: no fetch is issued and phaseB measures nothing", async () => {
+    const arm = await runPhaseBArm(`${ARM_QUERY}&phaseB=1&phaseBVersion=5.0.0`, { withState: true });
+
+    expect(arm.body.phaseB.ran).toBe(false);
+    expect(arm.body.phaseB.error?.name).toBe("PhaseBVersionRejected");
+    expect(arm.recorded).toEqual([]);
+    expect(arm.body.params.phaseBVersion).toBeNull();
+    expect(arm.body.warnings.filter((w) => w.includes("was REJECTED"))).toHaveLength(1);
+    expect(arm.body.ok).toBe(false);
+  });
 
   it("positive control: the fixtures really are schema-valid published artifacts, with and without a state block", () => {
     const db = new FakeD1Database();

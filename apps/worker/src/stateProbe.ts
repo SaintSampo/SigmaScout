@@ -206,6 +206,35 @@ function parseArtifactOriginParam(raw: string | null): { origin: string | undefi
   return { origin: parsed.origin, rejected: undefined };
 }
 
+/**
+ * `phaseBVersion` — the algorithm version in the artifact KEYS Phase B fetches, defaulting to the
+ * deployed `spr.version`.
+ *
+ * It exists because the code's version and the PUBLISHED version drift apart in the ordinary course
+ * of work: a model change bumps `spr.version` the moment it lands, but R2 still holds the previous
+ * generation until someone runs a republish. A probe built from that HEAD then asks for an artifact
+ * that does not exist and every Phase B arm returns `ArtifactFetchFailed` — exactly what happened on
+ * 2026-09-17 with `spr@5.0.0+baseline` against a bucket published at `4.0.0+baseline`.
+ *
+ * CPU is what the Phase B arms measure, and that cost is parse + merge + stringify of a realistic
+ * body; which model produced the numbers inside it does not change the work. So pointing the fetch
+ * at the published version is a faithful measurement, not a fudge — but it IS a deviation from the
+ * deployed code's own version, so the resolved value is echoed in `params.phaseBVersion` and, when
+ * it differs from `spr.version`, warned about, so a reader can never mistake which artifact was
+ * priced.
+ *
+ * A malformed value is REJECTED rather than defaulted: a typo that silently measured the deployed
+ * version would be indistinguishable in the numbers from a deliberate override.
+ */
+const PHASE_B_VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+\+[A-Za-z0-9._-]+$/;
+
+function parsePhaseBVersionParam(raw: string | null): { version: string | undefined; rejected: string | undefined } {
+  if (raw === null || raw.trim() === "") return { version: spr.version, rejected: undefined };
+  const candidate = raw.trim();
+  if (!PHASE_B_VERSION_PATTERN.test(candidate)) return { version: undefined, rejected: candidate };
+  return { version: candidate, rejected: undefined };
+}
+
 // ---------------------------------------------------------------------------
 // `rpSkip`: five independently switchable RP components, layered on top of
 // `rp`, plus one RETIRED name that no longer describes any work this tick
@@ -829,6 +858,10 @@ interface ProbeParams {
   /** The resolved live-metric-sidecar arm (see `resolveSidecarArm`). Off unless a `sidecar=N` value asked otherwise. */
   readonly sidecarArm: SidecarArmResolution;
   readonly phaseBEventOverride: string | undefined;
+  /** The algorithm version used in the artifact keys Phase B fetches (see `parsePhaseBVersionParam`). */
+  readonly phaseBVersion: string | undefined;
+  /** A `phaseBVersion=` that did not look like a version; the run is refused rather than defaulted. */
+  readonly phaseBVersionRejected: string | undefined;
   /** The resolved split-tick chunk arm (see `resolveChunkArm`). `off` unless a `chunk=` value asked otherwise; only `teams` has a second code path. */
   readonly chunkArm: ChunkArmResolution;
   /** `undefined` when an `artifactOrigin=` override was REJECTED — never silently replaced by the default. */
@@ -860,6 +893,7 @@ function parseParams(url: URL): ProbeParams {
   const phaseBEventOverride = search.get("phaseBEvent")?.trim() || undefined;
   const chunkArm = resolveChunkArm(search.get("chunk"));
   const origin = parseArtifactOriginParam(search.get("artifactOrigin"));
+  const phaseBVersion = parsePhaseBVersionParam(search.get("phaseBVersion"));
   return {
     season,
     eventType,
@@ -881,6 +915,8 @@ function parseParams(url: URL): ProbeParams {
     phaseBTeamsRaw,
     sidecarArm,
     phaseBEventOverride,
+    phaseBVersion: phaseBVersion.version,
+    phaseBVersionRejected: phaseBVersion.rejected,
     chunkArm,
     artifactOrigin: origin.origin,
     artifactOriginRejected: origin.rejected,
@@ -1315,6 +1351,8 @@ interface ProbeResponseBody {
     /** The live-metric-sidecar arm's resolved row count; 0 when it did not run. Echoed so a `cpuTime` is never attributed to a sidecar size it was not measured at. */
     readonly sidecar: number;
     readonly phaseBEvent: string;
+    /** The version in the artifact keys Phase B fetched. Differs from the deployed `spr.version` only when `phaseBVersion=` overrode it, and a warning says so when it does. */
+    readonly phaseBVersion: string | null;
     /**
      * Which SPLIT-TICK chunk this invocation emulated: `off` (every arm that
      * existed before 2026-09-17), `teams`, or the recognized-inert `event`.
@@ -1863,8 +1901,10 @@ async function runSprPhaseB(params: {
   readonly ran: PhaseBArmRan;
   readonly upcomingShape: PhaseBUpcomingShape;
   readonly sidecarArm: SidecarArmResolution;
+  /** The version used in the artifact keys below — `params.phaseBVersion`, which defaults to `spr.version`. */
+  readonly artifactVersion: string;
 }): Promise<{ result: PhaseBResult; warnings: string[] }> {
-  const { origin, phaseBEventKey, eventKey, season, eventType, teamKeys, sprRows, phaseA, phaseBTeams, ran, upcomingShape, sidecarArm } = params;
+  const { origin, phaseBEventKey, eventKey, season, eventType, teamKeys, sprRows, phaseA, phaseBTeams, ran, upcomingShape, sidecarArm, artifactVersion } = params;
   const warnings: string[] = [];
 
   const firstTeamKey = teamKeys[0];
@@ -1872,8 +1912,8 @@ async function runSprPhaseB(params: {
     throw new ProbePhaseBError("EmptyRoster", "phaseB needs at least one discovered team key to build a team-artifact key");
   }
 
-  const eventText = await fetchArtifactText(origin, artifactKey({ page: "event", eventKey: phaseBEventKey, algorithmId: "spr", version: spr.version }));
-  const teamText = await fetchArtifactText(origin, artifactKey({ page: "team", teamKey: firstTeamKey, year: season, algorithmId: "spr", version: spr.version }));
+  const eventText = await fetchArtifactText(origin, artifactKey({ page: "event", eventKey: phaseBEventKey, algorithmId: "spr", version: artifactVersion }));
+  const teamText = await fetchArtifactText(origin, artifactKey({ page: "team", teamKey: firstTeamKey, year: season, algorithmId: "spr", version: artifactVersion }));
 
   // The reshape: before every gated component, in every arm, so its own cost
   // cancels in whichever difference the caller takes.
@@ -2272,8 +2312,10 @@ async function runTeamsChunk(params: {
   readonly teamKeys: readonly string[];
   readonly folded: number;
   readonly chunkTeamsRaw: number | undefined;
+  /** The version in the team-artifact key below — the same resolved `phaseBVersion` the event key above already carries. */
+  readonly artifactVersion: string;
 }): Promise<{ result: ChunkResult; chunkTeams: number; warnings: string[] }> {
-  const { origin, eventArtifactKey, fallbackSeason, fallbackEventType, teamKeys, folded, chunkTeamsRaw } = params;
+  const { origin, eventArtifactKey, fallbackSeason, fallbackEventType, teamKeys, folded, chunkTeamsRaw, artifactVersion } = params;
   const warnings: string[] = [];
 
   const firstTeamKey = teamKeys[0];
@@ -2449,7 +2491,7 @@ async function runTeamsChunk(params: {
   // touched-team count in this arm. `phaseBTeams=0` is this loop's root too.
   const chunkTeams = Math.min(MAX_TEAM_COUNT, Math.max(0, chunkTeamsRaw ?? touchedTeams.length));
 
-  const teamText = await fetchArtifactText(origin, artifactKey({ page: "team", teamKey: firstTeamKey, year: artifactSeason, algorithmId: "spr", version: spr.version }));
+  const teamText = await fetchArtifactText(origin, artifactKey({ page: "team", teamKey: firstTeamKey, year: artifactSeason, algorithmId: "spr", version: artifactVersion }));
 
   let teamParsesRun = 0;
   let teamMergesRun = 0;
@@ -2583,7 +2625,8 @@ async function buildTeamsChunkResponse(params: ProbeParams): Promise<{ responseB
     try {
       const outcome = await runTeamsChunk({
         origin: params.artifactOrigin,
-        eventArtifactKey: artifactKey({ page: "event", eventKey: chunkEventKey, algorithmId: "spr", version: spr.version }),
+        eventArtifactKey: artifactKey({ page: "event", eventKey: chunkEventKey, algorithmId: "spr", version: params.phaseBVersion ?? spr.version }),
+        artifactVersion: params.phaseBVersion ?? spr.version,
         fallbackSeason: params.season,
         fallbackEventType: params.eventType,
         teamKeys,
@@ -2627,6 +2670,7 @@ async function buildTeamsChunkResponse(params: ProbeParams): Promise<{ responseB
         // emulation, which this route replaces outright rather than extends.
         sidecar: 0,
         phaseBEvent: chunkEventKey,
+        phaseBVersion: params.phaseBVersion ?? null,
         chunk: "teams",
         artifactOrigin: params.artifactOrigin ?? null,
       },
@@ -2743,7 +2787,15 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
   let phaseB: PhaseBResult = { ...PHASE_B_ZEROS };
   const phaseBWarnings: string[] = [];
   if (params.phaseBEnabled) {
-    if (params.artifactOrigin === undefined) {
+    if (params.phaseBVersionRejected !== undefined) {
+      phaseB = {
+        ...PHASE_B_ZEROS,
+        error: {
+          name: "PhaseBVersionRejected",
+          message: `phaseBVersion="${params.phaseBVersionRejected}" is not of the form MAJOR.MINOR.PATCH+tag — the probe did NOT fall back to ${spr.version}, because a typo that silently measured the deployed version would be indistinguishable in the numbers from a deliberate override`,
+        },
+      };
+    } else if (params.artifactOrigin === undefined) {
       phaseB = {
         ...PHASE_B_ZEROS,
         error: {
@@ -2771,6 +2823,7 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
           ran: params.phaseBArm.ran,
           upcomingShape: params.phaseBUpcoming,
           sidecarArm: params.sidecarArm,
+          artifactVersion: params.phaseBVersion ?? spr.version,
         });
         phaseB = outcome.result;
         phaseBWarnings.push(...outcome.warnings);
@@ -2820,6 +2873,14 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
     ...(params.artifactOriginRejected !== undefined
       ? [`artifactOrigin="${params.artifactOriginRejected}" was REJECTED — an override must parse as an https: origin, and the probe never silently falls back to ${DEFAULT_ARTIFACT_ORIGIN}`]
       : []),
+    ...(params.phaseBVersionRejected !== undefined
+      ? [`phaseBVersion="${params.phaseBVersionRejected}" was REJECTED — it must look like MAJOR.MINOR.PATCH+tag, and the probe never silently falls back to the deployed ${spr.version}`]
+      : []),
+    ...(params.phaseBVersion !== undefined && params.phaseBVersion !== spr.version
+      ? [
+          `phaseBVersion="${params.phaseBVersion}" OVERRIDES the deployed spr.version="${spr.version}" — Phase B priced the PUBLISHED artifact at that version, which is the faithful body to measure when the code has been bumped ahead of the last republish. The cpuTime is a real parse/merge/stringify cost; the numbers inside that body are the older model's`,
+        ]
+      : []),
     // `sidecar`'s own warnings: the phaseB-is-off notice, an unrecognized
     // value that ran nothing, or a clamped row count.
     ...params.sidecarArm.warnings,
@@ -2852,6 +2913,7 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
       phaseBTeams,
       sidecar: params.sidecarArm.enabled ? params.sidecarArm.rows : 0,
       phaseBEvent: phaseBEventKey,
+      phaseBVersion: params.phaseBVersion ?? null,
       chunk: params.chunkArm.id,
       artifactOrigin: params.artifactOrigin ?? null,
     },
