@@ -226,6 +226,52 @@ the fresh/reused split, parse `isolateRequest=N` from each tail event's logs. Ar
 `rpSkip=` (see `docs/worker-operations.md`, "Pre-event probe"). **The probe is LEFT DEPLOYED** at
 `28051f5c`.
 
+## LIVE METRIC SIDECAR — the numbers: IT DID NOT WORK (2026-09-18, measured against the bar below)
+
+**Verdict: IT DID NOT WORK. The sidecar costs 9.5 ± 1.7 ms — more than the twelve team-artifact
+writes it replaces — and the tick carrying it is WORSE than the tick as it stands today.**
+
+Probe `aa1ff7dd` from commit `9ac2eec4`, three arms interleaved round-robin, 30 s spacing, 20 measured
+rounds each, warm-up excluded, `sidecar=147` (a realistic end-of-event size, not an empty one).
+
+**Validity gate: PASSED** — `allPhaseB` 18.9 ms against the 17.5 ± 3.0 anchor, `pbTeams0` 12.2 against
+9.9 ± 3.0, zero non-ok outcomes, and `bandsProduced`/`rpPmfsProduced`/`teamMergesRun`/`sidecarRowsSeeded`
+constant within every arm. The numbers are interpretable.
+
+### Reused-isolate stratum (the comparable one)
+
+| Arm | n | p50 | p90 | mean | over 10 ms |
+|---|---|---|---|---|---|
+| `allPhaseB` — the tick as it stands | 13 | 17 | 24 | **18.9** | 100% |
+| `pbTeams0` — no team writes at all | 16 | 13 | 16 | **12.2** | 56% |
+| `pbSidecar` — team writes replaced by the sidecar | 13 | 20 | 30 | **21.7** | 100% |
+
+| Difference | Reused | Resolved? |
+|---|---|---|
+| **sidecar cost** (`pbSidecar − pbTeams0`) | **+9.5 ± 1.7 ms** | resolved |
+| saving vs today (`allPhaseB − pbSidecar`) | **−2.8 ± 2.1 ms** | unresolved — and the sign is wrong |
+
+All three WORKED legs fail and all three DID-NOT-WORK legs trip. The bar was not renegotiated.
+
+### Why, and the variant it points at
+
+The sidecar is **read-modify-append**: every tick fetches ~45 KB, parses it, appends six rows and
+stringifies ~45 KB back. That is a second whole-body parse and stringify per tick, on top of the event
+artifact's own — which is precisely the cost this whole line of work exists to remove. Replacing twelve
+small read-modify-writes with one large read-modify-write moved the cost, it did not delete it.
+
+**What the numbers point at instead: put the live history rows INSIDE the event artifact**, which the
+tick already reads and writes once per tick. Then the marginal cost is bytes in a body already being
+parsed, not a second body. The event half measured 1.9 ms for a ~121 KB body, so ~30 KB of live rows
+should add well under 1 ms rather than 9.5.
+
+This is NOT the frozen-metrics row that priced NO-GO on 2026-09-17. That one carried every played
+match of every event, permanently published, and blew the 350 KB ceiling at 294 KB. This carries only
+the matches folded **since the last publish at a live event** and is dropped at the next republish —
+tens of KB on one event's file, not a published-shape commitment.
+
+Fresh isolates are unchanged and untouched by any of this: 35–45 ms across all three arms.
+
 ## LIVE METRIC SIDECAR — the instrument is built and the bar is PRE-REGISTERED; no number exists yet (2026-09-17, quick task 260917-jr4)
 
 **This section contains no number produced by this change.** It was written and committed before the
