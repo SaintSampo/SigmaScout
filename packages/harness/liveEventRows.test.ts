@@ -355,6 +355,40 @@ describe("end to end: merge -> JSON -> LiveEventArtifactSchema -> liveRowsForTea
     expect(pre?.metrics[SIGMA_METRIC_KEY]?.value).toBe(4.4);
   });
 
+  it("re-appends the block LAST even when the existing body carried it in the MIDDLE — the destructure, not the override, is what does that", () => {
+    // WHY THIS CASE EXISTS. `mergeEventArtifact` spreads `existing` and then
+    // re-appends `live` explicitly. The explicit append fixes the VALUE, but
+    // JS object key order is set by FIRST insertion: re-assigning a key the
+    // spread already introduced leaves it at the spread's position. So without
+    // `live` being destructured OUT of `existing` first, a body that carried
+    // it anywhere but last would keep it there — and `live` would serialize
+    // ahead of `state`, in front of the block the event page needs for first
+    // paint. That is the ONE observable consequence of the destructure, and a
+    // mutation removing it passes every other test in this file.
+    const outOfOrder = {
+      schemaVersion: second.schemaVersion,
+      generation: second.generation,
+      computedAt: second.computedAt,
+      algorithmId: ALGORITHM_ID,
+      algorithmVersion: ALGORITHM_VERSION,
+      // Deliberately EARLY, before `matches`/`teams`, as no writer produces
+      // today but any hand-edited or future-published body might.
+      live: second.live,
+      eventKey: EVENT_KEY,
+      season: SEASON,
+      matches: [],
+      upcoming: [],
+      teams: [],
+    };
+    // Non-vacuity: the input really does carry it early.
+    expect(Object.keys(outOfOrder).indexOf("live")).toBeLessThan(Object.keys(outOfOrder).indexOf("teams"));
+
+    const merged = tick(outOfOrder as unknown as ReturnType<typeof parseLive>, [matchResult(4)], 50, 0);
+    expect(Object.keys(merged as object).at(-1)).toBe("live");
+    // And exactly once — never a duplicated key.
+    expect(Object.keys(merged as object).filter((key) => key === "live")).toHaveLength(1);
+  });
+
   it("a tick that folds NOTHING carries the existing block forward rather than reading its own empty header as drift", () => {
     const idle = parseLive(
       mergeEventArtifact({
