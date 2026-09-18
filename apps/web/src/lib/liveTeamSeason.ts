@@ -12,15 +12,24 @@
  * resolver — the whole value of this module is that it FEEDS the single
  * implementations rather than forking them.
  *
- * WHERE THE DATA COMES FROM. Two sources, neither of them a team artifact:
+ * WHERE THE DATA COMES FROM. ONE source, and it is not a team artifact: the
+ * live event's own ARTIFACT, which since quick task 260918-16t carries BOTH
+ * halves —
  *
- *   - the live event's own ARTIFACT, for match rows (results, priced upcoming
- *     rows) — already shipped and tested as `overlayTeamEventMatches` /
- *     `teamRowFromEventRow` (260915-m4j), running in production today;
- *   - the live event's EPHEMERAL SIDECAR
- *     (`packages/harness/liveMetricSidecar.ts`), for the one thing the event
- *     artifact cannot carry: each newly-folded match's per-team POST-MATCH
- *     metrics, which exist only inside the Worker's own algorithm state.
+ *   - its match rows (results, priced upcoming rows), read by
+ *     `overlayTeamEventMatches` / `teamRowFromEventRow` (260915-m4j), running
+ *     in production today;
+ *   - its ephemeral `live` block (`packages/harness/liveEventRows.ts`), for
+ *     the one thing the published fields cannot carry: each newly-folded
+ *     match's per-team POST-MATCH metrics, which exist only inside the
+ *     Worker's own algorithm state.
+ *
+ * Between 260917-jr4 and 260918-16t the second half arrived as a SEPARATE
+ * ephemeral sidecar object under its own R2 key prefix, and cost this page a
+ * second fetch per live event.
+ * It does not any more: both halves ride the artifact both consumers were
+ * already fetching, so neither the robot page nor the match page gained a
+ * fetcher to get metric history right during a live event.
  *
  * THE DOUBLE-COUNT RULE, STATED ONCE AND OBEYED EVERYWHERE BELOW. The
  * published `seasonStats.record` ALREADY counts every played row the
@@ -33,9 +42,9 @@
  * do it silently — the record would simply read high.
  */
 import { isOfficialEventType } from "../../../../packages/core/algorithms/eventTypes.js";
-import { sidecarRowsForTeam, type LiveMetricSidecar } from "../../../../packages/harness/liveMetricSidecar.js";
+import { liveRowsForTeam } from "../../../../packages/harness/liveEventRows.js";
 import type { MetricHistoryRow } from "../../../../packages/harness/metricHistorySchema.js";
-import type { TeamSeasonArtifact } from "../../../../packages/harness/pageArtifacts.js";
+import type { EventLiveBlock, TeamSeasonArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /** The published team artifact's own event entry, narrowed to what this module reads. */
 interface PublishedEventLike {
@@ -55,31 +64,48 @@ interface OverlaidEventLike {
   }[];
 }
 
-/** One live event's fetched sidecar, or `null` for the ordinary absent case (never fetched, 404, or not live). */
-export type SidecarsByEventKey = ReadonlyMap<string, LiveMetricSidecar | null>;
+/**
+ * One live event's fetched artifact, narrowed to the four fields this module
+ * reads: the `live` block itself, plus the three identity fields each derived
+ * metric-history row carries. Sourcing `season`/`eventKey`/`algorithmId` from
+ * the artifact's own top level rather than from a wrapper is the whole reason
+ * the live block drops them — the event artifact already states all three, and
+ * a second copy inside the block could disagree with the body it rides in.
+ */
+export interface LiveEventArtifactLike {
+  readonly season: number;
+  readonly eventKey: string;
+  readonly algorithmId: string;
+  readonly live?: EventLiveBlock | undefined;
+}
+
+/** Each live event's fetched artifact, or `null`/`undefined` for the ordinary absent case (never fetched, still pending, 404, or not live). */
+export type EventArtifactsByEventKey = ReadonlyMap<string, LiveEventArtifactLike | null | undefined>;
 
 export interface ExtendMetricHistoryParams {
   readonly artifact: Pick<TeamSeasonArtifact, "teamKey" | "season" | "algorithmId" | "metricHistory"> & { readonly events: readonly PublishedEventLike[] };
-  readonly sidecars: SidecarsByEventKey;
+  /** The SAME map the caller already built from the event queries it already runs — never a second fetch. */
+  readonly eventArtifacts: EventArtifactsByEventKey;
 }
 
 /**
- * The published `metricHistory`, then each live event's sidecar rows for this
- * team appended after it.
+ * The published `metricHistory`, then each live event's own `live` block rows
+ * for this team appended after it.
  *
  * ORDERING. Live events are ordered by their own `startDate` in
  * `artifact.events`, ties broken by `artifact.events` order; within an event,
- * sidecar (fold) order. A team cannot physically play at two events at once,
- * so that reproduces chronological order. THE LIMITATION, stated rather than
- * engineered around: a team genuinely attending two events in the same window
- * gets two sidecars, each with that team's metrics as of its OWN tick, and if
- * the two events share a start date the published `artifact.events` order
- * breaks the tie.
+ * live-block (fold) order. A team cannot physically play at two events at
+ * once, so that reproduces chronological order. THE LIMITATION, stated rather
+ * than engineered around: a team genuinely attending two events in the same
+ * window gets two live blocks, each with that team's metrics as of its OWN
+ * tick, and if the two events share a start date the published
+ * `artifact.events` order breaks the tie.
  *
- * DEDUP IS THE STALENESS GUARD AND THE DOUBLE-COUNT GUARD AT ONCE. A sidecar
- * row whose match key already appears in the published history is dropped —
- * it is redundant by construction, whether the sidecar is stale (the event was
- * republished since) or fresh (the publisher raced the tick). There is no
+ * DEDUP IS THE STALENESS GUARD AND THE DOUBLE-COUNT GUARD AT ONCE. A live row
+ * whose match key already appears in the published history is dropped — it is
+ * redundant by construction, whether the block is stale (the event was
+ * republished since, in which case the publisher's own write already stripped
+ * it and this is moot) or fresh (the publisher raced the tick). There is no
  * generation comparison, and there cannot be: the tick's own
  * `stamp.generation` is `tick-{nowMs}`, never the publisher's.
  *
@@ -90,9 +116,9 @@ export interface ExtendMetricHistoryParams {
  * array. The live tick had in fact always written an EVENT-LOCAL index into
  * that field anyway.
  *
- * With no live sidecar at all — every ordinary robot page — the published
- * array is returned BY IDENTITY, so React sees no new reference and no
- * consumer re-renders.
+ * With no live block at all — every ordinary robot page — the published array
+ * is returned BY IDENTITY, so React sees no new reference and no consumer
+ * re-renders.
  *
  * RETURNS A MUTABLE `MetricHistoryRow[]`, not a `readonly` one, and that is
  * deliberate: `officialSnapshotRow` and `preMatchMetrics` take the artifact's
@@ -101,27 +127,30 @@ export interface ExtendMetricHistoryParams {
  * modification to two modules this change promised not to touch, bought for a
  * compile-time guarantee against a mutation no caller here performs.
  */
-export function extendMetricHistory({ artifact, sidecars }: ExtendMetricHistoryParams): MetricHistoryRow[] {
-  if (sidecars.size === 0) return artifact.metricHistory;
+export function extendMetricHistory({ artifact, eventArtifacts }: ExtendMetricHistoryParams): MetricHistoryRow[] {
+  if (eventArtifacts.size === 0) return artifact.metricHistory;
 
   const publishedKeys = new Set(artifact.metricHistory.map((row) => row.matchKey));
   const orderedEvents = artifact.events
     .map((event, index) => ({ event, index }))
-    .filter((entry) => sidecars.get(entry.event.eventKey) != null)
+    .filter((entry) => eventArtifacts.get(entry.event.eventKey)?.live !== undefined)
     .sort((a, b) => a.event.startDate.localeCompare(b.event.startDate) || a.index - b.index);
 
   const appended: MetricHistoryRow[] = [];
   for (const { event } of orderedEvents) {
-    const sidecar = sidecars.get(event.eventKey);
-    if (sidecar == null) continue;
-    for (const row of sidecarRowsForTeam(sidecar, artifact.teamKey)) {
+    const eventArtifact = eventArtifacts.get(event.eventKey);
+    const live = eventArtifact?.live;
+    if (eventArtifact == null || live === undefined) continue;
+    for (const row of liveRowsForTeam(live, artifact.teamKey)) {
       if (publishedKeys.has(row.matchKey)) continue;
-      publishedKeys.add(row.matchKey); // two sidecars can never claim one match, but a duplicate would be a silent double point
+      publishedKeys.add(row.matchKey); // two events can never claim one match, but a duplicate would be a silent double point
       appended.push({
         matchKey: row.matchKey,
-        season: sidecar.season,
-        eventKey: sidecar.eventKey,
-        algorithmId: sidecar.algorithmId,
+        // The three identity fields come from the EVENT ARTIFACT'S OWN top
+        // level, not from the block — see `LiveEventArtifactLike`.
+        season: eventArtifact.season,
+        eventKey: eventArtifact.eventKey,
+        algorithmId: eventArtifact.algorithmId,
         teamKey: artifact.teamKey,
         matchIndex: 0, // replaced by array position below -- never a season-wide index
         metrics: row.metrics,
@@ -203,7 +232,7 @@ export type MetricsBasis = "last-official-match" | "season-final";
 
 export interface DeriveMetricsBasisParams {
   readonly published: MetricsBasis | undefined;
-  /** The event keys whose sidecar rows were appended by `extendMetricHistory` on this render. */
+  /** The event keys whose live rows were appended by `extendMetricHistory` on this render. */
   readonly liveEventKeys: readonly string[];
   readonly eventArtifactsByKey: ReadonlyMap<string, { readonly eventType?: number } | undefined>;
 }

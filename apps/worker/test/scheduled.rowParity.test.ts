@@ -220,6 +220,13 @@ function liveEvent(fold: ReturnType<typeof foldOf>, options: LiveEventOptions = 
     newBands: fold.bands,
     writtenRows: [],
     playedRowFacts: playedRowFactsFor(SEASON, fold.rawMatches, fold.folded, fold.results),
+    // 260918-16t: this file compares a LIVE event row against the OFFLINE
+    // publisher row for the same match, and the publisher writes no live
+    // block at all. An empty `realTouchedTeams` yields an empty header and
+    // therefore no block, keeping the two sides comparable.
+    realTouchedTeams: [],
+    touchedSigma: new Map(),
+    existingBodyBytes: 0,
     stamp: STAMP,
   });
   return json(LiveEventArtifactSchema.parse(merged));

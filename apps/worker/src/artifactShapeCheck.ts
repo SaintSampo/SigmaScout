@@ -85,6 +85,27 @@ function isSpliceableStateBlock(state: unknown): boolean {
 }
 
 /**
+ * Whether a `live` value can be handed to `mergeEventLiveBlock` at all: an
+ * object, with an array at `rows`. The rows' CONTENTS are deliberately NOT
+ * walked — an O(1) check is the entire point of this module, and the rows are
+ * the one part of the block that scales with match count. A bad ROW survives
+ * into the merge, is carried by reference into the merged body, and is caught
+ * at the write boundary by `LiveEventArtifactSchema.parse` like any other
+ * malformed output.
+ *
+ * `metricKeys` is not checked either: `mergeEventLiveBlock` reads it only
+ * through `sameKeyHeader`, whose `.length`/`.every` on a non-array would throw
+ * — but a block with an array at `rows` and no array at `metricKeys` is not a
+ * shape anything this pipeline writes, and adding the check would not make the
+ * guard cheaper or the failure quieter. It fails the same way any other
+ * corrupt block does: at the write.
+ */
+function isLiveBlock(live: unknown): boolean {
+  if (!isObject(live)) return false;
+  return Array.isArray(live.rows);
+}
+
+/**
  * The live event artifact as `mergeEventArtifact` needs it, or `undefined`
  * when the object cannot be merged — in which case the caller bootstraps,
  * exactly as a failed read-side `LiveEventArtifactSchema.parse` made it.
@@ -95,6 +116,13 @@ function isSpliceableStateBlock(state: unknown): boolean {
  * returning the object with `state` removed. Rejecting instead would turn a
  * one-key problem into a full history loss on every tick — a behaviour change
  * the read-side parse never had.
+ *
+ * A malformed `live` block (quick task 260918-16t) is handled IDENTICALLY and
+ * for the identical reason: `LiveEventArtifactSchema.live` is
+ * `EventLiveBlockSchema.optional().catch(undefined)`, so a bad block costs the
+ * BLOCK. Rejecting the artifact instead would cost the event its whole
+ * published history on EVERY tick for as long as the bad block sat in R2 —
+ * turning an ephemeral, self-healing key into a permanent outage.
  */
 export function checkLiveEventArtifactShape(value: unknown): LiveEventArtifact | undefined {
   if (!isObject(value)) return undefined;
@@ -103,9 +131,13 @@ export function checkLiveEventArtifactShape(value: unknown): LiveEventArtifact |
   // `existing.matches` for their published `sortTime`s, `existing.teams` for
   // the standings rows it replaces in place.
   if (!Array.isArray(value.matches) || !Array.isArray(value.upcoming) || !Array.isArray(value.teams)) return undefined;
-  if (value.state !== undefined && !isSpliceableStateBlock(value.state)) {
-    const { state: _malformed, ...withoutState } = value;
-    return withoutState as LiveEventArtifact;
+  const stateMalformed = value.state !== undefined && !isSpliceableStateBlock(value.state);
+  const liveMalformed = value.live !== undefined && !isLiveBlock(value.live);
+  if (stateMalformed || liveMalformed) {
+    const withoutBlocks: Record<string, unknown> = { ...value };
+    if (stateMalformed) delete withoutBlocks.state;
+    if (liveMalformed) delete withoutBlocks.live;
+    return withoutBlocks as LiveEventArtifact;
   }
   return value as LiveEventArtifact;
 }

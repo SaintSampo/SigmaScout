@@ -2015,6 +2015,17 @@ async function runSprPhaseB(params: {
       newBands: phaseA.newBands,
       writtenRows: phaseA.changedRows,
       playedRowFacts,
+      // THE LIVE BLOCK IS OFF IN THE BASE MERGE, deliberately (260918-16t).
+      // An empty `realTouchedTeams` yields an empty metric-key header, which
+      // `maintainedLiveBlock` reads as "this tick has nothing to say" and
+      // carries the existing block forward untouched. That keeps `allPhaseB`
+      // and `pbTeams0` measuring exactly what they measured before this change
+      // existed, so their committed anchors (17.5 ms and 9.9 ms) stay
+      // comparable. The `liveRows=N` arm below is the ONLY thing that turns
+      // the block on, which is what makes its delta attributable to it.
+      realTouchedTeams: [],
+      touchedSigma: new Map(),
+      existingBodyBytes: 0,
       stamp: PROBE_MERGE_STAMP,
     }) as { state?: { rows?: readonly unknown[] }; upcoming?: readonly unknown[]; matches?: readonly unknown[] };
   }

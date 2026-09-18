@@ -1,7 +1,8 @@
 /**
  * THE METRIC-HISTORY HALF OF THE PARITY CLAIM (quick task 260917-jr4, D-07).
  *
- * A row the BROWSER derives from a live metric sidecar must equal the row the
+ * A row the BROWSER derives from an event artifact's ephemeral `live` block
+ * must equal the row the
  * OFFLINE PUBLISHER would write for the same match, minus a stated exception
  * list. Both halves of the claim exist and neither substitutes for the other:
  *
@@ -31,7 +32,7 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { extendMetricHistory } from "../../web/src/lib/liveTeamSeason.js";
-import { mergeLiveMetricSidecar } from "../../../packages/harness/liveMetricSidecar.js";
+import { mergeEventLiveBlock } from "../../../packages/harness/liveEventRows.js";
 import { SIGMA_METRIC_KEY } from "../../../packages/harness/sigmaScore.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import type { MetricHistoryRow } from "../../../packages/harness/metricHistorySchema.js";
@@ -59,7 +60,7 @@ const MATCH_KEY = `${EVENT_KEY}_qm7`;
 const DERIVED_METRIC_ROW_EXCEPTIONS = [
   {
     field: "spread",
-    why: "the algorithm's OWN confidence in its rating. `MetricValue` refuses to render it and `metricHistorySeries.ts` reads its band from the sigma entry precisely so it cannot regress onto it, so the sidecar spends no bytes carrying a field nothing may display.",
+    why: "the algorithm's OWN confidence in its rating. `MetricValue` refuses to render it and `metricHistorySeries.ts` reads its band from the sigma entry precisely so it cannot regress onto it, so the live block spends no bytes carrying a field nothing may display.",
   },
   {
     field: "percentile",
@@ -104,24 +105,21 @@ function publisherRow(): MetricHistoryRow {
   return artifact.metricHistory[0]!;
 }
 
-/** What the BROWSER derives: the tick's raw values through the real sidecar merge, then the real `extendMetricHistory`. */
+/** What the BROWSER derives: the tick's raw values through the real live-block merge, then the real `extendMetricHistory`. */
 function derivedRow(): MetricHistoryRow {
-  const sidecar = mergeLiveMetricSidecar({
+  const { block } = mergeEventLiveBlock({
     existing: undefined,
-    eventKey: EVENT_KEY,
-    season: SEASON,
-    algorithmId: spr.id,
-    algorithmVersion: spr.version,
-    computedAt: STAMP.computedAt,
-    complete: false,
-    // Sorted union, exactly as `writeLiveMetricSidecar` computes it.
+    // Sorted union, exactly as `buildTickLiveRows` computes it.
     metricKeys: [...Object.keys(RAW_METRICS)].sort(),
     rows: [{ matchKey: MATCH_KEY, teamKeys: [TEAM_KEY], valuesByTeam: new Map([[TEAM_KEY, RAW_METRICS]]) }],
-  }).sidecar;
+    existingBodyBytes: 0,
+  });
 
   const extended = extendMetricHistory({
     artifact: { teamKey: TEAM_KEY, season: SEASON, algorithmId: spr.id, metricHistory: [], events: [{ eventKey: EVENT_KEY, startDate: "2026-03-05", matches: [] }] },
-    sidecars: new Map([[EVENT_KEY, sidecar]]),
+    // The three identity fields now come off the EVENT ARTIFACT's own top
+    // level, which is why the block carries none of them.
+    eventArtifacts: new Map([[EVENT_KEY, { season: SEASON, eventKey: EVENT_KEY, algorithmId: spr.id, live: block }]]),
   });
   expect(extended, "the derivation produced no row at all — every assertion below would be vacuous").toHaveLength(1);
   return extended[0]!;

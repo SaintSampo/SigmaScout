@@ -192,6 +192,12 @@ function mergeEventRaw(options: EventTickOptions): Record<string, unknown> {
     // Task 3: the merges take this tick's per-match facts; these preservation
     // fixtures fold no facts, which is a valid (empty) value.
     playedRowFacts: new Map(),
+    // 260918-16t: no live block on these preservation fixtures — an empty
+    // `realTouchedTeams` yields an empty header, which carries `existing.live`
+    // forward untouched, which is exactly what a preservation fixture wants.
+    realTouchedTeams: [],
+    touchedSigma: new Map(),
+    existingBodyBytes: 0,
     stamp: LIVE_STAMP,
   });
   return merged as Record<string, unknown>;

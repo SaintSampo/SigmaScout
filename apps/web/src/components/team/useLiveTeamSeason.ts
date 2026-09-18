@@ -94,8 +94,8 @@ export function useLiveTeamSeason(artifact: TeamSeasonArtifact | undefined, algo
       : event
   );
 
-  const metricHistory = extendMetricHistory({ artifact, sidecars: sidecarsByEventKey });
-  const contributingEventKeys = liveEvents.filter((event) => sidecarsByEventKey.get(event.eventKey) != null).map((event) => event.eventKey);
+  const metricHistory = extendMetricHistory({ artifact, eventArtifacts: eventArtifactsByKey });
+  const contributingEventKeys = liveEvents.filter((event) => eventArtifactsByKey.get(event.eventKey)?.live !== undefined).map((event) => event.eventKey);
   const record: SeasonRecord = deriveSeasonRecord({ artifact, overlaidEvents: events, eventArtifactsByKey });
   const metricsBasis = deriveMetricsBasis({ published: artifact.seasonStats.metricsBasis, liveEventKeys: contributingEventKeys, eventArtifactsByKey });
 

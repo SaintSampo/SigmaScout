@@ -396,13 +396,24 @@ interface PerAlgorithmFold {
  * surfaces at the write instead, which is what
  * `writeArtifactWithBootstrapRetry` below exists to handle.
  */
-async function readExistingEvent(env: Env, budget: SubrequestBudget, params: { page: "event"; eventKey: string; algorithmId: string; version: string }): Promise<LiveEventArtifact | undefined> {
+async function readExistingEvent(
+  env: Env,
+  budget: SubrequestBudget,
+  params: { page: "event"; eventKey: string; algorithmId: string; version: string }
+): Promise<{ artifact: LiveEventArtifact | undefined; bytes: number }> {
   const text = await readArtifactObject(env, budget, artifactKey(params));
-  if (text === undefined) return undefined;
+  if (text === undefined) return { artifact: undefined, bytes: 0 };
+  // `bytes` is the FETCHED body's own length, returned alongside the guarded
+  // artifact because this function already holds the text and `.length` is
+  // free. `mergeEventArtifact`'s live-block size trim is priced off it
+  // (260918-16t) precisely so the guard costs no second stringify. It is
+  // returned even when the guard rejects the object: the bytes are a fact
+  // about what was in R2, not about whether it parsed.
+  const bytes = text.length;
   try {
-    return checkLiveEventArtifactShape(JSON.parse(text));
+    return { artifact: checkLiveEventArtifactShape(JSON.parse(text)), bytes };
   } catch {
-    return undefined; // unparseable JSON -- degrade to a fresh bootstrap rather than fail the event
+    return { artifact: undefined, bytes }; // unparseable JSON -- degrade to a fresh bootstrap rather than fail the event
   }
 }
 
@@ -1025,7 +1036,7 @@ async function runPhaseBAndReport(
 
     for (const [algorithmId, info] of perAlgorithm) {
       const eventParams = { page: "event" as const, eventKey, algorithmId, version: info.algorithm.version };
-      const existingEvent = await readExistingEvent(env, budget, eventParams);
+      const { artifact: existingEvent, bytes: existingEventBytes } = await readExistingEvent(env, budget, eventParams);
       // Held as one object so the bootstrap retry below re-runs THIS merge with
       // `existing: undefined` and nothing else changed -- a second parameter
       // list would be a second thing to keep in sync.
@@ -1044,6 +1055,13 @@ async function runPhaseBAndReport(
         touchedTeams,
         touchedMetrics: info.touchedMetrics,
         playedRowFacts,
+        // The live block's three inputs (260918-16t). `realTouchedTeams`
+        // scopes its rows, `touchedSigma` joins its header as an ordinary
+        // metric key, and `existingEventBytes` is the fetched body's own
+        // length, which prices the size trim with no second stringify.
+        realTouchedTeams,
+        touchedSigma: info.touchedSigma,
+        existingBodyBytes: existingEventBytes,
         stamp,
       };
       const mergedEvent = mergeEventArtifact(eventMergeParams);

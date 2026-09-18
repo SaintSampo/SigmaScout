@@ -2001,3 +2001,46 @@ describe("EventArtifactSchema.state/eventType and LiveEventArtifactSchema (26091
     expect(EventArtifactSchema.safeParse(eventFixtureWith({ upcomingRows: [SCHEDULED_ROW] })).success).toBe(false);
   });
 });
+
+describe("LiveEventArtifactSchema.live — the EPHEMERALITY ASYMMETRY (260918-16t)", () => {
+  const LIVE_BLOCK = {
+    metricKeys: ["auto", "sigma", "total"],
+    rows: [
+      { m: "2026casj_qm2", t: ["frc254", "frc604"], v: [[12.5, 4.4, 44], [9, 2.1, 31.5]] },
+      { m: "2026casj_qm3", t: ["frc254"], v: [[13.25, 4.7, 47]] },
+    ],
+  };
+
+  it("LiveEventArtifactSchema PARSES a populated live block, because the live Worker writes through it", () => {
+    const parsed = LiveEventArtifactSchema.parse({ ...validEventFixture(), live: LIVE_BLOCK });
+    expect(parsed.live).toEqual(LIVE_BLOCK);
+  });
+
+  it("EventArtifactSchema STRIPS it — this strip is the ONLY thing that ever deletes live rows, and it is what makes a republish drop them", () => {
+    const body = { ...validEventFixture(), live: LIVE_BLOCK };
+    // Non-vacuity first: the body going in really does carry populated rows.
+    expect(body.live.rows.length).toBeGreaterThan(0);
+    const published = EventArtifactSchema.parse(body);
+    expect(
+      published,
+      "EventArtifactSchema must not declare `live`. The offline publisher parses with THIS schema, and zod strips unknown keys — that strip is the whole ephemerality mechanism, with no publisher change and no delete call anywhere. If this assertion fails, someone added `live` to EventArtifactSchema and live rows are now being PUBLISHED as though they were published data."
+    ).not.toHaveProperty("live");
+  });
+
+  it("a malformed live block CATCHes to absent rather than failing the whole artifact, exactly as `state` does", () => {
+    const parsed = LiveEventArtifactSchema.parse({ ...validEventFixture(), live: { metricKeys: ["total"], rows: [{ m: "", t: [], v: [] }] } });
+    expect(parsed.live).toBeUndefined();
+    // Everything else survives — this is `.catch(undefined)`, not a rejection.
+    expect(parsed.matches).toHaveLength(1);
+  });
+
+  it("an absent live key stays absent — the schema adds no key of its own", () => {
+    expect("live" in LiveEventArtifactSchema.parse(validEventFixture())).toBe(false);
+  });
+
+  it("the trim threshold stays below the event page's published byte ceiling, so the two cannot drift", async () => {
+    const { PAGE_BUDGET_MAX_BYTES } = await import("./publishBudget.js");
+    const { EVENT_LIVE_BLOCK_TRIM_THRESHOLD_BYTES } = await import("./pageArtifacts.js");
+    expect(EVENT_LIVE_BLOCK_TRIM_THRESHOLD_BYTES).toBeLessThan(PAGE_BUDGET_MAX_BYTES.event);
+  });
+});

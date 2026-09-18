@@ -24,7 +24,8 @@ import { officialSnapshotRow } from "./officialSnapshot.js";
 import { preMatchMetrics } from "./preMatchMetrics.js";
 import { buildMetricSeries, detectEventBands } from "../components/team/metricHistorySeries.js";
 import { endOfEventMetrics } from "../components/team/EventSection.js";
-import { mergeLiveMetricSidecar, type LiveMetricSidecar } from "../../../../packages/harness/liveMetricSidecar.js";
+import { mergeEventLiveBlock } from "../../../../packages/harness/liveEventRows.js";
+import type { LiveEventArtifactLike } from "./liveTeamSeason.js";
 import { SIGMA_METRIC_KEY } from "../../../../packages/harness/sigmaScore.js";
 import type { MetricHistoryRow } from "../../../../packages/harness/metricHistorySchema.js";
 
@@ -35,22 +36,27 @@ const EVENT_A = "2026casj";
 const EVENT_B = "2026cafr";
 const KEYS = ["total", SIGMA_METRIC_KEY];
 
-function sidecarOf(eventKey: string, rows: readonly { matchKey: string; teams: readonly string[]; total: number; sigma: number }[]): LiveMetricSidecar {
-  return mergeLiveMetricSidecar({
+/**
+ * One live event's fetched ARTIFACT, with its `live` block built by the REAL
+ * `mergeEventLiveBlock` rather than hand-written — a hand-built block could
+ * encode values the shipped merge never would, and this file's whole claim is
+ * about what the shipped pair does end to end.
+ *
+ * The three identity fields sit at the artifact's top level, which is where
+ * `extendMetricHistory` now sources them from: the block itself carries none.
+ */
+function liveEventOf(eventKey: string, rows: readonly { matchKey: string; teams: readonly string[]; total: number; sigma: number }[]): LiveEventArtifactLike {
+  const { block } = mergeEventLiveBlock({
     existing: undefined,
-    eventKey,
-    season: SEASON,
-    algorithmId: ALGORITHM,
-    algorithmVersion: "5.0.0+baseline",
-    computedAt: "2026-03-07T18:00:00.000Z",
-    complete: false,
     metricKeys: KEYS,
+    existingBodyBytes: 0,
     rows: rows.map((row) => ({
       matchKey: row.matchKey,
       teamKeys: row.teams,
       valuesByTeam: new Map(row.teams.map((teamKey) => [teamKey, teamKey === TEAM ? { total: row.total, [SIGMA_METRIC_KEY]: row.sigma } : { total: 0, [SIGMA_METRIC_KEY]: 0 }])),
     })),
-  }).sidecar;
+  });
+  return { season: SEASON, eventKey, algorithmId: ALGORITHM, live: block };
 }
 
 function publishedRow(matchKey: string, eventKey: string, matchIndex: number, total: number): MetricHistoryRow {
@@ -64,55 +70,55 @@ function artifactOf(params: { metricHistory: MetricHistoryRow[]; events: { event
 describe("extendMetricHistory", () => {
   it("returns the published array BY IDENTITY when no event is live", () => {
     const artifact = artifactOf({ metricHistory: [publishedRow("2026casj_qm1", EVENT_A, 0, 40)], events: [{ eventKey: EVENT_A, startDate: "2026-03-05", matches: [] }] });
-    expect(extendMetricHistory({ artifact, sidecars: new Map() })).toBe(artifact.metricHistory);
+    expect(extendMetricHistory({ artifact, eventArtifacts: new Map() })).toBe(artifact.metricHistory);
   });
 
-  it("returns the published array by identity when the live event's sidecar has no row for this team", () => {
+  it("returns the published array by identity when the live event's live block has no row for this team", () => {
     const artifact = artifactOf({ metricHistory: [publishedRow("2026casj_qm1", EVENT_A, 0, 40)], events: [{ eventKey: EVENT_A, startDate: "2026-03-05", matches: [] }] });
-    const sidecars = new Map([[EVENT_A, sidecarOf(EVENT_A, [{ matchKey: "2026casj_qm9", teams: ["frc9999"], total: 5, sigma: 5 }])]]);
-    expect(extendMetricHistory({ artifact, sidecars })).toBe(artifact.metricHistory);
+    const eventArtifacts = new Map([[EVENT_A, liveEventOf(EVENT_A, [{ matchKey: "2026casj_qm9", teams: ["frc9999"], total: 5, sigma: 5 }])]]);
+    expect(extendMetricHistory({ artifact, eventArtifacts })).toBe(artifact.metricHistory);
   });
 
-  it("appends the sidecar's rows for this team after the published ones", () => {
+  it("appends the live block's rows for this team after the published ones", () => {
     const artifact = artifactOf({ metricHistory: [publishedRow("2026casj_qm1", EVENT_A, 0, 40)], events: [{ eventKey: EVENT_A, startDate: "2026-03-05", matches: [] }] });
-    const sidecars = new Map([
+    const eventArtifacts = new Map([
       [
         EVENT_A,
-        sidecarOf(EVENT_A, [
+        liveEventOf(EVENT_A, [
           { matchKey: "2026casj_qm2", teams: [TEAM, "frc2"], total: 44, sigma: 2 },
           { matchKey: "2026casj_qm3", teams: [TEAM, "frc3"], total: 47, sigma: 3 },
         ]),
       ],
     ]);
-    const extended = extendMetricHistory({ artifact, sidecars });
+    const extended = extendMetricHistory({ artifact, eventArtifacts });
     expect(extended.map((row) => row.matchKey)).toEqual(["2026casj_qm1", "2026casj_qm2", "2026casj_qm3"]);
     expect(extended.map((row) => row.metrics.total?.value)).toEqual([40, 44, 47]);
   });
 
-  it("DROPS a sidecar row whose match key is already published — the dedup that is both the double-count guard and the staleness guard", () => {
+  it("DROPS a live row whose match key is already published — the dedup that is both the double-count guard and the staleness guard", () => {
     const artifact = artifactOf({
       metricHistory: [publishedRow("2026casj_qm1", EVENT_A, 0, 40), publishedRow("2026casj_qm2", EVENT_A, 1, 44)],
       events: [{ eventKey: EVENT_A, startDate: "2026-03-05", matches: [] }],
     });
-    const sidecars = new Map([
+    const eventArtifacts = new Map([
       [
         EVENT_A,
-        sidecarOf(EVENT_A, [
+        liveEventOf(EVENT_A, [
           { matchKey: "2026casj_qm1", teams: [TEAM], total: 999, sigma: 9 },
           { matchKey: "2026casj_qm2", teams: [TEAM], total: 999, sigma: 9 },
           { matchKey: "2026casj_qm3", teams: [TEAM], total: 47, sigma: 3 },
         ]),
       ],
     ]);
-    const extended = extendMetricHistory({ artifact, sidecars });
+    const extended = extendMetricHistory({ artifact, eventArtifacts });
     expect(extended.map((row) => row.matchKey)).toEqual(["2026casj_qm1", "2026casj_qm2", "2026casj_qm3"]);
     expect(new Set(extended.map((row) => row.matchKey)).size).toBe(extended.length);
-    // The published values win: a stale sidecar row is inert, not authoritative.
+    // The published values win: a stale live row is inert, not authoritative.
     expect(extended[0]!.metrics.total?.value).toBe(40);
     expect(extended[1]!.metrics.total?.value).toBe(44);
   });
 
-  it("orders two live events' blocks by their startDate, then by sidecar order within each block", () => {
+  it("orders two live events' blocks by their startDate, then by fold order within each block", () => {
     const artifact = artifactOf({
       metricHistory: [],
       // Deliberately listed LATER-event-first, so a correct result cannot come
@@ -122,11 +128,11 @@ describe("extendMetricHistory", () => {
         { eventKey: EVENT_A, startDate: "2026-03-05", matches: [] },
       ],
     });
-    const sidecars = new Map([
-      [EVENT_B, sidecarOf(EVENT_B, [{ matchKey: "2026cafr_qm1", teams: [TEAM], total: 60, sigma: 6 }, { matchKey: "2026cafr_qm2", teams: [TEAM], total: 62, sigma: 6 }])],
-      [EVENT_A, sidecarOf(EVENT_A, [{ matchKey: "2026casj_qm1", teams: [TEAM], total: 40, sigma: 4 }, { matchKey: "2026casj_qm2", teams: [TEAM], total: 44, sigma: 4 }])],
+    const eventArtifacts = new Map([
+      [EVENT_B, liveEventOf(EVENT_B, [{ matchKey: "2026cafr_qm1", teams: [TEAM], total: 60, sigma: 6 }, { matchKey: "2026cafr_qm2", teams: [TEAM], total: 62, sigma: 6 }])],
+      [EVENT_A, liveEventOf(EVENT_A, [{ matchKey: "2026casj_qm1", teams: [TEAM], total: 40, sigma: 4 }, { matchKey: "2026casj_qm2", teams: [TEAM], total: 44, sigma: 4 }])],
     ]);
-    expect(extendMetricHistory({ artifact, sidecars }).map((row) => row.matchKey)).toEqual(["2026casj_qm1", "2026casj_qm2", "2026cafr_qm1", "2026cafr_qm2"]);
+    expect(extendMetricHistory({ artifact, eventArtifacts }).map((row) => row.matchKey)).toEqual(["2026casj_qm1", "2026casj_qm2", "2026cafr_qm1", "2026cafr_qm2"]);
   });
 
   it("breaks a startDate tie by the published artifact.events order", () => {
@@ -137,11 +143,11 @@ describe("extendMetricHistory", () => {
         { eventKey: EVENT_A, startDate: "2026-03-05", matches: [] },
       ],
     });
-    const sidecars = new Map([
-      [EVENT_A, sidecarOf(EVENT_A, [{ matchKey: "2026casj_qm1", teams: [TEAM], total: 40, sigma: 4 }])],
-      [EVENT_B, sidecarOf(EVENT_B, [{ matchKey: "2026cafr_qm1", teams: [TEAM], total: 60, sigma: 6 }])],
+    const eventArtifacts = new Map([
+      [EVENT_A, liveEventOf(EVENT_A, [{ matchKey: "2026casj_qm1", teams: [TEAM], total: 40, sigma: 4 }])],
+      [EVENT_B, liveEventOf(EVENT_B, [{ matchKey: "2026cafr_qm1", teams: [TEAM], total: 60, sigma: 6 }])],
     ]);
-    expect(extendMetricHistory({ artifact, sidecars }).map((row) => row.matchKey)).toEqual(["2026cafr_qm1", "2026casj_qm1"]);
+    expect(extendMetricHistory({ artifact, eventArtifacts }).map((row) => row.matchKey)).toEqual(["2026cafr_qm1", "2026casj_qm1"]);
   });
 
   it("gives every DERIVED row its zero-based array position as matchIndex — no season-wide index is invented", () => {
@@ -149,16 +155,16 @@ describe("extendMetricHistory", () => {
       metricHistory: [publishedRow("2026casj_qm1", EVENT_A, 137, 40)],
       events: [{ eventKey: EVENT_A, startDate: "2026-03-05", matches: [] }],
     });
-    const sidecars = new Map([[EVENT_A, sidecarOf(EVENT_A, [{ matchKey: "2026casj_qm2", teams: [TEAM], total: 44, sigma: 2 }, { matchKey: "2026casj_qm3", teams: [TEAM], total: 47, sigma: 3 }])]]);
-    const extended = extendMetricHistory({ artifact, sidecars });
+    const eventArtifacts = new Map([[EVENT_A, liveEventOf(EVENT_A, [{ matchKey: "2026casj_qm2", teams: [TEAM], total: 44, sigma: 2 }, { matchKey: "2026casj_qm3", teams: [TEAM], total: 47, sigma: 3 }])]]);
+    const extended = extendMetricHistory({ artifact, eventArtifacts });
     expect(extended.map((row) => row.matchIndex)).toEqual([137, 1, 2]);
   });
 
   it("never mutates the published array", () => {
     const published = [publishedRow("2026casj_qm1", EVENT_A, 0, 40)];
     const artifact = artifactOf({ metricHistory: published, events: [{ eventKey: EVENT_A, startDate: "2026-03-05", matches: [] }] });
-    const sidecars = new Map([[EVENT_A, sidecarOf(EVENT_A, [{ matchKey: "2026casj_qm2", teams: [TEAM], total: 44, sigma: 2 }])]]);
-    extendMetricHistory({ artifact, sidecars });
+    const eventArtifacts = new Map([[EVENT_A, liveEventOf(EVENT_A, [{ matchKey: "2026casj_qm2", teams: [TEAM], total: 44, sigma: 2 }])]]);
+    extendMetricHistory({ artifact, eventArtifacts });
     expect(published).toHaveLength(1);
   });
 });
@@ -168,18 +174,18 @@ describe("the UNCHANGED consumers become correct when fed the extended array", (
     metricHistory: [publishedRow("2026casj_qm1", EVENT_A, 0, 40)],
     events: [{ eventKey: EVENT_A, startDate: "2026-03-05", matches: [] }],
   });
-  const sidecars = new Map([
+  const eventArtifacts = new Map([
     [
       EVENT_A,
-      sidecarOf(EVENT_A, [
+      liveEventOf(EVENT_A, [
         { matchKey: "2026casj_qm2", teams: [TEAM], total: 44, sigma: 2 },
         { matchKey: "2026casj_qm3", teams: [TEAM], total: 47, sigma: 3 },
       ]),
     ],
   ]);
-  const extended = extendMetricHistory({ artifact, sidecars });
+  const extended = extendMetricHistory({ artifact, eventArtifacts });
 
-  it("buildMetricSeries plots the sidecar matches with the sidecar's own sigma values", () => {
+  it("buildMetricSeries plots the live-block matches with the block's own sigma values", () => {
     const points = buildMetricSeries(extended, "total");
     expect(points.map((p) => p.x)).toEqual([1, 2, 3]);
     expect(points.map((p) => p.value)).toEqual([40, 44, 47]);
@@ -192,7 +198,7 @@ describe("the UNCHANGED consumers become correct when fed the extended array", (
     expect(bands[0]).toMatchObject({ eventKey: EVENT_A, startX: 1, endX: 3 });
   });
 
-  it("preMatchMetrics returns the row PRECEDING a sidecar-sourced match", () => {
+  it("preMatchMetrics returns the row PRECEDING a live-block-sourced match", () => {
     expect(preMatchMetrics(extended, "2026casj_qm3", { played: true })?.asOfMatchKey).toBe("2026casj_qm2");
     expect(preMatchMetrics(extended, "2026casj_qm2", { played: true })?.asOfMatchKey).toBe("2026casj_qm1");
   });

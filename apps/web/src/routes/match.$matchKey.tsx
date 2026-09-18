@@ -122,6 +122,10 @@ function MatchPage() {
     () => new Map<string, LiveMetricSidecar | null>(sidecarQuery.data == null ? [] : [[eventKey, sidecarQuery.data]]),
     [eventKey, sidecarQuery.data]
   );
+  // The live rows now ride the event artifact this page ALREADY fetches
+  // (260918-16t), so `extendMetricHistory` is fed that same `data` object
+  // rather than a second fetch's result.
+  const liveEventArtifacts = useMemo(() => new Map(data === undefined ? [] : [[eventKey, data]]), [eventKey, data]);
 
   // Built here, not inside `MatchRobotGrid` (which stays a pure function of
   // its props per Task 2's own contract). A team artifact that 404s or fails
@@ -139,7 +143,7 @@ function MatchPage() {
       // extended history rather than the published one.
       preMatch:
         teamArtifact !== undefined && row !== undefined
-          ? preMatchMetrics(extendMetricHistory({ artifact: teamArtifact, sidecars }), matchKey, { played: row.played })
+          ? preMatchMetrics(extendMetricHistory({ artifact: teamArtifact, eventArtifacts: liveEventArtifacts }), matchKey, { played: row.played })
           : undefined,
       isPending: result.isPending,
     };

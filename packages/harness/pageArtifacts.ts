@@ -1415,6 +1415,125 @@ export type EventStateBlockRow = z.infer<typeof EventStateBlockRowSchema>;
 export type EventStateBlock = z.infer<typeof EventStateBlockSchema>;
 
 // ---------------------------------------------------------------------------
+// EventLiveBlockSchema — the EPHEMERAL per-match metric rows a live tick
+// carries INSIDE the event artifact (quick task 260918-16t)
+// ---------------------------------------------------------------------------
+
+/**
+ * One match's per-team post-match metrics, in the compact positional
+ * encoding: `t` names the teams once, and `v[i]` is `t[i]`'s values INDEX-
+ * ALIGNED to the block's own `metricKeys` header, with `null` for a key that
+ * team has no value for. The header is stated ONCE for the whole block rather
+ * than per row, which is most of the size saving.
+ *
+ * WHAT DELIBERATELY DOES NOT TRAVEL, carried forward verbatim in substance
+ * from the deleted `liveMetricSidecar.ts` this block replaces:
+ *
+ * - `spread` is NOT carried. SPR emits it, `MetricValue` refuses to render
+ *   it, and `metricHistorySeries.ts` reads its band from the `sigma` entry
+ *   precisely so it cannot regress onto `spread`. Carrying a field nothing
+ *   may display would be bytes spent on a hazard.
+ * - `percentile` is NOT carried. The live tick computes none today either —
+ *   see `touchedEventTeamMetrics`' own "known limitation" doc comment in
+ *   `apps/worker/src/artifactMerge.ts`. A live row therefore matches a
+ *   published metric-history row minus `percentile`, which is exactly what
+ *   the live path already did.
+ * - `matchIndex` is NOT carried. The consumer assigns each derived row its
+ *   ARRAY POSITION in the extended history, which is the only thing
+ *   `buildMetricSeries` (`x: index + 1`), `preMatchMetrics`,
+ *   `endOfEventMetrics` and `officialSnapshotRow` actually use.
+ * - `SIGMA_METRIC_KEY` is an ORDINARY member of `metricKeys` for a Sigma
+ *   algorithm. There is no special case for Sigma anywhere in this encoding.
+ */
+export const EventLiveRowSchema = z.object({
+  /** The match key these metrics are the state AFTER. */
+  m: z.string().min(1),
+  /** Team keys, in the order `v` uses. */
+  t: z.array(z.string().min(1)),
+  /** Per-team value arrays, index-aligned to `metricKeys`; `null` is "no value for this key". */
+  v: z.array(z.array(z.number().nullable())),
+});
+
+/**
+ * The live block itself: a metric-key header stated once, and one row per
+ * match folded since the last republish.
+ *
+ * STRUCTURAL ONLY, no refine, for the same reason `EventStateBlockSchema`
+ * carries none: a malformed block must never fail the whole event-artifact
+ * parse. `mergeEventLiveBlock` (`packages/harness/liveEventRows.ts`) enforces
+ * the one invariant that matters — every row's value arrays index-aligned to
+ * this header — at write time, and `liveRowsForTeam` tolerates a short or
+ * absent array at read time by dropping the key rather than inventing a zero.
+ */
+export const EventLiveBlockSchema = z.object({
+  /** The metric-key header, stated once, in the order every row's value arrays use. Sorted by the builder so a later tick's header is byte-identical. */
+  metricKeys: z.array(z.string().min(1)),
+  /** Append-only, in fold order, one row per match. */
+  rows: z.array(EventLiveRowSchema),
+});
+
+export type EventLiveRow = z.infer<typeof EventLiveRowSchema>;
+export type EventLiveBlock = z.infer<typeof EventLiveBlockSchema>;
+
+/**
+ * The byte threshold, measured against the event body AS READ FROM R2 this
+ * tick, above which the merge retains only the most recent
+ * `EVENT_LIVE_BLOCK_TRIM_RETAIN_ROWS` live rows.
+ *
+ * THIS IS A BACKSTOP FOR A DEFECT OR AN UNFORESEEN SHAPE, NOT AN EXPECTED
+ * BEHAVIOUR. The arithmetic, from `docs/publish-budget.md`'s committed budget
+ * block and quick task 260917-jr4's row measurement:
+ *
+ * | Quantity | Bytes | Source |
+ * |---|---|---|
+ * | `event` page ceiling | 350,000 | `PAGE_BUDGET_MAX_BYTES.event` |
+ * | largest published event body | 228,971 | `v1/event/2016micmp/spr@4.0.0+baseline.json` (a 241-match 2016 DCMP) |
+ * | p95 published event body | 105,559 | same block |
+ * | live row | ~330 | measured 260917-jr4 (~45 KB at 147 rows) |
+ * | a 140-match championship division's live rows | ~46,200 | 140 x 330 |
+ * | a 241-match 2016-shaped event's live rows | ~79,530 | 241 x 330 |
+ *
+ * Worst realistic composition — the largest published body carrying its own
+ * event's full weekend of live rows, never republished: 228,971 + 79,530 =
+ * **308,501 B, 88% of the ceiling, 41,499 B spare.** The 140-match
+ * championship division against the same largest body is 275,171 B (79%). The
+ * worst realistic case FITS.
+ *
+ * ONE TERM IS NOT IN THAT ARITHMETIC, named here rather than guessed at: a
+ * LIVE event also carries an `EventStateBlock` that a finished published event
+ * does not, sized by roster rather than by match count. The 41,499 B of spare
+ * headroom above is what absorbs it, and this threshold is what catches the
+ * case where it does not.
+ *
+ * The input is FREE: the tick already holds the fetched body's text and its
+ * `.length`, so the guard costs no second stringify.
+ *
+ * NEVER A THROW and never a truncation of anything but live rows. A throw
+ * loses that tick's rows permanently (the event cursor has already advanced,
+ * so those matches are never folded again), and truncating any other key would
+ * destroy published history.
+ *
+ * DECLARED HERE, not in `publishBudget.ts`, because that module imports
+ * `node:path` and is therefore not Worker-safe. `pageArtifacts.test.ts` pins
+ * this value below `PAGE_BUDGET_MAX_BYTES.event` so the two cannot drift.
+ */
+export const EVENT_LIVE_BLOCK_TRIM_THRESHOLD_BYTES = 300_000;
+
+/**
+ * How many of the most recent live rows survive a trim.
+ *
+ * WHAT THE CHART LOSES WHEN THE TRIM FIRES, stated here rather than
+ * discovered later: the EARLIEST live rows at that event vanish, leaving a gap
+ * between the last published row and the retained ones. `buildMetricSeries`
+ * plots array position, so the x-axis compresses across that gap.
+ * `preMatchMetrics` for a match inside the gap falls back to the row preceding
+ * it — now the last published row, stale but true, not wrong.
+ * `endOfEventMetrics` and `officialSnapshotRow` take the LAST matching row and
+ * are unaffected. It self-heals at the next republish.
+ */
+export const EVENT_LIVE_BLOCK_TRIM_RETAIN_ROWS = 40;
+
+// ---------------------------------------------------------------------------
 // EventArtifactSchema — v1/event/{eventKey}/{algorithmId}@{version}.json
 // ---------------------------------------------------------------------------
 
@@ -1622,6 +1741,37 @@ export type EventScheduledMatch = z.infer<typeof EventScheduledMatchSchema>;
  */
 export const LiveEventArtifactSchema = EventArtifactSchema.extend({
   upcoming: z.array(z.union([EventUpcomingMatchSchema, EventScheduledMatchSchema])),
+  /**
+   * The EPHEMERAL per-match metric rows a live tick folds (quick task
+   * 260918-16t). Declared HERE AND NOWHERE ELSE, and that asymmetry is the
+   * ENTIRE ephemerality mechanism — not a convention, not a literal flag, and
+   * no delete call anywhere:
+   *
+   *   - the live Worker's writer validates it, because `SCHEMA_BY_PAGE.event`
+   *     is this schema;
+   *   - the web parses it for free, because `apps/web/src/lib/api/event.ts`
+   *     parses with this schema too;
+   *   - THE OFFLINE PUBLISHER STRIPS IT. `publish.ts` writes through
+   *     `EventArtifactSchema`, which does not declare this key, and zod
+   *     objects strip unknown keys. So the next republish of an event emits a
+   *     body with no `live` key at all, with NO publisher change. That strip
+   *     is the answer to both "how is this marked ephemeral" and "what happens
+   *     at the next republish".
+   *
+   * DO NOT add this key to `EventArtifactSchema` for any reason. Doing so
+   * would publish live rows as though they were published data and would
+   * silently remove the only thing that ever deletes them.
+   *
+   * Placed AFTER `state` so both large blocks serialize at the end of the
+   * body, with the block the event page needs for first paint (`state`,
+   * which prices `upcoming`) ahead of the one only the robot and match pages
+   * read.
+   *
+   * `.catch(undefined)`: a malformed block parses to an absent one instead of
+   * failing the whole artifact, matching `state`'s own rule. A one-key problem
+   * must never become a full history loss.
+   */
+  live: EventLiveBlockSchema.optional().catch(undefined),
 });
 
 export type LiveEventArtifact = z.infer<typeof LiveEventArtifactSchema>;

@@ -273,6 +273,12 @@ function mergeEvent(existing: LiveEventArtifact | undefined): unknown {
     newBands: new Map(),
     writtenRows: [],
     playedRowFacts: new Map(),
+    // The live block's inputs (260918-16t), set so every equivalence
+    // assertion below ALSO exercises the block rather than leaving it absent:
+    // a non-empty `realTouchedTeams` gives `buildTickLiveRows` a real header.
+    realTouchedTeams: TOUCHED,
+    touchedSigma: new Map(),
+    existingBodyBytes: 0,
     stamp: LIVE_STAMP,
   });
 }
@@ -468,5 +474,66 @@ describe("a malformed `state` block drops the block, never the artifact", () => 
     const raw = offlineEventArtifact();
     expect(raw).not.toHaveProperty("state");
     expect(checkLiveEventArtifactShape(json(raw))).not.toHaveProperty("state");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Group 5 — the `live` block mirrors `state`'s `.catch(undefined)` exactly
+// (quick task 260918-16t)
+// ---------------------------------------------------------------------------
+
+describe("a malformed `live` block drops the block, never the artifact", () => {
+  const malformed: [string, unknown][] = [
+    ["not an object", "stale"],
+    ["null", null],
+    ["an array", []],
+    ["a block with no `rows` at all", { metricKeys: ["total"] }],
+    ["a block whose `rows` is not an array", { metricKeys: ["total"], rows: {} }],
+  ];
+
+  for (const [name, live] of malformed) {
+    it(`drops ${name} and keeps every other key`, () => {
+      const raw = { ...offlineEventArtifact(), live };
+      const guarded = checkLiveEventArtifactShape(json(raw)) as Record<string, unknown> | undefined;
+      expect(guarded).toBeDefined();
+      expect(guarded).not.toHaveProperty("live");
+      // Everything else survives — this is `.catch(undefined)`, not a rejection.
+      // REJECTING instead would cost this event its whole published history on
+      // EVERY tick for as long as the bad block sat in R2, turning an
+      // ephemeral, self-healing key into a permanent outage.
+      expect(guarded!.matches).toEqual((raw as Record<string, unknown>).matches);
+      expect(guarded!.teams).toEqual((raw as Record<string, unknown>).teams);
+      expect(guarded!.alliances).toEqual((raw as Record<string, unknown>).alliances);
+    });
+  }
+
+  it("the merged artifact is byte-identical to the zod-parsed path, which `.catch`es the same block away", () => {
+    const raw = { ...offlineEventArtifact(), live: { metricKeys: ["total"], rows: {} } };
+    expect(publishedEventBytes(mergeEvent(checkLiveEventArtifactShape(json(raw))))).toBe(publishedEventBytes(mergeEvent(LiveEventArtifactSchema.parse(json(raw)))));
+  });
+
+  it("a WELL-SHAPED block survives the guard and the merge publishes bytes identical to the zod-parsed path", () => {
+    const live = { metricKeys: ["total"], rows: [{ m: `${EVENT_KEY}_qm1`, t: [TEAMS[0]!], v: [[40]] }] };
+    const raw = { ...offlineEventArtifact(), live };
+    const guarded = checkLiveEventArtifactShape(json(raw));
+    expect(guarded?.live).toBeDefined();
+    const fromGuard = mergeEvent(guarded) as Record<string, unknown>;
+    // Non-vacuity: this fixture really does carry a block through the merge.
+    expect(fromGuard.live).toBeDefined();
+    expect(publishedEventBytes(fromGuard)).toBe(publishedEventBytes(mergeEvent(LiveEventArtifactSchema.parse(json(raw)))));
+  });
+
+  it("BOTH blocks can be malformed at once and both drop independently", () => {
+    const raw = { ...offlineEventArtifact(), state: { rows: [null] }, live: "stale" };
+    const guarded = checkLiveEventArtifactShape(json(raw));
+    expect(guarded).toBeDefined();
+    expect(guarded).not.toHaveProperty("state");
+    expect(guarded).not.toHaveProperty("live");
+  });
+
+  it("an absent `live` key stays absent — the guard adds no key of its own", () => {
+    const raw = offlineEventArtifact();
+    expect(raw).not.toHaveProperty("live");
+    expect(checkLiveEventArtifactShape(json(raw))).not.toHaveProperty("live");
   });
 });
