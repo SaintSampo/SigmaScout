@@ -20,7 +20,7 @@
     },
     {
       "algorithmId": "bpr",
-      "algorithmVersion": "4.0.0+baseline",
+      "algorithmVersion": "5.0.0+baseline",
       "predictionStreamSha256": "ee9acfec85ae0a72c3bbd53ea82092efe1e706352f2be9512798be72551ede49"
     }
   ]
