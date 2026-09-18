@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 09
 status: completed
 stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
-last_updated: "2026-09-17T21:25:23.261Z"
-last_activity: 2026-09-17
+last_updated: "2026-09-18T05:55:11.340Z"
+last_activity: 2026-09-18
 last_activity_desc: "Completed quick task 260913-rh5: republished spr@4.0.0 and the Swing teardown (generation 2dcc057f), D1 seeded, Worker fcc7ca73; R2 deletions left to Jacob"
 progress:
   total_phases: 12
@@ -611,6 +611,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 207 | Championship Alliances tab: drop the backup label on a real fourth member (event_type 3 and 4) and publish allianceTeams so unplayed picks get pills and a combined total; republish owed | 2026-09-17 | 04cf4897 | [260917-kem-fix-alliances-tab-at-championship-events](./quick/260917-kem-fix-alliances-tab-at-championship-events/) |
 | 208 | Teams bubble chart gains a Colour by control (Total or Sigma Score rarity), held in the tint search param | 2026-09-17 | 658fec1a | [260917-mwi-teams-bubble-chart-toggle-to-colour-poin](./quick/260917-mwi-teams-bubble-chart-toggle-to-colour-poin/) |
 | 209 | Ran the gating experiment for the relay architecture, bar committed before the instrument existed. Half A: a one-event browser replay CANNOT reproduce published rows. The state block is perfect, error exactly zero at match 1, but SPR's league-scoped scale and logTau drift up to 51 percent across an event because 972 to 1419 matches from other events step them in between, ending 124 points wrong on a predicted score and flipping the predicted winner on 5 of 99 at a regional. Architectural, not fixable by another passenger. Half B: three engines ran and DO differ, with Node V8 matching SpiderMonkey bit for bit while Chrome's V8 does not; rounding absorbed every difference but the tightest margin fell from 3580x to 84x between a 99 and a 141 match event, so INCONCLUSIVE rather than a pass. The validity gate failed on the first run and the pass was discarded, which caught a harness bug. Incidentally found a shipped defect: seedStateRows drops Sigma and RP beliefs for teams with no level-1 row, affecting the D1 seed and every published state block | 2026-09-17 | 8df7b4fd | [260917-mwu-replay-parity-can-the-browser-fold-repro](./quick/260917-mwu-replay-parity-can-the-browser-fold-repro/) |
+| 210 | Live history rows move into the event artifact: sidecar deleted, subrequests now 2 + 4A (6 per event at A=1), carry-forward by reference, liveRows=N and liveRows=N:carry probe arms with a pre-registered bar | 2026-09-18 | f4124534 | [260918-16t-live-history-rows-move-into-the-event-ar](./quick/260918-16t-live-history-rows-move-into-the-event-ar/) |
 
 ### Roadmap Evolution
 
