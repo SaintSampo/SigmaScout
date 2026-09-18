@@ -226,6 +226,89 @@ the fresh/reused split, parse `isolateRequest=N` from each tail event's logs. Ar
 `rpSkip=` (see `docs/worker-operations.md`, "Pre-event probe"). **The probe is LEFT DEPLOYED** at
 `28051f5c`.
 
+## LIVE ROWS IN THE EVENT FILE — the bar COULD NOT BE EVALUATED, and the instrument is why (2026-09-18, measured against the bar below)
+
+**Read this before writing another pre-registered bar in this file.** The verdict is not "it worked"
+and not "it did not work". The bar pre-registered below **could not be evaluated at all**, because two
+of its three legs are stated in absolute `cpuTime` and this instrument cannot reproduce an absolute
+`cpuTime` to better than about 5 ms between runs. Jacob was given the choice and chose to record it as
+unevaluable and ship on the relative result rather than re-register a new bar (2026-09-18).
+
+### The validity gate failed twice, on unchanged code
+
+The gate arms exist to prove a run is comparable to the run the bar was written against. Across four
+runs, on code that does not differ in the fold path at all (`git log` over the SPR path since
+`552cb087` is empty):
+
+| arm (reused stratum) | anchor | sidecar run | run A (4-arm) | run B (3-arm) | spread |
+|---|---|---|---|---|---|
+| `allPhaseB` | 17.5 | 18.9 | 18.7 | 22.1 | **4.6 ms** |
+| `pbTeams0` | 9.9 | 12.2 | 14.9 | 13.4 | **5.0 ms** |
+
+Run A failed the gate on `pbTeams0` (14.9 against 9.9 ± 3.0). Run B, which was a deliberate
+replication of the **exact three-arm design the anchors were set under**, failed it on *both* arms.
+That replication is the load-bearing evidence: it falsifies the first hypothesis (that adding a fourth
+arm re-sliced the isolate-age mix) and leaves no explanation but the instrument's own run-to-run
+variance. Within run B the reused stratum is in fact homogeneous — `pbTeams0` reads 13.0 / 14.0 / 13.8
+at isolate ages 2 / 3 / 4+ — so isolate-age composition is not the cause either.
+
+**The effect under test is 1–3 ms. The noise on an unchanged arm is ~5 ms.** No number of repetitions
+of this design fixes that, which is why a third run was not taken.
+
+### What DOES reproduce, and it is the thing worth knowing
+
+Within-run differences are stable across independent runs in a way absolute means are not:
+
+| quantity | run A | run B | agree? |
+|---|---|---|---|
+| **live block cost** (`pbLiveRows − pbTeams0`) | **+2.7 ± 2.0 ms** | **+1.7 ± 1.2 ms** | yes |
+| saving vs today (`allPhaseB − pbLiveRows`) | +1.0 ± 2.2 ms | +6.9 ± 1.4 ms | **no** |
+
+The live block costs about **+2 ms**, against the deleted sidecar's **+9.5 ± 1.7 ms** for the same
+147 rows. Two independent runs agree, and the difference from the sidecar is far larger than the
+disagreement between them. **That is the finding: moving the rows into the body the tick already parses
+removed roughly 7–8 ms of the sidecar's cost.** It also satisfies leg 1 of the bar below (cost ≤ 3.0 ms)
+in both runs — but legs 2 and 3 are unevaluable, so the bar as a whole is not met, and must not be
+reported as met.
+
+The `saving vs today` row is the one that does not reproduce, and the reason is visible in the design:
+`allPhaseB` is the only arm that still runs 12 team merges, making it the noisiest arm in every run.
+Any future bar that leans on `allPhaseB` inherits that.
+
+### WHY the absolute numbers do not reproduce — do not re-derive this
+
+Cost falls steeply with isolate age (pooled, run A): `isolateRequest=1` 38.6 ms, `=2` 16.8, `=3` 17.6,
+`=4` 14.6, `=7..9` ~12.7. Roughly 40% of requests at 30 s spacing land on a fresh isolate. The
+`reused` stratum (`isolateRequest > 1`) is therefore a *mixture*, and its mean depends on how that
+run's requests happened to fall across the gradient — plus whatever the colo was doing. Two runs an
+hour apart moved `allPhaseB` by +3.4 ms and `pbLiveRows` by −2.5 ms **in opposite directions** on
+identical code.
+
+**Rule for this file going forward: pre-register bars in within-run differences between arms measured
+in the same pass. An absolute `cpuTime` threshold is not a measurable quantity on this instrument.**
+
+### A measurement-hygiene trap that cost real confusion
+
+`Stop-Process` on the PID that PowerShell returns for `npx.cmd wrangler tail` kills the **cmd wrapper,
+not the wrangler child**. The orphaned tail stays attached to the Worker and keeps appending to *its
+own* output file. Because every driver numbers requests from `seq=0`, re-reading an old `tail.json`
+after a later run has happened joins the **later** run's `cpuTime` onto the **earlier** run's records —
+silently, with no parse error. `liverows/tail.json` ended up with 176 events for 93 seq values, 83 of
+them duplicates.
+
+This corrupts *re-reads of old files only* — each run's own capture is written by its own tail, so a
+run analyzed at the time it finished is clean. Run A (analyzed before run B existed), run B (93 events,
+93 seqs, 0 duplicates) and the earlier sidecar run were all clean when analyzed, and no verdict in this
+file is invalidated by it. **Detect it by asserting unique `seq` keys in the analyzer; kill tails by
+matching `Win32_Process` command lines, not by the returned PID.**
+
+### Where this leaves the tick
+
+Unchanged in the only respect that matters: **still over budget.** The live block is cheap, Phase B is
+no longer the blocker, and the sidecar's regression is gone — but the tick's reused-isolate mean sits in
+the mid-teens and fresh isolates remain 35–45 ms, untouched by anything here. Nothing in this section
+closes this todo.
+
 ## LIVE ROWS INSIDE THE EVENT ARTIFACT — the instrument is built and the bar is PRE-REGISTERED; no number exists yet (2026-09-18, quick task 260918-16t)
 
 **This section contains no number produced by this change.** It was written and committed before the
