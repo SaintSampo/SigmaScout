@@ -80,6 +80,26 @@ import type { D1Database } from "@cloudflare/workers-types";
  *
  * This comment was written and committed BEFORE the suite was re-run. The
  * observed value matched the prediction exactly.
+ *
+ * RE-DERIVED AGAIN FOR 260918-16t, the same way — arithmetic off the CURRENT
+ * OBSERVED value, never a re-pin to whatever the new code produces. The
+ * current value is an OBSERVED whole-fixture count of 34. This change deletes
+ * the sidecar object entirely: its rows now ride inside the event artifact the
+ * tick already reads and writes, so the sidecar's read and write per
+ * algorithm-event both disappear and NOTHING is added in their place.
+ *
+ *   LIVE_ALGORITHM_IDS = "opr,epa,spr"                    -> 3 algorithms
+ *   removed: 3 algorithms x 1 sidecar x 2 (read + write)  = -6
+ *   added:   nothing — the block rides an existing read+write pair
+ *
+ *   PREDICTED: 34 - 6 = 28
+ *
+ * This paragraph was written and COMMITTED BEFORE the suite was re-run. If
+ * the observed value is not 28, the correct response is to stop and report
+ * both figures — NOT to adopt the observed one — because a mismatch means a
+ * subrequest is being spent somewhere this arithmetic does not describe.
+ *
+ * OBSERVED: (to be recorded beside the prediction once the suite has run)
  */
 const SUBREQUESTS_PER_LIVE_TICK = 34;
 
