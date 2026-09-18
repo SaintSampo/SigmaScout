@@ -200,8 +200,8 @@ export interface MergeEventArtifactParams {
   /**
    * The teams whose state this tick actually advanced, which scopes the LIVE
    * BLOCK's rows. Distinct from `touchedTeams` (raw), which scopes the event
-   * standings — the same split `writeLiveMetricSidecar` drew before quick task
-   * 260918-16t moved the rows into this merge.
+   * standings — the same split the deleted sidecar writer drew before quick
+   * task 260918-16t moved the rows into this merge.
    */
   readonly realTouchedTeams: readonly string[];
   /** Each touched team's Sigma Score as of the end of this tick, folded into the live block's header as an ORDINARY metric key. Empty for a non-Sigma algorithm. */
@@ -530,14 +530,15 @@ export interface MergeTeamSeasonArtifactParams {
 /**
  * NO LONGER ON THE LIVE PATH since quick task 260917-jr4 (D-07). A live tick
  * makes ZERO team-artifact reads and ZERO team-artifact writes: Phase B's team
- * half was replaced by one small ephemeral sidecar per algorithm-event
- * (`packages/harness/liveMetricSidecar.ts`), and the browser derives the rest
- * from files the robot page already fetches
+ * half was replaced by one small ephemeral sidecar object per algorithm-event,
+ * and then (quick task 260918-16t) by an ephemeral `live` block INSIDE the
+ * event artifact, deleting the sidecar object entirely. The browser derives
+ * the rest from files the robot page already fetches
  * (`apps/web/src/lib/liveTeamSeason.ts`).
  *
  * IT SURVIVES FOR EXACTLY ONE REASON: `apps/worker/src/stateProbe.ts` runs the
  * `allPhaseB` baseline arm — today's tick with the team half intact — and that
- * arm is what every sidecar measurement is compared against. Deleting this
+ * arm is what every Phase B measurement is compared against. Deleting this
  * function would delete the baseline. Its deletion is filed in
  * `.planning/todos/pending/rp-fold-exceeds-worker-cpu-budget.md` alongside the
  * probe's own scheduled deletion; neither goes before the other.

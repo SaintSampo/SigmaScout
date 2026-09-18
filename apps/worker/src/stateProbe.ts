@@ -63,7 +63,6 @@
  * concurrent event or any R2 write.
  * Runbook: `docs/worker-operations.md`, "Pre-event probe".
  */
-import { LIVE_METRIC_SIDECAR_BYTE_CEILING, LiveMetricSidecarSchema, mergeLiveMetricSidecar, type LiveMetricSidecar } from "../../../packages/harness/liveMetricSidecar.js";
 import {
   readScopedState,
   selectChangedRows,
@@ -717,68 +716,88 @@ export function resolveChunkArm(raw: string | null): ChunkArmResolution {
 }
 
 // ---------------------------------------------------------------------------
-// `sidecar=N`: the LIVE METRIC SIDECAR half of Phase B (quick task 260917-jr4).
+// `liveRows=N[:carry]`: the event artifact's EPHEMERAL LIVE BLOCK (quick task
+// 260918-16t). Replaces the deleted `sidecar=N` arm, which priced an object
+// that no longer exists.
 //
 // Layered under `phaseB` exactly as `rpSkip` layers under `rp`: absent or empty
 // is OFF, `phaseB` off always wins, and an UNRECOGNIZED value runs OFF and says
 // so in `warnings` rather than being silently measured as one of the real arms.
 //
-// `N` IS THE NUMBER OF MATCH ROWS ALREADY ACCUMULATED IN THE SIDECAR, and it is
-// a required part of the arm rather than an optional refinement. The sidecar is
+// `N` IS THE NUMBER OF MATCH ROWS ALREADY ACCUMULATED IN THE BLOCK, and it is
+// a required part of the arm rather than an optional refinement. The block is
 // read-modify-appended every tick, so its cost is proportional to its CURRENT
 // SIZE, which grows all event long. Measuring it empty would price the FIRST
 // tick of an event and flatter the result by an order of magnitude; the arm
-// therefore has no default size and reports `sidecarRowsSeeded` /
-// `sidecarBytes` as counters, so a run at a different size is visibly not
-// comparable to another rather than quietly averaged with it. A realistic
-// end-of-event 2026 regional is ~147 rows; a 2016-shaped one ~241.
+// therefore has NO DEFAULT SIZE and reports `liveRowsSeeded` / `liveBlockBytes`
+// as counters, so a run at a different size is visibly not comparable to
+// another rather than quietly averaged with it. A realistic end-of-event 2026
+// regional is ~147 rows; a 2016-shaped one ~241.
+//
+// THE `:carry` SUFFIX IS THE SEPARATING ARM. `liveRows=147` seeds 147 rows AND
+// lets this tick append its own folded rows — the real tick. `liveRows=147:carry`
+// seeds the same 147 rows and appends NOTHING, by handing the merge an empty
+// `realTouchedTeams`, which makes `maintainedLiveBlock` carry the existing block
+// forward by reference and never call `mergeEventLiveBlock` at all. The `carry`
+// arm therefore prices ONLY the bytes — a bigger `JSON.parse`, the same O(1)
+// shape guard, a bigger `JSON.stringify` — and the difference between the two
+// arms is the WORK DONE PER CARRIED ROW. Without that split a single number
+// cannot tell "45 KB is expensive" from "147 rows are expensive", which is
+// exactly the ambiguity that made the deleted sidecar's own 9.5 ms unexplained.
 //
 // IT CALLS THE SHIPPED FUNCTIONS, never a copy — the same rule that put Phase
 // B's merge in `artifactMerge.ts`. A hand-rolled stand-in here would measure
 // this file rather than the tick.
 // ---------------------------------------------------------------------------
 
-interface SidecarArmResolution {
+interface LiveRowsArmResolution {
   /** False whenever the arm did not run, for any reason. */
   readonly enabled: boolean;
-  /** Rows to synthesize into the existing sidecar before this tick's merge. 0 when the arm is off. */
+  /** Rows to splice into the fetched event body before the measured parse. 0 when the arm is off. */
   readonly rows: number;
+  /** Whether this tick's own folded rows are APPENDED on top of the seeded ones. False for the `:carry` separating arm. */
+  readonly append: boolean;
   readonly warnings: readonly string[];
 }
 
-/** A synthesized sidecar is bounded so a typo (`sidecar=100000`) cannot turn a probe request into a multi-second stringify. Well above a 241-match 2016-shaped event. */
-const MAX_SIDECAR_ROWS = 400;
+/** A synthesized block is bounded so a typo (`liveRows=100000`) cannot turn a probe request into a multi-second splice. Well above a 241-match 2016-shaped event. */
+const MAX_LIVE_ROWS = 400;
 
-/** Pure resolver for `sidecar`, following `resolveChunkArm`'s conventions exactly. */
-export function resolveSidecarArm(phaseBEnabled: boolean, raw: string | null): SidecarArmResolution {
+/** Pure resolver for `liveRows`, following `resolveChunkArm`'s conventions exactly. */
+export function resolveLiveRowsArm(phaseBEnabled: boolean, raw: string | null): LiveRowsArmResolution {
   const trimmed = raw?.trim() ?? "";
-  if (trimmed === "") return { enabled: false, rows: 0, warnings: [] };
+  if (trimmed === "") return { enabled: false, rows: 0, append: false, warnings: [] };
 
   if (!phaseBEnabled) {
     return {
       enabled: false,
       rows: 0,
-      warnings: [`sidecar="${trimmed}" was ignored because phaseB is off — the Phase B emulation did not run at all, so there was no merge to layer a sidecar onto`],
+      append: false,
+      warnings: [`liveRows="${trimmed}" was ignored because phaseB is off — the Phase B emulation did not run at all, so there was no body to splice a live block into`],
     };
   }
 
-  const parsed = Number.parseInt(trimmed, 10);
-  if (!Number.isFinite(parsed) || String(parsed) !== trimmed || parsed < 0) {
+  const [countPart, ...suffixParts] = trimmed.split(":");
+  const suffix = suffixParts.join(":");
+  const append = suffix === "";
+  const parsed = Number.parseInt(countPart ?? "", 10);
+  if (!Number.isFinite(parsed) || String(parsed) !== countPart || parsed < 0 || (suffix !== "" && suffix !== "carry")) {
     return {
       enabled: false,
       rows: 0,
+      append: false,
       warnings: [
-        `sidecar="${trimmed}" is not a recognized value (it must be a non-negative whole number of ALREADY-ACCUMULATED match rows, e.g. sidecar=147 for an end-of-event 2026 regional) — the sidecar arm did NOT run and nothing else changed`,
+        `liveRows="${trimmed}" is not a recognized value (it must be a non-negative whole number of ALREADY-ACCUMULATED match rows, optionally suffixed ":carry" to seed WITHOUT appending this tick's own rows — e.g. liveRows=147 for an end-of-event 2026 regional, or liveRows=147:carry for the bytes-only separating arm) — the liveRows arm did NOT run and nothing else changed`,
       ],
     };
   }
 
-  const rows = Math.min(parsed, MAX_SIDECAR_ROWS);
+  const rows = Math.min(parsed, MAX_LIVE_ROWS);
   const warnings =
     rows !== parsed
-      ? [`sidecar=${parsed} was clamped to ${MAX_SIDECAR_ROWS} — the arm synthesizes and stringifies every row, and an unbounded count would price a typo rather than an event`]
+      ? [`liveRows=${parsed} was clamped to ${MAX_LIVE_ROWS} — the arm synthesizes and serializes every row, and an unbounded count would price a typo rather than an event`]
       : [];
-  return { enabled: true, rows, warnings };
+  return { enabled: true, rows, append, warnings };
 }
 
 function parseTeamsParam(raw: string | null): readonly string[] | undefined {
@@ -855,8 +874,8 @@ interface ProbeParams {
    * no `teamParse` token (the loop's `JSON.parse` is what the loop is).
    */
   readonly phaseBTeamsRaw: number | undefined;
-  /** The resolved live-metric-sidecar arm (see `resolveSidecarArm`). Off unless a `sidecar=N` value asked otherwise. */
-  readonly sidecarArm: SidecarArmResolution;
+  /** The resolved live-block arm (see `resolveLiveRowsArm`). Off unless a `liveRows=N[:carry]` value asked otherwise. */
+  readonly liveRowsArm: LiveRowsArmResolution;
   readonly phaseBEventOverride: string | undefined;
   /** The algorithm version used in the artifact keys Phase B fetches (see `parsePhaseBVersionParam`). */
   readonly phaseBVersion: string | undefined;
@@ -889,7 +908,7 @@ function parseParams(url: URL): ProbeParams {
   const phaseBArm = resolvePhaseBArm(phaseB.enabled, search.get("phaseBSkip"));
   const phaseBUpcoming = parsePhaseBUpcomingParam(search.get("phaseBUpcoming"));
   const phaseBTeamsRaw = parseOptionalIntParam(search.get("phaseBTeams"));
-  const sidecarArm = resolveSidecarArm(phaseB.enabled, search.get("sidecar"));
+  const liveRowsArm = resolveLiveRowsArm(phaseB.enabled, search.get("liveRows"));
   const phaseBEventOverride = search.get("phaseBEvent")?.trim() || undefined;
   const chunkArm = resolveChunkArm(search.get("chunk"));
   const origin = parseArtifactOriginParam(search.get("artifactOrigin"));
@@ -913,7 +932,7 @@ function parseParams(url: URL): ProbeParams {
     phaseBUpcomingUnrecognized: phaseBUpcoming.unrecognized,
     phaseBUpcomingRawSupplied: (search.get("phaseBUpcoming")?.trim() ?? "") !== "",
     phaseBTeamsRaw,
-    sidecarArm,
+    liveRowsArm,
     phaseBEventOverride,
     phaseBVersion: phaseBVersion.version,
     phaseBVersionRejected: phaseBVersion.rejected,
@@ -1210,19 +1229,24 @@ interface PhaseBResult {
   /** Summed `JSON.stringify(mergedTeam).length` over every team merge. */
   readonly mergedTeamBytes: number;
   /**
-   * Rows SYNTHESIZED into the existing sidecar before the merge — the `N` of
-   * `sidecar=N`, after clamping. 0 when the arm did not run. READ THIS BEFORE
-   * COMPARING TWO RUNS: the sidecar is read-modify-appended, so its cost is
-   * proportional to this number, and two runs at different sizes are not
+   * Rows SPLICED into the fetched event body BEFORE the measured parse — the
+   * `N` of `liveRows=N`, after clamping. 0 when the arm did not run. READ THIS
+   * BEFORE COMPARING TWO RUNS: the block is read-modify-appended, so its cost
+   * is proportional to this number, and two runs at different sizes are not
    * comparable.
    */
-  readonly sidecarRowsSeeded: number;
-  /** Rows in the MERGED body — seeded plus this tick's folded matches. The observable proof the merge appended rather than returning its input. */
-  readonly sidecarRowsMerged: number;
-  /** `JSON.stringify(mergedSidecar).length` — the real serialization cost a tick pays before the R2 put. */
-  readonly sidecarBytes: number;
-  /** Whether the merged body crossed the shipped warn-only byte ceiling, so an over-ceiling run is visible in the response rather than only in a log the rig does not read. */
-  readonly sidecarOverCeiling: boolean;
+  readonly liveRowsSeeded: number;
+  /** Rows in the MERGED block — seeded plus this tick's folded matches, or exactly the seeded ones on the `:carry` arm. The observable proof the merge carried them rather than dropping them. */
+  readonly liveRowsMerged: number;
+  /**
+   * The SEEDED block's own serialized byte length, measured at splice time off
+   * the text this arm built. Deliberately NOT `JSON.stringify(mergedEvent.live)`:
+   * that would be a second serialization the real tick never performs, billed
+   * to the very arm whose serialization cost is the thing under measurement.
+   */
+  readonly liveBlockBytes: number;
+  /** The seeded event body's total byte length — the number the size trim is priced against, and the one that makes "a run at a different body size" visible rather than averaged in. 0 when the arm did not run. */
+  readonly seededEventTextBytes: number;
   readonly error?: { readonly name: string; readonly message: string };
 }
 
@@ -1243,10 +1267,10 @@ const PHASE_B_ZEROS = {
   teamParsesRun: 0,
   teamMergesRun: 0,
   mergedTeamBytes: 0,
-  sidecarRowsSeeded: 0,
-  sidecarRowsMerged: 0,
-  sidecarBytes: 0,
-  sidecarOverCeiling: false,
+  liveRowsSeeded: 0,
+  liveRowsMerged: 0,
+  liveBlockBytes: 0,
+  seededEventTextBytes: 0,
 } as const;
 
 /**
@@ -1348,8 +1372,10 @@ interface ProbeResponseBody {
     /** Which shape the fetched event artifact's `upcoming` rows were in. A `scheduled` arm's ABSOLUTE cpuTime is not comparable to a `published` arm's — only its within-shape difference is. */
     readonly phaseBUpcoming: PhaseBUpcomingShape;
     readonly phaseBTeams: number;
-    /** The live-metric-sidecar arm's resolved row count; 0 when it did not run. Echoed so a `cpuTime` is never attributed to a sidecar size it was not measured at. */
-    readonly sidecar: number;
+    /** The live-block arm's resolved row count; 0 when it did not run. Echoed so a `cpuTime` is never attributed to a seeded row count it was not measured at. */
+    readonly liveRows: number;
+    /** Whether the live-block arm APPENDED this tick's own rows (the real tick) or only carried the seeded ones (`:carry`, the bytes-only separating arm). False when the arm did not run. */
+    readonly liveRowsAppend: boolean;
     readonly phaseBEvent: string;
     /** The version in the artifact keys Phase B fetched. Differs from the deployed `spr.version` only when `phaseBVersion=` overrode it, and a warning says so when it does. */
     readonly phaseBVersion: string | null;
@@ -1900,11 +1926,11 @@ async function runSprPhaseB(params: {
   readonly phaseBTeams: number;
   readonly ran: PhaseBArmRan;
   readonly upcomingShape: PhaseBUpcomingShape;
-  readonly sidecarArm: SidecarArmResolution;
+  readonly liveRowsArm: LiveRowsArmResolution;
   /** The version used in the artifact keys below — `params.phaseBVersion`, which defaults to `spr.version`. */
   readonly artifactVersion: string;
 }): Promise<{ result: PhaseBResult; warnings: string[] }> {
-  const { origin, phaseBEventKey, eventKey, season, eventType, teamKeys, sprRows, phaseA, phaseBTeams, ran, upcomingShape, sidecarArm, artifactVersion } = params;
+  const { origin, phaseBEventKey, eventKey, season, eventType, teamKeys, sprRows, phaseA, phaseBTeams, ran, upcomingShape, liveRowsArm, artifactVersion } = params;
   const warnings: string[] = [];
 
   const firstTeamKey = teamKeys[0];
@@ -1935,6 +1961,31 @@ async function runSprPhaseB(params: {
     }
     warnings.push(
       `phaseBUpcoming=scheduled — the fetched event artifact's ${eventUpcomingReshapedRows} upcoming row(s) were rewritten to the seven schedule-only keys the Worker itself writes, so the parse below prices the shape the LIVE tick reads back rather than the published one. This arm's ABSOLUTE cpuTime is NOT comparable to a published-shape arm's — the reshape itself costs CPU and the payload size changes. Only a difference between two scheduled-shape arms is`
+    );
+  }
+
+  // THE LIVE-BLOCK SEED (260918-16t), spliced in HERE — before the measured
+  // `JSON.parse` below — so the parse, the shape guard, the merge and the
+  // stringify all see the rows, exactly as a real tick's would.
+  //
+  // BY STRING SPLICE, NEVER BY PARSE-THEN-RESTRINGIFY, and that is the
+  // load-bearing instrumentation decision in this arm. Parsing a ~121 KB body
+  // and re-serializing it to attach a key would bill this arm roughly 2 ms of
+  // work the real tick never does — the same confound the
+  // `phaseBUpcoming=scheduled` arm already warns about, and it would land
+  // squarely on the number this arm exists to produce.
+  let liveRowsSeeded = 0;
+  let liveBlockBytes = 0;
+  let seededEventTextBytes = 0;
+  if (liveRowsArm.enabled) {
+    const blockText = buildSeededLiveBlockText({ eventKey, teamKeys, phaseA, rows: liveRowsArm.rows });
+    // The body is a JSON object, so its last character is its closing brace.
+    measuredEventText = `${measuredEventText.slice(0, -1)},${blockText}}`;
+    liveRowsSeeded = liveRowsArm.rows;
+    liveBlockBytes = blockText.length;
+    seededEventTextBytes = measuredEventText.length;
+    warnings.push(
+      `liveRows=${liveRowsArm.rows}${liveRowsArm.append ? "" : ":carry"} — ${liveBlockBytes} block bytes spliced into a ${seededEventTextBytes}-byte body before the measured parse, and this tick ${liveRowsArm.append ? "APPENDED its own folded rows on top" : "APPENDED NOTHING (the :carry separating arm, which prices the bytes alone)"}. A run at a DIFFERENT liveRowsSeeded is not comparable to this one: the block is read-modify-appended, so its cost scales with the rows already accumulated, and an end-of-event size is the only honest one`
     );
   }
 
@@ -1998,7 +2049,7 @@ async function runSprPhaseB(params: {
 
   // Component `eventMerge`. Skipping it leaves every merged-event counter at 0
   // and forces `eventStringify` off — there is nothing to serialize.
-  let mergedEvent: { state?: { rows?: readonly unknown[] }; upcoming?: readonly unknown[]; matches?: readonly unknown[] } | undefined;
+  let mergedEvent: { state?: { rows?: readonly unknown[] }; live?: { rows?: readonly unknown[] }; upcoming?: readonly unknown[]; matches?: readonly unknown[] } | undefined;
   if (ran.eventMerge) {
     mergedEvent = mergeEventArtifact({
       existing: existingEvent,
@@ -2015,19 +2066,21 @@ async function runSprPhaseB(params: {
       newBands: phaseA.newBands,
       writtenRows: phaseA.changedRows,
       playedRowFacts,
-      // THE LIVE BLOCK IS OFF IN THE BASE MERGE, deliberately (260918-16t).
+      // THE LIVE BLOCK IS OFF UNLESS `liveRows=N` ASKED FOR IT (260918-16t).
       // An empty `realTouchedTeams` yields an empty metric-key header, which
       // `maintainedLiveBlock` reads as "this tick has nothing to say" and
-      // carries the existing block forward untouched. That keeps `allPhaseB`
-      // and `pbTeams0` measuring exactly what they measured before this change
+      // carries the existing block forward BY REFERENCE, never calling
+      // `mergeEventLiveBlock` at all. That is what keeps `allPhaseB` and
+      // `pbTeams0` measuring exactly what they measured before this change
       // existed, so their committed anchors (17.5 ms and 9.9 ms) stay
-      // comparable. The `liveRows=N` arm below is the ONLY thing that turns
-      // the block on, which is what makes its delta attributable to it.
-      realTouchedTeams: [],
-      touchedSigma: new Map(),
-      existingBodyBytes: 0,
+      // comparable — AND it is what makes `:carry` a real separating arm
+      // rather than a second copy of the full one.
+      realTouchedTeams: liveRowsArm.enabled && liveRowsArm.append ? phaseA.realTouchedTeams : [],
+      touchedSigma: liveRowsArm.enabled && liveRowsArm.append ? phaseA.touchedSigma : new Map(),
+      // What a real tick would have read: the body's own fetched length.
+      existingBodyBytes: measuredEventText.length,
       stamp: PROBE_MERGE_STAMP,
-    }) as { state?: { rows?: readonly unknown[] }; upcoming?: readonly unknown[]; matches?: readonly unknown[] };
+    }) as { state?: { rows?: readonly unknown[] }; live?: { rows?: readonly unknown[] }; upcoming?: readonly unknown[]; matches?: readonly unknown[] };
   }
 
   // Component `eventStringify`.
@@ -2089,27 +2142,6 @@ async function runSprPhaseB(params: {
     if (ran.teamStringify) mergedTeamBytes += JSON.stringify(mergedTeam).length;
   }
 
-  // The SIDECAR half (260917-jr4), layered after the team half so every arm
-  // measured before it existed is unchanged by its existence. It runs the
-  // SHIPPED `LiveMetricSidecarSchema` guard, the SHIPPED
-  // `mergeLiveMetricSidecar` and a real `JSON.stringify` — never a copy of
-  // any of them, the same rule that keeps Phase B's merge in
-  // `artifactMerge.ts`.
-  let sidecarRowsSeeded = 0;
-  let sidecarRowsMerged = 0;
-  let sidecarBytes = 0;
-  let sidecarOverCeiling = false;
-  if (sidecarArm.enabled) {
-    const outcome = runSidecarArm({ eventKey, season, teamKeys, phaseA, rows: sidecarArm.rows });
-    sidecarRowsSeeded = outcome.rowsSeeded;
-    sidecarRowsMerged = outcome.rowsMerged;
-    sidecarBytes = outcome.bytes;
-    sidecarOverCeiling = outcome.bytes > LIVE_METRIC_SIDECAR_BYTE_CEILING;
-    warnings.push(
-      `sidecar=${sidecarArm.rows} — the merged body is ${outcome.bytes} bytes over ${outcome.rowsMerged} rows. A run at a DIFFERENT sidecarRowsSeeded is not comparable to this one: the sidecar is read-modify-appended, so its cost scales with the rows already accumulated, and an end-of-event size is the only honest one`
-    );
-  }
-
   return {
     result: {
       ran: true,
@@ -2128,39 +2160,46 @@ async function runSprPhaseB(params: {
       teamParsesRun,
       teamMergesRun,
       mergedTeamBytes,
-      sidecarRowsSeeded,
-      sidecarRowsMerged,
-      sidecarBytes,
-      sidecarOverCeiling,
+      liveRowsSeeded,
+      liveRowsMerged: mergedEvent?.live?.rows?.length ?? 0,
+      liveBlockBytes,
+      seededEventTextBytes,
     },
     warnings,
   };
 }
 
 /**
- * One sidecar tick, through the tick's own functions.
+ * The seeded live block's JSON TEXT, built by concatenation and never by
+ * serializing an object.
  *
- * SYNTHESIZE `N` PRIOR ROWS -> real `LiveMetricSidecarSchema.parse` (the read
- * guard `readLiveSidecarObject` applies) -> real `mergeLiveMetricSidecar` ->
- * real `JSON.stringify` -> discard. That is the whole per-tick cost the
- * 260917-jr4 shape adds, and nothing here is a stand-in for any of it.
+ * WHY TEXT. The caller splices this straight onto the fetched body's text, so
+ * the measured `JSON.parse` sees a realistically-sized body without this arm
+ * having paid for a parse-then-restringify the real tick never performs. See
+ * the splice site's own comment for the ~2 ms confound that avoids.
  *
  * The synthesized rows use the probe's OWN roster and a realistic six-team,
- * five-metric shape, so `sidecarBytes` is comparable to a real event's. Values
- * are derived from the row index rather than random, so two runs at the same
- * `N` produce byte-identical bodies and a difference between them is signal.
+ * five-metric shape, so `liveBlockBytes` is comparable to a real event's.
+ * Values are DERIVED FROM THE ROW INDEX rather than random, so two runs at the
+ * same `N` produce byte-identical bodies and any difference between them is
+ * signal rather than noise.
  *
- * `computedAt` comes from `PROBE_MERGE_STAMP`, never a clock: this file may not
- * call `Date.now()`, and a varying timestamp would also vary the byte count.
+ * NO CLOCK: this file may not call `Date.now()`, and a varying timestamp would
+ * also vary the byte count. The block carries no timestamp at all — it is
+ * exactly `{ metricKeys, rows }`, which is one of the eight wrapper fields the
+ * live block dropped when it stopped being a standalone object.
+ *
+ * The text's VALIDITY under the real shipped `EventLiveBlockSchema` is proven
+ * in `stateProbe.test.ts`, never by a runtime parse here, which would be one
+ * more cost billed to the arm.
  */
-function runSidecarArm(params: {
+function buildSeededLiveBlockText(params: {
   readonly eventKey: string;
-  readonly season: number;
   readonly teamKeys: readonly string[];
   readonly phaseA: PhaseAOutput;
   readonly rows: number;
-}): { rowsSeeded: number; rowsMerged: number; bytes: number } {
-  const { eventKey, season, teamKeys, phaseA, rows } = params;
+}): string {
+  const { eventKey, teamKeys, phaseA, rows } = params;
 
   // The header a real spr tick computes: the sorted union of this tick's own
   // metric keys. Falls back to a five-key shape when the fold produced none,
@@ -2173,51 +2212,18 @@ function runSidecarArm(params: {
   const metricKeys = computedKeys.size > 0 ? [...computedKeys].sort() : ["auto", "endgame", SIGMA_METRIC_KEY, "teleop", "total"];
 
   const rosterSize = Math.min(6, Math.max(1, teamKeys.length));
-  const priorRows = Array.from({ length: rows }, (_, i) => ({
-    m: `${eventKey}_qm${i + 1}`,
-    t: Array.from({ length: rosterSize }, (_, j) => teamKeys[(i * rosterSize + j) % teamKeys.length] ?? `frc${j + 1}`),
-    v: Array.from({ length: rosterSize }, (_, j) => metricKeys.map((_key, k) => Math.round((i + j + k + 1) * 1.37 * 100) / 100)),
-  }));
+  const rowTexts: string[] = [];
+  for (let i = 0; i < rows; i++) {
+    const t: string[] = [];
+    const v: string[] = [];
+    for (let j = 0; j < rosterSize; j++) {
+      t.push(`"${teamKeys[(i * rosterSize + j) % teamKeys.length] ?? `frc${j + 1}`}"`);
+      v.push(`[${metricKeys.map((_key, k) => Math.round((i + j + k + 1) * 1.37 * 100) / 100).join(",")}]`);
+    }
+    rowTexts.push(`{"m":"${eventKey}_qm${i + 1}","t":[${t.join(",")}],"v":[${v.join(",")}]}`);
+  }
 
-  // The real read guard, over the real accumulated shape.
-  const existing: LiveMetricSidecar = LiveMetricSidecarSchema.parse({
-    sidecarVersion: 1,
-    ephemeral: true,
-    eventKey,
-    season,
-    algorithmId: "spr",
-    algorithmVersion: spr.version,
-    computedAt: PROBE_MERGE_STAMP.computedAt,
-    complete: false,
-    metricKeys,
-    rows: priorRows,
-  });
-
-  const { sidecar } = mergeLiveMetricSidecar({
-    existing,
-    eventKey,
-    season,
-    algorithmId: "spr",
-    algorithmVersion: spr.version,
-    computedAt: PROBE_MERGE_STAMP.computedAt,
-    complete: false,
-    metricKeys,
-    rows: phaseA.foldedMatches.map((match) => ({
-      matchKey: match.matchKey,
-      teamKeys: [...match.redTeams, ...match.blueTeams],
-      valuesByTeam: new Map(
-        [...match.redTeams, ...match.blueTeams].map((teamKey) => [
-          teamKey,
-          Object.fromEntries([
-            ...Object.entries(phaseA.touchedMetrics[teamKey] ?? {}).map(([key, metric]) => [key, metric.value] as const),
-            ...(phaseA.touchedSigma.get(teamKey) !== undefined ? [[SIGMA_METRIC_KEY, phaseA.touchedSigma.get(teamKey)!] as const] : []),
-          ]),
-        ])
-      ),
-    })),
-  });
-
-  return { rowsSeeded: priorRows.length, rowsMerged: sidecar.rows.length, bytes: JSON.stringify(sidecar).length };
+  return `"live":{"metricKeys":[${metricKeys.map((key) => `"${key}"`).join(",")}],"rows":[${rowTexts.join(",")}]}`;
 }
 
 // ===========================================================================
@@ -2677,9 +2683,10 @@ async function buildTeamsChunkResponse(params: ProbeParams): Promise<{ responseB
         phaseBArm: { id: params.phaseBArm.id, ran: params.phaseBArm.ran },
         phaseBUpcoming: params.phaseBUpcoming,
         phaseBTeams: chunkTeams,
-        // Always 0 on the chunk route: the sidecar arm layers under the Phase B
-        // emulation, which this route replaces outright rather than extends.
-        sidecar: 0,
+        // Always 0/false on the chunk route: the live-block arm layers under the
+        // Phase B emulation, which this route replaces outright rather than extends.
+        liveRows: 0,
+        liveRowsAppend: false,
         phaseBEvent: chunkEventKey,
         phaseBVersion: params.phaseBVersion ?? null,
         chunk: "teams",
@@ -2833,7 +2840,7 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
           phaseBTeams,
           ran: params.phaseBArm.ran,
           upcomingShape: params.phaseBUpcoming,
-          sidecarArm: params.sidecarArm,
+          liveRowsArm: params.liveRowsArm,
           artifactVersion: params.phaseBVersion ?? spr.version,
         });
         phaseB = outcome.result;
@@ -2892,9 +2899,9 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
           `phaseBVersion="${params.phaseBVersion}" OVERRIDES the deployed spr.version="${spr.version}" — Phase B priced the PUBLISHED artifact at that version, which is the faithful body to measure when the code has been bumped ahead of the last republish. The cpuTime is a real parse/merge/stringify cost; the numbers inside that body are the older model's`,
         ]
       : []),
-    // `sidecar`'s own warnings: the phaseB-is-off notice, an unrecognized
+    // `liveRows`'s own warnings: the phaseB-is-off notice, an unrecognized
     // value that ran nothing, or a clamped row count.
-    ...params.sidecarArm.warnings,
+    ...params.liveRowsArm.warnings,
     ...phaseBWarnings,
     // `chunk`'s own warnings: an unrecognized value that skipped nothing, or
     // the recognized-inert `event`. The `teams` arm never reaches here — it
@@ -2922,7 +2929,8 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
       phaseBArm: { id: params.phaseBArm.id, ran: params.phaseBArm.ran },
       phaseBUpcoming: params.phaseBUpcoming,
       phaseBTeams,
-      sidecar: params.sidecarArm.enabled ? params.sidecarArm.rows : 0,
+      liveRows: params.liveRowsArm.enabled ? params.liveRowsArm.rows : 0,
+      liveRowsAppend: params.liveRowsArm.enabled ? params.liveRowsArm.append : false,
       phaseBEvent: phaseBEventKey,
       phaseBVersion: params.phaseBVersion ?? null,
       chunk: params.chunkArm.id,

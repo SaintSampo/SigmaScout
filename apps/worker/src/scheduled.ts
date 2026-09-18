@@ -136,8 +136,7 @@ import {
   type Stamp,
 } from "./artifactMerge.js";
 import { checkLiveEventArtifactShape } from "./artifactShapeCheck.js";
-import { ArtifactReadBudgetExhaustedError, ArtifactSecretLeakError, readArtifactObject, readLiveSidecarObject, writeArtifactObject, writeLiveSidecarObject } from "./artifactWriter.js";
-import { LIVE_METRIC_SIDECAR_BYTE_CEILING, mergeLiveMetricSidecar } from "../../../packages/harness/liveMetricSidecar.js";
+import { ArtifactReadBudgetExhaustedError, ArtifactSecretLeakError, readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
 import { hasAlreadyFolded, readEventCursor, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { rotate, sortEventKeys, SubrequestBudget } from "./subrequestBudget.js";
 import { createTbaContext, pollEventMatches, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
@@ -349,6 +348,13 @@ function toMatchResult(match: CorpusMatch, eventType: number, week: number | nul
 // importable from `./scheduled.js`, which is where the merge-parity tests
 // (`scheduled.mergePreservation`, `scheduled.officialRecord`,
 // `scheduled.rowParity`, `scheduled.test`) reach for them.
+//
+// `mergeTeamSeasonArtifact` IS DELIBERATELY KEPT, and kept exported, even
+// though NOTHING on the live path calls it any more (260917-jr4 removed the
+// last caller). It survives as the state probe's `allPhaseB` BASELINE ARM —
+// the arm every Phase B number is measured against. Deleting it would delete
+// the baseline, so its own deletion is blocked on the probe's, and neither
+// goes first.
 // ---------------------------------------------------------------------------
 
 export { mergeEventArtifact, mergeTeamSeasonArtifact, playedRowFactsFor, touchedEventTeamMetrics };
@@ -436,8 +442,10 @@ const WRITE_RETRY_ERROR_MESSAGE_MAX = 300;
  * outcome at the new detection point.
  *
  * SINCE 260917-jr4 ONLY `"event"` REACHES HERE. The team half of Phase B is
- * gone — there are no team-artifact reads or writes on the live path at all
- * (see `writeLiveMetricSidecar`). The `"team"` branch of the signature is kept
+ * gone — there are no team-artifact reads or writes on the live path at all,
+ * and since 260918-16t there is no second object of any kind: the per-match
+ * metric rows ride inside the event body this helper writes. The `"team"`
+ * branch of the signature is kept
  * because it costs nothing and the argument above applies identically to any
  * page kind this helper is ever pointed at again; it is NOT evidence that the
  * tick still writes one.
@@ -551,32 +559,43 @@ export const EVENT_PREFLIGHT_SUBREQUEST_COST = 2;
  * The whole event's remaining subrequest cost, estimated up front so the
  * event is all-or-nothing.
  *
- * `2 + 6A`, FLAT IN THE TOUCHED-TEAM COUNT since quick task 260917-jr4. The
- * old form was `2 + 4A + 2A(1 + T)` — the `2AT` term was Phase B reading and
- * rewriting one whole team-season artifact per touched team per algorithm.
- * That loop is gone; Phase B now writes ONE small ephemeral sidecar per
- * algorithm-event instead (`packages/harness/liveMetricSidecar.ts`), and the
- * browser derives everything else from files the robot page already fetches.
+ * `2 + 4A`, FLAT IN THE TOUCHED-TEAM COUNT.
+ *
+ * TWO TERMS HAVE BEEN DELETED, in two steps, and naming both is what keeps a
+ * future reader from re-adding one:
+ *
+ *   - `2AT` (quick task 260917-jr4) was Phase B reading and rewriting one
+ *     whole team-season artifact per touched team per algorithm. That loop is
+ *     gone; the browser derives everything it carried from files the robot
+ *     page already fetches.
+ *   - `2A` (quick task 260918-16t) was the ephemeral metric sidecar's own read
+ *     and write, one object per algorithm-event. That object is gone too: its
+ *     rows now ride INSIDE the event artifact, in the read/write pair the
+ *     `4A` term already pays for. So Phase B makes exactly TWO R2 calls per
+ *     algorithm-event and none anywhere else.
  *
  * `touchedTeamCount` LEFT THE SIGNATURE deliberately rather than being kept
  * and ignored: a parameter the formula does not read is an invitation to pass
  * a number and believe it mattered. If a per-team term ever returns, it must
- * come back as an argument a caller has to supply on purpose.
+ * come back as an argument a caller has to supply on purpose — which is what
+ * makes `liveAlgorithmTier.test.ts`'s flat-in-touched-team-count property test
+ * fail LOUDLY rather than silently under-counting.
  *
- * `A=1` (the tracked spr-only live tier) is 8; `A=3` is 20. Against the ~41
- * subrequests actually usable per tick that turns "about one event per tick"
- * into "about five" — and it means the subrequest argument no longer
- * constrains the live tier at all. The live tier's remaining justification is
- * the CPU budget; `liveAlgorithmTier.test.ts` says so where it used to cite
- * the subrequest counterfactual.
+ * `A=1` (the tracked spr-only live tier) is 6; `A=3` is 14 (the 260918-16t
+ * plan's summary table said 12 — that cell is wrong; 20 minus the sidecar's
+ * 2A=6 is 14, and so is 2 + 4x3). Against the ~41 subrequests actually usable
+ * per tick that is six events per tick at the tracked tier and two at the full
+ * algorithm set — the subrequest argument does not constrain the live tier at
+ * all. The live tier's remaining justification is the CPU budget;
+ * `liveAlgorithmTier.test.ts` says so where it used to cite the subrequest
+ * counterfactual.
  */
 export function estimateEventSubrequestCost(algorithmCount: number): number {
   return (
     1 /* claim (cursor CAS) */ +
     1 /* event-detail fetch */ +
     algorithmCount * 2 /* Phase A: read + write, per algorithm */ +
-    algorithmCount * 2 /* Phase B: the event artifact, read + write, per algorithm */ +
-    algorithmCount * 2 /* Phase B: the live metric sidecar, read + write, per algorithm */
+    algorithmCount * 2 /* Phase B: the event artifact, read + write, per algorithm */
   );
 }
 
@@ -879,123 +898,12 @@ async function processEvent(
   }
 }
 
-/**
- * Phase B's team half since 260917-jr4: ONE small ephemeral sidecar per
- * algorithm-event carrying each newly-folded match's per-team post-match
- * metrics, in place of reading and rewriting one whole team-season artifact
- * per touched team. `packages/harness/liveMetricSidecar.ts` holds the shape,
- * the lifecycle and the argument for why this can never be read as published
- * data; this function is only the tick's side of it.
- *
- * THE READ'S TWO FAILURE MODES ARE NOT THE SAME FAILURE, and conflating them
- * would lose data (D-04):
- *
- * - `undefined` — a genuine miss (the first fold at this event) or a shape
- *   the schema rejected. BOTH bootstrap a fresh sidecar. For a corrupt
- *   sidecar that is the correct self-healing outcome and matches the artifact
- *   read path's own contract.
- * - `ArtifactReadBudgetExhaustedError` — the budget could not afford the read
- *   at all, so the sidecar's CURRENT CONTENTS ARE UNKNOWN. Bootstrapping here
- *   would discard every row the event has accumulated. The write is skipped
- *   entirely for this tick instead, logged, and caught LOCALLY so the
- *   remaining algorithms still get their Phase B.
- *
- * A FAILED WRITE IS PERMANENT FOR THOSE MATCHES and that is accepted: the
- * event cursor has already advanced, so they will never be folded again. What
- * the page then shows is a GAP in the metric-history chart for those matches
- * and nothing else wrong — `endOfEventMetrics` and `officialSnapshotRow` both
- * take the LAST matching row, so later rows still carry correct tiles — and
- * it self-heals at the next republish. It is logged under a named message
- * rather than left silent.
- *
- * Log lines carry ids, counts and lengths only, never a body.
- */
-async function writeLiveMetricSidecar(params: {
-  env: Env;
-  budget: SubrequestBudget;
-  eventKey: string;
-  season: number;
-  algorithmId: string;
-  algorithmVersion: string;
-  realTouchedTeams: readonly string[];
-  newlyFoldedResults: readonly MatchResult[];
-  touchedMetrics: Record<string, Record<string, TeamMetric>>;
-  touchedSigma: ReadonlyMap<string, number>;
-  computedAt: string;
-  complete: boolean;
-}): Promise<void> {
-  const { env, budget, eventKey, season, algorithmId, algorithmVersion, realTouchedTeams, newlyFoldedResults, touchedMetrics, touchedSigma, computedAt, complete } = params;
-  const keyParams = { eventKey, algorithmId, version: algorithmVersion };
-
-  // The tick's own end-of-tick values, read ONCE per team — which is exactly
-  // why two matches folded in one tick share one metrics record (D-04, the
-  // preserved flaw `mergeTeamSeasonArtifact` already had).
-  const valuesByTeam = new Map<string, Record<string, number>>();
-  const metricKeySet = new Set<string>();
-  for (const teamKey of realTouchedTeams) {
-    const values: Record<string, number> = {};
-    for (const [key, metric] of Object.entries(touchedMetrics[teamKey] ?? {})) {
-      values[key] = metric.value;
-      metricKeySet.add(key);
-    }
-    const sigma = touchedSigma.get(teamKey);
-    if (sigma !== undefined) {
-      // An ORDINARY member of the header, never a special case in the
-      // encoding — `sigmaScore.ts`'s own rule, applied here.
-      values[SIGMA_METRIC_KEY] = sigma;
-      metricKeySet.add(SIGMA_METRIC_KEY);
-    }
-    valuesByTeam.set(teamKey, values);
-  }
-  // Sorted, so the header a later tick computes for the same algorithm is
-  // byte-identical and the drift guard fires only on a REAL key-set change.
-  const metricKeys = [...metricKeySet].sort();
-
-  const realTouched = new Set(realTouchedTeams);
-  const rows = newlyFoldedResults.map((match) => ({
-    matchKey: match.matchKey,
-    teamKeys: [...match.redTeams, ...match.blueTeams].filter((teamKey) => realTouched.has(teamKey)),
-    valuesByTeam,
-  }));
-
-  let existing;
-  try {
-    existing = await readLiveSidecarObject(env, budget, keyParams);
-  } catch (error) {
-    if (error instanceof ArtifactReadBudgetExhaustedError) {
-      console.warn(JSON.stringify({ msg: "live-sidecar-read-deferred", eventKey, algorithmId, rows: rows.length }));
-      return;
-    }
-    throw error;
-  }
-
-  const { sidecar, keySetDrifted } = mergeLiveMetricSidecar({ existing, eventKey, season, algorithmId, algorithmVersion, computedAt, complete, metricKeys, rows });
-  if (keySetDrifted) {
-    console.warn(JSON.stringify({ msg: "live-sidecar-key-set-drift", eventKey, algorithmId, storedKeys: existing?.metricKeys.length ?? 0, computedKeys: metricKeys.length, droppedRows: existing?.rows.length ?? 0 }));
-  }
-
-  try {
-    const { deferred, bytes } = await writeLiveSidecarObject(env, budget, keyParams, sidecar);
-    if (deferred) {
-      console.warn(JSON.stringify({ msg: "live-sidecar-write-deferred", eventKey, algorithmId, rows: rows.length }));
-      return;
-    }
-    if (bytes > LIVE_METRIC_SIDECAR_BYTE_CEILING) {
-      // WARN ONLY — never a throw and never a truncation. A throw loses this
-      // tick's rows permanently and truncation would punch a silent hole in
-      // the chart; see the ceiling constant's own doc comment.
-      console.warn(JSON.stringify({ msg: "live-sidecar-over-ceiling", eventKey, algorithmId, bytes, ceiling: LIVE_METRIC_SIDECAR_BYTE_CEILING, rows: sidecar.rows.length }));
-    }
-  } catch (error) {
-    console.warn(JSON.stringify({ msg: "live-sidecar-write-failed", eventKey, algorithmId, rows: rows.length, error: (error instanceof Error ? error.message : String(error)).slice(0, WRITE_RETRY_ERROR_MESSAGE_MAX) }));
-  }
-}
-
 /** Phase B: best-effort artifact writes, kept out of Phase A's claim-reverting try/catch. A Phase B failure leaves the event "advanced" (state did advance); a skipped artifact stays stale until the team's next match at this event.
  *
  * `touchedTeams` (raw) feeds only the event standings; `realTouchedTeams`
- * scopes the live metric sidecar's rows (260917-jr4 — it used to scope
- * `team/{teamKey}/{year}` writes, which this tick no longer makes at all).
+ * scopes the event artifact's ephemeral `live` block rows (260918-16t). It
+ * scoped the deleted metric sidecar's rows before that, and the
+ * `team/{teamKey}/{year}` writes this tick no longer makes at all before that.
  *
  * `eventType` is passed explicitly (`newlyFoldedResults` can be empty) and
  * gates only the `touchedTeamsByAlgorithm` feed into `teams/{year}`. Event
@@ -1069,9 +977,9 @@ async function runPhaseBAndReport(
         mergeEventArtifact({ ...eventMergeParams, existing: undefined })
       );
 
-      // Only the `teams/{year}` feed is gated on officialness; the sidecar
-      // write below stays unconditional, exactly as the team-artifact write
-      // it replaces did.
+      // Only the `teams/{year}` feed is gated on officialness. The live rows
+      // ride the event write above, which is unconditional — exactly as the
+      // deleted sidecar write and, before it, the team-artifact write were.
       const isOfficial = isOfficialEventType(eventType);
       const compositeKey = touchedTeamsCompositeKey(algorithmId, window.season);
       const seasonMap = touchedTeamsByAlgorithm.get(compositeKey) ?? new Map<string, TouchedTeamInfo>();
@@ -1093,21 +1001,6 @@ async function runPhaseBAndReport(
           matchDelta: (prior?.matchDelta ?? 0) + teamMatches.length,
         });
       }
-
-      await writeLiveMetricSidecar({
-        env,
-        budget,
-        eventKey,
-        season: window.season,
-        algorithmId,
-        algorithmVersion: info.algorithm.version,
-        realTouchedTeams,
-        newlyFoldedResults,
-        touchedMetrics: info.touchedMetrics,
-        touchedSigma: info.touchedSigma,
-        computedAt: stamp.computedAt,
-        complete: eventComplete,
-      });
 
       if (isOfficial) touchedTeamsByAlgorithm.set(compositeKey, seasonMap);
     }

@@ -1427,7 +1427,7 @@ export type EventStateBlock = z.infer<typeof EventStateBlockSchema>;
  * than per row, which is most of the size saving.
  *
  * WHAT DELIBERATELY DOES NOT TRAVEL, carried forward verbatim in substance
- * from the deleted `liveMetricSidecar.ts` this block replaces:
+ * from the deleted ephemeral sidecar module this block replaces:
  *
  * - `spread` is NOT carried. SPR emits it, `MetricValue` refuses to render
  *   it, and `metricHistorySeries.ts` reads its band from the `sigma` entry

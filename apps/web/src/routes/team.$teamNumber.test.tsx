@@ -320,8 +320,6 @@ describe("/team/$teamNumber route — live event overlay (260915-m4j)", () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
-      // The ordinary state for a finished event: no sidecar exists.
-      if (url.includes("/v1/live/")) return Promise.resolve(new Response("", { status: 404 }));
       if (url.includes("/v1/event/")) return Promise.resolve(eventArtifactResponse());
       return Promise.resolve(teamArtifactWithEvent(NOW + 600_000, "2024-03-07"));
     });
@@ -334,13 +332,12 @@ describe("/team/$teamNumber route — live event overlay (260915-m4j)", () => {
     expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain(EVENT_URL);
   });
 
-  it("requests the live metric sidecar for a live event, and tolerates its 404 as the ordinary state", async () => {
+  it("makes exactly ONE artifact fetch per live event — the live rows cost no second request (260918-16t)", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse());
-      if (url.includes("/v1/live/")) return Promise.resolve(new Response("", { status: 404 }));
       if (url.includes("/v1/event/")) return Promise.resolve(eventArtifactResponse());
       return Promise.resolve(teamArtifactWithEvent(NOW + 600_000, "2024-03-07"));
     });
@@ -348,8 +345,14 @@ describe("/team/$teamNumber route — live event overlay (260915-m4j)", () => {
     renderTeamRoute("/team/1114?year=2024&algorithm=spr");
 
     await waitFor(() => expect(screen.getByTestId("confidence-2024casf_qm9").textContent).toContain("91%"));
-    // The key is IMPORTED by the fetcher, never re-spelled — this asserts the
-    // prefix reached the network, which is what a re-spelling would break.
-    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/v1/live/2024casf/"))).toBe(true);
+
+    // Until 260918-16t this page issued a SECOND fetch per live event, for an
+    // ephemeral metric object under its own R2 prefix. It does not any more:
+    // the per-match metrics ride the event artifact it was already fetching.
+    // Asserted as "every artifact URL touching this event is the event
+    // artifact", so a reintroduced second fetcher fails here by URL.
+    const eventUrls = fetchMock.mock.calls.map((call) => String(call[0])).filter((url) => url.includes("2024casf"));
+    expect(eventUrls.length).toBeGreaterThan(0);
+    expect(new Set(eventUrls)).toEqual(new Set([EVENT_URL]));
   });
 });

@@ -16,9 +16,7 @@ import { formatScheduledTime, matchLabel } from "../components/team/MatchTable.j
 import { MatchVideoCell } from "../components/MatchVideoCell.js";
 import { parseMatchVideoKey } from "../lib/matchVideo.js";
 import { preMatchMetrics } from "../lib/preMatchMetrics.js";
-import { liveSidecarQueryOptions } from "../lib/api/liveSidecar.js";
 import { extendMetricHistory } from "../lib/liveTeamSeason.js";
-import type { LiveMetricSidecar } from "../../../../packages/harness/liveMetricSidecar.js";
 import { MatchRobotGrid, type MatchRobotRecord } from "../components/match/MatchRobotGrid.js";
 import type { AxisDomain } from "../components/team/matchAxis.js";
 import type { EventMatchRow } from "../components/event/eventMatchAxis.js";
@@ -103,28 +101,21 @@ function MatchPage() {
     })),
   });
 
-  // THE LIVE METRIC SIDECAR for THIS event, one fetch (260917-jr4, D-05).
+  // THE LIVE ROWS for THIS event, at the cost of ZERO extra requests
+  // (260918-16t). They ride the `live` block on the event artifact `data`
+  // above — which is the SAME `eventQueryOptions` the event page uses, so a
+  // reader arriving from the event page hits a warm cache and pays nothing
+  // for them at all. Until 260918-16t this was a second fetch of its own.
   //
-  // WITHOUT IT THIS PAGE SILENTLY REGRESSES. `preMatchMetrics` reads the row
+  // WITHOUT THEM THIS PAGE SILENTLY REGRESSES. `preMatchMetrics` reads the row
   // PRECEDING this match in a team's `metricHistory`; for any match folded
-  // since the last republish, the published artifact contains neither this
-  // match's row nor the rows after it, so every pre-match cell on the page
-  // would render as absence. The live Worker used to close that gap by
+  // since the last republish, the published team artifact contains neither
+  // this match's row nor the rows after it, so every pre-match cell on the
+  // page would render as absence. The live Worker used to close that gap by
   // rewriting the team artifact each tick; it no longer writes one at all.
   //
-  // A 404 is the ordinary case (`liveSidecar.ts` returns `null` for it), so
-  // this is a no-op on every finished event's match page.
-  const sidecarQuery = useQuery({
-    ...liveSidecarQueryOptions({ eventKey, algorithmId: algorithm, version: version ?? "" }),
-    enabled: isValidKey && version !== undefined,
-  });
-  const sidecars = useMemo(
-    () => new Map<string, LiveMetricSidecar | null>(sidecarQuery.data == null ? [] : [[eventKey, sidecarQuery.data]]),
-    [eventKey, sidecarQuery.data]
-  );
-  // The live rows now ride the event artifact this page ALREADY fetches
-  // (260918-16t), so `extendMetricHistory` is fed that same `data` object
-  // rather than a second fetch's result.
+  // An event artifact with no `live` key is the ordinary case — every
+  // finished event — and this is a no-op there.
   const liveEventArtifacts = useMemo(() => new Map(data === undefined ? [] : [[eventKey, data]]), [eventKey, data]);
 
   // Built here, not inside `MatchRobotGrid` (which stays a pure function of

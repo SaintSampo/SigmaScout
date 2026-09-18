@@ -20,8 +20,8 @@ import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTick } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
-import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
-import { LiveMetricSidecarSchema, liveMetricSidecarKey, sidecarRowsForTeam } from "../../../packages/harness/liveMetricSidecar.js";
+import { artifactKey, LiveEventArtifactSchema } from "../../../packages/harness/pageArtifacts.js";
+import { liveRowsForTeam } from "../../../packages/harness/liveEventRows.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
@@ -529,39 +529,39 @@ describe("scheduled.replay — offline equivalence", () => {
           `algorithm "${algorithmId}": online (deployed-tick) and offline Match Band streams diverged`
         ).toBe(computeBandStreamDigestLocal(offlineBands));
 
-        // The sigma stream, read off the LIVE METRIC SIDECAR since 260917-jr4
-        // rather than off a team artifact. THE CLAIM IS UNCHANGED, and that is
-        // the point of reading it here: every per-match metrics record the
-        // live tick emitted must carry the same sigma value, in the same
-        // order, as the offline layer's own per-match reading above. Only the
-        // object the tick writes them into changed; the tick makes no team
-        // write at all now, so a team-artifact assertion here would be
-        // asserting something that no longer exists.
-        const sidecarText = await r2.get(liveMetricSidecarKey({ eventKey: EVENT_KEY, algorithmId, version: offlineModule.version }));
-        expect(sidecarText, `algorithm "${algorithmId}": no live metric sidecar was written`).not.toBeNull();
-        const sidecar = LiveMetricSidecarSchema.parse(JSON.parse(await sidecarText!.text()));
+        // The sigma stream, read off the EVENT ARTIFACT'S EPHEMERAL `live`
+        // BLOCK since 260918-16t — off a separate sidecar object between
+        // 260917-jr4 and that, and off a team artifact before both. THE CLAIM
+        // IS UNCHANGED across all three, and that is the point of reading it
+        // here: every per-match metrics record the live tick emitted must carry
+        // the same sigma value, in the same order, as the offline layer's own
+        // per-match reading above. Only where the tick writes them changed.
+        const eventText = await r2.get(artifactKey({ page: "event", eventKey: EVENT_KEY, algorithmId, version: offlineModule.version }));
+        expect(eventText, `algorithm "${algorithmId}": no event artifact was written`).not.toBeNull();
+        const liveBlock = LiveEventArtifactSchema.parse(JSON.parse(await eventText!.text())).live;
+        expect(liveBlock, `algorithm "${algorithmId}": the written event artifact carries no live block`).toBeDefined();
 
         if (usesSigmaScore(algorithmId)) {
           let comparedRows = 0;
           for (const [teamKey, expectedSigmas] of offlineSigmaByTeam) {
-            const actualSigmas = sidecarRowsForTeam(sidecar, teamKey).map((row) => row.metrics.sigma?.value);
+            const actualSigmas = liveRowsForTeam(liveBlock!, teamKey).map((row) => row.metrics.sigma?.value);
             expect(actualSigmas, `algorithm "${algorithmId}" team "${teamKey}": live vs offline sigma stream diverged`).toEqual(expectedSigmas);
             comparedRows += actualSigmas.length;
           }
           // Non-vacuous, and EXACT: 7 matches x 6 roster teams per match.
           expect(comparedRows, `algorithm "${algorithmId}": expected exactly 42 compared sigma rows`).toBe(42);
         } else {
-          // OPR/EPA: no sidecar row carries a sigma key at all, and `sigma` is
-          // not even in the sidecar's own metric-key header.
-          expect(sidecar.metricKeys, `algorithm "${algorithmId}": a non-Sigma algorithm must not publish a sigma header`).not.toContain("sigma");
+          // OPR/EPA: no live row carries a sigma key at all, and `sigma` is not
+          // even in the block's own metric-key header.
+          expect(liveBlock!.metricKeys, `algorithm "${algorithmId}": a non-Sigma algorithm must not publish a sigma header`).not.toContain("sigma");
           let checkedRows = 0;
           for (const teamKey of ALL_TOUCHED_TEAMS) {
-            for (const row of sidecarRowsForTeam(sidecar, teamKey)) {
+            for (const row of liveRowsForTeam(liveBlock!, teamKey)) {
               expect(row.metrics, `algorithm "${algorithmId}" team "${teamKey}": no sigma key on a non-Sigma algorithm's row`).not.toHaveProperty("sigma");
               checkedRows++;
             }
           }
-          expect(checkedRows, `algorithm "${algorithmId}": non-vacuous — sidecar rows were actually checked`).toBeGreaterThan(0);
+          expect(checkedRows, `algorithm "${algorithmId}": non-vacuous — live rows were actually checked`).toBeGreaterThan(0);
         }
 
         // The tick wrote NO team artifact for any touched team (260917-jr4).

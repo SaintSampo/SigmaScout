@@ -43,7 +43,6 @@ import {
 } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
-import { liveMetricSidecarKey } from "../../../packages/harness/liveMetricSidecar.js";
 import { AlgorithmsManifestSchema } from "../../../packages/harness/manifestSchemas.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
@@ -433,21 +432,31 @@ describe("liveAlgorithmTier — tracked config's live tier fits the measured bud
   /**
    * THE REPLACEMENT for the retired three-algorithm counterfactual (see this
    * file's header). The estimate is flat in the touched-team count because
-   * Phase B writes ONE sidecar per algorithm-event instead of one artifact per
-   * touched team. That flatness is the whole reason a 42-team regional and a
-   * 6-team match now cost a tick the same, and it is what a reintroduced
-   * per-team term would break — so it is asserted as a property over a real
-   * spread of team counts, never as a re-typed constant.
+   * Phase B makes exactly two R2 calls per algorithm-event — the event
+   * artifact, read then written — instead of one artifact per touched team.
+   * That flatness is the whole reason a 42-team regional and a 6-team match
+   * cost a tick the same, and it is what a reintroduced per-team term would
+   * break — so it is asserted as a property over a real spread of team counts,
+   * never as a re-typed constant.
    */
   it("the estimate is FLAT in the touched-team count — no per-team artifact term survives", () => {
     // The formula takes no team count at all; this pins the consequence at the
     // call sites that used to pass one. A 3-team match and a 42-team regional
     // cost a tick the same.
-    expect(estimateEventSubrequestCost(1)).toBe(8);
-    expect(estimateEventSubrequestCost(3)).toBe(20);
-    // `2 + 6A` across the whole plausible range, derived rather than listed.
+    expect(estimateEventSubrequestCost(1)).toBe(6);
+    // 14, NOT 12. The 260918-16t plan's own summary table wrote 12 in this
+    // cell; the arithmetic it describes in words — claim + event detail +
+    // Phase A read/write + Phase B event read/write — is `2 + 4A`, which is 14
+    // at A=3, and 20 (the previous observed value) minus the sidecar's 2A=6 is
+    // also 14. The FORMULA is pinned here, not the table cell, and the
+    // discrepancy is recorded rather than split the difference.
+    expect(estimateEventSubrequestCost(3)).toBe(14);
+    // `2 + 4A` across the whole plausible range, derived rather than listed.
+    // It was `2 + 6A` until 260918-16t deleted the sidecar's own read and
+    // write, and `2 + 4A + 2A(1 + T)` before 260917-jr4 deleted the per-team
+    // term.
     for (let algorithmCount = 0; algorithmCount <= 5; algorithmCount++) {
-      expect(estimateEventSubrequestCost(algorithmCount), `A=${algorithmCount}`).toBe(2 + 6 * algorithmCount);
+      expect(estimateEventSubrequestCost(algorithmCount), `A=${algorithmCount}`).toBe(2 + 4 * algorithmCount);
     }
   });
 
@@ -514,19 +523,20 @@ describe("liveAlgorithmTier — only the live tier folds", () => {
     expect(r2.puts.some((p) => p.key === premierEventKey)).toBe(true);
 
     // Since 260917-jr4 the tick writes NO team artifact at all — the assertion
-    // here used to be that every one of ALL_TEAMS got one. The sidecar is what
-    // replaced them, and it is asserted by the same `artifactKey`-versus-
-    // `liveMetricSidecarKey` spelling rule: the key is imported, never retyped.
+    // here used to be that every one of ALL_TEAMS got one. Since 260918-16t
+    // what replaced them is a block INSIDE the event artifact above, so there
+    // is no second key to assert at all: the premier event key IS the whole
+    // per-event write set.
     for (const teamKey of ALL_TEAMS) {
       const premierTeamKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "spr", version: PREMIER_TEST_VERSION });
       expect(r2.puts.some((p) => p.key === premierTeamKey), `${teamKey} team artifact must NOT be written by a live tick`).toBe(false);
     }
     expect(r2.puts.some((p) => p.key.startsWith("v1/team/"))).toBe(false);
 
-    const sidecarKey = liveMetricSidecarKey({ eventKey: "2026casj", algorithmId: "spr", version: PREMIER_TEST_VERSION });
-    expect(r2.puts.some((p) => p.key === sidecarKey)).toBe(true);
-    // Exactly one sidecar, for the live tier only.
-    expect(r2.puts.filter((p) => p.key.startsWith("v1/live/")).map((p) => p.key)).toEqual([sidecarKey]);
+    // Exactly ONE per-event object, for the live tier only: the event artifact
+    // itself. Asserted by equality over every key mentioning this event, so a
+    // reintroduced second object fails here by name.
+    expect(new Set(r2.puts.filter((p) => p.key.includes("2026casj")).map((p) => p.key))).toEqual(new Set([premierEventKey]));
   });
 });
 

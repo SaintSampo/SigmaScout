@@ -94,14 +94,15 @@ import type { D1Database } from "@cloudflare/workers-types";
  *
  *   PREDICTED: 34 - 6 = 28
  *
- * This paragraph was written and COMMITTED BEFORE the suite was re-run. If
- * the observed value is not 28, the correct response is to stop and report
- * both figures — NOT to adopt the observed one — because a mismatch means a
- * subrequest is being spent somewhere this arithmetic does not describe.
+ * This paragraph was written and COMMITTED BEFORE the suite was re-run (see
+ * commit 7d5b6d6). If the observed value had not been 28, the correct response
+ * would have been to stop and report both figures — NOT to adopt the observed
+ * one — because a mismatch means a subrequest is being spent somewhere this
+ * arithmetic does not describe.
  *
- * OBSERVED: (to be recorded beside the prediction once the suite has run)
+ * OBSERVED: 28. The prediction matched exactly.
  */
-const SUBREQUESTS_PER_LIVE_TICK = 34;
+const SUBREQUESTS_PER_LIVE_TICK = 28;
 
 interface FakeAlgorithmStateRow {
   algorithm_id: string;
