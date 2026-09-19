@@ -14,9 +14,8 @@
  */
 import { priceUpcomingFromState, EventStateBlockError, type ScheduledMatchInput } from "../../../../packages/harness/eventStatePricing.js";
 import { loadRpRuleModule } from "../../../../packages/core/rankingPoints/rulesLoader.js";
-import { isDemoTeamKey } from "../../../../packages/core/algorithms/demoTeams.js";
 import type { LiveEventArtifact, TeamSeasonMatch } from "../../../../packages/harness/pageArtifacts.js";
-import { isPricedUpcomingRow, type EventPageArtifact } from "./eventPricing.js";
+import type { EventPageArtifact } from "./eventPricing.js";
 
 export interface PricedArtifactUpcoming {
   readonly upcoming: EventPageArtifact["upcoming"];
@@ -28,13 +27,11 @@ export interface PricedArtifactUpcoming {
  * the pricer throws (`EventStateBlockError`, `RpRuleModuleSeasonMismatchError`);
  * the caller turns any throw into the unpriced fallback.
  *
- * DEMO FALLBACK. The pricer cannot price a demo robot's band or RP (its raw-key
- * beliefs never ride the block; see the parity test's KNOWN GAP), while the
- * offline publisher can. So a row whose roster holds a demo key AND that
- * already carries published prices keeps the published row, and gets no team
- * row. A Worker-maintained schedule-only demo row has no published fields to
- * fall back to, so it takes the pricer's output: win odds and scores, with no
- * band on the demo alliance and no RP.
+ * A row with a demo robot is priced like any other. Its raw-key beliefs ride
+ * the block in a passenger-only row since quick task 260918-wfc, and the
+ * harness parity test pins the priced demo row equal to the offline one. A
+ * demo robot the block has never seen gets no band on its alliance and the
+ * match no RP, which is what the offline publisher does for it too.
  */
 export async function priceArtifactUpcoming(artifact: LiveEventArtifact): Promise<PricedArtifactUpcoming> {
   const { state, eventType } = artifact;
@@ -58,11 +55,6 @@ export async function priceArtifactUpcoming(artifact: LiveEventArtifact): Promis
   const upcoming: EventPageArtifact["upcoming"] = [];
   const upcomingTeamRows: Record<string, TeamSeasonMatch> = {};
   artifact.upcoming.forEach((row, i) => {
-    const hasDemoRobot = row.redTeams.some(isDemoTeamKey) || row.blueTeams.some(isDemoTeamKey);
-    if (hasDemoRobot && isPricedUpcomingRow(row)) {
-      upcoming.push(row);
-      return;
-    }
     upcoming.push(priced.event[i]!);
     upcomingTeamRows[row.matchKey] = priced.team[i]!;
   });

@@ -195,23 +195,22 @@ describe("eventPricing fallbacks: never throw, keep published rows, one warning"
   });
 });
 
-describe("eventPricing demo fallback", () => {
+describe("eventPricing demo rows", () => {
   const DEMO_TEAM = "frc9975";
 
-  it("a published-priced row with a demo robot resolves to the published row unchanged, with no team row", async () => {
+  it("a published-priced row with a demo robot is priced like every other row and gets its team row (no published-row fallback since 260918-wfc)", async () => {
     const base = wire(offline);
     const index = 0;
     const demoRow = { ...base.upcoming[index]!, redTeams: [DEMO_TEAM, ...base.upcoming[index]!.redTeams.slice(1)] };
     const input: LiveEventArtifact = { ...base, upcoming: base.upcoming.map((row, i) => (i === index ? demoRow : row)) };
 
     const resolved = await resolveEventArtifact(input);
-    expect(resolved.upcoming[index]).toBe(demoRow);
-    expect(resolved.upcomingTeamRows).not.toHaveProperty(demoRow.matchKey);
-    // Every other row is still browser priced.
-    expect(Object.keys(resolved.upcomingTeamRows!)).toHaveLength(base.upcoming.length - 1);
+    expect(resolved.upcoming[index]).not.toBe(demoRow);
+    expect(resolved.upcomingTeamRows).toHaveProperty(demoRow.matchKey);
+    expect(Object.keys(resolved.upcomingTeamRows!)).toHaveLength(base.upcoming.length);
   });
 
-  it("the same row schedule-only takes the pricer's output: win odds and scores, no band on the demo alliance, no RP", async () => {
+  it("a demo robot the block has never seen takes the pricer's output: win odds and scores, no band on the demo alliance, no RP", async () => {
     const base = wire(toScheduleOnly(offline));
     const index = 0;
     const input: LiveEventArtifact = {

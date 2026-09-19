@@ -182,9 +182,10 @@ export const HISTORY_VALUE_FIELDS = ["value", "spread"] as const;
  * WIRE by definition. Arm R' alone cannot see this, because it still builds its
  * state through the same `seedStateRows` passenger chain and only skips
  * `buildEventStateBlock` and the JSON round-trip — so a passenger DROPPED by the
- * chain (`withSigmaBeliefs` silently discards a belief for any team with no
- * level-1 state row) fails arm R' too and would be mislabelled INTERLEAVE.
- * Measured on `2026auwarp`, where the match band is wrong from match 1.
+ * chain (`withSigmaBeliefs` silently discarded a belief for any team with no
+ * level-1 state row, until quick task 260918-wfc) fails arm R' too and would
+ * be mislabelled INTERLEAVE. Measured on `2026auwarp` on 2026-09-17, where the
+ * match band was wrong from match 1.
  */
 export function attributeField(field: string, armRPrimeAlsoFails: boolean, differsAtFirstRow: boolean): Attribution {
   // A passthrough of a corpus column cannot drift for a model reason.
@@ -708,6 +709,12 @@ export function readRowLookups(db: Corpus, stream: readonly MatchResult[]): RowL
  * `spr.initState` never seeds them and `remapDemoTeams` folds them into
  * `DEMO_PSEUDO_TEAM_KEY` — but the Sigma accumulator keeps a belief under each
  * RAW key. Measured rather than asserted, so the claim has a number behind it.
+ *
+ * FIXED by quick task 260918-wfc: both helpers now append a passenger-only row
+ * for such a belief, so against rows built by today's chain this returns two
+ * empty lists. The paragraph above describes the chain the 2026-09-17
+ * measurement ran against (13 Sigma and 6 RP beliefs on `2026auwarp`), and this
+ * function stays as the instrument that would catch the drop coming back.
  */
 export function droppedPassengers(rows: readonly StateRow[], passengers: PassengerSnapshot, rosterKeys: ReadonlySet<string>): {
   sigmaDropped: string[];
