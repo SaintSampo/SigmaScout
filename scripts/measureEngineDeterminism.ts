@@ -39,7 +39,6 @@
  * USAGE (no `.env`, no network):
  *   npx tsx scripts/measureEngineDeterminism.ts --events 2026nyro
  */
-import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createContext, runInContext } from "node:vm";
@@ -102,25 +101,23 @@ export function assertBundleMarkers(bundle: string, markers: typeof REQUIRED_BUN
  */
 export function buildBundle(): string {
   mkdirSync(REPORT_DIR, { recursive: true });
-  // esbuild's own JS entry, run through THIS Node, rather than the `.bin`
-  // shim: `execFileSync` on a Windows `.CMD` fails with EINVAL since Node's
-  // shell-injection hardening, and using `shell: true` to work around that
-  // would put a shell between this script and its arguments for no benefit.
+  // esbuild's JS API, in process. No child process and no path into the
+  // package: `esbuild/bin/esbuild` is a JS shim on Windows and a NATIVE BINARY
+  // on Linux, so running it through `node` passed locally and failed CI with
+  // "SyntaxError: Invalid or unexpected token" from 260917-mwu until
+  // 2026-09-19. The `.bin` shim is no better: `execFileSync` on a Windows
+  // `.CMD` fails with EINVAL since Node's shell-injection hardening.
   const requireHere = createRequire(import.meta.url);
-  const esbuild = requireHere.resolve("esbuild/bin/esbuild");
-  execFileSync(
-    process.execPath,
-    [
-      esbuild,
-      "scripts/browserFoldEntry.ts",
-      "--bundle",
-      "--format=iife",
-      "--platform=browser",
-      "--target=es2022",
-      `--outfile=${BUNDLE_PATH}`,
-    ],
-    { stdio: "inherit" }
-  );
+  const esbuild = requireHere("esbuild") as { buildSync(options: Record<string, unknown>): unknown };
+  esbuild.buildSync({
+    entryPoints: ["scripts/browserFoldEntry.ts"],
+    bundle: true,
+    format: "iife",
+    platform: "browser",
+    target: "es2022",
+    outfile: BUNDLE_PATH,
+    logLevel: "warning",
+  });
   const bundle = readFileSync(BUNDLE_PATH, "utf8");
   assertBundleMarkers(bundle);
   return bundle;
