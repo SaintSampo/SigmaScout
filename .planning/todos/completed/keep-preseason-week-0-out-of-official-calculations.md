@@ -18,6 +18,18 @@ files:
 
 # Keep preseason "Week 0" play out of official ratings, predictions and accuracy
 
+> **RESOLVED 2026-09-19 by quick task 260919-368. Live as opr 5.0.0, epa 11.0.0, spr 6.0.0, generation
+> `0eca6b08`.** All five work items are done. A Week 0 match is predicted and never folded
+> (`foldsIntoRatings`, gated inside each algorithm's `update`), the loaders and the scored set use the
+> SQL and TypeScript forms of `isOfficialEventType`, the Worker follows the same rule, and the RP
+> scorecard scores official play only. Measured in three arms with the published scorer and accepted
+> by Jacob: on the identical 125,422 official qualification matches SPR and EPA improve on pooled
+> accuracy and Brier, OPR is unchanged on accuracy and 0.00002 worse on Brier. Item 2's advice not to
+> add a third predicate was NOT followed, on purpose: offseason play must keep folding, so the fold
+> rule cannot be `isOfficialEventType`. The task's SUMMARY has the numbers, the regressions and what
+> is still owed (OPR and EPA seeds, the prune). The status note below is superseded.
+
+
 > **STATUS 2026-09-18: looked at during the stock-take and deliberately NOT started.** It is a model
 > change, not a cleanup. Excluding type 100 moves early-season predictions, so it moves published
 > accuracy for every algorithm, needs version bumps for all three, a republish and all three D1 seeds
