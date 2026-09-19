@@ -1844,6 +1844,57 @@ priced against the same instrument before a line of tick code changes.
 
 Related: [[worker-state-shape-unexercised-since-seed]], [[live-match-updates-swing-and-lossy-merge]].
 
+## BOUNDED DRIFT — the numbers: IT DID NOT WORK (2026-09-18, measured against the bar below)
+
+**Verdict: IT DID NOT WORK, and cleanly. Skipping ONE match of league steps moves a published digit
+almost every time. Bounding the drift buys nothing, so direction 3 of the replay-parity
+recommendation is closed.** Bar `41baf5f0`, instrument `e412727a` (committed before it ran),
+`npx tsx scripts/measureBoundedDrift.ts --events 2026arc,2026nyro,2026auwarp`, 58 seconds, offline.
+
+**Validity gate: PASSED.** `h = 1` is exact on 141 of 141, 99 of 99 and 65 of 65 windows. The
+numbers are interpretable.
+
+| Event | matches | exact at h=2 | exact at h=5 | exact at h=10 | median / max league steps missed at h=2 |
+|---|---|---|---|---|---|
+| `2026arc` (championship division) | 141 | **1.4%** (2 of 140) | 0.0% | 0.0% | 7 / 59 |
+| `2026nyro` (regional) | 99 | **8.2%** (8 of 98) | 4.2% | 0.0% | 8 / 221 |
+| `2026auwarp` (offseason) | 65 | **98.4%** (63 of 64) | 93.4% | 83.9% | 0 / 43 |
+
+The bar's failing leg is under 99 percent at `h = 2` on any one event. All three are under it.
+
+### What the offseason event shows, and it is the useful half
+
+`2026auwarp` loses exactly one more window per horizon: 1, 2, 3, 4, 5 inexact at `h` = 2 to 6. That
+is the signature of ONE boundary, and the first inexact window at every horizon ends at
+`2026auwarp_qm36`, the first match after the single gap in which 43 matches from other events ran.
+Every window that does not cross that gap is exact at EVERY horizon out to 20.
+
+So the fold itself does not drift. **The error is the missed league steps and nothing else:** zero
+missed steps is exact for twenty matches running, and a median of seven missed steps is wrong 98.6
+percent of the time. This confirms the replay-parity attribution (INTERLEAVE, not WIRE, not the
+engine) by a second, independent route.
+
+### What this closes, and what is left of the relay
+
+- **Direction 3 (fold only since the last publish) is closed.** During any hour with concurrent
+  events a browser cannot skip even one tick's worth of league steps and keep a published digit.
+- **Direction 1 (ship the league scalars per match) is not a relay.** It needs the server to have
+  folded every match already, so it moves no fold off the Worker.
+- **Direction 2 (event-scoped league scalars) is a model change**, to be argued on accuracy under a
+  new version, never on making a relay convenient.
+
+**The tick has to fold.** What remains of this todo is making that fold cheaper or splitting it, not
+moving it to the browser. Stated limits, as registered: three events of one season, equality at the
+rounding grid rather than bitwise, and no CPU measured here.
+
+### Where the tick stands after the 2026-09-18 ship
+
+Worker `c9b4642e` (live rows inside the event artifact, 260918-16t) went out after the SPR seed, then
+the demo-match state fix (260918-wfc) in the deploy after it. Both were observed only on idle ticks:
+no live window is open, so **the live-block path and the widened state read have never run in
+production.** The first live event is their real test. Watch for `event-live-block-trimmed` and
+`event-live-block-drift` in the tail, and confirm a touched team's robot page shows its live rows.
+
 ## BOUNDED DRIFT — the bar, pre-registered BEFORE any number (2026-09-18)
 
 The replay-parity recommendation below names this as the next measurement: a one-event fold is exact
