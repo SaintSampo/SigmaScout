@@ -261,12 +261,12 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
 
 ```json budget
 {
-  "measuredAt": "2026-09-15T21:38:59.632Z",
-  "run": "tsx packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2026 --write-budget -- generation 03a5cc42-0266-4ceb-9ceb-86c7a9aabc77, 108976 objects, 3908895118 bytes total, 214 presim sidecars (median 6842 B, p95 15997 B, max 23839 B), 2026-09-15T21:04:21.850Z to 2026-09-15T21:38:59.632Z (0h34m38s)",
+  "measuredAt": "2026-09-19T01:15:16.560Z",
+  "run": "tsx packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2026 --write-budget -- generation 2c518101-7756-4c03-bcc3-8359474efe91, 108976 objects, 3908953115 bytes total, 214 presim sidecars (median 6844 B, p95 16009 B, max 23824 B), 2026-09-19T00:40:14.401Z to 2026-09-19T01:15:16.560Z (0h35m02s)",
   "pages": {
     "teams": {
       "count": 30,
-      "medianBytes": 913093,
+      "medianBytes": 913423,
       "p95Bytes": 1372024,
       "maxBytes": 1500278,
       "budgetMaxBytes": 3500000,
@@ -274,11 +274,11 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
     },
     "team": {
       "count": 101397,
-      "medianBytes": 28811,
+      "medianBytes": 28810,
       "p95Bytes": 81922,
       "maxBytes": 262224,
       "budgetMaxBytes": 500000,
-      "largestKey": "v1/team/frc3538/2024/spr@4.0.0+baseline.json"
+      "largestKey": "v1/team/frc3538/2024/spr@5.0.0+baseline.json"
     },
     "events": {
       "count": 30,
@@ -291,10 +291,10 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
     "event": {
       "count": 7509,
       "medianBytes": 54122,
-      "p95Bytes": 105559,
-      "maxBytes": 228971,
+      "p95Bytes": 105536,
+      "maxBytes": 228849,
       "budgetMaxBytes": 350000,
-      "largestKey": "v1/event/2016micmp/spr@4.0.0+baseline.json"
+      "largestKey": "v1/event/2016micmp/spr@5.0.0+baseline.json"
     },
     "compare": {
       "count": 10,
