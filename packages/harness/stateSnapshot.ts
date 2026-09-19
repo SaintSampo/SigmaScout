@@ -269,6 +269,7 @@ function deserializeEpaState(algorithmId: string, rows: readonly StateRow[]): Ep
   for (const row of rows) {
     if (row.scopeKind !== "team") continue;
     const teamJson = JSON.parse(row.stateJson) as SerializedEpaTeamRow;
+    if (isPassengerOnlyTeamJson(teamJson as unknown as Record<string, unknown>)) continue;
     if (teamJson.carryPending === true) carryPending.add(row.scopeKey);
     if (teamJson.current !== undefined) {
       teamComponents.set(row.scopeKey, teamJson.current.components);
@@ -373,6 +374,7 @@ function deserializeOprState(algorithmId: string, rows: readonly StateRow[]): Op
       });
     } else if (row.scopeKind === "team") {
       const teamJson = JSON.parse(row.stateJson) as SerializedOprTeamRow;
+      if (isPassengerOnlyTeamJson(teamJson as unknown as Record<string, unknown>)) continue;
       lastEventByTeam.set(row.scopeKey, teamJson.lastEventKey);
     }
   }
@@ -460,6 +462,7 @@ function deserializeSprState(algorithmId: string, rows: readonly StateRow[]): Sp
   for (const row of rows) {
     if (row.scopeKind !== "team") continue;
     const t = JSON.parse(row.stateJson) as SerializedSprTeamRow;
+    if (isPassengerOnlyTeamJson(t as unknown as Record<string, unknown>)) continue;
     teams.set(row.scopeKey, { muL: t.muL, pL: t.pL, muS: t.muS, pS: t.pS });
     for (const phase of COMPONENT_GROUP_IDS) {
       const ps = t.phases?.[phase];
@@ -494,6 +497,47 @@ function deserializeSprState(algorithmId: string, rows: readonly StateRow[]): Sp
 // written and read only by the helpers below; they are not algorithm state, and
 // every per-algorithm deserializer ignores them. Per-team beliefs go in team
 // rows only, because nothing in the league row may scale with team count.
+
+/** Every level-2 passenger key starts with this, and no level-1 serializer writes a key that does. */
+const PASSENGER_KEY_PREFIX = "sigmascout";
+
+/**
+ * True for a team row that holds passengers and nothing else. SPR keys every
+ * demo robot as `DEMO_PSEUDO_TEAM_KEY` at level 1 while the Sigma and RP
+ * accumulators keep a belief under each RAW demo key, so that belief has no
+ * level-1 row to ride in and gets a row of its own (`injectTeamPassenger`).
+ * Every algorithm deserializer skips such a row: it is not a team.
+ */
+function isPassengerOnlyTeamJson(parsed: Record<string, unknown>): boolean {
+  const keys = Object.keys(parsed);
+  return keys.length > 0 && keys.every((key) => key.startsWith(PASSENGER_KEY_PREFIX));
+}
+
+/**
+ * Injects one passenger per team into the TEAM rows, returning new rows. A
+ * value whose key has no team row gets a passenger-only row appended, in
+ * ascending key order and stamped from the first row, instead of being
+ * dropped: dropping it was silent, and cost 13 Sigma and 6 RP beliefs on
+ * `2026auwarp` (measured by quick task 260917-mwu).
+ */
+function injectTeamPassenger<T>(rows: readonly StateRow[], passengerKey: string, values: ReadonlyMap<string, T>): StateRow[] {
+  const seen = new Set<string>();
+  const out = rows.map((row) => {
+    if (row.scopeKind !== "team") return row;
+    seen.add(row.scopeKey);
+    const value = values.get(row.scopeKey);
+    if (value === undefined) return row;
+    const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
+    return { ...row, stateJson: JSON.stringify({ ...parsed, [passengerKey]: value }) };
+  });
+  const template = rows[0];
+  if (template === undefined) return out;
+  const orphans = [...values.keys()].filter((teamKey) => !seen.has(teamKey)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  for (const teamKey of orphans) {
+    out.push({ ...template, scopeKind: "team", scopeKey: teamKey, stateJson: JSON.stringify({ [passengerKey]: values.get(teamKey) }) });
+  }
+  return out;
+}
 
 const SIGMA_BELIEF_KEY = "sigmascoutSigma";
 const SIGMA_POPULATION_KEY = "sigmascoutSigmaPopulation";
@@ -530,15 +574,9 @@ export function readSigmaBeliefs(rows: readonly StateRow[]): Map<string, SigmaBe
   return beliefs;
 }
 
-/** Injects each team's Sigma belief into the TEAM rows, returning new rows rather than mutating them. */
+/** Injects each team's Sigma belief into the TEAM rows, returning new rows rather than mutating them. A belief with no team row gets a passenger-only row (`injectTeamPassenger`). */
 export function withSigmaBeliefs(rows: readonly StateRow[], beliefs: ReadonlyMap<string, SigmaBelief>): StateRow[] {
-  return rows.map((row) => {
-    if (row.scopeKind !== "team") return row;
-    const belief = beliefs.get(row.scopeKey);
-    if (belief === undefined) return row;
-    const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
-    return { ...row, stateJson: JSON.stringify({ ...parsed, [SIGMA_BELIEF_KEY]: belief }) };
-  });
+  return injectTeamPassenger(rows, SIGMA_BELIEF_KEY, beliefs);
 }
 
 /** The Sigma population statistics from the LEAGUE row, or `undefined` (a real answer: the caller uses the flat prior). */
@@ -612,15 +650,9 @@ export function readRpBeliefs(rows: readonly StateRow[]): Map<string, RpTeamBeli
   return beliefs;
 }
 
-/** Injects each team's RP beliefs into the TEAM rows, returning new rows. A team with no belief gets no key. */
+/** Injects each team's RP beliefs into the TEAM rows, returning new rows. A team with no belief gets no key; a belief with no team row gets a passenger-only row (`injectTeamPassenger`). */
 export function withRpBeliefs(rows: readonly StateRow[], beliefs: ReadonlyMap<string, RpTeamBeliefs>): StateRow[] {
-  return rows.map((row) => {
-    if (row.scopeKind !== "team") return row;
-    const belief = beliefs.get(row.scopeKey);
-    if (belief === undefined) return row;
-    const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
-    return { ...row, stateJson: JSON.stringify({ ...parsed, [RP_BELIEF_KEY]: belief }) };
-  });
+  return injectTeamPassenger(rows, RP_BELIEF_KEY, beliefs);
 }
 
 /** The league-row key for the ranking-point mean shift (`meanShift.ts`). */

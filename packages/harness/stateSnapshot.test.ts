@@ -1330,3 +1330,85 @@ describe("the ranking-point mean-shift league passenger", () => {
     expect(readRpMeanShift(all)).toEqual(SHIFT);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Passenger-only team rows (quick task 260918-wfc). SPR keys every demo robot
+// as DEMO_PSEUDO_TEAM_KEY at level 1, while the Sigma and RP accumulators keep
+// a belief under each RAW demo key, so such a belief has no level-1 row to ride
+// in. It used to be dropped silently: 13 Sigma and 6 RP beliefs on 2026auwarp.
+// ---------------------------------------------------------------------------
+
+describe("a level-2 belief with no level-1 team row rides a passenger-only row", () => {
+  const DEMO_KEY = "frc9991";
+  const SIGMA = { meanWeight: 3, mean: 4.5, varWeight: 2.5, sumSquares: 81, talent: 140 };
+  const RP = { coral: { weight: 3, weightSquares: 3, mean: 0.4, m2: 0.3 } };
+
+  function sprRows(): StateRow[] {
+    return serializeState("spr", spr.version, spr.initState(["frc1", "frc2"]) as never, STAMP);
+  }
+
+  it("withSigmaBeliefs appends the row instead of dropping the belief, stamped like its neighbours", () => {
+    const base = sprRows();
+    expect(base.some((row) => row.scopeKey === DEMO_KEY), "the fixture already has a row for the demo key").toBe(false);
+    const rows = withSigmaBeliefs(base, new Map([[DEMO_KEY, SIGMA]]));
+    expect(rows).toHaveLength(base.length + 1);
+    const appended = rows.at(-1)!;
+    expect(appended).toMatchObject({ algorithmId: "spr", algorithmVersion: spr.version, scopeKind: "team", scopeKey: DEMO_KEY, ...STAMP });
+    expect(() => StateRowSchema.parse(appended)).not.toThrow();
+    expect(readSigmaBeliefs(rows).get(DEMO_KEY)).toEqual(SIGMA);
+  });
+
+  it("withRpBeliefs does the same, and both passengers share ONE row for the same key in either order", () => {
+    const sigmaFirst = withRpBeliefs(withSigmaBeliefs(sprRows(), new Map([[DEMO_KEY, SIGMA]])), new Map([[DEMO_KEY, RP]]));
+    const rpFirst = withSigmaBeliefs(withRpBeliefs(sprRows(), new Map([[DEMO_KEY, RP]])), new Map([[DEMO_KEY, SIGMA]]));
+    for (const rows of [sigmaFirst, rpFirst]) {
+      expect(rows.filter((row) => row.scopeKey === DEMO_KEY)).toHaveLength(1);
+      expect(readSigmaBeliefs(rows).get(DEMO_KEY)).toEqual(SIGMA);
+      expect(readRpBeliefs(rows).get(DEMO_KEY)).toEqual(RP);
+    }
+  });
+
+  it("appended rows come in ascending key order, after every serialized row", () => {
+    const base = sprRows();
+    const rows = withSigmaBeliefs(
+      base,
+      new Map([
+        ["frc9995", SIGMA],
+        ["frc9971", SIGMA],
+      ])
+    );
+    expect(rows.slice(0, base.length)).toEqual(base);
+    expect(rows.slice(base.length).map((row) => row.scopeKey)).toEqual(["frc9971", "frc9995"]);
+  });
+
+  it("an empty belief map, and a belief whose team HAS a row, append nothing", () => {
+    const base = sprRows();
+    expect(withSigmaBeliefs(base, new Map())).toEqual(base);
+    expect(withRpBeliefs(base, new Map())).toEqual(base);
+    expect(withSigmaBeliefs(base, new Map([["frc1", SIGMA]]))).toHaveLength(base.length);
+  });
+
+  it("no deserializer turns a passenger-only row into a team", () => {
+    const sprState = deserializeState(
+      "spr",
+      withRpBeliefs(withSigmaBeliefs(sprRows(), new Map([[DEMO_KEY, SIGMA]])), new Map([[DEMO_KEY, RP]]))
+    ) as unknown as { teams: ReadonlyMap<string, unknown> };
+    expect([...sprState.teams.keys()].sort()).toEqual(["frc1", "frc2"]);
+
+    const oprRows = withSigmaBeliefs(serializeState("opr", opr.version, opr.initState(["frc1"]) as never, STAMP), new Map([[DEMO_KEY, SIGMA]]));
+    const oprState = deserializeState("opr", oprRows) as unknown as { lastEventByTeam: ReadonlyMap<string, string> };
+    expect(oprState.lastEventByTeam.has(DEMO_KEY)).toBe(false);
+
+    const epaRows = withSigmaBeliefs(serializeState("epa", epa.version, epa.initState(["frc1"]) as never, STAMP), new Map([[DEMO_KEY, SIGMA]]));
+    const epaState = deserializeState("epa", epaRows) as EpaState;
+    expect(epaState.teamComponents.has(DEMO_KEY)).toBe(false);
+    expect(epaState.teamMatchCounts.has(DEMO_KEY)).toBe(false);
+  });
+
+  it("a resumed fold re-serializes to the same rows: the passenger-only row survives a round trip byte for byte", () => {
+    const seeded = withSigmaBeliefs(sprRows(), new Map([[DEMO_KEY, SIGMA]]));
+    const state = deserializeState("spr", seeded);
+    const again = withSigmaBeliefs(serializeState("spr", spr.version, state as never, STAMP), readSigmaBeliefs(seeded));
+    expect(again).toEqual(seeded);
+  });
+});

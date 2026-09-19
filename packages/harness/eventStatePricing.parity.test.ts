@@ -529,11 +529,15 @@ describe("eventStatePricing parity: demo-key probe", () => {
     upcoming: upcomingDemo.map((m) => scheduleOnly(m, sortTimes.get(m.matchKey))),
   });
 
-  it("the probe is real: the demo robot played, and the block carries SPR's pseudo-team row", () => {
+  it("the probe is real: the demo robot played, and the block carries SPR's pseudo-team row AND the raw demo key's passenger-only row", () => {
     expect(firstEventQm).toBeGreaterThanOrEqual(0);
     expect(playedDemo[firstEventQm]!.redTeams).toContain(DEMO_TEAM);
     expect(block.rows.some((row) => row.scopeKey === DEMO_PSEUDO_TEAM_KEY)).toBe(true);
-    expect(block.rows.some((row) => row.scopeKey === DEMO_TEAM)).toBe(false);
+    // The raw key has no level-1 state (SPR keys it as the pseudo team), so its
+    // row holds level-2 passengers and nothing else (quick task 260918-wfc).
+    const demoRow = block.rows.find((row) => row.scopeKey === DEMO_TEAM);
+    expect(demoRow, "the demo robot's beliefs did not reach the block").toBeDefined();
+    expect(Object.keys(JSON.parse(demoRow!.stateJson) as object).every((key) => key.startsWith("sigmascout"))).toBe(true);
   });
 
   it("every row without the demo robot matches exactly, and the demo row's prediction fields match", () => {
@@ -557,15 +561,11 @@ describe("eventStatePricing parity: demo-key probe", () => {
     }
   });
 
-  it("KNOWN GAP (demo key beliefs): the raw demo key's Sigma and RP beliefs cannot ride the rows, so the pricer omits that alliance's band and the match's RP", () => {
-    const pricedDemo = jsonNormal(priced.event[demoIndex]!) as Record<string, unknown>;
+  it("the demo row matches offline EXACTLY, band and ranking points included (the KNOWN GAP this pinned until 260918-wfc is closed)", () => {
     const offlineDemo = jsonNormal(publishedEvent[demoIndex]!) as Record<string, unknown>;
-    const dropped = ["redMatchBandVariance", ...RP_ROW_KEYS];
-    // Offline prices the demo robot from its raw-key beliefs...
-    for (const key of dropped) expect(offlineDemo, key).toHaveProperty(key);
-    // ...which withSigmaBeliefs/withRpBeliefs never write, since SPR keys demo robots as the pseudo team.
-    for (const key of dropped) expect(pricedDemo, key).not.toHaveProperty(key);
-    const offlineWithoutGap = Object.fromEntries(Object.entries(offlineDemo).filter(([key]) => !dropped.includes(key)));
-    expect(pricedDemo).toStrictEqual(offlineWithoutGap);
+    // Non-vacuity: offline prices the demo alliance's band and the match's RP
+    // from the raw demo key's beliefs, so equality below covers those fields.
+    for (const key of ["redMatchBandVariance", ...RP_ROW_KEYS]) expect(offlineDemo, key).toHaveProperty(key);
+    expectExactRows([priced.event[demoIndex]!], [publishedEvent[demoIndex]!]);
   });
 });

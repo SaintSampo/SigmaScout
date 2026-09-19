@@ -607,6 +607,11 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
  * - RP mean shift (LEAGUE row): without it the Worker prices live matches unshifted.
  * LEAGUE-row passengers are the easy ones to forget.
  *
+ * A belief whose key has no level-1 team row is not dropped: it gets a passenger-only row. That is
+ * every demo robot, which SPR keys as `DEMO_PSEUDO_TEAM_KEY` while the level-2 accumulators key it
+ * raw. Until quick task 260918-wfc those beliefs were lost here, so an offseason event with a demo
+ * robot priced differently live and offline.
+ *
  * A non-Sigma algorithm gets an empty Sigma belief map and no population, so its seed carries no
  * Sigma key; an algorithm that publishes no ranking points gets whatever its layer holds (empty) and
  * no mean shift.
