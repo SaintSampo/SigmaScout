@@ -93,7 +93,7 @@ import {
   STATE_SNAPSHOT_SHAPE_VERSION,
   type StateStamp,
 } from "../../../packages/harness/stateSnapshot.js";
-import { buildEventStateBlock } from "../../../packages/harness/eventStatePricing.js";
+import { buildEventStateBlock, stateBlockScopeKeys } from "../../../packages/harness/eventStatePricing.js";
 import { artifactKey, type LiveEventArtifact, type TeamSeasonArtifact } from "../../../packages/harness/pageArtifacts.js";
 // The tick's OWN read guards, imported for the same reason `artifactMerge.ts`
 // is: the probe prices the path production runs, never a copy or a superseded
@@ -1432,7 +1432,9 @@ async function readAndDeserializeAll(
     const rowsRead = { league: 0, team: 0, event: 0 };
     let leagueRowPresent = false;
     try {
-      const selections = probeSelectionsFor(algorithmId, eventKey, teamKeys);
+      // Mirrors the tick (260918-wfc): the read names the demo pseudo-team key
+      // when a roster holds a demo robot. A no-op for an all-real roster.
+      const selections = probeSelectionsFor(algorithmId, eventKey, stateBlockScopeKeys(teamKeys));
       const rows = await readScopedState(db, algorithmId, selections);
       for (const row of rows) rowsRead[row.scopeKind]++;
       const leagueRow = rows.find((row) => row.scopeKind === "league");

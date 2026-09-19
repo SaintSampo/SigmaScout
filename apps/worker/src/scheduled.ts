@@ -82,6 +82,7 @@ import { tbaEventSchema } from "../../../packages/ingest/schemas.js";
 import { normalizeMatch, type CorpusMatch } from "../../../packages/ingest/normalize.js";
 import { fetchEventDetail } from "../../../packages/ingest/tbaClient.js";
 import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
+import { stateBlockScopeKeys } from "../../../packages/harness/eventStatePricing.js";
 import { isBonusRpCompLevel, isRpEligibleEventType } from "../../../packages/core/rankingPoints/constants.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
@@ -291,14 +292,20 @@ export function selectionsFor(algorithmId: string, eventKey: string, touchedTeam
   return selections;
 }
 
-async function loadOrInitState(db: D1Database, algorithmId: string, selections: readonly ScopeSelection[], algorithm: AlgorithmModule<any>) {
+async function loadOrInitState(
+  db: D1Database,
+  algorithmId: string,
+  selections: readonly ScopeSelection[],
+  algorithm: AlgorithmModule<any>,
+  coldStartTeamKeys: readonly string[]
+) {
   const rows = await readScopedState(db, algorithmId, selections);
   const hasLeagueRow = rows.some((row) => row.scopeKind === "league");
   // Not yet seeded: cold-start via initState, since deserializeState throws
   // MissingLeagueRowError for this case. initState takes team keys, never
-  // the event key.
-  const teamKeys = selections.find((s) => s.scopeKind === "team")?.scopeKeys ?? [];
-  const state: any = hasLeagueRow ? deserializeState(algorithmId, rows) : algorithm.initState([...teamKeys]);
+  // the event key, and never a demo key: the selection above reads demo keys,
+  // but only so a seeded passenger-only row can be resumed.
+  const state: any = hasLeagueRow ? deserializeState(algorithmId, rows) : algorithm.initState([...coldStartTeamKeys]);
   return { rows, state };
 }
 
@@ -638,8 +645,9 @@ async function processEvent(
     }
 
     const touchedTeams = [...new Set(newlyFolded.flatMap((m) => [...m.redTeams, ...m.blueTeams]))].sort();
-    // Demo keys never drive D1 state or team artifacts; `touchedTeams` stays
-    // raw for the event artifact's standings.
+    // Demo keys never seed a level-1 `team` row or a team artifact;
+    // `touchedTeams` stays raw for the event artifact's standings and for the
+    // state READ (see the selection below).
     const realTouchedTeams = touchedTeams.filter((teamKey) => !isDemoTeamKey(teamKey));
     const lastFoldedMatchKey = newlyFolded[newlyFolded.length - 1]!.matchKey;
 
@@ -689,11 +697,18 @@ async function processEvent(
       const perAlgorithm = new Map<string, PerAlgorithmFold>();
 
       for (const [algorithmId, algorithm] of algorithmModules) {
-        // Demo keys stripped, so none seeds a `team` row at cold start.
-        const selections = selectionsFor(algorithmId, eventKey, realTouchedTeams);
+        // The READ names every raw key plus the demo pseudo-team key
+        // (`stateBlockScopeKeys`, the rule the published `state` block is built
+        // by), so a demo match resumes what the offline publisher seeded: the
+        // pseudo-team row SPR and OPR predict a demo robot from, and the
+        // passenger-only row its level-2 beliefs ride in. Reading only
+        // `realTouchedTeams` restarted both from the prior on every tick
+        // (quick task 260918-wfc). Same one statement, a few more bound keys.
+        const selections = selectionsFor(algorithmId, eventKey, stateBlockScopeKeys(touchedTeams));
 
         budget.consume(1);
-        const { rows, state: initialState } = await loadOrInitState(env.DB, algorithmId, selections, algorithm);
+        // Cold start still gets real keys only, so no demo key seeds a level-1 `team` row.
+        const { rows, state: initialState } = await loadOrInitState(env.DB, algorithmId, selections, algorithm, realTouchedTeams);
 
         let state = initialState;
         // Sigma Score, resumed from the seeded beliefs (a fresh accumulator

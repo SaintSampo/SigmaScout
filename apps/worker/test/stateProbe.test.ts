@@ -1014,6 +1014,7 @@ describe("stateProbe — Group 7: Phase A mirror guard (call-name equivalence wi
     "set",
     "sigmaFor",
     "sigmaMatchBandVariance",
+    "stateBlockScopeKeys",
     "teamMetrics",
     "toLeakProofUpcoming",
     "toState",

@@ -48,6 +48,8 @@ import { spr } from "../../../packages/core/algorithms/spr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { SubrequestBudget } from "../src/subrequestBudget.js";
+import { DEMO_PSEUDO_TEAM_KEY } from "../../../packages/core/algorithms/demoTeams.js";
+import { readSigmaBeliefs, serializeState, withSigmaBeliefs } from "../../../packages/harness/stateSnapshot.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 
@@ -537,6 +539,88 @@ describe("liveAlgorithmTier — only the live tier folds", () => {
     // itself. Asserted by equality over every key mentioning this event, so a
     // reintroduced second object fails here by name.
     expect(new Set(r2.puts.filter((p) => p.key.includes("2026casj")).map((p) => p.key))).toEqual(new Set([premierEventKey]));
+  });
+});
+
+describe("liveAlgorithmTier — a demo match resumes the state the offline publisher seeded (quick task 260918-wfc)", () => {
+  const DEMO_KEY = "frc9985";
+  const SEEDED_MEAN_WEIGHT = 50;
+
+  /** One tick over one played match whose red alliance holds a demo robot, against a D1 seeded with `pseudoMuL` on SPR's pseudo-team row. */
+  async function runDemoTick(pseudoMuL: number): Promise<FakeD1Database> {
+    const state = spr.initState([...ALL_TEAMS, DEMO_PSEUDO_TEAM_KEY]) as unknown as { teams: Map<string, { muL: number }> };
+    state.teams.get(DEMO_PSEUDO_TEAM_KEY)!.muL = pseudoMuL;
+    const seeded = withSigmaBeliefs(
+      serializeState("spr", spr.version, state as never, { generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" }),
+      new Map([[DEMO_KEY, { meanWeight: SEEDED_MEAN_WEIGHT, mean: 4, varWeight: SEEDED_MEAN_WEIGHT, sumSquares: 900, talent: 60 }]])
+    );
+    const d1 = new FakeD1Database();
+    for (const row of seeded) {
+      d1.algorithmState.set(`${row.algorithmId}::${row.scopeKind}::${row.scopeKey}`, {
+        algorithm_id: row.algorithmId,
+        algorithm_version: row.algorithmVersion,
+        scope_kind: row.scopeKind,
+        scope_key: row.scopeKey,
+        state_json: row.stateJson,
+        generation: row.generation,
+        computed_at: row.computedAt,
+      });
+    }
+    const window: WindowFixture = { eventKey: "2026demo", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const record: TbaEventRecord = {
+      etag: "etag-1",
+      eventType: 99,
+      season: SEASON,
+      matches: [
+        tbaMatch({
+          key: "2026demo_qm1",
+          eventKey: "2026demo",
+          matchNumber: 1,
+          redTeams: ["frc1", "frc2", DEMO_KEY],
+          blueTeams: BLUE_TEAMS,
+          redScore: 120,
+          blueScore: 95,
+          actualTimeSec: Math.floor(NOW_MS / 1000) - 60,
+        }),
+      ],
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026demo", record]])));
+    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, new FakeR2Bucket(), "spr"), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    expect(result.eventsAdvanced).toBe(1);
+    expect(result.eventsFailed).toBe(0);
+    return d1;
+  }
+
+  function pseudoMuLAfter(d1: FakeD1Database): number {
+    const row = d1.algorithmState.get(`spr::team::${DEMO_PSEUDO_TEAM_KEY}`);
+    expect(row, "the tick wrote no pseudo-team row").toBeDefined();
+    return (JSON.parse(row!.state_json) as { muL: number }).muL;
+  }
+
+  it("the demo robot's Sigma belief is RESUMED and written back, not restarted from the prior", async () => {
+    const d1 = await runDemoTick(0);
+    const row = d1.algorithmState.get(`spr::team::${DEMO_KEY}`);
+    expect(row, "the demo robot's passenger-only row is gone after the tick").toBeDefined();
+    const belief = readSigmaBeliefs([
+      { algorithmId: "spr", algorithmVersion: spr.version, scopeKind: "team", scopeKey: DEMO_KEY, stateJson: row!.state_json, generation: row!.generation, computedAt: row!.computed_at },
+    ]).get(DEMO_KEY);
+    expect(belief).toBeDefined();
+    // A belief restarted this tick has folded ONE match and reads exactly 1
+    // (measured: that is what this assertion saw before the selection named
+    // the demo key). A resumed one decays a little and adds one match, so it
+    // stays near the seeded 50 (measured 49.1). Half the seed separates them.
+    expect(belief!.meanWeight).toBeGreaterThan(SEEDED_MEAN_WEIGHT / 2);
+    // The row holds passengers only: the raw demo key never becomes an SPR team.
+    expect(Object.keys(JSON.parse(row!.state_json) as object).every((key) => key.startsWith("sigmascout"))).toBe(true);
+  });
+
+  it("SPR's pseudo-team row is READ: two ticks differing only in its seeded rating end at different ratings", async () => {
+    // If the selection never names the pseudo-team key, both ticks price the
+    // demo robot from a fresh pseudo team and write back the same number.
+    const low = pseudoMuLAfter(await runDemoTick(0));
+    const high = pseudoMuLAfter(await runDemoTick(40));
+    expect(high).not.toBe(low);
+    expect(high).toBeGreaterThan(low);
   });
 });
 
