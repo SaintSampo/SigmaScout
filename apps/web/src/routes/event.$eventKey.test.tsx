@@ -272,7 +272,7 @@ describe("/event/$eventKey route — tab strip and states", () => {
     expect(screen.queryByTestId("breakdown-group-row")).toBeNull();
   });
 
-  it("epa: a populated artifact whose season is 2024, loaded at ?year=2026, expands Auto into the 2024 auto components (sketch 009-A drill-down) — the column set follows artifact.season, not ?year=", async () => {
+  it("epa: a populated artifact whose season is 2024, loaded at ?year=2026, shows NO phase toggles, because every 2024 group has one member while every 2026 group has several — the column set follows artifact.season, not ?year=", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("manifest")) return Promise.resolve(manifestResponse([EPA_MANIFEST_ENTRY]));
@@ -283,11 +283,13 @@ describe("/event/$eventKey route — tab strip and states", () => {
     const headerIds = () => screen.getAllByTestId(/^breakdown-header-/).map((el) => el.getAttribute("data-testid")?.replace("breakdown-header-", ""));
     // Collapsed: Team #, Team Name, Total, the three phase columns, Fouls Committed.
     await waitFor(() => expect(headerIds()).toEqual(["teamNumber", "nickname", "total", "phaseAuto", "phaseTeleop", "phaseEndgame", "foulsCommitted"]));
-    // Expanded: the Auto phase column is replaced in place by the 2024 auto components.
-    fireEvent.click(screen.getByTestId("breakdown-group-toggle-auto"));
-    await waitFor(() =>
-      expect(headerIds()).toEqual(["teamNumber", "nickname", "total", ...componentsInGroup(2024, "auto"), "phaseTeleop", "phaseEndgame", "foulsCommitted"]),
-    );
+    // The two seasons differ in exactly the way this can see: a 2024 group
+    // expands into one identical column, so it gets no toggle and the band row
+    // is absent; reading the season off `?year=2026` would render three.
+    expect(componentsInGroup(2024, "auto")).toHaveLength(1);
+    expect(componentsInGroup(2026, "auto").length).toBeGreaterThan(1);
+    expect(screen.queryByTestId("breakdown-group-row")).toBeNull();
+    expect(screen.queryAllByTestId(/^breakdown-group-toggle-/)).toHaveLength(0);
   });
 
   it("DEFAULT_EVENT_TAB is the string 'insights'", () => {
