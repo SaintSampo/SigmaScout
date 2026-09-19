@@ -24,6 +24,7 @@ import {
   selectEventRankingsForSeason,
   selectMatchesChronological,
   selectScheduledMatches,
+  OFFICIAL_EVENT_SQL,
   selectTeamKeysForYear,
   selectTeamMediaForYear,
   upsertEvent,
@@ -183,6 +184,22 @@ describe("selectMatchesChronological — offseason exclusion", () => {
       (m) => m.matchKey
     );
     expect(withoutOffseason).toEqual(["2024normal_qm1"]);
+  });
+
+  it("omits PRESEASON Week 0 (type 100) matches too, which the corpus does NOT flag is_offseason (quick task 260919-368)", () => {
+    // The shape the real corpus has: `is_offseason` is derived from type 99
+    // alone, so a Week 0 event arrives with the flag FALSE. Filtering on the
+    // flag let it through to the ratings and the scored set; the loader filters
+    // on the event type, the SQL form of `isOfficialEventType`.
+    upsertEvent(db, event({ eventKey: "2024normal", eventType: 0, isOffseason: false }));
+    upsertEvent(db, event({ eventKey: "2024week0", eventType: 100, isOffseason: false }));
+    upsertMatch(db, match({ matchKey: "2024week0_qm1", eventKey: "2024week0", sortTime: 1 }));
+    upsertMatch(db, match({ matchKey: "2024normal_qm1", eventKey: "2024normal", sortTime: 2 }));
+
+    expect(selectMatchesChronological(db).map((m) => m.matchKey)).toContain("2024week0_qm1");
+    expect(selectMatchesChronological(db, { excludeOffseason: true }).map((m) => m.matchKey)).toEqual(["2024normal_qm1"]);
+    expect(selectTeamKeysForYear(db, 2024, { excludeOffseason: true }).length).toBeGreaterThan(0);
+    expect(OFFICIAL_EVENT_SQL).toBe("e.event_type NOT IN (99, 100)");
   });
 });
 

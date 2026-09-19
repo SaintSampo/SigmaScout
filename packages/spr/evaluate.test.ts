@@ -184,9 +184,14 @@ describe("the loaded population", () => {
     }
   });
 
-  it.runIf(available)("keeps event_type 100 matches the shared harness keeps", () => {
-    // This asserts the retired offseason filter is genuinely gone.
-    expect(loaded.some((m) => m.eventType === 100)).toBe(true);
+  it.runIf(available)("loads official play only: no offseason (99) and no preseason Week 0 (100) match", () => {
+    // Until quick task 260919-368 this asserted the OPPOSITE for type 100, because the shared loader
+    // filtered on `is_offseason` (type 99 alone) and the point then was one population for every
+    // algorithm. It is still one population. It is now the official one, since Week 0 play must not
+    // feed an official calculation.
+    expect(loaded.length).toBeGreaterThan(0);
+    expect(loaded.filter((m) => m.eventType === 100)).toHaveLength(0);
+    expect(loaded.filter((m) => m.eventType === 99)).toHaveLength(0);
   });
 
   it.runIf(available)("is globally non-decreasing in sort time, so no future match is stepped early", () => {

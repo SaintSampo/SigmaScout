@@ -11,14 +11,20 @@
  * population no other algorithm was scored on and its numbers were not
  * comparable to anything. Measured 2026-09-09: six design-era events and five
  * holdout-era events carry `event_type = 100` while `is_offseason = 0`, worth
- * 149 and 151 matches respectively — matches the shared harness KEEPS.
+ * 149 and 151 matches respectively — matches the shared harness KEPT.
+ *
+ * Since quick task 260919-368 the shared harness drops them too, for EVERY
+ * algorithm at once: `excludeOffseason` now means "official play only"
+ * (`OFFICIAL_EVENT_SQL`), because preseason Week 0 must not feed an official
+ * calculation. The population is still one population, which was the point of
+ * F-12; it is now the right one.
  *
  * The model's DESIGN still stays independent of `packages/harness`: nothing
  * fitted on 2023-2026 is imported here. `packages/corpus` is a
  * parameterless reader of raw TBA facts, so pointing at it contaminates
  * nothing — it removes a private population, it does not add a tuned one.
  */
-import { openCorpusReadOnly, selectMatchesChronological } from "../corpus/db.js";
+import { OFFICIAL_EVENT_SQL, openCorpusReadOnly, selectMatchesChronological } from "../corpus/db.js";
 
 export interface BprMatch {
   matchKey: string;
@@ -181,7 +187,7 @@ export function loadMatches(corpusPath: string): BprMatch[] {
           `select count(*) as c
              from matches m
              join events e using(event_key)
-            where e.is_offseason = 0
+            where ${OFFICIAL_EVENT_SQL}
               and m.winner is not null
               and (m.red_score is null or m.blue_score is null)`,
         )

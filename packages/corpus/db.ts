@@ -20,12 +20,22 @@ import { dirname } from "node:path";
 import { fileURLToPath, URL } from "node:url";
 import { z } from "zod";
 import type { CompLevel, MatchResult, UpcomingMatch } from "../core/algorithms/types.js";
+import { OFFSEASON_EVENT_TYPE, PRESEASON_EVENT_TYPE } from "../core/algorithms/eventTypes.js";
 import {
   detectReplay,
   type CorpusEvent,
   type CorpusMatch,
   type ExistingMatchScoreFields,
 } from "../ingest/normalize.js";
+
+/**
+ * The SQL form of `isOfficialEventType`, for every loader that must keep unofficial play out: neither
+ * offseason (99) nor preseason Week 0 (100). Built from the same two constants that predicate reads, so
+ * the SQL and the predicate cannot disagree. `is_offseason` is NOT this: that column is derived from
+ * type 99 alone, and filtering on it let every season's Week 0 matches into the ratings and the scored
+ * set (11 to 52 played matches a season) until quick task 260919-368.
+ */
+export const OFFICIAL_EVENT_SQL = `e.event_type NOT IN (${OFFSEASON_EVENT_TYPE}, ${PRESEASON_EVENT_TYPE})`;
 
 export type Corpus = InstanceType<typeof Database>;
 
@@ -552,7 +562,11 @@ export interface ChronologicalQueryOptions {
   eventKey?: string;
   /** Restrict to a single season. */
   year?: number;
-  /** Drop matches belonging to an event flagged is_offseason (the default for anything feeding ratings or scoring). */
+  /**
+   * Drop matches belonging to an UNOFFICIAL event: offseason (type 99) AND preseason Week 0 (type 100).
+   * The default for anything feeding ratings or scoring. The name predates quick task 260919-368, when
+   * this filtered on `is_offseason` alone and so let Week 0 play through (see `OFFICIAL_EVENT_SQL`).
+   */
   excludeOffseason?: boolean;
 }
 
@@ -584,7 +598,7 @@ export function selectMatchesChronological(
     params["year"] = options.year;
   }
   if (options.excludeOffseason === true) {
-    clauses.push("e.is_offseason = 0");
+    clauses.push(OFFICIAL_EVENT_SQL);
   }
 
   const rows = db
@@ -687,7 +701,7 @@ export function selectScheduledMatches(
     params["year"] = options.year;
   }
   if (options.excludeOffseason === true) {
-    clauses.push("e.is_offseason = 0");
+    clauses.push(OFFICIAL_EVENT_SQL);
   }
 
   const rows = db
@@ -1219,7 +1233,7 @@ export function selectTeamKeysForYear(
   const params: Record<string, string | number> = { year };
 
   if (options.excludeOffseason === true) {
-    clauses.push("e.is_offseason = 0");
+    clauses.push(OFFICIAL_EVENT_SQL);
   }
 
   const rows = db
@@ -1632,7 +1646,7 @@ export function selectCorpusSeasons(db: Corpus): number[] {
       `SELECT DISTINCT e.year AS year
        FROM matches m
        JOIN events e ON e.event_key = m.event_key
-       WHERE e.is_offseason = 0
+       WHERE ${OFFICIAL_EVENT_SQL}
        ORDER BY e.year ASC`
     )
     .all() as CorpusSeasonRow[];

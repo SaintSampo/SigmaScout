@@ -53,6 +53,7 @@ import {
   selectTeamKeysForYear,
   selectTeamMediaForYear,
   type Corpus,
+  OFFICIAL_EVENT_SQL,
 } from "../corpus/db.js";
 import { buildPreScheduleArtifact } from "./preSchedule.js";
 import { eventScheduleIsCurrent } from "./eventSchedule.js";
@@ -1599,7 +1600,7 @@ function selectScheduledMatchTimes(db: Corpus, season: number, options: { exclud
   const clauses: string[] = ["e.year = @year"];
   const params: Record<string, string | number> = { year: season };
   if (options.excludeOffseason === true) {
-    clauses.push("e.is_offseason = 0");
+    clauses.push(OFFICIAL_EVENT_SQL);
   }
   const rows = db
     .prepare(
@@ -1627,7 +1628,7 @@ function selectMatchVideoKeys(db: Corpus, season: number, options: { excludeOffs
   const clauses: string[] = ["e.year = @year"];
   const params: Record<string, string | number> = { year: season };
   if (options.excludeOffseason === true) {
-    clauses.push("e.is_offseason = 0");
+    clauses.push(OFFICIAL_EVENT_SQL);
   }
   const rows = db
     .prepare(
@@ -1968,7 +1969,11 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       predictedRedScore: r.prediction.redScore,
       predictedBlueScore: r.prediction.blueScore,
       actualWinner: r.match.winner,
-      isOffseason: offseasonEventKeys.has(r.match.eventKey),
+      // UNOFFICIAL, not merely offseason: preseason Week 0 (type 100) is excluded from the scored set
+      // too. The field and the published `exclusionCounts.offseason` label keep their names; until quick
+      // task 260919-368 this read the corpus `is_offseason` flag, which is type 99 alone, so every
+      // season's Week 0 matches were scored.
+      isOffseason: !isOfficialEventType(r.match.eventType),
       isSurrogateAffected: r.match.redSurrogates.length > 0 || r.match.blueSurrogates.length > 0,
       isColdStart: r.coldStart === true,
     }));
