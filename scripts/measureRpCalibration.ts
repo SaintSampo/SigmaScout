@@ -51,6 +51,7 @@ import {
 import { emptyMarginalResolutionTally, pmfMean, type MarginalResolutionTally } from "../packages/core/rankingPoints/analyticPmf.js";
 import { isBonusRpCompLevel } from "../packages/core/rankingPoints/constants.js";
 import type { Prediction } from "../packages/core/algorithms/types.js";
+import { isOfficialEventType } from "../packages/core/algorithms/eventTypes.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 
@@ -1093,6 +1094,14 @@ async function main(): Promise<void> {
         const layer = layers.get(r.algorithmId)!;
         const enriched = layer.foldPlayed(r.match, r.prediction);
         const armEnriched = armLayers === undefined ? undefined : armLayers.get(r.algorithmId)!.foldPlayed(r.match, r.prediction);
+
+        // OFFICIAL PLAY ONLY is scored (quick task 260919-368). The layers above
+        // have already been handed the match, and decide for themselves whether
+        // it folds; what stops here is the SCORECARD. Offseason never reached it
+        // (no pmf: type 99 is not RP-eligible), but preseason Week 0 is
+        // RP-eligible and was scored until now, against the rule that unofficial
+        // play feeds no published accuracy.
+        if (!isOfficialEventType(r.match.eventType)) continue;
 
         // Runs before the bonus-flag `continue` below: this population is every
         // played bonus-RP-eligible match with a pmf, not gated on bonus flags.

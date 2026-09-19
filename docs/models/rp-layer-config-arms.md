@@ -499,3 +499,26 @@ Ship commit: `f79a55aa`. Worker commit: `98c5bfa4`. Re-emit commit: `589ef10a`. 
 task 260913-qyn, 2026-09-13; lattice and mean-shift section added by quick task 260914-01x,
 2026-09-14)*
 *Written: 2026-09-11*
+
+## 2026-09-19: `-09f`, measured on official play only under SPR 6.0.0 (quick task 260919-368)
+
+Two things changed at once, so they were measured apart. Same command as `-09e`
+(`--seasons 2016-2020,2022-2026 --algorithm spr`), pooled over the ten seasons:
+
+| | total-RP observations | total-RP RPS | outcome observations | outcome Brier |
+|---|---:|---:|---:|---:|
+| `-09e`: SPR 4.0.0, Week 0 scored | 252,904 | 0.142366 | 126,473 | 0.354918 |
+| SPR 6.0.0, Week 0 still scored (not committed) | 252,904 | 0.142452 | 126,473 | 0.355358 |
+| **`-09f`: SPR 6.0.0, official play only** | 252,606 | 0.142418 | 126,303 | 0.354985 |
+
+- **The model change.** Under SPR 6.0.0 a preseason Week 0 match is predicted and never folded, so the
+  ranking-point beliefs and the mean shift no longer learn from it. On the identical population that
+  is marginally WORSE: RPS +0.000086, outcome Brier +0.000440. This measurement replays every season
+  cold, with no carried state, so Week 0 was the only warm-up week 1 had here. It is reported as found
+  and was not a condition of shipping: the rule is a correctness rule Jacob asked for.
+- **The population change.** Preseason events are RP-eligible (tier `base`), so their matches were in
+  this scorecard. The scorer now scores official play only (`isOfficialEventType`), which removes 298
+  total-RP and 170 outcome observations. Bonus observations go from 558,192 to 557,562, mean predicted
+  0.2505 against observed 0.2944, so the bonus odds still run about 1.17x under.
+
+`RP_CALIBRATION_MEASUREMENT_PATH` points at `-09f`. `-09e` and the older files are byte-untouched.
