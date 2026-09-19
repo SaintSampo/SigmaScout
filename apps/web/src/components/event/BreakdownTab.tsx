@@ -98,6 +98,11 @@ export interface BreakdownSort {
 /** The tab's landing sort — Total descending. */
 export const DEFAULT_BREAKDOWN_SORT: BreakdownSort = { key: TOTAL_KEY, dir: "desc" };
 
+/** True when expanding `groupId` would show more than the group's own column: it has at least two member components this season. */
+export function groupCanExpand(season: number, groupId: ComponentGroupId): boolean {
+  return componentsInGroup(season, groupId).length > 1;
+}
+
 /** Which phase groups are expanded into their component columns. Transient reading posture — never a URL param. */
 export type ExpandedGroups = Readonly<Record<ComponentGroupId, boolean>>;
 export const NO_GROUPS_EXPANDED: ExpandedGroups = { auto: false, teleop: false, endgame: false };
@@ -415,7 +420,12 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
   // Same sitewide breakpoint hook `TeamsTable.tsx`/`InsightsTab.tsx` reuse.
   const isNarrow = useIsMobile();
   const isGrouped = hasGroupedTeamsView(algorithmId);
-  const isExpandable = publishesComponentMetrics(algorithmId);
+  // A group with ONE member expands into a single column carrying the
+  // identical number (every 2024 group, since 260910-5ym collapsed that
+  // season's component map to phase granularity: `phaseAuto` 16 and `auto` 16
+  // on the live artifact). Such a group gets no toggle, and a season where no
+  // group can expand gets no band row at all.
+  const isExpandable = publishesComponentMetrics(algorithmId) && METRIC_GROUPS.some((group) => groupCanExpand(season, group.id));
   const [expanded, setExpanded] = useState<ExpandedGroups>(NO_GROUPS_EXPANDED);
   const [sort, setSort] = useState<BreakdownSort>(DEFAULT_BREAKDOWN_SORT);
 
@@ -525,16 +535,22 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
                       className="h-auto py-1 text-center"
                       style={{ width: span * BREAKDOWN_METRIC_COLUMN_WIDTH_PX, background: "var(--color-bg-surface)", zIndex: 3 }}
                     >
-                      <button
-                        type="button"
-                        data-testid={`breakdown-group-toggle-${group.id}`}
-                        aria-expanded={isExpanded}
-                        onClick={() => toggleGroup(group.id)}
-                        className="tap-target inline-flex items-center gap-[var(--spacing-xs)] text-role-label font-semibold text-[var(--color-accent)]"
-                      >
-                        {group.label}
-                        <span aria-hidden="true">{isExpanded ? "▾" : "▸"}</span>
-                      </button>
+                      {groupCanExpand(season, group.id) ? (
+                        <button
+                          type="button"
+                          data-testid={`breakdown-group-toggle-${group.id}`}
+                          aria-expanded={isExpanded}
+                          onClick={() => toggleGroup(group.id)}
+                          className="tap-target inline-flex items-center gap-[var(--spacing-xs)] text-role-label font-semibold text-[var(--color-accent)]"
+                        >
+                          {group.label}
+                          <span aria-hidden="true">{isExpanded ? "▾" : "▸"}</span>
+                        </button>
+                      ) : (
+                        <span data-testid={`breakdown-group-label-${group.id}`} className="text-role-label font-semibold text-[var(--color-text-muted)]">
+                          {group.label}
+                        </span>
+                      )}
                     </TableHead>
                   );
                 })}

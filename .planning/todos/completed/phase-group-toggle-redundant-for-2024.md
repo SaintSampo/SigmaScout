@@ -9,6 +9,13 @@ reverified: 2026-09-13
 
 # 2024's phase-group toggle expands to a single identical column
 
+> **RESOLVED 2026-09-18.** A group with one member gets no toggle (`groupCanExpand` in
+> `BreakdownTab.tsx`), and a season where no group can expand gets no band row at all, which is EPA
+> 2024. Found while fixing it: 2025 is a MIXED season, its endgame group has one member, so there the
+> band row stays and that group shows a plain label. Nothing published changed. The toggle tests moved
+> to the 2026 fixture, where every group has at least two members.
+
+
 > **RE-VERIFIED 2026-09-13 against HEAD `886fbe19`. Still real, EPA only.** Moved into `pending/`
 > from the `todos/` root, where it was misfiled. The Breakdown tab now has three table shapes:
 > OPR has no phase groups, and SPR shows the three phases with no toggles (260913-mgn `a013ca1e`),

@@ -21,6 +21,7 @@ import { TOTAL_SIGMA_COLUMN_WIDTH_PX, totalColumnHeader } from "@/components/Tot
 import { makeEventArtifact as makeArtifact, mockNarrowViewport } from "@/test/helpers";
 import { PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
+import { componentsInGroup } from "../../../../../packages/core/algorithms/breakdown/index.js";
 import {
   BreakdownTab,
   BREAKDOWN_METRIC_COLUMN_WIDTH_PX,
@@ -31,6 +32,7 @@ import {
   NO_GROUPS_EXPANDED,
   sortBreakdownRows,
   visibleMetricKeys,
+  groupCanExpand,
   type BreakdownRow,
 } from "./BreakdownTab";
 
@@ -111,14 +113,28 @@ function makeUnvalidatedArtifact(teams: ArtifactTeam[]): EventArtifact {
   } as unknown as EventArtifact;
 }
 
-/** A metrics record carrying every EPA 2024 declared key — the shape EPA's event artifacts publish. */
-function fullEpaMetrics2024(): ArtifactTeam["metrics"] {
+/** A metrics record carrying every EPA declared key for `season` — the shape EPA's event artifacts publish. */
+function fullEpaMetrics(season: number): ArtifactTeam["metrics"] {
   const record: ArtifactTeam["metrics"] = {};
-  for (const key of metricKeysFor("epa", 2024)) {
+  for (const key of metricKeysFor("epa", season)) {
     record[key] = { value: 10, spread: 1 };
   }
   return record;
 }
+
+function fullEpaMetrics2024(): ArtifactTeam["metrics"] {
+  return fullEpaMetrics(2024);
+}
+
+/**
+ * The season the toggle tests run on: every 2026 group has at least two
+ * members, so every group expands. 2024 cannot serve (one member per group,
+ * so no toggle renders at all) and 2025 is mixed (its endgame group has one).
+ */
+const EXPANDABLE_SEASON = 2026;
+/** One real member of the expandable season's teleop group: the column the sort tests sort by, then hide. */
+const TELEOP_MEMBER = componentsInGroup(EXPANDABLE_SEASON, "teleop")[0]!;
+const COLLAPSED_EPA_HEADERS = ["teamNumber", "nickname", TOTAL_KEY, "phaseAuto", "phaseTeleop", "phaseEndgame", "foulsCommitted"];
 
 /** The per-team metric set SPR's event artifacts publish: Total plus the three published phase columns. Sigma is omitted here — the describe below covers the Total split pill. */
 function sprMetrics2024(): ArtifactTeam["metrics"] {
@@ -168,16 +184,43 @@ describe("BreakdownTab — column set (collapsed default per sketch 009-A)", () 
     expect(phaseAutoHeader.textContent).toContain(metricLabel("phaseAuto"));
   });
 
-  it("epa/2024 lands collapsed: Team #, Team Name, Total, the three phase columns, then Fouls Committed, with one toggle per phase", async () => {
-    const artifact = makeArtifact([team({ metrics: fullEpaMetrics2024() })], { algorithmId: "epa" });
-    renderBreakdown(artifact, "epa", 2024);
+  it("epa/2026 lands collapsed: Team #, Team Name, Total, the three phase columns, then Fouls Committed, with one toggle per phase", async () => {
+    const artifact = makeArtifact([team({ metrics: fullEpaMetrics(EXPANDABLE_SEASON) })], { algorithmId: "epa" });
+    renderBreakdown(artifact, "epa", EXPANDABLE_SEASON);
 
     await waitFor(() => expect(screen.getAllByTestId(/^breakdown-header-/).length).toBeGreaterThan(0));
-    expect(headerIds()).toEqual(["teamNumber", "nickname", TOTAL_KEY, "phaseAuto", "phaseTeleop", "phaseEndgame", "foulsCommitted"]);
+    expect(headerIds()).toEqual(COLLAPSED_EPA_HEADERS);
     expect(screen.getByTestId("breakdown-group-row")).toBeDefined();
     for (const groupId of ["auto", "teleop", "endgame"]) {
       expect(screen.getByTestId(`breakdown-group-toggle-${groupId}`).getAttribute("aria-expanded")).toBe("false");
     }
+  });
+
+  it("epa/2024: every group has ONE member, so there is no band row and no toggle — expanding would swap a column for the identical number", async () => {
+    for (const groupId of ["auto", "teleop", "endgame"] as const) expect(groupCanExpand(2024, groupId), groupId).toBe(false);
+    const artifact = makeArtifact([team({ metrics: fullEpaMetrics2024() })], { algorithmId: "epa" });
+    renderBreakdown(artifact, "epa", 2024);
+
+    await waitFor(() => expect(screen.getAllByTestId(/^breakdown-header-/).length).toBeGreaterThan(0));
+    expect(headerIds()).toEqual(COLLAPSED_EPA_HEADERS);
+    expect(screen.queryByTestId("breakdown-group-row")).toBeNull();
+    expect(screen.queryAllByTestId(/^breakdown-group-toggle-/)).toHaveLength(0);
+    // The phase columns stay sortable without the band row.
+    expect(screen.getByTestId("breakdown-header-phaseTeleop").getAttribute("aria-sort")).toBe("none");
+  });
+
+  it("epa/2025 is mixed: auto and teleop toggle, the one-member endgame group shows a plain label", async () => {
+    expect(groupCanExpand(2025, "endgame")).toBe(false);
+    const artifact = makeArtifact([team({ metrics: fullEpaMetrics(2025) })], { algorithmId: "epa" });
+    renderBreakdown(artifact, "epa", 2025);
+
+    await waitFor(() => expect(screen.getByTestId("breakdown-group-row")).toBeDefined());
+    expect(screen.getByTestId("breakdown-group-toggle-auto")).toBeDefined();
+    expect(screen.getByTestId("breakdown-group-toggle-teleop")).toBeDefined();
+    expect(screen.queryByTestId("breakdown-group-toggle-endgame")).toBeNull();
+    const label = screen.getByTestId("breakdown-group-label-endgame");
+    expect(label.tagName).toBe("SPAN");
+    expect(within(label.parentElement!).queryByRole("button")).toBeNull();
   });
 
   it("opr/2024: exactly Team #, Team Name, Total — no group row, no sort affordance; OPR is deliberately unchanged", async () => {
@@ -193,8 +236,8 @@ describe("BreakdownTab — column set (collapsed default per sketch 009-A)", () 
   });
 
   it("clicking a phase toggle swaps that phase's column for its component columns in place; clicking again collapses it back", async () => {
-    const artifact = makeArtifact([team({ metrics: fullEpaMetrics2024() })], { algorithmId: "epa" });
-    renderBreakdown(artifact, "epa", 2024);
+    const artifact = makeArtifact([team({ metrics: fullEpaMetrics(EXPANDABLE_SEASON) })], { algorithmId: "epa" });
+    renderBreakdown(artifact, "epa", EXPANDABLE_SEASON);
 
     const toggle = await screen.findByTestId("breakdown-group-toggle-teleop");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
@@ -206,15 +249,15 @@ describe("BreakdownTab — column set (collapsed default per sketch 009-A)", () 
       "nickname",
       TOTAL_KEY,
       "phaseAuto",
-      // 2024's map is grouped at phase granularity, so expanding `teleop`
-      // reveals exactly one component column.
-      "teleop",
+      // The group's own column gives way to its member columns, in the
+      // group's declared order.
+      ...componentsInGroup(EXPANDABLE_SEASON, "teleop"),
       "phaseEndgame",
       "foulsCommitted",
     ]);
 
     fireEvent.click(screen.getByTestId("breakdown-group-toggle-teleop"));
-    await waitFor(() => expect(headerIds()).toEqual(["teamNumber", "nickname", TOTAL_KEY, "phaseAuto", "phaseTeleop", "phaseEndgame", "foulsCommitted"]));
+    await waitFor(() => expect(headerIds()).toEqual(COLLAPSED_EPA_HEADERS));
   });
 
   it("the visible column set is visibleMetricKeys' own order even when the fixture's metrics object literal declares keys in reverse order", async () => {
@@ -249,14 +292,15 @@ describe("visibleMetricKeys: three shapes (unit)", () => {
 
 describe("BreakdownTab — partial data", () => {
   it("a team missing one declared component key renders a blank cell once its group is expanded; the column header for that key stays present", async () => {
-    const metrics = fullEpaMetrics2024();
-    delete metrics.endgame;
+    const missing = componentsInGroup(EXPANDABLE_SEASON, "endgame")[0]!;
+    const metrics = fullEpaMetrics(EXPANDABLE_SEASON);
+    delete metrics[missing];
     const artifact = makeArtifact([team({ metrics })], { algorithmId: "epa" });
-    renderBreakdown(artifact, "epa", 2024);
+    renderBreakdown(artifact, "epa", EXPANDABLE_SEASON);
 
     fireEvent.click(await screen.findByTestId("breakdown-group-toggle-endgame"));
-    await waitFor(() => expect(screen.getByTestId("breakdown-header-endgame")).toBeDefined());
-    expect(screen.getByTestId("breakdown-cell-endgame").textContent).toBe("");
+    await waitFor(() => expect(screen.getByTestId(`breakdown-header-${missing}`)).toBeDefined());
+    expect(screen.getByTestId(`breakdown-cell-${missing}`).textContent).toBe("");
   });
 
   it("a metric published with a value and no spread renders the bare value with no plus-minus suffix", async () => {
@@ -486,15 +530,15 @@ describe("BreakdownTab — sorting (sketch 009-B folded in)", () => {
   it("collapsing the group that owns the active sort key resets the sort to Total descending", async () => {
     const artifact = makeArtifact(
       [
-        team({ teamKey: "frc1", teamNumber: 1, nickname: "One", metrics: { [TOTAL_KEY]: { value: 30 }, teleop: { value: 1 } } }),
-        team({ teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: { [TOTAL_KEY]: { value: 20 }, teleop: { value: 9 } } }),
+        team({ teamKey: "frc1", teamNumber: 1, nickname: "One", metrics: { [TOTAL_KEY]: { value: 30 }, [TELEOP_MEMBER]: { value: 1 } } }),
+        team({ teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: { [TOTAL_KEY]: { value: 20 }, [TELEOP_MEMBER]: { value: 9 } } }),
       ],
       { algorithmId: "epa" },
     );
-    renderBreakdown(artifact, "epa", 2024);
+    renderBreakdown(artifact, "epa", EXPANDABLE_SEASON);
 
     fireEvent.click(await screen.findByTestId("breakdown-group-toggle-teleop"));
-    const header = await screen.findByTestId("breakdown-header-teleop");
+    const header = await screen.findByTestId(`breakdown-header-${TELEOP_MEMBER}`);
     fireEvent.click(within(header).getByRole("button"));
     await waitFor(() => expect(rowNumbers()).toEqual([2, 1]));
 
@@ -693,8 +737,8 @@ describe("BreakdownTab: clean SPR table", () => {
   });
 
   it("epa desktop geometry regression pin: the group-band row leads, and the declared width still spans Total plus the three phases plus Fouls Committed", async () => {
-    const artifact = makeArtifact([team({ metrics: fullEpaMetrics2024() })], { algorithmId: "epa" });
-    renderBreakdown(artifact, "epa", 2024);
+    const artifact = makeArtifact([team({ metrics: fullEpaMetrics(EXPANDABLE_SEASON) })], { algorithmId: "epa" });
+    renderBreakdown(artifact, "epa", EXPANDABLE_SEASON);
     await waitFor(() => expect(screen.getByTestId("breakdown-group-row")).toBeDefined());
 
     const theadRows = document.querySelectorAll("thead tr");
@@ -708,20 +752,20 @@ describe("BreakdownTab: clean SPR table", () => {
   it("an in-place EPA-to-SPR switch never leaves the table sorted by a column SPR no longer shows", async () => {
     const artifact = makeArtifact(
       [
-        team({ teamKey: "frc1", teamNumber: 1, nickname: "One", metrics: { [TOTAL_KEY]: { value: 30 }, teleop: { value: 1 } } }),
-        team({ teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: { [TOTAL_KEY]: { value: 20 }, teleop: { value: 9 } } }),
+        team({ teamKey: "frc1", teamNumber: 1, nickname: "One", metrics: { [TOTAL_KEY]: { value: 30 }, [TELEOP_MEMBER]: { value: 1 } } }),
+        team({ teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: { [TOTAL_KEY]: { value: 20 }, [TELEOP_MEMBER]: { value: 9 } } }),
       ],
       { algorithmId: "epa" },
     );
 
     render(
       <TestHarness>
-        <AlgorithmSwitcher artifact={artifact} season={2024} />
+        <AlgorithmSwitcher artifact={artifact} season={EXPANDABLE_SEASON} />
       </TestHarness>,
     );
 
     fireEvent.click(await screen.findByTestId("breakdown-group-toggle-teleop"));
-    const teleopHeader = await screen.findByTestId("breakdown-header-teleop");
+    const teleopHeader = await screen.findByTestId(`breakdown-header-${TELEOP_MEMBER}`);
     fireEvent.click(within(teleopHeader).getByRole("button"));
     await waitFor(() => expect(rowTeamNumbers()).toEqual([2, 1]));
 
