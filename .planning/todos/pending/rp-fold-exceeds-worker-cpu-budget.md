@@ -1844,6 +1844,69 @@ priced against the same instrument before a line of tick code changes.
 
 Related: [[worker-state-shape-unexercised-since-seed]], [[live-match-updates-swing-and-lossy-merge]].
 
+## BOUNDED DRIFT — the bar, pre-registered BEFORE any number (2026-09-18)
+
+The replay-parity recommendation below names this as the next measurement: a one-event fold is exact
+at match 1 and already 6.4e-4 off at match 2 on `2026arc`, and nobody has measured where between one
+match and a whole event the error crosses the published rounding grid. This section is written
+before the instrument exists. Nothing in it is a number the measurement produced.
+
+### The question
+
+Hand the fold the PUBLISHER'S OWN state and level-2 passengers as of the instant before match `k` of
+an event, through the wire (`buildEventStateBlock`, JSON, `EventStateBlockSchema`). Fold that event's
+own matches `k, k+1, ..., k+h-1` and nothing else, so every league step other events contributed in
+between is missing. Is the row for match `k+h-1` still equal to the publisher's at the shipped
+rounding rule? `h` is the horizon: how many of the event's matches the fold ran without a fresh
+state block. Every `k` is a window, so one event gives about as many windows per horizon as it has
+matches.
+
+### Compared, per window
+
+The event played row, the six team-season played rows and the six metric-history records of match
+`k+h-1`, wire form, by deep equality, against arm C of `scripts/measureReplayParity.ts` (the real
+`SigmaScoutLayer` over the publisher's two-pass structure, which 260917-mwu gated equal to the
+published bodies on these three events). A window is EXACT only if all thirteen are.
+
+### Events
+
+The same three, for the same reasons: `2026arc` (a championship division, seven sister divisions
+interleaving), `2026nyro` (a regional), `2026auwarp` (an offseason event, light interleave).
+
+### THE VALIDITY GATE, checked before any horizon is read
+
+`h = 1` must be exact on 100 percent of windows on all three events. At `h = 1` the fold predicts
+from the publisher's own state and folds nothing first, so any difference is an instrument bug. If
+the gate fails the pass is discarded, not explained.
+
+### IT WORKED
+
+There is a horizon `H >= 5` such that on EVERY one of the three events EVERY window at EVERY
+`h <= H` is exact. Five is the floor because a qualification match cycles in roughly seven to ten
+minutes, so five matches is the difference between a Worker that must fold every minute and one
+that may fold about every forty.
+
+### IT DID NOT WORK
+
+On any one event, fewer than 99 percent of windows are exact at `h = 2`. Then skipping even one
+match moves a published digit, and bounding the drift buys nothing.
+
+### INCONCLUSIVE
+
+Anything else. Report the largest all-exact `H` per event and the exact share at each horizon.
+
+### STATED IN ADVANCE, so a good number cannot be over-read
+
+- It says nothing about CPU. No cost is measured here.
+- Exact means equal at the published rounding grid, not bitwise. 260917-mwu showed engines differ
+  below that grid and that the margin narrowed between two events.
+- A pass does not design the relay. A state block as of the last fold still needs someone to fold,
+  and this does not say who.
+- Three events of one season. It says nothing about another season or another game.
+- The horizon is counted in the EVENT's matches. The league steps missed in a window depend on how
+  many other events ran at that hour, so the same `h` is a different exposure at a championship
+  division than at an offseason event. The run reports the missed league steps beside each horizon.
+
 ## REPLAY PARITY — the bar, pre-registered BEFORE any number (2026-09-17, quick task 260917-mwu)
 
 **This section contains no number produced by this change.** Every figure quoted below is either a
