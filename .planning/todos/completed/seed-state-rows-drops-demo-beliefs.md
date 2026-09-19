@@ -7,6 +7,14 @@ priority: medium
 
 # `seedStateRows` silently drops Sigma and RP beliefs for teams with no level-1 row
 
+> **RESOLVED 2026-09-18 by quick task 260918-wfc: the beliefs are CARRIED, in a passenger-only team
+> row.** Dropping them on both sides would have changed published offseason bands and RP odds. A
+> second defect with the same cause was found and fixed with it: the live tick never read the demo
+> keys or SPR's pseudo-team row, so it priced a demo alliance from a fresh pseudo team. Live in
+> generation `e96213ff`, the SPR D1 seed (28 demo rows) and Worker `d9cd475f`. See the task's
+> SUMMARY for the reproduced failures.
+
+
 `withSigmaBeliefs` / `withRpBeliefs` inject a level-2 belief into an **existing** level-1 team row and
 return the rows unchanged when there is none. Demo robots have no SPR team row — `publish.ts` filters
 `frc9970`–`frc9999` and `remapDemoTeams` folds them into `DEMO_PSEUDO_TEAM_KEY` — yet
