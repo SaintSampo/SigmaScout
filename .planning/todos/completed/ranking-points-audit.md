@@ -8,6 +8,28 @@ priority: high
 
 # Ranking points — full audit: how they are predicted, and how predictions are updated
 
+> **CLOSED 2026-09-18. Every finding is dispositioned; read the two STATUS sections at the bottom
+> first, they supersede the findings as written.** This file said it should stay open until F4,
+> F8/F9, F12, F13 and F10's display half were dispositioned. The 2026-09-13 table did that, and the
+> last of it (lattice marginals, the mean shift, the fill-to-the-odds dots) went live in the
+> 2026-09-14 generation. F10's dots have since been restyled again (three tiers, sketch 019 F).
+>
+> | Finding | Final state |
+> |---|---|
+> | F1, F5, F11, F13, F14 | closed |
+> | F2 / F3 | mechanism measured (negative binomial helps, -0.0029 pooled), declined on cost by Jacob |
+> | F4, F6 / F7, F10 | shipped |
+> | F8 | superseded by SPR-only ranking points |
+> | F9, F12 | closed by decision |
+>
+> **Recorded costs that nobody owns, carried here so they are not lost with the file:**
+> 2017 `rotor` overshoots (closes 374.7% of its gap, bonus Brier 0.0080 worse, likely the joint cap of
+> four rotors), the 2017 season's bonus Brier is 0.0039 worse, the multi-variable pool overshoots at
+> 104.8%, and the mean shift roughly doubles 2016's lattice fallbacks for an undiagnosed reason. Bonus
+> odds still run about 1.17x under. F5's live path has never run in production. None of these is
+> scheduled; reopen as a new todo if one starts to matter.
+
+
 Read-only audit against HEAD (`b006cb50`). **No production code was changed.** Every claim is
 either quoted from code (cited by file and line) or measured by this audit against the live
 corpus and the live R2 artifacts. Measurements run for this audit are marked **[measured today]**;
