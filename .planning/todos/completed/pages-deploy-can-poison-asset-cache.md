@@ -7,6 +7,19 @@ priority: high
 
 # A Pages deploy can leave index.html cached under an asset URL, blanking the site
 
+> **CLOSED 2026-09-18: detection is automatic, prevention is not possible on this platform.**
+>
+> - Item 4 below was built as `pnpm check:deployed-assets` (quick task 260917-hul).
+> - It now runs as the LAST step of `.github/workflows/deploy.yml`, after a 90 second propagation
+>   wait, so a poisoned deploy turns the Actions run red instead of waiting for someone to notice a
+>   blank site. The wait is deliberate: asking for a new asset before it has propagated is the
+>   request that gets the SPA fallback back.
+> - **The residual risk is unchanged and accepted.** Every routing fix is rejected in the table
+>   below, and the only first-class one is migrating to Workers Static Assets. A red deploy run is a
+>   live outage until proven otherwise, and the remedy is still Purge Everything.
+> - Not yet observed: the new workflow steps run for the first time on the push that carries them.
+
+
 ## What happened
 
 After the 2026-09-17 push, **sigmascout.org served a blank page to every real visitor** while `curl`

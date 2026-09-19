@@ -63,3 +63,24 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/web
           command: pages deploy dist --project-name sigmascout-web --branch=main
+
+      # A deploy can leave index.html cached under an asset URL and blank the
+      # site for every browser while plain curl reports it healthy (live
+      # outage 2026-09-17, .planning/todos/completed/pages-deploy-can-poison-
+      # asset-cache.md). Pages serves the SPA fallback, status 200, for any
+      # path that matches no file, and `_headers` marks /assets/* immutable.
+      #
+      # The wait comes FIRST and is not politeness: asking for a new asset
+      # before it has propagated is exactly the request that gets the fallback
+      # back, so an immediate check could seed the entry it exists to catch.
+      - name: Let the deploy propagate
+        run: sleep 90
+
+      # Requests every asset the live HTML references twice, bare and with a
+      # browser-shaped Origin, and fails on an HTML body, a non-200, a media
+      # type disagreement or differing strong ETags. No secret is involved. A
+      # red run here is a LIVE OUTAGE until proven otherwise; the script
+      # prints the remedy (Purge Everything, a single-file purge may not
+      # clear a header variant).
+      - name: Verify the live assets the way a browser requests them
+        run: pnpm check:deployed-assets
