@@ -8,6 +8,20 @@ priority: medium
 
 # The pre-schedule simulation is still not priced in the browser
 
+> **CLOSED AS WON'T DO by Jacob, 2026-09-19.** This file asked for the decision to be made on its
+> merits and recorded rather than forgotten. It was put to him with three options (close it, build it
+> as a new phase, or price routes B and C in bytes first) and he chose to close it.
+>
+> **The reasons, as presented:** the baked histogram needs no compute, which is the fastest possible
+> first paint on the page whose stated top priority is load speed. Browser pricing would mean
+> publishing the per-match odds the sidecar deliberately stopped shipping (about 388 KB down to about
+> 12 KB, 260912-2ur). What it would buy (reader-chosen draw counts, visible schedule-to-schedule
+> spread, re-ranking from a chosen start) was judged not worth those bytes.
+>
+> **Do not re-propose.** Reopen only if a reader-facing need appears that the baked histogram cannot
+> serve. Everything below is the record of why the question existed.
+
+
 This is the remainder of Phase 9's original fourth goal clause, carried forward when that clause was
 amended on 2026-09-12 rather than left to quietly disappear. See the amendment note under
 `### Phase 9` in `.planning/ROADMAP.md` for the full record.

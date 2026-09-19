@@ -611,8 +611,10 @@ All 38 v1 requirements map to exactly one phase. No orphans, no duplicates.
 > content-verified sidecars. The RP module became browser-safe (D-08), which is the precondition
 > route B or C needs. And the construction question is **settled by measurement** rather than open.
 >
-> **The dropped ambition is tracked, not vanished:**
-> `.planning/todos/pending/price-the-preschedule-simulation-in-the-browser.md`.
+> **The dropped ambition was tracked, then decided:**
+> `.planning/todos/completed/price-the-preschedule-simulation-in-the-browser.md`. **CLOSED AS WON'T DO
+> by Jacob, 2026-09-19:** the baked histogram stays, because it paints with no compute and keeps the
+> sidecar at about 12 KB on a page whose first priority is load speed.
 
 > **Clause 3 AMENDED 2026-09-12, at the seal, by Jacob's decision.** The third clause read verbatim:
 > *"the live Worker stops stripping them."* It is preserved here rather than overwritten, for the
