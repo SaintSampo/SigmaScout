@@ -505,6 +505,20 @@ export interface HarnessPass {
   /** matchKey -> true for a corpus-global cold-start match. */
   readonly coldStartKeys: ReadonlySet<string>;
   readonly lookups: RowLookups;
+  /**
+   * matchKey -> the level-2 passengers as of the instant BEFORE that target
+   * match folded. Empty unless `perMatchPassengers` was asked for: each entry
+   * copies every team's beliefs, which the whole-event arms never need.
+   * `scripts/measureBoundedDrift.ts` starts a fold from each one.
+   */
+  readonly passengersBeforeMatch: Map<string, PassengerSnapshot>;
+  /** matchKey -> position in the globally interleaved season stream, target matches only. The difference between two is the league steps a one-event fold misses. */
+  readonly streamIndex: Map<string, number>;
+}
+
+export interface HarnessOptions {
+  /** Capture `passengersBeforeMatch`. Off by default. */
+  readonly perMatchPassengers?: boolean;
 }
 
 /**
@@ -526,7 +540,7 @@ export interface PassengerSnapshot {
  * records. Pass 1 is level-1 only and identical for both arms, so sharing it
  * costs nothing and guarantees the two arms see the same predictions.
  */
-export function armHarness(db: Corpus, targetEvents: readonly string[]): HarnessPass {
+export function armHarness(db: Corpus, targetEvents: readonly string[], options: HarnessOptions = {}): HarnessPass {
   const targets = new Set(targetEvents);
   const coldStartKeys = corpusColdStartIndex(db);
 
@@ -586,9 +600,24 @@ export function armHarness(db: Corpus, targetEvents: readonly string[]): Harness
   const preEventPassengers = new Map<string, PassengerSnapshot>();
   const eventStream = new Map<string, MatchResult[]>();
   const foldSeen = new Set<string>();
+  const passengersBeforeMatch = new Map<string, PassengerSnapshot>();
+  const streamIndex = new Map<string, number>();
 
-  for (const r of records) {
+  for (const [index, r] of records.entries()) {
     const isTarget = targets.has(r.match.eventKey);
+    if (isTarget) {
+      streamIndex.set(r.match.matchKey, index);
+      // Before this match folds, and copied for the same reason the pre-event
+      // snapshot below is.
+      if (options.perMatchPassengers === true) {
+        passengersBeforeMatch.set(r.match.matchKey, {
+          sigmaBeliefs: realLayer.sigmaBeliefs(),
+          sigmaPopulation: realLayer.sigmaPopulation(),
+          rpBeliefs: realLayer.rpVariableBeliefs(),
+          rpMeanShift: realLayer.rpMeanShiftState(),
+        });
+      }
+    }
     if (isTarget && !foldSeen.has(r.match.eventKey)) {
       foldSeen.add(r.match.eventKey);
       // Deep-copied at the capture instant. `beliefsByTeam()` on both
@@ -643,7 +672,7 @@ export function armHarness(db: Corpus, targetEvents: readonly string[]): Harness
     eventStream.set(r.match.eventKey, list);
   }
 
-  return { armC, armM, preEventState, preEventPassengers, eventStream, stateBeforeMatch, coldStartKeys, lookups };
+  return { armC, armM, preEventState, preEventPassengers, eventStream, stateBeforeMatch, coldStartKeys, lookups, passengersBeforeMatch, streamIndex };
 }
 
 /**
