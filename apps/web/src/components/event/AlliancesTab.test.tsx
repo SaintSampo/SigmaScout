@@ -172,7 +172,7 @@ describe("AlliancesTab — seven-column anatomy", () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]), "spr", 2024);
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(6));
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
-      "Alliance #",
+      "#",
       "Captain",
       "Pick 1",
       "Pick 2",
@@ -186,7 +186,7 @@ describe("AlliancesTab — seven-column anatomy", () => {
     renderAlliances(artifact, "opr", 2024);
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(6));
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
-      "Alliance #",
+      "#",
       "Captain",
       "Pick 1",
       "Pick 2",
@@ -200,7 +200,7 @@ describe("AlliancesTab — seven-column anatomy", () => {
     renderAlliances(artifact, "opr", 2024);
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(7));
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
-      "Alliance #",
+      "#",
       "Captain",
       "Pick 1",
       "Pick 2",
@@ -210,11 +210,11 @@ describe("AlliancesTab — seven-column anatomy", () => {
     ]);
   });
 
-  it("Alliance # is 88px wide and Record is 72px wide — for a Sigma-enabled (SPR) fixture the pick columns hold the split pill at 214px and Combined Total is 180px", async () => {
+  it("the # column is 40px wide and Record is 72px wide — for a Sigma-enabled (SPR) fixture the pick columns hold the split pill at 214px and Combined Total is 180px", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]));
     const allianceHeader = await screen.findByTestId("alliances-header-allianceNumber");
     const recordHeader = await screen.findByTestId("alliances-header-record");
-    expect(allianceHeader.style.width).toBe("88px");
+    expect(allianceHeader.style.width).toBe("40px");
     expect(recordHeader.style.width).toBe("72px");
     // Spot-check the Sigma-widened columns landed where expected.
     expect((await screen.findByTestId("alliances-header-pick0")).style.width).toBe("214px");
@@ -230,11 +230,11 @@ describe("AlliancesTab — seven-column anatomy", () => {
     expect((await screen.findByTestId("alliances-header-combined")).style.width).toBe("128px");
   });
 
-  it("the table itself is pinned to the sum of its own column sizes (982px on this no-backup SPR fixture: 3 * 214 pick columns + 180 combined + 88 alliance # + 72 record), not stretched to `100%` of its container (live-measured — `width:100%` was silently undoing the column tightening the moment the column sum fell below the page's available width, table-layout:fixed then redistributing the freed space proportionally back across every column)", async () => {
+  it("the table itself is pinned to the sum of its own column sizes (934px on this no-backup SPR fixture: 3 * 214 pick columns + 180 combined + 40 # + 72 record), not stretched to `100%` of its container (live-measured — `width:100%` was silently undoing the column tightening the moment the column sum fell below the page's available width, table-layout:fixed then redistributing the freed space proportionally back across every column)", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance()]));
     const scrollRegion = await screen.findByTestId("alliances-table-scroll");
     const table = scrollRegion.querySelector("table");
-    expect(table?.style.width).toBe("982px");
+    expect(table?.style.width).toBe("934px");
   });
 
   it("a fourth pick renders in the Backup cell with a (backup) suffix, and its total is excluded from the combined value", async () => {
@@ -428,7 +428,7 @@ describe("AlliancesTab — backup suffix gated on Championship event types (D-01
     renderAlliances(artifact);
     await screen.findByTestId("alliances-cell-pickBackup");
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([
-      "Alliance #",
+      "#",
       "Captain",
       "Pick 1",
       "Pick 2",
@@ -438,18 +438,18 @@ describe("AlliancesTab — backup suffix gated on Championship event types (D-01
     ]);
   });
 
-  it("the table's total width is 1256px off-championship (982 no-backup width + 274 labelled backup) and 1196px at a Championship event (982 + 214, the unlabelled cell matching a plain pick column)", async () => {
+  it("the table's total width is 1208px off-championship (934 no-backup width + 274 labelled backup) and 1148px at a Championship event (934 + 214, the unlabelled cell matching a plain pick column)", async () => {
     const offChampionship = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4"] })]);
     renderAlliances(offChampionship);
     let scrollRegion = await screen.findByTestId("alliances-table-scroll");
-    expect(scrollRegion.querySelector("table")?.style.width).toBe("1256px");
+    expect(scrollRegion.querySelector("table")?.style.width).toBe("1208px");
     expect((await screen.findByTestId("alliances-header-pickBackup")).style.width).toBe("274px");
     cleanup();
 
     const championship = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3", "frc4"] })], { eventType: 3 });
     renderAlliances(championship);
     scrollRegion = await screen.findByTestId("alliances-table-scroll");
-    expect(scrollRegion.querySelector("table")?.style.width).toBe("1196px");
+    expect(scrollRegion.querySelector("table")?.style.width).toBe("1148px");
     expect((await screen.findByTestId("alliances-header-pickBackup")).style.width).toBe("214px");
   });
 });

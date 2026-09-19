@@ -1,6 +1,6 @@
 /**
  * The Alliances tab: one row per published alliance in TBA's own seed
- * order, columns Alliance # / Captain / Pick 1 / Pick 2 / Pick 3 / Combined
+ * order, columns # / Captain / Pick 1 / Pick 2 / Pick 3 / Combined
  * Total / Record. This is the ONLY component in the application that
  * computes a number rather than rendering a published one. It is
  * legitimate here (unlike the identical move on Breakdown) because an
@@ -337,7 +337,7 @@ function isChampionshipEventType(eventType: number | undefined): boolean {
  */
 function alliancesColumnHeaders(algorithmId: string): readonly [string, string, string, string, string, string, string] {
   return [
-    "Alliance #",
+    "#",
     "Captain",
     "Pick 1",
     "Pick 2",
@@ -564,9 +564,12 @@ function buildAllianceColumns(algorithmId: string, season: number, showBackupCol
     columnHelper.accessor("allianceNumber", {
       id: "allianceNumber",
       header: headers[0],
-      // 88: the uppercase 11px "ALLIANCE #" header's own intrinsic text is
-      // 72px plus 16px cell padding — no ellipsis renders at 88.
-      size: 88,
+      // 40: the header is a bare "#" so this column costs what its one or two
+      // digit content costs, plus 16px cell padding. It read "ALLIANCE #" at
+      // 88px until 2026-09-18, and those 48px were the difference between a
+      // Championship SPR table (four 214px picks) fitting the 1150px card at
+      // 1148px and scrolling its Record column out of view at 1196px.
+      size: 40,
       cell: (info) => <span className="numeric-cell">{info.getValue()}</span>,
     }),
     columnHelper.accessor((row) => row.picks[0], {
