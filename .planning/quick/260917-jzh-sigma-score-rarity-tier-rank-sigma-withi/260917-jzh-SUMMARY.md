@@ -5,7 +5,7 @@ commits:
   - df2ba43e
   - 29efc2fb
   - 4265f726
-republish: pending (orchestrator steps in PLAN.md, awaiting Jacob's go-ahead)
+republish: live 2026-09-18, generation 2c518101-7756-4c03-bcc3-8359474efe91 (budget doc 0db1e16b)
 ---
 
 # 260917-jzh: Sigma rarity tier ranks Sigma inside its rating window — Summary
@@ -21,7 +21,17 @@ axis (season-final fallback for offseason-only teams), with a symmetric shrinkin
 variance and the match band are untouched: a published-display correction, not an accuracy claim.
 The published Sigma VALUE is unchanged; only its percentile, and so its tier, moves.
 
-**Not yet live.** The republish is the orchestrator section of the PLAN and waits on Jacob.
+**Live since 2026-09-18**, generation `2c518101` (108,976 objects, 3.91 GB). Measured on the live
+`v1/teams/2026/spr@5.0.0+baseline.json` through `experiments/260917-jzh/measureTiers.ts`, n=3699:
+published Legendary share by Total decile 4.6 / 4.3 / 4.9 / 4.6 / 4.9 / 4.3 / 3.8 / 5.9 / 4.9 / 5.7
+percent, Common 48.2 to 51.1 percent in every decile, bottom 92 at 45.7 / 27.2 / 20.7 / 6.5 and top 92
+at 51.1 / 25.0 / 19.6 / 4.3, frc254 Epic. `pnpm verify:subset` 18 entries, 0 failing, one generation.
+D1 seeded for spr only (25,136 rows written); opr and epa versions did not change and were left.
+Worker `c9b4642e` deployed after the seed. Live e2e 170/170.
+
+**Still owed:** `pnpm cleanup:r2-generations --generation spr@4.0.0+baseline --execute` (36,536
+objects, 1.55 GB, the census's only orphan). The auto mode classifier denied it to Claude as a cloud
+storage mass delete, so it is Jacob's to run.
 
 ## Commits
 

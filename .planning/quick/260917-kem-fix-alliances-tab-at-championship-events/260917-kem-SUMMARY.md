@@ -91,6 +91,13 @@ A concurrent session committed to the same checkout throughout. Once, its staged
 
 ## Owed before this is live
 
+**All four done 2026-09-18.** Generation `2c518101` carries `allianceTeams` (budget doc `0db1e16b`),
+the web deploy passed `pnpm check:deployed-assets`, live `2026cmptx` was opened in a real browser and
+shows eight alliances with four numbered members each, a Combined Total with its Sigma band on every
+row and zero "backup" text, and the live Playwright specs passed 170/170. Not done: the regional
+spot-check for a genuine called-in backup. Seen in the same screenshot and not fixed: at 1440px the
+Record column is clipped at the table's right edge.
+
 1. `pnpm publish:seasons --write-budget`, then commit `docs/publish-budget.md`. Until then no artifact carries `allianceTeams`. The label fix needs only the web deploy.
 2. Web deploy, verified with an `Origin` header or a real browser.
 3. Human check on live `2026cmptx`: eight alliances, four numbered members each, no "(backup)" text, alliance 1 shows a Combined Total with its Sigma band, notice gone. Spot-check one regional with a genuine called-in backup for a surviving suffix.
