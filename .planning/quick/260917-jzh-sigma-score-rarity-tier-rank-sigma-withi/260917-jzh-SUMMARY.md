@@ -29,9 +29,12 @@ at 51.1 / 25.0 / 19.6 / 4.3, frc254 Epic. `pnpm verify:subset` 18 entries, 0 fai
 D1 seeded for spr only (25,136 rows written); opr and epa versions did not change and were left.
 Worker `c9b4642e` deployed after the seed. Live e2e 170/170.
 
-**Still owed:** `pnpm cleanup:r2-generations --generation spr@4.0.0+baseline --execute` (36,536
-objects, 1.55 GB, the census's only orphan). The auto mode classifier denied it to Claude as a cloud
-storage mass delete, so it is Jacob's to run.
+**Old generation deleted 2026-09-18.** Jacob ran `pnpm cleanup:r2-generations --generation
+spr@4.0.0+baseline --execute` (36,536 objects, 1.55 GB, the census's only orphan) after the auto mode
+classifier denied it to Claude as a cloud storage mass delete. Checked from the public origin
+afterwards: the teams, event and team keys under `spr@4.0.0+baseline` all return 404, the same keys
+under the three live generations return 200, and `pnpm verify:subset` is still 0 failing. Nothing
+further is owed.
 
 ## Commits
 
