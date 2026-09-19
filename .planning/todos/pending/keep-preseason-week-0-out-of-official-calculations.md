@@ -18,6 +18,13 @@ files:
 
 # Keep preseason "Week 0" play out of official ratings, predictions and accuracy
 
+> **STATUS 2026-09-18: looked at during the stock-take and deliberately NOT started.** It is a model
+> change, not a cleanup. Excluding type 100 moves early-season predictions, so it moves published
+> accuracy for every algorithm, needs version bumps for all three, a republish and all three D1 seeds
+> (about 75k of the 100k daily row-write cap, and 50k of that day's cap was already spent on two SPR
+> seeds). Step 4 also needs Jacob's acceptance call on the measured before and after. Start it on a
+> day with a full D1 budget and no other republish planned. Nothing below has changed.
+
 ## The rule this todo protects
 
 Unofficial play (TBA `event_type` 99 offseason and 100 preseason "Week 0") must never feed an official

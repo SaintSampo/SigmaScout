@@ -7,6 +7,21 @@ priority: medium
 
 # Live Worker merges write team and event metrics with no percentiles
 
+> **STATUS 2026-09-18, re-read against HEAD `aa191801`. Half of this is gone, the other half is
+> still real and still blocked.**
+>
+> - **Gone.** `mergeTeamSeasonArtifact` left the live tick in 260917-jr4 and that shipped in Worker
+>   `c9b4642e` (260918-16t). The tick writes NO team artifact, so every bullet under that heading
+>   below no longer describes production, including the unscoped offseason `seasonStats` write. The
+>   function survives only as the state probe's `allPhaseB` baseline arm.
+> - **Moved.** The robot and match pages now derive a live view from the event artifact's `live`
+>   block. Those rows carry rounded values and no percentile, so a row folded since the last publish
+>   still renders untiered. Same symptom, new location.
+> - **Unchanged.** `mergeEventArtifact` still writes touched standings with no percentiles.
+> - **Still blocked, for the same reason.** A fix needs the season pool inside the tick, and the tick
+>   is still over its CPU budget (`rp-fold-exceeds-worker-cpu-budget`). Do not start this before that
+>   gate closes. When it does, price the compact pool below as a within-run arm difference.
+
 Quick task 260912-tnk made a rarity tier a function of (metric value, the one season ranking pool)
 on every surface the offline pipeline publishes. The live Worker (`apps/worker/src/scheduled.ts`)
 still writes three surfaces with no percentile at all during an event. None of them paints a FALSE
