@@ -1216,7 +1216,7 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
     expect(r2.puts.some((p) => p.key === teamsPutKey)).toBe(false);
   });
 
-  it("event_type 100 (preseason Week 0): same as offseason -- event artifact + live rows written, no teams/{year} write", async () => {
+  it("event_type 100 (preseason Week 0): the event artifact is written and no teams/{year} write happens, but nothing FOLDS, so OPR has no live rows to write", async () => {
     const window: WindowFixture = { eventKey: "2026prez", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([window]);
     const d1 = new FakeD1Database();
@@ -1234,10 +1234,17 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
 
     const eventPutKey = artifactKey({ page: "event", eventKey: "2026prez", algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === eventPutKey)).toBe(true);
-    // The event write — and so the live rows inside it — is UNCONDITIONAL on
-    // event type, exactly as the team artifact write it replaced was; only the
-    // `teams/{year}` feed below is gated on officialness.
-    expect(LiveEventArtifactSchema.parse(JSON.parse(r2.puts.filter((p) => p.key === eventPutKey).at(-1)!.body)).live?.rows.length).toBeGreaterThan(0);
+    // The event write is UNCONDITIONAL on event type. What differs from an
+    // offseason event since quick task 260919-368: a Week 0 match is predicted
+    // and never folded (`foldsIntoRatings`). OPR is event-scoped and starts each
+    // season empty, so at a preseason event it holds a rating for nobody and
+    // there is no live metric row to write. SPR, the live tier, carries ratings
+    // in and does write rows; `liveAlgorithmTier.test.ts` pins that side.
+    const written = LiveEventArtifactSchema.parse(JSON.parse(r2.puts.filter((p) => p.key === eventPutKey).at(-1)!.body));
+    expect(written.matches.map((m) => m.matchKey)).toEqual(["2026prez_qm1"]);
+    expect(written.live?.rows ?? []).toHaveLength(0);
+    // No OPR team state was created by the Week 0 match.
+    expect([...d1.algorithmState.keys()].filter((k) => k.startsWith("opr::team::"))).toEqual([]);
     expect(r2.puts.some((p) => p.key.startsWith("v1/team/"))).toBe(false);
 
     const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });

@@ -75,7 +75,7 @@ import { opr } from "../../../packages/core/algorithms/opr.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
-import { isOfficialEventType } from "../../../packages/core/algorithms/eventTypes.js";
+import { foldsIntoRatings, isOfficialEventType } from "../../../packages/core/algorithms/eventTypes.js";
 import type { AlgorithmModule, MatchResult, Prediction, TeamMetric } from "../../../packages/core/algorithms/types.js";
 import { tbaMatchListSchema, type TbaMatch } from "../../../packages/ingest/schemas.js";
 import { tbaEventSchema } from "../../../packages/ingest/schemas.js";
@@ -814,7 +814,7 @@ async function processEvent(
         const observedBonusSides = new Map<string, ParsedBonusSides>();
 
         /** Folds one played match's OBSERVED threshold variables — the exact mirror of `SigmaScoutLayer.#foldObservedThresholds`, including its degrade-to-a-counted-skip try/catch. */
-        const foldObservedRp = (result: MatchResult): void => {
+        const foldObservedRp = (result: MatchResult, folds: boolean): void => {
           if (rp === undefined || rpRuleModule === undefined) return;
           if (!isRpEligibleEventType(result.eventType)) return;
           if (!result.hasScoreBreakdown || result.scoreBreakdownRaw === null) return;
@@ -827,14 +827,16 @@ async function processEvent(
               // the offline publisher would still have published.
               if (side === "red") redBonusFlags = parsed.bonusFlags;
               else blueBonusFlags = parsed.bonusFlags;
-              rp.fold(side === "red" ? result.redTeams : result.blueTeams, parsed.thresholdVariables);
+              // The flags above are an OBSERVATION and publish either way; only
+              // the belief fold is withheld from a match that does not fold.
+              if (folds) rp.fold(side === "red" ? result.redTeams : result.blueTeams, parsed.thresholdVariables);
             } catch {
               // A breakdown this season's module cannot parse contributes
               // nothing rather than failing the tick.
             }
           }
           observedBonusSides.set(result.matchKey, { red: redBonusFlags, blue: blueBonusFlags });
-          for (const teamKey of [...result.redTeams, ...result.blueTeams]) rpKnownTeams.add(teamKey);
+          if (folds) for (const teamKey of [...result.redTeams, ...result.blueTeams]) rpKnownTeams.add(teamKey);
         };
 
         const newBands = new Map<string, { red?: number; blue?: number }>();
@@ -852,15 +854,20 @@ async function processEvent(
             ...prediction,
             ...rpFieldsFor(result, prediction, redWinOddsVariance, blueWinOddsVariance),
           });
+          // A preseason Week 0 match is PRICED above and never FOLDED
+          // (`foldsIntoRatings`), the same rule `SigmaScoutLayer.foldPlayed`
+          // applies offline. `update` and `foldMatch` gate themselves; the mean
+          // shift, the threshold fold and the talent have no gate of their own.
+          const folds = foldsIntoRatings(result.eventType);
           state = algorithm.update(state, result);
           sigma?.foldMatch(result, prediction);
           // After the RP read and before the threshold fold, so the residual is
           // taken against the mean the match was priced from.
-          if (rp !== undefined) rpMeanShift?.observeMatch(rp, result);
-          foldObservedRp(result);
+          if (folds && rp !== undefined) rpMeanShift?.observeMatch(rp, result);
+          foldObservedRp(result, folds);
           // Talent from the post-update state, as `SigmaScoutLayer.foldPlayed`
           // does: applying it before the fold would let a match inform its own prior.
-          if (sigma !== undefined) {
+          if (folds && sigma !== undefined) {
             const roster = [...result.redTeams, ...result.blueTeams];
             const metrics = algorithm.teamMetrics(state, roster);
             for (const teamKey of roster) {

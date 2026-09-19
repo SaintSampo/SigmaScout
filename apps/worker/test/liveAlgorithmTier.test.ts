@@ -372,7 +372,7 @@ function makeTbaFetchStub(events: Map<string, TbaEventRecord>): ReturnType<typeo
       const eventKey = detailMatch[1]!;
       const record = events.get(eventKey);
       if (!record) return { status: 404, ok: false, headers: new Map(), json: async () => ({}) };
-      return { status: 200, ok: true, headers: { get: () => null }, json: async () => ({ key: eventKey, year: record.season, event_type: record.eventType, start_date: "2026-08-01" }) };
+      return { status: 200, ok: true, headers: { get: () => null }, json: async () => ({ key: eventKey, name: eventKey, year: record.season, event_type: record.eventType, start_date: "2026-08-01" }) };
     }
 
     throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
@@ -621,6 +621,81 @@ describe("liveAlgorithmTier — a demo match resumes the state the offline publi
     const high = pseudoMuLAfter(await runDemoTick(40));
     expect(high).not.toBe(low);
     expect(high).toBeGreaterThan(low);
+  });
+});
+
+describe("liveAlgorithmTier — a preseason Week 0 match is priced and never folded (quick task 260919-368)", () => {
+  /** One tick over one played match at an event of `eventType`, against a D1 seeded with a plain SPR state for the six teams. Returns the seed and what D1 holds afterwards. */
+  async function runTickAt(eventType: number): Promise<{ seeded: Map<string, string>; after: Map<string, string>; r2: FakeR2Bucket }> {
+    const rows = serializeState("spr", spr.version, spr.initState([...ALL_TEAMS]) as never, { generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" });
+    const d1 = new FakeD1Database();
+    const seeded = new Map<string, string>();
+    for (const row of rows) {
+      const key = `${row.algorithmId}::${row.scopeKind}::${row.scopeKey}`;
+      seeded.set(key, row.stateJson);
+      d1.algorithmState.set(key, {
+        algorithm_id: row.algorithmId,
+        algorithm_version: row.algorithmVersion,
+        scope_kind: row.scopeKind,
+        scope_key: row.scopeKey,
+        state_json: row.stateJson,
+        generation: row.generation,
+        computed_at: row.computedAt,
+      });
+    }
+    const window: WindowFixture = { eventKey: "2026week0", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const record: TbaEventRecord = {
+      etag: "etag-1",
+      eventType,
+      season: SEASON,
+      matches: [
+        tbaMatch({ key: "2026week0_qm1", eventKey: "2026week0", matchNumber: 1, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 150, blueScore: 40, actualTimeSec: Math.floor(NOW_MS / 1000) - 60 }),
+      ],
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026week0", record]])));
+    const r2 = new FakeR2Bucket();
+    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    expect(result.eventsAdvanced).toBe(1);
+    expect(result.eventsFailed).toBe(0);
+    return { seeded, after: new Map([...d1.algorithmState].map(([key, row]) => [key, row.state_json])), r2 };
+  }
+
+  it("type 100: every seeded SPR row is byte-identical after the tick and no Sigma or RP belief appears, yet the match is on the event page with a prediction", async () => {
+    const { seeded, after, r2 } = await runTickAt(100);
+    expect([...after.keys()].sort()).toEqual([...seeded.keys()].sort());
+    // Level-1 state, exactly. The tick always stamps its LEAGUE passengers onto
+    // the league row whether or not anything folded, so those keys are set
+    // aside here and asserted EMPTY below rather than ignored.
+    const levelOne = (stateJson: string): Record<string, unknown> =>
+      Object.fromEntries(Object.entries(JSON.parse(stateJson) as Record<string, unknown>).filter(([key]) => !key.startsWith("sigmascout")));
+    for (const [key, stateJson] of seeded) expect(levelOne(after.get(key)!), key).toEqual(levelOne(stateJson));
+    // No per-team belief of either kind was created.
+    for (const [key, stateJson] of after) {
+      if (key.startsWith("spr::team::")) expect(Object.keys(JSON.parse(stateJson) as object).filter((k) => k.startsWith("sigmascout")), key).toEqual([]);
+    }
+    // And what the league row gained has observed nothing.
+    const league = JSON.parse(after.get("spr::league::league")!) as {
+      sigmascoutSigmaPopulation?: { count: number };
+      sigmascoutRpMeanShift?: { variables: Record<string, { count: number }> };
+    };
+    expect(league.sigmascoutSigmaPopulation?.count ?? 0).toBe(0);
+    expect(Object.values(league.sigmascoutRpMeanShift?.variables ?? {}).map((v) => v.count)).toEqual(
+      Object.values(league.sigmascoutRpMeanShift?.variables ?? {}).map(() => 0)
+    );
+
+    const eventKey = artifactKey({ page: "event", eventKey: "2026week0", algorithmId: "spr", version: PREMIER_TEST_VERSION });
+    const body = JSON.parse(r2.puts.filter((p) => p.key === eventKey).at(-1)!.body) as { matches: { matchKey: string; pRedWin?: number }[] };
+    expect(body.matches.map((m) => m.matchKey)).toEqual(["2026week0_qm1"]);
+    expect(body.matches[0]!.pRedWin).toBeTypeOf("number");
+  });
+
+  it("the SAME match at an official event and at an offseason event DOES fold, so the type 100 result above is the rule and not an inert fixture", async () => {
+    for (const eventType of [0, 99]) {
+      const { seeded, after } = await runTickAt(eventType);
+      const moved = [...seeded].filter(([key, stateJson]) => after.get(key) !== stateJson).map(([key]) => key);
+      expect(moved, `event type ${eventType}`).toContain("spr::league::league");
+      expect(moved.filter((key) => key.startsWith("spr::team::")), `event type ${eventType}`).toHaveLength(ALL_TEAMS.length);
+    }
   });
 });
 

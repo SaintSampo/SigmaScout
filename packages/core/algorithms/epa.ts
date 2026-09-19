@@ -40,6 +40,7 @@
  * (re-runnable via `npx tsx scripts/epaVsStatbotics.ts --check`).
  */
 import { ratingEligibleTeams } from "./opr.js";
+import { foldsIntoRatings } from "./eventTypes.js";
 import { isFullyDemoAlliance } from "./demoTeams.js";
 import { isAdjustZeroedAlliance, isFullyDqZeroScoreAlliance } from "./dq.js";
 import {
@@ -710,6 +711,10 @@ function applyComponentUpdate(
  * (`componentMapForSeason(season)` inside `updateCore`).
  */
 function update(state: EpaState, result: MatchResult, componentMap?: SeasonComponentMap): EpaState {
+  // Preseason Week 0 is predicted, never folded (`foldsIntoRatings`). First,
+  // before the carry materializes: a Week 0 appearance must not be what
+  // resolves a team's pending season carry either.
+  if (!foldsIntoRatings(result.eventType)) return state;
   if (state.carryPending.size === 0) return updateCore(state, result, componentMap);
   const { ratio } = carryRescaleRatioFor(state);
   const teams = carryEligibleTeams(result);

@@ -94,6 +94,7 @@ import {
   type StateStamp,
 } from "../../../packages/harness/stateSnapshot.js";
 import { buildEventStateBlock, stateBlockScopeKeys } from "../../../packages/harness/eventStatePricing.js";
+import { foldsIntoRatings } from "../../../packages/core/algorithms/eventTypes.js";
 import { artifactKey, type LiveEventArtifact, type TeamSeasonArtifact } from "../../../packages/harness/pageArtifacts.js";
 // The tick's OWN read guards, imported for the same reason `artifactMerge.ts`
 // is: the probe prices the path production runs, never a copy or a superseded
@@ -1681,7 +1682,7 @@ function runSprFold(
     const observedBonusSides = new Map<string, ParsedBonusSides>();
 
     /** Mirrors `scheduled.ts`'s `foldObservedRp`, including its skip-on-parse-failure try/catch and its capture of each side's flags BEFORE the fold, so a throwing fold cannot lose them. */
-    const foldObservedRp = (result: MatchResult): void => {
+    const foldObservedRp = (result: MatchResult, folds: boolean): void => {
       if (rp === undefined || rpRuleModule === undefined) return;
       if (!isRpEligibleEventType(result.eventType)) return;
       if (!result.hasScoreBreakdown || result.scoreBreakdownRaw === null) return;
@@ -1692,7 +1693,7 @@ function runSprFold(
           const parsed = rpRuleModule.parse(JSON.parse(result.scoreBreakdownRaw), side, result.eventType);
           if (side === "red") redBonusFlags = parsed.bonusFlags;
           else blueBonusFlags = parsed.bonusFlags;
-          rp.fold(side === "red" ? result.redTeams : result.blueTeams, parsed.thresholdVariables);
+          if (folds) rp.fold(side === "red" ? result.redTeams : result.blueTeams, parsed.thresholdVariables);
           rpObservedFolds++;
         } catch {
           // A breakdown this season's module cannot parse contributes
@@ -1700,7 +1701,7 @@ function runSprFold(
         }
       }
       observedBonusSides.set(result.matchKey, { red: redBonusFlags, blue: blueBonusFlags });
-      for (const teamKey of [...result.redTeams, ...result.blueTeams]) rpKnownTeams.add(teamKey);
+      if (folds) for (const teamKey of [...result.redTeams, ...result.blueTeams]) rpKnownTeams.add(teamKey);
     };
 
     // Built up front, mirroring `scheduled.ts`'s own `touchedTeams` derivation
@@ -1742,15 +1743,19 @@ function runSprFold(
       // per match. `stateProbe.test.ts` pins this to `folded`.
       if (fields.redRpPmf !== undefined) rpPmfsProduced++;
 
+      // Mirrors the tick (260919-368): a preseason Week 0 match is priced and
+      // never folded. The probe's synthetic matches are official, so this is
+      // always true here and costs one comparison per match, as in the tick.
+      const folds = foldsIntoRatings(result.eventType);
       state = spr.update(state, result);
       sigma?.foldMatch(result, prediction);
       // Component `observe`: both the mean-shift residual booking and the
       // threshold fold below are skipped together, mirroring `scheduled.ts`'s
       // order (after the RP fields, before the threshold fold).
-      if (ran.observe && rp !== undefined) rpMeanShift?.observeMatch(rp, result);
-      if (ran.observe) foldObservedRp(result);
+      if (folds && ran.observe && rp !== undefined) rpMeanShift?.observeMatch(rp, result);
+      if (ran.observe) foldObservedRp(result, folds);
       // Talent after the fold, from the post-update state, as `scheduled.ts` orders it.
-      if (sigma !== undefined) {
+      if (folds && sigma !== undefined) {
         const roster2 = [...result.redTeams, ...result.blueTeams];
         const metrics = spr.teamMetrics(state, roster2);
         for (const teamKey of roster2) {

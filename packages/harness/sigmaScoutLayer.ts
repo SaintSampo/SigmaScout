@@ -22,6 +22,7 @@
  */
 
 import type { CompLevel, MatchResult, Prediction, UpcomingMatch } from "../core/algorithms/types.js";
+import { foldsIntoRatings } from "../core/algorithms/eventTypes.js";
 import type { PredictionRecord } from "./replay.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 import { isRpEligibleEventType } from "../core/rankingPoints/constants.js";
@@ -178,10 +179,15 @@ export class SigmaScoutLayer {
   ): PredictionRecord {
     const redBandVariance = this.#bandVarianceFor(match.redTeams);
     const blueBandVariance = this.#bandVarianceFor(match.blueTeams);
+    // A preseason Week 0 match is PRICED and never FOLDED (`foldsIntoRatings`):
+    // it gets its band and RP odds from unchanged beliefs, and teaches none of
+    // them. `foldMatch` applies the same rule itself; the talent, the mean shift
+    // and the threshold fold have no such gate of their own, so it is here.
+    const folds = foldsIntoRatings(match.eventType);
     this.#sigma?.foldMatch(match, prediction);
     // Talent after the fold: it is read from post-match state, so applying it
     // first would let a match inform its own prior.
-    if (talentAfterMatch !== undefined && this.#sigma !== undefined) {
+    if (folds && talentAfterMatch !== undefined && this.#sigma !== undefined) {
       for (const [teamKey, talent] of talentAfterMatch) this.#sigma.observeTalent(teamKey, talent);
     }
 
@@ -189,8 +195,8 @@ export class SigmaScoutLayer {
     const derivedRp = this.#rpFieldsFor(match, prediction, redBandVariance, blueBandVariance);
     // After this match's RP fields are read, before its thresholds are folded:
     // the residual is taken against the mean this match was priced from.
-    if (this.#rp !== undefined) this.#rpMeanShift?.observeMatch(this.#rp, match);
-    this.#foldObservedThresholds(match);
+    if (folds && this.#rp !== undefined) this.#rpMeanShift?.observeMatch(this.#rp, match);
+    if (folds) this.#foldObservedThresholds(match);
 
     return {
       match,

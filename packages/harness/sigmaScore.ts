@@ -114,6 +114,7 @@ export function sigmaMatchBandVariance(rosterSize: number, winOddsVariance: numb
 }
 
 import { isFullyDemoAlliance } from "../core/algorithms/demoTeams.js";
+import { foldsIntoRatings } from "../core/algorithms/eventTypes.js";
 import { isFullyDqZeroScoreAlliance } from "../core/algorithms/dq.js";
 
 /** Floor applied to a team's talent before it scales the prior. OPR ratings can be <= 0. */
@@ -139,6 +140,8 @@ export interface SigmaFoldMatch {
   readonly blueTeams: readonly string[];
   readonly blueScore: number;
   readonly blueDqs: readonly string[];
+  /** TBA `event_type`. A preseason Week 0 match never folds (`foldsIntoRatings`). Required, so no caller can omit it and fail open. */
+  readonly eventType: number;
 }
 
 /**
@@ -390,6 +393,9 @@ export class SigmaScoreAccumulator {
    * callers, so the two cannot drift apart.
    */
   foldMatch(match: SigmaFoldMatch, prediction: { readonly redScore: number; readonly blueScore: number }): void {
+    // Preseason Week 0 is predicted, never folded. Here for the same reason the
+    // demo and full-DQ rules are: so the offline and live callers cannot drift.
+    if (!foldsIntoRatings(match.eventType)) return;
     if (isFullyDemoAlliance(match.redTeams) || isFullyDemoAlliance(match.blueTeams)) return;
     if (!isFullyDqZeroScoreAlliance(match.redTeams, match.redDqs, match.redScore)) {
       this.foldAlliance(match.redTeams, match.redScore, prediction.redScore);

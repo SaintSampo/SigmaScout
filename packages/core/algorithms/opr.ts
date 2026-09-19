@@ -18,6 +18,7 @@
  */
 import { Matrix, SingularValueDecomposition } from "ml-matrix";
 import { TOTAL_METRIC_KEY, type AlgorithmModule, type MatchResult, type Prediction, type TeamMetrics, type UpcomingMatch } from "./types.js";
+import { foldsIntoRatings } from "./eventTypes.js";
 import { assertValidPRedWin } from "../scoring/predictionValidity.js";
 import { isFullyDemoAlliance, remapDemoTeams } from "./demoTeams.js";
 import { isFullyDqZeroScoreAlliance } from "./dq.js";
@@ -280,6 +281,11 @@ export const opr: AlgorithmModule<OprState> = {
   // Only quals feed the fit — playoff alliances are hand-selected, not a
   // random draw, so a non-"qm" match is a genuine update() no-op.
   update(state: OprState, result: MatchResult): OprState {
+    // Preseason Week 0 is predicted, never folded (`foldsIntoRatings`). OPR is
+    // event-scoped and starts each season empty, so a preseason event shows no
+    // OPR ratings at all; what this buys is that `lastEventByTeam` and the
+    // league score statistics no longer carry Week 0 into official week 1.
+    if (!foldsIntoRatings(result.eventType)) return state;
     if (result.compLevel !== "qm") return state;
     // A fully-demo alliance is a non-contest — a forfeit/no-show bucket or
     // an offseason bracket bye, not a real opponent. Checked against the

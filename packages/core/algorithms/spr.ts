@@ -75,6 +75,7 @@
  * the win probability but which used to ship straight to the screen.
  */
 import { TOTAL_METRIC_KEY, type AlgorithmModule, type MatchResult, type Prediction, type SeasonBoundary, type TeamMetrics, type UpcomingMatch } from "./types.js";
+import { foldsIntoRatings } from "./eventTypes.js";
 import {
   COMPONENT_GROUP_IDS,
   COMPONENT_GROUP_METRIC_KEYS,
@@ -739,6 +740,9 @@ function foldPhases(
 }
 
 function update(state: SprState, rawResult: MatchResult): SprState {
+  // Preseason Week 0 is predicted, never folded (`foldsIntoRatings`): no
+  // rating, no scale and no link-temperature step.
+  if (!foldsIntoRatings(rawResult.eventType)) return state;
   // The Off-Season Demo Team exclusion OPR and EPA have applied since
   // 2026-08-29 (`demoTeams.ts`), which this module predated. A fully-demo
   // alliance, placeholder slots included, is a non-contest, so the whole match

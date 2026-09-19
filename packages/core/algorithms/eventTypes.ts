@@ -42,3 +42,26 @@ export const PRESEASON_EVENT_TYPE = 100;
 export function isOfficialEventType(eventType: number): boolean {
   return eventType !== OFFSEASON_EVENT_TYPE && eventType !== PRESEASON_EVENT_TYPE;
 }
+
+/**
+ * True when a played match may TEACH the ratings: every event type except
+ * preseason Week 0. A preseason match is still PREDICTED, from unchanged state,
+ * so its event page renders; it is never folded into level-1 state, the Sigma
+ * beliefs, the ranking-point beliefs or the ranking-point mean shift.
+ *
+ * This is deliberately NOT `isOfficialEventType`, and the asymmetry is the
+ * whole rule. An OFFSEASON match folds, because offseason play follows the
+ * official season and `carryFrom: "last-official-match"` discards what it
+ * taught before the next season's first official match can read it. Nothing
+ * discards what PRESEASON play teaches, because preseason comes first: until
+ * quick task 260919-368 every season's 11 to 52 Week 0 matches moved the
+ * ratings official week 1 was predicted from, exactly when ratings are coldest.
+ *
+ * Each algorithm's `update`, `SigmaScoreAccumulator.foldMatch`,
+ * `SigmaScoutLayer.foldPlayed` and the Worker tick read this one function, so
+ * the offline publisher and the live tick cannot disagree about it. Like
+ * `isOfficialEventType`, an unknown type folds: degrade toward learning.
+ */
+export function foldsIntoRatings(eventType: number): boolean {
+  return eventType !== PRESEASON_EVENT_TYPE;
+}

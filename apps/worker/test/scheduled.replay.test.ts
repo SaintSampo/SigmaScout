@@ -392,7 +392,7 @@ function makeTbaFetchStub(): ReturnType<typeof vi.fn> {
       return { status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? `etag-${revealedCount}` : null) }, json: async () => revealed };
     }
     if (/\/event\/[^/]+$/.test(u)) {
-      return { status: 200, ok: true, headers: { get: () => null }, json: async () => ({ key: EVENT_KEY, year: SEASON, event_type: 0, start_date: "2026-08-01" }) };
+      return { status: 200, ok: true, headers: { get: () => null }, json: async () => ({ key: EVENT_KEY, name: EVENT_KEY, year: SEASON, event_type: 0, start_date: "2026-08-01" }) };
     }
     throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
   });

@@ -323,9 +323,9 @@ describe("SigmaScoreAccumulator.foldMatch — demo and card-driven zero scores",
   const DEMO_BLUE = ["frc9970", "frc9971", "frc9972"];
   const PREDICTION = { redScore: 100, blueScore: 100 };
 
-  /** Six-field literal, overriding only what a given test is about. */
+  /** Seven-field literal, overriding only what a given test is about. */
   function match(overrides: Partial<SigmaFoldMatch> = {}): SigmaFoldMatch {
-    return { redTeams: RED, redScore: 100, redDqs: [], blueTeams: BLUE, blueScore: 100, blueDqs: [], ...overrides };
+    return { redTeams: RED, redScore: 100, redDqs: [], blueTeams: BLUE, blueScore: 100, blueDqs: [], eventType: 0, ...overrides };
   }
 
   /** An accumulator that folded exactly these per-team deviations directly, bypassing every match-level rule. */
@@ -334,6 +334,19 @@ describe("SigmaScoreAccumulator.foldMatch — demo and card-driven zero scores",
     for (const [roster, deviation] of deviationsByRoster) for (const teamKey of roster) accumulator.fold(teamKey, deviation);
     return accumulator;
   }
+
+  it("a preseason Week 0 match (type 100) folds NOTHING, while the same match at an official or an offseason event folds (quick task 260919-368)", () => {
+    const uneven = { redScore: 140, blueScore: 60 };
+    const preseason = new SigmaScoreAccumulator();
+    preseason.foldMatch(match({ ...uneven, eventType: 100 }), PREDICTION);
+    expect(preseason.beliefsByTeam().size).toBe(0);
+
+    for (const eventType of [0, 99]) {
+      const folded = new SigmaScoreAccumulator();
+      folded.foldMatch(match({ ...uneven, eventType }), PREDICTION);
+      expect(folded.beliefsByTeam().size, `event type ${eventType}`).toBe(6);
+    }
+  });
 
   const REAL_1 = match({ redScore: 130, blueScore: 115 });
   const CARDED = match({ redScore: 0, redDqs: RED, blueScore: 90 });
