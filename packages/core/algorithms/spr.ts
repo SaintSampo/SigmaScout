@@ -257,8 +257,19 @@ export const SPR_PARAMS: SprParams = {
  * against a 50 percent target. `predict()`, `pRedWin`, `variance` and the
  * match band are all untouched -- this is a published-display correction,
  * not an accuracy claim.
+ *
+ * Bumped 5.0.0 -> 6.0.0+baseline (quick task 260919-368): a preseason Week 0
+ * match (TBA event type 100) is predicted and never folded
+ * (`foldsIntoRatings`). Until then every season's 11 to 52 Week 0 matches
+ * stepped the ratings, the league scale and the link temperature that official
+ * week 1 was predicted from. MAJOR because official predictions move.
+ * Measured with the published scorer on the identical 125,422 official
+ * qualification matches of 2016-2020 and 2022-2026: pooled winner accuracy
+ * 0.75580 to 0.75631 and Brier 0.16176 to 0.16144, accuracy better in 7
+ * seasons and worse in 3 (2016, 2017, 2022), Brier better in 9 and worse in
+ * 1 (2016). Accepted by Jacob 2026-09-19 as a correctness rule, not a tune.
  */
-export const SPR_VERSION = "5.0.0+baseline";
+export const SPR_VERSION = "6.0.0+baseline";
 
 /**
  * The two-timescale state, described by what the FROZEN PARAMETERS actually do

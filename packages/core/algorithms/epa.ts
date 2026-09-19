@@ -1145,7 +1145,16 @@ export const epa = {
   // `EPA_CARRY_RESCALE_MIN_OBS` of them exist forfeits its rescale
   // permanently. `teamMetrics` publishes a still-pending team's carried
   // rating in the OUTGOING season's units until it is first seen.
-  version: "10.0.0+baseline",
+  //
+  // 11.0.0 (quick task 260919-368): a preseason Week 0 match (TBA event type
+  // 100) is predicted and never folded (`foldsIntoRatings`), so it no longer
+  // moves a rating, the league score statistics or a pending season carry
+  // before official week 1. Measured with the published scorer on the
+  // identical 125,422 official qualification matches: pooled winner accuracy
+  // 0.75127 to 0.75168 and Brier 0.16993 to 0.16977, accuracy better in 8
+  // seasons and worse in 1 (2022), Brier better in 8 and worse in 2 (2022,
+  // 2026). Accepted by Jacob 2026-09-19 as a correctness rule, not a tune.
+  version: "11.0.0+baseline",
   initState,
   predict,
   update,

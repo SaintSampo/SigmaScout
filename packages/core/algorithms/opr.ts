@@ -248,7 +248,15 @@ export const opr: AlgorithmModule<OprState> = {
   // this season's expanding-window alliance-score SD, changing every win
   // probability this module has ever emitted and the state shape (see
   // `STATE_SNAPSHOT_SHAPE_VERSION` in `packages/harness/stateSnapshot.ts`).
-  version: "4.0.0+baseline",
+  // 5.0.0 (quick task 260919-368): a preseason Week 0 match (TBA event type
+  // 100) is predicted and never folded (`foldsIntoRatings`), so it no longer
+  // feeds `lastEventByTeam` or the league score statistics before official
+  // week 1. Measured on the identical 125,422 official qualification
+  // matches: winner accuracy unchanged in all ten seasons, pooled Brier
+  // 0.20982 to 0.20984 (worse in 7 seasons, better in 3). Shipped anyway, by
+  // Jacob's decision 2026-09-19, so the rule has no per-algorithm exception.
+  // A preseason event therefore shows no OPR ratings at all.
+  version: "5.0.0+baseline",
 
   initState(): OprState {
     return { perEvent: new Map(), lastEventByTeam: new Map(), allianceScoreStats: emptyExpandingStats() };

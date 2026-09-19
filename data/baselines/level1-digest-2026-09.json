@@ -10,17 +10,17 @@
   "entries": [
     {
       "algorithmId": "opr",
-      "algorithmVersion": "4.0.0+baseline",
+      "algorithmVersion": "5.0.0+baseline",
       "predictionStreamSha256": "223a3e0da5a81edff384367e67da2805cda502237336914386853967f66ff324"
     },
     {
       "algorithmId": "epa",
-      "algorithmVersion": "10.0.0+baseline",
+      "algorithmVersion": "11.0.0+baseline",
       "predictionStreamSha256": "b30d7aa5f668369f28b4597edc6fc2832a17ae12701ff8342f7e21805c87f9a9"
     },
     {
       "algorithmId": "bpr",
-      "algorithmVersion": "5.0.0+baseline",
+      "algorithmVersion": "6.0.0+baseline",
       "predictionStreamSha256": "ee9acfec85ae0a72c3bbd53ea82092efe1e706352f2be9512798be72551ede49"
     }
   ]

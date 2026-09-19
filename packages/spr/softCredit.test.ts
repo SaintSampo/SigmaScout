@@ -102,7 +102,9 @@ describe("softCredit", () => {
     // exclusion, which leaves softCredit enabled. 5.0.0 (quick task
     // 260917-jzh) is a published-display change to the Sigma rarity tier
     // only -- predict() and softCredit are both untouched by it.
-    expect(SPR_VERSION).toBe("5.0.0+baseline");
+    // 6.0.0 (quick task 260919-368): a preseason Week 0 match is predicted and
+    // never folded. softCredit is untouched by it.
+    expect(SPR_VERSION).toBe("6.0.0+baseline");
   });
 
   it("shipped research params enable it too, so the two modules match", async () => {
