@@ -152,9 +152,12 @@ describe("tryParseBreakdownPair", () => {
     expect(Object.keys(outcome.blue)).toHaveLength(breakdown2024.components.length);
   });
 
-  it('yields kind "malformed" with issueCount 2 for a payload missing adjustPoints on both sides (the real 2024cafb_qm1 shape)', () => {
+  it('yields kind "parsed" with adjust === 0 on both sides for a payload missing adjustPoints on both sides (the real 2024cafb_qm1 shape — an absent scorekeeper correction defaults to 0 rather than failing the schema, 260920-qgg)', () => {
     const outcome = tryParseBreakdownPair(2024, breakdown2024JsonMissingFields(["adjustPoints"]));
-    expect(outcome).toEqual({ kind: "malformed", issueCount: 2 });
+    expect(outcome.kind).toBe("parsed");
+    if (outcome.kind !== "parsed") throw new Error("unreachable");
+    expect(outcome.red[ADJUST_COMPONENT]).toBe(0);
+    expect(outcome.blue[ADJUST_COMPONENT]).toBe(0);
   });
 
   it('yields kind "malformed" with a double-digit issueCount for a payload carrying only autoLeavePoints per side (the real 2024wvrox_sf1m1 shape)', () => {

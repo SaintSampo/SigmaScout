@@ -623,3 +623,123 @@ describe("2026 offseason: absent adjustPoints defaults to 0, present-but-invalid
     expect(flippedCount, "no 2026 offseason match flipped to parsed — this proof is vacuous without at least one").toBeGreaterThan(0);
   });
 });
+
+/**
+ * 260920-qgg anti-masking guard #1: the corpus proof above cannot catch a
+ * season module that silently degrades on a future missing REQUIRED
+ * SCORING key — that would just move matches from "malformed" to
+ * "malformed", invisible to a plain pass/fail check. Pinning the exact
+ * still-malformed COUNT per season, over the FULL offseason population (not
+ * a sample), makes a regression in either direction fail loudly: a RISE
+ * means something newly stopped parsing, and a FALL means this committed
+ * measurement itself is stale and must be re-measured, never loosened to
+ * match a surprising new number.
+ *
+ * Iterates `BREAKDOWN_REGISTERED_SEASONS`, never a hand-written season list
+ * — see that export's own doc comment for the failure mode a literal list
+ * invites (a newly registered season silently skipped).
+ */
+describe("260920-qgg: per-season still-malformed offseason counts (anti-masking guard)", () => {
+  if (!CORPUS_AVAILABLE) {
+    it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest) first`, () => {});
+    return;
+  }
+
+  /**
+   * Measured at plan time against the FULL offseason population (quick task
+   * 260920-qgg) — not a sample. 2022, 2023 and 2024 stay nonzero because
+   * their still-malformed rows are missing real SCORING fields too, which
+   * this fix must not default.
+   */
+  const EXPECTED_STILL_MALFORMED: Readonly<Record<number, number>> = {
+    2016: 0,
+    2017: 0,
+    2018: 0,
+    2019: 0,
+    2020: 0,
+    // cargo/foul/taxi/endgame fields absent, on top of adjustPoints.
+    2022: 76,
+    // The 1,008 adjust-missing rows also lack autoChargeStationPoints,
+    // endGameChargeStationPoints and endGameParkPoints — absent SCORING
+    // fields, not something this fix may default. 2023 gains nothing from
+    // this change; that is the correct outcome, not an unfinished fix.
+    2023: 1039,
+    // note/stage/park fields absent, on top of adjustPoints.
+    2024: 49,
+    2025: 0,
+    2026: 0,
+  };
+
+  function offseasonBreakdownRows(year: number): SampledBreakdownRow[] {
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    try {
+      return db
+        .prepare(
+          `SELECT m.match_key, m.score_breakdown_raw
+           FROM matches m
+           JOIN events e ON e.event_key = m.event_key
+           WHERE e.year = ? AND e.is_offseason = 1 AND m.has_score_breakdown = 1 AND m.winner IS NOT NULL`
+        )
+        .all(year) as SampledBreakdownRow[];
+    } finally {
+      db.close();
+    }
+  }
+
+  it.each(BREAKDOWN_REGISTERED_SEASONS)("season %i: still-malformed offseason count matches the committed measurement exactly", (year) => {
+    const expected = EXPECTED_STILL_MALFORMED[year];
+    expect(expected, `season ${year} has no entry in EXPECTED_STILL_MALFORMED — a newly registered season needs a measured one`).toBeDefined();
+
+    const rows = offseasonBreakdownRows(year);
+    const stillMalformed = rows.filter((row) => tryParseBreakdownPair(year, row.score_breakdown_raw).kind === "malformed");
+
+    expect(
+      stillMalformed.length,
+      `season ${year}: measured ${stillMalformed.length} still-malformed offseason matches (of ${rows.length} total), ` +
+        `committed table says ${expected} — a RISE means a future field started silently degrading, a FALL means this ` +
+        `committed number is stale and must be re-measured, not loosened`
+    ).toBe(expected);
+  });
+});
+
+/**
+ * 260920-qgg anti-masking guard #2: the corpus proof cannot catch a season
+ * module that quietly supplies a zero for a SCORING field it failed to
+ * read, because a zeroed component still reconciles whenever the alliance
+ * genuinely scored nothing there. Only a source scan catches it. Mirrors
+ * the "2018 Scale/Switch split source gate" mechanics above: a
+ * comment-stripped negative scan, paired with a positive assertion that
+ * every season module actually goes through the one shared symbol.
+ */
+describe("260920-qgg: anti-masking source gate — only ADJUST_POINTS_SCHEMA may default a field", () => {
+  it("no season module under packages/core/algorithms/breakdown spells `.default(` itself, and every one imports ADJUST_POINTS_SCHEMA by name from ./constants.js", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+
+    const currentDir = path.dirname(fileURLToPath(import.meta.url));
+
+    for (const year of BREAKDOWN_REGISTERED_SEASONS) {
+      const filePath = path.join(currentDir, `${year}.ts`);
+      const content = fs.readFileSync(filePath, "utf-8");
+
+      let stripped = content
+        .split("\n")
+        .map((line) => {
+          const commentIdx = line.indexOf("//");
+          return commentIdx !== -1 ? line.substring(0, commentIdx) : line;
+        })
+        .join("\n");
+      stripped = stripped.replace(/\/\*[\s\S]*?\*\//g, "");
+
+      expect(
+        stripped.includes(".default("),
+        `${year}.ts calls .default( directly — only the shared ADJUST_POINTS_SCHEMA (constants.ts) may default a field`
+      ).toBe(false);
+      expect(
+        /\bADJUST_POINTS_SCHEMA\b/.test(stripped),
+        `${year}.ts does not import ADJUST_POINTS_SCHEMA by name from ./constants.js`
+      ).toBe(true);
+    }
+  });
+});
